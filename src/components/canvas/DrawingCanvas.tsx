@@ -159,6 +159,57 @@ export const DrawingCanvas = () => {
            p5InstanceRef.current?.blue(color1) === p5InstanceRef.current?.blue(color2);
   };
 
+  // Enhanced drawing function with dotted pattern support
+  const drawDottedLine = (graphics: any, x1: number, y1: number, x2: number, y2: number, size: number, spacing: number, dashLength: number, isSquare: boolean) => {
+    const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+    const steps = Math.max(1, Math.floor(distance / spacing));
+    
+    for (let i = 0; i <= steps; i++) {
+      const t = i / Math.max(1, steps);
+      const x = x1 + (x2 - x1) * t;
+      const y = y1 + (y2 - y1) * t;
+      
+      // Only draw if we're in a "dash" segment
+      const segmentPosition = (i * spacing) % (dashLength + spacing);
+      if (segmentPosition < dashLength) {
+        if (isSquare) {
+          graphics.rect(
+            Math.floor(x - size/2), 
+            Math.floor(y - size/2), 
+            Math.floor(size), 
+            Math.floor(size)
+          );
+        } else {
+          graphics.circle(x, y, size);
+        }
+      }
+    }
+  };
+
+  const drawShape = (graphics: any, x: number, y: number, size: number, isSquare: boolean, withRotation: boolean = false) => {
+    graphics.push();
+    
+    if (withRotation && brushSettings.rotation !== 0) {
+      graphics.translate(x, y);
+      graphics.rotate(graphics.radians(brushSettings.rotation));
+      x = 0;
+      y = 0;
+    }
+    
+    if (isSquare) {
+      graphics.rect(
+        Math.floor(x - size/2), 
+        Math.floor(y - size/2), 
+        Math.floor(size), 
+        Math.floor(size)
+      );
+    } else {
+      graphics.circle(x, y, size);
+    }
+    
+    graphics.pop();
+  };
+
   const performDrawAction = (p: p5, isDragging: boolean, currentMouseX?: number, currentMouseY?: number) => {
     // Use provided coordinates or calculate them
     const mouseX = currentMouseX !== undefined ? currentMouseX : (p.mouseX - panX) / zoom;
@@ -172,33 +223,49 @@ export const DrawingCanvas = () => {
     }
     
     const layerGraphics = layerBuffers.current.get(activeLayer.id);
-    console.log('🎯 Drawing on layer:', activeLayer.name, 'isDragging:', isDragging, 'currentTool:', currentTool);
+    
+    // Apply pressure sensitivity if enabled
+    let effectiveSize = brushSettings.size;
+    let effectiveOpacity = brushSettings.opacity;
+    
+    if (brushSettings.pressureSettings.enabled) {
+      // Simulate pressure variation (in real app, this would come from pointer events)
+      const pressureFactor = (brushSettings.pressureSettings.minValue + brushSettings.pressureSettings.maxValue) / 2 / brushSettings.pressureSettings.maxValue;
+      effectiveSize = brushSettings.size * pressureFactor;
+      effectiveOpacity = brushSettings.opacity * pressureFactor;
+    }
+    
+    // Determine if we're using square or circle shape
+    const isSquareShape = brushSettings.brushShape === 'square' || brushSettings.pixelPerfect;
     
     switch (currentTool) {
       case Tool.BRUSH:
-        console.log('🖌️ REGULAR BRUSH - pixelPerfect:', brushSettings.pixelPerfect);
-        // Convert hex color to RGB with opacity
-        const color = layerGraphics.color(brushSettings.color);
-        
-        // Regular brush respects pixel perfect setting
+        // Set smoothing based on pixel perfect setting
         if (brushSettings.pixelPerfect) {
-          console.log('🔲 Using noSmooth() for pixel perfect');
           layerGraphics.noSmooth();
         } else {
-          console.log('🔵 Using smooth() for anti-aliased');
           layerGraphics.smooth();
         }
         
+        layerGraphics.noStroke();
+        const fillColor = layerGraphics.color(brushSettings.color);
+        fillColor.setAlpha(effectiveOpacity * 255);
+        layerGraphics.fill(fillColor);
+        
         if (isDragging && lastPos.current !== null) {
-          if (brushSettings.pixelPerfect) {
-            // Pixel perfect mode: draw squares instead of lines
-            console.log('🔲 Drawing PIXEL LINE from', lastPos.current, 'to', mouseX, mouseY, 'size:', brushSettings.size);
-            layerGraphics.noStroke();
-            const fillColor = layerGraphics.color(brushSettings.color);
-            fillColor.setAlpha(brushSettings.opacity * 255);
-            layerGraphics.fill(fillColor);
-            
-            // Draw squares along the line path
+          if (brushSettings.dottedStyle.enabled) {
+            // Draw dotted line
+            drawDottedLine(
+              layerGraphics,
+              lastPos.current.x, lastPos.current.y,
+              mouseX, mouseY,
+              effectiveSize,
+              brushSettings.dottedStyle.spacing,
+              brushSettings.dottedStyle.dashLength,
+              isSquareShape
+            );
+          } else {
+            // Draw continuous line
             const distance = Math.sqrt(
               Math.pow(mouseX - lastPos.current.x, 2) + 
               Math.pow(mouseY - lastPos.current.y, 2)
@@ -207,89 +274,57 @@ export const DrawingCanvas = () => {
             const steps = Math.max(1, Math.floor(distance / 2));
             for (let i = 0; i <= steps; i++) {
               const t = i / Math.max(1, steps);
-              const x = Math.floor(lastPos.current.x + (mouseX - lastPos.current.x) * t);
-              const y = Math.floor(lastPos.current.y + (mouseY - lastPos.current.y) * t);
+              const x = lastPos.current.x + (mouseX - lastPos.current.x) * t;
+              const y = lastPos.current.y + (mouseY - lastPos.current.y) * t;
               
-              layerGraphics.rect(
-                x - Math.floor(brushSettings.size/2), 
-                y - Math.floor(brushSettings.size/2), 
-                Math.floor(brushSettings.size), 
-                Math.floor(brushSettings.size)
-              );
+              drawShape(layerGraphics, x, y, effectiveSize, isSquareShape, brushSettings.followBrush);
             }
-          } else {
-            // Regular smooth line
-            console.log('🖍️ Drawing LINE from', lastPos.current, 'to', mouseX, mouseY, 'size:', brushSettings.size);
-            layerGraphics.stroke(color);
-            layerGraphics.strokeWeight(brushSettings.size);
-            layerGraphics.strokeCap(layerGraphics.ROUND);
-            // Apply opacity to the stroke
-            const strokeColor = layerGraphics.color(brushSettings.color);
-            strokeColor.setAlpha(brushSettings.opacity * 255);
-            layerGraphics.stroke(strokeColor);
-            layerGraphics.line(lastPos.current.x, lastPos.current.y, mouseX, mouseY);
           }
         } else {
-          if (brushSettings.pixelPerfect) {
-            // Pixel perfect dot: draw a square
-            console.log('🔲 Drawing PIXEL DOT at', mouseX, mouseY, 'size:', brushSettings.size);
-            layerGraphics.noStroke();
-            const fillColor = layerGraphics.color(brushSettings.color);
-            fillColor.setAlpha(brushSettings.opacity * 255);
-            layerGraphics.fill(fillColor);
-            const pixelX = Math.floor(mouseX - brushSettings.size/2);
-            const pixelY = Math.floor(mouseY - brushSettings.size/2);
-            layerGraphics.rect(pixelX, pixelY, Math.floor(brushSettings.size), Math.floor(brushSettings.size));
-          } else {
-            // Regular smooth circle
-            console.log('🔴 Drawing DOT at', mouseX, mouseY, 'size:', brushSettings.size);
-            layerGraphics.noStroke();
-            const fillColor = layerGraphics.color(brushSettings.color);
-            fillColor.setAlpha(brushSettings.opacity * 255);
-            layerGraphics.fill(fillColor);
-            layerGraphics.circle(mouseX, mouseY, brushSettings.size);
-          }
+          // Single dot/shape
+          drawShape(layerGraphics, mouseX, mouseY, effectiveSize, isSquareShape, brushSettings.followBrush);
         }
         break;
         
       case Tool.PIXEL_BRUSH:
-        console.log('🔲 PIXEL BRUSH ACTIVATED!', { currentTool, isDragging, mouseX, mouseY });
-        // Pixel brush with hard edges - always pixel perfect
+        // Pixel brush with hard edges - always pixel perfect and square
         layerGraphics.noSmooth();
-        
-        const pixelColor = layerGraphics.color(brushSettings.color);
         layerGraphics.noStroke();
-        layerGraphics.fill(pixelColor);
+        const pixelFillColor = layerGraphics.color(brushSettings.color);
+        pixelFillColor.setAlpha(effectiveOpacity * 255);
+        layerGraphics.fill(pixelFillColor);
         
         if (isDragging && lastPos.current !== null) {
-          console.log('🔲 Drawing PIXEL LINE from', lastPos.current, 'to', mouseX, mouseY, 'size:', brushSettings.size);
-          
-          // Simple pixel line drawing - draw squares along the path
-          const distance = Math.sqrt(
-            Math.pow(mouseX - lastPos.current.x, 2) + 
-            Math.pow(mouseY - lastPos.current.y, 2)
-          );
-          
-          const steps = Math.max(1, Math.floor(distance));
-          for (let i = 0; i <= steps; i++) {
-            const t = i / Math.max(1, steps);
-            const x = Math.floor(lastPos.current.x + (mouseX - lastPos.current.x) * t);
-            const y = Math.floor(lastPos.current.y + (mouseY - lastPos.current.y) * t);
-            
-            // Draw pixel-perfect square
-            layerGraphics.rect(
-              x - Math.floor(brushSettings.size/2), 
-              y - Math.floor(brushSettings.size/2), 
-              Math.floor(brushSettings.size), 
-              Math.floor(brushSettings.size)
+          if (brushSettings.dottedStyle.enabled) {
+            // Draw dotted pixel line (always squares)
+            drawDottedLine(
+              layerGraphics,
+              lastPos.current.x, lastPos.current.y,
+              mouseX, mouseY,
+              effectiveSize,
+              brushSettings.dottedStyle.spacing,
+              brushSettings.dottedStyle.dashLength,
+              true // Always square for pixel brush
             );
+          } else {
+            // Draw continuous pixel line
+            const distance = Math.sqrt(
+              Math.pow(mouseX - lastPos.current.x, 2) + 
+              Math.pow(mouseY - lastPos.current.y, 2)
+            );
+            
+            const steps = Math.max(1, Math.floor(distance));
+            for (let i = 0; i <= steps; i++) {
+              const t = i / Math.max(1, steps);
+              const x = Math.floor(lastPos.current.x + (mouseX - lastPos.current.x) * t);
+              const y = Math.floor(lastPos.current.y + (mouseY - lastPos.current.y) * t);
+              
+              drawShape(layerGraphics, x, y, effectiveSize, true, brushSettings.followBrush);
+            }
           }
         } else {
-          // Draw a pixel-perfect square for single clicks
-          console.log('🔲 Drawing PIXEL DOT at', mouseX, mouseY, 'size:', brushSettings.size);
-          const pixelX = Math.floor(mouseX - brushSettings.size/2);
-          const pixelY = Math.floor(mouseY - brushSettings.size/2);
-          layerGraphics.rect(pixelX, pixelY, Math.floor(brushSettings.size), Math.floor(brushSettings.size));
+          // Single pixel dot
+          drawShape(layerGraphics, Math.floor(mouseX), Math.floor(mouseY), effectiveSize, true, brushSettings.followBrush);
         }
         break;
         
@@ -318,27 +353,6 @@ export const DrawingCanvas = () => {
     }
   };
 
-  const drawDottedLine = (p: p5) => {
-    if (!isDrawing.current || !lastPos.current) return;
-    
-    const dx = p.mouseX - lastPos.current.x;
-    const dy = p.mouseY - lastPos.current.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    
-    if (distance < brushSettings.dottedStyle.spacing) return;
-    
-    const steps = Math.floor(distance / brushSettings.dottedStyle.spacing);
-    
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const x = lastPos.current.x + dx * t;
-      const y = lastPos.current.y + dy * t;
-      
-      // Draw dash
-      const dashLength = brushSettings.dottedStyle.dashLength;
-      p.line(x, y, x + dashLength, y);
-    }
-  };
 
   // Keyboard events now handled globally
 

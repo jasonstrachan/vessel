@@ -22,6 +22,7 @@ export interface BrushSettings {
   size: number;
   opacity: number;
   rotation: number;
+  brushShape: 'square' | 'circle';
   pixelPerfect: boolean;
   followBrush: boolean;
   dottedStyle: {
@@ -29,6 +30,11 @@ export interface BrushSettings {
     spacing: number;
     dashLength: number;
     dashSpacing: number;
+  };
+  pressureSettings: {
+    enabled: boolean;
+    minValue: number;
+    maxValue: number;
   };
 }
 
