@@ -178,29 +178,52 @@ export const HSVColorPicker = ({ color, onChange }: HSVColorPickerProps) => {
   ];
 
   return (
-    <div className="relative">
-      {/* Color Button */}
+    <div className="space-y-2">
+      {/* Color Swatches */}
+      <div className="grid grid-cols-8 gap-1">
+        {presetColors.slice(0, 16).map((presetColor) => (
+          <button
+            key={presetColor}
+            onClick={() => {
+              onChange(presetColor);
+              addToRecentColors(presetColor);
+            }}
+            className={`w-6 h-6 rounded border-2 transition-all ${
+              color === presetColor ? 'border-white' : 'border-[#404040] hover:border-[#888888]'
+            }`}
+            style={{ backgroundColor: presetColor }}
+            title={presetColor}
+          />
+        ))}
+      </div>
+
+      {/* Current Color Button */}
       <button
         ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}
-        className="w-8 h-8 rounded-lg border-2 border-slate-500 hover:border-slate-400 transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-105"
+        className="w-full h-8 rounded border border-[#404040] hover:border-[#888888] transition-all flex items-center justify-between px-2"
         style={{ backgroundColor: color }}
         title={`Current color: ${color}`}
-      />
+      >
+        <span className="text-white text-xs font-mono bg-black bg-opacity-50 px-1 rounded">
+          {color.toUpperCase()}
+        </span>
+        <span className="text-white text-xs">▼</span>
+      </button>
 
       {/* Popover */}
       {isOpen && (
         <div
           ref={popoverRef}
-          className="absolute left-0 top-8 z-50 bg-slate-800 border border-slate-600 rounded-lg shadow-lg p-4 w-80"
+          className="absolute left-0 top-full mt-1 z-50 bg-[#2a2a2a] border border-[#404040] rounded shadow-lg p-3 w-64"
         >
-          <div className="space-y-4">
+          <div className="space-y-3">
             {/* HSV Color Picker */}
-            <div className="flex gap-3">
+            <div className="flex gap-2">
               {/* Saturation/Value Square */}
               <div
                 ref={saturationRef}
-                className="w-48 h-48 relative cursor-crosshair border border-slate-600 rounded"
+                className="w-40 h-40 relative cursor-crosshair border border-[#404040] rounded"
                 style={{
                   background: `linear-gradient(to top, black, transparent), linear-gradient(to right, white, hsl(${hsv.h}, 100%, 50%))`
                 }}
@@ -208,7 +231,7 @@ export const HSVColorPicker = ({ color, onChange }: HSVColorPickerProps) => {
               >
                 {/* Saturation/Value Cursor */}
                 <div
-                  className="absolute w-3 h-3 border-2 border-white rounded-full pointer-events-none"
+                  className="absolute w-2 h-2 border border-white rounded-full pointer-events-none"
                   style={{
                     left: `${(hsv.s / 100) * 100}%`,
                     top: `${100 - (hsv.v / 100) * 100}%`,
@@ -221,7 +244,7 @@ export const HSVColorPicker = ({ color, onChange }: HSVColorPickerProps) => {
               {/* Hue Slider */}
               <div
                 ref={hueRef}
-                className="w-6 h-48 cursor-pointer border border-slate-600 rounded"
+                className="w-4 h-40 cursor-pointer border border-[#404040] rounded"
                 style={{
                   background: 'linear-gradient(to bottom, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)'
                 }}
@@ -229,7 +252,7 @@ export const HSVColorPicker = ({ color, onChange }: HSVColorPickerProps) => {
               >
                 {/* Hue Cursor */}
                 <div
-                  className="absolute w-8 h-1 bg-white border border-slate-800 pointer-events-none"
+                  className="absolute w-6 h-0.5 bg-white border border-black pointer-events-none"
                   style={{
                     top: `${(hsv.h / 360) * 100}%`,
                     left: '50%',
@@ -239,71 +262,20 @@ export const HSVColorPicker = ({ color, onChange }: HSVColorPickerProps) => {
               </div>
             </div>
 
-            {/* Current Color Display */}
-            <div className="flex items-center gap-2">
-              <div
-                className="w-12 h-8 border border-slate-600 rounded"
-                style={{ backgroundColor: color }}
-              />
-              <input
-                type="text"
-                value={color.toUpperCase()}
-                onChange={(e) => {
-                  const hex = e.target.value;
-                  if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
-                    onChange(hex);
-                    addToRecentColors(hex);
-                  }
-                }}
-                className="flex-1 px-2 py-1 bg-slate-700 border border-slate-600 rounded text-white text-sm font-mono"
-                placeholder="#000000"
-              />
-            </div>
-
-            {/* Preset Colors */}
-            <div>
-              <div className="text-xs text-slate-300 mb-2">Presets</div>
-              <div className="grid grid-cols-5 gap-2">
-                {presetColors.map((presetColor) => (
-                  <button
-                    key={presetColor}
-                    onClick={() => {
-                      onChange(presetColor);
-                      addToRecentColors(presetColor);
-                    }}
-                    className="w-8 h-8 rounded border border-slate-500 hover:border-slate-300 transition-colors"
-                    style={{ backgroundColor: presetColor }}
-                    title={presetColor}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Recent Colors */}
-            {recentColors.length > 0 && (
-              <div>
-                <div className="text-xs text-slate-300 mb-2">Recent</div>
-                <div className="grid grid-cols-12 gap-1">
-                  {recentColors.map((recentColor, index) => (
-                    <button
-                      key={`${recentColor}-${index}`}
-                      onClick={() => onChange(recentColor)}
-                      className="w-8 h-8 rounded border border-slate-500 hover:border-slate-300 transition-colors"
-                      style={{ backgroundColor: recentColor }}
-                      title={recentColor}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Close Button */}
-            <button
-              onClick={() => setIsOpen(false)}
-              className="w-full py-2 bg-slate-600 hover:bg-slate-500 text-white text-sm rounded transition-colors"
-            >
-              Close
-            </button>
+            {/* Hex Input */}
+            <input
+              type="text"
+              value={color.toUpperCase()}
+              onChange={(e) => {
+                const hex = e.target.value;
+                if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+                  onChange(hex);
+                  addToRecentColors(hex);
+                }
+              }}
+              className="w-full px-2 py-1 bg-[#1a1a1a] border border-[#404040] rounded text-white text-xs font-mono"
+              placeholder="#000000"
+            />
           </div>
         </div>
       )}

@@ -640,11 +640,11 @@ export const DrawingCanvas = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center bg-slate-950 p-6">
+    <div className="flex-1 flex flex-col bg-slate-950">
       {/* Canvas Container */}
-      <div className="relative w-full h-full flex items-center justify-center">
+      <div className="relative w-full h-full">
         {/* Canvas Border */}
-        <div className="relative border border-slate-600 rounded-xl overflow-hidden bg-white shadow-2xl">
+        <div className="relative w-full h-full overflow-hidden bg-white">
           <div 
             ref={containerRef}
             style={{

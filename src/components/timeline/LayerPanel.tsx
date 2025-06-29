@@ -31,13 +31,13 @@ export const LayerPanel = () => {
   };
 
   return (
-    <div className="w-48 bg-slate-800 border-r border-slate-700 flex flex-col">
+    <div className="w-40 bg-[#2a2a2a] border-r border-[#404040] flex flex-col">
       {/* Header */}
-      <div className="h-8 bg-slate-700 border-b border-slate-600 flex items-center justify-between px-2">
-        <span className="text-white text-xs font-semibold">Layers</span>
+      <div className="h-8 bg-[#3a3a3a] border-b border-[#404040] flex items-center justify-between px-2">
+        <span className="text-white text-xs font-medium">LAYERS</span>
         <button
           onClick={handleAddLayer}
-          className="text-green-400 hover:text-green-300 text-xs"
+          className="text-[#60a5fa] hover:text-white text-xs font-bold"
           title="Add Layer"
         >
           +
@@ -49,8 +49,8 @@ export const LayerPanel = () => {
         {project.layers.map((layer, index) => (
           <div
             key={layer.id}
-            className={`h-8 flex items-center px-2 border-b border-slate-700 cursor-pointer
-              ${index === currentLayer ? 'bg-blue-600' : 'hover:bg-slate-700'}
+            className={`h-7 flex items-center px-2 border-b border-[#404040] cursor-pointer
+              ${index === currentLayer ? 'bg-[#60a5fa]' : 'hover:bg-[#3a3a3a]'}
             `}
             onClick={() => setCurrentLayer(index)}
           >
@@ -60,10 +60,10 @@ export const LayerPanel = () => {
                 e.stopPropagation();
                 toggleLayerVisibility(index);
               }}
-              className="mr-2 text-slate-400 hover:text-white"
+              className="mr-2 text-[#888888] hover:text-white w-3 h-3 flex items-center justify-center"
               title="Toggle Visibility"
             >
-              {layer.visible ? '👁️' : '🙈'}
+              {layer.visible ? '●' : '○'}
             </button>
 
             {/* Layer Name */}
@@ -82,7 +82,7 @@ export const LayerPanel = () => {
                       setNewLayerName('');
                     }
                   }}
-                  className="w-full px-1 py-0 bg-slate-600 text-white text-xs border-none outline-none"
+                  className="w-full px-1 py-0 bg-[#1a1a1a] text-white text-xs border-none outline-none"
                   autoFocus
                 />
               ) : (
@@ -108,7 +108,7 @@ export const LayerPanel = () => {
                     removeLayer(index);
                   }
                 }}
-                className="ml-2 text-red-400 hover:text-red-300 text-xs"
+                className="ml-1 text-[#888888] hover:text-red-400 text-xs"
                 title="Delete Layer"
               >
                 ×
@@ -119,7 +119,7 @@ export const LayerPanel = () => {
 
         {/* Empty State */}
         {project.layers.length === 0 && (
-          <div className="p-4 text-center text-slate-500 text-xs">
+          <div className="p-3 text-center text-[#888888] text-xs">
             No layers. Click + to add one.
           </div>
         )}
