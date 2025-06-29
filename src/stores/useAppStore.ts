@@ -33,13 +33,19 @@ const createDefaultBrushSettings = (): BrushSettings => ({
   size: 25,
   opacity: 1,
   rotation: 0,
+  brushShape: 'circle',
   pixelPerfect: false,
   followBrush: false,
   dottedStyle: {
     enabled: false,
-    spacing: 5,
-    dashLength: 10,
+    spacing: 10,
+    dashLength: 5,
     dashSpacing: 5,
+  },
+  pressureSettings: {
+    enabled: true,
+    minValue: 1,
+    maxValue: 5,
   },
 });
 
