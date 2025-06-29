@@ -2,6 +2,7 @@
 
 import { useAppStore } from '@/stores/useAppStore';
 import { useState } from 'react';
+import Link from 'next/link';
 
 export default function DebugPage() {
   const store = useAppStore();
@@ -42,12 +43,12 @@ export default function DebugPage() {
             >
               {showRawData ? 'Hide Raw Data' : 'Show Raw Data'}
             </button>
-            <a
+            <Link
               href="/"
               className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded transition-colors"
             >
               ← Back to App
-            </a>
+            </Link>
           </div>
         </div>
 

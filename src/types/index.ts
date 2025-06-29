@@ -21,6 +21,7 @@ export interface BrushSettings {
   color: string;
   size: number;
   opacity: number;
+  rotation: number;
   pixelPerfect: boolean;
   followBrush: boolean;
   dottedStyle: {

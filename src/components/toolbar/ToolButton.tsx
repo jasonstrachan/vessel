@@ -15,23 +15,22 @@ export const ToolButton = ({ tool, icon, label, isActive, onClick }: ToolButtonP
     <button
       onClick={onClick}
       className={`
-        p-3 rounded-lg border transition-all duration-200 
-        flex flex-col items-center gap-1 group relative
+        w-12 h-12 rounded border transition-all duration-200 
+        flex items-center justify-center group relative
         ${
           isActive
-            ? 'bg-slate-500 border-slate-400 text-white'
-            : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600 hover:border-slate-500'
+            ? 'bg-[#60a5fa] border-[#60a5fa] text-white'
+            : 'bg-[#3a3a3a] border-[#404040] text-[#888888] hover:bg-[#404040] hover:text-white'
         }
       `}
       title={label}
     >
-      <span className="text-lg">{icon}</span>
-      <span className="text-xs font-medium">{label}</span>
+      <span className="text-sm">{icon}</span>
       
       {/* Tooltip */}
-      <div className="absolute left-full ml-2 px-2 py-1 bg-slate-900 text-white text-xs rounded 
+      <div className="absolute left-full ml-2 px-2 py-1 bg-[#1a1a1a] text-white text-xs rounded 
                       opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none
-                      whitespace-nowrap z-50">
+                      whitespace-nowrap z-50 border border-[#404040]">
         {label}
       </div>
     </button>

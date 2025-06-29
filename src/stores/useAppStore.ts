@@ -32,6 +32,7 @@ const createDefaultBrushSettings = (): BrushSettings => ({
   color: '#000000',
   size: 25,
   opacity: 1,
+  rotation: 0,
   pixelPerfect: false,
   followBrush: false,
   dottedStyle: {
