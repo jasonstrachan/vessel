@@ -1,11 +1,16 @@
 import { create } from 'zustand';
-import { AppState, Tool, Layer, BrushSettings, OnionSkinSettings, UndoAction } from '@/types';
+import { AppState, Tool, Layer, BrushSettings, OnionSkinSettings, UndoAction, CustomBrush } from '@/types';
 
 interface AppStore extends AppState {
   // Zoom state
   zoom: number;
   panX: number;
   panY: number;
+  
+  // Selection state for brush selection tool
+  isSelecting: boolean;
+  selectionStart: { x: number; y: number } | null;
+  selectionEnd: { x: number; y: number } | null;
   
   // Actions
   setCurrentTool: (tool: Tool) => void;
@@ -26,24 +31,34 @@ interface AppStore extends AppState {
   addUndoAction: (action: UndoAction) => void;
   setZoom: (zoom: number, mouseX?: number, mouseY?: number) => void;
   setPan: (x: number, y: number) => void;
+  
+  // Custom brush actions
+  addCustomBrush: (brush: CustomBrush) => void;
+  removeCustomBrush: (brushId: string) => void;
+  setSelection: (start: { x: number; y: number } | null, end: { x: number; y: number } | null) => void;
+  setIsSelecting: (selecting: boolean) => void;
+  clearSelection: () => void;
 }
 
 const createDefaultBrushSettings = (): BrushSettings => ({
   color: '#000000',
-  size: 25,
+  size: 1, // Default to 1px brush
   opacity: 1,
   rotation: 0,
-  brushShape: 'circle',
-  pixelPerfect: false,
+  brushShape: 'square',
+  pixelPerfect: true, // Default pixel toggle ON
   followBrush: false,
+  rotateEnabled: false, // Separate rotate toggle
+  selectedCustomBrush: null,
   dottedStyle: {
     enabled: false,
-    spacing: 10,
-    dashLength: 5,
+    spacing: 1, // Match default brush size
+    dashLength: 1, // Length in brush size units (1 = 1x brush size)
     dashSpacing: 5,
+    gap: 1, // Gap in brush size units (1 = 1x brush size)
   },
   pressureSettings: {
-    enabled: true,
+    enabled: false,
     minValue: 1,
     maxValue: 5,
   },
@@ -72,6 +87,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     ],
     currentFrame: 0,
     fps: 18,
+    customBrushes: [],
   },
   currentTool: Tool.BRUSH,
   currentLayer: 0,
@@ -80,11 +96,18 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isPlaying: false,
   undoStack: [],
   redoStack: [],
-  zoom: 1, // Start at 1:1 zoom
-  panX: 0,
-  panY: 0,
+  zoom: 3, // Start zoomed in closer  
+  panX: 0, // Will be calculated to center canvas
+  panY: 0, // Will be calculated to center canvas
+  
+  // Selection state
+  isSelecting: false,
+  selectionStart: null,
+  selectionEnd: null,
 
-  setCurrentTool: (tool) => set({ currentTool: tool }),
+  setCurrentTool: (tool) => set((state) => {
+    return { currentTool: tool };
+  }),
   
   setCurrentLayer: (layerIndex) => set({ currentLayer: layerIndex }),
   
@@ -92,9 +115,38 @@ export const useAppStore = create<AppStore>((set, get) => ({
     project: { ...state.project, currentFrame: frame }
   })),
   
-  setBrushSettings: (settings) => set((state) => ({
-    brushSettings: { ...state.brushSettings, ...settings }
-  })),
+  setBrushSettings: (settings) => set((state) => {
+    const newBrushSettings = { ...state.brushSettings, ...settings };
+    
+    // Auto-adjust spacing for pixel perfect mode
+    if (settings.pixelPerfect !== undefined) {
+      if (settings.pixelPerfect) {
+        // When enabling pixel perfect mode, set spacing to match brush size
+        newBrushSettings.dottedStyle = {
+          ...newBrushSettings.dottedStyle,
+          spacing: newBrushSettings.size
+        };
+      }
+    }
+    
+    // When brush size changes, update spacing if followBrush is enabled
+    if (settings.size !== undefined && newBrushSettings.followBrush) {
+      newBrushSettings.dottedStyle = {
+        ...newBrushSettings.dottedStyle,
+        spacing: settings.size
+      };
+    }
+    
+    // When followBrush is toggled on, set spacing to current brush size
+    if (settings.followBrush !== undefined && settings.followBrush) {
+      newBrushSettings.dottedStyle = {
+        ...newBrushSettings.dottedStyle,
+        spacing: newBrushSettings.size
+      };
+    }
+    
+    return { brushSettings: newBrushSettings };
+  }),
   
   setOnionSkinSettings: (settings) => set((state) => ({
     onionSkinSettings: { ...state.onionSkinSettings, ...settings }
@@ -196,11 +248,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setZoom: (zoom, mouseX, mouseY) => set((state) => {
     const newZoom = Math.max(0.1, Math.min(10, zoom));
     
+    console.log(`🔍 ZOOM CHANGE: ${state.zoom.toFixed(2)} -> ${newZoom.toFixed(2)} ${mouseX !== undefined && mouseY !== undefined ? `at cursor(${mouseX.toFixed(1)}, ${mouseY.toFixed(1)})` : 'center'}`);
+    
     if (mouseX !== undefined && mouseY !== undefined) {
-      // Zoom to cursor position
+      // Zoom to cursor position - maintain point under cursor
       const zoomFactor = newZoom / state.zoom;
       const newPanX = mouseX - (mouseX - state.panX) * zoomFactor;
       const newPanY = mouseY - (mouseY - state.panY) * zoomFactor;
+      
+      console.log(`  PAN ADJUSTMENT: (${state.panX.toFixed(1)}, ${state.panY.toFixed(1)}) -> (${newPanX.toFixed(1)}, ${newPanY.toFixed(1)})`);
       
       return {
         zoom: newZoom,
@@ -209,8 +265,37 @@ export const useAppStore = create<AppStore>((set, get) => ({
       };
     }
     
+    // Zoom without cursor position - keep current pan
     return { zoom: newZoom };
   }),
 
   setPan: (x, y) => set({ panX: x, panY: y }),
+
+  // Custom brush actions
+  addCustomBrush: (brush) => set((state) => ({
+    project: {
+      ...state.project,
+      customBrushes: [...state.project.customBrushes, brush]
+    }
+  })),
+
+  removeCustomBrush: (brushId) => set((state) => ({
+    project: {
+      ...state.project,
+      customBrushes: state.project.customBrushes.filter(b => b.id !== brushId)
+    }
+  })),
+
+  setSelection: (start, end) => set({
+    selectionStart: start,
+    selectionEnd: end
+  }),
+
+  setIsSelecting: (selecting) => set({ isSelecting: selecting }),
+  
+  clearSelection: () => set({ 
+    selectionStart: null, 
+    selectionEnd: null, 
+    isSelecting: false 
+  }),
 }));

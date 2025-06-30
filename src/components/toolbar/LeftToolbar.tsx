@@ -9,8 +9,8 @@ export const LeftToolbar = () => {
 
   const tools = [
     { tool: Tool.SELECT, icon: '⚏', label: 'Select' },
-    { tool: Tool.PIXEL_BRUSH, icon: '▣', label: 'Pixel Brush' },
     { tool: Tool.BRUSH, icon: '◐', label: 'Brush' },
+    { tool: Tool.BRUSH_SELECT, icon: '⛶', label: 'Brush Select' },
     { tool: Tool.FILL, icon: '●', label: 'Fill' },
     { tool: Tool.ERASER, icon: '◯', label: 'Eraser' },
   ];

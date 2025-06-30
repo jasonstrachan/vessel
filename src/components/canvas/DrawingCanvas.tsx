@@ -27,6 +27,7 @@ export const DrawingCanvas = () => {
     setSelection,
     setIsSelecting,
     addCustomBrush,
+    setCurrentTool,
   } = useAppStore();
 
   const p5InstanceRef = useRef<p5 | null>(null);
@@ -247,6 +248,88 @@ export const DrawingCanvas = () => {
     return p5InstanceRef.current?.red(color1) === p5InstanceRef.current?.red(color2) &&
            p5InstanceRef.current?.green(color1) === p5InstanceRef.current?.green(color2) &&
            p5InstanceRef.current?.blue(color1) === p5InstanceRef.current?.blue(color2);
+  };
+
+  // Create temporary custom brush from current selection
+  const createTemporaryCustomBrush = () => {
+    if (!selectionStart || !selectionEnd) return;
+    
+    // Get the active layer to capture from
+    const activeLayer = project.layers[currentLayer];
+    if (!activeLayer) return;
+    
+    // Calculate selection bounds
+    const minX = Math.floor(Math.min(selectionStart.x, selectionEnd.x));
+    const maxX = Math.ceil(Math.max(selectionStart.x, selectionEnd.x));
+    const minY = Math.floor(Math.min(selectionStart.y, selectionEnd.y));
+    const maxY = Math.ceil(Math.max(selectionStart.y, selectionEnd.y));
+    const width = maxX - minX;
+    const height = maxY - minY;
+    
+    if (width <= 0 || height <= 0) return;
+    
+    // Create temporary canvas to capture the selection
+    const captureCanvas = document.createElement('canvas');
+    captureCanvas.width = width;
+    captureCanvas.height = height;
+    const captureCtx = captureCanvas.getContext('2d');
+    if (!captureCtx) return;
+    
+    // Get the P5 layer canvas
+    const layerCanvas = document.querySelector('canvas');
+    if (!layerCanvas) return;
+    
+    // Capture the selection area from the canvas
+    captureCtx.drawImage(
+      layerCanvas,
+      minX, minY, width, height,
+      0, 0, width, height
+    );
+    
+    // Get ImageData for the brush
+    const imageData = captureCtx.getImageData(0, 0, width, height);
+    
+    // Create thumbnail for UI
+    const thumbnailCanvas = document.createElement('canvas');
+    thumbnailCanvas.width = 64;
+    thumbnailCanvas.height = 64;
+    const thumbnailCtx = thumbnailCanvas.getContext('2d');
+    if (thumbnailCtx) {
+      const scale = Math.min(64 / width, 64 / height);
+      const scaledWidth = width * scale;
+      const scaledHeight = height * scale;
+      const offsetX = (64 - scaledWidth) / 2;
+      const offsetY = (64 - scaledHeight) / 2;
+      
+      thumbnailCtx.drawImage(
+        captureCanvas,
+        0, 0, width, height,
+        offsetX, offsetY, scaledWidth, scaledHeight
+      );
+    }
+    
+    // Create temporary custom brush
+    const tempBrushId = 'temp_' + Date.now();
+    const customBrush = {
+      id: tempBrushId,
+      imageData,
+      thumbnail: thumbnailCanvas.toDataURL(),
+      width,
+      height,
+      createdAt: Date.now()
+    };
+    
+    // Switch to brush tool and select the temporary custom brush
+    setCurrentTool(Tool.BRUSH);
+    setBrushSettings({ 
+      brushShape: 'custom',
+      selectedCustomBrush: tempBrushId 
+    });
+    
+    // Add temporary brush to project (can be saved later with +)
+    addCustomBrush(customBrush);
+    
+    console.log('✨ Created temporary custom brush:', tempBrushId);
   };
 
   // Pixel-perfect coordinate snapping - ensures crisp integer coordinates
@@ -767,9 +850,16 @@ export const DrawingCanvas = () => {
       case Tool.BRUSH:
         if (isCustomBrush && customBrush) {
           // Handle custom brush drawing
-          // Calculate scale factor: effectiveSize is target size, customBrush size is original
-          const baseBrushSize = Math.max(customBrush.width, customBrush.height);
-          const scaleFactor = effectiveSize / baseBrushSize;
+          console.log('🎨 CUSTOM BRUSH DRAWING:', {
+            customBrush: customBrush.id,
+            effectiveSize,
+            brushWidth: customBrush.width,
+            brushHeight: customBrush.height
+          });
+          
+          // Calculate scale factor: use brush size directly as scale
+          // For custom brushes, treat the brush size as a multiplier (not target size)
+          const scaleFactor = brushSettings.size;
           
           if (isDragging && lastPos.current !== null) {
             drawCustomBrushLine(layerGraphics, lastPos.current.x, lastPos.current.y, mouseX, mouseY, customBrush, scaleFactor);
@@ -1208,7 +1298,11 @@ export const DrawingCanvas = () => {
         console.log('✅ Completed brush selection');
         setIsSelecting(false);
         setCursorUpdate(prev => prev + 1);
-        // Keep selection visible for brush creation
+        
+        // Auto-switch to brush tool and create temporary custom brush
+        setTimeout(() => {
+          createTemporaryCustomBrush();
+        }, 100);
       } else if (isDrawing.current) {
         event.preventDefault();
         isDrawing.current = false;
@@ -1296,7 +1390,7 @@ export const DrawingCanvas = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-slate-950">
+    <div className="flex-1 flex flex-col bg-[#2a2a2a]">
       {/* Canvas Container */}
       <div className="relative w-full h-full">
         {/* Canvas Border */}

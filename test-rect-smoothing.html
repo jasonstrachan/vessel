@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Rectangle Smoothing Test</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+</head>
+<body>
+    <h1>Rectangle Smoothing Test</h1>
+    <p>Press SPACE to toggle between smooth() and noSmooth()</p>
+    <p>Drag mouse to draw rectangles</p>
+    <div id="canvas-container"></div>
+
+    <script>
+        let isPixelPerfect = true;
+        let drawing = false;
+
+        function setup() {
+            let canvas = createCanvas(800, 600);
+            canvas.parent('canvas-container');
+            
+            pixelDensity(1);
+            background(240);
+            
+            updateSmoothingSettings();
+            drawInstructions();
+        }
+
+        function updateSmoothingSettings() {
+            // P5.js smoothing
+            if (isPixelPerfect) {
+                noSmooth();
+                console.log('SET: noSmooth()');
+            } else {
+                smooth();
+                console.log('SET: smooth()');
+            }
+            
+            // Canvas CSS
+            let canvas = document.querySelector('canvas');
+            if (canvas) {
+                if (isPixelPerfect) {
+                    canvas.style.imageRendering = 'pixelated';
+                    console.log('SET: CSS pixelated');
+                } else {
+                    canvas.style.imageRendering = 'auto';
+                    console.log('SET: CSS auto');
+                }
+                
+                // Direct context manipulation
+                let ctx = canvas.getContext('2d');
+                if (ctx) {
+                    ctx.imageSmoothingEnabled = !isPixelPerfect;
+                    console.log('SET: imageSmoothingEnabled =', !isPixelPerfect);
+                }
+            }
+        }
+
+        function drawInstructions() {
+            fill(0);
+            textSize(16);
+            text('Current mode: ' + (isPixelPerfect ? 'PIXEL PERFECT (noSmooth)' : 'SMOOTH (smooth)'), 10, 30);
+            text('Press SPACE to toggle, drag mouse to draw', 10, 50);
+        }
+
+        function draw() {
+            if (mouseIsPressed && mouseY > 70) {
+                // Draw rectangle at mouse position
+                noStroke();
+                fill(0, 0, 255, 150); // Semi-transparent blue
+                
+                let size = 25; // Large enough to see smoothing effects
+                
+                if (isPixelPerfect) {
+                    // Pixel perfect method
+                    rectMode(CORNER);
+                    let x = Math.floor(mouseX - size/2);
+                    let y = Math.floor(mouseY - size/2);
+                    let s = Math.floor(size);
+                    rect(x, y, s, s);
+                    console.log('PIXEL RECT:', x, y, s, s);
+                } else {
+                    // Smooth method
+                    rectMode(CENTER);
+                    rect(mouseX, mouseY, size, size);
+                    console.log('SMOOTH RECT:', mouseX, mouseY, size, size);
+                }
+            }
+        }
+
+        function keyPressed() {
+            if (key === ' ') {
+                // Toggle mode
+                isPixelPerfect = !isPixelPerfect;
+                console.log('TOGGLED to:', isPixelPerfect ? 'PIXEL PERFECT' : 'SMOOTH');
+                
+                // Update settings
+                updateSmoothingSettings();
+                
+                // Clear and redraw instructions
+                background(240);
+                drawInstructions();
+                
+                return false; // Prevent default
+            }
+        }
+    </script>
+</body>
+</html>

@@ -39,7 +39,7 @@ export const useKeyboardShortcuts = () => {
           break;
         case 'p':
           shouldPreventDefault();
-          setCurrentTool(Tool.PIXEL_BRUSH);
+          setCurrentTool(Tool.BRUSH);
           break;
         case 'e':
           shouldPreventDefault();
