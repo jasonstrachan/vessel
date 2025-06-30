@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: 'Meksans';
+  src: url('/assets/fonts/MEKSANS-REGULAR.OTF') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --background: #1a1a1a;
   --foreground: #ffffff;
@@ -18,7 +26,7 @@
   --color-border: var(--border);
   --color-accent: var(--accent);
   --color-muted: var(--muted);
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  --font-sans: 'Meksans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   --font-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
 }
 
@@ -29,7 +37,7 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans);
+  font-family: 'Meksans', var(--font-sans);
   margin: 0;
   padding: 0;
   overflow: hidden;
@@ -52,4 +60,9 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--muted);
+}
+
+/* Ensure all text uses Meksans font */
+* {
+  font-family: 'Meksans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
 }

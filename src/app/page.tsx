@@ -56,11 +56,15 @@ export default function Home() {
   return (
     <div className="h-screen bg-[#1a1a1a] flex flex-col overflow-hidden">
       <div className="flex-1 flex overflow-hidden">
-        <LeftToolbar />
-        <div className="flex-1 flex flex-col">
+        <div className="flex-shrink-0">
+          <LeftToolbar />
+        </div>
+        <div className="flex-1 flex flex-col min-w-0">
           <DrawingCanvas />
         </div>
-        <Toolbar />
+        <div className="flex-shrink-0">
+          <Toolbar />
+        </div>
       </div>
       <Timeline />
       

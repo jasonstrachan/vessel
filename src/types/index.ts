@@ -15,6 +15,17 @@ export interface Project {
   layers: Layer[];
   currentFrame: number;
   fps: number;
+  customBrushes: CustomBrush[];
+}
+
+export interface CustomBrush {
+  id: string;
+  name: string;
+  imageData: ImageData;
+  thumbnail: string; // Base64 encoded thumbnail
+  width: number;
+  height: number;
+  createdAt: number;
 }
 
 export interface BrushSettings {
@@ -22,14 +33,17 @@ export interface BrushSettings {
   size: number;
   opacity: number;
   rotation: number;
-  brushShape: 'square' | 'circle';
+  brushShape: 'square' | 'circle' | 'custom';
   pixelPerfect: boolean;
   followBrush: boolean;
+  rotateEnabled: boolean; // Separate rotate toggle
+  selectedCustomBrush: string | null; // ID of selected custom brush
   dottedStyle: {
     enabled: boolean;
     spacing: number;
     dashLength: number;
     dashSpacing: number;
+    gap: number;
   };
   pressureSettings: {
     enabled: boolean;
@@ -47,10 +61,10 @@ export interface OnionSkinSettings {
 
 export enum Tool {
   BRUSH = 'brush',
-  PIXEL_BRUSH = 'pixel_brush',
   ERASER = 'eraser',
   FILL = 'fill',
   SELECT = 'select',
+  BRUSH_SELECT = 'brush_select',
   CLEAR = 'clear',
 }
 

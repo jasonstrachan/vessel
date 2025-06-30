@@ -1,0 +1,1 @@
+1.Understand - reproduce & observe 2.Localize - hypothesize & narrow down 3.Isolate minimal reproducer & analyze 4.Fix solution & test 5.Prevent - write tests & reflect
