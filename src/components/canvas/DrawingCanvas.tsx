@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import p5 from 'p5';
 import { useP5 } from '@/hooks/useP5';
 import { useAppStore } from '@/stores/useAppStore';
-import { Tool } from '@/types';
+import { Tool, CustomBrush } from '@/types';
 
 export const DrawingCanvas = () => {
   const {
@@ -21,6 +21,12 @@ export const DrawingCanvas = () => {
     panY,
     setZoom,
     setPan,
+    isSelecting,
+    selectionStart,
+    selectionEnd,
+    setSelection,
+    setIsSelecting,
+    addCustomBrush,
   } = useAppStore();
 
   const p5InstanceRef = useRef<p5 | null>(null);
@@ -35,17 +41,38 @@ export const DrawingCanvas = () => {
   const lastPanUpdate = useRef(0); // Throttle pan updates
 
   const setup = (p: p5) => {
-    p.pixelDensity(1);
-    p.noSmooth(); // For pixel-perfect drawing
+    // PIXEL-PERFECT SETUP: Critical for crisp rendering
+    p.pixelDensity(1); // Force 1:1 pixel mapping, ignore device pixel ratio
     p5InstanceRef.current = p;
     
-    // Also disable anti-aliasing on the canvas element itself
+    // PIXEL-PERFECT CANVAS SETUP
     const canvas = (p as any).canvas;
     if (canvas) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        // Disable ALL anti-aliasing and smoothing
+        ctx.imageSmoothingEnabled = false;
+        (ctx as any).webkitImageSmoothingEnabled = false;
+        (ctx as any).mozImageSmoothingEnabled = false;
+        (ctx as any).msImageSmoothingEnabled = false;
+        (ctx as any).oImageSmoothingEnabled = false;
+        
+        // CRITICAL: Set pixel-perfect CSS properties
+        ctx.imageSmoothingQuality = 'low'; // When smoothing is re-enabled
+        
+        // NOTE: No translate(0.5, 0.5) because we use direct ImageData manipulation
+      }
+      
+      // CSS pixel-perfect rendering
       canvas.style.imageRendering = 'pixelated';
-      canvas.style.imageRendering = 'crisp-edges'; // Fallback
-      canvas.style.imageRendering = '-moz-crisp-edges'; // Firefox
-      canvas.style.imageRendering = '-webkit-crisp-edges'; // Safari
+      canvas.style.imageRendering = '-moz-crisp-edges';
+      canvas.style.imageRendering = '-webkit-crisp-edges';
+      canvas.style.imageRendering = 'crisp-edges';
+      
+      // Ensure canvas is aligned to device pixels
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.round(rect.width);
+      canvas.height = Math.round(rect.height);
     }
     
     // Initialize layer buffers for all layers
@@ -53,21 +80,57 @@ export const DrawingCanvas = () => {
       if (!layerBuffers.current.has(layer.id)) {
         const layerGraphics = p.createGraphics(project.width, project.height);
         layerGraphics.pixelDensity(1);
-        layerGraphics.noSmooth();
+        
+        // PIXEL-PERFECT LAYER SETUP: Apply same settings to layer graphics
+        const layerCanvas = (layerGraphics as any).canvas;
+        if (layerCanvas) {
+          const layerCtx = layerCanvas.getContext('2d');
+          if (layerCtx) {
+            // Disable anti-aliasing for layer graphics
+            layerCtx.imageSmoothingEnabled = false;
+            (layerCtx as any).webkitImageSmoothingEnabled = false;
+            (layerCtx as any).mozImageSmoothingEnabled = false;
+            (layerCtx as any).msImageSmoothingEnabled = false;
+            (layerCtx as any).oImageSmoothingEnabled = false;
+            
+            // NOTE: No translate(0.5, 0.5) because we use direct ImageData manipulation
+          }
+        }
+        
         layerGraphics.background(0, 0, 0, 0); // Transparent background
         layerBuffers.current.set(layer.id, layerGraphics);
-        console.log('Created layer buffer for:', layer.name);
+        // Created layer buffer
       }
     });
     
     // Set main canvas background
     p.background(240); // Light background
     
-    console.log('P5 Setup complete, canvas size:', p.width, p.height);
-    console.log('Layer buffers created:', layerBuffers.current.size);
+    // FORCE AUTO-CENTER: Trigger centering after canvas is created
+    setTimeout(() => {
+      const { zoom, panX, panY, setPan } = useAppStore.getState();
+      if (panX === 0 && panY === 0 && zoom > 1) {
+        const container = document.querySelector('[data-canvas-container]') as HTMLElement;
+        if (container) {
+          const containerRect = container.getBoundingClientRect();
+          const canvasWidth = project.width * zoom;
+          const canvasHeight = project.height * zoom;
+          const idealPanX = (containerRect.width - canvasWidth) / 2;
+          const idealPanY = (containerRect.height - canvasHeight) / 2;
+          
+          console.log(`🚀 FORCED AUTO-CENTER: viewport(${containerRect.width.toFixed(0)}x${containerRect.height.toFixed(0)}) canvas(${canvasWidth.toFixed(0)}x${canvasHeight.toFixed(0)}) -> pan(${idealPanX.toFixed(1)}, ${idealPanY.toFixed(1)})`);
+          setPan(idealPanX, idealPanY);
+        }
+      }
+    }, 100);
+    
+    // P5 Setup complete
   };
 
   const draw = (p: p5) => {
+    // Use noSmooth for canvas composition to preserve both pixel art and smooth art
+    p.noSmooth();
+    
     // Clear main canvas and composite all visible layers
     p.background(240); // Light background
     
@@ -75,9 +138,36 @@ export const DrawingCanvas = () => {
     project.layers.forEach((layer, index) => {
       if (layer.visible && layerBuffers.current.has(layer.id)) {
         const layerGraphics = layerBuffers.current.get(layer.id);
+        // Use noSmooth for layer composition to avoid double-smoothing
+        p.noSmooth();
         p.image(layerGraphics, 0, 0);
       }
     });
+    
+    // Draw selection rectangle overlay for brush selection ON TOP of everything
+    if (selectionStart && selectionEnd) {
+      p.push();
+      
+      // Create a semi-transparent overlay
+      p.fill(255, 0, 0, 50); // Red with transparency
+      p.stroke(255, 0, 0); // Bright red border
+      p.strokeWeight(2); 
+      p.rectMode(p.CORNERS);
+      
+      // Draw filled rectangle with border
+      p.rect(selectionStart.x, selectionStart.y, selectionEnd.x, selectionEnd.y);
+      
+      // Add corner markers for visibility
+      p.fill(255, 255, 0); // Yellow corners
+      p.noStroke();
+      const cornerSize = 6;
+      p.rect(selectionStart.x - cornerSize/2, selectionStart.y - cornerSize/2, cornerSize, cornerSize);
+      p.rect(selectionEnd.x - cornerSize/2, selectionStart.y - cornerSize/2, cornerSize, cornerSize);
+      p.rect(selectionStart.x - cornerSize/2, selectionEnd.y - cornerSize/2, cornerSize, cornerSize);
+      p.rect(selectionEnd.x - cornerSize/2, selectionEnd.y - cornerSize/2, cornerSize, cornerSize);
+      
+      p.pop();
+    }
   };
 
   const drawOnionSkin = (p: p5, layer: any, currentFrame: number) => {
@@ -159,66 +249,497 @@ export const DrawingCanvas = () => {
            p5InstanceRef.current?.blue(color1) === p5InstanceRef.current?.blue(color2);
   };
 
-  // Enhanced drawing function with dotted pattern support
-  const drawDottedLine = (graphics: any, x1: number, y1: number, x2: number, y2: number, size: number, spacing: number, dashLength: number, isSquare: boolean) => {
+  // Pixel-perfect coordinate snapping - ensures crisp integer coordinates
+  const snapToPixel = (coord: number): number => {
+    return Math.floor(coord) + 0.5; // Half-pixel offset for crisp 1px lines
+  };
+  
+  const snapToPixelGrid = (coord: number): number => {
+    // PIXEL-PERFECT: For direct ImageData manipulation, use precise integer coordinates
+    return Math.round(coord);
+  };
+
+  // Bresenham's Line Algorithm for pixel-perfect lines
+  const bresenhamLine = (x0: number, y0: number, x1: number, y1: number): Array<{x: number, y: number}> => {
+    const pixels: Array<{x: number, y: number}> = [];
+    
+    // Convert to integers for Bresenham - this is the key to pixel-perfect drawing
+    x0 = snapToPixelGrid(x0);
+    y0 = snapToPixelGrid(y0);
+    x1 = snapToPixelGrid(x1);
+    y1 = snapToPixelGrid(y1);
+    
+    const dx = Math.abs(x1 - x0);
+    const dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1;
+    const sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    
+    let currentX = x0;
+    let currentY = y0;
+    
+    while (true) {
+      pixels.push({ x: currentX, y: currentY });
+      
+      if (currentX === x1 && currentY === y1) break;
+      
+      const e2 = 2 * err;
+      if (e2 > -dy) {
+        err -= dy;
+        currentX += sx;
+      }
+      if (e2 < dx) {
+        err += dx;
+        currentY += sy;
+      }
+    }
+    
+    return pixels;
+  };
+
+  // Pixel Perfect Algorithm - removes L-shaped artifacts (Aseprite-style)
+  const pixelPerfectFilter = (pixels: Array<{x: number, y: number}>): Array<{x: number, y: number}> => {
+    if (pixels.length <= 2) return pixels;
+    
+    const filtered: Array<{x: number, y: number}> = [pixels[0]]; // Always keep first pixel
+    
+    for (let i = 1; i < pixels.length - 1; i++) {
+      const prev = pixels[i - 1];
+      const curr = pixels[i];
+      const next = pixels[i + 1];
+      
+      // Check if current pixel forms an L-shape
+      const isLShape = (
+        (prev.x !== next.x && prev.y !== next.y) && // Diagonal relationship between prev and next
+        ((curr.x === prev.x && curr.y === next.y) || (curr.x === next.x && curr.y === prev.y)) // Current is the corner
+      );
+      
+      // Keep pixel only if it's NOT part of an L-shape
+      if (!isLShape) {
+        filtered.push(curr);
+      }
+    }
+    
+    filtered.push(pixels[pixels.length - 1]); // Always keep last pixel
+    return filtered;
+  };
+
+  // Custom brush drawing functions
+  const drawCustomBrushStamp = (graphics: any, x: number, y: number, customBrush: CustomBrush, scale: number = 1) => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    // Set up canvas with brush dimensions
+    canvas.width = customBrush.width;
+    canvas.height = customBrush.height;
+    
+    // Put the brush ImageData onto the temporary canvas
+    ctx.putImageData(customBrush.imageData, 0, 0);
+    
+    // Calculate scaled dimensions and position
+    const scaledWidth = customBrush.width * scale;
+    const scaledHeight = customBrush.height * scale;
+    const centerX = x - scaledWidth / 2;
+    const centerY = y - scaledHeight / 2;
+    
+    // Get the P5 graphics context and draw the custom brush
+    const p5Canvas = (graphics as any).canvas;
+    const p5Ctx = p5Canvas.getContext('2d');
+    if (p5Ctx) {
+      p5Ctx.save();
+      p5Ctx.globalCompositeOperation = 'source-over';
+      p5Ctx.imageSmoothingEnabled = false; // Maintain pixel-perfect rendering
+      p5Ctx.drawImage(canvas, centerX, centerY, scaledWidth, scaledHeight);
+      p5Ctx.restore();
+    }
+  };
+
+  const drawCustomBrushLine = (graphics: any, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1) => {
     const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
-    const steps = Math.max(1, Math.floor(distance / spacing));
+    const spacing = Math.max(1, Math.min(customBrush.width, customBrush.height) * scale * 0.5);
+    const steps = Math.max(1, Math.ceil(distance / spacing));
     
     for (let i = 0; i <= steps; i++) {
-      const t = i / Math.max(1, steps);
+      const t = i / steps;
       const x = x1 + (x2 - x1) * t;
       const y = y1 + (y2 - y1) * t;
-      
-      // Only draw if we're in a "dash" segment
-      const segmentPosition = (i * spacing) % (dashLength + spacing);
-      if (segmentPosition < dashLength) {
-        if (isSquare) {
-          graphics.rect(
-            Math.floor(x - size/2), 
-            Math.floor(y - size/2), 
-            Math.floor(size), 
-            Math.floor(size)
-          );
-        } else {
-          graphics.circle(x, y, size);
+      drawCustomBrushStamp(graphics, x, y, customBrush, scale);
+    }
+  };
+
+  // ULTRA-FAST pixel line drawing with direct ImageData manipulation
+  const drawPixelPerfectLine = (graphics: any, x1: number, y1: number, x2: number, y2: number, color: any) => {
+    // Get Bresenham pixels
+    let pixels = bresenhamLine(x1, y1, x2, y2);
+    
+    // Apply pixel perfect filter if enabled
+    if (brushSettings.pixelPerfect) {
+      pixels = pixelPerfectFilter(pixels);
+    }
+    
+    // PERFORMANCE OPTIMIZED: Direct ImageData manipulation
+    graphics.loadPixels();
+    const imageData = graphics.pixels;
+    const width = graphics.width;
+    
+    // Extract color values safely - P5.js color objects may have different structures
+    let r, g, b, a;
+    if (color.levels) {
+      r = color.levels[0];
+      g = color.levels[1];
+      b = color.levels[2];
+      a = color.levels[3];
+    } else {
+      // Fallback: parse color string or use P5.js methods
+      r = graphics.red(color);
+      g = graphics.green(color);
+      b = graphics.blue(color);
+      a = graphics.alpha(color);
+    }
+    
+    for (const pixel of pixels) {
+      if (pixel.x >= 0 && pixel.x < width && pixel.y >= 0 && pixel.y < graphics.height) {
+        const index = (pixel.y * width + pixel.x) * 4;
+        imageData[index] = r;     // Red
+        imageData[index + 1] = g; // Green
+        imageData[index + 2] = b; // Blue
+        imageData[index + 3] = a; // Alpha
+      }
+    }
+    graphics.updatePixels();
+  };
+
+  // ULTRA-FAST pixel-perfect line drawing with batched operations
+  const drawPixelPerfectBrushLine = (graphics: any, x1: number, y1: number, x2: number, y2: number, size: number, isSquare: boolean) => {
+    // Get Bresenham pixels for the line path
+    let pixels = bresenhamLine(x1, y1, x2, y2);
+    
+    // Apply pixel perfect filter to remove L-shapes
+    pixels = pixelPerfectFilter(pixels);
+    
+    // PERFORMANCE CRITICAL: Single loadPixels for entire operation
+    graphics.loadPixels();
+    const fillColor = graphics.color(brushSettings.color);
+    
+    // Batch all pixel operations using appropriate shape function
+    for (const pixel of pixels) {
+      if (isSquare) {
+        setPixelPerfectSquare(graphics, pixel.x, pixel.y, size, fillColor);
+      } else {
+        setPixelPerfectCircle(graphics, pixel.x, pixel.y, size, fillColor);
+      }
+    }
+    
+    // PERFORMANCE CRITICAL: Single updatePixels for entire operation
+    graphics.updatePixels();
+  };
+
+  // OPTIMIZED: Single pixel square with direct ImageData manipulation
+  const setPixelPerfectSquare = (graphics: any, centerX: number, centerY: number, size: number, fillColor: any) => {
+    const pixelSize = Math.max(1, Math.floor(size));
+    const halfSize = Math.floor(pixelSize / 2);
+    // PIXEL-PERFECT: Use integer coordinates directly (no additional rounding)
+    const startX = Math.floor(centerX) - halfSize;
+    const startY = Math.floor(centerY) - halfSize;
+    
+    // PERFORMANCE OPTIMIZED: Direct ImageData manipulation (assumes loadPixels already called)
+    const imageData = graphics.pixels;
+    const width = graphics.width;
+    const height = graphics.height;
+    
+    // Extract color values safely - P5.js color objects may have different structures
+    let r, g, b, a;
+    if (fillColor.levels) {
+      r = fillColor.levels[0];
+      g = fillColor.levels[1];
+      b = fillColor.levels[2];
+      a = fillColor.levels[3];
+    } else {
+      // Fallback: parse color string or use P5.js methods
+      r = graphics.red(fillColor);
+      g = graphics.green(fillColor);
+      b = graphics.blue(fillColor);
+      a = graphics.alpha(fillColor);
+    }
+    
+    for (let y = 0; y < pixelSize; y++) {
+      for (let x = 0; x < pixelSize; x++) {
+        const pixelX = startX + x;
+        const pixelY = startY + y;
+        
+        if (pixelX >= 0 && pixelX < width && pixelY >= 0 && pixelY < height) {
+          const index = (pixelY * width + pixelX) * 4;
+          imageData[index] = r;     // Red
+          imageData[index + 1] = g; // Green
+          imageData[index + 2] = b; // Blue
+          imageData[index + 3] = a; // Alpha
         }
       }
     }
   };
 
+  // OPTIMIZED: Single pixel circle with direct ImageData manipulation
+  const setPixelPerfectCircle = (graphics: any, centerX: number, centerY: number, size: number, fillColor: any) => {
+    // For very small brushes (1-2px), use square for simplicity and performance
+    if (size <= 2) {
+      setPixelPerfectSquare(graphics, centerX, centerY, size, fillColor);
+      return;
+    }
+    
+    // For larger brushes, draw a simple circle
+    const radius = Math.max(1, Math.floor(size / 2));
+    const pixelCenterX = Math.round(centerX);
+    const pixelCenterY = Math.round(centerY);
+    const radiusSquared = radius * radius;
+    
+    // PERFORMANCE OPTIMIZED: Direct ImageData manipulation
+    const imageData = graphics.pixels;
+    const width = graphics.width;
+    const height = graphics.height;
+    
+    // Extract color values safely - P5.js color objects may have different structures
+    let r, g, b, a;
+    if (fillColor.levels) {
+      r = fillColor.levels[0];
+      g = fillColor.levels[1];
+      b = fillColor.levels[2];
+      a = fillColor.levels[3];
+    } else {
+      // Fallback: parse color string or use P5.js methods
+      r = graphics.red(fillColor);
+      g = graphics.green(fillColor);
+      b = graphics.blue(fillColor);
+      a = graphics.alpha(fillColor);
+    }
+    
+    // Limit the search area to prevent excessive computation
+    const maxRadius = Math.min(radius, 20); // Cap at 20px radius for safety
+    
+    for (let dy = -maxRadius; dy <= maxRadius; dy++) {
+      for (let dx = -maxRadius; dx <= maxRadius; dx++) {
+        const distanceSquared = dx * dx + dy * dy;
+        if (distanceSquared <= radiusSquared) {
+          const x = pixelCenterX + dx;
+          const y = pixelCenterY + dy;
+          if (x >= 0 && x < width && y >= 0 && y < height) {
+            const index = (y * width + x) * 4;
+            imageData[index] = r;     // Red
+            imageData[index + 1] = g; // Green
+            imageData[index + 2] = b; // Blue
+            imageData[index + 3] = a; // Alpha
+          }
+        }
+      }
+    }
+  };
+  
+  // Standalone pixel square with its own loadPixels/updatePixels
+  const drawPixelPerfectSquare = (graphics: any, centerX: number, centerY: number, size: number) => {
+    graphics.loadPixels();
+    const fillColor = graphics.color(brushSettings.color);
+    setPixelPerfectSquare(graphics, centerX, centerY, size, fillColor);
+    graphics.updatePixels();
+  };
+
+  // Standalone pixel circle with its own loadPixels/updatePixels
+  const drawPixelPerfectCircle = (graphics: any, centerX: number, centerY: number, size: number) => {
+    graphics.loadPixels();
+    const fillColor = graphics.color(brushSettings.color);
+    setPixelPerfectCircle(graphics, centerX, centerY, size, fillColor);
+    graphics.updatePixels();
+  };
+
+  // Generic pixel-perfect shape function
+  const drawPixelPerfectShape = (graphics: any, centerX: number, centerY: number, size: number, isSquare: boolean) => {
+    if (isSquare) {
+      drawPixelPerfectSquare(graphics, centerX, centerY, size);
+    } else {
+      drawPixelPerfectCircle(graphics, centerX, centerY, size);
+    }
+  };
+
+  // FIXED: Cumulative distance tracking for consistent dotted patterns
+  let cumulativeDistance = 0; // Track total distance across all segments
+  
+  const drawDottedLine = (graphics: any, x1: number, y1: number, x2: number, y2: number, size: number, spacing: number, dashLength: number, gap: number, isSquare: boolean) => {
+    const segmentDistance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+    
+    // Calculate actual pixel values from brush size units
+    const dashLengthPixels = dashLength * size; // Length in brush size units
+    const gapPixels = gap * size; // Gap in brush size units
+    const patternLength = dashLengthPixels + gapPixels;
+    
+    // Use fine-grained steps for smooth pattern sampling
+    const stepDistance = Math.min(spacing / 8, size / 4, 1); // Even finer steps
+    const steps = Math.max(1, Math.ceil(segmentDistance / stepDistance));
+    
+    // Track distance for pattern consistency
+    
+    // Track dotted pattern rendering
+    
+    // UNIFIED: Dotted lines work for ALL brush sizes 
+    setGraphicsMode(graphics, brushSettings.pixelPerfect);
+    
+    // Determine rendering path for dotted lines
+    
+    // For small brushes, use batched pixel operations for performance
+    if (brushSettings.pixelPerfect && size <= PIXEL_PERFECT_THRESHOLD) {
+      graphics.loadPixels();
+      const fillColor = graphics.color(brushSettings.color);
+      
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        // PIXEL-PERFECT: Use consistent integer coordinates
+        const x = Math.round(x1 + (x2 - x1) * t);
+        const y = Math.round(y1 + (y2 - y1) * t);
+        
+        // FIXED: Use cumulative distance + segment progress
+        const totalDistanceAtPoint = cumulativeDistance + (t * segmentDistance);
+        const positionInPattern = totalDistanceAtPoint % patternLength;
+        
+        // Minimal step logging
+        
+        // Only draw if we're in a dash segment (not in gap)
+        if (positionInPattern < dashLengthPixels) {
+          if (isSquare) {
+            setPixelPerfectSquare(graphics, x, y, size, fillColor);
+          } else {
+            setPixelPerfectCircle(graphics, x, y, size, fillColor);
+          }
+          // Draw pixel
+        } else {
+          // Skip pixel (gap)
+        }
+      }
+      
+      graphics.updatePixels();
+    } else {
+      // Universal mode: Works for ALL brush sizes (small and large)
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = x1 + (x2 - x1) * t;
+        const y = y1 + (y2 - y1) * t;
+        
+        // FIXED: Use cumulative distance + segment progress
+        const totalDistanceAtPoint = cumulativeDistance + (t * segmentDistance);
+        const positionInPattern = totalDistanceAtPoint % patternLength;
+        
+        // Minimal step logging
+        
+        // Only draw if we're in a dash segment (not in gap)
+        if (positionInPattern < dashLengthPixels) {
+          drawShape(graphics, x, y, size, isSquare, false);
+          // Draw pixel
+        } else {
+          // Skip pixel (gap)
+        }
+      }
+    }
+    
+    // Update cumulative distance for next segment
+    cumulativeDistance += segmentDistance;
+    
+    // Pattern complete
+  };
+
+  // PERFORMANCE: Size-based rendering strategy
+  // Brushes ≤10px use pixel-perfect algorithms (Bresenham + batched operations)
+  // Brushes >10px use fast P5.js native shapes with optional hard edges
+  const PIXEL_PERFECT_THRESHOLD = 10;
+  
+  // ULTRA-FAST shape drawing with size-based optimization
+  let currentSmoothMode: boolean | null = null;
+  let cachedFillColor: any = null;
+  
+  const setGraphicsMode = (graphics: any, pixelPerfect: boolean) => {
+    if (currentSmoothMode === pixelPerfect) return; // Skip if already set
+    
+    const layerCanvas = (graphics as any).canvas;
+    if (layerCanvas) {
+      const layerCtx = layerCanvas.getContext('2d');
+      if (layerCtx) {
+        if (pixelPerfect) {
+          graphics.noSmooth();
+          layerCtx.imageSmoothingEnabled = false;
+        } else {
+          graphics.smooth();
+          layerCtx.imageSmoothingEnabled = true;
+          layerCtx.imageSmoothingQuality = 'high';
+        }
+      }
+    }
+    currentSmoothMode = pixelPerfect;
+  };
+  
   const drawShape = (graphics: any, x: number, y: number, size: number, isSquare: boolean, withRotation: boolean = false) => {
+    // RENDERING STRATEGY: 
+    // - Small brushes (≤10px) + Pixel ON = True pixel-perfect (Bresenham algorithm)
+    // - Large brushes (>10px) + Pixel ON = Fast shapes with hard edges
+    // - Any size + Pixel OFF = Smooth anti-aliased shapes
+    const shouldUsePixelPerfect = brushSettings.pixelPerfect && size <= PIXEL_PERFECT_THRESHOLD;
+    
+    if (shouldUsePixelPerfect) {
+      // PIXEL PERFECT MODE: Only for small brushes (fast)
+      drawPixelPerfectShape(graphics, x, y, size, isSquare);
+      return;
+    }
+    
+    // FAST NATIVE RENDERING: For large brushes use P5.js native shapes
+    // BUT preserve hard edges when pixel toggle is ON
+    setGraphicsMode(graphics, brushSettings.pixelPerfect); // Keep pixel mode for hard edges!
+    
     graphics.push();
     
-    if (withRotation && brushSettings.rotation !== 0) {
+    if (withRotation && brushSettings.rotateEnabled && brushSettings.rotation !== 0) {
       graphics.translate(x, y);
       graphics.rotate(graphics.radians(brushSettings.rotation));
       x = 0;
       y = 0;
     }
     
-    if (isSquare) {
-      graphics.rect(
-        Math.floor(x - size/2), 
-        Math.floor(y - size/2), 
-        Math.floor(size), 
-        Math.floor(size)
-      );
+    graphics.noStroke();
+    
+    // Reuse color object if unchanged
+    if (!cachedFillColor || cachedFillColor._getRed() !== graphics.red(brushSettings.color)) {
+      cachedFillColor = graphics.color(brushSettings.color);
+    }
+    graphics.fill(cachedFillColor);
+    
+    // Respect user's brush shape choice for all sizes and modes
+    const finalShape = isSquare;
+    
+    if (finalShape) {
+      graphics.rectMode(graphics.CENTER);
+      // Snap large brush position to pixel grid when pixel mode is ON
+      if (brushSettings.pixelPerfect) {
+        graphics.rect(Math.floor(x), Math.floor(y), Math.floor(size), Math.floor(size));
+      } else {
+        graphics.rect(x, y, size, size);
+      }
     } else {
-      graphics.circle(x, y, size);
+      if (brushSettings.pixelPerfect) {
+        graphics.circle(Math.floor(x), Math.floor(y), Math.floor(size));
+      } else {
+        graphics.circle(x, y, size);
+      }
     }
     
     graphics.pop();
   };
 
+  // OPTIMIZED: Pre-allocate coordinate variables to reduce GC pressure
+  let mouseX: number, mouseY: number;
+  
   const performDrawAction = (p: p5, isDragging: boolean, currentMouseX?: number, currentMouseY?: number) => {
-    // Use provided coordinates or calculate them
-    const mouseX = currentMouseX !== undefined ? currentMouseX : (p.mouseX - panX) / zoom;
-    const mouseY = currentMouseY !== undefined ? currentMouseY : (p.mouseY - panY) / zoom;
+    // FAST coordinate calculation with minimal allocation
+    mouseX = currentMouseX !== undefined ? currentMouseX : (p.mouseX - panX) / zoom;
+    mouseY = currentMouseY !== undefined ? currentMouseY : (p.mouseY - panY) / zoom;
     
     // Get the active layer buffer
     const activeLayer = project.layers[currentLayer];
     if (!activeLayer || !layerBuffers.current.has(activeLayer.id)) {
-      console.log('❌ No active layer buffer found');
+      // No active layer buffer found
       return;
     }
     
@@ -235,110 +756,158 @@ export const DrawingCanvas = () => {
       effectiveOpacity = brushSettings.opacity * pressureFactor;
     }
     
-    // Determine if we're using square or circle shape
-    const isSquareShape = brushSettings.brushShape === 'square' || brushSettings.pixelPerfect;
+    // Determine brush shape and get custom brush if needed
+    const isSquareShape = brushSettings.brushShape === 'square';
+    const isCustomBrush = brushSettings.brushShape === 'custom';
+    const customBrush = isCustomBrush && brushSettings.selectedCustomBrush 
+      ? project.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush)
+      : null;
     
     switch (currentTool) {
       case Tool.BRUSH:
-        // Set smoothing based on pixel perfect setting
-        if (brushSettings.pixelPerfect) {
-          layerGraphics.noSmooth();
+        if (isCustomBrush && customBrush) {
+          // Handle custom brush drawing
+          // Calculate scale factor: effectiveSize is target size, customBrush size is original
+          const baseBrushSize = Math.max(customBrush.width, customBrush.height);
+          const scaleFactor = effectiveSize / baseBrushSize;
+          
+          if (isDragging && lastPos.current !== null) {
+            drawCustomBrushLine(layerGraphics, lastPos.current.x, lastPos.current.y, mouseX, mouseY, customBrush, scaleFactor);
+          } else {
+            // Single custom brush stamp
+            drawCustomBrushStamp(layerGraphics, mouseX, mouseY, customBrush, scaleFactor);
+          }
         } else {
-          layerGraphics.smooth();
-        }
+          // Handle regular brushes (square/circle)
+          layerGraphics.noStroke();
+          const fillColor = layerGraphics.color(brushSettings.color);
+          fillColor.setAlpha(effectiveOpacity * 255);
+          layerGraphics.fill(fillColor);
+          
+          // Respect user's brush shape choice in both pixel and smooth modes
+          const finalShape = isSquareShape;
         
-        layerGraphics.noStroke();
-        const fillColor = layerGraphics.color(brushSettings.color);
-        fillColor.setAlpha(effectiveOpacity * 255);
-        layerGraphics.fill(fillColor);
+          // Removed console.log for performance
         
-        if (isDragging && lastPos.current !== null) {
+          if (isDragging && lastPos.current !== null) {
+          // Check if dotted style is enabled
           if (brushSettings.dottedStyle.enabled) {
-            // Draw dotted line
+            // DOTTED LINE DRAWING
+            const actualSpacing = brushSettings.followBrush ? effectiveSize : brushSettings.dottedStyle.spacing;
+            
+            // Drawing dotted stroke
+            
             drawDottedLine(
               layerGraphics,
               lastPos.current.x, lastPos.current.y,
               mouseX, mouseY,
               effectiveSize,
-              brushSettings.dottedStyle.spacing,
+              actualSpacing,
               brushSettings.dottedStyle.dashLength,
-              isSquareShape
+              brushSettings.dottedStyle.gap,
+              finalShape
             );
           } else {
-            // Draw continuous line
-            const distance = Math.sqrt(
-              Math.pow(mouseX - lastPos.current.x, 2) + 
-              Math.pow(mouseY - lastPos.current.y, 2)
-            );
+            // REGULAR LINE DRAWING
+            const shouldUsePixelPerfect = brushSettings.pixelPerfect && effectiveSize <= PIXEL_PERFECT_THRESHOLD;
             
-            const steps = Math.max(1, Math.floor(distance / 2));
-            for (let i = 0; i <= steps; i++) {
-              const t = i / Math.max(1, steps);
-              const x = lastPos.current.x + (mouseX - lastPos.current.x) * t;
-              const y = lastPos.current.y + (mouseY - lastPos.current.y) * t;
+            if (shouldUsePixelPerfect) {
+              // PIXEL PERFECT MODE: Only for small brushes (≤10px)
+              drawPixelPerfectBrushLine(
+                layerGraphics,
+                lastPos.current.x, lastPos.current.y,
+                mouseX, mouseY,
+                effectiveSize,
+                finalShape
+              );
+            } else {
+              // FAST MODE: For large brushes or smooth mode
+              const distance = Math.sqrt(
+                Math.pow(mouseX - lastPos.current.x, 2) + 
+                Math.pow(mouseY - lastPos.current.y, 2)
+              );
               
-              drawShape(layerGraphics, x, y, effectiveSize, isSquareShape, brushSettings.followBrush);
+              // PERFORMANCE: Aggressive step size optimization for large brushes
+              const stepSize = effectiveSize > 20 ? Math.max(effectiveSize / 2, 5) : Math.max(1, effectiveSize / 3);
+              const steps = Math.max(1, Math.ceil(distance / stepSize));
+              
+              // Set graphics mode once before loop - preserve pixel mode for hard edges
+              setGraphicsMode(layerGraphics, brushSettings.pixelPerfect);
+              
+              for (let i = 0; i <= steps; i++) {
+                const t = i / steps;
+                const x = lastPos.current.x + (mouseX - lastPos.current.x) * t;
+                const y = lastPos.current.y + (mouseY - lastPos.current.y) * t;
+                
+                drawShape(layerGraphics, x, y, effectiveSize, finalShape, false);
+              }
             }
           }
         } else {
-          // Single dot/shape
-          drawShape(layerGraphics, mouseX, mouseY, effectiveSize, isSquareShape, brushSettings.followBrush);
-        }
-        break;
-        
-      case Tool.PIXEL_BRUSH:
-        // Pixel brush with hard edges - always pixel perfect and square
-        layerGraphics.noSmooth();
-        layerGraphics.noStroke();
-        const pixelFillColor = layerGraphics.color(brushSettings.color);
-        pixelFillColor.setAlpha(effectiveOpacity * 255);
-        layerGraphics.fill(pixelFillColor);
-        
-        if (isDragging && lastPos.current !== null) {
-          if (brushSettings.dottedStyle.enabled) {
-            // Draw dotted pixel line (always squares)
-            drawDottedLine(
-              layerGraphics,
-              lastPos.current.x, lastPos.current.y,
-              mouseX, mouseY,
-              effectiveSize,
-              brushSettings.dottedStyle.spacing,
-              brushSettings.dottedStyle.dashLength,
-              true // Always square for pixel brush
-            );
-          } else {
-            // Draw continuous pixel line
-            const distance = Math.sqrt(
-              Math.pow(mouseX - lastPos.current.x, 2) + 
-              Math.pow(mouseY - lastPos.current.y, 2)
-            );
-            
-            const steps = Math.max(1, Math.floor(distance));
-            for (let i = 0; i <= steps; i++) {
-              const t = i / Math.max(1, steps);
-              const x = Math.floor(lastPos.current.x + (mouseX - lastPos.current.x) * t);
-              const y = Math.floor(lastPos.current.y + (mouseY - lastPos.current.y) * t);
-              
-              drawShape(layerGraphics, x, y, effectiveSize, true, brushSettings.followBrush);
-            }
+          // Single dot - optimized for size
+          const shouldUsePixelPerfect = brushSettings.pixelPerfect && effectiveSize <= PIXEL_PERFECT_THRESHOLD;
+          
+          let drawX = mouseX;
+          let drawY = mouseY;
+          
+          // Snap to pixel grid only for small brushes in pixel perfect mode
+          if (shouldUsePixelPerfect) {
+            drawX = Math.floor(mouseX);
+            drawY = Math.floor(mouseY);
           }
-        } else {
-          // Single pixel dot
-          drawShape(layerGraphics, Math.floor(mouseX), Math.floor(mouseY), effectiveSize, true, brushSettings.followBrush);
+          
+          // Drawing single dot
+          drawShape(layerGraphics, drawX, drawY, effectiveSize, finalShape, false);
+          }
         }
         break;
         
       case Tool.ERASER:
         layerGraphics.erase();
+        
+        // Optimized eraser with mode caching
+        setGraphicsMode(layerGraphics, brushSettings.pixelPerfect);
+        
         if (isDragging && lastPos.current !== null) {
-          layerGraphics.strokeWeight(brushSettings.size);
-          layerGraphics.strokeCap(layerGraphics.ROUND);
-          layerGraphics.line(lastPos.current.x, lastPos.current.y, mouseX, mouseY);
+          if (brushSettings.pixelPerfect) {
+            // Pixel perfect eraser: optimized stepping
+            const distance = Math.sqrt(
+              Math.pow(mouseX - lastPos.current.x, 2) + 
+              Math.pow(mouseY - lastPos.current.y, 2)
+            );
+            const steps = Math.max(1, Math.floor(distance));
+            
+            layerGraphics.noStroke();
+            layerGraphics.fill(255);
+            layerGraphics.rectMode(layerGraphics.CENTER);
+            const flooredSize = Math.floor(effectiveSize);
+            
+            for (let i = 0; i <= steps; i++) {
+              const t = i / steps;
+              const x = Math.floor(lastPos.current.x + (mouseX - lastPos.current.x) * t);
+              const y = Math.floor(lastPos.current.y + (mouseY - lastPos.current.y) * t);
+              
+              layerGraphics.rect(x, y, flooredSize, flooredSize);
+            }
+          } else {
+            // Smooth eraser: single optimized line
+            layerGraphics.strokeWeight(effectiveSize);
+            layerGraphics.strokeCap(layerGraphics.ROUND);
+            layerGraphics.line(lastPos.current.x, lastPos.current.y, mouseX, mouseY);
+          }
         } else {
+          // Single erase dot - optimized
           layerGraphics.noStroke();
           layerGraphics.fill(255);
-          layerGraphics.circle(mouseX, mouseY, brushSettings.size);
+          
+          if (brushSettings.pixelPerfect) {
+            layerGraphics.rectMode(layerGraphics.CENTER);
+            layerGraphics.rect(Math.floor(mouseX), Math.floor(mouseY), Math.floor(effectiveSize), Math.floor(effectiveSize));
+          } else {
+            layerGraphics.circle(mouseX, mouseY, effectiveSize);
+          }
         }
+        
         layerGraphics.noErase();
         break;
         
@@ -373,24 +942,62 @@ export const DrawingCanvas = () => {
     height: project.height,
   });
 
-  // Apply zoom and pan to canvas
+  // Auto-center canvas on initial load and apply zoom/pan transforms
   useEffect(() => {
     if (containerRef.current) {
       const canvas = containerRef.current.querySelector('canvas');
       if (canvas) {
+        // AUTO-CENTER: Calculate proper pan values to center canvas at current zoom
+        const containerRect = containerRef.current.getBoundingClientRect();
+        const canvasWidth = project.width * zoom;
+        const canvasHeight = project.height * zoom;
+        
+        // Center the scaled canvas in the viewport
+        const idealPanX = (containerRect.width - canvasWidth) / 2;
+        const idealPanY = (containerRect.height - canvasHeight) / 2;
+        
+        // DEBUG: Check auto-centering conditions
+        console.log(`🔍 AUTO-CENTER CHECK: panX=${panX}, panY=${panY}, zoom=${zoom}, shouldCenter=${panX === 0 && panY === 0 && zoom > 1}`);
+        
+        // Only auto-center if pan values are still at default (0,0)
+        if (panX === 0 && panY === 0 && zoom > 1) {
+          console.log(`🎯 AUTO-CENTERING: viewport(${containerRect.width.toFixed(0)}x${containerRect.height.toFixed(0)}) canvas(${canvasWidth.toFixed(0)}x${canvasHeight.toFixed(0)}) -> pan(${idealPanX.toFixed(1)}, ${idealPanY.toFixed(1)})`);
+          setPan(idealPanX, idealPanY);
+          return; // Skip transform this cycle, will re-run with new pan values
+        }
+        
         // Apply transform with translate first, then scale
         canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
         canvas.style.transformOrigin = '0 0';
         
-        // Force pixel-perfect rendering
-        canvas.style.imageRendering = 'pixelated';
-        canvas.style.imageRendering = 'crisp-edges';
-        canvas.style.imageRendering = '-moz-crisp-edges';
-        canvas.style.imageRendering = '-webkit-crisp-edges';
-        console.log('🎨 Applied canvas styles:', canvas.style.imageRendering);
+        // DEBUG: Verify actual canvas position
+        const canvasRect = canvas.getBoundingClientRect();
+        console.log(`🔄 CANVAS TRANSFORM: translate(${panX.toFixed(1)}, ${panY.toFixed(1)}) scale(${zoom.toFixed(2)})`);
+        console.log(`  Canvas actual position: ${canvasRect.left.toFixed(1)}, ${canvasRect.top.toFixed(1)}, ${canvasRect.width.toFixed(1)}×${canvasRect.height.toFixed(1)}`);
+        console.log(`  Container position: ${containerRect.left.toFixed(1)}, ${containerRect.top.toFixed(1)}, ${containerRect.width.toFixed(1)}×${containerRect.height.toFixed(1)}`);
       }
     }
-  }, [zoom, panX, panY]);
+  }, [zoom, panX, panY, project.width, project.height, setPan]);
+
+  // Set canvas to use auto rendering to preserve both pixel art and smooth art
+  useEffect(() => {
+    if (containerRef.current) {
+      const canvas = containerRef.current.querySelector('canvas');
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        
+        // Use auto rendering to let the browser handle mixed content appropriately
+        canvas.style.imageRendering = 'auto';
+        if (ctx) {
+          ctx.imageSmoothingEnabled = false; // Disable to prevent double-smoothing during composition
+          (ctx as any).webkitImageSmoothingEnabled = false;
+          (ctx as any).mozImageSmoothingEnabled = false;
+          (ctx as any).msImageSmoothingEnabled = false;
+        }
+        // Canvas set to auto rendering
+      }
+    }
+  }, []); // Run once on mount
 
   // Add direct DOM event listener 
   useEffect(() => {
@@ -404,7 +1011,7 @@ export const DrawingCanvas = () => {
       event.preventDefault();
       event.stopPropagation();
       
-      const zoomFactor = 0.05; // Smaller factor for smoother zoom
+      const zoomFactor = 0.15; // Larger increments for faster zooming
       const wheelDelta = event.deltaY;
       
       // Use a more reliable approach to get current zoom
@@ -414,7 +1021,7 @@ export const DrawingCanvas = () => {
       const constrainedZoom = Math.max(0.1, Math.min(10, newZoom));
       
       // Reduced logging for performance
-      // console.log('Zoom:', { wheelDelta, currentZoom: currentZoom.toFixed(3), newZoom: newZoom.toFixed(3), constrainedZoom: constrainedZoom.toFixed(3) });
+      // Zoom calculation optimized for performance
       
       if (Math.abs(constrainedZoom - currentZoom) > 0.001) {
         const rect = container.getBoundingClientRect();
@@ -440,7 +1047,7 @@ export const DrawingCanvas = () => {
         if (!isSpacePressed.current) {
           isSpacePressed.current = true;
           setCursorUpdate(prev => prev + 1);
-          console.log('Global: Spacebar pressed - pan mode enabled');
+          // Spacebar pressed - pan mode enabled
         }
       }
     };
@@ -452,7 +1059,7 @@ export const DrawingCanvas = () => {
         isPanning.current = false;
         lastPanPos.current = null;
         setCursorUpdate(prev => prev + 1);
-        console.log('Global: Spacebar released - pan mode disabled');
+        // Spacebar released - pan mode disabled
       }
     };
 
@@ -477,7 +1084,7 @@ export const DrawingCanvas = () => {
         isPanning.current = true;
         lastPanPos.current = { x: event.clientX, y: event.clientY };
         setCursorUpdate(prev => prev + 1);
-        console.log('DOM: Started panning at', event.clientX, event.clientY);
+        // Started panning
       } else {
         // Handle drawing
         event.preventDefault();
@@ -487,30 +1094,44 @@ export const DrawingCanvas = () => {
         if (!canvas) return;
         
         const rect = container.getBoundingClientRect();
+        // DEBUG: Coordinate calculation with detailed logging
         const rawX = event.clientX - rect.left;
         const rawY = event.clientY - rect.top;
-        
-        // Transform to canvas coordinates (inverse of CSS transform)
         const mouseX = (rawX - panX) / zoom;
         const mouseY = (rawY - panY) / zoom;
         
-        console.log('🎨 DOM Drawing start:', { rawX, rawY, mouseX, mouseY, panX, panY, zoom, currentTool });
+        // DEBUG: Detailed coordinate analysis
+        console.log(`🖱️ MOUSE DOWN ANALYSIS:`);
+        console.log(`  Client: (${event.clientX}, ${event.clientY})`);
+        console.log(`  Container bounds: ${rect.left.toFixed(1)}, ${rect.top.toFixed(1)}, ${rect.width.toFixed(1)}×${rect.height.toFixed(1)}`);
+        console.log(`  Raw (relative to container): (${rawX.toFixed(1)}, ${rawY.toFixed(1)})`);
+        console.log(`  Transform: (${rawX.toFixed(1)} - ${panX.toFixed(1)}) / ${zoom.toFixed(2)} = ${mouseX.toFixed(1)}`);
+        console.log(`  Final canvas coords: (${mouseX.toFixed(1)}, ${mouseY.toFixed(1)})`);
+        console.log(`  Canvas size: ${project.width}×${project.height}`);
         
         // Check bounds
         if (mouseX < 0 || mouseX > project.width || mouseY < 0 || mouseY > project.height) {
-          console.log('Mouse outside canvas bounds');
+          // Mouse outside bounds - skip drawing
           return;
         }
         
-        isDrawing.current = true;
-        lastPos.current = { x: mouseX, y: mouseY };
-        
-        // Draw initial dot
-        if (p5InstanceRef.current) {
-          console.log('✅ p5 instance available, calling performDrawAction');
-          performDrawAction(p5InstanceRef.current, false, mouseX, mouseY);
+        if (currentTool === Tool.BRUSH_SELECT) {
+          // Handle brush selection
+          console.log('🎯 Starting brush selection at:', mouseX, mouseY);
+          setIsSelecting(true);
+          setSelection({ x: mouseX, y: mouseY }, null);
         } else {
-          console.log('❌ p5 instance not available');
+          // Handle regular drawing
+          isDrawing.current = true;
+          lastPos.current = { x: mouseX, y: mouseY };
+          
+          // Reset cumulative distance for new drawing session
+          cumulativeDistance = 0;
+          
+          // Draw initial dot
+          if (p5InstanceRef.current) {
+            performDrawAction(p5InstanceRef.current, false, mouseX, mouseY);
+          }
         }
       }
     };
@@ -533,8 +1154,8 @@ export const DrawingCanvas = () => {
         setPan(newPanX, newPanY);
         
         lastPanPos.current = { x: event.clientX, y: event.clientY };
-      } else if (isDrawing.current && lastPos.current) {
-        // Handle drawing
+      } else if (isSelecting && selectionStart && currentTool === Tool.BRUSH_SELECT) {
+        // Handle brush selection dragging
         event.preventDefault();
         
         const canvas = container.querySelector('canvas');
@@ -543,18 +1164,32 @@ export const DrawingCanvas = () => {
         const rect = container.getBoundingClientRect();
         const rawX = event.clientX - rect.left;
         const rawY = event.clientY - rect.top;
-        
-        // Transform to canvas coordinates (inverse of CSS transform)
         const mouseX = (rawX - panX) / zoom;
         const mouseY = (rawY - panY) / zoom;
         
-        console.log('🖌️ DOM Drawing drag:', { rawX, rawY, mouseX, mouseY });
+        // Update selection end position
+        console.log('🔄 Updating selection to:', mouseX, mouseY);
+        setSelection(selectionStart, { x: mouseX, y: mouseY });
+      } else if (isDrawing.current && lastPos.current) {
+        // Handle drawing
+        event.preventDefault();
+        
+        const canvas = container.querySelector('canvas');
+        if (!canvas) return;
+        
+        const rect = container.getBoundingClientRect();
+        // DEBUG: Coordinate calculation during drag
+        const rawX = event.clientX - rect.left;
+        const rawY = event.clientY - rect.top;
+        const mouseX = (rawX - panX) / zoom;
+        const mouseY = (rawY - panY) / zoom;
+        
+        // DEBUG: Track coordinate transformation during drag
+        console.log(`🖱️ MOUSE DRAG: raw(${rawX.toFixed(1)}, ${rawY.toFixed(1)}) -> canvas(${mouseX.toFixed(1)}, ${mouseY.toFixed(1)})`);
         
         // Draw line
         if (p5InstanceRef.current) {
           performDrawAction(p5InstanceRef.current, true, mouseX, mouseY);
-        } else {
-          console.log('❌ p5 instance not available for drag');
         }
         
         lastPos.current = { x: mouseX, y: mouseY };
@@ -567,13 +1202,19 @@ export const DrawingCanvas = () => {
         isPanning.current = false;
         lastPanPos.current = null;
         setCursorUpdate(prev => prev + 1);
-        console.log('DOM: Stopped panning');
+        // Stopped panning
+      } else if (isSelecting && currentTool === Tool.BRUSH_SELECT) {
+        event.preventDefault();
+        console.log('✅ Completed brush selection');
+        setIsSelecting(false);
+        setCursorUpdate(prev => prev + 1);
+        // Keep selection visible for brush creation
       } else if (isDrawing.current) {
         event.preventDefault();
         isDrawing.current = false;
         lastPos.current = null;
         setCursorUpdate(prev => prev + 1);
-        console.log('DOM: Stopped drawing');
+        // Stopped drawing
       }
     };
 
@@ -586,7 +1227,7 @@ export const DrawingCanvas = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [panX, panY, setPan, zoom, project.width, project.height, currentTool, brushSettings]);
+  }, [panX, panY, setPan, zoom, project.width, project.height, currentTool, brushSettings, isSelecting, selectionStart, selectionEnd, setSelection, setIsSelecting]);
 
   // Canvas should be managed by useP5 hook only
 
@@ -601,7 +1242,7 @@ export const DrawingCanvas = () => {
         layerGraphics.noSmooth();
         layerGraphics.background(0, 0, 0, 0); // Transparent background
         layerBuffers.current.set(layer.id, layerGraphics);
-        console.log('Created layer buffer for new layer:', layer.name);
+        // Created layer buffer for new layer
       }
     });
     
@@ -610,7 +1251,7 @@ export const DrawingCanvas = () => {
     for (const [layerId, buffer] of layerBuffers.current.entries()) {
       if (!existingLayerIds.has(layerId)) {
         layerBuffers.current.delete(layerId);
-        console.log('Removed layer buffer for deleted layer:', layerId);
+        // Removed layer buffer for deleted layer
       }
     }
   }, [project.layers]);
@@ -635,7 +1276,8 @@ export const DrawingCanvas = () => {
     
     switch (currentTool) {
       case Tool.BRUSH:
-      case Tool.PIXEL_BRUSH:
+        return 'crosshair';
+      case Tool.BRUSH_SELECT:
         return 'crosshair';
       case Tool.ERASER:
         return 'grab';
@@ -661,6 +1303,7 @@ export const DrawingCanvas = () => {
         <div className="relative w-full h-full overflow-hidden bg-white">
           <div 
             ref={containerRef}
+            data-canvas-container
             style={{
               cursor: getCursorStyle(),
             }}
