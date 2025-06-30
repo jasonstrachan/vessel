@@ -28,6 +28,7 @@ export const DrawingCanvas = () => {
     setIsSelecting,
     addCustomBrush,
     setCurrentTool,
+    setBrushSettings,
   } = useAppStore();
 
   const p5InstanceRef = useRef<p5 | null>(null);
@@ -105,7 +106,7 @@ export const DrawingCanvas = () => {
     });
     
     // Set main canvas background
-    p.background(240); // Light background
+    p.background(240); // Light gray background for drawing
     
     // FORCE AUTO-CENTER: Trigger centering after canvas is created
     setTimeout(() => {
@@ -133,7 +134,7 @@ export const DrawingCanvas = () => {
     p.noSmooth();
     
     // Clear main canvas and composite all visible layers
-    p.background(240); // Light background
+    p.background(240); // Light gray background for drawing
     
     // Draw all visible layers in order
     project.layers.forEach((layer, index) => {
@@ -312,6 +313,7 @@ export const DrawingCanvas = () => {
     const tempBrushId = 'temp_' + Date.now();
     const customBrush = {
       id: tempBrushId,
+      name: `Custom Brush ${Date.now()}`,
       imageData,
       thumbnail: thumbnailCanvas.toDataURL(),
       width,
@@ -901,8 +903,8 @@ export const DrawingCanvas = () => {
             // REGULAR LINE DRAWING
             const shouldUsePixelPerfect = brushSettings.pixelPerfect && effectiveSize <= PIXEL_PERFECT_THRESHOLD;
             
-            if (shouldUsePixelPerfect) {
-              // PIXEL PERFECT MODE: Only for small brushes (≤10px)
+            if (shouldUsePixelPerfect && brushSettings.spacing <= 1) {
+              // PIXEL PERFECT MODE: Only for small brushes with no spacing
               drawPixelPerfectBrushLine(
                 layerGraphics,
                 lastPos.current.x, lastPos.current.y,
@@ -911,26 +913,48 @@ export const DrawingCanvas = () => {
                 finalShape
               );
             } else {
-              // FAST MODE: For large brushes or smooth mode
-              const distance = Math.sqrt(
+              // DIRECT POINT CALCULATION FOR SPACING
+              const segmentDistance = Math.sqrt(
                 Math.pow(mouseX - lastPos.current.x, 2) + 
                 Math.pow(mouseY - lastPos.current.y, 2)
               );
               
-              // PERFORMANCE: Aggressive step size optimization for large brushes
-              const stepSize = effectiveSize > 20 ? Math.max(effectiveSize / 2, 5) : Math.max(1, effectiveSize / 3);
-              const steps = Math.max(1, Math.ceil(distance / stepSize));
-              
-              // Set graphics mode once before loop - preserve pixel mode for hard edges
-              setGraphicsMode(layerGraphics, brushSettings.pixelPerfect);
-              
-              for (let i = 0; i <= steps; i++) {
-                const t = i / steps;
-                const x = lastPos.current.x + (mouseX - lastPos.current.x) * t;
-                const y = lastPos.current.y + (mouseY - lastPos.current.y) * t;
+              // Handle edge case for zero or negative spacing
+              if (brushSettings.spacing <= 0) {
+                // Continuous drawing - just draw at current position if we moved
+                if (segmentDistance > 0) {
+                  setGraphicsMode(layerGraphics, brushSettings.pixelPerfect);
+                  drawShape(layerGraphics, mouseX, mouseY, effectiveSize, finalShape, false);
+                }
+              } else {
+                // Calculate first point to draw in this segment
+                const firstPointToDrawAbsolute = cumulativeDistance === 0 
+                  ? brushSettings.spacing // First point after stroke start
+                  : Math.ceil(cumulativeDistance / brushSettings.spacing) * brushSettings.spacing;
                 
-                drawShape(layerGraphics, x, y, effectiveSize, finalShape, false);
+                setGraphicsMode(layerGraphics, brushSettings.pixelPerfect);
+                
+                // Draw all points that fall within this segment
+                let targetAbsoluteDistance = firstPointToDrawAbsolute;
+                while (targetAbsoluteDistance <= cumulativeDistance + segmentDistance) {
+                  // Calculate t (interpolation factor) for this target point
+                  const distanceIntoSegment = targetAbsoluteDistance - cumulativeDistance;
+                  const t = distanceIntoSegment / segmentDistance;
+                  
+                  // Calculate exact position
+                  const x = lastPos.current.x + (mouseX - lastPos.current.x) * t;
+                  const y = lastPos.current.y + (mouseY - lastPos.current.y) * t;
+                  
+                  // Draw the shape at exact spacing interval
+                  drawShape(layerGraphics, x, y, effectiveSize, finalShape, false);
+                  
+                  // Move to next spacing interval
+                  targetAbsoluteDistance += brushSettings.spacing;
+                }
               }
+              
+              // Update cumulative distance after processing segment
+              cumulativeDistance += segmentDistance;
             }
           }
         } else {
@@ -1190,14 +1214,7 @@ export const DrawingCanvas = () => {
         const mouseX = (rawX - panX) / zoom;
         const mouseY = (rawY - panY) / zoom;
         
-        // DEBUG: Detailed coordinate analysis
-        console.log(`🖱️ MOUSE DOWN ANALYSIS:`);
-        console.log(`  Client: (${event.clientX}, ${event.clientY})`);
-        console.log(`  Container bounds: ${rect.left.toFixed(1)}, ${rect.top.toFixed(1)}, ${rect.width.toFixed(1)}×${rect.height.toFixed(1)}`);
-        console.log(`  Raw (relative to container): (${rawX.toFixed(1)}, ${rawY.toFixed(1)})`);
-        console.log(`  Transform: (${rawX.toFixed(1)} - ${panX.toFixed(1)}) / ${zoom.toFixed(2)} = ${mouseX.toFixed(1)}`);
-        console.log(`  Final canvas coords: (${mouseX.toFixed(1)}, ${mouseY.toFixed(1)})`);
-        console.log(`  Canvas size: ${project.width}×${project.height}`);
+        // Coordinate transformation complete
         
         // Check bounds
         if (mouseX < 0 || mouseX > project.width || mouseY < 0 || mouseY > project.height) {
@@ -1275,7 +1292,7 @@ export const DrawingCanvas = () => {
         const mouseY = (rawY - panY) / zoom;
         
         // DEBUG: Track coordinate transformation during drag
-        console.log(`🖱️ MOUSE DRAG: raw(${rawX.toFixed(1)}, ${rawY.toFixed(1)}) -> canvas(${mouseX.toFixed(1)}, ${mouseY.toFixed(1)})`);
+        // Mouse drag coordinates calculated
         
         // Draw line
         if (p5InstanceRef.current) {
@@ -1394,7 +1411,7 @@ export const DrawingCanvas = () => {
       {/* Canvas Container */}
       <div className="relative w-full h-full">
         {/* Canvas Border */}
-        <div className="relative w-full h-full overflow-hidden bg-white">
+        <div className="relative w-full h-full overflow-hidden bg-[#2a2a2a]">
           <div 
             ref={containerRef}
             data-canvas-container

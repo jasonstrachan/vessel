@@ -31,6 +31,7 @@ export interface CustomBrush {
 export interface BrushSettings {
   color: string;
   size: number;
+  spacing: number;
   opacity: number;
   rotation: number;
   brushShape: 'square' | 'circle' | 'custom';

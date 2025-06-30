@@ -43,6 +43,7 @@ interface AppStore extends AppState {
 const createDefaultBrushSettings = (): BrushSettings => ({
   color: '#000000',
   size: 1, // Default to 1px brush
+  spacing: 1, // Default spacing
   opacity: 1,
   rotation: 0,
   brushShape: 'square',

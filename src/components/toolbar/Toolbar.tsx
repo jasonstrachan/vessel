@@ -104,6 +104,48 @@ export const Toolbar = () => {
         </div>
       </div>
 
+      {/* Spacing */}
+      <div className="flex items-center gap-4">
+        <span className="text-white text-lg font-light w-16">Spacing</span>
+        <div className="flex items-center gap-3 flex-1">
+          <input 
+            type="number"
+            value={brushSettings.spacing}
+            onChange={(e) => setBrushSettings({ spacing: parseInt(e.target.value) || 1 })}
+            className="w-20 h-8 bg-transparent border-2 border-white text-white text-center text-sm"
+            min="1"
+            max="50"
+          />
+          <div className="flex-1 bg-[#3a3a3a] border-2 border-white h-8 relative">
+            <input
+              type="range"
+              min="1"
+              max="50"
+              value={brushSettings.spacing}
+              onChange={(e) => setBrushSettings({ spacing: parseInt(e.target.value) })}
+              className="w-full h-full appearance-none bg-transparent cursor-pointer
+                         [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 
+                         [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-none [&::-webkit-slider-thumb]:cursor-pointer"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Brush sz */}
+      <div className="flex items-center gap-4">
+        <span className="text-white text-lg font-light w-16">Brush sz</span>
+        <div 
+          onClick={() => setBrushSettings({ followBrush: !brushSettings.followBrush })}
+          className="w-12 h-6 border-2 border-white cursor-pointer relative bg-gray-800"
+        >
+          <div 
+            className={`w-5 h-4 bg-white absolute top-0.5 transition-transform ${
+              brushSettings.followBrush ? 'translate-x-5.5' : 'translate-x-0.5'
+            }`}
+          />
+        </div>
+      </div>
+
       <div className="h-px bg-[#404040]" />
 
       {/* Dotted */}
@@ -132,22 +174,6 @@ export const Toolbar = () => {
         <div className="space-y-4">
           <div className="h-px bg-[#404040]" />
           
-          {/* Brush sz */}
-          <div className="flex items-center gap-4">
-            <span className="text-white text-lg font-light w-20">Brush sz</span>
-            <div 
-              onClick={() => setBrushSettings({ followBrush: !brushSettings.followBrush })}
-              className="w-12 h-6 border-2 border-white cursor-pointer relative bg-gray-800"
-            >
-              <div 
-                className={`w-5 h-4 bg-white absolute top-0.5 transition-transform ${
-                  brushSettings.followBrush ? 'translate-x-5.5' : 'translate-x-0.5'
-                }`}
-              />
-            </div>
-          </div>
-
-
           {/* Length - in brush size units */}
           <div className="flex items-center gap-4">
             <span className="text-white text-lg font-light w-20">Length</span>

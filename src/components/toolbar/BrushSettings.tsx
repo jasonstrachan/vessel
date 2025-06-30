@@ -32,20 +32,15 @@ export const BrushSettings = () => {
         <div className="flex items-center justify-between">
           <label className="text-white text-xs font-medium">SPACING</label>
           <span className="text-[#888888] text-xs">
-            {brushSettings.dottedStyle.spacing}
+            {brushSettings.spacing}
           </span>
         </div>
         <input
           type="range"
           min="1"
           max="50"
-          value={brushSettings.dottedStyle.spacing}
-          onChange={(e) => setBrushSettings({
-            dottedStyle: { 
-              ...brushSettings.dottedStyle, 
-              spacing: parseInt(e.target.value) 
-            }
-          })}
+          value={brushSettings.spacing}
+          onChange={(e) => setBrushSettings({ spacing: parseInt(e.target.value) })}
           className="w-full h-1 bg-[#404040] rounded appearance-none cursor-pointer
                      [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 
                      [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
