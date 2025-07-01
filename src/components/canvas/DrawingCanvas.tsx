@@ -40,6 +40,7 @@ export const DrawingCanvas = () => {
   const canvasBuffer = useRef<any>(null);
   const layerBuffers = useRef<Map<string, any>>(new Map()); // Store P5 Graphics for each layer
   const [cursorUpdate, setCursorUpdate] = useState(0); // Force cursor updates
+  const [dynamicCursor, setDynamicCursor] = useState('crosshair'); // Cache generated cursor
   const lastPanUpdate = useRef(0); // Throttle pan updates
   
   // Waiting pixel algorithm state (from reference implementation)
@@ -594,6 +595,12 @@ export const DrawingCanvas = () => {
 
   // Custom brush drawing functions
   const drawCustomBrushStamp = (graphics: any, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0) => {
+    // Apply pixel-perfect coordinate snapping when enabled
+    if (brushSettings.pixelPerfect) {
+      x = Math.floor(x);
+      y = Math.floor(y);
+    }
+    
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -659,6 +666,10 @@ export const DrawingCanvas = () => {
         const snapped = snapToGrid(x, y, gridDims.width, gridDims.height);
         x = snapped.x;
         y = snapped.y;
+      } else if (brushSettings.pixelPerfect) {
+        // Apply pixel-perfect coordinate snapping when enabled
+        x = Math.floor(x);
+        y = Math.floor(y);
       }
       
       drawCustomBrushStamp(graphics, x, y, customBrush, scale, rotation);
@@ -693,6 +704,10 @@ export const DrawingCanvas = () => {
         const snapped = snapToGrid(x, y, gridDims.width, gridDims.height);
         x = snapped.x;
         y = snapped.y;
+      } else if (brushSettings.pixelPerfect) {
+        // Apply pixel-perfect coordinate snapping when enabled
+        x = Math.floor(x);
+        y = Math.floor(y);
       }
       
       // Calculate position in dotted pattern
@@ -924,8 +939,8 @@ export const DrawingCanvas = () => {
     
     // Determine rendering path for dotted lines
     
-    // For small brushes, use batched pixel operations for performance
-    if (brushSettings.pixelPerfect && size <= PIXEL_PERFECT_THRESHOLD) {
+    // Use pixel-perfect algorithms for all brush sizes when toggle is ON
+    if (brushSettings.pixelPerfect) {
       graphics.loadPixels();
       const fillColor = graphics.color(brushSettings.color);
       
@@ -964,7 +979,7 @@ export const DrawingCanvas = () => {
       
       graphics.updatePixels();
     } else {
-      // Universal mode: Works for ALL brush sizes (small and large)
+      // Smooth mode: Anti-aliased rendering when pixel-perfect is OFF
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
         let x = x1 + (x2 - x1) * t;
@@ -1000,10 +1015,8 @@ export const DrawingCanvas = () => {
     // Pattern complete
   };
 
-  // PERFORMANCE: Size-based rendering strategy
-  // Brushes ≤10px use pixel-perfect algorithms (Bresenham + batched operations)
-  // Brushes >10px use fast P5.js native shapes with optional hard edges
-  const PIXEL_PERFECT_THRESHOLD = 10;
+  // UNIFIED PIXEL-PERFECT: All brush sizes use pixel-perfect algorithms when toggle is ON
+  // No size-based limitations - pixel-perfect applies to all brush types and sizes
   
   // ULTRA-FAST shape drawing with size-based optimization
   let currentSmoothMode: boolean | null = null;
@@ -1030,34 +1043,38 @@ export const DrawingCanvas = () => {
   };
   
   const drawShape = (graphics: any, x: number, y: number, size: number, isSquare: boolean, withRotation: boolean = false, rotation: number = 0) => {
-    // RENDERING STRATEGY: 
-    // - Small brushes (≤10px) + Pixel ON = True pixel-perfect (Bresenham algorithm)
-    // - Large brushes (>10px) + Pixel ON = Fast shapes with hard edges
+    // UNIFIED PIXEL-PERFECT STRATEGY: 
+    // - Any size + Pixel ON = True pixel-perfect with coordinate snapping
     // - Any size + Pixel OFF = Smooth anti-aliased shapes
-    const shouldUsePixelPerfect = brushSettings.pixelPerfect && size <= PIXEL_PERFECT_THRESHOLD;
+    const shouldUsePixelPerfect = brushSettings.pixelPerfect;
     
     if (shouldUsePixelPerfect) {
-      // PIXEL PERFECT MODE: Only for small brushes (fast)
-      // For pixel brushes, rotation is applied differently to maintain hard edges
-      if (withRotation && brushSettings.rotateEnabled && rotation !== 0 && isSquare) {
-        // Rotated pixel squares need special handling to maintain hard edges
+      // PIXEL PERFECT MODE: All brush sizes use pixel-perfect coordinate snapping
+      // Rotation maintains hard edges for all brush sizes
+      if (withRotation && brushSettings.rotateEnabled && rotation !== 0) {
+        // Rotated pixel-perfect shapes need special handling to maintain hard edges
+        setGraphicsMode(graphics, true); // Ensure pixel-perfect mode is applied
         graphics.push();
-        graphics.translate(x, y);
+        graphics.translate(Math.floor(x), Math.floor(y));
         graphics.rotate(graphics.radians(rotation));
         graphics.noStroke();
         graphics.fill(graphics.color(brushSettings.color));
-        graphics.rectMode(graphics.CENTER);
-        graphics.rect(0, 0, Math.floor(size), Math.floor(size));
+        
+        if (isSquare) {
+          graphics.rectMode(graphics.CENTER);
+          graphics.rect(0, 0, Math.floor(size), Math.floor(size));
+        } else {
+          graphics.circle(0, 0, Math.floor(size));
+        }
         graphics.pop();
       } else {
-        // Regular pixel perfect shapes without rotation or circle shapes
+        // Regular pixel perfect shapes without rotation
         drawPixelPerfectShape(graphics, x, y, size, isSquare);
       }
       return;
     }
     
-    // FAST NATIVE RENDERING: For large brushes use P5.js native shapes
-    // BUT preserve hard edges when pixel toggle is ON
+    // NATIVE RENDERING: Use P5.js shapes with pixel-perfect coordinates when enabled
     setGraphicsMode(graphics, brushSettings.pixelPerfect); // Keep pixel mode for hard edges!
     
     graphics.push();
@@ -1082,7 +1099,7 @@ export const DrawingCanvas = () => {
     
     if (finalShape) {
       graphics.rectMode(graphics.CENTER);
-      // Snap large brush position to pixel grid when pixel mode is ON
+      // Snap all brush positions to pixel grid when pixel-perfect mode is ON
       if (brushSettings.pixelPerfect) {
         graphics.rect(Math.floor(x), Math.floor(y), Math.floor(size), Math.floor(size));
       } else {
@@ -1196,6 +1213,10 @@ export const DrawingCanvas = () => {
           // Calculate smooth rotation angle from movement direction
           const rotation = brushSettings.rotateEnabled ? calculateSmoothBrushRotation(lastPos.current.x, lastPos.current.y, mouseX, mouseY) : 0;
           
+          if (brushSettings.rotateEnabled) {
+            console.log('🎯 ROTATION CALC:', { enabled: brushSettings.rotateEnabled, rotation: rotation.toFixed(1), pixelPerfect: brushSettings.pixelPerfect });
+          }
+          
           // Check if dotted style is enabled
           if (brushSettings.dottedStyle.enabled) {
             // DOTTED LINE DRAWING
@@ -1216,13 +1237,11 @@ export const DrawingCanvas = () => {
             );
           } else {
             // REGULAR LINE DRAWING
-            const shouldUsePixelPerfect = brushSettings.pixelPerfect && effectiveSize <= PIXEL_PERFECT_THRESHOLD;
-            
-            if (shouldUsePixelPerfect && brushSettings.spacing <= 1 && effectiveSize === 1) {
+            if (brushSettings.pixelPerfect && brushSettings.spacing <= 1 && effectiveSize === 1) {
               // WAITING PIXEL ALGORITHM: Perfect pixel-perfect drawing for 1px brushes
               perfectPixels(layerGraphics, mouseX, mouseY, brushSettings.color);
-            } else if (shouldUsePixelPerfect && brushSettings.spacing <= 1) {
-              // PIXEL PERFECT MODE: Only for small brushes with no spacing
+            } else if (brushSettings.pixelPerfect && brushSettings.spacing <= 1) {
+              // PIXEL PERFECT MODE: All brush sizes with pixel-perfect line drawing
               drawPixelPerfectBrushLine(
                 layerGraphics,
                 lastPos.current.x, lastPos.current.y,
@@ -1285,14 +1304,12 @@ export const DrawingCanvas = () => {
             }
           }
         } else {
-          // Single dot - optimized for size
-          const shouldUsePixelPerfect = brushSettings.pixelPerfect && effectiveSize <= PIXEL_PERFECT_THRESHOLD;
-          
+          // Single dot - pixel-perfect for all sizes when enabled
           let drawX = mouseX;
           let drawY = mouseY;
           
-          // Snap to pixel grid only for small brushes in pixel perfect mode
-          if (shouldUsePixelPerfect) {
+          // Snap to pixel grid when pixel perfect mode is enabled
+          if (brushSettings.pixelPerfect) {
             drawX = Math.floor(mouseX);
             drawY = Math.floor(mouseY);
           }
@@ -1744,24 +1761,86 @@ export const DrawingCanvas = () => {
     return () => clearInterval(interval);
   }, [isPlaying, project.fps, setCurrentFrame]);
 
-  const getCursorStyle = () => {
+  // Generate dynamic cursor that shows brush size and centers properly
+  const generateBrushCursor = () => {
     if (isSpacePressed.current) {
       return isPanning.current ? 'grabbing' : 'grab';
     }
     
     switch (currentTool) {
       case Tool.BRUSH:
-        return 'crosshair';
+      case Tool.ERASER:
+        // Create dynamic cursor based on brush size
+        const size = Math.max(4, Math.min(64, brushSettings.size * zoom)); // Scale with zoom, clamp between 4-64px
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return 'crosshair';
+        
+        // Set canvas size to accommodate cursor
+        const canvasSize = Math.max(32, size + 8); // Minimum 32px, or size + padding
+        canvas.width = canvasSize;
+        canvas.height = canvasSize;
+        
+        const center = canvasSize / 2;
+        const radius = size / 2;
+        
+        // Draw cursor outline
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        
+        if (brushSettings.brushShape === 'square' || currentTool === Tool.ERASER) {
+          // Draw square cursor
+          ctx.rect(center - radius, center - radius, size, size);
+        } else {
+          // Draw circle cursor  
+          ctx.arc(center, center, radius, 0, Math.PI * 2);
+        }
+        ctx.stroke();
+        
+        // Draw inner outline for better visibility
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        
+        if (brushSettings.brushShape === 'square' || currentTool === Tool.ERASER) {
+          ctx.rect(center - radius, center - radius, size, size);
+        } else {
+          ctx.arc(center, center, radius, 0, Math.PI * 2);
+        }
+        ctx.stroke();
+        
+        // Add center crosshair for precision
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(center - 4, center);
+        ctx.lineTo(center + 4, center);
+        ctx.moveTo(center, center - 4);
+        ctx.lineTo(center, center + 4);
+        ctx.stroke();
+        
+        const dataUrl = canvas.toDataURL();
+        return `url(${dataUrl}) ${center} ${center}, crosshair`;
+        
       case Tool.BRUSH_SELECT:
         return 'crosshair';
-      case Tool.ERASER:
-        return 'grab';
       case Tool.FILL:
         return 'pointer';
       default:
         return 'default';
     }
   };
+
+  const getCursorStyle = () => {
+    return dynamicCursor;
+  };
+
+  // Update cursor when brush settings or zoom changes
+  useEffect(() => {
+    const newCursor = generateBrushCursor();
+    setDynamicCursor(newCursor);
+  }, [brushSettings.size, brushSettings.brushShape, currentTool, zoom, cursorUpdate]);
 
   const clearCanvas = () => {
     if (p5InstanceRef.current) {
