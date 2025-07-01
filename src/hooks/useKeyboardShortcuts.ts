@@ -10,6 +10,8 @@ export const useKeyboardShortcuts = () => {
     redo,
     setCurrentFrame,
     project,
+    setBrushSettings,
+    brushSettings,
   } = useAppStore();
 
   useEffect(() => {
@@ -22,14 +24,38 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
-      const { key, ctrlKey, metaKey, shiftKey } = event;
+      const { key, code, ctrlKey, metaKey, shiftKey } = event;
       const cmdOrCtrl = ctrlKey || metaKey;
+      
+      // Debug logging for bracket keys
+      if (key === '[' || key === ']' || code === 'BracketLeft' || code === 'BracketRight') {
+        console.log('🔍 Bracket key detected:', { key, code, ctrlKey, metaKey, shiftKey });
+      }
 
       // Prevent default for our shortcuts
       const shouldPreventDefault = () => {
         event.preventDefault();
         event.stopPropagation();
       };
+
+      // Handle bracket shortcuts by code for reliability
+      if (code === 'BracketLeft') {
+        console.log('🎯 Decrease brush size shortcut triggered (code), current:', brushSettings.size);
+        shouldPreventDefault();
+        setBrushSettings({ 
+          size: Math.max(1, brushSettings.size - 1) 
+        });
+        return;
+      }
+      
+      if (code === 'BracketRight') {
+        console.log('🎯 Increase brush size shortcut triggered (code), current:', brushSettings.size);
+        shouldPreventDefault();
+        setBrushSettings({ 
+          size: Math.min(50, brushSettings.size + 1) 
+        });
+        return;
+      }
 
       switch (key.toLowerCase()) {
         // Tool shortcuts
@@ -81,6 +107,26 @@ export const useKeyboardShortcuts = () => {
           setCurrentFrame(nextFrame);
           break;
 
+        // Brush size shortcuts - handle multiple key representations
+        case '[':
+        case 'bracketleft':
+        case 'BracketLeft':
+          console.log('🎯 Decrease brush size shortcut triggered, current:', brushSettings.size);
+          shouldPreventDefault();
+          setBrushSettings({ 
+            size: Math.max(1, brushSettings.size - 1) 
+          });
+          break;
+        case ']':
+        case 'bracketright':
+        case 'BracketRight':
+          console.log('🎯 Increase brush size shortcut triggered, current:', brushSettings.size);
+          shouldPreventDefault();
+          setBrushSettings({ 
+            size: Math.min(50, brushSettings.size + 1) 
+          });
+          break;
+
         // Undo/Redo
         case 'z':
           if (cmdOrCtrl) {
@@ -103,5 +149,5 @@ export const useKeyboardShortcuts = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setCurrentTool, togglePlay, undo, redo, setCurrentFrame, project]);
+  }, [setCurrentTool, togglePlay, undo, redo, setCurrentFrame, project, setBrushSettings, brushSettings]);
 };

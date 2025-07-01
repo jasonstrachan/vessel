@@ -2,6 +2,7 @@
 
 import { useAppStore } from '@/stores/useAppStore';
 import { CustomBrushPanel } from './CustomBrushPanel';
+import DragInput from '@/components/ui/DragInput';
 
 export const Toolbar = () => {
   const { brushSettings, setBrushSettings } = useAppStore();
@@ -9,8 +10,8 @@ export const Toolbar = () => {
   return (
     <div className="w-72 bg-[#2a2a2a] border-l border-[#404040] flex flex-col p-3 space-y-4 overflow-y-auto max-h-full">
       {/* Color */}
-      <div className="flex items-center gap-3">
-        <span className="text-white text-base font-light w-14">Color</span>
+      <div className="flex items-center gap-4">
+        <span className="text-white text-lg font-light w-16">Color</span>
         <div className="relative">
           <input
             type="color"
@@ -26,8 +27,8 @@ export const Toolbar = () => {
       </div>
 
       {/* Pixel */}
-      <div className="flex items-center gap-3">
-        <span className="text-white text-base font-light w-14">Pixel</span>
+      <div className="flex items-center gap-4">
+        <span className="text-white text-lg font-light w-16">Pixel</span>
         <div 
           onClick={() => {
             console.log('🔄 Pixel toggle clicked. Current:', brushSettings.pixelPerfect, '-> New:', !brushSettings.pixelPerfect);
@@ -46,10 +47,10 @@ export const Toolbar = () => {
       {/* Shape */}
       <div className="flex items-center gap-4">
         <span className="text-white text-lg font-light w-16">Shape</span>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <div 
             onClick={() => setBrushSettings({ brushShape: 'square', selectedCustomBrush: null })}
-            className={`w-8 h-8 border-2 cursor-pointer transition-colors ${
+            className={`w-4 h-4 border-2 cursor-pointer transition-colors ${
               brushSettings.brushShape === 'square' 
                 ? 'border-white bg-white' 
                 : 'border-white bg-transparent hover:bg-gray-700'
@@ -57,7 +58,7 @@ export const Toolbar = () => {
           />
           <div 
             onClick={() => setBrushSettings({ brushShape: 'circle', selectedCustomBrush: null })}
-            className={`w-8 h-8 rounded-full border-2 border-white cursor-pointer transition-colors ${
+            className={`w-4 h-4 rounded-full border-2 border-white cursor-pointer transition-colors ${
               brushSettings.brushShape === 'circle' 
                 ? 'bg-white' 
                 : 'bg-gray-400 hover:bg-gray-300'
@@ -65,7 +66,7 @@ export const Toolbar = () => {
           />
           <div 
             onClick={() => {}}
-            className={`w-8 h-8 border-2 cursor-pointer transition-colors flex items-center justify-center text-white text-xs ${
+            className={`w-4 h-4 border-2 cursor-pointer transition-colors flex items-center justify-center text-white text-xs ${
               brushSettings.brushShape === 'custom' 
                 ? 'border-white bg-[#60a5fa]' 
                 : 'border-white bg-transparent hover:bg-gray-700'
@@ -81,15 +82,14 @@ export const Toolbar = () => {
       <div className="flex items-center gap-4">
         <span className="text-white text-lg font-light w-16">Size</span>
         <div className="flex items-center gap-3 flex-1">
-          <input 
-            type="number"
+          <DragInput 
             value={brushSettings.size}
-            onChange={(e) => setBrushSettings({ size: parseInt(e.target.value) || 1 })}
+            onChange={(value) => setBrushSettings({ size: value })}
             className="w-20 h-8 bg-transparent border-2 border-white text-white text-center text-sm"
-            min="1"
-            max="50"
+            min={1}
+            max={50}
           />
-          <div className="flex-1 bg-[#3a3a3a] border-2 border-white h-8 relative">
+          <div className="flex-1 bg-[#3a3a3a] border-2 border-white h-8 relative px-2">
             <input
               type="range"
               min="1"
@@ -108,15 +108,14 @@ export const Toolbar = () => {
       <div className="flex items-center gap-4">
         <span className="text-white text-lg font-light w-16">Spacing</span>
         <div className="flex items-center gap-3 flex-1">
-          <input 
-            type="number"
+          <DragInput 
             value={brushSettings.spacing}
-            onChange={(e) => setBrushSettings({ spacing: parseInt(e.target.value) || 1 })}
+            onChange={(value) => setBrushSettings({ spacing: value })}
             className="w-20 h-8 bg-transparent border-2 border-white text-white text-center text-sm"
-            min="1"
-            max="50"
+            min={1}
+            max={50}
           />
-          <div className="flex-1 bg-[#3a3a3a] border-2 border-white h-8 relative">
+          <div className="flex-1 bg-[#3a3a3a] border-2 border-white h-8 relative px-2">
             <input
               type="range"
               min="1"
@@ -150,7 +149,7 @@ export const Toolbar = () => {
 
       {/* Dotted */}
       <div className="flex items-center gap-4">
-        <span className="text-white text-lg font-light w-20">Dotted</span>
+        <span className="text-white text-lg font-light w-16">Dotted</span>
         <div 
           onClick={() => setBrushSettings({ 
             dottedStyle: { ...brushSettings.dottedStyle, enabled: !brushSettings.dottedStyle.enabled }
@@ -178,15 +177,14 @@ export const Toolbar = () => {
           <div className="flex items-center gap-4">
             <span className="text-white text-lg font-light w-20">Length</span>
             <div className="flex items-center gap-3 flex-1">
-              <input 
-                type="number"
+              <DragInput 
                 value={brushSettings.dottedStyle.dashLength}
-                onChange={(e) => setBrushSettings({ 
-                  dottedStyle: { ...brushSettings.dottedStyle, dashLength: parseInt(e.target.value) || 1 }
+                onChange={(value) => setBrushSettings({ 
+                  dottedStyle: { ...brushSettings.dottedStyle, dashLength: value }
                 })}
                 className="w-16 h-8 bg-transparent border-2 border-white text-white text-center text-sm"
-                min="1"
-                max="10"
+                min={1}
+                max={10}
               />
               <div className="flex-1 bg-[#3a3a3a] border-2 border-white h-8 relative">
                 <input
@@ -209,15 +207,14 @@ export const Toolbar = () => {
           <div className="flex items-center gap-4">
             <span className="text-white text-lg font-light w-20">Gap</span>
             <div className="flex items-center gap-3 flex-1">
-              <input 
-                type="number"
+              <DragInput 
                 value={brushSettings.dottedStyle.gap}
-                onChange={(e) => setBrushSettings({ 
-                  dottedStyle: { ...brushSettings.dottedStyle, gap: parseInt(e.target.value) || 1 }
+                onChange={(value) => setBrushSettings({ 
+                  dottedStyle: { ...brushSettings.dottedStyle, gap: value }
                 })}
                 className="w-16 h-8 bg-transparent border-2 border-white text-white text-center text-sm"
-                min="1"
-                max="10"
+                min={1}
+                max={10}
               />
               <div className="flex-1 bg-[#3a3a3a] border-2 border-white h-8 relative">
                 <input
@@ -243,7 +240,7 @@ export const Toolbar = () => {
 
       {/* Rotate */}
       <div className="flex items-center gap-4">
-        <span className="text-white text-lg font-light w-20">Rotate</span>
+        <span className="text-white text-lg font-light w-16">Rotate</span>
         <div 
           onClick={() => setBrushSettings({ rotateEnabled: !brushSettings.rotateEnabled })}
           className="w-12 h-6 border-2 border-white cursor-pointer relative bg-gray-800"
@@ -258,7 +255,7 @@ export const Toolbar = () => {
 
       {/* Pressure */}
       <div className="flex items-center gap-4">
-        <span className="text-white text-lg font-light w-20">Pressure</span>
+        <span className="text-white text-lg font-light w-16">Pressure</span>
         <div className="flex items-center gap-2">
           <div 
             onClick={() => setBrushSettings({ 
@@ -272,26 +269,24 @@ export const Toolbar = () => {
               }`}
             />
           </div>
-          <input 
-            type="number"
+          <DragInput 
             value={brushSettings.pressureSettings.minValue}
-            onChange={(e) => setBrushSettings({ 
-              pressureSettings: { ...brushSettings.pressureSettings, minValue: parseInt(e.target.value) || 1 }
+            onChange={(value) => setBrushSettings({ 
+              pressureSettings: { ...brushSettings.pressureSettings, minValue: value }
             })}
             className="w-12 h-8 bg-transparent border-2 border-white text-white text-center text-sm"
-            min="1"
-            max="10"
+            min={1}
+            max={10}
           />
           <span className="text-white">-</span>
-          <input 
-            type="number"
+          <DragInput 
             value={brushSettings.pressureSettings.maxValue}
-            onChange={(e) => setBrushSettings({ 
-              pressureSettings: { ...brushSettings.pressureSettings, maxValue: parseInt(e.target.value) || 5 }
+            onChange={(value) => setBrushSettings({ 
+              pressureSettings: { ...brushSettings.pressureSettings, maxValue: value }
             })}
             className="w-12 h-8 bg-transparent border-2 border-white text-white text-center text-sm"
-            min="1"
-            max="10"
+            min={1}
+            max={10}
           />
         </div>
       </div>
