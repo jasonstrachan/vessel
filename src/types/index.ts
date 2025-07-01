@@ -36,7 +36,7 @@ export interface BrushSettings {
   rotation: number;
   brushShape: 'square' | 'circle' | 'custom';
   pixelPerfect: boolean;
-  followBrush: boolean;
+  gridSnap: boolean;
   rotateEnabled: boolean; // Separate rotate toggle
   selectedCustomBrush: string | null; // ID of selected custom brush
   dottedStyle: {

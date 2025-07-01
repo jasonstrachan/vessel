@@ -448,6 +448,35 @@ export const DrawingCanvas = () => {
     return Math.round(coord);
   };
 
+  // Grid snapping based on brush dimensions
+  const snapToGrid = (x: number, y: number, gridWidth: number, gridHeight: number): { x: number, y: number } => {
+    return {
+      x: Math.round(x / gridWidth) * gridWidth,
+      y: Math.round(y / gridHeight) * gridHeight
+    };
+  };
+
+  // Get grid dimensions based on current brush
+  const getGridDimensions = (): { width: number, height: number } => {
+    if (brushSettings.brushShape === 'custom' && brushSettings.selectedCustomBrush) {
+      const customBrush = project.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
+      if (customBrush) {
+        const scaleFactor = brushSettings.size;
+        return {
+          width: Math.max(1, customBrush.width * scaleFactor),
+          height: Math.max(1, customBrush.height * scaleFactor)
+        };
+      }
+    }
+    // For square and circle brushes, use brush size for both dimensions
+    // Ensure minimum grid size of 1
+    const size = Math.max(1, brushSettings.size);
+    return {
+      width: size,
+      height: size
+    };
+  };
+
   // Bresenham's Line Algorithm for pixel-perfect lines
   const bresenhamLine = (x0: number, y0: number, x1: number, y1: number): Array<{x: number, y: number}> => {
     const pixels: Array<{x: number, y: number}> = [];
@@ -551,10 +580,60 @@ export const DrawingCanvas = () => {
     
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
-      const x = x1 + (x2 - x1) * t;
-      const y = y1 + (y2 - y1) * t;
+      let x = x1 + (x2 - x1) * t;
+      let y = y1 + (y2 - y1) * t;
+      
+      // Apply grid snapping to custom brush interpolated points if enabled
+      if (brushSettings.gridSnap) {
+        const gridDims = getGridDimensions();
+        const snapped = snapToGrid(x, y, gridDims.width, gridDims.height);
+        x = snapped.x;
+        y = snapped.y;
+      }
+      
       drawCustomBrushStamp(graphics, x, y, customBrush, scale);
     }
+  };
+
+  // Dotted line drawing for custom brushes
+  const drawDottedCustomBrushLine = (graphics: any, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number, spacing: number, dashLength: number, gap: number) => {
+    const segmentDistance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+    
+    // Calculate actual pixel values from brush size units
+    const brushSize = Math.max(customBrush.width, customBrush.height) * scale;
+    const dashLengthPixels = dashLength * brushSize;
+    const gapPixels = gap * brushSize;
+    const patternLength = dashLengthPixels + gapPixels;
+    
+    // Use fine-grained steps for smooth pattern sampling
+    const stepDistance = Math.min(spacing / 8, brushSize / 4, 1);
+    const steps = Math.max(1, Math.ceil(segmentDistance / stepDistance));
+    
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      let x = x1 + (x2 - x1) * t;
+      let y = y1 + (y2 - y1) * t;
+      
+      // Apply grid snapping to dotted custom brush interpolated points if enabled
+      if (brushSettings.gridSnap) {
+        const gridDims = getGridDimensions();
+        const snapped = snapToGrid(x, y, gridDims.width, gridDims.height);
+        x = snapped.x;
+        y = snapped.y;
+      }
+      
+      // Calculate position in dotted pattern
+      const totalDistanceAtPoint = cumulativeDistance + (t * segmentDistance);
+      const positionInPattern = totalDistanceAtPoint % patternLength;
+      
+      // Only draw if we're in a dash segment (not in gap)
+      if (positionInPattern < dashLengthPixels) {
+        drawCustomBrushStamp(graphics, x, y, customBrush, scale);
+      }
+    }
+    
+    // Update cumulative distance for next segment
+    cumulativeDistance += segmentDistance;
   };
 
   // ULTRA-FAST pixel line drawing with direct ImageData manipulation
@@ -780,8 +859,16 @@ export const DrawingCanvas = () => {
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
         // PIXEL-PERFECT: Use consistent integer coordinates
-        const x = Math.round(x1 + (x2 - x1) * t);
-        const y = Math.round(y1 + (y2 - y1) * t);
+        let x = Math.round(x1 + (x2 - x1) * t);
+        let y = Math.round(y1 + (y2 - y1) * t);
+        
+        // Apply grid snapping to dotted line interpolated points if enabled
+        if (brushSettings.gridSnap) {
+          const gridDims = getGridDimensions();
+          const snapped = snapToGrid(x, y, gridDims.width, gridDims.height);
+          x = snapped.x;
+          y = snapped.y;
+        }
         
         // FIXED: Use cumulative distance + segment progress
         const totalDistanceAtPoint = cumulativeDistance + (t * segmentDistance);
@@ -807,8 +894,16 @@ export const DrawingCanvas = () => {
       // Universal mode: Works for ALL brush sizes (small and large)
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
-        const x = x1 + (x2 - x1) * t;
-        const y = y1 + (y2 - y1) * t;
+        let x = x1 + (x2 - x1) * t;
+        let y = y1 + (y2 - y1) * t;
+        
+        // Apply grid snapping to dotted line interpolated points if enabled
+        if (brushSettings.gridSnap) {
+          const gridDims = getGridDimensions();
+          const snapped = snapToGrid(x, y, gridDims.width, gridDims.height);
+          x = snapped.x;
+          y = snapped.y;
+        }
         
         // FIXED: Use cumulative distance + segment progress
         const totalDistanceAtPoint = cumulativeDistance + (t * segmentDistance);
@@ -925,6 +1020,14 @@ export const DrawingCanvas = () => {
     mouseX = currentMouseX !== undefined ? currentMouseX : (p.mouseX - panX) / zoom;
     mouseY = currentMouseY !== undefined ? currentMouseY : (p.mouseY - panY) / zoom;
     
+    // Apply grid snapping if enabled
+    if (brushSettings.gridSnap && currentMouseX === undefined && currentMouseY === undefined) {
+      const gridDims = getGridDimensions();
+      const snapped = snapToGrid(mouseX, mouseY, gridDims.width, gridDims.height);
+      mouseX = snapped.x;
+      mouseY = snapped.y;
+    }
+    
     // Get the active layer buffer
     const activeLayer = project.layers[currentLayer];
     if (!activeLayer || !layerBuffers.current.has(activeLayer.id)) {
@@ -968,7 +1071,24 @@ export const DrawingCanvas = () => {
           const scaleFactor = brushSettings.size;
           
           if (isDragging && lastPos.current !== null) {
-            drawCustomBrushLine(layerGraphics, lastPos.current.x, lastPos.current.y, mouseX, mouseY, customBrush, scaleFactor);
+            // Check if dotted style is enabled for custom brushes too
+            if (brushSettings.dottedStyle.enabled) {
+              // Use regular dotted line logic but with custom brush stamp
+              const actualSpacing = brushSettings.dottedStyle.spacing;
+              
+              drawDottedCustomBrushLine(
+                layerGraphics,
+                lastPos.current.x, lastPos.current.y,
+                mouseX, mouseY,
+                customBrush,
+                scaleFactor,
+                actualSpacing,
+                brushSettings.dottedStyle.dashLength,
+                brushSettings.dottedStyle.gap
+              );
+            } else {
+              drawCustomBrushLine(layerGraphics, lastPos.current.x, lastPos.current.y, mouseX, mouseY, customBrush, scaleFactor);
+            }
           } else {
             // Single custom brush stamp
             drawCustomBrushStamp(layerGraphics, mouseX, mouseY, customBrush, scaleFactor);
@@ -989,7 +1109,7 @@ export const DrawingCanvas = () => {
           // Check if dotted style is enabled
           if (brushSettings.dottedStyle.enabled) {
             // DOTTED LINE DRAWING
-            const actualSpacing = brushSettings.followBrush ? effectiveSize : brushSettings.dottedStyle.spacing;
+            const actualSpacing = brushSettings.dottedStyle.spacing;
             
             // Drawing dotted stroke
             
@@ -1031,6 +1151,7 @@ export const DrawingCanvas = () => {
                 // Continuous drawing - just draw at current position if we moved
                 if (segmentDistance > 0) {
                   setGraphicsMode(layerGraphics, brushSettings.pixelPerfect);
+                  // Note: mouseX, mouseY are already grid-snapped if gridSnap is enabled
                   drawShape(layerGraphics, mouseX, mouseY, effectiveSize, finalShape, false);
                 }
               } else {
@@ -1049,8 +1170,16 @@ export const DrawingCanvas = () => {
                   const t = distanceIntoSegment / segmentDistance;
                   
                   // Calculate exact position
-                  const x = lastPos.current.x + (mouseX - lastPos.current.x) * t;
-                  const y = lastPos.current.y + (mouseY - lastPos.current.y) * t;
+                  let x = lastPos.current.x + (mouseX - lastPos.current.x) * t;
+                  let y = lastPos.current.y + (mouseY - lastPos.current.y) * t;
+                  
+                  // Apply grid snapping to interpolated points if enabled
+                  if (brushSettings.gridSnap) {
+                    const gridDims = getGridDimensions();
+                    const snapped = snapToGrid(x, y, gridDims.width, gridDims.height);
+                    x = snapped.x;
+                    y = snapped.y;
+                  }
                   
                   // Draw the shape at exact spacing interval
                   drawShape(layerGraphics, x, y, effectiveSize, finalShape, false);
@@ -1318,8 +1447,16 @@ export const DrawingCanvas = () => {
         // DEBUG: Coordinate calculation with detailed logging
         const rawX = event.clientX - rect.left;
         const rawY = event.clientY - rect.top;
-        const mouseX = (rawX - panX) / zoom;
-        const mouseY = (rawY - panY) / zoom;
+        let mouseX = (rawX - panX) / zoom;
+        let mouseY = (rawY - panY) / zoom;
+        
+        // Apply grid snapping if enabled
+        if (brushSettings.gridSnap) {
+          const gridDims = getGridDimensions();
+          const snapped = snapToGrid(mouseX, mouseY, gridDims.width, gridDims.height);
+          mouseX = snapped.x;
+          mouseY = snapped.y;
+        }
         
         // Coordinate transformation complete
         
@@ -1398,8 +1535,16 @@ export const DrawingCanvas = () => {
         // DEBUG: Coordinate calculation during drag
         const rawX = event.clientX - rect.left;
         const rawY = event.clientY - rect.top;
-        const mouseX = (rawX - panX) / zoom;
-        const mouseY = (rawY - panY) / zoom;
+        let mouseX = (rawX - panX) / zoom;
+        let mouseY = (rawY - panY) / zoom;
+        
+        // Apply grid snapping if enabled
+        if (brushSettings.gridSnap) {
+          const gridDims = getGridDimensions();
+          const snapped = snapToGrid(mouseX, mouseY, gridDims.width, gridDims.height);
+          mouseX = snapped.x;
+          mouseY = snapped.y;
+        }
         
         // DEBUG: Track coordinate transformation during drag
         // Mouse drag coordinates calculated

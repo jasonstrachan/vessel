@@ -17,11 +17,14 @@ export const Toolbar = () => {
             type="color"
             value={brushSettings.color}
             onChange={(e) => setBrushSettings({ color: e.target.value })}
-            className="w-8 h-8 rounded-full border-2 border-gray-400 cursor-pointer opacity-0 absolute"
-          />
-          <div 
-            className="w-8 h-8 rounded-full border-2 border-gray-400 cursor-pointer"
-            style={{ backgroundColor: brushSettings.color }}
+            className="w-8 h-8 cursor-pointer appearance-none"
+            style={{
+              width: '32px',
+              height: '32px',
+              padding: '0',
+              border: 'none',
+              borderRadius: '0'
+            }}
           />
         </div>
       </div>
@@ -134,12 +137,12 @@ export const Toolbar = () => {
       <div className="flex items-center gap-4">
         <span className="text-white text-lg font-light w-16">Brush sz</span>
         <div 
-          onClick={() => setBrushSettings({ followBrush: !brushSettings.followBrush })}
+          onClick={() => setBrushSettings({ gridSnap: !brushSettings.gridSnap })}
           className="w-12 h-6 border-2 border-white cursor-pointer relative bg-gray-800"
         >
           <div 
             className={`w-5 h-4 bg-white absolute top-0.5 transition-transform ${
-              brushSettings.followBrush ? 'translate-x-5.5' : 'translate-x-0.5'
+              brushSettings.gridSnap ? 'translate-x-5.5' : 'translate-x-0.5'
             }`}
           />
         </div>
