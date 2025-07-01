@@ -48,6 +48,13 @@ export const DrawingCanvas = () => {
   const waitingPixelX = useRef(-1);
   const waitingPixelY = useRef(-1);
 
+  // Brush rotation state for smooth angle transitions
+  const lastBrushAngle = useRef(0);
+  const isNewStroke = useRef(true);
+
+  // Fast rotation cache for custom brushes
+  const rotationCache = useRef<Map<string, Map<number, ImageData>>>(new Map());
+
   // Bresenham line algorithm from reference implementation
   const drawLineBresenham = (graphics: any, x0: number, y0: number, x1: number, y1: number, color: string) => {
     const dx = Math.abs(x1 - x0);
@@ -438,6 +445,49 @@ export const DrawingCanvas = () => {
     console.log('✨ Created temporary custom brush:', tempBrushId);
   };
 
+  // Calculate smooth brush rotation angle from movement direction
+  const calculateSmoothBrushRotation = (x1: number, y1: number, x2: number, y2: number): number => {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // Minimum movement threshold to update angle (prevents jitter on slow movement)
+    const MIN_MOVEMENT = 2;
+    
+    // If movement is too small, use the last angle
+    if (distance < MIN_MOVEMENT && !isNewStroke.current) {
+      return lastBrushAngle.current;
+    }
+    
+    // Calculate new angle in degrees (0 = right, 90 = down)
+    const newAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+    
+    // For new strokes, just use the new angle
+    if (isNewStroke.current) {
+      lastBrushAngle.current = newAngle;
+      isNewStroke.current = false;
+      return newAngle;
+    }
+    
+    // Smooth angle transition for organic feel
+    const SMOOTHING_FACTOR = 0.3; // Lower = smoother transitions
+    const angleDiff = newAngle - lastBrushAngle.current;
+    
+    // Handle angle wrapping (e.g., -179° to 179° should interpolate through 180°, not 358°)
+    let adjustedAngleDiff = angleDiff;
+    if (adjustedAngleDiff > 180) {
+      adjustedAngleDiff -= 360;
+    } else if (adjustedAngleDiff < -180) {
+      adjustedAngleDiff += 360;
+    }
+    
+    // Apply smoothing
+    const smoothedAngle = lastBrushAngle.current + (adjustedAngleDiff * SMOOTHING_FACTOR);
+    lastBrushAngle.current = smoothedAngle;
+    
+    return smoothedAngle;
+  };
+
   // Pixel-perfect coordinate snapping - ensures crisp integer coordinates
   const snapToPixel = (coord: number): number => {
     return Math.floor(coord) + 0.5; // Half-pixel offset for crisp 1px lines
@@ -543,7 +593,7 @@ export const DrawingCanvas = () => {
   };
 
   // Custom brush drawing functions
-  const drawCustomBrushStamp = (graphics: any, x: number, y: number, customBrush: CustomBrush, scale: number = 1) => {
+  const drawCustomBrushStamp = (graphics: any, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0) => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -558,8 +608,6 @@ export const DrawingCanvas = () => {
     // Calculate scaled dimensions and position
     const scaledWidth = customBrush.width * scale;
     const scaledHeight = customBrush.height * scale;
-    const centerX = x - scaledWidth / 2;
-    const centerY = y - scaledHeight / 2;
     
     // Get the P5 graphics context and draw the custom brush
     const p5Canvas = (graphics as any).canvas;
@@ -567,8 +615,27 @@ export const DrawingCanvas = () => {
     if (p5Ctx) {
       p5Ctx.save();
       p5Ctx.globalCompositeOperation = 'source-over';
-      p5Ctx.imageSmoothingEnabled = false; // Maintain pixel-perfect rendering
-      p5Ctx.drawImage(canvas, centerX, centerY, scaledWidth, scaledHeight);
+      
+      // ALWAYS disable image smoothing for hard pixel edges
+      p5Ctx.imageSmoothingEnabled = false;
+      (p5Ctx as any).webkitImageSmoothingEnabled = false;
+      (p5Ctx as any).mozImageSmoothingEnabled = false;
+      (p5Ctx as any).msImageSmoothingEnabled = false;
+      (p5Ctx as any).oImageSmoothingEnabled = false;
+      
+      // Apply rotation if enabled
+      if (brushSettings.rotateEnabled && rotation !== 0) {
+        p5Ctx.translate(x, y);
+        p5Ctx.rotate(rotation * Math.PI / 180); // Convert degrees to radians
+        p5Ctx.translate(-scaledWidth / 2, -scaledHeight / 2);
+        p5Ctx.drawImage(canvas, 0, 0, scaledWidth, scaledHeight);
+      } else {
+        // No rotation - center the brush normally
+        const centerX = x - scaledWidth / 2;
+        const centerY = y - scaledHeight / 2;
+        p5Ctx.drawImage(canvas, centerX, centerY, scaledWidth, scaledHeight);
+      }
+      
       p5Ctx.restore();
     }
   };
@@ -577,6 +644,9 @@ export const DrawingCanvas = () => {
     const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
     const spacing = Math.max(1, Math.min(customBrush.width, customBrush.height) * scale * 0.5);
     const steps = Math.max(1, Math.ceil(distance / spacing));
+    
+    // Calculate smooth rotation angle from line direction
+    const rotation = brushSettings.rotateEnabled ? calculateSmoothBrushRotation(x1, y1, x2, y2) : 0;
     
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
@@ -591,7 +661,7 @@ export const DrawingCanvas = () => {
         y = snapped.y;
       }
       
-      drawCustomBrushStamp(graphics, x, y, customBrush, scale);
+      drawCustomBrushStamp(graphics, x, y, customBrush, scale, rotation);
     }
   };
 
@@ -604,6 +674,9 @@ export const DrawingCanvas = () => {
     const dashLengthPixels = dashLength * brushSize;
     const gapPixels = gap * brushSize;
     const patternLength = dashLengthPixels + gapPixels;
+    
+    // Calculate smooth rotation angle from line direction
+    const rotation = brushSettings.rotateEnabled ? calculateSmoothBrushRotation(x1, y1, x2, y2) : 0;
     
     // Use fine-grained steps for smooth pattern sampling
     const stepDistance = Math.min(spacing / 8, brushSize / 4, 1);
@@ -628,7 +701,7 @@ export const DrawingCanvas = () => {
       
       // Only draw if we're in a dash segment (not in gap)
       if (positionInPattern < dashLengthPixels) {
-        drawCustomBrushStamp(graphics, x, y, customBrush, scale);
+        drawCustomBrushStamp(graphics, x, y, customBrush, scale, rotation);
       }
     }
     
@@ -830,7 +903,7 @@ export const DrawingCanvas = () => {
   // FIXED: Cumulative distance tracking for consistent dotted patterns
   let cumulativeDistance = 0; // Track total distance across all segments
   
-  const drawDottedLine = (graphics: any, x1: number, y1: number, x2: number, y2: number, size: number, spacing: number, dashLength: number, gap: number, isSquare: boolean) => {
+  const drawDottedLine = (graphics: any, x1: number, y1: number, x2: number, y2: number, size: number, spacing: number, dashLength: number, gap: number, isSquare: boolean, rotation: number = 0) => {
     const segmentDistance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
     
     // Calculate actual pixel values from brush size units
@@ -913,7 +986,7 @@ export const DrawingCanvas = () => {
         
         // Only draw if we're in a dash segment (not in gap)
         if (positionInPattern < dashLengthPixels) {
-          drawShape(graphics, x, y, size, isSquare, false);
+          drawShape(graphics, x, y, size, isSquare, true, rotation);
           // Draw pixel
         } else {
           // Skip pixel (gap)
@@ -956,7 +1029,7 @@ export const DrawingCanvas = () => {
     currentSmoothMode = pixelPerfect;
   };
   
-  const drawShape = (graphics: any, x: number, y: number, size: number, isSquare: boolean, withRotation: boolean = false) => {
+  const drawShape = (graphics: any, x: number, y: number, size: number, isSquare: boolean, withRotation: boolean = false, rotation: number = 0) => {
     // RENDERING STRATEGY: 
     // - Small brushes (≤10px) + Pixel ON = True pixel-perfect (Bresenham algorithm)
     // - Large brushes (>10px) + Pixel ON = Fast shapes with hard edges
@@ -965,7 +1038,21 @@ export const DrawingCanvas = () => {
     
     if (shouldUsePixelPerfect) {
       // PIXEL PERFECT MODE: Only for small brushes (fast)
-      drawPixelPerfectShape(graphics, x, y, size, isSquare);
+      // For pixel brushes, rotation is applied differently to maintain hard edges
+      if (withRotation && brushSettings.rotateEnabled && rotation !== 0 && isSquare) {
+        // Rotated pixel squares need special handling to maintain hard edges
+        graphics.push();
+        graphics.translate(x, y);
+        graphics.rotate(graphics.radians(rotation));
+        graphics.noStroke();
+        graphics.fill(graphics.color(brushSettings.color));
+        graphics.rectMode(graphics.CENTER);
+        graphics.rect(0, 0, Math.floor(size), Math.floor(size));
+        graphics.pop();
+      } else {
+        // Regular pixel perfect shapes without rotation or circle shapes
+        drawPixelPerfectShape(graphics, x, y, size, isSquare);
+      }
       return;
     }
     
@@ -975,9 +1062,9 @@ export const DrawingCanvas = () => {
     
     graphics.push();
     
-    if (withRotation && brushSettings.rotateEnabled && brushSettings.rotation !== 0) {
+    if (withRotation && brushSettings.rotateEnabled && rotation !== 0) {
       graphics.translate(x, y);
-      graphics.rotate(graphics.radians(brushSettings.rotation));
+      graphics.rotate(graphics.radians(rotation));
       x = 0;
       y = 0;
     }
@@ -1090,8 +1177,8 @@ export const DrawingCanvas = () => {
               drawCustomBrushLine(layerGraphics, lastPos.current.x, lastPos.current.y, mouseX, mouseY, customBrush, scaleFactor);
             }
           } else {
-            // Single custom brush stamp
-            drawCustomBrushStamp(layerGraphics, mouseX, mouseY, customBrush, scaleFactor);
+            // Single custom brush stamp (no rotation for single clicks)
+            drawCustomBrushStamp(layerGraphics, mouseX, mouseY, customBrush, scaleFactor, 0);
           }
         } else {
           // Handle regular brushes (square/circle)
@@ -1106,6 +1193,9 @@ export const DrawingCanvas = () => {
           // Removed console.log for performance
         
           if (isDragging && lastPos.current !== null) {
+          // Calculate smooth rotation angle from movement direction
+          const rotation = brushSettings.rotateEnabled ? calculateSmoothBrushRotation(lastPos.current.x, lastPos.current.y, mouseX, mouseY) : 0;
+          
           // Check if dotted style is enabled
           if (brushSettings.dottedStyle.enabled) {
             // DOTTED LINE DRAWING
@@ -1121,7 +1211,8 @@ export const DrawingCanvas = () => {
               actualSpacing,
               brushSettings.dottedStyle.dashLength,
               brushSettings.dottedStyle.gap,
-              finalShape
+              finalShape,
+              rotation
             );
           } else {
             // REGULAR LINE DRAWING
@@ -1152,12 +1243,12 @@ export const DrawingCanvas = () => {
                 if (segmentDistance > 0) {
                   setGraphicsMode(layerGraphics, brushSettings.pixelPerfect);
                   // Note: mouseX, mouseY are already grid-snapped if gridSnap is enabled
-                  drawShape(layerGraphics, mouseX, mouseY, effectiveSize, finalShape, false);
+                  drawShape(layerGraphics, mouseX, mouseY, effectiveSize, finalShape, true, rotation);
                 }
               } else {
                 // Calculate first point to draw in this segment
                 const firstPointToDrawAbsolute = cumulativeDistance === 0 
-                  ? brushSettings.spacing // First point after stroke start
+                  ? 0 // Start immediately for first stroke to prevent orphan pixels
                   : Math.ceil(cumulativeDistance / brushSettings.spacing) * brushSettings.spacing;
                 
                 setGraphicsMode(layerGraphics, brushSettings.pixelPerfect);
@@ -1181,8 +1272,8 @@ export const DrawingCanvas = () => {
                     y = snapped.y;
                   }
                   
-                  // Draw the shape at exact spacing interval
-                  drawShape(layerGraphics, x, y, effectiveSize, finalShape, false);
+                  // Draw the shape at exact spacing interval with rotation
+                  drawShape(layerGraphics, x, y, effectiveSize, finalShape, true, rotation);
                   
                   // Move to next spacing interval
                   targetAbsoluteDistance += brushSettings.spacing;
@@ -1206,8 +1297,8 @@ export const DrawingCanvas = () => {
             drawY = Math.floor(mouseY);
           }
           
-          // Drawing single dot
-          drawShape(layerGraphics, drawX, drawY, effectiveSize, finalShape, false);
+          // Drawing single dot (no rotation for single clicks)
+          drawShape(layerGraphics, drawX, drawY, effectiveSize, finalShape, false, 0);
           }
         }
         break;
@@ -1482,10 +1573,11 @@ export const DrawingCanvas = () => {
           // Reset cumulative distance for new drawing session
           cumulativeDistance = 0;
           
-          // Draw initial dot
-          if (p5InstanceRef.current) {
-            performDrawAction(p5InstanceRef.current, false, mouseX, mouseY);
-          }
+          // Reset rotation state for new stroke
+          isNewStroke.current = true;
+          
+          // Don't draw initial dot - let the drag action handle the first stroke
+          // This prevents orphan pixels when starting strokes
         }
       }
     };
@@ -1577,6 +1669,15 @@ export const DrawingCanvas = () => {
         }, 100);
       } else if (isDrawing.current) {
         event.preventDefault();
+        
+        // Check if this was a single click (no drag movement)
+        const wasSingleClick = cumulativeDistance === 0;
+        
+        if (wasSingleClick && p5InstanceRef.current && lastPos.current) {
+          // Draw single dot for click without drag
+          performDrawAction(p5InstanceRef.current, false, lastPos.current.x, lastPos.current.y);
+        }
+        
         isDrawing.current = false;
         lastPos.current = null;
         
