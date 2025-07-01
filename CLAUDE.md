@@ -20,11 +20,12 @@ npx next dev --hostname 0.0.0.0
 ### Common Server Issues & Solutions
 
 #### Issue: Server shows "Ready" but connection refused
-**Cause**: Turbopack binding issues in WSL2, build errors preventing proper initialization  
+**Cause**: WSL2 networking binding issues, localhost vs 127.0.0.1 resolution problems
 **Solution**: 
-1. Fix build errors first: `npm run build`
-2. Use standard Next.js: `npx next dev` (avoid --turbopack)
-3. Test: `curl -I http://localhost:3000`
+1. Use explicit hostname binding: `npx next dev --hostname 0.0.0.0`
+2. Run in background: `nohup npx next dev --hostname 0.0.0.0 --port 3000 > server.log 2>&1 &`
+3. Test with 127.0.0.1: `curl -I http://127.0.0.1:3000` (not localhost)
+4. For persistent fix: Configure WSL2 mirrored networking in `~/.wslconfig`
 
 #### Issue: Port conflicts
 **Solution**: `pkill -f next && npx next dev`
@@ -37,14 +38,18 @@ npx next dev --hostname 0.0.0.0
 
 ### Testing Commands
 ```bash
-# Always verify server is working:
-curl -I http://localhost:3000
+# Always verify server is working (use 127.0.0.1 in WSL2):
+curl -I http://127.0.0.1:3000
 
 # Check listening ports:
 ss -tulpn | grep :3000
 
 # View running Next.js processes:
 ps aux | grep next
+
+# WSL2 Networking Fix:
+echo -e "[wsl2]\nnetworkingMode=mirrored\nlocalhostForwarding=true" > ~/.wslconfig
+# Copy to Windows: cp ~/.wslconfig /mnt/c/Users/$(whoami)/.wslconfig
 ```
 
 ## Architecture
@@ -113,9 +118,10 @@ src/
 ## Environment Notes
 
 ### WSL2 Specific
-- Use `npx next dev` instead of `npm run dev` for better compatibility
-- Server accessible at both `localhost:3000` and WSL2 network IP
-- Avoid turbopack flag in WSL2 environments
+- Use `npx next dev --hostname 0.0.0.0` for proper network binding
+- Test connectivity with `curl -I http://127.0.0.1:3000` (not localhost)
+- Configure mirrored networking in `~/.wslconfig` for persistent fix
+- Run in background: `nohup npx next dev --hostname 0.0.0.0 --port 3000 > server.log 2>&1 &`
 
 ### Build Requirements
 - Node.js with npm
@@ -126,30 +132,62 @@ src/
 ## Troubleshooting Quick Reference
 
 ```bash
-# Server won't start:
-npm run build && npx next dev
+# Server won't start (WSL2):
+pkill -f next && nohup npx next dev --hostname 0.0.0.0 --port 3000 > server.log 2>&1 &
 
 # Port issues:
-pkill -f next && npx next dev --port 3001
+pkill -f next && npx next dev --hostname 0.0.0.0 --port 3001
 
 # Build errors:
 npm run build  # See specific errors to fix
 
-# Test server:
-curl -I http://localhost:3000
+# Test server (WSL2):
+curl -I http://127.0.0.1:3000
+
+# Check server logs:
+tail -f server.log
 ```
 
 ## Best Practices
 
 1. **Always fix build errors before starting server**
-2. **Use standard Next.js in development** (avoid turbopack)
-3. **Test server connectivity after changes**
+2. **Use explicit hostname binding in WSL2** (`--hostname 0.0.0.0`)
+3. **Test with 127.0.0.1 instead of localhost in WSL2**
 4. **Follow dark theme design system consistently**
 5. **Keep components focused and reusable**
 6. **Use TypeScript for better development experience**
 
 ---
 
-**Last Updated**: 2025-06-29  
+## Current Status
+
+### Server Status ✅
+- **Running**: http://127.0.0.1:3000 (WSL2 with 0.0.0.0 binding)
+- **Build**: Successful (no errors)
+- **Networking**: Fixed WSL2 localhost resolution issues
+- **Background Process**: Running via nohup with server.log
+- **Drawing**: Fully functional
+
+### What Was Reverted
+- All grid mode experimental code removed
+- Build cache cleared (.next directory)
+- DragNumber.tsx and other created files deleted
+- No more grid mode console logs or hydration warnings
+
+### Working Features
+- Distance-based brush spacing system
+- Pixel-perfect toggle functionality  
+- Custom brush creation and selection
+- Dotted brush patterns
+- Layer management and animation timeline
+- Dark theme UI with responsive design
+
+---
+
+## Development Best Practices
+
+- Always post a link to the dev server after an update
+
+**Last Updated**: 2025-07-01  
 **Next.js Version**: 15.3.4  
 **Environment**: WSL2 Ubuntu

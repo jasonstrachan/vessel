@@ -1,0 +1,75 @@
+   ▲ Next.js 15.3.4
+   - Local:        http://localhost:3000
+   - Network:      http://0.0.0.0:3000
+   - Environments: .env.local, .env
+
+ ✓ Starting...
+ ✓ Ready in 1098ms
+ ○ Compiling / ...
+ ✓ Compiled / in 1953ms (1217 modules)
+ HEAD / 200 in 2169ms
+ GET / 200 in 39ms
+ ✓ Compiled /favicon.ico in 146ms (651 modules)
+ GET /favicon.ico 200 in 198ms
+ GET /favicon.ico 200 in 6ms
+ ✓ Compiled in 2.2s (1217 modules)
+ GET / 200 in 82ms
+ ✓ Compiled in 412ms (582 modules)
+ GET / 200 in 12ms
+ ✓ Compiled in 371ms (635 modules)
+ ✓ Compiled in 681ms (1217 modules)
+ GET / 200 in 54ms
+ ✓ Compiled in 617ms (1217 modules)
+ GET / 200 in 21ms
+ ✓ Compiled in 2.1s (1217 modules)
+ GET / 200 in 21ms
+ GET / 200 in 65ms
+ ✓ Compiled /favicon.ico in 94ms (651 modules)
+ GET /favicon.ico 200 in 139ms
+ GET /favicon.ico 200 in 3ms
+ ✓ Compiled in 423ms (635 modules)
+ ✓ Compiled in 458ms (582 modules)
+ GET / 200 in 70ms
+ ✓ Compiled in 645ms (1217 modules)
+ GET / 200 in 18ms
+ ✓ Compiled in 42ms (568 modules)
+ ✓ Compiled in 649ms (1217 modules)
+ GET / 200 in 21ms
+ ✓ Compiled in 446ms (582 modules)
+ GET / 200 in 9ms
+ ✓ Compiled in 420ms (1203 modules)
+ ✓ Compiled in 661ms (1217 modules)
+ ✓ Compiled in 34ms (568 modules)
+ GET / 200 in 92ms
+ ✓ Compiled /favicon.ico in 124ms (651 modules)
+ GET /favicon.ico 200 in 167ms
+ GET /favicon.ico 200 in 3ms
+ ✓ Compiled in 429ms (582 modules)
+ GET / 200 in 38ms
+ ✓ Compiled in 415ms (635 modules)
+ HEAD / 200 in 89ms
+ GET / 200 in 29ms
+ ✓ Compiled /favicon.ico in 54ms (651 modules)
+ GET /favicon.ico 200 in 90ms
+ GET /favicon.ico 200 in 2ms
+ ✓ Compiled in 364ms (582 modules)
+ GET / 200 in 31ms
+ ✓ Compiled in 382ms (582 modules)
+ GET / 200 in 6ms
+ ✓ Compiled in 345ms (1219 modules)
+ HEAD / 200 in 56ms
+ GET / 200 in 36ms
+ GET /favicon.ico 200 in 5ms
+ GET /favicon.ico 200 in 3ms
+ GET / 200 in 49ms
+ GET /favicon.ico 200 in 5ms
+ GET /favicon.ico 200 in 4ms
+ ✓ Compiled in 424ms (651 modules)
+ ✓ Compiled in 449ms (582 modules)
+ GET / 200 in 44ms
+ GET / 200 in 62ms
+ GET /favicon.ico 200 in 10ms
+ GET /favicon.ico 200 in 3ms
+ ✓ Compiled in 439ms (582 modules)
+ GET / 200 in 8ms
+ ✓ Compiled in 405ms (651 modules)

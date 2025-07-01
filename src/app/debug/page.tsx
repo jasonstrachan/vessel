@@ -83,7 +83,7 @@ export default function DebugPage() {
               <div><span className="text-slate-400">Size:</span> {debugInfo.brushSettings.size}px</div>
               <div><span className="text-slate-400">Opacity:</span> {Math.round(debugInfo.brushSettings.opacity * 100)}%</div>
               <div><span className="text-slate-400">Pixel Perfect:</span> {debugInfo.brushSettings.pixelPerfect ? 'Yes' : 'No'}</div>
-              <div><span className="text-slate-400">Follow Brush:</span> {debugInfo.brushSettings.followBrush ? 'Yes' : 'No'}</div>
+              <div><span className="text-slate-400">Grid Snap:</span> {debugInfo.brushSettings.gridSnap ? 'Yes' : 'No'}</div>
               <div><span className="text-slate-400">Dotted Style:</span> {debugInfo.brushSettings.dottedStyle.enabled ? 'Yes' : 'No'}</div>
             </div>
           </div>

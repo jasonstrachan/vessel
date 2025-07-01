@@ -1,5 +1,7 @@
 'use client';
 
+import DragInput from '@/components/ui/DragInput';
+
 interface FrameControlsProps {
   currentFrame: number;
   maxFrames: number;
@@ -62,14 +64,13 @@ export const FrameControls = ({
       <div className="flex items-center gap-6 text-sm">
         <div className="flex items-center gap-3">
           <label className="text-slate-300 font-medium">Frame:</label>
-          <input
-            type="number"
-            min="1"
+          <DragInput
+            min={1}
             max={maxFrames}
             value={currentFrame + 1}
-            onChange={(e) => {
-              const frame = Math.max(0, Math.min(maxFrames - 1, parseInt(e.target.value) - 1));
-              if (!isNaN(frame)) onFrameChange(frame);
+            onChange={(value) => {
+              const frame = Math.max(0, Math.min(maxFrames - 1, value - 1));
+              onFrameChange(frame);
             }}
             className="w-16 px-2 py-1.5 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 text-center font-mono"
           />
@@ -78,12 +79,11 @@ export const FrameControls = ({
 
         <div className="flex items-center gap-3">
           <label className="text-slate-300 font-medium">FPS:</label>
-          <input
-            type="number"
-            min="1"
-            max="60"
+          <DragInput
+            min={1}
+            max={60}
             value={fps}
-            onChange={(e) => {
+            onChange={(value) => {
               // Will implement FPS change in store
             }}
             className="w-16 px-2 py-1.5 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 text-center font-mono"

@@ -13,6 +13,8 @@ const nextConfig: NextConfig = {
     return config
   },
   
+  // Allow cross-origin requests in development
+  allowedDevOrigins: ['172.24.178.199'],
   
   // Server configuration
   async rewrites() {

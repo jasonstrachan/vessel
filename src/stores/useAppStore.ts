@@ -48,7 +48,7 @@ const createDefaultBrushSettings = (): BrushSettings => ({
   rotation: 0,
   brushShape: 'square',
   pixelPerfect: true, // Default pixel toggle ON
-  followBrush: false,
+  gridSnap: false,
   rotateEnabled: false, // Separate rotate toggle
   selectedCustomBrush: null,
   dottedStyle: {
@@ -130,21 +130,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }
     }
     
-    // When brush size changes, update spacing if followBrush is enabled
-    if (settings.size !== undefined && newBrushSettings.followBrush) {
-      newBrushSettings.dottedStyle = {
-        ...newBrushSettings.dottedStyle,
-        spacing: settings.size
-      };
-    }
-    
-    // When followBrush is toggled on, set spacing to current brush size
-    if (settings.followBrush !== undefined && settings.followBrush) {
-      newBrushSettings.dottedStyle = {
-        ...newBrushSettings.dottedStyle,
-        spacing: newBrushSettings.size
-      };
-    }
+    // Grid snapping doesn't need auto-spacing logic - it works differently
     
     return { brushSettings: newBrushSettings };
   }),
