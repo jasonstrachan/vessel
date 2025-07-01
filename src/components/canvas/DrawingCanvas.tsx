@@ -41,6 +41,110 @@ export const DrawingCanvas = () => {
   const layerBuffers = useRef<Map<string, any>>(new Map()); // Store P5 Graphics for each layer
   const [cursorUpdate, setCursorUpdate] = useState(0); // Force cursor updates
   const lastPanUpdate = useRef(0); // Throttle pan updates
+  
+  // Waiting pixel algorithm state (from reference implementation)
+  const lastDrawnX = useRef(-1);
+  const lastDrawnY = useRef(-1);
+  const waitingPixelX = useRef(-1);
+  const waitingPixelY = useRef(-1);
+
+  // Bresenham line algorithm from reference implementation
+  const drawLineBresenham = (graphics: any, x0: number, y0: number, x1: number, y1: number, color: string) => {
+    const dx = Math.abs(x1 - x0);
+    const dy = Math.abs(y1 - y0);
+    const sx = (x0 < x1) ? 1 : -1;
+    const sy = (y0 < y1) ? 1 : -1;
+    let err = dx - dy;
+    
+    let currentX = x0;
+    let currentY = y0;
+
+    graphics.loadPixels();
+    const fillColor = graphics.color(color);
+    
+    while (true) {
+      // Draw pixel if within bounds
+      if (currentX >= 0 && currentX < graphics.width && currentY >= 0 && currentY < graphics.height) {
+        const index = (currentY * graphics.width + currentX) * 4;
+        graphics.pixels[index] = graphics.red(fillColor);
+        graphics.pixels[index + 1] = graphics.green(fillColor);
+        graphics.pixels[index + 2] = graphics.blue(fillColor);
+        graphics.pixels[index + 3] = graphics.alpha(fillColor);
+      }
+
+      if (currentX === x1 && currentY === y1) break;
+
+      const e2 = 2 * err;
+      if (e2 > -dy) {
+        err -= dy;
+        currentX += sx;
+      }
+      if (e2 < dx) {
+        err += dx;
+        currentY += sy;
+      }
+    }
+    
+    graphics.updatePixels();
+  };
+
+  // Draw segment function from reference implementation
+  const drawSegment = (graphics: any, x0: number, y0: number, x1: number, y1: number, color: string) => {
+    if (x0 >= 0 && x0 < graphics.width && y0 >= 0 && y0 < graphics.height &&
+        x1 >= 0 && x1 < graphics.width && y1 >= 0 && y1 < graphics.height) {
+      drawLineBresenham(graphics, Math.floor(x0), Math.floor(y0), Math.floor(x1), Math.floor(y1), color);
+    }
+  };
+
+  // Perfect pixels algorithm from reference implementation
+  const perfectPixels = (graphics: any, currentX: number, currentY: number, color: string) => {
+    const gridX = Math.floor(currentX);
+    const gridY = Math.floor(currentY);
+    
+    // If this is the very first pixel of a new stroke
+    if (lastDrawnX.current === -1) {
+      lastDrawnX.current = gridX;
+      lastDrawnY.current = gridY;
+      waitingPixelX.current = gridX;
+      waitingPixelY.current = gridY;
+      // Draw the initial single pixel
+      drawSegment(graphics, gridX, gridY, gridX, gridY, color);
+      return;
+    }
+
+    // Check if the current pixel is NOT adjacent to the last drawn pixel
+    if (Math.abs(gridX - lastDrawnX.current) > 1 || Math.abs(gridY - lastDrawnY.current) > 1) {
+      // Draw a line from the last drawn pixel to the waiting pixel
+      drawSegment(graphics, lastDrawnX.current, lastDrawnY.current, waitingPixelX.current, waitingPixelY.current, color);
+
+      // Update the 'lastDrawn' to the pixel that was just committed
+      lastDrawnX.current = waitingPixelX.current;
+      lastDrawnY.current = waitingPixelY.current;
+
+      // The current position becomes the new waiting pixel
+      waitingPixelX.current = gridX;
+      waitingPixelY.current = gridY;
+    } else {
+      // Just update the waiting pixel to the current position
+      waitingPixelX.current = gridX;
+      waitingPixelY.current = gridY;
+    }
+  };
+
+  // Finalize waiting pixel on stroke end
+  const finalizeWaitingPixel = (graphics: any, color: string) => {
+    if (lastDrawnX.current !== -1 && waitingPixelX.current !== -1) {
+      drawSegment(graphics, lastDrawnX.current, lastDrawnY.current, waitingPixelX.current, waitingPixelY.current, color);
+    }
+  };
+
+  // Reset waiting pixel state for new stroke
+  const resetWaitingPixelState = () => {
+    lastDrawnX.current = -1;
+    lastDrawnY.current = -1;
+    waitingPixelX.current = -1;
+    waitingPixelY.current = -1;
+  };
 
   const setup = (p: p5) => {
     // PIXEL-PERFECT SETUP: Critical for crisp rendering
@@ -903,7 +1007,10 @@ export const DrawingCanvas = () => {
             // REGULAR LINE DRAWING
             const shouldUsePixelPerfect = brushSettings.pixelPerfect && effectiveSize <= PIXEL_PERFECT_THRESHOLD;
             
-            if (shouldUsePixelPerfect && brushSettings.spacing <= 1) {
+            if (shouldUsePixelPerfect && brushSettings.spacing <= 1 && effectiveSize === 1) {
+              // WAITING PIXEL ALGORITHM: Perfect pixel-perfect drawing for 1px brushes
+              perfectPixels(layerGraphics, mouseX, mouseY, brushSettings.color);
+            } else if (shouldUsePixelPerfect && brushSettings.spacing <= 1) {
               // PIXEL PERFECT MODE: Only for small brushes with no spacing
               drawPixelPerfectBrushLine(
                 layerGraphics,
@@ -1232,6 +1339,9 @@ export const DrawingCanvas = () => {
           isDrawing.current = true;
           lastPos.current = { x: mouseX, y: mouseY };
           
+          // Reset waiting pixel state for new stroke
+          resetWaitingPixelState();
+          
           // Reset cumulative distance for new drawing session
           cumulativeDistance = 0;
           
@@ -1324,6 +1434,14 @@ export const DrawingCanvas = () => {
         event.preventDefault();
         isDrawing.current = false;
         lastPos.current = null;
+        
+        // Finalize waiting pixel for the current stroke
+        const activeLayer = project.layers[currentLayer];
+        if (activeLayer && layerBuffers.current.has(activeLayer.id)) {
+          const layerGraphics = layerBuffers.current.get(activeLayer.id);
+          finalizeWaitingPixel(layerGraphics, brushSettings.color);
+        }
+        
         setCursorUpdate(prev => prev + 1);
         // Stopped drawing
       }
