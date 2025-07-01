@@ -915,6 +915,157 @@ export const DrawingCanvas = () => {
     }
   };
 
+  // Custom pixel-perfect rotation using direct pixel manipulation
+  const drawPixelPerfectRotatedShape = (graphics: any, centerX: number, centerY: number, size: number, isSquare: boolean, rotation: number) => {
+    console.log('🎯 Custom pixel rotation:', { centerX, centerY, size, isSquare, rotation: rotation.toFixed(1) });
+    
+    // Create the shape on a temporary canvas first
+    const tempSize = Math.ceil(size * 2); // Ensure we capture the entire rotated shape
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = tempSize;
+    tempCanvas.height = tempSize;
+    const tempCtx = tempCanvas.getContext('2d');
+    if (!tempCtx) return;
+    
+    // Disable anti-aliasing on temp canvas
+    tempCtx.imageSmoothingEnabled = false;
+    (tempCtx as any).webkitImageSmoothingEnabled = false;
+    (tempCtx as any).mozImageSmoothingEnabled = false;
+    (tempCtx as any).msImageSmoothingEnabled = false;
+    
+    // Draw the unrotated shape PIXEL-PERFECTLY in the center of temp canvas
+    const tempCenter = Math.floor(tempSize / 2);
+    
+    // Use direct pixel manipulation for perfect shape creation
+    const initialImageData = tempCtx.createImageData(tempSize, tempSize);
+    const initialPixels = initialImageData.data;
+    
+    // Parse color to RGB
+    const colorObj = p5InstanceRef.current?.color(brushSettings.color);
+    const r = colorObj ? p5InstanceRef.current!.red(colorObj) : 0;
+    const g = colorObj ? p5InstanceRef.current!.green(colorObj) : 0;
+    const b = colorObj ? p5InstanceRef.current!.blue(colorObj) : 0;
+    const a = 255;
+    
+    console.log('🎨 Creating perfect shape:', { color: `rgb(${r},${g},${b})`, size, isSquare });
+    
+    // Draw shape pixel by pixel for perfect accuracy
+    for (let y = 0; y < tempSize; y++) {
+      for (let x = 0; x < tempSize; x++) {
+        const dx = x - tempCenter;
+        const dy = y - tempCenter;
+        
+        let inShape = false;
+        if (isSquare) {
+          // Perfect square
+          inShape = Math.abs(dx) <= Math.floor(size / 2) && Math.abs(dy) <= Math.floor(size / 2);
+        } else {
+          // Perfect circle
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          inShape = distance <= size / 2;
+        }
+        
+        if (inShape) {
+          const index = (y * tempSize + x) * 4;
+          initialPixels[index] = r;     // Red
+          initialPixels[index + 1] = g; // Green
+          initialPixels[index + 2] = b; // Blue
+          initialPixels[index + 3] = a; // Alpha
+        }
+      }
+    }
+    
+    // Put the perfect shape data
+    tempCtx.putImageData(initialImageData, 0, 0);
+    
+    // Get the pixel data
+    const imageData = tempCtx.getImageData(0, 0, tempSize, tempSize);
+    const pixels = imageData.data;
+    
+    // Create output pixel array
+    const outputImageData = tempCtx.createImageData(tempSize, tempSize);
+    const outputPixels = outputImageData.data;
+    
+    // Convert rotation to radians
+    const radians = (rotation * Math.PI) / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    
+    // Rotate each pixel
+    for (let y = 0; y < tempSize; y++) {
+      for (let x = 0; x < tempSize; x++) {
+        // Get source pixel coordinates relative to center
+        const srcX = x - tempCenter;
+        const srcY = y - tempCenter;
+        
+        // Apply inverse rotation to find source pixel
+        const rotatedX = srcX * cos + srcY * sin;
+        const rotatedY = -srcX * sin + srcY * cos;
+        
+        // Convert back to absolute coordinates
+        const sourceX = Math.round(rotatedX + tempCenter);
+        const sourceY = Math.round(rotatedY + tempCenter);
+        
+        // Check bounds
+        if (sourceX >= 0 && sourceX < tempSize && sourceY >= 0 && sourceY < tempSize) {
+          const sourceIndex = (sourceY * tempSize + sourceX) * 4;
+          const targetIndex = (y * tempSize + x) * 4;
+          
+          // Copy pixel (only if source pixel is not transparent)
+          if (pixels[sourceIndex + 3] > 0) { // Alpha channel
+            outputPixels[targetIndex] = pixels[sourceIndex];     // Red
+            outputPixels[targetIndex + 1] = pixels[sourceIndex + 1]; // Green
+            outputPixels[targetIndex + 2] = pixels[sourceIndex + 2]; // Blue
+            outputPixels[targetIndex + 3] = pixels[sourceIndex + 3]; // Alpha
+          }
+        }
+      }
+    }
+    
+    // Draw the rotated pixels DIRECTLY to main canvas using putImageData (NO SMOOTHING POSSIBLE)
+    const mainCanvas = (graphics as any).canvas;
+    const mainCtx = mainCanvas.getContext('2d');
+    if (mainCtx) {
+      console.log('🔧 Drawing rotated pixels with PURE PIXEL MANIPULATION');
+      
+      // Calculate target position on main canvas
+      const targetX = Math.floor(centerX - tempSize / 2);
+      const targetY = Math.floor(centerY - tempSize / 2);
+      
+      // Get main canvas current image data
+      const mainImageData = mainCtx.getImageData(0, 0, mainCanvas.width, mainCanvas.height);
+      const mainPixels = mainImageData.data;
+      
+      // Copy rotated pixels directly into main canvas pixel data
+      for (let y = 0; y < tempSize; y++) {
+        for (let x = 0; x < tempSize; x++) {
+          const sourceIndex = (y * tempSize + x) * 4;
+          
+          // Skip transparent pixels
+          if (outputPixels[sourceIndex + 3] === 0) continue;
+          
+          // Calculate target position in main canvas
+          const mainX = targetX + x;
+          const mainY = targetY + y;
+          
+          // Check bounds
+          if (mainX >= 0 && mainX < mainCanvas.width && mainY >= 0 && mainY < mainCanvas.height) {
+            const targetIndex = (mainY * mainCanvas.width + mainX) * 4;
+            
+            // Copy pixel directly (ZERO SMOOTHING)
+            mainPixels[targetIndex] = outputPixels[sourceIndex];         // Red
+            mainPixels[targetIndex + 1] = outputPixels[sourceIndex + 1]; // Green
+            mainPixels[targetIndex + 2] = outputPixels[sourceIndex + 2]; // Blue
+            mainPixels[targetIndex + 3] = outputPixels[sourceIndex + 3]; // Alpha
+          }
+        }
+      }
+      
+      // Put modified pixel data back (PURE PIXEL OPERATION)
+      mainCtx.putImageData(mainImageData, 0, 0);
+    }
+  };
+
   // FIXED: Cumulative distance tracking for consistent dotted patterns
   let cumulativeDistance = 0; // Track total distance across all segments
   
@@ -1023,6 +1174,8 @@ export const DrawingCanvas = () => {
   let cachedFillColor: any = null;
   
   const setGraphicsMode = (graphics: any, pixelPerfect: boolean) => {
+    console.log('⚙️ setGraphicsMode:', { currentSmoothMode, requestedPixelPerfect: pixelPerfect, willChange: currentSmoothMode !== pixelPerfect });
+    
     if (currentSmoothMode === pixelPerfect) return; // Skip if already set
     
     const layerCanvas = (graphics as any).canvas;
@@ -1030,9 +1183,11 @@ export const DrawingCanvas = () => {
       const layerCtx = layerCanvas.getContext('2d');
       if (layerCtx) {
         if (pixelPerfect) {
+          console.log('🔲 Setting PIXEL-PERFECT mode (noSmooth)');
           graphics.noSmooth();
           layerCtx.imageSmoothingEnabled = false;
         } else {
+          console.log('🌊 Setting SMOOTH mode (antialiased)');
           graphics.smooth();
           layerCtx.imageSmoothingEnabled = true;
           layerCtx.imageSmoothingQuality = 'high';
@@ -1048,34 +1203,33 @@ export const DrawingCanvas = () => {
     // - Any size + Pixel OFF = Smooth anti-aliased shapes
     const shouldUsePixelPerfect = brushSettings.pixelPerfect;
     
+    console.log('🎨 drawShape called:', { 
+      shouldUsePixelPerfect, 
+      withRotation, 
+      rotateEnabled: brushSettings.rotateEnabled, 
+      rotation: rotation.toFixed(1), 
+      size: size.toFixed(1),
+      isSquare
+    });
+    
     if (shouldUsePixelPerfect) {
       // PIXEL PERFECT MODE: All brush sizes use pixel-perfect coordinate snapping
       // Rotation maintains hard edges for all brush sizes
       if (withRotation && brushSettings.rotateEnabled && rotation !== 0) {
-        // Rotated pixel-perfect shapes need special handling to maintain hard edges
-        setGraphicsMode(graphics, true); // Ensure pixel-perfect mode is applied
-        graphics.push();
-        graphics.translate(Math.floor(x), Math.floor(y));
-        graphics.rotate(graphics.radians(rotation));
-        graphics.noStroke();
-        graphics.fill(graphics.color(brushSettings.color));
-        
-        if (isSquare) {
-          graphics.rectMode(graphics.CENTER);
-          graphics.rect(0, 0, Math.floor(size), Math.floor(size));
-        } else {
-          graphics.circle(0, 0, Math.floor(size));
-        }
-        graphics.pop();
+        console.log('🔧 Using CUSTOM pixel-perfect rotation (no anti-aliasing)');
+        // Use custom pixel-perfect rotation instead of P5.js rotation
+        drawPixelPerfectRotatedShape(graphics, x, y, size, isSquare, rotation);
       } else {
+        console.log('🔧 Using drawPixelPerfectShape (no rotation)');
         // Regular pixel perfect shapes without rotation
         drawPixelPerfectShape(graphics, x, y, size, isSquare);
       }
       return;
     }
     
-    // NATIVE RENDERING: Use P5.js shapes with pixel-perfect coordinates when enabled
-    setGraphicsMode(graphics, brushSettings.pixelPerfect); // Keep pixel mode for hard edges!
+    // NATIVE RENDERING: Use P5.js shapes for smooth anti-aliased drawing
+    console.log('🔧 Using NATIVE RENDERING (non-pixel-perfect path)');
+    setGraphicsMode(graphics, false); // Use smooth rendering for this path
     
     graphics.push();
     
@@ -1213,16 +1367,20 @@ export const DrawingCanvas = () => {
           // Calculate smooth rotation angle from movement direction
           const rotation = brushSettings.rotateEnabled ? calculateSmoothBrushRotation(lastPos.current.x, lastPos.current.y, mouseX, mouseY) : 0;
           
-          if (brushSettings.rotateEnabled) {
-            console.log('🎯 ROTATION CALC:', { enabled: brushSettings.rotateEnabled, rotation: rotation.toFixed(1), pixelPerfect: brushSettings.pixelPerfect });
-          }
+          console.log('🎯 STROKE PATH DECISION:', { 
+            pixelPerfect: brushSettings.pixelPerfect, 
+            rotateEnabled: brushSettings.rotateEnabled, 
+            spacing: brushSettings.spacing, 
+            effectiveSize, 
+            dottedEnabled: brushSettings.dottedStyle.enabled,
+            rotation: rotation.toFixed(1)
+          });
           
           // Check if dotted style is enabled
           if (brushSettings.dottedStyle.enabled) {
+            console.log('📍 PATH: drawDottedLine (supports rotation)');
             // DOTTED LINE DRAWING
             const actualSpacing = brushSettings.dottedStyle.spacing;
-            
-            // Drawing dotted stroke
             
             drawDottedLine(
               layerGraphics,
@@ -1237,11 +1395,13 @@ export const DrawingCanvas = () => {
             );
           } else {
             // REGULAR LINE DRAWING
-            if (brushSettings.pixelPerfect && brushSettings.spacing <= 1 && effectiveSize === 1) {
-              // WAITING PIXEL ALGORITHM: Perfect pixel-perfect drawing for 1px brushes
+            if (brushSettings.pixelPerfect && brushSettings.spacing <= 1 && effectiveSize === 1 && !brushSettings.rotateEnabled) {
+              console.log('📍 PATH: perfectPixels (1px, no rotation)');
+              // WAITING PIXEL ALGORITHM: Perfect pixel-perfect drawing for 1px brushes (NO ROTATION)
               perfectPixels(layerGraphics, mouseX, mouseY, brushSettings.color);
-            } else if (brushSettings.pixelPerfect && brushSettings.spacing <= 1) {
-              // PIXEL PERFECT MODE: All brush sizes with pixel-perfect line drawing
+            } else if (brushSettings.pixelPerfect && brushSettings.spacing <= 1 && !brushSettings.rotateEnabled) {
+              console.log('📍 PATH: drawPixelPerfectBrushLine (pixel-perfect, no rotation)');
+              // PIXEL PERFECT MODE: All brush sizes with pixel-perfect line drawing (NO ROTATION)
               drawPixelPerfectBrushLine(
                 layerGraphics,
                 lastPos.current.x, lastPos.current.y,
@@ -1250,6 +1410,8 @@ export const DrawingCanvas = () => {
                 finalShape
               );
             } else {
+              console.log('📍 PATH: spacing logic → drawShape (supports rotation, pixel-aware)');
+              // PIXEL PERFECT + ROTATION OR NON-PIXEL DRAWING
               // DIRECT POINT CALCULATION FOR SPACING
               const segmentDistance = Math.sqrt(
                 Math.pow(mouseX - lastPos.current.x, 2) + 
@@ -1437,25 +1599,43 @@ export const DrawingCanvas = () => {
     }
   }, [zoom, panX, panY, project.width, project.height, setPan]);
 
-  // Set canvas to use auto rendering to preserve both pixel art and smooth art
+  // Set canvas rendering mode based on pixel-perfect setting
   useEffect(() => {
     if (containerRef.current) {
       const canvas = containerRef.current.querySelector('canvas');
       if (canvas) {
         const ctx = canvas.getContext('2d');
         
-        // Use auto rendering to let the browser handle mixed content appropriately
-        canvas.style.imageRendering = 'auto';
-        if (ctx) {
-          ctx.imageSmoothingEnabled = false; // Disable to prevent double-smoothing during composition
-          (ctx as any).webkitImageSmoothingEnabled = false;
-          (ctx as any).mozImageSmoothingEnabled = false;
-          (ctx as any).msImageSmoothingEnabled = false;
+        if (brushSettings.pixelPerfect) {
+          console.log('🔲 Setting canvas to PIXEL-PERFECT rendering');
+          // Force hard pixel rendering
+          canvas.style.imageRendering = 'pixelated';
+          canvas.style.imageRendering = '-moz-crisp-edges';
+          canvas.style.imageRendering = '-webkit-crisp-edges';
+          canvas.style.imageRendering = 'crisp-edges';
+          
+          if (ctx) {
+            // Disable ALL smoothing
+            ctx.imageSmoothingEnabled = false;
+            (ctx as any).webkitImageSmoothingEnabled = false;
+            (ctx as any).mozImageSmoothingEnabled = false;
+            (ctx as any).msImageSmoothingEnabled = false;
+            (ctx as any).oImageSmoothingEnabled = false;
+            ctx.imageSmoothingQuality = 'low';
+          }
+        } else {
+          console.log('🌊 Setting canvas to SMOOTH rendering');
+          // Allow smooth rendering
+          canvas.style.imageRendering = 'auto';
+          
+          if (ctx) {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+          }
         }
-        // Canvas set to auto rendering
       }
     }
-  }, []); // Run once on mount
+  }, [brushSettings.pixelPerfect]); // Update when pixel-perfect setting changes
 
   // Add direct DOM event listener 
   useEffect(() => {
