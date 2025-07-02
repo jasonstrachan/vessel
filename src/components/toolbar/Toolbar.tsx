@@ -15,7 +15,7 @@ const BRUSH_PRESETS = {
       size: 1,
       spacing: 1,
       rotateEnabled: false,
-      dottedStyle: { enabled: false, spacing: 2, dashLength: 2, gap: 2 },
+      dottedStyle: { enabled: false, spacing: 2, dashLength: 2, dashSpacing: 2, gap: 2 },
       pressureSettings: { enabled: false, minValue: 1, maxValue: 10 },
       gridSnap: true
     }
@@ -28,7 +28,7 @@ const BRUSH_PRESETS = {
       size: 8,
       spacing: 2,
       rotateEnabled: false,
-      dottedStyle: { enabled: false, spacing: 2, dashLength: 2, gap: 2 },
+      dottedStyle: { enabled: false, spacing: 2, dashLength: 2, dashSpacing: 2, gap: 2 },
       pressureSettings: { enabled: true, minValue: 2, maxValue: 8 },
       gridSnap: false
     }
@@ -41,7 +41,7 @@ const BRUSH_PRESETS = {
       size: 3,
       spacing: 4,
       rotateEnabled: false,
-      dottedStyle: { enabled: true, spacing: 3, dashLength: 1, gap: 2 },
+      dottedStyle: { enabled: true, spacing: 3, dashLength: 1, dashSpacing: 3, gap: 2 },
       pressureSettings: { enabled: false, minValue: 1, maxValue: 10 },
       gridSnap: false
     }
@@ -54,7 +54,7 @@ const BRUSH_PRESETS = {
       size: 1,
       spacing: 1,
       rotateEnabled: false,
-      dottedStyle: { enabled: false, spacing: 2, dashLength: 2, gap: 2 },
+      dottedStyle: { enabled: false, spacing: 2, dashLength: 2, dashSpacing: 2, gap: 2 },
       pressureSettings: { enabled: false, minValue: 1, maxValue: 10 },
       gridSnap: false
     }
@@ -67,7 +67,7 @@ const BRUSH_PRESETS = {
       size: 12,
       spacing: 3,
       rotateEnabled: true,
-      dottedStyle: { enabled: false, spacing: 2, dashLength: 2, gap: 2 },
+      dottedStyle: { enabled: false, spacing: 2, dashLength: 2, dashSpacing: 2, gap: 2 },
       pressureSettings: { enabled: true, minValue: 3, maxValue: 12 },
       gridSnap: false
     }
@@ -80,7 +80,7 @@ const BRUSH_PRESETS = {
       size: 6,
       spacing: 8,
       rotateEnabled: true,
-      dottedStyle: { enabled: true, spacing: 4, dashLength: 1, gap: 1 },
+      dottedStyle: { enabled: true, spacing: 4, dashLength: 1, dashSpacing: 4, gap: 1 },
       pressureSettings: { enabled: false, minValue: 1, maxValue: 10 },
       gridSnap: false
     }
@@ -93,7 +93,7 @@ const BRUSH_PRESETS = {
       size: 3,
       spacing: 5,
       rotateEnabled: true,
-      dottedStyle: { enabled: false, spacing: 6, dashLength: 3, gap: 4 },
+      dottedStyle: { enabled: false, spacing: 6, dashLength: 3, dashSpacing: 6, gap: 4 },
       pressureSettings: { enabled: true, minValue: 1, maxValue: 6 },
       gridSnap: false
     }
