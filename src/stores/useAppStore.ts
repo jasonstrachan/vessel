@@ -12,6 +12,10 @@ interface AppStore extends AppState {
   selectionStart: { x: number; y: number } | null;
   selectionEnd: { x: number; y: number } | null;
   
+  // Clipboard state
+  clipboardData: ImageData | null;
+  pastedImageData: { data: ImageData, x: number, y: number, width: number, height: number } | null;
+  
   // Actions
   setCurrentTool: (tool: Tool) => void;
   setCurrentLayer: (layerIndex: number) => void;
@@ -38,6 +42,13 @@ interface AppStore extends AppState {
   setSelection: (start: { x: number; y: number } | null, end: { x: number; y: number } | null) => void;
   setIsSelecting: (selecting: boolean) => void;
   clearSelection: () => void;
+  
+  // Clipboard actions
+  copySelection: () => void;
+  cutSelection: () => void;
+  pasteFromClipboard: (x: number, y: number) => void;
+  setPastedImageData: (data: { data: ImageData, x: number, y: number, width: number, height: number } | null) => void;
+  commitPastedImage: () => void;
 }
 
 const createDefaultBrushSettings = (): BrushSettings => ({
@@ -105,6 +116,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isSelecting: false,
   selectionStart: null,
   selectionEnd: null,
+  
+  // Clipboard state
+  clipboardData: null,
+  pastedImageData: null,
 
   setCurrentTool: (tool) => set((state) => {
     return { currentTool: tool };
@@ -285,4 +300,98 @@ export const useAppStore = create<AppStore>((set, get) => ({
     selectionEnd: null, 
     isSelecting: false 
   }),
+
+  // Clipboard methods
+  copySelection: () => {
+    const state = get();
+    if (!state.selectionStart || !state.selectionEnd) return;
+    
+    // Get the canvas element (we'll need to access P5 context)
+    const canvas = document.querySelector('canvas');
+    if (!canvas) return;
+    
+    // Calculate selection bounds
+    const minX = Math.floor(Math.min(state.selectionStart.x, state.selectionEnd.x));
+    const minY = Math.floor(Math.min(state.selectionStart.y, state.selectionEnd.y));
+    const maxX = Math.floor(Math.max(state.selectionStart.x, state.selectionEnd.x));
+    const maxY = Math.floor(Math.max(state.selectionStart.y, state.selectionEnd.y));
+    const width = maxX - minX;
+    const height = maxY - minY;
+    
+    if (width <= 0 || height <= 0) return;
+    
+    // Create temporary canvas to capture the selection
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = width;
+    tempCanvas.height = height;
+    const tempCtx = tempCanvas.getContext('2d');
+    
+    if (tempCtx) {
+      try {
+        // Capture the selected area
+        tempCtx.drawImage(canvas, minX, minY, width, height, 0, 0, width, height);
+        const imageData = tempCtx.getImageData(0, 0, width, height);
+        set({ clipboardData: imageData });
+      } catch (error) {
+        console.error('Failed to copy selection:', error);
+      }
+    }
+  },
+
+  cutSelection: () => {
+    const state = get();
+    // First copy the selection
+    state.copySelection();
+    
+    // Then clear the selected area (we'll implement this when we integrate with canvas)
+    // For now, just copy the selection
+  },
+
+  pasteFromClipboard: (x, y) => {
+    const state = get();
+    if (!state.clipboardData) return;
+    
+    set({
+      pastedImageData: {
+        data: state.clipboardData,
+        x,
+        y,
+        width: state.clipboardData.width,
+        height: state.clipboardData.height
+      }
+    });
+  },
+
+  setPastedImageData: (data) => set({ pastedImageData: data }),
+
+  commitPastedImage: () => {
+    const state = get();
+    if (!state.pastedImageData) return;
+    
+    // Store the pasted image data for the canvas to process
+    (window as any).pastedImageToCommit = {
+      imageData: state.pastedImageData.data,
+      x: state.pastedImageData.x,
+      y: state.pastedImageData.y,
+      width: state.pastedImageData.width,
+      height: state.pastedImageData.height
+    };
+    
+    // Clear the pasted image preview
+    set({ pastedImageData: null });
+    
+    // Show success notification
+    const toastContainer = document.querySelector('.toast-container');
+    if (toastContainer) {
+      const toast = document.createElement('div');
+      toast.className = 'toast toast-success';
+      toast.innerHTML = '✅ Image pasted successfully!';
+      toastContainer.appendChild(toast);
+      
+      // Remove toast after 3 seconds
+      setTimeout(() => {
+        toast.remove();
+      }, 3000);
+    }
+  },
 }));

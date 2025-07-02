@@ -120,7 +120,8 @@ export const CustomBrushPanel = () => {
   const handleSelectCustomBrush = (brushId: string) => {
     setBrushSettings({ 
       brushShape: 'custom',
-      selectedCustomBrush: brushId 
+      selectedCustomBrush: brushId,
+      size: 1
     });
   };
 

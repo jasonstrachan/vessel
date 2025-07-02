@@ -21,11 +21,87 @@ const DrawingCanvas = dynamic(() => import('@/components/canvas/DrawingCanvas').
 });
 
 export default function Home() {
-  const { project, addLayer } = useAppStore();
+  const { project, addLayer, currentLayer, setPastedImageData, zoom, panX, panY } = useAppStore();
   const { toasts, removeToast, success, error, info } = useToast();
   
   // Enable keyboard shortcuts
   useKeyboardShortcuts();
+
+  // Simple clipboard paste listener
+  useEffect(() => {
+    const handlePaste = async (event: ClipboardEvent) => {
+      console.log('🎯 PASTE EVENT DETECTED');
+      const items = event.clipboardData?.items;
+      if (!items) {
+        console.log('❌ No clipboard items found');
+        return;
+      }
+
+      console.log('📋 Clipboard items:', items.length);
+      let foundImage = false;
+      
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        console.log(`📄 Item ${i}: type="${item.type}", kind="${item.kind}"`);
+        
+        if (item.type.indexOf('image') !== -1) {
+          foundImage = true;
+          console.log('🖼️ Found image item!');
+          event.preventDefault();
+          const file = item.getAsFile();
+          if (file) {
+            console.log('📁 Got file:', file.name, file.type, file.size);
+            const img = new Image();
+            img.onload = () => {
+              console.log('✅ Image loaded:', img.width, 'x', img.height);
+              // Create a canvas to draw the image
+              const canvas = document.createElement('canvas');
+              canvas.width = img.width;
+              canvas.height = img.height;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(img, 0, 0);
+                const imageData = ctx.getImageData(0, 0, img.width, img.height);
+                
+                // Simple immediate paste - draw directly on current layer
+                const x = 50;
+                const y = 50;
+                
+                // Store image data for canvas to immediately draw
+                (window as any).pastedImageToCommit = {
+                  imageData,
+                  x,
+                  y,
+                  width: img.width,
+                  height: img.height
+                };
+                
+                console.log(`🎨 Immediately pasting image at ${x}, ${y}`);
+                
+                success(`✅ Pasted image: ${img.width}x${img.height}`);
+                console.log('🎨 Image data:', imageData);
+              }
+            };
+            img.onerror = (err) => {
+              console.error('❌ Image load error:', err);
+              error('Failed to load pasted image');
+            };
+            img.src = URL.createObjectURL(file);
+          } else {
+            console.log('❌ No file from clipboard item');
+          }
+        }
+      }
+      
+      if (!foundImage) {
+        console.log('❌ No image found in clipboard. Try copying an actual image!');
+        info('No image in clipboard. Copy an image and try again.');
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [success, error]);
   
   // Initialize with a default layer if none exist
   useEffect(() => {
