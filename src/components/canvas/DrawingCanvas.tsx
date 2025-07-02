@@ -56,6 +56,112 @@ export const DrawingCanvas = () => {
   // Fast rotation cache for custom brushes
   const rotationCache = useRef<Map<string, Map<number, ImageData>>>(new Map());
 
+  // Flow field system for organic brush strokes
+  const flowField = useRef<number[][]>([]);
+  const fieldResolution = 20; // Grid resolution for flow field
+
+  // Generate flow field - inspired by p5.brush "seabed" field
+  const generateFlowField = (width: number, height: number, style: string = 'seabed') => {
+    const cols = Math.floor(width / fieldResolution);
+    const rows = Math.floor(height / fieldResolution);
+    const field: number[][] = [];
+    
+    for (let y = 0; y < rows; y++) {
+      field[y] = [];
+      for (let x = 0; x < cols; x++) {
+        let angle = 0;
+        
+        if (style === 'seabed') {
+          // Organic seabed-like flow field with noise
+          const xoff = x * 0.1;
+          const yoff = y * 0.1;
+          const zoff = Date.now() * 0.001; // Slow time variation
+          
+          // Simple noise approximation using sin/cos
+          const noise1 = Math.sin(xoff + Math.cos(yoff * 2)) * 0.5 + 0.5;
+          const noise2 = Math.cos(xoff * 1.5 + Math.sin(yoff)) * 0.5 + 0.5;
+          
+          angle = (noise1 + noise2 * 0.5) * Math.PI * 4; // Multiple rotations
+        } else if (style === 'radial') {
+          // Radial flow from center
+          const centerX = cols / 2;
+          const centerY = rows / 2;
+          angle = Math.atan2(y - centerY, x - centerX);
+        } else if (style === 'wave') {
+          // Wave-like horizontal flow
+          angle = Math.sin(y * 0.2) * Math.PI * 0.25;
+        }
+        
+        field[y][x] = angle;
+      }
+    }
+    
+    flowField.current = field;
+  };
+
+  // Get flow direction at a specific point
+  const getFlowDirection = (x: number, y: number): number => {
+    const col = Math.floor(x / fieldResolution);
+    const row = Math.floor(y / fieldResolution);
+    
+    if (flowField.current[row] && flowField.current[row][col] !== undefined) {
+      return flowField.current[row][col];
+    }
+    
+    return 0; // Default direction
+  };
+
+  // Draw a flow line - inspired by p5.brush flowLine function
+  const drawFlowLine = (graphics: any, startX: number, startY: number, length: number, initialDirection: number) => {
+    let x = startX;
+    let y = startY;
+    let direction = initialDirection;
+    let remainingLength = length;
+    
+    const stepSize = Math.min(brushSettings.spacing, 5); // Small steps for smooth curves
+    const points: Array<{x: number, y: number}> = [{x, y}];
+    
+    while (remainingLength > 0 && x >= 0 && x < project.width && y >= 0 && y < project.height) {
+      // Get flow field direction at current position
+      const flowDirection = getFlowDirection(x, y);
+      
+      // Blend current direction with flow field (organic curves)
+      direction = direction * 0.7 + flowDirection * 0.3;
+      
+      // Move along the direction
+      const stepX = Math.cos(direction) * stepSize;
+      const stepY = Math.sin(direction) * stepSize;
+      
+      x += stepX;
+      y += stepY;
+      
+      points.push({x, y});
+      remainingLength -= stepSize;
+    }
+    
+    // Draw the curved path using our existing brush system
+    for (let i = 1; i < points.length; i++) {
+      const prevPoint = points[i - 1];
+      const currentPoint = points[i];
+      
+      // Calculate rotation based on movement direction
+      const rotation = brushSettings.rotateEnabled 
+        ? Math.atan2(currentPoint.y - prevPoint.y, currentPoint.x - prevPoint.x) * 180 / Math.PI
+        : 0;
+      
+      // Use existing drawing functions with flow field rotation
+      if (brushSettings.pixelPerfect) {
+        if (brushSettings.rotateEnabled && rotation !== 0) {
+          drawPixelPerfectRotatedShape(graphics, currentPoint.x, currentPoint.y, brushSettings.size, brushSettings.brushShape === 'square', rotation);
+        } else {
+          drawPixelPerfectShape(graphics, currentPoint.x, currentPoint.y, brushSettings.size, brushSettings.brushShape === 'square');
+        }
+      } else {
+        drawShape(graphics, currentPoint.x, currentPoint.y, brushSettings.size, brushSettings.brushShape === 'square', true, rotation);
+      }
+    }
+  };
+
   // Bresenham line algorithm from reference implementation
   const drawLineBresenham = (graphics: any, x0: number, y0: number, x1: number, y1: number, color: string) => {
     const dx = Math.abs(x1 - x0);
@@ -237,6 +343,9 @@ export const DrawingCanvas = () => {
         }
       }
     }, 100);
+    
+    // Initialize flow field
+    generateFlowField(project.width, project.height, 'seabed');
     
     // P5 Setup complete
   };
@@ -1309,6 +1418,7 @@ export const DrawingCanvas = () => {
     // Determine brush shape and get custom brush if needed
     const isSquareShape = brushSettings.brushShape === 'square';
     const isCustomBrush = brushSettings.brushShape === 'custom';
+    const isFlowFieldBrush = brushSettings.brushShape === 'flowfield';
     const customBrush = isCustomBrush && brushSettings.selectedCustomBrush 
       ? project.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush)
       : null;
@@ -1350,6 +1460,39 @@ export const DrawingCanvas = () => {
           } else {
             // Single custom brush stamp (no rotation for single clicks)
             drawCustomBrushStamp(layerGraphics, mouseX, mouseY, customBrush, scaleFactor, 0);
+          }
+        } else if (isFlowFieldBrush) {
+          // Handle flow field brush - inspired by p5.brush
+          console.log('🌊 FLOW FIELD BRUSH DRAWING');
+          
+          layerGraphics.noStroke();
+          const fillColor = layerGraphics.color(brushSettings.color);
+          fillColor.setAlpha(effectiveOpacity * 255);
+          layerGraphics.fill(fillColor);
+          
+          if (isDragging && lastPos.current !== null) {
+            // Calculate flow line length based on movement distance
+            const movementDistance = Math.sqrt(
+              Math.pow(mouseX - lastPos.current.x, 2) + 
+              Math.pow(mouseY - lastPos.current.y, 2)
+            );
+            
+            // Scale flow line length based on brush size and movement
+            const flowLineLength = Math.max(20, effectiveSize * 10 + movementDistance * 2);
+            
+            // Calculate initial direction from mouse movement
+            const initialDirection = Math.atan2(
+              mouseY - lastPos.current.y, 
+              mouseX - lastPos.current.x
+            );
+            
+            // Draw flow line starting from current position
+            drawFlowLine(layerGraphics, mouseX, mouseY, flowLineLength, initialDirection);
+          } else {
+            // Single click - draw short flow line in random direction
+            const randomDirection = Math.random() * Math.PI * 2;
+            const shortLength = effectiveSize * 5;
+            drawFlowLine(layerGraphics, mouseX, mouseY, shortLength, randomDirection);
           }
         } else {
           // Handle regular brushes (square/circle)
