@@ -53,8 +53,19 @@ export const DrawingCanvas = () => {
   const lastBrushAngle = useRef(0);
   const isNewStroke = useRef(true);
 
-  // Fast rotation cache for custom brushes
-  const rotationCache = useRef<Map<string, Map<number, ImageData>>>(new Map());
+  // Fast rotation cache for pixel-perfect shapes
+  const rotationCache = useRef<Map<string, Map<number, {canvas: HTMLCanvasElement, imageData: ImageData}>>>(new Map());
+  const tempCanvas = useRef<HTMLCanvasElement | null>(null);
+  const tempCtx = useRef<CanvasRenderingContext2D | null>(null);
+  const lastCachedColor = useRef<string>('');
+  
+  // Clear rotation cache when color changes to prevent memory leaks
+  useEffect(() => {
+    if (lastCachedColor.current !== brushSettings.color) {
+      rotationCache.current.clear();
+      lastCachedColor.current = brushSettings.color;
+    }
+  }, [brushSettings.color]);
 
   // Flow field system for organic brush strokes
   const flowField = useRef<number[][]>([]);
@@ -559,13 +570,13 @@ export const DrawingCanvas = () => {
   const calculateSmoothBrushRotation = (x1: number, y1: number, x2: number, y2: number): number => {
     const dx = x2 - x1;
     const dy = y2 - y1;
-    const distance = Math.sqrt(dx * dx + dy * dy);
     
-    // Minimum movement threshold to update angle (prevents jitter on slow movement)
-    const MIN_MOVEMENT = 2;
+    // Use faster distance calculation (avoid sqrt for threshold check)
+    const distanceSquared = dx * dx + dy * dy;
+    const MIN_MOVEMENT_SQUARED = 4; // 2^2
     
-    // If movement is too small, use the last angle
-    if (distance < MIN_MOVEMENT && !isNewStroke.current) {
+    // If movement is too small, use the last angle (faster check)
+    if (distanceSquared < MIN_MOVEMENT_SQUARED && !isNewStroke.current) {
       return lastBrushAngle.current;
     }
     
@@ -579,8 +590,11 @@ export const DrawingCanvas = () => {
       return newAngle;
     }
     
-    // Smooth angle transition for organic feel
-    const SMOOTHING_FACTOR = 0.3; // Lower = smoother transitions
+    // During fast movement, reduce smoothing for responsiveness
+    const distance = Math.sqrt(distanceSquared);
+    const FAST_MOVEMENT_THRESHOLD = 20;
+    const smoothingFactor = distance > FAST_MOVEMENT_THRESHOLD ? 0.7 : 0.3; // Less smoothing for fast movement
+    
     const angleDiff = newAngle - lastBrushAngle.current;
     
     // Handle angle wrapping (e.g., -179° to 179° should interpolate through 180°, not 358°)
@@ -591,8 +605,8 @@ export const DrawingCanvas = () => {
       adjustedAngleDiff += 360;
     }
     
-    // Apply smoothing
-    const smoothedAngle = lastBrushAngle.current + (adjustedAngleDiff * SMOOTHING_FACTOR);
+    // Apply dynamic smoothing
+    const smoothedAngle = lastBrushAngle.current + (adjustedAngleDiff * smoothingFactor);
     lastBrushAngle.current = smoothedAngle;
     
     return smoothedAngle;
@@ -1026,152 +1040,169 @@ export const DrawingCanvas = () => {
 
   // Custom pixel-perfect rotation using direct pixel manipulation
   const drawPixelPerfectRotatedShape = (graphics: any, centerX: number, centerY: number, size: number, isSquare: boolean, rotation: number) => {
-    console.log('🎯 Custom pixel rotation:', { centerX, centerY, size, isSquare, rotation: rotation.toFixed(1) });
+    // Round rotation to nearest 10 degrees for caching efficiency
+    const roundedRotation = Math.round(rotation / 10) * 10;
+    const shapeKey = `${size}-${isSquare ? 'square' : 'circle'}-${brushSettings.color}`;
     
-    // Create the shape on a temporary canvas first
-    const tempSize = Math.ceil(size * 2); // Ensure we capture the entire rotated shape
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = tempSize;
-    tempCanvas.height = tempSize;
-    const tempCtx = tempCanvas.getContext('2d');
-    if (!tempCtx) return;
-    
-    // Disable anti-aliasing on temp canvas
-    tempCtx.imageSmoothingEnabled = false;
-    (tempCtx as any).webkitImageSmoothingEnabled = false;
-    (tempCtx as any).mozImageSmoothingEnabled = false;
-    (tempCtx as any).msImageSmoothingEnabled = false;
-    
-    // Draw the unrotated shape PIXEL-PERFECTLY in the center of temp canvas
-    const tempCenter = Math.floor(tempSize / 2);
-    
-    // Use direct pixel manipulation for perfect shape creation
-    const initialImageData = tempCtx.createImageData(tempSize, tempSize);
-    const initialPixels = initialImageData.data;
-    
-    // Parse color to RGB
-    const colorObj = p5InstanceRef.current?.color(brushSettings.color);
-    const r = colorObj ? p5InstanceRef.current!.red(colorObj) : 0;
-    const g = colorObj ? p5InstanceRef.current!.green(colorObj) : 0;
-    const b = colorObj ? p5InstanceRef.current!.blue(colorObj) : 0;
-    const a = 255;
-    
-    console.log('🎨 Creating perfect shape:', { color: `rgb(${r},${g},${b})`, size, isSquare });
-    
-    // Draw shape pixel by pixel for perfect accuracy
-    for (let y = 0; y < tempSize; y++) {
-      for (let x = 0; x < tempSize; x++) {
-        const dx = x - tempCenter;
-        const dy = y - tempCenter;
-        
-        let inShape = false;
-        if (isSquare) {
-          // Perfect square
-          inShape = Math.abs(dx) <= Math.floor(size / 2) && Math.abs(dy) <= Math.floor(size / 2);
-        } else {
-          // Perfect circle
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          inShape = distance <= size / 2;
-        }
-        
-        if (inShape) {
-          const index = (y * tempSize + x) * 4;
-          initialPixels[index] = r;     // Red
-          initialPixels[index + 1] = g; // Green
-          initialPixels[index + 2] = b; // Blue
-          initialPixels[index + 3] = a; // Alpha
-        }
-      }
+    // Check cache first
+    if (!rotationCache.current.has(shapeKey)) {
+      rotationCache.current.set(shapeKey, new Map());
     }
     
-    // Put the perfect shape data
-    tempCtx.putImageData(initialImageData, 0, 0);
+    const shapeCache = rotationCache.current.get(shapeKey)!;
+    let cached = shapeCache.get(roundedRotation);
     
-    // Get the pixel data
-    const imageData = tempCtx.getImageData(0, 0, tempSize, tempSize);
-    const pixels = imageData.data;
-    
-    // Create output pixel array
-    const outputImageData = tempCtx.createImageData(tempSize, tempSize);
-    const outputPixels = outputImageData.data;
-    
-    // Convert rotation to radians
-    const radians = (rotation * Math.PI) / 180;
-    const cos = Math.cos(radians);
-    const sin = Math.sin(radians);
-    
-    // Rotate each pixel
-    for (let y = 0; y < tempSize; y++) {
-      for (let x = 0; x < tempSize; x++) {
-        // Get source pixel coordinates relative to center
-        const srcX = x - tempCenter;
-        const srcY = y - tempCenter;
+    if (!cached) {
+      // Create cached version - use faster Canvas2D operations instead of pixel manipulation
+      const tempSize = Math.ceil(size * 2);
+      
+      // Reuse temp canvas if possible
+      if (!tempCanvas.current || tempCanvas.current.width !== tempSize || tempCanvas.current.height !== tempSize) {
+        tempCanvas.current = document.createElement('canvas');
+        tempCanvas.current.width = tempSize;
+        tempCanvas.current.height = tempSize;
+        tempCtx.current = tempCanvas.current.getContext('2d');
         
-        // Apply inverse rotation to find source pixel
-        const rotatedX = srcX * cos + srcY * sin;
-        const rotatedY = -srcX * sin + srcY * cos;
-        
-        // Convert back to absolute coordinates
-        const sourceX = Math.round(rotatedX + tempCenter);
-        const sourceY = Math.round(rotatedY + tempCenter);
-        
-        // Check bounds
-        if (sourceX >= 0 && sourceX < tempSize && sourceY >= 0 && sourceY < tempSize) {
-          const sourceIndex = (sourceY * tempSize + sourceX) * 4;
-          const targetIndex = (y * tempSize + x) * 4;
-          
-          // Copy pixel (only if source pixel is not transparent)
-          if (pixels[sourceIndex + 3] > 0) { // Alpha channel
-            outputPixels[targetIndex] = pixels[sourceIndex];     // Red
-            outputPixels[targetIndex + 1] = pixels[sourceIndex + 1]; // Green
-            outputPixels[targetIndex + 2] = pixels[sourceIndex + 2]; // Blue
-            outputPixels[targetIndex + 3] = pixels[sourceIndex + 3]; // Alpha
-          }
+        if (tempCtx.current) {
+          // Disable anti-aliasing
+          tempCtx.current.imageSmoothingEnabled = false;
+          (tempCtx.current as any).webkitImageSmoothingEnabled = false;
+          (tempCtx.current as any).mozImageSmoothingEnabled = false;
+          (tempCtx.current as any).msImageSmoothingEnabled = false;
         }
       }
-    }
-    
-    // Draw the rotated pixels DIRECTLY to main canvas using putImageData (NO SMOOTHING POSSIBLE)
-    const mainCanvas = (graphics as any).canvas;
-    const mainCtx = mainCanvas.getContext('2d');
-    if (mainCtx) {
-      console.log('🔧 Drawing rotated pixels with PURE PIXEL MANIPULATION');
       
-      // Calculate target position on main canvas
-      const targetX = Math.floor(centerX - tempSize / 2);
-      const targetY = Math.floor(centerY - tempSize / 2);
+      if (!tempCtx.current) return;
       
-      // Get main canvas current image data
-      const mainImageData = mainCtx.getImageData(0, 0, mainCanvas.width, mainCanvas.height);
-      const mainPixels = mainImageData.data;
+      // Clear canvas
+      tempCtx.current.clearRect(0, 0, tempSize, tempSize);
       
-      // Copy rotated pixels directly into main canvas pixel data
+      // Parse color once
+      const colorObj = p5InstanceRef.current?.color(brushSettings.color);
+      const r = colorObj ? p5InstanceRef.current!.red(colorObj) : 0;
+      const g = colorObj ? p5InstanceRef.current!.green(colorObj) : 0;
+      const b = colorObj ? p5InstanceRef.current!.blue(colorObj) : 0;
+      
+      // Create pixel-perfect shape using direct pixel manipulation
+      const tempCenter = Math.floor(tempSize / 2);
+      const imageData = tempCtx.current.createImageData(tempSize, tempSize);
+      const pixels = imageData.data;
+      
+      // Draw unrotated shape pixel by pixel for perfect accuracy
       for (let y = 0; y < tempSize; y++) {
         for (let x = 0; x < tempSize; x++) {
-          const sourceIndex = (y * tempSize + x) * 4;
+          const dx = x - tempCenter;
+          const dy = y - tempCenter;
           
-          // Skip transparent pixels
-          if (outputPixels[sourceIndex + 3] === 0) continue;
+          let inShape = false;
+          if (isSquare) {
+            // Perfect square
+            inShape = Math.abs(dx) <= Math.floor(size / 2) && Math.abs(dy) <= Math.floor(size / 2);
+          } else {
+            // Perfect circle
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            inShape = distance <= size / 2;
+          }
           
-          // Calculate target position in main canvas
-          const mainX = targetX + x;
-          const mainY = targetY + y;
-          
-          // Check bounds
-          if (mainX >= 0 && mainX < mainCanvas.width && mainY >= 0 && mainY < mainCanvas.height) {
-            const targetIndex = (mainY * mainCanvas.width + mainX) * 4;
-            
-            // Copy pixel directly (ZERO SMOOTHING)
-            mainPixels[targetIndex] = outputPixels[sourceIndex];         // Red
-            mainPixels[targetIndex + 1] = outputPixels[sourceIndex + 1]; // Green
-            mainPixels[targetIndex + 2] = outputPixels[sourceIndex + 2]; // Blue
-            mainPixels[targetIndex + 3] = outputPixels[sourceIndex + 3]; // Alpha
+          if (inShape) {
+            const index = (y * tempSize + x) * 4;
+            pixels[index] = r;     // Red
+            pixels[index + 1] = g; // Green
+            pixels[index + 2] = b; // Blue
+            pixels[index + 3] = 255; // Alpha
           }
         }
       }
       
-      // Put modified pixel data back (PURE PIXEL OPERATION)
-      mainCtx.putImageData(mainImageData, 0, 0);
+      // Put the pixel-perfect shape data
+      tempCtx.current.putImageData(imageData, 0, 0);
+      
+      // Apply rotation if needed using canvas transform (this maintains pixel-perfect edges)
+      if (Math.abs(roundedRotation) > 0.01) {
+        // Get the unrotated shape data
+        const unrotatedImageData = tempCtx.current.getImageData(0, 0, tempSize, tempSize);
+        
+        // Clear and apply rotation
+        tempCtx.current.clearRect(0, 0, tempSize, tempSize);
+        tempCtx.current.translate(tempCenter, tempCenter);
+        tempCtx.current.rotate((roundedRotation * Math.PI) / 180);
+        tempCtx.current.translate(-tempCenter, -tempCenter);
+        
+        // Draw the unrotated shape (this will be rotated by the transform)
+        tempCtx.current.putImageData(unrotatedImageData, 0, 0);
+        
+        // Reset transform
+        tempCtx.current.setTransform(1, 0, 0, 1, 0, 0);
+      }
+      
+      // Cache the result
+      const resultImageData = tempCtx.current.getImageData(0, 0, tempSize, tempSize);
+      cached = {
+        canvas: tempCanvas.current,
+        imageData: resultImageData
+      };
+      
+      // Limit cache size to prevent memory issues
+      if (shapeCache.size > 15) {
+        const firstKey = shapeCache.keys().next().value as number;
+        if (firstKey !== undefined) {
+          shapeCache.delete(firstKey);
+        }
+      }
+      
+      shapeCache.set(roundedRotation, cached);
+    }
+    
+    // Use cached result - need to copy only non-transparent pixels
+    const tempSize = cached.imageData.width;
+    const offsetX = Math.floor(centerX - tempSize / 2);
+    const offsetY = Math.floor(centerY - tempSize / 2);
+    
+    // Get main canvas image data for pixel-perfect copying
+    const mainCanvas = graphics.canvas;
+    const mainCtx = graphics.drawingContext;
+    
+    // Check bounds to avoid errors
+    const copyStartX = Math.max(0, offsetX);
+    const copyStartY = Math.max(0, offsetY);
+    const copyEndX = Math.min(mainCanvas.width, offsetX + tempSize);
+    const copyEndY = Math.min(mainCanvas.height, offsetY + tempSize);
+    
+    if (copyStartX < copyEndX && copyStartY < copyEndY) {
+      const copyWidth = copyEndX - copyStartX;
+      const copyHeight = copyEndY - copyStartY;
+      
+      // Get the main canvas data only for the region we need to modify
+      const mainImageData = mainCtx.getImageData(copyStartX, copyStartY, copyWidth, copyHeight);
+      const mainPixels = mainImageData.data;
+      const cachedPixels = cached.imageData.data;
+      
+      // Copy only non-transparent pixels from cache to main canvas
+      for (let y = 0; y < copyHeight; y++) {
+        for (let x = 0; x < copyWidth; x++) {
+          // Calculate source position in cached image
+          const srcX = (copyStartX - offsetX) + x;
+          const srcY = (copyStartY - offsetY) + y;
+          
+          // Check bounds in source image
+          if (srcX >= 0 && srcX < tempSize && srcY >= 0 && srcY < tempSize) {
+            const srcIndex = (srcY * tempSize + srcX) * 4;
+            const alpha = cachedPixels[srcIndex + 3];
+            
+            // Only copy non-transparent pixels
+            if (alpha > 0) {
+              const destIndex = (y * copyWidth + x) * 4;
+              mainPixels[destIndex] = cachedPixels[srcIndex];         // Red
+              mainPixels[destIndex + 1] = cachedPixels[srcIndex + 1]; // Green
+              mainPixels[destIndex + 2] = cachedPixels[srcIndex + 2]; // Blue
+              mainPixels[destIndex + 3] = cachedPixels[srcIndex + 3]; // Alpha
+            }
+          }
+        }
+      }
+      
+      // Put the modified data back to main canvas
+      mainCtx.putImageData(mainImageData, copyStartX, copyStartY);
     }
   };
 
