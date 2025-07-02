@@ -29,6 +29,8 @@ export const DrawingCanvas = () => {
     addCustomBrush,
     setCurrentTool,
     setBrushSettings,
+    pastedImageData,
+    setPastedImageData,
   } = useAppStore();
 
   const p5InstanceRef = useRef<p5 | null>(null);
@@ -362,6 +364,32 @@ export const DrawingCanvas = () => {
   };
 
   const draw = (p: p5) => {
+    // Check for pasted image to commit (simple version)
+    if ((window as any).pastedImageToCommit) {
+      const pastedData = (window as any).pastedImageToCommit;
+      const activeLayer = project.layers[currentLayer];
+      
+      if (activeLayer && layerBuffers.current.has(activeLayer.id)) {
+        const layerGraphics = layerBuffers.current.get(activeLayer.id);
+        
+        // Create a temporary canvas from the ImageData
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = pastedData.width;
+        tempCanvas.height = pastedData.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        
+        if (tempCtx) {
+          tempCtx.putImageData(pastedData.imageData, 0, 0);
+          // Draw the image onto the current layer
+          layerGraphics.drawingContext.drawImage(tempCanvas, pastedData.x, pastedData.y);
+          console.log('✅ Committed pasted image to layer at', pastedData.x, pastedData.y);
+        }
+      }
+      
+      // Clear the pasted image data
+      delete (window as any).pastedImageToCommit;
+    }
+    
     // Use noSmooth for canvas composition to preserve both pixel art and smooth art
     p.noSmooth();
     
@@ -399,6 +427,60 @@ export const DrawingCanvas = () => {
       p.rect(selectionEnd.x - cornerSize/2, selectionStart.y - cornerSize/2, cornerSize, cornerSize);
       p.rect(selectionStart.x - cornerSize/2, selectionEnd.y - cornerSize/2, cornerSize, cornerSize);
       p.rect(selectionEnd.x - cornerSize/2, selectionEnd.y - cornerSize/2, cornerSize, cornerSize);
+      
+      p.pop();
+    }
+    
+    // Draw pasted image preview overlay ON TOP of everything
+    if (pastedImageData) {
+      p.push();
+      
+      // Use the P5 canvas's 2D context directly to avoid creating new graphics objects
+      const ctx = p.drawingContext as CanvasRenderingContext2D;
+      
+      // Create a temporary canvas only once (could be optimized with caching)
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = pastedImageData.width;
+      tempCanvas.height = pastedImageData.height;
+      const tempCtx = tempCanvas.getContext('2d');
+      
+      if (tempCtx && ctx) {
+        // Put the ImageData onto the temporary canvas
+        tempCtx.putImageData(pastedImageData.data, 0, 0);
+        
+        // Draw directly using the canvas 2D context
+        ctx.drawImage(tempCanvas, pastedImageData.x, pastedImageData.y);
+        
+        // Draw marching ants selection border
+        const left = pastedImageData.x;
+        const top = pastedImageData.y;
+        const right = pastedImageData.x + pastedImageData.width;
+        const bottom = pastedImageData.y + pastedImageData.height;
+        
+        // Marching ants effect
+        p.strokeWeight(1);
+        p.noFill();
+        
+        // Create marching ants pattern using frame count for animation
+        const dashLength = 6;
+        const speed = 0.1;
+        const offset = (p.frameCount * speed) % (dashLength * 2);
+        
+        // Draw dashed border manually for marching ants effect
+        p.stroke(0); // Black dashes
+        p.drawingContext.setLineDash([dashLength, dashLength]);
+        p.drawingContext.lineDashOffset = -offset;
+        p.rect(left, top, pastedImageData.width, pastedImageData.height);
+        
+        // Draw white dashes (inverted)
+        p.stroke(255); // White dashes
+        p.drawingContext.setLineDash([dashLength, dashLength]);
+        p.drawingContext.lineDashOffset = -offset - dashLength;
+        p.rect(left, top, pastedImageData.width, pastedImageData.height);
+        
+        // Reset line dash
+        p.drawingContext.setLineDash([]);
+      }
       
       p.pop();
     }
@@ -2040,6 +2122,38 @@ export const DrawingCanvas = () => {
     if (!container) return;
 
     const handleMouseDown = (event: MouseEvent) => {
+      // Check if clicking on pasted image first
+      if (pastedImageData) {
+        event.preventDefault();
+        
+        const canvas = container.querySelector('canvas');
+        if (!canvas) return;
+        
+        const rect = container.getBoundingClientRect();
+        const rawX = event.clientX - rect.left;
+        const rawY = event.clientY - rect.top;
+        const mouseX = (rawX - panX) / zoom;
+        const mouseY = (rawY - panY) / zoom;
+        
+        // Check if mouse is within pasted image bounds
+        const left = pastedImageData.x;
+        const top = pastedImageData.y;
+        const right = pastedImageData.x + pastedImageData.width;
+        const bottom = pastedImageData.y + pastedImageData.height;
+        
+        if (mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom) {
+          // Start dragging the pasted image
+          isDrawing.current = true;
+          lastPos.current = { x: mouseX, y: mouseY };
+          return;
+        } else {
+          // Clicked outside pasted image - commit it
+          const state = useAppStore.getState();
+          state.commitPastedImage();
+          return;
+        }
+      }
+      
       if (isSpacePressed.current) {
         // Handle panning
         event.preventDefault();
@@ -2104,6 +2218,34 @@ export const DrawingCanvas = () => {
     };
 
     const handleMouseMove = (event: MouseEvent) => {
+      // Handle pasted image dragging
+      if (pastedImageData && isDrawing.current && lastPos.current) {
+        event.preventDefault();
+        
+        const canvas = container.querySelector('canvas');
+        if (!canvas) return;
+        
+        const rect = container.getBoundingClientRect();
+        const rawX = event.clientX - rect.left;
+        const rawY = event.clientY - rect.top;
+        const mouseX = (rawX - panX) / zoom;
+        const mouseY = (rawY - panY) / zoom;
+        
+        // Calculate movement delta
+        const deltaX = mouseX - lastPos.current.x;
+        const deltaY = mouseY - lastPos.current.y;
+        
+        // Update pasted image position
+        setPastedImageData({
+          ...pastedImageData,
+          x: pastedImageData.x + deltaX,
+          y: pastedImageData.y + deltaY
+        });
+        
+        lastPos.current = { x: mouseX, y: mouseY };
+        return;
+      }
+      
       if (isPanning.current && lastPanPos.current && isSpacePressed.current) {
         // Handle panning
         event.preventDefault();
@@ -2172,6 +2314,14 @@ export const DrawingCanvas = () => {
     };
 
     const handleMouseUp = (event: MouseEvent) => {
+      // Handle end of pasted image dragging
+      if (pastedImageData && isDrawing.current) {
+        event.preventDefault();
+        isDrawing.current = false;
+        lastPos.current = null;
+        return;
+      }
+      
       if (isPanning.current) {
         event.preventDefault();
         isPanning.current = false;
@@ -2223,7 +2373,7 @@ export const DrawingCanvas = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [panX, panY, setPan, zoom, project.width, project.height, currentTool, brushSettings, isSelecting, selectionStart, selectionEnd, setSelection, setIsSelecting]);
+  }, [panX, panY, setPan, zoom, project.width, project.height, currentTool, brushSettings, isSelecting, selectionStart, selectionEnd, setSelection, setIsSelecting, pastedImageData, setPastedImageData]);
 
   // Canvas should be managed by useP5 hook only
 

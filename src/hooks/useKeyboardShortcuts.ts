@@ -12,6 +12,8 @@ export const useKeyboardShortcuts = () => {
     project,
     setBrushSettings,
     brushSettings,
+    pastedImageData,
+    commitPastedImage,
   } = useAppStore();
 
   useEffect(() => {
@@ -91,7 +93,12 @@ export const useKeyboardShortcuts = () => {
         // Animation controls
         case 'enter':
           shouldPreventDefault();
-          togglePlay();
+          if (pastedImageData) {
+            // Commit pasted image
+            commitPastedImage();
+          } else {
+            togglePlay();
+          }
           break;
         case 'arrowleft':
           shouldPreventDefault();
@@ -149,5 +156,5 @@ export const useKeyboardShortcuts = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setCurrentTool, togglePlay, undo, redo, setCurrentFrame, project, setBrushSettings, brushSettings]);
+  }, [setCurrentTool, togglePlay, undo, redo, setCurrentFrame, project, setBrushSettings, brushSettings, pastedImageData, commitPastedImage]);
 };
