@@ -1117,19 +1117,28 @@ export const DrawingCanvas = () => {
       // Put the pixel-perfect shape data
       tempCtx.current.putImageData(imageData, 0, 0);
       
-      // Apply rotation if needed using canvas transform (this maintains pixel-perfect edges)
+      // Apply rotation if needed using drawImage (this respects transforms)
       if (Math.abs(roundedRotation) > 0.01) {
-        // Get the unrotated shape data
+        // Get the unrotated shape data first
         const unrotatedImageData = tempCtx.current.getImageData(0, 0, tempSize, tempSize);
         
-        // Clear and apply rotation
+        // Create a temp canvas with the unrotated data
+        const tempUnrotatedCanvas = document.createElement('canvas');
+        tempUnrotatedCanvas.width = tempSize;
+        tempUnrotatedCanvas.height = tempSize;
+        const tempUnrotatedCtx = tempUnrotatedCanvas.getContext('2d');
+        if (tempUnrotatedCtx) {
+          tempUnrotatedCtx.putImageData(unrotatedImageData, 0, 0);
+        }
+        
+        // Clear and apply rotation transform
         tempCtx.current.clearRect(0, 0, tempSize, tempSize);
         tempCtx.current.translate(tempCenter, tempCenter);
         tempCtx.current.rotate((roundedRotation * Math.PI) / 180);
         tempCtx.current.translate(-tempCenter, -tempCenter);
         
-        // Draw the unrotated shape (this will be rotated by the transform)
-        tempCtx.current.putImageData(unrotatedImageData, 0, 0);
+        // Draw the unrotated canvas (this WILL be rotated by the transform)
+        tempCtx.current.drawImage(tempUnrotatedCanvas, 0, 0);
         
         // Reset transform
         tempCtx.current.setTransform(1, 0, 0, 1, 0, 0);
@@ -1253,10 +1262,10 @@ export const DrawingCanvas = () => {
         const totalDistanceAtPoint = cumulativeDistance + (t * segmentDistance);
         const positionInPattern = totalDistanceAtPoint % patternLength;
         
-        // Minimal step logging
-        
         // Only draw if we're in a dash segment (not in gap)
         if (positionInPattern < dashLengthPixels) {
+          // For now, use non-rotated shapes in pixel-perfect mode to avoid crashes
+          // TODO: Implement safe rotation for dotted lines
           if (isSquare) {
             setPixelPerfectSquare(graphics, x, y, size, fillColor);
           } else {
