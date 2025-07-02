@@ -960,17 +960,15 @@ export const DrawingCanvas = () => {
 
   // OPTIMIZED: Single pixel circle with direct ImageData manipulation
   const setPixelPerfectCircle = (graphics: any, centerX: number, centerY: number, size: number, fillColor: any) => {
-    // For very small brushes (1-2px), use square for simplicity and performance
-    if (size <= 2) {
+    // For 1px brushes, just draw a single pixel
+    if (size <= 1) {
       setPixelPerfectSquare(graphics, centerX, centerY, size, fillColor);
       return;
     }
     
-    // For larger brushes, draw a simple circle
-    const radius = Math.max(1, Math.floor(size / 2));
+    // For larger brushes, draw a circle using floating point precision
     const pixelCenterX = Math.round(centerX);
     const pixelCenterY = Math.round(centerY);
-    const radiusSquared = radius * radius;
     
     // PERFORMANCE OPTIMIZED: Direct ImageData manipulation
     const imageData = graphics.pixels;
@@ -992,21 +990,164 @@ export const DrawingCanvas = () => {
       a = graphics.alpha(fillColor);
     }
     
-    // Limit the search area to prevent excessive computation
-    const maxRadius = Math.min(radius, 20); // Cap at 20px radius for safety
+    // Use exact pixel art circle patterns matching the reference
+    // These predefined patterns create the classic pixel art circle look
     
-    for (let dy = -maxRadius; dy <= maxRadius; dy++) {
-      for (let dx = -maxRadius; dx <= maxRadius; dx++) {
-        const distanceSquared = dx * dx + dy * dy;
-        if (distanceSquared <= radiusSquared) {
-          const x = pixelCenterX + dx;
-          const y = pixelCenterY + dy;
-          if (x >= 0 && x < width && y >= 0 && y < height) {
-            const index = (y * width + x) * 4;
-            imageData[index] = r;     // Red
-            imageData[index + 1] = g; // Green
-            imageData[index + 2] = b; // Blue
-            imageData[index + 3] = a; // Alpha
+    // Helper function to set a single pixel
+    const setPixel = (x: number, y: number) => {
+      if (x >= 0 && x < width && y >= 0 && y < height) {
+        const index = (y * width + x) * 4;
+        imageData[index] = r;
+        imageData[index + 1] = g;
+        imageData[index + 2] = b;
+        imageData[index + 3] = a;
+      }
+    };
+    
+    // Use exact hardcoded patterns matching the reference image EXACTLY
+    if (size === 1) {
+      // 1px: Single pixel
+      setPixel(pixelCenterX, pixelCenterY);
+    } else if (size === 2) {
+      // 2px: 2x2 square
+      setPixel(pixelCenterX - 1, pixelCenterY - 1);
+      setPixel(pixelCenterX, pixelCenterY - 1);
+      setPixel(pixelCenterX - 1, pixelCenterY);
+      setPixel(pixelCenterX, pixelCenterY);
+    } else if (size === 3) {
+      // 3px: Plus with center
+      setPixel(pixelCenterX, pixelCenterY - 1);
+      setPixel(pixelCenterX - 1, pixelCenterY);
+      setPixel(pixelCenterX, pixelCenterY);
+      setPixel(pixelCenterX + 1, pixelCenterY);
+      setPixel(pixelCenterX, pixelCenterY + 1);
+    } else if (size === 4) {
+      // 4px: 4x4 square with corners removed (diamond-like)
+      setPixel(pixelCenterX - 1, pixelCenterY - 1);
+      setPixel(pixelCenterX, pixelCenterY - 1);
+      setPixel(pixelCenterX - 1, pixelCenterY);
+      setPixel(pixelCenterX, pixelCenterY);
+      setPixel(pixelCenterX + 1, pixelCenterY - 1);
+      setPixel(pixelCenterX + 1, pixelCenterY);
+      setPixel(pixelCenterX - 1, pixelCenterY + 1);
+      setPixel(pixelCenterX, pixelCenterY + 1);
+      setPixel(pixelCenterX + 1, pixelCenterY + 1);
+      setPixel(pixelCenterX, pixelCenterY - 2);
+      setPixel(pixelCenterX - 2, pixelCenterY);
+      setPixel(pixelCenterX + 2, pixelCenterY);
+      setPixel(pixelCenterX, pixelCenterY + 2);
+    } else if (size === 5) {
+      // 5px: Diamond shape
+      setPixel(pixelCenterX, pixelCenterY - 2);
+      setPixel(pixelCenterX - 1, pixelCenterY - 1);
+      setPixel(pixelCenterX, pixelCenterY - 1);
+      setPixel(pixelCenterX + 1, pixelCenterY - 1);
+      setPixel(pixelCenterX - 2, pixelCenterY);
+      setPixel(pixelCenterX - 1, pixelCenterY);
+      setPixel(pixelCenterX, pixelCenterY);
+      setPixel(pixelCenterX + 1, pixelCenterY);
+      setPixel(pixelCenterX + 2, pixelCenterY);
+      setPixel(pixelCenterX - 1, pixelCenterY + 1);
+      setPixel(pixelCenterX, pixelCenterY + 1);
+      setPixel(pixelCenterX + 1, pixelCenterY + 1);
+      setPixel(pixelCenterX, pixelCenterY + 2);
+    } else if (size === 6) {
+      // 6px: Wider diamond
+      setPixel(pixelCenterX - 1, pixelCenterY - 2);
+      setPixel(pixelCenterX, pixelCenterY - 2);
+      setPixel(pixelCenterX + 1, pixelCenterY - 2);
+      setPixel(pixelCenterX - 2, pixelCenterY - 1);
+      setPixel(pixelCenterX - 1, pixelCenterY - 1);
+      setPixel(pixelCenterX, pixelCenterY - 1);
+      setPixel(pixelCenterX + 1, pixelCenterY - 1);
+      setPixel(pixelCenterX + 2, pixelCenterY - 1);
+      setPixel(pixelCenterX - 2, pixelCenterY);
+      setPixel(pixelCenterX - 1, pixelCenterY);
+      setPixel(pixelCenterX, pixelCenterY);
+      setPixel(pixelCenterX + 1, pixelCenterY);
+      setPixel(pixelCenterX + 2, pixelCenterY);
+      setPixel(pixelCenterX - 2, pixelCenterY + 1);
+      setPixel(pixelCenterX - 1, pixelCenterY + 1);
+      setPixel(pixelCenterX, pixelCenterY + 1);
+      setPixel(pixelCenterX + 1, pixelCenterY + 1);
+      setPixel(pixelCenterX + 2, pixelCenterY + 1);
+      setPixel(pixelCenterX - 1, pixelCenterY + 2);
+      setPixel(pixelCenterX, pixelCenterY + 2);
+      setPixel(pixelCenterX + 1, pixelCenterY + 2);
+    } else if (size === 7) {
+      // 7px: Extended diamond
+      setPixel(pixelCenterX, pixelCenterY - 3);
+      setPixel(pixelCenterX - 1, pixelCenterY - 2);
+      setPixel(pixelCenterX, pixelCenterY - 2);
+      setPixel(pixelCenterX + 1, pixelCenterY - 2);
+      setPixel(pixelCenterX - 2, pixelCenterY - 1);
+      setPixel(pixelCenterX - 1, pixelCenterY - 1);
+      setPixel(pixelCenterX, pixelCenterY - 1);
+      setPixel(pixelCenterX + 1, pixelCenterY - 1);
+      setPixel(pixelCenterX + 2, pixelCenterY - 1);
+      setPixel(pixelCenterX - 3, pixelCenterY);
+      setPixel(pixelCenterX - 2, pixelCenterY);
+      setPixel(pixelCenterX - 1, pixelCenterY);
+      setPixel(pixelCenterX, pixelCenterY);
+      setPixel(pixelCenterX + 1, pixelCenterY);
+      setPixel(pixelCenterX + 2, pixelCenterY);
+      setPixel(pixelCenterX + 3, pixelCenterY);
+      setPixel(pixelCenterX - 2, pixelCenterY + 1);
+      setPixel(pixelCenterX - 1, pixelCenterY + 1);
+      setPixel(pixelCenterX, pixelCenterY + 1);
+      setPixel(pixelCenterX + 1, pixelCenterY + 1);
+      setPixel(pixelCenterX + 2, pixelCenterY + 1);
+      setPixel(pixelCenterX - 1, pixelCenterY + 2);
+      setPixel(pixelCenterX, pixelCenterY + 2);
+      setPixel(pixelCenterX + 1, pixelCenterY + 2);
+      setPixel(pixelCenterX, pixelCenterY + 3);
+    } else if (size === 8) {
+      // 8px: Octagon-like
+      setPixel(pixelCenterX - 1, pixelCenterY - 3);
+      setPixel(pixelCenterX, pixelCenterY - 3);
+      setPixel(pixelCenterX + 1, pixelCenterY - 3);
+      setPixel(pixelCenterX - 2, pixelCenterY - 2);
+      setPixel(pixelCenterX - 1, pixelCenterY - 2);
+      setPixel(pixelCenterX, pixelCenterY - 2);
+      setPixel(pixelCenterX + 1, pixelCenterY - 2);
+      setPixel(pixelCenterX + 2, pixelCenterY - 2);
+      setPixel(pixelCenterX - 3, pixelCenterY - 1);
+      setPixel(pixelCenterX - 2, pixelCenterY - 1);
+      setPixel(pixelCenterX - 1, pixelCenterY - 1);
+      setPixel(pixelCenterX, pixelCenterY - 1);
+      setPixel(pixelCenterX + 1, pixelCenterY - 1);
+      setPixel(pixelCenterX + 2, pixelCenterY - 1);
+      setPixel(pixelCenterX + 3, pixelCenterY - 1);
+      setPixel(pixelCenterX - 3, pixelCenterY);
+      setPixel(pixelCenterX - 2, pixelCenterY);
+      setPixel(pixelCenterX - 1, pixelCenterY);
+      setPixel(pixelCenterX, pixelCenterY);
+      setPixel(pixelCenterX + 1, pixelCenterY);
+      setPixel(pixelCenterX + 2, pixelCenterY);
+      setPixel(pixelCenterX + 3, pixelCenterY);
+      setPixel(pixelCenterX - 3, pixelCenterY + 1);
+      setPixel(pixelCenterX - 2, pixelCenterY + 1);
+      setPixel(pixelCenterX - 1, pixelCenterY + 1);
+      setPixel(pixelCenterX, pixelCenterY + 1);
+      setPixel(pixelCenterX + 1, pixelCenterY + 1);
+      setPixel(pixelCenterX + 2, pixelCenterY + 1);
+      setPixel(pixelCenterX + 3, pixelCenterY + 1);
+      setPixel(pixelCenterX - 2, pixelCenterY + 2);
+      setPixel(pixelCenterX - 1, pixelCenterY + 2);
+      setPixel(pixelCenterX, pixelCenterY + 2);
+      setPixel(pixelCenterX + 1, pixelCenterY + 2);
+      setPixel(pixelCenterX + 2, pixelCenterY + 2);
+      setPixel(pixelCenterX - 1, pixelCenterY + 3);
+      setPixel(pixelCenterX, pixelCenterY + 3);
+      setPixel(pixelCenterX + 1, pixelCenterY + 3);
+    } else {
+      // For sizes 9px and above, use the traditional circle algorithm
+      const radius = Math.floor(size / 2);
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance <= radius - 0.5) {
+            setPixel(pixelCenterX + dx, pixelCenterY + dy);
           }
         }
       }
