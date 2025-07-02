@@ -34,7 +34,7 @@ export interface BrushSettings {
   spacing: number;
   opacity: number;
   rotation: number;
-  brushShape: 'square' | 'circle' | 'custom';
+  brushShape: 'square' | 'circle' | 'custom' | 'flowfield';
   pixelPerfect: boolean;
   gridSnap: boolean;
   rotateEnabled: boolean; // Separate rotate toggle
