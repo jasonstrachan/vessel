@@ -14,7 +14,7 @@ interface AppStore extends AppState {
   
   // Clipboard state
   clipboardData: ImageData | null;
-  pastedImageData: { data: ImageData, x: number, y: number, width: number, height: number } | null;
+  pastedImageData: { p5Image: any, x: number, y: number, width: number, height: number } | null;
   
   // Actions
   setCurrentTool: (tool: Tool) => void;
@@ -368,9 +368,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const state = get();
     if (!state.pastedImageData) return;
     
+    // Convert p5.Image to canvas for layer compatibility
+    const canvas = state.pastedImageData.p5Image.canvas;
+    
     // Store the pasted image data for the canvas to process
     (window as any).pastedImageToCommit = {
-      imageData: state.pastedImageData.data,
+      canvas: canvas,
       x: state.pastedImageData.x,
       y: state.pastedImageData.y,
       width: state.pastedImageData.width,

@@ -61,6 +61,10 @@ export const DrawingCanvas = () => {
   const tempCtx = useRef<CanvasRenderingContext2D | null>(null);
   const lastCachedColor = useRef<string>('');
   
+  // Paste preview cache to avoid recreating canvas every frame
+  const pastePreviewCanvas = useRef<HTMLCanvasElement | null>(null);
+  const lastPastedImageData = useRef<any>(null);
+  
   // Clear rotation cache when color changes to prevent memory leaks
   useEffect(() => {
     if (lastCachedColor.current !== brushSettings.color) {
@@ -68,6 +72,17 @@ export const DrawingCanvas = () => {
       lastCachedColor.current = brushSettings.color;
     }
   }, [brushSettings.color]);
+
+  // Cache paste preview p5.Image when pastedImageData changes
+  useEffect(() => {
+    if (pastedImageData && pastedImageData !== lastPastedImageData.current) {
+      // Store p5.Image directly - no processing needed!
+      lastPastedImageData.current = pastedImageData;
+    } else if (!pastedImageData) {
+      // Clear cache when no pasted image
+      lastPastedImageData.current = null;
+    }
+  }, [pastedImageData]);
 
   // Flow field system for organic brush strokes
   const flowField = useRef<number[][]>([]);
@@ -278,6 +293,9 @@ export const DrawingCanvas = () => {
     p.pixelDensity(1); // Force 1:1 pixel mapping, ignore device pixel ratio
     p5InstanceRef.current = p;
     
+    // Expose p5 instance globally for fast paste access
+    (window as any).p5Instance = p;
+    
     // PIXEL-PERFECT CANVAS SETUP
     const canvas = (p as any).canvas;
     if (canvas) {
@@ -351,7 +369,6 @@ export const DrawingCanvas = () => {
           const idealPanX = (containerRect.width - canvasWidth) / 2;
           const idealPanY = (containerRect.height - canvasHeight) / 2;
           
-          console.log(`🚀 FORCED AUTO-CENTER: viewport(${containerRect.width.toFixed(0)}x${containerRect.height.toFixed(0)}) canvas(${canvasWidth.toFixed(0)}x${canvasHeight.toFixed(0)}) -> pan(${idealPanX.toFixed(1)}, ${idealPanY.toFixed(1)})`);
           setPan(idealPanX, idealPanY);
         }
       }
@@ -372,17 +389,9 @@ export const DrawingCanvas = () => {
       if (activeLayer && layerBuffers.current.has(activeLayer.id)) {
         const layerGraphics = layerBuffers.current.get(activeLayer.id);
         
-        // Create a temporary canvas from the ImageData
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = pastedData.width;
-        tempCanvas.height = pastedData.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        
-        if (tempCtx) {
-          tempCtx.putImageData(pastedData.imageData, 0, 0);
-          // Draw the image onto the current layer
-          layerGraphics.drawingContext.drawImage(tempCanvas, pastedData.x, pastedData.y);
-          console.log('✅ Committed pasted image to layer at', pastedData.x, pastedData.y);
+        // Draw the canvas directly onto the current layer - ultra fast!
+        if (pastedData.canvas) {
+          layerGraphics.drawingContext.drawImage(pastedData.canvas, pastedData.x, pastedData.y);
         }
       }
       
@@ -431,56 +440,50 @@ export const DrawingCanvas = () => {
       p.pop();
     }
     
+    // Draw temp pasted image INSTANTLY (before React state updates)
+    const tempImage = (window as any).tempPastedImage;
+    if (tempImage) {
+      p.push();
+      p.image(tempImage.p5Image, tempImage.x, tempImage.y);
+      p.pop();
+    }
+    
     // Draw pasted image preview overlay ON TOP of everything
     if (pastedImageData) {
       p.push();
       
-      // Use the P5 canvas's 2D context directly to avoid creating new graphics objects
-      const ctx = p.drawingContext as CanvasRenderingContext2D;
+      // Use p5.image() for direct, fast rendering - like reference demo!
+      p.image(pastedImageData.p5Image, pastedImageData.x, pastedImageData.y);
       
-      // Create a temporary canvas only once (could be optimized with caching)
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = pastedImageData.width;
-      tempCanvas.height = pastedImageData.height;
-      const tempCtx = tempCanvas.getContext('2d');
+      // Draw marching ants selection border
+      const left = pastedImageData.x;
+      const top = pastedImageData.y;
+      const right = pastedImageData.x + pastedImageData.width;
+      const bottom = pastedImageData.y + pastedImageData.height;
       
-      if (tempCtx && ctx) {
-        // Put the ImageData onto the temporary canvas
-        tempCtx.putImageData(pastedImageData.data, 0, 0);
-        
-        // Draw directly using the canvas 2D context
-        ctx.drawImage(tempCanvas, pastedImageData.x, pastedImageData.y);
-        
-        // Draw marching ants selection border
-        const left = pastedImageData.x;
-        const top = pastedImageData.y;
-        const right = pastedImageData.x + pastedImageData.width;
-        const bottom = pastedImageData.y + pastedImageData.height;
-        
-        // Marching ants effect
-        p.strokeWeight(1);
-        p.noFill();
-        
-        // Create marching ants pattern using frame count for animation
-        const dashLength = 6;
-        const speed = 0.1;
-        const offset = (p.frameCount * speed) % (dashLength * 2);
-        
-        // Draw dashed border manually for marching ants effect
-        p.stroke(0); // Black dashes
-        p.drawingContext.setLineDash([dashLength, dashLength]);
-        p.drawingContext.lineDashOffset = -offset;
-        p.rect(left, top, pastedImageData.width, pastedImageData.height);
-        
-        // Draw white dashes (inverted)
-        p.stroke(255); // White dashes
-        p.drawingContext.setLineDash([dashLength, dashLength]);
-        p.drawingContext.lineDashOffset = -offset - dashLength;
-        p.rect(left, top, pastedImageData.width, pastedImageData.height);
-        
-        // Reset line dash
-        p.drawingContext.setLineDash([]);
-      }
+      // Marching ants effect
+      p.strokeWeight(1);
+      p.noFill();
+      
+      // Create marching ants pattern using frame count for animation
+      const dashLength = 6;
+      const speed = 0.1;
+      const offset = (p.frameCount * speed) % (dashLength * 2);
+      
+      // Draw dashed border manually for marching ants effect
+      p.stroke(0); // Black dashes
+      p.drawingContext.setLineDash([dashLength, dashLength]);
+      p.drawingContext.lineDashOffset = -offset;
+      p.rect(left, top, pastedImageData.width, pastedImageData.height);
+      
+      // Draw white dashes (inverted)
+      p.stroke(255); // White dashes
+      p.drawingContext.setLineDash([dashLength, dashLength]);
+      p.drawingContext.lineDashOffset = -offset - dashLength;
+      p.rect(left, top, pastedImageData.width, pastedImageData.height);
+      
+      // Reset line dash
+      p.drawingContext.setLineDash([]);
       
       p.pop();
     }
@@ -645,7 +648,6 @@ export const DrawingCanvas = () => {
     // Add temporary brush to project (can be saved later with +)
     addCustomBrush(customBrush);
     
-    console.log('✨ Created temporary custom brush:', tempBrushId);
   };
 
   // Calculate smooth brush rotation angle from movement direction
@@ -1546,7 +1548,6 @@ export const DrawingCanvas = () => {
   let cachedFillColor: any = null;
   
   const setGraphicsMode = (graphics: any, pixelPerfect: boolean) => {
-    console.log('⚙️ setGraphicsMode:', { currentSmoothMode, requestedPixelPerfect: pixelPerfect, willChange: currentSmoothMode !== pixelPerfect });
     
     if (currentSmoothMode === pixelPerfect) return; // Skip if already set
     
@@ -1555,11 +1556,9 @@ export const DrawingCanvas = () => {
       const layerCtx = layerCanvas.getContext('2d');
       if (layerCtx) {
         if (pixelPerfect) {
-          console.log('🔲 Setting PIXEL-PERFECT mode (noSmooth)');
           graphics.noSmooth();
           layerCtx.imageSmoothingEnabled = false;
         } else {
-          console.log('🌊 Setting SMOOTH mode (antialiased)');
           graphics.smooth();
           layerCtx.imageSmoothingEnabled = true;
           layerCtx.imageSmoothingQuality = 'high';
@@ -1575,24 +1574,14 @@ export const DrawingCanvas = () => {
     // - Any size + Pixel OFF = Smooth anti-aliased shapes
     const shouldUsePixelPerfect = brushSettings.pixelPerfect;
     
-    console.log('🎨 drawShape called:', { 
-      shouldUsePixelPerfect, 
-      withRotation, 
-      rotateEnabled: brushSettings.rotateEnabled, 
-      rotation: rotation.toFixed(1), 
-      size: size.toFixed(1),
-      isSquare
-    });
     
     if (shouldUsePixelPerfect) {
       // PIXEL PERFECT MODE: All brush sizes use pixel-perfect coordinate snapping
       // Rotation maintains hard edges for all brush sizes
       if (withRotation && brushSettings.rotateEnabled && rotation !== 0) {
-        console.log('🔧 Using CUSTOM pixel-perfect rotation (no anti-aliasing)');
         // Use custom pixel-perfect rotation instead of P5.js rotation
         drawPixelPerfectRotatedShape(graphics, x, y, size, isSquare, rotation);
       } else {
-        console.log('🔧 Using drawPixelPerfectShape (no rotation)');
         // Regular pixel perfect shapes without rotation
         drawPixelPerfectShape(graphics, x, y, size, isSquare);
       }
@@ -1600,7 +1589,6 @@ export const DrawingCanvas = () => {
     }
     
     // NATIVE RENDERING: Use P5.js shapes for smooth anti-aliased drawing
-    console.log('🔧 Using NATIVE RENDERING (non-pixel-perfect path)');
     setGraphicsMode(graphics, false); // Use smooth rendering for this path
     
     graphics.push();
