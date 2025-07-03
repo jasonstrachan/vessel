@@ -92,6 +92,11 @@ export const DrawingCanvas = () => {
   const flowField = useRef<number[][]>([]);
   const fieldResolution = 20; // Grid resolution for flow field
 
+  // Helper function to get effective spacing based on pixel perfect mode
+  const getEffectiveSpacing = () => {
+    return brushSettings.pixelPerfect ? brushSettings.size : brushSettings.spacing;
+  };
+
   // Generate flow field - inspired by p5.brush "seabed" field
   const generateFlowField = (width: number, height: number, style: string = 'seabed') => {
     const cols = Math.floor(width / fieldResolution);
@@ -150,7 +155,7 @@ export const DrawingCanvas = () => {
     let direction = initialDirection;
     let remainingLength = length;
     
-    const stepSize = Math.min(brushSettings.spacing, 5); // Small steps for smooth curves
+    const stepSize = Math.min(getEffectiveSpacing(), 5); // Small steps for smooth curves
     const points: Array<{x: number, y: number}> = [{x, y}];
     
     while (remainingLength > 0 && x >= 0 && x < project.width && y >= 0 && y < project.height) {
@@ -931,8 +936,8 @@ export const DrawingCanvas = () => {
 
   const drawCustomBrushLine = (graphics: any, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1) => {
     const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
-    // Use brushSettings.spacing for consistent spacing across all brush types
-    const spacing = Math.max(0.1, brushSettings.spacing);
+    // Use effective spacing (pixel perfect overrides spacing slider)
+    const spacing = Math.max(0.1, getEffectiveSpacing());
     const steps = Math.max(1, Math.ceil(distance / spacing));
     
     // Calculate smooth rotation angle from line direction
@@ -1768,8 +1773,8 @@ export const DrawingCanvas = () => {
           if (isDragging && lastPos.current !== null) {
             // USE SAME SPACING SYSTEM AS REGULAR BRUSHES
             if (brushSettings.dottedStyle.enabled) {
-              // Use dotted style with custom brush - use main spacing setting
-              const actualSpacing = brushSettings.spacing;
+              // Use dotted style with custom brush - use effective spacing
+              const actualSpacing = getEffectiveSpacing();
               
               drawDottedCustomBrushLine(
                 layerGraphics,
@@ -1789,7 +1794,8 @@ export const DrawingCanvas = () => {
               );
               
               // Handle edge case for zero or negative spacing
-              if (brushSettings.spacing <= 0) {
+              const effectiveSpacing = getEffectiveSpacing();
+              if (effectiveSpacing <= 0) {
                 // Continuous drawing - just draw at current position if we moved
                 if (segmentDistance > 0) {
                   const rotation = brushSettings.rotateEnabled ? calculateSmoothBrushRotation(lastPos.current.x, lastPos.current.y, mouseX, mouseY) : 0;
@@ -1799,7 +1805,7 @@ export const DrawingCanvas = () => {
                 // Calculate first point to draw in this segment using same logic as regular brushes
                 const firstPointToDrawAbsolute = cumulativeDistance === 0 
                   ? 0 // Start immediately for first stroke
-                  : Math.ceil(cumulativeDistance / brushSettings.spacing) * brushSettings.spacing;
+                  : Math.ceil(cumulativeDistance / effectiveSpacing) * effectiveSpacing;
                 
                 // Draw all points that fall within this segment
                 let targetAbsoluteDistance = firstPointToDrawAbsolute;
@@ -1818,7 +1824,7 @@ export const DrawingCanvas = () => {
                   drawCustomBrushStamp(layerGraphics, x, y, customBrush, scaleFactor, rotation);
                   
                   // Move to next spacing interval
-                  targetAbsoluteDistance += brushSettings.spacing;
+                  targetAbsoluteDistance += effectiveSpacing;
                 }
               }
               
@@ -1890,8 +1896,8 @@ export const DrawingCanvas = () => {
           // Check if dotted style is enabled
           if (brushSettings.dottedStyle.enabled) {
             console.log('📍 PATH: drawDottedLine (supports rotation)');
-            // DOTTED LINE DRAWING - use main spacing setting
-            const actualSpacing = brushSettings.spacing;
+            // DOTTED LINE DRAWING - use effective spacing (pixel perfect overrides)
+            const actualSpacing = getEffectiveSpacing();
             
             drawDottedLine(
               layerGraphics,
@@ -1930,7 +1936,8 @@ export const DrawingCanvas = () => {
               );
               
               // Handle edge case for zero or negative spacing
-              if (brushSettings.spacing <= 0) {
+              const effectiveSpacing = getEffectiveSpacing();
+              if (effectiveSpacing <= 0) {
                 // Continuous drawing - just draw at current position if we moved
                 if (segmentDistance > 0) {
                   setGraphicsMode(layerGraphics, brushSettings.pixelPerfect);
@@ -1941,7 +1948,7 @@ export const DrawingCanvas = () => {
                 // Calculate first point to draw in this segment
                 const firstPointToDrawAbsolute = cumulativeDistance === 0 
                   ? 0 // Start immediately for first stroke to prevent orphan pixels
-                  : Math.ceil(cumulativeDistance / brushSettings.spacing) * brushSettings.spacing;
+                  : Math.ceil(cumulativeDistance / effectiveSpacing) * effectiveSpacing;
                 
                 setGraphicsMode(layerGraphics, brushSettings.pixelPerfect);
                 
@@ -1968,7 +1975,7 @@ export const DrawingCanvas = () => {
                   drawShape(layerGraphics, x, y, effectiveSize, finalShape, true, rotation);
                   
                   // Move to next spacing interval
-                  targetAbsoluteDistance += brushSettings.spacing;
+                  targetAbsoluteDistance += effectiveSpacing;
                 }
               }
               

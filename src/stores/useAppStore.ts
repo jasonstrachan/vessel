@@ -146,13 +146,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setBrushSettings: (settings) => set((state) => {
     const newBrushSettings = { ...state.brushSettings, ...settings };
     
-    // Auto-adjust spacing for pixel perfect mode
-    if (settings.pixelPerfect !== undefined) {
-      if (settings.pixelPerfect) {
-        // When enabling pixel perfect mode, set main spacing to match brush size
-        newBrushSettings.spacing = newBrushSettings.size;
-      }
-    }
+    // No need to auto-adjust spacing here - it's handled dynamically in the drawing canvas
     
     // Grid snapping doesn't need auto-spacing logic - it works differently
     
