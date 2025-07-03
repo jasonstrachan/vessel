@@ -64,6 +64,8 @@ export default function Home() {
                     width: img.width,
                     height: img.height,
                     isDragging: false,
+                    isResizing: false,
+                    resizeHandle: null,
                     offsetX: 0,
                     offsetY: 0
                   };
