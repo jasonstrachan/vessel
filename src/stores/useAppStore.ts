@@ -149,11 +149,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     // Auto-adjust spacing for pixel perfect mode
     if (settings.pixelPerfect !== undefined) {
       if (settings.pixelPerfect) {
-        // When enabling pixel perfect mode, set spacing to match brush size
-        newBrushSettings.dottedStyle = {
-          ...newBrushSettings.dottedStyle,
-          spacing: newBrushSettings.size
-        };
+        // When enabling pixel perfect mode, set main spacing to match brush size
+        newBrushSettings.spacing = newBrushSettings.size;
       }
     }
     

@@ -452,11 +452,59 @@ export const DrawingCanvas = () => {
       p.pop();
     }
     
-    // Draw fast pasted image (even faster than React state)
+    // Draw fast pasted image (even faster than React state) with full UI
     const fastImage = (window as any).fastPastedImage;
     if (fastImage) {
       p.push();
+      
+      // Draw the image
       p.image(fastImage.p5Image, fastImage.x, fastImage.y, fastImage.width, fastImage.height);
+      
+      // Draw marching ants selection border like React version
+      const left = fastImage.x;
+      const top = fastImage.y;
+      const right = fastImage.x + fastImage.width;
+      const bottom = fastImage.y + fastImage.height;
+      
+      // Marching ants effect
+      p.strokeWeight(1);
+      p.noFill();
+      
+      // Create marching ants pattern using frame count for animation
+      const dashLength = 6;
+      const speed = 0.1;
+      const offset = (p.frameCount * speed) % (dashLength * 2);
+      
+      // Draw dashed border manually for marching ants effect
+      p.stroke(0); // Black dashes
+      p.drawingContext.setLineDash([dashLength, dashLength]);
+      p.drawingContext.lineDashOffset = -offset;
+      p.rect(left, top, fastImage.width, fastImage.height);
+      
+      // Draw white dashes (inverted)
+      p.stroke(255); // White dashes
+      p.drawingContext.setLineDash([dashLength, dashLength]);
+      p.drawingContext.lineDashOffset = -offset - dashLength;
+      p.rect(left, top, fastImage.width, fastImage.height);
+      
+      // Reset line dash
+      p.drawingContext.setLineDash([]);
+      
+      // Draw resize handles (corner squares)
+      const handleSize = 8;
+      p.fill(255);
+      p.stroke(0);
+      p.strokeWeight(1);
+      
+      // Top-left handle
+      p.rect(left - handleSize/2, top - handleSize/2, handleSize, handleSize);
+      // Top-right handle
+      p.rect(right - handleSize/2, top - handleSize/2, handleSize, handleSize);
+      // Bottom-left handle
+      p.rect(left - handleSize/2, bottom - handleSize/2, handleSize, handleSize);
+      // Bottom-right handle
+      p.rect(right - handleSize/2, bottom - handleSize/2, handleSize, handleSize);
+      
       p.pop();
     }
     
@@ -883,7 +931,8 @@ export const DrawingCanvas = () => {
 
   const drawCustomBrushLine = (graphics: any, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1) => {
     const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
-    const spacing = Math.max(1, Math.min(customBrush.width, customBrush.height) * scale * 0.5);
+    // Use brushSettings.spacing for consistent spacing across all brush types
+    const spacing = Math.max(0.1, brushSettings.spacing);
     const steps = Math.max(1, Math.ceil(distance / spacing));
     
     // Calculate smooth rotation angle from line direction
@@ -1704,23 +1753,23 @@ export const DrawingCanvas = () => {
     switch (currentTool) {
       case Tool.BRUSH:
         if (isCustomBrush && customBrush) {
-          // Handle custom brush drawing
+          // Handle custom brush drawing with same spacing system as regular brushes
           console.log('🎨 CUSTOM BRUSH DRAWING:', {
             customBrush: customBrush.id,
             effectiveSize,
             brushWidth: customBrush.width,
-            brushHeight: customBrush.height
+            brushHeight: customBrush.height,
+            spacing: brushSettings.spacing
           });
           
           // Calculate scale factor: use brush size directly as scale
-          // For custom brushes, treat the brush size as a multiplier (not target size)
           const scaleFactor = brushSettings.size;
           
           if (isDragging && lastPos.current !== null) {
-            // Check if dotted style is enabled for custom brushes too
+            // USE SAME SPACING SYSTEM AS REGULAR BRUSHES
             if (brushSettings.dottedStyle.enabled) {
-              // Use regular dotted line logic but with custom brush stamp
-              const actualSpacing = brushSettings.dottedStyle.spacing;
+              // Use dotted style with custom brush - use main spacing setting
+              const actualSpacing = brushSettings.spacing;
               
               drawDottedCustomBrushLine(
                 layerGraphics,
@@ -1733,7 +1782,48 @@ export const DrawingCanvas = () => {
                 brushSettings.dottedStyle.gap
               );
             } else {
-              drawCustomBrushLine(layerGraphics, lastPos.current.x, lastPos.current.y, mouseX, mouseY, customBrush, scaleFactor);
+              // Apply same spacing logic as regular brushes
+              const segmentDistance = Math.sqrt(
+                Math.pow(mouseX - lastPos.current.x, 2) + 
+                Math.pow(mouseY - lastPos.current.y, 2)
+              );
+              
+              // Handle edge case for zero or negative spacing
+              if (brushSettings.spacing <= 0) {
+                // Continuous drawing - just draw at current position if we moved
+                if (segmentDistance > 0) {
+                  const rotation = brushSettings.rotateEnabled ? calculateSmoothBrushRotation(lastPos.current.x, lastPos.current.y, mouseX, mouseY) : 0;
+                  drawCustomBrushStamp(layerGraphics, mouseX, mouseY, customBrush, scaleFactor, rotation);
+                }
+              } else {
+                // Calculate first point to draw in this segment using same logic as regular brushes
+                const firstPointToDrawAbsolute = cumulativeDistance === 0 
+                  ? 0 // Start immediately for first stroke
+                  : Math.ceil(cumulativeDistance / brushSettings.spacing) * brushSettings.spacing;
+                
+                // Draw all points that fall within this segment
+                let targetAbsoluteDistance = firstPointToDrawAbsolute;
+                while (targetAbsoluteDistance <= cumulativeDistance + segmentDistance) {
+                  const distanceIntoSegment = targetAbsoluteDistance - cumulativeDistance;
+                  const t = distanceIntoSegment / segmentDistance;
+                  
+                  // Calculate exact position
+                  const x = lastPos.current.x + (mouseX - lastPos.current.x) * t;
+                  const y = lastPos.current.y + (mouseY - lastPos.current.y) * t;
+                  
+                  // Calculate rotation for this segment
+                  const rotation = brushSettings.rotateEnabled ? calculateSmoothBrushRotation(lastPos.current.x, lastPos.current.y, mouseX, mouseY) : 0;
+                  
+                  // Draw the custom brush stamp at exact spacing interval
+                  drawCustomBrushStamp(layerGraphics, x, y, customBrush, scaleFactor, rotation);
+                  
+                  // Move to next spacing interval
+                  targetAbsoluteDistance += brushSettings.spacing;
+                }
+              }
+              
+              // Update cumulative distance after processing segment
+              cumulativeDistance += segmentDistance;
             }
           } else {
             // Single custom brush stamp (no rotation for single clicks)
@@ -1800,8 +1890,8 @@ export const DrawingCanvas = () => {
           // Check if dotted style is enabled
           if (brushSettings.dottedStyle.enabled) {
             console.log('📍 PATH: drawDottedLine (supports rotation)');
-            // DOTTED LINE DRAWING
-            const actualSpacing = brushSettings.dottedStyle.spacing;
+            // DOTTED LINE DRAWING - use main spacing setting
+            const actualSpacing = brushSettings.spacing;
             
             drawDottedLine(
               layerGraphics,
@@ -2151,15 +2241,71 @@ export const DrawingCanvas = () => {
         const mouseX = (rawX - panX) / zoom;
         const mouseY = (rawY - panY) / zoom;
         
-        // Simple bounds check like reference
+        // Check resize handles first
         const left = fastImage.x;
         const top = fastImage.y;
         const right = fastImage.x + fastImage.width;
         const bottom = fastImage.y + fastImage.height;
+        const handleSize = 8;
         
-        if (mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom) {
+        // Check if clicking on resize handles first
+        const checkHandle = (handleX: number, handleY: number, handle: 'nw' | 'ne' | 'sw' | 'se') => {
+          const distance = Math.sqrt(Math.pow(mouseX - handleX, 2) + Math.pow(mouseY - handleY, 2));
+          return distance <= handleSize;
+        };
+        
+        if (checkHandle(left, top, 'nw')) {
+          fastImage.isResizing = true;
+          fastImage.resizeHandle = 'nw';
+          fastImage.startX = fastImage.x;
+          fastImage.startY = fastImage.y;
+          fastImage.startWidth = fastImage.width;
+          fastImage.startHeight = fastImage.height;
+          fastImage.offsetX = mouseX;
+          fastImage.offsetY = mouseY;
+          isDrawing.current = true;
+          lastPos.current = { x: mouseX, y: mouseY };
+          return;
+        } else if (checkHandle(right, top, 'ne')) {
+          fastImage.isResizing = true;
+          fastImage.resizeHandle = 'ne';
+          fastImage.startX = fastImage.x;
+          fastImage.startY = fastImage.y;
+          fastImage.startWidth = fastImage.width;
+          fastImage.startHeight = fastImage.height;
+          fastImage.offsetX = mouseX;
+          fastImage.offsetY = mouseY;
+          isDrawing.current = true;
+          lastPos.current = { x: mouseX, y: mouseY };
+          return;
+        } else if (checkHandle(left, bottom, 'sw')) {
+          fastImage.isResizing = true;
+          fastImage.resizeHandle = 'sw';
+          fastImage.startX = fastImage.x;
+          fastImage.startY = fastImage.y;
+          fastImage.startWidth = fastImage.width;
+          fastImage.startHeight = fastImage.height;
+          fastImage.offsetX = mouseX;
+          fastImage.offsetY = mouseY;
+          isDrawing.current = true;
+          lastPos.current = { x: mouseX, y: mouseY };
+          return;
+        } else if (checkHandle(right, bottom, 'se')) {
+          fastImage.isResizing = true;
+          fastImage.resizeHandle = 'se';
+          fastImage.startX = fastImage.x;
+          fastImage.startY = fastImage.y;
+          fastImage.startWidth = fastImage.width;
+          fastImage.startHeight = fastImage.height;
+          fastImage.offsetX = mouseX;
+          fastImage.offsetY = mouseY;
+          isDrawing.current = true;
+          lastPos.current = { x: mouseX, y: mouseY };
+          return;
+        } else if (mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom) {
           // Start dragging like reference
           fastImage.isDragging = true;
+          fastImage.isResizing = false;
           fastImage.offsetX = mouseX - fastImage.x;
           fastImage.offsetY = mouseY - fastImage.y;
           isDrawing.current = true;
@@ -2291,8 +2437,66 @@ export const DrawingCanvas = () => {
     };
 
     const handleMouseMove = (event: MouseEvent) => {
-      // Handle fast image dragging (like reference)
+      // Handle fast image resizing
       const fastImage = (window as any).fastPastedImage;
+      if (fastImage && fastImage.isResizing) {
+        event.preventDefault();
+        
+        const canvas = container.querySelector('canvas');
+        if (!canvas) return;
+        
+        const rect = container.getBoundingClientRect();
+        const rawX = event.clientX - rect.left;
+        const rawY = event.clientY - rect.top;
+        const mouseX = (rawX - panX) / zoom;
+        const mouseY = (rawY - panY) / zoom;
+        
+        const deltaX = mouseX - fastImage.offsetX;
+        const deltaY = mouseY - fastImage.offsetY;
+        
+        // Apply resize based on which handle is being dragged using start values
+        switch (fastImage.resizeHandle) {
+          case 'nw':
+            fastImage.x = fastImage.startX + deltaX;
+            fastImage.y = fastImage.startY + deltaY;
+            fastImage.width = fastImage.startWidth - deltaX;
+            fastImage.height = fastImage.startHeight - deltaY;
+            break;
+          case 'ne':
+            fastImage.y = fastImage.startY + deltaY;
+            fastImage.width = fastImage.startWidth + deltaX;
+            fastImage.height = fastImage.startHeight - deltaY;
+            break;
+          case 'sw':
+            fastImage.x = fastImage.startX + deltaX;
+            fastImage.width = fastImage.startWidth - deltaX;
+            fastImage.height = fastImage.startHeight + deltaY;
+            break;
+          case 'se':
+            fastImage.width = fastImage.startWidth + deltaX;
+            fastImage.height = fastImage.startHeight + deltaY;
+            break;
+        }
+        
+        // Ensure minimum size
+        const minSize = 10;
+        if (fastImage.width < minSize) {
+          fastImage.width = minSize;
+          if (fastImage.resizeHandle === 'nw' || fastImage.resizeHandle === 'sw') {
+            fastImage.x = fastImage.startX + fastImage.startWidth - minSize;
+          }
+        }
+        if (fastImage.height < minSize) {
+          fastImage.height = minSize;
+          if (fastImage.resizeHandle === 'nw' || fastImage.resizeHandle === 'ne') {
+            fastImage.y = fastImage.startY + fastImage.startHeight - minSize;
+          }
+        }
+        
+        return;
+      }
+      
+      // Handle fast image dragging (like reference)
       if (fastImage && fastImage.isDragging) {
         event.preventDefault();
         
@@ -2470,9 +2674,11 @@ export const DrawingCanvas = () => {
     const handleMouseUp = (event: MouseEvent) => {
       // Handle fast image mouse release (like reference)
       const fastImage = (window as any).fastPastedImage;
-      if (fastImage && fastImage.isDragging) {
+      if (fastImage && (fastImage.isDragging || fastImage.isResizing)) {
         event.preventDefault();
         fastImage.isDragging = false;
+        fastImage.isResizing = false;
+        fastImage.resizeHandle = null;
         isDrawing.current = false;
         lastPos.current = null;
         return;
