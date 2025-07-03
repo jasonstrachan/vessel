@@ -1638,8 +1638,8 @@ export const DrawingCanvas = () => {
     mouseX = currentMouseX !== undefined ? currentMouseX : (p.mouseX - panX) / zoom;
     mouseY = currentMouseY !== undefined ? currentMouseY : (p.mouseY - panY) / zoom;
     
-    // Apply grid snapping if enabled
-    if (brushSettings.gridSnap && currentMouseX === undefined && currentMouseY === undefined) {
+    // Apply grid snapping if enabled - ALWAYS apply when gridSnap is enabled
+    if (brushSettings.gridSnap) {
       const gridDims = getGridDimensions();
       const snapped = snapToGrid(mouseX, mouseY, gridDims.width, gridDims.height);
       mouseX = snapped.x;

@@ -47,7 +47,7 @@ interface AppStore extends AppState {
   copySelection: () => void;
   cutSelection: () => void;
   pasteFromClipboard: (x: number, y: number) => void;
-  setPastedImageData: (data: { data: ImageData, x: number, y: number, width: number, height: number } | null) => void;
+  setPastedImageData: (data: { p5Image: any, x: number, y: number, width: number, height: number } | null) => void;
   commitPastedImage: () => void;
 }
 
@@ -353,7 +353,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     
     set({
       pastedImageData: {
-        data: state.clipboardData,
+        p5Image: state.clipboardData,
         x,
         y,
         width: state.clipboardData.width,
