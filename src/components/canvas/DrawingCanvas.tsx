@@ -31,6 +31,10 @@ export const DrawingCanvas = () => {
     setBrushSettings,
     pastedImageData,
     setPastedImageData,
+    isResizing,
+    resizeHandle,
+    setIsResizing,
+    setResizeHandle,
   } = useAppStore();
 
   const p5InstanceRef = useRef<p5 | null>(null);
@@ -440,11 +444,19 @@ export const DrawingCanvas = () => {
       p.pop();
     }
     
-    // Draw temp pasted image INSTANTLY (before React state updates)
+    // Draw temp pasted image INSTANTLY (before React state updates) - like reference
     const tempImage = (window as any).tempPastedImage;
     if (tempImage) {
       p.push();
       p.image(tempImage.p5Image, tempImage.x, tempImage.y);
+      p.pop();
+    }
+    
+    // Draw fast pasted image (even faster than React state)
+    const fastImage = (window as any).fastPastedImage;
+    if (fastImage) {
+      p.push();
+      p.image(fastImage.p5Image, fastImage.x, fastImage.y, fastImage.width, fastImage.height);
       p.pop();
     }
     
@@ -453,7 +465,7 @@ export const DrawingCanvas = () => {
       p.push();
       
       // Use p5.image() for direct, fast rendering - like reference demo!
-      p.image(pastedImageData.p5Image, pastedImageData.x, pastedImageData.y);
+      p.image(pastedImageData.p5Image, pastedImageData.x, pastedImageData.y, pastedImageData.width, pastedImageData.height);
       
       // Draw marching ants selection border
       const left = pastedImageData.x;
@@ -484,6 +496,21 @@ export const DrawingCanvas = () => {
       
       // Reset line dash
       p.drawingContext.setLineDash([]);
+      
+      // Draw resize handles (corner squares)
+      const handleSize = 8;
+      p.fill(255);
+      p.stroke(0);
+      p.strokeWeight(1);
+      
+      // Top-left handle
+      p.rect(left - handleSize/2, top - handleSize/2, handleSize, handleSize);
+      // Top-right handle
+      p.rect(right - handleSize/2, top - handleSize/2, handleSize, handleSize);
+      // Bottom-left handle
+      p.rect(left - handleSize/2, bottom - handleSize/2, handleSize, handleSize);
+      // Bottom-right handle
+      p.rect(right - handleSize/2, bottom - handleSize/2, handleSize, handleSize);
       
       p.pop();
     }
@@ -2110,6 +2137,37 @@ export const DrawingCanvas = () => {
     if (!container) return;
 
     const handleMouseDown = (event: MouseEvent) => {
+      // Check fast image first (like reference demo)
+      const fastImage = (window as any).fastPastedImage;
+      if (fastImage) {
+        event.preventDefault();
+        
+        const canvas = container.querySelector('canvas');
+        if (!canvas) return;
+        
+        const rect = container.getBoundingClientRect();
+        const rawX = event.clientX - rect.left;
+        const rawY = event.clientY - rect.top;
+        const mouseX = (rawX - panX) / zoom;
+        const mouseY = (rawY - panY) / zoom;
+        
+        // Simple bounds check like reference
+        const left = fastImage.x;
+        const top = fastImage.y;
+        const right = fastImage.x + fastImage.width;
+        const bottom = fastImage.y + fastImage.height;
+        
+        if (mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom) {
+          // Start dragging like reference
+          fastImage.isDragging = true;
+          fastImage.offsetX = mouseX - fastImage.x;
+          fastImage.offsetY = mouseY - fastImage.y;
+          isDrawing.current = true;
+          lastPos.current = { x: mouseX, y: mouseY };
+          return;
+        }
+      }
+      
       // Check if clicking on pasted image first
       if (pastedImageData) {
         event.preventDefault();
@@ -2128,8 +2186,35 @@ export const DrawingCanvas = () => {
         const top = pastedImageData.y;
         const right = pastedImageData.x + pastedImageData.width;
         const bottom = pastedImageData.y + pastedImageData.height;
+        const handleSize = 8;
         
-        if (mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom) {
+        // Check if clicking on resize handles first
+        const checkHandle = (handleX: number, handleY: number, handle: 'nw' | 'ne' | 'sw' | 'se') => {
+          const distance = Math.sqrt(Math.pow(mouseX - handleX, 2) + Math.pow(mouseY - handleY, 2));
+          return distance <= handleSize;
+        };
+        
+        if (checkHandle(left, top, 'nw')) {
+          setIsResizing(true);
+          setResizeHandle('nw');
+          lastPos.current = { x: mouseX, y: mouseY };
+          return;
+        } else if (checkHandle(right, top, 'ne')) {
+          setIsResizing(true);
+          setResizeHandle('ne');
+          lastPos.current = { x: mouseX, y: mouseY };
+          return;
+        } else if (checkHandle(left, bottom, 'sw')) {
+          setIsResizing(true);
+          setResizeHandle('sw');
+          lastPos.current = { x: mouseX, y: mouseY };
+          return;
+        } else if (checkHandle(right, bottom, 'se')) {
+          setIsResizing(true);
+          setResizeHandle('se');
+          lastPos.current = { x: mouseX, y: mouseY };
+          return;
+        } else if (mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom) {
           // Start dragging the pasted image
           isDrawing.current = true;
           lastPos.current = { x: mouseX, y: mouseY };
@@ -2206,6 +2291,87 @@ export const DrawingCanvas = () => {
     };
 
     const handleMouseMove = (event: MouseEvent) => {
+      // Handle fast image dragging (like reference)
+      const fastImage = (window as any).fastPastedImage;
+      if (fastImage && fastImage.isDragging) {
+        event.preventDefault();
+        
+        const canvas = container.querySelector('canvas');
+        if (!canvas) return;
+        
+        const rect = container.getBoundingClientRect();
+        const rawX = event.clientX - rect.left;
+        const rawY = event.clientY - rect.top;
+        const mouseX = (rawX - panX) / zoom;
+        const mouseY = (rawY - panY) / zoom;
+        
+        // Update position directly like reference
+        fastImage.x = mouseX - fastImage.offsetX;
+        fastImage.y = mouseY - fastImage.offsetY;
+        return;
+      }
+      
+      // Handle pasted image resizing
+      if (pastedImageData && isResizing && resizeHandle && lastPos.current) {
+        event.preventDefault();
+        
+        const canvas = container.querySelector('canvas');
+        if (!canvas) return;
+        
+        const rect = container.getBoundingClientRect();
+        const rawX = event.clientX - rect.left;
+        const rawY = event.clientY - rect.top;
+        const mouseX = (rawX - panX) / zoom;
+        const mouseY = (rawY - panY) / zoom;
+        
+        const deltaX = mouseX - lastPos.current.x;
+        const deltaY = mouseY - lastPos.current.y;
+        
+        let newX = pastedImageData.x;
+        let newY = pastedImageData.y;
+        let newWidth = pastedImageData.width;
+        let newHeight = pastedImageData.height;
+        
+        // Apply resize based on which handle is being dragged
+        switch (resizeHandle) {
+          case 'nw':
+            newX += deltaX;
+            newY += deltaY;
+            newWidth -= deltaX;
+            newHeight -= deltaY;
+            break;
+          case 'ne':
+            newY += deltaY;
+            newWidth += deltaX;
+            newHeight -= deltaY;
+            break;
+          case 'sw':
+            newX += deltaX;
+            newWidth -= deltaX;
+            newHeight += deltaY;
+            break;
+          case 'se':
+            newWidth += deltaX;
+            newHeight += deltaY;
+            break;
+        }
+        
+        // Ensure minimum size
+        const minSize = 10;
+        if (newWidth >= minSize && newHeight >= minSize) {
+          setPastedImageData({
+            ...pastedImageData,
+            x: newX,
+            y: newY,
+            width: newWidth,
+            height: newHeight
+          });
+        }
+        
+        lastPos.current = { x: mouseX, y: mouseY };
+        return;
+      }
+      
       // Handle pasted image dragging
       if (pastedImageData && isDrawing.current && lastPos.current) {
         event.preventDefault();
@@ -2302,6 +2468,25 @@ export const DrawingCanvas = () => {
     };
 
     const handleMouseUp = (event: MouseEvent) => {
+      // Handle fast image mouse release (like reference)
+      const fastImage = (window as any).fastPastedImage;
+      if (fastImage && fastImage.isDragging) {
+        event.preventDefault();
+        fastImage.isDragging = false;
+        isDrawing.current = false;
+        lastPos.current = null;
+        return;
+      }
+      
+      // Handle end of pasted image resizing
+      if (pastedImageData && isResizing) {
+        event.preventDefault();
+        setIsResizing(false);
+        setResizeHandle(null);
+        lastPos.current = null;
+        return;
+      }
+      
       // Handle end of pasted image dragging
       if (pastedImageData && isDrawing.current) {
         event.preventDefault();
@@ -2361,7 +2546,7 @@ export const DrawingCanvas = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [panX, panY, setPan, zoom, project.width, project.height, currentTool, brushSettings, isSelecting, selectionStart, selectionEnd, setSelection, setIsSelecting, pastedImageData, setPastedImageData]);
+  }, [panX, panY, setPan, zoom, project.width, project.height, currentTool, brushSettings, isSelecting, selectionStart, selectionEnd, setSelection, setIsSelecting, pastedImageData, setPastedImageData, isResizing, resizeHandle, setIsResizing, setResizeHandle]);
 
   // Canvas should be managed by useP5 hook only
 

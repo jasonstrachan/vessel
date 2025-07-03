@@ -14,6 +14,10 @@ export const useKeyboardShortcuts = () => {
     brushSettings,
     pastedImageData,
     commitPastedImage,
+    copySelection,
+    cutSelection,
+    selectionStart,
+    selectionEnd,
   } = useAppStore();
 
   useEffect(() => {
@@ -84,16 +88,81 @@ export const useKeyboardShortcuts = () => {
           }
           break;
         case 'c':
-          if (!cmdOrCtrl) {
+          if (cmdOrCtrl) {
+            // Copy selection if there is one
+            if (selectionStart && selectionEnd) {
+              shouldPreventDefault();
+              copySelection();
+            }
+          } else {
             shouldPreventDefault();
             setCurrentTool(Tool.CLEAR);
+          }
+          break;
+        case 'x':
+          if (cmdOrCtrl) {
+            // Cut selection if there is one
+            if (selectionStart && selectionEnd) {
+              shouldPreventDefault();
+              cutSelection();
+            }
+          }
+          break;
+        case 'v':
+          if (cmdOrCtrl) {
+            shouldPreventDefault();
+            // Read from clipboard and paste
+            navigator.clipboard.read().then(async (clipboardItems) => {
+              for (const clipboardItem of clipboardItems) {
+                for (const type of clipboardItem.types) {
+                  if (type.startsWith('image/')) {
+                    const blob = await clipboardItem.getType(type);
+                    const imageUrl = URL.createObjectURL(blob);
+                    
+                    const p5Instance = (window as any).p5Instance;
+                    if (p5Instance) {
+                      p5Instance.loadImage(imageUrl, (img: any) => {
+                        const viewportCenterX = (window.innerWidth / 2) / 2;
+                        const viewportCenterY = (window.innerHeight / 2) / 2;
+                        const x = viewportCenterX - img.width / 2;
+                        const y = viewportCenterY - img.height / 2;
+                        
+                        useAppStore.getState().setPastedImageData({
+                          p5Image: img,
+                          x, y,
+                          width: img.width,
+                          height: img.height
+                        });
+                        URL.revokeObjectURL(imageUrl);
+                      });
+                    }
+                    return;
+                  }
+                }
+              }
+            }).catch((err) => {
+              console.error('Failed to read clipboard:', err);
+            });
           }
           break;
 
         // Animation controls
         case 'enter':
           shouldPreventDefault();
-          if (pastedImageData) {
+          // Check fast image first (like reference)
+          const fastImage = (window as any).fastPastedImage;
+          if (fastImage) {
+            // Commit fast image to React state
+            const state = useAppStore.getState();
+            state.setPastedImageData({
+              p5Image: fastImage.p5Image,
+              x: fastImage.x,
+              y: fastImage.y,
+              width: fastImage.width,
+              height: fastImage.height
+            });
+            delete (window as any).fastPastedImage;
+          } else if (pastedImageData) {
             // Commit pasted image
             commitPastedImage();
           } else {
@@ -156,5 +225,5 @@ export const useKeyboardShortcuts = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setCurrentTool, togglePlay, undo, redo, setCurrentFrame, project, setBrushSettings, brushSettings, pastedImageData, commitPastedImage]);
+  }, [setCurrentTool, togglePlay, undo, redo, setCurrentFrame, project, setBrushSettings, brushSettings, pastedImageData, commitPastedImage, copySelection, cutSelection, selectionStart, selectionEnd]);
 };

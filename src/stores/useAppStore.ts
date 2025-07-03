@@ -16,6 +16,10 @@ interface AppStore extends AppState {
   clipboardData: ImageData | null;
   pastedImageData: { p5Image: any, x: number, y: number, width: number, height: number } | null;
   
+  // Resize state for pasted images
+  isResizing: boolean;
+  resizeHandle: 'nw' | 'ne' | 'sw' | 'se' | null;
+  
   // Actions
   setCurrentTool: (tool: Tool) => void;
   setCurrentLayer: (layerIndex: number) => void;
@@ -49,6 +53,10 @@ interface AppStore extends AppState {
   pasteFromClipboard: (x: number, y: number) => void;
   setPastedImageData: (data: { p5Image: any, x: number, y: number, width: number, height: number } | null) => void;
   commitPastedImage: () => void;
+  
+  // Resize actions
+  setIsResizing: (resizing: boolean) => void;
+  setResizeHandle: (handle: 'nw' | 'ne' | 'sw' | 'se' | null) => void;
 }
 
 const createDefaultBrushSettings = (): BrushSettings => ({
@@ -120,6 +128,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   // Clipboard state
   clipboardData: null,
   pastedImageData: null,
+  
+  // Resize state
+  isResizing: false,
+  resizeHandle: null,
 
   setCurrentTool: (tool) => set((state) => {
     return { currentTool: tool };
@@ -330,6 +342,21 @@ export const useAppStore = create<AppStore>((set, get) => ({
       try {
         // Capture the selected area
         tempCtx.drawImage(canvas, minX, minY, width, height, 0, 0, width, height);
+        
+        // Convert canvas to blob and copy to system clipboard
+        tempCanvas.toBlob((blob) => {
+          if (blob) {
+            navigator.clipboard.write([
+              new ClipboardItem({ 'image/png': blob })
+            ]).then(() => {
+              console.log('Selection copied to clipboard');
+            }).catch((err) => {
+              console.error('Failed to copy to clipboard:', err);
+            });
+          }
+        }, 'image/png');
+        
+        // Also store internally for internal copy-paste
         const imageData = tempCtx.getImageData(0, 0, width, height);
         set({ clipboardData: imageData });
       } catch (error) {
@@ -397,4 +424,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }, 3000);
     }
   },
+
+  // Resize actions
+  setIsResizing: (resizing) => set({ isResizing: resizing }),
+  setResizeHandle: (handle) => set({ resizeHandle: handle }),
 }));
