@@ -182,6 +182,9 @@ tail -f server.log
 - Layer management and animation timeline
 - Dark theme UI with responsive design
 
+### Development Memories
+- Cleared the corrupted Next.js cache by removing the .next directory
+
 ---
 
 ## Development Best Practices
