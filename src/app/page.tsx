@@ -27,76 +27,75 @@ export default function Home() {
   // Enable keyboard shortcuts
   useKeyboardShortcuts();
 
-  // Simple clipboard paste listener
+  // Optimized clipboard paste listener
   useEffect(() => {
     const handlePaste = async (event: ClipboardEvent) => {
-      console.log('🎯 PASTE EVENT DETECTED');
       const items = event.clipboardData?.items;
-      if (!items) {
-        console.log('❌ No clipboard items found');
-        return;
-      }
+      if (!items) return;
 
-      console.log('📋 Clipboard items:', items.length);
-      let foundImage = false;
-      
+      // Find image item quickly
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        console.log(`📄 Item ${i}: type="${item.type}", kind="${item.kind}"`);
-        
-        if (item.type.indexOf('image') !== -1) {
-          foundImage = true;
-          console.log('🖼️ Found image item!');
+        if (item.type.startsWith('image/')) {
           event.preventDefault();
           const file = item.getAsFile();
-          if (file) {
-            console.log('📁 Got file:', file.name, file.type, file.size);
-            const img = new Image();
-            img.onload = () => {
-              console.log('✅ Image loaded:', img.width, 'x', img.height);
-              // Create a canvas to draw the image
-              const canvas = document.createElement('canvas');
-              canvas.width = img.width;
-              canvas.height = img.height;
-              const ctx = canvas.getContext('2d');
-              if (ctx) {
-                ctx.drawImage(img, 0, 0);
-                const imageData = ctx.getImageData(0, 0, img.width, img.height);
-                
-                // Simple immediate paste - draw directly on current layer
-                const x = 50;
-                const y = 50;
-                
-                // Store image data for canvas to immediately draw
-                (window as any).pastedImageToCommit = {
-                  imageData,
-                  x,
-                  y,
-                  width: img.width,
-                  height: img.height
-                };
-                
-                console.log(`🎨 Immediately pasting image at ${x}, ${y}`);
-                
-                success(`✅ Pasted image: ${img.width}x${img.height}`);
-                console.log('🎨 Image data:', imageData);
-              }
-            };
-            img.onerror = (err) => {
-              console.error('❌ Image load error:', err);
-              error('Failed to load pasted image');
-            };
-            img.src = URL.createObjectURL(file);
-          } else {
-            console.log('❌ No file from clipboard item');
+          if (!file) continue;
+          
+          // Ultra-fast path: Direct p5.Image loading like reference demo
+          try {
+            // Create object URL for instant loading
+            const imageUrl = URL.createObjectURL(file);
+            
+            // Use p5 instance to load image directly - ZERO overhead like reference demo!
+            const p5Instance = (window as any).p5Instance;
+            if (p5Instance) {
+              p5Instance.loadImage(imageUrl, 
+                (img: any) => {
+                  // INSTANT like reference demo - no React overhead, simple positioning
+                  (window as any).tempPastedImage = {
+                    p5Image: img,
+                    x: 50, // Simple positioning like reference demo
+                    y: 50,
+                    width: img.width,
+                    height: img.height
+                  };
+                  
+                  // Defer React state update to next frame to avoid blocking
+                  setTimeout(() => {
+                    const viewportCenterX = (window.innerWidth / 2 - panX) / zoom;
+                    const viewportCenterY = (window.innerHeight / 2 - panY) / zoom;
+                    const x = viewportCenterX - img.width / 2;
+                    const y = viewportCenterY - img.height / 2;
+                    
+                    // Clear temp image and set real state
+                    delete (window as any).tempPastedImage;
+                    setPastedImageData({
+                      p5Image: img,
+                      x, y,
+                      width: img.width,
+                      height: img.height
+                    });
+                    success(`Image ready: ${img.width}×${img.height}`);
+                  }, 0);
+                  
+                  URL.revokeObjectURL(imageUrl);
+                },
+                () => {
+                  error('Failed to load pasted image');
+                  URL.revokeObjectURL(imageUrl);
+                }
+              );
+            } else {
+              error('Canvas not ready');
+            }
+          } catch (err) {
+            error('Failed to load pasted image');
           }
+          return;
         }
       }
       
-      if (!foundImage) {
-        console.log('❌ No image found in clipboard. Try copying an actual image!');
-        info('No image in clipboard. Copy an image and try again.');
-      }
+      info('No image in clipboard');
     };
 
     document.addEventListener('paste', handlePaste);
