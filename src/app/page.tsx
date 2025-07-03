@@ -51,32 +51,24 @@ export default function Home() {
             if (p5Instance) {
               p5Instance.loadImage(imageUrl, 
                 (img: any) => {
-                  // INSTANT like reference demo - no React overhead, simple positioning
-                  (window as any).tempPastedImage = {
+                  // Calculate position immediately like reference
+                  const viewportCenterX = (window.innerWidth / 2 - panX) / zoom;
+                  const viewportCenterY = (window.innerHeight / 2 - panY) / zoom;
+                  const x = viewportCenterX - img.width / 2;
+                  const y = viewportCenterY - img.height / 2;
+                  
+                  // INSTANT rendering like reference - bypass React state entirely for speed
+                  (window as any).fastPastedImage = {
                     p5Image: img,
-                    x: 50, // Simple positioning like reference demo
-                    y: 50,
+                    x, y,
                     width: img.width,
-                    height: img.height
+                    height: img.height,
+                    isDragging: false,
+                    offsetX: 0,
+                    offsetY: 0
                   };
                   
-                  // Defer React state update to next frame to avoid blocking
-                  setTimeout(() => {
-                    const viewportCenterX = (window.innerWidth / 2 - panX) / zoom;
-                    const viewportCenterY = (window.innerHeight / 2 - panY) / zoom;
-                    const x = viewportCenterX - img.width / 2;
-                    const y = viewportCenterY - img.height / 2;
-                    
-                    // Clear temp image and set real state
-                    delete (window as any).tempPastedImage;
-                    setPastedImageData({
-                      p5Image: img,
-                      x, y,
-                      width: img.width,
-                      height: img.height
-                    });
-                    success(`Image ready: ${img.width}×${img.height}`);
-                  }, 0);
+                  success(`Image ready: ${img.width}×${img.height} - Click and drag to move, Enter to place!`);
                   
                   URL.revokeObjectURL(imageUrl);
                 },
