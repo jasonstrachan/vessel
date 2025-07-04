@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useAppStore } from '@/stores/useAppStore';
 
 interface HSVColorPickerProps {
   color: string;
@@ -145,8 +144,8 @@ export const HSVColorPicker = ({ color, onChange }: HSVColorPickerProps) => {
     if (!isDragging.current.hue || !hueRef.current) return;
     
     const rect = hueRef.current.getBoundingClientRect();
-    const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
-    const h = (y / rect.height) * 360;
+    const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const h = (x / rect.width) * 360;
     
     handleColorChange({ ...hsv, h });
   };
@@ -170,112 +169,114 @@ export const HSVColorPicker = ({ color, onChange }: HSVColorPickerProps) => {
     };
   }, [hsv]);
 
+  // Color palette matching the screenshot
   const presetColors = [
-    '#000000', '#FFFFFF', '#FF0000', '#00FF00', '#0000FF',
-    '#FFFF00', '#FF00FF', '#00FFFF', '#FFA500', '#800080',
-    '#FFC0CB', '#A52A2A', '#808080', '#90EE90', '#FFB6C1',
-    '#87CEEB', '#DDA0DD', '#98FB98', '#F0E68C', '#D2691E'
+    // Row 1: Basic colors
+    '#FF0000', '#FF1493', '#8B00FF', '#0000FF', '#0080FF', '#00FFFF', '#00FF80', '#00FF00',
+    '#80FF00', '#FFFF00', '#FFA500', '#FF4500', '#8B4513', '#404040', '#808080', '#C0C0C0'
   ];
 
   return (
-    <div className="space-y-2">
-      {/* Color Swatches */}
-      <div className="grid grid-cols-8 gap-1">
-        {presetColors.slice(0, 16).map((presetColor) => (
-          <button
-            key={presetColor}
-            onClick={() => {
-              onChange(presetColor);
-              addToRecentColors(presetColor);
-            }}
-            className={`w-6 h-6 rounded border-2 transition-all ${
-              color === presetColor ? 'border-white' : 'border-[#404040] hover:border-[#888888]'
-            }`}
-            style={{ backgroundColor: presetColor }}
-            title={presetColor}
-          />
-        ))}
-      </div>
-
+    <div className="relative">
       {/* Current Color Button */}
       <button
         ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full h-8 rounded border border-[#404040] hover:border-[#888888] transition-all flex items-center justify-between px-2"
+        className="w-8 h-8 rounded border border-[#404040] hover:border-[#888888] transition-all"
         style={{ backgroundColor: color }}
         title={`Current color: ${color}`}
-      >
-        <span className="text-white text-xs font-mono bg-black bg-opacity-50 px-1 rounded">
-          {color.toUpperCase()}
-        </span>
-        <span className="text-white text-xs">▼</span>
-      </button>
+      />
 
       {/* Popover */}
       {isOpen && (
         <div
           ref={popoverRef}
-          className="absolute left-0 top-full mt-1 z-50 bg-[#2a2a2a] border border-[#404040] rounded shadow-lg p-3 w-64"
+          className="absolute left-0 top-full mt-1 z-50 bg-white border border-gray-300 rounded shadow-lg p-3 w-72"
         >
           <div className="space-y-3">
-            {/* HSV Color Picker */}
-            <div className="flex gap-2">
-              {/* Saturation/Value Square */}
-              <div
+            {/* HSV Color Picker Area */}
+            <div className="space-y-2">
+              {/* Saturation/Brightness Picker */}
+              <div 
                 ref={saturationRef}
-                className="w-40 h-40 relative cursor-crosshair border border-[#404040] rounded"
+                className="relative w-full h-32 cursor-crosshair rounded"
                 style={{
-                  background: `linear-gradient(to top, black, transparent), linear-gradient(to right, white, hsl(${hsv.h}, 100%, 50%))`
+                  background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(${hsv.h}, 100%, 50%))`
                 }}
                 onMouseDown={handleSaturationMouseDown}
               >
-                {/* Saturation/Value Cursor */}
+                {/* Saturation/Brightness Indicator */}
                 <div
-                  className="absolute w-2 h-2 border border-white rounded-full pointer-events-none"
+                  className="absolute w-3 h-3 border-2 border-white rounded-full transform -translate-x-1.5 -translate-y-1.5 shadow-sm"
                   style={{
                     left: `${(hsv.s / 100) * 100}%`,
-                    top: `${100 - (hsv.v / 100) * 100}%`,
-                    transform: 'translate(-50%, -50%)',
-                    boxShadow: '0 0 0 1px rgba(0,0,0,0.5)'
+                    top: `${100 - (hsv.v / 100) * 100}%`
                   }}
                 />
               </div>
 
               {/* Hue Slider */}
-              <div
-                ref={hueRef}
-                className="w-4 h-40 cursor-pointer border border-[#404040] rounded"
-                style={{
-                  background: 'linear-gradient(to bottom, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)'
-                }}
-                onMouseDown={handleHueMouseDown}
-              >
-                {/* Hue Cursor */}
+              <div className="flex items-center gap-2">
                 <div
-                  className="absolute w-6 h-0.5 bg-white border border-black pointer-events-none"
-                  style={{
-                    top: `${(hsv.h / 360) * 100}%`,
-                    left: '50%',
-                    transform: 'translate(-50%, -50%)'
-                  }}
+                  className="w-6 h-6 rounded-full border border-gray-300 flex-shrink-0"
+                  style={{ backgroundColor: color }}
                 />
+                <div 
+                  ref={hueRef}
+                  className="relative flex-1 h-4 cursor-pointer rounded"
+                  style={{
+                    background: 'linear-gradient(to right, #ff0000, #ff8000, #ffff00, #80ff00, #00ff00, #00ff80, #00ffff, #0080ff, #0000ff, #8000ff, #ff00ff, #ff0080, #ff0000)'
+                  }}
+                  onMouseDown={handleHueMouseDown}
+                >
+                  {/* Hue Indicator */}
+                  <div
+                    className="absolute w-3 h-3 border-2 border-white rounded-full transform -translate-x-1.5 -translate-y-0.5 shadow-sm"
+                    style={{
+                      left: `${(hsv.h / 360) * 100}%`,
+                      top: '50%'
+                    }}
+                  />
+                </div>
               </div>
             </div>
 
             {/* Hex Input */}
-            <input
-              type="text"
-              value={color.toUpperCase()}
-              onChange={(e) => {
-                const hex = e.target.value;
-                if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
-                  onChange(hex);
-                  addToRecentColors(hex);
-                }
-              }}
-              className="w-full px-2 py-1 bg-[#1a1a1a] border border-[#404040] rounded text-white text-xs font-mono"
-              placeholder="#000000"
-            />
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500 text-xs font-medium">HEX</span>
+              <input
+                type="text"
+                value={color.toUpperCase()}
+                onChange={(e) => {
+                  const hex = e.target.value;
+                  if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+                    onChange(hex);
+                    addToRecentColors(hex);
+                  }
+                }}
+                className="flex-1 px-2 py-1 bg-gray-100 text-gray-800 text-xs font-mono rounded border border-gray-300"
+                placeholder="#000000"
+              />
+            </div>
+
+            {/* Color Palette */}
+            <div className="grid grid-cols-8 gap-1">
+              {presetColors.map((presetColor) => (
+                <button
+                  key={presetColor}
+                  onClick={() => {
+                    onChange(presetColor);
+                    addToRecentColors(presetColor);
+                    setIsOpen(false);
+                  }}
+                  className={`w-6 h-6 rounded border-2 transition-all ${
+                    color === presetColor ? 'border-gray-800' : 'border-gray-300 hover:border-gray-500'
+                  }`}
+                  style={{ backgroundColor: presetColor }}
+                  title={presetColor}
+                />
+              ))}
+            </div>
           </div>
         </div>
       )}
