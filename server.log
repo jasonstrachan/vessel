@@ -1,75 +1,166 @@
+
+> tinybrush-v2@0.1.0 dev
+> next dev
+
    ▲ Next.js 15.3.4
    - Local:        http://localhost:3000
-   - Network:      http://0.0.0.0:3000
+   - Network:      http://10.255.255.254:3000
    - Environments: .env.local, .env
 
  ✓ Starting...
- ✓ Ready in 1098ms
+ ✓ Ready in 1188ms
  ○ Compiling / ...
- ✓ Compiled / in 1953ms (1217 modules)
- HEAD / 200 in 2169ms
- GET / 200 in 39ms
- ✓ Compiled /favicon.ico in 146ms (651 modules)
- GET /favicon.ico 200 in 198ms
- GET /favicon.ico 200 in 6ms
- ✓ Compiled in 2.2s (1217 modules)
- GET / 200 in 82ms
- ✓ Compiled in 412ms (582 modules)
- GET / 200 in 12ms
- ✓ Compiled in 371ms (635 modules)
- ✓ Compiled in 681ms (1217 modules)
- GET / 200 in 54ms
- ✓ Compiled in 617ms (1217 modules)
- GET / 200 in 21ms
- ✓ Compiled in 2.1s (1217 modules)
- GET / 200 in 21ms
- GET / 200 in 65ms
- ✓ Compiled /favicon.ico in 94ms (651 modules)
- GET /favicon.ico 200 in 139ms
- GET /favicon.ico 200 in 3ms
- ✓ Compiled in 423ms (635 modules)
- ✓ Compiled in 458ms (582 modules)
- GET / 200 in 70ms
- ✓ Compiled in 645ms (1217 modules)
- GET / 200 in 18ms
- ✓ Compiled in 42ms (568 modules)
- ✓ Compiled in 649ms (1217 modules)
- GET / 200 in 21ms
- ✓ Compiled in 446ms (582 modules)
- GET / 200 in 9ms
- ✓ Compiled in 420ms (1203 modules)
- ✓ Compiled in 661ms (1217 modules)
- ✓ Compiled in 34ms (568 modules)
- GET / 200 in 92ms
- ✓ Compiled /favicon.ico in 124ms (651 modules)
- GET /favicon.ico 200 in 167ms
- GET /favicon.ico 200 in 3ms
- ✓ Compiled in 429ms (582 modules)
- GET / 200 in 38ms
- ✓ Compiled in 415ms (635 modules)
- HEAD / 200 in 89ms
- GET / 200 in 29ms
- ✓ Compiled /favicon.ico in 54ms (651 modules)
- GET /favicon.ico 200 in 90ms
- GET /favicon.ico 200 in 2ms
- ✓ Compiled in 364ms (582 modules)
- GET / 200 in 31ms
- ✓ Compiled in 382ms (582 modules)
- GET / 200 in 6ms
- ✓ Compiled in 345ms (1219 modules)
- HEAD / 200 in 56ms
+ ✓ Compiled / in 1501ms (1235 modules)
+ GET / 200 in 1740ms
  GET / 200 in 36ms
- GET /favicon.ico 200 in 5ms
- GET /favicon.ico 200 in 3ms
- GET / 200 in 49ms
- GET /favicon.ico 200 in 5ms
+ ✓ Compiled /favicon.ico in 201ms (667 modules)
+ GET /favicon.ico 200 in 265ms
  GET /favicon.ico 200 in 4ms
- ✓ Compiled in 424ms (651 modules)
- ✓ Compiled in 449ms (582 modules)
- GET / 200 in 44ms
- GET / 200 in 62ms
- GET /favicon.ico 200 in 10ms
- GET /favicon.ico 200 in 3ms
- ✓ Compiled in 439ms (582 modules)
- GET / 200 in 8ms
- ✓ Compiled in 405ms (651 modules)
+ ✓ Compiled in 688ms (1235 modules)
+ ✓ Compiled /_not-found in 277ms (1239 modules)
+ ⨯ Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/vendor-chunks/next.js'
+    at __webpack_require__.f.require (.next/server/webpack-runtime.js:198:28)
+    at <unknown> (.next/server/webpack-runtime.js:111:40)
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (.next/server/webpack-runtime.js:110:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (.next/server/webpack-runtime.js:162:22)
+    at <unknown> (.next/server/app/_not-found/page.js:161:47)
+    at Object.<anonymous> (.next/server/app/_not-found/page.js:164:3) {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/vendor-chunks/next.js'
+}
+ ✓ Compiled /_error in 431ms (1573 modules)
+ GET / 500 in 2418ms
+ GET / 200 in 399ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/page.js',
+  page: '/'
+}
+ ✓ Compiled /favicon.ico in 145ms (755 modules)
+ GET /favicon.ico 200 in 194ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/page.js',
+  page: '/'
+}
+ GET / 500 in 239ms
+ GET /favicon.ico 200 in 4ms
+[Error: ENOENT: no such file or directory, stat '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/11.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/11.pack.gz'
+}
+ ⨯ unhandledRejection: [Error: ENOENT: no such file or directory, stat '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/11.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/11.pack.gz'
+}
+ ⨯ unhandledRejection:  [Error: ENOENT: no such file or directory, stat '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/11.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/11.pack.gz'
+}
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, stat '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/11.pack.gz'
+[Error: ENOENT: no such file or directory, stat '/home/jason/projects/tinybrush/.next/cache/webpack/server-development/1.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/home/jason/projects/tinybrush/.next/cache/webpack/server-development/1.pack.gz'
+}
+ ⨯ unhandledRejection: [Error: ENOENT: no such file or directory, stat '/home/jason/projects/tinybrush/.next/cache/webpack/server-development/1.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/home/jason/projects/tinybrush/.next/cache/webpack/server-development/1.pack.gz'
+}
+ ⨯ unhandledRejection:  [Error: ENOENT: no such file or directory, stat '/home/jason/projects/tinybrush/.next/cache/webpack/server-development/1.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/home/jason/projects/tinybrush/.next/cache/webpack/server-development/1.pack.gz'
+}
+[Error: ENOENT: no such file or directory, stat '/home/jason/projects/tinybrush/.next/cache/webpack/server-development/7.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/home/jason/projects/tinybrush/.next/cache/webpack/server-development/7.pack.gz'
+}
+ ⨯ unhandledRejection: [Error: ENOENT: no such file or directory, stat '/home/jason/projects/tinybrush/.next/cache/webpack/server-development/7.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/home/jason/projects/tinybrush/.next/cache/webpack/server-development/7.pack.gz'
+}
+ ⨯ unhandledRejection:  [Error: ENOENT: no such file or directory, stat '/home/jason/projects/tinybrush/.next/cache/webpack/server-development/7.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/home/jason/projects/tinybrush/.next/cache/webpack/server-development/7.pack.gz'
+}
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, stat '/home/jason/projects/tinybrush/.next/cache/webpack/server-development/1.pack.gz'
+ GET / 404 in 208ms
+ GET / 404 in 210ms
+ GET / 404 in 209ms
+ GET / 404 in 205ms
+ GET / 404 in 207ms
+ GET / 404 in 205ms
+ GET / 404 in 206ms
+ GET / 404 in 206ms
+ GET / 404 in 204ms
+ GET / 404 in 207ms
+ GET / 404 in 205ms
+ GET / 404 in 206ms
+ GET / 404 in 210ms
+ GET / 404 in 207ms
+ GET / 404 in 207ms
+ GET / 404 in 208ms
+ GET / 404 in 208ms
+ GET / 404 in 211ms
+ GET / 404 in 205ms
+ GET / 404 in 205ms
+ GET / 404 in 206ms
+ GET / 404 in 205ms
+ GET / 404 in 204ms
+ GET / 404 in 209ms
+ GET / 404 in 205ms
+ GET / 404 in 205ms
+ GET / 404 in 205ms
+ GET / 404 in 204ms
+ GET / 404 in 207ms
+ GET / 404 in 206ms
+ GET / 404 in 205ms
+ GET / 404 in 206ms
+ GET / 404 in 204ms
+ GET / 404 in 207ms
+ GET / 404 in 206ms
+ GET / 404 in 206ms
+ GET / 404 in 206ms
+ GET / 404 in 206ms
+ GET / 404 in 205ms
+ GET / 404 in 205ms
+ GET / 404 in 204ms
+ GET / 404 in 206ms
+ GET / 404 in 205ms
+ GET / 404 in 207ms
+ GET / 404 in 205ms
+ GET / 404 in 206ms
+ GET / 404 in 206ms
+ GET / 404 in 206ms
+ GET / 404 in 207ms
+ GET / 404 in 205ms
+ GET / 404 in 206ms
+ GET / 404 in 212ms
+ GET / 404 in 206ms
+ GET / 404 in 208ms
+[?25h

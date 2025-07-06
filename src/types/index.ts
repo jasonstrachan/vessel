@@ -1,5 +1,8 @@
 import p5 from 'p5';
 
+// Import new modular brush system
+export * from './brush';
+
 export interface Layer {
   id: string;
   name: string;
@@ -31,7 +34,6 @@ export interface CustomBrush {
 export interface BrushSettings {
   color: string;
   size: number;
-  spacing: number;
   opacity: number;
   rotation: number;
   brushShape: 'square' | 'circle' | 'custom' | 'flowfield';
@@ -39,9 +41,13 @@ export interface BrushSettings {
   gridSnap: boolean;
   rotateEnabled: boolean; // Separate rotate toggle
   selectedCustomBrush: string | null; // ID of selected custom brush
+  spacing: {
+    value: number; // Fixed spacing value (in pixels)
+    dynamicEnabled: boolean; // Enable dynamic spacing based on cursor speed
+    defaultValue: number; // Default spacing for current brush preset
+  };
   dottedStyle: {
     enabled: boolean;
-    spacing: number;
     dashLength: number;
     dashSpacing: number;
     gap: number;
@@ -61,12 +67,13 @@ export interface OnionSkinSettings {
 }
 
 export enum Tool {
-  BRUSH = 'brush',
-  ERASER = 'eraser',
-  FILL = 'fill',
-  SELECT = 'select',
-  BRUSH_SELECT = 'brush_select',
-  CLEAR = 'clear',
+  SELECT = 'select',      // V key - Selection tool
+  BRUSH = 'brush',        // B key - Brush tool  
+  CUSTOM_BRUSH = 'custom_brush', // U key - Custom Brush tool
+  FILL = 'fill',          // G key - Fill tool
+  ERASER = 'eraser',      // E key - Eraser tool
+  BRUSH_SELECT = 'brush_select', // Legacy - will be removed
+  CLEAR = 'clear',        // Clear tool
 }
 
 export interface UndoAction {
@@ -79,9 +86,13 @@ export interface AppState {
   project: Project;
   currentTool: Tool;
   currentLayer: number;
-  brushSettings: BrushSettings;
+  brushSettings: BrushSettings; // Legacy - maintained for compatibility
   onionSkinSettings: OnionSkinSettings;
   isPlaying: boolean;
   undoStack: UndoAction[];
   redoStack: UndoAction[];
+  
+  // New modular brush system
+  brushLibrary?: import('./brush').BrushLibraryState; // Optional - will be populated during migration
+  selectedBrushPreset?: string; // ID of currently selected modular brush
 }

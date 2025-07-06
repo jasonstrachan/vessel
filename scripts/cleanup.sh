@@ -3,9 +3,9 @@
 
 echo "🧹 Cleaning up development processes..."
 
-# Kill all Node.js processes
-pkill -f "node" 2>/dev/null || true
-pkill -f "next" 2>/dev/null || true
+# Kill only Next.js development processes (not VS Code)
+pkill -f "next dev" 2>/dev/null || true
+pkill -f "tinybrush" 2>/dev/null || true
 
 # Kill processes on common ports
 for port in 3000 3001 3002 3003; do

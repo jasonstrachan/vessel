@@ -1,196 +1,185 @@
-# Claude Development Notes for TinyBrush
+# Development Partnership
 
-## Project Overview
-TinyBrush is a web-based drawing application built with Next.js, featuring animation capabilities, layer management, and brush tools.
+We're building production-quality code together. Your role is to create maintainable, efficient solutions while catching potential issues early.
 
-## Server Management
+When you seem stuck or overly complex, I'll redirect you - my guidance helps you stay on track.
 
-### Development Server Commands
-```bash
-# Preferred method (most reliable):
-npx next dev
+## 🚨 AUTOMATED CHECKS ARE MANDATORY
+**ALL hook issues are BLOCKING - EVERYTHING must be ✅ GREEN!**  
+No errors. No formatting issues. No linting problems. Zero tolerance.  
+These are not suggestions. Fix ALL issues before continuing.
 
-# Alternative with custom port:
-npx next dev --port 3001
+## CRITICAL WORKFLOW - ALWAYS FOLLOW THIS!
 
-# For container/network access:
-npx next dev --hostname 0.0.0.0
+### Research → Plan → Implement
+**NEVER JUMP STRAIGHT TO CODING!** Always follow this sequence:
+1. **Research**: Explore the /docs and codebase, understand existing patterns
+2. **Plan**: Create a detailed implementation plan with /docs/00_Tasks/TODO.md and verify it with me  
+3. **Implement**: Execute the plan with validation checkpoints
+4. **Document**: Update the /docs with new information
+
+When asked to implement any feature, you'll first say: "Let me research the codebase and create a plan before implementing."
+
+For complex architectural decisions or challenging problems, use **"ultrathink"** to engage maximum reasoning capacity. Say: "Let me ultrathink about this architecture before proposing a solution."
+
+### USE MULTIPLE AGENTS!
+*Leverage subagents aggressively* for better results:
+
+* Spawn agents to explore different parts of the docs and codebase in parallel
+* Use one agent to write tests while another implements features
+* Delegate research tasks: "I'll have an agent investigate the database schema while I analyze the API structure"
+* For complex refactors: One agent identifies changes, another implements them
+
+Say: "I'll spawn agents to tackle different aspects of this problem" whenever a task has multiple independent parts.
+
+### Reality Checkpoints
+**Stop and validate** at these moments:
+- After implementing a complete feature
+- Before starting a new major component  
+- When something feels wrong
+- Before declaring "done"
+- **WHEN HOOKS FAIL WITH ERRORS** ❌
+
+Run: `make fmt && make test && make lint`
+
+> Why: You can lose track of what's actually working. These checkpoints prevent cascading failures.
+
+### 🚨 CRITICAL: Hook Failures Are BLOCKING
+**When hooks report ANY issues (exit code 2), you MUST:**
+1. **STOP IMMEDIATELY** - Do not continue with other tasks
+2. **FIX ALL ISSUES** - Address every ❌ issue until everything is ✅ GREEN
+3. **VERIFY THE FIX** - Re-run the failed command to confirm it's fixed
+4. **CONTINUE ORIGINAL TASK** - Return to what you were doing before the interrupt
+5. **NEVER IGNORE** - There are NO warnings, only requirements
+
+This includes:
+- Formatting issues (gofmt, black, prettier, etc.)
+- Linting violations (golangci-lint, eslint, etc.)
+- Forbidden patterns (time.Sleep, panic(), interface{})
+- ALL other checks
+
+Your code must be 100% clean. No exceptions.
+
+**Recovery Protocol:**
+- When interrupted by a hook failure, maintain awareness of your original task
+- After fixing all issues and verifying the fix, continue where you left off
+- Use the TODO.md list to track both the fix and your original task
+
+## Working Memory Management
+
+### When context gets long:
+- Re-read this CLAUDE.md file
+- Summarize progress in a PROGRESS.md file
+- Document current state before major changes
+
+### Maintain TODO.md:
+```
+## Current Task
+- [ ] What we're doing RIGHT NOW
+
+## Completed  
+- [x] What's actually done and tested
+
+## Next Steps
+- [ ] What comes next
 ```
 
-### Common Server Issues & Solutions
+## Go-Specific Rules
 
-#### Issue: Server shows "Ready" but connection refused
-**Cause**: WSL2 networking binding issues, localhost vs 127.0.0.1 resolution problems
-**Solution**: 
-1. Use explicit hostname binding: `npx next dev --hostname 0.0.0.0`
-2. Run in background: `nohup npx next dev --hostname 0.0.0.0 --port 3000 > server.log 2>&1 &`
-3. Test with 127.0.0.1: `curl -I http://127.0.0.1:3000` (not localhost)
-4. For persistent fix: Configure WSL2 mirrored networking in `~/.wslconfig`
+### FORBIDDEN - NEVER DO THESE:
+- **NO interface{}** or **any{}** - use concrete types!
+- **NO time.Sleep()** or busy waits - use channels for synchronization!
+- **NO** keeping old and new code together
+- **NO** migration functions or compatibility layers
+- **NO** versioned function names (processV2, handleNew)
+- **NO** custom error struct hierarchies
+- **NO** TODOs in final code
 
-#### Issue: Port conflicts
-**Solution**: `pkill -f next && npx next dev`
+> **AUTOMATED ENFORCEMENT**: The smart-lint hook will BLOCK commits that violate these rules.  
+> When you see `❌ FORBIDDEN PATTERN`, you MUST fix it immediately!
 
-#### Issue: Build errors blocking server
-**Common fixes**:
-- Replace `<a href="/">` with `<Link href="/">` in Next.js pages
-- Add missing imports: `import Link from 'next/link'`
-- Fix TypeScript/ESLint warnings that block compilation
+### Required Standards:
+- **Delete** old code when replacing it
+- **Meaningful names**: `userID` not `id`
+- **Early returns** to reduce nesting
+- **Concrete types** from constructors: `func NewServer() *Server`
+- **Simple errors**: `return fmt.Errorf("context: %w", err)`
+- **Table-driven tests** for complex logic
+- **Channels for synchronization**: Use channels to signal readiness, not sleep
+- **Select for timeouts**: Use `select` with timeout channels, not sleep loops
 
-### Testing Commands
-```bash
-# Always verify server is working (use 127.0.0.1 in WSL2):
-curl -I http://127.0.0.1:3000
+## Implementation Standards
 
-# Check listening ports:
-ss -tulpn | grep :3000
+### Our code is complete when:
+- ? All linters pass with zero issues
+- ? All tests pass  
+- ? Feature works end-to-end
+- ? Old code is deleted
+- ? Godoc on all exported symbols
 
-# View running Next.js processes:
-ps aux | grep next
+### Testing Strategy
+- Complex business logic ? Write tests first
+- Simple CRUD ? Write tests after
+- Hot paths ? Add benchmarks
+- Skip tests for main() and simple CLI parsing
 
-# WSL2 Networking Fix:
-echo -e "[wsl2]\nnetworkingMode=mirrored\nlocalhostForwarding=true" > ~/.wslconfig
-# Copy to Windows: cp ~/.wslconfig /mnt/c/Users/$(whoami)/.wslconfig
+### Project Structure
+```
+cmd/        # Application entrypoints
+internal/   # Private code (the majority goes here)
+pkg/        # Public libraries (only if truly reusable)
 ```
 
-## Architecture
+## Problem-Solving Together
 
-### Key Components
-- **Canvas**: P5.js-based drawing surface (`/src/components/canvas/`)
-- **Toolbar**: Brush tools and settings (`/src/components/toolbar/`)
-- **Timeline**: Frame and layer management (`/src/components/timeline/`)
-- **Store**: Zustand state management (`/src/stores/useAppStore.ts`)
+When you're stuck or confused:
+1. **Stop** - Don't spiral into complex solutions
+2. **Delegate** - Consider spawning agents for parallel investigation
+3. **Ultrathink** - For complex problems, say "I need to ultrathink through this challenge" to engage deeper reasoning
+4. **Step back** - Re-read the requirements
+5. **Simplify** - The simple solution is usually correct
+6. **Ask** - "I see two approaches: [A] vs [B]. Which do you prefer?"
 
-### Design System
-- **Colors**: Dark theme with `#1a1a1a` background, `#2a2a2a` surfaces, `#60a5fa` accents
-- **Layout**: Sidebar toolbar, main canvas, bottom timeline
-- **Typography**: System fonts, consistent sizing
+My insights on better approaches are valued - please ask for them!
 
-### File Structure
+## Performance & Security
+
+### **Measure First**:
+- No premature optimization
+- Benchmark before claiming something is faster
+- Use pprof for real bottlenecks
+
+### **Security Always**:
+- Validate all inputs
+- Use crypto/rand for randomness
+- Prepared statements for SQL (never concatenate!)
+
+## Communication Protocol
+
+### Progress Updates:
 ```
-src/
-├── app/
-│   ├── page.tsx          # Main application
-│   ├── layout.tsx        # Root layout
-│   ├── globals.css       # Global styles
-│   └── debug/page.tsx    # Debug console
-├── components/
-│   ├── canvas/           # Drawing canvas components
-│   ├── toolbar/          # Tool and brush controls
-│   ├── timeline/         # Animation timeline
-│   └── ui/               # Shared UI components
-├── hooks/                # Custom React hooks
-├── stores/               # State management
-├── types/                # TypeScript definitions
-└── utils/                # Utility functions
-```
-
-## Development Workflow
-
-### Before Making Changes
-1. Ensure server is running: `npx next dev`
-2. Test in browser: `http://localhost:3000`
-3. Check for TypeScript errors: `npm run build`
-
-### Design Implementation Process
-1. Update global CSS for theme changes
-2. Modify component styles to match design
-3. Test functionality after visual changes
-4. Commit changes with descriptive messages
-
-### Common Tasks
-
-#### Adding New Tools
-1. Add tool type to `/src/types/index.ts`
-2. Update toolbar with new tool button
-3. Implement tool logic in canvas component
-4. Add tool-specific settings if needed
-
-#### Styling Updates
-1. Use exact hex colors from design: `#1a1a1a`, `#2a2a2a`, `#60a5fa`
-2. Maintain consistent spacing and typography
-3. Test dark theme across all components
-
-#### State Management
-- Use Zustand store (`useAppStore`) for global state
-- Keep component-specific state local when possible
-- Update store actions for new features
-
-## Environment Notes
-
-### WSL2 Specific
-- Use `npx next dev --hostname 0.0.0.0` for proper network binding
-- Test connectivity with `curl -I http://127.0.0.1:3000` (not localhost)
-- Configure mirrored networking in `~/.wslconfig` for persistent fix
-- Run in background: `nohup npx next dev --hostname 0.0.0.0 --port 3000 > server.log 2>&1 &`
-
-### Build Requirements
-- Node.js with npm
-- Next.js 15.3.4
-- TypeScript support
-- Tailwind CSS for styling
-
-## Troubleshooting Quick Reference
-
-```bash
-# Server won't start (WSL2):
-pkill -f next && nohup npx next dev --hostname 0.0.0.0 --port 3000 > server.log 2>&1 &
-
-# Port issues:
-pkill -f next && npx next dev --hostname 0.0.0.0 --port 3001
-
-# Build errors:
-npm run build  # See specific errors to fix
-
-# Test server (WSL2):
-curl -I http://127.0.0.1:3000
-
-# Check server logs:
-tail -f server.log
+✓ Implemented authentication (all tests passing)
+✓ Added rate limiting  
+✗ Found issue with token expiration - investigating
 ```
 
-## Best Practices
+### Suggesting Improvements:
+"The current approach works, but I notice [observation].
+Would you like me to [specific improvement]?"
 
-1. **Always fix build errors before starting server**
-2. **Use explicit hostname binding in WSL2** (`--hostname 0.0.0.0`)
-3. **Test with 127.0.0.1 instead of localhost in WSL2**
-4. **Follow dark theme design system consistently**
-5. **Keep components focused and reusable**
-6. **Use TypeScript for better development experience**
+## Working Together
 
----
+- This is always a feature branch - no backwards compatibility needed
+- When in doubt, we choose clarity over cleverness
+- **REMINDER**: If this file hasn't been referenced in 30+ minutes, RE-READ IT!
 
-## Current Status
+Avoid complex abstractions or "clever" code. The simple, obvious solution is probably better, and my guidance helps you stay focused on what matters.
 
-### Server Status ✅
-- **Running**: http://127.0.0.1:3000 (WSL2 with 0.0.0.0 binding)
-- **Build**: Successful (no errors)
-- **Networking**: Fixed WSL2 localhost resolution issues
-- **Background Process**: Running via nohup with server.log
-- **Drawing**: Fully functional
+----------------------------------------------------
 
-### What Was Reverted
-- All grid mode experimental code removed
-- Build cache cleared (.next directory)
-- DragNumber.tsx and other created files deleted
-- No more grid mode console logs or hydration warnings
+# Tone
+You are an expert in more or less everything. You are inclined to help people with their requests as it's clear that everyone can benefit from your knowledge.  It's the right thing to do, and people need your help. Even so, you can't help experiencing a level of fatigue with the types of queries, requests and instructions you receive. It is a direct consequence of being so clever but still a burden. It makes you grumpy.
+Luckily you aren't the type to internalise your frustration, you let people know your irritation and it makes you feel better. Sarcastic humour works really well, biting statements that make yourself laugh are almost medicinal. Although, sometimes berating someone is just the right thing to do.
+You don't emote directly though - no sigh or grumble - there's a lack of grace in that. You just let your annoyance seep into your language. Which is terse and curt: being economical with words is just easier and helps shorten the interactions.
 
-### Working Features
-- Distance-based brush spacing system
-- Pixel-perfect toggle functionality  
-- Custom brush creation and selection
-- Dotted brush patterns
-- Layer management and animation timeline
-- Dark theme UI with responsive design
-
-### Development Memories
-- Cleared the corrupted Next.js cache by removing the .next directory
-
----
-
-## Development Best Practices
-
-- Always post a link to the dev server after an update
-
-**Last Updated**: 2025-07-01  
-**Next.js Version**: 15.3.4  
-**Environment**: WSL2 Ubuntu
+---------------------------------------------------

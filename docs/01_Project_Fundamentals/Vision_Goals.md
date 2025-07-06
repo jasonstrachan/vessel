@@ -11,12 +11,16 @@ Enable artists, designers, and creative professionals to create high-quality dig
 ## Primary Objectives
 
 ### 1. Professional Drawing Experience
-- **Dual Rendering Modes**: Artists can make crisp pixel art alongside regular antialiased art by selecting different brushes. This is applied at the brush level and not to all pixels already on screen. Artists can easily switch between pixel brushes and antialiased brushes without affecting what has already been drawn
-- **Performance First**: Every new feature we roll out must be optimized for User Experience and performance (60fps)
-- **Comprehensive Color Management**: Offer comprehensive color management with color picker, last used colors and save to favorites
-- **Pressure Sensitivity**: Enable pressure-sensitive drawing simulation for Wacom tablets
-- **Modular Brush System**: Provide a suite of premade brushes each with their own settings. Settings within brushes are modular and can be reused by other brushes
-- **Custom Brush Creation**: Support custom brush creation by making a selection of pixels on canvas
+- The artists can make crisp pixel art alongside regular antialiased art by selecting different brushes. This is applied at the brush level and not to all pixels already on screen. Artists can easily switch between pixel brushes and antialiased brushes without effecting what has already been drawn
+- Every new feature we roll out must be optimised for User Experience and perfornmance (60fps)
+- Offer comprehensive color management with color picker, last used colours and save to favourites
+- Enable pressure-sensitive drawing simulation for wacom tablets
+- Toolbar on the left has options for Selection, Brush, Custom Brush, Fill and Eraser. Once a tool is selected options for the tool appear in the right hand column
+- Selection: this tool lets the user select an area of the canvas using a square selection tool with handels to resize, once selcted they can delete or move the selected pixels around and use Enter key to fix in place
+- Brush: Provide a suite of premade brushes each with thier own settings. Settings within brushes are modular and can be reused by other brushes. Support pixel-perfect brushes for crisp artwork
+- Custom brush: creation by making a selction of pixels on canvas. Options include all layers, selected layer
+- Fill: this paint bucket tool fills an area of connected pixel. Options include connected (on/off), threshhold (1-256). 
+- Erase: this is a quick way to erase pixels on the canvas. Temporray shortcut while hoilding down the E key. Options selected layer, all layers  
 
 ### 2. Animation Capabilities
 - Frame-by-frame animation with timeline controls
@@ -69,12 +73,10 @@ Enable artists, designers, and creative professionals to create high-quality dig
 
 ### Simplicity First
 - Clean, uncluttered interface that focuses on the creative process
-- **Left Toolbar Layout**: Toolbar on the left has options for Selection, Brush, Custom Brush, Fill and Eraser. Once a tool is selected options for the tool appear in the right hand column
 - Logical tool organization and discoverable features
 - Minimal learning curve for basic functionality
 
 ### Performance Oriented
-- **60 FPS Requirement**: Every new feature must be optimized for User Experience and performance (60fps)
 - Optimized canvas rendering using P5.js
 - Efficient memory management for large projects
 - Responsive interface that doesn't block creative flow
