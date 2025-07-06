@@ -1,11 +1,17 @@
 import { create } from 'zustand';
 import { AppState, Tool, Layer, BrushSettings, OnionSkinSettings, UndoAction, CustomBrush } from '@/types';
+import { BrushLibraryState, ComponentType, SpacingParams } from '@/types/brush';
+import { ComponentTransfer } from '@/utils/ComponentTransfer';
 
 interface AppStore extends AppState {
   // Zoom state
   zoom: number;
   panX: number;
   panY: number;
+  
+  // Brush library state
+  brushLibrary: BrushLibraryState;
+  selectedBrushPreset?: string;
   
   // Selection state for brush selection tool
   isSelecting: boolean;
@@ -57,12 +63,24 @@ interface AppStore extends AppState {
   // Resize actions
   setIsResizing: (resizing: boolean) => void;
   setResizeHandle: (handle: 'nw' | 'ne' | 'sw' | 'se' | null) => void;
+  
+  // Brush library actions
+  selectBrushPreset: (brushId: string) => void;
+  toggleBrushFavorite: (brushId: string) => void;
+  addRecentBrush: (brushId: string) => void;
+  setBrushLibraryState: (state: Partial<BrushLibraryState>) => void;
+  loadBrushLibraryFromStorage: () => void;
+  saveBrushLibraryToStorage: () => void;
+  
+  // Component transfer actions
+  transferComponent: (sourcePresetId: string, targetPresetId: string, componentType: ComponentType) => void;
+  transferComponents: (sourcePresetId: string, targetPresetId: string, componentTypes: ComponentType[]) => void;
+  createPresetFromComponents: (name: string, componentTypes: ComponentType[], sourcePresetId: string) => void;
 }
 
 const createDefaultBrushSettings = (): BrushSettings => ({
   color: '#000000',
   size: 1, // Default to 1px brush
-  spacing: 1, // Default spacing
   opacity: 1,
   rotation: 0,
   brushShape: 'square',
@@ -70,9 +88,13 @@ const createDefaultBrushSettings = (): BrushSettings => ({
   gridSnap: false,
   rotateEnabled: false, // Separate rotate toggle
   selectedCustomBrush: null,
+  spacing: {
+    value: 1, // Default to 1px spacing for 1px brush
+    dynamicEnabled: false, // Dynamic spacing off by default
+    defaultValue: 1, // Default spacing value
+  },
   dottedStyle: {
     enabled: false,
-    spacing: 1, // Match default brush size
     dashLength: 1, // Length in brush size units (1 = 1x brush size)
     dashSpacing: 5,
     gap: 1, // Gap in brush size units (1 = 1x brush size)
@@ -89,6 +111,15 @@ const createDefaultOnionSkinSettings = (): OnionSkinSettings => ({
   framesBefore: 2,
   framesAfter: 2,
   opacity: 0.3,
+});
+
+const createDefaultBrushLibrary = (): BrushLibraryState => ({
+  brushes: [], // Will be populated with default brushes
+  favorites: [],
+  recentBrushes: [],
+  selectedBrush: null,
+  searchQuery: '',
+  selectedCategory: null,
 });
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -120,6 +151,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   panX: 0, // Will be calculated to center canvas
   panY: 0, // Will be calculated to center canvas
   
+  // Brush library state
+  brushLibrary: createDefaultBrushLibrary(),
+  selectedBrushPreset: undefined,
+  
   // Selection state
   isSelecting: false,
   selectionStart: null,
@@ -146,17 +181,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setBrushSettings: (settings) => set((state) => {
     const newBrushSettings = { ...state.brushSettings, ...settings };
     
-    // Auto-adjust spacing for pixel perfect mode
-    if (settings.pixelPerfect !== undefined) {
-      if (settings.pixelPerfect) {
-        // When enabling pixel perfect mode, set main spacing to match brush size
-        newBrushSettings.spacing = newBrushSettings.size;
-      }
+    // Clamp size to max 100
+    if (settings.size !== undefined) {
+      newBrushSettings.size = Math.min(settings.size, 100);
     }
     
     // Grid snapping doesn't need auto-spacing logic - it works differently
     
-    return { brushSettings: newBrushSettings };
+    // Clear selected brush preset when user modifies settings
+    // This ensures modified settings are used instead of original preset
+    return { 
+      brushSettings: newBrushSettings,
+      selectedBrushPreset: undefined
+    };
   }),
   
   setOnionSkinSettings: (settings) => set((state) => ({
@@ -425,4 +462,210 @@ export const useAppStore = create<AppStore>((set, get) => ({
   // Resize actions
   setIsResizing: (resizing) => set({ isResizing: resizing }),
   setResizeHandle: (handle) => set({ resizeHandle: handle }),
+
+  // Brush library actions
+  selectBrushPreset: (brushId) => set((state) => {
+    // Add to recent brushes when selected
+    const recent = [brushId, ...state.brushLibrary.recentBrushes.filter(id => id !== brushId)].slice(0, 10);
+    
+    // Find the selected brush to get its spacing parameters
+    const selectedBrush = state.brushLibrary.brushes.find(brush => brush.id === brushId);
+    const spacingComponent = selectedBrush?.components.find(comp => comp.type === ComponentType.SPACING);
+    
+    let newBrushSettings = state.brushSettings;
+    
+    // Update spacing settings if the brush has a spacing component
+    if (spacingComponent && spacingComponent.parameters) {
+      const spacingParams = spacingComponent.parameters as SpacingParams;
+      newBrushSettings = {
+        ...state.brushSettings,
+        spacing: {
+          ...state.brushSettings.spacing,
+          value: spacingParams.fixedSpacing || spacingParams.defaultSpacing || 1,
+          dynamicEnabled: spacingParams.dynamicEnabled || false,
+          defaultValue: spacingParams.defaultSpacing || 1,
+        }
+      };
+    }
+    
+    const newState = {
+      selectedBrushPreset: brushId,
+      brushSettings: newBrushSettings,
+      brushLibrary: {
+        ...state.brushLibrary,
+        selectedBrush: brushId,
+        recentBrushes: recent
+      }
+    };
+    
+    // Save to localStorage
+    get().saveBrushLibraryToStorage();
+    
+    return newState;
+  }),
+
+  toggleBrushFavorite: (brushId) => set((state) => {
+    const favorites = state.brushLibrary.favorites.includes(brushId)
+      ? state.brushLibrary.favorites.filter(id => id !== brushId)
+      : [...state.brushLibrary.favorites, brushId];
+    
+    const newState = {
+      brushLibrary: {
+        ...state.brushLibrary,
+        favorites
+      }
+    };
+    
+    // Save to localStorage
+    setTimeout(() => get().saveBrushLibraryToStorage(), 0);
+    
+    return newState;
+  }),
+
+  addRecentBrush: (brushId) => set((state) => {
+    const recent = [brushId, ...state.brushLibrary.recentBrushes.filter(id => id !== brushId)].slice(0, 10);
+    
+    const newState = {
+      brushLibrary: {
+        ...state.brushLibrary,
+        recentBrushes: recent
+      }
+    };
+    
+    // Save to localStorage
+    setTimeout(() => get().saveBrushLibraryToStorage(), 0);
+    
+    return newState;
+  }),
+
+  setBrushLibraryState: (newState) => set((state) => ({
+    brushLibrary: { ...state.brushLibrary, ...newState }
+  })),
+
+  loadBrushLibraryFromStorage: () => {
+    try {
+      const saved = localStorage.getItem('tinybrush-brush-library');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        set((state) => ({
+          brushLibrary: { ...state.brushLibrary, ...parsed },
+          selectedBrushPreset: parsed.selectedBrush || null
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to load brush library from storage:', error);
+    }
+  },
+
+  saveBrushLibraryToStorage: () => {
+    try {
+      const state = get();
+      const toSave = {
+        favorites: state.brushLibrary.favorites,
+        recentBrushes: state.brushLibrary.recentBrushes,
+        selectedBrush: state.brushLibrary.selectedBrush,
+        searchQuery: state.brushLibrary.searchQuery,
+        selectedCategory: state.brushLibrary.selectedCategory
+      };
+      localStorage.setItem('tinybrush-brush-library', JSON.stringify(toSave));
+    } catch (error) {
+      console.error('Failed to save brush library to storage:', error);
+    }
+  },
+
+  // Component transfer actions
+  transferComponent: (sourcePresetId, targetPresetId, componentType) => set((state) => {
+    const sourcePreset = state.brushLibrary.brushes.find(b => b.id === sourcePresetId);
+    const targetPreset = state.brushLibrary.brushes.find(b => b.id === targetPresetId);
+    
+    if (!sourcePreset || !targetPreset) {
+      console.error('Source or target preset not found for component transfer');
+      return state;
+    }
+    
+    try {
+      const updatedTarget = ComponentTransfer.copyComponent(sourcePreset, targetPreset, componentType);
+      
+      const updatedBrushes = state.brushLibrary.brushes.map(brush => 
+        brush.id === targetPresetId ? updatedTarget : brush
+      );
+      
+      const newState = {
+        brushLibrary: {
+          ...state.brushLibrary,
+          brushes: updatedBrushes
+        }
+      };
+      
+      // Save to localStorage
+      setTimeout(() => get().saveBrushLibraryToStorage(), 0);
+      
+      return newState;
+    } catch (error) {
+      console.error('Component transfer failed:', error);
+      return state;
+    }
+  }),
+
+  transferComponents: (sourcePresetId, targetPresetId, componentTypes) => set((state) => {
+    const sourcePreset = state.brushLibrary.brushes.find(b => b.id === sourcePresetId);
+    const targetPreset = state.brushLibrary.brushes.find(b => b.id === targetPresetId);
+    
+    if (!sourcePreset || !targetPreset) {
+      console.error('Source or target preset not found for components transfer');
+      return state;
+    }
+    
+    try {
+      const updatedTarget = ComponentTransfer.copyComponents(sourcePreset, targetPreset, componentTypes);
+      
+      const updatedBrushes = state.brushLibrary.brushes.map(brush => 
+        brush.id === targetPresetId ? updatedTarget : brush
+      );
+      
+      const newState = {
+        brushLibrary: {
+          ...state.brushLibrary,
+          brushes: updatedBrushes
+        }
+      };
+      
+      // Save to localStorage
+      setTimeout(() => get().saveBrushLibraryToStorage(), 0);
+      
+      return newState;
+    } catch (error) {
+      console.error('Components transfer failed:', error);
+      return state;
+    }
+  }),
+
+  createPresetFromComponents: (name, componentTypes, sourcePresetId) => set((state) => {
+    const sourcePreset = state.brushLibrary.brushes.find(b => b.id === sourcePresetId);
+    
+    if (!sourcePreset) {
+      console.error('Source preset not found for creating preset from components');
+      return state;
+    }
+    
+    try {
+      const extractedComponents = ComponentTransfer.extractComponents(sourcePreset, componentTypes);
+      const newPreset = ComponentTransfer.createPresetWithComponents(name, extractedComponents, 'Custom');
+      
+      const newState = {
+        brushLibrary: {
+          ...state.brushLibrary,
+          brushes: [...state.brushLibrary.brushes, newPreset]
+        }
+      };
+      
+      // Save to localStorage
+      setTimeout(() => get().saveBrushLibraryToStorage(), 0);
+      
+      return newState;
+    } catch (error) {
+      console.error('Failed to create preset from components:', error);
+      return state;
+    }
+  }),
 }));

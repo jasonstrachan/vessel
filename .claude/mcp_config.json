@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "git": {
+      "command": "/home/jason/projects/tinybrush/mcp-env/bin/python",
+      "args": ["-m", "mcp_server_git", "--repository", "/home/jason/projects/tinybrush"]
+    }
+  }
+}
