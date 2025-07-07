@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TinyBrush UI Template</title>
+    <style>
+        @font-face {
+            font-family: 'MEKSANS';
+            src: url('./fonts/MEKSANS-REGULAR.OTF') format('opentype');
+            font-weight: 400;
+            font-style: normal;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'MEKSANS', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #2d2d2d;
+            color: #ffffff;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .main-container {
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Left Toolbar */
+        .left-toolbar {
+            width: 48px;
+            background-color: #2d2d2d;
+            border-right: 1px solid #404040;
+            padding: 8px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .tool-button {
+            width: 40px;
+            height: 40px;
+            background-color: #353535;
+            border: 1px solid #404040;
+            border-radius: 4px;
+            color: #ffffff;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s;
+        }
+
+        .tool-button:hover {
+            background-color: #404040;
+        }
+
+        .tool-button.active {
+            background-color: #505050;
+            border-color: #707070;
+        }
+
+        /* Canvas Area */
+        .canvas-area {
+            flex: 1;
+            background-color: #404040;
+            position: relative;
+        }
+
+        .canvas {
+            width: 100%;
+            height: 100%;
+            background-color: #303030;
+        }
+
+        /* Right Panel */
+        .right-panel {
+            width: 320px;
+            background-color: #2d2d2d;
+            border-left: 1px solid #404040;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Brush Library */
+        .brush-library {
+            flex: 1;
+            border-bottom: 1px solid #404040;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-header {
+            background-color: #353535;
+            border-bottom: 1px solid #404040;
+            padding: 8px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-title {
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .add-button {
+            background-color: #404040;
+            border: none;
+            color: #ffffff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .brush-list {
+            padding: 8px;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .brush-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-bottom: 4px;
+        }
+
+        .brush-item:hover {
+            background-color: #404040;
+        }
+
+        .brush-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .brush-preview {
+            width: 16px;
+            height: 16px;
+            background-color: #606060;
+            border-radius: 2px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+        }
+
+        .brush-name {
+            font-size: 14px;
+        }
+
+        .delete-button {
+            color: #888;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .delete-button:hover {
+            color: #ffffff;
+        }
+
+        .star-rating {
+            color: #9ca3af;
+            font-size: 14px;
+        }
+
+        /* Controls Panel */
+        .controls-panel {
+            padding: 12px;
+        }
+
+        .control-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .control-label {
+            font-size: 16px;
+        }
+
+        .color-box {
+            width: 32px;
+            height: 32px;
+            background-color: #4a90e2;
+            border: 1px solid #606060;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .pixel-box {
+            width: 32px;
+            height: 32px;
+            background-color: #404040;
+            border: 1px solid #606060;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .pixel-box div {
+            width: 16px;
+            height: 16px;
+            background-color: #ffffff;
+        }
+
+        .shape-options {
+            display: flex;
+            gap: 4px;
+        }
+
+        .shape-button {
+            width: 24px;
+            height: 24px;
+            background-color: #404040;
+            border: 1px solid #606060;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .shape-button.circle {
+            border-radius: 50%;
+        }
+
+        .shape-button.diamond {
+            transform: rotate(45deg);
+        }
+
+        .slider-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .slider {
+            width: 64px;
+            height: 8px;
+            background-color: #404040;
+            border-radius: 4px;
+            -webkit-appearance: none;
+            appearance: none;
+            outline: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background-color: #606060;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .value-box {
+            background-color: #404040;
+            border: 1px solid #606060;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 14px;
+            min-width: 40px;
+            text-align: center;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="main-container">
+            <!-- Left Toolbar -->
+            <div class="left-toolbar">
+                <button class="tool-button">⬛</button>
+                <button class="tool-button active">🖌</button>
+                <button class="tool-button">🧽</button>
+                <button class="tool-button">💧</button>
+                <button class="tool-button">🪣</button>
+                <button class="tool-button">📏</button>
+                <button class="tool-button">⬜</button>
+                <button class="tool-button">⭕</button>
+                <button class="tool-button">A</button>
+                <button class="tool-button">🔍</button>
+                <button class="tool-button">✋</button>
+            </div>
+
+            <!-- Canvas Area -->
+            <div class="canvas-area">
+                <div class="canvas"></div>
+            </div>
+
+            <!-- Right Panel -->
+            <div class="right-panel">
+                <!-- Brush Library -->
+                <div class="brush-library">
+                    <div class="panel-header">
+                        <span class="panel-title">Brush Library</span>
+                        <button class="add-button">+</button>
+                    </div>
+                    <div class="brush-list">
+                        <!-- Brush items - First 3 with filled stars -->
+                        <div class="brush-item">
+                            <div class="brush-info">
+                                <div class="brush-preview">~</div>
+                                <span class="brush-name">Pixel short round</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="star-rating">★</span>
+                                <button class="delete-button">✕</button>
+                            </div>
+                        </div>
+                        <div class="brush-item">
+                            <div class="brush-info">
+                                <div class="brush-preview">~</div>
+                                <span class="brush-name">Pixel short round</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="star-rating">★</span>
+                                <button class="delete-button">✕</button>
+                            </div>
+                        </div>
+                        <div class="brush-item">
+                            <div class="brush-info">
+                                <div class="brush-preview">~</div>
+                                <span class="brush-name">Pixel short round</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="star-rating">★</span>
+                                <button class="delete-button">✕</button>
+                            </div>
+                        </div>
+                        <!-- Rest with outline stars -->
+                        <div class="brush-item">
+                            <div class="brush-info">
+                                <div class="brush-preview">~</div>
+                                <span class="brush-name">Pixel short round</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="star-rating">☆</span>
+                                <button class="delete-button">✕</button>
+                            </div>
+                        </div>
+                        <div class="brush-item">
+                            <div class="brush-info">
+                                <div class="brush-preview">~</div>
+                                <span class="brush-name">Pixel short round</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="star-rating">☆</span>
+                                <button class="delete-button">✕</button>
+                            </div>
+                        </div>
+                        <div class="brush-item">
+                            <div class="brush-info">
+                                <div class="brush-preview">~</div>
+                                <span class="brush-name">Pixel short round</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="star-rating">☆</span>
+                                <button class="delete-button">✕</button>
+                            </div>
+                        </div>
+                        <div class="brush-item">
+                            <div class="brush-info">
+                                <div class="brush-preview">~</div>
+                                <span class="brush-name">Pixel short round</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="star-rating">☆</span>
+                                <button class="delete-button">✕</button>
+                            </div>
+                        </div>
+                        <div class="brush-item">
+                            <div class="brush-info">
+                                <div class="brush-preview">~</div>
+                                <span class="brush-name">Pixel short round</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="star-rating">☆</span>
+                                <button class="delete-button">✕</button>
+                            </div>
+                        </div>
+                        <div class="brush-item">
+                            <div class="brush-info">
+                                <div class="brush-preview">~</div>
+                                <span class="brush-name">Pixel short round</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="star-rating">☆</span>
+                                <button class="delete-button">✕</button>
+                            </div>
+                        </div>
+                        <div class="brush-item">
+                            <div class="brush-info">
+                                <div class="brush-preview">~</div>
+                                <span class="brush-name">Pixel short round</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="star-rating">☆</span>
+                                <button class="delete-button">✕</button>
+                            </div>
+                        </div>
+                        <div class="brush-item">
+                            <div class="brush-info">
+                                <div class="brush-preview">~</div>
+                                <span class="brush-name">Pixel short round</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="star-rating">☆</span>
+                                <button class="delete-button">✕</button>
+                            </div>
+                        </div>
+                        <div class="brush-item">
+                            <div class="brush-info">
+                                <div class="brush-preview">~</div>
+                                <span class="brush-name">Pixel short round</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="star-rating">☆</span>
+                                <button class="delete-button">✕</button>
+                            </div>
+                        </div>
+                        <div class="brush-item">
+                            <div class="brush-info">
+                                <div class="brush-preview">~</div>
+                                <span class="brush-name">Pixel short round</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="star-rating">☆</span>
+                                <button class="delete-button">✕</button>
+                            </div>
+                        </div>
+                        <div class="brush-item">
+                            <div class="brush-info">
+                                <div class="brush-preview">~</div>
+                                <span class="brush-name">Pixel short round</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="star-rating">☆</span>
+                                <button class="delete-button">✕</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Controls Panel -->
+                <div class="controls-panel">
+                    <div class="control-row">
+                        <span class="control-label">Color</span>
+                        <div class="color-box"></div>
+                    </div>
+                    <div class="control-row">
+                        <span class="control-label">Pixel</span>
+                        <div class="pixel-box">
+                            <div></div>
+                        </div>
+                    </div>
+                    <div class="control-row">
+                        <span class="control-label">Shape</span>
+                        <div class="shape-options">
+                            <div class="shape-button"></div>
+                            <div class="shape-button circle"></div>
+                            <div class="shape-button diamond"></div>
+                        </div>
+                    </div>
+                    <div class="control-row">
+                        <span class="control-label">Size</span>
+                        <div class="slider-control">
+                            <input type="range" class="slider" min="1" max="100" value="10">
+                            <span class="value-box">100</span>
+                        </div>
+                    </div>
+                    <div class="control-row">
+                        <span class="control-label">Brush sz</span>
+                        <div class="pixel-box"></div>
+                    </div>
+                    <div class="control-row">
+                        <span class="control-label">Dotted</span>
+                        <div class="pixel-box"></div>
+                    </div>
+                    <div class="control-row">
+                        <span class="control-label">Spacing</span>
+                        <div class="slider-control">
+                            <input type="range" class="slider" min="1" max="50" value="10">
+                            <span class="value-box">10</span>
+                        </div>
+                    </div>
+                    <div class="control-row">
+                        <span class="control-label">Length</span>
+                        <div class="slider-control">
+                            <input type="range" class="slider" min="1" max="50" value="5">
+                            <span class="value-box">5</span>
+                        </div>
+                    </div>
+                    <div class="control-row">
+                        <span class="control-label">Gap</span>
+                        <div class="slider-control">
+                            <input type="range" class="slider" min="1" max="50" value="5">
+                            <span class="value-box">5</span>
+                        </div>
+                    </div>
+                    <div class="control-row">
+                        <span class="control-label">Rotate</span>
+                        <div class="pixel-box"></div>
+                    </div>
+                    <div class="control-row">
+                        <span class="control-label">Pressure</span>
+                        <div class="slider-control">
+                            <input type="range" class="slider" min="1" max="10" value="1">
+                            <span class="value-box">1</span>
+                            <span>-</span>
+                            <span class="value-box">5</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+    </div>
+</body>
+</html>

@@ -46,8 +46,8 @@ When you run `/check`, you are REQUIRED to:
 ---
 
 🛑 **MANDATORY PRE-FLIGHT CHECK** 🛑
-1. Re-read ~/.claude/CLAUDE.md RIGHT NOW
-2. Check current /docs/00_Tasks/TODO.md status
+1. Re-read /CLAUDE.md RIGHT NOW
+2. Check current /docs/plan.md status
 3. Verify you're not declaring "done" prematurely
 
 Execute comprehensive quality checks with ZERO tolerance for excuses.

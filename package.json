@@ -1,39 +1,36 @@
 {
-  "name": "tinybrush-v2",
-  "version": "0.1.0",
+  "name": "tinybrush-v3",
+  "version": "3.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:clean": "./scripts/cleanup.sh && npm run dev",
-    "dev:safe": "./scripts/dev-start.sh",
-    "dev:diagnose": "./scripts/diagnose.sh",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "jest",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@types/gif.js": "^0.2.5",
-    "@types/p5": "^1.7.6",
-    "cors": "^2.8.5",
-    "express": "^5.1.0",
-    "gif.js": "^0.2.0",
-    "http-proxy-middleware": "^3.0.5",
+    "@tailwindcss/postcss": "^4.1.11",
     "next": "15.3.4",
-    "p5": "^2.0.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-p5": "^1.4.1",
     "zustand": "^5.0.6"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3",
-    "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.3.4",
+    "jest": "^29",
+    "jest-environment-jsdom": "^30.0.4",
     "tailwindcss": "^4",
+    "ts-jest": "^29.4.0",
     "typescript": "^5"
   }
 }
