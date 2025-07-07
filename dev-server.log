@@ -1,0 +1,440 @@
+
+> tinybrush-v3@3.0.0 dev
+> next dev
+
+   ▲ Next.js 15.3.4
+   - Local:        http://localhost:3000
+   - Network:      http://10.255.255.254:3000
+   - Environments: .env.local, .env
+
+ ✓ Starting...
+ ✓ Ready in 1072ms
+ ○ Compiling / ...
+ ✓ Compiled / in 1821ms (699 modules)
+ GET / 200 in 2005ms
+ GET / 200 in 31ms
+ GET / 200 in 30ms
+ GET / 200 in 47ms
+ GET / 200 in 33ms
+ GET / 200 in 26ms
+ ✓ Compiled in 413ms (331 modules)
+ GET / 200 in 41ms
+ ✓ Compiled in 396ms (368 modules)
+ ✓ Compiled in 384ms (331 modules)
+ GET / 200 in 52ms
+ GET / 200 in 65ms
+ GET / 200 in 39ms
+ GET / 200 in 33ms
+ GET / 200 in 28ms
+ GET / 200 in 28ms
+ ✓ Compiled in 408ms (368 modules)
+ ✓ Compiled in 408ms (331 modules)
+ GET / 200 in 40ms
+ GET / 200 in 42ms
+ ✓ Compiled in 368ms (331 modules)
+ GET / 200 in 11ms
+ ⚠ Found a change in next.config.ts. Restarting the server to apply the changes...
+   ▲ Next.js 15.3.4
+   - Local:        http://localhost:3000
+   - Network:      http://10.255.255.254:3000
+   - Environments: .env.local, .env
+
+ ✓ Starting...
+ ✓ Ready in 1293ms
+ ○ Compiling / ...
+ ✓ Compiled / in 1914ms (699 modules)
+ GET / 200 in 2105ms
+ ✓ Compiled in 418ms (368 modules)
+ ✓ Compiled in 406ms (331 modules)
+ GET / 200 in 54ms
+ GET / 200 in 60ms
+ GET / 200 in 32ms
+ ✓ Compiled in 427ms (331 modules)
+ GET / 200 in 17ms
+ ✓ Compiled in 385ms (368 modules)
+ GET / 200 in 102ms
+ ✓ Compiled in 407ms (331 modules)
+ GET / 200 in 10ms
+ ✓ Compiled in 379ms (368 modules)
+ GET / 200 in 100ms
+ GET / 200 in 32ms
+ ✓ Compiled in 401ms (368 modules)
+ ✓ Compiled in 405ms (331 modules)
+ GET / 200 in 22ms
+ ✓ Compiled in 357ms (368 modules)
+ ✓ Compiled in 358ms (331 modules)
+ GET / 200 in 19ms
+ ✓ Compiled in 344ms (368 modules)
+ ✓ Compiled in 356ms (331 modules)
+ GET / 200 in 26ms
+ GET / 200 in 59ms
+ ✓ Compiled /_not-found in 395ms (689 modules)
+ GET /.well-known/appspecific/com.chrome.devtools.json 404 in 459ms
+ ✓ Compiled in 384ms (368 modules)
+ ✓ Compiled in 395ms (331 modules)
+ GET / 200 in 43ms
+ GET / 200 in 68ms
+ ✓ Compiled /_not-found in 95ms (689 modules)
+ GET /.well-known/appspecific/com.chrome.devtools.json 404 in 144ms
+ ✓ Compiled in 374ms (369 modules)
+ ✓ Compiled in 369ms (334 modules)
+ GET / 200 in 21ms
+ ✓ Compiled in 397ms (368 modules)
+ ✓ Compiled in 396ms (331 modules)
+ GET / 200 in 20ms
+ GET / 200 in 54ms
+ ✓ Compiled /_not-found in 75ms (689 modules)
+ GET /.well-known/appspecific/com.chrome.devtools.json 404 in 108ms
+ ✓ Compiled in 373ms (368 modules)
+ ✓ Compiled in 399ms (331 modules)
+ GET / 200 in 19ms
+ ✓ Compiled in 349ms (368 modules)
+ ✓ Compiled in 366ms (331 modules)
+ GET / 200 in 33ms
+ GET / 200 in 43ms
+ ✓ Compiled /_not-found in 78ms (689 modules)
+ GET /.well-known/appspecific/com.chrome.devtools.json 404 in 111ms
+ GET / 200 in 40ms
+ GET /.well-known/appspecific/com.chrome.devtools.json 404 in 20ms
+ GET / 200 in 31ms
+ GET /.well-known/appspecific/com.chrome.devtools.json 404 in 17ms
+ ✓ Compiled in 398ms (368 modules)
+ ✓ Compiled in 405ms (331 modules)
+ GET / 200 in 36ms
+ ✓ Compiled in 358ms (368 modules)
+ ✓ Compiled in 361ms (331 modules)
+ GET / 200 in 29ms
+ ✓ Compiled /_not-found in 76ms (689 modules)
+ ⨯ Error: Cannot find module './825.js'
+Require stack:
+- /home/jason/projects/tinybrush/.next/server/webpack-runtime.js
+- /home/jason/projects/tinybrush/.next/server/app/_not-found/page.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/require.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/load-components.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/utils.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/swc/options.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/swc/index.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/next-config-ts/transpile-config.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/config.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/next.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/lib/start-server.js
+    at __webpack_require__.f.require (.next/server/webpack-runtime.js:198:28)
+    at <unknown> (.next/server/webpack-runtime.js:111:40)
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (.next/server/webpack-runtime.js:110:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (.next/server/webpack-runtime.js:162:22)
+    at <unknown> (.next/server/app/_not-found/page.js:1:2886)
+    at Object.<anonymous> (.next/server/app/_not-found/page.js:1:2927) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array]
+}
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 793ms (1023 modules)
+ GET /_next/static/css/app/layout.css?v=1751887447569 500 in 2213ms
+ GET / 200 in 421ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app-paths-manifest.json',
+  page: '/'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/pages-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/pages-manifest.json'
+}
+ GET / 500 in 41ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app-paths-manifest.json',
+  page: '/'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/pages-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/pages-manifest.json'
+}
+ GET / 500 in 37ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app-paths-manifest.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app-paths-manifest.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app-paths-manifest.json'
+}
+ GET /_next/static/chunks/fallback/webpack.js 500 in 281ms
+ GET /_next/static/chunks/fallback/main.js 500 in 280ms
+ GET /_next/static/chunks/fallback/react-refresh.js 500 in 280ms
+ ⨯ Error: Cannot find module './825.js'
+Require stack:
+- /home/jason/projects/tinybrush/.next/server/webpack-runtime.js
+- /home/jason/projects/tinybrush/.next/server/app/page.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/require.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/load-components.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/utils.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/swc/options.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/swc/index.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/next-config-ts/transpile-config.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/config.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/next.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/lib/start-server.js
+    at __webpack_require__.f.require (.next/server/webpack-runtime.js:198:28)
+    at <unknown> (.next/server/webpack-runtime.js:111:40)
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (.next/server/webpack-runtime.js:110:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (.next/server/webpack-runtime.js:162:22)
+    at <unknown> (.next/server/app/_not-found/page.js:1:2886)
+    at Object.<anonymous> (.next/server/app/_not-found/page.js:1:2927) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array]
+}
+ GET /.well-known/appspecific/com.chrome.devtools.json 500 in 222ms
+ ⨯ Error: Cannot find module './825.js'
+Require stack:
+- /home/jason/projects/tinybrush/.next/server/webpack-runtime.js
+- /home/jason/projects/tinybrush/.next/server/app/page.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/require.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/load-components.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/utils.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/swc/options.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/swc/index.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/next-config-ts/transpile-config.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/config.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/next.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/lib/start-server.js
+    at __webpack_require__.f.require (.next/server/webpack-runtime.js:198:28)
+    at <unknown> (.next/server/webpack-runtime.js:111:40)
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (.next/server/webpack-runtime.js:110:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (.next/server/webpack-runtime.js:162:22)
+    at <unknown> (.next/server/app/_not-found/page.js:1:2886)
+    at Object.<anonymous> (.next/server/app/_not-found/page.js:1:2927) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array]
+}
+ ⨯ Error: Cannot find module './825.js'
+Require stack:
+- /home/jason/projects/tinybrush/.next/server/webpack-runtime.js
+- /home/jason/projects/tinybrush/.next/server/app/page.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/require.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/load-components.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/utils.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/swc/options.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/swc/index.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/next-config-ts/transpile-config.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/config.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/next.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/lib/start-server.js
+    at __webpack_require__.f.require (.next/server/webpack-runtime.js:198:28)
+    at <unknown> (.next/server/webpack-runtime.js:111:40)
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (.next/server/webpack-runtime.js:110:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (.next/server/webpack-runtime.js:162:22)
+    at <unknown> (.next/server/app/_not-found/page.js:1:2886)
+    at Object.<anonymous> (.next/server/app/_not-found/page.js:1:2927) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array]
+}
+ GET /_next/static/chunks/fallback/pages/_app.js 500 in 55ms
+ GET /_next/static/chunks/fallback/pages/_error.js 500 in 55ms
+ ✓ Compiled in 407ms (577 modules)
+ ✓ Compiled /_not-found in 116ms (980 modules)
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ ✓ Compiled /_error in 87ms (1023 modules)
+ GET / 500 in 254ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ GET /.well-known/appspecific/com.chrome.devtools.json 500 in 38ms
+ GET /_next/static/chunks/fallback/webpack.js 500 in 36ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ GET /_next/static/chunks/fallback/react-refresh.js 500 in 31ms
+ GET /_next/static/chunks/fallback/main.js 500 in 31ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ GET /_next/static/chunks/fallback/pages/_app.js 500 in 36ms
+ GET /_next/static/chunks/fallback/pages/_error.js 500 in 36ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/page.js',
+  page: '/'
+}
+ ⨯ [Error: Cannot find module '/home/jason/projects/tinybrush/.next/server/pages/_document.js'
+Require stack:
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/require.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/load-components.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/utils.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/swc/options.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/swc/index.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/next-config-ts/transpile-config.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/config.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/next.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/lib/start-server.js] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array]
+}
+ GET / 500 in 46ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ GET /.well-known/appspecific/com.chrome.devtools.json 500 in 22ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ GET /_next/static/chunks/fallback/webpack.js 500 in 22ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ GET /_next/static/chunks/fallback/react-refresh.js 500 in 23ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ GET /_next/static/chunks/fallback/main.js 500 in 19ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ GET /_next/static/chunks/fallback/pages/_app.js 500 in 39ms
+ GET /_next/static/chunks/fallback/pages/_error.js 500 in 39ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/page.js',
+  page: '/'
+}
+ ⨯ [Error: Cannot find module '/home/jason/projects/tinybrush/.next/server/pages/_document.js'
+Require stack:
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/require.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/load-components.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/utils.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/swc/options.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/swc/index.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/build/next-config-ts/transpile-config.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/config.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/next.js
+- /home/jason/projects/tinybrush/node_modules/next/dist/server/lib/start-server.js] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array]
+}
+ GET / 500 in 31ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ GET /_next/static/chunks/fallback/webpack.js 500 in 19ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ GET /.well-known/appspecific/com.chrome.devtools.json 500 in 49ms
+ GET /_next/static/chunks/fallback/main.js 500 in 48ms
+ GET /_next/static/chunks/fallback/react-refresh.js 500 in 48ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/jason/projects/tinybrush/.next/server/app/_not-found/page.js'
+}
+ GET /_next/static/chunks/fallback/pages/_app.js 500 in 37ms
+ GET /_next/static/chunks/fallback/pages/_error.js 500 in 36ms
+[?25h

@@ -64,47 +64,26 @@ const testCases = [
   }
 ];
 
-// Run tests
-console.log('🧪 Running UI Scaling Tests...\n');
-
-let passed = 0;
-let failed = 0;
-
-testCases.forEach((test, index) => {
-  const result = transformCoordinates(
-    test.input.clientX,
-    test.input.clientY,
-    test.input.panX,
-    test.input.panY,
-    test.input.zoom,
-    test.input.rectLeft,
-    test.input.rectTop
-  );
-  
-  const success = 
-    result.mouseX === test.expected.mouseX &&
-    result.mouseY === test.expected.mouseY &&
-    result.rawX === test.expected.rawX &&
-    result.rawY === test.expected.rawY;
-  
-  if (success) {
-    console.log(`✅ Test ${index + 1}: ${test.name}`);
-    passed++;
-  } else {
-    console.log(`❌ Test ${index + 1}: ${test.name}`);
-    console.log(`   Expected:`, test.expected);
-    console.log(`   Got:`, result);
-    failed++;
-  }
+describe('UI Coordinate Transformation', () => {
+  testCases.forEach((test, index) => {
+    it(test.name, () => {
+      const result = transformCoordinates(
+        test.input.clientX,
+        test.input.clientY,
+        test.input.panX,
+        test.input.panY,
+        test.input.zoom,
+        test.input.rectLeft,
+        test.input.rectTop
+      );
+      
+      expect(result.mouseX).toBe(test.expected.mouseX);
+      expect(result.mouseY).toBe(test.expected.mouseY);
+      expect(result.rawX).toBe(test.expected.rawX);
+      expect(result.rawY).toBe(test.expected.rawY);
+    });
+  });
 });
-
-console.log(`\n📊 Test Results:`);
-console.log(`   Passed: ${passed}`);
-console.log(`   Failed: ${failed}`);
-console.log(`   Total: ${passed + failed}`);
-
-// UI Scaling Detection Tests
-console.log('\n🔍 UI Scaling Detection Tests...\n');
 
 function detectUIScaling(computedStyle) {
   const transform = computedStyle.transform;
@@ -149,15 +128,11 @@ const scalingTests = [
   }
 ];
 
-scalingTests.forEach((test, index) => {
-  const result = detectUIScaling(test.style);
-  const success = Math.abs(result - test.expected) < 0.001;
-  
-  if (success) {
-    console.log(`✅ Scaling Test ${index + 1}: ${test.name} - ${result}x`);
-  } else {
-    console.log(`❌ Scaling Test ${index + 1}: ${test.name} - Expected ${test.expected}, Got ${result}`);
-  }
+describe('UI Scaling Detection', () => {
+  scalingTests.forEach((test, index) => {
+    it(test.name, () => {
+      const result = detectUIScaling(test.style);
+      expect(result).toBeCloseTo(test.expected, 3);
+    });
+  });
 });
-
-console.log('\n🏁 UI Scaling Tests Complete!');

@@ -1,91 +1,15 @@
 
-> tinybrush-v2@0.1.0 dev
+> tinybrush-v3@3.0.0 dev
 > next dev
 
+ ⚠ Port 3000 is in use, using available port 3002 instead.
    ▲ Next.js 15.3.4
-   - Local:        http://localhost:3000
-   - Network:      http://10.255.255.254:3000
+   - Local:        http://localhost:3002
+   - Network:      http://10.255.255.254:3002
    - Environments: .env.local, .env
+   - Experiments (use with caution):
+     ✓ forceSwcTransforms
 
  ✓ Starting...
- ✓ Ready in 1244ms
- ○ Compiling / ...
- ✓ Compiled / in 1542ms (1231 modules)
- GET / 200 in 1992ms
- ✓ Compiled in 761ms (1231 modules)
- GET / 200 in 90ms
- ✓ Compiled in 406ms (651 modules)
- ✓ Compiled in 446ms (584 modules)
- HEAD / 200 in 94ms
- GET / 200 in 13ms
- GET / 200 in 10ms
- GET / 200 in 9ms
- GET / 200 in 24ms
- ✓ Compiled /favicon.ico in 158ms (667 modules)
- GET /favicon.ico 200 in 234ms
- GET /favicon.ico 200 in 7ms
- ✓ Compiled in 440ms (584 modules)
- ✓ Compiled in 318ms
- ✓ Compiled in 368ms (584 modules)
- ✓ Compiled / in 254ms (651 modules)
- ⨯ [Error: Invariant: missing bootstrap script. This is a bug in Next.js] {
-  page: '/'
-}
- ✓ Compiled /_error in 345ms (1569 modules)
- GET / 500 in 1470ms
- ✓ Compiled /favicon.ico in 128ms (754 modules)
- GET /favicon.ico 200 in 178ms
- GET / 200 in 80ms
- ✓ Compiled /_not-found in 205ms (1589 modules)
- GET /_next/static/css/app/layout.css?v=1751611128734 404 in 312ms
- GET /_next/static/chunks/main-app.js?v=1751611128734 404 in 214ms
- GET /_next/static/chunks/app/page.js 404 in 214ms
- GET /_next/static/chunks/app-pages-internals.js 404 in 221ms
- GET /favicon.ico 200 in 10ms
- GET /favicon.ico 200 in 6ms
- GET / 200 in 51ms
- GET /_next/static/css/app/layout.css?v=1751611131373 404 in 18ms
- GET /favicon.ico 200 in 48ms
- GET /_next/static/chunks/app-pages-internals.js 404 in 53ms
- GET /_next/static/chunks/app/page.js 404 in 53ms
- GET /_next/static/chunks/main-app.js?v=1751611131373 404 in 55ms
- GET /favicon.ico 200 in 3ms
- GET /.well-known/appspecific/com.chrome.devtools.json 404 in 24ms
- GET /_next/static/css/app/layout.css?v=1751611131373 404 in 28ms
- ✓ Compiled in 721ms (927 modules)
- ✓ Compiled in 385ms (832 modules)
- ✓ Compiled in 359ms (832 modules)
- ✓ Compiled in 506ms (832 modules)
- ✓ Compiled in 447ms (831 modules)
- ✓ Compiled in 396ms (832 modules)
- ✓ Compiled in 382ms (832 modules)
- ✓ Compiled in 455ms (832 modules)
- ✓ Compiled in 370ms (832 modules)
- ✓ Compiled in 556ms (832 modules)
- ✓ Compiled in 409ms (832 modules)
- ✓ Compiled in 415ms (832 modules)
-<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/6.pack.gz_' -> '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/6.pack.gz'
- ✓ Compiled in 484ms (832 modules)
-<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/0.pack.gz_' -> '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/0.pack.gz'
- ✓ Compiled in 439ms (832 modules)
- ✓ Compiled in 424ms (832 modules)
- ✓ Compiled in 375ms (832 modules)
- ✓ Compiled in 436ms (832 modules)
- ✓ Compiled in 427ms (832 modules)
- ✓ Compiled in 400ms (832 modules)
- ✓ Compiled in 446ms (832 modules)
- ✓ Compiled in 369ms (832 modules)
- ✓ Compiled in 366ms (832 modules)
-<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/0.pack.gz_' -> '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/0.pack.gz'
- ✓ Compiled / in 412ms (739 modules)
- GET / 200 in 612ms
- ✓ Compiled /_not-found in 143ms (1575 modules)
- GET /_next/static/css/app/layout.css?v=1751622767878 404 in 181ms
- GET /.well-known/appspecific/com.chrome.devtools.json 404 in 213ms
- GET /_next/static/chunks/main-app.js?v=1751622767878 404 in 54ms
- GET /_next/static/chunks/app/page.js 404 in 54ms
- GET /_next/static/chunks/app-pages-internals.js 404 in 54ms
- ✓ Compiled /favicon.ico in 114ms (756 modules)
- GET /favicon.ico 200 in 170ms
- GET /favicon.ico 200 in 4ms
+ ✓ Ready in 1179ms
 [?25h

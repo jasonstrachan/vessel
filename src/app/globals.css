@@ -1,89 +1,43 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @font-face {
-  font-family: 'Meksans';
+  font-family: 'MEKSANS';
   src: url('/assets/fonts/MEKSANS-REGULAR.OTF') format('opentype');
   font-weight: 400;
   font-style: normal;
-  font-display: swap;
 }
 
-:root {
-  --background: #1a1a1a;
-  --foreground: #ffffff;
-  --surface: #2a2a2a;
-  --surface-hover: #3a3a3a;
-  --border: #404040;
-  --accent: #60a5fa;
-  --muted: #888888;
+@layer base {
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: 'MEKSANS', system-ui, -apple-system, sans-serif;
+    background-color: #2d2d2d;
+    color: #ffffff;
+  }
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-surface: var(--surface);
-  --color-surface-hover: var(--surface-hover);
-  --color-border: var(--border);
-  --color-accent: var(--accent);
-  --color-muted: var(--muted);
-  --font-sans: 'Meksans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-  --font-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
-}
+@layer components {
+  /* Custom slider styling */
+  .slider::-webkit-slider-thumb {
+    appearance: none;
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    background: #3b82f6;
+    cursor: pointer;
+    border: 2px solid #ffffff;
+  }
 
-* {
-  box-sizing: border-box;
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: 'Meksans', var(--font-sans);
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-}
-
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--surface);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--muted);
-}
-
-/* Ensure all text uses Meksans font */
-* {
-  font-family: 'Meksans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-}
-
-/* Input field styles */
-input[type="number"] {
-  width: 3rem; /* ~4 characters */
-  -moz-appearance: textfield; /* Firefox */
-}
-
-input[type="number"]::-webkit-outer-spin-button,
-input[type="number"]::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-input[type="text"] {
-  width: 4rem; /* ~4 characters for hex inputs */
-}
-
-/* Specific overrides for color inputs */
-input[type="color"] {
-  width: auto; /* Keep color inputs at their default size */
+  .slider::-moz-range-thumb {
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    background: #3b82f6;
+    cursor: pointer;
+    border: 2px solid #ffffff;
+  }
 }
