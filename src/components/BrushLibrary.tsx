@@ -1,13 +1,13 @@
 import React from 'react';
+import { useAppStore } from '../stores/useAppStore';
 
 const BrushLibrary = () => {
-  const brushes = Array.from({ length: 14 }, (_, i) => ({
-    id: i + 1,
-    name: 'Pixel short round',
-    preview: '~~~~~',
-    active: false,
-    rating: i < 3 ? 'filled' : 'outline', // First 3 get filled stars, rest get outline
-  }));
+  const brushPresets = useAppStore((state) => state.brushPresets);
+  const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
+  const setBrushPreset = useAppStore((state) => state.setBrushPreset);
+  
+  console.log('BrushLibrary - brushPresets:', brushPresets);
+  console.log('BrushLibrary - currentBrushPreset:', currentBrushPreset);
 
   return (
     <div className="flex-1 border-b border-[#404040] flex flex-col">
@@ -17,22 +17,27 @@ const BrushLibrary = () => {
       </div>
       
       <div className="flex-1 p-2 space-y-1 overflow-y-auto">
-        {brushes.map((brush) => (
+        {brushPresets.map((preset) => (
           <div
-            key={brush.id}
-            className="flex items-center justify-between px-2 py-1 rounded hover:bg-[#404040] cursor-pointer"
+            key={preset.id}
+            onClick={() => setBrushPreset(preset)}
+            className={`flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors ${
+              currentBrushPreset?.id === preset.id 
+                ? 'bg-[#505050] border border-[#606060]' 
+                : 'hover:bg-[#404040] border border-transparent'
+            }`}
           >
             <div className="flex items-center space-x-2">
               <div className="w-4 h-4 bg-[#606060] rounded-sm flex items-center justify-center text-xs">
-                {brush.preview}
+                {preset.category === 'Pixel Art' ? '▪' : '●'}
               </div>
-              <span className="text-sm">{brush.name}</span>
+              <span className="text-sm">{preset.name}</span>
             </div>
             <div className="flex items-center space-x-1">
               <span className="text-sm text-gray-400">
-                {brush.rating === 'filled' ? '★' : '☆'}
+                {preset.isDefault ? '★' : '☆'}
               </span>
-              <button className="text-sm text-[#888] hover:text-white">✕</button>
+              <button className="text-sm text-[#888] hover:text-white" onClick={(e) => e.stopPropagation()}>✕</button>
             </div>
           </div>
         ))}

@@ -14,7 +14,7 @@ Welcome to the comprehensive documentation for TinyBrush, a sophisticated web-ba
 Current development tasks and project planning:
 - Active development roadmap and task tracking
 
-### 🔧 ISSUES.md
+### 🔧 issues.md
 Comprehensive troubleshooting and deployment guide:
 - Quick fixes for common problems
 - Complete deployment instructions  
@@ -26,7 +26,7 @@ Comprehensive troubleshooting and deployment guide:
 
 - For **comprehensive overview**: Read `project.md`
 - For **current tasks**: Check `plan.md`  
-- For **deployment/issues**: See `ISSUES.md`
+- For **deployment/issues**: See `issues.md`
 - For **AI assistants**: Use `project.md` for faster consumption
 
 ## Documentation Standards
