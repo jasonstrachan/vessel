@@ -189,9 +189,12 @@ export const useBrushEngine = () => {
     let x = x0;
     let y = y0;
     
+    // Calculate offset to center the brush
+    const offset = Math.floor(size / 2);
+    
     while (true) {
-      // Draw pixel with brush size
-      ctx.fillRect(x, y, size, size);
+      // Draw pixel with brush size, centered on position
+      ctx.fillRect(x - offset, y - offset, size, size);
       
       if (x === x1 && y === y1) break;
       
@@ -217,6 +220,9 @@ export const useBrushEngine = () => {
     const roundedX = Math.round(currentX);
     const roundedY = Math.round(currentY);
     
+    // Calculate offset to center the brush
+    const offset = Math.floor(settings.size / 2);
+    
     if (!queue.initialized) {
       // First pixel - initialize queue
       queue.lastDrawnX = roundedX;
@@ -225,17 +231,17 @@ export const useBrushEngine = () => {
       queue.waitingPixelY = roundedY;
       queue.initialized = true;
       
-      // Draw the first pixel with brush size
+      // Draw the first pixel with brush size, centered on position
       ctx.fillStyle = settings.color;
-      ctx.fillRect(roundedX, roundedY, settings.size, settings.size);
+      ctx.fillRect(roundedX - offset, roundedY - offset, settings.size, settings.size);
       return;
     }
     
     // If current pixel not neighbor to lastDrawn, draw waiting pixel
     if (Math.abs(roundedX - queue.lastDrawnX) > 1 || Math.abs(roundedY - queue.lastDrawnY) > 1) {
-      // Draw the waiting pixel with brush size
+      // Draw the waiting pixel with brush size, centered on position
       ctx.fillStyle = settings.color;
-      ctx.fillRect(queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.size);
+      ctx.fillRect(queue.waitingPixelX - offset, queue.waitingPixelY - offset, settings.size, settings.size);
       
       // Update queue
       queue.lastDrawnX = queue.waitingPixelX;
