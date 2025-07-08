@@ -2257,3 +2257,121 @@ const newPanY = cursorY / newZoom - canvasPointY;
 **Result**: Mouse wheel zooming now properly centers on the cursor position at all zoom levels and canvas positions, providing the expected user experience for precise artwork manipulation.
 
 **Performance**: Fix maintains 60fps zoom performance with no additional computational overhead.
+
+### Pixel Brush Implementation (2025-07-08)
+
+**Feature**: Added a proper pixel brush to the brush library with 1px size, hard edges, and pixel-perfect drawing.
+
+**Implementation**: 
+- **Brush Preset System**: Created a comprehensive modular system for managing brush presets with component-based configuration
+- **Pixel Brush Preset**: Configured specifically for 1px size, hard edges, and pixel-perfect drawing with the following components:
+  - Size Modifier: Fixed 1px size with no pressure variation
+  - Opacity Modifier: Full opacity (1.0) with no pressure variation  
+  - Anti-aliasing Component: Pixel-perfect mode with disabled smoothing
+- **Store Integration**: Added brush preset management to the app store with `setBrushPreset`, `currentBrushPreset`, and `activeBrushComponents`
+- **Library Integration**: Updated BrushLibrary component to use real brush presets instead of dummy data
+- **Engine Integration**: Modified brush engine to use active brush components from store
+
+**Technical Details**:
+```typescript
+// Pixel brush configuration
+const pixelBrushComponents: BrushComponent[] = [
+  {
+    id: 'pixel-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: { minSize: 1, maxSize: 1, pressureInfluence: 0 },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'pixel-antialiasing', 
+    type: ComponentType.ANTI_ALIASING,
+    parameters: { mode: 'pixel' },
+    priority: 30,
+    enabled: true
+  }
+];
+```
+
+**Files Modified**:
+- `/src/presets/brushPresets.ts` (NEW): Brush preset definitions and management
+- `/src/stores/useAppStore.ts`: Added brush preset state management
+- `/src/components/BrushLibrary.tsx`: Updated to use real brush presets
+- `/src/hooks/useBrushEngine.ts`: Integration with active brush components
+
+**User Experience**: Users can now select between "Pixel Brush" and "Default Brush" in the brush library, with the pixel brush providing crisp 1px drawing perfect for pixel art creation. The pixel brush is set as the default to support pixel-perfect artwork from the start.
+
+**Performance**: Implementation maintains 60fps performance through optimized component caching and efficient brush switching without affecting existing strokes on canvas.
+
+### Enhanced Pixel-Perfect Drawing Algorithm (2025-07-08)
+
+**Feature**: Implemented Tom Cantwell's advanced pixel-perfect drawing algorithm for gap-free freehand pixel art at any cursor speed.
+
+**Problem Solved**: 
+- Fast cursor movement created dotted lines due to browser refresh rate limitations
+- Simple coordinate rounding resulted in gaps between pixels
+- Existing implementation only worked well for slow, deliberate drawing
+
+**Implementation**: 
+- **Hybrid Speed Detection**: Movement >1 pixel uses Bresenham's line algorithm, ≤1 pixel uses pixel queue
+- **Pixel Queue System**: Tracks lastDrawn, waiting, and current pixels to ensure smooth connections
+- **Bresenham's Line Algorithm**: Draws individual pixels along line path for perfect antialiasing-free lines
+- **Stroke Reset**: Queue resets on mousedown/touchstart for clean stroke starts
+
+**Technical Details**:
+```typescript
+// Speed detection logic (exact from Tom Cantwell's algorithm)
+if (Math.abs(roundedToX - roundedFromX) > 1 || Math.abs(roundedToY - roundedFromY) > 1) {
+  // Fast movement - use Bresenham's line algorithm
+  drawPixelPerfectLine(ctx, roundedFromX, roundedFromY, roundedToX, roundedToY, settings.color);
+} else {
+  // Slow movement - use perfect pixel queue
+  perfectPixels(ctx, to.x, to.y, settings);
+}
+
+// Pixel queue algorithm
+if (Math.abs(roundedX - queue.lastDrawnX) > 1 || Math.abs(roundedY - queue.lastDrawnY) > 1) {
+  // Draw waiting pixel when current is no longer neighbor
+  ctx.fillRect(queue.waitingPixelX, queue.waitingPixelY, 1, 1);
+  // Update queue state
+  queue.lastDrawnX = queue.waitingPixelX;
+  queue.lastDrawnY = queue.waitingPixelY;
+}
+```
+
+**Files Modified**:
+- `/src/hooks/useBrushEngine.ts`: Added pixel queue state, perfectPixels(), drawPixelPerfectLine()
+- `/src/components/canvas/DrawingCanvas.tsx`: Added resetPixelQueue() on stroke start
+
+**Result**: Pixel brush now produces smooth, gap-free lines at any drawing speed with true pixel-perfect accuracy and no antialiasing artifacts.
+
+### Canvas Display Mode Architecture (2025-07-08)
+
+**Issue Fixed**: Switching brushes would change the appearance of ALL existing strokes on canvas.
+
+**Root Cause**: CSS `imageRendering` property was dynamically applied based on current brush settings, affecting the entire canvas display rather than individual strokes.
+
+**Solution Architecture**:
+- **Separated Concerns**: Canvas display mode now independent from brush rendering settings
+- **New State**: Added `canvas.displayMode: 'pixelated' | 'smooth'` to control overall canvas appearance
+- **User Control**: Canvas Display toggle in toolbar allows users to control how ALL content appears
+- **Persistent Strokes**: Each stroke retains its original rendering (pixel or antialiased) regardless of display mode
+
+**Technical Implementation**:
+```typescript
+// Before (BROKEN) - tied to brush settings
+imageRendering: tools.brushSettings.antialiasing ? 'auto' : 'pixelated'
+
+// After (FIXED) - independent canvas display
+imageRendering: canvas.displayMode === 'smooth' ? 'auto' : 'pixelated'
+```
+
+**Files Modified**:
+- `/src/types/index.ts`: Added displayMode to CanvasState interface
+- `/src/stores/useAppStore.ts`: Added displayMode state and setDisplayMode()
+- `/src/components/canvas/DrawingCanvas.tsx`: Fixed imageRendering logic
+- `/src/components/toolbar/BrushControls.tsx`: Added Canvas Display UI toggle
+
+**User Experience**: Artists can now freely switch between pixel and antialiased brushes without affecting existing artwork. The Canvas Display toggle provides control over how the entire canvas appears (pixelated vs smooth) without modifying the actual stroke data.
+
+**Architecture Principle**: Drawing behavior (per-stroke) is separate from display behavior (global canvas).

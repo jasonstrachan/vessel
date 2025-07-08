@@ -10,8 +10,11 @@ import type {
   ToolState,
   UIState,
   Tool,
-  BrushSettings
+  BrushSettings,
+  BrushPreset,
+  BrushComponent
 } from '../types';
+import { brushPresets, applyBrushPreset, pixelBrushPreset, pixelBrushSettings, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
 
 interface AppState {
   // Project State
@@ -27,6 +30,7 @@ interface AppState {
   toggleGrid: () => void;
   setGridSize: (size: number) => void;
   toggleRulers: () => void;
+  setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
   setSelection: (selection: CanvasState['selection']) => void;
   setCursor: (cursor: CanvasState['cursor']) => void;
   
@@ -36,6 +40,14 @@ interface AppState {
   setBrushSettings: (settings: Partial<BrushSettings>) => void;
   setEraserSettings: (settings: Partial<BrushSettings>) => void;
   setFillSettings: (settings: Partial<ToolState['fillSettings']>) => void;
+  
+  // Brush Presets
+  brushPresets: BrushPreset[];
+  currentBrushPreset: BrushPreset | null;
+  activeBrushComponents: BrushComponent[];
+  setBrushPreset: (preset: BrushPreset) => void;
+  getBrushPresets: () => BrushPreset[];
+  getBrushPresetById: (id: string) => BrushPreset | undefined;
   
   // UI State
   ui: UIState;
@@ -55,17 +67,8 @@ interface AppState {
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
 }
 
-// Default states
-const defaultBrushSettings: BrushSettings = {
-  size: 10,
-  opacity: 1,
-  color: '#000000',
-  blendMode: 'source-over',
-  spacing: 0.25,
-  pressure: 1,
-  rotation: 0,
-  antialiasing: true
-};
+// Default states - use default brush settings
+const defaultBrushSettingsForStore: BrushSettings = defaultBrushSettings;
 
 const defaultCanvasState: CanvasState = {
   zoom: 1,
@@ -75,6 +78,7 @@ const defaultCanvasState: CanvasState = {
   showGrid: false,
   gridSize: 16,
   showRulers: false,
+  displayMode: 'pixelated',
   selection: {
     active: false,
     bounds: { x: 0, y: 0, width: 0, height: 0 },
@@ -90,8 +94,8 @@ const defaultCanvasState: CanvasState = {
 const defaultToolState: ToolState = {
   currentTool: 'brush',
   previousTool: 'brush',
-  brushSettings: defaultBrushSettings,
-  eraserSettings: { ...defaultBrushSettings, blendMode: 'destination-out' },
+  brushSettings: defaultBrushSettingsForStore,
+  eraserSettings: { ...defaultBrushSettingsForStore, blendMode: 'destination-out' },
   fillSettings: {
     tolerance: 0,
     contiguous: true,
@@ -146,6 +150,9 @@ export const useAppStore = create<AppState>()(
       toggleRulers: () => set((state) => ({
         canvas: { ...state.canvas, showRulers: !state.canvas.showRulers }
       })),
+      setDisplayMode: (mode) => set((state) => ({
+        canvas: { ...state.canvas, displayMode: mode }
+      })),
       setSelection: (selection) => set((state) => ({
         canvas: { ...state.canvas, selection }
       })),
@@ -180,6 +187,24 @@ export const useAppStore = create<AppState>()(
           fillSettings: { ...state.tools.fillSettings, ...settings }
         }
       })),
+      
+      // Brush Presets
+      brushPresets,
+      currentBrushPreset: defaultBrushPreset,
+      activeBrushComponents: defaultBrushPreset.components,
+      setBrushPreset: (preset) => set((state) => {
+        const { settings, components } = applyBrushPreset(preset);
+        return {
+          currentBrushPreset: preset,
+          activeBrushComponents: components,
+          tools: {
+            ...state.tools,
+            brushSettings: { ...state.tools.brushSettings, ...settings }
+          }
+        };
+      }),
+      getBrushPresets: () => brushPresets,
+      getBrushPresetById: (id) => brushPresets.find(preset => preset.id === id),
       
       // UI State
       ui: defaultUIState,

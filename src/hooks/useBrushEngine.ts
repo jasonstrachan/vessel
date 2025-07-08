@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushComponent, ComponentType } from '../types';
 
@@ -21,8 +21,18 @@ export interface RenderSettings {
   rotation: number;
 }
 
+
 export const useBrushEngine = () => {
-  const { tools } = useAppStore();
+  const { tools, activeBrushComponents } = useAppStore();
+  
+  // Pixel queue state for perfect pixel drawing
+  const pixelQueueRef = useRef({
+    lastDrawnX: 0,
+    lastDrawnY: 0,
+    waitingPixelX: 0,
+    waitingPixelY: 0,
+    initialized: false
+  });
   
   const executeComponent = useCallback((
     component: BrushComponent,
@@ -146,11 +156,103 @@ export const useBrushEngine = () => {
     return newSettings;
   };
   
+  
+  const resetPixelQueue = useCallback(() => {
+    pixelQueueRef.current = {
+      lastDrawnX: 0,
+      lastDrawnY: 0,
+      waitingPixelX: 0,
+      waitingPixelY: 0,
+      initialized: false
+    };
+  }, []);
+
+
+  const drawPixelPerfectLine = useCallback((
+    ctx: CanvasRenderingContext2D,
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    color: string
+  ) => {
+    // Bresenham's line algorithm for pixel-perfect lines
+    ctx.fillStyle = color;
+    
+    const dx = Math.abs(x1 - x0);
+    const dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1;
+    const sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    
+    let x = x0;
+    let y = y0;
+    
+    while (true) {
+      // Draw pixel
+      ctx.fillRect(x, y, 1, 1);
+      
+      if (x === x1 && y === y1) break;
+      
+      const e2 = 2 * err;
+      if (e2 > -dy) {
+        err -= dy;
+        x += sx;
+      }
+      if (e2 < dx) {
+        err += dx;
+        y += sy;
+      }
+    }
+  }, []);
+
+  const perfectPixels = useCallback((
+    ctx: CanvasRenderingContext2D,
+    currentX: number,
+    currentY: number,
+    settings: RenderSettings
+  ) => {
+    const queue = pixelQueueRef.current;
+    const roundedX = Math.round(currentX);
+    const roundedY = Math.round(currentY);
+    
+    if (!queue.initialized) {
+      // First pixel - initialize queue
+      queue.lastDrawnX = roundedX;
+      queue.lastDrawnY = roundedY;
+      queue.waitingPixelX = roundedX;
+      queue.waitingPixelY = roundedY;
+      queue.initialized = true;
+      
+      // Draw the first pixel
+      ctx.fillStyle = settings.color;
+      ctx.fillRect(roundedX, roundedY, 1, 1);
+      return;
+    }
+    
+    // If current pixel not neighbor to lastDrawn, draw waiting pixel
+    if (Math.abs(roundedX - queue.lastDrawnX) > 1 || Math.abs(roundedY - queue.lastDrawnY) > 1) {
+      // Draw the waiting pixel
+      ctx.fillStyle = settings.color;
+      ctx.fillRect(queue.waitingPixelX, queue.waitingPixelY, 1, 1);
+      
+      // Update queue
+      queue.lastDrawnX = queue.waitingPixelX;
+      queue.lastDrawnY = queue.waitingPixelY;
+      queue.waitingPixelX = roundedX;
+      queue.waitingPixelY = roundedY;
+    } else {
+      // Update waiting pixel to current position
+      queue.waitingPixelX = roundedX;
+      queue.waitingPixelY = roundedY;
+    }
+  }, []);
+
   const renderBrushStroke = useCallback((
     ctx: CanvasRenderingContext2D,
     from: { x: number; y: number },
     to: { x: number; y: number },
-    components: BrushComponent[] = []
+    components: BrushComponent[] = activeBrushComponents
   ) => {
     const input: StrokeInput = {
       position: to,
@@ -166,8 +268,8 @@ export const useBrushEngine = () => {
     // Apply rendering settings
     ctx.globalAlpha = settings.opacity;
     ctx.lineWidth = settings.size;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    ctx.lineCap = settings.pixelAlignment ? 'butt' : 'round';
+    ctx.lineJoin = settings.pixelAlignment ? 'miter' : 'round';
     
     // Handle tool-specific behavior
     if (tools.currentTool === 'eraser') {
@@ -177,16 +279,24 @@ export const useBrushEngine = () => {
       ctx.strokeStyle = settings.color;
     }
     
-    // Handle antialiasing
+    // Handle antialiasing and pixel-perfect drawing
     if (settings.pixelAlignment) {
       ctx.imageSmoothingEnabled = false;
-      const pixelX = Math.floor(to.x) + 0.5;
-      const pixelY = Math.floor(to.y) + 0.5;
       
-      ctx.beginPath();
-      ctx.moveTo(Math.floor(from.x) + 0.5, Math.floor(from.y) + 0.5);
-      ctx.lineTo(pixelX, pixelY);
-      ctx.stroke();
+      // Follow Tom Cantwell's exact algorithm
+      const roundedFromX = Math.round(from.x);
+      const roundedFromY = Math.round(from.y);
+      const roundedToX = Math.round(to.x);
+      const roundedToY = Math.round(to.y);
+      
+      // If movement is > 1 pixel, use line drawing
+      if (Math.abs(roundedToX - roundedFromX) > 1 || Math.abs(roundedToY - roundedFromY) > 1) {
+        // Fast movement - draw pixel-perfect line using individual pixels
+        drawPixelPerfectLine(ctx, roundedFromX, roundedFromY, roundedToX, roundedToY, settings.color);
+      } else {
+        // Slow movement - use perfect pixel queue algorithm
+        perfectPixels(ctx, to.x, to.y, settings);
+      }
     } else {
       ctx.beginPath();
       ctx.moveTo(from.x, from.y);
@@ -195,11 +305,12 @@ export const useBrushEngine = () => {
     }
     
     ctx.restore();
-  }, [executeComponents, tools]);
+  }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine]);
   
   return {
     executeComponents,
     executeComponent,
-    renderBrushStroke
+    renderBrushStroke,
+    resetPixelQueue
   };
 };
