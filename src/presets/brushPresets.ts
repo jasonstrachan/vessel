@@ -1,0 +1,402 @@
+import { BrushPreset, BrushComponent, ComponentType, BrushSettings } from '../types';
+
+// Default brush settings for pixel-perfect drawing
+export const pixelBrushSettings: BrushSettings = {
+  size: 1,
+  opacity: 1,
+  color: '#000000',
+  blendMode: 'source-over',
+  spacing: 0.1,
+  pressure: 1,
+  rotation: 0,
+  antialiasing: false
+};
+
+// Default brush settings for smooth drawing
+export const defaultBrushSettings: BrushSettings = {
+  size: 4,
+  opacity: 1,
+  color: '#000000',
+  blendMode: 'source-over',
+  spacing: 0.1,
+  pressure: 1,
+  rotation: 0,
+  antialiasing: true
+};
+
+// Components for pixel brush - 1px, hard edges, pixel perfect
+export const pixelBrushComponents: BrushComponent[] = [
+  {
+    id: 'pixel-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      minSize: 1,
+      maxSize: 1,
+      pressureInfluence: 0
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'pixel-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'pixel-antialiasing',
+    type: ComponentType.ANTI_ALIASING,
+    parameters: {
+      mode: 'pixel'
+    },
+    priority: 30,
+    enabled: true
+  }
+];
+
+// Pixel brush preset
+export const pixelBrushPreset: BrushPreset = {
+  id: 'pixel-brush',
+  name: 'Pixel Brush',
+  category: 'Pixel Art',
+  components: pixelBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['pixel', 'hard', '1px', 'pixel-art'],
+  isDefault: true,
+  createdAt: new Date(),
+  modifiedAt: new Date()
+};
+
+// Default brush components for smooth drawing
+export const defaultBrushComponents: BrushComponent[] = [
+  {
+    id: 'default-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      minSize: 1,
+      maxSize: 1000,
+      pressureInfluence: 0.5
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'default-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0.2
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'default-antialiasing',
+    type: ComponentType.ANTI_ALIASING,
+    parameters: {
+      mode: 'antialiased'
+    },
+    priority: 30,
+    enabled: true
+  }
+];
+
+// Default brush preset
+export const defaultBrushPreset: BrushPreset = {
+  id: 'default-brush',
+  name: 'Default Brush',
+  category: 'Digital Painting',
+  components: defaultBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['default', 'smooth', 'digital-painting'],
+  isDefault: true,
+  createdAt: new Date(),
+  modifiedAt: new Date()
+};
+
+// 1px Square Pixel Brush Components
+export const squarePixel1Components: BrushComponent[] = [
+  {
+    id: 'square-pixel-1-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      minSize: 1,
+      maxSize: 1,
+      pressureInfluence: 0
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'square-pixel-1-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'square-pixel-1-antialiasing',
+    type: ComponentType.ANTI_ALIASING,
+    parameters: {
+      mode: 'pixel'
+    },
+    priority: 30,
+    enabled: true
+  }
+];
+
+// 1px Square Pixel Brush Preset
+export const squarePixel1Preset: BrushPreset = {
+  id: 'square-pixel-1',
+  name: '1px Square',
+  category: 'Pixel Art',
+  components: squarePixel1Components,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['pixel', 'hard', '1px', 'square'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date()
+};
+
+// 4px Round Pixel Brush Components
+export const roundPixel4Components: BrushComponent[] = [
+  {
+    id: 'round-pixel-4-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      minSize: 4,
+      maxSize: 4,
+      pressureInfluence: 0
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'round-pixel-4-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'round-pixel-4-antialiasing',
+    type: ComponentType.ANTI_ALIASING,
+    parameters: {
+      mode: 'pixel'
+    },
+    priority: 30,
+    enabled: true
+  },
+  {
+    id: 'round-pixel-4-pattern',
+    type: ComponentType.PATTERN_RENDERER,
+    parameters: {
+      shape: 'round'
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+// 4px Round Pixel Brush Preset
+export const roundPixel4Preset: BrushPreset = {
+  id: 'round-pixel-4',
+  name: '4px Round Pixel',
+  category: 'Pixel Art',
+  components: roundPixel4Components,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['pixel', 'round', '4px', 'hard'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date()
+};
+
+// 4px Round Soft Brush Components
+export const roundSoft4Components: BrushComponent[] = [
+  {
+    id: 'round-soft-4-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      minSize: 4,
+      maxSize: 4,
+      pressureInfluence: 0.3
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'round-soft-4-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0.5
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'round-soft-4-antialiasing',
+    type: ComponentType.ANTI_ALIASING,
+    parameters: {
+      mode: 'antialiased'
+    },
+    priority: 30,
+    enabled: true
+  },
+  {
+    id: 'round-soft-4-pattern',
+    type: ComponentType.PATTERN_RENDERER,
+    parameters: {
+      shape: 'round',
+      softness: 0.8
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+// 4px Round Soft Brush Preset
+export const roundSoft4Preset: BrushPreset = {
+  id: 'round-soft-4',
+  name: '4px Round Soft',
+  category: 'Digital Painting',
+  components: roundSoft4Components,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['soft', 'round', '4px', 'smooth'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date()
+};
+
+// 6px Round Square Brush Components
+export const roundSquare6Components: BrushComponent[] = [
+  {
+    id: 'round-square-6-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      minSize: 6,
+      maxSize: 6,
+      pressureInfluence: 0.2
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'round-square-6-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0.3
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'round-square-6-antialiasing',
+    type: ComponentType.ANTI_ALIASING,
+    parameters: {
+      mode: 'antialiased'
+    },
+    priority: 30,
+    enabled: true
+  },
+  {
+    id: 'round-square-6-pattern',
+    type: ComponentType.PATTERN_RENDERER,
+    parameters: {
+      shape: 'round-square',
+      cornerRadius: 0.3
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+// 6px Round Square Brush Preset
+export const roundSquare6Preset: BrushPreset = {
+  id: 'round-square-6',
+  name: '6px Round Square',
+  category: 'Digital Painting',
+  components: roundSquare6Components,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['rounded', 'square', '6px', 'smooth'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date()
+};
+
+// Available brush presets
+export const brushPresets: BrushPreset[] = [
+  pixelBrushPreset,
+  defaultBrushPreset,
+  squarePixel1Preset,
+  roundPixel4Preset,
+  roundSoft4Preset,
+  roundSquare6Preset
+];
+
+// Helper functions
+export const getBrushPresetById = (id: string): BrushPreset | undefined => {
+  return brushPresets.find(preset => preset.id === id);
+};
+
+export const getBrushPresetsByCategory = (category: string): BrushPreset[] => {
+  return brushPresets.filter(preset => preset.category === category);
+};
+
+export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<BrushSettings>; components: BrushComponent[] } => {
+  const settings: Partial<BrushSettings> = {};
+  
+  // Extract settings from components
+  preset.components.forEach(component => {
+    switch (component.type) {
+      case ComponentType.SIZE_MODIFIER:
+        if (component.parameters.minSize === component.parameters.maxSize) {
+          settings.size = component.parameters.minSize as number;
+        }
+        break;
+      case ComponentType.ANTI_ALIASING:
+        settings.antialiasing = component.parameters.mode === 'antialiased';
+        break;
+    }
+  });
+  
+  // Apply preset specific settings
+  if (preset.id === 'pixel-brush') {
+    settings.size = 1;
+    settings.opacity = 1;
+    settings.spacing = 0.1;
+    settings.antialiasing = false;
+  } else if (preset.id === 'default-brush') {
+    settings.size = 4;
+    settings.opacity = 1;
+    settings.spacing = 0.1;
+    settings.antialiasing = true;
+  } else if (preset.id === 'square-pixel-1') {
+    settings.size = 1;
+    settings.opacity = 1;
+    settings.spacing = 0.1;
+    settings.antialiasing = false;
+  } else if (preset.id === 'round-pixel-4') {
+    settings.size = 4;
+    settings.opacity = 1;
+    settings.spacing = 0.1;
+    settings.antialiasing = false;
+  } else if (preset.id === 'round-soft-4') {
+    settings.size = 4;
+    settings.opacity = 1;
+    settings.spacing = 0.1;
+    settings.antialiasing = true;
+  } else if (preset.id === 'round-square-6') {
+    settings.size = 6;
+    settings.opacity = 1;
+    settings.spacing = 0.1;
+    settings.antialiasing = true;
+  }
+  
+  return { settings, components: preset.components };
+};
