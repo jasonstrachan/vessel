@@ -78,20 +78,20 @@ export default function BrushControls() {
       {/* Spacing */}
       <div className="mb-4">
         <label className="block text-xs text-gray-400 mb-2">
-          Spacing: {Math.round(brushSettings.spacing * 100)}%
+          Spacing: {brushSettings.spacing}px
         </label>
         <input
           type="range"
-          min="0.1"
-          max="2"
-          step="0.05"
+          min="1"
+          max="20"
+          step="1"
           value={brushSettings.spacing}
-          onChange={(e) => setBrushSettings({ spacing: parseFloat(e.target.value) })}
+          onChange={(e) => setBrushSettings({ spacing: parseInt(e.target.value) })}
           className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
         />
         <div className="flex justify-between text-xs text-gray-500 mt-1">
-          <span>10%</span>
-          <span>200%</span>
+          <span>1px</span>
+          <span>20px</span>
         </div>
       </div>
 

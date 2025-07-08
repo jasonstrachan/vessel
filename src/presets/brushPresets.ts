@@ -6,7 +6,7 @@ export const pixelBrushSettings: BrushSettings = {
   opacity: 1,
   color: '#000000',
   blendMode: 'source-over',
-  spacing: 0.1,
+  spacing: 1,
   pressure: 1,
   rotation: 0,
   antialiasing: false
@@ -18,7 +18,7 @@ export const defaultBrushSettings: BrushSettings = {
   opacity: 1,
   color: '#000000',
   blendMode: 'source-over',
-  spacing: 0.1,
+  spacing: 1,
   pressure: 1,
   rotation: 0,
   antialiasing: true
@@ -31,7 +31,7 @@ export const pixelBrushComponents: BrushComponent[] = [
     type: ComponentType.SIZE_MODIFIER,
     parameters: {
       minSize: 1,
-      maxSize: 1,
+      maxSize: 1000,
       pressureInfluence: 0
     },
     priority: 10,
@@ -123,7 +123,7 @@ export const squarePixel1Components: BrushComponent[] = [
     type: ComponentType.SIZE_MODIFIER,
     parameters: {
       minSize: 1,
-      maxSize: 1,
+      maxSize: 1000,
       pressureInfluence: 0
     },
     priority: 10,
@@ -168,8 +168,8 @@ export const roundPixel4Components: BrushComponent[] = [
     id: 'round-pixel-4-size',
     type: ComponentType.SIZE_MODIFIER,
     parameters: {
-      minSize: 4,
-      maxSize: 4,
+      minSize: 1,
+      maxSize: 1000,
       pressureInfluence: 0
     },
     priority: 10,
@@ -223,8 +223,8 @@ export const roundSoft4Components: BrushComponent[] = [
     id: 'round-soft-4-size',
     type: ComponentType.SIZE_MODIFIER,
     parameters: {
-      minSize: 4,
-      maxSize: 4,
+      minSize: 1,
+      maxSize: 1000,
       pressureInfluence: 0.3
     },
     priority: 10,
@@ -279,8 +279,8 @@ export const roundSquare6Components: BrushComponent[] = [
     id: 'round-square-6-size',
     type: ComponentType.SIZE_MODIFIER,
     parameters: {
-      minSize: 6,
-      maxSize: 6,
+      minSize: 1,
+      maxSize: 1000,
       pressureInfluence: 0.2
     },
     priority: 10,
@@ -351,50 +351,39 @@ export const getBrushPresetsByCategory = (category: string): BrushPreset[] => {
 export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<BrushSettings>; components: BrushComponent[] } => {
   const settings: Partial<BrushSettings> = {};
   
-  // Extract settings from components
+  // Extract behavior settings from components (but NOT size)
   preset.components.forEach(component => {
     switch (component.type) {
-      case ComponentType.SIZE_MODIFIER:
-        if (component.parameters.minSize === component.parameters.maxSize) {
-          settings.size = component.parameters.minSize as number;
-        }
-        break;
       case ComponentType.ANTI_ALIASING:
         settings.antialiasing = component.parameters.mode === 'antialiased';
         break;
     }
   });
   
-  // Apply preset specific settings
+  // Apply preset specific behavior settings (excluding size)
   if (preset.id === 'pixel-brush') {
-    settings.size = 1;
     settings.opacity = 1;
-    settings.spacing = 0.1;
+    settings.spacing = 1;
     settings.antialiasing = false;
   } else if (preset.id === 'default-brush') {
-    settings.size = 4;
     settings.opacity = 1;
-    settings.spacing = 0.1;
+    settings.spacing = 1;
     settings.antialiasing = true;
   } else if (preset.id === 'square-pixel-1') {
-    settings.size = 1;
     settings.opacity = 1;
-    settings.spacing = 0.1;
+    settings.spacing = 1;
     settings.antialiasing = false;
   } else if (preset.id === 'round-pixel-4') {
-    settings.size = 4;
     settings.opacity = 1;
-    settings.spacing = 0.1;
+    settings.spacing = 1;
     settings.antialiasing = false;
   } else if (preset.id === 'round-soft-4') {
-    settings.size = 4;
     settings.opacity = 1;
-    settings.spacing = 0.1;
+    settings.spacing = 2;
     settings.antialiasing = true;
   } else if (preset.id === 'round-square-6') {
-    settings.size = 6;
     settings.opacity = 1;
-    settings.spacing = 0.1;
+    settings.spacing = 2;
     settings.antialiasing = true;
   }
   
