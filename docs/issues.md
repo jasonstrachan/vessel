@@ -2,6 +2,103 @@
 
 This document tracks all critical issues encountered during TinyBrush development, their analysis, and resolutions. Use this as the primary reference for debugging and preventing similar issues.
 
+## Issue #8: Right Column Padding Not Visible
+**Date**: 2025-07-08  
+**Status**: RESOLVED  
+**Severity**: High (UI Layout Bug)  
+
+### Problem Description
+No visible padding in right column despite adding `p-4` to container. Content was touching the edges of the right panel making the interface cramped and unprofessional.
+
+### Root Cause Analysis
+**Core Issue**: `flex-1` property on BrushLibrary component was causing it to expand and fill ALL available space, including the padding area.
+
+**Technical Details**:
+1. **Parent container**: Had `p-4` padding (16px all sides)
+2. **BrushLibrary component**: Had `flex-1` property  
+3. **Expansion behavior**: `flex-1` made component grow to consume entire parent container
+4. **Background overlap**: Component background extended to container edges, hiding padding
+5. **Visual result**: Padding was technically present but completely invisible
+
+### Current Problematic Structure (Before Fix)
+```tsx
+<div className="p-4">                          // 16px padding
+  <BrushLibrary className="flex-1" />         // Expands to fill ALL space
+  <ControlsPanel />
+</div>
+```
+
+**Why This Failed**:
+- `flex-1` means "grow to fill available space"
+- Available space includes the padding area
+- Component backgrounds paint over the padding, making it invisible
+
+### Resolution Strategy
+**Replaced flexible expansion with fixed sizing and gap-based layout**:
+
+1. **Removed problematic `flex-1`** from BrushLibrary
+2. **Added fixed height** (`h-80`) to constrain BrushLibrary size
+3. **Added `gap-4`** to parent container for component spacing
+4. **Maintained `p-4`** for outer edge padding
+
+### Implementation Steps
+```tsx
+// Step 1: Remove flex-1 from BrushLibrary
+// Before:
+<div className="flex-1 flex flex-col mb-4 bg-[#353535] rounded border border-[#404040]">
+
+// After:  
+<div className="h-80 flex flex-col bg-[#353535] rounded border border-[#404040]">
+
+// Step 2: Add gap to parent container
+// Before:
+<div className="w-80 bg-[#2d2d2d] border-l border-[#404040] flex flex-col p-4">
+
+// After:
+<div className="w-80 bg-[#2d2d2d] border-l border-[#404040] flex flex-col p-4 gap-4">
+```
+
+### Files Modified
+1. **`/src/components/BrushLibrary.tsx`** - Removed `flex-1`, added `h-80`
+2. **`/src/app/page.tsx`** - Added `gap-4` to right panel container
+
+### Post-Resolution Verification
+- ✅ **Build successful**: `npm run build` passes with no errors
+- ✅ **Visible padding**: 16px padding now visible on all edges of right column
+- ✅ **Component spacing**: 16px gap between BrushLibrary and ControlsPanel
+- ✅ **Layout integrity**: All components render correctly without expansion conflicts
+- ✅ **No background overlap**: Components no longer hide parent padding
+
+### Expected Visual Result
+- **All edges**: 16px visible space between content and container borders
+- **Component separation**: Clean 16px spacing between BrushLibrary and controls
+- **Professional appearance**: Proper breathing room in UI layout
+- **Responsive behavior**: Layout maintains padding at different screen sizes
+
+### Key Insights
+1. **Flexbox `flex-1` fills ALL space**: Including padding areas, making padding invisible
+2. **Background painting**: Component backgrounds extend to their full container bounds
+3. **Gap vs Padding**: `gap` creates space between flex children, `padding` creates container edges
+4. **Fixed sizing approach**: Sometimes better than flexible sizing for UI predictability
+
+### Prevention Measures
+- **Avoid `flex-1` in padded containers** when visual padding is required
+- **Use `gap` for component spacing** instead of margins when using flexbox
+- **Test padding visibility** during layout development
+- **Consider fixed dimensions** vs flexible dimensions based on design requirements
+
+### Manual Testing Checklist
+- [ ] Right column shows 16px padding on left/right edges  
+- [ ] Top/bottom padding visible in right column
+- [ ] 16px spacing between BrushLibrary and controls section
+- [ ] Layout remains stable during window resizing
+- [ ] No content touching container edges
+
+### Related Technical Concepts
+- **CSS Flexbox**: `flex-1` vs fixed dimensions (`h-80`)
+- **Container Queries**: Padding vs gap in flex layouts  
+- **Visual Hierarchy**: Proper spacing for professional interface design
+
 ## Issue #7: Server Shutdown During Runtime
 **Date**: 2025-07-08  
 **Status**: DOCUMENTED  
