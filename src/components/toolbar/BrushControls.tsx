@@ -7,7 +7,7 @@ import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 
 export default function BrushControls() {
-  const { tools, setBrushSettings, setCurrentTool } = useAppStore();
+  const { tools, canvas, setBrushSettings, setCurrentTool, setDisplayMode } = useAppStore();
   const { brushSettings, currentTool } = tools;
 
   return (
@@ -113,6 +113,36 @@ export default function BrushControls() {
         </label>
         <p className="text-xs text-gray-500 mt-1">
           Uncheck for pixel-perfect drawing
+        </p>
+      </div>
+
+      {/* Canvas Display Mode */}
+      <div className="mb-4">
+        <label className="block text-xs text-gray-400 mb-2">Canvas Display</label>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setDisplayMode('pixelated')}
+            className={`flex-1 px-2 py-1 text-xs rounded ${
+              canvas.displayMode === 'pixelated'
+                ? 'bg-blue-600 text-white'
+                : 'bg-[#404040] text-gray-300 hover:bg-[#555]'
+            }`}
+          >
+            Pixelated
+          </button>
+          <button
+            onClick={() => setDisplayMode('smooth')}
+            className={`flex-1 px-2 py-1 text-xs rounded ${
+              canvas.displayMode === 'smooth'
+                ? 'bg-blue-600 text-white'
+                : 'bg-[#404040] text-gray-300 hover:bg-[#555]'
+            }`}
+          >
+            Smooth
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mt-1">
+          Controls how all canvas content is displayed
         </p>
       </div>
 

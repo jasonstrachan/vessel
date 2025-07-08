@@ -74,6 +74,7 @@ export interface CanvasState {
   showGrid: boolean;
   gridSize: number;
   showRulers: boolean;
+  displayMode: 'pixelated' | 'smooth';
   selection: {
     active: boolean;
     bounds: Rectangle;

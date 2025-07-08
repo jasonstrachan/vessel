@@ -14,6 +14,9 @@ interface DrawingCanvasProps {
 
 export default function DrawingCanvas({ width = 800, height = 600 }: DrawingCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  const handleKeyUpRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  const handleWheelRef = useRef<(e: WheelEvent) => void>(() => {});
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
   const [isPanMode, setIsPanMode] = useState(false);
@@ -21,6 +24,7 @@ export default function DrawingCanvas({ width = 800, height = 600 }: DrawingCanv
   const [panStartPoint, setPanStartPoint] = useState<{ x: number; y: number } | null>(null);
   const [initialPan, setInitialPan] = useState<{ x: number; y: number } | null>(null);
   const [currentTime, setCurrentTime] = useState<string>('');
+  const [isCanvasInitialized, setIsCanvasInitialized] = useState(false);
   
   const {
     canvas,
@@ -28,21 +32,24 @@ export default function DrawingCanvas({ width = 800, height = 600 }: DrawingCanv
     setZoom,
     setCursor,
     setBrushSettings,
-    setPan
+    setPan,
+    toggleGrid
   } = useAppStore();
   
-  const { renderBrushStroke } = useBrushEngine();
+  const { renderBrushStroke, resetPixelQueue } = useBrushEngine();
 
   // Convert screen coordinates to canvas coordinates
   const screenToCanvas = useCallback((clientX: number, clientY: number) => {
     if (!canvasRef.current) return { x: 0, y: 0 };
     
     const rect = canvasRef.current.getBoundingClientRect();
-    const x = (clientX - rect.left) / canvas.zoom - canvas.panX;
-    const y = (clientY - rect.top) / canvas.zoom - canvas.panY;
+    // getBoundingClientRect() already accounts for CSS transforms including pan
+    const x = (clientX - rect.left) / canvas.zoom;
+    const y = (clientY - rect.top) / canvas.zoom;
+    
     
     return { x, y };
-  }, [canvas.zoom, canvas.panX, canvas.panY]);
+  }, [canvas.zoom]);
 
   // Enhanced drawing function using brush engine
   const drawLine = useCallback((ctx: CanvasRenderingContext2D, from: { x: number; y: number }, to: { x: number; y: number }) => {
@@ -65,14 +72,21 @@ export default function DrawingCanvas({ width = 800, height = 600 }: DrawingCanv
     setIsDrawing(true);
     setLastPoint(point);
     setCursor({ x: point.x, y: point.y, pressure: 1 });
-  }, [isPanMode, screenToCanvas, setCursor, canvas.panX, canvas.panY]);
+    
+    // Reset pixel queue for new stroke
+    resetPixelQueue();
+  }, [isPanMode, screenToCanvas, setCursor, canvas.panX, canvas.panY, resetPixelQueue]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (isPanning && panStartPoint && initialPan) {
       // Handle panning - convert screen deltas to canvas space
       const deltaX = (e.clientX - panStartPoint.x) / canvas.zoom;
       const deltaY = (e.clientY - panStartPoint.y) / canvas.zoom;
-      setPan(initialPan.x + deltaX, initialPan.y + deltaY);
+      const newPanX = initialPan.x + deltaX;
+      const newPanY = initialPan.y + deltaY;
+      
+      
+      setPan(newPanX, newPanY);
       return;
     }
 
@@ -80,13 +94,18 @@ export default function DrawingCanvas({ width = 800, height = 600 }: DrawingCanv
     setCursor({ x: point.x, y: point.y, pressure: 1 });
 
     if (isDrawing && lastPoint && canvasRef.current) {
-      const ctx = canvasRef.current.getContext('2d');
-      if (ctx) {
-        drawLine(ctx, lastPoint, point);
-        setLastPoint(point);
+      try {
+        const ctx = canvasRef.current.getContext('2d');
+        if (ctx) {
+          
+          drawLine(ctx, lastPoint, point);
+          setLastPoint(point);
+        }
+      } catch (error) {
+        console.warn('Canvas drawing error:', error);
       }
     }
-  }, [isPanning, panStartPoint, initialPan, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine]);
+  }, [isPanning, panStartPoint, initialPan, canvas.zoom, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine]);
 
   const handleMouseUp = useCallback(() => {
     if (isPanning) {
@@ -118,7 +137,10 @@ export default function DrawingCanvas({ width = 800, height = 600 }: DrawingCanv
     setIsDrawing(true);
     setLastPoint(point);
     setCursor({ x: point.x, y: point.y, pressure: 1 });
-  }, [isPanMode, screenToCanvas, setCursor, canvas.panX, canvas.panY]);
+    
+    // Reset pixel queue for new stroke
+    resetPixelQueue();
+  }, [isPanMode, screenToCanvas, setCursor, canvas.panX, canvas.panY, resetPixelQueue]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     e.preventDefault();
@@ -136,13 +158,17 @@ export default function DrawingCanvas({ width = 800, height = 600 }: DrawingCanv
     setCursor({ x: point.x, y: point.y, pressure: 1 });
 
     if (isDrawing && lastPoint && canvasRef.current) {
-      const ctx = canvasRef.current.getContext('2d');
-      if (ctx) {
-        drawLine(ctx, lastPoint, point);
-        setLastPoint(point);
+      try {
+        const ctx = canvasRef.current.getContext('2d');
+        if (ctx) {
+          drawLine(ctx, lastPoint, point);
+          setLastPoint(point);
+        }
+      } catch (error) {
+        console.warn('Canvas drawing error:', error);
       }
     }
-  }, [isPanning, panStartPoint, initialPan, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine]);
+  }, [isPanning, panStartPoint, initialPan, canvas.zoom, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine]);
 
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
     e.preventDefault();
@@ -200,7 +226,13 @@ export default function DrawingCanvas({ width = 800, height = 600 }: DrawingCanv
     } else if (e.key === ']') {
       setBrushSettings({ size: Math.min(100, tools.brushSettings.size + 1) });
     }
-  }, [setBrushSettings, tools.brushSettings.size]);
+    
+    // Grid toggle (Ctrl/Cmd + G)
+    if ((e.ctrlKey || e.metaKey) && e.key === 'g') {
+      e.preventDefault();
+      toggleGrid();
+    }
+  }, [setBrushSettings, tools.brushSettings.size, toggleGrid]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
     if (e.code === 'Space') {
@@ -212,32 +244,57 @@ export default function DrawingCanvas({ width = 800, height = 600 }: DrawingCanv
     }
   }, []);
 
-  // Setup canvas and event listeners
+  // Update refs when handlers change
+  useEffect(() => {
+    handleKeyDownRef.current = handleKeyDown;
+    handleKeyUpRef.current = handleKeyUp;
+    handleWheelRef.current = handleWheel;
+  }, [handleKeyDown, handleKeyUp, handleWheel]);
+
+  // Canvas initialization - only clear on first mount or size change
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Setup canvas context
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      // Clear canvas
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, width, height);
+    // Setup canvas context with error handling
+    try {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        // Only clear canvas if not initialized or size changed
+        if (!isCanvasInitialized) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, width, height);
+          setIsCanvasInitialized(true);
+        }
+      }
+    } catch (error) {
+      console.error('Canvas initialization error:', error);
     }
+  }, [width, height, isCanvasInitialized]);
+
+  // Event listeners setup - separate from canvas initialization
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Stable event handler wrappers
+    const keyDownHandler = (e: KeyboardEvent) => handleKeyDownRef.current?.(e);
+    const keyUpHandler = (e: KeyboardEvent) => handleKeyUpRef.current?.(e);
+    const wheelHandler = (e: WheelEvent) => handleWheelRef.current?.(e);
 
     // Add keyboard event listeners
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('keydown', keyDownHandler);
+    window.addEventListener('keyup', keyUpHandler);
     
     // Add wheel event listener with active mode
-    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    canvas.addEventListener('wheel', wheelHandler, { passive: false });
     
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-      canvas.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('keydown', keyDownHandler);
+      window.removeEventListener('keyup', keyUpHandler);
+      canvas.removeEventListener('wheel', wheelHandler);
     };
-  }, [width, height, handleKeyDown, handleKeyUp, handleWheel]);
+  }, []); // Empty dependency array - stable event listeners
 
   // Show build timestamp on load
   useEffect(() => {
@@ -246,31 +303,36 @@ export default function DrawingCanvas({ width = 800, height = 600 }: DrawingCanv
     console.log(`🏗️ Build timestamp: ${buildTime}`);
   }, []);
 
-  // Apply zoom and pan transforms
+  // Canvas styling without transforms - coordinate conversion handles zoom/pan
   const canvasStyle: React.CSSProperties = {
-    transform: `scale(${canvas.zoom}) translate(${canvas.panX}px, ${canvas.panY}px)`,
-    transformOrigin: '0 0',
     cursor: isPanMode ? (isPanning ? 'grabbing' : 'grab') : (tools.currentTool === 'brush' ? 'crosshair' : 'default'),
-    imageRendering: tools.brushSettings.antialiasing ? 'auto' : 'pixelated'
+    imageRendering: canvas.displayMode === 'smooth' ? 'auto' : 'pixelated'
   };
 
   return (
     <>
       <div className="w-full h-full bg-[#303030] flex items-center justify-center overflow-hidden">
-        <canvas
-          ref={canvasRef}
-          width={width}
-          height={height}
-          style={canvasStyle}
-          className="border border-[#555] bg-white"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-        />
+        <div 
+          style={{
+            transform: `scale(${canvas.zoom}) translate(${canvas.panX}px, ${canvas.panY}px)`,
+            transformOrigin: '0 0'
+          }}
+        >
+          <canvas
+            ref={canvasRef}
+            width={width}
+            height={height}
+            style={canvasStyle}
+            className="border border-[#555] bg-white"
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          />
+        </div>
         
         {/* Grid overlay */}
         {canvas.showGrid && (
@@ -278,11 +340,19 @@ export default function DrawingCanvas({ width = 800, height = 600 }: DrawingCanv
             className="absolute inset-0 pointer-events-none"
             style={{
               backgroundImage: `
-                linear-gradient(rgba(255,255,255,0.2) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255,255,255,0.2) 1px, transparent 1px)
+                linear-gradient(${
+                  canvas.zoom >= 8 && canvas.gridSize === 1 
+                    ? 'rgba(255,255,255,0.4)' 
+                    : 'rgba(255,255,255,0.2)'
+                } 1px, transparent 1px),
+                linear-gradient(90deg, ${
+                  canvas.zoom >= 8 && canvas.gridSize === 1 
+                    ? 'rgba(255,255,255,0.4)' 
+                    : 'rgba(255,255,255,0.2)'
+                } 1px, transparent 1px)
               `,
               backgroundSize: `${canvas.gridSize * canvas.zoom}px ${canvas.gridSize * canvas.zoom}px`,
-              backgroundPosition: `${canvas.panX}px ${canvas.panY}px`
+              backgroundPosition: `${canvas.panX * canvas.zoom}px ${canvas.panY * canvas.zoom}px`
             }}
           />
         )}
