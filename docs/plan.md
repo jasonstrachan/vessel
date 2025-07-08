@@ -250,3 +250,44 @@ All core functionality has been implemented:
 ---
 
 **Status**: All planned features have been successfully implemented! The project has evolved from a basic placeholder to a fully functional pixel art editor with advanced capabilities including modular brush systems, pixel-perfect rendering, layer management, and professional-grade tools.
+
+---
+
+# CRITICAL BUG FIX: Right Column Padding Not Visible
+
+## Problem
+No visible padding in right column despite adding `p-4` to container.
+
+## Root Cause Analysis
+- Parent container has `p-4` padding (16px all sides)  
+- BrushLibrary component has `flex-1` property
+- `flex-1` makes component expand to fill ALL available space, including padding area
+- Component backgrounds extend to edges, hiding padding completely
+
+## Current Problematic Structure
+```tsx
+<div className="p-4">          // 16px padding
+  <BrushLibrary flex-1 />      // Expands to fill all space INCLUDING padding
+  <ControlsPanel />
+</div>
+```
+
+## Solution Strategy
+Replace problematic flex expansion with gap-based layout:
+
+1. Remove conflicting `flex-1` from BrushLibrary
+2. Use `gap-4` for component spacing  
+3. Maintain `p-4` for outer edge padding
+4. Ensure components don't expand beyond their content needs
+
+## Implementation Steps
+1. Remove `flex-1` from BrushLibrary component
+2. Add proper height constraints to prevent expansion
+3. Test visual spacing verification
+4. Verify layout integrity
+
+## Expected Result
+- 16px padding visible on all edges
+- 16px spacing between components
+- No background color overlap hiding padding
+- Clean, predictable layout behavior

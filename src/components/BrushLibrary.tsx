@@ -5,18 +5,15 @@ const BrushLibrary = () => {
   const brushPresets = useAppStore((state) => state.brushPresets);
   const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
   const setBrushPreset = useAppStore((state) => state.setBrushPreset);
-  
-  console.log('BrushLibrary - brushPresets:', brushPresets);
-  console.log('BrushLibrary - currentBrushPreset:', currentBrushPreset);
 
   return (
-    <div className="flex-1 border-b border-[#404040] flex flex-col">
-      <div className="flex items-center justify-between px-3 py-2 bg-[#353535] border-b border-[#404040]">
+    <div className="h-full flex flex-col bg-[#353535] rounded border border-[#404040]">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[#404040]">
         <span className="text-base font-medium">Brush Library</span>
         <button className="text-sm bg-[#404040] px-2 py-1 rounded">+</button>
       </div>
       
-      <div className="flex-1 p-2 space-y-1 overflow-y-auto">
+      <div className="flex-1 p-4 space-y-1 overflow-y-auto">
         {brushPresets.map((preset) => (
           <div
             key={preset.id}
