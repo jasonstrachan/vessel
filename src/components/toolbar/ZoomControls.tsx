@@ -7,8 +7,8 @@ export default function ZoomControls() {
   const { canvas, setZoom, setPan } = useAppStore();
   const { zoom } = canvas;
 
-  // Simple, direct zoom function - gets cursor position at moment of click
-  const zoomAtCurrentCursor = (newZoom: number) => {
+  // Zoom at center of canvas since we don't have reliable cursor position from buttons
+  const zoomAtCenter = (newZoom: number) => {
     // Get canvas element
     const canvasElement = document.querySelector('canvas') as HTMLCanvasElement;
     if (!canvasElement) {
@@ -16,45 +16,49 @@ export default function ZoomControls() {
       return;
     }
 
-    // Get current mouse position relative to the entire page
-    const mouseEvent = (window as any).lastMouseEvent || { clientX: 0, clientY: 0 };
-    
     // Get canvas bounds
     const rect = canvasElement.getBoundingClientRect();
     
-    // Calculate cursor position relative to canvas
-    const cursorX = mouseEvent.clientX - rect.left;
-    const cursorY = mouseEvent.clientY - rect.top;
+    // Calculate center of canvas in canvas coordinates
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
     
-    console.log('🔍 DIRECT ZOOM:', {
-      mouseEvent: { x: mouseEvent.clientX, y: mouseEvent.clientY },
-      canvasBounds: { left: rect.left, top: rect.top },
-      cursorRelativeToCanvas: { x: cursorX, y: cursorY },
+    // Scale to canvas drawing buffer coordinates
+    const scaleX = canvasElement.width / rect.width;
+    const scaleY = canvasElement.height / rect.height;
+    
+    const canvasCenterX = centerX * scaleX;
+    const canvasCenterY = centerY * scaleY;
+    
+    console.log('🔍 CENTER ZOOM:', {
+      canvasBounds: { width: rect.width, height: rect.height },
+      center: { x: canvasCenterX, y: canvasCenterY },
       currentZoom: canvas.zoom,
       newZoom
     });
     
-    // Same calculation as wheel zoom
-    const canvasPointX = cursorX / canvas.zoom - canvas.panX;
-    const canvasPointY = cursorY / canvas.zoom - canvas.panY;
+    // Calculate world coordinates of center point
+    const worldX = (canvasCenterX - canvas.panX) / canvas.zoom;
+    const worldY = (canvasCenterY - canvas.panY) / canvas.zoom;
     
-    const newPanX = cursorX / newZoom - canvasPointX;
-    const newPanY = cursorY / newZoom - canvasPointY;
+    // Calculate new pan to keep center point at center
+    const newPanX = canvasCenterX - worldX * newZoom;
+    const newPanY = canvasCenterY - worldY * newZoom;
     
     setZoom(newZoom);
     setPan(newPanX, newPanY);
   };
 
   const handleZoomIn = () => {
-    console.log('🔍🔍🔍 ZOOM IN CLICKED - NEW SIMPLE VERSION! 🔍🔍🔍');
+    console.log('🔍🔍🔍 ZOOM IN CLICKED - NEW CANVAS VERSION! 🔍🔍🔍');
     const newZoom = Math.min(10, zoom * 1.25);
-    zoomAtCurrentCursor(newZoom);
+    zoomAtCenter(newZoom);
   };
 
   const handleZoomOut = () => {
-    console.log('🔍🔍🔍 ZOOM OUT CLICKED - NEW SIMPLE VERSION! 🔍🔍🔍');
+    console.log('🔍🔍🔍 ZOOM OUT CLICKED - NEW CANVAS VERSION! 🔍🔍🔍');
     const newZoom = Math.max(0.1, zoom * 0.8);
-    zoomAtCurrentCursor(newZoom);
+    zoomAtCenter(newZoom);
   };
 
   const handleZoomReset = () => {
@@ -69,7 +73,7 @@ export default function ZoomControls() {
 
   return (
     <div className="p-4 bg-[#2d2d2d] border-b border-[#404040]">
-      <h3 className="text-sm font-medium mb-3 text-green-400">🔍 Zoom Controls (SIMPLE)</h3>
+      <h3 className="text-sm font-medium mb-3 text-green-400">🔍 Zoom Controls (CANVAS)</h3>
       
       {/* Zoom Buttons */}
       <div className="mb-4">
@@ -106,7 +110,7 @@ export default function ZoomControls() {
           value={zoom}
           onChange={(e) => {
             const newZoom = parseFloat(e.target.value);
-            zoomAtCurrentCursor(newZoom);
+            zoomAtCenter(newZoom);
           }}
           className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
         />
