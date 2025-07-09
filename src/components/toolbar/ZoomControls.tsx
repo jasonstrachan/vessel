@@ -3,54 +3,90 @@
 // Zoom controls component for canvas pan/zoom functionality
 // Based on the same styling patterns as BrushControls.tsx
 
-import React from 'react';
+import React, { useCallback, useRef, useEffect } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 
 export default function ZoomControls() {
   const { canvas, setZoom, setPan } = useAppStore();
   const { zoom } = canvas;
+  const lastCursorPos = useRef({ x: 0, y: 0 });
+  
+  // Track cursor position globally (only setup once)
+  useEffect(() => {
+    console.log('🔍 SETTING UP CURSOR TRACKING');
+    const handleMouseMove = (e: MouseEvent) => {
+      lastCursorPos.current = { x: e.clientX, y: e.clientY };
+      // Reduce cursor spam - only log every 10th movement
+      if (Math.random() < 0.1) {
+        console.log('🖱️ CURSOR TRACK:', e.clientX, e.clientY);
+      }
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    console.log('🔍 CURSOR TRACKING LISTENER ADDED');
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      console.log('🔍 CURSOR TRACKING LISTENER REMOVED');
+    };
+  }, []);
 
-  // Zoom increment/decrement functions exactly following your specification
-  const handleZoomIn = () => {
-    const z = 1.25; // Your specification: z = 1.25 for zoom in
-    const newZoom = Math.min(10, zoom * z);
+  // Zoom function using cursor position at click time (for buttons)
+  const zoomToPointAtClick = useCallback((newZoom: number, clickX: number, clickY: number) => {
+    console.log('🔍 BUTTON ZOOM START:', newZoom, 'from', canvas.zoom);
+    console.log('🖱️ BUTTON CURSOR AT CLICK:', clickX, clickY);
     
-    console.log(`🔍 Zoom In: ${zoom} -> ${newZoom} (factor: ${z})`);
+    // Use canvas element for bounds (same as wheel zoom)
+    const canvasElement = document.querySelector('canvas') as HTMLCanvasElement;
+    if (!canvasElement) {
+      console.log('❌ CANVAS NOT FOUND');
+      return;
+    }
     
-    // Update offsets BEFORE applying zoom (following your spec exactly)
-    const ocWidth = 800; // Canvas width - should match DrawingCanvas
-    const ocHeight = 600; // Canvas height - should match DrawingCanvas
+    const rect = canvasElement.getBoundingClientRect();
+    console.log('📐 BUTTON BOUNDS:', rect.left, rect.top, rect.width, rect.height);
     
-    // Your spec: state.panX -= ocWidth / 10 / zoom BEFORE zoom *= z
-    const newPanX = canvas.panX - ocWidth / 10 / zoom;
-    const newPanY = canvas.panY - ocHeight / 10 / zoom;
+    const relativeX = clickX - rect.left;
+    const relativeY = clickY - rect.top;
+    console.log('📍 BUTTON RELATIVE:', relativeX, relativeY);
     
-    console.log(`📍 Pan: (${canvas.panX}, ${canvas.panY}) -> (${newPanX}, ${newPanY})`);
+    // Use same calculation as wheel zoom in DrawingCanvas
+    // Convert cursor position to canvas coordinates before zoom
+    const canvasPointX = relativeX / canvas.zoom - canvas.panX;
+    const canvasPointY = relativeY / canvas.zoom - canvas.panY;
+    console.log('🎯 BUTTON CANVAS POINT:', canvasPointX, canvasPointY);
     
-    // Apply pan first, then zoom (following your sequence)
-    setPan(newPanX, newPanY);
+    // Calculate new pan to keep the cursor point stationary
+    const newPanX = relativeX / newZoom - canvasPointX;
+    const newPanY = relativeY / newZoom - canvasPointY;
+    console.log('🔄 BUTTON NEW PAN:', newPanX, newPanY, 'old:', canvas.panX, canvas.panY);
+    
+    // Update both zoom and pan
     setZoom(newZoom);
+    setPan(newPanX, newPanY);
+    
+    console.log('✅ BUTTON ZOOM COMPLETE');
+  }, [canvas.zoom, canvas.panX, canvas.panY, setZoom, setPan]);
+  
+  // Shared zoom function that uses last tracked cursor position (for slider)
+  const zoomToPoint = useCallback((newZoom: number) => {
+    // Use tracked cursor position
+    const cursorX = lastCursorPos.current.x;
+    const cursorY = lastCursorPos.current.y;
+    zoomToPointAtClick(newZoom, cursorX, cursorY);
+  }, [zoomToPointAtClick]);
+
+  const handleZoomIn = (e: React.MouseEvent) => {
+    console.log('🔍 ZOOM IN BUTTON CLICKED');
+    const newZoom = Math.min(10, zoom * 1.25);
+    // Use cursor position at click time, not last tracked position
+    zoomToPointAtClick(newZoom, e.clientX, e.clientY);
   };
 
-  const handleZoomOut = () => {
-    const z = 0.8; // Your specification: z = 0.8 for zoom out  
-    const newZoom = Math.max(0.1, zoom * z);
-    
-    console.log(`🔍 Zoom Out: ${zoom} -> ${newZoom} (factor: ${z})`);
-    
-    // Update offsets BEFORE applying zoom (following your spec exactly)
-    const ocWidth = 800; // Canvas width - should match DrawingCanvas
-    const ocHeight = 600; // Canvas height - should match DrawingCanvas
-    
-    // Your spec: state.panX += ocWidth / 10 / zoom BEFORE zoom *= z  
-    const newPanX = canvas.panX + ocWidth / 10 / zoom;
-    const newPanY = canvas.panY + ocHeight / 10 / zoom;
-    
-    console.log(`📍 Pan: (${canvas.panX}, ${canvas.panY}) -> (${newPanX}, ${newPanY})`);
-    
-    // Apply pan first, then zoom (following your sequence)
-    setPan(newPanX, newPanY);
-    setZoom(newZoom);
+  const handleZoomOut = (e: React.MouseEvent) => {
+    console.log('🔍 ZOOM OUT BUTTON CLICKED');
+    const newZoom = Math.max(0.1, zoom * 0.8);
+    // Use cursor position at click time, not last tracked position
+    zoomToPointAtClick(newZoom, e.clientX, e.clientY);
   };
 
   const handleZoomReset = () => {
@@ -102,28 +138,9 @@ export default function ZoomControls() {
           step="0.1"
           value={zoom}
           onChange={(e) => {
+            console.log('🎚️ SLIDER CHANGED');
             const newZoom = parseFloat(e.target.value);
-            console.log(`🎚️ Slider zoom: ${zoom} -> ${newZoom}`);
-            
-            // Update offsets for slider zoom as well
-            const ocWidth = 800;
-            const ocHeight = 600;
-            
-            const zoomRatio = newZoom / zoom;
-            let newPanX, newPanY;
-            
-            if (zoomRatio > 1) {
-              // Zoom in
-              newPanX = canvas.panX - ocWidth / 10 / zoom;
-              newPanY = canvas.panY - ocHeight / 10 / zoom;
-            } else {
-              // Zoom out
-              newPanX = canvas.panX + ocWidth / 10 / zoom;
-              newPanY = canvas.panY + ocHeight / 10 / zoom;
-            }
-            
-            setPan(newPanX, newPanY);
-            setZoom(newZoom);
+            zoomToPoint(newZoom);
           }}
           className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
         />

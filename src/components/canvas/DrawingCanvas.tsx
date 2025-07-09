@@ -12,7 +12,7 @@ interface DrawingCanvasProps {
   height?: number;
 }
 
-export default function DrawingCanvas({ width = 800, height = 600 }: DrawingCanvasProps) {
+export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
   const handleKeyUpRef = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -194,22 +194,33 @@ export default function DrawingCanvas({ width = 800, height = 600 }: DrawingCanv
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     const newZoom = canvas.zoom * delta;
     
+    console.log('🖱️ WHEEL ZOOM START:', { newZoom, currentZoom: canvas.zoom });
+    
     // Get cursor position in screen coordinates
     const rect = canvasRef.current.getBoundingClientRect();
     const cursorX = e.clientX - rect.left;
     const cursorY = e.clientY - rect.top;
     
+    console.log('🖱️ WHEEL CURSOR:', { cursorX, cursorY });
+    console.log('🖱️ WHEEL BOUNDS:', { left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+    
     // Convert cursor position to canvas coordinates before zoom
     const canvasPointX = cursorX / canvas.zoom - canvas.panX;
     const canvasPointY = cursorY / canvas.zoom - canvas.panY;
+    
+    console.log('🖱️ WHEEL CANVAS POINT:', { canvasPointX, canvasPointY });
     
     // Calculate new pan to keep the cursor point stationary
     const newPanX = cursorX / newZoom - canvasPointX;
     const newPanY = cursorY / newZoom - canvasPointY;
     
+    console.log('🖱️ WHEEL NEW PAN:', { newPanX, newPanY, oldPanX: canvas.panX, oldPanY: canvas.panY });
+    
     // Update both zoom and pan
     setZoom(newZoom);
     setPan(newPanX, newPanY);
+    
+    console.log('🖱️ WHEEL ZOOM COMPLETE');
   }, [canvas.zoom, canvas.panX, canvas.panY, setZoom, setPan]);
 
   // Keyboard event handlers
@@ -302,6 +313,16 @@ export default function DrawingCanvas({ width = 800, height = 600 }: DrawingCanv
     setCurrentTime(buildTime);
     console.log(`🏗️ Build timestamp: ${buildTime}`);
   }, []);
+
+  // Center the canvas on initial load
+  useEffect(() => {
+    if (!isCanvasInitialized) {
+      const centerX = (window.innerWidth - width * canvas.zoom) / 2 / canvas.zoom;
+      const centerY = (window.innerHeight - height * canvas.zoom) / 2 / canvas.zoom;
+      setPan(centerX, centerY);
+      setIsCanvasInitialized(true);
+    }
+  }, [width, height, canvas.zoom, setPan, isCanvasInitialized]);
 
   // Canvas styling without transforms - coordinate conversion handles zoom/pan
   const canvasStyle: React.CSSProperties = {

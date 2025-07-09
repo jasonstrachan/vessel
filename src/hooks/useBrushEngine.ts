@@ -468,7 +468,7 @@ export const useBrushEngine = () => {
     } else {
       // For antialiased drawing, we need to draw shapes along the stroke path
       const distance = Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2));
-      const steps = Math.max(1, Math.ceil(distance / (settings.spacing * settings.size)));
+      const steps = Math.max(1, Math.ceil(distance / settings.spacing));
       
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
