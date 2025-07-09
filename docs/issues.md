@@ -78,16 +78,26 @@ const newPanY = relativeY / newZoom - canvasPointY;
 
 ### Expected Behavior
 **After Fix**:
-- **Button zoom (+/-)**: Zooms in/out centered on current cursor position
-- **Slider zoom**: Zooms to slider value centered on current cursor position
+- **Button zoom (+/-)**: Zooms in/out centered on current cursor position (if cursor is over canvas) or canvas center (if cursor is off-canvas)
+- **Slider zoom**: Same intelligent behavior as button zoom
 - **Wheel zoom**: Continues to work exactly as before (unchanged)
-- **Unified experience**: All zoom methods behave identically
+- **Unified experience**: All zoom methods use identical coordinate transformation logic
+- **Robust handling**: No more stale cursor positions when clicking buttons from outside canvas area
+
+### Final Solution: Intelligent Zoom Origin
+**Problem**: Cursor position becomes stale when user moves mouse off canvas then clicks zoom buttons.
+
+**Solution**: Intelligent zoom origin detection:
+1. **Canvas dimension tracking**: Store actual canvas dimensions in state
+2. **Cursor bounds checking**: Validate cursor is within canvas bounds
+3. **Smart fallback**: Use canvas center when cursor is invalid/off-canvas
+4. **Unified logic**: All zoom methods use same coordinate transformation
 
 ### Key Insights
-1. **Element reference matters**: getBoundingClientRect() results vary significantly between container and canvas elements
-2. **CSS transforms affect bounds**: Transformed elements have different visual bounds than their containers
-3. **Coordinate system consistency**: All zoom methods must use same element reference for calculations
-4. **Browser APIs**: getBoundingClientRect() returns final visual position after all CSS transforms
+1. **Stale cursor detection**: Critical to check cursor validity before using position
+2. **Canvas dimension tracking**: Essential for bounds checking and center calculation
+3. **Intelligent fallback**: Center zoom provides intuitive behavior when cursor is off-canvas
+4. **Coordinate system consistency**: All zoom methods must use same element reference and validation logic
 
 ### Prevention Measures
 - **Use same element reference** for all coordinate calculations in related features

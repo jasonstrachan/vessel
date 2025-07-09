@@ -1,106 +1,75 @@
 'use client';
 
-// Zoom controls component for canvas pan/zoom functionality
-// Based on the same styling patterns as BrushControls.tsx
-
-import React, { useCallback, useRef, useEffect } from 'react';
+import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 
 export default function ZoomControls() {
   const { canvas, setZoom, setPan } = useAppStore();
   const { zoom } = canvas;
-  const lastCursorPos = useRef({ x: 0, y: 0 });
-  
-  // Track cursor position globally (only setup once)
-  useEffect(() => {
-    console.log('🔍 SETTING UP CURSOR TRACKING');
-    const handleMouseMove = (e: MouseEvent) => {
-      lastCursorPos.current = { x: e.clientX, y: e.clientY };
-      // Reduce cursor spam - only log every 10th movement
-      if (Math.random() < 0.1) {
-        console.log('🖱️ CURSOR TRACK:', e.clientX, e.clientY);
-      }
-    };
-    
-    document.addEventListener('mousemove', handleMouseMove);
-    console.log('🔍 CURSOR TRACKING LISTENER ADDED');
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      console.log('🔍 CURSOR TRACKING LISTENER REMOVED');
-    };
-  }, []);
 
-  // Zoom function using cursor position at click time (for buttons)
-  const zoomToPointAtClick = useCallback((newZoom: number, clickX: number, clickY: number) => {
-    console.log('🔍 BUTTON ZOOM START:', newZoom, 'from', canvas.zoom);
-    console.log('🖱️ BUTTON CURSOR AT CLICK:', clickX, clickY);
-    
-    // Use canvas element for bounds (same as wheel zoom)
+  // Simple, direct zoom function - gets cursor position at moment of click
+  const zoomAtCurrentCursor = (newZoom: number) => {
+    // Get canvas element
     const canvasElement = document.querySelector('canvas') as HTMLCanvasElement;
     if (!canvasElement) {
-      console.log('❌ CANVAS NOT FOUND');
+      console.log('❌ No canvas found');
       return;
     }
+
+    // Get current mouse position relative to the entire page
+    const mouseEvent = (window as any).lastMouseEvent || { clientX: 0, clientY: 0 };
     
+    // Get canvas bounds
     const rect = canvasElement.getBoundingClientRect();
-    console.log('📐 BUTTON BOUNDS:', rect.left, rect.top, rect.width, rect.height);
     
-    const relativeX = clickX - rect.left;
-    const relativeY = clickY - rect.top;
-    console.log('📍 BUTTON RELATIVE:', relativeX, relativeY);
+    // Calculate cursor position relative to canvas
+    const cursorX = mouseEvent.clientX - rect.left;
+    const cursorY = mouseEvent.clientY - rect.top;
     
-    // Use same calculation as wheel zoom in DrawingCanvas
-    // Convert cursor position to canvas coordinates before zoom
-    const canvasPointX = relativeX / canvas.zoom - canvas.panX;
-    const canvasPointY = relativeY / canvas.zoom - canvas.panY;
-    console.log('🎯 BUTTON CANVAS POINT:', canvasPointX, canvasPointY);
+    console.log('🔍 DIRECT ZOOM:', {
+      mouseEvent: { x: mouseEvent.clientX, y: mouseEvent.clientY },
+      canvasBounds: { left: rect.left, top: rect.top },
+      cursorRelativeToCanvas: { x: cursorX, y: cursorY },
+      currentZoom: canvas.zoom,
+      newZoom
+    });
     
-    // Calculate new pan to keep the cursor point stationary
-    const newPanX = relativeX / newZoom - canvasPointX;
-    const newPanY = relativeY / newZoom - canvasPointY;
-    console.log('🔄 BUTTON NEW PAN:', newPanX, newPanY, 'old:', canvas.panX, canvas.panY);
+    // Same calculation as wheel zoom
+    const canvasPointX = cursorX / canvas.zoom - canvas.panX;
+    const canvasPointY = cursorY / canvas.zoom - canvas.panY;
     
-    // Update both zoom and pan
+    const newPanX = cursorX / newZoom - canvasPointX;
+    const newPanY = cursorY / newZoom - canvasPointY;
+    
     setZoom(newZoom);
     setPan(newPanX, newPanY);
-    
-    console.log('✅ BUTTON ZOOM COMPLETE');
-  }, [canvas.zoom, canvas.panX, canvas.panY, setZoom, setPan]);
-  
-  // Shared zoom function that uses last tracked cursor position (for slider)
-  const zoomToPoint = useCallback((newZoom: number) => {
-    // Use tracked cursor position
-    const cursorX = lastCursorPos.current.x;
-    const cursorY = lastCursorPos.current.y;
-    zoomToPointAtClick(newZoom, cursorX, cursorY);
-  }, [zoomToPointAtClick]);
-
-  const handleZoomIn = (e: React.MouseEvent) => {
-    console.log('🔍 ZOOM IN BUTTON CLICKED');
-    const newZoom = Math.min(10, zoom * 1.25);
-    // Use cursor position at click time, not last tracked position
-    zoomToPointAtClick(newZoom, e.clientX, e.clientY);
   };
 
-  const handleZoomOut = (e: React.MouseEvent) => {
-    console.log('🔍 ZOOM OUT BUTTON CLICKED');
+  const handleZoomIn = () => {
+    console.log('🔍🔍🔍 ZOOM IN CLICKED - NEW SIMPLE VERSION! 🔍🔍🔍');
+    const newZoom = Math.min(10, zoom * 1.25);
+    zoomAtCurrentCursor(newZoom);
+  };
+
+  const handleZoomOut = () => {
+    console.log('🔍🔍🔍 ZOOM OUT CLICKED - NEW SIMPLE VERSION! 🔍🔍🔍');
     const newZoom = Math.max(0.1, zoom * 0.8);
-    // Use cursor position at click time, not last tracked position
-    zoomToPointAtClick(newZoom, e.clientX, e.clientY);
+    zoomAtCurrentCursor(newZoom);
   };
 
   const handleZoomReset = () => {
     setZoom(1);
+    setPan(0, 0);
   };
 
   const handleZoomFit = () => {
-    // For now, just reset to 1x - can be enhanced later
     setZoom(1);
+    setPan(0, 0);
   };
 
   return (
     <div className="p-4 bg-[#2d2d2d] border-b border-[#404040]">
-      <h3 className="text-sm font-medium mb-3 text-green-400">🔍 Zoom Controls (DEBUG)</h3>
+      <h3 className="text-sm font-medium mb-3 text-green-400">🔍 Zoom Controls (SIMPLE)</h3>
       
       {/* Zoom Buttons */}
       <div className="mb-4">
@@ -109,7 +78,6 @@ export default function ZoomControls() {
           <button
             onClick={handleZoomOut}
             className="flex-1 px-3 py-2 text-xs bg-[#404040] text-gray-300 rounded hover:bg-[#555] transition-colors"
-            id="minus"
           >
             -
           </button>
@@ -119,7 +87,6 @@ export default function ZoomControls() {
           <button
             onClick={handleZoomIn}
             className="flex-1 px-3 py-2 text-xs bg-[#404040] text-gray-300 rounded hover:bg-[#555] transition-colors"
-            id="plus"
           >
             +
           </button>
@@ -138,16 +105,11 @@ export default function ZoomControls() {
           step="0.1"
           value={zoom}
           onChange={(e) => {
-            console.log('🎚️ SLIDER CHANGED');
             const newZoom = parseFloat(e.target.value);
-            zoomToPoint(newZoom);
+            zoomAtCurrentCursor(newZoom);
           }}
           className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
         />
-        <div className="flex justify-between text-xs text-gray-500 mt-1">
-          <span>10%</span>
-          <span>1000%</span>
-        </div>
       </div>
 
       {/* Quick Actions */}
@@ -165,16 +127,6 @@ export default function ZoomControls() {
           >
             Fit
           </button>
-        </div>
-      </div>
-
-      {/* Keyboard Shortcuts */}
-      <div className="pt-3 border-t border-[#404040]">
-        <p className="text-xs text-gray-500 mb-2">Shortcuts:</p>
-        <div className="text-xs text-gray-400 space-y-1">
-          <div>Mouse wheel - Zoom in/out</div>
-          <div>Ctrl/Cmd + 0 - Reset zoom</div>
-          <div>Space - Pan (hold)</div>
         </div>
       </div>
     </div>

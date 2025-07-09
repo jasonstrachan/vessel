@@ -31,6 +31,7 @@ interface AppState {
   setGridSize: (size: number) => void;
   toggleRulers: () => void;
   setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
+  setCanvasDimensions: (width: number, height: number) => void;
   setSelection: (selection: CanvasState['selection']) => void;
   setCursor: (cursor: CanvasState['cursor']) => void;
   
@@ -79,6 +80,8 @@ const defaultCanvasState: CanvasState = {
   gridSize: 16,
   showRulers: false,
   displayMode: 'pixelated',
+  canvasWidth: 0,
+  canvasHeight: 0,
   selection: {
     active: false,
     bounds: { x: 0, y: 0, width: 0, height: 0 },
@@ -152,6 +155,9 @@ export const useAppStore = create<AppState>()(
       })),
       setDisplayMode: (mode) => set((state) => ({
         canvas: { ...state.canvas, displayMode: mode }
+      })),
+      setCanvasDimensions: (width, height) => set((state) => ({
+        canvas: { ...state.canvas, canvasWidth: width, canvasHeight: height }
       })),
       setSelection: (selection) => set((state) => ({
         canvas: { ...state.canvas, selection }

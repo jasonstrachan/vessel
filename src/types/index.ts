@@ -83,6 +83,8 @@ export interface CanvasState {
   gridSize: number;
   showRulers: boolean;
   displayMode: 'pixelated' | 'smooth';
+  canvasWidth: number;
+  canvasHeight: number;
   selection: {
     active: boolean;
     bounds: Rectangle;

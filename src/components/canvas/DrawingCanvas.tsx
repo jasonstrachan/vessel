@@ -33,6 +33,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     setCursor,
     setBrushSettings,
     setPan,
+    setCanvasDimensions,
     toggleGrid
   } = useAppStore();
   
@@ -91,7 +92,14 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     }
 
     const point = screenToCanvas(e.clientX, e.clientY);
-    setCursor({ x: point.x, y: point.y, pressure: 1 });
+    
+    // Store screen coordinates relative to canvas bounds for zoom calculations
+    if (canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const screenRelativeX = e.clientX - rect.left;
+      const screenRelativeY = e.clientY - rect.top;
+      setCursor({ x: screenRelativeX, y: screenRelativeY, pressure: 1 });
+    }
 
     if (isDrawing && lastPoint && canvasRef.current) {
       try {
@@ -194,33 +202,22 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     const newZoom = canvas.zoom * delta;
     
-    console.log('🖱️ WHEEL ZOOM START:', { newZoom, currentZoom: canvas.zoom });
-    
     // Get cursor position in screen coordinates
     const rect = canvasRef.current.getBoundingClientRect();
     const cursorX = e.clientX - rect.left;
     const cursorY = e.clientY - rect.top;
     
-    console.log('🖱️ WHEEL CURSOR:', { cursorX, cursorY });
-    console.log('🖱️ WHEEL BOUNDS:', { left: rect.left, top: rect.top, width: rect.width, height: rect.height });
-    
     // Convert cursor position to canvas coordinates before zoom
     const canvasPointX = cursorX / canvas.zoom - canvas.panX;
     const canvasPointY = cursorY / canvas.zoom - canvas.panY;
-    
-    console.log('🖱️ WHEEL CANVAS POINT:', { canvasPointX, canvasPointY });
     
     // Calculate new pan to keep the cursor point stationary
     const newPanX = cursorX / newZoom - canvasPointX;
     const newPanY = cursorY / newZoom - canvasPointY;
     
-    console.log('🖱️ WHEEL NEW PAN:', { newPanX, newPanY, oldPanX: canvas.panX, oldPanY: canvas.panY });
-    
     // Update both zoom and pan
     setZoom(newZoom);
     setPan(newPanX, newPanY);
-    
-    console.log('🖱️ WHEEL ZOOM COMPLETE');
   }, [canvas.zoom, canvas.panX, canvas.panY, setZoom, setPan]);
 
   // Keyboard event handlers
@@ -261,6 +258,28 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     handleKeyUpRef.current = handleKeyUp;
     handleWheelRef.current = handleWheel;
   }, [handleKeyDown, handleKeyUp, handleWheel]);
+
+  // Canvas dimensions tracking - measure and store canvas size
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const updateCanvasDimensions = () => {
+      const rect = canvas.getBoundingClientRect();
+      setCanvasDimensions(rect.width, rect.height);
+      console.log('📏 Canvas dimensions updated:', rect.width, rect.height);
+    };
+
+    // Initial measurement
+    updateCanvasDimensions();
+
+    // Listen for window resize events
+    window.addEventListener('resize', updateCanvasDimensions);
+    
+    return () => {
+      window.removeEventListener('resize', updateCanvasDimensions);
+    };
+  }, [setCanvasDimensions]);
 
   // Canvas initialization - only clear on first mount or size change
   useEffect(() => {
