@@ -14,7 +14,7 @@ import type {
   BrushPreset,
   BrushComponent
 } from '../types';
-import { brushPresets, applyBrushPreset, pixelBrushPreset, pixelBrushSettings, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
+import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
 
 interface AppState {
   // Project State

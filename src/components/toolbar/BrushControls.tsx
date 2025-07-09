@@ -81,12 +81,16 @@ export default function BrushControls() {
         <input
           type="range"
           min="1"
-          max="100"
+          max="400"
           step="1"
           value={brushSettings.spacing}
           onChange={(e) => setBrushSettings({ spacing: parseInt(e.target.value) })}
           className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
         />
+        <div className="flex justify-between text-xs text-gray-500 mt-1">
+          <span>1</span>
+          <span>400</span>
+        </div>
       </div>
 
     </div>
