@@ -26,14 +26,17 @@ export interface RenderSettings {
 export const useBrushEngine = () => {
   const { tools, activeBrushComponents } = useAppStore();
   
-  // Pixel queue state for perfect pixel drawing
+  // Pixel queue state for perfect pixel drawing with distance-based spacing
   const pixelQueueRef = useRef({
     lastDrawnX: 0,
     lastDrawnY: 0,
     waitingPixelX: 0,
     waitingPixelY: 0,
     initialized: false,
-    spacingCounter: 0
+    spacingCounter: 0,
+    // Distance-based spacing state
+    accumulatedDistance: 0,
+    lastStrokePosition: { x: 0, y: 0 }
   });
 
   // Pixel-perfect circle patterns based on reference image
@@ -333,7 +336,10 @@ export const useBrushEngine = () => {
       waitingPixelX: 0,
       waitingPixelY: 0,
       initialized: false,
-      spacingCounter: 0
+      spacingCounter: 0,
+      // Reset distance-based spacing state
+      accumulatedDistance: 0,
+      lastStrokePosition: { x: 0, y: 0 }
     };
   }, []);
 
@@ -346,7 +352,7 @@ export const useBrushEngine = () => {
     y1: number,
     settings: RenderSettings
   ) => {
-    // Bresenham's line algorithm for pixel-perfect lines with spacing
+    // Bresenham's line algorithm for pixel-perfect lines with distance-based spacing
     ctx.fillStyle = settings.color;
     
     const dx = Math.abs(x1 - x0);
@@ -357,15 +363,27 @@ export const useBrushEngine = () => {
     
     let x = x0;
     let y = y0;
-    let stepCount = 0;
+    let lastX = x0;
+    let lastY = y0;
+    
+    // Use queue's accumulated distance for consistent spacing
+    const queue = pixelQueueRef.current;
     
     while (true) {
-      // Draw shape at position only if spacing allows
-      if (stepCount % settings.spacing === 0) {
+      // Calculate distance from last position
+      const distance = Math.sqrt(Math.pow(x - lastX, 2) + Math.pow(y - lastY, 2));
+      queue.accumulatedDistance += distance;
+      
+      // Draw shape at position only if accumulated distance exceeds spacing
+      if (queue.accumulatedDistance >= settings.spacing) {
         drawShape(ctx, x, y, settings.size, settings.shape, false);
+        queue.accumulatedDistance -= settings.spacing;
       }
       
       if (x === x1 && y === y1) break;
+      
+      lastX = x;
+      lastY = y;
       
       const e2 = 2 * err;
       if (e2 > -dy) {
@@ -376,8 +394,6 @@ export const useBrushEngine = () => {
         err += dx;
         y += sy;
       }
-      
-      stepCount++;
     }
   }, [drawShape]);
 
@@ -394,27 +410,35 @@ export const useBrushEngine = () => {
     ctx.fillStyle = settings.color;
     
     if (!queue.initialized) {
-      // First pixel - initialize queue
+      // First pixel - initialize queue with distance-based state
       queue.lastDrawnX = roundedX;
       queue.lastDrawnY = roundedY;
       queue.waitingPixelX = roundedX;
       queue.waitingPixelY = roundedY;
       queue.initialized = true;
       queue.spacingCounter = 0;
+      queue.lastStrokePosition = { x: roundedX, y: roundedY };
+      queue.accumulatedDistance = 0;
       
       // Draw the first shape
       drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false);
       return;
     }
     
-    // Increment spacing counter
-    queue.spacingCounter++;
+    // Calculate distance from last stroke position to current position
+    const distance = Math.sqrt(
+      Math.pow(roundedX - queue.lastStrokePosition.x, 2) + 
+      Math.pow(roundedY - queue.lastStrokePosition.y, 2)
+    );
+    queue.accumulatedDistance += distance;
     
     // If current pixel not neighbor to lastDrawn, draw waiting pixel
     if (Math.abs(roundedX - queue.lastDrawnX) > 1 || Math.abs(roundedY - queue.lastDrawnY) > 1) {
-      // Draw the waiting shape only if spacing allows
-      if (queue.spacingCounter % settings.spacing === 0) {
+      // Draw the waiting shape only if accumulated distance exceeds spacing
+      if (queue.accumulatedDistance >= settings.spacing) {
         drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false);
+        queue.accumulatedDistance -= settings.spacing;
+        queue.lastStrokePosition = { x: queue.waitingPixelX, y: queue.waitingPixelY };
       }
       
       // Update queue
@@ -427,6 +451,9 @@ export const useBrushEngine = () => {
       queue.waitingPixelX = roundedX;
       queue.waitingPixelY = roundedY;
     }
+    
+    // Update last stroke position for distance calculation
+    queue.lastStrokePosition = { x: roundedX, y: roundedY };
   }, [drawShape]);
 
   const renderBrushStroke = useCallback((
@@ -460,6 +487,14 @@ export const useBrushEngine = () => {
       ctx.strokeStyle = settings.color;
     }
     
+    // Initialize distance tracking state if needed
+    const queue = pixelQueueRef.current;
+    if (!queue.initialized) {
+      queue.lastStrokePosition = { x: from.x, y: from.y };
+      queue.accumulatedDistance = 0;
+      queue.initialized = true;
+    }
+    
     // Handle antialiasing and pixel-perfect drawing
     if (settings.pixelAlignment) {
       ctx.imageSmoothingEnabled = false;
@@ -479,19 +514,27 @@ export const useBrushEngine = () => {
         perfectPixels(ctx, to.x, to.y, settings);
       }
     } else {
-      // For antialiased drawing, we need to draw shapes along the stroke path
-      const distance = Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2));
-      const steps = Math.max(1, Math.ceil(distance / settings.spacing));
+      // For antialiased drawing, use distance-based spacing with accumulated distance
+      const distance = Math.sqrt(Math.pow(to.x - queue.lastStrokePosition.x, 2) + Math.pow(to.y - queue.lastStrokePosition.y, 2));
+      queue.accumulatedDistance += distance;
       
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        const x = from.x + (to.x - from.x) * t;
-        const y = from.y + (to.y - from.y) * t;
+      // Draw shapes along the path only when accumulated distance exceeds spacing
+      while (queue.accumulatedDistance >= settings.spacing) {
+        // Calculate the position where we should place the next shape
+        const remaining = queue.accumulatedDistance - settings.spacing;
+        const progress = (distance - remaining) / distance;
+        const x = queue.lastStrokePosition.x + (to.x - queue.lastStrokePosition.x) * progress;
+        const y = queue.lastStrokePosition.y + (to.y - queue.lastStrokePosition.y) * progress;
         
         ctx.fillStyle = settings.color;
         drawShape(ctx, x, y, settings.size, settings.shape, true);
+        
+        queue.accumulatedDistance -= settings.spacing;
       }
     }
+    
+    // Update last stroke position for next call
+    queue.lastStrokePosition = { x: to.x, y: to.y };
     
     ctx.restore();
   }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape]);
