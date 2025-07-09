@@ -2,7 +2,7 @@
 
 import { useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
-import { BrushComponent, ComponentType } from '../types';
+import { BrushComponent, ComponentType, BrushShape } from '../types';
 
 export interface StrokeInput {
   position: { x: number; y: number };
@@ -19,6 +19,7 @@ export interface RenderSettings {
   pixelAlignment: boolean;
   spacing: number;
   rotation: number;
+  shape: BrushShape;
 }
 
 
@@ -33,6 +34,166 @@ export const useBrushEngine = () => {
     waitingPixelY: 0,
     initialized: false
   });
+
+  // Pixel-perfect circle patterns based on reference image
+  const getPixelCirclePattern = useCallback((size: number): Array<{x: number, y: number}> => {
+    const patterns: Record<number, Array<{x: number, y: number}>> = {
+      1: [{x: 0, y: 0}],
+      2: [{x: 0, y: 0}, {x: 1, y: 0}, {x: 0, y: 1}, {x: 1, y: 1}],
+      3: [{x: 0, y: 1}, {x: 1, y: 0}, {x: 1, y: 1}, {x: 1, y: 2}, {x: 2, y: 1}],
+      4: [
+        {x: 0, y: 1}, {x: 0, y: 2},
+        {x: 1, y: 0}, {x: 1, y: 1}, {x: 1, y: 2}, {x: 1, y: 3},
+        {x: 2, y: 0}, {x: 2, y: 1}, {x: 2, y: 2}, {x: 2, y: 3},
+        {x: 3, y: 1}, {x: 3, y: 2}
+      ],
+      5: [
+        {x: 0, y: 2},
+        {x: 1, y: 1}, {x: 1, y: 2}, {x: 1, y: 3},
+        {x: 2, y: 0}, {x: 2, y: 1}, {x: 2, y: 2}, {x: 2, y: 3}, {x: 2, y: 4},
+        {x: 3, y: 1}, {x: 3, y: 2}, {x: 3, y: 3},
+        {x: 4, y: 2}
+      ],
+      6: [
+        {x: 0, y: 2}, {x: 0, y: 3},
+        {x: 1, y: 1}, {x: 1, y: 2}, {x: 1, y: 3}, {x: 1, y: 4},
+        {x: 2, y: 0}, {x: 2, y: 1}, {x: 2, y: 2}, {x: 2, y: 3}, {x: 2, y: 4}, {x: 2, y: 5},
+        {x: 3, y: 0}, {x: 3, y: 1}, {x: 3, y: 2}, {x: 3, y: 3}, {x: 3, y: 4}, {x: 3, y: 5},
+        {x: 4, y: 1}, {x: 4, y: 2}, {x: 4, y: 3}, {x: 4, y: 4},
+        {x: 5, y: 2}, {x: 5, y: 3}
+      ],
+      7: [
+        {x: 0, y: 2}, {x: 0, y: 3}, {x: 0, y: 4},
+        {x: 1, y: 1}, {x: 1, y: 2}, {x: 1, y: 3}, {x: 1, y: 4}, {x: 1, y: 5},
+        {x: 2, y: 0}, {x: 2, y: 1}, {x: 2, y: 2}, {x: 2, y: 3}, {x: 2, y: 4}, {x: 2, y: 5}, {x: 2, y: 6},
+        {x: 3, y: 0}, {x: 3, y: 1}, {x: 3, y: 2}, {x: 3, y: 3}, {x: 3, y: 4}, {x: 3, y: 5}, {x: 3, y: 6},
+        {x: 4, y: 0}, {x: 4, y: 1}, {x: 4, y: 2}, {x: 4, y: 3}, {x: 4, y: 4}, {x: 4, y: 5}, {x: 4, y: 6},
+        {x: 5, y: 1}, {x: 5, y: 2}, {x: 5, y: 3}, {x: 5, y: 4}, {x: 5, y: 5},
+        {x: 6, y: 2}, {x: 6, y: 3}, {x: 6, y: 4}
+      ],
+      8: [
+        {x: 0, y: 2}, {x: 0, y: 3}, {x: 0, y: 4}, {x: 0, y: 5},
+        {x: 1, y: 1}, {x: 1, y: 2}, {x: 1, y: 3}, {x: 1, y: 4}, {x: 1, y: 5}, {x: 1, y: 6},
+        {x: 2, y: 0}, {x: 2, y: 1}, {x: 2, y: 2}, {x: 2, y: 3}, {x: 2, y: 4}, {x: 2, y: 5}, {x: 2, y: 6}, {x: 2, y: 7},
+        {x: 3, y: 0}, {x: 3, y: 1}, {x: 3, y: 2}, {x: 3, y: 3}, {x: 3, y: 4}, {x: 3, y: 5}, {x: 3, y: 6}, {x: 3, y: 7},
+        {x: 4, y: 0}, {x: 4, y: 1}, {x: 4, y: 2}, {x: 4, y: 3}, {x: 4, y: 4}, {x: 4, y: 5}, {x: 4, y: 6}, {x: 4, y: 7},
+        {x: 5, y: 0}, {x: 5, y: 1}, {x: 5, y: 2}, {x: 5, y: 3}, {x: 5, y: 4}, {x: 5, y: 5}, {x: 5, y: 6}, {x: 5, y: 7},
+        {x: 6, y: 1}, {x: 6, y: 2}, {x: 6, y: 3}, {x: 6, y: 4}, {x: 6, y: 5}, {x: 6, y: 6},
+        {x: 7, y: 2}, {x: 7, y: 3}, {x: 7, y: 4}, {x: 7, y: 5}
+      ]
+    };
+
+    // For sizes larger than our predefined patterns, use a simple filled circle algorithm
+    if (patterns[size]) {
+      return patterns[size];
+    }
+
+    // Fallback to calculated circle for larger sizes
+    const pixels: Array<{x: number, y: number}> = [];
+    const radius = size / 2;
+    const centerX = radius - 0.5;
+    const centerY = radius - 0.5;
+    
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const dx = x - centerX;
+        const dy = y - centerY;
+        if (dx * dx + dy * dy <= radius * radius) {
+          pixels.push({x, y});
+        }
+      }
+    }
+    
+    return pixels;
+  }, []);
+  
+  const drawShape = useCallback((
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    size: number,
+    shape: BrushShape,
+    antiAliasing: boolean
+  ) => {
+    const halfSize = size / 2;
+    
+    ctx.save();
+    
+    if (!antiAliasing) {
+      ctx.imageSmoothingEnabled = false;
+      // Round to pixel boundaries for pixel-perfect drawing
+      x = Math.round(x);
+      y = Math.round(y);
+    }
+    
+    switch (shape) {
+      case BrushShape.SQUARE:
+        if (antiAliasing) {
+          ctx.fillRect(x - halfSize, y - halfSize, size, size);
+        } else {
+          // Pixel-perfect square
+          const offset = Math.floor(size / 2);
+          ctx.fillRect(x - offset, y - offset, size, size);
+        }
+        break;
+        
+      case BrushShape.ROUND:
+        // Always use perfect circles for antialiased round brushes
+        ctx.beginPath();
+        ctx.arc(x, y, halfSize, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+        
+      case BrushShape.PIXEL_ROUND:
+        if (antiAliasing) {
+          // Even for "antialiased" mode, use pixel patterns for pixel round brushes
+          const pattern = getPixelCirclePattern(size);
+          const offsetX = x - Math.floor(size / 2);
+          const offsetY = y - Math.floor(size / 2);
+          
+          pattern.forEach(pixel => {
+            ctx.fillRect(offsetX + pixel.x, offsetY + pixel.y, 1, 1);
+          });
+        } else {
+          // Use pixel-perfect circle patterns for pixel mode
+          const pattern = getPixelCirclePattern(size);
+          const offsetX = x - Math.floor(size / 2);
+          const offsetY = y - Math.floor(size / 2);
+          
+          pattern.forEach(pixel => {
+            ctx.fillRect(offsetX + pixel.x, offsetY + pixel.y, 1, 1);
+          });
+        }
+        break;
+        
+      case BrushShape.TRIANGLE:
+        ctx.beginPath();
+        if (antiAliasing) {
+          ctx.moveTo(x, y - halfSize);
+          ctx.lineTo(x - halfSize, y + halfSize);
+          ctx.lineTo(x + halfSize, y + halfSize);
+        } else {
+          // Pixel-perfect triangle
+          const height = Math.floor(size * 0.866); // sqrt(3)/2
+          
+          // Draw filled triangle pixel by pixel
+          for (let row = 0; row < height; row++) {
+            const width = Math.floor((row + 1) * size / height);
+            const startX = x - Math.floor(width / 2);
+            for (let col = 0; col < width; col++) {
+              ctx.fillRect(startX + col, y - Math.floor(height / 2) + row, 1, 1);
+            }
+          }
+        }
+        if (antiAliasing) {
+          ctx.closePath();
+          ctx.fill();
+        }
+        break;
+    }
+    
+    ctx.restore();
+  }, [getPixelCirclePattern]);
   
   const calculateSizeModification = useCallback((
     component: BrushComponent,
@@ -121,6 +282,12 @@ export const useBrushEngine = () => {
           pixelAlignment: component.parameters.mode === 'pixel'
         };
         
+      case ComponentType.SHAPE_RENDERER:
+        return {
+          ...currentSettings,
+          shape: component.parameters.shape as BrushShape
+        };
+        
       default:
         return currentSettings;
     }
@@ -140,7 +307,8 @@ export const useBrushEngine = () => {
       antiAliasing: brushSettings.antialiasing,
       pixelAlignment: !brushSettings.antialiasing,
       spacing: brushSettings.spacing,
-      rotation: 0
+      rotation: 0,
+      shape: BrushShape.SQUARE // Default shape, will be overridden by components
     };
     
     // Sort components by priority
@@ -174,11 +342,10 @@ export const useBrushEngine = () => {
     y0: number,
     x1: number,
     y1: number,
-    color: string,
-    size: number
+    settings: RenderSettings
   ) => {
     // Bresenham's line algorithm for pixel-perfect lines
-    ctx.fillStyle = color;
+    ctx.fillStyle = settings.color;
     
     const dx = Math.abs(x1 - x0);
     const dy = Math.abs(y1 - y0);
@@ -189,12 +356,9 @@ export const useBrushEngine = () => {
     let x = x0;
     let y = y0;
     
-    // Calculate offset to center the brush
-    const offset = Math.floor(size / 2);
-    
     while (true) {
-      // Draw pixel with brush size, centered on position
-      ctx.fillRect(x - offset, y - offset, size, size);
+      // Draw shape at position
+      drawShape(ctx, x, y, settings.size, settings.shape, false);
       
       if (x === x1 && y === y1) break;
       
@@ -208,7 +372,7 @@ export const useBrushEngine = () => {
         y += sy;
       }
     }
-  }, []);
+  }, [drawShape]);
 
   const perfectPixels = useCallback((
     ctx: CanvasRenderingContext2D,
@@ -220,8 +384,7 @@ export const useBrushEngine = () => {
     const roundedX = Math.round(currentX);
     const roundedY = Math.round(currentY);
     
-    // Calculate offset to center the brush
-    const offset = Math.floor(settings.size / 2);
+    ctx.fillStyle = settings.color;
     
     if (!queue.initialized) {
       // First pixel - initialize queue
@@ -231,17 +394,15 @@ export const useBrushEngine = () => {
       queue.waitingPixelY = roundedY;
       queue.initialized = true;
       
-      // Draw the first pixel with brush size, centered on position
-      ctx.fillStyle = settings.color;
-      ctx.fillRect(roundedX - offset, roundedY - offset, settings.size, settings.size);
+      // Draw the first shape
+      drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false);
       return;
     }
     
     // If current pixel not neighbor to lastDrawn, draw waiting pixel
     if (Math.abs(roundedX - queue.lastDrawnX) > 1 || Math.abs(roundedY - queue.lastDrawnY) > 1) {
-      // Draw the waiting pixel with brush size, centered on position
-      ctx.fillStyle = settings.color;
-      ctx.fillRect(queue.waitingPixelX - offset, queue.waitingPixelY - offset, settings.size, settings.size);
+      // Draw the waiting shape
+      drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false);
       
       // Update queue
       queue.lastDrawnX = queue.waitingPixelX;
@@ -253,7 +414,7 @@ export const useBrushEngine = () => {
       queue.waitingPixelX = roundedX;
       queue.waitingPixelY = roundedY;
     }
-  }, []);
+  }, [drawShape]);
 
   const renderBrushStroke = useCallback((
     ctx: CanvasRenderingContext2D,
@@ -298,21 +459,29 @@ export const useBrushEngine = () => {
       
       // If movement is > 1 pixel, use line drawing
       if (Math.abs(roundedToX - roundedFromX) > 1 || Math.abs(roundedToY - roundedFromY) > 1) {
-        // Fast movement - draw pixel-perfect line using individual pixels
-        drawPixelPerfectLine(ctx, roundedFromX, roundedFromY, roundedToX, roundedToY, settings.color, settings.size);
+        // Fast movement - draw pixel-perfect line using shapes
+        drawPixelPerfectLine(ctx, roundedFromX, roundedFromY, roundedToX, roundedToY, settings);
       } else {
         // Slow movement - use perfect pixel queue algorithm
         perfectPixels(ctx, to.x, to.y, settings);
       }
     } else {
-      ctx.beginPath();
-      ctx.moveTo(from.x, from.y);
-      ctx.lineTo(to.x, to.y);
-      ctx.stroke();
+      // For antialiased drawing, we need to draw shapes along the stroke path
+      const distance = Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2));
+      const steps = Math.max(1, Math.ceil(distance / (settings.spacing * settings.size)));
+      
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = from.x + (to.x - from.x) * t;
+        const y = from.y + (to.y - from.y) * t;
+        
+        ctx.fillStyle = settings.color;
+        drawShape(ctx, x, y, settings.size, settings.shape, true);
+      }
     }
     
     ctx.restore();
-  }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine]);
+  }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape]);
   
   return {
     executeComponents,

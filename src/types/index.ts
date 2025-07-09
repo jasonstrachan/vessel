@@ -52,7 +52,15 @@ export enum ComponentType {
   PRESSURE_HANDLER = 'pressure',
   ANTI_ALIASING = 'antialiasing',
   COLOR_BLENDING = 'blending',
-  ROTATION_TRANSFORM = 'rotation'
+  ROTATION_TRANSFORM = 'rotation',
+  SHAPE_RENDERER = 'shape'
+}
+
+export enum BrushShape {
+  ROUND = 'round',
+  PIXEL_ROUND = 'pixel_round',
+  SQUARE = 'square',
+  TRIANGLE = 'triangle'
 }
 
 export interface CustomBrush {

@@ -73,8 +73,6 @@ export default function BrushControls() {
         </div>
       </div>
 
-
-
       {/* Spacing */}
       <div className="mb-4">
         <label className="block text-xs text-gray-400 mb-2">
