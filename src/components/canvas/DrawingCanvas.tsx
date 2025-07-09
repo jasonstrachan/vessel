@@ -6,6 +6,7 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { useBrushEngine } from '../../hooks/useBrushEngine';
+import { calculateZoomIncrement } from '../../utils/zoomUtils';
 
 interface DrawingCanvasProps {
   width?: number;
@@ -93,6 +94,9 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const ctx = canvasElement.getContext('2d');
     const offscreenCtx = offscreenCanvas.getContext('2d');
     if (!ctx || !offscreenCtx) return;
+    
+    // Disable image smoothing for pixel-perfect rendering
+    ctx.imageSmoothingEnabled = false;
     
     // Clear the display canvas
     ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -291,18 +295,16 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     // Update mouse position first
     updateMousePosition(e);
     
-    const zoomSensitivity = 0.15;
     const oldZoom = canvas.zoom;
     
-    // Determine zoom direction
+    // Determine zoom direction and calculate new zoom with curve
     let newZoom;
     if (e.deltaY < 0) {
       // Zoom in
-      newZoom = oldZoom + zoomSensitivity;
+      newZoom = Math.min(10, calculateZoomIncrement(oldZoom, 'in'));
     } else {
       // Zoom out
-      newZoom = oldZoom - zoomSensitivity;
-      if (newZoom < 0.1) newZoom = 0.1; // Minimum zoom
+      newZoom = Math.max(0.1, calculateZoomIncrement(oldZoom, 'out'));
     }
     
     // Calculate world coordinates that should remain under cursor
@@ -394,6 +396,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       // Initialize offscreen canvas with white background
       const offscreenCtx = offscreenCanvasRef.current.getContext('2d');
       if (offscreenCtx) {
+        // Disable image smoothing for pixel-perfect rendering
+        offscreenCtx.imageSmoothingEnabled = false;
         offscreenCtx.fillStyle = '#ffffff';
         offscreenCtx.fillRect(0, 0, width, height);
       }
