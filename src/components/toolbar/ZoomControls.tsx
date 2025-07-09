@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
+import { calculateZoomIncrement } from '../../utils/zoomUtils';
 
 export default function ZoomControls() {
   const { canvas, setZoom, setPan } = useAppStore();
@@ -51,13 +52,13 @@ export default function ZoomControls() {
 
   const handleZoomIn = () => {
     console.log('🔍🔍🔍 ZOOM IN CLICKED - NEW CANVAS VERSION! 🔍🔍🔍');
-    const newZoom = Math.min(10, zoom * 1.25);
+    const newZoom = Math.min(10, calculateZoomIncrement(zoom, 'in'));
     zoomAtCenter(newZoom);
   };
 
   const handleZoomOut = () => {
     console.log('🔍🔍🔍 ZOOM OUT CLICKED - NEW CANVAS VERSION! 🔍🔍🔍');
-    const newZoom = Math.max(0.1, zoom * 0.8);
+    const newZoom = Math.max(0.1, calculateZoomIncrement(zoom, 'out'));
     zoomAtCenter(newZoom);
   };
 
