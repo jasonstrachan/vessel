@@ -1,4 +1,4 @@
-import { BrushPreset, BrushComponent, ComponentType, BrushSettings } from '../types';
+import { BrushPreset, BrushComponent, ComponentType, BrushSettings, BrushShape } from '../types';
 
 // Default brush settings for pixel-perfect drawing
 export const pixelBrushSettings: BrushSettings = {
@@ -54,6 +54,15 @@ export const pixelBrushComponents: BrushComponent[] = [
     },
     priority: 30,
     enabled: true
+  },
+  {
+    id: 'pixel-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.SQUARE
+    },
+    priority: 40,
+    enabled: true
   }
 ];
 
@@ -100,6 +109,15 @@ export const defaultBrushComponents: BrushComponent[] = [
     },
     priority: 30,
     enabled: true
+  },
+  {
+    id: 'default-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.ROUND
+    },
+    priority: 40,
+    enabled: true
   }
 ];
 
@@ -145,6 +163,15 @@ export const squarePixel1Components: BrushComponent[] = [
       mode: 'pixel'
     },
     priority: 30,
+    enabled: true
+  },
+  {
+    id: 'square-pixel-1-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.SQUARE
+    },
+    priority: 40,
     enabled: true
   }
 ];
@@ -194,10 +221,10 @@ export const roundPixel4Components: BrushComponent[] = [
     enabled: true
   },
   {
-    id: 'round-pixel-4-pattern',
-    type: ComponentType.PATTERN_RENDERER,
+    id: 'round-pixel-4-shape',
+    type: ComponentType.SHAPE_RENDERER,
     parameters: {
-      shape: 'round'
+      shape: BrushShape.PIXEL_ROUND
     },
     priority: 40,
     enabled: true
@@ -249,11 +276,10 @@ export const roundSoft4Components: BrushComponent[] = [
     enabled: true
   },
   {
-    id: 'round-soft-4-pattern',
-    type: ComponentType.PATTERN_RENDERER,
+    id: 'round-soft-4-shape',
+    type: ComponentType.SHAPE_RENDERER,
     parameters: {
-      shape: 'round',
-      softness: 0.8
+      shape: BrushShape.ROUND
     },
     priority: 40,
     enabled: true
@@ -305,11 +331,10 @@ export const roundSquare6Components: BrushComponent[] = [
     enabled: true
   },
   {
-    id: 'round-square-6-pattern',
-    type: ComponentType.PATTERN_RENDERER,
+    id: 'round-square-6-shape',
+    type: ComponentType.SHAPE_RENDERER,
     parameters: {
-      shape: 'round-square',
-      cornerRadius: 0.3
+      shape: BrushShape.SQUARE
     },
     priority: 40,
     enabled: true
@@ -379,11 +404,11 @@ export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<Brush
     settings.antialiasing = false;
   } else if (preset.id === 'round-soft-4') {
     settings.opacity = 1;
-    settings.spacing = 2;
+    settings.spacing = 1;
     settings.antialiasing = true;
   } else if (preset.id === 'round-square-6') {
     settings.opacity = 1;
-    settings.spacing = 2;
+    settings.spacing = 1;
     settings.antialiasing = true;
   }
   
