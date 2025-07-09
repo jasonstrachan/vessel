@@ -72,7 +72,7 @@ interface AppState {
 const defaultBrushSettingsForStore: BrushSettings = defaultBrushSettings;
 
 const defaultCanvasState: CanvasState = {
-  zoom: 4,
+  zoom: 1,
   panX: 0,
   panY: 0,
   rotation: 0,

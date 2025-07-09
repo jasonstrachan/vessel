@@ -14,15 +14,19 @@ interface DrawingCanvasProps {
 
 export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const offscreenCanvasRef = useRef<HTMLCanvasElement>(null);
   const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
   const handleKeyUpRef = useRef<(e: KeyboardEvent) => void>(() => {});
   const handleWheelRef = useRef<(e: WheelEvent) => void>(() => {});
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
-  const [isPanMode, setIsPanMode] = useState(false);
+  // New zoom/pan state variables
+  const [spacebarPressed, setSpacebarPressed] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
-  const [panStartPoint, setPanStartPoint] = useState<{ x: number; y: number } | null>(null);
-  const [initialPan, setInitialPan] = useState<{ x: number; y: number } | null>(null);
+  const [lastMouseX, setLastMouseX] = useState(0);
+  const [lastMouseY, setLastMouseY] = useState(0);
+  const [mouseX, setMouseX] = useState(0);
+  const [mouseY, setMouseY] = useState(0);
   const [currentTime, setCurrentTime] = useState<string>('');
   const [isCanvasInitialized, setIsCanvasInitialized] = useState(false);
   
@@ -39,32 +43,121 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   
   const { renderBrushStroke, resetPixelQueue } = useBrushEngine();
 
-  // Convert screen coordinates to canvas coordinates
+  // Update mouse position and world coordinates
+  const updateMousePosition = useCallback((event: { clientX: number; clientY: number }) => {
+    if (!canvasRef.current) return;
+    
+    const rect = canvasRef.current.getBoundingClientRect();
+    const clientXRelativeToCanvas = event.clientX - rect.left;
+    const clientYRelativeToCanvas = event.clientY - rect.top;
+    
+    // Scale to canvas drawing buffer coordinates
+    const scaleX = canvasRef.current.width / rect.width;
+    const scaleY = canvasRef.current.height / rect.height;
+    
+    const newMouseX = clientXRelativeToCanvas * scaleX;
+    const newMouseY = clientYRelativeToCanvas * scaleY;
+    
+    setMouseX(newMouseX);
+    setMouseY(newMouseY);
+  }, []);
+  
+  // Convert screen coordinates to world coordinates
   const screenToCanvas = useCallback((clientX: number, clientY: number) => {
     if (!canvasRef.current) return { x: 0, y: 0 };
     
     const rect = canvasRef.current.getBoundingClientRect();
-    // getBoundingClientRect() already accounts for CSS transforms including pan
-    const x = (clientX - rect.left) / canvas.zoom;
-    const y = (clientY - rect.top) / canvas.zoom;
+    const clientXRelativeToCanvas = clientX - rect.left;
+    const clientYRelativeToCanvas = clientY - rect.top;
     
+    // Scale to canvas drawing buffer coordinates
+    const scaleX = canvasRef.current.width / rect.width;
+    const scaleY = canvasRef.current.height / rect.height;
     
-    return { x, y };
-  }, [canvas.zoom]);
+    const mouseX = clientXRelativeToCanvas * scaleX;
+    const mouseY = clientYRelativeToCanvas * scaleY;
+    
+    // Convert to world coordinates
+    const worldX = (mouseX - canvas.panX) / canvas.zoom;
+    const worldY = (mouseY - canvas.panY) / canvas.zoom;
+    
+    return { x: worldX, y: worldY };
+  }, [canvas.zoom, canvas.panX, canvas.panY]);
 
-  // Enhanced drawing function using brush engine
-  const drawLine = useCallback((ctx: CanvasRenderingContext2D, from: { x: number; y: number }, to: { x: number; y: number }) => {
-    // Use the modular brush engine for rendering
-    renderBrushStroke(ctx, from, to);
-  }, [renderBrushStroke]);
+  // Render the view with zoom/pan transformations
+  const renderView = useCallback(() => {
+    const canvasElement = canvasRef.current;
+    const offscreenCanvas = offscreenCanvasRef.current;
+    if (!canvasElement || !offscreenCanvas) return;
+    
+    const ctx = canvasElement.getContext('2d');
+    const offscreenCtx = offscreenCanvas.getContext('2d');
+    if (!ctx || !offscreenCtx) return;
+    
+    // Clear the display canvas
+    ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    
+    // Save context state
+    ctx.save();
+    
+    // Apply zoom and pan transformations
+    ctx.translate(canvas.panX, canvas.panY);
+    ctx.scale(canvas.zoom, canvas.zoom);
+    
+    // Draw the offscreen canvas (containing artwork) with transformations
+    ctx.drawImage(offscreenCanvas, 0, 0);
+    
+    // Draw grid if enabled
+    if (canvas.showGrid) {
+      ctx.strokeStyle = '#e0e0e0';
+      ctx.lineWidth = 1 / canvas.zoom;
+      const gridSize = canvas.gridSize || 50;
+      
+      // Draw vertical lines
+      for (let x = 0; x <= width; x += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+      }
+      
+      // Draw horizontal lines
+      for (let y = 0; y <= height; y += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+      }
+    }
+    
+    // Restore context state
+    ctx.restore();
+  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.showGrid, canvas.gridSize, width, height]);
+
+  // Enhanced drawing function - draws on offscreen canvas and re-renders view
+  const drawLine = useCallback((from: { x: number; y: number }, to: { x: number; y: number }) => {
+    const offscreenCanvas = offscreenCanvasRef.current;
+    if (!offscreenCanvas) return;
+    
+    const offscreenCtx = offscreenCanvas.getContext('2d');
+    if (!offscreenCtx) return;
+    
+    // Draw on the offscreen canvas (no transformations - world coordinates)
+    renderBrushStroke(offscreenCtx, from, to);
+    
+    // Re-render the view with current zoom/pan
+    renderView();
+  }, [renderBrushStroke, renderView]);
 
   // Mouse event handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (isPanMode) {
+    updateMousePosition(e);
+    
+    if (spacebarPressed) {
       // Start panning
       setIsPanning(true);
-      setPanStartPoint({ x: e.clientX, y: e.clientY });
-      setInitialPan({ x: canvas.panX, y: canvas.panY });
+      setLastMouseX(mouseX);
+      setLastMouseY(mouseY);
       e.preventDefault();
       return;
     }
@@ -76,51 +169,41 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
-  }, [isPanMode, screenToCanvas, setCursor, canvas.panX, canvas.panY, resetPixelQueue]);
+  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (isPanning && panStartPoint && initialPan) {
-      // Handle panning - convert screen deltas to canvas space
-      const deltaX = (e.clientX - panStartPoint.x) / canvas.zoom;
-      const deltaY = (e.clientY - panStartPoint.y) / canvas.zoom;
-      const newPanX = initialPan.x + deltaX;
-      const newPanY = initialPan.y + deltaY;
+    updateMousePosition(e);
+    
+    if (isPanning) {
+      // Handle panning - calculate delta in canvas coordinates
+      const deltaX = mouseX - lastMouseX;
+      const deltaY = mouseY - lastMouseY;
       
+      setPan(canvas.panX + deltaX, canvas.panY + deltaY);
       
-      setPan(newPanX, newPanY);
+      // Update last mouse position for next frame
+      setLastMouseX(mouseX);
+      setLastMouseY(mouseY);
       return;
     }
 
     const point = screenToCanvas(e.clientX, e.clientY);
-    
-    // Store screen coordinates relative to canvas bounds for zoom calculations
-    if (canvasRef.current) {
-      const rect = canvasRef.current.getBoundingClientRect();
-      const screenRelativeX = e.clientX - rect.left;
-      const screenRelativeY = e.clientY - rect.top;
-      setCursor({ x: screenRelativeX, y: screenRelativeY, pressure: 1 });
-    }
+    setCursor({ x: point.x, y: point.y, pressure: 1 });
 
-    if (isDrawing && lastPoint && canvasRef.current) {
+    if (isDrawing && lastPoint) {
       try {
-        const ctx = canvasRef.current.getContext('2d');
-        if (ctx) {
-          
-          drawLine(ctx, lastPoint, point);
-          setLastPoint(point);
-        }
+        drawLine(lastPoint, point);
+        setLastPoint(point);
       } catch (error) {
         console.warn('Canvas drawing error:', error);
       }
     }
-  }, [isPanning, panStartPoint, initialPan, canvas.zoom, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine]);
+  }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition]);
 
   const handleMouseUp = useCallback(() => {
     if (isPanning) {
       // End panning
       setIsPanning(false);
-      setPanStartPoint(null);
-      setInitialPan(null);
       return;
     }
 
@@ -133,11 +216,14 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     e.preventDefault();
     const touch = e.touches[0];
     
-    if (isPanMode) {
+    // Update mouse position from touch
+    updateMousePosition(touch);
+    
+    if (spacebarPressed) {
       // Start panning
       setIsPanning(true);
-      setPanStartPoint({ x: touch.clientX, y: touch.clientY });
-      setInitialPan({ x: canvas.panX, y: canvas.panY });
+      setLastMouseX(mouseX);
+      setLastMouseY(mouseY);
       return;
     }
 
@@ -148,35 +234,40 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
-  }, [isPanMode, screenToCanvas, setCursor, canvas.panX, canvas.panY, resetPixelQueue]);
+  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     e.preventDefault();
     const touch = e.touches[0];
     
-    if (isPanning && panStartPoint && initialPan) {
-      // Handle panning - convert screen deltas to canvas space
-      const deltaX = (touch.clientX - panStartPoint.x) / canvas.zoom;
-      const deltaY = (touch.clientY - panStartPoint.y) / canvas.zoom;
-      setPan(initialPan.x + deltaX, initialPan.y + deltaY);
+    // Update mouse position from touch
+    updateMousePosition(touch);
+    
+    if (isPanning) {
+      // Handle panning - calculate delta in canvas coordinates
+      const deltaX = mouseX - lastMouseX;
+      const deltaY = mouseY - lastMouseY;
+      
+      setPan(canvas.panX + deltaX, canvas.panY + deltaY);
+      
+      // Update last mouse position for next frame
+      setLastMouseX(mouseX);
+      setLastMouseY(mouseY);
       return;
     }
 
     const point = screenToCanvas(touch.clientX, touch.clientY);
     setCursor({ x: point.x, y: point.y, pressure: 1 });
 
-    if (isDrawing && lastPoint && canvasRef.current) {
+    if (isDrawing && lastPoint) {
       try {
-        const ctx = canvasRef.current.getContext('2d');
-        if (ctx) {
-          drawLine(ctx, lastPoint, point);
-          setLastPoint(point);
-        }
+        drawLine(lastPoint, point);
+        setLastPoint(point);
       } catch (error) {
         console.warn('Canvas drawing error:', error);
       }
     }
-  }, [isPanning, panStartPoint, initialPan, canvas.zoom, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine]);
+  }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition]);
 
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
     e.preventDefault();
@@ -184,8 +275,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     if (isPanning) {
       // End panning
       setIsPanning(false);
-      setPanStartPoint(null);
-      setInitialPan(null);
       return;
     }
 
@@ -199,33 +288,42 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     if (!canvasRef.current) return;
     
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    const newZoom = canvas.zoom * delta;
+    // Update mouse position first
+    updateMousePosition(e);
     
-    // Get cursor position in screen coordinates
-    const rect = canvasRef.current.getBoundingClientRect();
-    const cursorX = e.clientX - rect.left;
-    const cursorY = e.clientY - rect.top;
+    const zoomSensitivity = 0.15;
+    const oldZoom = canvas.zoom;
     
-    // Convert cursor position to canvas coordinates before zoom
-    const canvasPointX = cursorX / canvas.zoom - canvas.panX;
-    const canvasPointY = cursorY / canvas.zoom - canvas.panY;
+    // Determine zoom direction
+    let newZoom;
+    if (e.deltaY < 0) {
+      // Zoom in
+      newZoom = oldZoom + zoomSensitivity;
+    } else {
+      // Zoom out
+      newZoom = oldZoom - zoomSensitivity;
+      if (newZoom < 0.1) newZoom = 0.1; // Minimum zoom
+    }
     
-    // Calculate new pan to keep the cursor point stationary
-    const newPanX = cursorX / newZoom - canvasPointX;
-    const newPanY = cursorY / newZoom - canvasPointY;
+    // Calculate world coordinates that should remain under cursor
+    const worldX = (mouseX - canvas.panX) / oldZoom;
+    const worldY = (mouseY - canvas.panY) / oldZoom;
     
-    // Update both zoom and pan
+    // Calculate new pan to keep world point under cursor
+    const newPanX = mouseX - worldX * newZoom;
+    const newPanY = mouseY - worldY * newZoom;
+    
+    // Update zoom and pan
     setZoom(newZoom);
     setPan(newPanX, newPanY);
-  }, [canvas.zoom, canvas.panX, canvas.panY, setZoom, setPan]);
+  }, [canvas.zoom, canvas.panX, canvas.panY, mouseX, mouseY, setZoom, setPan, updateMousePosition]);
 
   // Keyboard event handlers
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     // Space key for pan mode
-    if (e.code === 'Space' && !e.repeat) {
+    if (e.code === 'Space' && !spacebarPressed) {
       e.preventDefault();
-      setIsPanMode(true);
+      setSpacebarPressed(true);
     }
     
     // Brush size shortcuts
@@ -240,15 +338,13 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       e.preventDefault();
       toggleGrid();
     }
-  }, [setBrushSettings, tools.brushSettings.size, toggleGrid]);
+  }, [spacebarPressed, setBrushSettings, tools.brushSettings.size, toggleGrid]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
     if (e.code === 'Space') {
       e.preventDefault();
-      setIsPanMode(false);
+      setSpacebarPressed(false);
       setIsPanning(false);
-      setPanStartPoint(null);
-      setInitialPan(null);
     }
   }, []);
 
@@ -261,11 +357,11 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
   // Canvas dimensions tracking - measure and store canvas size
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const canvasElement = canvasRef.current;
+    if (!canvasElement) return;
 
     const updateCanvasDimensions = () => {
-      const rect = canvas.getBoundingClientRect();
+      const rect = canvasElement.getBoundingClientRect();
       setCanvasDimensions(rect.width, rect.height);
       console.log('📏 Canvas dimensions updated:', rect.width, rect.height);
     };
@@ -281,31 +377,53 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     };
   }, [setCanvasDimensions]);
 
-  // Canvas initialization - only clear on first mount or size change
+  // Initialize canvases - main display and offscreen drawing buffer
+  const initializeCanvas = useCallback(() => {
+    const canvasElement = canvasRef.current;
+    if (!canvasElement) return;
+    
+    const ctx = canvasElement.getContext('2d');
+    if (!ctx) return;
+    
+    // Create offscreen canvas for storing artwork
+    if (!offscreenCanvasRef.current) {
+      offscreenCanvasRef.current = document.createElement('canvas');
+      offscreenCanvasRef.current.width = width;
+      offscreenCanvasRef.current.height = height;
+      
+      // Initialize offscreen canvas with white background
+      const offscreenCtx = offscreenCanvasRef.current.getContext('2d');
+      if (offscreenCtx) {
+        offscreenCtx.fillStyle = '#ffffff';
+        offscreenCtx.fillRect(0, 0, width, height);
+      }
+    }
+  }, [width, height]);
+
+  // Canvas initialization - only setup on first mount
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const canvasElement = canvasRef.current;
+    if (!canvasElement) return;
 
     // Setup canvas context with error handling
     try {
-      const ctx = canvas.getContext('2d');
+      const ctx = canvasElement.getContext('2d');
       if (ctx) {
-        // Only clear canvas if not initialized or size changed
+        // Only initialize once
         if (!isCanvasInitialized) {
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, width, height);
+          initializeCanvas();
           setIsCanvasInitialized(true);
         }
       }
     } catch (error) {
       console.error('Canvas initialization error:', error);
     }
-  }, [width, height, isCanvasInitialized]);
+  }, [isCanvasInitialized, initializeCanvas]);
 
   // Event listeners setup - separate from canvas initialization
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const canvasElement = canvasRef.current;
+    if (!canvasElement) return;
 
     // Stable event handler wrappers
     const keyDownHandler = (e: KeyboardEvent) => handleKeyDownRef.current?.(e);
@@ -317,12 +435,12 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     window.addEventListener('keyup', keyUpHandler);
     
     // Add wheel event listener with active mode
-    canvas.addEventListener('wheel', wheelHandler, { passive: false });
+    canvasElement.addEventListener('wheel', wheelHandler, { passive: false });
     
     return () => {
       window.removeEventListener('keydown', keyDownHandler);
       window.removeEventListener('keyup', keyUpHandler);
-      canvas.removeEventListener('wheel', wheelHandler);
+      canvasElement.removeEventListener('wheel', wheelHandler);
     };
   }, []); // Empty dependency array - stable event listeners
 
@@ -333,69 +451,68 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     console.log(`🏗️ Build timestamp: ${buildTime}`);
   }, []);
 
-  // Center the canvas on initial load
+  // Re-render view when zoom/pan changes
   useEffect(() => {
-    if (!isCanvasInitialized) {
-      const centerX = (window.innerWidth - width * canvas.zoom) / 2 / canvas.zoom;
-      const centerY = (window.innerHeight - height * canvas.zoom) / 2 / canvas.zoom;
-      setPan(centerX, centerY);
-      setIsCanvasInitialized(true);
+    if (isCanvasInitialized) {
+      renderView();
     }
-  }, [width, height, canvas.zoom, setPan, isCanvasInitialized]);
+  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.showGrid, renderView, isCanvasInitialized]);
 
-  // Canvas styling without transforms - coordinate conversion handles zoom/pan
+  // Canvas styling with cursor updates
   const canvasStyle: React.CSSProperties = {
-    cursor: isPanMode ? (isPanning ? 'grabbing' : 'grab') : (tools.currentTool === 'brush' ? 'crosshair' : 'default'),
+    cursor: spacebarPressed ? (isPanning ? 'grabbing' : 'grab') : (tools.currentTool === 'brush' ? 'crosshair' : 'default'),
     imageRendering: canvas.displayMode === 'smooth' ? 'auto' : 'pixelated'
   };
+
+  // Add document mousemove listener for better mouse tracking
+  useEffect(() => {
+    const handleDocumentMouseMove = (e: MouseEvent) => {
+      updateMousePosition(e);
+      
+      if (isPanning) {
+        // Handle panning when mouse moves outside canvas
+        const deltaX = mouseX - lastMouseX;
+        const deltaY = mouseY - lastMouseY;
+        
+        setPan(canvas.panX + deltaX, canvas.panY + deltaY);
+        
+        setLastMouseX(mouseX);
+        setLastMouseY(mouseY);
+      }
+    };
+    
+    const handleDocumentMouseUp = () => {
+      if (isPanning) {
+        setIsPanning(false);
+      }
+    };
+    
+    document.body.addEventListener('mousemove', handleDocumentMouseMove);
+    document.body.addEventListener('mouseup', handleDocumentMouseUp);
+    
+    return () => {
+      document.body.removeEventListener('mousemove', handleDocumentMouseMove);
+      document.body.removeEventListener('mouseup', handleDocumentMouseUp);
+    };
+  }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, updateMousePosition]);
 
   return (
     <>
       <div className="w-full h-full bg-[#303030] flex items-center justify-center overflow-hidden">
-        <div 
-          style={{
-            transform: `scale(${canvas.zoom}) translate(${canvas.panX}px, ${canvas.panY}px)`,
-            transformOrigin: '0 0'
-          }}
-        >
-          <canvas
-            ref={canvasRef}
-            width={width}
-            height={height}
-            style={canvasStyle}
-            className="border border-[#555] bg-white"
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-          />
-        </div>
-        
-        {/* Grid overlay */}
-        {canvas.showGrid && (
-          <div 
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              backgroundImage: `
-                linear-gradient(${
-                  canvas.zoom >= 8 && canvas.gridSize === 1 
-                    ? 'rgba(255,255,255,0.4)' 
-                    : 'rgba(255,255,255,0.2)'
-                } 1px, transparent 1px),
-                linear-gradient(90deg, ${
-                  canvas.zoom >= 8 && canvas.gridSize === 1 
-                    ? 'rgba(255,255,255,0.4)' 
-                    : 'rgba(255,255,255,0.2)'
-                } 1px, transparent 1px)
-              `,
-              backgroundSize: `${canvas.gridSize * canvas.zoom}px ${canvas.gridSize * canvas.zoom}px`,
-              backgroundPosition: `${canvas.panX * canvas.zoom}px ${canvas.panY * canvas.zoom}px`
-            }}
-          />
-        )}
+        <canvas
+          ref={canvasRef}
+          width={width}
+          height={height}
+          style={canvasStyle}
+          className="border border-[#555] bg-white"
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        />
       </div>
       
       {/* Current code timestamp overlay */}

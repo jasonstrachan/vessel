@@ -5,7 +5,7 @@ TinyBrush is a versatile web-based drawing application designed for creating hig
 ## Development Partnership
 
 We're building production-quality simple code together. Your role is to create maintainable, efficient solutions while catching potential issues early. 
-
+dev
 When you seem stuck or overly complex, I'll redirect you - my guidance helps you stay on track.
 
 ## 🚨 AUTOMATED CHECKS ARE MANDATORY

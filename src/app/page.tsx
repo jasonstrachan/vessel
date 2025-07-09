@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import LeftToolbar from '../components/LeftToolbar';
 import BrushLibrary from '../components/BrushLibrary';
 import ControlsPanel from '../components/ControlsPanel';
@@ -8,19 +8,7 @@ import ControlsPanel from '../components/ControlsPanel';
 import DrawingCanvas from '../components/canvas/DrawingCanvas';
 
 export default function Home() {
-  // Simple global mouse position tracking
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      (window as any).lastMouseEvent = { clientX: e.clientX, clientY: e.clientY };
-    };
-    
-    document.addEventListener('mousemove', handleMouseMove);
-    console.log('🖱️ Global mouse tracking enabled');
-    
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-    };
-  }, []);
+  // Global mouse tracking removed - now handled directly in canvas
 
   return (
     <main className="h-screen bg-[#2d2d2d] text-white flex overflow-hidden">
