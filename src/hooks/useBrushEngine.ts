@@ -32,7 +32,8 @@ export const useBrushEngine = () => {
     lastDrawnY: 0,
     waitingPixelX: 0,
     waitingPixelY: 0,
-    initialized: false
+    initialized: false,
+    spacingCounter: 0
   });
 
   // Pixel-perfect circle patterns based on reference image
@@ -331,7 +332,8 @@ export const useBrushEngine = () => {
       lastDrawnY: 0,
       waitingPixelX: 0,
       waitingPixelY: 0,
-      initialized: false
+      initialized: false,
+      spacingCounter: 0
     };
   }, []);
 
@@ -344,7 +346,7 @@ export const useBrushEngine = () => {
     y1: number,
     settings: RenderSettings
   ) => {
-    // Bresenham's line algorithm for pixel-perfect lines
+    // Bresenham's line algorithm for pixel-perfect lines with spacing
     ctx.fillStyle = settings.color;
     
     const dx = Math.abs(x1 - x0);
@@ -355,10 +357,13 @@ export const useBrushEngine = () => {
     
     let x = x0;
     let y = y0;
+    let stepCount = 0;
     
     while (true) {
-      // Draw shape at position
-      drawShape(ctx, x, y, settings.size, settings.shape, false);
+      // Draw shape at position only if spacing allows
+      if (stepCount % settings.spacing === 0) {
+        drawShape(ctx, x, y, settings.size, settings.shape, false);
+      }
       
       if (x === x1 && y === y1) break;
       
@@ -371,6 +376,8 @@ export const useBrushEngine = () => {
         err += dx;
         y += sy;
       }
+      
+      stepCount++;
     }
   }, [drawShape]);
 
@@ -393,16 +400,22 @@ export const useBrushEngine = () => {
       queue.waitingPixelX = roundedX;
       queue.waitingPixelY = roundedY;
       queue.initialized = true;
+      queue.spacingCounter = 0;
       
       // Draw the first shape
       drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false);
       return;
     }
     
+    // Increment spacing counter
+    queue.spacingCounter++;
+    
     // If current pixel not neighbor to lastDrawn, draw waiting pixel
     if (Math.abs(roundedX - queue.lastDrawnX) > 1 || Math.abs(roundedY - queue.lastDrawnY) > 1) {
-      // Draw the waiting shape
-      drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false);
+      // Draw the waiting shape only if spacing allows
+      if (queue.spacingCounter % settings.spacing === 0) {
+        drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false);
+      }
       
       // Update queue
       queue.lastDrawnX = queue.waitingPixelX;
