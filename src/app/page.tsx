@@ -15,7 +15,7 @@ export default function Home() {
       <LeftToolbar />
       
       {/* Main Canvas Area */}
-      <div className="flex-1 bg-[#404040] relative">
+      <div className="flex-1 bg-[#404040] relative overflow-hidden">
         <DrawingCanvas />
       </div>
       

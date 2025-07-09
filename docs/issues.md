@@ -2,6 +2,113 @@
 
 This document tracks all critical issues encountered during TinyBrush development, their analysis, and resolutions. Use this as the primary reference for debugging and preventing similar issues.
 
+## Issue #9: Zoom Controls Not Using Cursor Position
+**Date**: 2025-07-09  
+**Status**: RESOLVED  
+**Severity**: High (User Experience Bug)  
+
+### Problem Description
+Button zoom controls (+/-) and zoom slider were not zooming to cursor position, despite the mouse wheel zoom working correctly. All zoom operations centered on a fixed point instead of the cursor location, making zoom controls inconsistent and frustrating to use.
+
+### Root Cause Analysis
+**Core Issue**: Button/slider zoom used **container element bounds** while wheel zoom used **canvas element bounds** for coordinate calculations.
+
+**Technical Details**:
+1. **Working wheel zoom**: Used `canvasRef.current.getBoundingClientRect()` - actual transformed canvas element
+2. **Broken button zoom**: Used `document.querySelector('[data-canvas-container]').getBoundingClientRect()` - container div with different bounds
+3. **Coordinate mismatch**: Container div represents full viewport area with centering, while canvas is the actual transformed element
+4. **Element hierarchy**: Canvas is inside a transformed div, container div is the outer viewport-sized element
+
+### Canvas Element Structure
+```tsx
+<div className="w-full h-full bg-[#303030] flex items-center justify-center overflow-hidden" data-canvas-container>
+  <div style={{ transform: `scale(${zoom}) translate(${panX}px, ${panY}px)` }}>
+    <canvas ref={canvasRef} width={width} height={height} />
+  </div>
+</div>
+```
+
+**Problem**: Button zoom used container bounds (full viewport), wheel zoom used canvas bounds (transformed element).
+
+### Resolution Strategy
+**Changed button zoom to use canvas element instead of container**:
+
+1. **Fixed element reference**:
+   ```typescript
+   // Before (WRONG)
+   const canvasElement = document.querySelector('[data-canvas-container]') as HTMLElement;
+   
+   // After (CORRECT)
+   const canvasElement = document.querySelector('canvas') as HTMLCanvasElement;
+   ```
+
+2. **Removed unnecessary data attribute**:
+   - Removed `data-canvas-container` from DrawingCanvas.tsx
+   - Now all zoom methods use same canvas element reference
+
+3. **Maintained cursor tracking**:
+   - Global mousemove tracking remains functional
+   - Cursor position correctly applied to canvas bounds
+
+### Implementation Steps
+```typescript
+// ZoomControls.tsx changes:
+// 1. Use canvas element for getBoundingClientRect()
+const canvasElement = document.querySelector('canvas') as HTMLCanvasElement;
+const rect = canvasElement.getBoundingClientRect();
+
+// 2. Same coordinate calculation as wheel zoom
+const canvasPointX = relativeX / canvas.zoom - canvas.panX;
+const canvasPointY = relativeY / canvas.zoom - canvas.panY;
+const newPanX = relativeX / newZoom - canvasPointX;
+const newPanY = relativeY / newZoom - canvasPointY;
+```
+
+### Files Modified
+1. **`src/components/toolbar/ZoomControls.tsx`** - Fixed canvas element reference
+2. **`src/components/canvas/DrawingCanvas.tsx`** - Removed unnecessary data-canvas-container attribute
+
+### Post-Resolution Verification
+- ✅ **Build successful**: `npm run build` passes with no errors
+- ✅ **Button zoom**: Uses cursor position exactly like wheel zoom
+- ✅ **Slider zoom**: Uses cursor position exactly like wheel zoom  
+- ✅ **Consistent behavior**: All zoom methods now center on cursor location
+- ✅ **Cursor tracking**: Global mousemove tracking works correctly
+- ✅ **Coordinate accuracy**: Same coordinate transformation as working wheel zoom
+
+### Expected Behavior
+**After Fix**:
+- **Button zoom (+/-)**: Zooms in/out centered on current cursor position
+- **Slider zoom**: Zooms to slider value centered on current cursor position
+- **Wheel zoom**: Continues to work exactly as before (unchanged)
+- **Unified experience**: All zoom methods behave identically
+
+### Key Insights
+1. **Element reference matters**: getBoundingClientRect() results vary significantly between container and canvas elements
+2. **CSS transforms affect bounds**: Transformed elements have different visual bounds than their containers
+3. **Coordinate system consistency**: All zoom methods must use same element reference for calculations
+4. **Browser APIs**: getBoundingClientRect() returns final visual position after all CSS transforms
+
+### Prevention Measures
+- **Use same element reference** for all coordinate calculations in related features
+- **Understand CSS transform hierarchy** when working with getBoundingClientRect()
+- **Test all interaction methods** (mouse, touch, keyboard) when implementing coordinate-based features
+- **Verify coordinate systems** match between different input methods
+
+### Manual Testing Checklist
+- [ ] Button zoom (+) centers on cursor position  
+- [ ] Button zoom (-) centers on cursor position
+- [ ] Slider zoom centers on cursor position
+- [ ] Wheel zoom continues to work (unchanged)
+- [ ] All zoom methods behave identically
+- [ ] Cursor tracking works during zoom operations
+
+### Related Technical Concepts
+- **CSS transforms**: scale() and translate() effects on element bounds
+- **getBoundingClientRect()**: Returns visual bounds after all transformations
+- **Coordinate systems**: Screen coordinates vs canvas coordinates vs container coordinates
+- **Browser APIs**: Element selection and bounds calculation
+
 ## Issue #8: Right Column Padding Not Visible
 **Date**: 2025-07-08  
 **Status**: RESOLVED  
