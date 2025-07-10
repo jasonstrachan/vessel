@@ -349,16 +349,18 @@ export const useBrushEngine = () => {
     components: BrushComponent[], 
     input: StrokeInput
   ): RenderSettings => {
-    const { brushSettings } = tools;
+    const { brushSettings, currentTool } = tools;
+    // Always use brush settings for both brush and eraser - eraser inherits brush properties
+    const activeSettings = brushSettings;
     
     // Start with base settings
     let settings: RenderSettings = {
-      size: brushSettings.size,
-      opacity: brushSettings.opacity,
-      color: brushSettings.color,
-      antiAliasing: brushSettings.antialiasing,
-      pixelAlignment: !brushSettings.antialiasing,
-      spacing: brushSettings.spacing,
+      size: activeSettings.size,
+      opacity: activeSettings.opacity,
+      color: activeSettings.color,
+      antiAliasing: activeSettings.antialiasing,
+      pixelAlignment: !activeSettings.antialiasing,
+      spacing: activeSettings.spacing,
       rotation: 0,
       shape: BrushShape.SQUARE // Default shape, will be overridden by components
     };

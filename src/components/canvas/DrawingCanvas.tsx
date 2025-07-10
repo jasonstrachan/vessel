@@ -7,6 +7,7 @@ import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { useBrushEngine } from '../../hooks/useBrushEngine';
 import { calculateZoomIncrement } from '../../utils/zoomUtils';
+import type { Tool } from '../../types';
 
 interface DrawingCanvasProps {
   width?: number;
@@ -33,6 +34,9 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   const [isCanvasInitialized, setIsCanvasInitialized] = useState(false);
   const [isDraggingSelection, setIsDraggingSelection] = useState(false);
   const [selectionDragStart, setSelectionDragStart] = useState<{ x: number; y: number } | null>(null);
+  // E key for temporary eraser mode
+  const [eKeyPressed, setEKeyPressed] = useState(false);
+  const [toolBeforeEraser, setToolBeforeEraser] = useState<Tool | null>(null);
   
   const {
     canvas,
@@ -44,6 +48,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     setCanvasDimensions,
     toggleGrid,
     setSelection,
+    setCurrentTool,
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue } = useBrushEngine();
@@ -171,8 +176,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!canvasElement || !offscreenCanvas) return;
     
-    const ctx = canvasElement.getContext('2d');
-    const offscreenCtx = offscreenCanvas.getContext('2d');
+    const ctx = canvasElement.getContext('2d', { willReadFrequently: true });
+    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx || !offscreenCtx) return;
     
     // Disable image smoothing for pixel-perfect rendering
@@ -514,6 +519,17 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
   // Keyboard event handlers
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // E key for temporary eraser mode
+    if ((e.key === 'e' || e.key === 'E') && !e.ctrlKey && !e.metaKey) {
+      if (!eKeyPressed && tools.currentTool !== 'eraser') {
+        e.preventDefault();
+        setEKeyPressed(true);
+        setToolBeforeEraser(tools.currentTool);
+        setCurrentTool('eraser');
+      }
+      return;
+    }
+    
     // Space key for pan mode
     if (e.code === 'Space' && !spacebarPressed) {
       e.preventDefault();
@@ -595,15 +611,26 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       e.preventDefault();
       toggleGrid();
     }
-  }, [spacebarPressed, setBrushSettings, tools.brushSettings.size, toggleGrid, canvas.selection.active, commitSelection, setSelection]);
+  }, [spacebarPressed, setBrushSettings, tools.brushSettings.size, toggleGrid, canvas.selection.active, commitSelection, setSelection, eKeyPressed, tools.currentTool, setCurrentTool]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
+    // E key release - restore previous tool
+    if (e.key === 'e' || e.key === 'E') {
+      e.preventDefault();
+      setEKeyPressed(false);
+      if (toolBeforeEraser) {
+        setCurrentTool(toolBeforeEraser);
+        setToolBeforeEraser(null);
+      }
+      return;
+    }
+    
     if (e.code === 'Space') {
       e.preventDefault();
       setSpacebarPressed(false);
       setIsPanning(false);
     }
-  }, []);
+  }, [toolBeforeEraser, setCurrentTool]);
 
   // Update refs when handlers change
   useEffect(() => {
@@ -750,7 +777,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   const canvasStyle: React.CSSProperties = {
     cursor: spacebarPressed 
       ? (isPanning ? 'grabbing' : 'grab') 
-      : (tools.currentTool === 'brush' ? 'crosshair' 
+      : ((tools.currentTool === 'brush' || tools.currentTool === 'eraser') ? 'crosshair' 
          : 'default'),
     imageRendering: canvas.displayMode === 'smooth' ? 'auto' : 'pixelated'
   };
@@ -794,8 +821,19 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
           ref={canvasRef}
           width={width}
           height={height}
-          style={canvasStyle}
-          className="border border-[#555] bg-white"
+          className="border border-[#555]"
+          style={{
+            ...canvasStyle,
+            backgroundImage: `
+              linear-gradient(45deg, #ccc 25%, transparent 25%),
+              linear-gradient(-45deg, #ccc 25%, transparent 25%),
+              linear-gradient(45deg, transparent 75%, #ccc 75%),
+              linear-gradient(-45deg, transparent 75%, #ccc 75%)
+            `,
+            backgroundSize: '20px 20px',
+            backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+            backgroundColor: '#fff'
+          }}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
