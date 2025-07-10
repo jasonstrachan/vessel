@@ -7,8 +7,8 @@ const BrushLibrary = () => {
   const setBrushPreset = useAppStore((state) => state.setBrushPreset);
 
   return (
-    <div className="h-full flex flex-col bg-[#353535] rounded border border-[#404040]">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[#404040]">
+    <div className="h-full flex flex-col bg-[#31313A]">
+      <div className="flex items-center justify-between px-4 py-2">
         <span className="text-base font-medium">Brush Library</span>
         <button className="text-sm bg-[#404040] px-2 py-1 rounded">+</button>
       </div>
@@ -18,10 +18,10 @@ const BrushLibrary = () => {
           <div
             key={preset.id}
             onClick={() => setBrushPreset(preset)}
-            className={`flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors ${
+            className={`flex items-center justify-between px-2 py-1 cursor-pointer transition-colors ${
               currentBrushPreset?.id === preset.id 
-                ? 'bg-[#505050] border border-[#606060]' 
-                : 'hover:bg-[#404040] border border-transparent'
+                ? 'bg-[#505050]' 
+                : 'hover:bg-[#404040]'
             }`}
           >
             <div className="flex items-center space-x-2">

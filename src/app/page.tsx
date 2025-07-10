@@ -11,17 +11,17 @@ export default function Home() {
   // Global mouse tracking removed - now handled directly in canvas
 
   return (
-    <main className="h-screen bg-[#2d2d2d] text-white flex overflow-hidden">
+    <main className="h-screen bg-[#141514] text-white flex overflow-hidden">
       {/* Left Toolbar */}
       <LeftToolbar />
       
       {/* Main Canvas Area */}
-      <div className="flex-1 bg-[#404040] relative overflow-hidden">
+      <div className="flex-1 bg-[#141514] relative overflow-hidden">
         <DrawingCanvas />
       </div>
       
       {/* Right Panel */}
-      <div className="w-80 bg-[#2d2d2d] border-l border-[#404040] flex flex-col gap-4 h-screen" style={{ padding: '16px' }}>
+      <div className="w-80 bg-[#31313A] flex flex-col gap-4 h-screen" style={{ padding: '16px' }}>
         {/* <LayerPanel /> */}
         <div className="flex-[2] min-h-0">
           <BrushLibrary />
