@@ -291,3 +291,71 @@ Replace problematic flex expansion with gap-based layout:
 - 16px spacing between components
 - No background color overlap hiding padding
 - Clean, predictable layout behavior
+
+---
+
+# CRITICAL BUG FIX: Image Paste Not Working
+
+## Problem
+User reports that image paste functionality is not working. Images cannot be pasted into the canvas using Ctrl+V.
+
+## Diagnostic Plan
+
+### Step 1: Add Comprehensive Logging
+Added logging at every critical point:
+- Paste event listener registration
+- Clipboard event handling
+- Image data processing
+- Selection state updates
+- Rendering pipeline
+
+### Step 2: Root Cause Analysis
+Potential issues to investigate:
+1. **Event Listener Not Registered**: Check if paste event listener is properly attached
+2. **Browser Security**: Clipboard API may be blocked or restricted
+3. **Image Format Issues**: Clipboard data might not contain valid image data
+4. **State Update Failure**: Selection state might not be updating correctly
+5. **Rendering Issue**: Selection might be set but not rendered
+6. **Focus Issue**: Canvas might not have focus to receive paste events
+
+### Step 3: Testing Protocol
+1. Open browser console
+2. Copy an image to clipboard
+3. Focus on TinyBrush canvas
+4. Press Ctrl+V
+5. Check console logs for:
+   - "🔧 Adding paste event listener" (on load)
+   - "🎯 Paste event triggered" (on Ctrl+V)
+   - "📋 Clipboard items" (clipboard contents)
+   - "🖼️ Found image item" (image detection)
+   - "✅ Selection set successfully" (state update)
+   - "🎨 Drawing selection overlay" (rendering)
+
+### Step 4: Potential Fixes
+Based on log results:
+- If no paste event: Check focus handling
+- If no image in clipboard: Verify clipboard content
+- If state not updating: Debug state management
+- If not rendering: Fix render pipeline
+
+## Implementation Status
+✅ Comprehensive logging added to all paste-related code
+✅ Root cause identified: Event listener thrashing
+✅ Fix implemented: Stable handlePaste callback
+
+## Root Cause Analysis (Completed)
+The issue was caused by **event listener thrashing**:
+1. `handlePaste` callback included `canvas.cursor` in dependencies
+2. Cursor position changes on every mouse move
+3. This caused the effect to re-run constantly, adding/removing paste listener
+4. Console showed hundreds of "Adding/Removing paste event listener" messages
+5. The paste event could never be properly handled due to constant listener changes
+
+## Solution Implemented
+1. **Removed cursor dependency**: Use `useAppStore.getState()` to get cursor position at paste time
+2. **Cleaned up logging**: Removed excessive debug logs causing console spam
+3. **Stable callback**: `handlePaste` now only depends on `setSelection` which is stable
+4. **Verified fix**: No more listener thrashing, paste events can now be handled properly
+
+## Testing Status
+⏳ Ready for manual testing

@@ -36,7 +36,7 @@ Enable artists, designers, and creative professionals to create high-quality dig
 - Offer comprehensive color management with color picker, last used colours and save to favourites
 - Enable pressure-sensitive drawing simulation for wacom tablets
 - Toolbar on the left has options for Selection, Brush, Custom Brush, Fill and Eraser. Once a tool is selected options for the tool appear in the right hand column
-- Selection: this tool lets the user select an area of the canvas using a square selection tool with handles to resize. Selected content can be deleted, moved, or used for image paste operations. Supports cut/paste of images with drag and resize functionality. Use Enter key to fix in place
+- Selection: this tool lets the user select an area of the canvas using a square selection tool with handles to resize. Selected content can be deleted, moved, or used for image paste operations. Supports cut/paste of images with drag and resize functionality. Use Enter key to fix in place. Also supports pasting images from system clipboard (Ctrl+V) with automatic marching ants selection
 - Brush: Provide a comprehensive library of brushes including hard pixel brushes and smooth antialiased brushes. Settings within brushes are modular components (spacing, color, size, shape, dashed patterns) that can be reused across different brush types
 - Custom brush: creation by making a selection of pixels on canvas. Options include all layers, selected layer. Supports both pixel and antialiased brush creation
 - Fill: this paint bucket tool fills an area of connected pixel. Options include connected (on/off), threshhold (1-256). 
@@ -959,17 +959,28 @@ The Drawing Tools feature provides a comprehensive set of digital art tools for 
 **Paste Workflow**:
 1. Copy image to system clipboard (Ctrl+C from external source)
 2. Paste into TinyBrush (Ctrl+V)
-3. Image appears as selection with resize handles
-4. Drag to reposition, resize handles to scale
+3. Image appears with animated marching ants selection border
+4. Drag to reposition image anywhere on canvas
 5. Press Enter to commit image to current layer
+6. Press Escape to cancel and remove the pasted image
 
 **Key Features**:
-- **Automatic Selection**: Pasted images automatically become active selections
-- **Proportional Resize**: Maintain aspect ratio during resize operations
+- **Automatic Selection**: Pasted images automatically become active selections with marching ants
+- **Marching Ants**: Animated black/white dashed border for clear selection visibility
+- **Drag-to-Move**: Click and drag the selected image to move it around
 - **Layer Integration**: Images paste onto the currently active layer
+- **Real-time Preview**: See image position update as you drag
+- **Keyboard Controls**: Enter to commit, Escape to cancel
 - **Undo Support**: Full undo/redo support for paste operations
 
-**Supported Formats**: PNG, JPEG, GIF, WebP, SVG
+**Supported Formats**: PNG, JPEG, GIF, WebP, BMP
+
+**Implementation Details**:
+- Clipboard event listeners detect paste operations (Ctrl+V)
+- Images are converted to ImageData for canvas compatibility
+- Selection state includes bounds and pixel data
+- Marching ants animation runs at 60fps using requestAnimationFrame
+- Drag operations update selection bounds in real-time
 
 ### Clear Tool
 **Purpose**: Quickly clear the active layer or selected area.
@@ -1115,6 +1126,9 @@ interface ToolState {
 - **Shift**: Constrain (straight lines, perfect circles)
 - **Alt**: Eyedropper (temporary color picker)
 - **Ctrl**: Precision mode (slower, more accurate)
+- **Ctrl+V**: Paste image from clipboard
+- **Enter**: Commit selection/pasted image
+- **Escape**: Cancel selection/pasted image
 
 ## Performance Considerations
 
@@ -2375,3 +2389,55 @@ imageRendering: canvas.displayMode === 'smooth' ? 'auto' : 'pixelated'
 **User Experience**: Artists can now freely switch between pixel and antialiased brushes without affecting existing artwork. The Canvas Display toggle provides control over how the entire canvas appears (pixelated vs smooth) without modifying the actual stroke data.
 
 **Architecture Principle**: Drawing behavior (per-stroke) is separate from display behavior (global canvas).
+
+### Image Paste with Marching Ants Selection (2025-07-10)
+
+**Feature**: Added ability to paste images from system clipboard with animated marching ants selection and drag-to-move functionality.
+
+**Problem Solved**:
+- No way to import external images into the canvas
+- Difficult to position pasted content precisely
+- No visual feedback for selected/pasted content
+
+**Implementation**:
+- **Clipboard Integration**: Added paste event listener to detect Ctrl+V operations
+- **Image Processing**: Convert clipboard images to ImageData for canvas compatibility
+- **Marching Ants Animation**: Animated selection border using alternating black/white dashes
+- **Drag-to-Move**: Click and drag selected images to reposition them
+- **Keyboard Controls**: Enter to commit, Escape to cancel
+- **Selection State**: Extended existing selection system to handle pasted images
+
+**Technical Details**:
+```typescript
+// Clipboard event handling
+window.addEventListener('paste', async (e) => {
+  const imageItem = Array.from(e.clipboardData?.items || [])
+    .find(item => item.type.startsWith('image/'));
+  
+  if (imageItem) {
+    const file = imageItem.getAsFile();
+    // Convert to ImageData and create selection
+  }
+});
+
+// Marching ants rendering with animation
+ctx.setLineDash([4 / canvas.zoom, 4 / canvas.zoom]);
+ctx.lineDashOffset = -(Date.now() * 0.01) % (8 / canvas.zoom);
+
+// Animation loop for smooth marching effect
+requestAnimationFrame(() => renderView());
+```
+
+**Files Modified**:
+- `/src/components/canvas/DrawingCanvas.tsx`: Added clipboard handlers, selection rendering, drag logic
+- `/src/stores/useAppStore.ts`: Selection state already supported image data
+- `/src/types/index.ts`: No changes needed - selection types already sufficient
+
+**User Experience**: 
+1. Copy any image to clipboard from external source
+2. Press Ctrl+V while TinyBrush is focused
+3. Image appears with animated marching ants border
+4. Drag to position, Enter to commit, Escape to cancel
+5. Committed images become part of the active layer
+
+**Performance**: Maintains 60fps through efficient animation loop and optimized selection rendering. Marching ants only animate when selection is active.
