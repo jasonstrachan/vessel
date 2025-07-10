@@ -37,6 +37,12 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   // E key for temporary eraser mode
   const [eKeyPressed, setEKeyPressed] = useState(false);
   const [toolBeforeEraser, setToolBeforeEraser] = useState<Tool | null>(null);
+  // Alt key for temporary eyedropper mode
+  const [altKeyPressed, setAltKeyPressed] = useState(false);
+  const [toolBeforeEyedropper, setToolBeforeEyedropper] = useState<Tool | null>(null);
+  // Eyedropper preview state
+  const [previewColor, setPreviewColor] = useState<string | null>(null);
+  const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number } | null>(null);
   
   const {
     canvas,
@@ -128,6 +134,31 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     return worldX >= bounds.x && worldX <= bounds.x + bounds.width &&
            worldY >= bounds.y && worldY <= bounds.y + bounds.height;
   }, [canvas.selection]);
+
+  // Sample color from canvas at world coordinates
+  const sampleColor = useCallback((worldX: number, worldY: number) => {
+    const offscreenCanvas = offscreenCanvasRef.current;
+    if (!offscreenCanvas) return null;
+    
+    const offscreenCtx = offscreenCanvas.getContext('2d');
+    if (!offscreenCtx) return null;
+    
+    // Ensure coordinates are within bounds
+    const x = Math.floor(Math.max(0, Math.min(worldX, offscreenCanvas.width - 1)));
+    const y = Math.floor(Math.max(0, Math.min(worldY, offscreenCanvas.height - 1)));
+    
+    try {
+      const imageData = offscreenCtx.getImageData(x, y, 1, 1);
+      const [r, g, b] = imageData.data;
+      
+      // Convert to hex color
+      const hexColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+      return hexColor;
+    } catch (error) {
+      console.warn('Color sampling error:', error);
+      return null;
+    }
+  }, []);
 
   // Update mouse position and world coordinates
   const updateMousePosition = useCallback((event: { clientX: number; clientY: number }) => {
@@ -292,6 +323,15 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
     const point = screenToCanvas(e.clientX, e.clientY);
     
+    // Handle eyedropper tool
+    if (tools.currentTool === 'eyedropper') {
+      const color = sampleColor(point.x, point.y);
+      if (color) {
+        setBrushSettings({ color });
+      }
+      e.preventDefault();
+      return;
+    }
     
     // Check if clicking on selection
     if (canvas.selection.active && isPointInSelection(point.x, point.y)) {
@@ -307,7 +347,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
-  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, canvas.selection.active, isPointInSelection]);
+  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, canvas.selection.active, isPointInSelection, tools.currentTool, sampleColor, setBrushSettings]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     updateMousePosition(e);
@@ -328,6 +368,15 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const point = screenToCanvas(e.clientX, e.clientY);
     setCursor({ x: point.x, y: point.y, pressure: 1 });
 
+    // Handle eyedropper color preview
+    if (tools.currentTool === 'eyedropper') {
+      const color = sampleColor(point.x, point.y);
+      setPreviewColor(color);
+      setPreviewPosition({ x: e.clientX, y: e.clientY });
+    } else {
+      setPreviewColor(null);
+      setPreviewPosition(null);
+    }
 
     // Handle selection dragging
     if (isDraggingSelection && selectionDragStart) {
@@ -530,6 +579,17 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       return;
     }
     
+    // Alt key for temporary eyedropper mode
+    if (e.key === 'Alt' && !e.ctrlKey && !e.metaKey) {
+      if (!altKeyPressed && tools.currentTool !== 'eyedropper') {
+        e.preventDefault();
+        setAltKeyPressed(true);
+        setToolBeforeEyedropper(tools.currentTool);
+        setCurrentTool('eyedropper');
+      }
+      return;
+    }
+    
     // Space key for pan mode
     if (e.code === 'Space' && !spacebarPressed) {
       e.preventDefault();
@@ -611,7 +671,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       e.preventDefault();
       toggleGrid();
     }
-  }, [spacebarPressed, setBrushSettings, tools.brushSettings.size, toggleGrid, canvas.selection.active, commitSelection, setSelection, eKeyPressed, tools.currentTool, setCurrentTool]);
+  }, [spacebarPressed, setBrushSettings, tools.brushSettings.size, toggleGrid, canvas.selection.active, commitSelection, setSelection, eKeyPressed, tools.currentTool, setCurrentTool, altKeyPressed]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
     // E key release - restore previous tool
@@ -625,12 +685,23 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       return;
     }
     
+    // Alt key release - restore previous tool
+    if (e.key === 'Alt') {
+      e.preventDefault();
+      setAltKeyPressed(false);
+      if (toolBeforeEyedropper) {
+        setCurrentTool(toolBeforeEyedropper);
+        setToolBeforeEyedropper(null);
+      }
+      return;
+    }
+    
     if (e.code === 'Space') {
       e.preventDefault();
       setSpacebarPressed(false);
       setIsPanning(false);
     }
-  }, [toolBeforeEraser, setCurrentTool]);
+  }, [toolBeforeEraser, setCurrentTool, toolBeforeEyedropper]);
 
   // Update refs when handlers change
   useEffect(() => {
@@ -778,6 +849,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     cursor: spacebarPressed 
       ? (isPanning ? 'grabbing' : 'grab') 
       : ((tools.currentTool === 'brush' || tools.currentTool === 'eraser') ? 'crosshair' 
+         : tools.currentTool === 'eyedropper' ? 'crosshair'
          : 'default'),
     imageRendering: canvas.displayMode === 'smooth' ? 'auto' : 'pixelated'
   };
@@ -796,6 +868,10 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         
         setLastMouseX(mouseX);
         setLastMouseY(mouseY);
+      } else {
+        // Clear eyedropper preview when not over canvas
+        setPreviewColor(null);
+        setPreviewPosition(null);
       }
     };
     
@@ -837,13 +913,42 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          onMouseLeave={() => {
+            handleMouseUp();
+            // Clear eyedropper preview when leaving canvas
+            setPreviewColor(null);
+            setPreviewPosition(null);
+          }}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
           onFocus={() => {}}
           onBlur={() => {}}
         />
+        
+        {/* Eyedropper color preview */}
+        {previewColor && previewPosition && tools.currentTool === 'eyedropper' && (
+          <div 
+            className="fixed pointer-events-none z-50 rounded-lg shadow-lg p-3"
+            style={{
+              left: previewPosition.x + 15,
+              top: previewPosition.y - 35,
+              transform: 'translate(0, 0)',
+              backgroundColor: '#000000',
+              border: '2px solid #4B5563'
+            }}
+          >
+            <div 
+              className="rounded"
+              style={{ 
+                backgroundColor: previewColor,
+                width: '40px',
+                height: '40px',
+                border: '1px solid #4B5563'
+              }}
+            />
+          </div>
+        )}
       </div>
       
       {/* Current code timestamp overlay */}
