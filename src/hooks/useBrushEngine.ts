@@ -20,6 +20,8 @@ export interface RenderSettings {
   spacing: number;
   rotation: number;
   shape: BrushShape;
+  pattern?: ImageData;
+  centerAlignment?: boolean;
 }
 
 
@@ -117,7 +119,9 @@ export const useBrushEngine = () => {
     y: number,
     size: number,
     shape: BrushShape,
-    antiAliasing: boolean
+    antiAliasing: boolean,
+    pattern?: ImageData,
+    centerAlignment?: boolean
   ) => {
     const halfSize = size / 2;
     
@@ -130,70 +134,105 @@ export const useBrushEngine = () => {
       y = Math.round(y);
     }
     
-    switch (shape) {
-      case BrushShape.SQUARE:
-        if (antiAliasing) {
-          ctx.fillRect(x - halfSize, y - halfSize, size, size);
-        } else {
-          // Pixel-perfect square
-          const offset = Math.floor(size / 2);
-          ctx.fillRect(x - offset, y - offset, size, size);
+    // Handle custom pattern rendering
+    if (pattern && pattern.width > 0 && pattern.height > 0) {
+      
+      // Create temporary canvas for pattern
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = pattern.width;
+      tempCanvas.height = pattern.height;
+      const tempCtx = tempCanvas.getContext('2d');
+      
+      if (tempCtx) {
+        try {
+          tempCtx.putImageData(pattern, 0, 0);
+          
+          // Use pattern at original pixel size
+          const scaledWidth = pattern.width;
+          const scaledHeight = pattern.height;
+          
+          // Calculate position based on alignment
+          let drawX = x;
+          let drawY = y;
+          
+          if (centerAlignment) {
+            drawX = x - scaledWidth / 2;
+            drawY = y - scaledHeight / 2;
+          }
+          
+          // Draw the pattern at original size
+          ctx.drawImage(tempCanvas, drawX, drawY);
+        } catch (error) {
+          console.error('Pattern rendering failed:', error);
         }
-        break;
-        
-      case BrushShape.ROUND:
-        // Always use perfect circles for antialiased round brushes
-        ctx.beginPath();
-        ctx.arc(x, y, halfSize, 0, Math.PI * 2);
-        ctx.fill();
-        break;
-        
-      case BrushShape.PIXEL_ROUND:
-        if (antiAliasing) {
-          // Even for "antialiased" mode, use pixel patterns for pixel round brushes
-          const pattern = getPixelCirclePattern(size);
-          const offsetX = x - Math.floor(size / 2);
-          const offsetY = y - Math.floor(size / 2);
+      }
+    } else {
+      // Original shape rendering
+      switch (shape) {
+        case BrushShape.SQUARE:
+          if (antiAliasing) {
+            ctx.fillRect(x - halfSize, y - halfSize, size, size);
+          } else {
+            // Pixel-perfect square
+            const offset = Math.floor(size / 2);
+            ctx.fillRect(x - offset, y - offset, size, size);
+          }
+          break;
           
-          pattern.forEach(pixel => {
-            ctx.fillRect(offsetX + pixel.x, offsetY + pixel.y, 1, 1);
-          });
-        } else {
-          // Use pixel-perfect circle patterns for pixel mode
-          const pattern = getPixelCirclePattern(size);
-          const offsetX = x - Math.floor(size / 2);
-          const offsetY = y - Math.floor(size / 2);
+        case BrushShape.ROUND:
+          // Always use perfect circles for antialiased round brushes
+          ctx.beginPath();
+          ctx.arc(x, y, halfSize, 0, Math.PI * 2);
+          ctx.fill();
+          break;
           
-          pattern.forEach(pixel => {
-            ctx.fillRect(offsetX + pixel.x, offsetY + pixel.y, 1, 1);
-          });
-        }
-        break;
-        
-      case BrushShape.TRIANGLE:
-        ctx.beginPath();
-        if (antiAliasing) {
-          ctx.moveTo(x, y - halfSize);
-          ctx.lineTo(x - halfSize, y + halfSize);
-          ctx.lineTo(x + halfSize, y + halfSize);
-        } else {
-          // Pixel-perfect triangle
-          const height = Math.floor(size * 0.866); // sqrt(3)/2
+        case BrushShape.PIXEL_ROUND:
+          if (antiAliasing) {
+            // Even for "antialiased" mode, use pixel patterns for pixel round brushes
+            const pixelPattern = getPixelCirclePattern(size);
+            const offsetX = x - Math.floor(size / 2);
+            const offsetY = y - Math.floor(size / 2);
+            
+            pixelPattern.forEach(pixel => {
+              ctx.fillRect(offsetX + pixel.x, offsetY + pixel.y, 1, 1);
+            });
+          } else {
+            // Use pixel-perfect circle patterns for pixel mode
+            const pixelPattern = getPixelCirclePattern(size);
+            const offsetX = x - Math.floor(size / 2);
+            const offsetY = y - Math.floor(size / 2);
+            
+            pixelPattern.forEach(pixel => {
+              ctx.fillRect(offsetX + pixel.x, offsetY + pixel.y, 1, 1);
+            });
+          }
+          break;
           
-          // Draw filled triangle pixel by pixel
-          for (let row = 0; row < height; row++) {
-            const width = Math.floor((row + 1) * size / height);
-            const startX = x - Math.floor(width / 2);
-            for (let col = 0; col < width; col++) {
-              ctx.fillRect(startX + col, y - Math.floor(height / 2) + row, 1, 1);
+        case BrushShape.TRIANGLE:
+          ctx.beginPath();
+          if (antiAliasing) {
+            ctx.moveTo(x, y - halfSize);
+            ctx.lineTo(x - halfSize, y + halfSize);
+            ctx.lineTo(x + halfSize, y + halfSize);
+          } else {
+            // Pixel-perfect triangle
+            const height = Math.floor(size * 0.866); // sqrt(3)/2
+            
+            // Draw filled triangle pixel by pixel
+            for (let row = 0; row < height; row++) {
+              const width = Math.floor((row + 1) * size / height);
+              const startX = x - Math.floor(width / 2);
+              for (let col = 0; col < width; col++) {
+                ctx.fillRect(startX + col, y - Math.floor(height / 2) + row, 1, 1);
+              }
             }
           }
-        }
-        if (antiAliasing) {
-          ctx.closePath();
-          ctx.fill();
-        }
-        break;
+          if (antiAliasing) {
+            ctx.closePath();
+            ctx.fill();
+          }
+          break;
+      }
     }
     
     ctx.restore();
@@ -292,6 +331,15 @@ export const useBrushEngine = () => {
           shape: component.parameters.shape as BrushShape
         };
         
+      case ComponentType.PATTERN_RENDERER:
+        const pattern = component.parameters.pattern as ImageData;
+        const centerAlignment = component.parameters.centerAlignment as boolean;
+        return {
+          ...currentSettings,
+          pattern,
+          centerAlignment
+        };
+        
       default:
         return currentSettings;
     }
@@ -376,7 +424,7 @@ export const useBrushEngine = () => {
       
       // Draw shape at position only if accumulated distance exceeds spacing
       if (queue.accumulatedDistance >= settings.spacing) {
-        drawShape(ctx, x, y, settings.size, settings.shape, false);
+        drawShape(ctx, x, y, settings.size, settings.shape, false, settings.pattern, settings.centerAlignment);
         queue.accumulatedDistance -= settings.spacing;
       }
       
@@ -421,7 +469,7 @@ export const useBrushEngine = () => {
       queue.accumulatedDistance = 0;
       
       // Draw the first shape
-      drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false);
+      drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.pattern, settings.centerAlignment);
       return;
     }
     
@@ -436,7 +484,7 @@ export const useBrushEngine = () => {
     if (Math.abs(roundedX - queue.lastDrawnX) > 1 || Math.abs(roundedY - queue.lastDrawnY) > 1) {
       // Draw the waiting shape only if accumulated distance exceeds spacing
       if (queue.accumulatedDistance >= settings.spacing) {
-        drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false);
+        drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.pattern, settings.centerAlignment);
         queue.accumulatedDistance -= settings.spacing;
         queue.lastStrokePosition = { x: queue.waitingPixelX, y: queue.waitingPixelY };
       }
@@ -474,6 +522,7 @@ export const useBrushEngine = () => {
     ctx.save();
     
     // Apply rendering settings
+    ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = settings.opacity;
     ctx.lineWidth = settings.size;
     ctx.lineCap = settings.pixelAlignment ? 'butt' : 'round';
@@ -527,7 +576,7 @@ export const useBrushEngine = () => {
         const y = queue.lastStrokePosition.y + (to.y - queue.lastStrokePosition.y) * progress;
         
         ctx.fillStyle = settings.color;
-        drawShape(ctx, x, y, settings.size, settings.shape, true);
+        drawShape(ctx, x, y, settings.size, settings.shape, true, settings.pattern, settings.centerAlignment);
         
         queue.accumulatedDistance -= settings.spacing;
       }

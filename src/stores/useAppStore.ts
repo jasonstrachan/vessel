@@ -12,7 +12,7 @@ import type {
   Tool,
   BrushSettings,
   BrushPreset,
-  BrushComponent
+  BrushComponent,
 } from '../types';
 import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
 
@@ -49,6 +49,7 @@ interface AppState {
   setBrushPreset: (preset: BrushPreset) => void;
   getBrushPresets: () => BrushPreset[];
   getBrushPresetById: (id: string) => BrushPreset | undefined;
+  
   
   // UI State
   ui: UIState;
@@ -125,7 +126,7 @@ const defaultUIState: UIState = {
 
 export const useAppStore = create<AppState>()(
   devtools(
-    (set) => ({
+    (set, get) => ({
       // Project State
       project: null,
       setProject: (project) => set({ project }),
@@ -200,17 +201,20 @@ export const useAppStore = create<AppState>()(
       activeBrushComponents: defaultBrushPreset.components,
       setBrushPreset: (preset) => set((state) => {
         const { settings, components } = applyBrushPreset(preset);
+        const newBrushSettings = { ...state.tools.brushSettings, ...settings };
+        
         return {
           currentBrushPreset: preset,
           activeBrushComponents: components,
           tools: {
             ...state.tools,
-            brushSettings: { ...state.tools.brushSettings, ...settings }
+            brushSettings: newBrushSettings
           }
         };
       }),
       getBrushPresets: () => brushPresets,
       getBrushPresetById: (id) => brushPresets.find(preset => preset.id === id),
+      
       
       // UI State
       ui: defaultUIState,

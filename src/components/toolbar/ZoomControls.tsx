@@ -13,7 +13,6 @@ export default function ZoomControls() {
     // Get canvas element
     const canvasElement = document.querySelector('canvas') as HTMLCanvasElement;
     if (!canvasElement) {
-      console.log('❌ No canvas found');
       return;
     }
 
@@ -31,12 +30,6 @@ export default function ZoomControls() {
     const canvasCenterX = centerX * scaleX;
     const canvasCenterY = centerY * scaleY;
     
-    console.log('🔍 CENTER ZOOM:', {
-      canvasBounds: { width: rect.width, height: rect.height },
-      center: { x: canvasCenterX, y: canvasCenterY },
-      currentZoom: canvas.zoom,
-      newZoom
-    });
     
     // Calculate world coordinates of center point
     const worldX = (canvasCenterX - canvas.panX) / canvas.zoom;
@@ -51,13 +44,11 @@ export default function ZoomControls() {
   };
 
   const handleZoomIn = () => {
-    console.log('🔍🔍🔍 ZOOM IN CLICKED - NEW CANVAS VERSION! 🔍🔍🔍');
     const newZoom = Math.min(10, calculateZoomIncrement(zoom, 'in'));
     zoomAtCenter(newZoom);
   };
 
   const handleZoomOut = () => {
-    console.log('🔍🔍🔍 ZOOM OUT CLICKED - NEW CANVAS VERSION! 🔍🔍🔍');
     const newZoom = Math.max(0.1, calculateZoomIncrement(zoom, 'out'));
     zoomAtCenter(newZoom);
   };
