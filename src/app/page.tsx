@@ -4,7 +4,7 @@ import React from 'react';
 import LeftToolbar from '../components/LeftToolbar';
 import BrushLibrary from '../components/BrushLibrary';
 import ControlsPanel from '../components/ControlsPanel';
-// import LayerPanel from '../components/LayerPanel';
+import LayerPanel from '../components/LayerPanel';
 import DrawingCanvas from '../components/canvas/DrawingCanvas';
 
 export default function Home() {

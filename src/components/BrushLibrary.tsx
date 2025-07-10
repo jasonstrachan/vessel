@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAppStore } from '../stores/useAppStore';
+import { XIcon } from './icons/XIcon';
 
 const BrushLibrary = () => {
   const brushPresets = useAppStore((state) => state.brushPresets);
@@ -31,10 +32,12 @@ const BrushLibrary = () => {
               <span className="text-sm">{preset.name}</span>
             </div>
             <div className="flex items-center space-x-1">
-              <span className="text-sm text-gray-400">
+              <span className="text-sm text-[#888]">
                 {preset.isDefault ? '★' : '☆'}
               </span>
-              <button className="text-sm text-[#888] hover:text-white" onClick={(e) => e.stopPropagation()}>✕</button>
+              <button className="text-[#888] hover:text-white bg-transparent hover:bg-[#404040] p-1 outline-none focus:outline-none border-none" onClick={(e) => e.stopPropagation()}>
+                <XIcon size={14} className="text-current" />
+              </button>
             </div>
           </div>
         ))}
