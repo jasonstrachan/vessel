@@ -63,16 +63,6 @@ export enum BrushShape {
   TRIANGLE = 'triangle'
 }
 
-export interface CustomBrush {
-  id: string;
-  name: string;
-  pattern: ImageData;
-  thumbnail: string;
-  settings: BrushSettings;
-  createdAt: Date;
-  isDefault: boolean;
-  tags: string[];
-}
 
 export interface CanvasState {
   zoom: number;
@@ -156,7 +146,7 @@ export interface BrushSettings {
 }
 
 export interface ComponentParams {
-  [key: string]: string | number | boolean;
+  [key: string]: string | number | boolean | ImageData;
 }
 
 export interface Notification {
@@ -176,14 +166,13 @@ export interface DrawingAction {
   data: Record<string, unknown>;
 }
 
-export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'pan';
+export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'pan' | 'new-document' | 'save';
 
 export type BlendMode = GlobalCompositeOperation;
 
 // Data persistence interfaces
 export interface LocalStorageData {
   projects: Project[];
-  customBrushes: CustomBrush[];
   userPreferences: {
     theme: string;
     defaultBrushSettings: BrushSettings;

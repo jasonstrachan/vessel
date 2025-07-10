@@ -410,6 +410,11 @@ export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<Brush
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = true;
+  } else if (preset.category === 'Custom') {
+    // Handle custom brush presets - apply sensible defaults
+    settings.opacity = 1;
+    settings.spacing = 1;
+    settings.antialiasing = true;
   }
   
   return { settings, components: preset.components };

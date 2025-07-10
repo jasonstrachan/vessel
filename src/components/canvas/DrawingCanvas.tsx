@@ -43,46 +43,34 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     setPan,
     setCanvasDimensions,
     toggleGrid,
-    setSelection
+    setSelection,
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue } = useBrushEngine();
 
   // Handle clipboard paste for images
   const handlePaste = useCallback(async (e: ClipboardEvent) => {
-    console.log('🎯 PASTE: Event triggered');
     e.preventDefault();
     
     if (!e.clipboardData) {
-      console.log('❌ PASTE: No clipboard data');
       return;
     }
     
     const items = Array.from(e.clipboardData.items || []);
-    console.log('📋 PASTE: Items found:', items.length, items.map(item => `${item.type}/${item.kind}`));
-    
     const imageItem = items.find(item => item.type.startsWith('image/'));
     if (!imageItem) {
-      console.log('❌ PASTE: No image item found');
       return;
     }
-    
-    console.log('🖼️ PASTE: Image item found:', imageItem.type);
     
     const file = imageItem.getAsFile();
     if (!file) {
-      console.log('❌ PASTE: Could not get file from image item');
       return;
     }
-    
-    console.log('📄 PASTE: File obtained:', file.size, 'bytes, type:', file.type);
     
     try {
       const img = new Image();
       
       img.onload = () => {
-        console.log('✅ PASTE: Image loaded successfully', img.width + 'x' + img.height);
-        
         // Convert image to canvas-compatible format
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = img.width;
@@ -90,19 +78,17 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         const ctx = tempCanvas.getContext('2d');
         
         if (!ctx) {
-          console.log('❌ PASTE: Could not get canvas context');
+          console.error('Failed to get canvas context for paste operation');
           return;
         }
         
         ctx.drawImage(img, 0, 0);
         const imageData = ctx.getImageData(0, 0, img.width, img.height);
-        console.log('📊 PASTE: ImageData created', imageData.width + 'x' + imageData.height);
         
         // Get current cursor position in world coordinates
         const state = useAppStore.getState();
         const worldX = Math.round(state.canvas.cursor.x);
         const worldY = Math.round(state.canvas.cursor.y);
-        console.log('📍 PASTE: Cursor position', worldX, worldY);
         
         // Create selection with pasted image
         const selection = {
@@ -115,20 +101,17 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
           },
           pixels: imageData
         };
-        console.log('📦 PASTE: Setting selection', selection.bounds);
         setSelection(selection);
-        console.log('✅ PASTE: Selection set successfully');
       };
       
       img.onerror = (error) => {
-        console.log('❌ PASTE: Image load error:', error);
+        console.error('Failed to load pasted image:', error);
       };
       
       const objectURL = URL.createObjectURL(file);
-      console.log('🔗 PASTE: Object URL created, loading image...');
       img.src = objectURL;
     } catch (error) {
-      console.log('❌ PASTE: Exception:', error);
+      console.error('Paste operation failed:', error);
     }
   }, [setSelection]);
 
@@ -233,12 +216,10 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     // Draw selection overlay with marching ants
     if (canvas.selection.active) {
-      console.log('🎨 RENDER: Drawing selection overlay');
       const { bounds, pixels } = canvas.selection;
       
       // Draw the pasted image
       if (pixels && pixels.width > 0 && pixels.height > 0) {
-        console.log('🖼️ RENDER: Drawing pasted image at', bounds.x, bounds.y);
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = pixels.width;
         tempCanvas.height = pixels.height;
@@ -270,7 +251,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       
       // Reset line dash
       ctx.setLineDash([]);
-      console.log('✅ RENDER: Marching ants drawn');
     }
     
     // Restore context state
@@ -307,6 +287,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
     const point = screenToCanvas(e.clientX, e.clientY);
     
+    
     // Check if clicking on selection
     if (canvas.selection.active && isPointInSelection(point.x, point.y)) {
       setIsDraggingSelection(true);
@@ -342,6 +323,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const point = screenToCanvas(e.clientX, e.clientY);
     setCursor({ x: point.x, y: point.y, pressure: 1 });
 
+
     // Handle selection dragging
     if (isDraggingSelection && selectionDragStart) {
       const deltaX = point.x - selectionDragStart.x;
@@ -370,7 +352,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     }
   }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition, isDraggingSelection, selectionDragStart, canvas.selection, setSelection]);
 
-  const handleMouseUp = useCallback(() => {
+  const handleMouseUp = useCallback(async () => {
     if (isPanning) {
       // End panning
       setIsPanning(false);
@@ -383,6 +365,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       setSelectionDragStart(null);
       return;
     }
+
 
     setIsDrawing(false);
     setLastPoint(null);
@@ -556,26 +539,17 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     // Clipboard paste (Ctrl/Cmd + V)
     if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-      console.log('⌨️ PASTE: Ctrl+V detected in keydown');
       e.preventDefault();
       
       // Try modern clipboard API as fallback
       if (navigator.clipboard && navigator.clipboard.read) {
-        console.log('🔄 PASTE: Trying modern clipboard API fallback');
         navigator.clipboard.read().then(items => {
-          console.log('📋 PASTE: Modern API items:', items);
           for (const item of items) {
-            console.log('📋 PASTE: Item types:', item.types);
             for (const type of item.types) {
               if (type.startsWith('image/')) {
-                console.log('🖼️ PASTE: Modern API found image:', type);
                 item.getType(type).then(blob => {
-                  console.log('📄 PASTE: Modern API got blob:', blob.size, 'bytes');
-                  
                   const img = new Image();
                   img.onload = () => {
-                    console.log('✅ PASTE: Modern API image loaded', img.width + 'x' + img.height);
-                    
                     const tempCanvas = document.createElement('canvas');
                     tempCanvas.width = img.width;
                     tempCanvas.height = img.height;
@@ -594,7 +568,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
                         bounds: { x: worldX, y: worldY, width: img.width, height: img.height },
                         pixels: imageData
                       });
-                      console.log('✅ PASTE: Modern API selection set');
                     }
                   };
                   img.src = URL.createObjectURL(blob);
@@ -604,7 +577,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
             }
           }
         }).catch(err => {
-          console.log('❌ PASTE: Modern API failed:', err);
+          console.error('Modern clipboard API failed:', err);
         });
       }
       return;
@@ -647,7 +620,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const updateCanvasDimensions = () => {
       const rect = canvasElement.getBoundingClientRect();
       setCanvasDimensions(rect.width, rect.height);
-      console.log('📏 Canvas dimensions updated:', rect.width, rect.height);
     };
 
     // Initial measurement
@@ -724,7 +696,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     canvasElement.addEventListener('wheel', wheelHandler, { passive: false });
     
     // Add clipboard event listener to multiple targets
-    console.log('🔧 PASTE: Adding paste event listeners');
     window.addEventListener('paste', handlePaste);
     document.addEventListener('paste', handlePaste);
     canvasElement.addEventListener('paste', handlePaste);
@@ -733,7 +704,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     canvasElement.tabIndex = 0;
     
     return () => {
-      console.log('🔧 PASTE: Removing paste event listeners');
       window.removeEventListener('keydown', keyDownHandler);
       window.removeEventListener('keyup', keyUpHandler);
       canvasElement.removeEventListener('wheel', wheelHandler);
@@ -747,7 +717,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   useEffect(() => {
     const buildTime = process.env.BUILD_TIMESTAMP?.slice(0, 19).replace('T', ' ') || 'Development';
     setCurrentTime(buildTime);
-    console.log(`🏗️ Build timestamp: ${buildTime}`);
   }, []);
 
   // Re-render view when zoom/pan changes
@@ -779,7 +748,10 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
   // Canvas styling with cursor updates
   const canvasStyle: React.CSSProperties = {
-    cursor: spacebarPressed ? (isPanning ? 'grabbing' : 'grab') : (tools.currentTool === 'brush' ? 'crosshair' : 'default'),
+    cursor: spacebarPressed 
+      ? (isPanning ? 'grabbing' : 'grab') 
+      : (tools.currentTool === 'brush' ? 'crosshair' 
+         : 'default'),
     imageRendering: canvas.displayMode === 'smooth' ? 'auto' : 'pixelated'
   };
 
@@ -831,8 +803,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
-          onFocus={() => console.log('🎯 FOCUS: Canvas focused')}
-          onBlur={() => console.log('🎯 FOCUS: Canvas blurred')}
+          onFocus={() => {}}
+          onBlur={() => {}}
         />
       </div>
       
