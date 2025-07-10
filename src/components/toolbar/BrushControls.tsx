@@ -11,7 +11,7 @@ export default function BrushControls() {
   const { brushSettings } = tools;
 
   return (
-    <div className="p-4 bg-[#353535] rounded border border-[#404040]">
+    <div className="p-4 bg-[#31313A]">
       
 
       {/* Brush Size */}
@@ -27,10 +27,6 @@ export default function BrushControls() {
           onChange={(e) => setBrushSettings({ size: parseInt(e.target.value) })}
           className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
         />
-        <div className="flex justify-between text-xs text-gray-500 mt-1">
-          <span>1</span>
-          <span>100</span>
-        </div>
       </div>
 
       {/* Opacity */}
@@ -47,10 +43,6 @@ export default function BrushControls() {
           onChange={(e) => setBrushSettings({ opacity: parseFloat(e.target.value) })}
           className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
         />
-        <div className="flex justify-between text-xs text-gray-500 mt-1">
-          <span>0%</span>
-          <span>100%</span>
-        </div>
       </div>
 
       {/* Color */}
@@ -87,10 +79,6 @@ export default function BrushControls() {
           onChange={(e) => setBrushSettings({ spacing: parseInt(e.target.value) })}
           className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
         />
-        <div className="flex justify-between text-xs text-gray-500 mt-1">
-          <span>1</span>
-          <span>400</span>
-        </div>
       </div>
 
     </div>

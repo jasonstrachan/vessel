@@ -502,7 +502,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
   return (
     <>
-      <div className="w-full h-full bg-[#303030] flex items-center justify-center overflow-hidden">
+      <div className="w-full h-full bg-[#141514] flex items-center justify-center overflow-hidden">
         <canvas
           ref={canvasRef}
           width={width}
