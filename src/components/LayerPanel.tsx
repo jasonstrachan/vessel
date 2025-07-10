@@ -3,6 +3,7 @@
 import React from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { Layer } from '../types';
+import { XIcon } from './icons/XIcon';
 
 const LayerPanel = () => {
   const { 
@@ -117,7 +118,7 @@ const LayerPanel = () => {
                     className="w-4 h-4 bg-red-600 hover:bg-red-700 rounded text-xs"
                     title="Delete Layer"
                   >
-                    ×
+                    <XIcon size={12} className="text-white" />
                   </button>
                 )}
               </div>
