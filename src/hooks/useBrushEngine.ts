@@ -552,7 +552,6 @@ export const useBrushEngine = () => {
     to: { x: number; y: number },
     components: BrushComponent[] = activeBrushComponents
   ) => {
-    console.log('🖌 BRUSH ENGINE: renderBrushStroke called with tool:', tools.currentTool);
     const input: StrokeInput = {
       position: to,
       pressure: 0.5, // TODO: Get actual pressure from input device
@@ -585,29 +584,18 @@ export const useBrushEngine = () => {
       ? project.customBrushes.find(b => b.id === tools.brushSettings.selectedCustomBrush)
       : null;
     
-    console.log('🎨 BRUSH ENGINE: Checking for custom brush:', {
-      isCustomBrush,
-      brushShape: tools.brushSettings.brushShape,
-      selectedCustomBrush: tools.brushSettings.selectedCustomBrush,
-      customBrushFound: !!customBrush,
-      projectCustomBrushes: project?.customBrushes?.length || 0
-    });
     
     // Handle custom brush rendering
     if (isCustomBrush && customBrush) {
-      console.log('✅ BRUSH ENGINE: Using custom brush:', customBrush.name);
-      // Calculate scale factor based on brush size setting
-      const baseBrushSize = Math.max(customBrush.width, customBrush.height);
-      const scaleFactor = settings.size / baseBrushSize;
+      // For custom brushes, use actual captured size (scale factor of 1.0)
+      // The brush size setting can be used to further scale if needed
+      const scaleFactor = 1.0;
       
       // Check if this is a line stroke or a single point
       const distance = Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2));
-      console.log('🎨 BRUSH ENGINE: Drawing custom brush, distance:', distance, 'scaleFactor:', scaleFactor);
       if (distance > 1) {
-        console.log('📝 BRUSH ENGINE: Drawing custom brush line');
         drawCustomBrushLine(ctx, from.x, from.y, to.x, to.y, customBrush, scaleFactor);
       } else {
-        console.log('🔴 BRUSH ENGINE: Drawing custom brush stamp');
         drawCustomBrushStamp(ctx, to.x, to.y, customBrush, scaleFactor);
       }
       
