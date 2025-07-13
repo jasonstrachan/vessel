@@ -21,7 +21,8 @@ export const defaultBrushSettings: BrushSettings = {
   spacing: 1,
   pressure: 1,
   rotation: 0,
-  antialiasing: true
+  antialiasing: true,
+  lastRegularBrushSize: 4
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect
@@ -381,6 +382,9 @@ export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<Brush
     switch (component.type) {
       case ComponentType.ANTI_ALIASING:
         settings.antialiasing = component.parameters.mode === 'antialiased';
+        break;
+      case ComponentType.SHAPE_RENDERER:
+        settings.brushShape = component.parameters.shape as BrushShape;
         break;
     }
   });
