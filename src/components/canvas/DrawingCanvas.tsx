@@ -298,33 +298,35 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       ctx.setLineDash([]);
     }
     
-    // Draw selection creation overlay
+    // Draw selection creation overlay with marching ants
     if (selectionStart && selectionEnd) {
       const minX = Math.min(selectionStart.x, selectionEnd.x);
       const minY = Math.min(selectionStart.y, selectionEnd.y);
       const maxX = Math.max(selectionStart.x, selectionEnd.x);
       const maxY = Math.max(selectionStart.y, selectionEnd.y);
+      const width = maxX - minX;
+      const height = maxY - minY;
       
-      // Draw semi-transparent red fill
-      ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
-      ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
-      
-      // Draw red border
-      ctx.strokeStyle = '#ff0000';
-      ctx.lineWidth = 2 / canvas.zoom;
-      ctx.setLineDash([]);
+      // Draw marching ants border for selection creation
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 1 / canvas.zoom;
+      ctx.setLineDash([4 / canvas.zoom, 4 / canvas.zoom]);
+      ctx.lineDashOffset = -(Date.now() * 0.01) % (8 / canvas.zoom);
       
       ctx.beginPath();
-      ctx.rect(minX, minY, maxX - minX, maxY - minY);
+      ctx.rect(minX, minY, width, height);
       ctx.stroke();
       
-      // Draw yellow corner markers
-      const cornerSize = 6 / canvas.zoom;
-      ctx.fillStyle = '#ffff00';
-      ctx.fillRect(minX - cornerSize/2, minY - cornerSize/2, cornerSize, cornerSize);
-      ctx.fillRect(maxX - cornerSize/2, minY - cornerSize/2, cornerSize, cornerSize);
-      ctx.fillRect(minX - cornerSize/2, maxY - cornerSize/2, cornerSize, cornerSize);
-      ctx.fillRect(maxX - cornerSize/2, maxY - cornerSize/2, cornerSize, cornerSize);
+      // Draw white dashed border offset for contrast
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineDashOffset = -(Date.now() * 0.01) % (8 / canvas.zoom) + (4 / canvas.zoom);
+      
+      ctx.beginPath();
+      ctx.rect(minX, minY, width, height);
+      ctx.stroke();
+      
+      // Reset line dash
+      ctx.setLineDash([]);
     }
     
     // Restore context state
@@ -1010,7 +1012,10 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
   // Animation loop for marching ants
   useEffect(() => {
-    if (!canvas.selection.active) {
+    const hasActiveSelection = canvas.selection.active;
+    const hasSelectionCreation = selectionStart && selectionEnd;
+    
+    if (!hasActiveSelection && !hasSelectionCreation) {
       return;
     }
     
@@ -1026,7 +1031,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [canvas.selection.active, renderView]);
+  }, [canvas.selection.active, selectionStart, selectionEnd, renderView]);
 
   // Canvas styling with cursor updates
   const canvasStyle: React.CSSProperties = {

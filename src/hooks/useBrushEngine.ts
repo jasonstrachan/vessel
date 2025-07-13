@@ -26,7 +26,7 @@ export interface RenderSettings {
 
 
 export const useBrushEngine = () => {
-  const { tools, activeBrushComponents, project } = useAppStore();
+  const { tools, activeBrushComponents, project, brushPresets } = useAppStore();
   
   // Pixel queue state for perfect pixel drawing with distance-based spacing
   const pixelQueueRef = useRef({
@@ -588,7 +588,7 @@ export const useBrushEngine = () => {
     
     // If not found in project custom brushes, check brush presets for custom brush presets
     if (!customBrush && isCustomBrush && tools.brushSettings.selectedCustomBrush) {
-      const customBrushPreset = get().brushPresets.find(p => 
+      const customBrushPreset = brushPresets.find(p => 
         p.id === tools.brushSettings.selectedCustomBrush && p.isCustomBrush && p.customBrushData
       );
       if (customBrushPreset?.customBrushData) {
@@ -686,7 +686,7 @@ export const useBrushEngine = () => {
     queue.lastStrokePosition = { x: to.x, y: to.y };
     
     ctx.restore();
-  }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, drawCustomBrushLine, drawCustomBrushStamp]);
+  }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp]);
   
   return {
     executeComponents,

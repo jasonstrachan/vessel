@@ -134,16 +134,6 @@ export const CustomBrushPanel = () => {
         </button>
       </div>
 
-      {/* Instructions */}
-      <div className="text-center py-4 text-[#888888] text-sm">
-        <p className="mb-2">Create custom brushes from selections:</p>
-        <ol className="text-xs text-left space-y-1 max-w-xs mx-auto">
-          <li>1. Use Custom Brush tool to make a selection</li>
-          <li>2. Click + button above to create brush</li>
-          <li>3. Find your brush in the Brush Library</li>
-          <li>4. Use + button in library to save permanently</li>
-        </ol>
-      </div>
     </div>
   );
 };

@@ -32,7 +32,11 @@ const BrushLibrary = () => {
         selectedCustomBrush: preset.id // Use the preset ID as the custom brush ID
       });
     } else {
-      // For regular presets, use the normal preset system
+      // For regular presets, clear custom brush state first
+      setBrushSettings({
+        selectedCustomBrush: null
+      });
+      // Then apply the preset (this will set the correct brush shape from the preset)
       setBrushPreset(preset);
     }
   };
