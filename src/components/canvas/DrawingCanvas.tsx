@@ -348,7 +348,19 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
   // Create custom brush from current selection
   const createCustomBrushFromSelection = useCallback(async () => {
-    if (!selectionStart || !selectionEnd || !project) return null;
+    console.log('🛠️ CUSTOM BRUSH: createCustomBrushFromSelection called');
+    console.log('📍 CUSTOM BRUSH: selectionStart:', selectionStart);
+    console.log('📍 CUSTOM BRUSH: selectionEnd:', selectionEnd);
+    console.log('📍 CUSTOM BRUSH: project:', !!project);
+    
+    if (!selectionStart || !selectionEnd || !project) {
+      console.error('❌ CUSTOM BRUSH: Missing required data:', {
+        selectionStart: !!selectionStart,
+        selectionEnd: !!selectionEnd,
+        project: !!project
+      });
+      return null;
+    }
     
     // Calculate selection bounds
     const minX = Math.floor(Math.min(selectionStart.x, selectionEnd.x));
@@ -358,8 +370,10 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const width = maxX - minX;
     const height = maxY - minY;
     
+    console.log('📏 CUSTOM BRUSH: Selection bounds:', { minX, minY, maxX, maxY, width, height });
+    
     if (width <= 0 || height <= 0) {
-      console.error('Invalid selection area');
+      console.error('❌ CUSTOM BRUSH: Invalid selection area:', { width, height });
       return null;
     }
     
@@ -377,11 +391,13 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     // Get the main canvas
     const layerCanvas = canvasRef.current;
     if (!layerCanvas) {
-      console.error('Canvas not found');
+      console.error('❌ CUSTOM BRUSH: Canvas not found');
       return null;
     }
     
-    console.log(`Creating custom brush from area: (${minX}, ${minY}) to (${maxX}, ${maxY}), size: ${width}x${height}`);
+    console.log('🎨 CUSTOM BRUSH: Canvas found, dimensions:', layerCanvas.width, 'x', layerCanvas.height);
+    console.log('🔍 CUSTOM BRUSH: Creating custom brush from area:', { minX, minY, maxX, maxY, width, height });
+    console.log('🔍 CUSTOM BRUSH: Current zoom/pan:', { zoom: canvas.zoom, panX: canvas.panX, panY: canvas.panY });
     
     // Capture the selection area from the main canvas
     try {
@@ -391,13 +407,17 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       const sourceWidth = width * canvas.zoom;
       const sourceHeight = height * canvas.zoom;
       
+      console.log('📏 CUSTOM BRUSH: Capture coordinates:', { sourceX, sourceY, sourceWidth, sourceHeight });
+      
       captureCtx.drawImage(
         layerCanvas,
         sourceX, sourceY, sourceWidth, sourceHeight, // Source rectangle (screen space)
         0, 0, width, height        // Destination rectangle (brush space)
       );
+      
+      console.log('✅ CUSTOM BRUSH: Canvas capture successful');
     } catch (error) {
-      console.error('Failed to capture canvas area:', error);
+      console.error('❌ CUSTOM BRUSH: Failed to capture canvas area:', error);
       return null;
     }
     
@@ -441,21 +461,33 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     };
     
     // Add the brush to the project
+    console.log('📦 CUSTOM BRUSH: Adding brush to project:', customBrush);
     addCustomBrush(customBrush);
     
     // Auto-select the newly created custom brush
+    console.log('🎨 CUSTOM BRUSH: Setting brush settings - brushShape:', BrushShape.CUSTOM, 'selectedCustomBrush:', customBrush.id);
     setBrushSettings({ 
       brushShape: BrushShape.CUSTOM,
       selectedCustomBrush: customBrush.id 
     });
     
     // Switch to brush tool for immediate use
+    console.log('🔄 CUSTOM BRUSH: Switching to brush tool');
     setCurrentTool('brush');
     
     // Clear the selection
+    console.log('🧽 CUSTOM BRUSH: Clearing selection');
     clearSelection();
     
-    console.log('Custom brush created and selected:', customBrush.name);
+    console.log('✅ CUSTOM BRUSH: Custom brush created and selected:', customBrush.name);
+    
+    // Add a small delay to let state updates propagate, then log the current state
+    setTimeout(() => {
+      console.log('📊 CUSTOM BRUSH: Final brush settings after state update:', tools.brushSettings);
+      console.log('📊 CUSTOM BRUSH: Final current tool after state update:', tools.currentTool);
+      console.log('📊 CUSTOM BRUSH: Final project custom brushes count:', project?.customBrushes?.length || 0);
+    }, 100);
+    
     return customBrush;
   }, [selectionStart, selectionEnd, project, canvas.zoom, canvas.panX, canvas.panY, addCustomBrush, setBrushSettings, setCurrentTool, clearSelection]);
 
@@ -486,6 +518,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     // Handle selection and custom brush tools - start new selection
     if (tools.currentTool === 'selection' || tools.currentTool === 'custom') {
+      console.log('🎯 CUSTOM BRUSH: Starting selection with tool:', tools.currentTool, 'at point:', point);
       setIsSelecting(true);
       setSelectionBounds(point, point);
       e.preventDefault();
@@ -539,6 +572,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
     // Handle selection creation dragging
     if (isSelecting && selectionStart) {
+      console.log('📝 CUSTOM BRUSH: Updating selection to:', point);
       setSelectionBounds(selectionStart, point);
       return;
     }
@@ -579,12 +613,21 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     }
 
     if (isSelecting) {
+      console.log('🎯 CUSTOM BRUSH: Ending selection. Tool:', tools.currentTool, 'Start:', selectionStart, 'End:', selectionEnd, 'Project:', !!project);
       // End selection creation
       setIsSelecting(false);
       
       // If custom tool is active, automatically create a custom brush
       if (tools.currentTool === 'custom' && selectionStart && selectionEnd && project) {
+        console.log('🚀 CUSTOM BRUSH: Conditions met, calling createCustomBrushFromSelection');
         await createCustomBrushFromSelection();
+      } else {
+        console.log('❌ CUSTOM BRUSH: Conditions NOT met:', {
+          isCustomTool: tools.currentTool === 'custom',
+          hasSelectionStart: !!selectionStart,
+          hasSelectionEnd: !!selectionEnd,
+          hasProject: !!project
+        });
       }
       
       return;

@@ -8,7 +8,8 @@ We're building production-quality simple code together. Your role is to create m
 dev. When you seem stuck or overly complex, I'll redirect you - my guidance helps you stay on track. 
 
 - Always check your code for issues first before blaming it on the server.
-- Dont keep starting the dev server, its already running.
+- Dont starting the dev server unless I tell you to, its already running.
+- Dont do git commits unless I tell you too.
 
 ## 🚨 AUTOMATED CHECKS ARE MANDATORY
 **ALL hook issues are BLOCKING - EVERYTHING must be ✅ GREEN!**  
