@@ -5,28 +5,54 @@
 
 import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
+import { BrushShape } from '../../types';
 
 export default function BrushControls() {
   const { tools, setBrushSettings } = useAppStore();
   const { brushSettings } = tools;
+  
+  // Check if currently using a custom brush
+  const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
 
   return (
     <div className="p-4 bg-[#31313A]">
       
 
-      {/* Brush Size */}
+      {/* Brush Size - Different behavior for custom vs regular brushes */}
       <div className="mb-4">
-        <label className="block text-xs text-gray-400 mb-2">
-          Size: {brushSettings.size}px
-        </label>
-        <input
-          type="range"
-          min="1"
-          max="100"
-          value={brushSettings.size}
-          onChange={(e) => setBrushSettings({ size: parseInt(e.target.value) })}
-          className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
-        />
+        {isCustomBrush ? (
+          // Custom brush: percentage-based slider
+          <>
+            <label className="block text-xs text-gray-400 mb-2">
+              Scale: {brushSettings.size}% 
+              <span className="text-xs text-gray-500 ml-1">(of original size)</span>
+            </label>
+            <input
+              type="range"
+              min="10"
+              max="500"
+              step="5"
+              value={brushSettings.size}
+              onChange={(e) => setBrushSettings({ size: parseInt(e.target.value) })}
+              className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
+            />
+          </>
+        ) : (
+          // Regular brush: pixel-based slider
+          <>
+            <label className="block text-xs text-gray-400 mb-2">
+              Size: {brushSettings.size}px
+            </label>
+            <input
+              type="range"
+              min="1"
+              max="100"
+              value={brushSettings.size}
+              onChange={(e) => setBrushSettings({ size: parseInt(e.target.value) })}
+              className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
+            />
+          </>
+        )}
       </div>
 
       {/* Opacity */}

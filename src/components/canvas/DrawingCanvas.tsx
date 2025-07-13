@@ -196,9 +196,9 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     setCursorScreenX(event.clientX);
     setCursorScreenY(event.clientY);
     
-    // Show brush cursor for brush-like tools
+    // Show brush cursor for brush-like tools (optimized to avoid unnecessary updates)
     const shouldShowBrushCursor = (tools.currentTool === 'brush' || tools.currentTool === 'eraser') && !spacebarPressed;
-    setShowBrushCursor(shouldShowBrushCursor);
+    setShowBrushCursor(prev => prev !== shouldShowBrushCursor ? shouldShowBrushCursor : prev);
   }, [tools.currentTool, spacebarPressed]);
   
   // Convert screen coordinates to world coordinates
@@ -467,7 +467,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     // Auto-select the newly created custom brush
     setBrushSettings({ 
       brushShape: BrushShape.CUSTOM,
-      selectedCustomBrush: customBrush.id 
+      selectedCustomBrush: customBrush.id,
+      size: 100 // Default to 100% (original size) for custom brushes
     });
     
     // Switch to brush tool for immediate use
@@ -858,11 +859,23 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       return;
     }
     
-    // Brush size shortcuts
+    // Brush size shortcuts - different behavior for custom vs regular brushes
     if (e.key === '[') {
-      setBrushSettings({ size: Math.max(1, tools.brushSettings.size - 1) });
+      if (tools.brushSettings.brushShape === BrushShape.CUSTOM) {
+        // Custom brush: decrease by 10% increments, minimum 10%
+        setBrushSettings({ size: Math.max(10, tools.brushSettings.size - 10) });
+      } else {
+        // Regular brush: decrease by 1px, minimum 1px
+        setBrushSettings({ size: Math.max(1, tools.brushSettings.size - 1) });
+      }
     } else if (e.key === ']') {
-      setBrushSettings({ size: Math.min(100, tools.brushSettings.size + 1) });
+      if (tools.brushSettings.brushShape === BrushShape.CUSTOM) {
+        // Custom brush: increase by 10% increments, maximum 500%
+        setBrushSettings({ size: Math.min(500, tools.brushSettings.size + 10) });
+      } else {
+        // Regular brush: increase by 1px, maximum 100px
+        setBrushSettings({ size: Math.min(100, tools.brushSettings.size + 1) });
+      }
     }
     
     // Grid toggle (Ctrl/Cmd + G)
@@ -1050,7 +1063,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   const canvasStyle: React.CSSProperties = {
     cursor: spacebarPressed 
       ? (isPanning ? 'grabbing' : 'grab') 
-      : ((tools.currentTool === 'brush' || tools.currentTool === 'eraser') ? 'crosshair' 
+      : ((tools.currentTool === 'brush' || tools.currentTool === 'eraser') ? 'none' 
          : tools.currentTool === 'eyedropper' ? 'crosshair'
          : 'default'),
     imageRendering: canvas.displayMode === 'smooth' ? 'auto' : 'pixelated'

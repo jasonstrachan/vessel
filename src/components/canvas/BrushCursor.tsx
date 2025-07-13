@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useMemo } from 'react';
+import React, { memo, useMemo, useRef, useCallback } from 'react';
 import { BrushShape } from '../../types';
 
 interface BrushCursorProps {
@@ -31,9 +31,24 @@ const BrushCursor = memo(function BrushCursor({
   // Calculate display size based on zoom and brush size
   const screenSize = size * zoom;
 
-  // Create custom brush preview as data URL
+  // Cache for custom brush preview to avoid expensive operations
+  const previewCache = useRef<Map<string, string>>(new Map());
+  
+  // Create stable cache key from ImageData content
+  const getImageDataKey = useCallback((imageData: ImageData): string => {
+    // Use dimensions and first/last few pixels as a content hash
+    const firstPixels = Array.from(imageData.data.slice(0, 12)).join(',');
+    const lastPixels = Array.from(imageData.data.slice(-12)).join(',');
+    return `${imageData.width}x${imageData.height}-${firstPixels}-${lastPixels}`;
+  }, []);
+  
   const customBrushPreview = useMemo(() => {
     if (!customBrush || brushShape !== BrushShape.CUSTOM) return null;
+
+    // Check cache first using stable key
+    const cacheKey = getImageDataKey(customBrush.imageData);
+    const cached = previewCache.current.get(cacheKey);
+    if (cached) return cached;
 
     try {
       const canvas = document.createElement('canvas');
@@ -43,18 +58,33 @@ const BrushCursor = memo(function BrushCursor({
       if (!ctx) return null;
 
       ctx.putImageData(customBrush.imageData, 0, 0);
-      return canvas.toDataURL();
+      const dataURL = canvas.toDataURL();
+      
+      // Cache the result using stable key
+      previewCache.current.set(cacheKey, dataURL);
+      
+      // Limit cache size to prevent memory leaks
+      if (previewCache.current.size > 10) {
+        const firstKey = previewCache.current.keys().next().value;
+        if (firstKey) {
+          previewCache.current.delete(firstKey);
+        }
+      }
+      
+      return dataURL;
     } catch (error) {
       console.error('Failed to create custom brush preview:', error);
       return null;
     }
-  }, [customBrush, brushShape]);
+  }, [customBrush, brushShape, getImageDataKey]);
 
   if (!visible) return null;
 
   // Render custom brush preview
   if (brushShape === BrushShape.CUSTOM && customBrushPreview && customBrush) {
-    const scaleFactor = size / Math.max(customBrush.width, customBrush.height);
+    // Custom brushes are scaled as percentage: size 100 = 100% original size
+    // Calculate scale factor same as brush engine: size / 100
+    const scaleFactor = size / 100;
     const displayWidth = customBrush.width * scaleFactor * zoom;
     const displayHeight = customBrush.height * scaleFactor * zoom;
 
