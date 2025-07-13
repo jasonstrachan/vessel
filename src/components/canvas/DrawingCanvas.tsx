@@ -9,6 +9,7 @@ import { useBrushEngine } from '../../hooks/useBrushEngine';
 import { calculateZoomIncrement } from '../../utils/zoomUtils';
 import type { Tool } from '../../types';
 import { BrushShape } from '../../types';
+import BrushCursor from './BrushCursor';
 
 interface DrawingCanvasProps {
   width?: number;
@@ -46,6 +47,10 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   // Eyedropper preview state
   const [previewColor, setPreviewColor] = useState<string | null>(null);
   const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number } | null>(null);
+  // Brush cursor state
+  const [showBrushCursor, setShowBrushCursor] = useState(false);
+  const [cursorScreenX, setCursorScreenX] = useState(0);
+  const [cursorScreenY, setCursorScreenY] = useState(0);
   
   const {
     canvas,
@@ -186,7 +191,15 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     setMouseX(newMouseX);
     setMouseY(newMouseY);
-  }, []);
+    
+    // Set cursor screen position (relative to viewport, not canvas)
+    setCursorScreenX(event.clientX);
+    setCursorScreenY(event.clientY);
+    
+    // Show brush cursor for brush-like tools
+    const shouldShowBrushCursor = (tools.currentTool === 'brush' || tools.currentTool === 'eraser') && !spacebarPressed;
+    setShowBrushCursor(shouldShowBrushCursor);
+  }, [tools.currentTool, spacebarPressed]);
   
   // Convert screen coordinates to world coordinates
   const screenToCanvas = useCallback((clientX: number, clientY: number) => {
@@ -1079,6 +1092,12 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     };
   }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, updateMousePosition]);
 
+  // Get current custom brush data
+  const currentCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM && 
+    tools.brushSettings.selectedCustomBrush && project
+    ? project.customBrushes.find(b => b.id === tools.brushSettings.selectedCustomBrush)
+    : null;
+
   return (
     <>
       <div className="w-full h-full bg-[#141514] flex items-center justify-center overflow-hidden">
@@ -1107,6 +1126,10 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
             // Clear eyedropper preview when leaving canvas
             setPreviewColor(null);
             setPreviewPosition(null);
+            // Hide brush cursor when leaving canvas
+            setShowBrushCursor(false);
+            setCursorScreenX(0);
+            setCursorScreenY(0);
           }}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
@@ -1139,6 +1162,22 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
           </div>
         )}
       </div>
+
+      {/* Brush cursor preview */}
+      <BrushCursor
+        screenX={cursorScreenX}
+        screenY={cursorScreenY}
+        size={tools.brushSettings.size}
+        brushShape={tools.brushSettings.brushShape || BrushShape.ROUND}
+        zoom={canvas.zoom}
+        color={tools.brushSettings.color}
+        customBrush={currentCustomBrush ? {
+          imageData: currentCustomBrush.imageData,
+          width: currentCustomBrush.width,
+          height: currentCustomBrush.height
+        } : null}
+        visible={showBrushCursor}
+      />
       
       {/* Current code timestamp overlay */}
       {currentTime && (
