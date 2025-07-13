@@ -27,9 +27,11 @@ const BrushLibrary = () => {
   const handlePresetClick = (preset: BrushPreset) => {
     if (preset.isCustomBrush && preset.customBrushData) {
       // For custom brush presets, set the brush settings to use custom brush
+      // Set size to 100% (original size) when switching to custom brush
       setBrushSettings({
         brushShape: BrushShape.CUSTOM,
-        selectedCustomBrush: preset.id // Use the preset ID as the custom brush ID
+        selectedCustomBrush: preset.id, // Use the preset ID as the custom brush ID
+        size: 100 // Default to 100% (original size) for custom brushes
       });
     } else {
       // For regular presets, clear custom brush state first

@@ -506,15 +506,28 @@ export const useBrushEngine = () => {
     queue.lastStrokePosition = { x: roundedX, y: roundedY };
   }, [drawShape]);
 
+  // Reusable canvas for custom brush stamps to avoid creating new elements
+  const tempCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const getTempCanvas = useCallback((width: number, height: number) => {
+    if (!tempCanvasRef.current) {
+      tempCanvasRef.current = document.createElement('canvas');
+    }
+    const canvas = tempCanvasRef.current;
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    return canvas;
+  }, []);
+
   // Custom brush drawing functions
   const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1) => {
-    const canvas = document.createElement('canvas');
+    const canvas = getTempCanvas(customBrush.width, customBrush.height);
     const tempCtx = canvas.getContext('2d');
     if (!tempCtx) return;
     
-    // Set up canvas with brush dimensions
-    canvas.width = customBrush.width;
-    canvas.height = customBrush.height;
+    // Clear and set up canvas with brush dimensions
+    tempCtx.clearRect(0, 0, canvas.width, canvas.height);
     
     // Put the brush ImageData onto the temporary canvas
     tempCtx.putImageData(customBrush.imageData, 0, 0);
@@ -531,7 +544,7 @@ export const useBrushEngine = () => {
     ctx.imageSmoothingEnabled = false; // Maintain pixel-perfect rendering
     ctx.drawImage(canvas, centerX, centerY, scaledWidth, scaledHeight);
     ctx.restore();
-  }, []);
+  }, [getTempCanvas]);
 
   const drawCustomBrushLine = useCallback((ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1) => {
     const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
@@ -608,9 +621,9 @@ export const useBrushEngine = () => {
     
     // Handle custom brush rendering with spacing support
     if (isCustomBrush && customBrush) {
-      // For custom brushes, use actual captured size (scale factor of 1.0)
-      // The brush size setting can be used to further scale if needed
-      const scaleFactor = 1.0;
+      // Scale custom brush based on brush size setting as percentage
+      // Size 100 = 100% (original size), Size 50 = 50%, Size 200 = 200%
+      const scaleFactor = settings.size / 100;
       
       // Apply spacing system to custom brushes
       const distance = Math.sqrt(Math.pow(to.x - queue.lastStrokePosition.x, 2) + Math.pow(to.y - queue.lastStrokePosition.y, 2));
