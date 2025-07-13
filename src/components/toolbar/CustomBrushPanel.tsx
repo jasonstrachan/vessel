@@ -58,7 +58,6 @@ export const CustomBrushPanel = () => {
     
     // The canvas coordinates are already in canvas space (not screen space)
     // since selection coordinates are calculated with zoom/pan adjustments
-    console.log(`Capturing custom brush from area: (${minX}, ${minY}) to (${maxX}, ${maxY}), size: ${width}x${height}`);
     
     // Capture the selection area from the main canvas (composite of all layers)
     try {
