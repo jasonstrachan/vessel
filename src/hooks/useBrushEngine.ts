@@ -2,7 +2,7 @@
 
 import { useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
-import { BrushComponent, ComponentType, BrushShape } from '../types';
+import { BrushComponent, ComponentType, BrushShape, CustomBrush } from '../types';
 
 export interface StrokeInput {
   position: { x: number; y: number };
@@ -26,7 +26,7 @@ export interface RenderSettings {
 
 
 export const useBrushEngine = () => {
-  const { tools, activeBrushComponents } = useAppStore();
+  const { tools, activeBrushComponents, project } = useAppStore();
   
   // Pixel queue state for perfect pixel drawing with distance-based spacing
   const pixelQueueRef = useRef({
@@ -506,6 +506,46 @@ export const useBrushEngine = () => {
     queue.lastStrokePosition = { x: roundedX, y: roundedY };
   }, [drawShape]);
 
+  // Custom brush drawing functions
+  const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1) => {
+    const canvas = document.createElement('canvas');
+    const tempCtx = canvas.getContext('2d');
+    if (!tempCtx) return;
+    
+    // Set up canvas with brush dimensions
+    canvas.width = customBrush.width;
+    canvas.height = customBrush.height;
+    
+    // Put the brush ImageData onto the temporary canvas
+    tempCtx.putImageData(customBrush.imageData, 0, 0);
+    
+    // Calculate scaled dimensions and position
+    const scaledWidth = customBrush.width * scale;
+    const scaledHeight = customBrush.height * scale;
+    const centerX = x - scaledWidth / 2;
+    const centerY = y - scaledHeight / 2;
+    
+    // Draw the custom brush
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.imageSmoothingEnabled = false; // Maintain pixel-perfect rendering
+    ctx.drawImage(canvas, centerX, centerY, scaledWidth, scaledHeight);
+    ctx.restore();
+  }, []);
+
+  const drawCustomBrushLine = useCallback((ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1) => {
+    const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+    const spacing = Math.max(1, Math.min(customBrush.width, customBrush.height) * scale * 0.5);
+    const steps = Math.max(1, Math.ceil(distance / spacing));
+    
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = x1 + (x2 - x1) * t;
+      const y = y1 + (y2 - y1) * t;
+      drawCustomBrushStamp(ctx, x, y, customBrush, scale);
+    }
+  }, [drawCustomBrushStamp]);
+
   const renderBrushStroke = useCallback((
     ctx: CanvasRenderingContext2D,
     from: { x: number; y: number },
@@ -523,6 +563,14 @@ export const useBrushEngine = () => {
     
     ctx.save();
     
+    // Initialize distance tracking state if needed
+    const queue = pixelQueueRef.current;
+    if (!queue.initialized) {
+      queue.lastStrokePosition = { x: from.x, y: from.y };
+      queue.accumulatedDistance = 0;
+      queue.initialized = true;
+    }
+    
     // Apply rendering settings
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = settings.opacity;
@@ -530,20 +578,39 @@ export const useBrushEngine = () => {
     ctx.lineCap = settings.pixelAlignment ? 'butt' : 'round';
     ctx.lineJoin = settings.pixelAlignment ? 'miter' : 'round';
     
-    // Handle tool-specific behavior
+    // Check for custom brush before regular tool handling
+    const isCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM;
+    const customBrush = isCustomBrush && tools.brushSettings.selectedCustomBrush && project
+      ? project.customBrushes.find(b => b.id === tools.brushSettings.selectedCustomBrush)
+      : null;
+    
+    // Handle custom brush rendering
+    if (isCustomBrush && customBrush) {
+      // Calculate scale factor based on brush size setting
+      const baseBrushSize = Math.max(customBrush.width, customBrush.height);
+      const scaleFactor = settings.size / baseBrushSize;
+      
+      // Check if this is a line stroke or a single point
+      const distance = Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2));
+      if (distance > 1) {
+        drawCustomBrushLine(ctx, from.x, from.y, to.x, to.y, customBrush, scaleFactor);
+      } else {
+        drawCustomBrushStamp(ctx, to.x, to.y, customBrush, scaleFactor);
+      }
+      
+      // Update last stroke position for next call
+      queue.lastStrokePosition = { x: to.x, y: to.y };
+      
+      ctx.restore();
+      return; // Exit early for custom brushes
+    }
+    
+    // Handle tool-specific behavior for regular brushes
     if (tools.currentTool === 'eraser') {
       ctx.globalCompositeOperation = 'destination-out';
     } else {
       ctx.globalCompositeOperation = tools.brushSettings.blendMode;
       ctx.strokeStyle = settings.color;
-    }
-    
-    // Initialize distance tracking state if needed
-    const queue = pixelQueueRef.current;
-    if (!queue.initialized) {
-      queue.lastStrokePosition = { x: from.x, y: from.y };
-      queue.accumulatedDistance = 0;
-      queue.initialized = true;
     }
     
     // Handle antialiasing and pixel-perfect drawing
@@ -588,7 +655,7 @@ export const useBrushEngine = () => {
     queue.lastStrokePosition = { x: to.x, y: to.y };
     
     ctx.restore();
-  }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape]);
+  }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, drawCustomBrushLine, drawCustomBrushStamp]);
   
   return {
     executeComponents,

@@ -10,6 +10,7 @@ const LeftToolbar = () => {
     { id: 'new-document' as Tool, icon: null, label: 'New Document' },
     { id: 'selection' as Tool, icon: null, label: 'Selection' },
     { id: 'brush' as Tool, icon: null, label: 'Brush' },
+    { id: 'custom' as Tool, icon: null, label: 'Custom Brush' },
     { id: 'eraser' as Tool, icon: null, label: 'Eraser' },
     { id: 'eyedropper' as Tool, icon: null, label: 'Eyedropper' },
     { id: 'fill' as Tool, icon: null, label: 'Fill' },
@@ -50,6 +51,18 @@ const LeftToolbar = () => {
             <svg width="22" height="26" viewBox="0 0 14 16" fill="none" xmlns="http://www.w3.org/2000/svg">
               <rect x="12.1394" y="0.481323" width="2.18224" height="12.9123" transform="rotate(45 12.1394 0.481323)" fill="currentColor" fillOpacity="0.8"/>
               <rect x="0.317513" y="10.4279" width="3.48284" height="3.48284" fill="currentColor" fillOpacity="0.8"/>
+            </svg>
+          ) : tool.id === 'custom' ? (
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="2" y="2" width="4" height="4" fill="currentColor" fillOpacity="0.8"/>
+              <rect x="8" y="2" width="4" height="4" fill="currentColor" fillOpacity="0.8"/>
+              <rect x="14" y="2" width="4" height="4" fill="currentColor" fillOpacity="0.8"/>
+              <rect x="2" y="8" width="4" height="4" fill="currentColor" fillOpacity="0.8"/>
+              <rect x="8" y="8" width="4" height="4" fill="currentColor" fillOpacity="0.6"/>
+              <rect x="14" y="8" width="4" height="4" fill="currentColor" fillOpacity="0.8"/>
+              <rect x="2" y="14" width="4" height="4" fill="currentColor" fillOpacity="0.8"/>
+              <rect x="8" y="14" width="4" height="4" fill="currentColor" fillOpacity="0.8"/>
+              <rect x="14" y="14" width="4" height="4" fill="currentColor" fillOpacity="0.8"/>
             </svg>
           ) : tool.id === 'eraser' ? (
             <svg width="30" height="28" viewBox="0 0 24 22" fill="none" xmlns="http://www.w3.org/2000/svg">

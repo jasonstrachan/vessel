@@ -13,6 +13,7 @@ import type {
   BrushSettings,
   BrushPreset,
   BrushComponent,
+  CustomBrush,
 } from '../types';
 import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
 
@@ -34,6 +35,12 @@ interface AppState {
   setCanvasDimensions: (width: number, height: number) => void;
   setSelection: (selection: CanvasState['selection']) => void;
   setCursor: (cursor: CanvasState['cursor']) => void;
+  
+  // Selection State
+  selectionStart: { x: number; y: number } | null;
+  selectionEnd: { x: number; y: number } | null;
+  setSelectionBounds: (start: { x: number; y: number } | null, end: { x: number; y: number } | null) => void;
+  clearSelection: () => void;
   
   // Tool State
   tools: ToolState;
@@ -62,11 +69,16 @@ interface AppState {
   // Layer Management
   layers: Layer[];
   activeLayerId: string | null;
+  currentLayer: number;
   addLayer: (layer: Omit<Layer, 'id' | 'order'>) => void;
   removeLayer: (id: string) => void;
   updateLayer: (id: string, updates: Partial<Layer>) => void;
   setActiveLayer: (id: string) => void;
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
+  
+  // Custom Brush Management
+  addCustomBrush: (brush: CustomBrush) => void;
+  removeCustomBrush: (brushId: string) => void;
 }
 
 // Default states - use default brush settings
@@ -128,7 +140,17 @@ export const useAppStore = create<AppState>()(
   devtools(
     (set, get) => ({
       // Project State
-      project: null,
+      project: {
+        id: 'default-project',
+        name: 'Untitled',
+        width: 800,
+        height: 600,
+        layers: [],
+        backgroundColor: '#FFFFFF',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: []
+      },
       setProject: (project) => set({ project }),
       updateProject: (updates) => set((state) => ({
         project: state.project ? { ...state.project, ...updates } : null
@@ -166,6 +188,12 @@ export const useAppStore = create<AppState>()(
       setCursor: (cursor) => set((state) => ({
         canvas: { ...state.canvas, cursor }
       })),
+      
+      // Selection State
+      selectionStart: null,
+      selectionEnd: null,
+      setSelectionBounds: (start, end) => set({ selectionStart: start, selectionEnd: end }),
+      clearSelection: () => set({ selectionStart: null, selectionEnd: null }),
       
       // Tool State
       tools: defaultToolState,
@@ -261,6 +289,7 @@ export const useAppStore = create<AppState>()(
       // Layer Management
       layers: [],
       activeLayerId: null,
+      currentLayer: 0,
       addLayer: (layer) => set((state) => {
         const newLayer: Layer = {
           ...layer,
@@ -296,7 +325,21 @@ export const useAppStore = create<AppState>()(
             order: index
           }))
         };
-      })
+      }),
+      
+      // Custom Brush Management
+      addCustomBrush: (brush) => set((state) => ({
+        project: state.project ? {
+          ...state.project,
+          customBrushes: [...state.project.customBrushes, brush]
+        } : null
+      })),
+      removeCustomBrush: (brushId) => set((state) => ({
+        project: state.project ? {
+          ...state.project,
+          customBrushes: state.project.customBrushes.filter(b => b.id !== brushId)
+        } : null
+      }))
     }),
     { name: 'tinybrush-store' }
   )

@@ -10,6 +10,7 @@ export interface Project {
   backgroundColor: string;
   createdAt: Date;
   updatedAt: Date;
+  customBrushes: CustomBrush[];
 }
 
 export interface Layer {
@@ -60,7 +61,18 @@ export enum BrushShape {
   ROUND = 'round',
   PIXEL_ROUND = 'pixel_round',
   SQUARE = 'square',
-  TRIANGLE = 'triangle'
+  TRIANGLE = 'triangle',
+  CUSTOM = 'custom'
+}
+
+export interface CustomBrush {
+  id: string;
+  name: string;
+  imageData: ImageData;
+  thumbnail: string; // Base64 encoded thumbnail
+  width: number;
+  height: number;
+  createdAt: number;
 }
 
 
@@ -143,6 +155,8 @@ export interface BrushSettings {
   pressure: number;
   rotation: number;
   antialiasing: boolean;
+  brushShape?: BrushShape;
+  selectedCustomBrush?: string | null;
 }
 
 export interface ComponentParams {
@@ -166,7 +180,7 @@ export interface DrawingAction {
   data: Record<string, unknown>;
 }
 
-export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'pan' | 'new-document' | 'save';
+export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'pan' | 'new-document' | 'save' | 'custom';
 
 export type BlendMode = GlobalCompositeOperation;
 
