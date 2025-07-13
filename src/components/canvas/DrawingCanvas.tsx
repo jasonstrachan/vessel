@@ -8,6 +8,7 @@ import { useAppStore } from '../../stores/useAppStore';
 import { useBrushEngine } from '../../hooks/useBrushEngine';
 import { calculateZoomIncrement } from '../../utils/zoomUtils';
 import type { Tool } from '../../types';
+import { BrushShape } from '../../types';
 
 interface DrawingCanvasProps {
   width?: number;
@@ -49,6 +50,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   const {
     canvas,
     tools,
+    project,
     setZoom,
     setCursor,
     setBrushSettings,
@@ -61,6 +63,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     selectionEnd,
     setSelectionBounds,
     clearSelection,
+    addCustomBrush,
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue } = useBrushEngine();
@@ -343,6 +346,119 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     renderView();
   }, [renderBrushStroke, renderView]);
 
+  // Create custom brush from current selection
+  const createCustomBrushFromSelection = useCallback(async () => {
+    if (!selectionStart || !selectionEnd || !project) return null;
+    
+    // Calculate selection bounds
+    const minX = Math.floor(Math.min(selectionStart.x, selectionEnd.x));
+    const minY = Math.floor(Math.min(selectionStart.y, selectionEnd.y));
+    const maxX = Math.floor(Math.max(selectionStart.x, selectionEnd.x));
+    const maxY = Math.floor(Math.max(selectionStart.y, selectionEnd.y));
+    const width = maxX - minX;
+    const height = maxY - minY;
+    
+    if (width <= 0 || height <= 0) {
+      console.error('Invalid selection area');
+      return null;
+    }
+    
+    // Create canvas to capture the selection
+    const captureCanvas = document.createElement('canvas');
+    captureCanvas.width = width;
+    captureCanvas.height = height;
+    const captureCtx = captureCanvas.getContext('2d');
+    
+    if (!captureCtx) {
+      console.error('Failed to get canvas context');
+      return null;
+    }
+    
+    // Get the main canvas
+    const layerCanvas = canvasRef.current;
+    if (!layerCanvas) {
+      console.error('Canvas not found');
+      return null;
+    }
+    
+    console.log(`Creating custom brush from area: (${minX}, ${minY}) to (${maxX}, ${maxY}), size: ${width}x${height}`);
+    
+    // Capture the selection area from the main canvas
+    try {
+      // We need to account for zoom and pan when capturing
+      const sourceX = (minX * canvas.zoom) + canvas.panX;
+      const sourceY = (minY * canvas.zoom) + canvas.panY;
+      const sourceWidth = width * canvas.zoom;
+      const sourceHeight = height * canvas.zoom;
+      
+      captureCtx.drawImage(
+        layerCanvas,
+        sourceX, sourceY, sourceWidth, sourceHeight, // Source rectangle (screen space)
+        0, 0, width, height        // Destination rectangle (brush space)
+      );
+    } catch (error) {
+      console.error('Failed to capture canvas area:', error);
+      return null;
+    }
+    
+    // Get ImageData for the brush
+    const imageData = captureCtx.getImageData(0, 0, width, height);
+    
+    // Create thumbnail (max 64x64)
+    const thumbnailSize = 64;
+    const thumbnailCanvas = document.createElement('canvas');
+    thumbnailCanvas.width = thumbnailSize;
+    thumbnailCanvas.height = thumbnailSize;
+    const thumbnailCtx = thumbnailCanvas.getContext('2d');
+    
+    if (thumbnailCtx) {
+      // Scale to fit thumbnail while maintaining aspect ratio
+      const scale = Math.min(thumbnailSize / width, thumbnailSize / height);
+      const scaledWidth = width * scale;
+      const scaledHeight = height * scale;
+      const offsetX = (thumbnailSize - scaledWidth) / 2;
+      const offsetY = (thumbnailSize - scaledHeight) / 2;
+      
+      // Set background to transparent
+      thumbnailCtx.clearRect(0, 0, thumbnailSize, thumbnailSize);
+      
+      // Draw scaled capture
+      thumbnailCtx.drawImage(
+        captureCanvas,
+        offsetX, offsetY, scaledWidth, scaledHeight
+      );
+    }
+    
+    // Create custom brush object
+    const customBrush = {
+      id: `brush_${Date.now()}`,
+      name: `Custom ${(project?.customBrushes?.length || 0) + 1}`,
+      imageData,
+      thumbnail: thumbnailCanvas.toDataURL(),
+      width,
+      height,
+      createdAt: Date.now()
+    };
+    
+    // Add the brush to the project
+    addCustomBrush(customBrush);
+    
+    // Auto-select the newly created custom brush
+    setBrushSettings({ 
+      brushShape: BrushShape.CUSTOM,
+      selectedCustomBrush: customBrush.id 
+    });
+    
+    // Switch to brush tool for immediate use
+    setCurrentTool('brush');
+    
+    // Clear the selection
+    clearSelection();
+    
+    console.log('Custom brush created and selected:', customBrush.name);
+    return customBrush;
+  }, [selectionStart, selectionEnd, project, canvas.zoom, canvas.panX, canvas.panY, addCustomBrush, setBrushSettings, setCurrentTool, clearSelection]);
+
   // Mouse event handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     updateMousePosition(e);
@@ -465,6 +581,12 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     if (isSelecting) {
       // End selection creation
       setIsSelecting(false);
+      
+      // If custom tool is active, automatically create a custom brush
+      if (tools.currentTool === 'custom' && selectionStart && selectionEnd && project) {
+        await createCustomBrushFromSelection();
+      }
+      
       return;
     }
 
