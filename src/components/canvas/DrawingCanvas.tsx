@@ -34,6 +34,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   const [isCanvasInitialized, setIsCanvasInitialized] = useState(false);
   const [isDraggingSelection, setIsDraggingSelection] = useState(false);
   const [selectionDragStart, setSelectionDragStart] = useState<{ x: number; y: number } | null>(null);
+  // Selection creation state
+  const [isSelecting, setIsSelecting] = useState(false);
   // E key for temporary eraser mode
   const [eKeyPressed, setEKeyPressed] = useState(false);
   const [toolBeforeEraser, setToolBeforeEraser] = useState<Tool | null>(null);
@@ -55,6 +57,10 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     toggleGrid,
     setSelection,
     setCurrentTool,
+    selectionStart,
+    selectionEnd,
+    setSelectionBounds,
+    clearSelection,
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue } = useBrushEngine();
@@ -289,9 +295,38 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       ctx.setLineDash([]);
     }
     
+    // Draw selection creation overlay
+    if (selectionStart && selectionEnd) {
+      const minX = Math.min(selectionStart.x, selectionEnd.x);
+      const minY = Math.min(selectionStart.y, selectionEnd.y);
+      const maxX = Math.max(selectionStart.x, selectionEnd.x);
+      const maxY = Math.max(selectionStart.y, selectionEnd.y);
+      
+      // Draw semi-transparent red fill
+      ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
+      ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+      
+      // Draw red border
+      ctx.strokeStyle = '#ff0000';
+      ctx.lineWidth = 2 / canvas.zoom;
+      ctx.setLineDash([]);
+      
+      ctx.beginPath();
+      ctx.rect(minX, minY, maxX - minX, maxY - minY);
+      ctx.stroke();
+      
+      // Draw yellow corner markers
+      const cornerSize = 6 / canvas.zoom;
+      ctx.fillStyle = '#ffff00';
+      ctx.fillRect(minX - cornerSize/2, minY - cornerSize/2, cornerSize, cornerSize);
+      ctx.fillRect(maxX - cornerSize/2, minY - cornerSize/2, cornerSize, cornerSize);
+      ctx.fillRect(minX - cornerSize/2, maxY - cornerSize/2, cornerSize, cornerSize);
+      ctx.fillRect(maxX - cornerSize/2, maxY - cornerSize/2, cornerSize, cornerSize);
+    }
+    
     // Restore context state
     ctx.restore();
-  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.showGrid, canvas.gridSize, canvas.selection, width, height]);
+  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.showGrid, canvas.gridSize, canvas.selection, width, height, selectionStart, selectionEnd]);
 
   // Enhanced drawing function - draws on offscreen canvas and re-renders view
   const drawLine = useCallback((from: { x: number; y: number }, to: { x: number; y: number }) => {
@@ -333,6 +368,14 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       return;
     }
     
+    // Handle selection and custom brush tools - start new selection
+    if (tools.currentTool === 'selection' || tools.currentTool === 'custom') {
+      setIsSelecting(true);
+      setSelectionBounds(point, point);
+      e.preventDefault();
+      return;
+    }
+    
     // Check if clicking on selection
     if (canvas.selection.active && isPointInSelection(point.x, point.y)) {
       setIsDraggingSelection(true);
@@ -347,7 +390,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
-  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, canvas.selection.active, isPointInSelection, tools.currentTool, sampleColor, setBrushSettings]);
+  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, canvas.selection.active, isPointInSelection, tools.currentTool, sampleColor, setBrushSettings, setSelectionBounds, setIsSelecting]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     updateMousePosition(e);
@@ -378,6 +421,12 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       setPreviewPosition(null);
     }
 
+    // Handle selection creation dragging
+    if (isSelecting && selectionStart) {
+      setSelectionBounds(selectionStart, point);
+      return;
+    }
+    
     // Handle selection dragging
     if (isDraggingSelection && selectionDragStart) {
       const deltaX = point.x - selectionDragStart.x;
@@ -404,12 +453,18 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         console.warn('Canvas drawing error:', error);
       }
     }
-  }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition, isDraggingSelection, selectionDragStart, canvas.selection, setSelection]);
+  }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition, isDraggingSelection, selectionDragStart, canvas.selection, setSelection, isSelecting, selectionStart, setSelectionBounds]);
 
   const handleMouseUp = useCallback(async () => {
     if (isPanning) {
       // End panning
       setIsPanning(false);
+      return;
+    }
+
+    if (isSelecting) {
+      // End selection creation
+      setIsSelecting(false);
       return;
     }
 
