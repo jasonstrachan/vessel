@@ -218,12 +218,39 @@ export const useAppStore = create<AppState>()(
           }
         };
       }),
-      setBrushSettings: (settings) => set((state) => ({
-        tools: {
-          ...state.tools,
-          brushSettings: { ...state.tools.brushSettings, ...settings }
+      setBrushSettings: (settings) => set((state) => {
+        const currentSettings = state.tools.brushSettings;
+        const newSettings = { ...currentSettings, ...settings };
+        
+        // Handle brush size restoration when switching between custom and regular brushes
+        if (settings.brushShape !== undefined) {
+          const wasCustom = currentSettings.brushShape === BrushShape.CUSTOM;
+          const isCustom = settings.brushShape === BrushShape.CUSTOM;
+          
+          if (!wasCustom && isCustom) {
+            // Switching TO custom brush: save current regular size
+            newSettings.lastRegularBrushSize = currentSettings.size;
+          } else if (wasCustom && !isCustom) {
+            // Switching FROM custom brush: restore last regular size
+            if (currentSettings.lastRegularBrushSize !== undefined) {
+              newSettings.size = currentSettings.lastRegularBrushSize;
+            }
+          }
         }
-      })),
+        
+        // Update lastRegularBrushSize when size changes for regular brushes
+        if (settings.size !== undefined && 
+            newSettings.brushShape !== BrushShape.CUSTOM) {
+          newSettings.lastRegularBrushSize = settings.size;
+        }
+        
+        return {
+          tools: {
+            ...state.tools,
+            brushSettings: newSettings
+          }
+        };
+      }),
       setEraserSettings: (settings) => set((state) => ({
         tools: {
           ...state.tools,
@@ -243,7 +270,30 @@ export const useAppStore = create<AppState>()(
       activeBrushComponents: defaultBrushPreset.components,
       setBrushPreset: (preset) => set((state) => {
         const { settings, components } = applyBrushPreset(preset);
-        const newBrushSettings = { ...state.tools.brushSettings, ...settings };
+        const currentSettings = state.tools.brushSettings;
+        const newBrushSettings = { ...currentSettings, ...settings };
+        
+        // Handle brush size restoration when switching between custom and regular brushes
+        if (settings.brushShape !== undefined) {
+          const wasCustom = currentSettings.brushShape === BrushShape.CUSTOM;
+          const isCustom = settings.brushShape === BrushShape.CUSTOM;
+          
+          if (!wasCustom && isCustom) {
+            // Switching TO custom brush: save current regular size
+            newBrushSettings.lastRegularBrushSize = currentSettings.size;
+          } else if (wasCustom && !isCustom) {
+            // Switching FROM custom brush: restore last regular size
+            if (currentSettings.lastRegularBrushSize !== undefined) {
+              newBrushSettings.size = currentSettings.lastRegularBrushSize;
+            }
+          }
+        }
+        
+        // Update lastRegularBrushSize when size changes for regular brushes
+        if (settings.size !== undefined && 
+            newBrushSettings.brushShape !== BrushShape.CUSTOM) {
+          newBrushSettings.lastRegularBrushSize = settings.size;
+        }
         
         return {
           currentBrushPreset: preset,

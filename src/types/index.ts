@@ -164,6 +164,7 @@ export interface BrushSettings {
   antialiasing: boolean;
   brushShape?: BrushShape;
   selectedCustomBrush?: string | null;
+  lastRegularBrushSize?: number;
 }
 
 export interface ComponentParams {
