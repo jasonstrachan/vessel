@@ -580,23 +580,53 @@ export const useBrushEngine = () => {
     
     // Check for custom brush before regular tool handling
     const isCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM;
-    const customBrush = isCustomBrush && tools.brushSettings.selectedCustomBrush && project
+    
+    // Look for custom brush in project's custom brushes first
+    let customBrush = isCustomBrush && tools.brushSettings.selectedCustomBrush && project
       ? project.customBrushes.find(b => b.id === tools.brushSettings.selectedCustomBrush)
       : null;
     
+    // If not found in project custom brushes, check brush presets for custom brush presets
+    if (!customBrush && isCustomBrush && tools.brushSettings.selectedCustomBrush) {
+      const customBrushPreset = get().brushPresets.find(p => 
+        p.id === tools.brushSettings.selectedCustomBrush && p.isCustomBrush && p.customBrushData
+      );
+      if (customBrushPreset?.customBrushData) {
+        // Convert preset to custom brush format
+        customBrush = {
+          id: customBrushPreset.id,
+          name: customBrushPreset.name,
+          imageData: customBrushPreset.customBrushData.imageData,
+          thumbnail: customBrushPreset.thumbnail,
+          width: customBrushPreset.customBrushData.width,
+          height: customBrushPreset.customBrushData.height,
+          createdAt: customBrushPreset.createdAt.getTime()
+        };
+      }
+    }
     
-    // Handle custom brush rendering
+    
+    // Handle custom brush rendering with spacing support
     if (isCustomBrush && customBrush) {
       // For custom brushes, use actual captured size (scale factor of 1.0)
       // The brush size setting can be used to further scale if needed
       const scaleFactor = 1.0;
       
-      // Check if this is a line stroke or a single point
-      const distance = Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2));
-      if (distance > 1) {
-        drawCustomBrushLine(ctx, from.x, from.y, to.x, to.y, customBrush, scaleFactor);
-      } else {
-        drawCustomBrushStamp(ctx, to.x, to.y, customBrush, scaleFactor);
+      // Apply spacing system to custom brushes
+      const distance = Math.sqrt(Math.pow(to.x - queue.lastStrokePosition.x, 2) + Math.pow(to.y - queue.lastStrokePosition.y, 2));
+      queue.accumulatedDistance += distance;
+      
+      // Draw custom brush stamps along the path only when accumulated distance exceeds spacing
+      while (queue.accumulatedDistance >= settings.spacing) {
+        // Calculate the position where we should place the next stamp
+        const remaining = queue.accumulatedDistance - settings.spacing;
+        const progress = (distance - remaining) / distance;
+        const x = queue.lastStrokePosition.x + (to.x - queue.lastStrokePosition.x) * progress;
+        const y = queue.lastStrokePosition.y + (to.y - queue.lastStrokePosition.y) * progress;
+        
+        drawCustomBrushStamp(ctx, x, y, customBrush, scaleFactor);
+        
+        queue.accumulatedDistance -= settings.spacing;
       }
       
       // Update last stroke position for next call

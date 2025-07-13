@@ -35,6 +35,13 @@ export interface BrushPreset {
   isDefault: boolean;
   createdAt: Date;
   modifiedAt: Date;
+  // Optional fields for custom brushes
+  isCustomBrush?: boolean;
+  customBrushData?: {
+    imageData: ImageData;
+    width: number;
+    height: number;
+  };
 }
 
 export interface BrushComponent {

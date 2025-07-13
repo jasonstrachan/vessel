@@ -6,17 +6,12 @@ import { CustomBrush, BrushShape } from '@/types';
 export const CustomBrushPanel = () => {
   const { 
     project, 
-    tools,
-    setBrushSettings, 
     addCustomBrush, 
-    removeCustomBrush,
     currentLayer,
     selectionStart,
     selectionEnd,
     clearSelection
   } = useAppStore();
-  
-  const brushSettings = tools.brushSettings;
 
   const handleAddCustomBrush = () => {
     if (!selectionStart || !selectionEnd || !project) return;
@@ -117,23 +112,6 @@ export const CustomBrushPanel = () => {
     clearSelection();
   };
 
-  const handleSelectCustomBrush = (brushId: string) => {
-    setBrushSettings({ 
-      brushShape: BrushShape.CUSTOM,
-      selectedCustomBrush: brushId 
-    });
-  };
-
-  const handleRemoveCustomBrush = (brushId: string) => {
-    // If this brush is currently selected, switch back to square
-    if (brushSettings.selectedCustomBrush === brushId) {
-      setBrushSettings({ 
-        brushShape: BrushShape.SQUARE,
-        selectedCustomBrush: null 
-      });
-    }
-    removeCustomBrush(brushId);
-  };
 
   const canCreateBrush = selectionStart && selectionEnd;
 
@@ -156,46 +134,16 @@ export const CustomBrushPanel = () => {
         </button>
       </div>
 
-      {/* Custom brushes grid */}
-      <div className="grid grid-cols-3 gap-2">
-        {(project?.customBrushes || []).map((brush) => (
-          <div key={brush.id} className="relative group">
-            <button
-              onClick={() => handleSelectCustomBrush(brush.id)}
-              className={`w-full aspect-square border-2 transition-colors relative overflow-hidden ${
-                brushSettings.selectedCustomBrush === brush.id
-                  ? 'border-[#60a5fa] bg-[#60a5fa]/20'
-                  : 'border-[#404040] hover:border-white'
-              }`}
-            >
-              <img
-                src={brush.thumbnail}
-                alt={brush.name}
-                className="w-full h-full object-cover"
-                style={{ imageRendering: 'pixelated' }}
-              />
-            </button>
-            
-            {/* Remove button (appears on hover) */}
-            <button
-              onClick={() => handleRemoveCustomBrush(brush.id)}
-              className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full 
-                         opacity-0 group-hover:opacity-100 transition-opacity duration-200
-                         flex items-center justify-center hover:bg-red-600"
-              title="Remove brush"
-            >
-              ×
-            </button>
-          </div>
-        ))}
+      {/* Instructions */}
+      <div className="text-center py-4 text-[#888888] text-sm">
+        <p className="mb-2">Create custom brushes from selections:</p>
+        <ol className="text-xs text-left space-y-1 max-w-xs mx-auto">
+          <li>1. Use Custom Brush tool to make a selection</li>
+          <li>2. Click + button above to create brush</li>
+          <li>3. Find your brush in the Brush Library</li>
+          <li>4. Use + button in library to save permanently</li>
+        </ol>
       </div>
-
-      {/* Empty state */}
-      {(project?.customBrushes?.length || 0) === 0 && (
-        <div className="text-center py-8 text-[#666666]">
-          {/* Empty grid space */}
-        </div>
-      )}
     </div>
   );
 };

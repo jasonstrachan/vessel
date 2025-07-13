@@ -15,6 +15,7 @@ import type {
   BrushComponent,
   CustomBrush,
 } from '../types';
+import { BrushShape } from '../types';
 import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
 
 interface AppState {
@@ -79,6 +80,7 @@ interface AppState {
   // Custom Brush Management
   addCustomBrush: (brush: CustomBrush) => void;
   removeCustomBrush: (brushId: string) => void;
+  saveCustomBrushAsPreset: (customBrushId: string) => void;
 }
 
 // Default states - use default brush settings
@@ -197,13 +199,25 @@ export const useAppStore = create<AppState>()(
       
       // Tool State
       tools: defaultToolState,
-      setCurrentTool: (tool) => set((state) => ({
-        tools: {
-          ...state.tools,
-          previousTool: state.tools.currentTool,
-          currentTool: tool
+      setCurrentTool: (tool) => set((state) => {
+        const newBrushSettings = { ...state.tools.brushSettings };
+        
+        // Reset custom brush state when switching to incompatible tools
+        // Preserve custom brush when switching from 'custom' to 'brush' tool
+        if (state.tools.currentTool === 'custom' && tool !== 'custom' && tool !== 'brush') {
+          newBrushSettings.brushShape = BrushShape.ROUND; // Reset to default shape
+          newBrushSettings.selectedCustomBrush = null;
         }
-      })),
+        
+        return {
+          tools: {
+            ...state.tools,
+            previousTool: state.tools.currentTool,
+            currentTool: tool,
+            brushSettings: newBrushSettings
+          }
+        };
+      }),
       setBrushSettings: (settings) => set((state) => ({
         tools: {
           ...state.tools,
@@ -339,7 +353,34 @@ export const useAppStore = create<AppState>()(
           ...state.project,
           customBrushes: state.project.customBrushes.filter(b => b.id !== brushId)
         } : null
-      }))
+      })),
+      saveCustomBrushAsPreset: (customBrushId) => set((state) => {
+        const customBrush = state.project?.customBrushes.find(b => b.id === customBrushId);
+        if (!customBrush) return state;
+        
+        // Create a brush preset from the custom brush
+        const newPreset: BrushPreset = {
+          id: `preset_${customBrush.id}`,
+          name: `${customBrush.name} (Saved)`,
+          category: 'Custom',
+          components: [], // Custom brushes don't use components
+          thumbnail: customBrush.thumbnail,
+          tags: ['custom', 'saved'],
+          isDefault: false,
+          createdAt: new Date(),
+          modifiedAt: new Date(),
+          isCustomBrush: true,
+          customBrushData: {
+            imageData: customBrush.imageData,
+            width: customBrush.width,
+            height: customBrush.height
+          }
+        };
+        
+        return {
+          brushPresets: [...state.brushPresets, newPreset]
+        };
+      })
     }),
     { name: 'tinybrush-store' }
   )
