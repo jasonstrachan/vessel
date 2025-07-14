@@ -11,6 +11,12 @@ export interface Project {
   createdAt: Date;
   updatedAt: Date;
   customBrushes: CustomBrush[];
+  // Canvas view state
+  viewState?: {
+    zoom: number;
+    panX: number;
+    panY: number;
+  };
 }
 
 export interface Layer {
@@ -202,7 +208,7 @@ export interface HistoryState {
   isCapturing: boolean;
 }
 
-export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'pan' | 'new-document' | 'save' | 'custom';
+export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'pan' | 'new-document' | 'save' | 'load' | 'custom';
 
 export type BlendMode = GlobalCompositeOperation;
 

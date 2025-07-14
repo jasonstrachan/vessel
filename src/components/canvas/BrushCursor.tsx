@@ -140,8 +140,8 @@ const BrushCursor = memo(function BrushCursor({
             cy={screenSize / 2}
             r={Math.max(0.5, screenSize / 2 - 1)}
             fill="none"
-            stroke={color}
-            strokeWidth={Math.max(1, 1 / zoom)}
+            stroke="#666666"
+            strokeWidth={Math.max(1, zoom)}
             opacity={0.8}
           />
         </svg>
@@ -152,7 +152,7 @@ const BrushCursor = memo(function BrushCursor({
           style={{
             width: `${screenSize}px`,
             height: `${screenSize}px`,
-            border: `${Math.max(1, 1 / zoom)}px solid ${color}`,
+            border: `${Math.max(1, zoom)}px solid #666666`,
             borderRadius: '50%',
             opacity: 0.8,
             imageRendering: 'pixelated',
@@ -165,7 +165,7 @@ const BrushCursor = memo(function BrushCursor({
           style={{
             width: `${screenSize}px`,
             height: `${screenSize}px`,
-            border: `${Math.max(1, 1 / zoom)}px solid ${color}`,
+            border: `${Math.max(1, zoom)}px solid #666666`,
             opacity: 0.8,
           }}
         />
@@ -183,8 +183,8 @@ const BrushCursor = memo(function BrushCursor({
           <polygon
             points={`${screenSize / 2},${1} ${screenSize - 1},${screenSize - 1} ${1},${screenSize - 1}`}
             fill="none"
-            stroke={color}
-            strokeWidth={Math.max(1, 1 / zoom)}
+            stroke="#666666"
+            strokeWidth={Math.max(1, zoom)}
             opacity={0.8}
           />
         </svg>

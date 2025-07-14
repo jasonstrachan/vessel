@@ -19,12 +19,21 @@ import type {
 } from '../types';
 import { BrushShape } from '../types';
 import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
+import { 
+  saveProjectToFile, 
+  loadProjectFromFile, 
+  exportProjectAsPNG
+} from '../utils/projectIO';
 
 interface AppState {
   // Project State
   project: Project | null;
   setProject: (project: Project) => void;
   updateProject: (updates: Partial<Project>) => void;
+  
+  // Layer composition trigger
+  layersNeedRecomposition: boolean;
+  setLayersNeedRecomposition: (needed: boolean) => void;
   
   // History State
   history: HistoryState;
@@ -92,6 +101,14 @@ interface AppState {
   addCustomBrush: (brush: CustomBrush) => void;
   removeCustomBrush: (brushId: string) => void;
   saveCustomBrushAsPreset: (customBrushId: string) => void;
+  
+  // Project Save/Load Management
+  saveProject: (filename?: string) => Promise<void>;
+  loadProject: () => Promise<void>;
+  exportProject: (format: 'png', options?: any) => Promise<void>;
+  newProject: (width: number, height: number, name?: string) => void;
+  compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => void;
+  captureCanvasToActiveLayer: (sourceCanvas?: HTMLCanvasElement) => Promise<void>;
 }
 
 // Default states - use default brush settings
@@ -174,6 +191,10 @@ export const useAppStore = create<AppState>()(
       updateProject: (updates) => set((state) => ({
         project: state.project ? { ...state.project, ...updates } : null
       })),
+      
+      // Layer composition trigger
+      layersNeedRecomposition: false,
+      setLayersNeedRecomposition: (needed) => set({ layersNeedRecomposition: needed }),
       
       // Canvas State
       canvas: defaultCanvasState,
@@ -380,22 +401,41 @@ export const useAppStore = create<AppState>()(
           id: `layer-${Date.now()}-${Math.random()}`,
           order: state.layers.length
         };
+        const updatedLayers = [...state.layers, newLayer];
         return {
-          layers: [...state.layers, newLayer],
-          activeLayerId: newLayer.id
+          layers: updatedLayers,
+          activeLayerId: newLayer.id,
+          project: state.project ? {
+            ...state.project,
+            layers: updatedLayers
+          } : null
         };
       }),
-      removeLayer: (id) => set((state) => ({
-        layers: state.layers.filter(l => l.id !== id),
-        activeLayerId: state.activeLayerId === id ? 
-          state.layers.find(l => l.id !== id)?.id || null : 
-          state.activeLayerId
-      })),
-      updateLayer: (id, updates) => set((state) => ({
-        layers: state.layers.map(layer =>
+      removeLayer: (id) => set((state) => {
+        const updatedLayers = state.layers.filter(l => l.id !== id);
+        return {
+          layers: updatedLayers,
+          activeLayerId: state.activeLayerId === id ? 
+            updatedLayers.find(l => l.id !== id)?.id || null : 
+            state.activeLayerId,
+          project: state.project ? {
+            ...state.project,
+            layers: updatedLayers
+          } : null
+        };
+      }),
+      updateLayer: (id, updates) => set((state) => {
+        const updatedLayers = state.layers.map(layer =>
           layer.id === id ? { ...layer, ...updates } : layer
-        )
-      })),
+        );
+        return {
+          layers: updatedLayers,
+          project: state.project ? {
+            ...state.project,
+            layers: updatedLayers
+          } : null
+        };
+      }),
       setActiveLayer: (id) => set({ activeLayerId: id }),
       reorderLayers: (sourceIndex, destinationIndex) => set((state) => {
         const newLayers = [...state.layers];
@@ -403,11 +443,17 @@ export const useAppStore = create<AppState>()(
         newLayers.splice(destinationIndex, 0, removed);
         
         // Update order values
+        const updatedLayers = newLayers.map((layer, index) => ({
+          ...layer,
+          order: index
+        }));
+        
         return {
-          layers: newLayers.map((layer, index) => ({
-            ...layer,
-            order: index
-          }))
+          layers: updatedLayers,
+          project: state.project ? {
+            ...state.project,
+            layers: updatedLayers
+          } : null
         };
       }),
       
@@ -551,7 +597,271 @@ export const useAppStore = create<AppState>()(
           undoStack: [],
           redoStack: []
         }
-      }))
+      })),
+      
+      // Project Save/Load Management
+      saveProject: async (filename?: string) => {
+        const state = get();
+        if (!state.project) {
+          throw new Error('No project to save');
+        }
+        
+        try {
+          // Capture current canvas state to active layer before saving
+          await state.captureCanvasToActiveLayer();
+          
+          // Get fresh state after capture and save view state
+          const freshState = get();
+          const projectWithViewState = {
+            ...freshState.project!,
+            viewState: {
+              zoom: freshState.canvas.zoom,
+              panX: freshState.canvas.panX,
+              panY: freshState.canvas.panY
+            }
+          };
+          
+          await saveProjectToFile(projectWithViewState, filename);
+          state.addNotification({
+            type: 'success',
+            title: 'Project Saved',
+            message: `${state.project.name} has been saved successfully`,
+            timestamp: new Date()
+          });
+        } catch (error) {
+          state.addNotification({
+            type: 'error',
+            title: 'Save Failed',
+            message: error instanceof Error ? error.message : 'Failed to save project',
+            timestamp: new Date()
+          });
+          throw error;
+        }
+      },
+      
+      loadProject: async () => {
+        const state = get();
+        
+        try {
+          const loadedProject = await loadProjectFromFile();
+          
+          // Update the store with the loaded project
+          set({
+            project: loadedProject,
+            layers: loadedProject.layers,
+            activeLayerId: loadedProject.layers[0]?.id || null,
+            layersNeedRecomposition: true,
+            // Restore view state if available
+            canvas: loadedProject.viewState ? {
+              ...get().canvas,
+              zoom: loadedProject.viewState.zoom,
+              panX: loadedProject.viewState.panX,
+              panY: loadedProject.viewState.panY
+            } : get().canvas
+          });
+          
+          // Clear history when loading a new project
+          state.clearHistory();
+          
+          // Force recomposition after a short delay to ensure canvas is ready
+          setTimeout(() => {
+            const currentState = get();
+            if (currentState.layersNeedRecomposition === false) {
+              set({ layersNeedRecomposition: true });
+            }
+          }, 100);
+          
+          state.addNotification({
+            type: 'success',
+            title: 'Project Loaded',
+            message: `${loadedProject.name} has been loaded successfully`,
+            timestamp: new Date()
+          });
+        } catch (error) {
+          state.addNotification({
+            type: 'error',
+            title: 'Load Failed',
+            message: error instanceof Error ? error.message : 'Failed to load project',
+            timestamp: new Date()
+          });
+          throw error;
+        }
+      },
+      
+      exportProject: async (format: 'png', options = {}) => {
+        const state = get();
+        if (!state.project) {
+          throw new Error('No project to export');
+        }
+        
+        try {
+          if (format === 'png') {
+            await exportProjectAsPNG(state.project, state.layers, options);
+            state.addNotification({
+              type: 'success',
+              title: 'Export Complete',
+              message: `${state.project.name} has been exported as PNG`,
+              timestamp: new Date()
+            });
+          } else {
+            throw new Error(`Unsupported export format: ${format}`);
+          }
+        } catch (error) {
+          state.addNotification({
+            type: 'error',
+            title: 'Export Failed',
+            message: error instanceof Error ? error.message : 'Failed to export project',
+            timestamp: new Date()
+          });
+          throw error;
+        }
+      },
+      
+      newProject: (width: number, height: number, name = 'Untitled') => {
+        const newProject: Project = {
+          id: `project-${Date.now()}-${Math.random()}`,
+          name,
+          width,
+          height,
+          layers: [],
+          backgroundColor: '#FFFFFF',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          customBrushes: []
+        };
+        
+        set({
+          project: newProject,
+          layers: [],
+          activeLayerId: null
+        });
+        
+        // Clear history for new project
+        get().clearHistory();
+      },
+      
+      compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => {
+        const state = get();
+        if (!state.project || !state.layers.length) return;
+        
+        const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return;
+        
+        // Set canvas size to project dimensions
+        targetCanvas.width = state.project.width;
+        targetCanvas.height = state.project.height;
+        
+        // Clear the canvas
+        ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+        
+        // Draw background color
+        ctx.fillStyle = state.project.backgroundColor;
+        ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+        
+        // Sort layers by order and draw each visible layer
+        const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
+        
+        for (const layer of sortedLayers) {
+          if (!layer.visible || !layer.imageData) continue;
+          
+          // Create temporary canvas for the layer
+          const layerCanvas = document.createElement('canvas');
+          layerCanvas.width = layer.imageData.width;
+          layerCanvas.height = layer.imageData.height;
+          const layerCtx = layerCanvas.getContext('2d');
+          
+          if (layerCtx) {
+            // Put the layer's ImageData onto the temporary canvas
+            layerCtx.putImageData(layer.imageData, 0, 0);
+            
+            // Set composite operation and opacity
+            ctx.globalCompositeOperation = layer.blendMode;
+            ctx.globalAlpha = layer.opacity;
+            
+            // Draw the layer onto the target canvas
+            ctx.drawImage(layerCanvas, 0, 0);
+          }
+        }
+        
+        // Reset context state
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1.0;
+      },
+      
+      captureCanvasToActiveLayer: async (sourceCanvas?: HTMLCanvasElement) => {
+        const state = get();
+        if (!state.project || state.layers.length === 0) {
+          console.warn('Cannot capture: no project or layers');
+          return;
+        }
+        
+        // Try to get the source canvas (offscreen canvas with the drawing)
+        let canvas = sourceCanvas;
+        if (!canvas && typeof window !== 'undefined' && (window as any).tinybrushDebugCanvas) {
+          canvas = (window as any).tinybrushDebugCanvas.getOffscreenCanvas();
+        }
+        
+        if (!canvas) {
+          console.warn('No canvas available for capture');
+          return;
+        }
+        
+        console.log('Canvas capture details:', {
+          canvasSize: `${canvas.width}x${canvas.height}`,
+          projectSize: `${state.project.width}x${state.project.height}`,
+          layerCount: state.layers.length,
+          activeLayerId: state.activeLayerId
+        });
+        
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) {
+          console.warn('No canvas context available');
+          return;
+        }
+        
+        try {
+          // Capture only the project area, not the full canvas
+          const captureWidth = Math.min(state.project.width, canvas.width);
+          const captureHeight = Math.min(state.project.height, canvas.height);
+          
+          const imageData = ctx.getImageData(0, 0, captureWidth, captureHeight);
+          console.log('Captured ImageData:', {
+            size: `${imageData.width}x${imageData.height}`,
+            dataLength: imageData.data.length,
+            projectSize: `${state.project.width}x${state.project.height}`
+          });
+          
+          // Find the active layer or use the first layer
+          const activeLayerId = state.activeLayerId || state.layers[0]?.id;
+          if (activeLayerId) {
+            // Update the layer with the captured ImageData using direct set
+            set((currentState) => {
+              const updatedLayers = currentState.layers.map(layer =>
+                layer.id === activeLayerId ? { ...layer, imageData } : layer
+              );
+              return {
+                layers: updatedLayers,
+                project: currentState.project ? {
+                  ...currentState.project,
+                  layers: updatedLayers
+                } : null
+              };
+            });
+            
+            console.log('Captured canvas to active layer:', activeLayerId);
+            
+            // Wait for the next tick to ensure store update is complete
+            await new Promise(resolve => setTimeout(resolve, 0));
+            
+            // Verify the layer was updated (get fresh state)
+            const freshState = get();
+            const updatedLayer = freshState.layers.find(l => l.id === activeLayerId);
+            console.log('Layer after update has imageData:', !!updatedLayer?.imageData);
+          }
+        } catch (error) {
+          console.error('Failed to capture canvas to layer:', error);
+        }
+      }
     }),
     { name: 'tinybrush-store' }
   )
