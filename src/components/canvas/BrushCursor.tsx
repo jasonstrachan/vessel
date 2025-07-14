@@ -92,14 +92,14 @@ const BrushCursor = memo(function BrushCursor({
       <div
         className="pointer-events-none fixed"
         style={{
-          left: `${screenX - displayWidth / 2}px`,
-          top: `${screenY - displayHeight / 2}px`,
+          left: `${screenX}px`,
+          top: `${screenY}px`,
           width: `${displayWidth}px`,
           height: `${displayHeight}px`,
           opacity: 0.5,
           mixBlendMode: 'multiply',
           zIndex: 100,
-          transform: 'translate3d(0, 0, 0)', // Force GPU acceleration
+          transform: 'translate(-50%, -50%)', // Center the cursor consistently
         }}
       >
         <img

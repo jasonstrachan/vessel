@@ -18,13 +18,13 @@ class Picker {
   hueSelector: { y: number };
   clicked: boolean;
   hueClicked: boolean;
-  hue: number;
-  saturation: number;
-  lightness: number;
-  red: number;
-  green: number;
-  blue: number;
-  hexcode: string;
+  hue: number = 0;
+  saturation: number = 0;
+  lightness: number = 0;
+  red: number = 0;
+  green: number = 0;
+  blue: number = 0;
+  hexcode: string = "#000000";
   oldColor: string;
   onColorChange: (color: string) => void;
 

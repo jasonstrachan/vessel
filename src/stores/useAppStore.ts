@@ -660,6 +660,9 @@ export const useAppStore = create<AppState>()(
             } : get().canvas
           });
           
+          // Restore canvas dimensions to match the loaded project
+          state.setCanvasDimensions(loadedProject.width, loadedProject.height);
+          
           // Clear history when loading a new project
           state.clearHistory();
           

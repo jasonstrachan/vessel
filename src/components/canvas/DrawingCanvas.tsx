@@ -20,6 +20,7 @@ interface DrawingCanvasProps {
 
 export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameRef = useRef<number | null>(null);
   const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -34,7 +35,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   const [lastMouseY, setLastMouseY] = useState(0);
   const [mouseX, setMouseX] = useState(0);
   const [mouseY, setMouseY] = useState(0);
-  const [currentTime, setCurrentTime] = useState<string>('');
   const [isCanvasInitialized, setIsCanvasInitialized] = useState(false);
   const [isDraggingSelection, setIsDraggingSelection] = useState(false);
   const [selectionDragStart, setSelectionDragStart] = useState<{ x: number; y: number } | null>(null);
@@ -187,54 +187,88 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     }
   }, []);
 
+  // Shared coordinate transformation function
+  const transformScreenToCanvas = useCallback((clientX: number, clientY: number) => {
+    // Ensure both the wrapper and canvas refs are available
+    if (!canvasRef.current || !wrapperRef.current) {
+      return { canvasX: 0, canvasY: 0, worldX: 0, worldY: 0 };
+    }
+
+    const canvasEl = canvasRef.current;
+    const wrapperEl = wrapperRef.current;
+
+    // 1. Get the position of our stable wrapper element.
+    const wrapperRect = wrapperEl.getBoundingClientRect();
+
+    // 2. Calculate mouse position relative to the wrapper's top-left corner.
+    // This gives us a coordinate within our local system, immune to parent transforms.
+    const mouseXInWrapper = clientX - wrapperRect.left;
+    const mouseYInWrapper = clientY - wrapperRect.top;
+
+    // 3. Adjust for the canvas border to get the coordinate relative to the drawable area.
+    // This gives us the final coordinate in "Canvas CSS Pixels".
+    const canvasCssX = mouseXInWrapper - canvasEl.clientLeft;
+    const canvasCssY = mouseYInWrapper - canvasEl.clientTop;
+
+    // 4. Convert to world coordinates by inverting the pan and zoom transformation.
+    // Since your canvas logical buffer size and CSS display size are identical,
+    // no extra scaling is needed here.
+    const worldX = (canvasCssX - canvas.panX) / canvas.zoom;
+    const worldY = (canvasCssY - canvas.panY) / canvas.zoom;
+
+    return { canvasX: canvasCssX, canvasY: canvasCssY, worldX, worldY };
+  }, [canvas.zoom, canvas.panX, canvas.panY]);
+
   // Update mouse position and world coordinates
-  const updateMousePosition = useCallback((event: { clientX: number; clientY: number }) => {
-    if (!canvasRef.current) return;
+  const updateMousePosition = useCallback((event: { clientX: number; clientY: number }, isCanvasEvent: boolean = false) => {
+    if (!canvasRef.current || !wrapperRef.current) return;
     
-    const rect = canvasRef.current.getBoundingClientRect();
-    const clientXRelativeToCanvas = event.clientX - rect.left;
-    const clientYRelativeToCanvas = event.clientY - rect.top;
+    const coords = transformScreenToCanvas(event.clientX, event.clientY);
     
-    // Scale to canvas drawing buffer coordinates (use CSS size, not buffer size)
-    const scaleX = width / rect.width;
-    const scaleY = height / rect.height;
+    setMouseX(coords.canvasX);
+    setMouseY(coords.canvasY);
     
-    const newMouseX = clientXRelativeToCanvas * scaleX;
-    const newMouseY = clientYRelativeToCanvas * scaleY;
     
-    setMouseX(newMouseX);
-    setMouseY(newMouseY);
-    
-    // Set cursor screen position (relative to viewport, not canvas)
+    // SIMPLE FIX: Use raw coordinates - if painting works, this should too
+    // The coordinate system alignment happens in the coordinate transformation functions
     setCursorScreenX(event.clientX);
     setCursorScreenY(event.clientY);
+    
+    // DEBUG: Compare what we're getting vs what we should get
+    // if (Math.random() < 0.1) {
+    // }
+    
+    // DEBUG: Log the actual mouse event details to understand the issue
+    // if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+    // }
+    
+    // Debug: Verify coordinate transformation consistency
+    // if (process.env.NODE_ENV === 'development' && window.debugCursorAlignment && Math.random() < 0.01) {
+    // }
     
     // Show brush cursor for brush-like tools (optimized to avoid unnecessary updates)
     const shouldShowBrushCursor = (tools.currentTool === 'brush' || tools.currentTool === 'eraser') && !spacebarPressed;
     setShowBrushCursor(prev => prev !== shouldShowBrushCursor ? shouldShowBrushCursor : prev);
-  }, [tools.currentTool, spacebarPressed, width, height]);
+  }, [transformScreenToCanvas, canvas.panX, canvas.panY, canvas.zoom, tools.currentTool, spacebarPressed]);
   
   // Convert screen coordinates to world coordinates
+  // SIMPLIFIED: Use same coordinate system as cursor positioning for alignment
   const screenToCanvas = useCallback((clientX: number, clientY: number) => {
     if (!canvasRef.current) return { x: 0, y: 0 };
     
     const rect = canvasRef.current.getBoundingClientRect();
-    const clientXRelativeToCanvas = clientX - rect.left;
-    const clientYRelativeToCanvas = clientY - rect.top;
     
-    // Scale to canvas drawing buffer coordinates (use CSS size, not buffer size)
-    const scaleX = width / rect.width;
-    const scaleY = height / rect.height;
+    // Use same coordinate system as cursor positioning
+    // Canvas is positioned absolutely within its wrapper, so coordinates align directly
+    const canvasX = clientX - rect.left;
+    const canvasY = clientY - rect.top;
     
-    const mouseX = clientXRelativeToCanvas * scaleX;
-    const mouseY = clientYRelativeToCanvas * scaleY;
-    
-    // Convert to world coordinates
-    const worldX = (mouseX - canvas.panX) / canvas.zoom;
-    const worldY = (mouseY - canvas.panY) / canvas.zoom;
+    // Convert to world coordinates (no scaling needed if canvas CSS size matches logical size)
+    const worldX = (canvasX - canvas.panX) / canvas.zoom;
+    const worldY = (canvasY - canvas.panY) / canvas.zoom;
     
     return { x: worldX, y: worldY };
-  }, [canvas.zoom, canvas.panX, canvas.panY, width, height]);
+  }, [canvas.panX, canvas.panY, canvas.zoom]);
 
   // Render the view with zoom/pan transformations
   const renderView = useCallback(() => {
@@ -258,6 +292,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     // Apply zoom and pan transformations (devicePixelRatio scaling already applied in initialization)
     ctx.translate(canvas.panX, canvas.panY);
     ctx.scale(canvas.zoom, canvas.zoom);
+    
     
     // Draw checkerboard pattern as background for transparency
     const checkSize = 20;
@@ -510,7 +545,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
   // Mouse event handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    updateMousePosition(e);
+    updateMousePosition(e, true); // Canvas event
     
     if (spacebarPressed) {
       // Start panning
@@ -606,7 +641,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, canvas.selection.active, isPointInSelection, tools.currentTool, sampleColor, setBrushSettings, setSelectionBounds, setIsSelecting, saveCanvasState, offscreenCanvasRef]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    updateMousePosition(e);
+    updateMousePosition(e, true); // Canvas event
     
     if (isPanning) {
       // Handle panning - calculate delta in canvas coordinates
@@ -706,7 +741,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const touch = e.touches[0];
     
     // Update mouse position from touch
-    updateMousePosition(touch);
+    updateMousePosition(touch, true); // Canvas event
     
     if (spacebarPressed) {
       // Start panning
@@ -738,7 +773,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const touch = e.touches[0];
     
     // Update mouse position from touch
-    updateMousePosition(touch);
+    updateMousePosition(touch, true); // Canvas event
     
     if (isPanning) {
       // Handle panning - calculate delta in canvas coordinates
@@ -786,7 +821,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     if (!canvasRef.current) return;
     
     // Update mouse position first
-    updateMousePosition(e);
+    updateMousePosition(e, true); // Canvas event
     
     const oldZoom = canvas.zoom;
     
@@ -1142,12 +1177,15 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         if (!isCanvasInitialized) {
           initializeCanvas();
           setIsCanvasInitialized(true);
+          
+          // Reset pan to default position (world origin at canvas origin)
+          setPan(0, 0);
         }
       }
     } catch (error) {
       console.error('Canvas initialization error:', error);
     }
-  }, [isCanvasInitialized, initializeCanvas]);
+  }, [isCanvasInitialized, initializeCanvas, setPan]);
 
   // Event listeners setup - separate from canvas initialization
   useEffect(() => {
@@ -1184,11 +1222,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     };
   }, [handlePaste]); // Include handlePaste in dependency array
 
-  // Show build timestamp on load
-  useEffect(() => {
-    const buildTime = process.env.BUILD_TIMESTAMP?.slice(0, 19).replace('T', ' ') || 'Development';
-    setCurrentTime(buildTime);
-  }, []);
 
   // Initialize debug utilities (development only)
   useEffect(() => {
@@ -1214,7 +1247,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   // Create initial layer if none exists
   useEffect(() => {
     if (isCanvasInitialized && project && layers.length === 0) {
-      console.log('Creating initial layer...');
       const initialLayer = {
         name: 'Background',
         visible: true,
@@ -1271,7 +1303,18 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   // Add document mousemove listener for better mouse tracking
   useEffect(() => {
     const handleDocumentMouseMove = (e: MouseEvent) => {
-      updateMousePosition(e);
+      // CRITICAL FIX: Don't update mouse position from document events when over canvas
+      // This was causing the cursor misalignment!
+      const canvasEl = canvasRef.current;
+      if (canvasEl) {
+        const rect = canvasEl.getBoundingClientRect();
+        const isOverCanvas = e.clientX >= rect.left && e.clientX <= rect.right && 
+                           e.clientY >= rect.top && e.clientY <= rect.bottom;
+        
+        if (!isOverCanvas) {
+          updateMousePosition(e);
+        }
+      }
       
       if (isPanning) {
         // Handle panning when mouse moves outside canvas
@@ -1307,16 +1350,11 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   // Layer recomposition when project loads
   useEffect(() => {
     if (layersNeedRecomposition) {
-      console.log('=== RECOMPOSITION TRIGGERED ===');
-      console.log('Offscreen canvas available:', !!offscreenCanvasRef.current);
-      console.log('Layers to composite:', layers.length);
       
       if (offscreenCanvasRef.current) {
-        console.log('Starting layer composition...');
         compositeLayersToCanvas(offscreenCanvasRef.current);
         renderView();
         setLayersNeedRecomposition(false);
-        console.log('Layer composition completed');
       } else {
         console.warn('Offscreen canvas not available for recomposition');
       }
@@ -1335,15 +1373,16 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         className="w-full h-full bg-[#141514] flex items-center justify-center relative"
         style={{
           overflow: 'hidden',
-          clipPath: 'inset(0)',
-          contain: 'strict'
+          clipPath: 'inset(0)'
         }}
       >
-        <canvas
+        {/* Wrapper div for absolute positioning context */}
+        <div ref={wrapperRef} className="relative" style={{ width: `${width}px`, height: `${height}px` }}>
+          <canvas
           ref={canvasRef}
           width={width}
           height={height}
-          className="border border-[#555]"
+          className=""
           style={{
             ...canvasStyle,
             position: 'relative',
@@ -1368,6 +1407,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
           onFocus={() => {}}
           onBlur={() => {}}
         />
+        
+        </div>
         
         {/* Eyedropper color preview */}
         {previewColor && previewPosition && tools.currentTool === 'eyedropper' && (
@@ -1410,12 +1451,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         visible={showBrushCursor}
       />
       
-      {/* Current code timestamp overlay */}
-      {currentTime && (
-        <div className="fixed bottom-4 right-4 pointer-events-none text-xs text-white bg-red-600 px-2 py-1 rounded font-mono" style={{zIndex: 9999}}>
-          {currentTime}
-        </div>
-      )}
       
     </>
   );

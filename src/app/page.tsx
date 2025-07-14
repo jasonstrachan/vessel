@@ -6,7 +6,6 @@ import BrushLibrary from '../components/BrushLibrary';
 import ControlsPanel from '../components/ControlsPanel';
 import LayerPanel from '../components/LayerPanel';
 import DrawingCanvas from '../components/canvas/DrawingCanvas';
-import DebugPanel from '../components/DebugPanel';
 import { useAppStore } from '../stores/useAppStore';
 
 // Import debug utilities in development
@@ -41,7 +40,6 @@ export default function Home() {
   return (
     <main className="h-screen bg-[#141514] text-white flex overflow-hidden">
       {/* Debug Panel (development only) */}
-      <DebugPanel />
       
       {/* Left Toolbar */}
       <LeftToolbar />
@@ -51,8 +49,7 @@ export default function Home() {
         className="flex-1 bg-[#141514] relative"
         style={{
           overflow: 'hidden',
-          position: 'relative',
-          contain: 'layout style paint'
+          position: 'relative'
         }}
       >
         <DrawingCanvas />
