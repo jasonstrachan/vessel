@@ -112,9 +112,8 @@ export interface ToolState {
   brushSettings: BrushSettings;
   eraserSettings: BrushSettings;
   fillSettings: {
-    tolerance: number;
+    threshold: number;
     contiguous: boolean;
-    allLayers: boolean;
   };
 }
 
@@ -186,6 +185,21 @@ export interface DrawingAction {
   layerId: string;
   timestamp: Date;
   data: Record<string, unknown>;
+}
+
+export interface CanvasSnapshot {
+  id: string;
+  timestamp: number;
+  imageData: ImageData;
+  actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'paste';
+  description: string;
+}
+
+export interface HistoryState {
+  undoStack: CanvasSnapshot[];
+  redoStack: CanvasSnapshot[];
+  maxHistorySize: number;
+  isCapturing: boolean;
 }
 
 export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'pan' | 'new-document' | 'save' | 'custom';

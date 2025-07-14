@@ -1,5 +1,6 @@
 import React from 'react';
 import BrushControls from './toolbar/BrushControls';
+import FillControls from './toolbar/FillControls';
 import { CustomBrushPanel } from './toolbar/CustomBrushPanel';
 import { useAppStore } from '../stores/useAppStore';
 
@@ -8,7 +9,8 @@ const ControlsPanel = () => {
   
   return (
     <div className="h-full overflow-y-auto">
-      <BrushControls />
+      {(tools.currentTool === 'brush' || tools.currentTool === 'eraser') && <BrushControls />}
+      {tools.currentTool === 'fill' && <FillControls />}
       {tools.currentTool === 'custom' && <CustomBrushPanel />}
     </div>
   );
