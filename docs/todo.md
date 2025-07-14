@@ -1,7 +1,11 @@
 # TinyBrush Development Tasks
 
 ## Current Task
-- [ ] No active task
+- [ ] Research and understand left toolbar implementation for custom brush tools
+  - [ ] Analyze LeftToolbar.tsx structure and tool button implementation
+  - [ ] Understand how brush tools are defined in the types/index.ts
+  - [ ] Review how custom brushes are selected and used
+  - [ ] Identify where tool icons are stored and how they're imported
 
 ## Completed  
 - [x] Fixed cursor alignment issue after panning
