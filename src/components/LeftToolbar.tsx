@@ -1,6 +1,7 @@
 import React from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { Tool } from '../types';
+import LoadIcon from './icons/LoadIcon';
 
 const LeftToolbar = () => {
   // Force refresh - toolbar black background fix
@@ -109,10 +110,7 @@ const LeftToolbar = () => {
               <path fillRule="evenodd" clipRule="evenodd" d="M4.78316 2.14697H8.31316V6.43689H13.6911V2.14697H17.2168V6.43689V15.5786H13.6911H8.31316H4.78316V6.43689V2.14697Z" fill="currentColor" fillOpacity="0.8"/>
             </svg>
           ) : tool.id === 'load' ? (
-            <svg width="32" height="28" viewBox="0 0 22 19" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path fillRule="evenodd" clipRule="evenodd" d="M4.78316 2.14697H8.31316V6.43689H13.6911V2.14697H17.2168V6.43689V15.5786H13.6911H8.31316H4.78316V6.43689V2.14697Z" fill="currentColor" fillOpacity="0.8"/>
-              <path d="M11 8.5L8.5 11L11 13.5M11 11H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            <LoadIcon />
           ) : tool.id === 'eyedropper' ? (
             <svg width="24" height="24" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
               <rect x="8.83139" y="6.39124" width="3.8025" height="8.94704" transform="rotate(45 8.83139 6.39124)" fill="currentColor" fillOpacity="0.8"/>
