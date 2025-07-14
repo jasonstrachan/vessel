@@ -19,6 +19,24 @@ export default function BrushControls() {
     <div className="p-4 bg-[#31313A]">
       
 
+      {/* Color */}
+      <div className="mb-4">
+        <label className="block text-xs text-gray-400 mb-2">Color</label>
+        <div className="flex items-center gap-2">
+          <ColorPicker
+            color={brushSettings.color}
+            onChange={(color) => setBrushSettings({ color })}
+          />
+          <input
+            type="text"
+            value={brushSettings.color}
+            onChange={(e) => setBrushSettings({ color: e.target.value })}
+            className="flex-1 px-2 py-1 text-xs bg-[#404040] border border-[#555] rounded text-white"
+            placeholder="#000000"
+          />
+        </div>
+      </div>
+
       {/* Brush Size - Different behavior for custom vs regular brushes */}
       <div className="mb-4">
         {isCustomBrush ? (
@@ -70,24 +88,6 @@ export default function BrushControls() {
           onChange={(e) => setBrushSettings({ opacity: parseFloat(e.target.value) })}
           className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
         />
-      </div>
-
-      {/* Color */}
-      <div className="mb-4">
-        <label className="block text-xs text-gray-400 mb-2">Color</label>
-        <div className="flex items-center gap-2">
-          <ColorPicker
-            color={brushSettings.color}
-            onChange={(color) => setBrushSettings({ color })}
-          />
-          <input
-            type="text"
-            value={brushSettings.color}
-            onChange={(e) => setBrushSettings({ color: e.target.value })}
-            className="flex-1 px-2 py-1 text-xs bg-[#404040] border border-[#555] rounded text-white"
-            placeholder="#000000"
-          />
-        </div>
       </div>
 
       {/* Spacing */}

@@ -190,9 +190,9 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const clientXRelativeToCanvas = event.clientX - rect.left;
     const clientYRelativeToCanvas = event.clientY - rect.top;
     
-    // Scale to canvas drawing buffer coordinates
-    const scaleX = canvasRef.current.width / rect.width;
-    const scaleY = canvasRef.current.height / rect.height;
+    // Scale to canvas drawing buffer coordinates (use CSS size, not buffer size)
+    const scaleX = width / rect.width;
+    const scaleY = height / rect.height;
     
     const newMouseX = clientXRelativeToCanvas * scaleX;
     const newMouseY = clientYRelativeToCanvas * scaleY;
@@ -207,7 +207,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     // Show brush cursor for brush-like tools (optimized to avoid unnecessary updates)
     const shouldShowBrushCursor = (tools.currentTool === 'brush' || tools.currentTool === 'eraser') && !spacebarPressed;
     setShowBrushCursor(prev => prev !== shouldShowBrushCursor ? shouldShowBrushCursor : prev);
-  }, [tools.currentTool, spacebarPressed]);
+  }, [tools.currentTool, spacebarPressed, width, height]);
   
   // Convert screen coordinates to world coordinates
   const screenToCanvas = useCallback((clientX: number, clientY: number) => {
@@ -217,9 +217,9 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const clientXRelativeToCanvas = clientX - rect.left;
     const clientYRelativeToCanvas = clientY - rect.top;
     
-    // Scale to canvas drawing buffer coordinates
-    const scaleX = canvasRef.current.width / rect.width;
-    const scaleY = canvasRef.current.height / rect.height;
+    // Scale to canvas drawing buffer coordinates (use CSS size, not buffer size)
+    const scaleX = width / rect.width;
+    const scaleY = height / rect.height;
     
     const mouseX = clientXRelativeToCanvas * scaleX;
     const mouseY = clientYRelativeToCanvas * scaleY;
@@ -229,7 +229,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const worldY = (mouseY - canvas.panY) / canvas.zoom;
     
     return { x: worldX, y: worldY };
-  }, [canvas.zoom, canvas.panX, canvas.panY]);
+  }, [canvas.zoom, canvas.panX, canvas.panY, width, height]);
 
   // Render the view with zoom/pan transformations
   const renderView = useCallback(() => {
@@ -244,13 +244,13 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     // Disable image smoothing for pixel-perfect rendering
     ctx.imageSmoothingEnabled = false;
     
-    // Clear the display canvas
-    ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    // Clear the display canvas (use logical coordinates since context is already scaled)
+    ctx.clearRect(0, 0, width, height);
     
     // Save context state
     ctx.save();
     
-    // Apply zoom and pan transformations
+    // Apply zoom and pan transformations (devicePixelRatio scaling already applied in initialization)
     ctx.translate(canvas.panX, canvas.panY);
     ctx.scale(canvas.zoom, canvas.zoom);
     
@@ -1076,6 +1076,22 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     const ctx = canvasElement.getContext('2d');
     if (!ctx) return;
+    
+    // Get device pixel ratio for high-DPI displays
+    const pixelRatio = window.devicePixelRatio || 1;
+    
+    // Set canvas buffer size (scaled by device pixel ratio)
+    const scaledWidth = width * pixelRatio;
+    const scaledHeight = height * pixelRatio;
+    canvasElement.width = scaledWidth;
+    canvasElement.height = scaledHeight;
+    
+    // Set CSS display size (original dimensions)
+    canvasElement.style.width = `${width}px`;
+    canvasElement.style.height = `${height}px`;
+    
+    // Scale context to match device pixel ratio
+    ctx.scale(pixelRatio, pixelRatio);
     
     // Create offscreen canvas for storing artwork
     if (!offscreenCanvasRef.current) {
