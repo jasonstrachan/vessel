@@ -37,7 +37,7 @@ export const CustomBrushPanel = () => {
     const captureCanvas = document.createElement('canvas');
     captureCanvas.width = width;
     captureCanvas.height = height;
-    const captureCtx = captureCanvas.getContext('2d');
+    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
     
     if (!captureCtx) {
       console.error('Failed to get canvas context');
@@ -74,7 +74,7 @@ export const CustomBrushPanel = () => {
     const thumbnailCanvas = document.createElement('canvas');
     thumbnailCanvas.width = thumbnailSize;
     thumbnailCanvas.height = thumbnailSize;
-    const thumbnailCtx = thumbnailCanvas.getContext('2d');
+    const thumbnailCtx = thumbnailCanvas.getContext('2d', { willReadFrequently: true });
     
     if (thumbnailCtx) {
       // Scale to fit thumbnail while maintaining aspect ratio

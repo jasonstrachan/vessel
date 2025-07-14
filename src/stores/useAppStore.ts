@@ -456,7 +456,7 @@ export const useAppStore = create<AppState>()(
       saveCanvasState: (canvas, actionType, description) => set((state) => {
         if (state.history.isCapturing) return state;
         
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) return state;
         
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);

@@ -6,6 +6,7 @@
 import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { BrushShape } from '../../types';
+import ColorPicker from './ColorPicker';
 
 export default function BrushControls() {
   const { tools, setBrushSettings } = useAppStore();
@@ -75,11 +76,9 @@ export default function BrushControls() {
       <div className="mb-4">
         <label className="block text-xs text-gray-400 mb-2">Color</label>
         <div className="flex items-center gap-2">
-          <input
-            type="color"
-            value={brushSettings.color}
-            onChange={(e) => setBrushSettings({ color: e.target.value })}
-            className="w-8 h-8 rounded border border-[#404040] cursor-pointer"
+          <ColorPicker
+            color={brushSettings.color}
+            onChange={(color) => setBrushSettings({ color })}
           />
           <input
             type="text"
