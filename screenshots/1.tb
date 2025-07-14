@@ -1,0 +1,29 @@
+{
+  "version": "1.0.0",
+  "metadata": {
+    "name": "Untitled",
+    "created": "2025-07-14T05:55:03.524Z",
+    "modified": "2025-07-14T05:56:54.444Z",
+    "appVersion": "1.0.0"
+  },
+  "project": {
+    "id": "default-project",
+    "name": "Untitled",
+    "width": 800,
+    "height": 600,
+    "backgroundColor": "#FFFFFF",
+    "layers": [
+      {
+        "id": "layer-1752472504084-0.46353968250645805",
+        "name": "Background",
+        "visible": true,
+        "opacity": 1,
+        "blendMode": "source-over",
+        "locked": false,
+        "order": 0,
+        "imageDataUrl": ""
+      }
+    ],
+    "customBrushes": []
+  }
+}

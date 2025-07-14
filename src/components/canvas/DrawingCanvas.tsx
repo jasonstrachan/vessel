@@ -59,6 +59,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     tools,
     project,
     history,
+    layers,
+    layersNeedRecomposition,
     setZoom,
     setCursor,
     setBrushSettings,
@@ -72,11 +74,14 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     setSelectionBounds,
     clearSelection,
     addCustomBrush,
+    addLayer,
     saveCanvasState,
     undo,
     redo,
     canUndo,
     canRedo,
+    compositeLayersToCanvas,
+    setLayersNeedRecomposition,
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue } = useBrushEngine();
@@ -108,7 +113,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = img.width;
         tempCanvas.height = img.height;
-        const ctx = tempCanvas.getContext('2d');
+        const ctx = tempCanvas.getContext('2d', { willReadFrequently: true });
         
         if (!ctx) {
           console.error('Failed to get canvas context for paste operation');
@@ -162,7 +167,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return null;
     
-    const offscreenCtx = offscreenCanvas.getContext('2d');
+    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
     if (!offscreenCtx) return null;
     
     // Ensure coordinates are within bounds
@@ -253,6 +258,20 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     // Apply zoom and pan transformations (devicePixelRatio scaling already applied in initialization)
     ctx.translate(canvas.panX, canvas.panY);
     ctx.scale(canvas.zoom, canvas.zoom);
+    
+    // Draw checkerboard pattern as background for transparency
+    const checkSize = 20;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+    
+    ctx.fillStyle = '#ccc';
+    for (let x = 0; x < offscreenCanvas.width; x += checkSize) {
+      for (let y = 0; y < offscreenCanvas.height; y += checkSize) {
+        if ((Math.floor(x / checkSize) + Math.floor(y / checkSize)) % 2 === 0) {
+          ctx.fillRect(x, y, checkSize, checkSize);
+        }
+      }
+    }
     
     // Draw the offscreen canvas (containing artwork) with transformations
     ctx.drawImage(offscreenCanvas, 0, 0);
@@ -395,7 +414,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const captureCanvas = document.createElement('canvas');
     captureCanvas.width = width;
     captureCanvas.height = height;
-    const captureCtx = captureCanvas.getContext('2d');
+    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
     
     if (!captureCtx) {
       console.error('Failed to get canvas context');
@@ -922,7 +941,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
                     const tempCanvas = document.createElement('canvas');
                     tempCanvas.width = img.width;
                     tempCanvas.height = img.height;
-                    const ctx = tempCanvas.getContext('2d');
+                    const ctx = tempCanvas.getContext('2d', { willReadFrequently: true });
                     
                     if (ctx) {
                       ctx.drawImage(img, 0, 0);
@@ -1086,7 +1105,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     canvasElement.width = scaledWidth;
     canvasElement.height = scaledHeight;
     
-    // Set CSS display size (original dimensions)
+    // Set CSS display size (original dimensions) 
     canvasElement.style.width = `${width}px`;
     canvasElement.style.height = `${height}px`;
     
@@ -1171,6 +1190,44 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     setCurrentTime(buildTime);
   }, []);
 
+  // Initialize debug utilities (development only)
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      // Expose offscreen canvas for debugging
+      if (typeof window !== 'undefined') {
+        (window as any).tinybrushDebugCanvas = {
+          getOffscreenCanvas: () => offscreenCanvasRef.current,
+          getMainCanvas: () => canvasRef.current,
+          isCanvasInitialized,
+          canvasState: {
+            width,
+            height,
+            zoom: canvas.zoom,
+            panX: canvas.panX,
+            panY: canvas.panY
+          }
+        };
+      }
+    }
+  }, [isCanvasInitialized, canvas.zoom, canvas.panX, canvas.panY, width, height]);
+
+  // Create initial layer if none exists
+  useEffect(() => {
+    if (isCanvasInitialized && project && layers.length === 0) {
+      console.log('Creating initial layer...');
+      const initialLayer = {
+        name: 'Background',
+        visible: true,
+        opacity: 1,
+        blendMode: 'source-over' as GlobalCompositeOperation,
+        locked: false,
+        imageData: null,
+        framebuffer: new OffscreenCanvas(project.width, project.height)
+      };
+      addLayer(initialLayer);
+    }
+  }, [isCanvasInitialized, project, layers.length, addLayer]);
+
   // Re-render view when zoom/pan changes
   useEffect(() => {
     if (isCanvasInitialized) {
@@ -1247,6 +1304,25 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     };
   }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, updateMousePosition]);
 
+  // Layer recomposition when project loads
+  useEffect(() => {
+    if (layersNeedRecomposition) {
+      console.log('=== RECOMPOSITION TRIGGERED ===');
+      console.log('Offscreen canvas available:', !!offscreenCanvasRef.current);
+      console.log('Layers to composite:', layers.length);
+      
+      if (offscreenCanvasRef.current) {
+        console.log('Starting layer composition...');
+        compositeLayersToCanvas(offscreenCanvasRef.current);
+        renderView();
+        setLayersNeedRecomposition(false);
+        console.log('Layer composition completed');
+      } else {
+        console.warn('Offscreen canvas not available for recomposition');
+      }
+    }
+  }, [layersNeedRecomposition, compositeLayersToCanvas, renderView, setLayersNeedRecomposition, layers]);
+
   // Get current custom brush data
   const currentCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM && 
     tools.brushSettings.selectedCustomBrush && project
@@ -1255,7 +1331,14 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
   return (
     <>
-      <div className="w-full h-full bg-[#141514] flex items-center justify-center overflow-hidden">
+      <div 
+        className="w-full h-full bg-[#141514] flex items-center justify-center relative"
+        style={{
+          overflow: 'hidden',
+          clipPath: 'inset(0)',
+          contain: 'strict'
+        }}
+      >
         <canvas
           ref={canvasRef}
           width={width}
@@ -1263,15 +1346,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
           className="border border-[#555]"
           style={{
             ...canvasStyle,
-            backgroundImage: `
-              linear-gradient(45deg, #ccc 25%, transparent 25%),
-              linear-gradient(-45deg, #ccc 25%, transparent 25%),
-              linear-gradient(45deg, transparent 75%, #ccc 75%),
-              linear-gradient(-45deg, transparent 75%, #ccc 75%)
-            `,
-            backgroundSize: '20px 20px',
-            backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
-            backgroundColor: '#fff'
+            position: 'relative',
+            zIndex: 1
           }}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}

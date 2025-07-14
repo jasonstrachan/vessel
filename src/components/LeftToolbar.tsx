@@ -4,7 +4,7 @@ import { Tool } from '../types';
 
 const LeftToolbar = () => {
   // Force refresh - toolbar black background fix
-  const { tools: toolState, setCurrentTool } = useAppStore();
+  const { tools: toolState, setCurrentTool, saveProject, loadProject } = useAppStore();
   
   const tools = [
     { id: 'new-document' as Tool, icon: null, label: 'New Document' },
@@ -15,17 +15,52 @@ const LeftToolbar = () => {
     { id: 'eyedropper' as Tool, icon: null, label: 'Eyedropper' },
     { id: 'fill' as Tool, icon: null, label: 'Fill' },
     { id: 'save' as Tool, icon: null, label: 'Save File' },
+    { id: 'load' as Tool, icon: null, label: 'Load File' },
   ];
+
+  const handleToolClick = async (toolId: Tool) => {
+    if (toolId === 'save') {
+      console.log('=== SAVE BUTTON CLICKED ===');
+      try {
+        // Debug current state before saving
+        if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
+          (window as any).tinybrushDebug.debugProjectState();
+        }
+        
+        await saveProject();
+        console.log('Save completed successfully');
+      } catch (error) {
+        console.error('Failed to save project:', error);
+        alert(`Save failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    } else if (toolId === 'load') {
+      console.log('=== LOAD BUTTON CLICKED ===');
+      try {
+        await loadProject();
+        console.log('Load completed successfully');
+        
+        // Debug state after loading
+        if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
+          setTimeout(() => (window as any).tinybrushDebug.debugProjectState(), 100);
+        }
+      } catch (error) {
+        console.error('Failed to load project:', error);
+        alert(`Load failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    } else {
+      setCurrentTool(toolId);
+    }
+  };
 
   return (
     <div className="w-[48px] flex flex-col pt-4 pb-0" style={{ backgroundColor: '#31313A' }}>
       {tools.map((tool) => (
         <button
           key={tool.id}
-          onClick={() => setCurrentTool(tool.id)}
+          onClick={() => handleToolClick(tool.id)}
           title={tool.label}
           className={`w-[48px] h-32 min-h-[64px] mx-auto flex items-center justify-center bg-transparent hover:bg-gray-600 border-0 appearance-none outline-none ${
-            tool.id === 'save' ? 'mb-0' : 'mb-8'
+            (tool.id === 'save' || tool.id === 'load') ? 'mb-0' : 'mb-8'
           }`}
           style={{ 
             color: toolState.currentTool === tool.id ? '#FFFFFF' : '#5A5A61', 
@@ -72,6 +107,11 @@ const LeftToolbar = () => {
           ) : tool.id === 'save' ? (
             <svg width="32" height="28" viewBox="0 0 22 19" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path fillRule="evenodd" clipRule="evenodd" d="M4.78316 2.14697H8.31316V6.43689H13.6911V2.14697H17.2168V6.43689V15.5786H13.6911H8.31316H4.78316V6.43689V2.14697Z" fill="currentColor" fillOpacity="0.8"/>
+            </svg>
+          ) : tool.id === 'load' ? (
+            <svg width="32" height="28" viewBox="0 0 22 19" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path fillRule="evenodd" clipRule="evenodd" d="M4.78316 2.14697H8.31316V6.43689H13.6911V2.14697H17.2168V6.43689V15.5786H13.6911H8.31316H4.78316V6.43689V2.14697Z" fill="currentColor" fillOpacity="0.8"/>
+              <path d="M11 8.5L8.5 11L11 13.5M11 11H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           ) : tool.id === 'eyedropper' ? (
             <svg width="24" height="24" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">

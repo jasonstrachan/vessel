@@ -411,13 +411,12 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          console.log('ColorPicker button clicked, current isOpen:', isOpen);
           
           if (buttonRef.current && !isOpen) {
             const rect = buttonRef.current.getBoundingClientRect();
             setPosition({
               top: rect.top, // Align to top of swatch
-              left: rect.left - 550 // Position even closer to the swatch
+              left: rect.left - 600 // Position further left from the swatch
             });
             setOriginalColor(color);
             setLocalColor(color);
@@ -425,13 +424,13 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
           
           setIsOpen(!isOpen);
         }}
-        className="h-[28px] w-[28px] text-xs border border-[#555] rounded hover:border-gray-400 transition-colors cursor-pointer"
+        className="h-[28px] w-[28px] text-xs rounded hover:opacity-80 transition-opacity cursor-pointer"
         style={{ backgroundColor: color }}
         title="Color Picker"
       />
       
       {isOpen && (
-        <div className="fixed z-[9999] bg-[#31313A] border border-black rounded-lg shadow-lg color-picker-popup" style={{ top: `${position.top}px`, left: `${position.left}px`, padding: '16px' }}>
+        <div className="fixed z-[9999] bg-[#31313A] rounded-lg shadow-lg color-picker-popup" style={{ top: `${position.top}px`, left: `${position.left}px`, padding: '16px' }}>
           <div className="flex" style={{ gap: '16px' }}>
             {/* Main color area and hue slider */}
             <div className="flex" style={{ gap: '8px' }}>
@@ -453,9 +452,9 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
             <div style={{ width: '200px', paddingTop: '8px' }}>
               {/* Color swatches - New/Old comparison */}
               <div className="flex justify-center items-center" style={{ gap: '24px', padding: '8px 0', marginBottom: '16px' }}>
-                <div className="text-center">
+                <div className="text-center w-16">
                   <div 
-                    className="cursor-pointer border-2 border-gray-600 rounded"
+                    className="cursor-pointer rounded"
                     style={{ 
                       backgroundColor: localColor,
                       width: '40px',
@@ -464,12 +463,11 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
                     onClick={() => onChange(localColor)}
                     title={`Apply new color: ${localColor}`}
                   />
-                  <div className="text-sm text-gray-300 mt-2 font-medium">NEW</div>
-                  <div className="text-xs text-gray-400 mt-1">{localColor}</div>
+                  <div className="text-xs text-gray-400 mt-1 w-16 text-center">{localColor}</div>
                 </div>
-                <div className="text-center">
+                <div className="text-center w-16">
                   <div 
-                    className="cursor-pointer border-2 border-gray-600 rounded"
+                    className="cursor-pointer rounded"
                     style={{ 
                       backgroundColor: originalColor,
                       width: '40px',
@@ -495,8 +493,7 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
                     }}
                     title={`Revert to original: ${originalColor}`}
                   />
-                  <div className="text-sm text-gray-300 mt-2 font-medium">OLD</div>
-                  <div className="text-xs text-gray-400 mt-1">{originalColor}</div>
+                  <div className="text-xs text-gray-400 mt-1 w-16 text-center">{originalColor}</div>
                 </div>
               </div>
               
