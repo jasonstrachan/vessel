@@ -14,6 +14,8 @@ import type {
   BrushPreset,
   BrushComponent,
   CustomBrush,
+  HistoryState,
+  CanvasSnapshot,
 } from '../types';
 import { BrushShape } from '../types';
 import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
@@ -23,6 +25,15 @@ interface AppState {
   project: Project | null;
   setProject: (project: Project) => void;
   updateProject: (updates: Partial<Project>) => void;
+  
+  // History State
+  history: HistoryState;
+  saveCanvasState: (canvas: HTMLCanvasElement, actionType: CanvasSnapshot['actionType'], description: string) => void;
+  undo: () => CanvasSnapshot | null;
+  redo: () => CanvasSnapshot | null;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+  clearHistory: () => void;
   
   // Canvas State
   canvas: CanvasState;
@@ -115,9 +126,8 @@ const defaultToolState: ToolState = {
   brushSettings: defaultBrushSettingsForStore,
   eraserSettings: { ...defaultBrushSettingsForStore, blendMode: 'destination-out' },
   fillSettings: {
-    tolerance: 0,
-    contiguous: true,
-    allLayers: false
+    threshold: 0,
+    contiguous: true
   }
 };
 
@@ -136,6 +146,13 @@ const defaultUIState: UIState = {
   },
   theme: 'dark',
   notifications: []
+};
+
+const defaultHistoryState: HistoryState = {
+  undoStack: [],
+  redoStack: [],
+  maxHistorySize: 50,
+  isCapturing: false
 };
 
 export const useAppStore = create<AppState>()(
@@ -160,6 +177,9 @@ export const useAppStore = create<AppState>()(
       
       // Canvas State
       canvas: defaultCanvasState,
+      
+      // History State
+      history: defaultHistoryState,
       setZoom: (zoom) => set((state) => ({
         canvas: { ...state.canvas, zoom: Math.max(0.1, Math.min(10, zoom)) }
       })),
@@ -430,7 +450,108 @@ export const useAppStore = create<AppState>()(
         return {
           brushPresets: [...state.brushPresets, newPreset]
         };
-      })
+      }),
+      
+      // History Management
+      saveCanvasState: (canvas, actionType, description) => set((state) => {
+        if (state.history.isCapturing) return state;
+        
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return state;
+        
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const snapshot: CanvasSnapshot = {
+          id: `snapshot_${Date.now()}_${Math.random()}`,
+          timestamp: Date.now(),
+          imageData,
+          actionType,
+          description
+        };
+        
+        const newUndoStack = [...state.history.undoStack, snapshot];
+        if (newUndoStack.length > state.history.maxHistorySize) {
+          newUndoStack.shift();
+        }
+        
+        return {
+          history: {
+            ...state.history,
+            undoStack: newUndoStack,
+            redoStack: []
+          }
+        };
+      }),
+      
+      undo: () => {
+        const state = get();
+        if (state.history.undoStack.length === 0) return null;
+        
+        const snapshot = state.history.undoStack[state.history.undoStack.length - 1];
+        const newUndoStack = state.history.undoStack.slice(0, -1);
+        const newRedoStack = [...state.history.redoStack, snapshot];
+        
+        set({
+          history: {
+            ...state.history,
+            undoStack: newUndoStack,
+            redoStack: newRedoStack,
+            isCapturing: true
+          }
+        });
+        
+        // Reset capturing flag after restoration
+        setTimeout(() => {
+          set((state) => ({
+            history: {
+              ...state.history,
+              isCapturing: false
+            }
+          }));
+        }, 0);
+        
+        return snapshot;
+      },
+      
+      redo: () => {
+        const state = get();
+        if (state.history.redoStack.length === 0) return null;
+        
+        const snapshot = state.history.redoStack[state.history.redoStack.length - 1];
+        const newRedoStack = state.history.redoStack.slice(0, -1);
+        const newUndoStack = [...state.history.undoStack, snapshot];
+        
+        set({
+          history: {
+            ...state.history,
+            undoStack: newUndoStack,
+            redoStack: newRedoStack,
+            isCapturing: true
+          }
+        });
+        
+        // Reset capturing flag after restoration
+        setTimeout(() => {
+          set((state) => ({
+            history: {
+              ...state.history,
+              isCapturing: false
+            }
+          }));
+        }, 0);
+        
+        return snapshot;
+      },
+      
+      canUndo: () => get().history.undoStack.length > 0,
+      canRedo: () => get().history.redoStack.length > 0,
+      
+      clearHistory: () => set((state) => ({
+        history: {
+          ...state.history,
+          undoStack: [],
+          redoStack: []
+        }
+      }))
     }),
     { name: 'tinybrush-store' }
   )

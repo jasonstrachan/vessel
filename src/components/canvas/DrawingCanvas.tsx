@@ -7,6 +7,8 @@ import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { useBrushEngine } from '../../hooks/useBrushEngine';
 import { calculateZoomIncrement } from '../../utils/zoomUtils';
+import { floodFill, type FloodFillColor } from '../../utils/floodFill';
+import { restoreCanvasSnapshot } from '../../utils/canvasSnapshot';
 import type { Tool } from '../../types';
 import { BrushShape } from '../../types';
 import BrushCursor from './BrushCursor';
@@ -56,6 +58,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     canvas,
     tools,
     project,
+    history,
     setZoom,
     setCursor,
     setBrushSettings,
@@ -69,6 +72,11 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     setSelectionBounds,
     clearSelection,
     addCustomBrush,
+    saveCanvasState,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue } = useBrushEngine();
@@ -505,6 +513,47 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       e.preventDefault();
       return;
     }
+
+    // Handle fill tool
+    if (tools.currentTool === 'fill') {
+      const offscreenCanvas = offscreenCanvasRef.current;
+      if (offscreenCanvas) {
+        // Capture state before fill operation
+        saveCanvasState(offscreenCanvas, 'fill', 'Fill operation');
+        
+        // Get current canvas image data
+        const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          const imageData = ctx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+          
+          // Convert brush color to FloodFillColor format
+          const colorMatch = tools.brushSettings.color.match(/^#([0-9a-f]{6})$/i);
+          if (colorMatch) {
+            const hex = colorMatch[1];
+            const fillColor: FloodFillColor = {
+              r: parseInt(hex.substr(0, 2), 16),
+              g: parseInt(hex.substr(2, 2), 16),
+              b: parseInt(hex.substr(4, 2), 16),
+              a: Math.round(tools.brushSettings.opacity * 255)
+            };
+
+            // Perform flood fill
+            const filledImageData = floodFill(imageData, Math.floor(point.x), Math.floor(point.y), fillColor, {
+              threshold: tools.fillSettings.threshold,
+              contiguous: tools.fillSettings.contiguous
+            });
+
+            // Apply the filled image data back to the canvas
+            ctx.putImageData(filledImageData, 0, 0);
+            
+            // Re-render the view
+            renderView();
+          }
+        }
+      }
+      e.preventDefault();
+      return;
+    }
     
     // Handle selection and custom brush tools - start new selection
     if (tools.currentTool === 'selection' || tools.currentTool === 'custom') {
@@ -522,13 +571,20 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       return;
     }
 
+    // Capture state before drawing operation
+    const offscreenCanvas = offscreenCanvasRef.current;
+    if (offscreenCanvas) {
+      const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
+      saveCanvasState(offscreenCanvas, actionType, `${actionType} stroke`);
+    }
+    
     setIsDrawing(true);
     setLastPoint(point);
     setCursor({ x: point.x, y: point.y, pressure: 1 });
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
-  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, canvas.selection.active, isPointInSelection, tools.currentTool, sampleColor, setBrushSettings, setSelectionBounds, setIsSelecting]);
+  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, canvas.selection.active, isPointInSelection, tools.currentTool, sampleColor, setBrushSettings, setSelectionBounds, setIsSelecting, saveCanvasState, offscreenCanvasRef]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     updateMousePosition(e);
@@ -642,13 +698,21 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     }
 
     const point = screenToCanvas(touch.clientX, touch.clientY);
+    
+    // Capture state before drawing operation
+    const offscreenCanvas = offscreenCanvasRef.current;
+    if (offscreenCanvas) {
+      const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
+      saveCanvasState(offscreenCanvas, actionType, `${actionType} stroke`);
+    }
+    
     setIsDrawing(true);
     setLastPoint(point);
     setCursor({ x: point.x, y: point.y, pressure: 1 });
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
-  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY]);
+  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, saveCanvasState, offscreenCanvasRef]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     e.preventDefault();
@@ -737,6 +801,9 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
     
+    // Capture state before paste operation
+    saveCanvasState(offscreenCanvas, 'paste', 'Paste selection');
+    
     const offscreenCtx = offscreenCanvas.getContext('2d');
     if (!offscreenCtx) return;
     
@@ -764,10 +831,36 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     // Re-render view
     renderView();
-  }, [canvas.selection, setSelection, renderView]);
+  }, [canvas.selection, setSelection, renderView, saveCanvasState]);
 
   // Keyboard event handlers
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Undo/Redo shortcuts
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      e.preventDefault();
+      
+      if (e.shiftKey) {
+        // Redo (Ctrl+Shift+Z)
+        if (canRedo()) {
+          const snapshot = redo();
+          if (snapshot && offscreenCanvasRef.current) {
+            restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
+            renderView();
+          }
+        }
+      } else {
+        // Undo (Ctrl+Z)
+        if (canUndo()) {
+          const snapshot = undo();
+          if (snapshot && offscreenCanvasRef.current) {
+            restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
+            renderView();
+          }
+        }
+      }
+      return;
+    }
+    
     // E key for temporary eraser mode
     if ((e.key === 'e' || e.key === 'E') && !e.ctrlKey && !e.metaKey) {
       if (!eKeyPressed && tools.currentTool !== 'eraser') {
@@ -859,6 +952,39 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       return;
     }
     
+    // Tool shortcuts
+    if (e.key === 'b' || e.key === 'B') {
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setCurrentTool('brush');
+        return;
+      }
+    }
+    
+    if (e.key === 'm' || e.key === 'M') {
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setCurrentTool('selection');
+        return;
+      }
+    }
+    
+    if (e.key === 'c' || e.key === 'C') {
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setCurrentTool('custom');
+        return;
+      }
+    }
+    
+    if (e.key === 'f' || e.key === 'F') {
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setCurrentTool('fill');
+        return;
+      }
+    }
+    
     // Brush size shortcuts - different behavior for custom vs regular brushes
     if (e.key === '[') {
       if (tools.brushSettings.brushShape === BrushShape.CUSTOM) {
@@ -883,7 +1009,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       e.preventDefault();
       toggleGrid();
     }
-  }, [spacebarPressed, setBrushSettings, tools.brushSettings.size, toggleGrid, canvas.selection.active, commitSelection, setSelection, eKeyPressed, tools.currentTool, setCurrentTool, altKeyPressed]);
+  }, [spacebarPressed, setBrushSettings, tools.brushSettings.size, toggleGrid, canvas.selection.active, commitSelection, setSelection, eKeyPressed, tools.currentTool, setCurrentTool, altKeyPressed, canUndo, canRedo, undo, redo, offscreenCanvasRef, renderView]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
     // E key release - restore previous tool
@@ -1064,7 +1190,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     cursor: spacebarPressed 
       ? (isPanning ? 'grabbing' : 'grab') 
       : ((tools.currentTool === 'brush' || tools.currentTool === 'eraser') ? 'none' 
-         : tools.currentTool === 'eyedropper' ? 'crosshair'
+         : (tools.currentTool === 'eyedropper' || tools.currentTool === 'fill') ? 'crosshair'
          : 'default'),
     imageRendering: canvas.displayMode === 'smooth' ? 'auto' : 'pixelated'
   };

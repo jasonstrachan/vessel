@@ -138,7 +138,7 @@ const BrushCursor = memo(function BrushCursor({
           <circle
             cx={screenSize / 2}
             cy={screenSize / 2}
-            r={screenSize / 2 - 1}
+            r={Math.max(0.5, screenSize / 2 - 1)}
             fill="none"
             stroke={color}
             strokeWidth={Math.max(1, 1 / zoom)}

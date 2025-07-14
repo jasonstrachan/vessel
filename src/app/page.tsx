@@ -21,7 +21,7 @@ export default function Home() {
       </div>
       
       {/* Right Panel */}
-      <div className="w-80 bg-[#31313A] flex flex-col gap-4 h-screen" style={{ padding: '16px' }}>
+      <div className="bg-[#31313A] flex flex-col gap-4 h-screen flex-shrink-0" style={{ padding: '16px', width: '240px', minWidth: '240px', maxWidth: '240px' }}>
         {/* <LayerPanel /> */}
         <div className="flex-[2] min-h-0">
           <BrushLibrary />
