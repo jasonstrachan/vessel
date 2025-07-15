@@ -52,8 +52,16 @@ export const useBrushEngine = () => {
     const deltaY = to.y - from.y;
     const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
     
+    // Get current pressure to detect stylus vs mouse input
+    const cursorPressure = useAppStore.getState().canvas.cursor.pressure || 1.0;
+    const isStylusInput = cursorPressure < 0.98; // Stylus typically has variable pressure
+    
+    // Adaptive smoothing based on input type
+    const minDistance = isStylusInput ? 1.5 : 3; // Stylus: more responsive, Mouse: more filtered
+    const historySize = isStylusInput ? 4 : 7; // Stylus: shorter history, Mouse: longer history
+    
     // If movement is very small, keep last direction to avoid jitter
-    if (distance < 1) {
+    if (distance < minDistance) {
       return lastDirectionRef.current;
     }
     
@@ -63,25 +71,47 @@ export const useBrushEngine = () => {
     // Add to history for smoothing
     directionHistoryRef.current.push(direction);
     
-    // Keep only last 3 directions for smoothing
-    if (directionHistoryRef.current.length > 3) {
+    // Keep adaptive history size
+    if (directionHistoryRef.current.length > historySize) {
       directionHistoryRef.current.shift();
     }
     
-    // Smooth direction using weighted average
+    // Smooth direction using weighted average with adaptive weights
     let smoothedDirection = direction;
     if (directionHistoryRef.current.length > 1) {
-      const weights = [0.5, 0.3, 0.2]; // Recent directions have more influence
-      let weightSum = 0;
-      let angleSum = 0;
+      // Adaptive weight distribution based on input type
+      const weights = isStylusInput 
+        ? [0.45, 0.30, 0.20, 0.05] // Stylus: more emphasis on recent directions
+        : [0.25, 0.20, 0.18, 0.15, 0.12, 0.07, 0.03]; // Mouse: gradual smoothing
       
+      let weightSum = 0;
+      let sinSum = 0;
+      let cosSum = 0;
+      
+      // Use circular averaging to handle angle wraparound properly
       for (let i = 0; i < directionHistoryRef.current.length; i++) {
-        const weight = weights[directionHistoryRef.current.length - 1 - i] || 0.1;
-        angleSum += directionHistoryRef.current[i] * weight;
+        const weight = weights[directionHistoryRef.current.length - 1 - i] || 0.02;
+        const angle = directionHistoryRef.current[i];
+        sinSum += Math.sin(angle) * weight;
+        cosSum += Math.cos(angle) * weight;
         weightSum += weight;
       }
       
-      smoothedDirection = angleSum / weightSum;
+      // Convert back to angle using atan2 for proper quadrant
+      smoothedDirection = Math.atan2(sinSum / weightSum, cosSum / weightSum);
+    }
+    
+    // Apply adaptive final smoothing
+    if (lastDirectionRef.current !== 0) {
+      let angleDiff = smoothedDirection - lastDirectionRef.current;
+      
+      // Normalize angle difference to [-PI, PI]
+      while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+      while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+      
+      // Adaptive smoothing factor: stylus more responsive, mouse smoother
+      const smoothingFactor = isStylusInput ? 0.35 : 0.15;
+      smoothedDirection = lastDirectionRef.current + angleDiff * smoothingFactor;
     }
     
     lastDirectionRef.current = smoothedDirection;
@@ -167,6 +197,7 @@ export const useBrushEngine = () => {
     size: number,
     shape: BrushShape,
     antiAliasing: boolean,
+    rotation: number = 0,
     pattern?: ImageData,
     centerAlignment?: boolean
   ) => {
@@ -179,6 +210,13 @@ export const useBrushEngine = () => {
       // Round to pixel boundaries for pixel-perfect drawing
       x = Math.round(x);
       y = Math.round(y);
+    }
+    
+    // Apply rotation if specified
+    if (rotation !== 0) {
+      ctx.translate(x, y);
+      ctx.rotate(rotation);
+      ctx.translate(-x, -y);
     }
     
     // Handle custom pattern rendering
@@ -387,6 +425,17 @@ export const useBrushEngine = () => {
           centerAlignment
         };
         
+      case ComponentType.ROTATION_TRANSFORM:
+        // Apply rotation based on movement direction if enabled
+        const { brushSettings } = tools;
+        if (!brushSettings.rotationEnabled || input.direction === undefined) {
+          return currentSettings;
+        }
+        return {
+          ...currentSettings,
+          rotation: input.direction
+        };
+        
       default:
         return currentSettings;
     }
@@ -447,6 +496,9 @@ export const useBrushEngine = () => {
       accumulatedDistance: 0,
       lastStrokePosition: { x: 0, y: 0 }
     };
+    // Reset direction history for rotation
+    directionHistoryRef.current = [];
+    lastDirectionRef.current = 0;
   }, []);
 
 
@@ -482,7 +534,7 @@ export const useBrushEngine = () => {
       
       // Draw shape at position only if accumulated distance exceeds spacing
       if (queue.accumulatedDistance >= settings.spacing) {
-        drawShape(ctx, x, y, settings.size, settings.shape, false, settings.pattern, settings.centerAlignment);
+        drawShape(ctx, x, y, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
         queue.accumulatedDistance -= settings.spacing;
       }
       
@@ -527,7 +579,7 @@ export const useBrushEngine = () => {
       queue.accumulatedDistance = 0;
       
       // Draw the first shape
-      drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.pattern, settings.centerAlignment);
+      drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
       return;
     }
     
@@ -542,7 +594,7 @@ export const useBrushEngine = () => {
     if (Math.abs(roundedX - queue.lastDrawnX) > 1 || Math.abs(roundedY - queue.lastDrawnY) > 1) {
       // Draw the waiting shape only if accumulated distance exceeds spacing
       if (queue.accumulatedDistance >= settings.spacing) {
-        drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.pattern, settings.centerAlignment);
+        drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
         queue.accumulatedDistance -= settings.spacing;
         queue.lastStrokePosition = { x: queue.waitingPixelX, y: queue.waitingPixelY };
       }
@@ -577,7 +629,7 @@ export const useBrushEngine = () => {
   }, []);
 
   // Custom brush drawing functions
-  const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1) => {
+  const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0) => {
     const canvas = getTempCanvas(customBrush.width, customBrush.height);
     const tempCtx = canvas.getContext('2d');
     if (!tempCtx) return;
@@ -594,15 +646,23 @@ export const useBrushEngine = () => {
     const centerX = x - scaledWidth / 2;
     const centerY = y - scaledHeight / 2;
     
-    // Draw the custom brush
+    // Draw the custom brush with rotation
     ctx.save();
     ctx.globalCompositeOperation = 'source-over';
     ctx.imageSmoothingEnabled = false; // Maintain pixel-perfect rendering
+    
+    // Apply rotation if specified
+    if (rotation !== 0) {
+      ctx.translate(x, y);
+      ctx.rotate(rotation);
+      ctx.translate(-x, -y);
+    }
+    
     ctx.drawImage(canvas, centerX, centerY, scaledWidth, scaledHeight);
     ctx.restore();
   }, [getTempCanvas]);
 
-  const drawCustomBrushLine = useCallback((ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1) => {
+  const drawCustomBrushLine = useCallback((ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0) => {
     const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
     const spacing = Math.max(1, Math.min(customBrush.width, customBrush.height) * scale * 0.5);
     const steps = Math.max(1, Math.ceil(distance / spacing));
@@ -611,7 +671,7 @@ export const useBrushEngine = () => {
       const t = i / steps;
       const x = x1 + (x2 - x1) * t;
       const y = y1 + (y2 - y1) * t;
-      drawCustomBrushStamp(ctx, x, y, customBrush, scale);
+      drawCustomBrushStamp(ctx, x, y, customBrush, scale, rotation);
     }
   }, [drawCustomBrushStamp]);
 
@@ -700,7 +760,7 @@ export const useBrushEngine = () => {
         const x = queue.lastStrokePosition.x + (to.x - queue.lastStrokePosition.x) * progress;
         const y = queue.lastStrokePosition.y + (to.y - queue.lastStrokePosition.y) * progress;
         
-        drawCustomBrushStamp(ctx, x, y, customBrush, scaleFactor);
+        drawCustomBrushStamp(ctx, x, y, customBrush, scaleFactor, settings.rotation);
         
         queue.accumulatedDistance -= settings.spacing;
       }
@@ -752,7 +812,7 @@ export const useBrushEngine = () => {
         const y = queue.lastStrokePosition.y + (to.y - queue.lastStrokePosition.y) * progress;
         
         ctx.fillStyle = settings.color;
-        drawShape(ctx, x, y, settings.size, settings.shape, true, settings.pattern, settings.centerAlignment);
+        drawShape(ctx, x, y, settings.size, settings.shape, true, settings.rotation, settings.pattern, settings.centerAlignment);
         
         queue.accumulatedDistance -= settings.spacing;
       }
