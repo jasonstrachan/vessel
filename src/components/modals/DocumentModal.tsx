@@ -14,6 +14,20 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
   const [resizeHeight, setResizeHeight] = useState(project?.height || 600);
   const [newWidth, setNewWidth] = useState(800);
   const [newHeight, setNewHeight] = useState(600);
+  const [isVisible, setIsVisible] = useState(false);
+  const [shouldRender, setShouldRender] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setShouldRender(true);
+      // Small delay to ensure the modal is rendered before fading in
+      setTimeout(() => setIsVisible(true), 10);
+    } else {
+      setIsVisible(false);
+      // Keep modal rendered during fade out, then remove it
+      setTimeout(() => setShouldRender(false), 300);
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -43,11 +57,21 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
     onClose();
   };
 
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-[#31313A] -lg p-6 w-96 max-w-full mx-4 shadow-xl">
+    <div 
+      className={`fixed inset-0 flex items-center justify-center z-50 transition-opacity duration-300 ${
+        isVisible ? 'opacity-100' : 'opacity-0'
+      }`}
+      onClick={onClose}
+    >
+      <div 
+        className={`bg-[#31313A] rounded-lg p-6 w-96 max-w-full mx-4 shadow-xl transition-all duration-300 ${
+          isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-[#D9D9D9] text-base font-semibold">Document</h2>
           <button

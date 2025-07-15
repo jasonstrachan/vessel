@@ -10,6 +10,7 @@ const LayerPanel = () => {
   const { 
     layers, 
     activeLayerId, 
+    project,
     addLayer, 
     removeLayer, 
     updateLayer, 

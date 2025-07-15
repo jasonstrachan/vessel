@@ -49,7 +49,10 @@ export const useBrushEngine = () => {
     accumulatedDistance: 0,
     lastStrokePosition: { x: 0, y: 0 },
     // Dashed brush state
-    dashStampCounter: 0
+    dashStampCounter: 0,
+    // Track last processed pixel position
+    lastProcessedX: -1,
+    lastProcessedY: -1
   });
 
   // Direction smoothing for rotation
@@ -517,7 +520,10 @@ export const useBrushEngine = () => {
       accumulatedDistance: 0,
       lastStrokePosition: { x: 0, y: 0 },
       // Reset dashed brush state
-      dashStampCounter: 0
+      dashStampCounter: 0,
+      // Reset last processed pixel position
+      lastProcessedX: -1,
+      lastProcessedY: -1
     };
     // Reset direction history for rotation
     directionHistoryRef.current = [];
@@ -655,7 +661,7 @@ export const useBrushEngine = () => {
         y += sy;
       }
     }
-  }, [drawShape]);
+  }, [drawShape, tools]);
 
   const perfectPixels = useCallback((
     ctx: CanvasRenderingContext2D,
@@ -666,60 +672,53 @@ export const useBrushEngine = () => {
     const queue = pixelQueueRef.current;
     const roundedX = Math.round(currentX);
     const roundedY = Math.round(currentY);
-    
+
+    // Ignore event if cursor hasn't moved to a new pixel cell
+    if (roundedX === queue.lastProcessedX && roundedY === queue.lastProcessedY) {
+      return;
+    }
+
     ctx.fillStyle = settings.color;
-    
+
+    // --- Initialization for the first point of the stroke ---
     if (!queue.initialized) {
-      // First pixel - initialize queue with distance-based state
-      queue.lastDrawnX = roundedX;
-      queue.lastDrawnY = roundedY;
-      queue.waitingPixelX = roundedX;
-      queue.waitingPixelY = roundedY;
       queue.initialized = true;
-      queue.spacingCounter = 0;
+      queue.lastProcessedX = roundedX;
+      queue.lastProcessedY = roundedY;
       queue.lastStrokePosition = { x: roundedX, y: roundedY };
       queue.accumulatedDistance = 0;
-      
-      // Draw the first shape (check dash state)
+
+      // Always check the first stamp against the dash logic
       if (shouldDrawStamp(tools.brushSettings, queue, settings.size)) {
         drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
       }
       return;
     }
+
+    // --- Logic for all subsequent points ---
     
-    // Calculate distance from last stroke position to current position
+    // Calculate distance from the last position for spacing
     const distance = Math.sqrt(
-      Math.pow(roundedX - queue.lastStrokePosition.x, 2) + 
+      Math.pow(roundedX - queue.lastStrokePosition.x, 2) +
       Math.pow(roundedY - queue.lastStrokePosition.y, 2)
     );
     queue.accumulatedDistance += distance;
-    
-    // If current pixel not neighbor to lastDrawn, draw waiting pixel
-    if (Math.abs(roundedX - queue.lastDrawnX) > 1 || Math.abs(roundedY - queue.lastDrawnY) > 1) {
-      // Draw the waiting shape only if accumulated distance exceeds spacing
-      if (queue.accumulatedDistance >= settings.spacing) {
-        // Check if we should draw this stamp (cursor-speed independent)
-        if (shouldDrawStamp(tools.brushSettings, queue, settings.size)) {
-          drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
-        }
-        queue.accumulatedDistance -= settings.spacing;
-        queue.lastStrokePosition = { x: queue.waitingPixelX, y: queue.waitingPixelY };
-      }
-      
-      // Update queue
-      queue.lastDrawnX = queue.waitingPixelX;
-      queue.lastDrawnY = queue.waitingPixelY;
-      queue.waitingPixelX = roundedX;
-      queue.waitingPixelY = roundedY;
-    } else {
-      // Update waiting pixel to current position
-      queue.waitingPixelX = roundedX;
-      queue.waitingPixelY = roundedY;
-    }
-    
-    // Update last stroke position for distance calculation
     queue.lastStrokePosition = { x: roundedX, y: roundedY };
-  }, [drawShape]);
+    queue.lastProcessedX = roundedX;
+    queue.lastProcessedY = roundedY;
+
+    // Check if enough distance has been covered for the next stamp
+    if (queue.accumulatedDistance >= settings.spacing) {
+      
+      // Crucially, check the dash logic HERE, for every potential stamp
+      if (shouldDrawStamp(tools.brushSettings, queue, settings.size)) {
+        // The router sends fast moves to `drawPixelPerfectLine`, so we only need to draw the current pixel
+        drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
+      }
+
+      queue.accumulatedDistance -= settings.spacing;
+    }
+  }, [drawShape, tools.brushSettings]);
 
   // Reusable canvas for custom brush stamps to avoid creating new elements
   const tempCanvasRef = useRef<HTMLCanvasElement | null>(null);
