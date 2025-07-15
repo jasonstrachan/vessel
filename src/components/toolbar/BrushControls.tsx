@@ -22,7 +22,7 @@ export default function BrushControls() {
 
       {/* Color */}
       <div className="mb-4">
-        <label className="block text-xs text-gray-400 mb-2">Color</label>
+        <label className="block text-lg text-[#D9D9D9] mb-2">Color</label>
         <div className="flex items-center gap-2">
           <ColorPicker
             color={brushSettings.color}
@@ -44,9 +44,9 @@ export default function BrushControls() {
         {isCustomBrush ? (
           // Custom brush: percentage-based slider
           <>
-            <label className="block text-xs text-gray-400 mb-2">
+            <label className="block text-lg text-[#D9D9D9] mb-2">
               Scale: {brushSettings.size}% 
-              <span className="text-xs text-gray-500 ml-1">(of original size)</span>
+              <span className="text-lg text-[#D9D9D9] ml-1">(of original size)</span>
             </label>
             <Input
               type="range"
@@ -61,7 +61,7 @@ export default function BrushControls() {
         ) : (
           // Regular brush: pixel-based slider
           <>
-            <label className="block text-xs text-gray-400 mb-2">
+            <label className="block text-lg text-[#D9D9D9] mb-2">
               Size: {brushSettings.size}px
             </label>
             <Input
@@ -78,7 +78,7 @@ export default function BrushControls() {
 
       {/* Opacity */}
       <div className="mb-4">
-        <label className="block text-xs text-gray-400 mb-2">
+        <label className="block text-lg text-[#D9D9D9] mb-2">
           Opacity: {Math.round(brushSettings.opacity * 100)}%
         </label>
         <Input
@@ -94,7 +94,7 @@ export default function BrushControls() {
 
       {/* Spacing */}
       <div className="mb-4">
-        <label className="block text-xs text-gray-400 mb-2">
+        <label className="block text-lg text-[#D9D9D9] mb-2">
           Spacing: {brushSettings.spacing}px
         </label>
         <Input
@@ -118,7 +118,7 @@ export default function BrushControls() {
             onChange={(e) => setBrushSettings({ pressureEnabled: e.target.checked })}
             className="w-3 h-3"
           />
-          <label htmlFor="pressure-enabled" className="text-xs text-gray-400">
+          <label htmlFor="pressure-enabled" className="text-lg text-[#D9D9D9]">
             Pressure
           </label>
         </div>
@@ -134,7 +134,7 @@ export default function BrushControls() {
               max="1000"
               className="w-16"
             />
-            <span className="text-xs text-gray-400">-</span>
+            <span className="text-lg text-[#D9D9D9]">-</span>
             <Input
               type="number"
               variant="compact"
@@ -158,7 +158,7 @@ export default function BrushControls() {
             onChange={(e) => setBrushSettings({ rotationEnabled: e.target.checked })}
             className="w-3 h-3"
           />
-          <label htmlFor="rotation-enabled" className="text-xs text-gray-400">
+          <label htmlFor="rotation-enabled" className="text-lg text-[#D9D9D9]">
             Rotation
           </label>
         </div>
@@ -174,7 +174,7 @@ export default function BrushControls() {
             onChange={(e) => setBrushSettings({ dashedEnabled: e.target.checked })}
             className="w-3 h-3"
           />
-          <label htmlFor="dashed-enabled" className="text-xs text-gray-400">
+          <label htmlFor="dashed-enabled" className="text-lg text-[#D9D9D9]">
             Dashed
           </label>
         </div>
@@ -182,7 +182,7 @@ export default function BrushControls() {
         {(brushSettings.dashedEnabled || false) && (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-400 w-12" title="Dash length as multiple of brush size">Length</label>
+              <label className="text-lg text-[#D9D9D9] w-12" title="Dash length as multiple of brush size">Length</label>
               <Input
                 type="number"
                 variant="compact"
@@ -193,10 +193,10 @@ export default function BrushControls() {
                 className="w-16"
                 title="Length multiplier (×brush size)"
               />
-              <span className="text-xs text-gray-500">×</span>
+              <span className="text-lg text-[#D9D9D9]">×</span>
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-400 w-12" title="Gap length as multiple of brush size">Gap</label>
+              <label className="text-lg text-[#D9D9D9] w-12" title="Gap length as multiple of brush size">Gap</label>
               <Input
                 type="number"
                 variant="compact"
@@ -207,7 +207,7 @@ export default function BrushControls() {
                 className="w-16"
                 title="Gap multiplier (×brush size)"
               />
-              <span className="text-xs text-gray-500">×</span>
+              <span className="text-lg text-[#D9D9D9]">×</span>
             </div>
           </div>
         )}

@@ -56,14 +56,13 @@ const BrushLibrary = () => {
 
   return (
     <div className="h-full flex flex-col bg-[#31313A]">
-      <div className="flex items-center justify-between px-4 py-2">
-        <span className="text-base font-medium">Brush Library</span>
+      <div className="flex items-center justify-between px-3 py-2 bg-[#31313A] border-b border-[#4a4a4a]">
+        <span className="text-lg font-medium text-[#D9D9D9]">Brush Library</span>
         <div className="flex items-center space-x-2">
-          <span className="text-xs text-[#888]">{brushPresets.length} brushes</span>
           {canSaveCustomBrush && (
             <button
               onClick={handleSaveCustomBrushAsPreset}
-              className="w-6 h-6 border border-white text-white text-lg flex items-center justify-center hover:bg-white hover:text-[#31313A] transition-colors"
+              className="w-5 h-5 border border-white text-[#D9D9D9] text-lg flex items-center justify-center hover:bg-white hover:text-[#31313A] transition-colors"
               title="Save current custom brush to library"
             >
               +
@@ -72,8 +71,7 @@ const BrushLibrary = () => {
         </div>
       </div>
       
-      
-      <div className="flex-1 p-4 space-y-1 overflow-y-auto">
+      <div className="flex-1 px-3 py-2 space-y-0 overflow-y-auto">
         {brushPresets.map((preset) => (
           <div
             key={preset.id}
@@ -85,13 +83,13 @@ const BrushLibrary = () => {
             }`}
           >
             <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-[#606060] rounded-sm flex items-center justify-center text-xs">
+              <div className="w-4 h-4 bg-[#606060] rounded-sm flex items-center justify-center text-lg">
                 {preset.isCustomBrush ? '▣' : preset.category === 'Pixel Art' ? '▪' : '●'}
               </div>
-              <span className="text-sm">{preset.name}</span>
+              <span className="text-lg">{preset.name}</span>
             </div>
             <div className="flex items-center space-x-1">
-              <span className="text-sm text-[#888]">
+              <span className="text-lg text-[#D9D9D9]">
                 {preset.isCustomBrush ? '◆' : preset.isDefault ? '★' : '☆'}
               </span>
             </div>

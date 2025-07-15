@@ -14,7 +14,7 @@ export const pixelBrushSettings: BrushSettings = {
   minPressure: 1,
   maxPressure: 2,
   rotationEnabled: false,
-  dashedEnabled: false,
+  dashedEnabled: true,
   dashLength: 3,
   dashGap: 2
 };

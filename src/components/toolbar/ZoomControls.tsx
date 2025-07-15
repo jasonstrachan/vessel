@@ -66,24 +66,24 @@ export default function ZoomControls() {
 
   return (
     <div className="p-4 bg-[#2d2d2d] border-b border-[#404040]">
-      <h3 className="text-sm font-medium mb-3 text-green-400">🔍 Zoom Controls (CANVAS)</h3>
+      <h3 className="text-lg font-medium mb-3 text-green-400">🔍 Zoom Controls (CANVAS)</h3>
       
       {/* Zoom Buttons */}
       <div className="mb-4">
-        <label className="block text-xs text-gray-400 mb-2">Zoom</label>
+        <label className="block text-lg text-[#D9D9D9] mb-2">Zoom</label>
         <div className="flex gap-2 mb-2">
           <button
             onClick={handleZoomOut}
-            className="flex-1 px-3 py-2 text-xs bg-[#404040] text-gray-300 rounded hover:bg-[#555] transition-colors"
+            className="flex-1 px-3 py-2 text-lg bg-[#404040] text-[#D9D9D9] rounded hover:bg-[#555] transition-colors"
           >
             -
           </button>
-          <div className="flex-1 px-3 py-2 text-xs bg-[#1a1a1a] text-white rounded text-center border border-[#404040]">
+          <div className="flex-1 px-3 py-2 text-lg bg-[#1a1a1a] text-[#D9D9D9] rounded text-center border border-[#404040]">
             {Math.round(zoom * 100)}%
           </div>
           <button
             onClick={handleZoomIn}
-            className="flex-1 px-3 py-2 text-xs bg-[#404040] text-gray-300 rounded hover:bg-[#555] transition-colors"
+            className="flex-1 px-3 py-2 text-lg bg-[#404040] text-[#D9D9D9] rounded hover:bg-[#555] transition-colors"
           >
             +
           </button>
@@ -92,7 +92,7 @@ export default function ZoomControls() {
 
       {/* Zoom Slider */}
       <div className="mb-4">
-        <label className="block text-xs text-gray-400 mb-2">
+        <label className="block text-lg text-[#D9D9D9] mb-2">
           Zoom Level: {Math.round(zoom * 100)}%
         </label>
         <Input
@@ -114,13 +114,13 @@ export default function ZoomControls() {
         <div className="flex gap-2">
           <button
             onClick={handleZoomReset}
-            className="flex-1 px-2 py-1 text-xs bg-[#404040] text-gray-300 rounded hover:bg-[#555] transition-colors"
+            className="flex-1 px-2 py-1 text-lg bg-[#404040] text-[#D9D9D9] rounded hover:bg-[#555] transition-colors"
           >
             100%
           </button>
           <button
             onClick={handleZoomFit}
-            className="flex-1 px-2 py-1 text-xs bg-[#404040] text-gray-300 rounded hover:bg-[#555] transition-colors"
+            className="flex-1 px-2 py-1 text-lg bg-[#404040] text-[#D9D9D9] rounded hover:bg-[#555] transition-colors"
           >
             Fit
           </button>

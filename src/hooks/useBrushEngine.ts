@@ -525,7 +525,7 @@ export const useBrushEngine = () => {
   }, []);
 
   // Helper function to determine if we should draw the current stamp (cursor-speed independent)
-  const shouldDrawStamp = useCallback((brushSettings: any, queue: any): boolean => {
+  const shouldDrawStamp = useCallback((brushSettings: any, queue: any, actualSize?: number): boolean => {
     // Defensive checks for brush settings
     if (!brushSettings || typeof brushSettings !== 'object') {
       return true;
@@ -548,8 +548,8 @@ export const useBrushEngine = () => {
     }
     
     // Scale dash length and gap with brush size for consistent visual proportions
-    // Use brush size to calculate scaling factor (baseline around 4px)
-    const brushSize = Number(brushSettings.size) || 4;
+    // Use actual render size (including pressure effects) for accurate dash scaling
+    const brushSize = Number(actualSize || brushSettings.size) || 4;
     
     let dashLen: number;
     let dashGapLen: number;
@@ -634,7 +634,7 @@ export const useBrushEngine = () => {
       if (queue.accumulatedDistance >= settings.spacing) {
         // Check if we should draw this stamp (cursor-speed independent)
         const brushSettings = tools.brushSettings;
-        if (shouldDrawStamp(brushSettings, queue)) {
+        if (shouldDrawStamp(brushSettings, queue, settings.size)) {
           drawShape(ctx, x, y, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
         }
         queue.accumulatedDistance -= settings.spacing;
@@ -681,7 +681,7 @@ export const useBrushEngine = () => {
       queue.accumulatedDistance = 0;
       
       // Draw the first shape (check dash state)
-      if (shouldDrawStamp(tools.brushSettings, queue)) {
+      if (shouldDrawStamp(tools.brushSettings, queue, settings.size)) {
         drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
       }
       return;
@@ -699,7 +699,7 @@ export const useBrushEngine = () => {
       // Draw the waiting shape only if accumulated distance exceeds spacing
       if (queue.accumulatedDistance >= settings.spacing) {
         // Check if we should draw this stamp (cursor-speed independent)
-        if (shouldDrawStamp(tools.brushSettings, queue)) {
+        if (shouldDrawStamp(tools.brushSettings, queue, settings.size)) {
           drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
         }
         queue.accumulatedDistance -= settings.spacing;
@@ -862,7 +862,7 @@ export const useBrushEngine = () => {
       // Draw custom brush stamps along the path only when accumulated distance exceeds spacing
       while (queue.accumulatedDistance >= settings.spacing) {
         // Check if we should draw this stamp (cursor-speed independent)
-        if (shouldDrawStamp(tools.brushSettings, queue)) {
+        if (shouldDrawStamp(tools.brushSettings, queue, settings.size)) {
           // Calculate the position where we should place the next stamp
           const remaining = queue.accumulatedDistance - settings.spacing;
           const progress = (distance - remaining) / distance;
@@ -894,6 +894,9 @@ export const useBrushEngine = () => {
     if (settings.pixelAlignment) {
       ctx.imageSmoothingEnabled = false;
       
+      if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
+        console.log('PIXEL BRUSH PATH: dashedEnabled =', tools.brushSettings.dashedEnabled);
+      }
       
       // Follow Tom Cantwell's exact algorithm
       const roundedFromX = Math.round(from.x);
@@ -917,7 +920,7 @@ export const useBrushEngine = () => {
       // Draw shapes along the path only when accumulated distance exceeds spacing
       while (queue.accumulatedDistance >= settings.spacing) {
         // Check if we should draw this stamp (cursor-speed independent)
-        if (shouldDrawStamp(tools.brushSettings, queue)) {
+        if (shouldDrawStamp(tools.brushSettings, queue, settings.size)) {
           // Calculate the position where we should place the next shape
           const remaining = queue.accumulatedDistance - settings.spacing;
           const progress = (distance - remaining) / distance;

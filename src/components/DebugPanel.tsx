@@ -25,10 +25,7 @@ const DebugPanel: React.FC = () => {
         timestamp: new Date().toLocaleTimeString()
       });
       
-      // Log full results to console
-      console.log('Full Debug Results:', result);
     } catch (error) {
-      console.error('Debug check failed:', error);
       setLastResult({
         overallHealth: 'error',
         summary: [`Debug check failed: ${error instanceof Error ? error.message : 'Unknown error'}`],

@@ -59,13 +59,13 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     }, [onChange]);
 
     // Base classes for all inputs
-    const baseClasses = 'bg-[#404040] border border-[#555] text-white rounded focus:outline-none focus:ring-1 focus:ring-blue-500 touch-none';
+    const baseClasses = 'bg-[#404040] border border-[#555] text-[#D9D9D9] focus:outline-none focus:ring-1 focus:ring-blue-500 touch-none';
     
     // Variant-specific classes
     const variantClasses = {
-      default: 'px-2 py-1 text-sm',
-      hex: 'px-2 py-1 text-xs font-mono uppercase',
-      compact: 'px-1 py-1 text-xs text-center'
+      default: 'px-2 py-1 text-lg',
+      hex: 'px-2 py-1 text-lg font-mono uppercase',
+      compact: 'px-1 py-1 text-lg text-center'
     };
 
     // Type-specific classes
@@ -88,6 +88,13 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
       className
     ].filter(Boolean).join(' ');
 
+    const handleFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+      // Prevent virtual keyboard for stylus/pen input
+      if (e.nativeEvent.detail === 0) {
+        e.target.blur();
+      }
+    }, []);
+
     return (
       <input
         ref={inputRef}
@@ -99,6 +106,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onChange={onChange}
+        onFocus={handleFocus}
         {...props}
       />
     );

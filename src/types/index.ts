@@ -135,6 +135,7 @@ export interface UIState {
     export: boolean;
     settings: boolean;
     help: boolean;
+    document: boolean;
   };
   theme: 'dark' | 'light';
   notifications: Notification[];

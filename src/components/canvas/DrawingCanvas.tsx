@@ -121,7 +121,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         const ctx = tempCanvas.getContext('2d', { willReadFrequently: true });
         
         if (!ctx) {
-          console.error('Failed to get canvas context for paste operation');
           return;
         }
         
@@ -148,13 +147,11 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       };
       
       img.onerror = (error) => {
-        console.error('Failed to load pasted image:', error);
       };
       
       const objectURL = URL.createObjectURL(file);
       img.src = objectURL;
     } catch (error) {
-      console.error('Paste operation failed:', error);
     }
   }, [setSelection]);
 
@@ -187,7 +184,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       const hexColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
       return hexColor;
     } catch (error) {
-      console.warn('Color sampling error:', error);
       return null;
     }
   }, []);
@@ -239,17 +235,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     setCursorScreenX(event.clientX);
     setCursorScreenY(event.clientY);
     
-    // DEBUG: Compare what we're getting vs what we should get
-    // if (Math.random() < 0.1) {
-    // }
     
-    // DEBUG: Log the actual mouse event details to understand the issue
-    // if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
-    // }
     
-    // Debug: Verify coordinate transformation consistency
-    // if (process.env.NODE_ENV === 'development' && window.debugCursorAlignment && Math.random() < 0.01) {
-    // }
     
     // Show brush cursor for brush-like tools (optimized to avoid unnecessary updates)
     const shouldShowBrushCursor = (tools.currentTool === 'brush' || tools.currentTool === 'eraser') && !spacebarPressed && isMouseOverCanvas;
@@ -448,7 +435,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   const createCustomBrushFromSelection = useCallback(async () => {
     
     if (!selectionStart || !selectionEnd || !project) {
-      console.error('Custom brush creation failed: Missing required data');
       return null;
     }
     
@@ -462,7 +448,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     
     if (width <= 0 || height <= 0) {
-      console.error('Custom brush creation failed: Invalid selection area');
       return null;
     }
     
@@ -473,14 +458,12 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
     
     if (!captureCtx) {
-      console.error('Failed to get canvas context');
       return null;
     }
     
     // Get the offscreen canvas (contains actual drawing without overlays)
     const layerCanvas = offscreenCanvasRef.current;
     if (!layerCanvas) {
-      console.error('Custom brush creation failed: Canvas not found');
       return null;
     }
     
@@ -501,7 +484,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       );
       
     } catch (error) {
-      console.error('Custom brush creation failed: Canvas capture error:', error);
       return null;
     }
     
@@ -775,7 +757,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         drawLine(lastPoint, point);
         setLastPoint(point);
       } catch (error) {
-        console.warn('Canvas drawing error:', error);
       }
     }
   }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition, isDraggingSelection, selectionDragStart, canvas.selection, setSelection, isSelecting, selectionStart, setSelectionBounds, smoothPressure, isPalmRejectionEvent]);
@@ -902,7 +883,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         drawLine(lastPoint, point);
         setLastPoint(point);
       } catch (error) {
-        console.warn('Canvas drawing error:', error);
       }
     }
   }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition]);
@@ -1128,7 +1108,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
             }
           }
         }).catch(err => {
-          console.error('Modern clipboard API failed:', err);
         });
       }
       return;
@@ -1314,7 +1293,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         }
       }
     } catch (error) {
-      console.error('Canvas initialization error:', error);
     }
   }, [isCanvasInitialized, initializeCanvas, setPan, setProjectDimensions, width, height]);
 
@@ -1512,7 +1490,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         renderView();
         setLayersNeedRecomposition(false);
       } else {
-        console.warn('Offscreen canvas not available for recomposition');
       }
     }
   }, [layersNeedRecomposition, compositeLayersToCanvas, renderView, setLayersNeedRecomposition, layers]);
@@ -1575,7 +1552,12 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
           style={{
             ...canvasStyle,
             position: 'relative',
-            zIndex: 1
+            zIndex: 1,
+            border: 'none',
+            outline: 'none',
+            padding: 0,
+            margin: 0,
+            boxSizing: 'border-box'
           }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
