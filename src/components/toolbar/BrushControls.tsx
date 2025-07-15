@@ -164,6 +164,55 @@ export default function BrushControls() {
         </div>
       </div>
 
+      {/* Dashed */}
+      <div className="mb-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Input
+            type="checkbox"
+            id="dashed-enabled"
+            checked={brushSettings.dashedEnabled || false}
+            onChange={(e) => setBrushSettings({ dashedEnabled: e.target.checked })}
+            className="w-3 h-3"
+          />
+          <label htmlFor="dashed-enabled" className="text-xs text-gray-400">
+            Dashed
+          </label>
+        </div>
+        
+        {(brushSettings.dashedEnabled || false) && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-400 w-12" title="Dash length as multiple of brush size">Length</label>
+              <Input
+                type="number"
+                variant="compact"
+                value={brushSettings.dashLength || 3}
+                onChange={(e) => setBrushSettings({ dashLength: parseInt(e.target.value) || 3 })}
+                min="1"
+                max="20"
+                className="w-16"
+                title="Length multiplier (×brush size)"
+              />
+              <span className="text-xs text-gray-500">×</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-400 w-12" title="Gap length as multiple of brush size">Gap</label>
+              <Input
+                type="number"
+                variant="compact"
+                value={brushSettings.dashGap || 2}
+                onChange={(e) => setBrushSettings({ dashGap: parseInt(e.target.value) || 2 })}
+                min="1"
+                max="20"
+                className="w-16"
+                title="Gap multiplier (×brush size)"
+              />
+              <span className="text-xs text-gray-500">×</span>
+            </div>
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }

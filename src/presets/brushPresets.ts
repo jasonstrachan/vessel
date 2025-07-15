@@ -13,7 +13,10 @@ export const pixelBrushSettings: BrushSettings = {
   pressureEnabled: false,
   minPressure: 1,
   maxPressure: 2,
-  rotationEnabled: false
+  rotationEnabled: false,
+  dashedEnabled: false,
+  dashLength: 3,
+  dashGap: 2
 };
 
 // Default brush settings for smooth drawing
@@ -30,7 +33,10 @@ export const defaultBrushSettings: BrushSettings = {
   pressureEnabled: false,
   minPressure: 1,
   maxPressure: 4,
-  rotationEnabled: false
+  rotationEnabled: false,
+  dashedEnabled: false,
+  dashLength: 3,
+  dashGap: 2
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect
@@ -398,7 +404,7 @@ export const inkBrushComponents: BrushComponent[] = [
     id: 'ink-shape',
     type: ComponentType.SHAPE_RENDERER,
     parameters: {
-      shape: BrushShape.CIRCLE
+      shape: BrushShape.ROUND
     },
     priority: 40,
     enabled: true

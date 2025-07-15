@@ -29,6 +29,14 @@ export interface RenderSettings {
 export const useBrushEngine = () => {
   const { tools, activeBrushComponents, project, brushPresets } = useAppStore();
   
+  // Debug helper - add to window for easy access
+  if (typeof window !== 'undefined') {
+    (window as any).enableTinybrushDebug = () => {
+      (window as any).tinybrushDebug = true;
+      console.log('🎨 TinyBrush debug enabled! Draw with dashed brushes to see debug output.');
+    };
+  }
+  
   // Pixel queue state for perfect pixel drawing with distance-based spacing
   const pixelQueueRef = useRef({
     lastDrawnX: 0,
@@ -39,7 +47,9 @@ export const useBrushEngine = () => {
     spacingCounter: 0,
     // Distance-based spacing state
     accumulatedDistance: 0,
-    lastStrokePosition: { x: 0, y: 0 }
+    lastStrokePosition: { x: 0, y: 0 },
+    // Dashed brush state
+    dashStampCounter: 0
   });
 
   // Direction smoothing for rotation
@@ -459,13 +469,13 @@ export const useBrushEngine = () => {
       finalSize = minSizePx + (input.pressure * (maxSizePx - minSizePx));
     }
     
-    // Start with base settings
+    // Start with base settings (don't override pixelAlignment - let components control it)
     let settings: RenderSettings = {
       size: finalSize,
       opacity: activeSettings.opacity,
       color: activeSettings.color,
       antiAliasing: activeSettings.antialiasing,
-      pixelAlignment: !activeSettings.antialiasing,
+      pixelAlignment: !activeSettings.antialiasing, // Default fallback
       spacing: activeSettings.spacing,
       rotation: activeSettings.rotationEnabled && input.direction !== undefined ? input.direction : 0,
       shape: BrushShape.SQUARE // Default shape, will be overridden by components
@@ -478,7 +488,17 @@ export const useBrushEngine = () => {
     
     // Execute each component in order
     for (const component of sortedComponents) {
-      settings = executeComponent(component, input, settings);
+      if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
+        console.log('Executing component:', component.type, component.parameters);
+      }
+      const newSettings = executeComponent(component, input, settings);
+      if (typeof window !== 'undefined' && (window as any).tinybrushDebug && component.type === ComponentType.ANTI_ALIASING) {
+        console.log('ANTI_ALIASING component result:', { 
+          antiAliasing: newSettings.antiAliasing, 
+          pixelAlignment: newSettings.pixelAlignment 
+        });
+      }
+      settings = newSettings;
     }
     
     return settings;
@@ -495,11 +515,88 @@ export const useBrushEngine = () => {
       spacingCounter: 0,
       // Reset distance-based spacing state
       accumulatedDistance: 0,
-      lastStrokePosition: { x: 0, y: 0 }
+      lastStrokePosition: { x: 0, y: 0 },
+      // Reset dashed brush state
+      dashStampCounter: 0
     };
     // Reset direction history for rotation
     directionHistoryRef.current = [];
     lastDirectionRef.current = 0;
+  }, []);
+
+  // Helper function to determine if we should draw the current stamp (cursor-speed independent)
+  const shouldDrawStamp = useCallback((brushSettings: any, queue: any): boolean => {
+    // Defensive checks for brush settings
+    if (!brushSettings || typeof brushSettings !== 'object') {
+      return true;
+    }
+    
+    const dashedEnabled = brushSettings.dashedEnabled;
+    const dashLength = brushSettings.dashLength;
+    const dashGap = brushSettings.dashGap;
+    
+    if (!dashedEnabled) {
+      return true; // Always draw when dashing is disabled
+    }
+    
+    // More defensive checks
+    const baseDashLen = Number(dashLength) || 3;
+    const baseDashGapLen = Number(dashGap) || 2;
+    
+    if (baseDashLen <= 0 || baseDashGapLen <= 0) {
+      return true; // Invalid settings, default to drawing
+    }
+    
+    // Scale dash length and gap with brush size for consistent visual proportions
+    // Use brush size to calculate scaling factor (baseline around 4px)
+    const brushSize = Number(brushSettings.size) || 4;
+    
+    let dashLen: number;
+    let dashGapLen: number;
+    
+    if (brushSize <= 2) {
+      // For very small brushes (1-2px), use original values to ensure visible dashing
+      dashLen = baseDashLen;
+      dashGapLen = baseDashGapLen;
+    } else {
+      // For larger brushes, scale proportionally
+      const sizeScaleFactor = brushSize / 4; // No minimum to allow proper scaling
+      dashLen = Math.max(1, Math.round(baseDashLen * sizeScaleFactor));
+      dashGapLen = Math.max(1, Math.round(baseDashGapLen * sizeScaleFactor));
+    }
+    
+    // Calculate total cycle length in stamps
+    const totalCycleLength = dashLen + dashGapLen;
+    
+    // Get current position in dash cycle
+    const cyclePosition = queue.dashStampCounter % totalCycleLength;
+    
+    // Determine if we're in dash or gap segment
+    const isInDashSegment = cyclePosition < dashLen;
+    
+    // Comprehensive debug logging
+    if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
+      console.log('shouldDrawStamp DEBUG:', { 
+        dashedEnabled, 
+        brushSize, 
+        rawDashLength: dashLength,  // Show raw values from settings
+        rawDashGap: dashGap,        // Show raw values from settings
+        baseDashLength: baseDashLen, 
+        baseDashGap: baseDashGapLen, 
+        scaledDashLen: dashLen, 
+        scaledDashGap: dashGapLen,
+        totalCycleLength,
+        counterBefore: queue.dashStampCounter,
+        cyclePosition,
+        isInDashSegment,
+        willDraw: isInDashSegment
+      });
+    }
+    
+    // Advance counter for next stamp (happens regardless of whether we draw)
+    queue.dashStampCounter++;
+    
+    return isInDashSegment;
   }, []);
 
 
@@ -535,7 +632,11 @@ export const useBrushEngine = () => {
       
       // Draw shape at position only if accumulated distance exceeds spacing
       if (queue.accumulatedDistance >= settings.spacing) {
-        drawShape(ctx, x, y, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
+        // Check if we should draw this stamp (cursor-speed independent)
+        const brushSettings = tools.brushSettings;
+        if (shouldDrawStamp(brushSettings, queue)) {
+          drawShape(ctx, x, y, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
+        }
         queue.accumulatedDistance -= settings.spacing;
       }
       
@@ -579,8 +680,10 @@ export const useBrushEngine = () => {
       queue.lastStrokePosition = { x: roundedX, y: roundedY };
       queue.accumulatedDistance = 0;
       
-      // Draw the first shape
-      drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
+      // Draw the first shape (check dash state)
+      if (shouldDrawStamp(tools.brushSettings, queue)) {
+        drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
+      }
       return;
     }
     
@@ -595,7 +698,10 @@ export const useBrushEngine = () => {
     if (Math.abs(roundedX - queue.lastDrawnX) > 1 || Math.abs(roundedY - queue.lastDrawnY) > 1) {
       // Draw the waiting shape only if accumulated distance exceeds spacing
       if (queue.accumulatedDistance >= settings.spacing) {
-        drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
+        // Check if we should draw this stamp (cursor-speed independent)
+        if (shouldDrawStamp(tools.brushSettings, queue)) {
+          drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
+        }
         queue.accumulatedDistance -= settings.spacing;
         queue.lastStrokePosition = { x: queue.waitingPixelX, y: queue.waitingPixelY };
       }
@@ -755,13 +861,16 @@ export const useBrushEngine = () => {
       
       // Draw custom brush stamps along the path only when accumulated distance exceeds spacing
       while (queue.accumulatedDistance >= settings.spacing) {
-        // Calculate the position where we should place the next stamp
-        const remaining = queue.accumulatedDistance - settings.spacing;
-        const progress = (distance - remaining) / distance;
-        const x = queue.lastStrokePosition.x + (to.x - queue.lastStrokePosition.x) * progress;
-        const y = queue.lastStrokePosition.y + (to.y - queue.lastStrokePosition.y) * progress;
-        
-        drawCustomBrushStamp(ctx, x, y, customBrush, scaleFactor, settings.rotation);
+        // Check if we should draw this stamp (cursor-speed independent)
+        if (shouldDrawStamp(tools.brushSettings, queue)) {
+          // Calculate the position where we should place the next stamp
+          const remaining = queue.accumulatedDistance - settings.spacing;
+          const progress = (distance - remaining) / distance;
+          const x = queue.lastStrokePosition.x + (to.x - queue.lastStrokePosition.x) * progress;
+          const y = queue.lastStrokePosition.y + (to.y - queue.lastStrokePosition.y) * progress;
+          
+          drawCustomBrushStamp(ctx, x, y, customBrush, scaleFactor, settings.rotation);
+        }
         
         queue.accumulatedDistance -= settings.spacing;
       }
@@ -785,6 +894,7 @@ export const useBrushEngine = () => {
     if (settings.pixelAlignment) {
       ctx.imageSmoothingEnabled = false;
       
+      
       // Follow Tom Cantwell's exact algorithm
       const roundedFromX = Math.round(from.x);
       const roundedFromY = Math.round(from.y);
@@ -806,14 +916,17 @@ export const useBrushEngine = () => {
       
       // Draw shapes along the path only when accumulated distance exceeds spacing
       while (queue.accumulatedDistance >= settings.spacing) {
-        // Calculate the position where we should place the next shape
-        const remaining = queue.accumulatedDistance - settings.spacing;
-        const progress = (distance - remaining) / distance;
-        const x = queue.lastStrokePosition.x + (to.x - queue.lastStrokePosition.x) * progress;
-        const y = queue.lastStrokePosition.y + (to.y - queue.lastStrokePosition.y) * progress;
-        
-        ctx.fillStyle = settings.color;
-        drawShape(ctx, x, y, settings.size, settings.shape, true, settings.rotation, settings.pattern, settings.centerAlignment);
+        // Check if we should draw this stamp (cursor-speed independent)
+        if (shouldDrawStamp(tools.brushSettings, queue)) {
+          // Calculate the position where we should place the next shape
+          const remaining = queue.accumulatedDistance - settings.spacing;
+          const progress = (distance - remaining) / distance;
+          const x = queue.lastStrokePosition.x + (to.x - queue.lastStrokePosition.x) * progress;
+          const y = queue.lastStrokePosition.y + (to.y - queue.lastStrokePosition.y) * progress;
+          
+          ctx.fillStyle = settings.color;
+          drawShape(ctx, x, y, settings.size, settings.shape, true, settings.rotation, settings.pattern, settings.centerAlignment);
+        }
         
         queue.accumulatedDistance -= settings.spacing;
       }

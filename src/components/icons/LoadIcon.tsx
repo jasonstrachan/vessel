@@ -1,7 +1,7 @@
-const imgLoad = "http://localhost:3845/assets/d5a3b98dddc128c39fe9b08ce0f0c514682a1a4a.svg";
-
 export default function LoadIcon() {
   return (
-    <img alt="Load" width="24" height="24" style={{ objectFit: 'contain' }} src={imgLoad} />
+    <svg width="24" height="24" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M14.8311 14.3824H0.842773V0.395142H7.30273V6.47034H5.20801V12.1373H10.875V6.47034H8.78027V0.395142H14.8311V14.3824Z" fill="currentColor" fillOpacity="0.8"/>
+    </svg>
   );
 }

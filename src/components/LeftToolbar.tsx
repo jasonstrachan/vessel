@@ -50,6 +50,15 @@ const LeftToolbar = () => {
         console.error('Failed to load project:', error);
         alert(`Load failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
+    } else if (toolId === 'export-png') {
+      console.log('=== EXPORT PNG BUTTON CLICKED ===');
+      try {
+        await exportProject('png');
+        console.log('Export completed successfully');
+      } catch (error) {
+        console.error('Failed to export project:', error);
+        alert(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     } else {
       setCurrentTool(toolId);
     }
@@ -63,7 +72,7 @@ const LeftToolbar = () => {
           onClick={() => handleToolClick(tool.id)}
           title={tool.label}
           className={`w-[48px] h-32 min-h-[64px] mx-auto flex items-center justify-center bg-transparent hover:bg-gray-600 border-0 appearance-none outline-none ${
-            (tool.id === 'save' || tool.id === 'load') ? 'mb-0' : 'mb-8'
+            (tool.id === 'save' || tool.id === 'load' || tool.id === 'export-png') ? 'mb-0' : 'mb-8'
           }`}
           style={{ 
             color: toolState.currentTool === tool.id ? '#FFFFFF' : '#5A5A61', 
@@ -113,6 +122,8 @@ const LeftToolbar = () => {
             </svg>
           ) : tool.id === 'load' ? (
             <LoadIcon />
+          ) : tool.id === 'export-png' ? (
+            <ExportIcon />
           ) : tool.id === 'eyedropper' ? (
             <svg width="24" height="24" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
               <rect x="8.83139" y="6.39124" width="3.8025" height="8.94704" transform="rotate(45 8.83139 6.39124)" fill="currentColor" fillOpacity="0.8"/>
