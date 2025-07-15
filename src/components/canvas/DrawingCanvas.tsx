@@ -660,7 +660,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
   // RAF-throttled pointer event processing for performance
   const pendingPointerEvent = useRef<React.PointerEvent | null>(null);
-  const rafId = useRef<number | undefined>();
+  const rafId = useRef<number | undefined>(undefined);
 
   // Pressure smoothing for stylus input
   const pressureHistory = useRef<number[]>([]);
