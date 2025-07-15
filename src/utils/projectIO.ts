@@ -83,23 +83,14 @@ function dataUrlToImageData(dataUrl: string): Promise<ImageData> {
 
 // Serialize a layer for saving
 function serializeLayer(layer: Layer): SerializedLayer {
-  console.log('Serializing layer:', {
-    layerId: layer.id,
-    layerName: layer.name,
-    hasImageData: !!layer.imageData,
-    imageDataSize: layer.imageData ? `${layer.imageData.width}x${layer.imageData.height}` : 'none'
-  });
   
   let imageDataUrl = '';
   if (layer.imageData) {
     try {
       imageDataUrl = imageDataToDataUrl(layer.imageData);
-      console.log('Successfully serialized ImageData to URL, length:', imageDataUrl.length);
     } catch (error) {
-      console.error('Failed to serialize ImageData:', error);
     }
   } else {
-    console.warn('Layer has no ImageData to serialize');
   }
   
   return {
@@ -116,26 +107,14 @@ function serializeLayer(layer: Layer): SerializedLayer {
 
 // Deserialize a layer from saved data
 async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: number, projectHeight: number): Promise<Layer> {
-  console.log('Deserializing layer:', {
-    layerId: serializedLayer.id,
-    layerName: serializedLayer.name,
-    hasImageDataUrl: !!serializedLayer.imageDataUrl,
-    imageDataUrlLength: serializedLayer.imageDataUrl.length
-  });
   
   let imageData: ImageData | null = null;
   if (serializedLayer.imageDataUrl) {
     try {
       imageData = await dataUrlToImageData(serializedLayer.imageDataUrl);
-      console.log('Successfully deserialized ImageData:', {
-        size: `${imageData.width}x${imageData.height}`,
-        dataLength: imageData.data.length
-      });
     } catch (error) {
-      console.error('Failed to deserialize ImageData:', error);
     }
   } else {
-    console.warn('Layer has no imageDataUrl to deserialize');
   }
   
   // Create framebuffer with project dimensions

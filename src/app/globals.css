@@ -1,6 +1,14 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* Reset canvas default styles */
+canvas {
+  border: none;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+  display: block;
+}
 
 @font-face {
   font-family: 'MEKSANS';
@@ -16,7 +24,7 @@
     padding: 0;
     font-family: 'MEKSANS', system-ui, -apple-system, sans-serif;
     background-color: #141514;
-    color: #ffffff;
+    color: #D9D9D9;
   }
 }
 
@@ -44,7 +52,7 @@
   /* Force white text in all inputs */
   input[type="number"],
   input[type="text"] {
-    color: #ffffff !important;
+    color: #D9D9D9 !important;
   }
 
   /* Hide number input spinners */

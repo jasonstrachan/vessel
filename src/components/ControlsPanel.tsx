@@ -8,7 +8,7 @@ const ControlsPanel = () => {
   const { tools } = useAppStore();
   
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto bg-[#31313A]">
       {(tools.currentTool === 'brush' || tools.currentTool === 'eraser') && <BrushControls />}
       {tools.currentTool === 'fill' && <FillControls />}
       {tools.currentTool === 'custom' && <CustomBrushPanel />}

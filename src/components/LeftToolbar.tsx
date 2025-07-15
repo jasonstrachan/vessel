@@ -6,7 +6,7 @@ import ExportIcon from './icons/ExportIcon';
 
 const LeftToolbar = () => {
   // Force refresh - toolbar black background fix
-  const { tools: toolState, setCurrentTool, saveProject, loadProject, exportProject } = useAppStore();
+  const { tools: toolState, setCurrentTool, saveProject, loadProject, exportProject, toggleModal } = useAppStore();
   
   const tools = [
     { id: 'new-document' as Tool, icon: null, label: 'New Document' },
@@ -22,8 +22,9 @@ const LeftToolbar = () => {
   ];
 
   const handleToolClick = async (toolId: Tool) => {
-    if (toolId === 'save') {
-      console.log('=== SAVE BUTTON CLICKED ===');
+    if (toolId === 'new-document') {
+      toggleModal('document');
+    } else if (toolId === 'save') {
       try {
         // Debug current state before saving
         if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
@@ -31,32 +32,24 @@ const LeftToolbar = () => {
         }
         
         await saveProject();
-        console.log('Save completed successfully');
       } catch (error) {
-        console.error('Failed to save project:', error);
         alert(`Save failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     } else if (toolId === 'load') {
-      console.log('=== LOAD BUTTON CLICKED ===');
       try {
         await loadProject();
-        console.log('Load completed successfully');
         
         // Debug state after loading
         if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
           setTimeout(() => (window as any).tinybrushDebug.debugProjectState(), 100);
         }
       } catch (error) {
-        console.error('Failed to load project:', error);
         alert(`Load failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     } else if (toolId === 'export-png') {
-      console.log('=== EXPORT PNG BUTTON CLICKED ===');
       try {
         await exportProject('png');
-        console.log('Export completed successfully');
       } catch (error) {
-        console.error('Failed to export project:', error);
         alert(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     } else {
@@ -71,12 +64,22 @@ const LeftToolbar = () => {
           key={tool.id}
           onClick={() => handleToolClick(tool.id)}
           title={tool.label}
-          className={`w-[48px] h-32 min-h-[64px] mx-auto flex items-center justify-center bg-transparent hover:bg-gray-600 border-0 appearance-none outline-none ${
-            (tool.id === 'save' || tool.id === 'load' || tool.id === 'export-png') ? 'mb-0' : 'mb-8'
+          className={`w-[48px] h-12 min-h-[40px] mx-auto flex items-center justify-center bg-transparent border-0 appearance-none outline-none ${
+            (tool.id === 'save' || tool.id === 'load' || tool.id === 'export-png') ? 'mb-0' : 'mb-1'
           }`}
           style={{ 
             color: toolState.currentTool === tool.id ? '#FFFFFF' : '#5A5A61', 
             fontSize: '2.8rem' 
+          }}
+          onMouseEnter={(e) => {
+            if (toolState.currentTool !== tool.id) {
+              e.currentTarget.style.color = '#888888';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (toolState.currentTool !== tool.id) {
+              e.currentTarget.style.color = '#5A5A61';
+            }
           }}
         >
           {tool.id === 'new-document' ? (

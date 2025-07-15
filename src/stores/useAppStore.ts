@@ -55,6 +55,7 @@ interface AppState {
   setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
   setCanvasDimensions: (width: number, height: number) => void;
   setProjectDimensions: (width: number, height: number) => void;
+  resizeCanvas: (width: number, height: number) => void;
   setSelection: (selection: CanvasState['selection']) => void;
   setCursor: (cursor: CanvasState['cursor']) => void;
   
@@ -160,7 +161,8 @@ const defaultUIState: UIState = {
   modals: {
     export: false,
     settings: false,
-    help: false
+    help: false,
+    document: false
   },
   theme: 'dark',
   notifications: []
@@ -229,6 +231,65 @@ export const useAppStore = create<AppState>()(
       setProjectDimensions: (width, height) => set((state) => ({
         project: state.project ? { ...state.project, width, height } : null
       })),
+      resizeCanvas: (width, height) => set((state) => {
+        if (!state.project) return state;
+        
+        const oldWidth = state.project.width;
+        const oldHeight = state.project.height;
+        
+        // Calculate offset to center content
+        const offsetX = (width - oldWidth) / 2;
+        const offsetY = (height - oldHeight) / 2;
+        
+        // Update project dimensions
+        const updatedProject = { ...state.project, width, height };
+        
+        // Resize layers while preserving content position from center
+        const resizedLayers = state.layers.map(layer => {
+          if (!layer.imageData) return layer;
+          
+          // Create new canvas with new dimensions
+          const newCanvas = document.createElement('canvas');
+          newCanvas.width = width;
+          newCanvas.height = height;
+          const newCtx = newCanvas.getContext('2d');
+          
+          if (newCtx) {
+            // Clear with transparent background
+            newCtx.clearRect(0, 0, width, height);
+            
+            // Create temporary canvas for existing content
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = layer.imageData.width;
+            tempCanvas.height = layer.imageData.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            if (tempCtx) {
+              tempCtx.putImageData(layer.imageData, 0, 0);
+              
+              // Draw existing content centered in new canvas
+              newCtx.drawImage(tempCanvas, offsetX, offsetY);
+            }
+            
+            // Get new image data
+            const newImageData = newCtx.getImageData(0, 0, width, height);
+            
+            return {
+              ...layer,
+              imageData: newImageData
+            };
+          }
+          
+          return layer;
+        });
+        
+        return {
+          project: updatedProject,
+          layers: resizedLayers,
+          canvas: { ...state.canvas, canvasWidth: width, canvasHeight: height },
+          layersNeedRecomposition: true
+        };
+      }),
       setSelection: (selection) => set((state) => ({
         canvas: { ...state.canvas, selection }
       })),
@@ -740,7 +801,13 @@ export const useAppStore = create<AppState>()(
         set({
           project: newProject,
           layers: [],
-          activeLayerId: null
+          activeLayerId: null,
+          canvas: {
+            ...get().canvas,
+            canvasWidth: width,
+            canvasHeight: height
+          },
+          layersNeedRecomposition: true
         });
         
         // Clear history for new project
@@ -798,7 +865,6 @@ export const useAppStore = create<AppState>()(
       captureCanvasToActiveLayer: async (sourceCanvas?: HTMLCanvasElement) => {
         const state = get();
         if (!state.project || state.layers.length === 0) {
-          console.warn('Cannot capture: no project or layers');
           return;
         }
         
@@ -809,20 +875,12 @@ export const useAppStore = create<AppState>()(
         }
         
         if (!canvas) {
-          console.warn('No canvas available for capture');
           return;
         }
         
-        console.log('Canvas capture details:', {
-          canvasSize: `${canvas.width}x${canvas.height}`,
-          projectSize: `${state.project.width}x${state.project.height}`,
-          layerCount: state.layers.length,
-          activeLayerId: state.activeLayerId
-        });
         
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) {
-          console.warn('No canvas context available');
           return;
         }
         
@@ -832,11 +890,6 @@ export const useAppStore = create<AppState>()(
           const captureHeight = Math.min(state.project.height, canvas.height);
           
           const imageData = ctx.getImageData(0, 0, captureWidth, captureHeight);
-          console.log('Captured ImageData:', {
-            size: `${imageData.width}x${imageData.height}`,
-            dataLength: imageData.data.length,
-            projectSize: `${state.project.width}x${state.project.height}`
-          });
           
           // Find the active layer or use the first layer
           const activeLayerId = state.activeLayerId || state.layers[0]?.id;
@@ -855,7 +908,6 @@ export const useAppStore = create<AppState>()(
               };
             });
             
-            console.log('Captured canvas to active layer:', activeLayerId);
             
             // Wait for the next tick to ensure store update is complete
             await new Promise(resolve => setTimeout(resolve, 0));
@@ -863,10 +915,8 @@ export const useAppStore = create<AppState>()(
             // Verify the layer was updated (get fresh state)
             const freshState = get();
             const updatedLayer = freshState.layers.find(l => l.id === activeLayerId);
-            console.log('Layer after update has imageData:', !!updatedLayer?.imageData);
           }
         } catch (error) {
-          console.error('Failed to capture canvas to layer:', error);
         }
       }
     }),
