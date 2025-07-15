@@ -54,6 +54,7 @@ interface AppState {
   toggleRulers: () => void;
   setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
   setCanvasDimensions: (width: number, height: number) => void;
+  setProjectDimensions: (width: number, height: number) => void;
   setSelection: (selection: CanvasState['selection']) => void;
   setCursor: (cursor: CanvasState['cursor']) => void;
   
@@ -224,6 +225,9 @@ export const useAppStore = create<AppState>()(
       })),
       setCanvasDimensions: (width, height) => set((state) => ({
         canvas: { ...state.canvas, canvasWidth: width, canvasHeight: height }
+      })),
+      setProjectDimensions: (width, height) => set((state) => ({
+        project: state.project ? { ...state.project, width, height } : null
       })),
       setSelection: (selection) => set((state) => ({
         canvas: { ...state.canvas, selection }

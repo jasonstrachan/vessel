@@ -176,6 +176,10 @@ export interface BrushSettings {
   maxPressure: number; // Percentage (1-1000)
   // Rotation settings
   rotationEnabled: boolean;
+  // Dashed brush settings
+  dashedEnabled: boolean;
+  dashLength: number;
+  dashGap: number;
 }
 
 export interface ComponentParams {

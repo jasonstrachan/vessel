@@ -24,7 +24,7 @@ const LayerPanel = () => {
       blendMode: 'source-over',
       locked: false,
       imageData: null,
-      framebuffer: new OffscreenCanvas(800, 600)
+      framebuffer: project ? new OffscreenCanvas(project.width, project.height) : new OffscreenCanvas(2000, 2000)
     };
     addLayer(newLayer);
   };

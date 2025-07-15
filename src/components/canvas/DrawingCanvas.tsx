@@ -62,6 +62,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     history,
     layers,
     layersNeedRecomposition,
+    activeLayerId,
     setZoom,
     setCursor,
     setBrushSettings,
@@ -76,6 +77,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     clearSelection,
     addCustomBrush,
     addLayer,
+    updateLayer,
     saveCanvasState,
     undo,
     redo,
@@ -83,6 +85,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     canRedo,
     compositeLayersToCanvas,
     setLayersNeedRecomposition,
+    captureCanvasToActiveLayer,
+    setProjectDimensions,
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue } = useBrushEngine();
@@ -825,10 +829,15 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       return;
     }
 
+    // Save drawing data to active layer when finishing a stroke
+    if (isDrawing && offscreenCanvasRef.current) {
+      // Use the proper canvas capture function
+      await captureCanvasToActiveLayer(offscreenCanvasRef.current);
+    }
 
     setIsDrawing(false);
     setLastPoint(null);
-  }, [isPanning, isDraggingSelection, isSelecting, tools, selectionStart, selectionEnd, project, createCustomBrushFromSelection]);
+  }, [isPanning, isDraggingSelection, isSelecting, tools, selectionStart, selectionEnd, project, createCustomBrushFromSelection, isDrawing, captureCanvasToActiveLayer]);
 
   // Touch event handlers for mobile support
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -898,7 +907,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     }
   }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition]);
 
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+  const handleTouchEnd = useCallback(async (e: React.TouchEvent) => {
     // Note: preventDefault will be handled by native event listener for passive events
     
     if (isPanning) {
@@ -907,9 +916,15 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       return;
     }
 
+    // Save drawing data to active layer when finishing a touch stroke
+    if (isDrawing && offscreenCanvasRef.current) {
+      // Use the proper canvas capture function
+      await captureCanvasToActiveLayer(offscreenCanvasRef.current);
+    }
+
     setIsDrawing(false);
     setLastPoint(null);
-  }, [isPanning]);
+  }, [isPanning, isDrawing, captureCanvasToActiveLayer]);
 
   // Wheel event for zoom (cursor-centered)
   const handleWheel = useCallback((e: WheelEvent) => {
@@ -987,8 +1002,9 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   // Keyboard event handlers
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     // Undo/Redo shortcuts
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
       e.preventDefault();
+      e.stopPropagation();
       
       if (e.shiftKey) {
         // Redo (Ctrl+Shift+Z)
@@ -1007,6 +1023,21 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
             restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
             renderView();
           }
+        }
+      }
+      return;
+    }
+
+    // Alternative Redo shortcut (Ctrl+Y)
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (canRedo()) {
+        const snapshot = redo();
+        if (snapshot && offscreenCanvasRef.current) {
+          restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
+          renderView();
         }
       }
       return;
@@ -1275,6 +1306,9 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
           initializeCanvas();
           setIsCanvasInitialized(true);
           
+          // Update project dimensions to match canvas
+          setProjectDimensions(width, height);
+          
           // Reset pan to default position (world origin at canvas origin)
           setPan(0, 0);
         }
@@ -1282,7 +1316,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     } catch (error) {
       console.error('Canvas initialization error:', error);
     }
-  }, [isCanvasInitialized, initializeCanvas, setPan]);
+  }, [isCanvasInitialized, initializeCanvas, setPan, setProjectDimensions, width, height]);
 
   // Event listeners setup - separate from canvas initialization
   useEffect(() => {
