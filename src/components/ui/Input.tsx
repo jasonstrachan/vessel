@@ -63,9 +63,9 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     
     // Variant-specific classes
     const variantClasses = {
-      default: 'px-2 py-1 text-lg',
-      hex: 'px-2 py-1 text-lg font-mono uppercase',
-      compact: 'px-1 py-1 text-lg text-center'
+      default: 'px-2 py-1 text-base',
+      hex: 'px-2 py-1 text-base font-mono uppercase',
+      compact: 'px-1 py-1 text-base text-center'
     };
 
     // Type-specific classes

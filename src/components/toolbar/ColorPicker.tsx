@@ -460,7 +460,7 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
           
           setIsOpen(!isOpen);
         }}
-        className="h-[28px] w-[28px] text-lg rounded hover:opacity-80 transition-opacity cursor-pointer"
+        className="h-[28px] w-[28px] text-base rounded hover:opacity-80 transition-opacity cursor-pointer"
         style={{ backgroundColor: color }}
         title="Color Picker"
       />
@@ -499,7 +499,7 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
                     onClick={() => onChange(localColor)}
                     title={`Apply new color: ${localColor}`}
                   />
-                  <div className="text-lg text-[#D9D9D9] mt-1 w-16 text-center">{localColor}</div>
+                  <div className="text-base text-[#D9D9D9] mt-1 w-16 text-center">{localColor}</div>
                 </div>
                 <div className="text-center w-16">
                   <div 
@@ -529,12 +529,12 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
                     }}
                     title={`Revert to original: ${originalColor}`}
                   />
-                  <div className="text-lg text-[#D9D9D9] mt-1 w-16 text-center">{originalColor}</div>
+                  <div className="text-base text-[#D9D9D9] mt-1 w-16 text-center">{originalColor}</div>
                 </div>
               </div>
               
               {/* RGB inputs */}
-              <div className="grid grid-cols-2 text-lg" style={{ gap: '8px', marginBottom: '16px' }}>
+              <div className="grid grid-cols-2 text-base" style={{ gap: '8px', marginBottom: '16px' }}>
                 <div className="flex items-center" style={{ gap: '6px' }}>
                   <span className="text-[#D9D9D9] w-6 font-medium">R:</span>
                   <Input
@@ -604,7 +604,7 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
               </div>
               
               {/* Hex input */}
-              <div className="flex items-center text-lg" style={{ gap: '6px', marginBottom: '8px' }}>
+              <div className="flex items-center text-base" style={{ gap: '6px', marginBottom: '8px' }}>
                 <span className="text-[#D9D9D9] font-medium w-8">Hex:</span>
                 <Input
                   type="text"

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { XIcon } from '../icons/XIcon';
 
@@ -14,6 +14,22 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
   const [resizeHeight, setResizeHeight] = useState(project?.height || 600);
   const [newWidth, setNewWidth] = useState(800);
   const [newHeight, setNewHeight] = useState(600);
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isOpen, onClose]);
 
   const handleResize = () => {
     if (project) {
@@ -31,9 +47,9 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-[#31313A] rounded-lg p-6 w-96 max-w-full mx-4 shadow-xl">
+      <div className="bg-[#31313A] -lg p-6 w-96 max-w-full mx-4 shadow-xl">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-[#D9D9D9] text-lg font-semibold">Document</h2>
+          <h2 className="text-[#D9D9D9] text-base font-semibold">Document</h2>
           <button
             onClick={onClose}
             className="text-[#888] hover:text-white transition-colors p-1"
@@ -45,32 +61,32 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
         <div className="space-y-6">
           {/* Resize Section */}
           <div>
-            <h3 className="text-[#D9D9D9] text-sm font-medium mb-3">Resize Canvas</h3>
+            <h3 className="text-[#D9D9D9] text-base font-medium mb-3">Resize Canvas</h3>
             <div className="flex gap-3">
-              <div className="flex-1">
-                <label className="block text-xs text-[#888] mb-1">Width</label>
+              <div className="w-20">
+                <label className="block text-base text-[#888] mb-1">Width</label>
                 <input
                   type="number"
                   value={resizeWidth}
                   onChange={(e) => setResizeWidth(parseInt(e.target.value) || 0)}
-                  className="w-full px-3 py-2 bg-[#404040] border border-[#555] text-[#D9D9D9] text-sm focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 bg-transparent border-2 border-[#D9D9D9] text-[#D9D9D9] text-base focus:outline-none focus:border-[#88888A] transition-colors"
                   min="1"
                 />
               </div>
-              <div className="flex-1">
-                <label className="block text-xs text-[#888] mb-1">Height</label>
+              <div className="w-20">
+                <label className="block text-base text-[#888] mb-1">Height</label>
                 <input
                   type="number"
                   value={resizeHeight}
                   onChange={(e) => setResizeHeight(parseInt(e.target.value) || 0)}
-                  className="w-full px-3 py-2 bg-[#404040] border border-[#555] text-[#D9D9D9] text-sm focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 bg-transparent border-2 border-[#D9D9D9] text-[#D9D9D9] text-base focus:outline-none focus:border-[#88888A] transition-colors"
                   min="1"
                 />
               </div>
               <div className="flex items-end">
                 <button
                   onClick={handleResize}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm transition-colors whitespace-nowrap"
+                  className="w-36 px-4 py-2 bg-[#D9D9D9] border-2 border-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] hover:text-[#31313A]  text-base transition-all duration-300 whitespace-nowrap text-center"
                 >
                   Resize
                 </button>
@@ -83,32 +99,32 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
 
           {/* New Document Section */}
           <div>
-            <h3 className="text-[#D9D9D9] text-sm font-medium mb-3">New Document</h3>
+            <h3 className="text-[#D9D9D9] text-base font-medium mb-3">New Document</h3>
             <div className="flex gap-3">
-              <div className="flex-1">
-                <label className="block text-xs text-[#888] mb-1">Width</label>
+              <div className="w-20">
+                <label className="block text-base text-[#888] mb-1">Width</label>
                 <input
                   type="number"
                   value={newWidth}
                   onChange={(e) => setNewWidth(parseInt(e.target.value) || 0)}
-                  className="w-full px-3 py-2 bg-[#404040] border border-[#555] rounded text-white text-sm focus:outline-none focus:border-green-500"
+                  className="w-full px-3 py-2 bg-transparent border-2 border-[#D9D9D9] text-[#D9D9D9] text-base focus:outline-none focus:border-[#88888A] transition-colors"
                   min="1"
                 />
               </div>
-              <div className="flex-1">
-                <label className="block text-xs text-[#888] mb-1">Height</label>
+              <div className="w-20">
+                <label className="block text-base text-[#888] mb-1">Height</label>
                 <input
                   type="number"
                   value={newHeight}
                   onChange={(e) => setNewHeight(parseInt(e.target.value) || 0)}
-                  className="w-full px-3 py-2 bg-[#404040] border border-[#555] rounded text-white text-sm focus:outline-none focus:border-green-500"
+                  className="w-full px-3 py-2 bg-transparent border-2 border-[#D9D9D9] text-[#D9D9D9] text-base focus:outline-none focus:border-[#88888A] transition-colors"
                   min="1"
                 />
               </div>
               <div className="flex items-end">
                 <button
                   onClick={handleNewDocument}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-sm transition-colors whitespace-nowrap"
+                  className="w-36 px-4 py-2 bg-[#D9D9D9] border-2 border-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] hover:text-[#31313A]  text-base transition-all duration-300 whitespace-nowrap text-center"
                 >
                   New Document
                 </button>
