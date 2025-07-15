@@ -40,4 +40,21 @@
     cursor: pointer;
     border: 2px solid #ffffff;
   }
+
+  /* Force white text in all inputs */
+  input[type="number"],
+  input[type="text"] {
+    color: #ffffff !important;
+  }
+
+  /* Hide number input spinners */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
 }

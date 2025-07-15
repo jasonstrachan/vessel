@@ -9,6 +9,7 @@ export interface StrokeInput {
   pressure: number;
   velocity: number;
   timestamp: number;
+  direction?: number; // Angle in radians from movement vector
 }
 
 export interface RenderSettings {
@@ -40,6 +41,52 @@ export const useBrushEngine = () => {
     accumulatedDistance: 0,
     lastStrokePosition: { x: 0, y: 0 }
   });
+
+  // Direction smoothing for rotation
+  const directionHistoryRef = useRef<number[]>([]);
+  const lastDirectionRef = useRef<number>(0);
+
+  // Calculate and smooth direction from movement vector
+  const calculateSmoothDirection = useCallback((from: { x: number; y: number }, to: { x: number; y: number }): number => {
+    const deltaX = to.x - from.x;
+    const deltaY = to.y - from.y;
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    
+    // If movement is very small, keep last direction to avoid jitter
+    if (distance < 1) {
+      return lastDirectionRef.current;
+    }
+    
+    // Calculate direction angle (radians)
+    const direction = Math.atan2(deltaY, deltaX);
+    
+    // Add to history for smoothing
+    directionHistoryRef.current.push(direction);
+    
+    // Keep only last 3 directions for smoothing
+    if (directionHistoryRef.current.length > 3) {
+      directionHistoryRef.current.shift();
+    }
+    
+    // Smooth direction using weighted average
+    let smoothedDirection = direction;
+    if (directionHistoryRef.current.length > 1) {
+      const weights = [0.5, 0.3, 0.2]; // Recent directions have more influence
+      let weightSum = 0;
+      let angleSum = 0;
+      
+      for (let i = 0; i < directionHistoryRef.current.length; i++) {
+        const weight = weights[directionHistoryRef.current.length - 1 - i] || 0.1;
+        angleSum += directionHistoryRef.current[i] * weight;
+        weightSum += weight;
+      }
+      
+      smoothedDirection = angleSum / weightSum;
+    }
+    
+    lastDirectionRef.current = smoothedDirection;
+    return smoothedDirection;
+  }, []);
 
   // Pixel-perfect circle patterns based on reference image
   const getPixelCirclePattern = useCallback((size: number): Array<{x: number, y: number}> => {
@@ -353,15 +400,24 @@ export const useBrushEngine = () => {
     // Always use brush settings for both brush and eraser - eraser inherits brush properties
     const activeSettings = brushSettings;
     
+    // Apply pressure-based size modification if enabled
+    let finalSize = activeSettings.size;
+    if (activeSettings.pressureEnabled) {
+      // Map pressure (0.0-1.0) to size multiplier using min/max pressure percentages
+      const pressureRange = (activeSettings.maxPressure - activeSettings.minPressure) / 100;
+      const pressureMultiplier = (activeSettings.minPressure / 100) + (pressureRange * input.pressure);
+      finalSize = activeSettings.size * pressureMultiplier;
+    }
+    
     // Start with base settings
     let settings: RenderSettings = {
-      size: activeSettings.size,
+      size: finalSize,
       opacity: activeSettings.opacity,
       color: activeSettings.color,
       antiAliasing: activeSettings.antialiasing,
       pixelAlignment: !activeSettings.antialiasing,
       spacing: activeSettings.spacing,
-      rotation: 0,
+      rotation: activeSettings.rotationEnabled && input.direction !== undefined ? input.direction : 0,
       shape: BrushShape.SQUARE // Default shape, will be overridden by components
     };
     
@@ -565,11 +621,18 @@ export const useBrushEngine = () => {
     to: { x: number; y: number },
     components: BrushComponent[] = activeBrushComponents
   ) => {
+    // Get actual pressure from cursor state in the store
+    const cursorPressure = useAppStore.getState().canvas.cursor.pressure || 1.0;
+    
+    // Calculate smooth direction for rotation
+    const direction = calculateSmoothDirection(from, to);
+    
     const input: StrokeInput = {
       position: to,
-      pressure: 0.5, // TODO: Get actual pressure from input device
+      pressure: cursorPressure,
       velocity: Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2)),
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      direction
     };
     
     const settings = executeComponents(components, input);

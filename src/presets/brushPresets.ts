@@ -9,7 +9,11 @@ export const pixelBrushSettings: BrushSettings = {
   spacing: 1,
   pressure: 1,
   rotation: 0,
-  antialiasing: false
+  antialiasing: false,
+  pressureEnabled: false,
+  minPressure: 1,
+  maxPressure: 1000,
+  rotationEnabled: false
 };
 
 // Default brush settings for smooth drawing
@@ -22,7 +26,11 @@ export const defaultBrushSettings: BrushSettings = {
   pressure: 1,
   rotation: 0,
   antialiasing: true,
-  lastRegularBrushSize: 4
+  lastRegularBrushSize: 4,
+  pressureEnabled: false,
+  minPressure: 1,
+  maxPressure: 1000,
+  rotationEnabled: false
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect
@@ -419,6 +427,9 @@ export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<Brush
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = true;
+    settings.pressureEnabled = true;
+    settings.minPressure = 1;
+    settings.maxPressure = 1000;
   }
   
   return { settings, components: preset.components };

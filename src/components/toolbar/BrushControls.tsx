@@ -7,6 +7,7 @@ import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { BrushShape } from '../../types';
 import ColorPicker from './ColorPicker';
+import Input from '../ui/Input';
 
 export default function BrushControls() {
   const { tools, setBrushSettings } = useAppStore();
@@ -27,11 +28,12 @@ export default function BrushControls() {
             color={brushSettings.color}
             onChange={(color) => setBrushSettings({ color })}
           />
-          <input
+          <Input
             type="text"
+            variant="hex"
             value={brushSettings.color}
             onChange={(e) => setBrushSettings({ color: e.target.value })}
-            className="flex-1 px-2 py-1 text-xs bg-[#404040] border border-[#555] rounded text-white"
+            className="flex-1"
             placeholder="#000000"
           />
         </div>
@@ -46,14 +48,14 @@ export default function BrushControls() {
               Scale: {brushSettings.size}% 
               <span className="text-xs text-gray-500 ml-1">(of original size)</span>
             </label>
-            <input
+            <Input
               type="range"
               min="10"
               max="500"
               step="5"
               value={brushSettings.size}
               onChange={(e) => setBrushSettings({ size: parseInt(e.target.value) })}
-              className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
+              fullWidth
             />
           </>
         ) : (
@@ -62,13 +64,13 @@ export default function BrushControls() {
             <label className="block text-xs text-gray-400 mb-2">
               Size: {brushSettings.size}px
             </label>
-            <input
+            <Input
               type="range"
               min="1"
               max="100"
               value={brushSettings.size}
               onChange={(e) => setBrushSettings({ size: parseInt(e.target.value) })}
-              className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
+              fullWidth
             />
           </>
         )}
@@ -79,14 +81,14 @@ export default function BrushControls() {
         <label className="block text-xs text-gray-400 mb-2">
           Opacity: {Math.round(brushSettings.opacity * 100)}%
         </label>
-        <input
+        <Input
           type="range"
           min="0"
           max="1"
           step="0.01"
           value={brushSettings.opacity}
           onChange={(e) => setBrushSettings({ opacity: parseFloat(e.target.value) })}
-          className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
+          fullWidth
         />
       </div>
 
@@ -95,15 +97,71 @@ export default function BrushControls() {
         <label className="block text-xs text-gray-400 mb-2">
           Spacing: {brushSettings.spacing}px
         </label>
-        <input
+        <Input
           type="range"
           min="1"
           max="400"
           step="1"
           value={brushSettings.spacing}
           onChange={(e) => setBrushSettings({ spacing: parseInt(e.target.value) })}
-          className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
+          fullWidth
         />
+      </div>
+
+      {/* Pressure */}
+      <div className="mb-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Input
+            type="checkbox"
+            id="pressure-enabled"
+            checked={brushSettings.pressureEnabled || false}
+            onChange={(e) => setBrushSettings({ pressureEnabled: e.target.checked })}
+            className="w-3 h-3"
+          />
+          <label htmlFor="pressure-enabled" className="text-xs text-gray-400">
+            Pressure
+          </label>
+        </div>
+        
+        {(brushSettings.pressureEnabled || false) && (
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              variant="compact"
+              value={brushSettings.minPressure || 1}
+              onChange={(e) => setBrushSettings({ minPressure: parseInt(e.target.value) || 1 })}
+              min="1"
+              max="1000"
+              className="w-16"
+            />
+            <span className="text-xs text-gray-400">-</span>
+            <Input
+              type="number"
+              variant="compact"
+              value={brushSettings.maxPressure || 1000}
+              onChange={(e) => setBrushSettings({ maxPressure: parseInt(e.target.value) || 1000 })}
+              min="1"
+              max="1000"
+              className="w-16"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Rotation */}
+      <div className="mb-4">
+        <div className="flex items-center gap-2">
+          <Input
+            type="checkbox"
+            id="rotation-enabled"
+            checked={brushSettings.rotationEnabled || false}
+            onChange={(e) => setBrushSettings({ rotationEnabled: e.target.checked })}
+            className="w-3 h-3"
+          />
+          <label htmlFor="rotation-enabled" className="text-xs text-gray-400">
+            Rotation
+          </label>
+        </div>
       </div>
 
     </div>

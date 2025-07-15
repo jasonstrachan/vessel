@@ -170,6 +170,12 @@ export interface BrushSettings {
   brushShape?: BrushShape;
   selectedCustomBrush?: string | null;
   lastRegularBrushSize?: number;
+  // Pressure sensitivity settings
+  pressureEnabled: boolean;
+  minPressure: number; // Percentage (1-1000)
+  maxPressure: number; // Percentage (1-1000)
+  // Rotation settings
+  rotationEnabled: boolean;
 }
 
 export interface ComponentParams {

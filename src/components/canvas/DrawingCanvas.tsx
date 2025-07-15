@@ -3,7 +3,7 @@
 // Basic Canvas Component with native Canvas API
 // Based on /docs/02_System_Architecture/Overall_Design.md (lines 65-74)
 
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { useBrushEngine } from '../../hooks/useBrushEngine';
 import { calculateZoomIncrement } from '../../utils/zoomUtils';
@@ -270,6 +270,27 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     return { x: worldX, y: worldY };
   }, [canvas.panX, canvas.panY, canvas.zoom]);
 
+  // Cached checkerboard pattern for performance
+  const checkerboardPattern = useMemo(() => {
+    if (typeof document === 'undefined') return null; // SSR safety
+    
+    const checkSize = 20;
+    const patternCanvas = document.createElement('canvas');
+    patternCanvas.width = checkSize * 2;
+    patternCanvas.height = checkSize * 2;
+    const patternCtx = patternCanvas.getContext('2d');
+    if (!patternCtx) return null;
+    
+    // Create 2x2 checkerboard pattern
+    patternCtx.fillStyle = '#fff';
+    patternCtx.fillRect(0, 0, patternCanvas.width, patternCanvas.height);
+    patternCtx.fillStyle = '#ccc';
+    patternCtx.fillRect(0, 0, checkSize, checkSize);
+    patternCtx.fillRect(checkSize, checkSize, checkSize, checkSize);
+    
+    return patternCanvas;
+  }, []);
+
   // Render the view with zoom/pan transformations
   const renderView = useCallback(() => {
     const canvasElement = canvasRef.current;
@@ -295,16 +316,11 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     
     // Draw checkerboard pattern as background for transparency
-    const checkSize = 20;
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
-    
-    ctx.fillStyle = '#ccc';
-    for (let x = 0; x < offscreenCanvas.width; x += checkSize) {
-      for (let y = 0; y < offscreenCanvas.height; y += checkSize) {
-        if ((Math.floor(x / checkSize) + Math.floor(y / checkSize)) % 2 === 0) {
-          ctx.fillRect(x, y, checkSize, checkSize);
-        }
+    if (checkerboardPattern) {
+      const pattern = ctx.createPattern(checkerboardPattern, 'repeat');
+      if (pattern) {
+        ctx.fillStyle = pattern;
+        ctx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
       }
     }
     
@@ -406,7 +422,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     // Restore context state
     ctx.restore();
-  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.showGrid, canvas.gridSize, canvas.selection, width, height, selectionStart, selectionEnd]);
+  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.showGrid, canvas.gridSize, canvas.selection, width, height, selectionStart, selectionEnd, checkerboardPattern]);
 
   // Enhanced drawing function - draws on offscreen canvas and re-renders view
   const drawLine = useCallback((from: { x: number; y: number }, to: { x: number; y: number }) => {
@@ -543,8 +559,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     return customBrush;
   }, [selectionStart, selectionEnd, project, canvas.zoom, canvas.panX, canvas.panY, addCustomBrush, setBrushSettings, setCurrentTool, clearSelection]);
 
-  // Mouse event handlers
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  // Pointer event handlers (supports pressure from stylus/pen)
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
     updateMousePosition(e, true); // Canvas event
     
     if (spacebarPressed) {
@@ -634,13 +650,66 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     setIsDrawing(true);
     setLastPoint(point);
-    setCursor({ x: point.x, y: point.y, pressure: 1 });
+    // Get pressure from pointer event (0.0 to 1.0), fallback to 1.0 for non-pressure devices
+    const pressure = e.pressure || 1.0;
+    setCursor({ x: point.x, y: point.y, pressure });
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
   }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, canvas.selection.active, isPointInSelection, tools.currentTool, sampleColor, setBrushSettings, setSelectionBounds, setIsSelecting, saveCanvasState, offscreenCanvasRef]);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+  // RAF-throttled pointer event processing for performance
+  const pendingPointerEvent = useRef<React.PointerEvent | null>(null);
+  const rafId = useRef<number | undefined>();
+
+  // Pressure smoothing for stylus input
+  const pressureHistory = useRef<number[]>([]);
+  const smoothPressure = useCallback((rawPressure: number) => {
+    const maxHistorySize = 3;
+    pressureHistory.current.push(rawPressure);
+    if (pressureHistory.current.length > maxHistorySize) {
+      pressureHistory.current.shift();
+    }
+    
+    // Simple moving average
+    const sum = pressureHistory.current.reduce((a, b) => a + b, 0);
+    return sum / pressureHistory.current.length;
+  }, []);
+
+  // Palm rejection - track stylus state
+  const isStylusActive = useRef(false);
+  const lastStylusTime = useRef(0);
+  
+  const isPalmRejectionEvent = useCallback((e: React.PointerEvent) => {
+    const currentTime = Date.now();
+    
+    // If this is a stylus event, mark it as active
+    if (e.pointerType === 'pen') {
+      isStylusActive.current = true;
+      lastStylusTime.current = currentTime;
+      return false;
+    }
+    
+    // If this is a touch event but stylus was active recently (within 100ms), reject it
+    if (e.pointerType === 'touch' && isStylusActive.current && 
+        currentTime - lastStylusTime.current < 100) {
+      return true;
+    }
+    
+    // Reset stylus state if no stylus events for a while
+    if (currentTime - lastStylusTime.current > 500) {
+      isStylusActive.current = false;
+    }
+    
+    return false;
+  }, []);
+
+  const processPointerMove = useCallback((e: React.PointerEvent) => {
+    // Check for palm rejection
+    if (isPalmRejectionEvent(e)) {
+      return;
+    }
+    
     updateMousePosition(e, true); // Canvas event
     
     if (isPanning) {
@@ -657,7 +726,10 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     }
 
     const point = screenToCanvas(e.clientX, e.clientY);
-    setCursor({ x: point.x, y: point.y, pressure: 1 });
+    // Get pressure from pointer event (0.0 to 1.0), fallback to 1.0 for non-pressure devices
+    const rawPressure = e.pressure || 1.0;
+    const smoothedPressure = smoothPressure(rawPressure);
+    setCursor({ x: point.x, y: point.y, pressure: smoothedPressure });
 
     // Handle eyedropper color preview
     if (tools.currentTool === 'eyedropper') {
@@ -701,9 +773,31 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         console.warn('Canvas drawing error:', error);
       }
     }
-  }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition, isDraggingSelection, selectionDragStart, canvas.selection, setSelection, isSelecting, selectionStart, setSelectionBounds]);
+  }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition, isDraggingSelection, selectionDragStart, canvas.selection, setSelection, isSelecting, selectionStart, setSelectionBounds, smoothPressure, isPalmRejectionEvent]);
 
-  const handleMouseUp = useCallback(async () => {
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    // Process immediately for drawing - pressure data is critical and cannot be throttled
+    if (isDrawing) {
+      processPointerMove(e);
+      return;
+    }
+    
+    // Only throttle non-drawing interactions for performance
+    pendingPointerEvent.current = e;
+    
+    if (rafId.current) {
+      cancelAnimationFrame(rafId.current);
+    }
+    
+    rafId.current = requestAnimationFrame(() => {
+      if (pendingPointerEvent.current) {
+        processPointerMove(pendingPointerEvent.current);
+        pendingPointerEvent.current = null;
+      }
+    });
+  }, [processPointerMove, isDrawing]);
+
+  const handlePointerUp = useCallback(async () => {
     
     if (isPanning) {
       // End panning
@@ -737,7 +831,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
   // Touch event handlers for mobile support
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    e.preventDefault();
+    // Note: preventDefault will be handled by native event listener for passive events
     const touch = e.touches[0];
     
     // Update mouse position from touch
@@ -762,14 +856,15 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     setIsDrawing(true);
     setLastPoint(point);
-    setCursor({ x: point.x, y: point.y, pressure: 1 });
+    // Touch events don't have pressure, use 1.0 (full pressure)
+    setCursor({ x: point.x, y: point.y, pressure: 1.0 });
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
   }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, saveCanvasState, offscreenCanvasRef]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    e.preventDefault();
+    // Note: preventDefault will be handled by native event listener for passive events
     const touch = e.touches[0];
     
     // Update mouse position from touch
@@ -789,7 +884,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     }
 
     const point = screenToCanvas(touch.clientX, touch.clientY);
-    setCursor({ x: point.x, y: point.y, pressure: 1 });
+    // Touch events don't have pressure, use 1.0 (full pressure)
+    setCursor({ x: point.x, y: point.y, pressure: 1.0 });
 
     if (isDrawing && lastPoint) {
       try {
@@ -802,7 +898,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition]);
 
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    e.preventDefault();
+    // Note: preventDefault will be handled by native event listener for passive events
     
     if (isPanning) {
       // End panning
@@ -1197,12 +1293,28 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     const keyUpHandler = (e: KeyboardEvent) => handleKeyUpRef.current?.(e);
     const wheelHandler = (e: WheelEvent) => handleWheelRef.current?.(e);
 
+    // Native touch event handlers to prevent default with non-passive listeners
+    const nativeTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+    };
+    const nativeTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+    };
+    const nativeTouchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+    };
+
     // Add keyboard event listeners
     window.addEventListener('keydown', keyDownHandler);
     window.addEventListener('keyup', keyUpHandler);
     
     // Add wheel event listener with active mode
     canvasElement.addEventListener('wheel', wheelHandler, { passive: false });
+    
+    // Add touch event listeners with non-passive mode to enable preventDefault
+    canvasElement.addEventListener('touchstart', nativeTouchStart, { passive: false });
+    canvasElement.addEventListener('touchmove', nativeTouchMove, { passive: false });
+    canvasElement.addEventListener('touchend', nativeTouchEnd, { passive: false });
     
     // Add clipboard event listener to multiple targets
     window.addEventListener('paste', handlePaste);
@@ -1216,6 +1328,9 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       window.removeEventListener('keydown', keyDownHandler);
       window.removeEventListener('keyup', keyUpHandler);
       canvasElement.removeEventListener('wheel', wheelHandler);
+      canvasElement.removeEventListener('touchstart', nativeTouchStart);
+      canvasElement.removeEventListener('touchmove', nativeTouchMove);
+      canvasElement.removeEventListener('touchend', nativeTouchEnd);
       window.removeEventListener('paste', handlePaste);
       document.removeEventListener('paste', handlePaste);
       canvasElement.removeEventListener('paste', handlePaste);
@@ -1267,7 +1382,9 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     }
   }, [canvas.zoom, canvas.panX, canvas.panY, canvas.showGrid, renderView, isCanvasInitialized]);
 
-  // Animation loop for marching ants
+  // Optimized animation for marching ants - only updates selection border
+  const lastRenderTime = useRef(0);
+  
   useEffect(() => {
     const hasActiveSelection = canvas.selection.active;
     const hasSelectionCreation = selectionStart && selectionEnd;
@@ -1276,8 +1393,12 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       return;
     }
     
-    const animate = () => {
-      renderView();
+    const animate = (timestamp: number) => {
+      // Throttle to 30fps for marching ants animation (smooth enough, better performance)
+      if (timestamp - lastRenderTime.current > 33) {
+        renderView();
+        lastRenderTime.current = timestamp;
+      }
       animationFrameRef.current = requestAnimationFrame(animate);
     };
     
@@ -1300,9 +1421,9 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     imageRendering: canvas.displayMode === 'smooth' ? 'auto' : 'pixelated'
   };
 
-  // Add document mousemove listener for better mouse tracking
+  // Add document pointermove listener for better pointer tracking (mouse, stylus, touch)
   useEffect(() => {
-    const handleDocumentMouseMove = (e: MouseEvent) => {
+    const handleDocumentPointerMove = (e: PointerEvent) => {
       // CRITICAL FIX: Don't update mouse position from document events when over canvas
       // This was causing the cursor misalignment!
       const canvasEl = canvasRef.current;
@@ -1332,18 +1453,18 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       }
     };
     
-    const handleDocumentMouseUp = () => {
+    const handleDocumentPointerUp = () => {
       if (isPanning) {
         setIsPanning(false);
       }
     };
     
-    document.body.addEventListener('mousemove', handleDocumentMouseMove);
-    document.body.addEventListener('mouseup', handleDocumentMouseUp);
+    document.body.addEventListener('pointermove', handleDocumentPointerMove);
+    document.body.addEventListener('pointerup', handleDocumentPointerUp);
     
     return () => {
-      document.body.removeEventListener('mousemove', handleDocumentMouseMove);
-      document.body.removeEventListener('mouseup', handleDocumentMouseUp);
+      document.body.removeEventListener('pointermove', handleDocumentPointerMove);
+      document.body.removeEventListener('pointerup', handleDocumentPointerUp);
     };
   }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, updateMousePosition]);
 
@@ -1360,6 +1481,39 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       }
     }
   }, [layersNeedRecomposition, compositeLayersToCanvas, renderView, setLayersNeedRecomposition, layers]);
+
+  // Object pooling for performance optimization
+  const coordinatePool = useMemo(() => {
+    const pool: Array<{x: number, y: number}> = [];
+    const maxSize = 100;
+    
+    return {
+      get: () => {
+        return pool.pop() || { x: 0, y: 0 };
+      },
+      release: (obj: {x: number, y: number}) => {
+        if (pool.length < maxSize) {
+          obj.x = 0;
+          obj.y = 0;
+          pool.push(obj);
+        }
+      },
+      clear: () => {
+        pool.length = 0;
+      }
+    };
+  }, []);
+
+  // Cleanup RAF and object pools on unmount
+  useEffect(() => {
+    return () => {
+      if (rafId.current) {
+        cancelAnimationFrame(rafId.current);
+      }
+      coordinatePool.clear();
+    };
+  }, [coordinatePool]);
+
 
   // Get current custom brush data
   const currentCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM && 
@@ -1388,11 +1542,11 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
             position: 'relative',
             zIndex: 1
           }}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={() => {
-            handleMouseUp();
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={() => {
+            handlePointerUp();
             // Clear eyedropper preview when leaving canvas
             setPreviewColor(null);
             setPreviewPosition(null);

@@ -3,6 +3,7 @@
 import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { calculateZoomIncrement } from '../../utils/zoomUtils';
+import Input from '../ui/Input';
 
 export default function ZoomControls() {
   const { canvas, setZoom, setPan } = useAppStore();
@@ -94,7 +95,7 @@ export default function ZoomControls() {
         <label className="block text-xs text-gray-400 mb-2">
           Zoom Level: {Math.round(zoom * 100)}%
         </label>
-        <input
+        <Input
           type="range"
           min="0.1"
           max="10"
@@ -104,7 +105,7 @@ export default function ZoomControls() {
             const newZoom = parseFloat(e.target.value);
             zoomAtCenter(newZoom);
           }}
-          className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
+          fullWidth
         />
       </div>
 

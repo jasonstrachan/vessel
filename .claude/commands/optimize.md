@@ -1,1 +1,1 @@
-Analyze this code for performance issues and suggest optimizations:
+Analyze $ARGUMENTS code for performance issues and suggest optimizations:
