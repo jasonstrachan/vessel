@@ -59,7 +59,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     }, [onChange]);
 
     // Base classes for all inputs
-    const baseClasses = 'bg-[#404040] border border-[#555] text-[#D9D9D9] focus:outline-none focus:ring-1 focus:ring-blue-500 touch-none';
+    const baseClasses = 'bg-[#404040] border-2 border-[#D9D9D9] text-[#D9D9D9] focus:outline-none focus:border-[#88888A] transition-colors touch-none';
     
     // Variant-specific classes
     const variantClasses = {
