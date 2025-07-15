@@ -214,7 +214,7 @@ export interface HistoryState {
   isCapturing: boolean;
 }
 
-export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'pan' | 'new-document' | 'save' | 'load' | 'custom';
+export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'pan' | 'new-document' | 'save' | 'load' | 'export-png' | 'custom';
 
 export type BlendMode = GlobalCompositeOperation;
 

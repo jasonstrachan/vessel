@@ -138,8 +138,8 @@ export default function BrushControls() {
             <Input
               type="number"
               variant="compact"
-              value={brushSettings.maxPressure || 1000}
-              onChange={(e) => setBrushSettings({ maxPressure: parseInt(e.target.value) || 1000 })}
+              value={brushSettings.maxPressure || brushSettings.size}
+              onChange={(e) => setBrushSettings({ maxPressure: parseInt(e.target.value) || brushSettings.size })}
               min="1"
               max="1000"
               className="w-16"

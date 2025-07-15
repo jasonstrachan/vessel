@@ -12,7 +12,7 @@ export const pixelBrushSettings: BrushSettings = {
   antialiasing: false,
   pressureEnabled: false,
   minPressure: 1,
-  maxPressure: 1000,
+  maxPressure: 2,
   rotationEnabled: false
 };
 
@@ -29,7 +29,7 @@ export const defaultBrushSettings: BrushSettings = {
   lastRegularBrushSize: 4,
   pressureEnabled: false,
   minPressure: 1,
-  maxPressure: 1000,
+  maxPressure: 4,
   rotationEnabled: false
 };
 
@@ -492,7 +492,7 @@ export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<Brush
     settings.antialiasing = true;
     settings.pressureEnabled = true;
     settings.minPressure = 1;
-    settings.maxPressure = 1000;
+    settings.maxPressure = settings.size;
   }
   
   return { settings, components: preset.components };

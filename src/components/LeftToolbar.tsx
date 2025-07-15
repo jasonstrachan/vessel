@@ -2,10 +2,11 @@ import React from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { Tool } from '../types';
 import LoadIcon from './icons/LoadIcon';
+import ExportIcon from './icons/ExportIcon';
 
 const LeftToolbar = () => {
   // Force refresh - toolbar black background fix
-  const { tools: toolState, setCurrentTool, saveProject, loadProject } = useAppStore();
+  const { tools: toolState, setCurrentTool, saveProject, loadProject, exportProject } = useAppStore();
   
   const tools = [
     { id: 'new-document' as Tool, icon: null, label: 'New Document' },
@@ -17,6 +18,7 @@ const LeftToolbar = () => {
     { id: 'fill' as Tool, icon: null, label: 'Fill' },
     { id: 'save' as Tool, icon: null, label: 'Save File' },
     { id: 'load' as Tool, icon: null, label: 'Load File' },
+    { id: 'export-png' as Tool, icon: null, label: 'Export PNG' },
   ];
 
   const handleToolClick = async (toolId: Tool) => {

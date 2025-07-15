@@ -452,10 +452,11 @@ export const useBrushEngine = () => {
     // Apply pressure-based size modification if enabled
     let finalSize = activeSettings.size;
     if (activeSettings.pressureEnabled) {
-      // Map pressure (0.0-1.0) to size multiplier using min/max pressure percentages
-      const pressureRange = (activeSettings.maxPressure - activeSettings.minPressure) / 100;
-      const pressureMultiplier = (activeSettings.minPressure / 100) + (pressureRange * input.pressure);
-      finalSize = activeSettings.size * pressureMultiplier;
+      // Map pressure (0.0-1.0) to size range based on maxPressure setting
+      // maxPressure directly sets the max pixel size at full pressure
+      const minSizePx = 1;
+      const maxSizePx = activeSettings.maxPressure;
+      finalSize = minSizePx + (input.pressure * (maxSizePx - minSizePx));
     }
     
     // Start with base settings
