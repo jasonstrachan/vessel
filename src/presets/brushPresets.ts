@@ -363,6 +363,61 @@ export const roundSquare6Preset: BrushPreset = {
   modifiedAt: new Date()
 };
 
+// Ink Brush Components (pressure-sensitive with min/max override)
+export const inkBrushComponents: BrushComponent[] = [
+  {
+    id: 'ink-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      minSize: 1,
+      maxSize: 1000,
+      pressureInfluence: 100
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'ink-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'ink-antialiasing',
+    type: ComponentType.ANTI_ALIASING,
+    parameters: {
+      mode: 'antialiased'
+    },
+    priority: 30,
+    enabled: true
+  },
+  {
+    id: 'ink-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.CIRCLE
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+// Ink Brush Preset (pressure overrides size slider)
+export const inkBrushPreset: BrushPreset = {
+  id: 'ink-brush',
+  name: 'Ink',
+  category: 'Artistic',
+  components: inkBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['ink', 'pressure', 'artistic', 'variable'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date()
+};
+
 // Available brush presets
 export const brushPresets: BrushPreset[] = [
   pixelBrushPreset,
@@ -370,7 +425,8 @@ export const brushPresets: BrushPreset[] = [
   squarePixel1Preset,
   roundPixel4Preset,
   roundSoft4Preset,
-  roundSquare6Preset
+  roundSquare6Preset,
+  inkBrushPreset
 ];
 
 // Helper functions
@@ -422,6 +478,13 @@ export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<Brush
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = true;
+  } else if (preset.id === 'ink-brush') {
+    settings.opacity = 1;
+    settings.spacing = 1;
+    settings.antialiasing = true;
+    settings.pressureEnabled = true;
+    settings.minPressure = 1;
+    settings.maxPressure = 100;
   } else if (preset.category === 'Custom') {
     // Handle custom brush presets - apply sensible defaults
     settings.opacity = 1;
