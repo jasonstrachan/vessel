@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
+import Input from '../ui/Input';
 
 interface ColorPickerProps {
   color: string;
@@ -18,6 +19,7 @@ class Picker {
   hueSelector: { y: number };
   clicked: boolean;
   hueClicked: boolean;
+  activePointerId: number | null = null;
   hue: number = 0;
   saturation: number = 0;
   lightness: number = 0;
@@ -27,6 +29,10 @@ class Picker {
   hexcode: string = "#000000";
   oldColor: string;
   onColorChange: (color: string) => void;
+  
+  // Bound methods for proper event listener cleanup
+  boundHandleMouseMove: (e: PointerEvent) => void;
+  boundHandleMouseUp: (e: PointerEvent) => void;
 
   constructor(
     target: HTMLCanvasElement, 
@@ -47,10 +53,20 @@ class Picker {
     this.onColorChange = onColorChange;
     this.oldColor = initialColor;
     
+    // Bind methods for consistent event listener cleanup
+    this.boundHandleMouseMove = this.handleMouseMove.bind(this);
+    this.boundHandleMouseUp = this.handleMouseUp.bind(this);
+    
     this.target.width = width;
     this.target.height = height;
     this.hueCanvas.width = hueWidth;
     this.hueCanvas.height = hueHeight;
+    
+    // Critical CSS for proper pointer event handling
+    this.target.style.touchAction = 'none';
+    this.target.style.userSelect = 'none';
+    this.hueCanvas.style.touchAction = 'none';
+    this.hueCanvas.style.userSelect = 'none';
     
     const context = this.target.getContext("2d");
     const hueContext = this.hueCanvas.getContext("2d");
@@ -73,22 +89,25 @@ class Picker {
     this.drawHueGrad();
     this.drawHSLGrad();
     
-    // Main canvas events
-    this.target.addEventListener("mousedown", (e) => {
+    // Main canvas events - using pointer events for stylus/pen support
+    this.target.addEventListener("pointerdown", (e) => {
       this.handleMouseDown(e);
-    });
+    }, { passive: false });
     
-    // Hue canvas events
-    this.hueCanvas.addEventListener("mousedown", (e) => {
+    // Hue canvas events - using pointer events for stylus/pen support
+    this.hueCanvas.addEventListener("pointerdown", (e) => {
       this.handleHueMouseDown(e);
-    });
+    }, { passive: false });
     
-    window.addEventListener("mousemove", (e) => {
-      this.handleMouseMove(e);
-    });
-    window.addEventListener("mouseup", (e) => {
-      this.handleMouseUp(e);
-    });
+    // Global pointer events for dragging - using bound methods for proper cleanup
+    document.addEventListener("pointermove", this.boundHandleMouseMove, { passive: false });
+    document.addEventListener("pointerup", this.boundHandleMouseUp, { passive: false });
+  }
+  
+  destroy() {
+    // Proper cleanup of event listeners
+    document.removeEventListener("pointermove", this.boundHandleMouseMove);
+    document.removeEventListener("pointerup", this.boundHandleMouseUp);
   }
 
   hexToHSL(hex: string) {
@@ -197,18 +216,32 @@ class Picker {
     this.updateColor();
   }
 
-  handleMouseDown(e: MouseEvent) {
-    this.clicked = true;
-    this.selectSL(e.offsetX, e.offsetY);
+  handleMouseDown(e: PointerEvent) {
+    e.preventDefault();
+    // Only handle if no other pointer is active
+    if (this.activePointerId === null) {
+      this.activePointerId = e.pointerId;
+      this.clicked = true;
+      this.selectSL(e.offsetX, e.offsetY);
+    }
   }
 
-  handleHueMouseDown(e: MouseEvent) {
-    this.hueClicked = true;
-    this.selectHue(e.offsetY);
+  handleHueMouseDown(e: PointerEvent) {
+    e.preventDefault();
+    // Only handle if no other pointer is active
+    if (this.activePointerId === null) {
+      this.activePointerId = e.pointerId;
+      this.hueClicked = true;
+      this.selectHue(e.offsetY);
+    }
   }
 
-  handleMouseMove(e: MouseEvent) {
+  handleMouseMove(e: PointerEvent) {
+    // Only handle move events from the active pointer
+    if (e.pointerId !== this.activePointerId) return;
+    
     if (this.clicked) {
+      e.preventDefault();
       const rect = this.target.getBoundingClientRect();
       const canvasX = e.clientX - rect.left;
       const canvasY = e.clientY - rect.top;
@@ -218,6 +251,7 @@ class Picker {
       
       this.selectSL(constrainedX, constrainedY);
     } else if (this.hueClicked) {
+      e.preventDefault();
       const rect = this.hueCanvas.getBoundingClientRect();
       const canvasY = e.clientY - rect.top;
       
@@ -226,9 +260,13 @@ class Picker {
     }
   }
 
-  handleMouseUp(e: MouseEvent) {
-    this.clicked = false;
-    this.hueClicked = false;
+  handleMouseUp(e: PointerEvent) {
+    // Only handle up events from the active pointer
+    if (e.pointerId === this.activePointerId) {
+      this.clicked = false;
+      this.hueClicked = false;
+      this.activePointerId = null;
+    }
   }
 
   HSLToRGB() {
@@ -366,15 +404,14 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
     
     return () => {
       if (pickerRef.current) {
-        window.removeEventListener("mousemove", pickerRef.current.handleMouseMove);
-        window.removeEventListener("mouseup", pickerRef.current.handleMouseUp);
+        pickerRef.current.destroy();
       }
     };
   }, [isOpen]); // Removed color and onChange from dependencies
 
   // Click outside to close
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const handleClickOutside = (event: PointerEvent) => {
       if (isOpen && buttonRef.current && !buttonRef.current.contains(event.target as Node)) {
         const pickerElement = document.querySelector('.color-picker-popup');
         if (pickerElement && !pickerElement.contains(event.target as Node)) {
@@ -383,9 +420,9 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('pointerdown', handleClickOutside);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('pointerdown', handleClickOutside);
     };
   }, [isOpen]);
 
@@ -501,74 +538,68 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
               <div className="grid grid-cols-2 text-sm" style={{ gap: '8px', marginBottom: '16px' }}>
                 <div className="flex items-center" style={{ gap: '6px' }}>
                   <span className="text-white w-6 font-medium">R:</span>
-                  <input
+                  <Input
                     type="number"
                     min="0"
                     max="255"
                     value={rgbValues.r}
                     onChange={(e) => handleRGBChange('r', parseInt(e.target.value) || 0)}
-                    className="bg-[#404040] border border-gray-600 text-white text-sm rounded" 
-                    style={{ width: '60px', padding: '4px 6px', color: '#FFFFFF' }}
+                    className="w-[60px]"
                   />
                 </div>
                 <div className="flex items-center" style={{ gap: '6px' }}>
                   <span className="text-white w-6 font-medium">H:</span>
-                  <input
+                  <Input
                     type="number"
                     min="0"
                     max="360"
                     value={hslValues.h}
                     readOnly
-                    className="bg-[#404040] border border-gray-600 text-white text-sm rounded" 
-                    style={{ width: '60px', padding: '4px 6px', color: '#FFFFFF' }}
+                    className="w-[60px]"
                   />
                 </div>
                 <div className="flex items-center" style={{ gap: '6px' }}>
                   <span className="text-white w-6 font-medium">G:</span>
-                  <input
+                  <Input
                     type="number"
                     min="0"
                     max="255"
                     value={rgbValues.g}
                     onChange={(e) => handleRGBChange('g', parseInt(e.target.value) || 0)}
-                    className="bg-[#404040] border border-gray-600 text-white text-sm rounded" 
-                    style={{ width: '60px', padding: '4px 6px', color: '#FFFFFF' }}
+                    className="w-[60px]"
                   />
                 </div>
                 <div className="flex items-center" style={{ gap: '6px' }}>
                   <span className="text-white w-6 font-medium">S:</span>
-                  <input
+                  <Input
                     type="number"
                     min="0"
                     max="100"
                     value={hslValues.s}
                     readOnly
-                    className="bg-[#404040] border border-gray-600 text-white text-sm rounded" 
-                    style={{ width: '60px', padding: '4px 6px', color: '#FFFFFF' }}
+                    className="w-[60px]"
                   />
                 </div>
                 <div className="flex items-center" style={{ gap: '6px' }}>
                   <span className="text-white w-6 font-medium">B:</span>
-                  <input
+                  <Input
                     type="number"
                     min="0"
                     max="255"
                     value={rgbValues.b}
                     onChange={(e) => handleRGBChange('b', parseInt(e.target.value) || 0)}
-                    className="bg-[#404040] border border-gray-600 text-white text-sm rounded" 
-                    style={{ width: '60px', padding: '4px 6px', color: '#FFFFFF' }}
+                    className="w-[60px]"
                   />
                 </div>
                 <div className="flex items-center" style={{ gap: '6px' }}>
                   <span className="text-white w-6 font-medium">L:</span>
-                  <input
+                  <Input
                     type="number"
                     min="0"
                     max="100"
                     value={hslValues.l}
                     readOnly
-                    className="bg-[#404040] border border-gray-600 text-white text-sm rounded" 
-                    style={{ width: '60px', padding: '4px 6px', color: '#FFFFFF' }}
+                    className="w-[60px]"
                   />
                 </div>
               </div>
@@ -576,15 +607,15 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
               {/* Hex input */}
               <div className="flex items-center text-sm" style={{ gap: '6px', marginBottom: '8px' }}>
                 <span className="text-white font-medium w-8">Hex:</span>
-                <input
+                <Input
                   type="text"
+                  variant="hex"
                   value={localColor}
                   onChange={(e) => {
                     setLocalColor(e.target.value);
                     setTimeout(() => onChange(e.target.value), 0); // Break update loop
                   }}
-                  className="flex-1 bg-[#404040] border border-gray-600 text-white text-sm rounded" 
-                  style={{ padding: '4px 6px', color: '#FFFFFF' }}
+                  className="flex-1"
                   placeholder="#000000"
                 />
               </div>

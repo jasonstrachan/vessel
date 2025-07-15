@@ -4,6 +4,7 @@ import React from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { Layer } from '../types';
 import { XIcon } from './icons/XIcon';
+import Input from './ui/Input';
 
 const LayerPanel = () => {
   const { 
@@ -126,14 +127,14 @@ const LayerPanel = () => {
             
             <div className="mt-1 flex items-center space-x-2">
               <span className="text-xs text-gray-400">Opacity:</span>
-              <input
+              <Input
                 type="range"
                 min="0"
                 max="100"
                 value={Math.round(layer.opacity * 100)}
                 onChange={(e) => handleOpacityChange(layer.id, Number(e.target.value))}
-                className="flex-1 h-1 bg-gray-600 rounded appearance-none"
                 onClick={(e) => e.stopPropagation()}
+                fullWidth
               />
               <span className="text-xs text-gray-400 w-8">
                 {Math.round(layer.opacity * 100)}%

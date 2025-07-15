@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
+import Input from '../ui/Input';
 
 export default function FillControls() {
   const { tools, setFillSettings, setBrushSettings } = useAppStore();
@@ -14,18 +15,18 @@ export default function FillControls() {
       <div className="mb-4">
         <label className="block text-xs text-gray-400 mb-2">Fill Color</label>
         <div className="flex items-center gap-2">
-          <input
+          <Input
             type="color"
             value={brushSettings.color}
             onChange={(e) => setBrushSettings({ color: e.target.value })}
-            className="w-8 h-8 rounded border border-[#404040] cursor-pointer"
           />
-          <input
+          <Input
             type="text"
             value={brushSettings.color}
             onChange={(e) => setBrushSettings({ color: e.target.value })}
-            className="flex-1 px-2 py-1 text-xs bg-[#404040] border border-[#555] rounded text-white"
+            variant="hex"
             placeholder="#000000"
+            fullWidth
           />
         </div>
       </div>
@@ -35,14 +36,14 @@ export default function FillControls() {
         <label className="block text-xs text-gray-400 mb-2">
           Threshold: {fillSettings.threshold}
         </label>
-        <input
+        <Input
           type="range"
           min="0"
           max="255"
           step="1"
           value={fillSettings.threshold}
           onChange={(e) => setFillSettings({ threshold: Math.min(255, Math.max(0, parseInt(e.target.value))) })}
-          className="w-full h-2 bg-[#404040] rounded-lg appearance-none cursor-pointer slider"
+          fullWidth
         />
       </div>
 
@@ -50,11 +51,10 @@ export default function FillControls() {
       <div className="mb-4">
         <label className="block text-xs text-gray-400 mb-2">Connected Pixels</label>
         <div className="flex items-center gap-2">
-          <input
+          <Input
             type="checkbox"
             checked={fillSettings.contiguous}
             onChange={(e) => setFillSettings({ contiguous: e.target.checked })}
-            className="w-4 h-4 rounded border border-[#404040] cursor-pointer"
           />
           <span className="text-xs text-gray-300">
             {fillSettings.contiguous ? 'On' : 'Off'}
