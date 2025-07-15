@@ -115,11 +115,11 @@ export const CustomBrushPanel = () => {
     <div className="p-4 bg-[#2a2a2a] border-t border-[#404040]">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-[#D9D9D9] text-lg font-light">Custom brush</h3>
+        <h3 className="text-[#D9D9D9] text-base font-light">Custom brush</h3>
         <button
           onClick={handleAddCustomBrush}
           disabled={!canCreateBrush}
-          className={`w-8 h-8 border-2 border-white flex items-center justify-center text-[#D9D9D9] text-lg font-bold transition-colors ${
+          className={`w-8 h-8 border-2 border-white flex items-center justify-center text-[#D9D9D9] text-base font-bold transition-colors ${
             canCreateBrush 
               ? 'hover:bg-white hover:text-[#2a2a2a] cursor-pointer bg-green-500' 
               : 'opacity-50 cursor-not-allowed bg-red-500'

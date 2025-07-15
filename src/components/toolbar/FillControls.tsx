@@ -13,7 +13,7 @@ export default function FillControls() {
       
       {/* Fill Color */}
       <div className="mb-4">
-        <label className="block text-lg text-[#D9D9D9] mb-2">Fill Color</label>
+        <label className="block text-base text-[#D9D9D9] mb-2">Fill Color</label>
         <div className="flex items-center gap-2">
           <Input
             type="color"
@@ -33,7 +33,7 @@ export default function FillControls() {
 
       {/* Threshold */}
       <div className="mb-4">
-        <label className="block text-lg text-[#D9D9D9] mb-2">
+        <label className="block text-base text-[#D9D9D9] mb-2">
           Threshold: {fillSettings.threshold}
         </label>
         <Input
@@ -49,14 +49,14 @@ export default function FillControls() {
 
       {/* Connected Pixels */}
       <div className="mb-4">
-        <label className="block text-lg text-[#D9D9D9] mb-2">Connected Pixels</label>
+        <label className="block text-base text-[#D9D9D9] mb-2">Connected Pixels</label>
         <div className="flex items-center gap-2">
           <Input
             type="checkbox"
             checked={fillSettings.contiguous}
             onChange={(e) => setFillSettings({ contiguous: e.target.checked })}
           />
-          <span className="text-lg text-[#D9D9D9]">
+          <span className="text-base text-[#D9D9D9]">
             {fillSettings.contiguous ? 'On' : 'Off'}
           </span>
         </div>
