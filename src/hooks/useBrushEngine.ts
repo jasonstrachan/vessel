@@ -53,7 +53,7 @@ export const useBrushEngine = () => {
     const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
     
     // Get current pressure to detect stylus vs mouse input
-    const cursorPressure = useAppStore.getState().canvas.cursor.pressure || 1.0;
+    const cursorPressure = useAppStore.getState().canvas.cursor.pressure ?? 1.0;
     const isStylusInput = cursorPressure < 0.98; // Stylus typically has variable pressure
     
     // Adaptive smoothing based on input type
@@ -682,7 +682,7 @@ export const useBrushEngine = () => {
     components: BrushComponent[] = activeBrushComponents
   ) => {
     // Get actual pressure from cursor state in the store
-    const cursorPressure = useAppStore.getState().canvas.cursor.pressure || 1.0;
+    const cursorPressure = useAppStore.getState().canvas.cursor.pressure ?? 1.0;
     
     // Calculate smooth direction for rotation
     const direction = calculateSmoothDirection(from, to);

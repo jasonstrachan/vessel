@@ -96,8 +96,8 @@ const BrushCursor = memo(function BrushCursor({
           top: `${screenY}px`,
           width: `${displayWidth}px`,
           height: `${displayHeight}px`,
-          opacity: 0.5,
-          mixBlendMode: 'multiply',
+          opacity: 0.8,
+          filter: 'drop-shadow(0 0 2px rgba(0,0,0,0.8))',
           zIndex: 100,
           transform: 'translate(-50%, -50%)', // Center the cursor consistently
         }}
@@ -128,21 +128,22 @@ const BrushCursor = memo(function BrushCursor({
     >
       {brushShape === BrushShape.ROUND && (
         <svg
-          width={screenSize}
-          height={screenSize}
+          width={screenSize + 4}
+          height={screenSize + 4}
           style={{ 
             display: 'block',
             transform: 'translate3d(0, 0, 0)', // Force GPU acceleration
           }}
         >
           <circle
-            cx={screenSize / 2}
-            cy={screenSize / 2}
+            cx={(screenSize + 4) / 2}
+            cy={(screenSize + 4) / 2}
             r={Math.max(0.5, screenSize / 2 - 1)}
             fill="none"
-            stroke="#666666"
-            strokeWidth={Math.max(1, zoom)}
-            opacity={0.8}
+            stroke="#dedede"
+            strokeWidth="1"
+            opacity={1}
+            filter="drop-shadow(1px 1px 0px black)"
           />
         </svg>
       )}
@@ -150,12 +151,15 @@ const BrushCursor = memo(function BrushCursor({
       {brushShape === BrushShape.PIXEL_ROUND && (
         <div
           style={{
-            width: `${screenSize}px`,
-            height: `${screenSize}px`,
-            border: `${Math.max(1, zoom)}px solid #666666`,
+            width: `${screenSize + 4}px`,
+            height: `${screenSize + 4}px`,
+            padding: '2px',
+            boxSizing: 'border-box',
+            border: '1px solid #dedede',
             borderRadius: '50%',
-            opacity: 0.8,
+            opacity: 1,
             imageRendering: 'pixelated',
+            filter: 'drop-shadow(1px 1px 0px black)',
           }}
         />
       )}
@@ -163,29 +167,33 @@ const BrushCursor = memo(function BrushCursor({
       {brushShape === BrushShape.SQUARE && (
         <div
           style={{
-            width: `${screenSize}px`,
-            height: `${screenSize}px`,
-            border: `${Math.max(1, zoom)}px solid #666666`,
-            opacity: 0.8,
+            width: `${screenSize + 4}px`,
+            height: `${screenSize + 4}px`,
+            padding: '2px',
+            boxSizing: 'border-box',
+            border: '1px solid #dedede',
+            opacity: 1,
+            filter: 'drop-shadow(1px 1px 0px black)',
           }}
         />
       )}
 
       {brushShape === BrushShape.TRIANGLE && (
         <svg
-          width={screenSize}
-          height={screenSize}
+          width={screenSize + 4}
+          height={screenSize + 4}
           style={{ 
             display: 'block',
             transform: 'translate3d(0, 0, 0)', // Force GPU acceleration
           }}
         >
           <polygon
-            points={`${screenSize / 2},${1} ${screenSize - 1},${screenSize - 1} ${1},${screenSize - 1}`}
+            points={`${(screenSize + 4) / 2},${3} ${screenSize + 1},${screenSize + 1} ${3},${screenSize + 1}`}
             fill="none"
-            stroke="#666666"
-            strokeWidth={Math.max(1, zoom)}
-            opacity={0.8}
+            stroke="#dedede"
+            strokeWidth="1"
+            opacity={1}
+            filter="drop-shadow(1px 1px 0px black)"
           />
         </svg>
       )}

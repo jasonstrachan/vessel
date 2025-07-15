@@ -51,6 +51,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number } | null>(null);
   // Brush cursor state
   const [showBrushCursor, setShowBrushCursor] = useState(false);
+  const [isMouseOverCanvas, setIsMouseOverCanvas] = useState(false);
   const [cursorScreenX, setCursorScreenX] = useState(0);
   const [cursorScreenY, setCursorScreenY] = useState(0);
   
@@ -247,9 +248,9 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     // }
     
     // Show brush cursor for brush-like tools (optimized to avoid unnecessary updates)
-    const shouldShowBrushCursor = (tools.currentTool === 'brush' || tools.currentTool === 'eraser') && !spacebarPressed;
+    const shouldShowBrushCursor = (tools.currentTool === 'brush' || tools.currentTool === 'eraser') && !spacebarPressed && isMouseOverCanvas;
     setShowBrushCursor(prev => prev !== shouldShowBrushCursor ? shouldShowBrushCursor : prev);
-  }, [transformScreenToCanvas, canvas.panX, canvas.panY, canvas.zoom, tools.currentTool, spacebarPressed]);
+  }, [transformScreenToCanvas, canvas.panX, canvas.panY, canvas.zoom, tools.currentTool, spacebarPressed, isMouseOverCanvas]);
   
   // Convert screen coordinates to world coordinates
   // SIMPLIFIED: Use same coordinate system as cursor positioning for alignment
@@ -650,8 +651,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     setIsDrawing(true);
     setLastPoint(point);
-    // Get pressure from pointer event (0.0 to 1.0), fallback to 1.0 for non-pressure devices
-    const pressure = e.pressure || 1.0;
+    // Get pressure from pointer event (0.0 to 1.0), fallback to 0.0 for non-pressure devices when pressure is enabled
+    const pressure = e.pressure || (tools.brushSettings.pressureEnabled ? 0.0 : 1.0);
     setCursor({ x: point.x, y: point.y, pressure });
     
     // Reset pixel queue for new stroke
@@ -726,8 +727,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     }
 
     const point = screenToCanvas(e.clientX, e.clientY);
-    // Get pressure from pointer event (0.0 to 1.0), fallback to 1.0 for non-pressure devices
-    const rawPressure = e.pressure || 1.0;
+    // Get pressure from pointer event (0.0 to 1.0), fallback to 0.0 for non-pressure devices when pressure is enabled
+    const rawPressure = e.pressure || (tools.brushSettings.pressureEnabled ? 0.0 : 1.0);
     const smoothedPressure = smoothPressure(rawPressure);
     setCursor({ x: point.x, y: point.y, pressure: smoothedPressure });
 
@@ -856,8 +857,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     setIsDrawing(true);
     setLastPoint(point);
-    // Touch events don't have pressure, use 1.0 (full pressure)
-    setCursor({ x: point.x, y: point.y, pressure: 1.0 });
+    // Touch events don't have pressure, use 0.0 when pressure is enabled, 1.0 otherwise
+    setCursor({ x: point.x, y: point.y, pressure: tools.brushSettings.pressureEnabled ? 0.0 : 1.0 });
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
@@ -884,8 +885,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     }
 
     const point = screenToCanvas(touch.clientX, touch.clientY);
-    // Touch events don't have pressure, use 1.0 (full pressure)
-    setCursor({ x: point.x, y: point.y, pressure: 1.0 });
+    // Touch events don't have pressure, use 0.0 when pressure is enabled, 1.0 otherwise
+    setCursor({ x: point.x, y: point.y, pressure: tools.brushSettings.pressureEnabled ? 0.0 : 1.0 });
 
     if (isDrawing && lastPoint) {
       try {
@@ -1545,8 +1546,12 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          onPointerEnter={() => {
+            setIsMouseOverCanvas(true);
+          }}
           onPointerLeave={() => {
             handlePointerUp();
+            setIsMouseOverCanvas(false);
             // Clear eyedropper preview when leaving canvas
             setPreviewColor(null);
             setPreviewPosition(null);
