@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useMemo, useRef, useCallback } from 'react';
+import React, { memo } from 'react';
 import { BrushShape } from '../../types';
 
 interface BrushCursorProps {
@@ -28,89 +28,82 @@ const BrushCursor = memo(function BrushCursor({
   customBrush,
   visible
 }: BrushCursorProps) {
+  // Suppress unused variable warnings for custom brush mode
+  // We keep these parameters for interface compatibility
+  void color;
+  void customBrush;
   // Calculate display size based on zoom and brush size
   const screenSize = size * zoom;
 
-  // Cache for custom brush preview to avoid expensive operations
-  const previewCache = useRef<Map<string, string>>(new Map());
-  
-  // Create stable cache key from ImageData content
-  const getImageDataKey = useCallback((imageData: ImageData): string => {
-    // Use dimensions and first/last few pixels as a content hash
-    const firstPixels = Array.from(imageData.data.slice(0, 12)).join(',');
-    const lastPixels = Array.from(imageData.data.slice(-12)).join(',');
-    return `${imageData.width}x${imageData.height}-${firstPixels}-${lastPixels}`;
-  }, []);
-  
-  const customBrushPreview = useMemo(() => {
-    if (!customBrush || brushShape !== BrushShape.CUSTOM) return null;
-
-    // Check cache first using stable key
-    const cacheKey = getImageDataKey(customBrush.imageData);
-    const cached = previewCache.current.get(cacheKey);
-    if (cached) return cached;
-
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = customBrush.width;
-      canvas.height = customBrush.height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return null;
-
-      ctx.putImageData(customBrush.imageData, 0, 0);
-      const dataURL = canvas.toDataURL();
-      
-      // Cache the result using stable key
-      previewCache.current.set(cacheKey, dataURL);
-      
-      // Limit cache size to prevent memory leaks
-      if (previewCache.current.size > 10) {
-        const firstKey = previewCache.current.keys().next().value;
-        if (firstKey) {
-          previewCache.current.delete(firstKey);
-        }
-      }
-      
-      return dataURL;
-    } catch (error) {
-      console.error('Failed to create custom brush preview:', error);
-      return null;
-    }
-  }, [customBrush, brushShape, getImageDataKey]);
 
   if (!visible) return null;
 
-  // Render custom brush preview
-  if (brushShape === BrushShape.CUSTOM && customBrushPreview && customBrush) {
-    // Custom brushes are scaled as percentage: size 100 = 100% original size
-    // Calculate scale factor same as brush engine: size / 100
-    const scaleFactor = size / 100;
-    const displayWidth = customBrush.width * scaleFactor * zoom;
-    const displayHeight = customBrush.height * scaleFactor * zoom;
-
+  // Render crosshair for custom brushes
+  if (brushShape === BrushShape.CUSTOM) {
     return (
       <div
         className="pointer-events-none fixed"
         style={{
           left: `${screenX}px`,
           top: `${screenY}px`,
-          width: `${displayWidth}px`,
-          height: `${displayHeight}px`,
-          opacity: 0.8,
-          filter: 'drop-shadow(0 0 2px rgba(0,0,0,0.8))',
+          transform: 'translate(-50%, -50%)',
           zIndex: 100,
-          transform: 'translate(-50%, -50%)', // Center the cursor consistently
         }}
       >
-        <img
-          src={customBrushPreview}
-          alt="Brush preview"
-          style={{
-            width: '100%',
-            height: '100%',
-            imageRendering: zoom >= 4 ? 'pixelated' : 'auto',
+        <svg
+          width="21"
+          height="21"
+          style={{ 
+            display: 'block',
+            transform: 'translate3d(0, 0, 0)', // Force GPU acceleration
           }}
-        />
+        >
+          {/* Crosshair lines */}
+          <line
+            x1="10.5"
+            y1="3"
+            x2="10.5"
+            y2="8"
+            stroke="#dedede"
+            strokeWidth="1"
+            filter="drop-shadow(1px 1px 0px black)"
+          />
+          <line
+            x1="10.5"
+            y1="13"
+            x2="10.5"
+            y2="18"
+            stroke="#dedede"
+            strokeWidth="1"
+            filter="drop-shadow(1px 1px 0px black)"
+          />
+          <line
+            x1="3"
+            y1="10.5"
+            x2="8"
+            y2="10.5"
+            stroke="#dedede"
+            strokeWidth="1"
+            filter="drop-shadow(1px 1px 0px black)"
+          />
+          <line
+            x1="13"
+            y1="10.5"
+            x2="18"
+            y2="10.5"
+            stroke="#dedede"
+            strokeWidth="1"
+            filter="drop-shadow(1px 1px 0px black)"
+          />
+          {/* Center dot */}
+          <circle
+            cx="10.5"
+            cy="10.5"
+            r="1"
+            fill="#dedede"
+            filter="drop-shadow(1px 1px 0px black)"
+          />
+        </svg>
       </div>
     );
   }
