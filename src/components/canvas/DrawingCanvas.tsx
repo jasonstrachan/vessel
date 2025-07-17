@@ -1538,8 +1538,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       <div 
         className="w-full h-full bg-[#141514] flex items-center justify-center relative"
         style={{
-          overflow: 'hidden',
-          clipPath: 'inset(0)'
+          overflow: 'visible'
         }}
       >
         {/* Wrapper div for absolute positioning context */}
@@ -1551,13 +1550,16 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
           className=""
           style={{
             ...canvasStyle,
-            position: 'relative',
+            position: 'absolute',
+            top: 0,
+            left: 0,
             zIndex: 1,
             border: 'none',
             outline: 'none',
             padding: 0,
             margin: 0,
-            boxSizing: 'border-box'
+            boxSizing: 'border-box',
+            pointerEvents: 'auto'
           }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
