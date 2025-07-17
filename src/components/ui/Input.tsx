@@ -10,11 +10,9 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ className = '', variant = 'default', fullWidth = false, type = 'text', dragSensitivity = 1, onChange, value, onBlur, ...props }, ref) => {
     const internalRef = useRef<HTMLInputElement>(null);
     const inputRef = (ref as React.RefObject<HTMLInputElement>) || internalRef;
-    const [isEditing, setIsEditing] = useState(false);
-    const [editingValue, setEditingValue] = useState('');
     
     useEffect(() => {
-      if (inputRef.current && String(value || '') !== inputRef.current.value && !isEditing) {
+      if (inputRef.current && String(value || '') !== inputRef.current.value) {
         inputRef.current.value = String(value || '');
       }
     }, [value]);
@@ -81,10 +79,15 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
       }
     }, [dragSensitivity, type]);
 
-    const handlePointerUp = useCallback(() => {
+    const handlePointerUp = useCallback((e: React.PointerEvent<HTMLInputElement>) => {
       if (!dragState.current.pointerDown) return;
       
       const wasDragging = dragState.current.isDragging;
+      
+      // Release pointer capture if we were dragging
+      if (wasDragging) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
       
       dragState.current.isDragging = false;
       dragState.current.pointerDown = false;
@@ -127,14 +130,8 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     ].filter(Boolean).join(' ');
 
     const handleFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
-      // Allow all focus events for number inputs
-      if (type === 'number') {
-        setIsEditing(true);
-        setEditingValue(e.target.value);
-        return;
-      }
       // Prevent virtual keyboard for stylus/pen input on non-number inputs
-      if (e.nativeEvent.detail === 0) {
+      if (type !== 'number' && e.nativeEvent.detail === 0) {
         e.target.blur();
       }
     }, [type]);
@@ -150,48 +147,10 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onChange={type === 'number' ? undefined : onChange}
-        defaultValue={type === 'number' ? value : undefined}
-        value={type === 'number' ? undefined : value}
+        onChange={onChange}
+        value={value}
         onFocus={handleFocus}
-        onKeyDown={(e) => {
-          // Allow digit editing for number inputs
-          if (type === 'number') {
-            // Allow digits, backspace, delete, arrow keys, enter, tab
-            const allowedKeys = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 
-                               'Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 
-                               'ArrowUp', 'ArrowDown', 'Enter', 'Tab'];
-            if (!allowedKeys.includes(e.key) && !e.ctrlKey && !e.metaKey) {
-              e.preventDefault();
-            }
-            if (e.key === 'Enter' || e.key === 'Tab') {
-              setIsEditing(false);
-            }
-          }
-        }}
-        onBlur={(e) => {
-          if (type === 'number' && isEditing) {
-            setIsEditing(false);
-            // If parent has onBlur, call it; otherwise use onChange
-            if (onBlur) {
-              onBlur(e);
-            } else if (onChange) {
-              // Create a synthetic event with the current input value
-              const syntheticEvent = {
-                ...e,
-                target: { ...e.target, value: e.target.value }
-              };
-              onChange(syntheticEvent as React.ChangeEvent<HTMLInputElement>);
-            }
-          } else if (onBlur) {
-            onBlur(e);
-          }
-        }}
-        onInput={(e) => {
-          if (type === 'number' && isEditing) {
-            setEditingValue(e.currentTarget.value);
-          }
-        }}
+        onBlur={onBlur}
         {...props}
       />
     );

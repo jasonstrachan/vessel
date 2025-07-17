@@ -11,8 +11,8 @@ interface DocumentModalProps {
 export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose }) => {
   const { project, newProject, resizeCanvas } = useAppStore();
   
-  const [resizeWidth, setResizeWidth] = useState(project?.width || 800);
-  const [resizeHeight, setResizeHeight] = useState(project?.height || 600);
+  const [resizeWidth, setResizeWidth] = useState<number | string>(project?.width || 800);
+  const [resizeHeight, setResizeHeight] = useState<number | string>(project?.height || 600);
   const [newWidth, setNewWidth] = useState(800);
   const [newHeight, setNewHeight] = useState(600);
   const [isVisible, setIsVisible] = useState(false);
@@ -48,7 +48,9 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
 
   const handleResize = () => {
     if (project) {
-      resizeCanvas(resizeWidth, resizeHeight);
+      const width = resizeWidth === '' ? 1 : resizeWidth;
+      const height = resizeHeight === '' ? 1 : resizeHeight;
+      resizeCanvas(width, height);
     }
     onClose();
   };
@@ -96,7 +98,8 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
                   onChange={(e) => {
                     const value = e.target.value;
                     if (value === '') {
-                      return; // Don't update state for empty values
+                      setResizeWidth('');
+                      return;
                     }
                     const num = parseInt(value);
                     setResizeWidth(isNaN(num) ? 1 : Math.max(1, num));
@@ -120,7 +123,8 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
                   onChange={(e) => {
                     const value = e.target.value;
                     if (value === '') {
-                      return; // Don't update state for empty values
+                      setResizeHeight('');
+                      return;
                     }
                     const num = parseInt(value);
                     setResizeHeight(isNaN(num) ? 1 : Math.max(1, num));
