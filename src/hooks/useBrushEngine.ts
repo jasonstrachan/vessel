@@ -472,9 +472,15 @@ export const useBrushEngine = () => {
     if (activeSettings.pressureEnabled) {
       // Map pressure (0.0-1.0) to size range based on maxPressure setting
       // maxPressure directly sets the max pixel size at full pressure
-      const minSizePx = 1;
+      const minSizePx = activeSettings.minPressure;
       const maxSizePx = activeSettings.maxPressure;
-      finalSize = minSizePx + (input.pressure * (maxSizePx - minSizePx));
+      
+      // Add pressure deadzone for better low-pressure control
+      const pressureThreshold = 0.2;
+      const adjustedPressure = input.pressure < pressureThreshold ? 0 : 
+        (input.pressure - pressureThreshold) / (1.0 - pressureThreshold);
+      
+      finalSize = minSizePx + (adjustedPressure * (maxSizePx - minSizePx));
       
       // Quantize brush size when using grid snap + pressure to prevent multiple stamps per grid cell
       if (shouldApplyGridSnap(activeSettings)) {
@@ -828,9 +834,15 @@ export const useBrushEngine = () => {
     
     // Apply pressure if enabled
     if (tools.brushSettings.pressureEnabled) {
-      const minSizePx = 1;
+      const minSizePx = tools.brushSettings.minPressure;
       const maxSizePx = tools.brushSettings.maxPressure || actualBrushSize;
-      actualBrushSize = minSizePx + (cursorPressure * (maxSizePx - minSizePx));
+      
+      // Add pressure deadzone for better low-pressure control
+      const pressureThreshold = 0.2;
+      const adjustedPressure = cursorPressure < pressureThreshold ? 0 : 
+        (cursorPressure - pressureThreshold) / (1.0 - pressureThreshold);
+      
+      actualBrushSize = minSizePx + (adjustedPressure * (maxSizePx - minSizePx));
     }
     
     // Look for custom brush first before grid calculations
