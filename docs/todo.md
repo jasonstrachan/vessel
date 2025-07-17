@@ -19,6 +19,14 @@
   - [x] Added stroke start detection to reset pixel queue on mousedown/touchstart
   - [x] Tested at all cursor speeds - works perfectly with no gaps or antialiasing
   - [x] Algorithm follows Tom Cantwell's exact logic: `if (Math.abs(mouseX-lastX) > 1 || Math.abs(mouseY-lastY) > 1)`
+- [x] **PRESSURE SENSITIVITY MIN SIZE FIX** - Fixed min pressure values not working
+  - [x] Replaced hardcoded `minSizePx = 1` with `activeSettings.minPressure` in executeComponents function
+  - [x] Replaced hardcoded `minSizePx = 1` with `tools.brushSettings.minPressure` in renderBrushStroke function
+  - [x] Min size values now work correctly for pressure-sensitive brushes
+- [x] **PRESSURE SENSITIVITY DEADZONE** - Added pressure threshold for better low-pressure control
+  - [x] Added 0.2 pressure threshold in both executeComponents and renderBrushStroke functions
+  - [x] Pressure 0.0-0.2 now maps to minimum size for consistent thin lines
+  - [x] Pressure 0.2-1.0 maps linearly to full size range
 
 ## Next Steps
 - [ ] Await next development task
