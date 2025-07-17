@@ -14,34 +14,58 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     const [editingValue, setEditingValue] = useState('');
     
     useEffect(() => {
-      if (!isEditing && inputRef.current && String(value || '') !== inputRef.current.value) {
+      if (inputRef.current && String(value || '') !== inputRef.current.value && !isEditing) {
         inputRef.current.value = String(value || '');
       }
-    }, [value, isEditing]);
+    }, [value]);
 
     const dragState = useRef({
       isDragging: false,
+      pointerDown: false,
       startY: 0,
+      startX: 0,
       startValue: 0
     });
 
     const handlePointerDown = useCallback((e: React.PointerEvent<HTMLInputElement>) => {
       if (type !== 'number') return;
       
-      // Only start drag if shift key is held
-      if (e.shiftKey) {
-        e.preventDefault();
-        e.currentTarget.setPointerCapture(e.pointerId);
-        
-        dragState.current = {
-          isDragging: true,
-          startY: e.clientY,
-          startValue: parseFloat(inputRef.current?.value || '0')
-        };
-      }
+      // Store initial position for drag threshold
+      dragState.current = {
+        isDragging: false,
+        pointerDown: true,
+        startY: e.clientY,
+        startX: e.clientX,
+        startValue: 0
+      };
     }, [type]);
 
     const handlePointerMove = useCallback((e: React.PointerEvent<HTMLInputElement>) => {
+      if (type !== 'number' || !dragState.current.pointerDown) return;
+      
+      const thresholdY = Math.abs(dragState.current.startY - e.clientY);
+      const thresholdX = Math.abs(dragState.current.startX - e.clientX);
+      const threshold = 3; // pixels
+      
+      // If not dragging yet, check if we've moved enough to start drag
+      if (!dragState.current.isDragging && (thresholdY > threshold || thresholdX > threshold)) {
+        e.preventDefault();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        
+        // Get starting value, using min attribute if field is empty
+        const currentValue = inputRef.current?.value || '';
+        const min = parseFloat(inputRef.current?.min || '1');
+        const startValue = currentValue === '' ? min : parseFloat(currentValue);
+        
+        dragState.current.isDragging = true;
+        dragState.current.startValue = isNaN(startValue) ? min : startValue;
+        
+        // Set initial value if field was empty
+        if (inputRef.current && currentValue === '') {
+          inputRef.current.value = Math.round(dragState.current.startValue).toString();
+        }
+      }
+      
       if (!dragState.current.isDragging) return;
       
       const deltaY = dragState.current.startY - e.clientY;
@@ -55,15 +79,18 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         // Only update the visual value, no expensive state updates during drag
         inputRef.current.value = Math.round(clampedValue).toString();
       }
-    }, [dragSensitivity]);
+    }, [dragSensitivity, type]);
 
     const handlePointerUp = useCallback(() => {
-      if (!dragState.current.isDragging) return;
+      if (!dragState.current.pointerDown) return;
+      
+      const wasDragging = dragState.current.isDragging;
       
       dragState.current.isDragging = false;
+      dragState.current.pointerDown = false;
       
-      // Commit the final value to parent component's state
-      if (onChange && inputRef.current) {
+      // Commit the final value to parent component's state only if we were dragging
+      if (wasDragging && onChange && inputRef.current) {
         const event = { target: inputRef.current } as React.ChangeEvent<HTMLInputElement>;
         onChange(event);
       }
