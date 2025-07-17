@@ -460,8 +460,8 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
           
           setIsOpen(!isOpen);
         }}
-        className="h-[28px] w-[28px] text-base hover:opacity-80 transition-opacity cursor-pointer outline-none"
-        style={{ backgroundColor: color, border: '1px solid #555' }}
+        className="h-[28px] w-[28px] text-base hover:opacity-80 transition-opacity cursor-pointer border-none outline-none"
+        style={{ backgroundColor: color }}
         title="Color Picker"
       />
       
@@ -475,14 +475,12 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
                 className="cursor-crosshair outline-none focus:outline-none"
                 width={300}
                 height={300}
-                style={{ outline: '1px solid #555' }}
               />
               <canvas
                 ref={hueCanvasRef}
                 className="cursor-crosshair outline-none focus:outline-none"
                 width={30}
                 height={300}
-                style={{ outline: '1px solid #555' }}
               />
             </div>
             
