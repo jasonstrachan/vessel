@@ -22,6 +22,7 @@ export interface TinyBrushProject {
     backgroundColor: string;
     layers: SerializedLayer[];
     customBrushes: SerializedCustomBrush[];
+    thumbnail?: string;
   };
 }
 
@@ -161,10 +162,61 @@ async function deserializeCustomBrush(serializedBrush: SerializedCustomBrush): P
   };
 }
 
+// Generate thumbnail from project layers
+function generateProjectThumbnail(project: Project, layers: Layer[], maxSize: number = 128): string {
+  const canvas = document.createElement('canvas');
+  const aspectRatio = project.width / project.height;
+  
+  if (aspectRatio > 1) {
+    canvas.width = maxSize;
+    canvas.height = Math.round(maxSize / aspectRatio);
+  } else {
+    canvas.width = Math.round(maxSize * aspectRatio);
+    canvas.height = maxSize;
+  }
+  
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  
+  const scaleX = canvas.width / project.width;
+  const scaleY = canvas.height / project.height;
+  
+  ctx.scale(scaleX, scaleY);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  
+  ctx.fillStyle = project.backgroundColor;
+  ctx.fillRect(0, 0, project.width, project.height);
+  
+  const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
+  for (const layer of sortedLayers) {
+    if (!layer.visible || !layer.imageData) continue;
+    
+    ctx.globalAlpha = layer.opacity;
+    ctx.globalCompositeOperation = layer.blendMode;
+    
+    const layerCanvas = document.createElement('canvas');
+    layerCanvas.width = layer.imageData.width;
+    layerCanvas.height = layer.imageData.height;
+    const layerCtx = layerCanvas.getContext('2d');
+    if (layerCtx) {
+      layerCtx.putImageData(layer.imageData, 0, 0);
+      ctx.drawImage(layerCanvas, 0, 0);
+    }
+  }
+  
+  return canvas.toDataURL('image/png', 0.8);
+}
+
 // Serialize a project for saving
-export async function serializeProject(project: Project): Promise<string> {
+export async function serializeProject(project: Project, layers?: Layer[]): Promise<string> {
   const serializedLayers = project.layers.map(serializeLayer);
   const serializedCustomBrushes = project.customBrushes.map(serializeCustomBrush);
+  
+  let thumbnail = '';
+  if (layers) {
+    thumbnail = generateProjectThumbnail(project, layers);
+  }
   
   const tinyBrushProject: TinyBrushProject = {
     version: PROJECT_VERSION,
@@ -181,7 +233,8 @@ export async function serializeProject(project: Project): Promise<string> {
       height: project.height,
       backgroundColor: project.backgroundColor,
       layers: serializedLayers,
-      customBrushes: serializedCustomBrushes
+      customBrushes: serializedCustomBrushes,
+      thumbnail: thumbnail || undefined
     }
   };
   
@@ -231,8 +284,8 @@ export async function deserializeProject(projectData: string): Promise<Project> 
 }
 
 // Save project to file using File System Access API with fallback
-export async function saveProjectToFile(project: Project, filename?: string): Promise<void> {
-  const projectData = await serializeProject(project);
+export async function saveProjectToFile(project: Project, filename?: string, layers?: Layer[]): Promise<void> {
+  const projectData = await serializeProject(project, layers);
   const fileName = filename || `${project.name}.tb`;
   
   // Check if File System Access API is supported

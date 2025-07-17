@@ -460,7 +460,7 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
           
           setIsOpen(!isOpen);
         }}
-        className="h-[28px] w-[28px] text-base rounded hover:opacity-80 transition-opacity cursor-pointer"
+        className="h-[28px] w-[28px] text-base hover:opacity-80 transition-opacity cursor-pointer border-none outline-none"
         style={{ backgroundColor: color }}
         title="Color Picker"
       />

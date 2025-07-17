@@ -16,7 +16,8 @@ export const pixelBrushSettings: BrushSettings = {
   rotationEnabled: false,
   dashedEnabled: true,
   dashLength: 3,
-  dashGap: 2
+  dashGap: 2,
+  gridSnapEnabled: false
 };
 
 // Default brush settings for smooth drawing
@@ -36,7 +37,8 @@ export const defaultBrushSettings: BrushSettings = {
   rotationEnabled: false,
   dashedEnabled: false,
   dashLength: 3,
-  dashGap: 2
+  dashGap: 2,
+  gridSnapEnabled: false
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect

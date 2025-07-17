@@ -686,7 +686,7 @@ export const useAppStore = create<AppState>()(
             }
           };
           
-          await saveProjectToFile(projectWithViewState, filename);
+          await saveProjectToFile(projectWithViewState, filename, freshState.layers);
           state.addNotification({
             type: 'success',
             title: 'Project Saved',

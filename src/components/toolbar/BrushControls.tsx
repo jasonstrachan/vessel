@@ -8,6 +8,8 @@ import { useAppStore } from '../../stores/useAppStore';
 import { BrushShape } from '../../types';
 import ColorPicker from './ColorPicker';
 import Input from '../ui/Input';
+import { Switch } from '../retroui/Switch';
+import { Slider } from '../retroui/Slider';
 
 export default function BrushControls() {
   const { tools, setBrushSettings } = useAppStore();
@@ -21,7 +23,7 @@ export default function BrushControls() {
       
 
       {/* Color */}
-      <div className="mb-4">
+      <div className="mb-3">
         <label className="block text-base text-[#D9D9D9] mb-2">Color</label>
         <div className="flex items-center gap-2">
           <ColorPicker
@@ -40,7 +42,7 @@ export default function BrushControls() {
       </div>
 
       {/* Brush Size - Different behavior for custom vs regular brushes */}
-      <div className="mb-4">
+      <div className="mb-3">
         {isCustomBrush ? (
           // Custom brush: percentage-based slider
           <>
@@ -48,14 +50,14 @@ export default function BrushControls() {
               Scale: {brushSettings.size}% 
               <span className="text-base text-[#D9D9D9] ml-1">(of original size)</span>
             </label>
-            <Input
-              type="range"
-              min="10"
-              max="500"
-              step="5"
-              value={brushSettings.size}
-              onChange={(e) => setBrushSettings({ size: parseInt(e.target.value) })}
-              fullWidth
+            <Slider
+              defaultValue={[brushSettings.size]}
+              value={[brushSettings.size]}
+              min={10}
+              max={500}
+              step={5}
+              onValueChange={(value) => setBrushSettings({ size: value[0] })}
+              aria-label="Brush Scale"
             />
           </>
         ) : (
@@ -64,59 +66,58 @@ export default function BrushControls() {
             <label className="block text-base text-[#D9D9D9] mb-2">
               Size: {brushSettings.size}px
             </label>
-            <Input
-              type="range"
-              min="1"
-              max="100"
-              value={brushSettings.size}
-              onChange={(e) => setBrushSettings({ size: parseInt(e.target.value) })}
-              fullWidth
+            <Slider
+              defaultValue={[brushSettings.size]}
+              value={[brushSettings.size]}
+              min={1}
+              max={100}
+              step={1}
+              onValueChange={(value) => setBrushSettings({ size: value[0] })}
+              aria-label="Brush Size"
             />
           </>
         )}
       </div>
 
       {/* Opacity */}
-      <div className="mb-4">
+      <div className="mb-3">
         <label className="block text-base text-[#D9D9D9] mb-2">
           Opacity: {Math.round(brushSettings.opacity * 100)}%
         </label>
-        <Input
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value={brushSettings.opacity}
-          onChange={(e) => setBrushSettings({ opacity: parseFloat(e.target.value) })}
-          fullWidth
+        <Slider
+          defaultValue={[brushSettings.opacity]}
+          value={[brushSettings.opacity]}
+          min={0}
+          max={1}
+          step={0.01}
+          onValueChange={(value) => setBrushSettings({ opacity: value[0] })}
+          aria-label="Opacity"
         />
       </div>
 
       {/* Spacing */}
-      <div className="mb-4">
+      <div className="mb-3">
         <label className="block text-base text-[#D9D9D9] mb-2">
           Spacing: {brushSettings.spacing}px
         </label>
-        <Input
-          type="range"
-          min="1"
-          max="400"
-          step="1"
-          value={brushSettings.spacing}
-          onChange={(e) => setBrushSettings({ spacing: parseInt(e.target.value) })}
-          fullWidth
+        <Slider
+          defaultValue={[brushSettings.spacing]}
+          value={[brushSettings.spacing]}
+          min={1}
+          max={400}
+          step={1}
+          onValueChange={(value) => setBrushSettings({ spacing: value[0] })}
+          aria-label="Spacing"
         />
       </div>
 
       {/* Pressure */}
-      <div className="mb-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Input
-            type="checkbox"
+      <div className="mb-3">
+        <div className="flex items-center space-x-2 mb-2">
+          <Switch
             id="pressure-enabled"
             checked={brushSettings.pressureEnabled || false}
-            onChange={(e) => setBrushSettings({ pressureEnabled: e.target.checked })}
-            className="w-3 h-3"
+            onChange={(checked) => setBrushSettings({ pressureEnabled: checked })}
           />
           <label htmlFor="pressure-enabled" className="text-base text-[#D9D9D9]">
             Pressure
@@ -149,14 +150,12 @@ export default function BrushControls() {
       </div>
 
       {/* Rotation */}
-      <div className="mb-4">
-        <div className="flex items-center gap-2">
-          <Input
-            type="checkbox"
+      <div className="mb-3">
+        <div className="flex items-center space-x-2">
+          <Switch
             id="rotation-enabled"
             checked={brushSettings.rotationEnabled || false}
-            onChange={(e) => setBrushSettings({ rotationEnabled: e.target.checked })}
-            className="w-3 h-3"
+            onChange={(checked) => setBrushSettings({ rotationEnabled: checked })}
           />
           <label htmlFor="rotation-enabled" className="text-base text-[#D9D9D9]">
             Rotation
@@ -165,14 +164,12 @@ export default function BrushControls() {
       </div>
 
       {/* Dashed */}
-      <div className="mb-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Input
-            type="checkbox"
+      <div className="mb-3">
+        <div className="flex items-center space-x-2 mb-2">
+          <Switch
             id="dashed-enabled"
             checked={brushSettings.dashedEnabled || false}
-            onChange={(e) => setBrushSettings({ dashedEnabled: e.target.checked })}
-            className="w-3 h-3"
+            onChange={(checked) => setBrushSettings({ dashedEnabled: checked })}
           />
           <label htmlFor="dashed-enabled" className="text-base text-[#D9D9D9]">
             Dashed
@@ -211,6 +208,20 @@ export default function BrushControls() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Grid Snap */}
+      <div className="mb-3">
+        <div className="flex items-center space-x-2">
+          <Switch
+            id="grid-snap-enabled"
+            checked={brushSettings.gridSnapEnabled || false}
+            onChange={(checked) => setBrushSettings({ gridSnapEnabled: checked })}
+          />
+          <label htmlFor="grid-snap-enabled" className="text-base text-[#D9D9D9]">
+            Grid Snap
+          </label>
+        </div>
       </div>
 
     </div>

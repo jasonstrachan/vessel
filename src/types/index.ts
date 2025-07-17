@@ -181,6 +181,8 @@ export interface BrushSettings {
   dashedEnabled: boolean;
   dashLength: number;
   dashGap: number;
+  // Grid snap settings
+  gridSnapEnabled: boolean;
 }
 
 export interface ComponentParams {
