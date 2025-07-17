@@ -418,6 +418,12 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
   // Enhanced drawing function - draws on offscreen canvas and re-renders view
   const drawLine = useCallback((from: { x: number; y: number }, to: { x: number; y: number }) => {
+    // Prevent drawing during selection
+    if (isSelecting) {
+      console.log('STYLUS DEBUG: drawLine blocked during selection');
+      return;
+    }
+    
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
     
@@ -425,11 +431,12 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     if (!offscreenCtx) return;
     
     // Draw on the offscreen canvas (no transformations - world coordinates)
+    console.log('STYLUS DEBUG: drawLine executing renderBrushStroke');
     renderBrushStroke(offscreenCtx, from, to);
     
     // Re-render the view with current zoom/pan
     renderView();
-  }, [renderBrushStroke, renderView]);
+  }, [renderBrushStroke, renderView, isSelecting]);
 
   // Create custom brush from current selection
   const createCustomBrushFromSelection = useCallback(async () => {
@@ -613,9 +620,13 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     }
     
     // Handle selection and custom brush tools - start new selection
+    console.log('STYLUS DEBUG: pointerType:', e.pointerType, 'currentTool:', tools.currentTool);
     if (tools.currentTool === 'selection' || tools.currentTool === 'custom') {
+      console.log('STYLUS DEBUG: Selection tool detected, setting selection state');
       setIsSelecting(true);
       setSelectionBounds(point, point);
+      // Ensure drawing is disabled during selection
+      setIsDrawing(false);
       e.preventDefault();
       return;
     }
@@ -635,6 +646,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       saveCanvasState(offscreenCanvas, actionType, `${actionType} stroke`);
     }
     
+    console.log('STYLUS DEBUG: Falling through to drawing logic. pointerType:', e.pointerType, 'currentTool:', tools.currentTool);
     setIsDrawing(true);
     setLastPoint(point);
     // Get pressure from pointer event (0.0 to 1.0), fallback to 0.0 for non-pressure devices when pressure is enabled
@@ -730,6 +742,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
     // Handle selection creation dragging
     if (isSelecting && selectionStart) {
+      console.log('STYLUS DEBUG: Selection dragging, isSelecting:', isSelecting, 'isDrawing:', isDrawing);
       setSelectionBounds(selectionStart, point);
       return;
     }
@@ -752,12 +765,16 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       return;
     }
 
-    if (isDrawing && lastPoint) {
+    // Only draw if not in selection mode
+    if (isDrawing && lastPoint && !isSelecting) {
+      console.log('STYLUS DEBUG: Drawing line, isSelecting:', isSelecting, 'isDrawing:', isDrawing);
       try {
         drawLine(lastPoint, point);
         setLastPoint(point);
       } catch (error) {
       }
+    } else if (isDrawing && lastPoint && isSelecting) {
+      console.log('STYLUS DEBUG: Prevented drawing during selection, isSelecting:', isSelecting, 'isDrawing:', isDrawing);
     }
   }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition, isDraggingSelection, selectionDragStart, canvas.selection, setSelection, isSelecting, selectionStart, setSelectionBounds, smoothPressure, isPalmRejectionEvent]);
 
@@ -981,28 +998,47 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
   // Keyboard event handlers
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Ignore synthetic keyboard events that might be triggered by stylus input
+    if (!e.isTrusted || e.detail > 0) {
+      console.log('STYLUS DEBUG: Ignoring synthetic keyboard event:', e.key);
+      return;
+    }
+    
+    // Prevent tool switching during selection operations
+    if (isSelecting) {
+      console.log('STYLUS DEBUG: Ignoring keyboard shortcuts during selection');
+      return;
+    }
     // Undo/Redo shortcuts
     if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
       e.preventDefault();
       e.stopPropagation();
       
+      console.log('Undo/Redo key pressed:', { shiftKey: e.shiftKey, canUndo: canUndo(), canRedo: canRedo() });
+      
       if (e.shiftKey) {
         // Redo (Ctrl+Shift+Z)
         if (canRedo()) {
+          console.log('Executing redo...');
           const snapshot = redo();
           if (snapshot && offscreenCanvasRef.current) {
             restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
             renderView();
           }
+        } else {
+          console.log('Cannot redo - no items in redo stack');
         }
       } else {
         // Undo (Ctrl+Z)
         if (canUndo()) {
+          console.log('Executing undo...');
           const snapshot = undo();
           if (snapshot && offscreenCanvasRef.current) {
             restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
             renderView();
           }
+        } else {
+          console.log('Cannot undo - no items in undo stack');
         }
       }
       return;
@@ -1116,6 +1152,13 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     // Tool shortcuts
     if (e.key === 'b' || e.key === 'B') {
       if (!e.ctrlKey && !e.metaKey) {
+        console.log('STYLUS DEBUG: B key pressed, event details:', { 
+          key: e.key, 
+          detail: e.detail,
+          isTrusted: e.isTrusted,
+          code: e.code,
+          type: e.type
+        });
         e.preventDefault();
         setCurrentTool('brush');
         return;

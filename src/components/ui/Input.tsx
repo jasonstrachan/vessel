@@ -132,6 +132,9 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     const handleFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
       // Prevent virtual keyboard for stylus/pen input on non-number inputs
       if (type !== 'number' && e.nativeEvent.detail === 0) {
+        // Reset drag state when blurring due to stylus
+        dragState.current.isDragging = false;
+        dragState.current.pointerDown = false;
         e.target.blur();
       }
     }, [type]);

@@ -315,6 +315,8 @@ export const useAppStore = create<AppState>()(
           newBrushSettings.selectedCustomBrush = null;
         }
         
+        console.log('STYLUS DEBUG: Tool change from', state.tools.currentTool, 'to', tool);
+        console.trace('STYLUS DEBUG: Tool change stack trace');
         return {
           tools: {
             ...state.tools,
