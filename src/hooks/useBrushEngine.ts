@@ -475,6 +475,15 @@ export const useBrushEngine = () => {
       const minSizePx = 1;
       const maxSizePx = activeSettings.maxPressure;
       finalSize = minSizePx + (input.pressure * (maxSizePx - minSizePx));
+      
+      // Quantize brush size when using grid snap + pressure to prevent multiple stamps per grid cell
+      if (shouldApplyGridSnap(activeSettings)) {
+        const originalSize = finalSize;
+        finalSize = quantizeBrushSize(finalSize, 0.5);
+        if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
+          console.log('Grid snap quantization:', { originalSize, quantizedSize: finalSize, pressure: input.pressure });
+        }
+      }
     }
     
     // Start with base settings (don't override pixelAlignment - let components control it)
@@ -822,11 +831,6 @@ export const useBrushEngine = () => {
       const minSizePx = 1;
       const maxSizePx = tools.brushSettings.maxPressure || actualBrushSize;
       actualBrushSize = minSizePx + (cursorPressure * (maxSizePx - minSizePx));
-      
-      // Quantize brush size when using grid snap + pressure to prevent multiple stamps per grid cell
-      if (shouldApplyGridSnap(tools.brushSettings)) {
-        actualBrushSize = quantizeBrushSize(actualBrushSize, 0.5);
-      }
     }
     
     // Look for custom brush first before grid calculations
@@ -856,20 +860,8 @@ export const useBrushEngine = () => {
     // Apply grid snapping if enabled using the actual brush size
     let snappedTo = { x: to.x, y: to.y };
     let snappedFrom = { x: from.x, y: from.y };
-    let isGridSnapping = false;
+    let isGridSnapping = shouldApplyGridSnap(tools.brushSettings);
     let gridSize = 0;
-    
-    if (shouldApplyGridSnap(tools.brushSettings)) {
-      isGridSnapping = true;
-      // Grid size should be based on base brush size, not pressure-modified size
-      // This ensures one stamp per grid block regardless of pressure
-      gridSize = calculateGridSize(tools.brushSettings, customBrush || undefined);
-      
-      const snappedToPos = snapToGrid(to.x, to.y, gridSize);
-      const snappedFromPos = snapToGrid(from.x, from.y, gridSize);
-      snappedTo = { x: snappedToPos.x, y: snappedToPos.y };
-      snappedFrom = { x: snappedFromPos.x, y: snappedFromPos.y };
-    }
     
     // Calculate smooth direction for rotation using snapped positions
     const direction = calculateSmoothDirection(snappedFrom, snappedTo);
@@ -883,6 +875,17 @@ export const useBrushEngine = () => {
     };
     
     const settings = executeComponents(components, input);
+    
+    // Apply grid snapping after settings are calculated so we can use actual brush size
+    if (isGridSnapping) {
+      // Grid size should equal the actual brush size being rendered (including pressure effects)
+      gridSize = Math.max(1, Math.round(settings.size));
+      
+      const snappedToPos = snapToGrid(to.x, to.y, gridSize);
+      const snappedFromPos = snapToGrid(from.x, from.y, gridSize);
+      snappedTo = { x: snappedToPos.x, y: snappedToPos.y };
+      snappedFrom = { x: snappedFromPos.x, y: snappedFromPos.y };
+    }
     
     ctx.save();
     
