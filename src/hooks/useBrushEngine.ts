@@ -3,7 +3,7 @@
 import { useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushComponent, ComponentType, BrushShape, CustomBrush } from '../types';
-import { shouldApplyGridSnap, snapToGrid, getGridPositionsBetween, calculateGridSize } from '../utils/gridSnap';
+import { shouldApplyGridSnap, snapToGrid, getGridPositionsBetween, calculateGridDimensions, snapToRectangularGrid, getRectangularGridPositionsBetween } from '../utils/gridSnap';
 
 export interface StrokeInput {
   position: { x: number; y: number };
@@ -860,7 +860,7 @@ export const useBrushEngine = () => {
     // Apply grid snapping if enabled using the actual brush size
     let snappedTo = { x: to.x, y: to.y };
     let snappedFrom = { x: from.x, y: from.y };
-    let isGridSnapping = shouldApplyGridSnap(tools.brushSettings);
+    const isGridSnapping = shouldApplyGridSnap(tools.brushSettings);
     let gridSize = 0;
     
     // Calculate smooth direction for rotation using snapped positions
@@ -878,13 +878,24 @@ export const useBrushEngine = () => {
     
     // Apply grid snapping after settings are calculated so we can use actual brush size
     if (isGridSnapping) {
-      // Grid size should equal the actual brush size being rendered (including pressure effects)
-      gridSize = Math.max(1, Math.round(settings.size));
-      
-      const snappedToPos = snapToGrid(to.x, to.y, gridSize);
-      const snappedFromPos = snapToGrid(from.x, from.y, gridSize);
-      snappedTo = { x: snappedToPos.x, y: snappedToPos.y };
-      snappedFrom = { x: snappedFromPos.x, y: snappedFromPos.y };
+      if (isCustomBrush && customBrush) {
+        // For custom brushes, use rectangular grid based on brush dimensions with pressure-modified size
+        const gridDimensions = calculateGridDimensions(tools.brushSettings, customBrush, settings.size);
+        gridSize = Math.max(gridDimensions.width, gridDimensions.height); // Keep for backward compatibility
+        
+        const snappedToPos = snapToRectangularGrid(to.x, to.y, gridDimensions.width, gridDimensions.height);
+        const snappedFromPos = snapToRectangularGrid(from.x, from.y, gridDimensions.width, gridDimensions.height);
+        snappedTo = { x: snappedToPos.x, y: snappedToPos.y };
+        snappedFrom = { x: snappedFromPos.x, y: snappedFromPos.y };
+      } else {
+        // For regular brushes, use square grid with pressure-modified size
+        gridSize = settings.size; // Use pressure-modified size directly
+        
+        const snappedToPos = snapToGrid(to.x, to.y, gridSize);
+        const snappedFromPos = snapToGrid(from.x, from.y, gridSize);
+        snappedTo = { x: snappedToPos.x, y: snappedToPos.y };
+        snappedFrom = { x: snappedFromPos.x, y: snappedFromPos.y };
+      }
     }
     
     ctx.save();
@@ -911,19 +922,27 @@ export const useBrushEngine = () => {
     if (isCustomBrush && customBrush) {
       // Scale custom brush based on brush size setting as percentage
       // Size 100 = 100% (original size), Size 50 = 50%, Size 200 = 200%
-      const scaleFactor = settings.size / 100;
+      let scaleFactor = settings.size / 100;
+      
+      // For grid snapping, ensure brush size matches grid size exactly
+      if (isGridSnapping) {
+        // Scale factor should ensure the brush matches the grid dimensions exactly
+        scaleFactor = settings.size / 100; // Use the pressure-modified size
+      }
       
       if (isGridSnapping) {
         // Grid snapping mode: draw at all grid positions between last and current position
-        // Use unified grid size calculation
+        // Use rectangular grid calculation for custom brushes with pressure-modified size
+        const gridDimensions = calculateGridDimensions(tools.brushSettings, customBrush, settings.size);
         
         // Fill in grid positions between last and current position for fast movement
-        const gridPositions = getGridPositionsBetween(
+        const gridPositions = getRectangularGridPositionsBetween(
           queue.lastStrokePosition.x || snappedFrom.x, 
           queue.lastStrokePosition.y || snappedFrom.y, 
           snappedTo.x, 
           snappedTo.y, 
-          gridSize
+          gridDimensions.width,
+          gridDimensions.height
         );
         
         // Draw at each grid position that hasn't been stamped
