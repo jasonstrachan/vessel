@@ -59,13 +59,13 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     }, [onChange]);
 
     // Base classes for all inputs
-    const baseClasses = 'bg-[#404040] border-2 border-[#D9D9D9] text-[#D9D9D9] focus:outline-none focus:border-[#88888A] transition-colors touch-none';
+    const baseClasses = 'border-2 border-[#D9D9D9] text-[#D9D9D9] focus:outline-none focus:border-[#88888A] transition-colors touch-none';
     
     // Variant-specific classes
     const variantClasses = {
-      default: 'px-2 py-1 text-base',
-      hex: 'px-2 py-1 text-base font-mono uppercase',
-      compact: 'px-1 py-1 text-base text-center'
+      default: 'px-2 h-[25px] text-base',
+      hex: 'px-2 h-[25px] text-base font-mono uppercase',
+      compact: 'px-1 h-[25px] text-base text-center'
     };
 
     // Type-specific classes

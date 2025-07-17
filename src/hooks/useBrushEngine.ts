@@ -3,6 +3,7 @@
 import { useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushComponent, ComponentType, BrushShape, CustomBrush } from '../types';
+import { shouldApplyGridSnap, snapToGrid, getGridPositionsBetween, calculateGridSize } from '../utils/gridSnap';
 
 export interface StrokeInput {
   position: { x: number; y: number };
@@ -49,12 +50,19 @@ export const useBrushEngine = () => {
     accumulatedDistance: 0,
     lastStrokePosition: { x: 0, y: 0 },
     // Dashed brush state
-    dashStampCounter: 0
+    dashStampCounter: 0,
+    // Grid position tracking to prevent multiple stamps per grid cell
+    stampedGridPositions: new Set<string>()
   });
 
   // Direction smoothing for rotation
   const directionHistoryRef = useRef<number[]>([]);
   const lastDirectionRef = useRef<number>(0);
+
+  // Quantize brush size to prevent micro-variations when using grid snap + pressure
+  const quantizeBrushSize = useCallback((size: number, stepSize: number = 0.5): number => {
+    return Math.round(size / stepSize) * stepSize;
+  }, []);
 
   // Calculate and smooth direction from movement vector
   const calculateSmoothDirection = useCallback((from: { x: number; y: number }, to: { x: number; y: number }): number => {
@@ -517,7 +525,9 @@ export const useBrushEngine = () => {
       accumulatedDistance: 0,
       lastStrokePosition: { x: 0, y: 0 },
       // Reset dashed brush state
-      dashStampCounter: 0
+      dashStampCounter: 0,
+      // Clear grid position tracking
+      stampedGridPositions: new Set<string>()
     };
     // Reset direction history for rotation
     directionHistoryRef.current = [];
@@ -525,7 +535,7 @@ export const useBrushEngine = () => {
   }, []);
 
   // Helper function to determine if we should draw the current stamp (cursor-speed independent)
-  const shouldDrawStamp = useCallback((brushSettings: any, queue: any, actualSize?: number): boolean => {
+  const shouldDrawStamp = useCallback((brushSettings: any, queue: any, actualSize?: number, isGridSnapping: boolean = false): boolean => {
     // Defensive checks for brush settings
     if (!brushSettings || typeof brushSettings !== 'object') {
       return true;
@@ -534,6 +544,12 @@ export const useBrushEngine = () => {
     const dashedEnabled = brushSettings.dashedEnabled;
     const dashLength = brushSettings.dashLength;
     const dashGap = brushSettings.dashGap;
+    
+    // When grid snapping is enabled, prioritize grid positioning over dash patterns
+    if (isGridSnapping) {
+      // For grid snapping, we always draw (grid position tracking handles duplicates)
+      return true;
+    }
     
     if (!dashedEnabled) {
       return true; // Always draw when dashing is disabled
@@ -681,7 +697,7 @@ export const useBrushEngine = () => {
       queue.accumulatedDistance = 0;
       
       // Draw the first shape (check dash state)
-      if (shouldDrawStamp(tools.brushSettings, queue, settings.size)) {
+      if (shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
         drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
       }
       return;
@@ -699,7 +715,7 @@ export const useBrushEngine = () => {
       // Draw the waiting shape only if accumulated distance exceeds spacing
       if (queue.accumulatedDistance >= settings.spacing) {
         // Check if we should draw this stamp (cursor-speed independent)
-        if (shouldDrawStamp(tools.brushSettings, queue, settings.size)) {
+        if (shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
           drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
         }
         queue.accumulatedDistance -= settings.spacing;
@@ -791,40 +807,29 @@ export const useBrushEngine = () => {
     // Get actual pressure from cursor state in the store
     const cursorPressure = useAppStore.getState().canvas.cursor.pressure ?? 1.0;
     
-    // Calculate smooth direction for rotation
-    const direction = calculateSmoothDirection(from, to);
+    // Calculate actual brush size first (matching the brush engine logic)
+    let actualBrushSize = tools.brushSettings.size;
     
-    const input: StrokeInput = {
-      position: to,
-      pressure: cursorPressure,
-      velocity: Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2)),
-      timestamp: Date.now(),
-      direction
-    };
-    
-    const settings = executeComponents(components, input);
-    
-    ctx.save();
-    
-    // Initialize distance tracking state if needed
-    const queue = pixelQueueRef.current;
-    if (!queue.initialized) {
-      queue.lastStrokePosition = { x: from.x, y: from.y };
-      queue.accumulatedDistance = 0;
-      queue.initialized = true;
+    // Handle custom brushes differently (they use percentage scaling)
+    const isCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM;
+    if (isCustomBrush && tools.brushSettings.selectedCustomBrush) {
+      // For custom brushes, size is percentage - assume 32px base size
+      actualBrushSize = (tools.brushSettings.size / 100) * 32;
     }
     
-    // Apply rendering settings
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = settings.opacity;
-    ctx.lineWidth = settings.size;
-    ctx.lineCap = settings.pixelAlignment ? 'butt' : 'round';
-    ctx.lineJoin = settings.pixelAlignment ? 'miter' : 'round';
+    // Apply pressure if enabled
+    if (tools.brushSettings.pressureEnabled) {
+      const minSizePx = 1;
+      const maxSizePx = tools.brushSettings.maxPressure || actualBrushSize;
+      actualBrushSize = minSizePx + (cursorPressure * (maxSizePx - minSizePx));
+      
+      // Quantize brush size when using grid snap + pressure to prevent multiple stamps per grid cell
+      if (shouldApplyGridSnap(tools.brushSettings)) {
+        actualBrushSize = quantizeBrushSize(actualBrushSize, 0.5);
+      }
+    }
     
-    // Check for custom brush before regular tool handling
-    const isCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM;
-    
-    // Look for custom brush in project's custom brushes first
+    // Look for custom brush first before grid calculations
     let customBrush = isCustomBrush && tools.brushSettings.selectedCustomBrush && project
       ? project.customBrushes.find(b => b.id === tools.brushSettings.selectedCustomBrush)
       : null;
@@ -848,6 +853,56 @@ export const useBrushEngine = () => {
       }
     }
     
+    // Apply grid snapping if enabled using the actual brush size
+    let snappedTo = { x: to.x, y: to.y };
+    let snappedFrom = { x: from.x, y: from.y };
+    let isGridSnapping = false;
+    let gridSize = 0;
+    
+    if (shouldApplyGridSnap(tools.brushSettings)) {
+      isGridSnapping = true;
+      // Grid size should be based on base brush size, not pressure-modified size
+      // This ensures one stamp per grid block regardless of pressure
+      gridSize = calculateGridSize(tools.brushSettings, customBrush || undefined);
+      
+      const snappedToPos = snapToGrid(to.x, to.y, gridSize);
+      const snappedFromPos = snapToGrid(from.x, from.y, gridSize);
+      snappedTo = { x: snappedToPos.x, y: snappedToPos.y };
+      snappedFrom = { x: snappedFromPos.x, y: snappedFromPos.y };
+    }
+    
+    // Calculate smooth direction for rotation using snapped positions
+    const direction = calculateSmoothDirection(snappedFrom, snappedTo);
+    
+    const input: StrokeInput = {
+      position: snappedTo,
+      pressure: cursorPressure,
+      velocity: Math.sqrt(Math.pow(snappedTo.x - snappedFrom.x, 2) + Math.pow(snappedTo.y - snappedFrom.y, 2)),
+      timestamp: Date.now(),
+      direction
+    };
+    
+    const settings = executeComponents(components, input);
+    
+    ctx.save();
+    
+    // Initialize distance tracking state if needed
+    const queue = pixelQueueRef.current;
+    if (!queue.initialized) {
+      queue.lastStrokePosition = { x: snappedFrom.x, y: snappedFrom.y };
+      queue.accumulatedDistance = 0;
+      queue.initialized = true;
+    }
+    
+    // Apply rendering settings
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = settings.opacity;
+    ctx.lineWidth = settings.size;
+    ctx.lineCap = settings.pixelAlignment ? 'butt' : 'round';
+    ctx.lineJoin = settings.pixelAlignment ? 'miter' : 'round';
+    
+    // Custom brush is already found above
+    
     
     // Handle custom brush rendering with spacing support
     if (isCustomBrush && customBrush) {
@@ -855,28 +910,51 @@ export const useBrushEngine = () => {
       // Size 100 = 100% (original size), Size 50 = 50%, Size 200 = 200%
       const scaleFactor = settings.size / 100;
       
-      // Apply spacing system to custom brushes
-      const distance = Math.sqrt(Math.pow(to.x - queue.lastStrokePosition.x, 2) + Math.pow(to.y - queue.lastStrokePosition.y, 2));
-      queue.accumulatedDistance += distance;
-      
-      // Draw custom brush stamps along the path only when accumulated distance exceeds spacing
-      while (queue.accumulatedDistance >= settings.spacing) {
-        // Check if we should draw this stamp (cursor-speed independent)
-        if (shouldDrawStamp(tools.brushSettings, queue, settings.size)) {
-          // Calculate the position where we should place the next stamp
-          const remaining = queue.accumulatedDistance - settings.spacing;
-          const progress = (distance - remaining) / distance;
-          const x = queue.lastStrokePosition.x + (to.x - queue.lastStrokePosition.x) * progress;
-          const y = queue.lastStrokePosition.y + (to.y - queue.lastStrokePosition.y) * progress;
-          
-          drawCustomBrushStamp(ctx, x, y, customBrush, scaleFactor, settings.rotation);
-        }
+      if (isGridSnapping) {
+        // Grid snapping mode: draw at all grid positions between last and current position
+        // Use unified grid size calculation
         
-        queue.accumulatedDistance -= settings.spacing;
+        // Fill in grid positions between last and current position for fast movement
+        const gridPositions = getGridPositionsBetween(
+          queue.lastStrokePosition.x || snappedFrom.x, 
+          queue.lastStrokePosition.y || snappedFrom.y, 
+          snappedTo.x, 
+          snappedTo.y, 
+          gridSize
+        );
+        
+        // Draw at each grid position that hasn't been stamped
+        for (const pos of gridPositions) {
+          const posKey = `${pos.x},${pos.y}`;
+          if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
+            drawCustomBrushStamp(ctx, pos.x, pos.y, customBrush, scaleFactor, settings.rotation);
+            queue.stampedGridPositions.add(posKey);
+          }
+        }
+      } else {
+        // Normal mode: Apply spacing system to custom brushes using snapped positions
+        const distance = Math.sqrt(Math.pow(snappedTo.x - queue.lastStrokePosition.x, 2) + Math.pow(snappedTo.y - queue.lastStrokePosition.y, 2));
+        queue.accumulatedDistance += distance;
+        
+        // Draw custom brush stamps along the path only when accumulated distance exceeds spacing
+        while (queue.accumulatedDistance >= settings.spacing) {
+          // Check if we should draw this stamp (cursor-speed independent)
+          if (shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
+            // Calculate the position where we should place the next stamp
+            const remaining = queue.accumulatedDistance - settings.spacing;
+            const progress = (distance - remaining) / distance;
+            const x = queue.lastStrokePosition.x + (snappedTo.x - queue.lastStrokePosition.x) * progress;
+            const y = queue.lastStrokePosition.y + (snappedTo.y - queue.lastStrokePosition.y) * progress;
+            
+            drawCustomBrushStamp(ctx, x, y, customBrush, scaleFactor, settings.rotation);
+          }
+          
+          queue.accumulatedDistance -= settings.spacing;
+        }
       }
       
       // Update last stroke position for next call
-      queue.lastStrokePosition = { x: to.x, y: to.y };
+      queue.lastStrokePosition = { x: snappedTo.x, y: snappedTo.y };
       
       ctx.restore();
       return; // Exit early for custom brushes
@@ -898,45 +976,93 @@ export const useBrushEngine = () => {
         console.log('PIXEL BRUSH PATH: dashedEnabled =', tools.brushSettings.dashedEnabled);
       }
       
-      // Follow Tom Cantwell's exact algorithm
-      const roundedFromX = Math.round(from.x);
-      const roundedFromY = Math.round(from.y);
-      const roundedToX = Math.round(to.x);
-      const roundedToY = Math.round(to.y);
-      
-      // If movement is > 1 pixel, use line drawing
-      if (Math.abs(roundedToX - roundedFromX) > 1 || Math.abs(roundedToY - roundedFromY) > 1) {
-        // Fast movement - draw pixel-perfect line using shapes
-        drawPixelPerfectLine(ctx, roundedFromX, roundedFromY, roundedToX, roundedToY, settings);
+      if (isGridSnapping) {
+        // Grid snapping mode: draw at all grid positions between last and current position
+        // Use unified grid size calculation
+        
+        // Fill in grid positions between last and current position for fast movement
+        const gridPositions = getGridPositionsBetween(
+          queue.lastStrokePosition.x || snappedFrom.x, 
+          queue.lastStrokePosition.y || snappedFrom.y, 
+          snappedTo.x, 
+          snappedTo.y, 
+          gridSize
+        );
+        
+        // Draw at each grid position that hasn't been stamped
+        for (const pos of gridPositions) {
+          const posKey = `${pos.x},${pos.y}`;
+          if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
+            ctx.fillStyle = settings.color;
+            drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
+            queue.stampedGridPositions.add(posKey);
+          }
+        }
       } else {
-        // Slow movement - use perfect pixel queue algorithm
-        perfectPixels(ctx, to.x, to.y, settings);
+        // Normal mode: Follow Tom Cantwell's exact algorithm using snapped positions
+        const roundedFromX = Math.round(snappedFrom.x);
+        const roundedFromY = Math.round(snappedFrom.y);
+        const roundedToX = Math.round(snappedTo.x);
+        const roundedToY = Math.round(snappedTo.y);
+        
+        // If movement is > 1 pixel, use line drawing
+        if (Math.abs(roundedToX - roundedFromX) > 1 || Math.abs(roundedToY - roundedFromY) > 1) {
+          // Fast movement - draw pixel-perfect line using shapes
+          drawPixelPerfectLine(ctx, roundedFromX, roundedFromY, roundedToX, roundedToY, settings);
+        } else {
+          // Slow movement - use perfect pixel queue algorithm
+          perfectPixels(ctx, snappedTo.x, snappedTo.y, settings);
+        }
       }
     } else {
-      // For antialiased drawing, use distance-based spacing with accumulated distance
-      const distance = Math.sqrt(Math.pow(to.x - queue.lastStrokePosition.x, 2) + Math.pow(to.y - queue.lastStrokePosition.y, 2));
-      queue.accumulatedDistance += distance;
-      
-      // Draw shapes along the path only when accumulated distance exceeds spacing
-      while (queue.accumulatedDistance >= settings.spacing) {
-        // Check if we should draw this stamp (cursor-speed independent)
-        if (shouldDrawStamp(tools.brushSettings, queue, settings.size)) {
-          // Calculate the position where we should place the next shape
-          const remaining = queue.accumulatedDistance - settings.spacing;
-          const progress = (distance - remaining) / distance;
-          const x = queue.lastStrokePosition.x + (to.x - queue.lastStrokePosition.x) * progress;
-          const y = queue.lastStrokePosition.y + (to.y - queue.lastStrokePosition.y) * progress;
-          
-          ctx.fillStyle = settings.color;
-          drawShape(ctx, x, y, settings.size, settings.shape, true, settings.rotation, settings.pattern, settings.centerAlignment);
-        }
+      if (isGridSnapping) {
+        // Grid snapping mode: draw at all grid positions between last and current position
+        // Use unified grid size calculation
         
-        queue.accumulatedDistance -= settings.spacing;
+        // Fill in grid positions between last and current position for fast movement
+        const gridPositions = getGridPositionsBetween(
+          queue.lastStrokePosition.x || snappedFrom.x, 
+          queue.lastStrokePosition.y || snappedFrom.y, 
+          snappedTo.x, 
+          snappedTo.y, 
+          gridSize
+        );
+        
+        // Draw at each grid position that hasn't been stamped
+        for (const pos of gridPositions) {
+          const posKey = `${pos.x},${pos.y}`;
+          if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
+            ctx.fillStyle = settings.color;
+            drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, true, settings.rotation, settings.pattern, settings.centerAlignment);
+            queue.stampedGridPositions.add(posKey);
+          }
+        }
+      } else {
+        // Normal mode: For antialiased drawing, use distance-based spacing with accumulated distance using snapped positions
+        const distance = Math.sqrt(Math.pow(snappedTo.x - queue.lastStrokePosition.x, 2) + Math.pow(snappedTo.y - queue.lastStrokePosition.y, 2));
+        queue.accumulatedDistance += distance;
+        
+        // Draw shapes along the path only when accumulated distance exceeds spacing
+        while (queue.accumulatedDistance >= settings.spacing) {
+          // Check if we should draw this stamp (cursor-speed independent)
+          if (shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
+            // Calculate the position where we should place the next shape
+            const remaining = queue.accumulatedDistance - settings.spacing;
+            const progress = (distance - remaining) / distance;
+            const x = queue.lastStrokePosition.x + (snappedTo.x - queue.lastStrokePosition.x) * progress;
+            const y = queue.lastStrokePosition.y + (snappedTo.y - queue.lastStrokePosition.y) * progress;
+            
+            ctx.fillStyle = settings.color;
+            drawShape(ctx, x, y, settings.size, settings.shape, true, settings.rotation, settings.pattern, settings.centerAlignment);
+          }
+          
+          queue.accumulatedDistance -= settings.spacing;
+        }
       }
     }
     
     // Update last stroke position for next call
-    queue.lastStrokePosition = { x: to.x, y: to.y };
+    queue.lastStrokePosition = { x: snappedTo.x, y: snappedTo.y };
     
     ctx.restore();
   }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp]);

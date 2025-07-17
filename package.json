@@ -16,6 +16,7 @@
     "prebuild": "npm run cache:clear"
   },
   "dependencies": {
+    "@radix-ui/react-slider": "^1.3.5",
     "@tailwindcss/postcss": "^4.1.11",
     "next": "15.3.4",
     "react": "^19.0.0",
