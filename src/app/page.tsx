@@ -45,6 +45,13 @@ export default function Home() {
             store.toggleRulers();
           }
         }
+        
+        // Load history settings
+        if (settings.history) {
+          if (settings.history.maxHistorySize) {
+            store.setHistorySize(settings.history.maxHistorySize);
+          }
+        }
       } catch (error) {
         console.warn('Failed to load settings from localStorage:', error);
       }
