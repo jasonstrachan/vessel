@@ -13,8 +13,8 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
   
   const [resizeWidth, setResizeWidth] = useState<number | string>(project?.width || 800);
   const [resizeHeight, setResizeHeight] = useState<number | string>(project?.height || 600);
-  const [newWidth, setNewWidth] = useState(800);
-  const [newHeight, setNewHeight] = useState(600);
+  const [newWidth, setNewWidth] = useState(project?.width || 800);
+  const [newHeight, setNewHeight] = useState(project?.height || 600);
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
 
