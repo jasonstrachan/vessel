@@ -9,22 +9,26 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const { canvas, autosave, setDisplayMode, setAutosaveEnabled, setAutosaveInterval } = useAppStore();
+  const { canvas, autosave, history, setDisplayMode, setAutosaveEnabled, setAutosaveInterval, setHistorySize } = useAppStore();
   
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
 
   const saveSettings = () => {
-    // Save settings to localStorage
+    // Get fresh state from store to ensure we have the latest values
+    const currentState = useAppStore.getState();
     const settings = {
       autosave: {
-        isEnabled: autosave.isEnabled,
-        interval: autosave.interval,
+        isEnabled: currentState.autosave.isEnabled,
+        interval: currentState.autosave.interval,
       },
       canvas: {
-        displayMode: canvas.displayMode,
-        showGrid: canvas.showGrid,
-        showRulers: canvas.showRulers,
+        displayMode: currentState.canvas.displayMode,
+        showGrid: currentState.canvas.showGrid,
+        showRulers: currentState.canvas.showRulers,
+      },
+      history: {
+        maxHistorySize: currentState.history.maxHistorySize,
       },
     };
     localStorage.setItem('tinybrush-settings', JSON.stringify(settings));
@@ -41,6 +45,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const handleIntervalChange = (interval: number) => {
     setAutosaveInterval(interval);
+  };
+
+  const handleHistorySizeChange = (size: number) => {
+    setHistorySize(size);
   };
 
   const handleGridToggle = (enabled: boolean) => {
@@ -188,8 +196,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <div className="flex items-center justify-between">
                 <label className="text-base text-[#888]">Undo History Size</label>
                 <select 
+                  value={history.maxHistorySize}
+                  onChange={(e) => handleHistorySizeChange(Number(e.target.value))}
                   className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
-                  defaultValue={50}
                 >
                   <option value={10}>10 actions</option>
                   <option value={25}>25 actions</option>

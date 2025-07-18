@@ -139,6 +139,7 @@ interface AppState {
   clearDirtyState: () => void;
   updateFileBackupTime: () => void;
   setAutosaveInterval: (interval: number) => void;
+  setHistorySize: (size: number) => void;
 }
 
 // Default states - use default brush settings
@@ -1150,6 +1151,9 @@ export const useAppStore = create<AppState>()(
       })),
       setAutosaveInterval: (interval) => set((state) => ({
         autosave: { ...state.autosave, interval }
+      })),
+      setHistorySize: (size) => set((state) => ({
+        history: { ...state.history, maxHistorySize: size }
       }))
     }),
     { name: 'tinybrush-store' }
