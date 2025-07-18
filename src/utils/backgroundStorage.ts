@@ -69,10 +69,19 @@ class BackgroundStorageService {
       }
     }
 
+    // Create serializable layers by excluding OffscreenCanvas framebuffer
+    const serializableLayers = layers.map(layer => {
+      const { framebuffer: _, ...serializableLayer } = layer;
+      return serializableLayer;
+    });
+
+    // Create serializable project data by excluding layers (they're stored separately)
+    const { layers: _layers, ...serializableProject } = project;
+
     const autosaveRecord: AutosaveRecord = {
       projectId: project.id,
-      projectData: { ...project },
-      layerData: [...layers],
+      projectData: serializableProject,
+      layerData: serializableLayers,
       timestamp: Date.now(),
       isDirty: project.isDirty || false
     };

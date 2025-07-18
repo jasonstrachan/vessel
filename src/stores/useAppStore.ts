@@ -18,6 +18,7 @@ import type {
   CanvasState,
   ToolState,
   UIState,
+  AutosaveState,
   Tool,
   BrushSettings,
   BrushPreset,
@@ -127,6 +128,17 @@ interface AppState {
   newProject: (width: number, height: number, name?: string) => void;
   compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => void;
   captureCanvasToActiveLayer: (sourceCanvas?: HTMLCanvasElement) => Promise<void>;
+  
+  // Autosave State
+  autosave: AutosaveState;
+  setAutosaveEnabled: (enabled: boolean) => void;
+  setFileBackupEnabled: (enabled: boolean) => void;
+  setFileBackupMode: (mode: 'single-file' | 'timestamped-files') => void;
+  setFileBackupFile: (handle: FileSystemFileHandle | null, path?: string) => void;
+  setFileBackupDirectory: (handle: FileSystemDirectoryHandle | null, path?: string) => void;
+  clearDirtyState: () => void;
+  updateFileBackupTime: () => void;
+  setAutosaveInterval: (interval: number) => void;
 }
 
 // Default states - use default brush settings
@@ -436,6 +448,24 @@ export const useAppStore = create<AppState>()(
       
       // UI State
       ui: defaultUIState,
+      
+      // Autosave State
+      autosave: {
+        isEnabled: false,
+        isRunning: false,
+        hasUnsavedChanges: false,
+        lastSaveTime: null,
+        interval: 2, // default 2 minutes
+        fileBackup: {
+          enabled: false,
+          mode: 'single-file',
+          fileHandle: null,
+          directoryHandle: null,
+          backupPath: null,
+          lastBackupTime: null,
+        },
+      },
+      
       togglePanel: (panel) => set((state) => ({
         ui: {
           ...state.ui,
@@ -557,7 +587,7 @@ export const useAppStore = create<AppState>()(
       })),
       saveCustomBrushAsPreset: (customBrushId) => set((state) => {
         // Check temporary custom brush first
-        let customBrush = state.temporaryCustomBrush && state.temporaryCustomBrush.id === customBrushId
+        const customBrush = state.temporaryCustomBrush && state.temporaryCustomBrush.id === customBrushId
           ? state.temporaryCustomBrush
           : state.project?.customBrushes.find(b => b.id === customBrushId);
         
@@ -704,6 +734,11 @@ export const useAppStore = create<AppState>()(
               ...state.history,
               undoStack: newUndoStack,
               redoStack: []
+            },
+            autosave: {
+              ...state.autosave,
+              hasUnsavedChanges: true,
+              lastSaveTime: new Date()
             }
           });
         };
@@ -1089,7 +1124,33 @@ export const useAppStore = create<AppState>()(
           }
         } catch (error) {
         }
-      }
+      },
+      
+      // Autosave Methods
+      setAutosaveEnabled: (enabled) => set((state) => ({
+        autosave: { ...state.autosave, isEnabled: enabled }
+      })),
+      setFileBackupEnabled: (enabled) => set((state) => ({
+        autosave: { ...state.autosave, fileBackup: { ...state.autosave.fileBackup, enabled } }
+      })),
+      setFileBackupMode: (mode) => set((state) => ({
+        autosave: { ...state.autosave, fileBackup: { ...state.autosave.fileBackup, mode } }
+      })),
+      setFileBackupFile: (handle, path) => set((state) => ({
+        autosave: { ...state.autosave, fileBackup: { ...state.autosave.fileBackup, fileHandle: handle, backupPath: path || null } }
+      })),
+      setFileBackupDirectory: (handle, path) => set((state) => ({
+        autosave: { ...state.autosave, fileBackup: { ...state.autosave.fileBackup, directoryHandle: handle, backupPath: path || null } }
+      })),
+      clearDirtyState: () => set((state) => ({
+        autosave: { ...state.autosave, hasUnsavedChanges: false }
+      })),
+      updateFileBackupTime: () => set((state) => ({
+        autosave: { ...state.autosave, fileBackup: { ...state.autosave.fileBackup, lastBackupTime: new Date() } }
+      })),
+      setAutosaveInterval: (interval) => set((state) => ({
+        autosave: { ...state.autosave, interval }
+      }))
     }),
     { name: 'tinybrush-store' }
   )

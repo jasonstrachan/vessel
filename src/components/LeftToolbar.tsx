@@ -19,6 +19,7 @@ const LeftToolbar = () => {
     { id: 'save' as Tool, icon: null, label: 'Save File' },
     { id: 'load' as Tool, icon: null, label: 'Load File' },
     { id: 'export-png' as Tool, icon: null, label: 'Export PNG' },
+    { id: 'options' as Tool, icon: null, label: 'Options' },
   ];
 
   const handleToolClick = async (toolId: Tool) => {
@@ -52,6 +53,8 @@ const LeftToolbar = () => {
       } catch (error) {
         alert(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
+    } else if (toolId === 'options') {
+      toggleModal('settings');
     } else {
       setCurrentTool(toolId);
     }
@@ -65,7 +68,7 @@ const LeftToolbar = () => {
           onClick={() => handleToolClick(tool.id)}
           title={tool.label}
           className={`w-[48px] h-12 min-h-[40px] mx-auto flex items-center justify-center bg-transparent border-0 appearance-none outline-none ${
-            (tool.id === 'save' || tool.id === 'load' || tool.id === 'export-png') ? 'mb-0' : 'mb-1'
+            (tool.id === 'save' || tool.id === 'load' || tool.id === 'export-png' || tool.id === 'options') ? 'mb-0' : 'mb-1'
           }`}
           style={{ 
             color: toolState.currentTool === tool.id ? '#FFFFFF' : '#5A5A61', 
@@ -133,6 +136,11 @@ const LeftToolbar = () => {
               <rect x="14.6525" y="0.575439" width="3.8025" height="3.23298" transform="rotate(45 14.6525 0.575439)" fill="currentColor" fillOpacity="0.8"/>
               <rect x="10.7193" y="2.28223" width="6.95118" height="3.42348" transform="rotate(45 10.7193 2.28223)" fill="currentColor" fillOpacity="0.8"/>
               <rect x="0.433517" y="14.1926" width="3.48284" height="3.48284" fill="currentColor" fillOpacity="0.8"/>
+            </svg>
+          ) : tool.id === 'options' ? (
+            <svg width="24" height="24" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M9 0.5L11.225 2.725L14.125 2.375L14.5 5.275L17.125 6.775L16.275 9.675L17.125 12.575L14.5 14.075L14.125 16.975L11.225 16.625L9 18.85L6.775 16.625L3.875 16.975L3.5 14.075L0.875 12.575L1.725 9.675L0.875 6.775L3.5 5.275L3.875 2.375L6.775 2.725L9 0.5Z" fill="currentColor" fillOpacity="0.8"/>
+              <circle cx="9" cy="9.675" r="3.5" fill="#31313A"/>
             </svg>
           ) : (
             tool.icon
