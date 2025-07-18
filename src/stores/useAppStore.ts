@@ -601,7 +601,7 @@ export const useAppStore = create<AppState>()(
         // Create a brush preset from the custom brush
         const newPreset: BrushPreset = {
           id: `preset_${customBrush.id}`,
-          name: `${customBrush.name} (Saved)`,
+          name: customBrush.name,
           category: 'Custom',
           components: [], // Custom brushes don't use components
           thumbnail: thumbnail || '',
@@ -617,24 +617,16 @@ export const useAppStore = create<AppState>()(
           }
         };
         
-        // If this was a temporary brush, add it to project customBrushes and clear temporary
-        let updatedProject = state.project;
+        // If this was a temporary brush, just clear it (don't add to project)
         let clearedTemporaryBrush = state.temporaryCustomBrush;
         
         if (state.temporaryCustomBrush && state.temporaryCustomBrush.id === customBrushId) {
-          // Add temporary brush to project
-          updatedProject = state.project ? {
-            ...state.project,
-            customBrushes: [...state.project.customBrushes, state.temporaryCustomBrush]
-          } : null;
-          
           // Clear temporary brush
           clearedTemporaryBrush = null;
         }
 
         return {
           brushPresets: [...state.brushPresets, newPreset],
-          project: updatedProject,
           temporaryCustomBrush: clearedTemporaryBrush
         };
       }),
