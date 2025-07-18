@@ -34,7 +34,6 @@ export const useBrushEngine = () => {
   if (typeof window !== 'undefined') {
     (window as any).enableTinybrushDebug = () => {
       (window as any).tinybrushDebug = true;
-      console.log('🎨 TinyBrush debug enabled! Draw with dashed brushes to see debug output.');
     };
   }
   
@@ -266,7 +265,6 @@ export const useBrushEngine = () => {
           // Draw the pattern at original size
           ctx.drawImage(tempCanvas, drawX, drawY);
         } catch (error) {
-          console.error('Pattern rendering failed:', error);
         }
       }
     } else {
@@ -487,7 +485,6 @@ export const useBrushEngine = () => {
         const originalSize = finalSize;
         finalSize = quantizeBrushSize(finalSize, 0.5);
         if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
-          console.log('Grid snap quantization:', { originalSize, quantizedSize: finalSize, pressure: input.pressure });
         }
       }
     }
@@ -512,14 +509,9 @@ export const useBrushEngine = () => {
     // Execute each component in order
     for (const component of sortedComponents) {
       if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
-        console.log('Executing component:', component.type, component.parameters);
       }
       const newSettings = executeComponent(component, input, settings);
       if (typeof window !== 'undefined' && (window as any).tinybrushDebug && component.type === ComponentType.ANTI_ALIASING) {
-        console.log('ANTI_ALIASING component result:', { 
-          antiAliasing: newSettings.antiAliasing, 
-          pixelAlignment: newSettings.pixelAlignment 
-        });
       }
       settings = newSettings;
     }
@@ -605,23 +597,8 @@ export const useBrushEngine = () => {
     // Determine if we're in dash or gap segment
     const isInDashSegment = cyclePosition < dashLen;
     
-    // Comprehensive debug logging
+    // Debug logging (disabled)
     if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
-      console.log('shouldDrawStamp DEBUG:', { 
-        dashedEnabled, 
-        brushSize, 
-        rawDashLength: dashLength,  // Show raw values from settings
-        rawDashGap: dashGap,        // Show raw values from settings
-        baseDashLength: baseDashLen, 
-        baseDashGap: baseDashGapLen, 
-        scaledDashLen: dashLen, 
-        scaledDashGap: dashGapLen,
-        totalCycleLength,
-        counterBefore: queue.dashStampCounter,
-        cyclePosition,
-        isInDashSegment,
-        willDraw: isInDashSegment
-      });
     }
     
     // Advance counter for next stamp (happens regardless of whether we draw)
@@ -1007,7 +984,6 @@ export const useBrushEngine = () => {
       ctx.imageSmoothingEnabled = false;
       
       if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
-        console.log('PIXEL BRUSH PATH: dashedEnabled =', tools.brushSettings.dashedEnabled);
       }
       
       if (isGridSnapping) {

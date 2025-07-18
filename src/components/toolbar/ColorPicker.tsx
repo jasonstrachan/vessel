@@ -614,7 +614,7 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
                     setLocalColor(e.target.value);
                     setTimeout(() => onChange(e.target.value), 0); // Break update loop
                   }}
-                  className="flex-1"
+                  className="w-16"
                   placeholder="#000000"
                 />
               </div>

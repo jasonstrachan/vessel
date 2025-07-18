@@ -8,6 +8,7 @@ const BrushLibrary = () => {
   const setBrushPreset = useAppStore((state) => state.setBrushPreset);
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);
   const saveCustomBrushAsPreset = useAppStore((state) => state.saveCustomBrushAsPreset);
+  const removeBrushPreset = useAppStore((state) => state.removeBrushPreset);
   const tools = useAppStore((state) => state.tools);
   const project = useAppStore((state) => state.project);
   
@@ -22,6 +23,12 @@ const BrushLibrary = () => {
     if (!activeCustomBrush) return;
     
     saveCustomBrushAsPreset(activeCustomBrush.id);
+  };
+
+  const handleDeletePreset = (presetId: string, presetName: string) => {
+    if (confirm(`Delete brush preset "${presetName}"?`)) {
+      removeBrushPreset(presetId);
+    }
   };
   
   const handlePresetClick = (preset: BrushPreset) => {
@@ -92,6 +99,18 @@ const BrushLibrary = () => {
               <span className="text-base text-[#D9D9D9]">
                 {preset.isCustomBrush ? '◆' : preset.isDefault ? '★' : '☆'}
               </span>
+              {!preset.isDefault && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeletePreset(preset.id, preset.name);
+                  }}
+                  className="w-4 h-4 text-[#D9D9D9] hover:text-red-400 transition-colors opacity-60 hover:opacity-100"
+                  title={`Delete ${preset.name}`}
+                >
+                  ×
+                </button>
+              )}
             </div>
           </div>
         ))}
