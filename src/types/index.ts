@@ -141,6 +141,22 @@ export interface UIState {
   notifications: Notification[];
 }
 
+export interface AutosaveState {
+  isEnabled: boolean;
+  isRunning: boolean;
+  hasUnsavedChanges: boolean;
+  lastSaveTime: Date | null;
+  interval: number; // in minutes
+  fileBackup: {
+    enabled: boolean;
+    mode: 'single-file' | 'timestamped-files';
+    fileHandle: FileSystemFileHandle | null;
+    directoryHandle: FileSystemDirectoryHandle | null;
+    backupPath: string | null;
+    lastBackupTime: Date | null;
+  };
+}
+
 export interface DerivedState {
   canvasToScreenRatio: number;
   visibleCanvasBounds: Rectangle;
@@ -221,7 +237,7 @@ export interface HistoryState {
   isCapturing: boolean;
 }
 
-export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'pan' | 'new-document' | 'save' | 'load' | 'export-png' | 'custom';
+export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'pan' | 'new-document' | 'save' | 'load' | 'export-png' | 'custom' | 'options';
 
 export type BlendMode = GlobalCompositeOperation;
 

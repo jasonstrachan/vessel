@@ -6,7 +6,9 @@ import BrushLibrary from '../components/BrushLibrary';
 import ControlsPanel from '../components/ControlsPanel';
 import DrawingCanvas from '../components/canvas/DrawingCanvas';
 import { DocumentModal } from '../components/modals/DocumentModal';
+import { SettingsModal } from '../components/modals/SettingsModal';
 import { useAppStore } from '../stores/useAppStore';
+import { autosaveService } from '../utils/autosave';
 
 // Import debug utilities in development
 if (process.env.NODE_ENV === 'development') {
@@ -15,7 +17,57 @@ if (process.env.NODE_ENV === 'development') {
 
 export default function Home() {
   // Global mouse tracking removed - now handled directly in canvas
-  const { saveProject, loadProject, ui, toggleModal } = useAppStore();
+  const { saveProject, loadProject, ui, toggleModal, autosave } = useAppStore();
+
+  // Load settings from localStorage on initial mount only
+  useEffect(() => {
+    const savedSettings = localStorage.getItem('tinybrush-settings');
+    if (savedSettings) {
+      try {
+        const settings = JSON.parse(savedSettings);
+        const store = useAppStore.getState();
+        
+        // Load autosave settings
+        if (settings.autosave) {
+          store.setAutosaveEnabled(settings.autosave.isEnabled);
+          store.setAutosaveInterval(settings.autosave.interval);
+        }
+        
+        // Load canvas settings
+        if (settings.canvas) {
+          if (settings.canvas.displayMode) {
+            store.setDisplayMode(settings.canvas.displayMode);
+          }
+          if (typeof settings.canvas.showGrid === 'boolean' && settings.canvas.showGrid !== store.canvas.showGrid) {
+            store.toggleGrid();
+          }
+          if (typeof settings.canvas.showRulers === 'boolean' && settings.canvas.showRulers !== store.canvas.showRulers) {
+            store.toggleRulers();
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to load settings from localStorage:', error);
+      }
+    }
+  }, []); // Only run once on mount
+
+  // Initialize/manage autosave service
+  useEffect(() => {
+    // Cleanup on unmount
+    return () => {
+      autosaveService.stop();
+    };
+  }, []);
+
+  // Watch for autosave settings changes
+  useEffect(() => {
+    if (autosave.isEnabled) {
+      autosaveService.setInterval(autosave.interval);
+      autosaveService.start();
+    } else {
+      autosaveService.stop();
+    }
+  }, [autosave.isEnabled, autosave.interval]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -70,6 +122,12 @@ export default function Home() {
       <DocumentModal 
         isOpen={ui.modals.document}
         onClose={() => toggleModal('document')}
+      />
+      
+      {/* Settings Modal */}
+      <SettingsModal 
+        isOpen={ui.modals.settings}
+        onClose={() => toggleModal('settings')}
       />
     </main>
   );
