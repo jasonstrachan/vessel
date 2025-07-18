@@ -59,18 +59,7 @@ const BrushLibrary = () => {
     return null;
   }, [tools.brushSettings.selectedCustomBrush, temporaryCustomBrush, project]);
   
-  const canSaveCustomBrush = activeCustomBrush && tools.brushSettings.brushShape === BrushShape.CUSTOM;
-  
-  // Debug logging
-  console.log('BrushLibrary Debug:', {
-    activeCustomBrush: !!activeCustomBrush,
-    activeCustomBrushId: activeCustomBrush?.id,
-    brushShape: tools.brushSettings.brushShape,
-    selectedCustomBrush: tools.brushSettings.selectedCustomBrush,
-    temporaryCustomBrush: !!temporaryCustomBrush,
-    temporaryCustomBrushId: temporaryCustomBrush?.id,
-    canSaveCustomBrush
-  });
+  const canSaveCustomBrush = true; // Always show the + button
   
   const handleSaveCustomBrushAsPreset = () => {
     if (!activeCustomBrush) return;

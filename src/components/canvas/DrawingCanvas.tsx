@@ -591,7 +591,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     // Create custom brush object
     const customBrush = {
       id: `brush_${Date.now()}`,
-      name: `Custom ${(project?.customBrushes?.length || 0) + 1}`,
+      name: `B${(project?.customBrushes?.length || 0) + 1}`,
       imageData,
       thumbnail: thumbnailCanvas.toDataURL(),
       width,
@@ -681,7 +681,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     // Create temporary brush object (not saved to library)
     const tempBrush = {
       id: `temp_brush_${Date.now()}`,
-      name: `Temporary Custom Brush`,
+      name: `Brush ${Date.now().toString().slice(-3)}`,
       imageData,
       width,
       height,
