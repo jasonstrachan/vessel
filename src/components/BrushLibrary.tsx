@@ -9,8 +9,37 @@ const BrushLibrary = () => {
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);
   const saveCustomBrushAsPreset = useAppStore((state) => state.saveCustomBrushAsPreset);
   const removeBrushPreset = useAppStore((state) => state.removeBrushPreset);
+  const removeCustomBrush = useAppStore((state) => state.removeCustomBrush);
   const tools = useAppStore((state) => state.tools);
   const project = useAppStore((state) => state.project);
+  
+  // Create combined list of brushes: regular presets + custom brushes from project
+  const customBrushPresets = React.useMemo(() => {
+    if (!project?.customBrushes) return [];
+    
+    return project.customBrushes.map(customBrush => ({
+      id: `custom_${customBrush.id}`,
+      name: customBrush.name,
+      category: 'Custom',
+      components: [],
+      thumbnail: customBrush.thumbnail,
+      tags: ['custom', 'loaded'],
+      isDefault: false,
+      createdAt: new Date(customBrush.createdAt),
+      modifiedAt: new Date(customBrush.createdAt),
+      isCustomBrush: true,
+      customBrushData: {
+        imageData: customBrush.imageData,
+        width: customBrush.width,
+        height: customBrush.height
+      }
+    } as BrushPreset));
+  }, [project?.customBrushes]);
+
+  // Combine all brushes: regular presets + custom brushes
+  const allBrushes = React.useMemo(() => {
+    return [...brushPresets, ...customBrushPresets];
+  }, [brushPresets, customBrushPresets]);
   
   // Check if there's an active custom brush that can be saved
   const activeCustomBrush = tools.brushSettings.selectedCustomBrush && project
@@ -26,7 +55,13 @@ const BrushLibrary = () => {
   };
 
   const handleDeletePreset = (presetId: string, presetName: string) => {
-    if (confirm(`Delete brush preset "${presetName}"?`)) {
+    // Check if this is a custom brush from save file
+    if (presetId.startsWith('custom_')) {
+      // Extract the original custom brush ID
+      const originalCustomBrushId = presetId.substring(7);
+      removeCustomBrush(originalCustomBrushId);
+    } else {
+      // Regular brush preset
       removeBrushPreset(presetId);
     }
   };
@@ -34,10 +69,11 @@ const BrushLibrary = () => {
   const handlePresetClick = (preset: BrushPreset) => {
     if (preset.isCustomBrush && preset.customBrushData) {
       // For custom brush presets, set the brush settings to use custom brush
-      // Set size to 100% (original size) when switching to custom brush
+      // Extract the original custom brush ID from the preset ID
+      const originalCustomBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
       setBrushSettings({
         brushShape: BrushShape.CUSTOM,
-        selectedCustomBrush: preset.id, // Use the preset ID as the custom brush ID
+        selectedCustomBrush: originalCustomBrushId, // Use the original custom brush ID
         size: 100 // Default to 100% (original size) for custom brushes
       });
     } else {
@@ -53,8 +89,10 @@ const BrushLibrary = () => {
   const isPresetActive = (preset: BrushPreset) => {
     if (preset.isCustomBrush) {
       // Custom brush preset is active if brush shape is custom and selected brush matches
+      // Extract the original custom brush ID from the preset ID
+      const originalCustomBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
       return tools.brushSettings.brushShape === BrushShape.CUSTOM && 
-             tools.brushSettings.selectedCustomBrush === preset.id;
+             tools.brushSettings.selectedCustomBrush === originalCustomBrushId;
     } else {
       // Regular preset is active via normal preset system
       return currentBrushPreset?.id === preset.id;
@@ -79,7 +117,7 @@ const BrushLibrary = () => {
       </div>
       
       <div className="flex-1 px-3 py-2 space-y-0 overflow-y-auto">
-        {brushPresets.map((preset) => (
+        {allBrushes.map((preset) => (
           <div
             key={preset.id}
             onClick={() => handlePresetClick(preset)}

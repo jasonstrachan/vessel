@@ -48,8 +48,8 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
 
   const handleResize = () => {
     if (project) {
-      const width = resizeWidth === '' ? 1 : resizeWidth;
-      const height = resizeHeight === '' ? 1 : resizeHeight;
+      const width = resizeWidth === '' ? 1 : Number(resizeWidth);
+      const height = resizeHeight === '' ? 1 : Number(resizeHeight);
       resizeCanvas(width, height);
     }
     onClose();

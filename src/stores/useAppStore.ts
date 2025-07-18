@@ -609,7 +609,7 @@ export const useAppStore = create<AppState>()(
         }
         
         // For important actions, save immediately
-        const isImportantAction = actionType === 'paste' || actionType === 'fill' || actionType === 'clear';
+        const isImportantAction = actionType === 'paste' || actionType === 'fill';
         
         const performSave = () => {
           const state = get();
