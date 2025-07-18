@@ -619,6 +619,97 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     return customBrush;
   }, [selectionStart, selectionEnd, project, canvas.zoom, canvas.panX, canvas.panY, addCustomBrush, setBrushSettings, setCurrentTool, clearSelection]);
 
+  // Create temporary custom brush for immediate use (without saving to library)
+  const createTemporaryCustomBrush = useCallback(async () => {
+    
+    if (!selectionStart || !selectionEnd || !project) {
+      return null;
+    }
+    
+    // Calculate selection bounds
+    const minX = Math.floor(Math.min(selectionStart.x, selectionEnd.x));
+    const minY = Math.floor(Math.min(selectionStart.y, selectionEnd.y));
+    const maxX = Math.floor(Math.max(selectionStart.x, selectionEnd.x));
+    const maxY = Math.floor(Math.max(selectionStart.y, selectionEnd.y));
+    const width = maxX - minX;
+    const height = maxY - minY;
+    
+    
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
+    
+    // Create canvas to capture the selection
+    const captureCanvas = document.createElement('canvas');
+    captureCanvas.width = width;
+    captureCanvas.height = height;
+    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
+    
+    if (!captureCtx) {
+      return null;
+    }
+    
+    // Get the offscreen canvas (contains actual drawing without overlays)
+    const layerCanvas = offscreenCanvasRef.current;
+    if (!layerCanvas) {
+      return null;
+    }
+    
+    
+    // Capture the selection area from the offscreen canvas (no zoom/pan needed)
+    try {
+      // Offscreen canvas contains raw drawing data without transformations
+      const sourceX = minX;
+      const sourceY = minY;
+      const sourceWidth = width;
+      const sourceHeight = height;
+      
+      
+      captureCtx.drawImage(
+        layerCanvas,
+        sourceX, sourceY, sourceWidth, sourceHeight, // Source rectangle (world space)
+        0, 0, width, height        // Destination rectangle (brush space)
+      );
+    } catch (error) {
+      console.error('Error capturing selection:', error);
+      return null;
+    }
+    
+    // Get image data for the brush
+    const imageData = captureCtx.getImageData(0, 0, width, height);
+    
+    // Create temporary brush object (not saved to library)
+    const tempBrush = {
+      id: `temp_brush_${Date.now()}`,
+      name: `Temporary Custom Brush`,
+      imageData,
+      width,
+      height,
+      createdAt: Date.now()
+    };
+    
+    // Set the temporary brush as active for immediate use
+    setBrushSettings({ 
+      brushShape: BrushShape.CUSTOM,
+      selectedCustomBrush: tempBrush.id,
+      size: 100 // Default to 100% (original size) for custom brushes
+    });
+    
+    // Store the temporary brush in the store
+    const store = useAppStore.getState();
+    store.setTemporaryCustomBrush(tempBrush);
+    
+    // Switch to brush tool for immediate use
+    setCurrentTool('brush');
+    
+    // Clear the selection
+    clearSelection();
+    
+    
+    return tempBrush;
+    
+  }, [selectionStart, selectionEnd, project, setBrushSettings, setCurrentTool, clearSelection]);
+
   // Pointer event handlers (supports pressure from stylus/pen)
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     updateMousePosition(e, true); // Canvas event
@@ -866,9 +957,9 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       // End selection creation
       setIsSelecting(false);
       
-      // If custom tool is active, automatically create a custom brush
+      // If custom tool is active, create a temporary custom brush for immediate use
       if (tools.currentTool === 'custom' && selectionStart && selectionEnd && project) {
-        await createCustomBrushFromSelection();
+        await createTemporaryCustomBrush();
       }
       
       return;
@@ -1071,15 +1162,18 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       e.preventDefault();
       e.stopPropagation();
       
+      // Get fresh store state instead of stale ref
+      const store = useAppStore.getState();
+      
       if (e.shiftKey) {
         // Redo (Ctrl+Shift+Z)
-        if (state.canRedo()) {
+        if (store.canRedo()) {
           console.log('[UNDO] Keyboard: Starting redo operation');
-          const snapshot = state.redo();
+          const snapshot = store.redo();
           if (snapshot && offscreenCanvasRef.current) {
             console.log('[UNDO] Keyboard: Restoring redo snapshot:', snapshot.id, snapshot.description);
             restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
-            state.renderView();
+            renderView();
             console.log('[UNDO] Keyboard: Redo completed');
           } else {
             console.log('[UNDO] Keyboard: Redo failed - no snapshot or canvas');
@@ -1089,34 +1183,19 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         }
       } else {
         // Undo (Ctrl+Z)
-        if (state.canUndo()) {
+        if (store.canUndo()) {
           console.log('[UNDO] Keyboard: Starting undo operation');
-          const snapshot = state.undo();
+          const snapshot = store.undo();
           if (snapshot && offscreenCanvasRef.current) {
             console.log('[UNDO] Keyboard: Restoring snapshot:', snapshot.id, snapshot.description);
             restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
-            state.renderView();
+            renderView();
             console.log('[UNDO] Keyboard: Undo completed');
           } else {
             console.log('[UNDO] Keyboard: Undo failed - no snapshot or canvas');
           }
         } else {
           console.log('[UNDO] Keyboard: Undo blocked - canUndo() returned false');
-        }
-      }
-      return;
-    }
-
-    // Alternative Redo shortcut (Ctrl+Y)
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
-      e.preventDefault();
-      e.stopPropagation();
-      
-      if (state.canRedo()) {
-        const snapshot = state.redo();
-        if (snapshot && offscreenCanvasRef.current) {
-          restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
-          state.renderView();
         }
       }
       return;
@@ -1269,7 +1348,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       e.preventDefault();
       state.toggleGrid();
     }
-  }, [offscreenCanvasRef, setEKeyPressed, setToolBeforeEraser, setAltKeyPressed, setToolBeforeEyedropper, setSpacebarPressed, setSelection]);
+  }, [offscreenCanvasRef, setEKeyPressed, setToolBeforeEraser, setAltKeyPressed, setToolBeforeEyedropper, setSpacebarPressed, setSelection, renderView]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
     // E key release - restore previous tool

@@ -12,6 +12,7 @@ const BrushLibrary = () => {
   const removeCustomBrush = useAppStore((state) => state.removeCustomBrush);
   const tools = useAppStore((state) => state.tools);
   const project = useAppStore((state) => state.project);
+  const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
   
   // Create combined list of brushes: regular presets + custom brushes from project
   const customBrushPresets = React.useMemo(() => {
@@ -42,11 +43,34 @@ const BrushLibrary = () => {
   }, [brushPresets, customBrushPresets]);
   
   // Check if there's an active custom brush that can be saved
-  const activeCustomBrush = tools.brushSettings.selectedCustomBrush && project
-    ? project.customBrushes.find(b => b.id === tools.brushSettings.selectedCustomBrush)
-    : null;
+  const activeCustomBrush = React.useMemo(() => {
+    if (!tools.brushSettings.selectedCustomBrush) return null;
+    
+    // Check temporary custom brush first
+    if (temporaryCustomBrush && temporaryCustomBrush.id === tools.brushSettings.selectedCustomBrush) {
+      return temporaryCustomBrush;
+    }
+    
+    // Then check project custom brushes
+    if (project) {
+      return project.customBrushes.find(b => b.id === tools.brushSettings.selectedCustomBrush) || null;
+    }
+    
+    return null;
+  }, [tools.brushSettings.selectedCustomBrush, temporaryCustomBrush, project]);
   
   const canSaveCustomBrush = activeCustomBrush && tools.brushSettings.brushShape === BrushShape.CUSTOM;
+  
+  // Debug logging
+  console.log('BrushLibrary Debug:', {
+    activeCustomBrush: !!activeCustomBrush,
+    activeCustomBrushId: activeCustomBrush?.id,
+    brushShape: tools.brushSettings.brushShape,
+    selectedCustomBrush: tools.brushSettings.selectedCustomBrush,
+    temporaryCustomBrush: !!temporaryCustomBrush,
+    temporaryCustomBrushId: temporaryCustomBrush?.id,
+    canSaveCustomBrush
+  });
   
   const handleSaveCustomBrushAsPreset = () => {
     if (!activeCustomBrush) return;

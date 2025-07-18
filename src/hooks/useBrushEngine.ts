@@ -28,7 +28,7 @@ export interface RenderSettings {
 
 
 export const useBrushEngine = () => {
-  const { tools, activeBrushComponents, project, brushPresets } = useAppStore();
+  const { tools, activeBrushComponents, project, brushPresets, temporaryCustomBrush } = useAppStore();
   
   // Debug helper - add to window for easy access
   if (typeof window !== 'undefined') {
@@ -822,10 +822,17 @@ export const useBrushEngine = () => {
       actualBrushSize = minSizePx + (adjustedPressure * (maxSizePx - minSizePx));
     }
     
-    // Look for custom brush first before grid calculations
-    let customBrush = isCustomBrush && tools.brushSettings.selectedCustomBrush && project
-      ? project.customBrushes.find(b => b.id === tools.brushSettings.selectedCustomBrush)
-      : null;
+    // Look for custom brush - check temporary brush first, then project brushes
+    let customBrush = null;
+    if (isCustomBrush && tools.brushSettings.selectedCustomBrush) {
+      // Check temporary custom brush first
+      if (temporaryCustomBrush && temporaryCustomBrush.id === tools.brushSettings.selectedCustomBrush) {
+        customBrush = temporaryCustomBrush;
+      } else if (project) {
+        // Check project custom brushes
+        customBrush = project.customBrushes.find(b => b.id === tools.brushSettings.selectedCustomBrush);
+      }
+    }
     
     // If not found in project custom brushes, check brush presets for custom brush presets
     if (!customBrush && isCustomBrush && tools.brushSettings.selectedCustomBrush) {
