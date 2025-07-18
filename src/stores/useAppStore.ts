@@ -89,6 +89,10 @@ interface AppState {
   getBrushPresets: () => BrushPreset[];
   getBrushPresetById: (id: string) => BrushPreset | undefined;
   
+  // Temporary Custom Brush (for immediate use, not saved to library)
+  temporaryCustomBrush: CustomBrush | null;
+  setTemporaryCustomBrush: (brush: CustomBrush | null) => void;
+  
   
   // UI State
   ui: UIState;
@@ -386,6 +390,10 @@ export const useAppStore = create<AppState>()(
       brushPresets,
       currentBrushPreset: defaultBrushPreset,
       activeBrushComponents: defaultBrushPreset.components,
+      
+      // Temporary Custom Brush
+      temporaryCustomBrush: null,
+      setTemporaryCustomBrush: (brush) => set({ temporaryCustomBrush: brush }),
       setBrushPreset: (preset) => set((state) => {
         const { settings, components } = applyBrushPreset(preset);
         const currentSettings = state.tools.brushSettings;
@@ -548,16 +556,55 @@ export const useAppStore = create<AppState>()(
         } : null
       })),
       saveCustomBrushAsPreset: (customBrushId) => set((state) => {
-        const customBrush = state.project?.customBrushes.find(b => b.id === customBrushId);
+        // Check temporary custom brush first
+        let customBrush = state.temporaryCustomBrush && state.temporaryCustomBrush.id === customBrushId
+          ? state.temporaryCustomBrush
+          : state.project?.customBrushes.find(b => b.id === customBrushId);
+        
         if (!customBrush) return state;
         
+        // Generate thumbnail if needed (for temporary brushes)
+        let thumbnail = customBrush.thumbnail;
+        if (!thumbnail) {
+          // Create a thumbnail from the brush imageData
+          const thumbnailCanvas = document.createElement('canvas');
+          const thumbnailSize = 32;
+          thumbnailCanvas.width = thumbnailSize;
+          thumbnailCanvas.height = thumbnailSize;
+          const thumbnailCtx = thumbnailCanvas.getContext('2d');
+          
+          if (thumbnailCtx) {
+            // Create a canvas from the brush imageData
+            const brushCanvas = document.createElement('canvas');
+            brushCanvas.width = customBrush.width;
+            brushCanvas.height = customBrush.height;
+            const brushCtx = brushCanvas.getContext('2d');
+            
+            if (brushCtx) {
+              brushCtx.putImageData(customBrush.imageData, 0, 0);
+              
+              // Scale to fit thumbnail
+              const scale = Math.min(thumbnailSize / customBrush.width, thumbnailSize / customBrush.height);
+              const scaledWidth = customBrush.width * scale;
+              const scaledHeight = customBrush.height * scale;
+              const offsetX = (thumbnailSize - scaledWidth) / 2;
+              const offsetY = (thumbnailSize - scaledHeight) / 2;
+              
+              thumbnailCtx.clearRect(0, 0, thumbnailSize, thumbnailSize);
+              thumbnailCtx.drawImage(brushCanvas, offsetX, offsetY, scaledWidth, scaledHeight);
+              
+              thumbnail = thumbnailCanvas.toDataURL();
+            }
+          }
+        }
+
         // Create a brush preset from the custom brush
         const newPreset: BrushPreset = {
           id: `preset_${customBrush.id}`,
           name: `${customBrush.name} (Saved)`,
           category: 'Custom',
           components: [], // Custom brushes don't use components
-          thumbnail: customBrush.thumbnail,
+          thumbnail: thumbnail || '',
           tags: ['custom', 'saved'],
           isDefault: false,
           createdAt: new Date(),
@@ -570,8 +617,25 @@ export const useAppStore = create<AppState>()(
           }
         };
         
+        // If this was a temporary brush, add it to project customBrushes and clear temporary
+        let updatedProject = state.project;
+        let clearedTemporaryBrush = state.temporaryCustomBrush;
+        
+        if (state.temporaryCustomBrush && state.temporaryCustomBrush.id === customBrushId) {
+          // Add temporary brush to project
+          updatedProject = state.project ? {
+            ...state.project,
+            customBrushes: [...state.project.customBrushes, state.temporaryCustomBrush]
+          } : null;
+          
+          // Clear temporary brush
+          clearedTemporaryBrush = null;
+        }
+
         return {
-          brushPresets: [...state.brushPresets, newPreset]
+          brushPresets: [...state.brushPresets, newPreset],
+          project: updatedProject,
+          temporaryCustomBrush: clearedTemporaryBrush
         };
       }),
       

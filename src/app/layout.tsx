@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'TinyBrush v3',
+  title: 'tinybrush',
   description: 'Simple pixel art editor',
 };
 
