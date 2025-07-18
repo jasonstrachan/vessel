@@ -26,6 +26,32 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
   const handleKeyUpRef = useRef<(e: KeyboardEvent) => void>(() => {});
   const handleWheelRef = useRef<(e: WheelEvent) => void>(() => {});
+  
+  // Stable refs for dynamic values to prevent keyboard handler re-registration
+  const stateRef = useRef({
+    spacebarPressed: false,
+    eKeyPressed: false,
+    altKeyPressed: false,
+    isSelecting: false,
+    canUndo: (() => false) as () => boolean,
+    canRedo: (() => false) as () => boolean,
+    undo: (() => null) as any,
+    redo: (() => null) as any,
+    tools: { currentTool: 'brush' as Tool, brushSettings: { size: 10, brushShape: BrushShape.ROUND } },
+    canvas: { selection: { active: false } },
+    setBrushSettings: (() => {}) as any,
+    setCurrentTool: (() => {}) as any,
+    toggleGrid: (() => {}) as any,
+    commitSelection: (() => {}) as any,
+    setSelection: (() => {}) as any,
+    renderView: (() => {}) as any,
+    toolBeforeEraser: null as Tool | null,
+    toolBeforeEyedropper: null as Tool | null
+  });
+  
+  // Prevent double saveCanvasState calls from pointer + touch events
+  const lastSaveCanvasStateTime = useRef(0);
+  const SAVE_DEDUPLICATION_WINDOW = 50; // 50ms window to prevent duplicates
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
   // New zoom/pan state variables
@@ -90,6 +116,48 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue } = useBrushEngine();
+
+  // Deduplicated saveCanvasState to prevent double calls from pointer + touch events
+  const saveCanvasStateDeduped = useCallback((canvas: HTMLCanvasElement, actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'paste', description: string) => {
+    const now = Date.now();
+    if (now - lastSaveCanvasStateTime.current < SAVE_DEDUPLICATION_WINDOW) {
+      console.log('[UNDO] saveCanvasStateDeduped BLOCKED - too soon after last save:', now - lastSaveCanvasStateTime.current, 'ms');
+      return; // Skip duplicate call within window
+    }
+    console.log('[UNDO] saveCanvasStateDeduped calling saveCanvasState:', actionType, description);
+    lastSaveCanvasStateTime.current = now;
+    saveCanvasState(canvas, actionType, description);
+  }, [saveCanvasState]);
+
+  // Keep stateRef updated with current values for stable keyboard handlers
+  useEffect(() => {
+    stateRef.current = {
+      spacebarPressed,
+      eKeyPressed,
+      altKeyPressed,
+      isSelecting,
+      canUndo,
+      canRedo,
+      undo,
+      redo,
+      tools: {
+        ...tools,
+        brushSettings: {
+          ...tools.brushSettings,
+          brushShape: tools.brushSettings.brushShape || BrushShape.ROUND
+        }
+      },
+      canvas,
+      setBrushSettings,
+      setCurrentTool,
+      toggleGrid,
+      commitSelection,
+      setSelection,
+      renderView,
+      toolBeforeEraser,
+      toolBeforeEyedropper
+    };
+  });
 
   // Handle clipboard paste for images
   const handlePaste = useCallback(async (e: ClipboardEvent) => {
@@ -420,7 +488,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   const drawLine = useCallback((from: { x: number; y: number }, to: { x: number; y: number }) => {
     // Prevent drawing during selection
     if (isSelecting) {
-      console.log('STYLUS DEBUG: drawLine blocked during selection');
       return;
     }
     
@@ -431,7 +498,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     if (!offscreenCtx) return;
     
     // Draw on the offscreen canvas (no transformations - world coordinates)
-    console.log('STYLUS DEBUG: drawLine executing renderBrushStroke');
     renderBrushStroke(offscreenCtx, from, to);
     
     // Re-render the view with current zoom/pan
@@ -620,9 +686,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     }
     
     // Handle selection and custom brush tools - start new selection
-    console.log('STYLUS DEBUG: pointerType:', e.pointerType, 'currentTool:', tools.currentTool);
     if (tools.currentTool === 'selection' || tools.currentTool === 'custom') {
-      console.log('STYLUS DEBUG: Selection tool detected, setting selection state');
       setIsSelecting(true);
       setSelectionBounds(point, point);
       // Ensure drawing is disabled during selection
@@ -639,14 +703,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       return;
     }
 
-    // Capture state before drawing operation
-    const offscreenCanvas = offscreenCanvasRef.current;
-    if (offscreenCanvas) {
-      const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
-      saveCanvasState(offscreenCanvas, actionType, `${actionType} stroke`);
-    }
+    // Note: State will be captured AFTER stroke completion in handlePointerUp
     
-    console.log('STYLUS DEBUG: Falling through to drawing logic. pointerType:', e.pointerType, 'currentTool:', tools.currentTool);
     setIsDrawing(true);
     setLastPoint(point);
     // Get pressure from pointer event (0.0 to 1.0), fallback to 0.0 for non-pressure devices when pressure is enabled
@@ -655,7 +713,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
-  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, canvas.selection.active, isPointInSelection, tools.currentTool, sampleColor, setBrushSettings, setSelectionBounds, setIsSelecting, saveCanvasState, offscreenCanvasRef]);
+  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, canvas.selection.active, isPointInSelection, tools.currentTool, sampleColor, setBrushSettings, setSelectionBounds, setIsSelecting, saveCanvasStateDeduped, offscreenCanvasRef]);
 
   // RAF-throttled pointer event processing for performance
   const pendingPointerEvent = useRef<React.PointerEvent | null>(null);
@@ -742,7 +800,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
     // Handle selection creation dragging
     if (isSelecting && selectionStart) {
-      console.log('STYLUS DEBUG: Selection dragging, isSelecting:', isSelecting, 'isDrawing:', isDrawing);
       setSelectionBounds(selectionStart, point);
       return;
     }
@@ -767,14 +824,11 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
     // Only draw if not in selection mode
     if (isDrawing && lastPoint && !isSelecting) {
-      console.log('STYLUS DEBUG: Drawing line, isSelecting:', isSelecting, 'isDrawing:', isDrawing);
       try {
         drawLine(lastPoint, point);
         setLastPoint(point);
       } catch (error) {
       }
-    } else if (isDrawing && lastPoint && isSelecting) {
-      console.log('STYLUS DEBUG: Prevented drawing during selection, isSelecting:', isSelecting, 'isDrawing:', isDrawing);
     }
   }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition, isDraggingSelection, selectionDragStart, canvas.selection, setSelection, isSelecting, selectionStart, setSelectionBounds, smoothPressure, isPalmRejectionEvent]);
 
@@ -831,11 +885,15 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     if (isDrawing && offscreenCanvasRef.current) {
       // Use the proper canvas capture function
       await captureCanvasToActiveLayer(offscreenCanvasRef.current);
+      
+      // Capture state AFTER completing the stroke for undo history
+      const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
+      saveCanvasStateDeduped(offscreenCanvasRef.current, actionType, `${actionType} stroke`);
     }
 
     setIsDrawing(false);
     setLastPoint(null);
-  }, [isPanning, isDraggingSelection, isSelecting, tools, selectionStart, selectionEnd, project, createCustomBrushFromSelection, isDrawing, captureCanvasToActiveLayer]);
+  }, [isPanning, isDraggingSelection, isSelecting, tools, selectionStart, selectionEnd, project, createCustomBrushFromSelection, isDrawing, captureCanvasToActiveLayer, saveCanvasStateDeduped]);
 
   // Touch event handlers for mobile support
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -855,12 +913,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
     const point = screenToCanvas(touch.clientX, touch.clientY);
     
-    // Capture state before drawing operation
-    const offscreenCanvas = offscreenCanvasRef.current;
-    if (offscreenCanvas) {
-      const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
-      saveCanvasState(offscreenCanvas, actionType, `${actionType} stroke`);
-    }
+    // Note: State will be captured AFTER stroke completion in handlePointerUp
     
     setIsDrawing(true);
     setLastPoint(point);
@@ -869,7 +922,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
-  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, saveCanvasState, offscreenCanvasRef]);
+  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, saveCanvasStateDeduped, offscreenCanvasRef]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     // Note: preventDefault will be handled by native event listener for passive events
@@ -917,11 +970,15 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     if (isDrawing && offscreenCanvasRef.current) {
       // Use the proper canvas capture function
       await captureCanvasToActiveLayer(offscreenCanvasRef.current);
+      
+      // Capture state AFTER completing the stroke for undo history
+      const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
+      saveCanvasStateDeduped(offscreenCanvasRef.current, actionType, `${actionType} stroke`);
     }
 
     setIsDrawing(false);
     setLastPoint(null);
-  }, [isPanning, isDrawing, captureCanvasToActiveLayer]);
+  }, [isPanning, isDrawing, captureCanvasToActiveLayer, tools.currentTool, saveCanvasStateDeduped]);
 
   // Wheel event for zoom (cursor-centered)
   const handleWheel = useCallback((e: WheelEvent) => {
@@ -1000,13 +1057,13 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     // Ignore synthetic keyboard events that might be triggered by stylus input
     if (!e.isTrusted || e.detail > 0) {
-      console.log('STYLUS DEBUG: Ignoring synthetic keyboard event:', e.key);
       return;
     }
     
+    const state = stateRef.current;
+    
     // Prevent tool switching during selection operations
-    if (isSelecting) {
-      console.log('STYLUS DEBUG: Ignoring keyboard shortcuts during selection');
+    if (state.isSelecting) {
       return;
     }
     // Undo/Redo shortcuts
@@ -1014,31 +1071,37 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       e.preventDefault();
       e.stopPropagation();
       
-      console.log('Undo/Redo key pressed:', { shiftKey: e.shiftKey, canUndo: canUndo(), canRedo: canRedo() });
-      
       if (e.shiftKey) {
         // Redo (Ctrl+Shift+Z)
-        if (canRedo()) {
-          console.log('Executing redo...');
-          const snapshot = redo();
+        if (state.canRedo()) {
+          console.log('[UNDO] Keyboard: Starting redo operation');
+          const snapshot = state.redo();
           if (snapshot && offscreenCanvasRef.current) {
+            console.log('[UNDO] Keyboard: Restoring redo snapshot:', snapshot.id, snapshot.description);
             restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
-            renderView();
+            state.renderView();
+            console.log('[UNDO] Keyboard: Redo completed');
+          } else {
+            console.log('[UNDO] Keyboard: Redo failed - no snapshot or canvas');
           }
         } else {
-          console.log('Cannot redo - no items in redo stack');
+          console.log('[UNDO] Keyboard: Redo blocked - canRedo() returned false');
         }
       } else {
         // Undo (Ctrl+Z)
-        if (canUndo()) {
-          console.log('Executing undo...');
-          const snapshot = undo();
+        if (state.canUndo()) {
+          console.log('[UNDO] Keyboard: Starting undo operation');
+          const snapshot = state.undo();
           if (snapshot && offscreenCanvasRef.current) {
+            console.log('[UNDO] Keyboard: Restoring snapshot:', snapshot.id, snapshot.description);
             restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
-            renderView();
+            state.renderView();
+            console.log('[UNDO] Keyboard: Undo completed');
+          } else {
+            console.log('[UNDO] Keyboard: Undo failed - no snapshot or canvas');
           }
         } else {
-          console.log('Cannot undo - no items in undo stack');
+          console.log('[UNDO] Keyboard: Undo blocked - canUndo() returned false');
         }
       }
       return;
@@ -1049,11 +1112,11 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       e.preventDefault();
       e.stopPropagation();
       
-      if (canRedo()) {
-        const snapshot = redo();
+      if (state.canRedo()) {
+        const snapshot = state.redo();
         if (snapshot && offscreenCanvasRef.current) {
           restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
-          renderView();
+          state.renderView();
         }
       }
       return;
@@ -1061,41 +1124,41 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     
     // E key for temporary eraser mode
     if ((e.key === 'e' || e.key === 'E') && !e.ctrlKey && !e.metaKey) {
-      if (!eKeyPressed && tools.currentTool !== 'eraser') {
+      if (!state.eKeyPressed && state.tools.currentTool !== 'eraser') {
         e.preventDefault();
         setEKeyPressed(true);
-        setToolBeforeEraser(tools.currentTool);
-        setCurrentTool('eraser');
+        setToolBeforeEraser(state.tools.currentTool);
+        state.setCurrentTool('eraser');
       }
       return;
     }
     
     // Alt key for temporary eyedropper mode
     if (e.key === 'Alt' && !e.ctrlKey && !e.metaKey) {
-      if (!altKeyPressed && tools.currentTool !== 'eyedropper') {
+      if (!state.altKeyPressed && state.tools.currentTool !== 'eyedropper') {
         e.preventDefault();
         setAltKeyPressed(true);
-        setToolBeforeEyedropper(tools.currentTool);
-        setCurrentTool('eyedropper');
+        setToolBeforeEyedropper(state.tools.currentTool);
+        state.setCurrentTool('eyedropper');
       }
       return;
     }
     
     // Space key for pan mode
-    if (e.code === 'Space' && !spacebarPressed) {
+    if (e.code === 'Space' && !state.spacebarPressed) {
       e.preventDefault();
       setSpacebarPressed(true);
     }
     
     // Selection controls
-    if (canvas.selection.active) {
+    if (state.canvas.selection.active) {
       if (e.key === 'Enter') {
         e.preventDefault();
-        commitSelection();
+        state.commitSelection();
         return;
       } else if (e.key === 'Escape') {
         e.preventDefault();
-        setSelection({
+        state.setSelection({
           active: false,
           bounds: { x: 0, y: 0, width: 0, height: 0 },
           pixels: typeof ImageData !== 'undefined' ? new ImageData(1, 1) : {} as ImageData
@@ -1152,15 +1215,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     // Tool shortcuts
     if (e.key === 'b' || e.key === 'B') {
       if (!e.ctrlKey && !e.metaKey) {
-        console.log('STYLUS DEBUG: B key pressed, event details:', { 
-          key: e.key, 
-          detail: e.detail,
-          isTrusted: e.isTrusted,
-          code: e.code,
-          type: e.type
-        });
         e.preventDefault();
-        setCurrentTool('brush');
+        state.setCurrentTool('brush');
         return;
       }
     }
@@ -1168,7 +1224,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     if (e.key === 'm' || e.key === 'M') {
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        setCurrentTool('selection');
+        state.setCurrentTool('selection');
         return;
       }
     }
@@ -1176,7 +1232,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     if (e.key === 'c' || e.key === 'C') {
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        setCurrentTool('custom');
+        state.setCurrentTool('custom');
         return;
       }
     }
@@ -1184,36 +1240,36 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     if (e.key === 'f' || e.key === 'F') {
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        setCurrentTool('fill');
+        state.setCurrentTool('fill');
         return;
       }
     }
     
     // Brush size shortcuts - different behavior for custom vs regular brushes
     if (e.key === '[') {
-      if (tools.brushSettings.brushShape === BrushShape.CUSTOM) {
+      if (state.tools.brushSettings.brushShape === BrushShape.CUSTOM) {
         // Custom brush: decrease by 10% increments, minimum 10%
-        setBrushSettings({ size: Math.max(10, tools.brushSettings.size - 10) });
+        state.setBrushSettings({ size: Math.max(10, state.tools.brushSettings.size - 10) });
       } else {
         // Regular brush: decrease by 1px, minimum 1px
-        setBrushSettings({ size: Math.max(1, tools.brushSettings.size - 1) });
+        state.setBrushSettings({ size: Math.max(1, state.tools.brushSettings.size - 1) });
       }
     } else if (e.key === ']') {
-      if (tools.brushSettings.brushShape === BrushShape.CUSTOM) {
+      if (state.tools.brushSettings.brushShape === BrushShape.CUSTOM) {
         // Custom brush: increase by 10% increments, maximum 500%
-        setBrushSettings({ size: Math.min(500, tools.brushSettings.size + 10) });
+        state.setBrushSettings({ size: Math.min(500, state.tools.brushSettings.size + 10) });
       } else {
         // Regular brush: increase by 1px, maximum 100px
-        setBrushSettings({ size: Math.min(100, tools.brushSettings.size + 1) });
+        state.setBrushSettings({ size: Math.min(100, state.tools.brushSettings.size + 1) });
       }
     }
     
     // Grid toggle (Ctrl/Cmd + G)
     if ((e.ctrlKey || e.metaKey) && e.key === 'g') {
       e.preventDefault();
-      toggleGrid();
+      state.toggleGrid();
     }
-  }, [spacebarPressed, setBrushSettings, tools.brushSettings.size, toggleGrid, canvas.selection.active, commitSelection, setSelection, eKeyPressed, tools.currentTool, setCurrentTool, altKeyPressed, canUndo, canRedo, undo, redo, offscreenCanvasRef, renderView]);
+  }, [offscreenCanvasRef, setEKeyPressed, setToolBeforeEraser, setAltKeyPressed, setToolBeforeEyedropper, setSpacebarPressed, setSelection]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
     // E key release - restore previous tool
@@ -1333,11 +1389,22 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
           
           // Reset pan to default position (world origin at canvas origin)
           setPan(0, 0);
+          
+          // Capture initial blank canvas state for undo history
+          setTimeout(() => {
+            const offscreenCanvas = offscreenCanvasRef.current;
+            if (offscreenCanvas) {
+              console.log('[UNDO] Saving initial blank canvas state');
+              saveCanvasState(offscreenCanvas, 'brush', 'Initial state');
+              // Reset the deduplication timer so first stroke isn't blocked
+              lastSaveCanvasStateTime.current = 0;
+            }
+          }, 100); // Small delay to ensure canvas is fully initialized
         }
       }
     } catch (error) {
     }
-  }, [isCanvasInitialized, initializeCanvas, setPan, setProjectDimensions, width, height]);
+  }, [isCanvasInitialized, initializeCanvas, setPan, setProjectDimensions, width, height, saveCanvasState]);
 
   // Event listeners setup - separate from canvas initialization
   useEffect(() => {
@@ -1527,6 +1594,10 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   // Layer recomposition when project loads
   useEffect(() => {
     if (layersNeedRecomposition) {
+      // Skip layer recomposition during history operations to prevent interference
+      if (history.isCapturing) {
+        return;
+      }
       
       if (offscreenCanvasRef.current) {
         compositeLayersToCanvas(offscreenCanvasRef.current);
@@ -1535,7 +1606,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       } else {
       }
     }
-  }, [layersNeedRecomposition, compositeLayersToCanvas, renderView, setLayersNeedRecomposition, layers]);
+  }, [layersNeedRecomposition, compositeLayersToCanvas, renderView, setLayersNeedRecomposition, layers, history.isCapturing]);
 
   // Object pooling for performance optimization
   const coordinatePool = useMemo(() => {

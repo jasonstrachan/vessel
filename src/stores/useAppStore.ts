@@ -1,6 +1,15 @@
 // Zustand store with state slices
 // Based on /docs/02_System_Architecture/Overall_Design.md (lines 58-64)
 
+// Module-level flag to prevent saveCanvasState during undo/redo operations
+let isHistoryOperationInProgress = false;
+
+// Debouncing for canvas state saves to improve performance
+let saveCanvasStateTimer: NodeJS.Timeout | null = null;
+let lastSaveTimestamp = 0;
+const MIN_SAVE_INTERVAL = 100; // Minimum 0.1 second between saves
+
+
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type {
@@ -103,6 +112,9 @@ interface AppState {
   addCustomBrush: (brush: CustomBrush) => void;
   removeCustomBrush: (brushId: string) => void;
   saveCustomBrushAsPreset: (customBrushId: string) => void;
+  
+  // Brush Preset Management
+  removeBrushPreset: (presetId: string) => void;
   
   // Project Save/Load Management
   saveProject: (filename?: string) => Promise<void>;
@@ -315,8 +327,6 @@ export const useAppStore = create<AppState>()(
           newBrushSettings.selectedCustomBrush = null;
         }
         
-        console.log('STYLUS DEBUG: Tool change from', state.tools.currentTool, 'to', tool);
-        console.trace('STYLUS DEBUG: Tool change stack trace');
         return {
           tools: {
             ...state.tools,
@@ -565,43 +575,125 @@ export const useAppStore = create<AppState>()(
         };
       }),
       
-      // History Management
-      saveCanvasState: (canvas, actionType, description) => set((state) => {
-        if (state.history.isCapturing) return state;
+      removeBrushPreset: (presetId) => set((state) => {
+        // Don't allow deletion of default presets
+        const presetToDelete = state.brushPresets.find(p => p.id === presetId);
+        if (!presetToDelete || presetToDelete.isDefault) return state;
         
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        if (!ctx) return state;
+        const newPresets = state.brushPresets.filter(p => p.id !== presetId);
         
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const snapshot: CanvasSnapshot = {
-          id: `snapshot_${Date.now()}_${Math.random()}`,
-          timestamp: Date.now(),
-          imageData,
-          actionType,
-          description
-        };
-        
-        const newUndoStack = [...state.history.undoStack, snapshot];
-        if (newUndoStack.length > state.history.maxHistorySize) {
-          newUndoStack.shift();
+        // If deleting the currently active preset, switch to default
+        let newCurrentPreset = state.currentBrushPreset;
+        if (state.currentBrushPreset?.id === presetId) {
+          newCurrentPreset = newPresets.find(p => p.isDefault) || newPresets[0] || null;
         }
         
         return {
-          history: {
-            ...state.history,
-            undoStack: newUndoStack,
-            redoStack: []
-          }
+          brushPresets: newPresets,
+          currentBrushPreset: newCurrentPreset
         };
       }),
       
+      // History Management
+      saveCanvasState: (canvas, actionType, description) => {
+        if (isHistoryOperationInProgress) {
+          console.log('[UNDO] saveCanvasState blocked - history operation in progress');
+          return;
+        }
+        
+        const now = Date.now();
+        
+        // Clear existing timer
+        if (saveCanvasStateTimer) {
+          clearTimeout(saveCanvasStateTimer);
+        }
+        
+        // For important actions, save immediately
+        const isImportantAction = actionType === 'paste' || actionType === 'fill' || actionType === 'clear';
+        
+        const performSave = () => {
+          const state = get();
+          if (state.history.isCapturing || isHistoryOperationInProgress) {
+            console.log('[UNDO] performSave blocked - isCapturing:', state.history.isCapturing, 'inProgress:', isHistoryOperationInProgress);
+            return;
+          }
+          
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          if (!ctx) return;
+          
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const snapshot: CanvasSnapshot = {
+            id: `snapshot_${Date.now()}_${Math.random()}`,
+            timestamp: Date.now(),
+            imageData,
+            actionType,
+            description
+          };
+          
+          const newUndoStack = [...state.history.undoStack, snapshot];
+          if (newUndoStack.length > state.history.maxHistorySize) {
+            newUndoStack.shift();
+          }
+          
+          console.log('[UNDO] saveCanvasState:', {
+            action: actionType,
+            description,
+            undoStackLength: newUndoStack.length,
+            redoStackLength: 0,
+            snapshotId: snapshot.id
+          });
+          
+          set({
+            history: {
+              ...state.history,
+              undoStack: newUndoStack,
+              redoStack: []
+            }
+          });
+        };
+        
+        if (isImportantAction || (now - lastSaveTimestamp) >= MIN_SAVE_INTERVAL) {
+          // Save immediately
+          performSave();
+          lastSaveTimestamp = now;
+        } else {
+          // Debounce for frequent actions like brush strokes
+          saveCanvasStateTimer = setTimeout(() => {
+            performSave();
+            lastSaveTimestamp = Date.now();
+            saveCanvasStateTimer = null;
+          }, 100);
+        }
+      },
+      
       undo: () => {
         const state = get();
-        if (state.history.undoStack.length === 0) return null;
+        console.log('[UNDO] undo called - undoStack.length:', state.history.undoStack.length, 'redoStack.length:', state.history.redoStack.length);
         
-        const snapshot = state.history.undoStack[state.history.undoStack.length - 1];
-        const newUndoStack = state.history.undoStack.slice(0, -1);
-        const newRedoStack = [...state.history.redoStack, snapshot];
+        if (state.history.undoStack.length <= 1) {
+          console.log('[UNDO] undo blocked - not enough states (need at least 2)');
+          return null; // Need at least 2 states to undo
+        }
+        
+        // Current state is the last item in undoStack - move it to redoStack
+        const currentState = state.history.undoStack[state.history.undoStack.length - 1];
+        // Previous state is what we want to restore to
+        const previousState = state.history.undoStack[state.history.undoStack.length - 2];
+        
+        console.log('[UNDO] undo operation:', {
+          currentStateId: currentState.id,
+          currentDescription: currentState.description,
+          previousStateId: previousState.id,
+          previousDescription: previousState.description,
+          newUndoStackLength: state.history.undoStack.length - 1,
+          newRedoStackLength: state.history.redoStack.length + 1
+        });
+        
+        const newUndoStack = state.history.undoStack.slice(0, -1); // Remove current state
+        const newRedoStack = [currentState, ...state.history.redoStack]; // Add current to redo stack
+        
+        // Set protection flags during operation
+        isHistoryOperationInProgress = true;
         
         set({
           history: {
@@ -612,26 +704,42 @@ export const useAppStore = create<AppState>()(
           }
         });
         
-        // Reset capturing flag after restoration
-        setTimeout(() => {
-          set((state) => ({
-            history: {
-              ...state.history,
-              isCapturing: false
-            }
-          }));
-        }, 0);
+        // Reset flags immediately after state update - no async delay needed
+        isHistoryOperationInProgress = false;
+        set((state) => ({
+          history: {
+            ...state.history,
+            isCapturing: false
+          }
+        }));
         
-        return snapshot;
+        console.log('[UNDO] undo completed - returning state:', previousState.id, previousState.description);
+        return previousState; // Return the state to restore to
       },
       
       redo: () => {
         const state = get();
-        if (state.history.redoStack.length === 0) return null;
+        console.log('[UNDO] redo called - undoStack.length:', state.history.undoStack.length, 'redoStack.length:', state.history.redoStack.length);
         
-        const snapshot = state.history.redoStack[state.history.redoStack.length - 1];
-        const newRedoStack = state.history.redoStack.slice(0, -1);
-        const newUndoStack = [...state.history.undoStack, snapshot];
+        if (state.history.redoStack.length === 0) {
+          console.log('[UNDO] redo blocked - no states to redo');
+          return null;
+        }
+        
+        // The first item in redoStack is the state we want to restore to
+        const stateToRestore = state.history.redoStack[0];
+        const newRedoStack = state.history.redoStack.slice(1); // Remove restored state from redo stack
+        const newUndoStack = [...state.history.undoStack, stateToRestore]; // Add restored state to undo stack
+        
+        console.log('[UNDO] redo operation:', {
+          restoreStateId: stateToRestore.id,
+          restoreDescription: stateToRestore.description,
+          newUndoStackLength: newUndoStack.length,
+          newRedoStackLength: newRedoStack.length
+        });
+        
+        // Set protection flags during operation
+        isHistoryOperationInProgress = true;
         
         set({
           history: {
@@ -642,20 +750,20 @@ export const useAppStore = create<AppState>()(
           }
         });
         
-        // Reset capturing flag after restoration
-        setTimeout(() => {
-          set((state) => ({
-            history: {
-              ...state.history,
-              isCapturing: false
-            }
-          }));
-        }, 0);
+        // Reset flags immediately after state update - no async delay needed
+        isHistoryOperationInProgress = false;
+        set((state) => ({
+          history: {
+            ...state.history,
+            isCapturing: false
+          }
+        }));
         
-        return snapshot;
+        console.log('[UNDO] redo completed - returning state:', stateToRestore.id, stateToRestore.description);
+        return stateToRestore; // Return the state to restore to
       },
       
-      canUndo: () => get().history.undoStack.length > 0,
+      canUndo: () => get().history.undoStack.length > 1,
       canRedo: () => get().history.redoStack.length > 0,
       
       clearHistory: () => set((state) => ({
@@ -866,6 +974,11 @@ export const useAppStore = create<AppState>()(
       
       captureCanvasToActiveLayer: async (sourceCanvas?: HTMLCanvasElement) => {
         const state = get();
+        // Skip if we're in the middle of a history operation
+        if (state.history.isCapturing) {
+          return;
+        }
+        
         if (!state.project || state.layers.length === 0) {
           return;
         }
