@@ -35,9 +35,6 @@ export default function Home() {
         
         // Load canvas settings
         if (settings.canvas) {
-          if (settings.canvas.displayMode) {
-            store.setDisplayMode(settings.canvas.displayMode);
-          }
           if (typeof settings.canvas.showGrid === 'boolean' && settings.canvas.showGrid !== store.canvas.showGrid) {
             store.toggleGrid();
           }

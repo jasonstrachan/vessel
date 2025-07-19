@@ -9,7 +9,7 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const { canvas, autosave, history, setDisplayMode, setAutosaveEnabled, setAutosaveInterval, setHistorySize } = useAppStore();
+  const { canvas, autosave, history, setAutosaveEnabled, setAutosaveInterval, setHistorySize } = useAppStore();
   
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
@@ -23,7 +23,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         interval: currentState.autosave.interval,
       },
       canvas: {
-        displayMode: currentState.canvas.displayMode,
         showGrid: currentState.canvas.showGrid,
         showRulers: currentState.canvas.showRulers,
       },
@@ -123,17 +122,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           <div>
             <h3 className="text-[#D9D9D9] text-base font-medium mb-3">Display</h3>
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">Canvas Mode</label>
-                <select 
-                  value={canvas.displayMode}
-                  onChange={(e) => setDisplayMode(e.target.value as 'pixelated' | 'smooth')}
-                  className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
-                >
-                  <option value="pixelated">Pixelated</option>
-                  <option value="smooth">Smooth</option>
-                </select>
-              </div>
               <div className="flex items-center justify-between">
                 <label htmlFor="show-grid" className="text-base text-[#888]">Show Grid</label>
                 <Switch
