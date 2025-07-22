@@ -47,47 +47,71 @@ export function floodFill(
   }
 
   if (contiguous) {
-    // Contiguous fill - use simple 4-connected flood fill
+    // Contiguous fill - use optimized iterative scanline flood fill algorithm
     const pixelStack: [number, number][] = [[startX, startY]];
-    const visited = new Set<string>();
-    let processedPixels = 0;
-    const maxPixels = width * height * 0.5; // Limit to 50% of canvas to prevent crashes
+    let newPos: [number, number];
+    let x: number, y: number, pixelPos: number;
+    let reachLeft: boolean, reachRight: boolean;
+    
+    while (pixelStack.length > 0) {
+      newPos = pixelStack.pop()!;
+      x = newPos[0];
+      y = newPos[1];
 
-    while (pixelStack.length > 0 && processedPixels < maxPixels) {
-      const [x, y] = pixelStack.pop()!;
+      // Get current pixel position
+      pixelPos = (y * width + x) * 4;
       
-      // Check bounds
-      if (x < 0 || x >= width || y < 0 || y >= height) continue;
+      // Go up as long as the color matches and we're inside the canvas
+      while (y >= 0 && matchStartColor(pixelPos)) {
+        y--;
+        pixelPos -= width * 4;
+      }
       
-      // Check if already visited
-      const key = `${x},${y}`;
-      if (visited.has(key)) continue;
-      visited.add(key);
+      // Don't overextend
+      pixelPos += width * 4;
+      y++;
+      reachLeft = false;
+      reachRight = false;
       
-      const pixelPos = (y * width + x) * 4;
-      
-      // Check if pixel matches
-      if (!matchStartColor(pixelPos)) continue;
-      
-      // Color the pixel
-      colorPixel(pixelPos);
-      processedPixels++;
-      
-      // Add neighboring pixels (4-connected)
-      pixelStack.push([x + 1, y]); // right
-      pixelStack.push([x - 1, y]); // left  
-      pixelStack.push([x, y + 1]); // down
-      pixelStack.push([x, y - 1]); // up
+      // Go down as long as the color matches and we're inside the canvas
+      while (y < height && matchStartColor(pixelPos)) {
+        colorPixel(pixelPos);
+
+        // Check left pixel
+        if (x > 0) {
+          if (matchStartColor(pixelPos - 4)) {
+            if (!reachLeft) {
+              // Add pixel to stack
+              pixelStack.push([x - 1, y]);
+              reachLeft = true;
+            }
+          } else if (reachLeft) {
+            reachLeft = false;
+          }
+        }
+
+        // Check right pixel
+        if (x < width - 1) {
+          if (matchStartColor(pixelPos + 4)) {
+            if (!reachRight) {
+              // Add pixel to stack
+              pixelStack.push([x + 1, y]);
+              reachRight = true;
+            }
+          } else if (reachRight) {
+            reachRight = false;
+          }
+        }
+        
+        y++;
+        pixelPos += width * 4;
+      }
     }
   } else {
     // Non-contiguous fill - fill all matching pixels
-    let processedPixels = 0;
-    const maxPixels = width * height * 0.5; // Limit to 50% of canvas to prevent crashes
-    
-    for (let i = 0; i < data.length && processedPixels < maxPixels; i += 4) {
+    for (let i = 0; i < data.length; i += 4) {
       if (matchStartColor(i)) {
         colorPixel(i);
-        processedPixels++;
       }
     }
   }
@@ -102,11 +126,12 @@ export function floodFill(
       // Exact match
       return r === startR && g === startG && b === startB;
     } else {
-      // Threshold-based match
-      const deltaR = Math.abs(r - startR);
-      const deltaG = Math.abs(g - startG);
-      const deltaB = Math.abs(b - startB);
-      return deltaR <= threshold && deltaG <= threshold && deltaB <= threshold;
+      // Use Euclidean distance for better color matching
+      const deltaR = r - startR;
+      const deltaG = g - startG;
+      const deltaB = b - startB;
+      const distance = Math.sqrt(deltaR * deltaR + deltaG * deltaG + deltaB * deltaB);
+      return distance <= threshold;
     }
   }
 

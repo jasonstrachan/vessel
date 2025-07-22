@@ -3,6 +3,9 @@
 import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import Input from '../ui/Input';
+import { Switch } from '../retroui/Switch';
+import { Slider } from '../retroui/Slider';
+import ColorPicker from './ColorPicker';
 
 export default function FillControls() {
   const { tools, setFillSettings, setBrushSettings } = useAppStore();
@@ -10,23 +13,23 @@ export default function FillControls() {
 
   return (
     <div className="p-4 bg-[#31313A]">
-      
-      {/* Fill Color */}
-      <div className="mb-4">
-        <label className="block text-base text-[#D9D9D9] mb-2">Fill Color</label>
-        <div className="flex items-center gap-2">
-          <Input
-            type="color"
-            value={brushSettings.color}
-            onChange={(e) => setBrushSettings({ color: e.target.value })}
+
+      {/* Color */}
+      <div className="mb-3">
+        <label className="block text-base text-[#D9D9D9] mb-2">Color</label>
+        <div className="flex items-start gap-2">
+          <ColorPicker
+            color={brushSettings.color}
+            onChange={(color) => setBrushSettings({ color })}
           />
           <Input
             type="text"
+            variant="hex"
             value={brushSettings.color}
             onChange={(e) => setBrushSettings({ color: e.target.value })}
-            variant="hex"
+            className="w-22"
             placeholder="#000000"
-            fullWidth
+            onFocus={(e) => e.target.select()}
           />
         </div>
       </div>
@@ -36,29 +39,26 @@ export default function FillControls() {
         <label className="block text-base text-[#D9D9D9] mb-2">
           Threshold: {fillSettings.threshold}
         </label>
-        <Input
-          type="range"
-          min="0"
-          max="255"
-          step="1"
-          value={fillSettings.threshold}
-          onChange={(e) => setFillSettings({ threshold: Math.min(255, Math.max(0, parseInt(e.target.value))) })}
-          fullWidth
+        <Slider
+          defaultValue={[fillSettings.threshold]}
+          value={[fillSettings.threshold]}
+          min={0}
+          max={255}
+          step={1}
+          onValueChange={(value) => setFillSettings({ threshold: value[0] })}
+          aria-label="Fill Threshold"
         />
       </div>
 
       {/* Connected Pixels */}
       <div className="mb-4">
-        <label className="block text-base text-[#D9D9D9] mb-2">Connected Pixels</label>
-        <div className="flex items-center gap-2">
-          <Input
-            type="checkbox"
+        <div className="flex items-center justify-between">
+          <label htmlFor="connected-pixels" className="text-base text-[#D9D9D9]">Connected Pixels</label>
+          <Switch
+            id="connected-pixels"
             checked={fillSettings.contiguous}
-            onChange={(e) => setFillSettings({ contiguous: e.target.checked })}
+            onChange={(checked) => setFillSettings({ contiguous: checked })}
           />
-          <span className="text-base text-[#D9D9D9]">
-            {fillSettings.contiguous ? 'On' : 'Off'}
-          </span>
         </div>
       </div>
 
