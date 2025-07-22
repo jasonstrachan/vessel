@@ -24,7 +24,7 @@ export default function BrushControls() {
   const handleBrushTipChange = React.useCallback((imageData: ImageData) => {
     // Create brush ID based on current brush
     const brushId = brushSettings.brushShape === 'custom' && brushSettings.selectedCustomBrush 
-      ? `custom_${brushSettings.selectedCustomBrush}`
+      ? brushSettings.selectedCustomBrush // Use the selectedCustomBrush ID directly (now contains preset ID)
       : `standard_${brushSettings.brushShape}`;
       
     setBrushSettings({ 

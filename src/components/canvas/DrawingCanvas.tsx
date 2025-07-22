@@ -685,6 +685,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       imageData,
       width,
       height,
+      thumbnail: '', // Will be generated when saving as preset
       createdAt: Date.now()
     };
     

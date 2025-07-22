@@ -45,7 +45,7 @@ export default function MiniCanvas({
   const [redoStack, setRedoStack] = useState<ImageData[]>([]);
 
   // App state
-  const { tools, project, saveCanvasState } = useAppStore();
+  const { tools, project, temporaryCustomBrush, saveCanvasState, brushPresets } = useAppStore();
   const { brushSettings } = tools;
   
   // Get brush engine for drawing
@@ -72,12 +72,33 @@ export default function MiniCanvas({
     }
     
     renderCanvas();
-  }, [width, height, brushSettings.brushShape, brushSettings.selectedCustomBrush, brushSettings.currentBrushTip, isPinned]);
+  }, [width, height, brushSettings.brushShape, brushSettings.selectedCustomBrush, brushSettings.currentBrushTip, isPinned, temporaryCustomBrush, brushPresets]);
 
   // Get the size of the brush tip to display
   const getBrushTipSize = () => {
     if (brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush) {
-      const customBrush = project?.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
+      let customBrush = temporaryCustomBrush && temporaryCustomBrush.id === brushSettings.selectedCustomBrush
+        ? temporaryCustomBrush
+        : project?.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
+      
+      // If not found in temporary or project brushes, check brush presets
+      if (!customBrush) {
+        const preset = brushPresets.find(p => p.isCustomBrush && p.customBrushData && 
+          p.id === brushSettings.selectedCustomBrush);
+        
+        if (preset && preset.customBrushData) {
+          customBrush = {
+            id: brushSettings.selectedCustomBrush,
+            name: preset.name,
+            imageData: preset.customBrushData.imageData,
+            width: preset.customBrushData.width,
+            height: preset.customBrushData.height,
+            thumbnail: preset.thumbnail,
+            createdAt: preset.createdAt.getTime()
+          };
+        }
+      }
+      
       if (customBrush) {
         return Math.max(customBrush.width, customBrush.height);
       }
@@ -98,7 +119,7 @@ export default function MiniCanvas({
     
     // Create current brush ID
     const currentBrushId = brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush 
-      ? `custom_${brushSettings.selectedCustomBrush}`
+      ? brushSettings.selectedCustomBrush // Use the selectedCustomBrush ID directly (now contains preset ID)
       : `standard_${brushSettings.brushShape}`;
     
     // Check if we have a currentBrushTip for THIS specific brush
@@ -111,13 +132,80 @@ export default function MiniCanvas({
     }
     
     if (brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush) {
-      // Load custom brush
-      const customBrush = project?.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
+      // Load custom brush - check temporary brush first, then project brushes, then brush presets
+      let customBrush = temporaryCustomBrush && temporaryCustomBrush.id === brushSettings.selectedCustomBrush
+        ? temporaryCustomBrush
+        : project?.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
+      
+      // If not found in temporary or project brushes, check brush presets
+      if (!customBrush) {
+        const preset = brushPresets.find(p => p.isCustomBrush && p.customBrushData && 
+          p.id === brushSettings.selectedCustomBrush);
+        
+        if (preset && preset.customBrushData) {
+          customBrush = {
+            id: brushSettings.selectedCustomBrush,
+            name: preset.name,
+            imageData: preset.customBrushData.imageData,
+            width: preset.customBrushData.width,
+            height: preset.customBrushData.height,
+            thumbnail: preset.thumbnail,
+            createdAt: preset.createdAt.getTime()
+          };
+        }
+      }
+      console.log('MiniCanvas: Loading custom brush', { 
+        brushId: brushSettings.selectedCustomBrush, 
+        customBrush: customBrush ? { 
+          id: customBrush.id, 
+          width: customBrush.width, 
+          height: customBrush.height,
+          hasImageData: !!customBrush.imageData,
+          imageDataSize: customBrush.imageData ? { 
+            width: customBrush.imageData.width, 
+            height: customBrush.imageData.height,
+            dataLength: customBrush.imageData.data.length
+          } : null
+        } : null,
+        canvasSize: size
+      });
+      
       if (customBrush) {
         ctx.clearRect(0, 0, size, size);
-        ctx.putImageData(customBrush.imageData, 0, 0);
+        
+        // Center the custom brush data in the canvas
+        const offsetX = Math.floor((size - customBrush.width) / 2);
+        const offsetY = Math.floor((size - customBrush.height) / 2);
+        
+        console.log('MiniCanvas: Custom brush placement', { offsetX, offsetY, size });
+        
+        try {
+          ctx.putImageData(customBrush.imageData, offsetX, offsetY);
+          console.log('MiniCanvas: Custom brush ImageData placed successfully');
+          
+          // Debug: Check if any pixels are actually visible
+          const pixelData = customBrush.imageData.data;
+          let visiblePixels = 0;
+          let totalAlpha = 0;
+          for (let i = 3; i < pixelData.length; i += 4) {
+            if (pixelData[i] > 0) visiblePixels++;
+            totalAlpha += pixelData[i];
+          }
+          console.log('MiniCanvas: Pixel analysis', { 
+            totalPixels: pixelData.length / 4,
+            visiblePixels,
+            averageAlpha: totalAlpha / (pixelData.length / 4),
+            firstFewPixels: Array.from(pixelData.slice(0, 16))
+          });
+        } catch (error) {
+          console.error('MiniCanvas: Error placing custom brush ImageData:', error);
+        }
+        
         // Store original data for reset
         setOriginalBrushData(ctx.getImageData(0, 0, size, size));
+        
+        // Force a render update to display the custom brush
+        renderCanvas();
       }
     } else {
       // Create preview for standard brushes
@@ -203,7 +291,7 @@ export default function MiniCanvas({
     const checkSize = 8;
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#eeeeee';
+    ctx.fillStyle = '#cccccc';
     
     for (let x = 0; x < w; x += checkSize) {
       for (let y = 0; y < h; y += checkSize) {

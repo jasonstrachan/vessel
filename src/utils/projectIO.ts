@@ -47,38 +47,67 @@ interface SerializedCustomBrush {
   createdAt: number;
 }
 
-// Convert ImageData to base64 encoded data URL
+// Convert ImageData to base64 encoded raw pixel data (lossless)
 function imageDataToDataUrl(imageData: ImageData): string {
-  const canvas = document.createElement('canvas');
-  canvas.width = imageData.width;
-  canvas.height = imageData.height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Failed to get canvas context');
+  // Serialize ImageData as raw RGBA pixel data to preserve exact values
+  const rawData = {
+    width: imageData.width,
+    height: imageData.height,
+    data: Array.from(imageData.data) // Convert Uint8ClampedArray to regular array for JSON
+  };
   
-  ctx.putImageData(imageData, 0, 0);
-  return canvas.toDataURL('image/png');
+  // Encode as base64 JSON to avoid PNG compression artifacts
+  const jsonString = JSON.stringify(rawData);
+  const base64 = btoa(jsonString);
+  return `data:application/json;base64,${base64}`;
 }
 
-// Convert base64 data URL back to ImageData
+// Convert base64 raw pixel data back to ImageData (lossless)
 function dataUrlToImageData(dataUrl: string): Promise<ImageData> {
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        reject(new Error('Failed to get canvas context'));
+    try {
+      // Check if this is raw pixel data format
+      if (dataUrl.startsWith('data:application/json;base64,')) {
+        const base64 = dataUrl.substring('data:application/json;base64,'.length);
+        const jsonString = atob(base64);
+        const rawData = JSON.parse(jsonString);
+        
+        // Recreate ImageData from raw pixel data
+        const imageData = new ImageData(
+          new Uint8ClampedArray(rawData.data),
+          rawData.width,
+          rawData.height
+        );
+        resolve(imageData);
         return;
       }
       
-      ctx.drawImage(img, 0, 0);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      resolve(imageData);
-    };
-    img.onerror = () => reject(new Error('Failed to load image data'));
-    img.src = dataUrl;
+      // Fallback: handle old PNG format for backward compatibility
+      if (dataUrl.startsWith('data:image/png;base64,')) {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Failed to get canvas context'));
+            return;
+          }
+          
+          ctx.drawImage(img, 0, 0);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          resolve(imageData);
+        };
+        img.onerror = () => reject(new Error('Failed to load image data'));
+        img.src = dataUrl;
+        return;
+      }
+      
+      reject(new Error('Unsupported data format'));
+    } catch (error) {
+      reject(error);
+    }
   });
 }
 

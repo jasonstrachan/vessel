@@ -22,7 +22,7 @@ export const pixelBrushSettings: BrushSettings = {
 
 // Default brush settings for smooth drawing
 export const defaultBrushSettings: BrushSettings = {
-  size: 4,
+  size: 100,
   opacity: 1,
   color: '#000000',
   blendMode: 'source-over',
@@ -30,10 +30,10 @@ export const defaultBrushSettings: BrushSettings = {
   pressure: 1,
   rotation: 0,
   antialiasing: true,
-  lastRegularBrushSize: 4,
+  lastRegularBrushSize: 100,
   pressureEnabled: false,
   minPressure: 1,
-  maxPressure: 4,
+  maxPressure: 100,
   rotationEnabled: false,
   dashedEnabled: false,
   dashLength: 3,
