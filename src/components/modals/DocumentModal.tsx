@@ -31,6 +31,13 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
   }, [isOpen]);
 
   useEffect(() => {
+    if (isOpen && project) {
+      setResizeWidth(project.width);
+      setResizeHeight(project.height);
+    }
+  }, [isOpen, project]);
+
+  useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && isOpen) {
         onClose();
