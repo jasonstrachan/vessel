@@ -94,7 +94,7 @@ export default function Home() {
   }, [saveProject, loadProject]);
 
   return (
-    <main className="h-screen bg-[#141514] text-white flex overflow-hidden">
+    <main className="w-screen h-screen bg-[#141514] text-white flex overflow-hidden">
       {/* Debug Panel (development only) */}
       
       {/* Left Toolbar */}

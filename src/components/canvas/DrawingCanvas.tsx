@@ -1729,13 +1729,13 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   return (
     <>
       <div 
-        className="w-full h-full bg-[#141514] flex items-center justify-center relative"
+        className="w-full h-full bg-[#141514] relative"
         style={{
           overflow: 'visible'
         }}
       >
         {/* Wrapper div for absolute positioning context */}
-        <div ref={wrapperRef} className="relative" style={{ width: `${width}px`, height: `${height}px` }}>
+        <div ref={wrapperRef} className="relative mx-auto" style={{ width: `${width}px`, height: `${height}px` }}>
           <canvas
           ref={canvasRef}
           width={width}
