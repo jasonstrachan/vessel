@@ -145,6 +145,10 @@ interface AppState {
 // Default states - use default brush settings
 const defaultBrushSettingsForStore: BrushSettings = defaultBrushSettings;
 
+// Debug: Log the initial brush size
+console.log('[DEBUG] Initial defaultBrushSettings size:', defaultBrushSettings.size);
+console.log('[DEBUG] Initial defaultBrushSettingsForStore size:', defaultBrushSettingsForStore.size);
+
 const defaultCanvasState: CanvasState = {
   zoom: 1,
   panX: 0,
@@ -333,7 +337,10 @@ export const useAppStore = create<AppState>()(
       clearSelection: () => set({ selectionStart: null, selectionEnd: null }),
       
       // Tool State
-      tools: defaultToolState,
+      tools: (() => {
+        console.log('[DEBUG] Initializing tools with defaultToolState, brush size:', defaultToolState.brushSettings.size);
+        return defaultToolState;
+      })(),
       setCurrentTool: (tool) => set((state) => {
         const newBrushSettings = { ...state.tools.brushSettings };
         
@@ -354,6 +361,11 @@ export const useAppStore = create<AppState>()(
         };
       }),
       setBrushSettings: (settings) => set((state) => {
+        // Debug: Log brush settings changes
+        if (settings.size !== undefined) {
+          console.log('[DEBUG] setBrushSettings size change:', settings.size, 'from:', state.tools.brushSettings.size);
+        }
+        
         const currentSettings = state.tools.brushSettings;
         const newSettings = { ...currentSettings, ...settings };
         
@@ -408,7 +420,11 @@ export const useAppStore = create<AppState>()(
       temporaryCustomBrush: null,
       setTemporaryCustomBrush: (brush) => set({ temporaryCustomBrush: brush }),
       setBrushPreset: (preset) => set((state) => {
+        console.log('[DEBUG] setBrushPreset called with preset:', preset.name, 'current size:', state.tools.brushSettings.size);
+        
         const { settings, components } = applyBrushPreset(preset);
+        console.log('[DEBUG] applyBrushPreset returned settings:', settings);
+        
         const currentSettings = state.tools.brushSettings;
         const newBrushSettings = { ...currentSettings, ...settings };
         
@@ -574,12 +590,28 @@ export const useAppStore = create<AppState>()(
       }),
       
       // Custom Brush Management
-      addCustomBrush: (brush) => set((state) => ({
-        project: state.project ? {
+      addCustomBrush: (brush) => set((state) => {
+        const newProject = state.project ? {
           ...state.project,
           customBrushes: [...state.project.customBrushes, brush]
-        } : null
-      })),
+        } : null;
+
+        // Automatically select the newly created custom brush
+        const newBrushSettings = {
+          ...state.tools.brushSettings,
+          brushShape: BrushShape.CUSTOM,
+          selectedCustomBrush: brush.id,
+          size: 100
+        };
+
+        return {
+          project: newProject,
+          tools: {
+            ...state.tools,
+            brushSettings: newBrushSettings
+          }
+        };
+      }),
       removeCustomBrush: (brushId) => set((state) => ({
         project: state.project ? {
           ...state.project,
@@ -658,7 +690,16 @@ export const useAppStore = create<AppState>()(
 
         return {
           brushPresets: [...state.brushPresets, newPreset],
-          temporaryCustomBrush: clearedTemporaryBrush
+          temporaryCustomBrush: clearedTemporaryBrush,
+          currentBrushPreset: newPreset,
+          tools: {
+            ...state.tools,
+            brushSettings: {
+              ...state.tools.brushSettings,
+              brushShape: BrushShape.CUSTOM,
+              selectedCustomBrush: newPreset.id // Use the preset ID
+            }
+          }
         };
       }),
       

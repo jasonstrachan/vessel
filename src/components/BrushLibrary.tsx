@@ -6,11 +6,22 @@ const BrushLibrary = () => {
   const brushPresets = useAppStore((state) => state.brushPresets);
   const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
   const setBrushPreset = useAppStore((state) => state.setBrushPreset);
+  
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);
   const saveCustomBrushAsPreset = useAppStore((state) => state.saveCustomBrushAsPreset);
   const removeBrushPreset = useAppStore((state) => state.removeBrushPreset);
   const removeCustomBrush = useAppStore((state) => state.removeCustomBrush);
   const tools = useAppStore((state) => state.tools);
+  
+  // Debug: Log brush settings changes
+  React.useEffect(() => {
+    console.log('[DEBUG] BrushLibrary brush settings changed:', {
+      brushShape: tools.brushSettings.brushShape,
+      selectedCustomBrush: tools.brushSettings.selectedCustomBrush,
+      size: tools.brushSettings.size,
+      currentBrushPreset: currentBrushPreset?.name
+    });
+  }, [tools.brushSettings.brushShape, tools.brushSettings.selectedCustomBrush, currentBrushPreset?.name, tools.brushSettings.size]);
   const project = useAppStore((state) => state.project);
   const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
   
@@ -73,6 +84,9 @@ const BrushLibrary = () => {
       // Extract the original custom brush ID
       const originalCustomBrushId = presetId.substring(7);
       removeCustomBrush(originalCustomBrushId);
+    } else if (presetId.startsWith('preset_')) {
+      // This is a custom brush saved as preset - remove the brush preset
+      removeBrushPreset(presetId);
     } else {
       // Regular brush preset
       removeBrushPreset(presetId);
@@ -82,11 +96,18 @@ const BrushLibrary = () => {
   const handlePresetClick = (preset: BrushPreset) => {
     if (preset.isCustomBrush && preset.customBrushData) {
       // For custom brush presets, set the brush settings to use custom brush
-      // Extract the original custom brush ID from the preset ID
-      const originalCustomBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
+      // For saved presets (prefix: preset_), use the preset ID directly
+      // For project custom brushes (prefix: custom_), extract the original ID
+      let customBrushId: string;
+      if (preset.id.startsWith('custom_')) {
+        customBrushId = preset.id.substring(7);
+      } else {
+        // For preset_ IDs, use the full preset ID so MiniCanvas can find it
+        customBrushId = preset.id;
+      }
       setBrushSettings({
         brushShape: BrushShape.CUSTOM,
-        selectedCustomBrush: originalCustomBrushId, // Use the original custom brush ID
+        selectedCustomBrush: customBrushId,
         size: 100 // Default to 100% (original size) for custom brushes
       });
     } else {
@@ -102,13 +123,21 @@ const BrushLibrary = () => {
   const isPresetActive = (preset: BrushPreset) => {
     if (preset.isCustomBrush) {
       // Custom brush preset is active if brush shape is custom and selected brush matches
-      // Extract the original custom brush ID from the preset ID
-      const originalCustomBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
+      // For saved presets (prefix: preset_), compare with full preset ID
+      // For project custom brushes (prefix: custom_), extract the original ID
+      let expectedBrushId: string;
+      if (preset.id.startsWith('custom_')) {
+        expectedBrushId = preset.id.substring(7);
+      } else {
+        // For preset_ IDs, use the full preset ID
+        expectedBrushId = preset.id;
+      }
       return tools.brushSettings.brushShape === BrushShape.CUSTOM && 
-             tools.brushSettings.selectedCustomBrush === originalCustomBrushId;
+             tools.brushSettings.selectedCustomBrush === expectedBrushId;
     } else {
-      // Regular preset is active via normal preset system
-      return currentBrushPreset?.id === preset.id;
+      // Regular preset is active ONLY when no custom brush is selected and preset matches
+      return tools.brushSettings.brushShape !== BrushShape.CUSTOM && 
+             currentBrushPreset?.id === preset.id;
     }
   };
 

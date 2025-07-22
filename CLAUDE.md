@@ -11,6 +11,8 @@ dev. When you seem stuck or overly complex, I'll redirect you - my guidance help
 - Only touch the code that is aboutely neccesary, the simplist changes is the best
 - Dont starting the dev server unless I tell you to, its already running.
 - Dont do git commits unless I tell you too.
+- Avoid complex abstractions or "clever" code. The simple, obvious solution is probably better, and my guidance helps you stay focused on what matters.
+
 
 ## 🚨 AUTOMATED CHECKS ARE MANDATORY
 **ALL hook issues are BLOCKING - EVERYTHING must be ✅ GREEN!**  
@@ -22,7 +24,7 @@ These are not suggestions. Fix ALL issues before continuing.
 ### Research → Plan → Implement
 **NEVER JUMP STRAIGHT TO CODING!** Always follow this sequence:
 1. **Research**: Explore the /docs and codebase, understand existing patterns
-2. **Plan**: Create a detailed implementation plan with /docs/todo.md and verify it with me  
+2. **Plan**: Create a detailed implementation plan with /docs/todo.md
 3. **Implement**: Execute the plan with validation checkpoints
 4. **Document**: Update the /docs with new information
 
