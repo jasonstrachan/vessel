@@ -66,7 +66,6 @@ export default function BrushControls() {
             Hue Shift: {hueShift > 0 ? '+' : ''}{hueShift}°
           </label>
           <Slider
-            defaultValue={[0]}
             value={[hueShift]}
             min={-180}
             max={180}
@@ -86,7 +85,7 @@ export default function BrushControls() {
       {/* Color */}
       <div className="mb-3">
         <label className="block text-base text-[#D9D9D9] mb-2">Color</label>
-        <div className="flex items-start gap-2">
+        <div className="flex items-start gap-2" suppressHydrationWarning>
           <ColorPicker
             color={brushSettings.color}
             onChange={(color) => setBrushSettings({ color })}
@@ -106,11 +105,10 @@ export default function BrushControls() {
       {/* Brush Size - Unified percentage-based slider for all brushes */}
       <div className="mb-3">
         <label className="block text-base text-[#D9D9D9] mb-2">
-          Size: {brushSettings.size}%
+          Size: {brushSettings.size}{brushSettings.brushShape !== BrushShape.CUSTOM ? 'px' : ''}
         </label>
         <div onDoubleClick={handleBrushSizeDoubleClick}>
           <Slider
-            defaultValue={[brushSettings.size]}
             value={[brushSettings.size]}
             min={1}
             max={500}
@@ -127,7 +125,6 @@ export default function BrushControls() {
           Opacity: {Math.round(brushSettings.opacity * 100)}%
         </label>
         <Slider
-          defaultValue={[brushSettings.opacity]}
           value={[brushSettings.opacity]}
           min={0}
           max={1}
@@ -143,7 +140,6 @@ export default function BrushControls() {
           Spacing: {brushSettings.spacing}px
         </label>
         <Slider
-          defaultValue={[brushSettings.spacing]}
           value={[brushSettings.spacing]}
           min={1}
           max={400}
