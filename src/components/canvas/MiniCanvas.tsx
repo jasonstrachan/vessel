@@ -119,7 +119,7 @@ export default function MiniCanvas({
     
     // Create current brush ID
     const currentBrushId = brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush 
-      ? brushSettings.selectedCustomBrush // Use the selectedCustomBrush ID directly (now contains preset ID)
+      ? brushSettings.selectedCustomBrush // Use raw format (matches BrushControls)
       : `standard_${brushSettings.brushShape}`;
     
     // Check if we have a currentBrushTip for THIS specific brush
