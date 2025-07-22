@@ -836,7 +836,7 @@ export const useBrushEngine = () => {
     
     // Create current brush ID
     const currentBrushId = isCustomBrush && tools.brushSettings.selectedCustomBrush 
-      ? `custom_${tools.brushSettings.selectedCustomBrush}`
+      ? tools.brushSettings.selectedCustomBrush // Use raw format (matches BrushControls/MiniCanvas)
       : `standard_${tools.brushSettings.brushShape}`;
     
     // Check if there's a currentBrushTip for this specific brush
