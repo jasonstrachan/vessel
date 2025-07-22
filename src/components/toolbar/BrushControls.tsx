@@ -10,17 +10,78 @@ import ColorPicker from './ColorPicker';
 import Input from '../ui/Input';
 import { Switch } from '../retroui/Switch';
 import { Slider } from '../retroui/Slider';
+import MiniCanvas from '../canvas/MiniCanvas';
 
 export default function BrushControls() {
-  const { tools, setBrushSettings } = useAppStore();
+  const { tools, setBrushSettings, saveCanvasState } = useAppStore();
   const { brushSettings } = tools;
   
-  // Check if currently using a custom brush
-  const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
+  // Local state for hue shift
+  const [hueShift, setHueShift] = React.useState(0);
+  const miniCanvasRef = React.useRef<any>(null);
+
+  // Handle brush tip changes from MiniCanvas
+  const handleBrushTipChange = React.useCallback((imageData: ImageData) => {
+    // Create brush ID based on current brush
+    const brushId = brushSettings.brushShape === 'custom' && brushSettings.selectedCustomBrush 
+      ? `custom_${brushSettings.selectedCustomBrush}`
+      : `standard_${brushSettings.brushShape}`;
+      
+    setBrushSettings({ 
+      currentBrushTip: {
+        imageData,
+        brushId
+      }
+    });
+  }, [setBrushSettings, brushSettings.brushShape, brushSettings.selectedCustomBrush]);
+
+  // Reset hue shift when brush changes (but keep currentBrushTip)
+  React.useEffect(() => {
+    setHueShift(0);
+  }, [brushSettings.brushShape, brushSettings.selectedCustomBrush]);
+
+  // Handle double-click to reset brush size to 100%
+  const handleBrushSizeDoubleClick = React.useCallback(() => {
+    setBrushSettings({ size: 100 });
+  }, [setBrushSettings]);
 
   return (
     <div className="p-4 bg-[#31313A]">
-      
+      {/* Mini Canvas for brush tip editing */}
+      <div className="mb-4">
+        <MiniCanvas 
+          width={120} 
+          height={120} 
+          hueShift={hueShift}
+          onHueShiftChange={setHueShift}
+          onBrushTipChange={handleBrushTipChange}
+          onSaveUndoState={() => {
+            // This will be called by MiniCanvas when it needs to save undo state
+          }}
+        />
+        
+        {/* Hue adjustment slider */}
+        <div className="mt-2">
+          <label className="block text-sm text-[#D9D9D9] mb-1">
+            Hue Shift: {hueShift > 0 ? '+' : ''}{hueShift}°
+          </label>
+          <Slider
+            defaultValue={[0]}
+            value={[hueShift]}
+            min={-180}
+            max={180}
+            step={1}
+            onValueChange={(value) => {
+              // Only save state if this is the first change (when going from 0 to non-zero)
+              if (hueShift === 0 && value[0] !== 0) {
+                // TODO: Save mini canvas state before hue change
+              }
+              setHueShift(value[0]);
+            }}
+            aria-label="Hue Shift"
+          />
+        </div>
+      </div>
 
       {/* Color */}
       <div className="mb-3">
@@ -42,42 +103,22 @@ export default function BrushControls() {
         </div>
       </div>
 
-      {/* Brush Size - Different behavior for custom vs regular brushes */}
+      {/* Brush Size - Unified percentage-based slider for all brushes */}
       <div className="mb-3">
-        {isCustomBrush ? (
-          // Custom brush: percentage-based slider
-          <>
-            <label className="block text-base text-[#D9D9D9] mb-2">
-              Scale: {brushSettings.size}% 
-              <span className="text-base text-[#D9D9D9] ml-1">(of original size)</span>
-            </label>
-            <Slider
-              defaultValue={[brushSettings.size]}
-              value={[brushSettings.size]}
-              min={10}
-              max={500}
-              step={5}
-              onValueChange={(value) => setBrushSettings({ size: value[0] })}
-              aria-label="Brush Scale"
-            />
-          </>
-        ) : (
-          // Regular brush: pixel-based slider
-          <>
-            <label className="block text-base text-[#D9D9D9] mb-2">
-              Size: {brushSettings.size}px
-            </label>
-            <Slider
-              defaultValue={[brushSettings.size]}
-              value={[brushSettings.size]}
-              min={1}
-              max={100}
-              step={1}
-              onValueChange={(value) => setBrushSettings({ size: value[0] })}
-              aria-label="Brush Size"
-            />
-          </>
-        )}
+        <label className="block text-base text-[#D9D9D9] mb-2">
+          Size: {brushSettings.size}%
+        </label>
+        <div onDoubleClick={handleBrushSizeDoubleClick}>
+          <Slider
+            defaultValue={[brushSettings.size]}
+            value={[brushSettings.size]}
+            min={1}
+            max={500}
+            step={1}
+            onValueChange={(value) => setBrushSettings({ size: value[0] })}
+            aria-label="Brush Size"
+          />
+        </div>
       </div>
 
       {/* Opacity */}

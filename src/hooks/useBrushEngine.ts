@@ -5,6 +5,15 @@ import { useAppStore } from '../stores/useAppStore';
 import { BrushComponent, ComponentType, BrushShape, CustomBrush } from '../types';
 import { shouldApplyGridSnap, snapToGrid, getGridPositionsBetween, calculateGridDimensions, snapToRectangularGrid, getRectangularGridPositionsBetween } from '../utils/gridSnap';
 
+// Base sizes for standard brushes (100% = these sizes in pixels)
+const BRUSH_BASE_SIZES = {
+  [BrushShape.PIXEL_ROUND]: 1,
+  [BrushShape.ROUND]: 10,
+  [BrushShape.SQUARE]: 10,
+  [BrushShape.TRIANGLE]: 10,
+  [BrushShape.CUSTOM]: 32 // Default for custom brushes
+} as const;
+
 export interface StrokeInput {
   position: { x: number; y: number };
   pressure: number;
@@ -799,15 +808,14 @@ export const useBrushEngine = () => {
     // Get actual pressure from cursor state in the store
     const cursorPressure = useAppStore.getState().canvas.cursor.pressure ?? 1.0;
     
-    // Calculate actual brush size first (matching the brush engine logic)
-    let actualBrushSize = tools.brushSettings.size;
-    
-    // Handle custom brushes differently (they use percentage scaling)
+    // Calculate actual brush size using unified percentage scaling
+    let actualBrushSize;
     const isCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM;
-    if (isCustomBrush && tools.brushSettings.selectedCustomBrush) {
-      // For custom brushes, size is percentage - assume 32px base size
-      actualBrushSize = (tools.brushSettings.size / 100) * 32;
-    }
+    
+    // We'll calculate this after we determine the custom brush below
+    // For now, use a default calculation
+    const baseSize = BRUSH_BASE_SIZES[tools.brushSettings.brushShape || BrushShape.ROUND];
+    actualBrushSize = (tools.brushSettings.size / 100) * baseSize;
     
     // Apply pressure if enabled
     if (tools.brushSettings.pressureEnabled) {
@@ -823,8 +831,27 @@ export const useBrushEngine = () => {
     }
     
     // Look for custom brush - check temporary brush first, then project brushes
+    // Also check for currentBrushTip which can override any brush shape
     let customBrush = null;
-    if (isCustomBrush && tools.brushSettings.selectedCustomBrush) {
+    
+    // Create current brush ID
+    const currentBrushId = isCustomBrush && tools.brushSettings.selectedCustomBrush 
+      ? `custom_${tools.brushSettings.selectedCustomBrush}`
+      : `standard_${tools.brushSettings.brushShape}`;
+    
+    // Check if there's a currentBrushTip for this specific brush
+    if (tools.brushSettings.currentBrushTip && tools.brushSettings.currentBrushTip.brushId === currentBrushId) {
+      // Create a temporary custom brush from the current brush tip
+      customBrush = {
+        id: 'current-brush-tip',
+        name: 'Current Brush Tip',
+        imageData: tools.brushSettings.currentBrushTip.imageData,
+        thumbnail: '',
+        width: tools.brushSettings.currentBrushTip.imageData.width,
+        height: tools.brushSettings.currentBrushTip.imageData.height,
+        createdAt: Date.now()
+      };
+    } else if (isCustomBrush && tools.brushSettings.selectedCustomBrush) {
       // Check temporary custom brush first
       if (temporaryCustomBrush && temporaryCustomBrush.id === tools.brushSettings.selectedCustomBrush) {
         customBrush = temporaryCustomBrush;
@@ -851,6 +878,16 @@ export const useBrushEngine = () => {
           createdAt: customBrushPreset.createdAt.getTime()
         };
       }
+    }
+    
+    // Now recalculate actualBrushSize with the correct customBrush information
+    if (tools.brushSettings.currentBrushTip && tools.brushSettings.currentBrushTip.brushId === currentBrushId && customBrush) {
+      // For currentBrushTip, use the max dimension of the brush tip as base size
+      const brushTipBaseSize = Math.max(customBrush.width, customBrush.height);
+      actualBrushSize = (tools.brushSettings.size / 100) * brushTipBaseSize;
+    } else if (isCustomBrush && customBrush) {
+      // For custom brushes, use default base size
+      actualBrushSize = (tools.brushSettings.size / 100) * BRUSH_BASE_SIZES[BrushShape.CUSTOM];
     }
     
     // Apply grid snapping if enabled using the actual brush size
@@ -915,10 +952,18 @@ export const useBrushEngine = () => {
     
     
     // Handle custom brush rendering with spacing support
-    if (isCustomBrush && customBrush) {
-      // Scale custom brush based on brush size setting as percentage
-      // Size 100 = 100% (original size), Size 50 = 50%, Size 200 = 200%
+    // Also use custom brush rendering if we have a currentBrushTip
+    if (customBrush) {
+      // Scale custom brush using unified percentage system
       let scaleFactor = settings.size / 100;
+      
+      // For currentBrushTip, we need to scale based on the actual brush tip size
+      if (tools.brushSettings.currentBrushTip && tools.brushSettings.currentBrushTip.brushId === currentBrushId) {
+        // The actualBrushSize already includes the correct scaling for currentBrushTip
+        // We need to convert this back to a scale factor relative to the brush tip size
+        const brushTipBaseSize = Math.max(customBrush.width, customBrush.height);
+        scaleFactor = actualBrushSize / brushTipBaseSize;
+      }
       
       // For grid snapping, ensure brush size matches grid size exactly
       if (isGridSnapping) {

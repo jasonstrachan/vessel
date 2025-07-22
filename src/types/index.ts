@@ -199,6 +199,11 @@ export interface BrushSettings {
   dashGap: number;
   // Grid snap settings
   gridSnapEnabled: boolean;
+  // Current brush tip (edited in mini canvas) with brush identifier
+  currentBrushTip?: {
+    imageData: ImageData;
+    brushId: string; // Identifies which brush this edit belongs to
+  };
 }
 
 export interface ComponentParams {
