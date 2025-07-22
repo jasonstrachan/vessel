@@ -13,15 +13,6 @@ const BrushLibrary = () => {
   const removeCustomBrush = useAppStore((state) => state.removeCustomBrush);
   const tools = useAppStore((state) => state.tools);
   
-  // Debug: Log brush settings changes
-  React.useEffect(() => {
-    console.log('[DEBUG] BrushLibrary brush settings changed:', {
-      brushShape: tools.brushSettings.brushShape,
-      selectedCustomBrush: tools.brushSettings.selectedCustomBrush,
-      size: tools.brushSettings.size,
-      currentBrushPreset: currentBrushPreset?.name
-    });
-  }, [tools.brushSettings.brushShape, tools.brushSettings.selectedCustomBrush, currentBrushPreset?.name, tools.brushSettings.size]);
   const project = useAppStore((state) => state.project);
   const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
   

@@ -449,7 +449,7 @@ export const getBrushPresetsByCategory = (category: string): BrushPreset[] => {
 export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<BrushSettings>; components: BrushComponent[] } => {
   const settings: Partial<BrushSettings> = {};
   
-  // Extract behavior settings from components (but NOT size)
+  // Extract behavior settings from components
   preset.components.forEach(component => {
     switch (component.type) {
       case ComponentType.ANTI_ALIASING:
@@ -461,32 +461,39 @@ export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<Brush
     }
   });
   
-  // Apply preset specific behavior settings (excluding size)
+  // Apply preset specific settings including default pixel sizes for default brushes
   if (preset.id === 'pixel-brush') {
+    settings.size = 1; // 1px default for pixel brush
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = false;
   } else if (preset.id === 'default-brush') {
+    settings.size = 10; // 10px default for default brush
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = true;
   } else if (preset.id === 'square-pixel-1') {
+    settings.size = 1; // 1px default as per name
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = false;
   } else if (preset.id === 'round-pixel-4') {
+    settings.size = 4; // 4px default as per name
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = false;
   } else if (preset.id === 'round-soft-4') {
+    settings.size = 4; // 4px default as per name
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = true;
   } else if (preset.id === 'round-square-6') {
+    settings.size = 6; // 6px default as per name
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = true;
   } else if (preset.id === 'ink-brush') {
+    settings.size = 10; // 10px default for ink brush
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = true;

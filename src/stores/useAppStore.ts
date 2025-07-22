@@ -142,12 +142,13 @@ interface AppState {
   setHistorySize: (size: number) => void;
 }
 
-// Default states - use default brush settings
-const defaultBrushSettingsForStore: BrushSettings = defaultBrushSettings;
+// Default states - apply default brush preset to get correct size
+const { settings: defaultPresetSettings } = applyBrushPreset(defaultBrushPreset);
+const defaultBrushSettingsForStore: BrushSettings = {
+  ...defaultBrushSettings,
+  ...defaultPresetSettings
+};
 
-// Debug: Log the initial brush size
-console.log('[DEBUG] Initial defaultBrushSettings size:', defaultBrushSettings.size);
-console.log('[DEBUG] Initial defaultBrushSettingsForStore size:', defaultBrushSettingsForStore.size);
 
 const defaultCanvasState: CanvasState = {
   zoom: 1,
@@ -285,7 +286,7 @@ export const useAppStore = create<AppState>()(
           const newCanvas = document.createElement('canvas');
           newCanvas.width = width;
           newCanvas.height = height;
-          const newCtx = newCanvas.getContext('2d');
+          const newCtx = newCanvas.getContext('2d', { willReadFrequently: true });
           
           if (newCtx) {
             // Clear with transparent background
@@ -295,7 +296,7 @@ export const useAppStore = create<AppState>()(
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = layer.imageData.width;
             tempCanvas.height = layer.imageData.height;
-            const tempCtx = tempCanvas.getContext('2d');
+            const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
             
             if (tempCtx) {
               tempCtx.putImageData(layer.imageData, 0, 0);
@@ -338,7 +339,6 @@ export const useAppStore = create<AppState>()(
       
       // Tool State
       tools: (() => {
-        console.log('[DEBUG] Initializing tools with defaultToolState, brush size:', defaultToolState.brushSettings.size);
         return defaultToolState;
       })(),
       setCurrentTool: (tool) => set((state) => {
@@ -361,10 +361,6 @@ export const useAppStore = create<AppState>()(
         };
       }),
       setBrushSettings: (settings) => set((state) => {
-        // Debug: Log brush settings changes
-        if (settings.size !== undefined) {
-          console.log('[DEBUG] setBrushSettings size change:', settings.size, 'from:', state.tools.brushSettings.size);
-        }
         
         const currentSettings = state.tools.brushSettings;
         const newSettings = { ...currentSettings, ...settings };
@@ -420,10 +416,8 @@ export const useAppStore = create<AppState>()(
       temporaryCustomBrush: null,
       setTemporaryCustomBrush: (brush) => set({ temporaryCustomBrush: brush }),
       setBrushPreset: (preset) => set((state) => {
-        console.log('[DEBUG] setBrushPreset called with preset:', preset.name, 'current size:', state.tools.brushSettings.size);
         
         const { settings, components } = applyBrushPreset(preset);
-        console.log('[DEBUG] applyBrushPreset returned settings:', settings);
         
         const currentSettings = state.tools.brushSettings;
         const newBrushSettings = { ...currentSettings, ...settings };
@@ -634,14 +628,14 @@ export const useAppStore = create<AppState>()(
           const thumbnailSize = 32;
           thumbnailCanvas.width = thumbnailSize;
           thumbnailCanvas.height = thumbnailSize;
-          const thumbnailCtx = thumbnailCanvas.getContext('2d');
+          const thumbnailCtx = thumbnailCanvas.getContext('2d', { willReadFrequently: true });
           
           if (thumbnailCtx) {
             // Create a canvas from the brush imageData
             const brushCanvas = document.createElement('canvas');
             brushCanvas.width = customBrush.width;
             brushCanvas.height = customBrush.height;
-            const brushCtx = brushCanvas.getContext('2d');
+            const brushCtx = brushCanvas.getContext('2d', { willReadFrequently: true });
             
             if (brushCtx) {
               brushCtx.putImageData(customBrush.imageData, 0, 0);
@@ -725,7 +719,6 @@ export const useAppStore = create<AppState>()(
       // History Management
       saveCanvasState: (canvas, actionType, description) => {
         if (isHistoryOperationInProgress) {
-          console.log('[UNDO] saveCanvasState blocked - history operation in progress');
           return;
         }
         
@@ -742,7 +735,6 @@ export const useAppStore = create<AppState>()(
         const performSave = () => {
           const state = get();
           if (state.history.isCapturing || isHistoryOperationInProgress) {
-            console.log('[UNDO] performSave blocked - isCapturing:', state.history.isCapturing, 'inProgress:', isHistoryOperationInProgress);
             return;
           }
           
@@ -763,13 +755,6 @@ export const useAppStore = create<AppState>()(
             newUndoStack.shift();
           }
           
-          console.log('[UNDO] saveCanvasState:', {
-            action: actionType,
-            description,
-            undoStackLength: newUndoStack.length,
-            redoStackLength: 0,
-            snapshotId: snapshot.id
-          });
           
           set({
             history: {
@@ -801,10 +786,8 @@ export const useAppStore = create<AppState>()(
       
       undo: () => {
         const state = get();
-        console.log('[UNDO] undo called - undoStack.length:', state.history.undoStack.length, 'redoStack.length:', state.history.redoStack.length);
         
         if (state.history.undoStack.length <= 1) {
-          console.log('[UNDO] undo blocked - not enough states (need at least 2)');
           return null; // Need at least 2 states to undo
         }
         
@@ -812,15 +795,6 @@ export const useAppStore = create<AppState>()(
         const currentState = state.history.undoStack[state.history.undoStack.length - 1];
         // Previous state is what we want to restore to
         const previousState = state.history.undoStack[state.history.undoStack.length - 2];
-        
-        console.log('[UNDO] undo operation:', {
-          currentStateId: currentState.id,
-          currentDescription: currentState.description,
-          previousStateId: previousState.id,
-          previousDescription: previousState.description,
-          newUndoStackLength: state.history.undoStack.length - 1,
-          newRedoStackLength: state.history.redoStack.length + 1
-        });
         
         const newUndoStack = state.history.undoStack.slice(0, -1); // Remove current state
         const newRedoStack = [currentState, ...state.history.redoStack]; // Add current to redo stack
@@ -846,16 +820,13 @@ export const useAppStore = create<AppState>()(
           }
         }));
         
-        console.log('[UNDO] undo completed - returning state:', previousState.id, previousState.description);
         return previousState; // Return the state to restore to
       },
       
       redo: () => {
         const state = get();
-        console.log('[UNDO] redo called - undoStack.length:', state.history.undoStack.length, 'redoStack.length:', state.history.redoStack.length);
         
         if (state.history.redoStack.length === 0) {
-          console.log('[UNDO] redo blocked - no states to redo');
           return null;
         }
         
@@ -863,13 +834,6 @@ export const useAppStore = create<AppState>()(
         const stateToRestore = state.history.redoStack[0];
         const newRedoStack = state.history.redoStack.slice(1); // Remove restored state from redo stack
         const newUndoStack = [...state.history.undoStack, stateToRestore]; // Add restored state to undo stack
-        
-        console.log('[UNDO] redo operation:', {
-          restoreStateId: stateToRestore.id,
-          restoreDescription: stateToRestore.description,
-          newUndoStackLength: newUndoStack.length,
-          newRedoStackLength: newRedoStack.length
-        });
         
         // Set protection flags during operation
         isHistoryOperationInProgress = true;
@@ -892,7 +856,6 @@ export const useAppStore = create<AppState>()(
           }
         }));
         
-        console.log('[UNDO] redo completed - returning state:', stateToRestore.id, stateToRestore.description);
         return stateToRestore; // Return the state to restore to
       },
       
@@ -1085,7 +1048,7 @@ export const useAppStore = create<AppState>()(
           const layerCanvas = document.createElement('canvas');
           layerCanvas.width = layer.imageData.width;
           layerCanvas.height = layer.imageData.height;
-          const layerCtx = layerCanvas.getContext('2d');
+          const layerCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
           
           if (layerCtx) {
             // Put the layer's ImageData onto the temporary canvas

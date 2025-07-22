@@ -13,6 +13,28 @@
    - [Modular Brush Engine](#modular-brush-engine)
    - [Pixel-Perfect Drawing](#pixel-perfect-drawing)
    - [Tool Interface](#tool-interface)
+4. [Canvas Interaction Improvements](#canvas-interaction-improvements)
+   - [Cursor-Centered Zooming Fix](#cursor-centered-zooming-fix-2025-07-07)
+   - [Pixel Brush Implementation](#pixel-brush-implementation-2025-07-08)
+   - [Enhanced Pixel-Perfect Drawing Algorithm](#enhanced-pixel-perfect-drawing-algorithm-2025-07-08)
+   - [Canvas Display Mode Architecture](#canvas-display-mode-architecture-2025-07-08)
+   - [Image Paste with Marching Ants Selection](#image-paste-with-marching-ants-selection-2025-07-10)
+5. [Custom Brush System](#custom-brush-system)
+   - [Overview](#overview-1)
+   - [Custom Brush Workflow](#custom-brush-workflow)
+   - [ID Management and Brush Selection](#id-management-and-brush-selection)
+   - [Brush Data Storage](#brush-data-storage)
+   - [Brush Tip Display Flow](#brush-tip-display-flow)
+6. [MiniCanvas System](#minicanvas-system)
+   - [Overview](#overview-2)
+   - [Purpose](#purpose-1)
+   - [Architecture](#architecture)
+   - [Rendering Pipeline](#rendering-pipeline)
+   - [Performance Optimizations](#performance-optimizations)
+   - [Integration Points](#integration-points)
+   - [Debugging Features](#debugging-features)
+   - [Edge Cases Handled](#edge-cases-handled)
+   - [Future Enhancements](#future-enhancements)
 
 ---
 
@@ -2447,3 +2469,347 @@ requestAnimationFrame(() => renderView());
 - **Full Feature Support**: All documented functionality working correctly
 
 **Performance**: Maintains 60fps through efficient animation loop and optimized selection rendering. Marching ants only animate when selection is active.
+
+## Custom Brush System
+
+### Overview
+
+TinyBrush supports creating custom brushes from canvas selections. These brushes can be used temporarily or saved to the brush library for persistent use.
+
+### Custom Brush Workflow
+
+#### 1. Creating a Custom Brush
+
+Custom brushes are created from canvas selections:
+1. User selects an area with the selection tool
+2. Creates a custom brush via context menu or keyboard shortcut
+3. Brush is stored as `temporaryCustomBrush` with ID format: `temp_brush_{timestamp}`
+4. The `addCustomBrush` action automatically selects the new brush
+
+#### 2. Temporary vs Saved Brushes
+
+**Temporary Custom Brushes:**
+- Created from canvas selection
+- Stored in `temporaryCustomBrush` state
+- ID format: `temp_brush_{timestamp}`
+- Cleared when saved to library or when creating a new custom brush
+
+**Saved Custom Brushes (Presets):**
+- Created when user clicks "+" in Brush Library
+- Stored in `brushPresets` array
+- ID format: `preset_temp_brush_{timestamp}`
+- Persist across sessions
+
+**Project Custom Brushes:**
+- Loaded from saved project files
+- Stored in `project.customBrushes`
+- ID format: `custom_{originalBrushId}`
+- Part of the project data
+
+### ID Management and Brush Selection
+
+The system uses different ID formats to track brush origins:
+
+```typescript
+// Temporary brush created from selection
+selectedCustomBrush: "temp_brush_1234"
+
+// After saving to library
+selectedCustomBrush: "preset_temp_brush_1234"  
+
+// Loaded from project file
+selectedCustomBrush: "brush_id_from_file"
+```
+
+#### Key Components
+
+**BrushLibrary.tsx:**
+- `handlePresetClick`: Sets `selectedCustomBrush` based on preset type
+  - For `custom_` prefix: strips prefix to get original ID
+  - For `preset_` prefix: uses full preset ID
+- `isPresetActive`: Determines which brush is highlighted
+  - Uses same logic to match selected brush with preset
+
+**MiniCanvas.tsx:**
+- Looks up brush data in this order:
+  1. `temporaryCustomBrush` (if ID matches)
+  2. `project.customBrushes` (for project brushes)
+  3. `brushPresets` (for saved presets with `customBrushData`)
+
+**useAppStore.ts:**
+- `addCustomBrush`: Automatically selects newly created brush
+- `saveCustomBrushAsPreset`: 
+  - Creates preset with ID `preset_{originalBrushId}`
+  - Sets `selectedCustomBrush` to the preset ID
+  - Clears `temporaryCustomBrush`
+
+### Brush Data Storage
+
+Custom brushes store their pixel data differently based on type:
+
+**Temporary/Project Brushes:**
+```typescript
+{
+  id: string,
+  name: string,
+  imageData: ImageData,
+  width: number,
+  height: number,
+  thumbnail: string,
+  createdAt: number
+}
+```
+
+**Brush Presets:**
+```typescript
+{
+  id: string,
+  name: string,
+  isCustomBrush: true,
+  customBrushData: {
+    imageData: ImageData,
+    width: number,
+    height: number
+  },
+  thumbnail: string,
+  // ... other preset fields
+}
+```
+
+### Brush Tip Display Flow
+
+1. **Brush Creation**: MiniCanvas displays from `temporaryCustomBrush`
+2. **Save to Library**: 
+   - `temporaryCustomBrush` cleared
+   - Brush data moved to preset's `customBrushData`
+   - `selectedCustomBrush` updated to preset ID
+3. **MiniCanvas Lookup**:
+   - Detects `preset_` prefix
+   - Finds matching preset in `brushPresets`
+   - Extracts `customBrushData` for display
+
+This architecture ensures custom brushes maintain their visual representation throughout their lifecycle, from creation to persistent storage.
+
+## MiniCanvas System
+
+### Overview
+
+The MiniCanvas is a specialized component that provides real-time brush tip preview and visual feedback for the current brush settings. It displays a small, interactive preview of how the brush will appear when drawing on the main canvas.
+
+### Purpose
+
+- **Visual Feedback**: Shows users exactly what their brush strokes will look like
+- **Brush Preview**: Displays custom brush patterns, size, and rendering mode
+- **Interactive Updates**: Responds to brush setting changes in real-time
+- **Performance Optimized**: Maintains 60fps with efficient rendering
+
+### Architecture
+
+#### Component Structure
+
+```typescript
+interface MiniCanvasProps {
+  width: number;              // Canvas width (default: 64px)
+  height: number;             // Canvas height (default: 64px)
+  brushSettings: BrushSettings;
+  customBrush?: CustomBrush | null;
+  temporaryCustomBrush?: CustomBrush | null;
+  isPixelCanvas?: boolean;
+  onBrushIDChange?: (brushId: string) => void;
+}
+```
+
+#### Key Features
+
+1. **Brush Tip Rendering**
+   - Displays brush shape at current size
+   - Shows pixel vs antialiased rendering mode
+   - Handles both standard and custom brushes
+
+2. **Custom Brush Support**
+   - Renders custom brush patterns from ImageData
+   - Scales patterns to fit brush size
+   - Maintains aspect ratio of custom brushes
+
+3. **Real-time Updates**
+   - Responds to brush size changes
+   - Updates on brush type changes
+   - Reflects opacity and color settings
+
+### Rendering Pipeline
+
+#### 1. Brush Tip Initialization
+
+```typescript
+const initializeBrushTip = useCallback(() => {
+  const canvas = canvasRef.current;
+  const ctx = canvas?.getContext('2d');
+  
+  // Clear previous tip
+  ctx.clearRect(0, 0, width, height);
+  
+  // Determine brush type and size
+  const brushId = generateBrushId();
+  const size = getBrushTipSize();
+  
+  // Render appropriate brush tip
+  if (brushSettings.brushShape === BrushShape.CUSTOM) {
+    renderCustomBrush(ctx, customBrush, size);
+  } else {
+    renderStandardBrush(ctx, brushSettings.brushShape, size);
+  }
+}, [brushSettings, customBrush]);
+```
+
+#### 2. Custom Brush Rendering
+
+For custom brushes, the MiniCanvas:
+
+1. **Loads brush data** from appropriate source:
+   - `temporaryCustomBrush` for newly created brushes
+   - `project.customBrushes` for project brushes
+   - `brushPresets` for saved brush presets
+
+2. **Scales to fit** the canvas while maintaining aspect ratio:
+   ```typescript
+   const scale = Math.min(
+     canvasSize / customBrush.width,
+     canvasSize / customBrush.height
+   );
+   const scaledWidth = customBrush.width * scale;
+   const scaledHeight = customBrush.height * scale;
+   ```
+
+3. **Centers the brush** in the display area:
+   ```typescript
+   const offsetX = (width - scaledWidth) / 2;
+   const offsetY = (height - scaledHeight) / 2;
+   ```
+
+#### 3. Standard Brush Rendering
+
+For standard brushes (Round, Square, etc.):
+
+1. **Calculates display size** based on brush settings
+2. **Applies rendering mode** (pixel vs antialiased)
+3. **Draws appropriate shape** centered in canvas
+
+### Performance Optimizations
+
+#### 1. Selective Re-rendering
+
+The MiniCanvas only re-renders when relevant props change:
+
+```typescript
+useEffect(() => {
+  initializeBrushTip();
+}, [
+  brushSettings.brushShape,
+  brushSettings.size,
+  brushSettings.selectedCustomBrush,
+  temporaryCustomBrush,
+  project?.customBrushes,
+  brushPresets
+]);
+```
+
+#### 2. Canvas Reuse
+
+- Single canvas element reused for all brush previews
+- Avoids creating new canvases for each update
+- Reduces memory allocation and garbage collection
+
+#### 3. Efficient Custom Brush Lookup
+
+Uses a hierarchical lookup strategy to find brush data:
+
+```typescript
+// 1. Check temporary brush first (most likely)
+if (temporaryCustomBrush?.id === brushId) {
+  return temporaryCustomBrush;
+}
+
+// 2. Check project brushes
+const projectBrush = project?.customBrushes.find(b => b.id === brushId);
+if (projectBrush) {
+  return projectBrush;
+}
+
+// 3. Check saved presets (with prefix handling)
+const preset = brushPresets.find(p => 
+  p.id === brushId && 
+  p.isCustomBrush && 
+  p.customBrushData
+);
+```
+
+### Integration Points
+
+#### 1. Brush Controls
+
+The MiniCanvas is embedded in the BrushControls component:
+
+```typescript
+<MiniCanvas
+  width={64}
+  height={64}
+  brushSettings={brushSettings}
+  customBrush={activeCustomBrush}
+  temporaryCustomBrush={temporaryCustomBrush}
+  isPixelCanvas={false}
+  onBrushIDChange={(brushId) => 
+    console.log(`Brush tip changed to: ${brushId}`)
+  }
+/>
+```
+
+#### 2. State Management
+
+Connects to the app store for:
+- Current brush settings
+- Custom brush data
+- Brush presets
+- Project state
+
+#### 3. Brush Engine Coordination
+
+Works in tandem with the main brush engine to ensure preview matches actual drawing behavior.
+
+### Debugging Features
+
+The MiniCanvas includes comprehensive debugging output:
+
+```typescript
+console.log('MiniCanvas: Loading custom brush', {
+  brushId,
+  customBrush,
+  canvasSize
+});
+
+console.log('MiniCanvas: Pixel analysis', {
+  totalPixels,
+  visiblePixels,
+  averageAlpha,
+  firstFewPixels
+});
+```
+
+This helps diagnose issues with:
+- Brush loading failures
+- Rendering problems
+- Performance bottlenecks
+
+### Edge Cases Handled
+
+1. **Missing Brush Data**: Gracefully falls back to standard brush display
+2. **Invalid ImageData**: Catches and logs errors without crashing
+3. **Zero-size Brushes**: Ensures minimum visible size
+4. **Memory Leaks**: Proper cleanup of canvas contexts
+5. **Rapid Updates**: Debounced rendering for performance
+
+### Future Enhancements
+
+- **Animated Preview**: Show brush dynamics (pressure, rotation)
+- **Stroke Preview**: Display sample stroke instead of static tip
+- **Multi-brush Preview**: Compare multiple brushes side-by-side
+- **Export Preview**: Save brush tip as image for documentation

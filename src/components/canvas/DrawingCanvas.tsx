@@ -121,10 +121,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   const saveCanvasStateDeduped = useCallback((canvas: HTMLCanvasElement, actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'paste', description: string) => {
     const now = Date.now();
     if (now - lastSaveCanvasStateTime.current < SAVE_DEDUPLICATION_WINDOW) {
-      console.log('[UNDO] saveCanvasStateDeduped BLOCKED - too soon after last save:', now - lastSaveCanvasStateTime.current, 'ms');
       return; // Skip duplicate call within window
     }
-    console.log('[UNDO] saveCanvasStateDeduped calling saveCanvasState:', actionType, description);
     lastSaveCanvasStateTime.current = now;
     saveCanvasState(canvas, actionType, description);
   }, [saveCanvasState]);
@@ -671,7 +669,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         0, 0, width, height        // Destination rectangle (brush space)
       );
     } catch (error) {
-      console.error('Error capturing selection:', error);
       return null;
     }
     
@@ -1169,34 +1166,24 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       if (e.shiftKey) {
         // Redo (Ctrl+Shift+Z)
         if (store.canRedo()) {
-          console.log('[UNDO] Keyboard: Starting redo operation');
           const snapshot = store.redo();
           if (snapshot && offscreenCanvasRef.current) {
-            console.log('[UNDO] Keyboard: Restoring redo snapshot:', snapshot.id, snapshot.description);
             restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
             renderView();
-            console.log('[UNDO] Keyboard: Redo completed');
           } else {
-            console.log('[UNDO] Keyboard: Redo failed - no snapshot or canvas');
           }
         } else {
-          console.log('[UNDO] Keyboard: Redo blocked - canRedo() returned false');
         }
       } else {
         // Undo (Ctrl+Z)
         if (store.canUndo()) {
-          console.log('[UNDO] Keyboard: Starting undo operation');
           const snapshot = store.undo();
           if (snapshot && offscreenCanvasRef.current) {
-            console.log('[UNDO] Keyboard: Restoring snapshot:', snapshot.id, snapshot.description);
             restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
             renderView();
-            console.log('[UNDO] Keyboard: Undo completed');
           } else {
-            console.log('[UNDO] Keyboard: Undo failed - no snapshot or canvas');
           }
         } else {
-          console.log('[UNDO] Keyboard: Undo blocked - canUndo() returned false');
         }
       }
       return;
@@ -1474,7 +1461,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
           setTimeout(() => {
             const offscreenCanvas = offscreenCanvasRef.current;
             if (offscreenCanvas) {
-              console.log('[UNDO] Saving initial blank canvas state');
               saveCanvasState(offscreenCanvas, 'brush', 'Initial state');
               // Reset the deduplication timer so first stroke isn't blocked
               lastSaveCanvasStateTime.current = 0;

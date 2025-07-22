@@ -32,7 +32,7 @@ export default function MiniCanvas({
   const animationFrameRef = useRef<number | null>(null);
 
   // Local state
-  const [zoom, setZoom] = useState(4);
+  const [zoom, setZoom] = useState(0.5);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
@@ -112,7 +112,7 @@ export default function MiniCanvas({
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
 
-    const ctx = offscreenCanvas.getContext('2d');
+    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
     const size = getBrushTipSize();
@@ -154,21 +154,6 @@ export default function MiniCanvas({
           };
         }
       }
-      console.log('MiniCanvas: Loading custom brush', { 
-        brushId: brushSettings.selectedCustomBrush, 
-        customBrush: customBrush ? { 
-          id: customBrush.id, 
-          width: customBrush.width, 
-          height: customBrush.height,
-          hasImageData: !!customBrush.imageData,
-          imageDataSize: customBrush.imageData ? { 
-            width: customBrush.imageData.width, 
-            height: customBrush.imageData.height,
-            dataLength: customBrush.imageData.data.length
-          } : null
-        } : null,
-        canvasSize: size
-      });
       
       if (customBrush) {
         ctx.clearRect(0, 0, size, size);
@@ -177,28 +162,10 @@ export default function MiniCanvas({
         const offsetX = Math.floor((size - customBrush.width) / 2);
         const offsetY = Math.floor((size - customBrush.height) / 2);
         
-        console.log('MiniCanvas: Custom brush placement', { offsetX, offsetY, size });
         
         try {
           ctx.putImageData(customBrush.imageData, offsetX, offsetY);
-          console.log('MiniCanvas: Custom brush ImageData placed successfully');
-          
-          // Debug: Check if any pixels are actually visible
-          const pixelData = customBrush.imageData.data;
-          let visiblePixels = 0;
-          let totalAlpha = 0;
-          for (let i = 3; i < pixelData.length; i += 4) {
-            if (pixelData[i] > 0) visiblePixels++;
-            totalAlpha += pixelData[i];
-          }
-          console.log('MiniCanvas: Pixel analysis', { 
-            totalPixels: pixelData.length / 4,
-            visiblePixels,
-            averageAlpha: totalAlpha / (pixelData.length / 4),
-            firstFewPixels: Array.from(pixelData.slice(0, 16))
-          });
         } catch (error) {
-          console.error('MiniCanvas: Error placing custom brush ImageData:', error);
         }
         
         // Store original data for reset
@@ -242,8 +209,8 @@ export default function MiniCanvas({
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!canvas || !offscreenCanvas) return;
 
-    const ctx = canvas.getContext('2d');
-    const offscreenCtx = offscreenCanvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx || !offscreenCtx) return;
 
     // Clear display canvas
@@ -271,7 +238,7 @@ export default function MiniCanvas({
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = sourceSize;
       tempCanvas.height = sourceSize;
-      const tempCtx = tempCanvas.getContext('2d');
+      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
       if (tempCtx) {
         tempCtx.putImageData(shiftedData, 0, 0);
         ctx.drawImage(tempCanvas, 0, 0, sourceSize, sourceSize, x, y, displaySize, displaySize);
@@ -331,7 +298,7 @@ export default function MiniCanvas({
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
 
-    const ctx = offscreenCanvas.getContext('2d');
+    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
     // Use the current brush settings but smaller size for mini canvas
@@ -418,7 +385,7 @@ export default function MiniCanvas({
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
     
-    const ctx = offscreenCanvas.getContext('2d');
+    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
     
     ctx.putImageData(originalBrushData, 0, 0);
@@ -439,7 +406,7 @@ export default function MiniCanvas({
       // Save current brush tip when pinning
       const offscreenCanvas = offscreenCanvasRef.current;
       if (offscreenCanvas) {
-        const ctx = offscreenCanvas.getContext('2d');
+        const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
         if (ctx) {
           const size = getBrushTipSize();
           setPinnedBrushTip(ctx.getImageData(0, 0, size, size));
@@ -457,7 +424,7 @@ export default function MiniCanvas({
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
     
-    const ctx = offscreenCanvas.getContext('2d');
+    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
     
     const size = getBrushTipSize();
@@ -480,7 +447,7 @@ export default function MiniCanvas({
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
     
-    const ctx = offscreenCanvas.getContext('2d');
+    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
     
     // Save current state to redo stack
@@ -508,7 +475,7 @@ export default function MiniCanvas({
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
     
-    const ctx = offscreenCanvas.getContext('2d');
+    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
     
     // Save current state to undo stack
@@ -564,7 +531,7 @@ export default function MiniCanvas({
       const offscreenCanvas = offscreenCanvasRef.current;
       if (!offscreenCanvas) return;
       
-      const ctx = offscreenCanvas.getContext('2d');
+      const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
       if (!ctx) return;
       
       const size = getBrushTipSize();
