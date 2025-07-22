@@ -25,7 +25,7 @@ export default function BrushControls() {
       {/* Color */}
       <div className="mb-3">
         <label className="block text-base text-[#D9D9D9] mb-2">Color</label>
-        <div className="flex items-center gap-2">
+        <div className="flex items-start gap-2">
           <ColorPicker
             color={brushSettings.color}
             onChange={(color) => setBrushSettings({ color })}
@@ -35,8 +35,9 @@ export default function BrushControls() {
             variant="hex"
             value={brushSettings.color}
             onChange={(e) => setBrushSettings({ color: e.target.value })}
-            className="flex-1"
+            className="w-22"
             placeholder="#000000"
+            onFocus={(e) => e.target.select()}
           />
         </div>
       </div>

@@ -460,7 +460,7 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
           
           setIsOpen(!isOpen);
         }}
-        className="h-[28px] w-[28px] text-base hover:opacity-80 transition-opacity cursor-pointer border-none outline-none"
+        className="h-[25px] w-[25px] text-base hover:opacity-80 transition-opacity cursor-pointer border-2 border-[#D9D9D9] outline-none"
         style={{ backgroundColor: color }}
         title="Color Picker"
       />
@@ -614,7 +614,7 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
                     setLocalColor(e.target.value);
                     setTimeout(() => onChange(e.target.value), 0); // Break update loop
                   }}
-                  className="w-16"
+                  className="w-8"
                   placeholder="#000000"
                 />
               </div>
