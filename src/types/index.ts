@@ -203,6 +203,7 @@ export interface BrushSettings {
   currentBrushTip?: {
     imageData: ImageData;
     brushId: string; // Identifies which brush this edit belongs to
+    isColorizable: boolean; // Whether swatch color should be applied
   };
 }
 
