@@ -39,14 +39,15 @@ export default function MiniCanvasPanel() {
   return (
     <div className="p-3 bg-[#31313A]">
       <MiniCanvas 
-        width={120} 
-        height={120} 
+        width={216} 
+        height={216} 
         hueShift={hueShift}
         onHueShiftChange={setHueShift}
         onBrushTipChange={handleBrushTipChange}
         onSaveUndoState={() => {
           // This will be called by MiniCanvas when it needs to save undo state
         }}
+        className="w-full"
       />
       
       {/* Hue adjustment slider */}
