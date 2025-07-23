@@ -26,11 +26,15 @@ export default function BrushControls() {
     const brushId = brushSettings.brushShape === 'custom' && brushSettings.selectedCustomBrush 
       ? brushSettings.selectedCustomBrush // Use the selectedCustomBrush ID directly (now contains preset ID)
       : `standard_${brushSettings.brushShape}`;
+    
+    // Default brushes should remain colorizable, custom brushes have baked colors
+    const isColorizable = brushSettings.brushShape !== 'custom';
       
     setBrushSettings({ 
       currentBrushTip: {
         imageData,
-        brushId
+        brushId,
+        isColorizable
       }
     });
   }, [setBrushSettings, brushSettings.brushShape, brushSettings.selectedCustomBrush]);

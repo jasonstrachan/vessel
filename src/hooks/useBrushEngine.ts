@@ -753,7 +753,7 @@ export const useBrushEngine = () => {
   }, []);
 
   // Custom brush drawing functions
-  const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0) => {
+  const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean) => {
     const canvas = getTempCanvas(customBrush.width, customBrush.height);
     const tempCtx = canvas.getContext('2d');
     if (!tempCtx) return;
@@ -763,6 +763,14 @@ export const useBrushEngine = () => {
     
     // Put the brush ImageData onto the temporary canvas
     tempCtx.putImageData(customBrush.imageData, 0, 0);
+    
+    // Apply swatch color if brush is colorizable
+    if (isColorizable && color) {
+      tempCtx.globalCompositeOperation = 'source-atop';
+      tempCtx.fillStyle = color;
+      tempCtx.fillRect(0, 0, canvas.width, canvas.height);
+      tempCtx.globalCompositeOperation = 'source-over';
+    }
     
     // Calculate scaled dimensions and position
     const scaledWidth = customBrush.width * scale;
@@ -786,7 +794,7 @@ export const useBrushEngine = () => {
     ctx.restore();
   }, [getTempCanvas]);
 
-  const drawCustomBrushLine = useCallback((ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0) => {
+  const drawCustomBrushLine = useCallback((ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean) => {
     const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
     const spacing = Math.max(1, Math.min(customBrush.width, customBrush.height) * scale * 0.5);
     const steps = Math.max(1, Math.ceil(distance / spacing));
@@ -795,7 +803,7 @@ export const useBrushEngine = () => {
       const t = i / steps;
       const x = x1 + (x2 - x1) * t;
       const y = y1 + (y2 - y1) * t;
-      drawCustomBrushStamp(ctx, x, y, customBrush, scale, rotation);
+      drawCustomBrushStamp(ctx, x, y, customBrush, scale, rotation, color, isColorizable);
     }
   }, [drawCustomBrushStamp]);
 
@@ -954,6 +962,10 @@ export const useBrushEngine = () => {
     // Handle custom brush rendering with spacing support
     // Also use custom brush rendering if we have a currentBrushTip
     if (customBrush) {
+      // Determine if this brush should use swatch color
+      const isColorizable = tools.brushSettings.currentBrushTip?.isColorizable ?? (tools.brushSettings.brushShape !== 'custom');
+      const brushColor = isColorizable ? settings.color : undefined;
+      
       // Scale custom brush using unified percentage system
       let scaleFactor = settings.size / 100;
       
@@ -990,7 +1002,7 @@ export const useBrushEngine = () => {
         for (const pos of gridPositions) {
           const posKey = `${pos.x},${pos.y}`;
           if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
-            drawCustomBrushStamp(ctx, pos.x, pos.y, customBrush, scaleFactor, settings.rotation);
+            drawCustomBrushStamp(ctx, pos.x, pos.y, customBrush, scaleFactor, settings.rotation, brushColor, isColorizable);
             queue.stampedGridPositions.add(posKey);
           }
         }
@@ -1009,7 +1021,7 @@ export const useBrushEngine = () => {
             const x = queue.lastStrokePosition.x + (snappedTo.x - queue.lastStrokePosition.x) * progress;
             const y = queue.lastStrokePosition.y + (snappedTo.y - queue.lastStrokePosition.y) * progress;
             
-            drawCustomBrushStamp(ctx, x, y, customBrush, scaleFactor, settings.rotation);
+            drawCustomBrushStamp(ctx, x, y, customBrush, scaleFactor, settings.rotation, brushColor, isColorizable);
           }
           
           queue.accumulatedDistance -= settings.spacing;

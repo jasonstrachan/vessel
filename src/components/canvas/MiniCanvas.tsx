@@ -304,9 +304,13 @@ export default function MiniCanvas({
     // Use the current brush settings but smaller size for mini canvas
     const brushSize = Math.max(1, Math.floor(brushSettings.size / 4));
     
+    // Always use black for default brushes to keep them colorizable
+    const isDefaultBrush = brushSettings.brushShape !== BrushShape.CUSTOM;
+    const drawColor = isDefaultBrush ? '#000000' : brushSettings.color;
+    
     if (isStart || !lastPoint) {
       // Single dot
-      ctx.fillStyle = brushSettings.color;
+      ctx.fillStyle = drawColor;
       ctx.globalAlpha = brushSettings.opacity;
       
       if (brushSettings.brushShape === BrushShape.ROUND) {
@@ -320,7 +324,7 @@ export default function MiniCanvas({
       setLastPoint({ x, y });
     } else {
       // Draw line from last point
-      ctx.strokeStyle = brushSettings.color;
+      ctx.strokeStyle = drawColor;
       ctx.lineWidth = brushSize;
       ctx.lineCap = brushSettings.brushShape === BrushShape.ROUND ? 'round' : 'square';
       ctx.globalAlpha = brushSettings.opacity;
