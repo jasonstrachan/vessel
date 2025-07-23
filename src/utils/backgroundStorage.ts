@@ -3,10 +3,12 @@
 
 import type { Project, Layer } from '../types';
 
+type SerializableLayer = Omit<Layer, 'framebuffer'>;
+
 interface AutosaveRecord {
   projectId: string;
   projectData: Project;
-  layerData: Layer[];
+  layerData: SerializableLayer[];
   timestamp: number;
   isDirty: boolean;
 }
@@ -80,10 +82,10 @@ class BackgroundStorageService {
 
     const autosaveRecord: AutosaveRecord = {
       projectId: project.id,
-      projectData: serializableProject,
+      projectData: { ...serializableProject, layers: [] },
       layerData: serializableLayers,
       timestamp: Date.now(),
-      isDirty: project.isDirty || false
+      isDirty: false
     };
 
     return new Promise((resolve, reject) => {
@@ -123,9 +125,15 @@ class BackgroundStorageService {
       request.onsuccess = () => {
         const result = request.result as AutosaveRecord | undefined;
         if (result) {
+          // Add missing framebuffer property back to layers
+          const restoredLayers: Layer[] = result.layerData.map(layer => ({
+            ...layer,
+            framebuffer: new OffscreenCanvas(result.projectData.width, result.projectData.height)
+          }));
+          
           resolve({
             project: result.projectData,
-            layers: result.layerData
+            layers: restoredLayers
           });
         } else {
           resolve(null);

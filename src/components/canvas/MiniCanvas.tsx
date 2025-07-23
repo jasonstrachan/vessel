@@ -45,7 +45,7 @@ export default function MiniCanvas({
   const [redoStack, setRedoStack] = useState<ImageData[]>([]);
 
   // App state
-  const { tools, project, temporaryCustomBrush, saveCanvasState, brushPresets } = useAppStore();
+  const { tools, project, temporaryCustomBrush, saveCanvasState, brushPresets, setBrushSettings } = useAppStore();
   const { brushSettings } = tools;
   
   // Get brush engine for drawing
@@ -549,7 +549,18 @@ export default function MiniCanvas({
     <div className={`bg-[#2A2A32] rounded-lg p-3 ${className}`}>
       {/* Header with controls */}
       <div className="flex items-center justify-between mb-2">
-        <span className="text-sm text-[#D9D9D9]">Brush Tip</span>
+        {/* Swatch Color Toggle - only show for custom brushes */}
+        {brushSettings.brushShape === BrushShape.CUSTOM ? (
+          <button
+            onClick={() => setBrushSettings({ useSwatchColor: !brushSettings.useSwatchColor })}
+            className="p-1 text-[#D9D9D9] hover:bg-[#3A3A42] rounded text-xs"
+            title={brushSettings.useSwatchColor ? 'Using swatch color' : 'Using brush tip colors'}
+          >
+            ●
+          </button>
+        ) : (
+          <div></div>
+        )}
         <div className="flex items-center gap-1">
           {/* Zoom controls */}
           <button
