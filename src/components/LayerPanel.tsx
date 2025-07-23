@@ -5,6 +5,7 @@ import { useAppStore } from '../stores/useAppStore';
 import { Layer } from '../types';
 import { XIcon } from './icons/XIcon';
 import Input from './ui/Input';
+import { Eye, EyeOff, Lock, Unlock, Plus } from 'lucide-react';
 
 const LayerPanel = () => {
   const { 
@@ -55,15 +56,15 @@ const LayerPanel = () => {
   };
 
   return (
-    <div className="bg-[#2d2d2d] border-b border-[#404040] p-3">
+    <div className="p-3">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-medium text-gray-300">Layers</h3>
         <button
           onClick={handleAddLayer}
-          className="w-6 h-6 bg-[#404040] hover:bg-[#505050] rounded text-xs flex items-center justify-center"
+          className="w-6 h-6 text-gray-400 hover:text-gray-300 flex items-center justify-center"
           title="Add Layer"
         >
-          +
+          <Plus size={16} />
         </button>
       </div>
       
@@ -71,26 +72,26 @@ const LayerPanel = () => {
         {layers.slice().reverse().map((layer) => (
           <div
             key={layer.id}
-            className={`p-2 rounded border ${
+            className={`py-2 px-0 border-b border-[#404040] ${
               activeLayerId === layer.id
-                ? 'bg-[#404040] border-[#606060]'
-                : 'bg-[#353535] border-[#404040] hover:bg-[#383838]'
-            }`}
+                ? 'border-l-2 border-l-blue-500'
+                : 'border-l-2 border-l-transparent'
+            } hover:bg-[#383838]/20 cursor-pointer`}
             onClick={() => setActiveLayer(layer.id)}
           >
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between px-2">
               <div className="flex items-center space-x-2">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     handleToggleVisibility(layer.id);
                   }}
-                  className={`w-4 h-4 rounded text-xs ${
-                    layer.visible ? 'bg-blue-500' : 'bg-gray-600'
-                  }`}
+                  className={`w-4 h-4 flex items-center justify-center ${
+                    layer.visible ? 'text-gray-400' : 'text-gray-600'
+                  } hover:text-gray-300`}
                   title={layer.visible ? 'Hide Layer' : 'Show Layer'}
                 >
-                  {layer.visible ? '👁' : '👁‍🗨'}
+                  {layer.visible ? <Eye size={14} /> : <EyeOff size={14} />}
                 </button>
                 <span className="text-xs text-gray-300 flex-1 truncate">
                   {layer.name}
@@ -103,12 +104,12 @@ const LayerPanel = () => {
                     e.stopPropagation();
                     handleToggleLock(layer.id);
                   }}
-                  className={`w-4 h-4 rounded text-xs ${
-                    layer.locked ? 'bg-red-500' : 'bg-gray-600'
-                  }`}
+                  className={`w-4 h-4 flex items-center justify-center ${
+                    layer.locked ? 'text-gray-400' : 'text-gray-600'
+                  } hover:text-gray-300`}
                   title={layer.locked ? 'Unlock Layer' : 'Lock Layer'}
                 >
-                  {layer.locked ? '🔒' : '🔓'}
+                  {layer.locked ? <Lock size={14} /> : <Unlock size={14} />}
                 </button>
                 
                 {layers.length > 1 && (
@@ -117,16 +118,16 @@ const LayerPanel = () => {
                       e.stopPropagation();
                       handleDeleteLayer(layer.id);
                     }}
-                    className="w-4 h-4 bg-red-600 hover:bg-red-700 rounded text-xs"
+                    className="w-4 h-4 flex items-center justify-center text-gray-600 hover:text-red-500"
                     title="Delete Layer"
                   >
-                    <XIcon size={12} className="text-white" />
+                    <XIcon size={12} />
                   </button>
                 )}
               </div>
             </div>
             
-            <div className="mt-1 flex items-center space-x-2">
+            <div className="mt-1 flex items-center space-x-2 px-2">
               <span className="text-xs text-gray-400">Opacity:</span>
               <Input
                 type="range"
