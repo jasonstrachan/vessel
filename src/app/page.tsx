@@ -5,6 +5,7 @@ import LeftToolbar from '../components/LeftToolbar';
 import BrushLibrary from '../components/BrushLibrary';
 import ControlsPanel from '../components/ControlsPanel';
 import DrawingCanvas from '../components/canvas/DrawingCanvas';
+import RHC1Panel from '../components/panels/RHC1Panel';
 import { DocumentModal } from '../components/modals/DocumentModal';
 import { SettingsModal } from '../components/modals/SettingsModal';
 import { useAppStore } from '../stores/useAppStore';
@@ -111,9 +112,11 @@ export default function Home() {
         <DrawingCanvas />
       </div>
       
-      {/* Right Panel */}
+      {/* RHC1 - MiniCanvas + Layers */}
+      <RHC1Panel />
+      
+      {/* RHC2 - BrushLibrary + ControlsPanel */}
       <div className="bg-[#31313A] flex flex-col h-screen flex-shrink-0" style={{ width: '240px', minWidth: '240px', maxWidth: '240px' }}>
-        {/* <LayerPanel /> */}
         <div className="flex-[2] min-h-0">
           <BrushLibrary />
         </div>
