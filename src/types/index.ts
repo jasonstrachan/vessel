@@ -196,6 +196,8 @@ export interface BrushSettings {
   // Dashed brush settings
   dashedEnabled: boolean;
   dashLength: number;
+  // Custom brush color mode
+  useSwatchColor: boolean; // true: use swatch color, false: use brush tip colors
   dashGap: number;
   // Grid snap settings
   gridSnapEnabled: boolean;

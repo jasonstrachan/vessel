@@ -42,6 +42,23 @@ export default function BrushControls() {
         </div>
       </div>
 
+      {/* Custom Brush Color Mode Toggle */}
+      {brushSettings.brushShape === BrushShape.CUSTOM && (
+        <div className="mb-3">
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="use-swatch-color"
+              checked={brushSettings.useSwatchColor || false}
+              onChange={(checked) => setBrushSettings({ useSwatchColor: checked })}
+            />
+            <label htmlFor="use-swatch-color" className="text-base text-[#D9D9D9] flex items-center gap-2">
+              <span className="text-xl">🎨</span>
+              Use Swatch Color
+            </label>
+          </div>
+        </div>
+      )}
+
       {/* Brush Size - Unified percentage-based slider for all brushes */}
       <div className="mb-3">
         <label className="block text-base text-[#D9D9D9] mb-2">

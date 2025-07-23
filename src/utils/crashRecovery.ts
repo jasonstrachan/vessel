@@ -37,7 +37,7 @@ export class CrashRecoveryService {
       return {
         project: recoveryData.project,
         layers: recoveryData.layers,
-        lastSaveTime: recoveryData.project.lastSaved?.getTime() || Date.now()
+        lastSaveTime: recoveryData.project.updatedAt?.getTime() || Date.now()
       };
     } catch (error) {
       console.error('[CrashRecovery] Failed to check for unsaved work:', error);
