@@ -623,12 +623,6 @@ export default function MiniCanvas({
             <button
               onClick={() => {
                 const newValue = !brushSettings.useSwatchColor;
-                console.log('🎨 Swatch color toggle clicked:', {
-                  currentValue: brushSettings.useSwatchColor,
-                  newValue: newValue,
-                  brushShape: brushSettings.brushShape,
-                  selectedCustomBrush: brushSettings.selectedCustomBrush
-                });
                 setBrushSettings({ useSwatchColor: newValue });
               }}
               className={`py-1 px-2 hover:bg-[#3A3A42] rounded text-base flex-1 ${

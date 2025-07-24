@@ -177,7 +177,7 @@ const defaultToolState: ToolState = {
   currentTool: 'brush',
   previousTool: 'brush',
   brushSettings: defaultBrushSettingsForStore,
-  eraserSettings: { ...defaultBrushSettingsForStore, blendMode: 'destination-out' },
+  eraserSettings: { ...defaultBrushSettingsForStore, blendMode: 'destination-out', color: '#ffffff' },
   fillSettings: {
     threshold: 0,
     contiguous: true
@@ -219,7 +219,7 @@ export const useAppStore = create<AppState>()(
         width: 800,
         height: 600,
         layers: [],
-        backgroundColor: '#FFFFFF',
+        backgroundColor: 'transparent',
         createdAt: new Date(),
         updatedAt: new Date(),
         customBrushes: []
@@ -361,10 +361,6 @@ export const useAppStore = create<AppState>()(
         };
       }),
       setBrushSettings: (settings) => set((state) => {
-        console.log('🔧 setBrushSettings called:', {
-          incoming: settings,
-          current: state.tools.brushSettings
-        });
         
         const currentSettings = state.tools.brushSettings;
         const newSettings = { ...currentSettings, ...settings };
@@ -391,10 +387,6 @@ export const useAppStore = create<AppState>()(
           newSettings.lastRegularBrushSize = settings.size;
         }
         
-        console.log('🔧 setBrushSettings result:', {
-          final: newSettings,
-          useSwatchColor: newSettings.useSwatchColor
-        });
         
         return {
           tools: {
@@ -958,7 +950,7 @@ export const useAppStore = create<AppState>()(
           width,
           height,
           layers: [],
-          backgroundColor: '#FFFFFF',
+          backgroundColor: 'transparent',
           createdAt: new Date(),
           updatedAt: new Date(),
           customBrushes: []
@@ -994,9 +986,11 @@ export const useAppStore = create<AppState>()(
         // Clear the canvas
         ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
         
-        // Draw background color
-        ctx.fillStyle = state.project.backgroundColor;
-        ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+        // Draw background color only if not transparent
+        if (state.project.backgroundColor && state.project.backgroundColor !== 'transparent') {
+          ctx.fillStyle = state.project.backgroundColor;
+          ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+        }
         
         // Sort layers by order and draw each visible layer
         const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
@@ -1041,9 +1035,6 @@ export const useAppStore = create<AppState>()(
         
         // Try to get the source canvas (offscreen canvas with the drawing)
         let canvas = sourceCanvas;
-        if (!canvas && typeof window !== 'undefined' && (window as any).tinybrushDebugCanvas) {
-          canvas = (window as any).tinybrushDebugCanvas.getOffscreenCanvas();
-        }
         
         if (!canvas) {
           return;
