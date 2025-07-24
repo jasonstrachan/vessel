@@ -4,13 +4,13 @@ import React from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { Layer } from '../types';
 import { XIcon } from './icons/XIcon';
-import Input from './ui/Input';
 import { Eye, EyeOff, Lock, Unlock, SlidersHorizontal } from 'lucide-react';
 import { Slider } from './retroui/Slider';
 import PlusButton from './ui/PlusButton';
 
 const LayerPanel = () => {
   const [showOpacityPopover, setShowOpacityPopover] = React.useState<string | null>(null);
+  const [draggedLayerId, setDraggedLayerId] = React.useState<string | null>(null);
   const opacityButtonRef = React.useRef<{ [key: string]: HTMLButtonElement | null }>({});
   const opacityPopoverRef = React.useRef<HTMLDivElement>(null);
   const { 
@@ -20,7 +20,8 @@ const LayerPanel = () => {
     addLayer, 
     removeLayer, 
     updateLayer, 
-    setActiveLayer 
+    setActiveLayer,
+    reorderLayers
   } = useAppStore();
 
   const handleAddLayer = () => {
@@ -82,6 +83,41 @@ const LayerPanel = () => {
     }
   }, [showOpacityPopover]);
 
+  const handleDragStart = (e: React.DragEvent, layerId: string) => {
+    setDraggedLayerId(layerId);
+    e.dataTransfer.setData('text/plain', layerId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (e: React.DragEvent, targetLayerId: string) => {
+    e.preventDefault();
+    const draggedId = e.dataTransfer.getData('text/plain');
+    
+    if (draggedId && draggedId !== targetLayerId) {
+      const reversedLayers = layers.slice().reverse();
+      const draggedIndex = reversedLayers.findIndex(l => l.id === draggedId);
+      const targetIndex = reversedLayers.findIndex(l => l.id === targetLayerId);
+      
+      if (draggedIndex !== -1 && targetIndex !== -1) {
+        // Convert back to original array indices
+        const originalDraggedIndex = layers.length - 1 - draggedIndex;
+        const originalTargetIndex = layers.length - 1 - targetIndex;
+        reorderLayers(originalDraggedIndex, originalTargetIndex);
+      }
+    }
+    
+    setDraggedLayerId(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedLayerId(null);
+  };
+
   return (
     <div className="">
       <div className="flex items-center justify-between px-4 py-2">
@@ -96,12 +132,21 @@ const LayerPanel = () => {
         {layers.slice().reverse().map((layer) => (
           <div
             key={layer.id}
+            draggable
             className={`py-1 border-b border-[#404040] ${
               activeLayerId === layer.id
                 ? 'bg-[#3A3A42]'
                 : 'hover:bg-[#383838]/20'
-            } cursor-pointer`}
+            } ${
+              draggedLayerId === layer.id
+                ? 'opacity-50 shadow-lg'
+                : ''
+            } cursor-pointer transition-opacity`}
             onClick={() => setActiveLayer(layer.id)}
+            onDragStart={(e) => handleDragStart(e, layer.id)}
+            onDragOver={handleDragOver}
+            onDrop={(e) => handleDrop(e, layer.id)}
+            onDragEnd={handleDragEnd}
           >
             <div className="flex items-center justify-between px-3">
               <div className="flex items-center space-x-2">
