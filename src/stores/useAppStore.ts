@@ -1034,7 +1034,7 @@ export const useAppStore = create<AppState>()(
         }
         
         // Try to get the source canvas (offscreen canvas with the drawing)
-        let canvas = sourceCanvas;
+        const canvas = sourceCanvas;
         
         if (!canvas) {
           return;
