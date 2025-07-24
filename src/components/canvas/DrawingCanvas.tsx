@@ -348,9 +348,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     if (!patternCtx) return null;
     
     // Create 2x2 checkerboard pattern
-    patternCtx.fillStyle = '#fff';
+    patternCtx.fillStyle = '#404040';
     patternCtx.fillRect(0, 0, patternCanvas.width, patternCanvas.height);
-    patternCtx.fillStyle = '#ccc';
+    patternCtx.fillStyle = '#606060';
     patternCtx.fillRect(0, 0, checkSize, checkSize);
     patternCtx.fillRect(checkSize, checkSize, checkSize, checkSize);
     

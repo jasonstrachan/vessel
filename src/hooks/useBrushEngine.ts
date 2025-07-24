@@ -1065,12 +1065,8 @@ export const useBrushEngine = () => {
     }
     
     // Handle tool-specific behavior for regular brushes
-    if (tools.currentTool === 'eraser') {
-      ctx.globalCompositeOperation = 'destination-out';
-    } else {
-      ctx.globalCompositeOperation = tools.brushSettings.blendMode;
-      ctx.strokeStyle = settings.color;
-    }
+    ctx.globalCompositeOperation = settings.blendMode;
+    ctx.strokeStyle = settings.color;
     
     // Handle antialiasing and pixel-perfect drawing
     if (settings.pixelAlignment) {

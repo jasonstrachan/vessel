@@ -4,7 +4,7 @@ import React from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { Layer } from '../types';
 import { XIcon } from './icons/XIcon';
-import { Eye, EyeOff, Lock, Unlock, SlidersHorizontal } from 'lucide-react';
+import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
 import { Slider } from './retroui/Slider';
 import PlusButton from './ui/PlusButton';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
@@ -173,7 +173,7 @@ const LayerPanel = () => {
                   }}
                   className={`w-4 h-4 flex items-center justify-center ${
                     layer.visible ? 'text-[#D9D9D9]' : 'text-[#666]'
-                  } hover:text-[#FFFFFF]`}
+                  }`}
                   title={layer.visible ? 'Hide Layer' : 'Show Layer'}
                 >
                   {layer.visible ? <Eye size={14} /> : <EyeOff size={14} />}
@@ -184,6 +184,40 @@ const LayerPanel = () => {
               </div>
               
               <div className="flex items-center space-x-1">
+                <div className="relative">
+                  <button
+                    ref={(el) => { opacityButtonRef.current[layer.id] = el; }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowOpacityPopover(showOpacityPopover === layer.id ? null : layer.id);
+                    }}
+                    className="text-[#999] hover:text-[#D9D9D9] cursor-pointer"
+                    style={{ fontSize: '14px' }}
+                    title="Adjust opacity"
+                  >
+                    {Math.round(layer.opacity * 100)}%
+                  </button>
+                  
+                  {/* Opacity Popover */}
+                  {showOpacityPopover === layer.id && (
+                    <div 
+                      ref={opacityPopoverRef}
+                      className="absolute bottom-full right-0 mb-2 w-48 p-3 bg-[#2A2A32] border border-[#666] rounded-lg shadow-lg z-50"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>{Math.round(layer.opacity * 100)}%</label>
+                      <Slider
+                        value={[layer.opacity * 100]}
+                        min={0}
+                        max={100}
+                        step={1}
+                        onValueChange={(value) => handleOpacityChange(layer.id, value[0])}
+                        aria-label="Layer Opacity"
+                      />
+                    </div>
+                  )}
+                </div>
+                
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -208,48 +242,6 @@ const LayerPanel = () => {
                   >
                     <XIcon size={12} />
                   </button>
-                )}
-              </div>
-            </div>
-            
-            <div className="flex items-center justify-between px-3">
-              <span className="text-[#999]" style={{ fontSize: '14px' }}>Opacity: {Math.round(layer.opacity * 100)}%</span>
-              <div className="relative">
-                <button
-                  ref={(el) => { opacityButtonRef.current[layer.id] = el; }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowOpacityPopover(showOpacityPopover === layer.id ? null : layer.id);
-                  }}
-                  className={`p-1 rounded ${
-                    showOpacityPopover === layer.id
-                      ? 'text-blue-400 bg-blue-400/20'
-                      : 'text-[#D9D9D9] hover:bg-[#3A3A42]'
-                  }`}
-                  title="Adjust opacity"
-                >
-                  <SlidersHorizontal size={14} />
-                </button>
-                
-                {/* Opacity Popover */}
-                {showOpacityPopover === layer.id && (
-                  <div 
-                    ref={opacityPopoverRef}
-                    className="absolute bottom-full right-0 mb-2 w-48 p-3 bg-[#2A2A32] border border-[#666] rounded-lg shadow-lg z-50"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
-                      Opacity: {Math.round(layer.opacity * 100)}%
-                    </label>
-                    <Slider
-                      value={[layer.opacity * 100]}
-                      min={0}
-                      max={100}
-                      step={1}
-                      onValueChange={(value) => handleOpacityChange(layer.id, value[0])}
-                      aria-label="Layer Opacity"
-                    />
-                  </div>
                 )}
               </div>
             </div>
