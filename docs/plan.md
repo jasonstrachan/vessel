@@ -104,16 +104,22 @@ Professional web-based pixel art and digital painting application with:
 #### Step 3: Layer Management System ✅ COMPLETE
 - [x] Implement multi-layer canvas system
   - *See: `/docs/02_System_Architecture/Overall_Design.md` (lines 102-111) - Rendering pipeline*
-  - *COMPLETED: Layer panel with full management system*
+  - *COMPLETED: Full layer system with hidden offscreen canvas composition*
 - [x] Add layer blend modes
   - *See: `/docs/02_System_Architecture/Data_Model.md` (line 33) - BlendMode property*
   - *COMPLETED: Layer blend modes implementation*
 - [x] Create layer reordering functionality
   - *See: `/docs/02_System_Architecture/Data_Model.md` (line 35) - Order property for z-ordering*
-  - *COMPLETED: Layer management with reordering*
+  - *COMPLETED: Drag & drop layer reordering in LayerPanel*
 - [x] Add layer visibility and locking
   - *See: `/docs/02_System_Architecture/Data_Model.md` (lines 31, 34) - Visible and locked properties*
-  - *COMPLETED: Full layer controls in LayerPanel*
+  - *COMPLETED: Eye icons for visibility, lock icons for layer locking*
+- [x] Layer opacity controls
+  - *COMPLETED: Opacity sliders with real-time preview*
+- [x] Layer creation/deletion
+  - *COMPLETED: + button to add layers, X button to delete (preserves single layer)*
+- [x] Auto-initialization
+  - *COMPLETED: Auto-creates "Background" layer when project starts*
 
 #### Step 4: Essential Tools ✅ COMPLETE
 - [x] Implement eraser tool with proper alpha handling

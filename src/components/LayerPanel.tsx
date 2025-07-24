@@ -7,6 +7,7 @@ import { XIcon } from './icons/XIcon';
 import { Eye, EyeOff, Lock, Unlock, SlidersHorizontal } from 'lucide-react';
 import { Slider } from './retroui/Slider';
 import PlusButton from './ui/PlusButton';
+import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 
 const LayerPanel = () => {
   const [showOpacityPopover, setShowOpacityPopover] = React.useState<string | null>(null);
@@ -25,6 +26,7 @@ const LayerPanel = () => {
   } = useAppStore();
 
   const handleAddLayer = () => {
+    console.log('[LAYER UI] Adding new layer:', { currentLayerCount: layers.length });
     const newLayer: Omit<Layer, 'id' | 'order'> = {
       name: `Layer ${layers.length + 1}`,
       visible: true,
@@ -32,19 +34,33 @@ const LayerPanel = () => {
       blendMode: 'source-over',
       locked: false,
       imageData: null,
-      framebuffer: project ? new OffscreenCanvas(project.width, project.height) : new OffscreenCanvas(2000, 2000)
+      framebuffer: project ? new OffscreenCanvas(project.width, project.height) : new OffscreenCanvas(DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT)
     };
     addLayer(newLayer);
   };
 
   const handleDeleteLayer = (layerId: string) => {
+    const layer = layers.find(l => l.id === layerId);
+    console.log('[LAYER UI] Attempting to delete layer:', { 
+      layerId, 
+      layerName: layer?.name || 'Unknown',
+      canDelete: layers.length > 1 
+    });
     if (layers.length > 1) {
       removeLayer(layerId);
+    } else {
+      console.log('[LAYER UI] Delete blocked - cannot delete last layer');
     }
   };
 
   const handleToggleVisibility = (layerId: string) => {
     const layer = layers.find(l => l.id === layerId);
+    console.log('[LAYER UI] Toggling visibility:', { 
+      layerId, 
+      layerName: layer?.name || 'Unknown',
+      currentVisibility: layer?.visible,
+      newVisibility: !layer?.visible 
+    });
     if (layer) {
       updateLayer(layerId, { visible: !layer.visible });
     }

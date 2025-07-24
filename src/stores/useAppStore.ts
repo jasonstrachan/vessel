@@ -34,6 +34,7 @@ import {
   loadProjectFromFile, 
   exportProjectAsPNG
 } from '../utils/projectIO';
+import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 
 interface AppState {
   // Project State
@@ -128,6 +129,7 @@ interface AppState {
   newProject: (width: number, height: number, name?: string) => void;
   compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => void;
   captureCanvasToActiveLayer: (sourceCanvas?: HTMLCanvasElement) => Promise<void>;
+  captureCanvasToLayer: (sourceCanvas: HTMLCanvasElement, targetLayerId: string | null) => Promise<void>;
   
   // Autosave State
   autosave: AutosaveState;
@@ -216,8 +218,8 @@ export const useAppStore = create<AppState>()(
       project: {
         id: 'default-project',
         name: 'Untitled',
-        width: 800,
-        height: 600,
+        width: DEFAULT_CANVAS_WIDTH,
+        height: DEFAULT_CANVAS_HEIGHT,
         layers: [],
         backgroundColor: 'transparent',
         createdAt: new Date(),
@@ -231,7 +233,13 @@ export const useAppStore = create<AppState>()(
       
       // Layer composition trigger
       layersNeedRecomposition: false,
-      setLayersNeedRecomposition: (needed) => set({ layersNeedRecomposition: needed }),
+      setLayersNeedRecomposition: (needed) => {
+        console.log('[LAYER] Recomposition needed:', { 
+          needed, 
+          timestamp: new Date().toISOString() 
+        });
+        set({ layersNeedRecomposition: needed });
+      },
       
       // Canvas State
       canvas: defaultCanvasState,
@@ -523,12 +531,25 @@ export const useAppStore = create<AppState>()(
       activeLayerId: null,
       currentLayer: 0,
       addLayer: (layer) => set((state) => {
+        console.log('[LAYER] Adding layer:', { 
+          layerName: layer.name, 
+          currentLayerCount: state.layers.length,
+          activeLayerId: state.activeLayerId 
+        });
+        
         const newLayer: Layer = {
           ...layer,
           id: `layer-${Date.now()}-${Math.random()}`,
           order: state.layers.length
         };
         const updatedLayers = [...state.layers, newLayer];
+        
+        console.log('[LAYER] Layer created:', { 
+          newLayerId: newLayer.id, 
+          newLayerOrder: newLayer.order,
+          totalLayers: updatedLayers.length 
+        });
+        
         return {
           layers: updatedLayers,
           activeLayerId: newLayer.id,
@@ -539,12 +560,27 @@ export const useAppStore = create<AppState>()(
         };
       }),
       removeLayer: (id) => set((state) => {
+        console.log('[LAYER] Removing layer:', { 
+          layerId: id, 
+          currentLayerCount: state.layers.length,
+          isActiveLayer: state.activeLayerId === id 
+        });
+        
+        const layerToRemove = state.layers.find(l => l.id === id);
         const updatedLayers = state.layers.filter(l => l.id !== id);
+        const newActiveLayerId = state.activeLayerId === id ? 
+          updatedLayers.find(l => l.id !== id)?.id || null : 
+          state.activeLayerId;
+        
+        console.log('[LAYER] Layer removed:', { 
+          removedLayerName: layerToRemove?.name || 'Unknown',
+          remainingLayers: updatedLayers.length,
+          newActiveLayerId 
+        });
+        
         return {
           layers: updatedLayers,
-          activeLayerId: state.activeLayerId === id ? 
-            updatedLayers.find(l => l.id !== id)?.id || null : 
-            state.activeLayerId,
+          activeLayerId: newActiveLayerId,
           project: state.project ? {
             ...state.project,
             layers: updatedLayers
@@ -552,19 +588,56 @@ export const useAppStore = create<AppState>()(
         };
       }),
       updateLayer: (id, updates) => set((state) => {
+        const layer = state.layers.find(l => l.id === id);
+        console.log('[LAYER] Updating layer:', { 
+          layerId: id, 
+          layerName: layer?.name || 'Unknown',
+          updates: Object.keys(updates),
+          visibilityChanged: 'visible' in updates ? `${layer?.visible} -> ${updates.visible}` : 'no change',
+          opacityChanged: 'opacity' in updates ? `${layer?.opacity} -> ${updates.opacity}` : 'no change'
+        });
+        
         const updatedLayers = state.layers.map(layer =>
           layer.id === id ? { ...layer, ...updates } : layer
         );
+        
+        // Check if visual properties changed that require recomposition
+        const needsRecomposition = 'visible' in updates || 'opacity' in updates || 'blendMode' in updates;
+        if (needsRecomposition) {
+          console.log('[LAYER] Visual property changed - triggering recomposition');
+        }
+        
         return {
           layers: updatedLayers,
+          layersNeedRecomposition: needsRecomposition || state.layersNeedRecomposition,
           project: state.project ? {
             ...state.project,
             layers: updatedLayers
           } : null
         };
       }),
-      setActiveLayer: (id) => set({ activeLayerId: id }),
+      setActiveLayer: (id) => {
+        const state = get();
+        const layer = state.layers.find(l => l.id === id);
+        console.log('[LAYER] Setting active layer:', { 
+          layerId: id, 
+          layerName: layer?.name || 'Unknown',
+          previousActiveId: state.activeLayerId 
+        });
+        set({ activeLayerId: id });
+      },
       reorderLayers: (sourceIndex, destinationIndex) => set((state) => {
+        const sourceLayer = state.layers[sourceIndex];
+        const destinationLayer = state.layers[destinationIndex];
+        
+        console.log('[LAYER] Reordering layers:', { 
+          sourceIndex, 
+          destinationIndex,
+          sourceLayerName: sourceLayer?.name || 'Unknown',
+          destinationLayerName: destinationLayer?.name || 'Unknown',
+          totalLayers: state.layers.length
+        });
+        
         const newLayers = [...state.layers];
         const [removed] = newLayers.splice(sourceIndex, 1);
         newLayers.splice(destinationIndex, 0, removed);
@@ -575,8 +648,15 @@ export const useAppStore = create<AppState>()(
           order: index
         }));
         
+        console.log('[LAYER] Layers reordered:', updatedLayers.map(l => ({ 
+          name: l.name, 
+          order: l.order 
+        })));
+        console.log('[LAYER] Layer order changed - triggering recomposition');
+        
         return {
           layers: updatedLayers,
+          layersNeedRecomposition: true,
           project: state.project ? {
             ...state.project,
             layers: updatedLayers
@@ -974,14 +1054,30 @@ export const useAppStore = create<AppState>()(
       
       compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => {
         const state = get();
-        if (!state.project || !state.layers.length) return;
+        console.log('[LAYER] Starting layer composition:', { 
+          hasProject: !!state.project,
+          layerCount: state.layers.length,
+          targetCanvasSize: `${targetCanvas.width}x${targetCanvas.height}`
+        });
+        
+        if (!state.project || !state.layers.length) {
+          console.log('[LAYER] Composition skipped - no project or layers');
+          return;
+        }
         
         const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
-        if (!ctx) return;
+        if (!ctx) {
+          console.log('[LAYER] Composition failed - no canvas context');
+          return;
+        }
         
-        // Set canvas size to project dimensions
-        targetCanvas.width = state.project.width;
-        targetCanvas.height = state.project.height;
+        // Only resize canvas if dimensions don't match project
+        // This prevents unnecessary canvas resets when toggling layer visibility
+        if (targetCanvas.width !== state.project.width || targetCanvas.height !== state.project.height) {
+          console.log('[LAYER] Resizing canvas from', `${targetCanvas.width}x${targetCanvas.height}`, 'to', `${state.project.width}x${state.project.height}`);
+          targetCanvas.width = state.project.width;
+          targetCanvas.height = state.project.height;
+        }
         
         // Clear the canvas
         ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
@@ -990,13 +1086,30 @@ export const useAppStore = create<AppState>()(
         if (state.project.backgroundColor && state.project.backgroundColor !== 'transparent') {
           ctx.fillStyle = state.project.backgroundColor;
           ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+          console.log('[LAYER] Applied background color:', state.project.backgroundColor);
         }
         
         // Sort layers by order and draw each visible layer
         const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
+        console.log('[LAYER] Processing layers:', sortedLayers.map(l => ({ 
+          name: l.name, 
+          order: l.order, 
+          visible: l.visible, 
+          hasImageData: !!l.imageData,
+          opacity: l.opacity,
+          blendMode: l.blendMode
+        })));
         
+        let drawnLayers = 0;
         for (const layer of sortedLayers) {
-          if (!layer.visible || !layer.imageData) continue;
+          if (!layer.visible || !layer.imageData) {
+            console.log('[LAYER] Skipping layer:', { 
+              name: layer.name, 
+              visible: layer.visible, 
+              hasImageData: !!layer.imageData 
+            });
+            continue;
+          }
           
           // Create temporary canvas for the layer
           const layerCanvas = document.createElement('canvas');
@@ -1014,22 +1127,47 @@ export const useAppStore = create<AppState>()(
             
             // Draw the layer onto the target canvas
             ctx.drawImage(layerCanvas, 0, 0);
+            drawnLayers++;
+            
+            console.log('[LAYER] Drew layer:', { 
+              name: layer.name, 
+              opacity: layer.opacity, 
+              blendMode: layer.blendMode,
+              size: `${layer.imageData.width}x${layer.imageData.height}`
+            });
+          } else {
+            console.log('[LAYER] Failed to get layer context for:', layer.name);
           }
         }
         
         // Reset context state
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1.0;
+        
+        console.log('[LAYER] Composition complete:', { 
+          totalLayers: sortedLayers.length,
+          drawnLayers
+        });
       },
       
       captureCanvasToActiveLayer: async (sourceCanvas?: HTMLCanvasElement) => {
         const state = get();
+        console.log('[LAYER] Starting canvas capture:', { 
+          hasSourceCanvas: !!sourceCanvas,
+          isHistoryCapturing: state.history.isCapturing,
+          hasProject: !!state.project,
+          layerCount: state.layers.length,
+          activeLayerId: state.activeLayerId
+        });
+        
         // Skip if we're in the middle of a history operation
         if (state.history.isCapturing) {
+          console.log('[LAYER] Capture skipped - history operation in progress');
           return;
         }
         
         if (!state.project || state.layers.length === 0) {
+          console.log('[LAYER] Capture skipped - no project or layers');
           return;
         }
         
@@ -1037,12 +1175,13 @@ export const useAppStore = create<AppState>()(
         const canvas = sourceCanvas;
         
         if (!canvas) {
+          console.log('[LAYER] Capture failed - no source canvas provided');
           return;
         }
         
-        
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) {
+          console.log('[LAYER] Capture failed - no canvas context');
           return;
         }
         
@@ -1051,10 +1190,24 @@ export const useAppStore = create<AppState>()(
           const captureWidth = Math.min(state.project.width, canvas.width);
           const captureHeight = Math.min(state.project.height, canvas.height);
           
+          console.log('[LAYER] Capturing image data:', { 
+            sourceSize: `${canvas.width}x${canvas.height}`,
+            projectSize: `${state.project.width}x${state.project.height}`,
+            captureSize: `${captureWidth}x${captureHeight}`
+          });
+          
           const imageData = ctx.getImageData(0, 0, captureWidth, captureHeight);
           
           // Find the active layer or use the first layer
           const activeLayerId = state.activeLayerId || state.layers[0]?.id;
+          const activeLayer = state.layers.find(l => l.id === activeLayerId);
+          
+          console.log('[LAYER] Target layer for capture:', { 
+            activeLayerId,
+            layerName: activeLayer?.name || 'Unknown',
+            layerVisible: activeLayer?.visible
+          });
+          
           if (activeLayerId) {
             // Update the layer with the captured ImageData using direct set
             set((currentState) => {
@@ -1070,6 +1223,7 @@ export const useAppStore = create<AppState>()(
               };
             });
             
+            console.log('[LAYER] Canvas captured to layer:', activeLayerId);
             
             // Wait for the next tick to ensure store update is complete
             await new Promise(resolve => setTimeout(resolve, 0));
@@ -1077,8 +1231,108 @@ export const useAppStore = create<AppState>()(
             // Verify the layer was updated (get fresh state)
             const freshState = get();
             const updatedLayer = freshState.layers.find(l => l.id === activeLayerId);
+            console.log('[LAYER] Capture verification:', { 
+              layerFound: !!updatedLayer,
+              hasImageData: !!updatedLayer?.imageData
+            });
           }
         } catch (error) {
+          console.error('[LAYER] Capture failed with error:', error);
+        }
+      },
+      
+      captureCanvasToLayer: async (sourceCanvas: HTMLCanvasElement, targetLayerId: string | null) => {
+        const state = get();
+        console.log('[LAYER] Starting canvas capture to specific layer:', { 
+          hasSourceCanvas: !!sourceCanvas,
+          isHistoryCapturing: state.history.isCapturing,
+          hasProject: !!state.project,
+          layerCount: state.layers.length,
+          targetLayerId,
+          targetLayerName: state.layers.find(l => l.id === targetLayerId)?.name || 'Unknown'
+        });
+        
+        // Skip if we're in the middle of a history operation
+        if (state.history.isCapturing) {
+          console.log('[LAYER] Capture skipped - history operation in progress');
+          return;
+        }
+        
+        if (!state.project || state.layers.length === 0) {
+          console.log('[LAYER] Capture skipped - no project or layers');
+          return;
+        }
+        
+        if (!sourceCanvas) {
+          console.log('[LAYER] Capture failed - no source canvas provided');
+          return;
+        }
+        
+        if (!targetLayerId) {
+          console.log('[LAYER] Capture failed - no target layer ID provided');
+          return;
+        }
+        
+        const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) {
+          console.log('[LAYER] Capture failed - no canvas context');
+          return;
+        }
+        
+        try {
+          // Capture only the project area, not the full canvas
+          const captureWidth = Math.min(state.project.width, sourceCanvas.width);
+          const captureHeight = Math.min(state.project.height, sourceCanvas.height);
+          
+          console.log('[LAYER] Capturing image data:', { 
+            sourceSize: `${sourceCanvas.width}x${sourceCanvas.height}`,
+            projectSize: `${state.project.width}x${state.project.height}`,
+            captureSize: `${captureWidth}x${captureHeight}`
+          });
+          
+          const imageData = ctx.getImageData(0, 0, captureWidth, captureHeight);
+          
+          // Find the target layer
+          const targetLayer = state.layers.find(l => l.id === targetLayerId);
+          if (!targetLayer) {
+            console.log('[LAYER] Capture failed - target layer not found:', targetLayerId);
+            return;
+          }
+          
+          console.log('[LAYER] Target layer found:', { 
+            layerId: targetLayerId,
+            layerName: targetLayer.name,
+            layerVisible: targetLayer.visible
+          });
+          
+          // Update the specific layer with the captured ImageData
+          set((currentState) => {
+            const updatedLayers = currentState.layers.map(layer =>
+              layer.id === targetLayerId ? { ...layer, imageData } : layer
+            );
+            return {
+              layers: updatedLayers,
+              project: currentState.project ? {
+                ...currentState.project,
+                layers: updatedLayers
+              } : null
+            };
+          });
+          
+          console.log('[LAYER] Canvas captured to specific layer:', targetLayerId);
+          
+          // Wait for the next tick to ensure store update is complete
+          await new Promise(resolve => setTimeout(resolve, 0));
+          
+          // Verify the layer was updated (get fresh state)
+          const freshState = get();
+          const updatedLayer = freshState.layers.find(l => l.id === targetLayerId);
+          console.log('[LAYER] Capture verification:', { 
+            layerFound: !!updatedLayer,
+            hasImageData: !!updatedLayer?.imageData
+          });
+        } catch (error) {
+          console.error('[LAYER] Capture to specific layer failed with error:', error);
         }
       },
       
