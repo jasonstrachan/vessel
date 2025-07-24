@@ -24,7 +24,7 @@ export default function BrushControls() {
 
       {/* Color */}
       <div className="mb-3">
-        <label className="block text-base text-[#D9D9D9] mb-2">Color</label>
+        <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>Color</label>
         <div className="flex items-start gap-2" suppressHydrationWarning>
           <ColorPicker
             color={brushSettings.color}
@@ -45,7 +45,7 @@ export default function BrushControls() {
 
       {/* Brush Size - Unified percentage-based slider for all brushes */}
       <div className="mb-3">
-        <label className="block text-base text-[#D9D9D9] mb-2">
+        <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
           Size: {brushSettings.size}{brushSettings.brushShape !== BrushShape.CUSTOM ? 'px' : ''}
         </label>
         <div onDoubleClick={handleBrushSizeDoubleClick}>
@@ -62,7 +62,7 @@ export default function BrushControls() {
 
       {/* Opacity */}
       <div className="mb-3">
-        <label className="block text-base text-[#D9D9D9] mb-2">
+        <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
           Opacity: {Math.round(brushSettings.opacity * 100)}%
         </label>
         <Slider
@@ -77,7 +77,7 @@ export default function BrushControls() {
 
       {/* Spacing */}
       <div className="mb-3">
-        <label className="block text-base text-[#D9D9D9] mb-2">
+        <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
           Spacing: {brushSettings.spacing}px
         </label>
         <Slider
@@ -98,7 +98,7 @@ export default function BrushControls() {
             checked={brushSettings.pressureEnabled || false}
             onChange={(checked) => setBrushSettings({ pressureEnabled: checked })}
           />
-          <label htmlFor="pressure-enabled" className="text-base text-[#D9D9D9]">
+          <label htmlFor="pressure-enabled" className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
             Pressure
           </label>
         </div>
@@ -114,7 +114,7 @@ export default function BrushControls() {
               max="1000"
               className="w-16"
             />
-            <span className="text-base text-[#D9D9D9]">-</span>
+            <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>-</span>
             <Input
               type="number"
               variant="compact"
@@ -136,7 +136,7 @@ export default function BrushControls() {
             checked={brushSettings.rotationEnabled || false}
             onChange={(checked) => setBrushSettings({ rotationEnabled: checked })}
           />
-          <label htmlFor="rotation-enabled" className="text-base text-[#D9D9D9]">
+          <label htmlFor="rotation-enabled" className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
             Rotation
           </label>
         </div>
@@ -150,7 +150,7 @@ export default function BrushControls() {
             checked={brushSettings.dashedEnabled || false}
             onChange={(checked) => setBrushSettings({ dashedEnabled: checked })}
           />
-          <label htmlFor="dashed-enabled" className="text-base text-[#D9D9D9]">
+          <label htmlFor="dashed-enabled" className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
             Dashed
           </label>
         </div>
@@ -158,7 +158,7 @@ export default function BrushControls() {
         {(brushSettings.dashedEnabled || false) && (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <label className="text-base text-[#D9D9D9] w-12" title="Dash length as multiple of brush size">Length</label>
+              <label className="text-[#D9D9D9] w-12" style={{ fontSize: '14px' }} title="Dash length as multiple of brush size">Length</label>
               <Input
                 type="number"
                 variant="compact"
@@ -169,10 +169,10 @@ export default function BrushControls() {
                 className="w-16"
                 title="Length multiplier (×brush size)"
               />
-              <span className="text-base text-[#D9D9D9]">×</span>
+              <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>×</span>
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-base text-[#D9D9D9] w-12" title="Gap length as multiple of brush size">Gap</label>
+              <label className="text-[#D9D9D9] w-12" style={{ fontSize: '14px' }} title="Gap length as multiple of brush size">Gap</label>
               <Input
                 type="number"
                 variant="compact"
@@ -183,7 +183,7 @@ export default function BrushControls() {
                 className="w-16"
                 title="Gap multiplier (×brush size)"
               />
-              <span className="text-base text-[#D9D9D9]">×</span>
+              <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>×</span>
             </div>
           </div>
         )}
@@ -197,7 +197,7 @@ export default function BrushControls() {
             checked={brushSettings.gridSnapEnabled || false}
             onChange={(checked) => setBrushSettings({ gridSnapEnabled: checked })}
           />
-          <label htmlFor="grid-snap-enabled" className="text-base text-[#D9D9D9]">
+          <label htmlFor="grid-snap-enabled" className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
             Grid Snap
           </label>
         </div>

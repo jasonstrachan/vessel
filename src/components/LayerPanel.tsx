@@ -5,8 +5,9 @@ import { useAppStore } from '../stores/useAppStore';
 import { Layer } from '../types';
 import { XIcon } from './icons/XIcon';
 import Input from './ui/Input';
-import { Eye, EyeOff, Lock, Unlock, Plus, SlidersHorizontal } from 'lucide-react';
+import { Eye, EyeOff, Lock, Unlock, SlidersHorizontal } from 'lucide-react';
 import { Slider } from './retroui/Slider';
+import PlusButton from './ui/PlusButton';
 
 const LayerPanel = () => {
   const [showOpacityPopover, setShowOpacityPopover] = React.useState<string | null>(null);
@@ -84,14 +85,11 @@ const LayerPanel = () => {
   return (
     <div className="">
       <div className="flex items-center justify-between px-4 py-2">
-        <h3 className="text-sm font-medium text-[#D9D9D9]">Layers</h3>
-        <button
+        <h3 className="font-medium text-[#D9D9D9]" style={{ fontSize: '14px' }}>Layers</h3>
+        <PlusButton
           onClick={handleAddLayer}
-          className="w-6 h-6 text-[#5A5A61] hover:text-[#888888] flex items-center justify-center"
           title="Add Layer"
-        >
-          <Plus size={16} />
-        </button>
+        />
       </div>
       
       <div className="">
@@ -119,7 +117,7 @@ const LayerPanel = () => {
                 >
                   {layer.visible ? <Eye size={14} /> : <EyeOff size={14} />}
                 </button>
-                <span className="text-sm text-[#D9D9D9] flex-1 truncate">
+                <span className="text-[#D9D9D9] flex-1 truncate" style={{ fontSize: '14px' }}>
                   {layer.name}
                 </span>
               </div>
@@ -154,7 +152,7 @@ const LayerPanel = () => {
             </div>
             
             <div className="flex items-center justify-between px-3">
-              <span className="text-xs text-[#999]">Opacity: {Math.round(layer.opacity * 100)}%</span>
+              <span className="text-[#999]" style={{ fontSize: '14px' }}>Opacity: {Math.round(layer.opacity * 100)}%</span>
               <div className="relative">
                 <button
                   ref={(el) => { opacityButtonRef.current[layer.id] = el; }}
@@ -179,7 +177,7 @@ const LayerPanel = () => {
                     className="absolute bottom-full right-0 mb-2 w-48 p-3 bg-[#2A2A32] border border-[#666] rounded-lg shadow-lg z-50"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <label className="block text-sm text-[#D9D9D9] mb-2">
+                    <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
                       Opacity: {Math.round(layer.opacity * 100)}%
                     </label>
                     <Slider
