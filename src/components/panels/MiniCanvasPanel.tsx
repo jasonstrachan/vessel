@@ -3,7 +3,6 @@
 import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import MiniCanvas from '../canvas/MiniCanvas';
-import { Slider } from '../retroui/Slider';
 
 export default function MiniCanvasPanel() {
   const { tools, setBrushSettings } = useAppStore();
@@ -49,27 +48,6 @@ export default function MiniCanvasPanel() {
         }}
         className="w-full"
       />
-      
-      {/* Hue adjustment slider */}
-      <div className="mt-2 px-3">
-        <label className="block text-base text-[#D9D9D9] mb-2">
-          Hue Shift: {hueShift > 0 ? '+' : ''}{hueShift}°
-        </label>
-        <Slider
-          value={[hueShift]}
-          min={-180}
-          max={180}
-          step={1}
-          onValueChange={(value) => {
-            // Only save state if this is the first change (when going from 0 to non-zero)
-            if (hueShift === 0 && value[0] !== 0) {
-              // TODO: Save mini canvas state before hue change
-            }
-            setHueShift(value[0]);
-          }}
-          aria-label="Hue Shift"
-        />
-      </div>
     </div>
   );
 }

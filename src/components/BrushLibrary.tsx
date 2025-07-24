@@ -161,10 +161,10 @@ const BrushLibrary = () => {
             }`}
           >
             <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-[#606060] rounded-sm flex items-center justify-center text-base">
+              <div className="w-4 h-4 bg-[#606060] rounded-sm flex items-center justify-center text-base text-[#D9D9D9]">
                 {preset.isCustomBrush ? '▣' : preset.category === 'Pixel Art' ? '▪' : '●'}
               </div>
-              <span className="text-base">{preset.name}</span>
+              <span className="text-base text-[#D9D9D9]">{preset.name}</span>
             </div>
             <div className="flex items-center space-x-1">
               <span className="text-base text-[#D9D9D9]">

@@ -71,7 +71,7 @@ const LeftToolbar = () => {
       {toolGroups.map((group, groupIndex) => (
         <React.Fragment key={groupIndex}>
           {groupIndex > 0 && (
-            <div className="h-[2px] bg-[#D9D9D9] w-[32px] mx-auto my-2 flex-shrink-0" />
+            <div className="h-[2px] bg-[#65656A] w-[32px] mx-auto my-2 flex-shrink-0" />
           )}
           {group.map((tool) => (
             <button
