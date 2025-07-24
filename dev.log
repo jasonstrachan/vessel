@@ -51,3 +51,22 @@
  ✓ Compiled in 330ms (401 modules)
  ✓ Compiled in 334ms (401 modules)
  ✓ Compiled in 331ms (401 modules)
+ ✓ Compiled in 311ms (401 modules)
+ ✓ Compiled in 280ms (401 modules)
+ ✓ Compiled in 302ms (401 modules)
+ ✓ Compiled in 311ms (401 modules)
+ ✓ Compiled in 313ms (400 modules)
+ ✓ Compiled in 292ms (400 modules)
+ ✓ Compiled in 287ms (400 modules)
+ ✓ Compiled in 347ms (400 modules)
+ ✓ Compiled in 302ms (400 modules)
+ ⨯ ./src/components/debug/LayerDebugPanel.tsx
+Error: Failed to read source code from /home/jason/projects/tinybrush/src/components/debug/LayerDebugPanel.tsx
+
+Caused by:
+    No such file or directory (os error 2)
+
+Import trace for requested module:
+./src/components/debug/LayerDebugPanel.tsx
+./src/app/page.tsx
+ ✓ Compiled in 290ms (399 modules)

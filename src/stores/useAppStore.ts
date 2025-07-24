@@ -179,7 +179,7 @@ const defaultToolState: ToolState = {
   currentTool: 'brush',
   previousTool: 'brush',
   brushSettings: defaultBrushSettingsForStore,
-  eraserSettings: { ...defaultBrushSettingsForStore, blendMode: 'destination-out', color: '#ffffff' },
+  eraserSettings: { ...defaultBrushSettingsForStore, blendMode: 'source-over', color: 'rgba(255, 255, 255, 0.1)' },
   fillSettings: {
     threshold: 0,
     contiguous: true

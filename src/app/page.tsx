@@ -10,7 +10,6 @@ import { DocumentModal } from '../components/modals/DocumentModal';
 import { SettingsModal } from '../components/modals/SettingsModal';
 import { useAppStore } from '../stores/useAppStore';
 import { autosaveService } from '../utils/autosave';
-import LayerDebugPanel from '../components/debug/LayerDebugPanel';
 
 
 export default function Home() {
@@ -144,8 +143,6 @@ export default function Home() {
         onClose={() => toggleModal('settings')}
       />
       
-      {/* Debug Panel (dev only) */}
-      <LayerDebugPanel />
     </main>
   );
 }

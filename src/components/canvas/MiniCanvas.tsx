@@ -281,9 +281,9 @@ export default function MiniCanvas({
   // Draw checkerboard background
   const drawCheckerboard = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
     const checkSize = 8;
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = '#404040';
     ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#cccccc';
+    ctx.fillStyle = '#606060';
     
     for (let x = 0; x < w; x += checkSize) {
       for (let y = 0; y < h; y += checkSize) {
