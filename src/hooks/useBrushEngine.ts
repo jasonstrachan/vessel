@@ -963,8 +963,10 @@ export const useBrushEngine = () => {
     // Also use custom brush rendering if we have a currentBrushTip
     if (customBrush) {
       // Determine if this brush should use swatch color
-      const isColorizable = tools.brushSettings.currentBrushTip?.isColorizable ?? 
-        (tools.brushSettings.brushShape === 'custom' ? tools.brushSettings.useSwatchColor : true);
+      // If we have a currentBrushTip, always use its isColorizable value
+      const isColorizable = tools.brushSettings.currentBrushTip && tools.brushSettings.currentBrushTip.brushId === currentBrushId
+        ? tools.brushSettings.currentBrushTip.isColorizable
+        : (tools.brushSettings.brushShape === 'custom' ? tools.brushSettings.useSwatchColor : true);
       const brushColor = isColorizable ? settings.color : undefined;
       
       // Scale custom brush using unified percentage system

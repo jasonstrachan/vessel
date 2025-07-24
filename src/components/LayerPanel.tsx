@@ -5,9 +5,13 @@ import { useAppStore } from '../stores/useAppStore';
 import { Layer } from '../types';
 import { XIcon } from './icons/XIcon';
 import Input from './ui/Input';
-import { Eye, EyeOff, Lock, Unlock, Plus } from 'lucide-react';
+import { Eye, EyeOff, Lock, Unlock, Plus, SlidersHorizontal } from 'lucide-react';
+import { Slider } from './retroui/Slider';
 
 const LayerPanel = () => {
+  const [showOpacityPopover, setShowOpacityPopover] = React.useState<string | null>(null);
+  const opacityButtonRef = React.useRef<{ [key: string]: HTMLButtonElement | null }>({});
+  const opacityPopoverRef = React.useRef<HTMLDivElement>(null);
   const { 
     layers, 
     activeLayerId, 
@@ -55,10 +59,32 @@ const LayerPanel = () => {
     updateLayer(layerId, { opacity: opacity / 100 });
   };
 
+  // Handle click outside to close popover
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showOpacityPopover && 
+          opacityPopoverRef.current && 
+          !opacityPopoverRef.current.contains(event.target as Node)) {
+        // Check if click is outside all opacity buttons
+        const clickedButton = Object.values(opacityButtonRef.current).some(
+          btn => btn && btn.contains(event.target as Node)
+        );
+        if (!clickedButton) {
+          setShowOpacityPopover(null);
+        }
+      }
+    };
+
+    if (showOpacityPopover) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showOpacityPopover]);
+
   return (
-    <div className="p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-base font-medium text-[#D9D9D9]">Layers</h3>
+    <div className="">
+      <div className="flex items-center justify-between px-4 py-2">
+        <h3 className="text-sm font-medium text-[#D9D9D9]">Layers</h3>
         <button
           onClick={handleAddLayer}
           className="w-6 h-6 text-[#5A5A61] hover:text-[#888888] flex items-center justify-center"
@@ -68,18 +94,18 @@ const LayerPanel = () => {
         </button>
       </div>
       
-      <div className="space-y-1">
+      <div className="">
         {layers.slice().reverse().map((layer) => (
           <div
             key={layer.id}
-            className={`py-2 px-0 border-b border-[#404040] ${
+            className={`py-1 border-b border-[#404040] ${
               activeLayerId === layer.id
-                ? 'border-l-2 border-l-blue-500'
-                : 'border-l-2 border-l-transparent'
-            } hover:bg-[#383838]/20 cursor-pointer`}
+                ? 'bg-[#3A3A42]'
+                : 'hover:bg-[#383838]/20'
+            } cursor-pointer`}
             onClick={() => setActiveLayer(layer.id)}
           >
-            <div className="flex items-center justify-between px-2">
+            <div className="flex items-center justify-between px-3">
               <div className="flex items-center space-x-2">
                 <button
                   onClick={(e) => {
@@ -93,7 +119,7 @@ const LayerPanel = () => {
                 >
                   {layer.visible ? <Eye size={14} /> : <EyeOff size={14} />}
                 </button>
-                <span className="text-base text-[#D9D9D9] flex-1 truncate">
+                <span className="text-sm text-[#D9D9D9] flex-1 truncate">
                   {layer.name}
                 </span>
               </div>
@@ -127,20 +153,46 @@ const LayerPanel = () => {
               </div>
             </div>
             
-            <div className="mt-1 flex items-center space-x-2 px-2">
-              <span className="text-base text-[#D9D9D9]">Opacity:</span>
-              <Input
-                type="range"
-                min="0"
-                max="100"
-                value={Math.round(layer.opacity * 100)}
-                onChange={(e) => handleOpacityChange(layer.id, Number(e.target.value))}
-                onClick={(e) => e.stopPropagation()}
-                fullWidth
-              />
-              <span className="text-base text-[#D9D9D9] w-10">
-                {Math.round(layer.opacity * 100)}%
-              </span>
+            <div className="flex items-center justify-between px-3">
+              <span className="text-xs text-[#999]">Opacity: {Math.round(layer.opacity * 100)}%</span>
+              <div className="relative">
+                <button
+                  ref={(el) => { opacityButtonRef.current[layer.id] = el; }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowOpacityPopover(showOpacityPopover === layer.id ? null : layer.id);
+                  }}
+                  className={`p-1 rounded ${
+                    showOpacityPopover === layer.id
+                      ? 'text-blue-400 bg-blue-400/20'
+                      : 'text-[#D9D9D9] hover:bg-[#3A3A42]'
+                  }`}
+                  title="Adjust opacity"
+                >
+                  <SlidersHorizontal size={14} />
+                </button>
+                
+                {/* Opacity Popover */}
+                {showOpacityPopover === layer.id && (
+                  <div 
+                    ref={opacityPopoverRef}
+                    className="absolute bottom-full right-0 mb-2 w-48 p-3 bg-[#2A2A32] border border-[#666] rounded-lg shadow-lg z-50"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <label className="block text-sm text-[#D9D9D9] mb-2">
+                      Opacity: {Math.round(layer.opacity * 100)}%
+                    </label>
+                    <Slider
+                      value={[layer.opacity * 100]}
+                      min={0}
+                      max={100}
+                      step={1}
+                      onValueChange={(value) => handleOpacityChange(layer.id, value[0])}
+                      aria-label="Layer Opacity"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         ))}

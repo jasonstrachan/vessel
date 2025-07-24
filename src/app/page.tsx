@@ -102,7 +102,7 @@ export default function Home() {
       <LeftToolbar />
       
       {/* Separator */}
-      <div className="w-[2px] bg-[#D9D9D9] h-screen flex-shrink-0" />
+      <div className="w-[2px] bg-[#65656A] h-screen flex-shrink-0" />
       
       {/* Main Canvas Area */}
       <div 
@@ -116,13 +116,13 @@ export default function Home() {
       </div>
       
       {/* Separator */}
-      <div className="w-[2px] bg-[#D9D9D9] h-screen flex-shrink-0" />
+      <div className="w-[2px] bg-[#65656A] h-screen flex-shrink-0" />
       
       {/* RHC1 - MiniCanvas + Layers */}
       <RHC1Panel />
       
       {/* Separator */}
-      <div className="w-[2px] bg-[#D9D9D9] h-screen flex-shrink-0" />
+      <div className="w-[2px] bg-[#65656A] h-screen flex-shrink-0" />
       
       {/* RHC2 - BrushLibrary + ControlsPanel */}
       <div className="bg-[#31313A] flex flex-col h-screen flex-shrink-0" style={{ width: '240px', minWidth: '240px', maxWidth: '240px' }}>
@@ -130,7 +130,7 @@ export default function Home() {
           <BrushLibrary />
         </div>
         {/* Separator */}
-        <div className="h-[2px] bg-[#D9D9D9] w-full flex-shrink-0" />
+        <div className="h-[2px] bg-[#65656A] w-full flex-shrink-0" />
         <div className="flex-[3] min-h-0">
           <ControlsPanel />
         </div>
