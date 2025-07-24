@@ -604,7 +604,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     setBrushSettings({ 
       brushShape: BrushShape.CUSTOM,
       selectedCustomBrush: customBrush.id,
-      size: 100 // Default to 100% (original size) for custom brushes
+      size: 100, // Default to 100% (original size) for custom brushes
+      useSwatchColor: false // Default to false so custom brushes use their tip colors
     });
     
     // Switch to brush tool for immediate use
@@ -690,7 +691,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     setBrushSettings({ 
       brushShape: BrushShape.CUSTOM,
       selectedCustomBrush: tempBrush.id,
-      size: 100 // Default to 100% (original size) for custom brushes
+      size: 100, // Default to 100% (original size) for custom brushes
+      useSwatchColor: false // Default to false so custom brushes use their tip colors
     });
     
     // Store the temporary brush in the store

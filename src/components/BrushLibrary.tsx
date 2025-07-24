@@ -86,6 +86,13 @@ const BrushLibrary = () => {
   };
   
   const handlePresetClick = (preset: BrushPreset) => {
+    console.log('Brush preset clicked:', {
+      id: preset.id,
+      name: preset.name,
+      isCustomBrush: preset.isCustomBrush,
+      hasCustomBrushData: !!preset.customBrushData
+    });
+    
     if (preset.isCustomBrush && preset.customBrushData) {
       // For custom brush presets, set the brush settings to use custom brush
       // For saved presets (prefix: preset_), use the preset ID directly
@@ -97,10 +104,17 @@ const BrushLibrary = () => {
         // For preset_ IDs, use the full preset ID so MiniCanvas can find it
         customBrushId = preset.id;
       }
+      
+      console.log('Setting custom brush:', {
+        extractedId: customBrushId,
+        availableCustomBrushes: project?.customBrushes?.map(b => ({ id: b.id, name: b.name })) || []
+      });
+      
       setBrushSettings({
         brushShape: BrushShape.CUSTOM,
         selectedCustomBrush: customBrushId,
-        size: 100 // Default to 100% (original size) for custom brushes
+        size: 100, // Default to 100% (original size) for custom brushes
+        useSwatchColor: false // Default to false so custom brushes use their tip colors
       });
     } else {
       // For regular presets, clear custom brush state first

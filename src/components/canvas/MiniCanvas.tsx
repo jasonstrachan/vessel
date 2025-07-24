@@ -55,6 +55,22 @@ export default function MiniCanvas({
   // Get brush engine for drawing
   const { renderBrushStroke } = useBrushEngine();
 
+  // Helper function to check if current brush is a default brush
+  const isDefaultBrush = useCallback(() => {
+    // Non-custom brushes are always default
+    if (brushSettings.brushShape !== BrushShape.CUSTOM) {
+      return true;
+    }
+    
+    // Check if the selected custom brush is actually a default brush preset
+    if (brushSettings.selectedCustomBrush) {
+      const preset = brushPresets.find(p => p.id === brushSettings.selectedCustomBrush);
+      return preset?.isDefault === true;
+    }
+    
+    return false;
+  }, [brushSettings.brushShape, brushSettings.selectedCustomBrush, brushPresets]);
+
   // Initialize canvases
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -173,7 +189,13 @@ export default function MiniCanvas({
         }
         
         // Store original data for reset
-        setOriginalBrushData(ctx.getImageData(0, 0, size, size));
+        const brushData = ctx.getImageData(0, 0, size, size);
+        setOriginalBrushData(brushData);
+        
+        // Notify parent that brush tip has changed
+        if (onBrushTipChange) {
+          onBrushTipChange(brushData);
+        }
         
         // Force a render update to display the custom brush
         renderCanvas();
@@ -359,6 +381,9 @@ export default function MiniCanvas({
   // Mouse event handlers
   const handlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
+    
+    // Don't allow drawing on default brushes
+    if (isDefaultBrush()) return;
     
     // Save current state to undo stack before editing
     saveToUndoStack();
@@ -576,7 +601,7 @@ export default function MiniCanvas({
           ref={canvasRef}
           width={width}
           height={height}
-          className="block cursor-crosshair"
+          className={`block ${isDefaultBrush() ? 'cursor-default' : 'cursor-crosshair'}`}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
@@ -596,11 +621,22 @@ export default function MiniCanvas({
         {brushSettings.brushShape === BrushShape.CUSTOM && (
           <>
             <button
-              onClick={() => setBrushSettings({ useSwatchColor: !brushSettings.useSwatchColor })}
-              className="py-1 px-2 text-[#D9D9D9] hover:bg-[#3A3A42] rounded text-base flex-1"
-              title={brushSettings.useSwatchColor ? 'Using swatch color' : 'Using brush tip colors'}
+              onClick={() => {
+                const newValue = !brushSettings.useSwatchColor;
+                console.log('🎨 Swatch color toggle clicked:', {
+                  currentValue: brushSettings.useSwatchColor,
+                  newValue: newValue,
+                  brushShape: brushSettings.brushShape,
+                  selectedCustomBrush: brushSettings.selectedCustomBrush
+                });
+                setBrushSettings({ useSwatchColor: newValue });
+              }}
+              className={`py-1 px-2 hover:bg-[#3A3A42] rounded text-base flex-1 ${
+                brushSettings.useSwatchColor ? 'text-[#FFD700] bg-[#3A3A42]' : 'text-[#D9D9D9]'
+              }`}
+              title={brushSettings.useSwatchColor ? 'Using swatch color (click to use brush tip colors)' : 'Using brush tip colors (click to use swatch color)'}
             >
-              ●
+              {brushSettings.useSwatchColor ? '⬢' : '●'}
             </button>
             <div className="w-[2px] self-stretch bg-[#65656A]" />
           </>
@@ -646,9 +682,9 @@ export default function MiniCanvas({
         {/* Undo */}
         <button
           onClick={handleUndo}
-          disabled={undoStack.length === 0}
+          disabled={undoStack.length === 0 || isDefaultBrush()}
           className={`py-1 px-2 rounded flex-1 ${
-            undoStack.length === 0
+            undoStack.length === 0 || isDefaultBrush()
               ? 'text-[#666] cursor-not-allowed'
               : 'text-[#D9D9D9] hover:bg-[#3A3A42]'
           }`}
@@ -662,9 +698,9 @@ export default function MiniCanvas({
         {/* Redo */}
         <button
           onClick={handleRedo}
-          disabled={redoStack.length === 0}
+          disabled={redoStack.length === 0 || isDefaultBrush()}
           className={`py-1 px-2 rounded flex-1 ${
-            redoStack.length === 0
+            redoStack.length === 0 || isDefaultBrush()
               ? 'text-[#666] cursor-not-allowed'
               : 'text-[#D9D9D9] hover:bg-[#3A3A42]'
           }`}
@@ -723,7 +759,12 @@ export default function MiniCanvas({
         {/* Reset */}
         <button
           onClick={resetBrushTip}
-          className="py-1 px-2 text-[#D9D9D9] hover:bg-[#3A3A42] rounded flex-1"
+          disabled={isDefaultBrush()}
+          className={`py-1 px-2 rounded flex-1 ${
+            isDefaultBrush()
+              ? 'text-[#666] cursor-not-allowed'
+              : 'text-[#D9D9D9] hover:bg-[#3A3A42]'
+          }`}
           title="Reset to original"
         >
           <RotateCcw size={12} />

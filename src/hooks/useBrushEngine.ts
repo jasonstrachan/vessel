@@ -507,8 +507,14 @@ export const useBrushEngine = () => {
       pixelAlignment: !activeSettings.antialiasing, // Default fallback
       spacing: activeSettings.spacing,
       rotation: activeSettings.rotationEnabled && input.direction !== undefined ? input.direction : 0,
-      shape: BrushShape.SQUARE // Default shape, will be overridden by components
+      shape: activeSettings.brushShape || BrushShape.ROUND // Use actual brush shape from settings
     };
+    
+    // Add pattern if using a brush tip from mini canvas
+    if (activeSettings.currentBrushTip && 
+        activeSettings.currentBrushTip.brushId === activeSettings.selectedCustomBrush) {
+      settings.pattern = activeSettings.currentBrushTip.imageData;
+    }
     
     // Sort components by priority
     const sortedComponents = components
@@ -758,6 +764,7 @@ export const useBrushEngine = () => {
     const tempCtx = canvas.getContext('2d');
     if (!tempCtx) return;
     
+    
     // Clear and set up canvas with brush dimensions
     tempCtx.clearRect(0, 0, canvas.width, canvas.height);
     
@@ -813,8 +820,15 @@ export const useBrushEngine = () => {
     to: { x: number; y: number },
     components: BrushComponent[] = activeBrushComponents
   ) => {
+    
     // Get actual pressure from cursor state in the store
     const cursorPressure = useAppStore.getState().canvas.cursor.pressure ?? 1.0;
+    
+    console.log('🎯 Pressure debugging:', 
+      'cursorPressure:', cursorPressure,
+      'pressureEnabled:', tools.brushSettings.pressureEnabled,
+      'fromPressure:', from.pressure
+    );
     
     // Calculate actual brush size using unified percentage scaling
     let actualBrushSize;
@@ -850,16 +864,19 @@ export const useBrushEngine = () => {
     // Check if there's a currentBrushTip for this specific brush
     if (tools.brushSettings.currentBrushTip && tools.brushSettings.currentBrushTip.brushId === currentBrushId) {
       // Create a temporary custom brush from the current brush tip
+      const imageData = tools.brushSettings.currentBrushTip.imageData;
+      
       customBrush = {
         id: 'current-brush-tip',
         name: 'Current Brush Tip',
-        imageData: tools.brushSettings.currentBrushTip.imageData,
+        imageData: imageData,
         thumbnail: '',
-        width: tools.brushSettings.currentBrushTip.imageData.width,
-        height: tools.brushSettings.currentBrushTip.imageData.height,
+        width: imageData.width,
+        height: imageData.height,
         createdAt: Date.now()
       };
     } else if (isCustomBrush && tools.brushSettings.selectedCustomBrush) {
+      
       // Check temporary custom brush first
       if (temporaryCustomBrush && temporaryCustomBrush.id === tools.brushSettings.selectedCustomBrush) {
         customBrush = temporaryCustomBrush;
@@ -888,14 +905,41 @@ export const useBrushEngine = () => {
       }
     }
     
+    
     // Now recalculate actualBrushSize with the correct customBrush information
     if (tools.brushSettings.currentBrushTip && tools.brushSettings.currentBrushTip.brushId === currentBrushId && customBrush) {
       // For currentBrushTip, use the max dimension of the brush tip as base size
       const brushTipBaseSize = Math.max(customBrush.width, customBrush.height);
       actualBrushSize = (tools.brushSettings.size / 100) * brushTipBaseSize;
+      
+      // Apply pressure if enabled - same logic as regular brushes
+      if (tools.brushSettings.pressureEnabled) {
+        const minSizePx = tools.brushSettings.minPressure;
+        const maxSizePx = tools.brushSettings.maxPressure || actualBrushSize;
+        
+        // Add pressure deadzone for better low-pressure control
+        const pressureThreshold = 0.2;
+        const adjustedPressure = cursorPressure < pressureThreshold ? 0 : 
+          (cursorPressure - pressureThreshold) / (1.0 - pressureThreshold);
+        
+        actualBrushSize = minSizePx + (adjustedPressure * (maxSizePx - minSizePx));
+      }
     } else if (isCustomBrush && customBrush) {
       // For custom brushes, use default base size
       actualBrushSize = (tools.brushSettings.size / 100) * BRUSH_BASE_SIZES[BrushShape.CUSTOM];
+      
+      // Apply pressure if enabled - same logic as regular brushes
+      if (tools.brushSettings.pressureEnabled) {
+        const minSizePx = tools.brushSettings.minPressure;
+        const maxSizePx = tools.brushSettings.maxPressure || actualBrushSize;
+        
+        // Add pressure deadzone for better low-pressure control
+        const pressureThreshold = 0.2;
+        const adjustedPressure = cursorPressure < pressureThreshold ? 0 : 
+          (cursorPressure - pressureThreshold) / (1.0 - pressureThreshold);
+        
+        actualBrushSize = minSizePx + (adjustedPressure * (maxSizePx - minSizePx));
+      }
     }
     
     // Apply grid snapping if enabled using the actual brush size
@@ -915,7 +959,16 @@ export const useBrushEngine = () => {
       direction
     };
     
-    const settings = executeComponents(components, input);
+    let settings;
+    try {
+      settings = executeComponents(components, input);
+    } catch (error) {
+      console.error('executeComponents failed with error:', error);
+      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace available');
+      console.error('Components that were being executed:', components);
+      console.error('Input that caused the error:', input);
+      return; // Exit early to prevent further issues
+    }
     
     // Apply grid snapping after settings are calculated so we can use actual brush size
     if (isGridSnapping) {
@@ -958,33 +1011,36 @@ export const useBrushEngine = () => {
     
     // Custom brush is already found above
     
-    
     // Handle custom brush rendering with spacing support
     // Also use custom brush rendering if we have a currentBrushTip
+    
     if (customBrush) {
       // Determine if this brush should use swatch color
-      // If we have a currentBrushTip, always use its isColorizable value
-      const isColorizable = tools.brushSettings.currentBrushTip && tools.brushSettings.currentBrushTip.brushId === currentBrushId
-        ? tools.brushSettings.currentBrushTip.isColorizable
-        : (tools.brushSettings.brushShape === 'custom' ? tools.brushSettings.useSwatchColor : true);
+      // Always respect the useSwatchColor setting for custom brushes
+      const isColorizable = tools.brushSettings.brushShape === BrushShape.CUSTOM 
+        ? tools.brushSettings.useSwatchColor 
+        : true;
       const brushColor = isColorizable ? settings.color : undefined;
       
-      // Scale custom brush using unified percentage system
-      let scaleFactor = settings.size / 100;
+      
+      // Scale custom brush using pressure-modified actualBrushSize
+      let scaleFactor;
       
       // For currentBrushTip, we need to scale based on the actual brush tip size
       if (tools.brushSettings.currentBrushTip && tools.brushSettings.currentBrushTip.brushId === currentBrushId) {
-        // The actualBrushSize already includes the correct scaling for currentBrushTip
+        // The actualBrushSize already includes the correct scaling for currentBrushTip with pressure
         // We need to convert this back to a scale factor relative to the brush tip size
         const brushTipBaseSize = Math.max(customBrush.width, customBrush.height);
         scaleFactor = actualBrushSize / brushTipBaseSize;
+      } else {
+        // For regular custom brushes, use the pressure-modified actualBrushSize
+        // Convert actualBrushSize back to a scale factor for the custom brush base size
+        const customBrushBaseSize = BRUSH_BASE_SIZES[BrushShape.CUSTOM];
+        scaleFactor = actualBrushSize / customBrushBaseSize;
       }
       
-      // For grid snapping, ensure brush size matches grid size exactly
-      if (isGridSnapping) {
-        // Scale factor should ensure the brush matches the grid dimensions exactly
-        scaleFactor = settings.size / 100; // Use the pressure-modified size
-      }
+      // For grid snapping, the scale factor should still preserve pressure effects
+      // (actualBrushSize already includes pressure modifications)
       
       if (isGridSnapping) {
         // Grid snapping mode: draw at all grid positions between last and current position
