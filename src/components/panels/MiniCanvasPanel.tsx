@@ -18,8 +18,8 @@ export default function MiniCanvasPanel() {
       ? brushSettings.selectedCustomBrush // Use the selectedCustomBrush ID directly (now contains preset ID)
       : `standard_${brushSettings.brushShape}`;
     
-    // Default brushes should remain colorizable, custom brushes have baked colors
-    const isColorizable = brushSettings.brushShape !== 'custom';
+    // Default brushes should remain colorizable, custom brushes respect useSwatchColor setting
+    const isColorizable = brushSettings.brushShape !== 'custom' || brushSettings.useSwatchColor;
       
     setBrushSettings({ 
       currentBrushTip: {
