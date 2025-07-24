@@ -86,12 +86,6 @@ const BrushLibrary = () => {
   };
   
   const handlePresetClick = (preset: BrushPreset) => {
-    console.log('Brush preset clicked:', {
-      id: preset.id,
-      name: preset.name,
-      isCustomBrush: preset.isCustomBrush,
-      hasCustomBrushData: !!preset.customBrushData
-    });
     
     if (preset.isCustomBrush && preset.customBrushData) {
       // For custom brush presets, set the brush settings to use custom brush
@@ -105,10 +99,6 @@ const BrushLibrary = () => {
         customBrushId = preset.id;
       }
       
-      console.log('Setting custom brush:', {
-        extractedId: customBrushId,
-        availableCustomBrushes: project?.customBrushes?.map(b => ({ id: b.id, name: b.name })) || []
-      });
       
       setBrushSettings({
         brushShape: BrushShape.CUSTOM,

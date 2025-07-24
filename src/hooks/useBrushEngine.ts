@@ -39,12 +39,6 @@ export interface RenderSettings {
 export const useBrushEngine = () => {
   const { tools, activeBrushComponents, project, brushPresets, temporaryCustomBrush } = useAppStore();
   
-  // Debug helper - add to window for easy access
-  if (typeof window !== 'undefined') {
-    (window as any).enableTinybrushDebug = () => {
-      (window as any).tinybrushDebug = true;
-    };
-  }
   
   // Pixel queue state for perfect pixel drawing with distance-based spacing
   const pixelQueueRef = useRef({
@@ -470,9 +464,10 @@ export const useBrushEngine = () => {
     components: BrushComponent[], 
     input: StrokeInput
   ): RenderSettings => {
-    const { brushSettings, currentTool } = tools;
-    // Always use brush settings for both brush and eraser - eraser inherits brush properties
-    const activeSettings = brushSettings;
+    const { brushSettings, eraserSettings, currentTool } = tools;
+    console.log('ERASER DEBUG:', { currentTool, eraserSettings, brushSettings });
+    const activeSettings = currentTool === 'eraser' ? eraserSettings : brushSettings;
+    console.log('ACTIVE SETTINGS:', activeSettings);
     
     // Apply pressure-based size modification if enabled
     let finalSize = activeSettings.size;
@@ -493,8 +488,6 @@ export const useBrushEngine = () => {
       if (shouldApplyGridSnap(activeSettings)) {
         const originalSize = finalSize;
         finalSize = quantizeBrushSize(finalSize, 0.5);
-        if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
-        }
       }
     }
     
@@ -523,11 +516,7 @@ export const useBrushEngine = () => {
     
     // Execute each component in order
     for (const component of sortedComponents) {
-      if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
-      }
       const newSettings = executeComponent(component, input, settings);
-      if (typeof window !== 'undefined' && (window as any).tinybrushDebug && component.type === ComponentType.ANTI_ALIASING) {
-      }
       settings = newSettings;
     }
     
@@ -613,8 +602,6 @@ export const useBrushEngine = () => {
     const isInDashSegment = cyclePosition < dashLen;
     
     // Debug logging (disabled)
-    if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
-    }
     
     // Advance counter for next stamp (happens regardless of whether we draw)
     queue.dashStampCounter++;
@@ -824,11 +811,6 @@ export const useBrushEngine = () => {
     // Get actual pressure from cursor state in the store
     const cursorPressure = useAppStore.getState().canvas.cursor.pressure ?? 1.0;
     
-    console.log('🎯 Pressure debugging:', 
-      'cursorPressure:', cursorPressure,
-      'pressureEnabled:', tools.brushSettings.pressureEnabled,
-      'fromPressure:', from.pressure
-    );
     
     // Calculate actual brush size using unified percentage scaling
     let actualBrushSize;
@@ -963,10 +945,6 @@ export const useBrushEngine = () => {
     try {
       settings = executeComponents(components, input);
     } catch (error) {
-      console.error('executeComponents failed with error:', error);
-      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace available');
-      console.error('Components that were being executed:', components);
-      console.error('Input that caused the error:', input);
       return; // Exit early to prevent further issues
     }
     
@@ -1106,8 +1084,6 @@ export const useBrushEngine = () => {
     if (settings.pixelAlignment) {
       ctx.imageSmoothingEnabled = false;
       
-      if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
-      }
       
       if (isGridSnapping) {
         // Grid snapping mode: draw at all grid positions between last and current position

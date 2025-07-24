@@ -33,10 +33,6 @@ const LeftToolbar = () => {
       toggleModal('document');
     } else if (toolId === 'save') {
       try {
-        // Debug current state before saving
-        if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
-          (window as any).tinybrushDebug.debugProjectState();
-        }
         
         await saveProject();
       } catch (error) {
@@ -46,10 +42,6 @@ const LeftToolbar = () => {
       try {
         await loadProject();
         
-        // Debug state after loading
-        if (typeof window !== 'undefined' && (window as any).tinybrushDebug) {
-          setTimeout(() => (window as any).tinybrushDebug.debugProjectState(), 100);
-        }
       } catch (error) {
         alert(`Load failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }

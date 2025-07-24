@@ -11,10 +11,6 @@ import { SettingsModal } from '../components/modals/SettingsModal';
 import { useAppStore } from '../stores/useAppStore';
 import { autosaveService } from '../utils/autosave';
 
-// Import debug utilities in development
-if (process.env.NODE_ENV === 'development') {
-  import('../utils/debugUtils');
-}
 
 export default function Home() {
   // Global mouse tracking removed - now handled directly in canvas
@@ -96,7 +92,6 @@ export default function Home() {
 
   return (
     <main className="w-screen h-screen bg-[#141514] text-white flex overflow-hidden">
-      {/* Debug Panel (development only) */}
       
       {/* Left Toolbar */}
       <LeftToolbar />

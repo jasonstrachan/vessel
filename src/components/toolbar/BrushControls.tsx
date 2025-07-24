@@ -11,13 +11,17 @@ import Input from '../ui/Input';
 import { Switch } from '../retroui/Switch';
 import { Slider } from '../retroui/Slider';
 export default function BrushControls() {
-  const { tools, setBrushSettings } = useAppStore();
-  const { brushSettings } = tools;
+  const { tools, setBrushSettings, setEraserSettings } = useAppStore();
+  const { brushSettings, eraserSettings, currentTool } = tools;
+  
+  // Use the appropriate settings and setter based on current tool
+  const activeSettings = currentTool === 'eraser' ? eraserSettings : brushSettings;
+  const setActiveSettings = currentTool === 'eraser' ? setEraserSettings : setBrushSettings;
 
   // Handle double-click to reset brush size to 100%
   const handleBrushSizeDoubleClick = React.useCallback(() => {
-    setBrushSettings({ size: 100 });
-  }, [setBrushSettings]);
+    setActiveSettings({ size: 100 });
+  }, [setActiveSettings]);
 
   return (
     <div className="p-4 bg-[#31313A]">
@@ -27,14 +31,14 @@ export default function BrushControls() {
         <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>Color</label>
         <div className="flex items-start gap-2" suppressHydrationWarning>
           <ColorPicker
-            color={brushSettings.color}
-            onChange={(color) => setBrushSettings({ color })}
+            color={activeSettings.color}
+            onChange={(color) => setActiveSettings({ color })}
           />
           <Input
             type="text"
             variant="hex"
-            value={brushSettings.color}
-            onChange={(e) => setBrushSettings({ color: e.target.value })}
+            value={activeSettings.color}
+            onChange={(e) => setActiveSettings({ color: e.target.value })}
             className="w-22"
             placeholder="#000000"
             onFocus={(e) => e.target.select()}
@@ -46,15 +50,15 @@ export default function BrushControls() {
       {/* Brush Size - Unified percentage-based slider for all brushes */}
       <div className="mb-3">
         <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
-          Size: {brushSettings.size}{brushSettings.brushShape !== BrushShape.CUSTOM ? 'px' : ''}
+          Size: {activeSettings.size}{activeSettings.brushShape !== BrushShape.CUSTOM ? 'px' : ''}
         </label>
         <div onDoubleClick={handleBrushSizeDoubleClick}>
           <Slider
-            value={[brushSettings.size]}
+            value={[activeSettings.size]}
             min={1}
             max={500}
             step={1}
-            onValueChange={(value) => setBrushSettings({ size: value[0] })}
+            onValueChange={(value) => setActiveSettings({ size: value[0] })}
             aria-label="Brush Size"
           />
         </div>
@@ -63,14 +67,14 @@ export default function BrushControls() {
       {/* Opacity */}
       <div className="mb-3">
         <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
-          Opacity: {Math.round(brushSettings.opacity * 100)}%
+          Opacity: {Math.round(activeSettings.opacity * 100)}%
         </label>
         <Slider
-          value={[brushSettings.opacity]}
+          value={[activeSettings.opacity]}
           min={0}
           max={1}
           step={0.01}
-          onValueChange={(value) => setBrushSettings({ opacity: value[0] })}
+          onValueChange={(value) => setActiveSettings({ opacity: value[0] })}
           aria-label="Opacity"
         />
       </div>
@@ -78,14 +82,14 @@ export default function BrushControls() {
       {/* Spacing */}
       <div className="mb-3">
         <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
-          Spacing: {brushSettings.spacing}px
+          Spacing: {activeSettings.spacing}px
         </label>
         <Slider
-          value={[brushSettings.spacing]}
+          value={[activeSettings.spacing]}
           min={1}
           max={400}
           step={1}
-          onValueChange={(value) => setBrushSettings({ spacing: value[0] })}
+          onValueChange={(value) => setActiveSettings({ spacing: value[0] })}
           aria-label="Spacing"
         />
       </div>
@@ -95,21 +99,21 @@ export default function BrushControls() {
         <div className="flex items-center space-x-2 mb-2">
           <Switch
             id="pressure-enabled"
-            checked={brushSettings.pressureEnabled || false}
-            onChange={(checked) => setBrushSettings({ pressureEnabled: checked })}
+            checked={activeSettings.pressureEnabled || false}
+            onChange={(checked) => setActiveSettings({ pressureEnabled: checked })}
           />
           <label htmlFor="pressure-enabled" className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
             Pressure
           </label>
         </div>
         
-        {(brushSettings.pressureEnabled || false) && (
+        {(activeSettings.pressureEnabled || false) && (
           <div className="flex items-center gap-2">
             <Input
               type="number"
               variant="compact"
-              value={brushSettings.minPressure || 1}
-              onChange={(e) => setBrushSettings({ minPressure: parseInt(e.target.value) || 1 })}
+              value={activeSettings.minPressure || 1}
+              onChange={(e) => setActiveSettings({ minPressure: parseInt(e.target.value) || 1 })}
               min="1"
               max="1000"
               className="w-16"
@@ -118,8 +122,8 @@ export default function BrushControls() {
             <Input
               type="number"
               variant="compact"
-              value={brushSettings.maxPressure || brushSettings.size}
-              onChange={(e) => setBrushSettings({ maxPressure: parseInt(e.target.value) || brushSettings.size })}
+              value={activeSettings.maxPressure || activeSettings.size}
+              onChange={(e) => setActiveSettings({ maxPressure: parseInt(e.target.value) || activeSettings.size })}
               min="1"
               max="1000"
               className="w-16"
@@ -133,8 +137,8 @@ export default function BrushControls() {
         <div className="flex items-center space-x-2">
           <Switch
             id="rotation-enabled"
-            checked={brushSettings.rotationEnabled || false}
-            onChange={(checked) => setBrushSettings({ rotationEnabled: checked })}
+            checked={activeSettings.rotationEnabled || false}
+            onChange={(checked) => setActiveSettings({ rotationEnabled: checked })}
           />
           <label htmlFor="rotation-enabled" className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
             Rotation
@@ -147,23 +151,23 @@ export default function BrushControls() {
         <div className="flex items-center space-x-2 mb-2">
           <Switch
             id="dashed-enabled"
-            checked={brushSettings.dashedEnabled || false}
-            onChange={(checked) => setBrushSettings({ dashedEnabled: checked })}
+            checked={activeSettings.dashedEnabled || false}
+            onChange={(checked) => setActiveSettings({ dashedEnabled: checked })}
           />
           <label htmlFor="dashed-enabled" className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
             Dashed
           </label>
         </div>
         
-        {(brushSettings.dashedEnabled || false) && (
+        {(activeSettings.dashedEnabled || false) && (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <label className="text-[#D9D9D9] w-12" style={{ fontSize: '14px' }} title="Dash length as multiple of brush size">Length</label>
               <Input
                 type="number"
                 variant="compact"
-                value={brushSettings.dashLength || 3}
-                onChange={(e) => setBrushSettings({ dashLength: parseInt(e.target.value) || 3 })}
+                value={activeSettings.dashLength || 3}
+                onChange={(e) => setActiveSettings({ dashLength: parseInt(e.target.value) || 3 })}
                 min="1"
                 max="20"
                 className="w-16"
@@ -176,8 +180,8 @@ export default function BrushControls() {
               <Input
                 type="number"
                 variant="compact"
-                value={brushSettings.dashGap || 2}
-                onChange={(e) => setBrushSettings({ dashGap: parseInt(e.target.value) || 2 })}
+                value={activeSettings.dashGap || 2}
+                onChange={(e) => setActiveSettings({ dashGap: parseInt(e.target.value) || 2 })}
                 min="1"
                 max="20"
                 className="w-16"
@@ -194,8 +198,8 @@ export default function BrushControls() {
         <div className="flex items-center space-x-2">
           <Switch
             id="grid-snap-enabled"
-            checked={brushSettings.gridSnapEnabled || false}
-            onChange={(checked) => setBrushSettings({ gridSnapEnabled: checked })}
+            checked={activeSettings.gridSnapEnabled || false}
+            onChange={(checked) => setActiveSettings({ gridSnapEnabled: checked })}
           />
           <label htmlFor="grid-snap-enabled" className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
             Grid Snap

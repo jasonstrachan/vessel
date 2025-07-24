@@ -178,22 +178,9 @@ function serializeCustomBrush(brush: CustomBrush): SerializedCustomBrush {
 
 // Deserialize a custom brush from saved data
 async function deserializeCustomBrush(serializedBrush: SerializedCustomBrush): Promise<CustomBrush> {
-  console.log('Deserializing custom brush:', {
-    id: serializedBrush.id,
-    name: serializedBrush.name,
-    width: serializedBrush.width,
-    height: serializedBrush.height,
-    hasImageDataUrl: !!serializedBrush.imageDataUrl
-  });
   
   const imageData = await dataUrlToImageData(serializedBrush.imageDataUrl);
   
-  console.log('Custom brush imageData restored:', {
-    width: imageData.width,
-    height: imageData.height,
-    dataLength: imageData.data.length,
-    firstPixels: Array.from(imageData.data.slice(0, 16))
-  });
   
   return {
     id: serializedBrush.id,
@@ -310,16 +297,11 @@ export async function deserializeProject(projectData: string): Promise<Project> 
   );
   
   // Deserialize custom brushes
-  console.log('Loading custom brushes from file:', {
-    count: serializedProject.customBrushes.length,
-    brushes: serializedProject.customBrushes.map(b => ({ id: b.id, name: b.name }))
-  });
   
   const customBrushes = await Promise.all(
     serializedProject.customBrushes.map(deserializeCustomBrush)
   );
   
-  console.log('Custom brushes loaded:', customBrushes.length);
   
   return {
     id: serializedProject.id,

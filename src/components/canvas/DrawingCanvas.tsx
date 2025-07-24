@@ -1428,13 +1428,16 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       offscreenCanvasRef.current.width = width;
       offscreenCanvasRef.current.height = height;
       
-      // Initialize offscreen canvas with white background
+      // Initialize offscreen canvas
       const offscreenCtx = offscreenCanvasRef.current.getContext('2d');
       if (offscreenCtx) {
         // Disable image smoothing for pixel-perfect rendering
         offscreenCtx.imageSmoothingEnabled = false;
-        offscreenCtx.fillStyle = '#ffffff';
-        offscreenCtx.fillRect(0, 0, width, height);
+        // Only fill background if project has a non-transparent background
+        if (project?.backgroundColor && project.backgroundColor !== 'transparent') {
+          offscreenCtx.fillStyle = project.backgroundColor;
+          offscreenCtx.fillRect(0, 0, width, height);
+        }
       }
     }
   }, [width, height]);
@@ -1529,26 +1532,6 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   }, [handlePaste]); // Include handlePaste in dependency array
 
 
-  // Initialize debug utilities (development only)
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      // Expose offscreen canvas for debugging
-      if (typeof window !== 'undefined') {
-        (window as any).tinybrushDebugCanvas = {
-          getOffscreenCanvas: () => offscreenCanvasRef.current,
-          getMainCanvas: () => canvasRef.current,
-          isCanvasInitialized,
-          canvasState: {
-            width,
-            height,
-            zoom: canvas.zoom,
-            panX: canvas.panX,
-            panY: canvas.panY
-          }
-        };
-      }
-    }
-  }, [isCanvasInitialized, canvas.zoom, canvas.panX, canvas.panY, width, height]);
 
   // Create initial layer if none exists
   useEffect(() => {
