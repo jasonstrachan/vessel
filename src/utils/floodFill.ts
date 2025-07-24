@@ -36,12 +36,14 @@ export function floodFill(
   const startR = colorLayer.data[startPos];
   const startG = colorLayer.data[startPos + 1];
   const startB = colorLayer.data[startPos + 2];
+  const startA = colorLayer.data[startPos + 3];
 
   // Exit if the color is the same as fill color
   if (
     fillColor.r === startR &&
     fillColor.g === startG &&
-    fillColor.b === startB
+    fillColor.b === startB &&
+    fillColor.a === startA
   ) {
     return colorLayer;
   }
@@ -121,16 +123,18 @@ export function floodFill(
     const r = colorLayer.data[pixelPos];
     const g = colorLayer.data[pixelPos + 1];
     const b = colorLayer.data[pixelPos + 2];
+    const a = colorLayer.data[pixelPos + 3];
     
     if (threshold === 0) {
       // Exact match
-      return r === startR && g === startG && b === startB;
+      return r === startR && g === startG && b === startB && a === startA;
     } else {
-      // Use Euclidean distance for better color matching
+      // Use Euclidean distance for better color matching, including alpha
       const deltaR = r - startR;
       const deltaG = g - startG;
       const deltaB = b - startB;
-      const distance = Math.sqrt(deltaR * deltaR + deltaG * deltaG + deltaB * deltaB);
+      const deltaA = a - startA;
+      const distance = Math.sqrt(deltaR * deltaR + deltaG * deltaG + deltaB * deltaB + deltaA * deltaA);
       return distance <= threshold;
     }
   }
