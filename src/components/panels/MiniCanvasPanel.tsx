@@ -37,10 +37,10 @@ export default function MiniCanvasPanel() {
   }, [brushSettings.brushShape, brushSettings.selectedCustomBrush]);
 
   return (
-    <div className="p-3 bg-[#31313A]">
+    <div className="">
       <MiniCanvas 
-        width={216} 
-        height={216} 
+        width={240} 
+        height={240} 
         hueShift={hueShift}
         onHueShiftChange={setHueShift}
         onBrushTipChange={handleBrushTipChange}
@@ -51,8 +51,8 @@ export default function MiniCanvasPanel() {
       />
       
       {/* Hue adjustment slider */}
-      <div className="mt-2">
-        <label className="block text-sm text-[#D9D9D9] mb-1">
+      <div className="mt-2 px-3">
+        <label className="block text-base text-[#D9D9D9] mb-2">
           Hue Shift: {hueShift > 0 ? '+' : ''}{hueShift}°
         </label>
         <Slider

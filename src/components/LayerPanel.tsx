@@ -56,12 +56,12 @@ const LayerPanel = () => {
   };
 
   return (
-    <div className="p-3">
+    <div className="p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-gray-300">Layers</h3>
+        <h3 className="text-base font-medium text-[#D9D9D9]">Layers</h3>
         <button
           onClick={handleAddLayer}
-          className="w-6 h-6 text-gray-400 hover:text-gray-300 flex items-center justify-center"
+          className="w-6 h-6 text-[#5A5A61] hover:text-[#888888] flex items-center justify-center"
           title="Add Layer"
         >
           <Plus size={16} />
@@ -87,13 +87,13 @@ const LayerPanel = () => {
                     handleToggleVisibility(layer.id);
                   }}
                   className={`w-4 h-4 flex items-center justify-center ${
-                    layer.visible ? 'text-gray-400' : 'text-gray-600'
-                  } hover:text-gray-300`}
+                    layer.visible ? 'text-[#D9D9D9]' : 'text-[#666]'
+                  } hover:text-[#FFFFFF]`}
                   title={layer.visible ? 'Hide Layer' : 'Show Layer'}
                 >
                   {layer.visible ? <Eye size={14} /> : <EyeOff size={14} />}
                 </button>
-                <span className="text-xs text-gray-300 flex-1 truncate">
+                <span className="text-base text-[#D9D9D9] flex-1 truncate">
                   {layer.name}
                 </span>
               </div>
@@ -105,8 +105,8 @@ const LayerPanel = () => {
                     handleToggleLock(layer.id);
                   }}
                   className={`w-4 h-4 flex items-center justify-center ${
-                    layer.locked ? 'text-gray-400' : 'text-gray-600'
-                  } hover:text-gray-300`}
+                    layer.locked ? 'text-[#D9D9D9]' : 'text-[#666]'
+                  } hover:text-[#FFFFFF]`}
                   title={layer.locked ? 'Unlock Layer' : 'Lock Layer'}
                 >
                   {layer.locked ? <Lock size={14} /> : <Unlock size={14} />}
@@ -118,7 +118,7 @@ const LayerPanel = () => {
                       e.stopPropagation();
                       handleDeleteLayer(layer.id);
                     }}
-                    className="w-4 h-4 flex items-center justify-center text-gray-600 hover:text-red-500"
+                    className="w-4 h-4 flex items-center justify-center text-[#666] hover:text-red-500"
                     title="Delete Layer"
                   >
                     <XIcon size={12} />
@@ -128,7 +128,7 @@ const LayerPanel = () => {
             </div>
             
             <div className="mt-1 flex items-center space-x-2 px-2">
-              <span className="text-xs text-gray-400">Opacity:</span>
+              <span className="text-base text-[#D9D9D9]">Opacity:</span>
               <Input
                 type="range"
                 min="0"
@@ -138,7 +138,7 @@ const LayerPanel = () => {
                 onClick={(e) => e.stopPropagation()}
                 fullWidth
               />
-              <span className="text-xs text-gray-400 w-8">
+              <span className="text-base text-[#D9D9D9] w-10">
                 {Math.round(layer.opacity * 100)}%
               </span>
             </div>

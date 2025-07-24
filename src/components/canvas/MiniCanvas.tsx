@@ -546,14 +546,37 @@ export default function MiniCanvas({
   }, [hueShift, onBrushTipChange, getBrushTipSize]);
 
   return (
-    <div className={`bg-[#2A2A32] rounded-lg p-3 ${className}`}>
-      {/* Header with controls */}
-      <div className="flex items-center justify-between mb-2">
+    <div className={className}>
+      {/* Canvas */}
+      <div ref={wrapperRef} className="relative overflow-hidden">
+        <canvas
+          ref={canvasRef}
+          width={width}
+          height={height}
+          className="block cursor-crosshair"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
+        />
+        
+        {/* Offscreen canvas for actual brush data */}
+        <canvas
+          ref={offscreenCanvasRef}
+          style={{ display: 'none' }}
+        />
+      </div>
+
+      {/* Separator */}
+      <div className="h-[2px] bg-[#D9D9D9] w-full flex-shrink-0 mt-2" />
+
+      {/* Controls below canvas */}
+      <div className="flex items-center justify-between mt-2 px-3">
         {/* Swatch Color Toggle - only show for custom brushes */}
         {brushSettings.brushShape === BrushShape.CUSTOM ? (
           <button
             onClick={() => setBrushSettings({ useSwatchColor: !brushSettings.useSwatchColor })}
-            className="p-1 text-[#D9D9D9] hover:bg-[#3A3A42] rounded text-xs"
+            className="p-1 text-[#D9D9D9] hover:bg-[#3A3A42] rounded text-base"
             title={brushSettings.useSwatchColor ? 'Using swatch color' : 'Using brush tip colors'}
           >
             ●
@@ -570,7 +593,7 @@ export default function MiniCanvas({
           >
             <Minus size={12} />
           </button>
-          <span className="text-xs text-[#D9D9D9] min-w-[24px] text-center">
+          <span className="text-base text-[#D9D9D9] min-w-[32px] text-center">
             {zoom}x
           </span>
           <button
@@ -633,29 +656,9 @@ export default function MiniCanvas({
         </div>
       </div>
 
-      {/* Canvas */}
-      <div ref={wrapperRef} className="relative border border-[#666] rounded overflow-hidden">
-        <canvas
-          ref={canvasRef}
-          width={width}
-          height={height}
-          className="block cursor-crosshair"
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerLeave={handlePointerUp}
-        />
-        
-        {/* Offscreen canvas for actual brush data */}
-        <canvas
-          ref={offscreenCanvasRef}
-          style={{ display: 'none' }}
-        />
-      </div>
-
       {/* Status */}
       {isPinned && (
-        <div className="mt-2 text-xs text-blue-400">
+        <div className="mt-2 text-base text-blue-400 px-3">
           Using selected brush for editing
         </div>
       )}

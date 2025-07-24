@@ -12,6 +12,9 @@ export default function RHC1Panel() {
         <MiniCanvasPanel />
       </div>
       
+      {/* Separator */}
+      <div className="h-[2px] bg-[#D9D9D9] w-full flex-shrink-0" />
+      
       {/* Layers Section */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         <LayerPanel />
