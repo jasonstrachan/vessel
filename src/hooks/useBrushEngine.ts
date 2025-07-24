@@ -33,6 +33,7 @@ export interface RenderSettings {
   shape: BrushShape;
   pattern?: ImageData;
   centerAlignment?: boolean;
+  blendMode?: GlobalCompositeOperation;
 }
 
 
@@ -501,7 +502,8 @@ export const useBrushEngine = () => {
       spacing: activeSettings.spacing,
       rotation: activeSettings.rotationEnabled && input.direction !== undefined ? input.direction : 0,
       shape: activeSettings.brushShape || BrushShape.ROUND // Use actual brush shape from settings
-    };
+      blendMode: activeSettings.blendMode || 'source-over'
+    };    
     
     // Add pattern if using a brush tip from mini canvas
     if (activeSettings.currentBrushTip && 
@@ -766,15 +768,7 @@ export const useBrushEngine = () => {
     
     // Draw the custom brush with rotation
     ctx.save();
-    ctx.globalCompositeOperation = 'source-over';
     ctx.imageSmoothingEnabled = false; // Maintain pixel-perfect rendering
-    
-    // Apply rotation if specified
-    if (rotation !== 0) {
-      ctx.translate(x, y);
-      ctx.rotate(rotation);
-      ctx.translate(-x, -y);
-    }
     
     ctx.drawImage(canvas, centerX, centerY, scaledWidth, scaledHeight);
     ctx.restore();
@@ -973,7 +967,7 @@ export const useBrushEngine = () => {
     }
     
     // Apply rendering settings
-    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalCompositeOperation = settings.blendMode || 'source-over';
     ctx.globalAlpha = settings.opacity;
     ctx.lineWidth = settings.size;
     ctx.lineCap = settings.pixelAlignment ? 'butt' : 'round';
@@ -1065,7 +1059,6 @@ export const useBrushEngine = () => {
     }
     
     // Handle tool-specific behavior for regular brushes
-    ctx.globalCompositeOperation = settings.blendMode;
     ctx.strokeStyle = settings.color;
     
     // Handle antialiasing and pixel-perfect drawing

@@ -70,3 +70,16 @@ Import trace for requested module:
 ./src/components/debug/LayerDebugPanel.tsx
 ./src/app/page.tsx
  ✓ Compiled in 290ms (399 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/0.pack.gz_' -> '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/0.pack.gz'
+ ✓ Compiled in 294ms (399 modules)
+ ✓ Compiled in 294ms (399 modules)
+ ✓ Compiled in 311ms (399 modules)
+ ✓ Compiled in 326ms (399 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/0.pack.gz_' -> '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/0.pack.gz'
+ ✓ Compiled in 313ms (399 modules)
+ ✓ Compiled in 304ms (399 modules)
+ ✓ Compiled in 283ms (399 modules)
+ ✓ Compiled in 304ms (399 modules)
+ ✓ Compiled in 292ms (399 modules)
+ ✓ Compiled in 300ms (399 modules)
+ ✓ Compiled in 374ms (399 modules)
