@@ -8,18 +8,24 @@ const LeftToolbar = () => {
   // Force refresh - toolbar black background fix
   const { tools: toolState, setCurrentTool, saveProject, loadProject, exportProject, toggleModal } = useAppStore();
   
-  const tools = [
-    { id: 'new-document' as Tool, icon: null, label: 'New Document' },
-    { id: 'selection' as Tool, icon: null, label: 'Selection' },
-    { id: 'brush' as Tool, icon: null, label: 'Brush' },
-    { id: 'custom' as Tool, icon: null, label: 'Custom Brush' },
-    { id: 'eraser' as Tool, icon: null, label: 'Eraser' },
-    { id: 'eyedropper' as Tool, icon: null, label: 'Eyedropper' },
-    { id: 'fill' as Tool, icon: null, label: 'Fill' },
-    { id: 'save' as Tool, icon: null, label: 'Save File' },
-    { id: 'load' as Tool, icon: null, label: 'Load File' },
-    { id: 'export-png' as Tool, icon: null, label: 'Export PNG' },
-    { id: 'options' as Tool, icon: null, label: 'Options' },
+  const toolGroups = [
+    [
+      { id: 'new-document' as Tool, icon: null, label: 'New Document' },
+      { id: 'selection' as Tool, icon: null, label: 'Selection' },
+    ],
+    [
+      { id: 'brush' as Tool, icon: null, label: 'Brush' },
+      { id: 'custom' as Tool, icon: null, label: 'Custom Brush' },
+      { id: 'eraser' as Tool, icon: null, label: 'Eraser' },
+      { id: 'eyedropper' as Tool, icon: null, label: 'Eyedropper' },
+      { id: 'fill' as Tool, icon: null, label: 'Fill' },
+    ],
+    [
+      { id: 'save' as Tool, icon: null, label: 'Save File' },
+      { id: 'load' as Tool, icon: null, label: 'Load File' },
+      { id: 'export-png' as Tool, icon: null, label: 'Export PNG' },
+      { id: 'options' as Tool, icon: null, label: 'Options' },
+    ],
   ];
 
   const handleToolClick = async (toolId: Tool) => {
@@ -62,14 +68,17 @@ const LeftToolbar = () => {
 
   return (
     <div className="w-[48px] flex flex-col pt-4 pb-0" style={{ backgroundColor: '#31313A' }}>
-      {tools.map((tool) => (
-        <button
-          key={tool.id}
-          onClick={() => handleToolClick(tool.id)}
-          title={tool.label}
-          className={`w-[48px] h-12 min-h-[40px] mx-auto flex items-center justify-center bg-transparent border-0 appearance-none outline-none ${
-            (tool.id === 'save' || tool.id === 'load' || tool.id === 'export-png' || tool.id === 'options') ? 'mb-0' : 'mb-1'
-          }`}
+      {toolGroups.map((group, groupIndex) => (
+        <React.Fragment key={groupIndex}>
+          {groupIndex > 0 && (
+            <div className="h-[2px] bg-[#D9D9D9] w-[32px] mx-auto my-2 flex-shrink-0" />
+          )}
+          {group.map((tool) => (
+            <button
+              key={tool.id}
+              onClick={() => handleToolClick(tool.id)}
+              title={tool.label}
+              className={`w-[48px] h-12 min-h-[40px] mx-auto flex items-center justify-center bg-transparent border-0 appearance-none outline-none mb-1`}
           style={{ 
             color: toolState.currentTool === tool.id ? '#FFFFFF' : '#5A5A61', 
             fontSize: '2.8rem' 
@@ -145,7 +154,9 @@ const LeftToolbar = () => {
           ) : (
             tool.icon
           )}
-        </button>
+            </button>
+          ))}
+        </React.Fragment>
       ))}
     </div>
   );
