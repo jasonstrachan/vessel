@@ -776,11 +776,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             ctx.putImageData(filledImageData, 0, 0);
             
             // Capture the fill result to the active layer
-            console.log('[CANVAS] Capturing flood fill to active layer');
             captureCanvasToActiveLayer(offscreenCanvas).then(() => {
-              console.log('[CANVAS] Flood fill captured successfully');
             }).catch((error) => {
-              console.error('[CANVAS] Failed to capture flood fill:', error);
             });
             
             // Re-render the view
@@ -814,7 +811,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Lock the target layer to prevent pixel swapping if user switches layers mid-stroke
     const targetLayerId = activeLayerId || layers[0]?.id || null;
-    console.log('[CANVAS] Starting stroke - locking target layer:', { targetLayerId, layerName: layers.find(l => l.id === targetLayerId)?.name });
     setDrawingTargetLayerId(targetLayerId);
     
     setIsDrawing(true);
@@ -995,19 +991,12 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
     // Save drawing data to active layer when finishing a stroke
     if (isDrawing && offscreenCanvasRef.current) {
-      console.log('[CANVAS] Finishing stroke - capturing to locked target layer:', {
-        tool: tools.currentTool,
-        hasCanvas: !!offscreenCanvasRef.current,
-        currentActiveLayerId: activeLayerId,
-        lockedTargetLayerId: drawingTargetLayerId
-      });
       // Use the locked target layer to prevent pixel swapping
       await captureCanvasToLayer(offscreenCanvasRef.current, drawingTargetLayerId);
       
       // Capture state AFTER completing the stroke for undo history
       const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
       saveCanvasStateDeduped(offscreenCanvasRef.current, actionType, `${actionType} stroke`);
-      console.log('[CANVAS] Stroke capture and history save complete');
     }
 
     setIsDrawing(false);
@@ -1038,7 +1027,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Lock the target layer to prevent pixel swapping if user switches layers mid-stroke  
     const targetLayerId = activeLayerId || layers[0]?.id || null;
-    console.log('[CANVAS] Starting touch stroke - locking target layer:', { targetLayerId, layerName: layers.find(l => l.id === targetLayerId)?.name });
     setDrawingTargetLayerId(targetLayerId);
     
     setIsDrawing(true);
@@ -1094,19 +1082,12 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
     // Save drawing data to active layer when finishing a touch stroke
     if (isDrawing && offscreenCanvasRef.current) {
-      console.log('[CANVAS] Finishing touch stroke - capturing to locked target layer:', {
-        tool: tools.currentTool,
-        hasCanvas: !!offscreenCanvasRef.current,
-        currentActiveLayerId: activeLayerId,
-        lockedTargetLayerId: drawingTargetLayerId
-      });
       // Use the locked target layer to prevent pixel swapping
       await captureCanvasToLayer(offscreenCanvasRef.current, drawingTargetLayerId);
       
       // Capture state AFTER completing the stroke for undo history
       const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
       saveCanvasStateDeduped(offscreenCanvasRef.current, actionType, `${actionType} stroke`);
-      console.log('[CANVAS] Touch stroke capture and history save complete');
     }
 
     setIsDrawing(false);
@@ -1185,11 +1166,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     });
     
     // Capture the pasted content to the active layer
-    console.log('[CANVAS] Capturing pasted selection to active layer');
     captureCanvasToActiveLayer(offscreenCanvas).then(() => {
-      console.log('[CANVAS] Pasted selection captured successfully');
     }).catch((error) => {
-      console.error('[CANVAS] Failed to capture pasted selection:', error);
     });
     
     // Re-render view
@@ -1502,8 +1480,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       
       // Only resize if dimensions actually changed
       if (currentWidth !== width || currentHeight !== height) {
-        console.log('[CANVAS] Project dimensions changed, updating offscreen canvas from', 
-          `${currentWidth}x${currentHeight}`, 'to', `${width}x${height}`);
         
         // Save current content before resizing
         const ctx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true });
@@ -1620,15 +1596,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
   // Create initial layer if none exists
   useEffect(() => {
-    console.log('[CANVAS] Checking for initial layer creation:', {
-      isCanvasInitialized,
-      hasProject: !!project,
-      layerCount: layers.length,
-      projectSize: project ? `${project.width}x${project.height}` : 'No project'
-    });
     
     if (isCanvasInitialized && project && layers.length === 0) {
-      console.log('[CANVAS] Creating initial Background layer');
       const initialLayer = {
         name: 'Background',
         visible: true,
@@ -1639,7 +1608,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         framebuffer: new OffscreenCanvas(project.width, project.height)
       };
       addLayer(initialLayer);
-      console.log('[CANVAS] Initial layer created');
     }
   }, [isCanvasInitialized, project, layers.length, addLayer]);
 
@@ -1739,26 +1707,17 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   // Layer recomposition when project loads
   useEffect(() => {
     if (layersNeedRecomposition) {
-      console.log('[CANVAS] Layer recomposition requested:', { 
-        isHistoryCapturing: history.isCapturing,
-        hasOffscreenCanvas: !!offscreenCanvasRef.current,
-        layerCount: layers.length
-      });
       
       // Skip layer recomposition during history operations to prevent interference
       if (history.isCapturing) {
-        console.log('[CANVAS] Recomposition skipped - history operation in progress');
         return;
       }
       
       if (offscreenCanvasRef.current) {
-        console.log('[CANVAS] Starting layer recomposition');
         compositeLayersToCanvas(offscreenCanvasRef.current);
         renderView();
         setLayersNeedRecomposition(false);
-        console.log('[CANVAS] Layer recomposition complete');
       } else {
-        console.log('[CANVAS] Recomposition failed - no offscreen canvas');
       }
     }
   }, [layersNeedRecomposition, compositeLayersToCanvas, renderView, setLayersNeedRecomposition, layers, history.isCapturing]);
