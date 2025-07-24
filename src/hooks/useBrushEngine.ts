@@ -731,23 +731,15 @@ export const useBrushEngine = () => {
     queue.lastStrokePosition = { x: roundedX, y: roundedY };
   }, [drawShape]);
 
-  // Reusable canvas for custom brush stamps to avoid creating new elements
-  const tempCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const getTempCanvas = useCallback((width: number, height: number) => {
-    if (!tempCanvasRef.current) {
-      tempCanvasRef.current = document.createElement('canvas');
-    }
-    const canvas = tempCanvasRef.current;
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-    }
-    return canvas;
-  }, []);
+  // Note: Previously used a reusable canvas, but this caused race conditions.
+  // Now we create a new canvas for each stamp to ensure isolation and correctness.
 
   // Custom brush drawing functions
   const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean) => {
-    const canvas = getTempCanvas(customBrush.width, customBrush.height);
+    // Create a new canvas for each stamp to avoid race conditions
+    const canvas = document.createElement('canvas');
+    canvas.width = customBrush.width;
+    canvas.height = customBrush.height;
     const tempCtx = canvas.getContext('2d');
     if (!tempCtx) return;
     
@@ -786,7 +778,7 @@ export const useBrushEngine = () => {
     
     ctx.drawImage(canvas, centerX, centerY, scaledWidth, scaledHeight);
     ctx.restore();
-  }, [getTempCanvas]);
+  }, []);
 
   const drawCustomBrushLine = useCallback((ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean) => {
     const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));

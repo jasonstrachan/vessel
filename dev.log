@@ -2,11 +2,52 @@
 > tinybrush-v3@3.0.0 dev
 > next dev
 
- ⚠ Port 3000 is in use, using available port 3004 instead.
+ ⚠ Port 3000 is in use, using available port 3001 instead.
    ▲ Next.js 15.3.4
-   - Local:        http://localhost:3004
-   - Network:      http://10.255.255.254:3004
+   - Local:        http://localhost:3001
+   - Network:      http://10.255.255.254:3001
    - Environments: .env.local, .env.development, .env
 
  ✓ Starting...
- ✓ Ready in 1352ms
+ ✓ Ready in 1571ms
+ ○ Compiling / ...
+ ✓ Compiled / in 809ms (814 modules)
+ GET / 200 in 1046ms
+ ✓ Compiled in 704ms (399 modules)
+ ✓ Compiled in 288ms (399 modules)
+ ✓ Compiled in 318ms (399 modules)
+ ✓ Compiled in 435ms (399 modules)
+ ✓ Compiled in 320ms (399 modules)
+ ✓ Compiled in 350ms (399 modules)
+ ✓ Compiled in 316ms (399 modules)
+ ✓ Compiled in 317ms (399 modules)
+ ✓ Compiled in 313ms (399 modules)
+ ✓ Compiled in 309ms (399 modules)
+ ✓ Compiled in 277ms (399 modules)
+ ✓ Compiled in 316ms (399 modules)
+ ✓ Compiled in 319ms (400 modules)
+ ✓ Compiled in 549ms (400 modules)
+ ✓ Compiled in 300ms (400 modules)
+ ✓ Compiled in 387ms (400 modules)
+ ✓ Compiled in 315ms (400 modules)
+ ✓ Compiled in 337ms (400 modules)
+ ✓ Compiled in 302ms (400 modules)
+ ✓ Compiled in 291ms (400 modules)
+ ✓ Compiled in 301ms (400 modules)
+ ✓ Compiled in 273ms (400 modules)
+ ✓ Compiled in 283ms (401 modules)
+ ✓ Compiled in 311ms (401 modules)
+ ✓ Compiled in 31ms (387 modules)
+ ✓ Compiled in 278ms (401 modules)
+ ✓ Compiled in 345ms (401 modules)
+ ✓ Compiled in 318ms (401 modules)
+ ✓ Compiled in 367ms (401 modules)
+ ✓ Compiled in 313ms (401 modules)
+ ✓ Compiled in 319ms (401 modules)
+ ✓ Compiled in 298ms (401 modules)
+ ✓ Compiled in 291ms (401 modules)
+ ✓ Compiled in 296ms (401 modules)
+ ✓ Compiled in 299ms (401 modules)
+ ✓ Compiled in 330ms (401 modules)
+ ✓ Compiled in 334ms (401 modules)
+ ✓ Compiled in 331ms (401 modules)

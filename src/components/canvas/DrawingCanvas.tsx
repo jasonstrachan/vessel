@@ -12,13 +12,14 @@ import { restoreCanvasSnapshot } from '../../utils/canvasSnapshot';
 import type { Tool } from '../../types';
 import { BrushShape } from '../../types';
 import BrushCursor from './BrushCursor';
+import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../../constants/canvas';
 
 interface DrawingCanvasProps {
   width?: number;
   height?: number;
 }
 
-export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCanvasProps) {
+export default function DrawingCanvas({ width: propWidth, height: propHeight }: DrawingCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -54,6 +55,8 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   const SAVE_DEDUPLICATION_WINDOW = 50; // 50ms window to prevent duplicates
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
+  // Lock target layer when drawing starts to prevent pixel swapping
+  const [drawingTargetLayerId, setDrawingTargetLayerId] = useState<string | null>(null);
   // New zoom/pan state variables
   const [spacebarPressed, setSpacebarPressed] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
@@ -112,10 +115,15 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     compositeLayersToCanvas,
     setLayersNeedRecomposition,
     captureCanvasToActiveLayer,
+    captureCanvasToLayer,
     setProjectDimensions,
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue } = useBrushEngine();
+  
+  // Use project dimensions if available, otherwise use props or defaults
+  const width = project?.width || propWidth || DEFAULT_CANVAS_WIDTH;
+  const height = project?.height || propHeight || DEFAULT_CANVAS_HEIGHT;
 
   // Deduplicated saveCanvasState to prevent double calls from pointer + touch events
   const saveCanvasStateDeduped = useCallback((canvas: HTMLCanvasElement, actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'paste', description: string) => {
@@ -767,6 +775,14 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
             // Apply the filled image data back to the canvas
             ctx.putImageData(filledImageData, 0, 0);
             
+            // Capture the fill result to the active layer
+            console.log('[CANVAS] Capturing flood fill to active layer');
+            captureCanvasToActiveLayer(offscreenCanvas).then(() => {
+              console.log('[CANVAS] Flood fill captured successfully');
+            }).catch((error) => {
+              console.error('[CANVAS] Failed to capture flood fill:', error);
+            });
+            
             // Re-render the view
             renderView();
           }
@@ -795,6 +811,11 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
     }
 
     // Note: State will be captured AFTER stroke completion in handlePointerUp
+    
+    // Lock the target layer to prevent pixel swapping if user switches layers mid-stroke
+    const targetLayerId = activeLayerId || layers[0]?.id || null;
+    console.log('[CANVAS] Starting stroke - locking target layer:', { targetLayerId, layerName: layers.find(l => l.id === targetLayerId)?.name });
+    setDrawingTargetLayerId(targetLayerId);
     
     setIsDrawing(true);
     setLastPoint(point);
@@ -974,17 +995,26 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
     // Save drawing data to active layer when finishing a stroke
     if (isDrawing && offscreenCanvasRef.current) {
-      // Use the proper canvas capture function
-      await captureCanvasToActiveLayer(offscreenCanvasRef.current);
+      console.log('[CANVAS] Finishing stroke - capturing to locked target layer:', {
+        tool: tools.currentTool,
+        hasCanvas: !!offscreenCanvasRef.current,
+        currentActiveLayerId: activeLayerId,
+        lockedTargetLayerId: drawingTargetLayerId
+      });
+      // Use the locked target layer to prevent pixel swapping
+      await captureCanvasToLayer(offscreenCanvasRef.current, drawingTargetLayerId);
       
       // Capture state AFTER completing the stroke for undo history
       const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
       saveCanvasStateDeduped(offscreenCanvasRef.current, actionType, `${actionType} stroke`);
+      console.log('[CANVAS] Stroke capture and history save complete');
     }
 
     setIsDrawing(false);
     setLastPoint(null);
-  }, [isPanning, isDraggingSelection, isSelecting, tools, selectionStart, selectionEnd, project, createCustomBrushFromSelection, isDrawing, captureCanvasToActiveLayer, saveCanvasStateDeduped]);
+    // Clear the locked target layer
+    setDrawingTargetLayerId(null);
+  }, [isPanning, isDraggingSelection, isSelecting, tools, selectionStart, selectionEnd, project, createCustomBrushFromSelection, isDrawing, captureCanvasToLayer, drawingTargetLayerId, saveCanvasStateDeduped]);
 
   // Touch event handlers for mobile support
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -1004,7 +1034,12 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
     const point = screenToCanvas(touch.clientX, touch.clientY);
     
-    // Note: State will be captured AFTER stroke completion in handlePointerUp
+    // Note: State will be captured AFTER stroke completion in handleTouchEnd
+    
+    // Lock the target layer to prevent pixel swapping if user switches layers mid-stroke  
+    const targetLayerId = activeLayerId || layers[0]?.id || null;
+    console.log('[CANVAS] Starting touch stroke - locking target layer:', { targetLayerId, layerName: layers.find(l => l.id === targetLayerId)?.name });
+    setDrawingTargetLayerId(targetLayerId);
     
     setIsDrawing(true);
     setLastPoint(point);
@@ -1059,17 +1094,26 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
     // Save drawing data to active layer when finishing a touch stroke
     if (isDrawing && offscreenCanvasRef.current) {
-      // Use the proper canvas capture function
-      await captureCanvasToActiveLayer(offscreenCanvasRef.current);
+      console.log('[CANVAS] Finishing touch stroke - capturing to locked target layer:', {
+        tool: tools.currentTool,
+        hasCanvas: !!offscreenCanvasRef.current,
+        currentActiveLayerId: activeLayerId,
+        lockedTargetLayerId: drawingTargetLayerId
+      });
+      // Use the locked target layer to prevent pixel swapping
+      await captureCanvasToLayer(offscreenCanvasRef.current, drawingTargetLayerId);
       
       // Capture state AFTER completing the stroke for undo history
       const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
       saveCanvasStateDeduped(offscreenCanvasRef.current, actionType, `${actionType} stroke`);
+      console.log('[CANVAS] Touch stroke capture and history save complete');
     }
 
     setIsDrawing(false);
     setLastPoint(null);
-  }, [isPanning, isDrawing, captureCanvasToActiveLayer, tools.currentTool, saveCanvasStateDeduped]);
+    // Clear the locked target layer
+    setDrawingTargetLayerId(null);
+  }, [isPanning, isDrawing, captureCanvasToLayer, drawingTargetLayerId, tools.currentTool, saveCanvasStateDeduped]);
 
   // Wheel event for zoom (cursor-centered)
   const handleWheel = useCallback((e: WheelEvent) => {
@@ -1140,9 +1184,17 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
       pixels: typeof ImageData !== 'undefined' ? new ImageData(1, 1) : {} as ImageData
     });
     
+    // Capture the pasted content to the active layer
+    console.log('[CANVAS] Capturing pasted selection to active layer');
+    captureCanvasToActiveLayer(offscreenCanvas).then(() => {
+      console.log('[CANVAS] Pasted selection captured successfully');
+    }).catch((error) => {
+      console.error('[CANVAS] Failed to capture pasted selection:', error);
+    });
+    
     // Re-render view
     renderView();
-  }, [canvas.selection, setSelection, renderView, saveCanvasState]);
+  }, [canvas.selection, setSelection, renderView, saveCanvasState, captureCanvasToActiveLayer]);
 
   // Keyboard event handlers
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -1440,7 +1492,40 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         }
       }
     }
-  }, [width, height]);
+  }, [width, height, project?.backgroundColor]);
+
+  // Update offscreen canvas size when project dimensions change
+  useEffect(() => {
+    if (offscreenCanvasRef.current && project) {
+      const currentWidth = offscreenCanvasRef.current.width;
+      const currentHeight = offscreenCanvasRef.current.height;
+      
+      // Only resize if dimensions actually changed
+      if (currentWidth !== width || currentHeight !== height) {
+        console.log('[CANVAS] Project dimensions changed, updating offscreen canvas from', 
+          `${currentWidth}x${currentHeight}`, 'to', `${width}x${height}`);
+        
+        // Save current content before resizing
+        const ctx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          const imageData = ctx.getImageData(0, 0, 
+            Math.min(currentWidth, width), 
+            Math.min(currentHeight, height)
+          );
+          
+          // Resize the canvas
+          offscreenCanvasRef.current.width = width;
+          offscreenCanvasRef.current.height = height;
+          
+          // Restore content
+          ctx.putImageData(imageData, 0, 0);
+          
+          // Re-render the view
+          renderView();
+        }
+      }
+    }
+  }, [width, height, project, renderView]);
 
   // Canvas initialization - only setup on first mount
   useEffect(() => {
@@ -1535,7 +1620,15 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
 
   // Create initial layer if none exists
   useEffect(() => {
+    console.log('[CANVAS] Checking for initial layer creation:', {
+      isCanvasInitialized,
+      hasProject: !!project,
+      layerCount: layers.length,
+      projectSize: project ? `${project.width}x${project.height}` : 'No project'
+    });
+    
     if (isCanvasInitialized && project && layers.length === 0) {
+      console.log('[CANVAS] Creating initial Background layer');
       const initialLayer = {
         name: 'Background',
         visible: true,
@@ -1546,6 +1639,7 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
         framebuffer: new OffscreenCanvas(project.width, project.height)
       };
       addLayer(initialLayer);
+      console.log('[CANVAS] Initial layer created');
     }
   }, [isCanvasInitialized, project, layers.length, addLayer]);
 
@@ -1645,16 +1739,26 @@ export default function DrawingCanvas({ width = 2000, height = 2000 }: DrawingCa
   // Layer recomposition when project loads
   useEffect(() => {
     if (layersNeedRecomposition) {
+      console.log('[CANVAS] Layer recomposition requested:', { 
+        isHistoryCapturing: history.isCapturing,
+        hasOffscreenCanvas: !!offscreenCanvasRef.current,
+        layerCount: layers.length
+      });
+      
       // Skip layer recomposition during history operations to prevent interference
       if (history.isCapturing) {
+        console.log('[CANVAS] Recomposition skipped - history operation in progress');
         return;
       }
       
       if (offscreenCanvasRef.current) {
+        console.log('[CANVAS] Starting layer recomposition');
         compositeLayersToCanvas(offscreenCanvasRef.current);
         renderView();
         setLayersNeedRecomposition(false);
+        console.log('[CANVAS] Layer recomposition complete');
       } else {
+        console.log('[CANVAS] Recomposition failed - no offscreen canvas');
       }
     }
   }, [layersNeedRecomposition, compositeLayersToCanvas, renderView, setLayersNeedRecomposition, layers, history.isCapturing]);
