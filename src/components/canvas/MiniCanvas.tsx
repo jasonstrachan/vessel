@@ -626,11 +626,16 @@ export default function MiniCanvas({
                 setBrushSettings({ useSwatchColor: newValue });
               }}
               className={`py-1 px-2 hover:bg-[#3A3A42] rounded text-base flex-1 ${
-                brushSettings.useSwatchColor ? 'text-[#FFD700] bg-[#3A3A42]' : 'text-[#D9D9D9]'
+                brushSettings.useSwatchColor ? 'bg-[#3A3A42]' : 'text-[#D9D9D9]'
               }`}
               title={brushSettings.useSwatchColor ? 'Using swatch color (click to use brush tip colors)' : 'Using brush tip colors (click to use swatch color)'}
             >
-              {brushSettings.useSwatchColor ? '⬢' : '●'}
+              <span 
+                style={brushSettings.useSwatchColor ? { color: brushSettings.color } : undefined}
+                className={brushSettings.useSwatchColor ? '' : 'text-[#D9D9D9]'}
+              >
+                {brushSettings.useSwatchColor ? '⬢' : '●'}
+              </span>
             </button>
             <div className="w-[2px] self-stretch bg-[#65656A]" />
           </>
