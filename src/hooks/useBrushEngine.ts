@@ -770,6 +770,13 @@ export const useBrushEngine = () => {
     ctx.save();
     ctx.imageSmoothingEnabled = false; // Maintain pixel-perfect rendering
     
+    // Apply rotation if specified
+    if (rotation !== 0) {
+      ctx.translate(x, y);
+      ctx.rotate(rotation);
+      ctx.translate(-x, -y);
+    }
+    
     ctx.drawImage(canvas, centerX, centerY, scaledWidth, scaledHeight);
     ctx.restore();
   }, []);

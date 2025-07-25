@@ -137,6 +137,15 @@ export const defaultBrushComponents: BrushComponent[] = [
     },
     priority: 40,
     enabled: true
+  },
+  {
+    id: 'default-rotation',
+    type: ComponentType.ROTATION_TRANSFORM,
+    parameters: {
+      enableRotation: true
+    },
+    priority: 50,
+    enabled: true
   }
 ];
 
@@ -302,6 +311,15 @@ export const roundSoft4Components: BrushComponent[] = [
     },
     priority: 40,
     enabled: true
+  },
+  {
+    id: 'round-soft-4-rotation',
+    type: ComponentType.ROTATION_TRANSFORM,
+    parameters: {
+      enableRotation: true
+    },
+    priority: 50,
+    enabled: true
   }
 ];
 
@@ -411,6 +429,15 @@ export const inkBrushComponents: BrushComponent[] = [
       shape: BrushShape.ROUND
     },
     priority: 40,
+    enabled: true
+  },
+  {
+    id: 'ink-rotation',
+    type: ComponentType.ROTATION_TRANSFORM,
+    parameters: {
+      enableRotation: true
+    },
+    priority: 50,
     enabled: true
   }
 ];

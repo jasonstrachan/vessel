@@ -105,3 +105,7 @@ Import trace for requested module:
 ./src/app/page.tsx
 <w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/0.pack.gz_' -> '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/0.pack.gz'
  ✓ Compiled in 325ms (399 modules)
+ ✓ Compiled in 330ms (399 modules)
+ ✓ Compiled in 297ms (399 modules)
+ ✓ Compiled in 310ms (399 modules)
+ ✓ Compiled in 342ms (399 modules)
