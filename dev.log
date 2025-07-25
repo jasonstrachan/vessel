@@ -83,3 +83,25 @@ Import trace for requested module:
  ✓ Compiled in 292ms (399 modules)
  ✓ Compiled in 300ms (399 modules)
  ✓ Compiled in 374ms (399 modules)
+ ⨯ ./src/hooks/useBrushEngine.ts
+Error:   [31mx[0m Expected ',', got 'blendMode'
+     ,-[[36;1;4m/home/jason/projects/tinybrush/src/hooks/useBrushEngine.ts[0m:505:1]
+ [2m502[0m |       spacing: activeSettings.spacing,
+ [2m503[0m |       rotation: activeSettings.rotationEnabled && input.direction !== undefined ? input.direction : 0,
+ [2m504[0m |       shape: activeSettings.brushShape || BrushShape.ROUND // Use actual brush shape from settings
+ [2m505[0m |       blendMode: activeSettings.blendMode || 'source-over'
+     : [35;1m      ^^^^^^^^^[0m
+ [2m506[0m |     };    
+ [2m507[0m |     
+ [2m507[0m |     // Add pattern if using a brush tip from mini canvas
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/hooks/useBrushEngine.ts
+./src/components/canvas/DrawingCanvas.tsx
+./src/app/page.tsx
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/0.pack.gz_' -> '/home/jason/projects/tinybrush/.next/cache/webpack/client-development/0.pack.gz'
+ ✓ Compiled in 325ms (399 modules)

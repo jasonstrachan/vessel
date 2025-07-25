@@ -501,7 +501,7 @@ export const useBrushEngine = () => {
       pixelAlignment: !activeSettings.antialiasing, // Default fallback
       spacing: activeSettings.spacing,
       rotation: activeSettings.rotationEnabled && input.direction !== undefined ? input.direction : 0,
-      shape: activeSettings.brushShape || BrushShape.ROUND // Use actual brush shape from settings
+      shape: activeSettings.brushShape || BrushShape.ROUND, // Use actual brush shape from settings
       blendMode: activeSettings.blendMode || 'source-over'
     };    
     
