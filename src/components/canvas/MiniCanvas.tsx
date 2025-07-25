@@ -3,19 +3,17 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { useBrushEngine } from '../../hooks/useBrushEngine';
-import { Pin, PinOff, RotateCcw, Minus, Plus, Undo2, Redo2, Palette } from 'lucide-react';
+import { Pin, PinOff, RotateCcw, Minus, Plus, Undo2, Redo2 } from 'lucide-react';
 import { BrushShape } from '../../types';
-import { shiftHue } from '../../utils/imageProcessing';
-import { HueSlider } from '../ui/HueSlider';
+import { adjustHueAndSaturation } from '../../utils/imageProcessing';
 
 interface MiniCanvasProps {
   width?: number;
   height?: number;
   className?: string;
   hueShift?: number;
-  onHueShiftChange?: (hue: number) => void;
+  saturation?: number;
   onBrushTipChange?: (imageData: ImageData) => void;
-  onSaveUndoState?: () => void;
 }
 
 export default function MiniCanvas({ 
@@ -23,16 +21,13 @@ export default function MiniCanvas({
   height = 128, 
   className = '', 
   hueShift = 0, 
-  onHueShiftChange,
-  onBrushTipChange,
-  onSaveUndoState
+  saturation = 100,
+  onBrushTipChange
 }: MiniCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const hueButtonRef = useRef<HTMLButtonElement>(null);
-  const huePopoverRef = useRef<HTMLDivElement>(null);
 
   // Local state
   const [zoom, setZoom] = useState(0.5);
@@ -52,7 +47,6 @@ export default function MiniCanvas({
   // Mini canvas undo/redo state
   const [undoStack, setUndoStack] = useState<ImageData[]>([]);
   const [redoStack, setRedoStack] = useState<ImageData[]>([]);
-  const [showHueSlider, setShowHueSlider] = useState(false);
 
   // App state
   const { tools, project, temporaryCustomBrush, saveCanvasState, brushPresets, setBrushSettings } = useAppStore();
@@ -260,18 +254,18 @@ export default function MiniCanvas({
     // Disable image smoothing for pixel-perfect display
     ctx.imageSmoothingEnabled = false;
     
-    // Apply hue shift if needed and draw the brush tip
-    if (hueShift !== 0 && originalBrushData) {
-      // Apply hue shift to the original brush data for accurate preview
-      const shiftedData = shiftHue(originalBrushData, hueShift);
+    // Apply hue shift and saturation if needed and draw the brush tip
+    if ((hueShift !== 0 || saturation !== 100) && originalBrushData) {
+      // Apply hue shift and saturation to the original brush data for accurate preview
+      const adjustedData = adjustHueAndSaturation(originalBrushData, hueShift, saturation);
       
-      // Create a temporary canvas to draw the shifted data
+      // Create a temporary canvas to draw the adjusted data
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = sourceSize;
       tempCanvas.height = sourceSize;
       const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
       if (tempCtx) {
-        tempCtx.putImageData(shiftedData, 0, 0);
+        tempCtx.putImageData(adjustedData, 0, 0);
         ctx.drawImage(tempCanvas, 0, 0, sourceSize, sourceSize, x, y, displaySize, displaySize);
       }
     } else {
@@ -282,7 +276,7 @@ export default function MiniCanvas({
     ctx.strokeStyle = '#666';
     ctx.lineWidth = 1;
     ctx.strokeRect(x, y, displaySize, displaySize);
-  }, [width, height, zoom, pan.x, pan.y, hueShift, originalBrushData]);
+  }, [width, height, zoom, pan.x, pan.y, hueShift, saturation, originalBrushData]);
 
   // Draw checkerboard background
   const drawCheckerboard = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
@@ -625,37 +619,20 @@ export default function MiniCanvas({
   useEffect(() => {
     if (onBrushTipChange && originalBrushData) {
       const timer = setTimeout(() => {
-        if (hueShift !== 0) {
-          // Always apply hue shift to the original brush data
-          const shiftedData = shiftHue(originalBrushData, hueShift);
-          onBrushTipChange(shiftedData);
+        if (hueShift !== 0 || saturation !== 100) {
+          // Apply hue shift and saturation to the original brush data
+          const adjustedData = adjustHueAndSaturation(originalBrushData, hueShift, saturation);
+          onBrushTipChange(adjustedData);
         } else {
-          // Reset to original when hue is 0
+          // Reset to original when both hue is 0 and saturation is 100
           onBrushTipChange(originalBrushData);
         }
       }, 50); // 50ms debounce
       
       return () => clearTimeout(timer);
     }
-  }, [hueShift, originalBrushData]); // Only depend on stable values
+  }, [hueShift, saturation, originalBrushData]); // Only depend on stable values
 
-  // Handle click outside to close popover
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (showHueSlider && 
-          huePopoverRef.current && 
-          hueButtonRef.current &&
-          !huePopoverRef.current.contains(event.target as Node) &&
-          !hueButtonRef.current.contains(event.target as Node)) {
-        setShowHueSlider(false);
-      }
-    };
-
-    if (showHueSlider) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showHueSlider]);
 
   return (
     <div className={className}>
@@ -776,50 +753,6 @@ export default function MiniCanvas({
           <Redo2 size={12} />
         </button>
 
-        {/* Hue Shift - only show for custom brushes */}
-        {brushSettings.brushShape === BrushShape.CUSTOM && (
-          <>
-            <div className="w-[2px] self-stretch bg-[#65656A]" />
-            <div className="relative flex-1">
-              <button
-                ref={hueButtonRef}
-                onClick={() => setShowHueSlider(!showHueSlider)}
-                className={`py-1 px-2 rounded w-full ${
-                  showHueSlider 
-                    ? 'text-blue-400 bg-blue-400/20' 
-                    : 'text-[#D9D9D9] hover:bg-[#3A3A42]'
-                }`}
-                title="Adjust hue shift"
-              >
-                <Palette size={12} />
-              </button>
-              
-              {/* Hue Shift Popover */}
-              {showHueSlider && (
-                <div 
-                  ref={huePopoverRef}
-                  className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-48 p-3 bg-[#2A2A32] border border-[#666] rounded-lg shadow-lg z-50"
-                >
-                  <label className="block text-sm text-[#D9D9D9] mb-2">
-                    Hue: {hueShift > 0 ? '+' : ''}{hueShift}°
-                  </label>
-                  <HueSlider
-                    value={[hueShift]}
-                    onValueChange={(value) => {
-                      if (hueShift === 0 && value[0] !== 0 && onSaveUndoState) {
-                        onSaveUndoState();
-                      }
-                      if (onHueShiftChange) {
-                        onHueShiftChange(value[0]);
-                      }
-                    }}
-                    aria-label="Hue Shift"
-                  />
-                </div>
-              )}
-            </div>
-          </>
-        )}
 
         <div className="w-[2px] self-stretch bg-[#65656A]" />
         
