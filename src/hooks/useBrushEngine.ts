@@ -4,6 +4,7 @@ import { useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushComponent, ComponentType, BrushShape, CustomBrush } from '../types';
 import { shouldApplyGridSnap, snapToGrid, getGridPositionsBetween, calculateGridDimensions, snapToRectangularGrid, getRectangularGridPositionsBetween } from '../utils/gridSnap';
+import { canvasPool } from '../utils/canvasPool';
 
 // Base sizes for standard brushes (100% = these sizes in pixels)
 const BRUSH_BASE_SIZES = {
@@ -738,12 +739,13 @@ export const useBrushEngine = () => {
 
   // Custom brush drawing functions
   const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean) => {
-    // Create a new canvas for each stamp to avoid race conditions
-    const canvas = document.createElement('canvas');
-    canvas.width = customBrush.width;
-    canvas.height = customBrush.height;
+    // Use canvas pool to eliminate excessive canvas creation
+    const canvas = canvasPool.acquire(customBrush.width, customBrush.height);
     const tempCtx = canvas.getContext('2d');
-    if (!tempCtx) return;
+    if (!tempCtx) {
+      canvasPool.release(canvas);
+      return;
+    }
     
     
     // Clear and set up canvas with brush dimensions
@@ -779,6 +781,9 @@ export const useBrushEngine = () => {
     
     ctx.drawImage(canvas, centerX, centerY, scaledWidth, scaledHeight);
     ctx.restore();
+    
+    // Return canvas to pool for reuse
+    canvasPool.release(canvas);
   }, []);
 
   const drawCustomBrushLine = useCallback((ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean) => {
