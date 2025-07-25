@@ -7,8 +7,6 @@ import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { BrushShape } from '../../types';
 import ColorPicker from './ColorPicker';
-import AdvancedColorPicker from './AdvancedColorPicker';
-import ColorSwatches from './ColorSwatches';
 import Input from '../ui/Input';
 import { Switch } from '../retroui/Switch';
 import { Slider } from '../retroui/Slider';
@@ -26,25 +24,7 @@ export default function BrushControls() {
   }, [setActiveSettings]);
 
   return (
-    <div className="bg-[#31313A]">
-      {/* Advanced Color Picker - Full Width Section */}
-      <div>
-        <AdvancedColorPicker
-          color={activeSettings.color}
-          onChange={(color) => setActiveSettings({ color })}
-        />
-      </div>
-
-      {/* Color Swatches - Full Width Section */}
-      <div>
-        <ColorSwatches
-          currentColor={activeSettings.color}
-          onColorSelect={(color) => setActiveSettings({ color })}
-        />
-      </div>
-
-      {/* Rest of controls with padding */}
-      <div className="p-4">
+    <div className="bg-[#31313A] p-4">
         {/* Color */}
         <div className="mb-3">
           <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>Color</label>
@@ -224,8 +204,6 @@ export default function BrushControls() {
             Grid Snap
           </label>
         </div>
-      </div>
-      
       </div>
     </div>
   );
