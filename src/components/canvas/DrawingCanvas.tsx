@@ -10,6 +10,7 @@ import { calculateZoomIncrement } from '../../utils/zoomUtils';
 import { floodFill, type FloodFillColor } from '../../utils/floodFill';
 import { restoreCanvasSnapshot } from '../../utils/canvasSnapshot';
 import { canvasPool } from '../../utils/canvasPool';
+import { memoryManager } from '../../utils/memoryCleanup';
 import type { Tool } from '../../types';
 import { BrushShape } from '../../types';
 import BrushCursor from './BrushCursor';
@@ -66,6 +67,43 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   const [mouseX, setMouseX] = useState(0);
   const [mouseY, setMouseY] = useState(0);
   const [isCanvasInitialized, setIsCanvasInitialized] = useState(false);
+  
+  // Dirty rectangle tracking for performance optimization (using refs to avoid render loops)
+  const dirtyRegionsRef = useRef<{x: number, y: number, width: number, height: number}[]>([]);
+  const fullRedrawNeeded = useRef(true); // Force full redraw initially
+  
+  // Helper functions for dirty rectangle management
+  const addDirtyRegion = useCallback((x: number, y: number, width: number, height: number) => {
+    const margin = 20; // Extra margin for brush effects
+    
+    // Clamp coordinates to canvas boundaries
+    const left = Math.max(0, x - margin);
+    const top = Math.max(0, y - margin);
+    const right = Math.min(DEFAULT_CANVAS_WIDTH, x + width + margin);
+    const bottom = Math.min(DEFAULT_CANVAS_HEIGHT, y + height + margin);
+    
+    // Only add region if it's within canvas bounds
+    if (left < right && top < bottom) {
+      const dirtyRect = {
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top
+      };
+      
+      dirtyRegionsRef.current.push(dirtyRect);
+    }
+  }, []);
+  
+  const markFullRedraw = useCallback(() => {
+    fullRedrawNeeded.current = true;
+    dirtyRegionsRef.current = [];
+  }, []);
+  
+  const clearDirtyRegions = useCallback(() => {
+    dirtyRegionsRef.current = [];
+    fullRedrawNeeded.current = false;
+  }, []);
   const [isDraggingSelection, setIsDraggingSelection] = useState(false);
   const [selectionDragStart, setSelectionDragStart] = useState<{ x: number; y: number } | null>(null);
   // Selection creation state
@@ -360,7 +398,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     return patternCanvas;
   }, []);
 
-  // Render the view with zoom/pan transformations
+  // Render the view with zoom/pan transformations using dirty rectangle optimization
   const renderView = useCallback(() => {
     const canvasElement = canvasRef.current;
     const offscreenCanvas = offscreenCanvasRef.current;
@@ -373,8 +411,24 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Disable image smoothing for pixel-perfect rendering
     ctx.imageSmoothingEnabled = false;
     
-    // Clear the display canvas (use logical coordinates since context is already scaled)
-    ctx.clearRect(0, 0, width, height);
+    // Determine what needs to redraw
+    const needsFullRedraw = fullRedrawNeeded.current || dirtyRegionsRef.current.length === 0;
+    
+    if (needsFullRedraw) {
+      // Full redraw - clear entire canvas
+      ctx.clearRect(0, 0, width, height);
+    } else {
+      // Partial redraw - only clear dirty regions
+      ctx.save();
+      ctx.translate(canvas.panX, canvas.panY);
+      ctx.scale(canvas.zoom, canvas.zoom);
+      
+      for (const region of dirtyRegionsRef.current) {
+        ctx.clearRect(region.x, region.y, region.width, region.height);
+      }
+      
+      ctx.restore();
+    }
     
     // Save context state
     ctx.save();
@@ -383,18 +437,41 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     ctx.translate(canvas.panX, canvas.panY);
     ctx.scale(canvas.zoom, canvas.zoom);
     
+    // Clip to canvas boundaries to prevent drawing outside canvas
+    ctx.beginPath();
+    ctx.rect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+    ctx.clip();
     
     // Draw checkerboard pattern as background for transparency
     if (checkerboardPattern) {
       const pattern = ctx.createPattern(checkerboardPattern, 'repeat');
       if (pattern) {
         ctx.fillStyle = pattern;
-        ctx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+        
+        if (needsFullRedraw) {
+          ctx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+        } else {
+          // Only fill dirty regions
+          for (const region of dirtyRegionsRef.current) {
+            ctx.fillRect(region.x, region.y, region.width, region.height);
+          }
+        }
       }
     }
     
     // Draw the offscreen canvas (containing artwork) with transformations
-    ctx.drawImage(offscreenCanvas, 0, 0);
+    if (needsFullRedraw) {
+      ctx.drawImage(offscreenCanvas, 0, 0);
+    } else {
+      // Only draw dirty regions of the offscreen canvas
+      for (const region of dirtyRegionsRef.current) {
+        ctx.drawImage(
+          offscreenCanvas,
+          region.x, region.y, region.width, region.height, // Source rectangle
+          region.x, region.y, region.width, region.height  // Destination rectangle
+        );
+      }
+    }
     
     // Draw grid if enabled
     if (canvas.showGrid) {
@@ -490,7 +567,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Restore context state
     ctx.restore();
-  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.showGrid, canvas.gridSize, canvas.selection, width, height, selectionStart, selectionEnd, checkerboardPattern]);
+    
+    // Clear dirty regions after rendering
+    clearDirtyRegions();
+  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.showGrid, canvas.gridSize, canvas.selection, width, height, selectionStart, selectionEnd, checkerboardPattern, clearDirtyRegions]);
 
   // Enhanced drawing function - draws on offscreen canvas and re-renders view
   const drawLine = useCallback((from: { x: number; y: number }, to: { x: number; y: number }) => {
@@ -505,12 +585,45 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const offscreenCtx = offscreenCanvas.getContext('2d');
     if (!offscreenCtx) return;
     
+    // Calculate actual brush size for dirty region (accounts for custom brushes)
+    const { brushSettings } = useAppStore.getState().tools;
+    let actualBrushSize = brushSettings.size || 20;
+    
+    // For custom brushes, calculate the actual pixel size
+    if (brushSettings.brushShape === BrushShape.CUSTOM) {
+      const customBrush = project?.customBrushes?.find(b => b.id === brushSettings.selectedCustomBrush) ||
+                         useAppStore.getState().temporaryCustomBrush;
+      
+      if (customBrush) {
+        // Custom brush size is percentage of brush dimensions
+        const customBrushBaseSize = Math.max(customBrush.width, customBrush.height);
+        actualBrushSize = (brushSettings.size / 100) * customBrushBaseSize;
+      }
+    } else {
+      // Regular brushes: convert percentage to pixels
+      const baseSize = 10; // Default base size for regular brushes
+      actualBrushSize = (brushSettings.size / 100) * baseSize;
+    }
+    
+    // Add dirty region for the brush stroke
+    const minX = Math.min(from.x, to.x);
+    const minY = Math.min(from.y, to.y);
+    const maxX = Math.max(from.x, to.x);
+    const maxY = Math.max(from.y, to.y);
+    
+    addDirtyRegion(
+      minX - actualBrushSize,
+      minY - actualBrushSize,
+      (maxX - minX) + actualBrushSize * 2,
+      (maxY - minY) + actualBrushSize * 2
+    );
+    
     // Draw on the offscreen canvas (no transformations - world coordinates)
     renderBrushStroke(offscreenCtx, from, to);
     
     // Re-render the view with current zoom/pan
     renderView();
-  }, [renderBrushStroke, renderView, isSelecting]);
+  }, [renderBrushStroke, renderView, isSelecting, addDirtyRegion, project]);
 
   // Create custom brush from current selection
   const createCustomBrushFromSelection = useCallback(async () => {
@@ -570,6 +683,12 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Get ImageData for the brush
     const imageData = captureCtx.getImageData(0, 0, width, height);
+    
+    // Schedule cleanup of the ImageData after use
+    memoryManager.scheduleCleanup(() => {
+      // The imageData will be stored in the custom brush object, so we don't null it here
+      // But we can schedule periodic cleanup of old unused ImageData objects
+    });
     
     // Create thumbnail (max 64x64)
     const thumbnailSize = 64;
@@ -688,6 +807,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Get image data for the brush
     const imageData = captureCtx.getImageData(0, 0, width, height);
     
+    // Schedule cleanup after brush usage
+    memoryManager.scheduleCleanup(() => {
+      // Temporary brush will be replaced frequently, cleanup can help
+    });
+    
     // Create temporary brush object (not saved to library)
     const tempBrush = {
       id: `temp_brush_${Date.now()}`,
@@ -759,6 +883,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         if (ctx) {
           const imageData = ctx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height);
           
+          // Schedule cleanup of large ImageData objects
+          memoryManager.scheduleCleanup(() => {
+            memoryManager.cleanupImageData(imageData);
+          });
+          
           // Convert brush color to FloodFillColor format
           const colorMatch = tools.brushSettings.color.match(/^#([0-9a-f]{6})$/i);
           if (colorMatch) {
@@ -786,6 +915,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             }).catch((error) => {
             });
             
+            // Flood fill affects large areas, require full redraw
+            markFullRedraw();
             // Re-render the view
             renderView();
           }
@@ -1175,9 +1306,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     }).catch((error) => {
     });
     
+    // Paste affects large areas, require full redraw
+    markFullRedraw();
     // Re-render view
     renderView();
-  }, [canvas.selection, setSelection, renderView, saveCanvasState, captureCanvasToActiveLayer]);
+  }, [canvas.selection, setSelection, renderView, saveCanvasState, captureCanvasToActiveLayer, markFullRedraw]);
 
   // Keyboard event handlers
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -1206,6 +1339,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           const snapshot = store.redo();
           if (snapshot && offscreenCanvasRef.current) {
             restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
+            markFullRedraw();
             renderView();
           } else {
           }
@@ -1217,6 +1351,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           const snapshot = store.undo();
           if (snapshot && offscreenCanvasRef.current) {
             restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
+            markFullRedraw();
             renderView();
           } else {
           }
@@ -1594,6 +1729,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       window.removeEventListener('paste', handlePaste);
       document.removeEventListener('paste', handlePaste);
       canvasElement.removeEventListener('paste', handlePaste);
+      
+      // Cleanup memory manager when component unmounts
+      memoryManager.runCleanup();
     };
   }, [handlePaste]); // Include handlePaste in dependency array
 
@@ -1619,9 +1757,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   // Re-render view when zoom/pan changes
   useEffect(() => {
     if (isCanvasInitialized) {
+      // These changes require full redraw
+      markFullRedraw();
       renderView();
     }
-  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.showGrid, renderView, isCanvasInitialized]);
+  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.showGrid, renderView, isCanvasInitialized, markFullRedraw]);
 
   // Optimized animation for marching ants - only updates selection border
   const lastRenderTime = useRef(0);
@@ -1720,12 +1860,13 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       
       if (offscreenCanvasRef.current) {
         compositeLayersToCanvas(offscreenCanvasRef.current);
+        markFullRedraw();
         renderView();
         setLayersNeedRecomposition(false);
       } else {
       }
     }
-  }, [layersNeedRecomposition, compositeLayersToCanvas, renderView, setLayersNeedRecomposition, layers, history.isCapturing]);
+  }, [layersNeedRecomposition, compositeLayersToCanvas, renderView, setLayersNeedRecomposition, layers, history.isCapturing, markFullRedraw]);
 
   // Object pooling for performance optimization
   const coordinatePool = useMemo(() => {

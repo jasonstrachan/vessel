@@ -5,6 +5,8 @@ import { useAppStore } from '../stores/useAppStore';
 import { BrushComponent, ComponentType, BrushShape, CustomBrush } from '../types';
 import { shouldApplyGridSnap, snapToGrid, getGridPositionsBetween, calculateGridDimensions, snapToRectangularGrid, getRectangularGridPositionsBetween } from '../utils/gridSnap';
 import { canvasPool } from '../utils/canvasPool';
+import { brushCache } from '../utils/brushCache';
+import { memoryManager } from '../utils/memoryCleanup';
 
 // Base sizes for standard brushes (100% = these sizes in pixels)
 const BRUSH_BASE_SIZES = {
@@ -546,6 +548,12 @@ export const useBrushEngine = () => {
     // Reset direction history for rotation
     directionHistoryRef.current = [];
     lastDirectionRef.current = 0;
+    
+    // Clear brush calculation cache when starting new stroke
+    brushCache.clear();
+    
+    // Trigger memory cleanup for accumulated objects
+    memoryManager.runCleanup();
   }, []);
 
   // Helper function to determine if we should draw the current stamp (cursor-speed independent)
@@ -809,27 +817,51 @@ export const useBrushEngine = () => {
     // Get actual pressure from cursor state in the store
     const cursorPressure = useAppStore.getState().canvas.cursor.pressure ?? 1.0;
     
-    
-    // Calculate actual brush size using unified percentage scaling
-    let actualBrushSize;
     const isCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM;
     
-    // We'll calculate this after we determine the custom brush below
-    // For now, use a default calculation
-    const baseSize = BRUSH_BASE_SIZES[tools.brushSettings.brushShape || BrushShape.ROUND];
-    actualBrushSize = (tools.brushSettings.size / 100) * baseSize;
+    // Check cache for expensive size/pressure calculations
+    const cacheKey = brushCache.getCacheKey(
+      tools.brushSettings.brushShape || BrushShape.ROUND,
+      tools.brushSettings.size,
+      cursorPressure,
+      0, // rotation handled separately
+      undefined, // grid spacing
+      isCustomBrush ? (tools.brushSettings.selectedCustomBrush || undefined) : undefined,
+      tools.brushSettings.pressureEnabled,
+      tools.brushSettings.minPressure,
+      tools.brushSettings.maxPressure
+    );
     
-    // Apply pressure if enabled
-    if (tools.brushSettings.pressureEnabled) {
-      const minSizePx = tools.brushSettings.minPressure;
-      const maxSizePx = tools.brushSettings.maxPressure || actualBrushSize;
+    let actualBrushSize;
+    const cached = brushCache.get(cacheKey);
+    
+    if (cached) {
+      // Use cached calculations
+      actualBrushSize = cached.actualSize;
+    } else {
+      // Calculate actual brush size using unified percentage scaling
+      const baseSize = BRUSH_BASE_SIZES[tools.brushSettings.brushShape || BrushShape.ROUND];
+      actualBrushSize = (tools.brushSettings.size / 100) * baseSize;
       
-      // Add pressure deadzone for better low-pressure control
-      const pressureThreshold = 0.2;
-      const adjustedPressure = cursorPressure < pressureThreshold ? 0 : 
-        (cursorPressure - pressureThreshold) / (1.0 - pressureThreshold);
+      // Apply pressure if enabled
+      if (tools.brushSettings.pressureEnabled) {
+        const minSizePx = tools.brushSettings.minPressure;
+        const maxSizePx = tools.brushSettings.maxPressure || actualBrushSize;
+        
+        // Add pressure deadzone for better low-pressure control
+        const pressureThreshold = 0.2;
+        const adjustedPressure = cursorPressure < pressureThreshold ? 0 : 
+          (cursorPressure - pressureThreshold) / (1.0 - pressureThreshold);
+        
+        actualBrushSize = minSizePx + (adjustedPressure * (maxSizePx - minSizePx));
+      }
       
-      actualBrushSize = minSizePx + (adjustedPressure * (maxSizePx - minSizePx));
+      // Cache the calculated size
+      brushCache.set(cacheKey, {
+        scaleFactor: 1, // Will be updated for custom brushes
+        actualSize: actualBrushSize,
+        rotation: 0
+      });
     }
     
     // Look for custom brush - check temporary brush first, then project brushes
@@ -950,7 +982,34 @@ export const useBrushEngine = () => {
     if (isGridSnapping) {
       if (isCustomBrush && customBrush) {
         // For custom brushes, use rectangular grid based on brush dimensions with pressure-modified size
-        const gridDimensions = calculateGridDimensions(tools.brushSettings, customBrush, settings.size);
+        // Check cache for grid dimensions calculation
+        const gridCacheKey = brushCache.getCacheKey(
+          tools.brushSettings.brushShape || BrushShape.CUSTOM,
+          settings.size,
+          cursorPressure,
+          0,
+          undefined, // gridSpacing not available in BrushSettings
+          customBrush.id,
+          tools.brushSettings.pressureEnabled
+        );
+        
+        let gridDimensions;
+        const gridCached = brushCache.get(gridCacheKey);
+        
+        if (gridCached && gridCached.gridDimensions) {
+          gridDimensions = gridCached.gridDimensions;
+        } else {
+          gridDimensions = calculateGridDimensions(tools.brushSettings, customBrush, settings.size);
+          
+          // Cache the grid dimensions
+          brushCache.set(gridCacheKey, {
+            scaleFactor: 1,
+            actualSize: settings.size,
+            rotation: 0,
+            gridDimensions
+          });
+        }
+        
         gridSize = Math.max(gridDimensions.width, gridDimensions.height); // Keep for backward compatibility
         
         const snappedToPos = snapToRectangularGrid(to.x, to.y, gridDimensions.width, gridDimensions.height);
@@ -1020,8 +1079,33 @@ export const useBrushEngine = () => {
       
       if (isGridSnapping) {
         // Grid snapping mode: draw at all grid positions between last and current position
-        // Use rectangular grid calculation for custom brushes with pressure-modified size
-        const gridDimensions = calculateGridDimensions(tools.brushSettings, customBrush, settings.size);
+        // Use cached grid dimensions calculation
+        const gridCacheKey = brushCache.getCacheKey(
+          tools.brushSettings.brushShape || BrushShape.CUSTOM,
+          settings.size,
+          cursorPressure,
+          0,
+          undefined, // gridSpacing not available in BrushSettings
+          customBrush.id,
+          tools.brushSettings.pressureEnabled
+        );
+        
+        let gridDimensions;
+        const gridCached = brushCache.get(gridCacheKey);
+        
+        if (gridCached && gridCached.gridDimensions) {
+          gridDimensions = gridCached.gridDimensions;
+        } else {
+          gridDimensions = calculateGridDimensions(tools.brushSettings, customBrush, settings.size);
+          
+          // Cache the grid dimensions
+          brushCache.set(gridCacheKey, {
+            scaleFactor,
+            actualSize: settings.size,
+            rotation: 0,
+            gridDimensions
+          });
+        }
         
         // Fill in grid positions between last and current position for fast movement
         const gridPositions = getRectangularGridPositionsBetween(
