@@ -3,6 +3,7 @@
 import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import MiniCanvas from '../canvas/MiniCanvas';
+import { scaledBrushCache } from '../../utils/scaledBrushCache';
 
 interface MiniCanvasPanelProps {
   hueShift: number;
@@ -29,6 +30,10 @@ export default function MiniCanvasPanel({
     
     // Default brushes should remain colorizable, custom brushes respect useSwatchColor setting
     const isColorizable = brushSettings.brushShape !== 'custom' || brushSettings.useSwatchColor;
+    
+    // Clear scaled brush cache for this brush to ensure color changes are reflected immediately
+    // This prevents the delay between MiniCanvas updates and main canvas drawing
+    scaledBrushCache.clearForBrush(brushId);
       
     setBrushSettings({ 
       currentBrushTip: {
@@ -37,7 +42,7 @@ export default function MiniCanvasPanel({
         isColorizable
       }
     });
-  }, [setBrushSettings, brushSettings.brushShape, brushSettings.selectedCustomBrush]);
+  }, [setBrushSettings, brushSettings.brushShape, brushSettings.selectedCustomBrush, brushSettings.useSwatchColor]);
 
   return (
     <div className="">

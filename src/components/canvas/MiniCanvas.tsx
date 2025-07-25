@@ -627,7 +627,7 @@ export default function MiniCanvas({
           // Reset to original when both hue is 0 and saturation is 100
           onBrushTipChange(originalBrushData);
         }
-      }, 50); // 50ms debounce
+      }, 16); // ~60fps debounce for more responsive updates
       
       return () => clearTimeout(timer);
     }
