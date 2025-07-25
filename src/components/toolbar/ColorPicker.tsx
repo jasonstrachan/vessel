@@ -160,20 +160,21 @@ class Picker {
   }
 
   drawHSVGrad() {
-    // Create HSV gradient: saturation horizontally (0-100%), value vertically (100% at top, 0% at bottom)
-    for (let row = 0; row < this.height; row++) {
-      const grad = this.context.createLinearGradient(0, 0, this.width, 0);
-      const value = ((this.height - row) / this.height) * 100;
-      
-      // Left side: no saturation (white/gray)
-      const leftColor = this.HSVToRGBString(this.hue, 0, value);
-      // Right side: full saturation
-      const rightColor = this.HSVToRGBString(this.hue, 100, value);
-      
-      grad.addColorStop(0, leftColor);
-      grad.addColorStop(1, rightColor);
-      this.context.fillStyle = grad;
-      this.context.fillRect(0, row, this.width, 1);
+    // Create 6x12 HSV grid: 6 columns (saturation), 12 rows (value)
+    const cols = 6;
+    const rows = 12;
+    const cellWidth = this.width / cols;
+    const cellHeight = this.height / rows;
+    
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const saturation = (col / (cols - 1)) * 100;
+        const value = ((rows - 1 - row) / (rows - 1)) * 100;
+        
+        const color = this.HSVToRGBString(this.hue, saturation, value);
+        this.context.fillStyle = color;
+        this.context.fillRect(col * cellWidth, row * cellHeight, cellWidth, cellHeight);
+      }
     }
     this.calcSelector();
     this.drawSelector();
@@ -227,10 +228,22 @@ class Picker {
   }
 
   selectSL(x: number, y: number) {
-    this.saturation = Math.round(x / this.width * 100);
-    this.value = Math.round((this.height - y) / this.height * 100);
-    this.saturation = Math.max(0, Math.min(100, this.saturation));
-    this.value = Math.max(0, Math.min(100, this.value));
+    // Snap to grid cells
+    const cols = 6;
+    const rows = 12;
+    const cellWidth = this.width / cols;
+    const cellHeight = this.height / rows;
+    
+    const col = Math.floor(x / cellWidth);
+    const row = Math.floor(y / cellHeight);
+    
+    // Constrain to valid grid bounds
+    const constrainedCol = Math.max(0, Math.min(cols - 1, col));
+    const constrainedRow = Math.max(0, Math.min(rows - 1, row));
+    
+    this.saturation = Math.round((constrainedCol / (cols - 1)) * 100);
+    this.value = Math.round(((rows - 1 - constrainedRow) / (rows - 1)) * 100);
+    
     this.drawHSVGrad();
     this.HSVToRGB();
     this.RGBToHex();
