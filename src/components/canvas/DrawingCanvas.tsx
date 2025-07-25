@@ -417,36 +417,24 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Disable image smoothing for pixel-perfect rendering
     ctx.imageSmoothingEnabled = false;
     
-    // Determine what needs to redraw
-    const needsFullRedraw = fullRedrawNeeded.current || dirtyRegionsRef.current.length === 0;
+    // ALWAYS perform a full clear at the start of each render cycle
+    // This ensures no residual artifacts from previous renders
+    ctx.clearRect(0, 0, width, height);
     
-    if (needsFullRedraw) {
-      // Full redraw - clear entire canvas
-      ctx.clearRect(0, 0, width, height);
-    } else {
-      // Partial redraw - only clear dirty regions
-      ctx.save();
-      ctx.translate(canvas.panX, canvas.panY);
-      ctx.scale(canvas.zoom, canvas.zoom);
-      
-      for (const region of dirtyRegionsRef.current) {
-        ctx.clearRect(region.x, region.y, region.width, region.height);
-      }
-      
-      ctx.restore();
-    }
+    // Determine what needs to redraw for optimization purposes
+    const needsFullRedraw = fullRedrawNeeded.current || dirtyRegionsRef.current.length === 0;
     
     // Save context state
     ctx.save();
     
-    // Apply zoom and pan transformations (devicePixelRatio scaling already applied in initialization)
-    ctx.translate(canvas.panX, canvas.panY);
-    ctx.scale(canvas.zoom, canvas.zoom);
-    
-    // Clip to canvas boundaries to prevent drawing outside canvas
+    // Clip to canvas boundaries to prevent drawing outside canvas (before transforms)
     ctx.beginPath();
     ctx.rect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
     ctx.clip();
+    
+    // Apply zoom and pan transformations (devicePixelRatio scaling already applied in initialization)
+    ctx.translate(canvas.panX, canvas.panY);
+    ctx.scale(canvas.zoom, canvas.zoom);
     
     // Draw checkerboard pattern as background for transparency
     if (checkerboardPattern) {
@@ -454,30 +442,14 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       if (pattern) {
         ctx.fillStyle = pattern;
         
-        if (needsFullRedraw) {
-          ctx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
-        } else {
-          // Only fill dirty regions
-          for (const region of dirtyRegionsRef.current) {
-            ctx.fillRect(region.x, region.y, region.width, region.height);
-          }
-        }
+        // Always fill entire background since we cleared everything
+        ctx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
       }
     }
     
     // Draw the offscreen canvas (containing artwork) with transformations
-    if (needsFullRedraw) {
-      ctx.drawImage(offscreenCanvas, 0, 0);
-    } else {
-      // Only draw dirty regions of the offscreen canvas
-      for (const region of dirtyRegionsRef.current) {
-        ctx.drawImage(
-          offscreenCanvas,
-          region.x, region.y, region.width, region.height, // Source rectangle
-          region.x, region.y, region.width, region.height  // Destination rectangle
-        );
-      }
-    }
+    // Always draw full canvas since we cleared everything
+    ctx.drawImage(offscreenCanvas, 0, 0);
     
     // Draw grid if enabled
     if (canvas.showGrid) {

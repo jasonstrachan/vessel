@@ -237,6 +237,9 @@ export const useBrushEngine = () => {
       // Round to pixel boundaries for pixel-perfect drawing
       x = Math.round(x);
       y = Math.round(y);
+    } else {
+      // Ensure smoothing is enabled for antialiased drawing
+      ctx.imageSmoothingEnabled = true;
     }
     
     // Apply rotation if specified
@@ -257,6 +260,8 @@ export const useBrushEngine = () => {
       
       if (tempCtx) {
         try {
+          // Configure temp canvas context to match main context
+          tempCtx.imageSmoothingEnabled = ctx.imageSmoothingEnabled;
           tempCtx.putImageData(pattern, 0, 0);
           
           // Use pattern at original pixel size
@@ -271,6 +276,10 @@ export const useBrushEngine = () => {
             drawX = x - scaledWidth / 2;
             drawY = y - scaledHeight / 2;
           }
+          
+          // Round coordinates to prevent sub-pixel positioning
+          drawX = Math.round(drawX);
+          drawY = Math.round(drawY);
           
           // Draw the pattern at original size
           ctx.drawImage(tempCanvas, drawX, drawY);
@@ -301,8 +310,8 @@ export const useBrushEngine = () => {
           if (antiAliasing) {
             // Even for "antialiased" mode, use pixel patterns for pixel round brushes
             const pixelPattern = getPixelCirclePattern(size);
-            const offsetX = x - Math.floor(size / 2);
-            const offsetY = y - Math.floor(size / 2);
+            const offsetX = Math.round(x - Math.floor(size / 2));
+            const offsetY = Math.round(y - Math.floor(size / 2));
             
             pixelPattern.forEach(pixel => {
               ctx.fillRect(offsetX + pixel.x, offsetY + pixel.y, 1, 1);
@@ -310,8 +319,8 @@ export const useBrushEngine = () => {
           } else {
             // Use pixel-perfect circle patterns for pixel mode
             const pixelPattern = getPixelCirclePattern(size);
-            const offsetX = x - Math.floor(size / 2);
-            const offsetY = y - Math.floor(size / 2);
+            const offsetX = Math.round(x - Math.floor(size / 2));
+            const offsetY = Math.round(y - Math.floor(size / 2));
             
             pixelPattern.forEach(pixel => {
               ctx.fillRect(offsetX + pixel.x, offsetY + pixel.y, 1, 1);
@@ -332,9 +341,10 @@ export const useBrushEngine = () => {
             // Draw filled triangle pixel by pixel
             for (let row = 0; row < height; row++) {
               const width = Math.floor((row + 1) * size / height);
-              const startX = x - Math.floor(width / 2);
+              const startX = Math.round(x - Math.floor(width / 2));
+              const startY = Math.round(y - Math.floor(height / 2));
               for (let col = 0; col < width; col++) {
-                ctx.fillRect(startX + col, y - Math.floor(height / 2) + row, 1, 1);
+                ctx.fillRect(startX + col, startY + row, 1, 1);
               }
             }
           }
@@ -763,8 +773,8 @@ export const useBrushEngine = () => {
         const centerX = x - scaledCanvas.width / 2;
         const centerY = y - scaledCanvas.height / 2;
         
-        // Draw the pre-scaled brush (no scaling or rotation needed)
-        ctx.imageSmoothingEnabled = false; // Maintain pixel-perfect rendering
+        // Draw the pre-scaled brush - custom brushes should always be pixel-perfect
+        ctx.imageSmoothingEnabled = false; // Custom brushes maintain pixel-perfect rendering
         ctx.drawImage(scaledCanvas, centerX, centerY);
       
     } catch (error) {
@@ -792,7 +802,7 @@ export const useBrushEngine = () => {
       const centerY = y - scaledHeight / 2;
       
       ctx.save();
-      ctx.imageSmoothingEnabled = false;
+      ctx.imageSmoothingEnabled = false; // Custom brushes always pixel-perfect
       
       if (rotation !== 0) {
         ctx.translate(x, y);
