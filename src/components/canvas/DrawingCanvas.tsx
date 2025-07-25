@@ -747,9 +747,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     if (tools.currentTool === 'fill') {
       const offscreenCanvas = offscreenCanvasRef.current;
       if (offscreenCanvas) {
-        // Capture state before fill operation
-        saveCanvasState(offscreenCanvas, 'fill', 'Fill operation');
-        
         // Get current canvas image data
         const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
         if (ctx) {
@@ -777,6 +774,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             
             // Capture the fill result to the active layer
             captureCanvasToActiveLayer(offscreenCanvas).then(() => {
+              // Save state AFTER the fill is complete and captured
+              saveCanvasState(offscreenCanvas, 'fill', 'Fill operation');
             }).catch((error) => {
             });
             
