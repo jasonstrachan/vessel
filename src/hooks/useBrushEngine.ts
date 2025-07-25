@@ -479,8 +479,8 @@ export const useBrushEngine = () => {
     if (activeSettings.pressureEnabled) {
       // Map pressure (0.0-1.0) to size range based on maxPressure setting
       // maxPressure directly sets the max pixel size at full pressure
-      const minSizePx = activeSettings.minPressure;
-      const maxSizePx = activeSettings.maxPressure;
+      const minSizePx = activeSettings.minPressure || 1;
+      const maxSizePx = activeSettings.maxPressure || activeSettings.size;
       
       // Add pressure deadzone for better low-pressure control
       const pressureThreshold = 0.2;
@@ -1073,8 +1073,6 @@ export const useBrushEngine = () => {
       
       
       // Scale custom brush using pressure-modified actualBrushSize
-      let scaleFactor;
-      
       // Use optimized scale factor calculation
       const isCurrentBrushTip = tools.brushSettings.currentBrushTip && 
         tools.brushSettings.currentBrushTip.brushId === currentBrushId;
@@ -1083,7 +1081,7 @@ export const useBrushEngine = () => {
       // Calculate scale factor using the brush's actual dimensions, not the fixed base size
       const customBrushMaxDimension = Math.max(customBrush.width, customBrush.height);
       
-      scaleFactor = pressureOptimizer.calculateScaleFactor(
+      const scaleFactor = pressureOptimizer.calculateScaleFactor(
         actualBrushSize,
         customBrushMaxDimension,
         !!isCurrentBrushTip,

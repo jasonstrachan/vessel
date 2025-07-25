@@ -264,9 +264,11 @@ export const useAppStore = create<AppState>()(
       setDisplayMode: (mode) => set((state) => ({
         canvas: { ...state.canvas, displayMode: mode }
       })),
-      setCanvasDimensions: (width, height) => set((state) => ({
-        canvas: { ...state.canvas, canvasWidth: width, canvasHeight: height }
-      })),
+      setCanvasDimensions: (width, height) => set((state) => {
+        // Trigger canvas DOM update by setting a flag
+        const updatedCanvas = { ...state.canvas, canvasWidth: width, canvasHeight: height, needsDimensionUpdate: true };
+        return { canvas: updatedCanvas };
+      }),
       setProjectDimensions: (width, height) => set((state) => ({
         project: state.project ? { ...state.project, width, height } : null
       })),
@@ -325,7 +327,7 @@ export const useAppStore = create<AppState>()(
         return {
           project: updatedProject,
           layers: resizedLayers,
-          canvas: { ...state.canvas, canvasWidth: width, canvasHeight: height },
+          canvas: { ...state.canvas, canvasWidth: width, canvasHeight: height, needsDimensionUpdate: true },
           layersNeedRecomposition: true
         };
       }),
@@ -1122,10 +1124,8 @@ export const useAppStore = create<AppState>()(
         const state = get();
         // Skip if we're in the middle of a history operation
         if (state.history.isCapturing) {
-          layerCount: state.layers.length,
-          targetLayerId,
-          targetLayerName: state.layers.find(l => l.id === targetLayerId)?.name || 'Unknown'
-        });
+          return;
+        }
         
         // Skip if we're in the middle of a history operation
         if (state.history.isCapturing) {

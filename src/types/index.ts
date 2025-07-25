@@ -100,6 +100,7 @@ export interface CanvasState {
   displayMode: 'pixelated' | 'smooth';
   canvasWidth: number;
   canvasHeight: number;
+  needsDimensionUpdate?: boolean;
   selection: {
     active: boolean;
     bounds: Rectangle;
