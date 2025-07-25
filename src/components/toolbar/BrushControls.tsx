@@ -121,8 +121,11 @@ export default function BrushControls() {
             <Input
               type="number"
               variant="compact"
-              value={activeSettings.maxPressure || activeSettings.size}
-              onChange={(e) => setActiveSettings({ maxPressure: parseInt(e.target.value) || activeSettings.size })}
+              value={activeSettings.maxPressure ?? ''}
+              onChange={(e) => {
+                const value = parseInt(e.target.value);
+                setActiveSettings({ maxPressure: value || undefined });
+              }}
               min="1"
               max="1000"
               className="w-16"
