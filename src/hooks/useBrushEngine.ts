@@ -6,7 +6,10 @@ import { BrushComponent, ComponentType, BrushShape, CustomBrush } from '../types
 import { shouldApplyGridSnap, snapToGrid, getGridPositionsBetween, calculateGridDimensions, snapToRectangularGrid, getRectangularGridPositionsBetween } from '../utils/gridSnap';
 import { canvasPool } from '../utils/canvasPool';
 import { brushCache } from '../utils/brushCache';
+import { scaledBrushCache } from '../utils/scaledBrushCache';
+import { pressureOptimizer } from '../utils/pressureOptimizer';
 import { memoryManager } from '../utils/memoryCleanup';
+import { performanceMonitor } from '../utils/performanceMonitor';
 
 // Base sizes for standard brushes (100% = these sizes in pixels)
 const BRUSH_BASE_SIZES = {
@@ -469,9 +472,7 @@ export const useBrushEngine = () => {
     input: StrokeInput
   ): RenderSettings => {
     const { brushSettings, eraserSettings, currentTool } = tools;
-    console.log('ERASER DEBUG:', { currentTool, eraserSettings, brushSettings });
     const activeSettings = currentTool === 'eraser' ? eraserSettings : brushSettings;
-    console.log('ACTIVE SETTINGS:', activeSettings);
     
     // Apply pressure-based size modification if enabled
     let finalSize = activeSettings.size;
@@ -747,51 +748,64 @@ export const useBrushEngine = () => {
 
   // Custom brush drawing functions
   const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean) => {
-    // Use canvas pool to eliminate excessive canvas creation
-    const canvas = canvasPool.acquire(customBrush.width, customBrush.height);
-    const tempCtx = canvas.getContext('2d');
-    if (!tempCtx) {
+    return performanceMonitor.measureStampTime(() => {
+      try {
+        // Use pre-scaled brush cache to eliminate expensive scaling operations
+        const scaledCanvas = scaledBrushCache.createScaledBrush(
+          customBrush, 
+          scale, 
+          rotation, 
+          color, 
+          isColorizable
+        );
+        
+        // Calculate position for pre-scaled canvas
+        const centerX = x - scaledCanvas.width / 2;
+        const centerY = y - scaledCanvas.height / 2;
+        
+        // Draw the pre-scaled brush (no scaling or rotation needed)
+        ctx.imageSmoothingEnabled = false; // Maintain pixel-perfect rendering
+        ctx.drawImage(scaledCanvas, centerX, centerY);
+      
+    } catch (error) {
+      // Fallback to original method if cache fails
+      const canvas = canvasPool.acquire(customBrush.width, customBrush.height);
+      const tempCtx = canvas.getContext('2d');
+      if (!tempCtx) {
+        canvasPool.release(canvas);
+        return;
+      }
+      
+      tempCtx.clearRect(0, 0, canvas.width, canvas.height);
+      tempCtx.putImageData(customBrush.imageData, 0, 0);
+      
+      if (isColorizable && color) {
+        tempCtx.globalCompositeOperation = 'source-atop';
+        tempCtx.fillStyle = color;
+        tempCtx.fillRect(0, 0, canvas.width, canvas.height);
+        tempCtx.globalCompositeOperation = 'source-over';
+      }
+      
+      const scaledWidth = customBrush.width * scale;
+      const scaledHeight = customBrush.height * scale;
+      const centerX = x - scaledWidth / 2;
+      const centerY = y - scaledHeight / 2;
+      
+      ctx.save();
+      ctx.imageSmoothingEnabled = false;
+      
+      if (rotation !== 0) {
+        ctx.translate(x, y);
+        ctx.rotate(rotation);
+        ctx.translate(-x, -y);
+      }
+      
+      ctx.drawImage(canvas, centerX, centerY, scaledWidth, scaledHeight);
+      ctx.restore();
+      
       canvasPool.release(canvas);
-      return;
     }
-    
-    
-    // Clear and set up canvas with brush dimensions
-    tempCtx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Put the brush ImageData onto the temporary canvas
-    tempCtx.putImageData(customBrush.imageData, 0, 0);
-    
-    // Apply swatch color if brush is colorizable
-    if (isColorizable && color) {
-      tempCtx.globalCompositeOperation = 'source-atop';
-      tempCtx.fillStyle = color;
-      tempCtx.fillRect(0, 0, canvas.width, canvas.height);
-      tempCtx.globalCompositeOperation = 'source-over';
-    }
-    
-    // Calculate scaled dimensions and position
-    const scaledWidth = customBrush.width * scale;
-    const scaledHeight = customBrush.height * scale;
-    const centerX = x - scaledWidth / 2;
-    const centerY = y - scaledHeight / 2;
-    
-    // Draw the custom brush with rotation
-    ctx.save();
-    ctx.imageSmoothingEnabled = false; // Maintain pixel-perfect rendering
-    
-    // Apply rotation if specified
-    if (rotation !== 0) {
-      ctx.translate(x, y);
-      ctx.rotate(rotation);
-      ctx.translate(-x, -y);
-    }
-    
-    ctx.drawImage(canvas, centerX, centerY, scaledWidth, scaledHeight);
-    ctx.restore();
-    
-    // Return canvas to pool for reuse
-    canvasPool.release(canvas);
+    });
   }, []);
 
   const drawCustomBrushLine = useCallback((ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean) => {
@@ -841,20 +855,17 @@ export const useBrushEngine = () => {
     } else {
       // Calculate actual brush size using unified percentage scaling
       const baseSize = BRUSH_BASE_SIZES[tools.brushSettings.brushShape || BrushShape.ROUND];
-      actualBrushSize = (tools.brushSettings.size / 100) * baseSize;
+      const baseBrushSize = (tools.brushSettings.size / 100) * baseSize;
       
-      // Apply pressure if enabled
-      if (tools.brushSettings.pressureEnabled) {
-        const minSizePx = tools.brushSettings.minPressure;
-        const maxSizePx = tools.brushSettings.maxPressure || actualBrushSize;
-        
-        // Add pressure deadzone for better low-pressure control
-        const pressureThreshold = 0.2;
-        const adjustedPressure = cursorPressure < pressureThreshold ? 0 : 
-          (cursorPressure - pressureThreshold) / (1.0 - pressureThreshold);
-        
-        actualBrushSize = minSizePx + (adjustedPressure * (maxSizePx - minSizePx));
-      }
+      // Use optimized pressure calculation
+      const pressureResult = pressureOptimizer.calculatePressureSize(baseBrushSize, {
+        pressureEnabled: tools.brushSettings.pressureEnabled,
+        minPressure: tools.brushSettings.minPressure,
+        maxPressure: tools.brushSettings.maxPressure,
+        rawPressure: cursorPressure
+      });
+      
+      actualBrushSize = pressureResult.adjustedSize;
       
       // Cache the calculated size
       brushCache.set(cacheKey, {
@@ -922,36 +933,39 @@ export const useBrushEngine = () => {
     if (tools.brushSettings.currentBrushTip && tools.brushSettings.currentBrushTip.brushId === currentBrushId && customBrush) {
       // For currentBrushTip, use the max dimension of the brush tip as base size
       const brushTipBaseSize = Math.max(customBrush.width, customBrush.height);
-      actualBrushSize = (tools.brushSettings.size / 100) * brushTipBaseSize;
+      const baseBrushSize = (tools.brushSettings.size / 100) * brushTipBaseSize;
       
-      // Apply pressure if enabled - same logic as regular brushes
-      if (tools.brushSettings.pressureEnabled) {
-        const minSizePx = tools.brushSettings.minPressure;
-        const maxSizePx = tools.brushSettings.maxPressure || actualBrushSize;
-        
-        // Add pressure deadzone for better low-pressure control
-        const pressureThreshold = 0.2;
-        const adjustedPressure = cursorPressure < pressureThreshold ? 0 : 
-          (cursorPressure - pressureThreshold) / (1.0 - pressureThreshold);
-        
-        actualBrushSize = minSizePx + (adjustedPressure * (maxSizePx - minSizePx));
-      }
+      // For currentBrushTip, if maxPressure is not set, use the calculated brush size
+      // This ensures 100% pressure shows the brush at its intended size
+      const effectiveMaxPressure = tools.brushSettings.maxPressure || baseBrushSize;
+      
+      // Use optimized pressure calculation
+      const pressureResult = pressureOptimizer.calculatePressureSize(baseBrushSize, {
+        pressureEnabled: tools.brushSettings.pressureEnabled,
+        minPressure: tools.brushSettings.minPressure,
+        maxPressure: effectiveMaxPressure,
+        rawPressure: cursorPressure
+      });
+      
+      actualBrushSize = pressureResult.adjustedSize;
     } else if (isCustomBrush && customBrush) {
-      // For custom brushes, use default base size
-      actualBrushSize = (tools.brushSettings.size / 100) * BRUSH_BASE_SIZES[BrushShape.CUSTOM];
+      // For custom brushes, calculate base size from the brush's actual dimensions
+      const customBrushMaxDimension = Math.max(customBrush.width, customBrush.height);
+      const baseBrushSize = (tools.brushSettings.size / 100) * customBrushMaxDimension;
       
-      // Apply pressure if enabled - same logic as regular brushes
-      if (tools.brushSettings.pressureEnabled) {
-        const minSizePx = tools.brushSettings.minPressure;
-        const maxSizePx = tools.brushSettings.maxPressure || actualBrushSize;
-        
-        // Add pressure deadzone for better low-pressure control
-        const pressureThreshold = 0.2;
-        const adjustedPressure = cursorPressure < pressureThreshold ? 0 : 
-          (cursorPressure - pressureThreshold) / (1.0 - pressureThreshold);
-        
-        actualBrushSize = minSizePx + (adjustedPressure * (maxSizePx - minSizePx));
-      }
+      // For custom brushes, if maxPressure is not set, use the calculated brush size
+      // This ensures 100% pressure shows the brush at its intended size
+      const effectiveMaxPressure = tools.brushSettings.maxPressure || baseBrushSize;
+      
+      // Use optimized pressure calculation
+      const pressureResult = pressureOptimizer.calculatePressureSize(baseBrushSize, {
+        pressureEnabled: tools.brushSettings.pressureEnabled,
+        minPressure: tools.brushSettings.minPressure,
+        maxPressure: effectiveMaxPressure,
+        rawPressure: cursorPressure
+      });
+      
+      actualBrushSize = pressureResult.adjustedSize;
     }
     
     // Apply grid snapping if enabled using the actual brush size
@@ -1061,18 +1075,20 @@ export const useBrushEngine = () => {
       // Scale custom brush using pressure-modified actualBrushSize
       let scaleFactor;
       
-      // For currentBrushTip, we need to scale based on the actual brush tip size
-      if (tools.brushSettings.currentBrushTip && tools.brushSettings.currentBrushTip.brushId === currentBrushId) {
-        // The actualBrushSize already includes the correct scaling for currentBrushTip with pressure
-        // We need to convert this back to a scale factor relative to the brush tip size
-        const brushTipBaseSize = Math.max(customBrush.width, customBrush.height);
-        scaleFactor = actualBrushSize / brushTipBaseSize;
-      } else {
-        // For regular custom brushes, use the pressure-modified actualBrushSize
-        // Convert actualBrushSize back to a scale factor for the custom brush base size
-        const customBrushBaseSize = BRUSH_BASE_SIZES[BrushShape.CUSTOM];
-        scaleFactor = actualBrushSize / customBrushBaseSize;
-      }
+      // Use optimized scale factor calculation
+      const isCurrentBrushTip = tools.brushSettings.currentBrushTip && 
+        tools.brushSettings.currentBrushTip.brushId === currentBrushId;
+      const brushTipBaseSize = isCurrentBrushTip ? Math.max(customBrush.width, customBrush.height) : undefined;
+      
+      // Calculate scale factor using the brush's actual dimensions, not the fixed base size
+      const customBrushMaxDimension = Math.max(customBrush.width, customBrush.height);
+      
+      scaleFactor = pressureOptimizer.calculateScaleFactor(
+        actualBrushSize,
+        customBrushMaxDimension,
+        !!isCurrentBrushTip,
+        brushTipBaseSize
+      );
       
       // For grid snapping, the scale factor should still preserve pressure effects
       // (actualBrushSize already includes pressure modifications)

@@ -14,6 +14,15 @@ interface CachedBrushData {
   
   // Pressure calculations
   pressureAdjustedSize?: number;
+  pressureSettings?: {
+    minSizePx: number;
+    maxSizePx: number;
+    adjustedPressure: number;
+  };
+  
+  // Custom brush calculations
+  customBrushBaseSize?: number;
+  brushTipBaseSize?: number;
   
   // Rotation calculations  
   rotation: number;

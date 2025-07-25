@@ -1,13 +1,19 @@
 /**
  * Memory cleanup utilities for intensive drawing operations.
  * Helps prevent memory accumulation during long drawing sessions.
+ * Coordinates with caching systems for optimal memory usage.
  */
+
+import { brushCache } from './brushCache';
+import { pressureOptimizer } from './pressureOptimizer';
+import { scaledBrushCache } from './scaledBrushCache';
 
 class MemoryManager {
   private cleanupQueue: (() => void)[] = [];
   private cleanupInterval: NodeJS.Timeout | null = null;
-  private readonly CLEANUP_INTERVAL = 5000; // 5 seconds
-  private readonly MAX_QUEUE_SIZE = 50;
+  private readonly CLEANUP_INTERVAL = 3000; // 3 seconds - more aggressive
+  private readonly MAX_QUEUE_SIZE = 30; // Smaller queue
+  private readonly MEMORY_PRESSURE_THRESHOLD = 100; // Cleanup operations count
 
   constructor() {
     this.startPeriodicCleanup();
@@ -68,6 +74,11 @@ class MemoryManager {
       }
     }
 
+    // Clean cache systems if under memory pressure
+    if (toClean.length > this.MEMORY_PRESSURE_THRESHOLD || this.isMemoryPressure()) {
+      this.cleanupCaches();
+    }
+
     // Force garbage collection if available (development only)
     if (typeof (globalThis as any).gc === 'function' && process.env.NODE_ENV === 'development') {
       try {
@@ -76,6 +87,32 @@ class MemoryManager {
         // GC not available, ignore
       }
     }
+  }
+
+  /**
+   * Clean up cache systems when under memory pressure
+   */
+  private cleanupCaches(): void {
+    try {
+      // Clean brush calculation cache
+      brushCache.clear();
+      
+      // Clean pressure optimizer cache
+      pressureOptimizer.clear();
+      
+      // Clean scaled brush cache
+      scaledBrushCache.clear();
+    } catch (error) {
+      // Ignore cache cleanup errors
+    }
+  }
+
+  /**
+   * Check if system is under memory pressure
+   */
+  private isMemoryPressure(): boolean {
+    // Simple heuristic: check if cleanup queue is consistently large
+    return this.cleanupQueue.length > this.MAX_QUEUE_SIZE * 0.8;
   }
 
   /**
@@ -99,12 +136,25 @@ class MemoryManager {
   }
 
   /**
-   * Get memory manager statistics
+   * Get memory manager statistics including cache information
    */
-  getStats(): { queueSize: number; maxQueueSize: number } {
+  getStats(): { 
+    queueSize: number; 
+    maxQueueSize: number;
+    cacheStats: {
+      brushCache: ReturnType<typeof brushCache.getStats>;
+      pressureOptimizer: ReturnType<typeof pressureOptimizer.getStats>;
+      scaledBrushCache: ReturnType<typeof scaledBrushCache.getStats>;
+    };
+  } {
     return {
       queueSize: this.cleanupQueue.length,
-      maxQueueSize: this.MAX_QUEUE_SIZE
+      maxQueueSize: this.MAX_QUEUE_SIZE,
+      cacheStats: {
+        brushCache: brushCache.getStats(),
+        pressureOptimizer: pressureOptimizer.getStats(),
+        scaledBrushCache: scaledBrushCache.getStats()
+      }
     };
   }
 }

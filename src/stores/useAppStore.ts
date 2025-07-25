@@ -234,10 +234,7 @@ export const useAppStore = create<AppState>()(
       // Layer composition trigger
       layersNeedRecomposition: false,
       setLayersNeedRecomposition: (needed) => {
-        console.log('[LAYER] Recomposition needed:', { 
-          needed, 
-          timestamp: new Date().toISOString() 
-        });
+        // Layer recomposition flag updated
         set({ layersNeedRecomposition: needed });
       },
       
@@ -531,11 +528,7 @@ export const useAppStore = create<AppState>()(
       activeLayerId: null,
       currentLayer: 0,
       addLayer: (layer) => set((state) => {
-        console.log('[LAYER] Adding layer:', { 
-          layerName: layer.name, 
-          currentLayerCount: state.layers.length,
-          activeLayerId: state.activeLayerId 
-        });
+        // Adding new layer
         
         const newLayer: Layer = {
           ...layer,
@@ -604,7 +597,7 @@ export const useAppStore = create<AppState>()(
         // Check if visual properties changed that require recomposition
         const needsRecomposition = 'visible' in updates || 'opacity' in updates || 'blendMode' in updates;
         if (needsRecomposition) {
-          console.log('[LAYER] Visual property changed - triggering recomposition');
+          // Visual property changed - triggering recomposition
         }
         
         return {
@@ -652,7 +645,7 @@ export const useAppStore = create<AppState>()(
           name: l.name, 
           order: l.order 
         })));
-        console.log('[LAYER] Layer order changed - triggering recomposition');
+        // Layer order changed - triggering recomposition
         
         return {
           layers: updatedLayers,
@@ -1054,11 +1047,7 @@ export const useAppStore = create<AppState>()(
       
       compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => {
         const state = get();
-        console.log('[LAYER] Starting layer composition:', { 
-          hasProject: !!state.project,
-          layerCount: state.layers.length,
-          targetCanvasSize: `${targetCanvas.width}x${targetCanvas.height}`
-        });
+        // Starting layer composition
         
         if (!state.project || !state.layers.length) {
           console.log('[LAYER] Composition skipped - no project or layers');
@@ -1144,10 +1133,7 @@ export const useAppStore = create<AppState>()(
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1.0;
         
-        console.log('[LAYER] Composition complete:', { 
-          totalLayers: sortedLayers.length,
-          drawnLayers
-        });
+        // Layer composition complete
       },
       
       captureCanvasToActiveLayer: async (sourceCanvas?: HTMLCanvasElement) => {
