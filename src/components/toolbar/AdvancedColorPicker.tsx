@@ -79,7 +79,7 @@ class AdvancedPicker {
 
   init() {
     this.drawHueGrad();
-    this.drawHSLGrad();
+    this.drawHSVGrad();
     
     this.target.addEventListener("pointerdown", (e) => {
       this.handleMouseDown(e);
@@ -147,12 +147,19 @@ class AdvancedPicker {
     this.drawHueSelector();
   }
 
-  drawHSLGrad() {
+  drawHSVGrad() {
+    // Create HSV gradient: saturation horizontally (0-100%), value vertically (100% at top, 0% at bottom)
     for (let row = 0; row < this.height; row++) {
       const grad = this.context.createLinearGradient(0, 0, this.width, 0);
-      const lightness = ((this.height - row) / this.height) * 100;
-      grad.addColorStop(0, `hsl(${this.hue}, 0%, ${lightness}%)`);
-      grad.addColorStop(1, `hsl(${this.hue}, 100%, ${lightness}%)`);
+      const value = ((this.height - row) / this.height) * 100;
+      
+      // Left side: no saturation (white/gray)
+      const leftColor = this.HSVToRGBString(this.hue, 0, value);
+      // Right side: full saturation
+      const rightColor = this.HSVToRGBString(this.hue, 100, value);
+      
+      grad.addColorStop(0, leftColor);
+      grad.addColorStop(1, rightColor);
       this.context.fillStyle = grad;
       this.context.fillRect(0, row, this.width, 1);
     }
@@ -160,9 +167,42 @@ class AdvancedPicker {
     this.drawSelector();
   }
 
+  // Helper method to convert HSV to RGB string for canvas gradients
+  HSVToRGBString(h: number, s: number, v: number): string {
+    const hNorm = h / 60;
+    const sNorm = s / 100;
+    const vNorm = v / 100;
+
+    const c = vNorm * sNorm;
+    const x = c * (1 - Math.abs((hNorm % 2) - 1));
+    const m = vNorm - c;
+
+    let r, g, b;
+
+    if (hNorm >= 0 && hNorm < 1) {
+      r = c; g = x; b = 0;
+    } else if (hNorm >= 1 && hNorm < 2) {
+      r = x; g = c; b = 0;
+    } else if (hNorm >= 2 && hNorm < 3) {
+      r = 0; g = c; b = x;
+    } else if (hNorm >= 3 && hNorm < 4) {
+      r = 0; g = x; b = c;
+    } else if (hNorm >= 4 && hNorm < 5) {
+      r = x; g = 0; b = c;
+    } else {
+      r = c; g = 0; b = x;
+    }
+
+    const red = Math.round((r + m) * 255);
+    const green = Math.round((g + m) * 255);
+    const blue = Math.round((b + m) * 255);
+
+    return `rgb(${red}, ${green}, ${blue})`;
+  }
+
   calcSelector() {
     this.pickerCircle.x = Math.round(this.saturation * this.width / 100);
-    this.pickerCircle.y = Math.round((100 - this.lightness) * this.height / 100);
+    this.pickerCircle.y = Math.round((100 - this.value) * this.height / 100);
     this.hueSelector.y = Math.round(this.hue * this.hueHeight / 360);
   }
 
@@ -194,10 +234,10 @@ class AdvancedPicker {
     const canvasY = y * scaleY;
     
     this.saturation = Math.round(canvasX / this.width * 100);
-    this.lightness = Math.round((this.height - canvasY) / this.height * 100);
+    this.value = Math.round((this.height - canvasY) / this.height * 100);
     this.saturation = Math.max(0, Math.min(100, this.saturation));
-    this.lightness = Math.max(0, Math.min(100, this.lightness));
-    this.drawHSLGrad();
+    this.value = Math.max(0, Math.min(100, this.value));
+    this.drawHSVGrad();
     this.HSVToRGB();
     this.RGBToHex();
     this.updateColor();
@@ -211,7 +251,7 @@ class AdvancedPicker {
     this.hue = Math.round(canvasY / this.hueHeight * 360);
     this.hue = Math.max(0, Math.min(360, this.hue));
     this.drawHueGrad();
-    this.drawHSLGrad();
+    this.drawHSVGrad();
     this.HSVToRGB();
     this.RGBToHex();
     this.updateColor();
@@ -317,32 +357,26 @@ export default function AdvancedColorPicker({ color, onChange }: AdvancedColorPi
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (canvasRef.current && hueCanvasRef.current && containerRef.current) {
-      // Wait for next frame to ensure container is fully rendered
-      requestAnimationFrame(() => {
-        if (!containerRef.current) return;
+    if (canvasRef.current && hueCanvasRef.current) {
+      try {
+        // Fixed dimensions for consistency
+        const canvasWidth = 200;  // Main color area width
+        const canvasHeight = 180; // Fixed height
+        const hueWidth = 20;      // Hue slider width
+        const hueHeight = 180;    // Same height as main canvas
         
-        // Get actual container width (full column width)
-        const containerWidth = containerRef.current.offsetWidth;
-        const hueWidth = 20;
-        const gap = 4;
-        const mainWidth = containerWidth - hueWidth - gap;
-        const height = Math.min(mainWidth, 180); // Reasonable height limit
-        
-        try {
-          pickerRef.current = new AdvancedPicker(
-            canvasRef.current!, 
-            hueCanvasRef.current!,
-            mainWidth, height, hueWidth, height, 
-            color,
-            (newColor) => {
-              onChange(newColor);
-            }
-          );
-        } catch (error) {
-          console.error('Failed to initialize color picker:', error);
-        }
-      });
+        pickerRef.current = new AdvancedPicker(
+          canvasRef.current, 
+          hueCanvasRef.current,
+          canvasWidth, canvasHeight, hueWidth, hueHeight, 
+          color,
+          (newColor) => {
+            onChange(newColor);
+          }
+        );
+      } catch (error) {
+        console.error('Failed to initialize color picker:', error);
+      }
     }
     
     return () => {
@@ -356,21 +390,21 @@ export default function AdvancedColorPicker({ color, onChange }: AdvancedColorPi
     if (pickerRef.current && color !== pickerRef.current.hexcode) {
       pickerRef.current.hexToHSV(color);
       pickerRef.current.drawHueGrad();
-      pickerRef.current.drawHSLGrad();
+      pickerRef.current.drawHSVGrad();
     }
   }, [color]);
 
   return (
-    <div ref={containerRef} className="flex bg-[#2A2A32] rounded w-full" style={{ gap: '4px' }}>
+    <div ref={containerRef} className="flex bg-[#2A2A32] rounded w-full" style={{ gap: '4px', minHeight: '180px' }}>
       <canvas
         ref={canvasRef}
         className="cursor-crosshair outline-none focus:outline-none rounded flex-1"
-        style={{ width: '100%', height: 'auto' }}
+        style={{ width: '100%', height: '180px' }}
       />
       <canvas
         ref={hueCanvasRef}
         className="cursor-crosshair outline-none focus:outline-none rounded"
-        style={{ width: '20px', height: 'auto' }}
+        style={{ width: '20px', height: '180px' }}
       />
     </div>
   );
