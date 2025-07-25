@@ -219,23 +219,11 @@ class Picker {
   }
 
   drawSelector() {
-    this.context.beginPath();
-    this.context.arc(this.pickerCircle.x, this.pickerCircle.y, 6, 0, 2 * Math.PI);
-    this.context.strokeStyle = "#000";
-    this.context.lineWidth = 2;
-    this.context.stroke();
-    this.context.strokeStyle = "#fff";
-    this.context.lineWidth = 1;
-    this.context.stroke();
+    // Circle picker without outline
   }
 
   drawHueSelector() {
-    this.hueContext.strokeStyle = "#000";
-    this.hueContext.lineWidth = 2;
-    this.hueContext.strokeRect(0, this.hueSelector.y - 2, this.hueWidth, 4);
-    this.hueContext.strokeStyle = "#fff";
-    this.hueContext.lineWidth = 1;
-    this.hueContext.strokeRect(0, this.hueSelector.y - 2, this.hueWidth, 4);
+    // Hue selector without outline
   }
 
   selectSL(x: number, y: number) {
@@ -505,13 +493,13 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
           
           setIsOpen(!isOpen);
         }}
-        className="h-[25px] w-[25px] text-base hover:opacity-80 transition-opacity cursor-pointer border-2 border-[#D9D9D9] outline-none"
+        className="h-[25px] w-[25px] text-base hover:opacity-80 transition-opacity cursor-pointer outline-none"
         style={{ backgroundColor: color }}
         title="Color Picker"
       />
       
       {isOpen && (
-        <div className="fixed z-[9999] bg-[#31313A] rounded-lg shadow-lg color-picker-popup" style={{ top: `${position.top}px`, left: `${position.left}px`, padding: '16px' }}>
+        <div className="fixed z-[9999] bg-[#31313A] shadow-lg color-picker-popup" style={{ top: `${position.top}px`, left: `${position.left}px`, padding: '16px' }}>
           <div className="flex" style={{ gap: '16px' }}>
             {/* Main color area and hue slider */}
             <div className="flex" style={{ gap: '8px' }}>
@@ -535,7 +523,7 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
               <div className="flex justify-center items-center" style={{ gap: '24px', padding: '8px 0', marginBottom: '16px' }}>
                 <div className="text-center w-16">
                   <div 
-                    className="cursor-pointer rounded"
+                    className="cursor-pointer"
                     style={{ 
                       backgroundColor: localColor,
                       width: '40px',
@@ -548,7 +536,7 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
                 </div>
                 <div className="text-center w-16">
                   <div 
-                    className="cursor-pointer rounded"
+                    className="cursor-pointer"
                     style={{ 
                       backgroundColor: originalColor,
                       width: '40px',

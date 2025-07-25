@@ -4,12 +4,21 @@ import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import MiniCanvas from '../canvas/MiniCanvas';
 
-export default function MiniCanvasPanel() {
+interface MiniCanvasPanelProps {
+  hueShift: number;
+  saturation: number;
+  onHueShiftChange: (hue: number) => void;
+  onSaturationChange: (saturation: number) => void;
+}
+
+export default function MiniCanvasPanel({ 
+  hueShift, 
+  saturation, 
+  onHueShiftChange, 
+  onSaturationChange 
+}: MiniCanvasPanelProps) {
   const { tools, setBrushSettings } = useAppStore();
   const { brushSettings } = tools;
-  
-  // Local state for hue shift
-  const [hueShift, setHueShift] = React.useState(0);
 
   // Handle brush tip changes from MiniCanvas
   const handleBrushTipChange = React.useCallback((imageData: ImageData) => {
@@ -30,22 +39,14 @@ export default function MiniCanvasPanel() {
     });
   }, [setBrushSettings, brushSettings.brushShape, brushSettings.selectedCustomBrush]);
 
-  // Reset hue shift when brush changes (but keep currentBrushTip)
-  React.useEffect(() => {
-    setHueShift(0);
-  }, [brushSettings.brushShape, brushSettings.selectedCustomBrush]);
-
   return (
     <div className="">
       <MiniCanvas 
         width={240} 
         height={240} 
         hueShift={hueShift}
-        onHueShiftChange={setHueShift}
+        saturation={saturation}
         onBrushTipChange={handleBrushTipChange}
-        onSaveUndoState={() => {
-          // This will be called by MiniCanvas when it needs to save undo state
-        }}
         className="w-full"
       />
     </div>

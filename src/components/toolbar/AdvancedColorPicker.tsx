@@ -218,12 +218,9 @@ class AdvancedPicker {
   }
 
   drawHueSelector() {
-    this.hueContext.strokeStyle = "#000";
-    this.hueContext.lineWidth = 3;
-    this.hueContext.strokeRect(-1, this.hueSelector.y - 3, this.hueWidth + 2, 6);
-    this.hueContext.strokeStyle = "#fff";
-    this.hueContext.lineWidth = 2;
-    this.hueContext.strokeRect(-1, this.hueSelector.y - 3, this.hueWidth + 2, 6);
+    // Draw hue selector as a white filled rectangle without outline
+    this.hueContext.fillStyle = "#fff";
+    this.hueContext.fillRect(0, this.hueSelector.y - 2, this.hueWidth, 4);
   }
 
   selectSL(x: number, y: number) {
@@ -361,9 +358,9 @@ export default function AdvancedColorPicker({ color, onChange }: AdvancedColorPi
       try {
         // Fixed dimensions for consistency
         const canvasWidth = 200;  // Main color area width
-        const canvasHeight = 180; // Fixed height
+        const canvasHeight = 234; // Fixed height (increased by 30%)
         const hueWidth = 20;      // Hue slider width
-        const hueHeight = 180;    // Same height as main canvas
+        const hueHeight = 234;    // Same height as main canvas
         
         pickerRef.current = new AdvancedPicker(
           canvasRef.current, 
@@ -395,16 +392,16 @@ export default function AdvancedColorPicker({ color, onChange }: AdvancedColorPi
   }, [color]);
 
   return (
-    <div ref={containerRef} className="flex bg-[#2A2A32] rounded w-full" style={{ gap: '4px', minHeight: '180px' }}>
+    <div ref={containerRef} className="flex bg-[#2A2A32] w-full" style={{ gap: '4px', minHeight: '234px' }}>
       <canvas
         ref={canvasRef}
-        className="cursor-crosshair outline-none focus:outline-none rounded flex-1"
-        style={{ width: '100%', height: '180px' }}
+        className="cursor-crosshair outline-none focus:outline-none flex-1"
+        style={{ width: '100%', height: '234px' }}
       />
       <canvas
         ref={hueCanvasRef}
-        className="cursor-crosshair outline-none focus:outline-none rounded"
-        style={{ width: '20px', height: '180px' }}
+        className="cursor-crosshair outline-none focus:outline-none"
+        style={{ width: '20px', height: '234px' }}
       />
     </div>
   );

@@ -90,6 +90,77 @@ export function shiftHue(imageData: ImageData, hueShift: number): ImageData {
   return new ImageData(data, imageData.width, imageData.height);
 }
 
+// Adjust the saturation of all pixels in ImageData
+export function adjustSaturation(imageData: ImageData, saturationPercent: number): ImageData {
+  const data = new Uint8ClampedArray(imageData.data);
+  const saturationFactor = saturationPercent / 100;
+  
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const a = data[i + 3];
+    
+    // Skip transparent pixels
+    if (a === 0) continue;
+    
+    // Convert to HSL
+    const [h, s, l] = rgbToHsl(r, g, b);
+    
+    // Adjust saturation
+    const newSaturation = Math.max(0, Math.min(100, s * saturationFactor));
+    
+    // Convert back to RGB
+    const [newR, newG, newB] = hslToRgb(h, newSaturation, l);
+    
+    // Update the pixel data
+    data[i] = newR;
+    data[i + 1] = newG;
+    data[i + 2] = newB;
+    // Keep original alpha
+  }
+  
+  return new ImageData(data, imageData.width, imageData.height);
+}
+
+// Apply both hue shift and saturation adjustment
+export function adjustHueAndSaturation(imageData: ImageData, hueShift: number, saturationPercent: number): ImageData {
+  const data = new Uint8ClampedArray(imageData.data);
+  const saturationFactor = saturationPercent / 100;
+  
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const a = data[i + 3];
+    
+    // Skip transparent pixels
+    if (a === 0) continue;
+    
+    // Convert to HSL
+    const [h, s, l] = rgbToHsl(r, g, b);
+    
+    // Shift hue (wrap around 360 degrees)
+    let newHue = h + hueShift;
+    if (newHue < 0) newHue += 360;
+    if (newHue >= 360) newHue -= 360;
+    
+    // Adjust saturation
+    const newSaturation = Math.max(0, Math.min(100, s * saturationFactor));
+    
+    // Convert back to RGB
+    const [newR, newG, newB] = hslToRgb(newHue, newSaturation, l);
+    
+    // Update the pixel data
+    data[i] = newR;
+    data[i + 1] = newG;
+    data[i + 2] = newB;
+    // Keep original alpha
+  }
+  
+  return new ImageData(data, imageData.width, imageData.height);
+}
+
 // Apply brightness adjustment to ImageData
 export function adjustBrightness(imageData: ImageData, brightness: number): ImageData {
   const data = new Uint8ClampedArray(imageData.data);
