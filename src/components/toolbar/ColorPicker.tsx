@@ -22,7 +22,7 @@ class Picker {
   activePointerId: number | null = null;
   hue: number = 0;
   saturation: number = 0;
-  lightness: number = 0;
+  value: number = 0;
   red: number = 0;
   green: number = 0;
   blue: number = 0;
@@ -80,14 +80,14 @@ class Picker {
     this.hueClicked = false;
     
     // Parse initial color
-    this.hexToHSL(initialColor);
+    this.hexToHSV(initialColor);
     
     this.init();
   }
 
   init() {
     this.drawHueGrad();
-    this.drawHSLGrad();
+    this.drawHSVGrad();
     
     // Main canvas events - using pointer events for stylus/pen support
     this.target.addEventListener("pointerdown", (e) => {
@@ -110,30 +110,33 @@ class Picker {
     document.removeEventListener("pointerup", this.boundHandleMouseUp);
   }
 
-  hexToHSL(hex: string) {
+  hexToHSV(hex: string) {
     const r = parseInt(hex.slice(1, 3), 16) / 255;
     const g = parseInt(hex.slice(3, 5), 16) / 255;
     const b = parseInt(hex.slice(5, 7), 16) / 255;
 
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
-    let h = 0, s = 0;
-    const l = (max + min) / 2;
+    const delta = max - min;
+    
+    let h = 0;
+    let s = 0;
+    const v = max;
 
-    if (max !== min) {
-      const d = max - min;
-      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (delta !== 0) {
+      s = delta / max;
+      
       switch (max) {
-        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-        case g: h = (b - r) / d + 2; break;
-        case b: h = (r - g) / d + 4; break;
+        case r: h = (g - b) / delta + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / delta + 2; break;
+        case b: h = (r - g) / delta + 4; break;
       }
       h /= 6;
     }
 
     this.hue = Math.round(h * 360);
     this.saturation = Math.round(s * 100);
-    this.lightness = Math.round(l * 100);
+    this.value = Math.round(v * 100);
     this.red = Math.round(r * 255);
     this.green = Math.round(g * 255);
     this.blue = Math.round(b * 255);
@@ -156,12 +159,19 @@ class Picker {
     this.drawHueSelector();
   }
 
-  drawHSLGrad() {
+  drawHSVGrad() {
+    // Create HSV gradient: saturation horizontally (0-100%), value vertically (100% at top, 0% at bottom)
     for (let row = 0; row < this.height; row++) {
       const grad = this.context.createLinearGradient(0, 0, this.width, 0);
-      const lightness = ((this.height - row) / this.height) * 100;
-      grad.addColorStop(0, `hsl(${this.hue}, 0%, ${lightness}%)`);
-      grad.addColorStop(1, `hsl(${this.hue}, 100%, ${lightness}%)`);
+      const value = ((this.height - row) / this.height) * 100;
+      
+      // Left side: no saturation (white/gray)
+      const leftColor = this.HSVToRGBString(this.hue, 0, value);
+      // Right side: full saturation
+      const rightColor = this.HSVToRGBString(this.hue, 100, value);
+      
+      grad.addColorStop(0, leftColor);
+      grad.addColorStop(1, rightColor);
       this.context.fillStyle = grad;
       this.context.fillRect(0, row, this.width, 1);
     }
@@ -169,9 +179,42 @@ class Picker {
     this.drawSelector();
   }
 
+  // Helper method to convert HSV to RGB string for canvas gradients
+  HSVToRGBString(h: number, s: number, v: number): string {
+    const hNorm = h / 60;
+    const sNorm = s / 100;
+    const vNorm = v / 100;
+
+    const c = vNorm * sNorm;
+    const x = c * (1 - Math.abs((hNorm % 2) - 1));
+    const m = vNorm - c;
+
+    let r, g, b;
+
+    if (hNorm >= 0 && hNorm < 1) {
+      r = c; g = x; b = 0;
+    } else if (hNorm >= 1 && hNorm < 2) {
+      r = x; g = c; b = 0;
+    } else if (hNorm >= 2 && hNorm < 3) {
+      r = 0; g = c; b = x;
+    } else if (hNorm >= 3 && hNorm < 4) {
+      r = 0; g = x; b = c;
+    } else if (hNorm >= 4 && hNorm < 5) {
+      r = x; g = 0; b = c;
+    } else {
+      r = c; g = 0; b = x;
+    }
+
+    const red = Math.round((r + m) * 255);
+    const green = Math.round((g + m) * 255);
+    const blue = Math.round((b + m) * 255);
+
+    return `rgb(${red}, ${green}, ${blue})`;
+  }
+
   calcSelector() {
     this.pickerCircle.x = Math.round(this.saturation * this.width / 100);
-    this.pickerCircle.y = Math.round((100 - this.lightness) * this.height / 100);
+    this.pickerCircle.y = Math.round((100 - this.value) * this.height / 100);
     this.hueSelector.y = Math.round(this.hue * this.hueHeight / 360);
   }
 
@@ -197,11 +240,11 @@ class Picker {
 
   selectSL(x: number, y: number) {
     this.saturation = Math.round(x / this.width * 100);
-    this.lightness = Math.round((this.height - y) / this.height * 100);
+    this.value = Math.round((this.height - y) / this.height * 100);
     this.saturation = Math.max(0, Math.min(100, this.saturation));
-    this.lightness = Math.max(0, Math.min(100, this.lightness));
-    this.drawHSLGrad();
-    this.HSLToRGB();
+    this.value = Math.max(0, Math.min(100, this.value));
+    this.drawHSVGrad();
+    this.HSVToRGB();
     this.RGBToHex();
     this.updateColor();
   }
@@ -210,8 +253,8 @@ class Picker {
     this.hue = Math.round(y / this.hueHeight * 360);
     this.hue = Math.max(0, Math.min(360, this.hue));
     this.drawHueGrad();
-    this.drawHSLGrad();
-    this.HSLToRGB();
+    this.drawHSVGrad();
+    this.HSVToRGB();
     this.RGBToHex();
     this.updateColor();
   }
@@ -269,35 +312,34 @@ class Picker {
     }
   }
 
-  HSLToRGB() {
-    const h = this.hue / 360;
+  HSVToRGB() {
+    const h = this.hue / 60;
     const s = this.saturation / 100;
-    const l = this.lightness / 100;
+    const v = this.value / 100;
+
+    const c = v * s;
+    const x = c * (1 - Math.abs((h % 2) - 1));
+    const m = v - c;
 
     let r, g, b;
 
-    if (s === 0) {
-      r = g = b = l;
+    if (h >= 0 && h < 1) {
+      r = c; g = x; b = 0;
+    } else if (h >= 1 && h < 2) {
+      r = x; g = c; b = 0;
+    } else if (h >= 2 && h < 3) {
+      r = 0; g = c; b = x;
+    } else if (h >= 3 && h < 4) {
+      r = 0; g = x; b = c;
+    } else if (h >= 4 && h < 5) {
+      r = x; g = 0; b = c;
     } else {
-      const hue2rgb = (p: number, q: number, t: number) => {
-        if (t < 0) t += 1;
-        if (t > 1) t -= 1;
-        if (t < 1/6) return p + (q - p) * 6 * t;
-        if (t < 1/2) return q;
-        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-        return p;
-      };
-
-      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-      const p = 2 * l - q;
-      r = hue2rgb(p, q, h + 1/3);
-      g = hue2rgb(p, q, h);
-      b = hue2rgb(p, q, h - 1/3);
+      r = c; g = 0; b = x;
     }
 
-    this.red = Math.round(r * 255);
-    this.green = Math.round(g * 255);
-    this.blue = Math.round(b * 255);
+    this.red = Math.round((r + m) * 255);
+    this.green = Math.round((g + m) * 255);
+    this.blue = Math.round((b + m) * 255);
   }
 
   RGBToHex() {
@@ -313,36 +355,39 @@ class Picker {
     this.green = g;
     this.blue = b;
     this.RGBToHex();
-    this.RGBToHSL();
+    this.RGBToHSV();
     this.drawHueGrad();
-    this.drawHSLGrad();
+    this.drawHSVGrad();
     this.updateColor();
   }
 
-  RGBToHSL() {
+  RGBToHSV() {
     const r = this.red / 255;
     const g = this.green / 255;
     const b = this.blue / 255;
 
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
-    let h = 0, s = 0;
-    const l = (max + min) / 2;
+    const delta = max - min;
+    
+    let h = 0;
+    let s = 0;
+    const v = max;
 
-    if (max !== min) {
-      const d = max - min;
-      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (delta !== 0) {
+      s = delta / max;
+      
       switch (max) {
-        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-        case g: h = (b - r) / d + 2; break;
-        case b: h = (r - g) / d + 4; break;
+        case r: h = (g - b) / delta + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / delta + 2; break;
+        case b: h = (r - g) / delta + 4; break;
       }
       h /= 6;
     }
 
     this.hue = Math.round(h * 360);
     this.saturation = Math.round(s * 100);
-    this.lightness = Math.round(l * 100);
+    this.value = Math.round(v * 100);
   }
 }
 
@@ -355,7 +400,7 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
   const [localColor, setLocalColor] = useState(color);
   const [originalColor, setOriginalColor] = useState(color);
   const [rgbValues, setRgbValues] = useState({ r: 0, g: 0, b: 0 });
-  const [hslValues, setHslValues] = useState({ h: 0, s: 0, l: 0 });
+  const [hsvValues, setHsvValues] = useState({ h: 0, s: 0, v: 0 });
   const [position, setPosition] = useState({ top: 100, left: 50 });
 
   useEffect(() => {
@@ -376,10 +421,10 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
                 g: pickerRef.current.green, 
                 b: pickerRef.current.blue 
               });
-              setHslValues({ 
+              setHsvValues({ 
                 h: pickerRef.current.hue, 
                 s: pickerRef.current.saturation, 
-                l: pickerRef.current.lightness 
+                v: pickerRef.current.value 
               });
             }
           }
@@ -391,10 +436,10 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
             g: pickerRef.current.green, 
             b: pickerRef.current.blue 
           });
-          setHslValues({ 
+          setHsvValues({ 
             h: pickerRef.current.hue, 
             s: pickerRef.current.saturation, 
-            l: pickerRef.current.lightness 
+            v: pickerRef.current.value 
           });
         }
       } catch (error) {
@@ -432,10 +477,10 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
       pickerRef.current.updateFromInputs(newRgb.r, newRgb.g, newRgb.b);
       setLocalColor(pickerRef.current.hexcode);
       setTimeout(() => onChange(pickerRef.current!.hexcode), 0); // Break update loop
-      setHslValues({ 
+      setHsvValues({ 
         h: pickerRef.current.hue, 
         s: pickerRef.current.saturation, 
-        l: pickerRef.current.lightness 
+        v: pickerRef.current.value 
       });
     }
   };
@@ -512,18 +557,18 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
                     onClick={() => {
                       setLocalColor(originalColor);
                       if (pickerRef.current) {
-                        pickerRef.current.hexToHSL(originalColor);
+                        pickerRef.current.hexToHSV(originalColor);
                         pickerRef.current.drawHueGrad();
-                        pickerRef.current.drawHSLGrad();
+                        pickerRef.current.drawHSVGrad();
                         setRgbValues({ 
                           r: pickerRef.current.red, 
                           g: pickerRef.current.green, 
                           b: pickerRef.current.blue 
                         });
-                        setHslValues({ 
+                        setHsvValues({ 
                           h: pickerRef.current.hue, 
                           s: pickerRef.current.saturation, 
-                          l: pickerRef.current.lightness 
+                          v: pickerRef.current.value 
                         });
                       }
                     }}
@@ -552,7 +597,7 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
                     type="number"
                     min="0"
                     max="360"
-                    value={hslValues.h}
+                    value={hsvValues.h}
                     readOnly
                     className="w-[60px]"
                   />
@@ -574,7 +619,7 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
                     type="number"
                     min="0"
                     max="100"
-                    value={hslValues.s}
+                    value={hsvValues.s}
                     readOnly
                     className="w-[60px]"
                   />
@@ -591,12 +636,12 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
                   />
                 </div>
                 <div className="flex items-center" style={{ gap: '6px' }}>
-                  <span className="text-[#D9D9D9] w-6 font-medium">L:</span>
+                  <span className="text-[#D9D9D9] w-6 font-medium">V:</span>
                   <Input
                     type="number"
                     min="0"
                     max="100"
-                    value={hslValues.l}
+                    value={hsvValues.v}
                     readOnly
                     className="w-[60px]"
                   />

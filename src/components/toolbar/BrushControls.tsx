@@ -8,6 +8,7 @@ import { useAppStore } from '../../stores/useAppStore';
 import { BrushShape } from '../../types';
 import ColorPicker from './ColorPicker';
 import AdvancedColorPicker from './AdvancedColorPicker';
+import ColorSwatches from './ColorSwatches';
 import Input from '../ui/Input';
 import { Switch } from '../retroui/Switch';
 import { Slider } from '../retroui/Slider';
@@ -27,10 +28,18 @@ export default function BrushControls() {
   return (
     <div className="bg-[#31313A]">
       {/* Advanced Color Picker - Full Width Section */}
-      <div className="mb-3">
+      <div>
         <AdvancedColorPicker
           color={activeSettings.color}
           onChange={(color) => setActiveSettings({ color })}
+        />
+      </div>
+
+      {/* Color Swatches - Full Width Section */}
+      <div>
+        <ColorSwatches
+          currentColor={activeSettings.color}
+          onColorSelect={(color) => setActiveSettings({ color })}
         />
       </div>
 

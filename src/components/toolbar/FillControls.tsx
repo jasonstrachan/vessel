@@ -7,6 +7,7 @@ import { Switch } from '../retroui/Switch';
 import { Slider } from '../retroui/Slider';
 import ColorPicker from './ColorPicker';
 import AdvancedColorPicker from './AdvancedColorPicker';
+import ColorSwatches from './ColorSwatches';
 
 export default function FillControls() {
   const { tools, setFillSettings, setBrushSettings } = useAppStore();
@@ -15,10 +16,18 @@ export default function FillControls() {
   return (
     <div className="bg-[#31313A]">
       {/* Advanced Color Picker - Full Width Section */}
-      <div className="mb-3">
+      <div>
         <AdvancedColorPicker
           color={brushSettings.color}
           onChange={(color) => setBrushSettings({ color })}
+        />
+      </div>
+
+      {/* Color Swatches - Full Width Section */}
+      <div>
+        <ColorSwatches
+          currentColor={brushSettings.color}
+          onColorSelect={(color) => setBrushSettings({ color })}
         />
       </div>
 
