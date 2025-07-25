@@ -9,6 +9,7 @@ import { useBrushEngine } from '../../hooks/useBrushEngine';
 import { calculateZoomIncrement } from '../../utils/zoomUtils';
 import { floodFill, type FloodFillColor } from '../../utils/floodFill';
 import { restoreCanvasSnapshot } from '../../utils/canvasSnapshot';
+import { canvasPool } from '../../utils/canvasPool';
 import type { Tool } from '../../types';
 import { BrushShape } from '../../types';
 import BrushCursor from './BrushCursor';
@@ -189,12 +190,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       
       img.onload = () => {
         // Convert image to canvas-compatible format
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = img.width;
-        tempCanvas.height = img.height;
+        const tempCanvas = canvasPool.acquire(img.width, img.height);
         const ctx = tempCanvas.getContext('2d', { willReadFrequently: true });
         
         if (!ctx) {
+          canvasPool.release(tempCanvas);
           return;
         }
         
@@ -218,6 +218,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           pixels: imageData
         };
         setSelection(selection);
+        
+        // Release canvas back to pool
+        canvasPool.release(tempCanvas);
       };
       
       img.onerror = (error) => {
@@ -422,14 +425,13 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       
       // Draw the pasted image
       if (pixels && pixels.width > 0 && pixels.height > 0) {
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = pixels.width;
-        tempCanvas.height = pixels.height;
+        const tempCanvas = canvasPool.acquire(pixels.width, pixels.height);
         const tempCtx = tempCanvas.getContext('2d');
         
         if (tempCtx) {
           tempCtx.putImageData(pixels, 0, 0);
           ctx.drawImage(tempCanvas, bounds.x, bounds.y);
+          canvasPool.release(tempCanvas);
         }
       }
       
@@ -531,12 +533,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     }
     
     // Create canvas to capture the selection
-    const captureCanvas = document.createElement('canvas');
-    captureCanvas.width = width;
-    captureCanvas.height = height;
+    const captureCanvas = canvasPool.acquire(width, height);
     const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
     
     if (!captureCtx) {
+      canvasPool.release(captureCanvas);
       return null;
     }
     
@@ -563,6 +564,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       );
       
     } catch (error) {
+      canvasPool.release(captureCanvas);
       return null;
     }
     
@@ -571,9 +573,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Create thumbnail (max 64x64)
     const thumbnailSize = 64;
-    const thumbnailCanvas = document.createElement('canvas');
-    thumbnailCanvas.width = thumbnailSize;
-    thumbnailCanvas.height = thumbnailSize;
+    const thumbnailCanvas = canvasPool.acquire(thumbnailSize, thumbnailSize);
     const thumbnailCtx = thumbnailCanvas.getContext('2d');
     
     if (thumbnailCtx) {
@@ -604,6 +604,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       height,
       createdAt: Date.now()
     };
+    
+    // Release canvases back to pool
+    canvasPool.release(captureCanvas);
+    canvasPool.release(thumbnailCanvas);
     
     // Add the brush to the project
     addCustomBrush(customBrush);
@@ -647,12 +651,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     }
     
     // Create canvas to capture the selection
-    const captureCanvas = document.createElement('canvas');
-    captureCanvas.width = width;
-    captureCanvas.height = height;
+    const captureCanvas = canvasPool.acquire(width, height);
     const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
     
     if (!captureCtx) {
+      canvasPool.release(captureCanvas);
       return null;
     }
     
@@ -678,6 +681,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         0, 0, width, height        // Destination rectangle (brush space)
       );
     } catch (error) {
+      canvasPool.release(captureCanvas);
       return null;
     }
     
@@ -702,6 +706,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       size: 100, // Default to 100% (original size) for custom brushes
       useSwatchColor: false // Default to false so custom brushes use their tip colors
     });
+    
+    // Release canvas back to pool
+    canvasPool.release(captureCanvas);
     
     // Store the temporary brush in the store
     const store = useAppStore.getState();
@@ -1146,14 +1153,13 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Draw selection onto offscreen canvas
     if (pixels && pixels.width > 0 && pixels.height > 0) {
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = pixels.width;
-      tempCanvas.height = pixels.height;
+      const tempCanvas = canvasPool.acquire(pixels.width, pixels.height);
       const tempCtx = tempCanvas.getContext('2d');
       
       if (tempCtx) {
         tempCtx.putImageData(pixels, 0, 0);
         offscreenCtx.drawImage(tempCanvas, bounds.x, bounds.y);
+        canvasPool.release(tempCanvas);
       }
     }
     
@@ -1278,9 +1284,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
                 item.getType(type).then(blob => {
                   const img = new Image();
                   img.onload = () => {
-                    const tempCanvas = document.createElement('canvas');
-                    tempCanvas.width = img.width;
-                    tempCanvas.height = img.height;
+                    const tempCanvas = canvasPool.acquire(img.width, img.height);
                     const ctx = tempCanvas.getContext('2d', { willReadFrequently: true });
                     
                     if (ctx) {
@@ -1296,6 +1300,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
                         bounds: { x: worldX, y: worldY, width: img.width, height: img.height },
                         pixels: imageData
                       });
+                      
+                      canvasPool.release(tempCanvas);
                     }
                   };
                   img.src = URL.createObjectURL(blob);
