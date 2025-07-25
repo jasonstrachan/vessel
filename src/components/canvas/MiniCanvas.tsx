@@ -43,6 +43,12 @@ export default function MiniCanvas({
   const [originalBrushData, setOriginalBrushData] = useState<ImageData | null>(null);
   const [pinnedBrushTip, setPinnedBrushTip] = useState<ImageData | null>(null);
   
+  // Panning state
+  const [spacebarPressed, setSpacebarPressed] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const [mouseStart, setMouseStart] = useState({ x: 0, y: 0 });
+  
   // Mini canvas undo/redo state
   const [undoStack, setUndoStack] = useState<ImageData[]>([]);
   const [redoStack, setRedoStack] = useState<ImageData[]>([]);
@@ -382,6 +388,14 @@ export default function MiniCanvas({
   const handlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
     
+    // If spacebar is pressed, start panning instead of drawing
+    if (spacebarPressed) {
+      setIsPanning(true);
+      setPanStart({ x: pan.x, y: pan.y });
+      setMouseStart({ x: e.clientX, y: e.clientY });
+      return;
+    }
+    
     // Don't allow drawing on default brushes
     if (isDefaultBrush()) return;
     
@@ -394,14 +408,32 @@ export default function MiniCanvas({
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
+    e.preventDefault();
+    
+    // Handle panning
+    if (isPanning) {
+      const deltaX = e.clientX - mouseStart.x;
+      const deltaY = e.clientY - mouseStart.y;
+      setPan({
+        x: panStart.x + deltaX,
+        y: panStart.y + deltaY
+      });
+      return;
+    }
+    
+    // Handle drawing
     if (!isDrawing) return;
     
-    e.preventDefault();
     const { x, y } = screenToCanvas(e.clientX, e.clientY);
     drawOnCanvas(x, y);
   };
 
   const handlePointerUp = () => {
+    if (isPanning) {
+      setIsPanning(false);
+      return;
+    }
+    
     setIsDrawing(false);
     setLastPoint(null);
   };
@@ -557,6 +589,38 @@ export default function MiniCanvas({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleUndo, handleRedo]);
 
+  // Spacebar panning for mini canvas
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle spacebar when mouse is over mini canvas
+      if (!wrapperRef.current) return;
+      
+      const isOverMiniCanvas = wrapperRef.current.matches(':hover');
+      if (!isOverMiniCanvas) return;
+      
+      if (e.code === 'Space' && !spacebarPressed) {
+        e.preventDefault();
+        setSpacebarPressed(true);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        setSpacebarPressed(false);
+        setIsPanning(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
+    
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [spacebarPressed]);
+
   // Emit brush tip changes when hue shift changes with debounce
   useEffect(() => {
     if (onBrushTipChange && originalBrushData) {
@@ -601,7 +665,11 @@ export default function MiniCanvas({
           ref={canvasRef}
           width={width}
           height={height}
-          className={`block ${isDefaultBrush() ? 'cursor-default' : 'cursor-crosshair'}`}
+          className={`block ${
+            spacebarPressed 
+              ? (isPanning ? 'cursor-grabbing' : 'cursor-grab')
+              : (isDefaultBrush() ? 'cursor-default' : 'cursor-crosshair')
+          }`}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
