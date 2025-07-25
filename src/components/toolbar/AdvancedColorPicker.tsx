@@ -358,9 +358,9 @@ export default function AdvancedColorPicker({ color, onChange }: AdvancedColorPi
       try {
         // Fixed dimensions for consistency
         const canvasWidth = 200;  // Main color area width
-        const canvasHeight = 234; // Fixed height (increased by 30%)
+        const canvasHeight = 274; // Fixed height (reduced by 10%)
         const hueWidth = 20;      // Hue slider width
-        const hueHeight = 234;    // Same height as main canvas
+        const hueHeight = 274;    // Same height as main canvas
         
         pickerRef.current = new AdvancedPicker(
           canvasRef.current, 
@@ -392,16 +392,16 @@ export default function AdvancedColorPicker({ color, onChange }: AdvancedColorPi
   }, [color]);
 
   return (
-    <div ref={containerRef} className="flex bg-[#2A2A32] w-full" style={{ gap: '4px', minHeight: '234px' }}>
+    <div ref={containerRef} className="flex bg-[#2A2A32] w-full" style={{ gap: '4px', minHeight: '274px' }}>
       <canvas
         ref={canvasRef}
         className="cursor-crosshair outline-none focus:outline-none flex-1"
-        style={{ width: '100%', height: '234px' }}
+        style={{ width: '100%', height: '274px' }}
       />
       <canvas
         ref={hueCanvasRef}
         className="cursor-crosshair outline-none focus:outline-none"
-        style={{ width: '20px', height: '234px' }}
+        style={{ width: '20px', height: '274px' }}
       />
     </div>
   );

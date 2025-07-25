@@ -412,3 +412,44 @@ Import trace for requested module:
  ✓ Compiled in 288ms (403 modules)
  ✓ Compiled in 270ms (403 modules)
  ✓ Compiled in 268ms (403 modules)
+ ✓ Compiled in 299ms (403 modules)
+ ✓ Compiled in 285ms (403 modules)
+ ✓ Compiled in 285ms (403 modules)
+ ✓ Compiled in 270ms (403 modules)
+ ✓ Compiled in 279ms (403 modules)
+ ✓ Compiled in 290ms (403 modules)
+ ✓ Compiled in 298ms (403 modules)
+ ⨯ ./src/components/toolbar/BrushControls.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+    ,-[[36;1;4m/home/jason/projects/tinybrush/src/components/toolbar/BrushControls.tsx[0m:27:1]
+ [2m24[0m |   }, [setActiveSettings]);
+ [2m25[0m | 
+ [2m26[0m |   return (
+ [2m27[0m |     <div className="bg-[#31313A] p-4">
+    : [35;1m     ^^^[0m
+ [2m28[0m |         {/* Color */}
+ [2m29[0m |         <div className="mb-3">
+ [2m29[0m |           <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>Color</label>
+    `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/toolbar/BrushControls.tsx
+./src/components/ControlsPanel.tsx
+./src/app/page.tsx
+ ✓ Compiled in 277ms (403 modules)
+ ✓ Compiled in 276ms (403 modules)
+ ✓ Compiled in 293ms (404 modules)
+ ✓ Compiled in 318ms (404 modules)
+ ✓ Compiled in 34ms (390 modules)
+ ✓ Compiled in 286ms (404 modules)
+ ✓ Compiled in 303ms (404 modules)
+ ✓ Compiled in 32ms (390 modules)
+ ✓ Compiled in 306ms (404 modules)
+ ✓ Compiled in 294ms (404 modules)
+ ✓ Compiled in 288ms (404 modules)
+ ✓ Compiled in 284ms (404 modules)
+ ✓ Compiled in 311ms (404 modules)
+ ✓ Compiled in 301ms (404 modules)

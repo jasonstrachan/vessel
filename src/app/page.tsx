@@ -4,6 +4,7 @@ import React, { useEffect } from 'react';
 import LeftToolbar from '../components/LeftToolbar';
 import BrushLibrary from '../components/BrushLibrary';
 import ControlsPanel from '../components/ControlsPanel';
+import ColorPickerPanel from '../components/panels/ColorPickerPanel';
 import DrawingCanvas from '../components/canvas/DrawingCanvas';
 import RHC1Panel from '../components/panels/RHC1Panel';
 import { DocumentModal } from '../components/modals/DocumentModal';
@@ -119,14 +120,17 @@ export default function Home() {
       {/* Separator */}
       <div className="w-[2px] bg-[#65656A] h-screen flex-shrink-0" />
       
-      {/* RHC2 - BrushLibrary + ControlsPanel */}
+      {/* RHC2 - ColorPickerPanel + BrushLibrary + ControlsPanel */}
       <div className="bg-[#31313A] flex flex-col h-screen flex-shrink-0" style={{ width: '240px', minWidth: '240px', maxWidth: '240px' }}>
-        <div className="flex-[2] min-h-0">
+        <div className="flex-shrink-0">
+          <ColorPickerPanel />
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto">
           <BrushLibrary />
         </div>
         {/* Separator */}
         <div className="h-[2px] bg-[#65656A] w-full flex-shrink-0" />
-        <div className="flex-[3] min-h-0">
+        <div className="flex-[2] min-h-0 overflow-y-auto">
           <ControlsPanel />
         </div>
       </div>
