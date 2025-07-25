@@ -34,7 +34,7 @@ export const defaultBrushSettings: BrushSettings = {
   lastRegularBrushSize: 100,
   pressureEnabled: false,
   minPressure: 1,
-  maxPressure: 100,
+  maxPressure: undefined,
   rotationEnabled: false,
   dashedEnabled: false,
   dashLength: 3,

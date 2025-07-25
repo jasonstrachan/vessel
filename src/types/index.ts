@@ -190,7 +190,7 @@ export interface BrushSettings {
   // Pressure sensitivity settings
   pressureEnabled: boolean;
   minPressure: number; // Percentage (1-1000)
-  maxPressure: number; // Percentage (1-1000)
+  maxPressure?: number; // Percentage (1-1000)
   // Rotation settings
   rotationEnabled: boolean;
   // Dashed brush settings
