@@ -327,13 +327,19 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const canvasCssY = mouseYInWrapper - canvasEl.clientTop;
 
     // 4. Convert to world coordinates by inverting the pan and zoom transformation.
-    // Since your canvas logical buffer size and CSS display size are identical,
-    // no extra scaling is needed here.
-    const worldX = (canvasCssX - canvas.panX) / canvas.zoom;
-    const worldY = (canvasCssY - canvas.panY) / canvas.zoom;
+    // Use current canvas dimensions from state for accurate coordinate mapping
+    const currentCanvasWidth = canvas.canvasWidth || width;
+    const currentCanvasHeight = canvas.canvasHeight || height;
+    
+    // Clamp coordinates to canvas bounds before transformation
+    const clampedX = Math.max(0, Math.min(canvasCssX, currentCanvasWidth));
+    const clampedY = Math.max(0, Math.min(canvasCssY, currentCanvasHeight));
+    
+    const worldX = (clampedX - canvas.panX) / canvas.zoom;
+    const worldY = (clampedY - canvas.panY) / canvas.zoom;
 
-    return { canvasX: canvasCssX, canvasY: canvasCssY, worldX, worldY };
-  }, [canvas.zoom, canvas.panX, canvas.panY]);
+    return { canvasX: clampedX, canvasY: clampedY, worldX, worldY };
+  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.canvasWidth, canvas.canvasHeight, width, height]);
 
   // Update mouse position and world coordinates
   const updateMousePosition = useCallback((event: { clientX: number; clientY: number }, isCanvasEvent: boolean = false) => {
@@ -1611,6 +1617,92 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       }
     }
   }, [width, height, project?.backgroundColor]);
+
+  // Update canvas dimensions when needed
+  const updateCanvasDimensions = useCallback(() => {
+    const canvasElement = canvasRef.current;
+    const wrapperElement = wrapperRef.current;
+    if (!canvasElement || !wrapperElement) return;
+    
+    const ctx = canvasElement.getContext('2d');
+    if (!ctx) return;
+    
+    // Update wrapper dimensions to match new canvas size
+    wrapperElement.style.width = `${width}px`;
+    wrapperElement.style.height = `${height}px`;
+    
+    // Get device pixel ratio for high-DPI displays
+    const pixelRatio = window.devicePixelRatio || 1;
+    
+    // Set canvas buffer size (scaled by device pixel ratio)
+    const scaledWidth = width * pixelRatio;
+    const scaledHeight = height * pixelRatio;
+    canvasElement.width = scaledWidth;
+    canvasElement.height = scaledHeight;
+    
+    // Set CSS display size (original dimensions) 
+    canvasElement.style.width = `${width}px`;
+    canvasElement.style.height = `${height}px`;
+    
+    // Scale context to match device pixel ratio
+    ctx.scale(pixelRatio, pixelRatio);
+    
+    // Update offscreen canvas dimensions
+    if (offscreenCanvasRef.current) {
+      const currentWidth = offscreenCanvasRef.current.width;
+      const currentHeight = offscreenCanvasRef.current.height;
+      
+      // Only resize if dimensions actually changed
+      if (currentWidth !== width || currentHeight !== height) {
+        // Save current content before resizing
+        const offscreenCtx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true });
+        if (offscreenCtx) {
+          const imageData = offscreenCtx.getImageData(0, 0, 
+            Math.min(currentWidth, width), 
+            Math.min(currentHeight, height)
+          );
+          
+          // Resize the canvas
+          offscreenCanvasRef.current.width = width;
+          offscreenCanvasRef.current.height = height;
+          
+          // Restore content
+          offscreenCtx.putImageData(imageData, 0, 0);
+        }
+      }
+    }
+    
+    // Force full redraw after dimension update
+    markFullRedraw();
+    renderView();
+  }, [width, height, markFullRedraw, renderView]);
+
+  // Detect dimension changes and update canvas state
+  useEffect(() => {
+    if (canvas.canvasWidth !== width || canvas.canvasHeight !== height) {
+      console.log('Project dimension change detected:', { 
+        oldCanvas: { width: canvas.canvasWidth, height: canvas.canvasHeight }, 
+        newProject: { width, height } 
+      });
+      setCanvasDimensions(width, height);
+    }
+  }, [width, height, canvas.canvasWidth, canvas.canvasHeight, setCanvasDimensions]);
+
+  // Handle canvas dimension updates when needed
+  useEffect(() => {
+    if (canvas.needsDimensionUpdate) {
+      console.log('Canvas dimension update triggered:', { width, height, canvasWidth: canvas.canvasWidth, canvasHeight: canvas.canvasHeight });
+      updateCanvasDimensions();
+      
+      // Force layer recomposition after dimension update
+      setLayersNeedRecomposition(true);
+      
+      // Clear the flag after updating using the store
+      useAppStore.setState((state) => ({
+        canvas: { ...state.canvas, needsDimensionUpdate: false }
+      }));
+    }
+  }, [canvas.needsDimensionUpdate, updateCanvasDimensions, setLayersNeedRecomposition, width, height, canvas.canvasWidth, canvas.canvasHeight]);
 
   // Update offscreen canvas size when project dimensions change
   useEffect(() => {
