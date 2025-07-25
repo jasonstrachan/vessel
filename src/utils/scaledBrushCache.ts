@@ -118,8 +118,8 @@ class ScaledBrushCache {
       throw new Error('Failed to get 2D context for scaled canvas');
     }
 
-    // Configure scaling
-    scaledCtx.imageSmoothingEnabled = false; // Maintain pixel-perfect rendering
+    // Configure scaling - maintain pixel-perfect rendering for custom brushes
+    scaledCtx.imageSmoothingEnabled = false;
 
     // Apply rotation if needed
     if (rotation !== 0) {
