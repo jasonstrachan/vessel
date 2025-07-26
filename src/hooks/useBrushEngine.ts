@@ -757,14 +757,14 @@ export const useBrushEngine = () => {
   // Now we create a new canvas for each stamp to ensure isolation and correctness.
 
   // Custom brush drawing functions
-  const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean) => {
+  const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean, isPressureSensitive?: boolean) => {
     return performanceMonitor.measureStampTime(() => {
       try {
         // Only pre-cache if this is a new brush to avoid delays
         if (!scaledBrushCache.hasCachedEntriesForBrush(customBrush.id)) {
           // Only trigger pre-caching for completely new brushes
           scaledBrushCache.precacheCommonSizes(
-            customBrush, color, isColorizable
+            customBrush, color, isColorizable, isPressureSensitive
           );
         }
         
@@ -774,7 +774,8 @@ export const useBrushEngine = () => {
           scale, 
           rotation, 
           color, 
-          isColorizable
+          isColorizable,
+          isPressureSensitive
         );
         
         // Calculate position for pre-scaled canvas
@@ -835,7 +836,7 @@ export const useBrushEngine = () => {
       const t = i / steps;
       const x = x1 + (x2 - x1) * t;
       const y = y1 + (y2 - y1) * t;
-      drawCustomBrushStamp(ctx, x, y, customBrush, scale, rotation, color, isColorizable);
+      drawCustomBrushStamp(ctx, x, y, customBrush, scale, rotation, color, isColorizable, tools.brushSettings.pressureEnabled);
     }
   }, [drawCustomBrushStamp]);
 
@@ -1155,7 +1156,7 @@ export const useBrushEngine = () => {
         for (const pos of gridPositions) {
           const posKey = `${pos.x},${pos.y}`;
           if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
-            drawCustomBrushStamp(ctx, pos.x, pos.y, customBrush, scaleFactor, settings.rotation, brushColor, isColorizable);
+            drawCustomBrushStamp(ctx, pos.x, pos.y, customBrush, scaleFactor, settings.rotation, brushColor, isColorizable, tools.brushSettings.pressureEnabled);
             queue.stampedGridPositions.add(posKey);
           }
         }
@@ -1174,7 +1175,7 @@ export const useBrushEngine = () => {
             const x = queue.lastStrokePosition.x + (snappedTo.x - queue.lastStrokePosition.x) * progress;
             const y = queue.lastStrokePosition.y + (snappedTo.y - queue.lastStrokePosition.y) * progress;
             
-            drawCustomBrushStamp(ctx, x, y, customBrush, scaleFactor, settings.rotation, brushColor, isColorizable);
+            drawCustomBrushStamp(ctx, x, y, customBrush, scaleFactor, settings.rotation, brushColor, isColorizable, tools.brushSettings.pressureEnabled);
           }
           
           queue.accumulatedDistance -= settings.spacing;
@@ -1286,20 +1287,10 @@ export const useBrushEngine = () => {
     
     ctx.restore();
     
-    // Performance monitoring for brush strokes
+    // Performance monitoring (silent - data available in dev tools if needed)
     if (process.env.NODE_ENV === 'development' && strokeStartTime) {
       const strokeDuration = performance.now() - strokeStartTime;
-      if (strokeDuration > 8) {
-        const isCustom = tools.brushSettings.brushShape === BrushShape.CUSTOM;
-        const brushType = isCustom ? 'custom' : tools.brushSettings.brushShape;
-        console.warn(`[Performance] Slow brush stroke (${brushType}): ${strokeDuration.toFixed(2)}ms`);
-        
-        // Log cache stats for custom brushes
-        if (isCustom) {
-          const stats = scaledBrushCache.getStats();
-          console.log(`[Performance] Brush cache stats:`, stats);
-        }
-      }
+      // Stroke timing data available for debugging if needed
     }
   }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp]);
   
