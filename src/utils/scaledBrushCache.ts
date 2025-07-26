@@ -20,8 +20,9 @@ interface ScaledBrushData {
 
 class ScaledBrushCache {
   private cache = new Map<string, ScaledBrushData>();
-  private readonly maxAge = 10000; // 10 seconds - longer for expensive scaled brushes
-  private readonly maxEntries = 50; // Limit to prevent memory bloat
+  private readonly maxAge = 30000; // 30 seconds - longer retention for better performance
+  private readonly maxEntries = 100; // Increased limit for better cache hit rate
+  private readonly commonScales = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0]; // Common brush sizes to pre-cache
 
   /**
    * Generate cache key for scaled brush parameters
@@ -33,10 +34,15 @@ class ScaledBrushCache {
     color?: string,
     isColorizable?: boolean
   ): string {
+    // Optimize cache key generation for better performance
+    // Round scale to nearest 0.05 to improve cache hits
+    const roundedScale = Math.round(scale * 20) / 20;
+    const roundedRotation = Math.round(rotation * 100) / 100;
+    
     const parts = [
       customBrushId,
-      scale.toFixed(2),
-      rotation.toFixed(2),
+      roundedScale.toFixed(2),
+      roundedRotation.toFixed(2),
       color || 'none',
       isColorizable ? '1' : '0'
     ];
@@ -219,18 +225,74 @@ class ScaledBrushCache {
   }
 
   /**
+   * Pre-cache common brush sizes to improve performance
+   */
+  precacheCommonSizes(
+    customBrush: CustomBrush,
+    color?: string,
+    isColorizable?: boolean
+  ): void {
+    // Use requestIdleCallback to avoid blocking the UI
+    const precacheNext = (index: number) => {
+      if (index >= this.commonScales.length) return;
+      
+      const scale = this.commonScales[index];
+      const cacheKey = this.getCacheKey(customBrush.id, scale, 0, color, isColorizable);
+      
+      // Skip if already cached
+      if (!this.cache.has(cacheKey)) {
+        try {
+          this.createScaledBrush(customBrush, scale, 0, color, isColorizable);
+        } catch (error) {
+          console.warn(`Failed to pre-cache brush at scale ${scale}`);
+        }
+      }
+      
+      // Schedule next
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => precacheNext(index + 1), { timeout: 100 });
+      } else {
+        setTimeout(() => precacheNext(index + 1), 0);
+      }
+    };
+    
+    precacheNext(0);
+  }
+
+  /**
+   * Check if any cache entries exist for a brush
+   */
+  hasCachedEntriesForBrush(customBrushId: string): boolean {
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(customBrushId + '_')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Get cache statistics for debugging/monitoring
    */
-  getStats(): { entries: number; maxEntries: number; memoryUsage?: number } {
+  getStats(): { entries: number; maxEntries: number; memoryUsage?: number; hitRate?: number } {
     let memoryUsage = 0;
+    let totalHits = 0;
+    let totalMisses = 0;
+    
     for (const data of this.cache.values()) {
       memoryUsage += data.width * data.height * 4; // 4 bytes per pixel (RGBA)
     }
     
+    // Calculate hit rate if we're tracking it
+    const hitRate = totalHits + totalMisses > 0 
+      ? (totalHits / (totalHits + totalMisses)) * 100 
+      : 0;
+    
     return {
       entries: this.cache.size,
       maxEntries: this.maxEntries,
-      memoryUsage
+      memoryUsage,
+      hitRate
     };
   }
 }

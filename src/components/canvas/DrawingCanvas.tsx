@@ -11,6 +11,8 @@ import { floodFill, type FloodFillColor } from '../../utils/floodFill';
 import { restoreCanvasSnapshot } from '../../utils/canvasSnapshot';
 import { canvasPool } from '../../utils/canvasPool';
 import { memoryManager } from '../../utils/memoryCleanup';
+import { scaledBrushCache } from '../../utils/scaledBrushCache';
+import { brushCache } from '../../utils/brushCache';
 import type { Tool } from '../../types';
 import { BrushShape } from '../../types';
 import BrushCursor from './BrushCursor';
@@ -56,6 +58,13 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   const lastSaveCanvasStateTime = useRef(0);
   const SAVE_DEDUPLICATION_WINDOW = 50; // 50ms window to prevent duplicates
   const [isDrawing, setIsDrawing] = useState(false);
+  
+  // Performance monitoring
+  const performanceRef = useRef({
+    pointerDownTime: 0,
+    pointerUpTime: 0,
+    strokeStartTime: 0
+  });
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
   // Lock target layer when drawing starts to prevent pixel swapping
   const [drawingTargetLayerId, setDrawingTargetLayerId] = useState<string | null>(null);
@@ -709,12 +718,17 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Add the brush to the project
     addCustomBrush(customBrush);
     
-    // Auto-select the newly created custom brush
+    // CRITICAL: Clear brush caches to ensure immediate update
+    scaledBrushCache.clear();
+    brushCache.clear();
+    
+    // Auto-select the newly created custom brush and clear any cached brush tips
     setBrushSettings({ 
       brushShape: BrushShape.CUSTOM,
       selectedCustomBrush: customBrush.id,
       size: 100, // Default to 100% (original size) for custom brushes
-      useSwatchColor: false // Default to false so custom brushes use their tip colors
+      useSwatchColor: false, // Default to false so custom brushes use their tip colors
+      currentBrushTip: undefined // Clear any cached brush tips
     });
     
     // Switch to brush tool for immediate use
@@ -801,20 +815,25 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       createdAt: Date.now()
     };
     
-    // Set the temporary brush as active for immediate use
-    setBrushSettings({ 
-      brushShape: BrushShape.CUSTOM,
-      selectedCustomBrush: tempBrush.id,
-      size: 100, // Default to 100% (original size) for custom brushes
-      useSwatchColor: false // Default to false so custom brushes use their tip colors
-    });
-    
     // Release canvas back to pool
     canvasPool.release(captureCanvas);
     
     // Store the temporary brush in the store
     const store = useAppStore.getState();
     store.setTemporaryCustomBrush(tempBrush);
+    
+    // CRITICAL: Clear brush caches to ensure immediate update
+    scaledBrushCache.clear();
+    brushCache.clear();
+    
+    // Set the temporary brush as active for immediate use and clear any cached brush tips
+    setBrushSettings({ 
+      brushShape: BrushShape.CUSTOM,
+      selectedCustomBrush: tempBrush.id,
+      size: 100, // Default to 100% (original size) for custom brushes
+      useSwatchColor: false, // Default to false so custom brushes use their tip colors
+      currentBrushTip: undefined // Clear any cached brush tips
+    });
     
     // Switch to brush tool for immediate use
     setCurrentTool('brush');
@@ -933,6 +952,12 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Get pressure from pointer event (0.0 to 1.0), fallback to 0.0 for non-pressure devices when pressure is enabled
     const pressure = e.pressure || (tools.brushSettings.pressureEnabled ? 0.0 : 1.0);
     setCursor({ x: point.x, y: point.y, pressure });
+    
+    // Performance monitoring
+    if (process.env.NODE_ENV === 'development') {
+      performanceRef.current.pointerDownTime = performance.now();
+      performanceRef.current.strokeStartTime = performance.now();
+    }
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
@@ -1104,20 +1129,50 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       return;
     }
 
-    // Save drawing data to active layer when finishing a stroke
-    if (isDrawing && offscreenCanvasRef.current) {
-      // Use the locked target layer to prevent pixel swapping
-      await captureCanvasToLayer(offscreenCanvasRef.current, drawingTargetLayerId);
-      
-      // Capture state AFTER completing the stroke for undo history
-      const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
-      saveCanvasStateDeduped(offscreenCanvasRef.current, actionType, `${actionType} stroke`);
-    }
-
+    // OPTIMIZATION: Immediately update UI state to prevent brush from continuing to paint
+    // BUT only for actual drawing operations, not selections
+    const wasDrawing = isDrawing;
+    const targetLayerId = drawingTargetLayerId;
+    const offscreenCanvas = offscreenCanvasRef.current;
+    
+    // Immediately clear drawing state for responsive UI
     setIsDrawing(false);
     setLastPoint(null);
-    // Clear the locked target layer
     setDrawingTargetLayerId(null);
+    
+    // Performance monitoring
+    if (process.env.NODE_ENV === 'development' && wasDrawing) {
+      performanceRef.current.pointerUpTime = performance.now();
+      const latency = performanceRef.current.pointerUpTime - performanceRef.current.pointerDownTime;
+      const strokeDuration = performanceRef.current.pointerUpTime - performanceRef.current.strokeStartTime;
+      
+      if (latency > 16) {
+        console.warn(`[Performance] High pointer up latency: ${latency.toFixed(2)}ms (stroke duration: ${strokeDuration.toFixed(2)}ms)`);
+      }
+    }
+
+    // Defer heavy operations to avoid blocking the UI
+    if (wasDrawing && offscreenCanvas) {
+      // Use requestIdleCallback for non-critical operations
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => {
+          // Capture canvas to layer
+          captureCanvasToLayer(offscreenCanvas, targetLayerId).then(() => {
+            // Save state after capture completes
+            const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
+            saveCanvasStateDeduped(offscreenCanvas, actionType, `${actionType} stroke`);
+          });
+        }, { timeout: 100 }); // Ensure it runs within 100ms
+      } else {
+        // Fallback for browsers without requestIdleCallback
+        setTimeout(() => {
+          captureCanvasToLayer(offscreenCanvas, targetLayerId).then(() => {
+            const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
+            saveCanvasStateDeduped(offscreenCanvas, actionType, `${actionType} stroke`);
+          });
+        }, 0);
+      }
+    }
   }, [isPanning, isDraggingSelection, isSelecting, tools, selectionStart, selectionEnd, project, createCustomBrushFromSelection, isDrawing, captureCanvasToLayer, drawingTargetLayerId, saveCanvasStateDeduped]);
 
   // Touch event handlers for mobile support
@@ -1148,6 +1203,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     setLastPoint(point);
     // Touch events don't have pressure, use 0.0 when pressure is enabled, 1.0 otherwise
     setCursor({ x: point.x, y: point.y, pressure: tools.brushSettings.pressureEnabled ? 0.0 : 1.0 });
+    
+    // Performance monitoring
+    if (process.env.NODE_ENV === 'development') {
+      performanceRef.current.strokeStartTime = performance.now();
+    }
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
@@ -1195,20 +1255,48 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       return;
     }
 
-    // Save drawing data to active layer when finishing a touch stroke
-    if (isDrawing && offscreenCanvasRef.current) {
-      // Use the locked target layer to prevent pixel swapping
-      await captureCanvasToLayer(offscreenCanvasRef.current, drawingTargetLayerId);
-      
-      // Capture state AFTER completing the stroke for undo history
-      const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
-      saveCanvasStateDeduped(offscreenCanvasRef.current, actionType, `${actionType} stroke`);
-    }
-
+    // OPTIMIZATION: Immediately update UI state to prevent brush from continuing to paint
+    const wasDrawing = isDrawing;
+    const targetLayerId = drawingTargetLayerId;
+    const offscreenCanvas = offscreenCanvasRef.current;
+    
+    // Immediately clear drawing state for responsive UI
     setIsDrawing(false);
     setLastPoint(null);
-    // Clear the locked target layer
     setDrawingTargetLayerId(null);
+    
+    // Performance monitoring
+    if (process.env.NODE_ENV === 'development' && wasDrawing) {
+      const touchEndTime = performance.now();
+      const strokeDuration = touchEndTime - performanceRef.current.strokeStartTime;
+      
+      if (strokeDuration > 16) {
+        console.warn(`[Performance] Touch stroke duration: ${strokeDuration.toFixed(2)}ms`);
+      }
+    }
+
+    // Defer heavy operations to avoid blocking the UI
+    if (wasDrawing && offscreenCanvas) {
+      // Use requestIdleCallback for non-critical operations
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => {
+          // Capture canvas to layer
+          captureCanvasToLayer(offscreenCanvas, targetLayerId).then(() => {
+            // Save state after capture completes
+            const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
+            saveCanvasStateDeduped(offscreenCanvas, actionType, `${actionType} stroke`);
+          });
+        }, { timeout: 100 }); // Ensure it runs within 100ms
+      } else {
+        // Fallback for browsers without requestIdleCallback
+        setTimeout(() => {
+          captureCanvasToLayer(offscreenCanvas, targetLayerId).then(() => {
+            const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
+            saveCanvasStateDeduped(offscreenCanvas, actionType, `${actionType} stroke`);
+          });
+        }, 0);
+      }
+    }
   }, [isPanning, isDrawing, captureCanvasToLayer, drawingTargetLayerId, tools.currentTool, saveCanvasStateDeduped]);
 
   // Wheel event for zoom (cursor-centered)

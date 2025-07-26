@@ -760,6 +760,14 @@ export const useBrushEngine = () => {
   const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean) => {
     return performanceMonitor.measureStampTime(() => {
       try {
+        // Only pre-cache if this is a new brush to avoid delays
+        if (!scaledBrushCache.hasCachedEntriesForBrush(customBrush.id)) {
+          // Only trigger pre-caching for completely new brushes
+          scaledBrushCache.precacheCommonSizes(
+            customBrush, color, isColorizable
+          );
+        }
+        
         // Use pre-scaled brush cache to eliminate expensive scaling operations
         const scaledCanvas = scaledBrushCache.createScaledBrush(
           customBrush, 
@@ -837,6 +845,8 @@ export const useBrushEngine = () => {
     to: { x: number; y: number },
     components: BrushComponent[] = activeBrushComponents
   ) => {
+    // Performance monitoring for brush strokes
+    const strokeStartTime = process.env.NODE_ENV === 'development' ? performance.now() : 0;
     
     // Get actual pressure from cursor state in the store
     const cursorPressure = useAppStore.getState().canvas.cursor.pressure ?? 1.0;
@@ -1275,6 +1285,22 @@ export const useBrushEngine = () => {
     queue.lastStrokePosition = { x: snappedTo.x, y: snappedTo.y };
     
     ctx.restore();
+    
+    // Performance monitoring for brush strokes
+    if (process.env.NODE_ENV === 'development' && strokeStartTime) {
+      const strokeDuration = performance.now() - strokeStartTime;
+      if (strokeDuration > 8) {
+        const isCustom = tools.brushSettings.brushShape === BrushShape.CUSTOM;
+        const brushType = isCustom ? 'custom' : tools.brushSettings.brushShape;
+        console.warn(`[Performance] Slow brush stroke (${brushType}): ${strokeDuration.toFixed(2)}ms`);
+        
+        // Log cache stats for custom brushes
+        if (isCustom) {
+          const stats = scaledBrushCache.getStats();
+          console.log(`[Performance] Brush cache stats:`, stats);
+        }
+      }
+    }
   }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp]);
   
   return {
