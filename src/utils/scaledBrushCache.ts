@@ -32,16 +32,20 @@ class ScaledBrushCache {
     scale: number,
     rotation: number,
     color?: string,
-    isColorizable?: boolean
+    isColorizable?: boolean,
+    isPressureSensitive?: boolean
   ): string {
-    // Optimize cache key generation for better performance
-    // Round scale to nearest 0.05 to improve cache hits
-    const roundedScale = Math.round(scale * 20) / 20;
+    // For pressure-sensitive drawing, use full precision to maintain smooth transitions
+    // For non-pressure drawing, round to improve cache hit rates
+    const scaleStr = isPressureSensitive 
+      ? scale.toFixed(6)  // Full precision for smooth pressure
+      : Math.round(scale * 20) / 20;  // Rounded for better caching
+    
     const roundedRotation = Math.round(rotation * 100) / 100;
     
     const parts = [
       customBrushId,
-      roundedScale.toFixed(2),
+      typeof scaleStr === 'number' ? scaleStr.toFixed(2) : scaleStr,
       roundedRotation.toFixed(2),
       color || 'none',
       isColorizable ? '1' : '0'
@@ -77,9 +81,10 @@ class ScaledBrushCache {
     scale: number,
     rotation: number,
     color?: string,
-    isColorizable?: boolean
+    isColorizable?: boolean,
+    isPressureSensitive?: boolean
   ): HTMLCanvasElement {
-    const cacheKey = this.getCacheKey(customBrush.id, scale, rotation, color, isColorizable);
+    const cacheKey = this.getCacheKey(customBrush.id, scale, rotation, color, isColorizable, isPressureSensitive);
     
     // Check if already cached
     const cached = this.get(cacheKey);
@@ -230,21 +235,22 @@ class ScaledBrushCache {
   precacheCommonSizes(
     customBrush: CustomBrush,
     color?: string,
-    isColorizable?: boolean
+    isColorizable?: boolean,
+    isPressureSensitive?: boolean
   ): void {
     // Use requestIdleCallback to avoid blocking the UI
     const precacheNext = (index: number) => {
       if (index >= this.commonScales.length) return;
       
       const scale = this.commonScales[index];
-      const cacheKey = this.getCacheKey(customBrush.id, scale, 0, color, isColorizable);
+      const cacheKey = this.getCacheKey(customBrush.id, scale, 0, color, isColorizable, isPressureSensitive);
       
       // Skip if already cached
       if (!this.cache.has(cacheKey)) {
         try {
-          this.createScaledBrush(customBrush, scale, 0, color, isColorizable);
+          this.createScaledBrush(customBrush, scale, 0, color, isColorizable, isPressureSensitive);
         } catch (error) {
-          console.warn(`Failed to pre-cache brush at scale ${scale}`);
+          // Pre-caching failed silently - not critical for functionality
         }
       }
       
@@ -298,3 +304,6 @@ class ScaledBrushCache {
 }
 
 export const scaledBrushCache = new ScaledBrushCache();
+
+// Clear cache on module load to ensure fresh scaling with fixed precision for pressure sensitivity
+scaledBrushCache.clear();

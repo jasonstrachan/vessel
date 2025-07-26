@@ -1140,15 +1140,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     setLastPoint(null);
     setDrawingTargetLayerId(null);
     
-    // Performance monitoring
+    // Performance monitoring (silent - data available in dev tools if needed)
     if (process.env.NODE_ENV === 'development' && wasDrawing) {
       performanceRef.current.pointerUpTime = performance.now();
-      const latency = performanceRef.current.pointerUpTime - performanceRef.current.pointerDownTime;
-      const strokeDuration = performanceRef.current.pointerUpTime - performanceRef.current.strokeStartTime;
-      
-      if (latency > 16) {
-        console.warn(`[Performance] High pointer up latency: ${latency.toFixed(2)}ms (stroke duration: ${strokeDuration.toFixed(2)}ms)`);
-      }
+      // Latency data available for debugging if needed
     }
 
     // Defer heavy operations to avoid blocking the UI
@@ -1265,14 +1260,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     setLastPoint(null);
     setDrawingTargetLayerId(null);
     
-    // Performance monitoring
+    // Performance monitoring (silent - data available in dev tools if needed)
     if (process.env.NODE_ENV === 'development' && wasDrawing) {
       const touchEndTime = performance.now();
-      const strokeDuration = touchEndTime - performanceRef.current.strokeStartTime;
-      
-      if (strokeDuration > 16) {
-        console.warn(`[Performance] Touch stroke duration: ${strokeDuration.toFixed(2)}ms`);
-      }
+      // Touch stroke timing data available for debugging if needed
     }
 
     // Defer heavy operations to avoid blocking the UI
@@ -1740,10 +1731,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   // Detect dimension changes and update canvas state
   useEffect(() => {
     if (canvas.canvasWidth !== width || canvas.canvasHeight !== height) {
-      console.log('Project dimension change detected:', { 
-        oldCanvas: { width: canvas.canvasWidth, height: canvas.canvasHeight }, 
-        newProject: { width, height } 
-      });
+      // Project dimension change detected - update canvas dimensions
       setCanvasDimensions(width, height);
     }
   }, [width, height, canvas.canvasWidth, canvas.canvasHeight, setCanvasDimensions]);
@@ -1751,7 +1739,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   // Handle canvas dimension updates when needed
   useEffect(() => {
     if (canvas.needsDimensionUpdate) {
-      console.log('Canvas dimension update triggered:', { width, height, canvasWidth: canvas.canvasWidth, canvasHeight: canvas.canvasHeight });
+      // Canvas dimension update triggered
       updateCanvasDimensions();
       
       // Force layer recomposition after dimension update
