@@ -20,8 +20,8 @@ interface ScaledBrushData {
 
 class ScaledBrushCache {
   private cache = new Map<string, ScaledBrushData>();
-  private readonly maxAge = 30000; // 30 seconds - longer retention for better performance
-  private readonly maxEntries = 100; // Increased limit for better cache hit rate
+  private readonly maxAge = 45000; // 45 seconds - longer retention for pressure-sensitive brushes
+  private readonly maxEntries = 150; // Higher limit to accommodate pressure variations
   private readonly commonScales = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0]; // Common brush sizes to pre-cache
 
   /**
@@ -35,11 +35,11 @@ class ScaledBrushCache {
     isColorizable?: boolean,
     isPressureSensitive?: boolean
   ): string {
-    // For pressure-sensitive drawing, use full precision to maintain smooth transitions
-    // For non-pressure drawing, round to improve cache hit rates
+    // For pressure-sensitive drawing, use fine precision to balance smoothness with caching
+    // For non-pressure drawing, round more aggressively to improve cache hit rates
     const scaleStr = isPressureSensitive 
-      ? scale.toFixed(6)  // Full precision for smooth pressure
-      : Math.round(scale * 20) / 20;  // Rounded for better caching
+      ? (Math.round(scale * 200) / 200).toFixed(3)  // 0.005 increments - smooth but cacheable
+      : (Math.round(scale * 20) / 20).toFixed(2);   // 0.05 increments - good caching
     
     const roundedRotation = Math.round(rotation * 100) / 100;
     
@@ -238,11 +238,16 @@ class ScaledBrushCache {
     isColorizable?: boolean,
     isPressureSensitive?: boolean
   ): void {
+    // For pressure-sensitive brushes, cache more granular sizes
+    const scales = isPressureSensitive 
+      ? [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5, 2.0] // More pressure variations
+      : this.commonScales; // Standard sizes for non-pressure
+    
     // Use requestIdleCallback to avoid blocking the UI
     const precacheNext = (index: number) => {
-      if (index >= this.commonScales.length) return;
+      if (index >= scales.length) return;
       
-      const scale = this.commonScales[index];
+      const scale = scales[index];
       const cacheKey = this.getCacheKey(customBrush.id, scale, 0, color, isColorizable, isPressureSensitive);
       
       // Skip if already cached
@@ -254,9 +259,10 @@ class ScaledBrushCache {
         }
       }
       
-      // Schedule next
+      // Schedule next with shorter timeout for pressure-sensitive brushes
+      const timeout = isPressureSensitive ? 50 : 100;
       if ('requestIdleCallback' in window) {
-        requestIdleCallback(() => precacheNext(index + 1), { timeout: 100 });
+        requestIdleCallback(() => precacheNext(index + 1), { timeout });
       } else {
         setTimeout(() => precacheNext(index + 1), 0);
       }
