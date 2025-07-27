@@ -536,7 +536,6 @@ export const useAppStore = create<AppState>()(
         
         return {
           layers: updatedLayers,
-          activeLayerId: newLayer.id,
           project: state.project ? {
             ...state.project,
             layers: updatedLayers
