@@ -94,7 +94,6 @@ export interface CanvasState {
   panX: number;
   panY: number;
   rotation: number;
-  showGrid: boolean;
   gridSize: number;
   showRulers: boolean;
   displayMode: 'pixelated' | 'smooth';

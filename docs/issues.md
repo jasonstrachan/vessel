@@ -27,6 +27,53 @@ This document tracks all critical issues encountered during TinyBrush developmen
 
 ---
 
+## Issue #1: Custom brush size = snap grid size
+
+I see the issue! The BrushCursor component
+  shows only a crosshair for custom brushes
+  (line 42-108) and doesn't display the actual
+   brush size or preview. This is why custom
+  brushes appear tiny - the visual feedback
+  doesn't match the actual brush size.
+
+  This means the custom brush path isn't being
+   entered. The brush is being found as
+   current-brush-tip which is handled in a
+  different code path (lines 960-976) than the
+   regular custom brushes (lines 977+). The
+  current-brush-tip is specifically for the
+  currentBrushTip feature.
+  DrawingCanvas sees the brush as:
+  temp_brush_1753587817871 with dimensions 9x3
+  - BrushEngine sees it as: current-brush-tip
+  with dimensions 9x9
+  -- DrawingCanvas correctly identifies:
+  temp_brush_1753587901157 with dimensions
+  16x3
+  - BrushEngine is using: currentBrushTip 
+  imageData with dimensions 16x16
+
+  The issue is that when a custom brush is
+  created, it's being stored with padded
+  dimensions (16x16) in the imageData, even
+  though the actual brush content is only
+  16x3. This padding is making the brush
+  appear much larger than intended.
+
+  The currentBrushTip's imageData is being
+  padded to a square dimension, which is why a
+   16x3 brush becomes 16x16, and a 9x3 brush
+  becomes 9x9.
+
+  To fix this issue, we need to ensure that
+  the actual brush dimensions (without
+  padding) are preserved when creating custom
+  brushes. The imageData can remain padded for
+   rendering purposes, but the width and
+  height properties should reflect the true
+  brush dimensions.
+
+
 ## Issue #9: Zoom Controls Not Using Cursor Position
 **Date**: 2025-07-09  
 **Status**: RESOLVED  
@@ -1700,6 +1747,131 @@ resizeCanvas(800, 600);
 // Click center of canvas
 // Drawing should appear exactly where you clicked
 ```
+
+---
+
+## Issue #14: Custom Brush Grid Snapping Size Mismatch
+**Date**: 2025-07-27  
+**Status**: RESOLVED  
+**Severity**: High (Feature Malfunction)  
+
+### Problem Description
+Custom brushes with grid snapping enabled were creating tiny grid squares instead of proper spacing. The grid size calculations were using incorrect values, resulting in grid dimensions like 6×5 pixels instead of the expected 100×66 pixels for a brush set to 100% size.
+
+### Root Cause Analysis
+The issue involved **two critical problems**:
+
+#### 1. Double Grid Calculation with Different Values
+The code was calculating grid dimensions twice with different `actualSize` values:
+- **First call**: Used pressure-modified `settings.size` (e.g., 116.67)
+- **Second call**: Used raw `actualBrushSize` (e.g., 6)
+- **Result**: Second call's tiny values overwrote the correct first calculation
+
+#### 2. Percentage vs Pixel Value Confusion
+The fundamental bug was passing percentage values to pixel calculations:
+- **`settings.size`**: Was 100 (percentage) 
+- **`actualBrushSize`**: Was 47 (actual pixels)
+- **Grid calculation**: Expected pixels but received percentage
+
+### Technical Investigation
+**Debug Evidence**:
+```
+// First calculation (WRONG - using percentage)
+actualSize parameter: 100
+scaleFactor = 100 / 47 = 2.13
+gridHeight = 14 × 2.13 = 29.78  // Wrong!
+
+// Should have been (using pixels)
+actualSize parameter: 47
+scaleFactor = 47 / 47 = 1.0
+gridHeight = 14 × 1.0 = 14  // Correct!
+```
+
+### Resolution Strategy
+**Unified grid calculations to use actual pixel values**:
+
+#### 1. Changed Grid Calculation Calls
+```typescript
+// Before (BROKEN) - Using percentage value
+gridDimensions = calculateGridDimensions(tools.brushSettings, customBrush, settings.size);
+
+// After (FIXED) - Using actual pixel size
+gridDimensions = calculateGridDimensions(tools.brushSettings, customBrush, actualBrushSize);
+```
+
+#### 2. Updated Cache Keys
+```typescript
+// Before - Using settings.size (percentage)
+const gridCacheKey = brushCache.getCacheKey(
+  tools.brushSettings.brushShape || BrushShape.CUSTOM,
+  settings.size,  // Wrong: 100 (percentage)
+  ...
+);
+
+// After - Using actualBrushSize (pixels)
+const gridCacheKey = brushCache.getCacheKey(
+  tools.brushSettings.brushShape || BrushShape.CUSTOM,
+  actualBrushSize,  // Correct: 47 (pixels)
+  ...
+);
+```
+
+### Files Modified
+1. **`src/hooks/useBrushEngine.ts`** - Core fix implementation
+   - Changed both `calculateGridDimensions` calls to use `actualBrushSize`
+   - Updated both cache key generations to use `actualBrushSize`
+   - Updated cached `actualSize` values to use `actualBrushSize`
+   - Total of 6 critical changes across 2 grid calculation locations
+
+2. **`src/utils/gridSnap.ts`** - Debug logging (later removed)
+   - Added comprehensive debug logging to diagnose the issue
+   - Logging revealed the percentage vs pixel confusion
+
+### Post-Resolution Verification
+- ✅ **Grid dimensions now correct**: 47×14 instead of 100×29.78 for a 47×14 brush
+- ✅ **Scale factor correct**: 1.0 (47/47) instead of 2.13 (100/47)
+- ✅ **No double calculation**: Both locations use same value, cache works properly
+- ✅ **Grid snapping functional**: Proper spacing that matches visual brush size
+
+### Expected Behavior After Fix
+**For a 47×14 custom brush at 100% size**:
+- actualBrushSize: 47 pixels
+- scaleFactor: 47 / 47 = 1.0
+- gridWidth: 47 × 1.0 = 47 pixels
+- gridHeight: 14 × 1.0 = 14 pixels
+
+### Prevention Measures
+- **Clear variable naming**: Distinguish between percentage and pixel values
+- **Type safety**: Consider using branded types for percentages vs pixels
+- **Consistent units**: Always pass pixel values to rendering calculations
+- **Debug logging strategy**: Use phased debugging to trace value flow
+
+### Key Insights
+1. **Unit confusion is dangerous**: Mixing percentages and pixels causes subtle bugs
+2. **Cache key consistency**: All related calculations must use same input values
+3. **Double calculation patterns**: Can mask bugs when different values are used
+4. **Debug systematically**: Golden Path debugging quickly identified the issue
+
+### Manual Testing Checklist
+- [ ] Create custom brush (e.g., 47×14 pixels)
+- [ ] Enable grid snapping
+- [ ] Set brush size to 100%
+- [ ] Draw and verify grid spacing matches brush dimensions
+- [ ] Test with different brush sizes (50%, 150%, 200%)
+- [ ] Verify grid scales proportionally with brush size
+- [ ] Test with pressure sensitivity enabled/disabled
+
+### Technical Details
+**Grid Dimension Calculation**:
+```typescript
+// For custom brushes
+const customBrushMaxDimension = Math.max(customBrush.width, customBrush.height);
+const scaleFactor = actualSize / customBrushMaxDimension;
+const gridWidth = customBrush.width * scaleFactor;
+const gridHeight = customBrush.height * scaleFactor;
+```
+
+**Critical Lesson**: Always verify units (percentage vs pixels) when passing values between different calculation contexts.
 
 ---
 

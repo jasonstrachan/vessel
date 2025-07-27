@@ -22,7 +22,7 @@ export default function MiniCanvasPanel({
   const { brushSettings } = tools;
 
   // Handle brush tip changes from MiniCanvas
-  const handleBrushTipChange = React.useCallback((imageData: ImageData) => {
+  const handleBrushTipChange = React.useCallback((imageData: ImageData, actualWidth: number, actualHeight: number) => {
     // Create brush ID based on current brush
     const brushId = brushSettings.brushShape === 'custom' && brushSettings.selectedCustomBrush 
       ? brushSettings.selectedCustomBrush // Use the selectedCustomBrush ID directly (now contains preset ID)
@@ -39,7 +39,9 @@ export default function MiniCanvasPanel({
       currentBrushTip: {
         imageData,
         brushId,
-        isColorizable
+        isColorizable,
+        width: actualWidth,
+        height: actualHeight
       }
     });
   }, [setBrushSettings, brushSettings.brushShape, brushSettings.selectedCustomBrush, brushSettings.useSwatchColor]);

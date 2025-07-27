@@ -60,7 +60,6 @@ interface AppState {
   setZoom: (zoom: number) => void;
   setPan: (panX: number, panY: number) => void;
   setRotation: (rotation: number) => void;
-  toggleGrid: () => void;
   setGridSize: (size: number) => void;
   toggleRulers: () => void;
   setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
@@ -157,7 +156,6 @@ const defaultCanvasState: CanvasState = {
   panX: 0,
   panY: 0,
   rotation: 0,
-  showGrid: false,
   gridSize: 16,
   showRulers: false,
   displayMode: 'pixelated',
@@ -251,9 +249,6 @@ export const useAppStore = create<AppState>()(
       })),
       setRotation: (rotation) => set((state) => ({
         canvas: { ...state.canvas, rotation }
-      })),
-      toggleGrid: () => set((state) => ({
-        canvas: { ...state.canvas, showGrid: !state.canvas.showGrid }
       })),
       setGridSize: (gridSize) => set((state) => ({
         canvas: { ...state.canvas, gridSize }

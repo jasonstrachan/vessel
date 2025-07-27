@@ -106,6 +106,17 @@ class ScaledBrushCache {
     }
 
     // Apply brush data to base canvas
+    console.log('DEBUG: scaledBrushCache - customBrush.imageData size:', customBrush.imageData.width, 'x', customBrush.imageData.height);
+    // Check if imageData has any non-transparent pixels
+    const data = customBrush.imageData.data;
+    let hasPixels = false;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] > 0) { // Check alpha channel
+        hasPixels = true;
+        break;
+      }
+    }
+    console.log('DEBUG: scaledBrushCache - imageData has visible pixels:', hasPixels);
     baseCtx.putImageData(customBrush.imageData, 0, 0);
 
     // Apply color if colorizable

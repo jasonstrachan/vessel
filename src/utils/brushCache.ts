@@ -48,7 +48,9 @@ class BrushCache {
     customBrushId?: string,
     pressureEnabled?: boolean,
     minPressure?: number,
-    maxPressure?: number
+    maxPressure?: number,
+    customBrushWidth?: number,
+    customBrushHeight?: number
   ): string {
     const parts = [
       brushShape,
@@ -59,7 +61,9 @@ class BrushCache {
       customBrushId || 'none',
       pressureEnabled ? '1' : '0',
       minPressure?.toFixed(1) || '0',
-      maxPressure?.toFixed(1) || '0'
+      maxPressure?.toFixed(1) || '0',
+      customBrushWidth?.toString() || '0',
+      customBrushHeight?.toString() || '0'
     ];
     
     return parts.join('_');
