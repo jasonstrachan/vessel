@@ -4,7 +4,8 @@ This document tracks all critical issues encountered during TinyBrush developmen
 
 ## Table of Contents
 
-1. [Issue #13: Coordinate System Fix Documentation](#issue-13-coordinate-system-fix-documentation) - Complete drawing system coordinate alignment fix
+1. [Issue #14: Custom Brush Hue/Saturation Cache Invalidation](#issue-14-custom-brush-huesaturation-cache-invalidation) - Dual cache system requiring comprehensive clearing
+2. [Issue #13: Coordinate System Fix Documentation](#issue-13-coordinate-system-fix-documentation) - Complete drawing system coordinate alignment fix
 2. [Issue #12: Canvas Resize Cursor Alignment Fix](#issue-12-canvas-resize-cursor-alignment-fix---complete-solution) - Canvas resize cursor misalignment resolution  
 3. [Issue #11: Custom Brush Pressure Sensitivity Implementation](#issue-11-custom-brush-pressure-sensitivity-implementation) - Smooth pressure transitions for custom brushes
 4. [Issue #10: Image Paste Not Working](#issue-10-image-paste-not-working---event-listener-thrashing) - Event listener thrashing preventing paste functionality
@@ -24,6 +25,107 @@ This document tracks all critical issues encountered during TinyBrush developmen
 - [Faint Traces During Undo/Redo](#fixed-faint-traces-during-undoredo) - Canvas state management enhancement
 - [Stroke Capture Missing](#fixed-stroke-capture-missing) - Missing finishStroke() call
 - [Cursor Alignment After Panning](#fixed-cursor-alignment-after-panning) - Coordinate transformation order fix
+
+---
+
+## Issue #14: Custom Brush Hue/Saturation Cache Invalidation
+
+**Date:** 2025-01-27  
+**Status:** ✅ RESOLVED  
+**Severity:** Medium - Functionality impairment
+
+### Problem Description
+
+Custom brush hue/saturation changes showed correctly in the MiniCanvas preview but did not immediately reflect when painting on the main canvas. The first hue change would work, but subsequent changes would take multiple paint strokes before taking effect.
+
+### Symptoms
+
+- ✅ MiniCanvas preview updated immediately with hue/saturation changes
+- ❌ Main canvas painting used old hue/saturation values 
+- ❌ First hue change worked, subsequent changes delayed
+- ❌ Multiple paint strokes needed before new colors appeared
+
+### Root Cause Analysis
+
+**Dual Cache Architecture Issue:**
+
+The system uses two separate cache systems for brush optimization:
+
+1. **`brushCache`** - Caches brush calculations and metadata (includes `customBrushId` in cache key)
+2. **`scaledBrushCache`** - Caches pre-scaled brush canvases (includes `customBrushId` in cache key)
+
+**Cache Key Mismatch:**
+
+When hue/saturation is applied to a custom brush, the brush engine creates a modified brush with ID `current-brush-tip` instead of using the original custom brush ID. This means:
+
+- **Original brush entries:** `temp_brush_1753617605345`
+- **Modified brush entries:** `current-brush-tip` ← **Not being cleared**
+
+**Cache Invalidation Gap:**
+
+The original fix only cleared caches for the original custom brush ID, but the scaled brush cache was actually using `current-brush-tip` for the modified brush data.
+
+### Debug Evidence
+
+Console logs revealed the issue:
+
+```
+// Cache clearing (working):
+Clearing cache for custom brush ID: temp_brush_1753617605345
+Both caches cleared.
+
+// But actual usage (using different ID):
+Using cached scaled brush for key: current-brush-tip_1.00_0.00_none_0
+```
+
+### Solution
+
+Enhanced cache clearing in `RHC1Panel.tsx` to clear **both** brush IDs:
+
+```typescript
+// Clear both cache systems for custom brushes when hue/saturation changes
+if (brushSettings.brushShape === BrushShape.CUSTOM) {
+  const brushId = getCurrentBrushId();
+  scaledBrushCache.clearForBrush(brushId);
+  // Also clear cache for current-brush-tip which is used when hue/saturation is applied
+  scaledBrushCache.clearForBrush('current-brush-tip');
+  brushCache.clear();
+}
+```
+
+### Files Modified
+
+- `/src/components/panels/RHC1Panel.tsx` - Enhanced cache clearing logic
+
+### Technical Details
+
+**Cache Key Analysis:**
+- `brushCache.getCacheKey()` includes `customBrushId` but **excludes** `hueShift` and `saturation`
+- When only hue/saturation changes, identical cache keys are generated
+- Modified brush data is stored under `current-brush-tip` ID in `useBrushEngine.ts:879`
+
+**Why MiniCanvas Worked:**
+- MiniCanvas directly applies `adjustHueAndSaturation()` to `originalBrushData` on every render
+- Doesn't rely on brush cache for preview rendering
+
+**Why Main Canvas Failed:**
+- Brush engine retrieves cached brush data using incomplete cache key
+- Cached calculations don't reflect hue/saturation changes
+- Pre-scaled brush canvases cached under wrong ID
+
+### Prevention
+
+- Consider including hue/saturation in cache keys for future enhancements
+- Document dual cache architecture for future developers
+- Add comprehensive cache clearing for any brush modification operations
+
+### Verification
+
+After fix:
+- ✅ Immediate hue/saturation reflection in main canvas painting
+- ✅ No delay between MiniCanvas preview and actual painting
+- ✅ Cache clearing logs show both IDs being cleared
+- ✅ Performance maintained through proper cache regeneration
 
 ---
 
