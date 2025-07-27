@@ -11,9 +11,9 @@ import { scaledBrushCache } from './scaledBrushCache';
 class MemoryManager {
   private cleanupQueue: (() => void)[] = [];
   private cleanupInterval: NodeJS.Timeout | null = null;
-  private readonly CLEANUP_INTERVAL = 3000; // 3 seconds - more aggressive
-  private readonly MAX_QUEUE_SIZE = 30; // Smaller queue
-  private readonly MEMORY_PRESSURE_THRESHOLD = 100; // Cleanup operations count
+  private readonly CLEANUP_INTERVAL = 10000; // 10 seconds - less aggressive for better caching
+  private readonly MAX_QUEUE_SIZE = 50; // Larger queue to avoid premature cleanup
+  private readonly MEMORY_PRESSURE_THRESHOLD = 150; // Higher threshold
 
   constructor() {
     this.startPeriodicCleanup();
@@ -167,7 +167,7 @@ export const memoryManager = new MemoryManager();
  */
 export function withImageDataCleanup<T>(
   createImageData: () => ImageData | null,
-  useImageData: (imageData: ImageData) => T
+  processImageData: (imageData: ImageData) => T
 ): T | null {
   const imageData = createImageData();
   
@@ -176,7 +176,7 @@ export function withImageDataCleanup<T>(
   }
 
   try {
-    const result = useImageData(imageData);
+    const result = processImageData(imageData);
     return result;
   } finally {
     // Schedule cleanup of the ImageData

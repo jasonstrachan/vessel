@@ -35,17 +35,32 @@ class ScaledBrushCache {
     isColorizable?: boolean,
     isPressureSensitive?: boolean
   ): string {
-    // For pressure-sensitive drawing, use fine precision to balance smoothness with caching
-    // For non-pressure drawing, round more aggressively to improve cache hit rates
-    const scaleStr = isPressureSensitive 
-      ? (Math.round(scale * 200) / 200).toFixed(3)  // 0.005 increments - smooth but cacheable
-      : (Math.round(scale * 20) / 20).toFixed(2);   // 0.05 increments - good caching
+    // Adaptive cache key precision based on scale size
+    // Larger brushes can use coarser precision without visible difference
+    let scaleStr: string;
+    
+    if (isPressureSensitive) {
+      // For pressure-sensitive drawing, use adaptive precision
+      if (scale > 2.0) {
+        // Large brushes: 0.1 increments
+        scaleStr = (Math.round(scale * 10) / 10).toFixed(1);
+      } else if (scale > 1.0) {
+        // Medium brushes: 0.05 increments
+        scaleStr = (Math.round(scale * 20) / 20).toFixed(2);
+      } else {
+        // Small brushes: 0.02 increments (improved from 0.005)
+        scaleStr = (Math.round(scale * 50) / 50).toFixed(2);
+      }
+    } else {
+      // Non-pressure: 0.05 increments for good caching
+      scaleStr = (Math.round(scale * 20) / 20).toFixed(2);
+    }
     
     const roundedRotation = Math.round(rotation * 100) / 100;
     
     const parts = [
       customBrushId,
-      typeof scaleStr === 'number' ? scaleStr.toFixed(2) : scaleStr,
+      scaleStr,
       roundedRotation.toFixed(2),
       color || 'none',
       isColorizable ? '1' : '0'
@@ -106,17 +121,6 @@ class ScaledBrushCache {
     }
 
     // Apply brush data to base canvas
-    console.log('DEBUG: scaledBrushCache - customBrush.imageData size:', customBrush.imageData.width, 'x', customBrush.imageData.height);
-    // Check if imageData has any non-transparent pixels
-    const data = customBrush.imageData.data;
-    let hasPixels = false;
-    for (let i = 3; i < data.length; i += 4) {
-      if (data[i] > 0) { // Check alpha channel
-        hasPixels = true;
-        break;
-      }
-    }
-    console.log('DEBUG: scaledBrushCache - imageData has visible pixels:', hasPixels);
     baseCtx.putImageData(customBrush.imageData, 0, 0);
 
     // Apply color if colorizable
@@ -299,8 +303,8 @@ class ScaledBrushCache {
    */
   getStats(): { entries: number; maxEntries: number; memoryUsage?: number; hitRate?: number } {
     let memoryUsage = 0;
-    let totalHits = 0;
-    let totalMisses = 0;
+    const totalHits = 0; // TODO: Implement hit tracking
+    const totalMisses = 0; // TODO: Implement miss tracking
     
     for (const data of this.cache.values()) {
       memoryUsage += data.width * data.height * 4; // 4 bytes per pixel (RGBA)

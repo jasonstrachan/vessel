@@ -4,7 +4,7 @@
  */
 class CanvasPool {
   private pool: HTMLCanvasElement[] = [];
-  private readonly maxSize = 10;
+  private readonly maxSize = 20; // Increased for better performance with custom brushes
 
   /**
    * Acquire a canvas from the pool or create a new one if pool is empty.

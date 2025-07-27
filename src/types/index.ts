@@ -206,6 +206,8 @@ export interface BrushSettings {
     imageData: ImageData;
     brushId: string; // Identifies which brush this edit belongs to
     isColorizable: boolean; // Whether swatch color should be applied
+    width?: number; // Actual brush width
+    height?: number; // Actual brush height
   };
 }
 

@@ -5,6 +5,116 @@
 
 import { BrushSettings, BrushShape, CustomBrush } from '../types';
 
+// Cache for grid dimensions to avoid recalculation during strokes
+interface GridDimensionsCache {
+  [key: string]: {
+    dimensions: { width: number; height: number };
+    timestamp: number;
+  };
+}
+
+class GridSnapCache {
+  private gridDimensionsCache: GridDimensionsCache = {};
+  private readonly maxAge = 30000; // 30 seconds - grid dimensions rarely change
+  private readonly maxEntries = 50;
+
+  private getGridCacheKey(
+    brushShape: BrushShape,
+    customBrushId: string | undefined,
+    brushSize: number,
+    customBrushWidth?: number,
+    customBrushHeight?: number
+  ): string {
+    const parts = [
+      brushShape,
+      customBrushId || 'none',
+      Math.round(brushSize).toString(),
+      customBrushWidth?.toString() || '0',
+      customBrushHeight?.toString() || '0'
+    ];
+    return parts.join('_');
+  }
+
+  getCachedGridDimensions(
+    brushSettings: BrushSettings,
+    customBrush: CustomBrush | undefined,
+    actualSize: number
+  ): { width: number; height: number } | null {
+    const key = this.getGridCacheKey(
+      brushSettings.brushShape || BrushShape.ROUND,
+      customBrush?.id,
+      actualSize,
+      customBrush?.width,
+      customBrush?.height
+    );
+
+    const cached = this.gridDimensionsCache[key];
+    if (cached && Date.now() - cached.timestamp < this.maxAge) {
+      return cached.dimensions;
+    }
+
+    if (cached) {
+      delete this.gridDimensionsCache[key];
+    }
+
+    return null;
+  }
+
+  setCachedGridDimensions(
+    brushSettings: BrushSettings,
+    customBrush: CustomBrush | undefined,
+    actualSize: number,
+    dimensions: { width: number; height: number }
+  ): void {
+    // Clean cache if full
+    if (Object.keys(this.gridDimensionsCache).length >= this.maxEntries) {
+      this.cleanupGridCache();
+    }
+
+    const key = this.getGridCacheKey(
+      brushSettings.brushShape || BrushShape.ROUND,
+      customBrush?.id,
+      actualSize,
+      customBrush?.width,
+      customBrush?.height
+    );
+
+    this.gridDimensionsCache[key] = {
+      dimensions,
+      timestamp: Date.now()
+    };
+  }
+
+  private cleanupGridCache(): void {
+    const now = Date.now();
+    const entries = Object.entries(this.gridDimensionsCache);
+    
+    // Remove expired entries
+    for (const [key, cached] of entries) {
+      if (now - cached.timestamp > this.maxAge) {
+        delete this.gridDimensionsCache[key];
+      }
+    }
+
+    // If still too many, remove oldest
+    const remaining = Object.entries(this.gridDimensionsCache);
+    if (remaining.length >= this.maxEntries) {
+      const sorted = remaining.sort((a, b) => a[1].timestamp - b[1].timestamp);
+      const toRemove = sorted.slice(0, remaining.length - this.maxEntries + 10);
+      
+      for (const [key] of toRemove) {
+        delete this.gridDimensionsCache[key];
+      }
+    }
+  }
+
+  clear(): void {
+    this.gridDimensionsCache = {};
+  }
+}
+
+const gridSnapCache = new GridSnapCache();
+
 export interface SnappedPosition {
   x: number;
   y: number;
@@ -18,7 +128,9 @@ const PRESSURE_LEVELS = 8;
 
 /**
  * Quantize pressure to discrete levels for consistent grid sizing
+ * Currently unused but kept for potential future optimizations
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function quantizePressure(pressure: number): number {
   if (!isFinite(pressure) || pressure < 0) return 0;
   if (pressure > 1) return 1;
@@ -53,22 +165,35 @@ export function calculateGridSize(brushSettings: BrushSettings, customBrush?: Cu
  * Returns { width, height } for rectangular grids
  */
 export function calculateGridDimensions(brushSettings: BrushSettings, customBrush?: CustomBrush, actualSize?: number): { width: number; height: number } {
+  const effectiveActualSize = actualSize || brushSettings.size;
+  
+  // Check cache first
+  const cached = gridSnapCache.getCachedGridDimensions(brushSettings, customBrush, effectiveActualSize);
+  if (cached) {
+    return cached;
+  }
+
+  let dimensions: { width: number; height: number };
+
   if (brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush && customBrush) {
     // For custom brushes, use exact brush dimensions for perfect tiling
     // Scale factor should match the brush engine's calculation: actualSize divided by max dimension
     const customBrushMaxDimension = Math.max(customBrush.width, customBrush.height);
-    const scaleFactor = (actualSize || brushSettings.size) / customBrushMaxDimension;
+    const scaleFactor = effectiveActualSize / customBrushMaxDimension;
     const gridWidth = customBrush.width * scaleFactor;
     const gridHeight = customBrush.height * scaleFactor;
     
-    
-    return { width: gridWidth, height: gridHeight };
+    dimensions = { width: gridWidth, height: gridHeight };
   } else {
     // For regular brushes, use square grid
-    const size = Math.max(1, Math.round(actualSize || brushSettings.size));
-    
-    return { width: size, height: size };
+    const size = Math.max(1, Math.round(effectiveActualSize));
+    dimensions = { width: size, height: size };
   }
+
+  // Cache the result
+  gridSnapCache.setCachedGridDimensions(brushSettings, customBrush, effectiveActualSize, dimensions);
+  
+  return dimensions;
 }
 
 /**

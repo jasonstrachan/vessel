@@ -48,7 +48,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     canvas: { selection: { active: false } },
     setBrushSettings: (() => {}) as any,
     setCurrentTool: (() => {}) as any,
-    toggleGrid: (() => {}) as any,
     commitSelection: (() => {}) as any,
     setSelection: (() => {}) as any,
     renderView: (() => {}) as any,
@@ -147,7 +146,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     setBrushSettings,
     setPan,
     setCanvasDimensions,
-    toggleGrid,
     setSelection,
     setCurrentTool,
     selectionStart,
@@ -206,8 +204,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       canvas,
       setBrushSettings,
       setCurrentTool,
-      toggleGrid,
-      commitSelection,
+        commitSelection,
       setSelection,
       renderView,
       toolBeforeEraser,
@@ -563,12 +560,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
                          useAppStore.getState().temporaryCustomBrush;
       
       if (customBrush) {
-        console.log('DEBUG: 1. Raw Custom Brush Data (DrawingCanvas): ID=', customBrush.id, 'Width=', customBrush.width, 'Height=', customBrush.height);
-        console.log('DEBUG: 2. brushSettings.size (DrawingCanvas):', brushSettings.size);
         // Custom brush size is percentage of brush dimensions
         const customBrushBaseSize = Math.max(customBrush.width, customBrush.height);
         actualBrushSize = (brushSettings.size / 100) * customBrushBaseSize;
-        console.log('DEBUG: 3. Calculated actualBrushSize (DrawingCanvas):', actualBrushSize, 'from baseSize:', customBrushBaseSize);
       }
     } else {
       // Regular brushes: convert percentage to pixels
