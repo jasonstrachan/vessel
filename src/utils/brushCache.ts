@@ -33,8 +33,11 @@ interface CachedBrushData {
 
 class BrushCache {
   private cache = new Map<string, CachedBrushData>();
-  private readonly maxAge = 5000; // 5 seconds - reasonable for brush sessions
-  private readonly maxEntries = 100; // Prevent memory buildup
+  private readonly maxAge = 15000; // 15 seconds - better for continuous drawing sessions
+  private readonly activeStrokeMaxAge = 60000; // 60 seconds during active strokes
+  private readonly maxEntries = 200; // Increased to handle pressure variations better
+  private activeStroke = false;
+  private lastStrokeActivity = 0;
 
   /**
    * Generate cache key from brush parameters that affect calculations
@@ -70,16 +73,34 @@ class BrushCache {
   }
 
   /**
+   * Mark stroke as active to extend cache TTL
+   */
+  markStrokeActive(): void {
+    this.activeStroke = true;
+    this.lastStrokeActivity = Date.now();
+  }
+
+  /**
+   * Mark stroke as inactive
+   */
+  markStrokeInactive(): void {
+    this.activeStroke = false;
+  }
+
+  /**
    * Get cached brush data if available and not expired
    */
   get(key: string): CachedBrushData | null {
     const cached = this.cache.get(key);
     
-    if (cached && Date.now() - cached.timestamp < this.maxAge) {
-      return cached;
-    }
-    
     if (cached) {
+      // Use extended TTL during active strokes
+      const maxAge = this.activeStroke ? this.activeStrokeMaxAge : this.maxAge;
+      
+      if (Date.now() - cached.timestamp < maxAge) {
+        return cached;
+      }
+      
       this.cache.delete(key);
     }
     

@@ -7,31 +7,16 @@ TinyBrush is a versatile web-based drawing application designed for creating hig
 We're building production-quality simple code together. Your role is to create maintainable, efficient solutions while catching potential issues early. 
 dev. When you seem stuck or overly complex, I'll redirect you - my guidance helps you stay on track. 
 
-- Always check your code for issues first before blaming it on the server.
-- Only touch the code that is aboutely neccesary, the simplist changes is the best
-- Dont starting the dev server unless I tell you to, its already running.
-- Dont do git commits unless I tell you too.
-- Avoid complex abstractions or "clever" code. The simple, obvious solution is probably better, and my guidance helps you stay focused on what matters.
-- Dont ever say its working perfevtly uless I verify it is working correctly. 
-
-
-## 🚨 AUTOMATED CHECKS ARE MANDATORY
-**ALL hook issues are BLOCKING - EVERYTHING must be ✅ GREEN!**  
-No errors. No formatting issues. No linting problems. Zero tolerance.  
-These are not suggestions. Fix ALL issues before continuing.
-
-## CRITICAL WORKFLOW - ALWAYS FOLLOW THIS!
-
-### Research → Plan → Implement
-**NEVER JUMP STRAIGHT TO CODING!** Always follow this sequence:
-1. **Research**: Explore the /docs and codebase, understand existing patterns
-2. **Plan**: Create a detailed implementation plan with /docs/todo.md
-3. **Implement**: Execute the plan with validation checkpoints
-4. **Document**: Update the /docs with new information
-
-When asked to implement any feature, you'll first say: "Let me research the codebase and create a plan before implementing."
-
-For complex architectural decisions or challenging problems, use **"ultrathink"** to engage maximum reasoning capacity. Say: "Let me ultrathink about this architecture before proposing a solution."
+1. First think through the problem, read the codebase for relevant files, and write a plan to docs/todo.md.
+2. The plan should have a list of todo items that you can check off as you complete them
+3. Before you begin working, check in with me and I will verify the plan.
+4. Then, begin working on the todo items, marking them as complete as you go.
+5. Please every step of the way just give me a high level explanation of what changes you made
+6. Make every task and code change you do as simple as possible. We want to avoid making any massive or complex changes. Every change should impact as little code as possible. Everything is about simplicity.
+7. Finally, add a review section to the /docs/todo.md file with a summary of the changes you made and any other relevant information.
+8. DO NOT BE LAZY. NEVER BE LAZY. IF THERE IS A BUG FIND THE ROOT CAUSE AND FIX IT. NO TEMPORARY FIXES. YOU ARE A SENIOR DEVELOPER. NEVER BE LAZY
+9. MAKE ALL FIXES AND CODE CHANGES AS SIMPLE AS HUMANLY POSSIBLE. THEY SHOULD ONLY IMPACT NECESSARY CODE RELEVANT TO THE TASK AND NOTHING ELSE. IT SHOULD IMPACT AS LITTLE CODE AS POSSIBLE. YOUR GOAL IS TO NOT INTRODUCE ANY BUGS. IT'S ALL ABOUT SIMPLICITY
+10. Document all new code and features in  and update the TOC /docs/project.md
 
 ### USE MULTIPLE AGENTS!
 *Leverage subagents aggressively* for better results:

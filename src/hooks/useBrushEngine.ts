@@ -70,7 +70,8 @@ export const useBrushEngine = () => {
 
   // Quantize brush size to prevent micro-variations when using grid snap + pressure
   const quantizeBrushSize = useCallback((size: number, stepSize: number = 0.5): number => {
-    return Math.round(size / stepSize) * stepSize;
+    const invStepSize = 1 / stepSize; // Avoid division in hot path
+    return Math.round(size * invStepSize) / invStepSize;
   }, []);
 
   // Calculate and smooth direction from movement vector
@@ -560,10 +561,8 @@ export const useBrushEngine = () => {
     directionHistoryRef.current = [];
     lastDirectionRef.current = 0;
     
-    // Clear brush calculation cache when starting new stroke
-    brushCache.clear();
-    
-    // Trigger memory cleanup for accumulated objects
+    // Mark stroke as inactive and trigger memory cleanup
+    brushCache.markStrokeInactive();
     memoryManager.runCleanup();
   }, []);
 
@@ -758,7 +757,6 @@ export const useBrushEngine = () => {
 
   // Custom brush drawing functions
   const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean, isPressureSensitive?: boolean) => {
-    console.log('DEBUG: 6. drawCustomBrushStamp called at:', x, y, 'scale:', scale, 'customBrush:', customBrush.id);
     return performanceMonitor.measureStampTime(() => {
       try {
         // Only pre-cache if this is a new brush to avoid delays
@@ -779,13 +777,11 @@ export const useBrushEngine = () => {
           isPressureSensitive
         );
         
-        console.log('DEBUG: 7. scaledCanvas dimensions:', scaledCanvas.width, 'x', scaledCanvas.height);
         
         // Calculate position for pre-scaled canvas
         const centerX = x - scaledCanvas.width / 2;
         const centerY = y - scaledCanvas.height / 2;
         
-        console.log('DEBUG: 8. Drawing at position:', centerX, centerY);
         
         // Draw the pre-scaled brush - custom brushes should always be pixel-perfect
         ctx.imageSmoothingEnabled = false; // Custom brushes maintain pixel-perfect rendering
@@ -851,7 +847,9 @@ export const useBrushEngine = () => {
     to: { x: number; y: number },
     components: BrushComponent[] = activeBrushComponents
   ) => {
-    console.log('DEBUG: 0. renderBrushStroke called with from:', from, 'to:', to);
+    // Mark stroke as active for cache retention
+    brushCache.markStrokeActive();
+    
     // Performance monitoring for brush strokes
     const strokeStartTime = process.env.NODE_ENV === 'development' ? performance.now() : 0;
     
@@ -859,7 +857,6 @@ export const useBrushEngine = () => {
     const cursorPressure = useAppStore.getState().canvas.cursor.pressure ?? 1.0;
     
     const isCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM;
-    console.log('DEBUG: 0a. isCustomBrush:', isCustomBrush, 'brushShape:', tools.brushSettings.brushShape, 'BrushShape.CUSTOM:', BrushShape.CUSTOM, 'selectedCustomBrush:', tools.brushSettings.selectedCustomBrush);
     
     // Look for custom brush early to include dimensions in cache key
     let customBrush = null;
@@ -878,7 +875,6 @@ export const useBrushEngine = () => {
       const actualWidth = tools.brushSettings.currentBrushTip.width || imageData.width;
       const actualHeight = tools.brushSettings.currentBrushTip.height || imageData.height;
       
-      console.log('DEBUG: currentBrushTip imageData dimensions:', imageData.width, 'x', imageData.height, 'actual dimensions:', actualWidth, 'x', actualHeight);
       customBrush = {
         id: 'current-brush-tip',
         name: 'Current Brush Tip',
@@ -918,7 +914,6 @@ export const useBrushEngine = () => {
       }
     }
     
-    console.log('DEBUG: 0b. customBrush after search:', customBrush ? `Found: ${customBrush.id} (${customBrush.width}x${customBrush.height})` : 'Not found');
     
     
     // Check cache for expensive size/pressure calculations
@@ -985,13 +980,10 @@ export const useBrushEngine = () => {
       });
       
       actualBrushSize = pressureResult.adjustedSize;
-      console.log('DEBUG: 4-currentBrushTip. Brush Engine actualBrushSize (after pressure for currentBrushTip):', actualBrushSize);
     } else if (isCustomBrush && customBrush) {
-      console.log('DEBUG: 4a. Entering custom brush path in brush engine');
       // For custom brushes, calculate base size from the brush's actual dimensions
       const customBrushMaxDimension = Math.max(customBrush.width, customBrush.height);
       const baseBrushSize = (tools.brushSettings.size / 100) * customBrushMaxDimension;
-      console.log('DEBUG: 4b. Custom brush dimensions:', customBrush.width, 'x', customBrush.height, 'baseBrushSize:', baseBrushSize);
       
       // For custom brushes, if maxPressure is not set, use the calculated brush size
       // This ensures 100% pressure shows the brush at its intended size
@@ -1006,7 +998,6 @@ export const useBrushEngine = () => {
       });
       
       actualBrushSize = pressureResult.adjustedSize;
-      console.log('DEBUG: 4. Brush Engine actualBrushSize (after pressure optimization):', actualBrushSize);
       
       
     }
@@ -1113,7 +1104,6 @@ export const useBrushEngine = () => {
     // Also use custom brush rendering if we have a currentBrushTip
     
     if (customBrush) {
-      console.log('DEBUG: 5. Found customBrush for rendering:', customBrush.id, 'dimensions:', customBrush.width, 'x', customBrush.height);
       // Determine if this brush should use swatch color
       // Always respect the useSwatchColor setting for custom brushes
       const isColorizable = tools.brushSettings.brushShape === BrushShape.CUSTOM 
