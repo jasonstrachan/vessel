@@ -54,14 +54,19 @@ export function calculateGridSize(brushSettings: BrushSettings, customBrush?: Cu
  */
 export function calculateGridDimensions(brushSettings: BrushSettings, customBrush?: CustomBrush, actualSize?: number): { width: number; height: number } {
   if (brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush && customBrush) {
-    // For custom brushes, use actual brush dimensions scaled by the actual size (including pressure)
-    const scaleFactor = (actualSize || brushSettings.size) / 100;
-    const gridWidth = Math.max(1, Math.round(customBrush.width * scaleFactor));
-    const gridHeight = Math.max(1, Math.round(customBrush.height * scaleFactor));
+    // For custom brushes, use exact brush dimensions for perfect tiling
+    // Scale factor should match the brush engine's calculation: actualSize divided by max dimension
+    const customBrushMaxDimension = Math.max(customBrush.width, customBrush.height);
+    const scaleFactor = (actualSize || brushSettings.size) / customBrushMaxDimension;
+    const gridWidth = customBrush.width * scaleFactor;
+    const gridHeight = customBrush.height * scaleFactor;
+    
+    
     return { width: gridWidth, height: gridHeight };
   } else {
     // For regular brushes, use square grid
     const size = Math.max(1, Math.round(actualSize || brushSettings.size));
+    
     return { width: size, height: size };
   }
 }

@@ -13,6 +13,7 @@ import { canvasPool } from '../../utils/canvasPool';
 import { memoryManager } from '../../utils/memoryCleanup';
 import { scaledBrushCache } from '../../utils/scaledBrushCache';
 import { brushCache } from '../../utils/brushCache';
+import { calculateGridDimensions } from '../../utils/gridSnap';
 import type { Tool } from '../../types';
 import { BrushShape } from '../../types';
 import BrushCursor from './BrushCursor';
@@ -24,6 +25,7 @@ interface DrawingCanvasProps {
 }
 
 export default function DrawingCanvas({ width: propWidth, height: propHeight }: DrawingCanvasProps) {
+  
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -460,28 +462,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Always draw full canvas since we cleared everything
     ctx.drawImage(offscreenCanvas, 0, 0);
     
-    // Draw grid if enabled
-    if (canvas.showGrid) {
-      ctx.strokeStyle = '#e0e0e0';
-      ctx.lineWidth = 1 / canvas.zoom;
-      const gridSize = canvas.gridSize || 50;
-      
-      // Draw vertical lines
-      for (let x = 0; x <= width; x += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
-        ctx.stroke();
-      }
-      
-      // Draw horizontal lines
-      for (let y = 0; y <= height; y += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-        ctx.stroke();
-      }
-    }
+    // Grid snap functionality is preserved in useBrushEngine, visual grid removed
     
     // Draw selection overlay with marching ants
     if (canvas.selection.active) {
@@ -557,7 +538,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Clear dirty regions after rendering
     clearDirtyRegions();
-  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.showGrid, canvas.gridSize, canvas.selection, width, height, selectionStart, selectionEnd, checkerboardPattern, clearDirtyRegions]);
+  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.selection, width, height, selectionStart, selectionEnd, checkerboardPattern, clearDirtyRegions, tools.brushSettings.brushShape, tools.brushSettings.selectedCustomBrush, tools.brushSettings.size, tools.brushSettings.gridSnapEnabled, project?.customBrushes]);
 
   // Enhanced drawing function - draws on offscreen canvas and re-renders view
   const drawLine = useCallback((from: { x: number; y: number }, to: { x: number; y: number }) => {
@@ -582,9 +563,12 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
                          useAppStore.getState().temporaryCustomBrush;
       
       if (customBrush) {
+        console.log('DEBUG: 1. Raw Custom Brush Data (DrawingCanvas): ID=', customBrush.id, 'Width=', customBrush.width, 'Height=', customBrush.height);
+        console.log('DEBUG: 2. brushSettings.size (DrawingCanvas):', brushSettings.size);
         // Custom brush size is percentage of brush dimensions
         const customBrushBaseSize = Math.max(customBrush.width, customBrush.height);
         actualBrushSize = (brushSettings.size / 100) * customBrushBaseSize;
+        console.log('DEBUG: 3. Calculated actualBrushSize (DrawingCanvas):', actualBrushSize, 'from baseSize:', customBrushBaseSize);
       }
     } else {
       // Regular brushes: convert percentage to pixels
@@ -1560,11 +1544,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       }
     }
     
-    // Grid toggle (Ctrl/Cmd + G)
-    if ((e.ctrlKey || e.metaKey) && e.key === 'g') {
-      e.preventDefault();
-      state.toggleGrid();
-    }
   }, [offscreenCanvasRef, setEKeyPressed, setToolBeforeEraser, setAltKeyPressed, setToolBeforeEyedropper, setSpacebarPressed, setSelection, renderView]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
@@ -1901,7 +1880,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       markFullRedraw();
       renderView();
     }
-  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.showGrid, renderView, isCanvasInitialized, markFullRedraw]);
+  }, [canvas.zoom, canvas.panX, canvas.panY, renderView, isCanvasInitialized, markFullRedraw]);
 
   // Optimized animation for marching ants - only updates selection border
   const lastRenderTime = useRef(0);
@@ -2042,10 +2021,14 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
 
   // Get current custom brush data
+  const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
   const currentCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM && 
-    tools.brushSettings.selectedCustomBrush && project
-    ? project.customBrushes.find(b => b.id === tools.brushSettings.selectedCustomBrush)
+    tools.brushSettings.selectedCustomBrush
+    ? (temporaryCustomBrush && temporaryCustomBrush.id === tools.brushSettings.selectedCustomBrush
+        ? temporaryCustomBrush
+        : project?.customBrushes?.find(b => b.id === tools.brushSettings.selectedCustomBrush))
     : null;
+
 
   return (
     <>

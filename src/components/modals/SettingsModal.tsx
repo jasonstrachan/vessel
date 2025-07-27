@@ -23,7 +23,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         interval: currentState.autosave.interval,
       },
       canvas: {
-        showGrid: currentState.canvas.showGrid,
         showRulers: currentState.canvas.showRulers,
       },
       history: {
@@ -50,12 +49,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setHistorySize(size);
   };
 
-  const handleGridToggle = (enabled: boolean) => {
-    const { toggleGrid } = useAppStore.getState();
-    if (canvas.showGrid !== enabled) {
-      toggleGrid();
-    }
-  };
 
   const handleRulersToggle = (enabled: boolean) => {
     const { toggleRulers } = useAppStore.getState();
@@ -122,14 +115,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           <div>
             <h3 className="text-[#D9D9D9] text-base font-medium mb-3">Display</h3>
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label htmlFor="show-grid" className="text-base text-[#888]">Show Grid</label>
-                <Switch
-                  id="show-grid"
-                  checked={canvas.showGrid}
-                  onChange={handleGridToggle}
-                />
-              </div>
               <div className="flex items-center justify-between">
                 <label htmlFor="show-rulers" className="text-base text-[#888]">Show Rulers</label>
                 <Switch

@@ -758,6 +758,7 @@ export const useBrushEngine = () => {
 
   // Custom brush drawing functions
   const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean, isPressureSensitive?: boolean) => {
+    console.log('DEBUG: 6. drawCustomBrushStamp called at:', x, y, 'scale:', scale, 'customBrush:', customBrush.id);
     return performanceMonitor.measureStampTime(() => {
       try {
         // Only pre-cache if this is a new brush to avoid delays
@@ -778,9 +779,13 @@ export const useBrushEngine = () => {
           isPressureSensitive
         );
         
+        console.log('DEBUG: 7. scaledCanvas dimensions:', scaledCanvas.width, 'x', scaledCanvas.height);
+        
         // Calculate position for pre-scaled canvas
         const centerX = x - scaledCanvas.width / 2;
         const centerY = y - scaledCanvas.height / 2;
+        
+        console.log('DEBUG: 8. Drawing at position:', centerX, centerY);
         
         // Draw the pre-scaled brush - custom brushes should always be pixel-perfect
         ctx.imageSmoothingEnabled = false; // Custom brushes maintain pixel-perfect rendering
@@ -846,6 +851,7 @@ export const useBrushEngine = () => {
     to: { x: number; y: number },
     components: BrushComponent[] = activeBrushComponents
   ) => {
+    console.log('DEBUG: 0. renderBrushStroke called with from:', from, 'to:', to);
     // Performance monitoring for brush strokes
     const strokeStartTime = process.env.NODE_ENV === 'development' ? performance.now() : 0;
     
@@ -853,51 +859,9 @@ export const useBrushEngine = () => {
     const cursorPressure = useAppStore.getState().canvas.cursor.pressure ?? 1.0;
     
     const isCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM;
+    console.log('DEBUG: 0a. isCustomBrush:', isCustomBrush, 'brushShape:', tools.brushSettings.brushShape, 'BrushShape.CUSTOM:', BrushShape.CUSTOM, 'selectedCustomBrush:', tools.brushSettings.selectedCustomBrush);
     
-    // Check cache for expensive size/pressure calculations
-    const cacheKey = brushCache.getCacheKey(
-      tools.brushSettings.brushShape || BrushShape.ROUND,
-      tools.brushSettings.size,
-      cursorPressure,
-      0, // rotation handled separately
-      undefined, // grid spacing
-      isCustomBrush ? (tools.brushSettings.selectedCustomBrush || undefined) : undefined,
-      tools.brushSettings.pressureEnabled,
-      tools.brushSettings.minPressure,
-      tools.brushSettings.maxPressure
-    );
-    
-    let actualBrushSize;
-    const cached = brushCache.get(cacheKey);
-    
-    if (cached) {
-      // Use cached calculations
-      actualBrushSize = cached.actualSize;
-    } else {
-      // Calculate actual brush size using unified percentage scaling
-      const baseSize = BRUSH_BASE_SIZES[tools.brushSettings.brushShape || BrushShape.ROUND];
-      const baseBrushSize = (tools.brushSettings.size / 100) * baseSize;
-      
-      // Use optimized pressure calculation
-      const pressureResult = pressureOptimizer.calculatePressureSize(baseBrushSize, {
-        pressureEnabled: tools.brushSettings.pressureEnabled,
-        minPressure: tools.brushSettings.minPressure,
-        maxPressure: tools.brushSettings.maxPressure,
-        rawPressure: cursorPressure
-      });
-      
-      actualBrushSize = pressureResult.adjustedSize;
-      
-      // Cache the calculated size
-      brushCache.set(cacheKey, {
-        scaleFactor: 1, // Will be updated for custom brushes
-        actualSize: actualBrushSize,
-        rotation: 0
-      });
-    }
-    
-    // Look for custom brush - check temporary brush first, then project brushes
-    // Also check for currentBrushTip which can override any brush shape
+    // Look for custom brush early to include dimensions in cache key
     let customBrush = null;
     
     // Create current brush ID
@@ -910,13 +874,18 @@ export const useBrushEngine = () => {
       // Create a temporary custom brush from the current brush tip
       const imageData = tools.brushSettings.currentBrushTip.imageData;
       
+      // Use the actual dimensions from currentBrushTip if available, otherwise fall back to imageData dimensions
+      const actualWidth = tools.brushSettings.currentBrushTip.width || imageData.width;
+      const actualHeight = tools.brushSettings.currentBrushTip.height || imageData.height;
+      
+      console.log('DEBUG: currentBrushTip imageData dimensions:', imageData.width, 'x', imageData.height, 'actual dimensions:', actualWidth, 'x', actualHeight);
       customBrush = {
         id: 'current-brush-tip',
         name: 'Current Brush Tip',
         imageData: imageData,
         thumbnail: '',
-        width: imageData.width,
-        height: imageData.height,
+        width: actualWidth,
+        height: actualHeight,
         createdAt: Date.now()
       };
     } else if (isCustomBrush && tools.brushSettings.selectedCustomBrush) {
@@ -949,6 +918,53 @@ export const useBrushEngine = () => {
       }
     }
     
+    console.log('DEBUG: 0b. customBrush after search:', customBrush ? `Found: ${customBrush.id} (${customBrush.width}x${customBrush.height})` : 'Not found');
+    
+    
+    // Check cache for expensive size/pressure calculations
+    const cacheKey = brushCache.getCacheKey(
+      tools.brushSettings.brushShape || BrushShape.ROUND,
+      tools.brushSettings.size,
+      cursorPressure,
+      0, // rotation handled separately
+      undefined, // grid spacing
+      isCustomBrush ? (tools.brushSettings.selectedCustomBrush || undefined) : undefined,
+      tools.brushSettings.pressureEnabled,
+      tools.brushSettings.minPressure,
+      tools.brushSettings.maxPressure,
+      customBrush?.width,
+      customBrush?.height
+    );
+    
+    let actualBrushSize;
+    const cached = brushCache.get(cacheKey);
+    
+    if (cached) {
+      // Use cached calculations
+      actualBrushSize = cached.actualSize;
+    } else {
+      // Calculate actual brush size using unified percentage scaling
+      const baseSize = BRUSH_BASE_SIZES[tools.brushSettings.brushShape || BrushShape.ROUND];
+      const baseBrushSize = (tools.brushSettings.size / 100) * baseSize;
+      
+      // Use optimized pressure calculation
+      const pressureResult = pressureOptimizer.calculatePressureSize(baseBrushSize, {
+        pressureEnabled: tools.brushSettings.pressureEnabled,
+        minPressure: tools.brushSettings.minPressure,
+        maxPressure: tools.brushSettings.maxPressure,
+        rawPressure: cursorPressure
+      });
+      
+      actualBrushSize = pressureResult.adjustedSize;
+      
+      // Cache the calculated size
+      brushCache.set(cacheKey, {
+        scaleFactor: 1, // Will be updated for custom brushes
+        actualSize: actualBrushSize,
+        rotation: 0
+      });
+    }
+    
     
     // Now recalculate actualBrushSize with the correct customBrush information
     if (tools.brushSettings.currentBrushTip && tools.brushSettings.currentBrushTip.brushId === currentBrushId && customBrush) {
@@ -969,10 +985,13 @@ export const useBrushEngine = () => {
       });
       
       actualBrushSize = pressureResult.adjustedSize;
+      console.log('DEBUG: 4-currentBrushTip. Brush Engine actualBrushSize (after pressure for currentBrushTip):', actualBrushSize);
     } else if (isCustomBrush && customBrush) {
+      console.log('DEBUG: 4a. Entering custom brush path in brush engine');
       // For custom brushes, calculate base size from the brush's actual dimensions
       const customBrushMaxDimension = Math.max(customBrush.width, customBrush.height);
       const baseBrushSize = (tools.brushSettings.size / 100) * customBrushMaxDimension;
+      console.log('DEBUG: 4b. Custom brush dimensions:', customBrush.width, 'x', customBrush.height, 'baseBrushSize:', baseBrushSize);
       
       // For custom brushes, if maxPressure is not set, use the calculated brush size
       // This ensures 100% pressure shows the brush at its intended size
@@ -987,6 +1006,9 @@ export const useBrushEngine = () => {
       });
       
       actualBrushSize = pressureResult.adjustedSize;
+      console.log('DEBUG: 4. Brush Engine actualBrushSize (after pressure optimization):', actualBrushSize);
+      
+      
     }
     
     // Apply grid snapping if enabled using the actual brush size
@@ -1020,13 +1042,18 @@ export const useBrushEngine = () => {
         // Check cache for grid dimensions calculation
         const gridCacheKey = brushCache.getCacheKey(
           tools.brushSettings.brushShape || BrushShape.CUSTOM,
-          settings.size,
+          actualBrushSize,
           cursorPressure,
           0,
           undefined, // gridSpacing not available in BrushSettings
           customBrush.id,
-          tools.brushSettings.pressureEnabled
+          tools.brushSettings.pressureEnabled,
+          undefined, // minPressure
+          undefined, // maxPressure
+          customBrush.width,
+          customBrush.height
         );
+        
         
         let gridDimensions;
         const gridCached = brushCache.get(gridCacheKey);
@@ -1034,12 +1061,13 @@ export const useBrushEngine = () => {
         if (gridCached && gridCached.gridDimensions) {
           gridDimensions = gridCached.gridDimensions;
         } else {
-          gridDimensions = calculateGridDimensions(tools.brushSettings, customBrush, settings.size);
+          
+          gridDimensions = calculateGridDimensions(tools.brushSettings, customBrush, actualBrushSize);
           
           // Cache the grid dimensions
           brushCache.set(gridCacheKey, {
             scaleFactor: 1,
-            actualSize: settings.size,
+            actualSize: actualBrushSize,
             rotation: 0,
             gridDimensions
           });
@@ -1085,6 +1113,7 @@ export const useBrushEngine = () => {
     // Also use custom brush rendering if we have a currentBrushTip
     
     if (customBrush) {
+      console.log('DEBUG: 5. Found customBrush for rendering:', customBrush.id, 'dimensions:', customBrush.width, 'x', customBrush.height);
       // Determine if this brush should use swatch color
       // Always respect the useSwatchColor setting for custom brushes
       const isColorizable = tools.brushSettings.brushShape === BrushShape.CUSTOM 
@@ -1117,13 +1146,18 @@ export const useBrushEngine = () => {
         // Use cached grid dimensions calculation
         const gridCacheKey = brushCache.getCacheKey(
           tools.brushSettings.brushShape || BrushShape.CUSTOM,
-          settings.size,
+          actualBrushSize,
           cursorPressure,
           0,
           undefined, // gridSpacing not available in BrushSettings
           customBrush.id,
-          tools.brushSettings.pressureEnabled
+          tools.brushSettings.pressureEnabled,
+          undefined, // minPressure
+          undefined, // maxPressure
+          customBrush.width,
+          customBrush.height
         );
+        
         
         let gridDimensions;
         const gridCached = brushCache.get(gridCacheKey);
@@ -1131,12 +1165,13 @@ export const useBrushEngine = () => {
         if (gridCached && gridCached.gridDimensions) {
           gridDimensions = gridCached.gridDimensions;
         } else {
-          gridDimensions = calculateGridDimensions(tools.brushSettings, customBrush, settings.size);
+          
+          gridDimensions = calculateGridDimensions(tools.brushSettings, customBrush, actualBrushSize);
           
           // Cache the grid dimensions
           brushCache.set(gridCacheKey, {
             scaleFactor,
-            actualSize: settings.size,
+            actualSize: actualBrushSize,
             rotation: 0,
             gridDimensions
           });

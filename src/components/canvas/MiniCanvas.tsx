@@ -13,7 +13,7 @@ interface MiniCanvasProps {
   className?: string;
   hueShift?: number;
   saturation?: number;
-  onBrushTipChange?: (imageData: ImageData) => void;
+  onBrushTipChange?: (imageData: ImageData, actualWidth: number, actualHeight: number) => void;
 }
 
 export default function MiniCanvas({ 
@@ -81,10 +81,10 @@ export default function MiniCanvas({
     canvas.width = width;
     canvas.height = height;
     
-    // Set up offscreen canvas (actual brush size)
+    // Set up offscreen canvas (actual brush dimensions)
     const brushSize = getBrushTipSize();
-    offscreenCanvas.width = brushSize;
-    offscreenCanvas.height = brushSize;
+    offscreenCanvas.width = brushSize.width;
+    offscreenCanvas.height = brushSize.height;
 
     // Only update brush tip if not pinned
     if (!isPinned) {
@@ -93,6 +93,39 @@ export default function MiniCanvas({
     
     renderCanvas();
   }, [width, height, brushSettings.brushShape, brushSettings.selectedCustomBrush, brushSettings.currentBrushTip, isPinned, temporaryCustomBrush, brushPresets]);
+
+  // Get the actual dimensions of the custom brush
+  const getActualBrushDimensions = useCallback(() => {
+    if (brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush) {
+      let customBrush = temporaryCustomBrush && temporaryCustomBrush.id === brushSettings.selectedCustomBrush
+        ? temporaryCustomBrush
+        : project?.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
+      
+      // If not found in temporary or project brushes, check brush presets
+      if (!customBrush) {
+        const preset = brushPresets.find(p => p.isCustomBrush && p.customBrushData && 
+          p.id === brushSettings.selectedCustomBrush);
+        
+        if (preset && preset.customBrushData) {
+          customBrush = {
+            id: brushSettings.selectedCustomBrush,
+            name: preset.name,
+            imageData: preset.customBrushData.imageData,
+            width: preset.customBrushData.width,
+            height: preset.customBrushData.height,
+            thumbnail: preset.thumbnail,
+            createdAt: preset.createdAt.getTime()
+          };
+        }
+      }
+      
+      if (customBrush) {
+        return { width: customBrush.width, height: customBrush.height };
+      }
+    }
+    // For standard brushes
+    return { width: 64, height: 64 };
+  }, [brushSettings.brushShape, brushSettings.selectedCustomBrush, temporaryCustomBrush, project, brushPresets]);
 
   // Get the size of the brush tip to display
   const getBrushTipSize = useCallback(() => {
@@ -120,12 +153,19 @@ export default function MiniCanvas({
       }
       
       if (customBrush) {
-        return Math.max(customBrush.width, customBrush.height);
+        // Return actual dimensions, not padded square
+        return { width: customBrush.width, height: customBrush.height };
       }
     }
     // For standard brushes, use a fixed size for editing
-    return 64;
+    return { width: 64, height: 64 };
   }, [brushSettings.brushShape, brushSettings.selectedCustomBrush, temporaryCustomBrush, project?.customBrushes, brushPresets]);
+
+  // Helper to get canvas size (max dimension for display)
+  const getCanvasSize = useCallback(() => {
+    const size = getBrushTipSize();
+    return Math.max(size.width, size.height);
+  }, [getBrushTipSize]);
 
   // Initialize the brush tip data
   const initializeBrushTip = () => {
@@ -135,7 +175,7 @@ export default function MiniCanvas({
     const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
-    const size = getBrushTipSize();
+    const size = getCanvasSize();
     
     // Create current brush ID
     const currentBrushId = brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush 
@@ -176,25 +216,23 @@ export default function MiniCanvas({
       }
       
       if (customBrush) {
-        ctx.clearRect(0, 0, size, size);
+        // Clear the entire canvas (now correctly sized to actual dimensions)
+        const dimensions = getActualBrushDimensions();
+        ctx.clearRect(0, 0, dimensions.width, dimensions.height);
         
-        // Center the custom brush data in the canvas
-        const offsetX = Math.floor((size - customBrush.width) / 2);
-        const offsetY = Math.floor((size - customBrush.height) / 2);
-        
-        
+        // Put the custom brush data at the origin (no centering needed)
         try {
-          ctx.putImageData(customBrush.imageData, offsetX, offsetY);
+          ctx.putImageData(customBrush.imageData, 0, 0);
         } catch (error) {
         }
         
-        // Store original data for reset
-        const brushData = ctx.getImageData(0, 0, size, size);
+        // Store original data for reset - use actual brush dimensions
+        const brushData = ctx.getImageData(0, 0, dimensions.width, dimensions.height);
         setOriginalBrushData(brushData);
         
         // Notify parent that brush tip has changed
         if (onBrushTipChange) {
-          onBrushTipChange(brushData);
+          onBrushTipChange(brushData, dimensions.width, dimensions.height);
         }
         
         // Force a render update to display the custom brush
@@ -202,11 +240,12 @@ export default function MiniCanvas({
       }
     } else {
       // Create preview for standard brushes
+      const dimensions = getBrushTipSize(); // For standard brushes, this returns {width: 64, height: 64}
       ctx.fillStyle = '#000000';
-      ctx.clearRect(0, 0, size, size);
+      ctx.clearRect(0, 0, dimensions.width, dimensions.height);
       
-      const center = size / 2;
-      const radius = Math.min(16, size / 4);
+      const center = Math.max(dimensions.width, dimensions.height) / 2;
+      const radius = Math.min(16, Math.max(dimensions.width, dimensions.height) / 4);
       
       switch (brushSettings.brushShape) {
         case BrushShape.ROUND:
@@ -224,7 +263,7 @@ export default function MiniCanvas({
       
       // Store original data for reset only if we don't already have it
       if (!originalBrushData) {
-        setOriginalBrushData(ctx.getImageData(0, 0, size, size));
+        setOriginalBrushData(ctx.getImageData(0, 0, dimensions.width, dimensions.height));
       }
     }
   };
@@ -246,7 +285,8 @@ export default function MiniCanvas({
     drawCheckerboard(ctx, width, height);
 
     // Calculate display parameters
-    const sourceSize = getBrushTipSize();
+    const brushDimensions = getBrushTipSize();
+    const sourceSize = Math.max(brushDimensions.width, brushDimensions.height);
     const displaySize = sourceSize * zoom;
     const x = (width - displaySize) / 2 + pan.x;
     const y = (height - displaySize) / 2 + pan.y;
@@ -304,7 +344,8 @@ export default function MiniCanvas({
     const y = screenY - rect.top;
 
     // Convert to offscreen canvas coordinates
-    const sourceSize = getBrushTipSize();
+    const brushDimensions = getBrushTipSize();
+    const sourceSize = Math.max(brushDimensions.width, brushDimensions.height);
     const displaySize = sourceSize * zoom;
     const offsetX = (width - displaySize) / 2 + pan.x;
     const offsetY = (height - displaySize) / 2 + pan.y;
@@ -371,9 +412,10 @@ export default function MiniCanvas({
       
       // Emit the updated brush tip
       if (onBrushTipChange) {
-        const size = getBrushTipSize();
-        const updatedImageData = ctx.getImageData(0, 0, size, size);
-        onBrushTipChange(updatedImageData);
+        const brushDimensions = getBrushTipSize();
+        const updatedImageData = ctx.getImageData(0, 0, brushDimensions.width, brushDimensions.height);
+        const dimensions = getActualBrushDimensions();
+        onBrushTipChange(updatedImageData, dimensions.width, dimensions.height);
       }
     });
   };
@@ -466,8 +508,8 @@ export default function MiniCanvas({
       if (offscreenCanvas) {
         const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
         if (ctx) {
-          const size = getBrushTipSize();
-          setPinnedBrushTip(ctx.getImageData(0, 0, size, size));
+          const brushDimensions = getBrushTipSize();
+          setPinnedBrushTip(ctx.getImageData(0, 0, brushDimensions.width, brushDimensions.height));
         }
       }
     } else {
@@ -485,8 +527,8 @@ export default function MiniCanvas({
     const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
     
-    const size = getBrushTipSize();
-    const currentData = ctx.getImageData(0, 0, size, size);
+    const brushDimensions = getBrushTipSize();
+    const currentData = ctx.getImageData(0, 0, brushDimensions.width, brushDimensions.height);
     
     setUndoStack(prev => {
       const newStack = [...prev, currentData];
@@ -509,8 +551,8 @@ export default function MiniCanvas({
     if (!ctx) return;
     
     // Save current state to redo stack
-    const size = getBrushTipSize();
-    const currentData = ctx.getImageData(0, 0, size, size);
+    const brushDimensions = getBrushTipSize();
+    const currentData = ctx.getImageData(0, 0, brushDimensions.width, brushDimensions.height);
     setRedoStack(prev => [...prev, currentData]);
     
     // Restore previous state
@@ -522,9 +564,10 @@ export default function MiniCanvas({
     
     // Emit the restored brush tip
     if (onBrushTipChange) {
-      onBrushTipChange(previousState);
+      const dimensions = getActualBrushDimensions();
+      onBrushTipChange(previousState, dimensions.width, dimensions.height);
     }
-  }, [undoStack, getBrushTipSize, renderCanvas, onBrushTipChange]);
+  }, [undoStack, getBrushTipSize, renderCanvas, onBrushTipChange, getActualBrushDimensions]);
 
   // Redo last undone action
   const handleRedo = useCallback(() => {
@@ -537,8 +580,8 @@ export default function MiniCanvas({
     if (!ctx) return;
     
     // Save current state to undo stack
-    const size = getBrushTipSize();
-    const currentData = ctx.getImageData(0, 0, size, size);
+    const brushDimensions = getBrushTipSize();
+    const currentData = ctx.getImageData(0, 0, brushDimensions.width, brushDimensions.height);
     setUndoStack(prev => [...prev, currentData]);
     
     // Restore next state
@@ -550,9 +593,10 @@ export default function MiniCanvas({
     
     // Emit the restored brush tip
     if (onBrushTipChange) {
-      onBrushTipChange(nextState);
+      const dimensions = getActualBrushDimensions();
+      onBrushTipChange(nextState, dimensions.width, dimensions.height);
     }
-  }, [redoStack, getBrushTipSize, renderCanvas, onBrushTipChange]);
+  }, [redoStack, getBrushTipSize, renderCanvas, onBrushTipChange, getActualBrushDimensions]);
 
   // Update rendering when zoom/pan changes
   useEffect(() => {
@@ -622,10 +666,12 @@ export default function MiniCanvas({
         if (hueShift !== 0 || saturation !== 100) {
           // Apply hue shift and saturation to the original brush data
           const adjustedData = adjustHueAndSaturation(originalBrushData, hueShift, saturation);
-          onBrushTipChange(adjustedData);
+          const dimensions = getActualBrushDimensions();
+          onBrushTipChange(adjustedData, dimensions.width, dimensions.height);
         } else {
           // Reset to original when both hue is 0 and saturation is 100
-          onBrushTipChange(originalBrushData);
+          const dimensions = getActualBrushDimensions();
+          onBrushTipChange(originalBrushData, dimensions.width, dimensions.height);
         }
       }, 16); // ~60fps debounce for more responsive updates
       
