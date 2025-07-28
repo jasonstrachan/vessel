@@ -148,8 +148,8 @@ class AdvancedPicker {
   }
 
   drawHSVGrad() {
-    // Create 6x12 HSV grid: 6 columns (saturation), 12 rows (value)
-    const cols = 6;
+    // Create 10x12 HSV grid: 10 columns (saturation), 12 rows (value)
+    const cols = 10;
     const rows = 12;
     const cellWidth = this.width / cols;
     const cellHeight = this.height / rows;
@@ -232,7 +232,7 @@ class AdvancedPicker {
     const canvasY = y * scaleY;
     
     // Snap to grid cells
-    const cols = 6;
+    const cols = 10;
     const rows = 12;
     const cellWidth = this.width / cols;
     const cellHeight = this.height / rows;
