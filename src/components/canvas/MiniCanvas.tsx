@@ -3,7 +3,7 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { useBrushEngine } from '../../hooks/useBrushEngine';
-import { Pin, PinOff, RotateCcw, Minus, Plus, Undo2, Redo2 } from 'lucide-react';
+import { Minus, Plus, Undo2, Redo2 } from 'lucide-react';
 import { BrushShape } from '../../types';
 import { adjustHueAndSaturation } from '../../utils/imageProcessing';
 
@@ -30,13 +30,11 @@ export default function MiniCanvas({
   const animationFrameRef = useRef<number | null>(null);
 
   // Local state
-  const [zoom, setZoom] = useState(0.5);
+  const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
-  const [isPinned, setIsPinned] = useState(false);
   const [originalBrushData, setOriginalBrushData] = useState<ImageData | null>(null);
-  const [pinnedBrushTip, setPinnedBrushTip] = useState<ImageData | null>(null);
   
   // Panning state
   const [spacebarPressed, setSpacebarPressed] = useState(false);
@@ -71,6 +69,14 @@ export default function MiniCanvas({
     return false;
   }, [brushSettings.brushShape, brushSettings.selectedCustomBrush, brushPresets]);
 
+  // Helper function to calculate appropriate zoom
+  const calculateFitZoom = (brushWidth: number, brushHeight: number): number => {
+    const maxBrushDimension = Math.max(brushWidth, brushHeight);
+    const canvasSize = Math.min(width, height);
+    const targetSize = canvasSize * 0.8;
+    return targetSize / maxBrushDimension;
+  };
+
   // Initialize canvases
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -86,13 +92,16 @@ export default function MiniCanvas({
     offscreenCanvas.width = brushSize.width;
     offscreenCanvas.height = brushSize.height;
 
-    // Only update brush tip if not pinned
-    if (!isPinned) {
-      initializeBrushTip();
-    }
+    // Update brush tip
+    initializeBrushTip();
+    
+    // Calculate zoom to fit brush with padding
+    const fitZoom = calculateFitZoom(brushSize.width, brushSize.height);
+    setZoom(fitZoom);
+    setPan({ x: 0, y: 0 }); // Reset pan to center
     
     renderCanvas();
-  }, [width, height, brushSettings.brushShape, brushSettings.selectedCustomBrush, brushSettings.currentBrushTip, isPinned, temporaryCustomBrush, brushPresets]);
+  }, [width, height, brushSettings.brushShape, brushSettings.selectedCustomBrush, brushSettings.currentBrushTip, temporaryCustomBrush, brushPresets]);
 
   // Get the actual dimensions of the custom brush
   const getActualBrushDimensions = useCallback(() => {
@@ -286,10 +295,10 @@ export default function MiniCanvas({
 
     // Calculate display parameters
     const brushDimensions = getBrushTipSize();
-    const sourceSize = Math.max(brushDimensions.width, brushDimensions.height);
-    const displaySize = sourceSize * zoom;
-    const x = (width - displaySize) / 2 + pan.x;
-    const y = (height - displaySize) / 2 + pan.y;
+    const displayWidth = brushDimensions.width * zoom;
+    const displayHeight = brushDimensions.height * zoom;
+    const x = (width - displayWidth) / 2 + pan.x;
+    const y = (height - displayHeight) / 2 + pan.y;
 
     // Disable image smoothing for pixel-perfect display
     ctx.imageSmoothingEnabled = false;
@@ -301,21 +310,21 @@ export default function MiniCanvas({
       
       // Create a temporary canvas to draw the adjusted data
       const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = sourceSize;
-      tempCanvas.height = sourceSize;
+      tempCanvas.width = brushDimensions.width;
+      tempCanvas.height = brushDimensions.height;
       const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
       if (tempCtx) {
         tempCtx.putImageData(adjustedData, 0, 0);
-        ctx.drawImage(tempCanvas, 0, 0, sourceSize, sourceSize, x, y, displaySize, displaySize);
+        ctx.drawImage(tempCanvas, 0, 0, brushDimensions.width, brushDimensions.height, x, y, displayWidth, displayHeight);
       }
     } else {
-      ctx.drawImage(offscreenCanvas, 0, 0, sourceSize, sourceSize, x, y, displaySize, displaySize);
+      ctx.drawImage(offscreenCanvas, 0, 0, brushDimensions.width, brushDimensions.height, x, y, displayWidth, displayHeight);
     }
 
     // Draw border
     ctx.strokeStyle = '#666';
     ctx.lineWidth = 1;
-    ctx.strokeRect(x, y, displaySize, displaySize);
+    ctx.strokeRect(x, y, displayWidth, displayHeight);
   }, [width, height, zoom, pan.x, pan.y, hueShift, saturation, originalBrushData]);
 
   // Draw checkerboard background
@@ -345,17 +354,17 @@ export default function MiniCanvas({
 
     // Convert to offscreen canvas coordinates
     const brushDimensions = getBrushTipSize();
-    const sourceSize = Math.max(brushDimensions.width, brushDimensions.height);
-    const displaySize = sourceSize * zoom;
-    const offsetX = (width - displaySize) / 2 + pan.x;
-    const offsetY = (height - displaySize) / 2 + pan.y;
+    const displayWidth = brushDimensions.width * zoom;
+    const displayHeight = brushDimensions.height * zoom;
+    const offsetX = (width - displayWidth) / 2 + pan.x;
+    const offsetY = (height - displayHeight) / 2 + pan.y;
 
-    const canvasX = ((x - offsetX) / displaySize) * sourceSize;
-    const canvasY = ((y - offsetY) / displaySize) * sourceSize;
+    const canvasX = ((x - offsetX) / displayWidth) * brushDimensions.width;
+    const canvasY = ((y - offsetY) / displayHeight) * brushDimensions.height;
 
     return { 
-      x: Math.max(0, Math.min(sourceSize - 1, Math.floor(canvasX))), 
-      y: Math.max(0, Math.min(sourceSize - 1, Math.floor(canvasY)))
+      x: Math.max(0, Math.min(brushDimensions.width - 1, Math.floor(canvasX))), 
+      y: Math.max(0, Math.min(brushDimensions.height - 1, Math.floor(canvasY)))
     };
   };
 
@@ -475,49 +484,10 @@ export default function MiniCanvas({
   };
 
   // Zoom controls
-  const zoomIn = () => setZoom(Math.min(16, zoom + 1));
-  const zoomOut = () => setZoom(Math.max(1, zoom - 1));
+  const zoomIn = () => setZoom(Math.min(16, zoom * 1.2));
+  const zoomOut = () => setZoom(Math.max(0.1, zoom / 1.2));
 
-  // Reset brush tip
-  const resetBrushTip = () => {
-    if (!originalBrushData) return;
-    
-    const offscreenCanvas = offscreenCanvasRef.current;
-    if (!offscreenCanvas) return;
-    
-    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return;
-    
-    ctx.putImageData(originalBrushData, 0, 0);
-    renderCanvas();
-    
-    // Clear the currentBrushTip to go back to default brush behavior
-    const { setBrushSettings } = useAppStore.getState();
-    setBrushSettings({ currentBrushTip: undefined });
-    
-    // Clear undo/redo stacks
-    setUndoStack([]);
-    setRedoStack([]);
-  };
 
-  // Toggle pin state
-  const togglePin = () => {
-    if (!isPinned) {
-      // Save current brush tip when pinning
-      const offscreenCanvas = offscreenCanvasRef.current;
-      if (offscreenCanvas) {
-        const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
-        if (ctx) {
-          const brushDimensions = getBrushTipSize();
-          setPinnedBrushTip(ctx.getImageData(0, 0, brushDimensions.width, brushDimensions.height));
-        }
-      }
-    } else {
-      // Clear pinned brush tip when unpinning
-      setPinnedBrushTip(null);
-    }
-    setIsPinned(!isPinned);
-  };
 
   // Save current state to undo stack
   const saveToUndoStack = useCallback(() => {
@@ -736,7 +706,7 @@ export default function MiniCanvas({
         <button
           onClick={zoomOut}
           className="py-1 px-2 text-[#D9D9D9] hover:bg-[#3A3A42] rounded flex-1"
-          disabled={zoom <= 1}
+          disabled={zoom <= 0.1}
         >
           <Minus size={12} />
         </button>
@@ -750,21 +720,6 @@ export default function MiniCanvas({
           disabled={zoom >= 16}
         >
           <Plus size={12} />
-        </button>
-        
-        <div className="w-[2px] self-stretch bg-[#65656A]" />
-        
-        {/* Pin toggle */}
-        <button
-          onClick={togglePin}
-          className={`py-1 px-2 rounded flex-1 ${
-            isPinned 
-              ? 'text-blue-400 bg-blue-400/20' 
-              : 'text-[#D9D9D9] hover:bg-[#3A3A42]'
-          }`}
-          title={isPinned ? 'Unpin to show current brush tip' : 'Pin to use selected brush for editing'}
-        >
-          {isPinned ? <PinOff size={12} /> : <Pin size={12} />}
         </button>
         
         <div className="w-[2px] self-stretch bg-[#65656A]" />
@@ -798,31 +753,7 @@ export default function MiniCanvas({
         >
           <Redo2 size={12} />
         </button>
-
-
-        <div className="w-[2px] self-stretch bg-[#65656A]" />
-        
-        {/* Reset */}
-        <button
-          onClick={resetBrushTip}
-          disabled={isDefaultBrush()}
-          className={`py-1 px-2 rounded flex-1 ${
-            isDefaultBrush()
-              ? 'text-[#666] cursor-not-allowed'
-              : 'text-[#D9D9D9] hover:bg-[#3A3A42]'
-          }`}
-          title="Reset to original"
-        >
-          <RotateCcw size={12} />
-        </button>
       </div>
-
-      {/* Status */}
-      {isPinned && (
-        <div className="mt-2 text-base text-blue-400 px-3">
-          Using selected brush for editing
-        </div>
-      )}
     </div>
   );
 }
