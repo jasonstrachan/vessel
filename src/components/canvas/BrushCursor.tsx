@@ -47,7 +47,7 @@ const BrushCursor = memo(function BrushCursor({
           left: `${screenX}px`,
           top: `${screenY}px`,
           transform: 'translate(-50%, -50%)',
-          zIndex: 100,
+          zIndex: 1000,
         }}
       >
         <svg
@@ -64,8 +64,8 @@ const BrushCursor = memo(function BrushCursor({
             y1="3"
             x2="10.5"
             y2="8"
-            stroke="#dedede"
-            strokeWidth="1"
+            stroke="#ffffff"
+            strokeWidth="2"
             filter="drop-shadow(1px 1px 0px black)"
           />
           <line
@@ -73,8 +73,8 @@ const BrushCursor = memo(function BrushCursor({
             y1="13"
             x2="10.5"
             y2="18"
-            stroke="#dedede"
-            strokeWidth="1"
+            stroke="#ffffff"
+            strokeWidth="2"
             filter="drop-shadow(1px 1px 0px black)"
           />
           <line
@@ -82,8 +82,8 @@ const BrushCursor = memo(function BrushCursor({
             y1="10.5"
             x2="8"
             y2="10.5"
-            stroke="#dedede"
-            strokeWidth="1"
+            stroke="#ffffff"
+            strokeWidth="2"
             filter="drop-shadow(1px 1px 0px black)"
           />
           <line
@@ -91,8 +91,8 @@ const BrushCursor = memo(function BrushCursor({
             y1="10.5"
             x2="18"
             y2="10.5"
-            stroke="#dedede"
-            strokeWidth="1"
+            stroke="#ffffff"
+            strokeWidth="2"
             filter="drop-shadow(1px 1px 0px black)"
           />
           {/* Center dot */}
@@ -100,7 +100,7 @@ const BrushCursor = memo(function BrushCursor({
             cx="10.5"
             cy="10.5"
             r="1"
-            fill="#dedede"
+            fill="#ffffff"
             filter="drop-shadow(1px 1px 0px black)"
           />
         </svg>
@@ -116,7 +116,7 @@ const BrushCursor = memo(function BrushCursor({
         left: `${screenX}px`,
         top: `${screenY}px`,
         transform: `translate(-50%, -50%)`,
-        zIndex: 100,
+        zIndex: 1000,
       }}
     >
       {brushShape === BrushShape.ROUND && (
@@ -133,8 +133,8 @@ const BrushCursor = memo(function BrushCursor({
             cy={(screenSize + 4) / 2}
             r={Math.max(0.5, screenSize / 2 - 1)}
             fill="none"
-            stroke="#dedede"
-            strokeWidth="1"
+            stroke="#ffffff"
+            strokeWidth="2"
             opacity={1}
             filter="drop-shadow(1px 1px 0px black)"
           />
@@ -148,7 +148,7 @@ const BrushCursor = memo(function BrushCursor({
             height: `${screenSize + 4}px`,
             padding: '2px',
             boxSizing: 'border-box',
-            border: '1px solid #dedede',
+            border: '2px solid #ffffff',
             borderRadius: '50%',
             opacity: 1,
             imageRendering: 'pixelated',
@@ -164,7 +164,7 @@ const BrushCursor = memo(function BrushCursor({
             height: `${screenSize + 4}px`,
             padding: '2px',
             boxSizing: 'border-box',
-            border: '1px solid #dedede',
+            border: '2px solid #ffffff',
             opacity: 1,
             filter: 'drop-shadow(1px 1px 0px black)',
           }}
@@ -183,8 +183,8 @@ const BrushCursor = memo(function BrushCursor({
           <polygon
             points={`${(screenSize + 4) / 2},${3} ${screenSize + 1},${screenSize + 1} ${3},${screenSize + 1}`}
             fill="none"
-            stroke="#dedede"
-            strokeWidth="1"
+            stroke="#ffffff"
+            strokeWidth="2"
             opacity={1}
             filter="drop-shadow(1px 1px 0px black)"
           />

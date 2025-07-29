@@ -201,6 +201,8 @@ export interface BrushSettings {
   dashGap: number;
   // Grid snap settings
   gridSnapEnabled: boolean;
+  // Shape brush settings
+  shapeEnabled: boolean;
   // Hue and saturation adjustments for custom brushes
   hueShift?: number; // -180 to 180 degrees
   saturationAdjust?: number; // 0 to 200 percent
@@ -290,4 +292,16 @@ export interface PNGExport {
   includeBackground: boolean;
   layers: string[];
   scale: number;
+}
+
+// Shape brush types
+export interface ShapePoint {
+  x: number;
+  y: number;
+}
+
+export interface ShapeState {
+  isDrawing: boolean;
+  points: ShapePoint[];
+  previewPath?: Path2D;
 }

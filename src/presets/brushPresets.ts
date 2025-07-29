@@ -18,6 +18,7 @@ export const pixelBrushSettings: BrushSettings = {
   dashLength: 3,
   dashGap: 2,
   gridSnapEnabled: false,
+  shapeEnabled: false,
   useSwatchColor: false,
   hueShift: 0,
   saturationAdjust: 100
@@ -42,6 +43,7 @@ export const defaultBrushSettings: BrushSettings = {
   dashLength: 3,
   dashGap: 2,
   gridSnapEnabled: false,
+  shapeEnabled: false,
   useSwatchColor: false,
   hueShift: 0,
   saturationAdjust: 100
@@ -540,7 +542,7 @@ export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<Brush
     settings.antialiasing = true;
     settings.pressureEnabled = true;
     settings.minPressure = 1;
-    settings.maxPressure = settings.size;
+    settings.maxPressure = 100;
   }
   
   return { settings, components: preset.components };
