@@ -28,6 +28,7 @@ export default function MiniCanvas({
   const offscreenCanvasRef = useRef<HTMLCanvasElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const renderPendingRef = useRef<boolean>(false);
 
   // Local state
   const [zoom, setZoom] = useState(1);
@@ -87,6 +88,7 @@ export default function MiniCanvas({
     return targetSize / maxBrushDimension;
   };
 
+
   // Initialize canvases
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -119,11 +121,6 @@ export default function MiniCanvas({
       // Clear the entire canvas if dimensions changed or brush type changed
       if (oldWidth !== brushSize.width || oldHeight !== brushSize.height || brushTypeChanged) {
         offscreenCtx.clearRect(0, 0, brushSize.width, brushSize.height);
-        // Also clear display canvas when brush type changes
-        const displayCtx = canvas.getContext('2d', { willReadFrequently: true });
-        if (displayCtx && brushTypeChanged) {
-          displayCtx.clearRect(0, 0, width, height);
-        }
       }
     }
 
@@ -142,10 +139,8 @@ export default function MiniCanvas({
       setOriginalBrushData(null); // Clear original data to force fresh capture
     }
     
-    // Force render after initialization with a slight delay to ensure canvas is ready
-    requestAnimationFrame(() => {
-      renderCanvas();
-    });
+    // Schedule render
+    scheduleRender();
   }, [width, height, brushSettings.brushShape, brushSettings.selectedCustomBrush, brushSettings.currentBrushTip, brushSettings.color, temporaryCustomBrush, brushPresets]);
 
 
@@ -223,7 +218,7 @@ export default function MiniCanvas({
   }, [getBrushTipSize]);
 
   // Initialize the brush tip data
-  const initializeBrushTip = () => {
+  const initializeBrushTip = useCallback(() => {
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
 
@@ -232,7 +227,7 @@ export default function MiniCanvas({
 
     const dimensions = getBrushTipSize();
     
-    // ALWAYS clear the canvas first to ensure no stale data
+    // Clear canvas only when necessary
     ctx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
     
     // CRITICAL: Standard brushes should NEVER use currentBrushTip data
@@ -282,8 +277,7 @@ export default function MiniCanvas({
     if (brushSettings.currentBrushTip && 
         brushSettings.currentBrushTip.brushId === currentBrushId &&
         brushSettings.brushShape === BrushShape.CUSTOM) {
-      // Use the edited brush tip for this custom brush
-      ctx.clearRect(0, 0, dimensions.width, dimensions.height);
+      // Use the edited brush tip for this custom brush (canvas already cleared above)
       ctx.putImageData(brushSettings.currentBrushTip.imageData, 0, 0);
       // Don't update originalBrushData here, keep the original for reset
       return;
@@ -320,9 +314,7 @@ export default function MiniCanvas({
       }
       
       if (customBrush) {
-        // Clear the entire canvas (now correctly sized to actual dimensions)
-        const dimensions = getActualBrushDimensions();
-        ctx.clearRect(0, 0, dimensions.width, dimensions.height);
+        // Canvas already cleared above - no need to clear again
         
         // Apply hue/saturation transformations to show real-time preview
         let displayImageData = customBrush.imageData;
@@ -343,6 +335,7 @@ export default function MiniCanvas({
         }
         
         // Store original data for reset - use actual brush dimensions
+        const dimensions = getActualBrushDimensions();
         const brushData = ctx.getImageData(0, 0, dimensions.width, dimensions.height);
         setOriginalBrushData(brushData);
         
@@ -351,14 +344,13 @@ export default function MiniCanvas({
           onBrushTipChange(brushData, dimensions.width, dimensions.height);
         }
         
-        // Force a render update to display the custom brush
-        renderCanvas();
+        // Render update will be handled by caller
       }
     } else {
       // Create preview for standard brushes
       const dimensions = getBrushTipSize(); // For standard brushes, this returns {width: 64, height: 64}
       ctx.fillStyle = brushSettings.color;
-      ctx.clearRect(0, 0, dimensions.width, dimensions.height);
+      // Canvas already cleared above - no need to clear again
       
       const center = Math.max(dimensions.width, dimensions.height) / 2;
       const radius = Math.min(16, Math.max(dimensions.width, dimensions.height) / 4);
@@ -395,7 +387,7 @@ export default function MiniCanvas({
         setOriginalBrushData(ctx.getImageData(0, 0, dimensions.width, dimensions.height));
       }
     }
-  };
+  }, [brushSettings, temporaryCustomBrush, project, brushPresets, hueShift, saturation, originalBrushData, onBrushTipChange, getBrushTipSize, getActualBrushDimensions]);
 
   // Render the canvas with zoom and pan
   const renderCanvas = useCallback(() => {
@@ -407,6 +399,9 @@ export default function MiniCanvas({
     const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx || !offscreenCtx) return;
 
+    // Save the current canvas state before clearing
+    ctx.save();
+    
     // Clear display canvas
     ctx.clearRect(0, 0, width, height);
 
@@ -445,16 +440,34 @@ export default function MiniCanvas({
     ctx.strokeStyle = '#666';
     ctx.lineWidth = 1;
     ctx.strokeRect(x, y, displayWidth, displayHeight);
-  }, [width, height, zoom, pan.x, pan.y, hueShift, saturation, originalBrushData]);
+    
+    // Restore canvas state
+    ctx.restore();
+  }, [width, height, zoom, pan.x, pan.y, hueShift, saturation, originalBrushData, getBrushTipSize]);
+
+  // Schedule a render to prevent multiple renders per frame
+  const scheduleRender = useCallback(() => {
+    if (renderPendingRef.current) return;
+    renderPendingRef.current = true;
+    
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+    
+    animationFrameRef.current = requestAnimationFrame(() => {
+      renderPendingRef.current = false;
+      renderCanvas();
+    });
+  }, [renderCanvas]);
 
   // Separate effect for hue/saturation changes - trigger re-rendering
   useEffect(() => {
     if (brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush) {
       // Force re-initialization to pick up hue/saturation changes
       initializeBrushTip();
-      renderCanvas();
+      scheduleRender();
     }
-  }, [hueShift, saturation, brushSettings.brushShape, brushSettings.selectedCustomBrush]);
+  }, [hueShift, saturation, brushSettings.brushShape, brushSettings.selectedCustomBrush, scheduleRender, initializeBrushTip]);
 
   // Draw checkerboard background
   const drawCheckerboard = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
@@ -541,20 +554,15 @@ export default function MiniCanvas({
     }
     
     // Request a render update
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
+    scheduleRender();
+    
+    // Emit the updated brush tip
+    if (onBrushTipChange) {
+      const brushDimensions = getBrushTipSize();
+      const updatedImageData = ctx.getImageData(0, 0, brushDimensions.width, brushDimensions.height);
+      const dimensions = getActualBrushDimensions();
+      onBrushTipChange(updatedImageData, dimensions.width, dimensions.height);
     }
-    animationFrameRef.current = requestAnimationFrame(() => {
-      renderCanvas();
-      
-      // Emit the updated brush tip
-      if (onBrushTipChange) {
-        const brushDimensions = getBrushTipSize();
-        const updatedImageData = ctx.getImageData(0, 0, brushDimensions.width, brushDimensions.height);
-        const dimensions = getActualBrushDimensions();
-        onBrushTipChange(updatedImageData, dimensions.width, dimensions.height);
-      }
-    });
   };
 
   // Mouse event handlers
@@ -658,7 +666,7 @@ export default function MiniCanvas({
     setUndoStack(prev => prev.slice(0, -1));
     
     ctx.putImageData(previousState, 0, 0);
-    renderCanvas();
+    scheduleRender();
     
     // Emit the restored brush tip
     if (onBrushTipChange) {
@@ -687,7 +695,7 @@ export default function MiniCanvas({
     setRedoStack(prev => prev.slice(0, -1));
     
     ctx.putImageData(nextState, 0, 0);
-    renderCanvas();
+    scheduleRender();
     
     // Emit the restored brush tip
     if (onBrushTipChange) {
@@ -698,8 +706,8 @@ export default function MiniCanvas({
 
   // Update rendering when zoom/pan changes
   useEffect(() => {
-    renderCanvas();
-  }, [renderCanvas]);
+    scheduleRender();
+  }, [scheduleRender]);
 
   // Keyboard shortcuts for undo/redo in mini canvas
   useEffect(() => {
