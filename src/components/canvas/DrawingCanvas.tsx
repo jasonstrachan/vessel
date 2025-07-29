@@ -584,7 +584,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           currentCustomBrush || undefined,
           brushSettings.useSwatchColor,
           brushSettings.hueShift,
-          brushSettings.saturationAdjust
+          brushSettings.saturationAdjust,
+          brushSettings.brushShape,
+          brushSettings.antialiasing,
+          shapeState.points
         );
         
         previewCtx.restore();
@@ -1022,8 +1025,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     setIsDrawing(true);
     setLastPoint(point);
-    // Get pressure from pointer event (0.0 to 1.0), fallback to 0.0 for non-pressure devices when pressure is enabled
-    const pressure = e.pressure || (tools.brushSettings.pressureEnabled ? 0.0 : 1.0);
+    // Get pressure from pointer event (0.0 to 1.0), ensure consistent behavior between mouse and stylus
+    const pressure = tools.brushSettings.pressureEnabled && e.pressure !== undefined ? e.pressure : 1.0;
     setCursor({ x: point.x, y: point.y, pressure });
     
     // Performance monitoring
@@ -1104,8 +1107,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     }
 
     const point = screenToCanvas(e.clientX, e.clientY);
-    // Get pressure from pointer event (0.0 to 1.0), fallback to 0.0 for non-pressure devices when pressure is enabled
-    const rawPressure = e.pressure || (tools.brushSettings.pressureEnabled ? 0.0 : 1.0);
+    // Get pressure from pointer event (0.0 to 1.0), ensure consistent behavior between mouse and stylus
+    const rawPressure = tools.brushSettings.pressureEnabled && e.pressure !== undefined ? e.pressure : 1.0;
     const smoothedPressure = smoothPressure(rawPressure);
     setCursor({ x: point.x, y: point.y, pressure: smoothedPressure });
 
@@ -1245,8 +1248,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           ctx.globalAlpha = brushSettings.opacity;
           ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
           
-          console.log('Baking shape with', shapeState.points.length, 'points, opacity:', brushSettings.opacity);
-          
           renderShape(
             ctx,
             shapePath,
@@ -1254,7 +1255,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             currentCustomBrush || undefined,
             brushSettings.useSwatchColor,
             brushSettings.hueShift,
-            brushSettings.saturationAdjust
+            brushSettings.saturationAdjust,
+            brushSettings.brushShape,
+            brushSettings.antialiasing,
+            shapeState.points
           );
           
           ctx.restore();

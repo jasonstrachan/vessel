@@ -831,6 +831,13 @@ The Drawing Tools feature provides a comprehensive set of digital art tools for 
 5. User draws with smooth, responsive performance
 6. Rendering mode applies only to new strokes
 
+**Brush-Aware Shape Edges** (2025-07-29):
+- **Shape Mode Integration**: When shape mode is enabled, shape edges now reflect the selected brush type
+- **Pixel Brush Shapes**: Create hard, pixel-perfect edges with no antialiasing
+- **Soft Brush Shapes**: Maintain smooth, antialiased edges
+- **Visual Consistency**: Shape appearance matches stroke appearance for unified artwork
+- **Preview Accuracy**: Shape preview shows exact final rendering result
+
 **Key Inputs**:
 - **Mouse/Touch/Wacom**: Coordinates, pressure from Wacom tablets, drawing state
 - **Brush Presets**: Pixel (1px, 3px, 5px), Soft Round, Hard Round, Textured

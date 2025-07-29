@@ -99,12 +99,11 @@ class AutosaveService {
               // Update file backup time in store
               const currentState = useAppStore.getState();
               currentState.updateFileBackupTime();
-              console.log(`[Autosave] File backup saved: ${backupResult.filename}`);
-            } else {
-              console.warn(`[Autosave] File backup failed: ${backupResult.error}`);
+              // File backup saved: ${backupResult.filename}
             }
+            // File backup failed: ${backupResult.error}
           } catch (fileError) {
-            console.error('[Autosave] File backup error:', fileError);
+            // File backup error
           }
         }
       }
@@ -112,9 +111,9 @@ class AutosaveService {
       // Clear dirty state after successful background save
       freshState.clearDirtyState();
       
-      console.log(`[Autosave] Project "${freshState.project.name}" saved to background storage`);
+      // Project "${freshState.project.name}" saved to background storage
     } catch (error) {
-      console.error('[Autosave] Failed to save project to background storage:', error);
+      // Failed to save project to background storage
       
       // Only show notification for critical failures, not for every autosave issue
       // This keeps autosave truly silent unless there's a real problem

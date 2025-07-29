@@ -1218,7 +1218,6 @@ export const useBrushEngine = () => {
     }
     
     // Handle tool-specific behavior for regular brushes
-    ctx.strokeStyle = settings.color;
     
     // Handle antialiasing and pixel-perfect drawing
     if (settings.pixelAlignment) {

@@ -40,7 +40,7 @@ export class CrashRecoveryService {
         lastSaveTime: recoveryData.project.updatedAt?.getTime() || Date.now()
       };
     } catch (error) {
-      console.error('[CrashRecovery] Failed to check for unsaved work:', error);
+      // Failed to check for unsaved work
       return null;
     }
   }
@@ -74,7 +74,7 @@ export class CrashRecoveryService {
       // Clear history for the recovered project
       store.clearHistory();
 
-      console.log(`[CrashRecovery] Successfully recovered project "${recoveryData.project.name}"`);
+      // Successfully recovered project "${recoveryData.project.name}"
       
       // Show success notification
       store.addNotification({
@@ -104,7 +104,7 @@ export class CrashRecoveryService {
     try {
       // Clear the autosave data since user chose not to recover
       await backgroundStorageService.clearAutosave(projectId);
-      console.log('[CrashRecovery] Recovery dismissed, autosave data cleared');
+      // Recovery dismissed, autosave data cleared
     } catch (error) {
       console.error('[CrashRecovery] Failed to dismiss recovery:', error);
     }
@@ -150,7 +150,7 @@ export class CrashRecoveryService {
     try {
       // Clean up autosaves older than 7 days
       await backgroundStorageService.cleanupOldAutosaves();
-      console.log('[CrashRecovery] Old recovery data cleaned up');
+      // Old recovery data cleaned up
     } catch (error) {
       console.error('[CrashRecovery] Failed to cleanup old recovery data:', error);
     }

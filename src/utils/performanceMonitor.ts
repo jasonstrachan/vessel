@@ -115,17 +115,11 @@ class PerformanceMonitor {
 
     const metrics = this.getMetrics();
     
-    console.group('🎨 Custom Brush Performance Summary');
-    console.log(`Stamps: ${metrics.brushStampCount} | Avg Time: ${metrics.averageStampTime.toFixed(2)}ms | Cache Hit Rate: ${metrics.cacheHitRate.toFixed(1)}%`);
-    
-    if (metrics.memoryPressureEvents > 0) {
-      console.log(`Memory pressure events: ${metrics.memoryPressureEvents}`);
-    }
-    
+    // Performance metrics available for debugging if needed:
+    // Stamps: metrics.brushStampCount | Avg Time: metrics.averageStampTime
+    // Cache Hit Rate: metrics.cacheHitRate | Memory pressure events: metrics.memoryPressureEvents
     const cacheStats = metrics.memoryStats.cacheStats;
-    console.log(`Cache Entries: Brush(${cacheStats.brushCache.entries}) | Pressure(${cacheStats.pressureOptimizer.entries}) | Scaled(${cacheStats.scaledBrushCache.entries})`);
-    
-    console.groupEnd();
+    // Cache Entries: Brush(cacheStats.brushCache.entries) | Pressure(cacheStats.pressureOptimizer.entries) | Scaled(cacheStats.scaledBrushCache.entries)
   }
 
   /**
