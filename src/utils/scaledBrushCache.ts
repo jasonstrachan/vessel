@@ -125,7 +125,7 @@ class ScaledBrushCache {
 
     // Create the base brush canvas
     const baseCanvas = canvasPool.acquire(customBrush.width, customBrush.height);
-    const baseCtx = baseCanvas.getContext('2d');
+    const baseCtx = baseCanvas.getContext('2d', { willReadFrequently: true });
     if (!baseCtx) {
       canvasPool.release(baseCanvas);
       throw new Error('Failed to get 2D context for base canvas');
@@ -162,7 +162,7 @@ class ScaledBrushCache {
 
     // Create scaled canvas
     const scaledCanvas = canvasPool.acquire(scaledWidth, scaledHeight);
-    const scaledCtx = scaledCanvas.getContext('2d');
+    const scaledCtx = scaledCanvas.getContext('2d', { willReadFrequently: true });
     if (!scaledCtx) {
       canvasPool.release(baseCanvas);
       canvasPool.release(scaledCanvas);
