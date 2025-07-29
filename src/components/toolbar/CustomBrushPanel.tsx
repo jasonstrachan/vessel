@@ -10,7 +10,9 @@ export const CustomBrushPanel = () => {
     currentLayer,
     selectionStart,
     selectionEnd,
-    clearSelection
+    clearSelection,
+    setBrushSettings,
+    tools
   } = useAppStore();
 
   const handleAddCustomBrush = () => {

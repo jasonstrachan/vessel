@@ -59,11 +59,11 @@ const LeftToolbar = () => {
   };
 
   return (
-    <div className="w-[48px] flex flex-col pt-4 pb-0" style={{ backgroundColor: '#31313A' }}>
+    <div className="w-[48px] flex flex-col pt-4 pb-0" style={{ backgroundColor: '#2C2C2C' }}>
       {toolGroups.map((group, groupIndex) => (
         <React.Fragment key={groupIndex}>
           {groupIndex > 0 && (
-            <div className="h-[2px] bg-[#65656A] w-[32px] mx-auto my-2 flex-shrink-0" />
+            <div className="h-[2px] bg-[#424242] w-[32px] mx-auto my-2 flex-shrink-0" />
           )}
           {group.map((tool) => (
             <button

@@ -104,14 +104,13 @@ const BrushLibrary = () => {
         brushShape: BrushShape.CUSTOM,
         selectedCustomBrush: customBrushId,
         size: 100, // Default to 100% (original size) for custom brushes
-        useSwatchColor: false // Default to false so custom brushes use their tip colors
+        useSwatchColor: false, // Default to false so custom brushes use their tip colors
+        hueShift: 0,           // Reset global hueShift when selecting custom brush
+        saturationAdjust: 100  // Reset global saturationAdjust when selecting custom brush
       });
     } else {
-      // For regular presets, clear custom brush state first
-      setBrushSettings({
-        selectedCustomBrush: null
-      });
-      // Then apply the preset (this will set the correct brush shape from the preset)
+      // For regular presets, use setBrushPreset directly
+      // The state cleanup logic in setBrushPreset will handle clearing custom brush state atomically
       setBrushPreset(preset);
     }
   };
@@ -138,8 +137,8 @@ const BrushLibrary = () => {
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#31313A]">
-      <div className="flex items-center justify-between px-3 py-2 bg-[#31313A] border-b border-[#4a4a4a]">
+    <div className="h-full flex flex-col bg-[#2C2C2C]">
+      <div className="flex items-center justify-between px-3 py-2 bg-[#2C2C2C] border-b border-[#4a4a4a]">
         <span className="font-medium text-[#D9D9D9]" style={{ fontSize: '14px' }}>Brush Library</span>
         <div className="flex items-center space-x-2">
           {canSaveCustomBrush && (

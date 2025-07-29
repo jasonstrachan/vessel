@@ -201,6 +201,9 @@ export interface BrushSettings {
   dashGap: number;
   // Grid snap settings
   gridSnapEnabled: boolean;
+  // Hue and saturation adjustments for custom brushes
+  hueShift?: number; // -180 to 180 degrees
+  saturationAdjust?: number; // 0 to 200 percent
   // Current brush tip (edited in mini canvas) with brush identifier
   currentBrushTip?: {
     imageData: ImageData;

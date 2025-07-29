@@ -128,6 +128,7 @@ export function adjustHueAndSaturation(imageData: ImageData, hueShift: number, s
   const data = new Uint8ClampedArray(imageData.data);
   const saturationFactor = saturationPercent / 100;
   
+  
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i];
     const g = data[i + 1];

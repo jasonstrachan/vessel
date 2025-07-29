@@ -95,7 +95,7 @@ export default function Home() {
       <LeftToolbar />
       
       {/* Separator */}
-      <div className="w-[2px] bg-[#65656A] h-screen flex-shrink-0" />
+      <div className="w-[2px] bg-[#424242] h-screen flex-shrink-0" />
       
       {/* Main Canvas Area */}
       <div 
@@ -109,16 +109,16 @@ export default function Home() {
       </div>
       
       {/* Separator */}
-      <div className="w-[2px] bg-[#65656A] h-screen flex-shrink-0" />
+      <div className="w-[2px] bg-[#424242] h-screen flex-shrink-0" />
       
       {/* RHC1 - MiniCanvas + Layers */}
       <RHC1Panel />
       
       {/* Separator */}
-      <div className="w-[2px] bg-[#65656A] h-screen flex-shrink-0" />
+      <div className="w-[2px] bg-[#424242] h-screen flex-shrink-0" />
       
       {/* RHC2 - ColorPickerPanel + BrushLibrary + ControlsPanel */}
-      <div className="bg-[#31313A] flex flex-col h-screen flex-shrink-0" style={{ width: '240px', minWidth: '240px', maxWidth: '240px' }}>
+      <div className="flex flex-col h-screen flex-shrink-0" style={{ width: '240px', minWidth: '240px', maxWidth: '240px' }}>
         <div className="flex-shrink-0">
           <ColorPickerPanel />
         </div>
@@ -126,7 +126,7 @@ export default function Home() {
           <BrushLibrary />
         </div>
         {/* Separator */}
-        <div className="h-[2px] bg-[#65656A] w-full flex-shrink-0" />
+        <div className="h-[2px] bg-[#424242] w-full flex-shrink-0" />
         <div className="flex-[2] min-h-0 overflow-y-auto">
           <ControlsPanel />
         </div>

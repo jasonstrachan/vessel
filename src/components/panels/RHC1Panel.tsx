@@ -10,18 +10,12 @@ import { brushCache } from '../../utils/brushCache';
 import { BrushShape } from '../../types';
 
 export default function RHC1Panel() {
-  const { tools } = useAppStore();
+  const { tools, setBrushSettings, temporaryCustomBrush } = useAppStore();
   const { brushSettings } = tools;
   
-  // Local state for hue shift and saturation
-  const [hueShift, setHueShift] = React.useState(0);
-  const [saturation, setSaturation] = React.useState(100);
-
-  // Reset hue shift and saturation when brush changes
-  React.useEffect(() => {
-    setHueShift(0);
-    setSaturation(100);
-  }, [brushSettings.brushShape, brushSettings.selectedCustomBrush]);
+  // Use global state for hue shift and saturation
+  const hueShift = brushSettings.hueShift ?? 0;
+  const saturation = brushSettings.saturationAdjust ?? 100;
 
   // Helper function to get current brush ID
   const getCurrentBrushId = React.useCallback(() => {
@@ -33,7 +27,7 @@ export default function RHC1Panel() {
 
   // Enhanced hue shift handler that clears cache
   const handleHueShiftChange = React.useCallback((newHueShift: number) => {
-    setHueShift(newHueShift);
+    setBrushSettings({ hueShift: newHueShift });
     
     // Clear both cache systems for custom brushes when hue changes
     if (brushSettings.brushShape === BrushShape.CUSTOM) {
@@ -43,11 +37,11 @@ export default function RHC1Panel() {
       scaledBrushCache.clearForBrush('current-brush-tip');
       brushCache.clear();
     }
-  }, [brushSettings.brushShape, getCurrentBrushId]);
+  }, [brushSettings.brushShape, getCurrentBrushId, setBrushSettings]);
 
   // Enhanced saturation handler that clears cache
   const handleSaturationChange = React.useCallback((newSaturation: number) => {
-    setSaturation(newSaturation);
+    setBrushSettings({ saturationAdjust: newSaturation });
     
     // Clear both cache systems for custom brushes when saturation changes
     if (brushSettings.brushShape === BrushShape.CUSTOM) {
@@ -57,10 +51,10 @@ export default function RHC1Panel() {
       scaledBrushCache.clearForBrush('current-brush-tip');
       brushCache.clear();
     }
-  }, [brushSettings.brushShape, getCurrentBrushId]);
+  }, [brushSettings.brushShape, getCurrentBrushId, setBrushSettings]);
 
   return (
-    <div className="bg-[#31313A] flex flex-col h-screen flex-shrink-0" style={{ width: '240px', minWidth: '240px', maxWidth: '240px' }}>
+    <div className="bg-[#2C2C2C] flex flex-col h-screen flex-shrink-0" style={{ width: '240px', minWidth: '240px', maxWidth: '240px' }}>
       {/* MiniCanvas Section */}
       <div className="flex-shrink-0">
         <MiniCanvasPanel 
@@ -86,7 +80,7 @@ export default function RHC1Panel() {
       </div>
       
       {/* Separator */}
-      <div className="h-[2px] bg-[#65656A] w-full flex-shrink-0" />
+      <div className="h-[2px] bg-[#424242] w-full flex-shrink-0" />
       
       {/* Layers Section */}
       <div className="flex-1 min-h-0 overflow-y-auto">

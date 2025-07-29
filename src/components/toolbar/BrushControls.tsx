@@ -24,7 +24,7 @@ export default function BrushControls() {
   }, [setActiveSettings]);
 
   return (
-    <div className="bg-[#31313A] p-4">
+    <div className="p-4">
         {/* Color */}
         <div className="mb-3">
           <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>Color</label>

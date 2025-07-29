@@ -35,6 +35,7 @@ export default function MiniCanvas({
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
   const [originalBrushData, setOriginalBrushData] = useState<ImageData | null>(null);
+  const [previousBrushType, setPreviousBrushType] = useState<string>('');
   
   // Panning state
   const [spacebarPressed, setSpacebarPressed] = useState(false);
@@ -53,21 +54,30 @@ export default function MiniCanvas({
   // Get brush engine for drawing
   const { renderBrushStroke } = useBrushEngine();
 
-  // Helper function to check if current brush is a default brush
-  const isDefaultBrush = useCallback(() => {
-    // Non-custom brushes are always default
+  // Helper function to check if current brush is read-only (should not be editable)
+  const isBrushReadOnly = useCallback(() => {
+    // Standard brush shapes (Round, Square, Pixel) are not editable
     if (brushSettings.brushShape !== BrushShape.CUSTOM) {
       return true;
     }
     
-    // Check if the selected custom brush is actually a default brush preset
-    if (brushSettings.selectedCustomBrush) {
-      const preset = brushPresets.find(p => p.id === brushSettings.selectedCustomBrush);
-      return preset?.isDefault === true;
+    // For custom brushes, ensure we have both the shape setting AND a valid selected brush
+    if (!brushSettings.selectedCustomBrush) {
+      return true; // No custom brush selected, treat as read-only
     }
     
-    return false;
-  }, [brushSettings.brushShape, brushSettings.selectedCustomBrush, brushPresets]);
+    // Validate that the selected custom brush actually exists
+    const customBrushExists = (
+      // Check temporary custom brush
+      (temporaryCustomBrush && temporaryCustomBrush.id === brushSettings.selectedCustomBrush) ||
+      // Check project custom brushes
+      (project?.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush)) ||
+      // Check brush presets for custom brush data
+      (brushPresets.find(p => p.isCustomBrush && p.customBrushData && p.id === brushSettings.selectedCustomBrush))
+    );
+    
+    return !customBrushExists; // Read-only if brush doesn't exist
+  }, [brushSettings.brushShape, brushSettings.selectedCustomBrush, temporaryCustomBrush, project?.customBrushes, brushPresets]);
 
   // Helper function to calculate appropriate zoom
   const calculateFitZoom = (brushWidth: number, brushHeight: number): number => {
@@ -83,16 +93,41 @@ export default function MiniCanvas({
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!canvas || !offscreenCanvas) return;
 
+    // Detect brush type change
+    const currentBrushType = `${brushSettings.brushShape}_${brushSettings.selectedCustomBrush || 'none'}`;
+    const brushTypeChanged = previousBrushType && previousBrushType !== currentBrushType;
+    setPreviousBrushType(currentBrushType);
+
     // Set up display canvas
     canvas.width = width;
     canvas.height = height;
     
     // Set up offscreen canvas (actual brush dimensions)
     const brushSize = getBrushTipSize();
-    offscreenCanvas.width = brushSize.width;
-    offscreenCanvas.height = brushSize.height;
+    
+    // CRITICAL: Clear the offscreen canvas when resizing to prevent stale data
+    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+    if (offscreenCtx) {
+      // Save current dimensions
+      const oldWidth = offscreenCanvas.width;
+      const oldHeight = offscreenCanvas.height;
+      
+      // Resize canvas
+      offscreenCanvas.width = brushSize.width;
+      offscreenCanvas.height = brushSize.height;
+      
+      // Clear the entire canvas if dimensions changed or brush type changed
+      if (oldWidth !== brushSize.width || oldHeight !== brushSize.height || brushTypeChanged) {
+        offscreenCtx.clearRect(0, 0, brushSize.width, brushSize.height);
+        // Also clear display canvas when brush type changes
+        const displayCtx = canvas.getContext('2d', { willReadFrequently: true });
+        if (displayCtx && brushTypeChanged) {
+          displayCtx.clearRect(0, 0, width, height);
+        }
+      }
+    }
 
-    // Update brush tip
+    // Update brush tip with fresh data
     initializeBrushTip();
     
     // Calculate zoom to fit brush with padding
@@ -100,8 +135,19 @@ export default function MiniCanvas({
     setZoom(fitZoom);
     setPan({ x: 0, y: 0 }); // Reset pan to center
     
-    renderCanvas();
+    // Clear undo/redo stacks when switching brushes
+    if (brushTypeChanged) {
+      setUndoStack([]);
+      setRedoStack([]);
+      setOriginalBrushData(null); // Clear original data to force fresh capture
+    }
+    
+    // Force render after initialization with a slight delay to ensure canvas is ready
+    requestAnimationFrame(() => {
+      renderCanvas();
+    });
   }, [width, height, brushSettings.brushShape, brushSettings.selectedCustomBrush, brushSettings.currentBrushTip, temporaryCustomBrush, brushPresets]);
+
 
   // Get the actual dimensions of the custom brush
   const getActualBrushDimensions = useCallback(() => {
@@ -184,27 +230,76 @@ export default function MiniCanvas({
     const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
-    const size = getCanvasSize();
+    const dimensions = getBrushTipSize();
     
-    // Create current brush ID
-    const currentBrushId = brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush 
-      ? brushSettings.selectedCustomBrush // Use raw format (matches BrushControls)
-      : `standard_${brushSettings.brushShape}`;
+    // ALWAYS clear the canvas first to ensure no stale data
+    ctx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
     
-    // Check if we have a currentBrushTip for THIS specific brush
-    if (brushSettings.currentBrushTip && brushSettings.currentBrushTip.brushId === currentBrushId) {
-      // Use the edited brush tip for this brush
-      ctx.clearRect(0, 0, size, size);
+    // CRITICAL: Standard brushes should NEVER use currentBrushTip data
+    if (brushSettings.brushShape !== BrushShape.CUSTOM) {
+      // For standard brushes, always generate fresh geometric preview
+      ctx.fillStyle = '#000000';
+      
+      const center = Math.max(dimensions.width, dimensions.height) / 2;
+      const radius = Math.min(16, Math.max(dimensions.width, dimensions.height) / 4);
+      
+      switch (brushSettings.brushShape) {
+        case BrushShape.ROUND:
+          ctx.beginPath();
+          ctx.arc(center, center, radius, 0, 2 * Math.PI);
+          ctx.fill();
+          break;
+        case BrushShape.PIXEL_ROUND:
+          ctx.beginPath();
+          ctx.arc(center, center, Math.max(1, radius), 0, 2 * Math.PI);
+          ctx.fill();
+          break;
+        case BrushShape.SQUARE:
+          ctx.fillRect(center - radius, center - radius, radius * 2, radius * 2);
+          break;
+        case BrushShape.TRIANGLE:
+          ctx.beginPath();
+          ctx.moveTo(center, center - radius);
+          ctx.lineTo(center - radius, center + radius);
+          ctx.lineTo(center + radius, center + radius);
+          ctx.closePath();
+          ctx.fill();
+          break;
+        default: // Fallback
+          ctx.fillRect(center - 1, center - 1, 2, 2);
+          break;
+      }
+      
+      // Store original data for reset
+      setOriginalBrushData(ctx.getImageData(0, 0, dimensions.width, dimensions.height));
+      return;
+    }
+    
+    // Create current brush ID for custom brushes only
+    const currentBrushId = brushSettings.selectedCustomBrush || 'no-custom-brush';
+    
+    // Check if we have a currentBrushTip for THIS specific custom brush
+    if (brushSettings.currentBrushTip && 
+        brushSettings.currentBrushTip.brushId === currentBrushId &&
+        brushSettings.brushShape === BrushShape.CUSTOM) {
+      // Use the edited brush tip for this custom brush
+      ctx.clearRect(0, 0, dimensions.width, dimensions.height);
       ctx.putImageData(brushSettings.currentBrushTip.imageData, 0, 0);
       // Don't update originalBrushData here, keep the original for reset
       return;
     }
     
-    if (brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush) {
+    if (brushSettings.brushShape === BrushShape.CUSTOM) {
+      // Return early if no custom brush is selected
+      if (!brushSettings.selectedCustomBrush) {
+        return;
+      }
+      
       // Load custom brush - check temporary brush first, then project brushes, then brush presets
       let customBrush = temporaryCustomBrush && temporaryCustomBrush.id === brushSettings.selectedCustomBrush
         ? temporaryCustomBrush
         : project?.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
+      
       
       // If not found in temporary or project brushes, check brush presets
       if (!customBrush) {
@@ -229,9 +324,21 @@ export default function MiniCanvas({
         const dimensions = getActualBrushDimensions();
         ctx.clearRect(0, 0, dimensions.width, dimensions.height);
         
-        // Put the custom brush data at the origin (no centering needed)
+        // Apply hue/saturation transformations to show real-time preview
+        let displayImageData = customBrush.imageData;
+        
+        
+        if (hueShift !== 0 || saturation !== 100) {
+          displayImageData = adjustHueAndSaturation(
+            customBrush.imageData,
+            hueShift,
+            saturation
+          );
+        }
+        
+        // Put the transformed brush data at the origin (no centering needed)
         try {
-          ctx.putImageData(customBrush.imageData, 0, 0);
+          ctx.putImageData(displayImageData, 0, 0);
         } catch (error) {
         }
         
@@ -262,10 +369,23 @@ export default function MiniCanvas({
           ctx.arc(center, center, radius, 0, 2 * Math.PI);
           ctx.fill();
           break;
+        case BrushShape.PIXEL_ROUND:
+          ctx.beginPath();
+          ctx.arc(center, center, Math.max(1, radius), 0, 2 * Math.PI);
+          ctx.fill();
+          break;
         case BrushShape.SQUARE:
           ctx.fillRect(center - radius, center - radius, radius * 2, radius * 2);
           break;
-        default: // PIXEL
+        case BrushShape.TRIANGLE:
+          ctx.beginPath();
+          ctx.moveTo(center, center - radius);
+          ctx.lineTo(center - radius, center + radius);
+          ctx.lineTo(center + radius, center + radius);
+          ctx.closePath();
+          ctx.fill();
+          break;
+        default: // Fallback
           ctx.fillRect(center - 1, center - 1, 2, 2);
           break;
       }
@@ -327,6 +447,15 @@ export default function MiniCanvas({
     ctx.strokeRect(x, y, displayWidth, displayHeight);
   }, [width, height, zoom, pan.x, pan.y, hueShift, saturation, originalBrushData]);
 
+  // Separate effect for hue/saturation changes - trigger re-rendering
+  useEffect(() => {
+    if (brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush) {
+      // Force re-initialization to pick up hue/saturation changes
+      initializeBrushTip();
+      renderCanvas();
+    }
+  }, [hueShift, saturation, brushSettings.brushShape, brushSettings.selectedCustomBrush]);
+
   // Draw checkerboard background
   const drawCheckerboard = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
     const checkSize = 8;
@@ -379,9 +508,9 @@ export default function MiniCanvas({
     // Use the current brush settings but smaller size for mini canvas
     const brushSize = Math.max(1, Math.floor(brushSettings.size / 4));
     
-    // Always use black for default brushes to keep them colorizable
-    const isDefaultBrush = brushSettings.brushShape !== BrushShape.CUSTOM;
-    const drawColor = isDefaultBrush ? '#000000' : brushSettings.color;
+    // Always use black for standard brushes to keep them colorizable
+    const isStandardBrush = brushSettings.brushShape !== BrushShape.CUSTOM;
+    const drawColor = isStandardBrush ? '#000000' : brushSettings.color;
     
     if (isStart || !lastPoint) {
       // Single dot
@@ -441,8 +570,8 @@ export default function MiniCanvas({
       return;
     }
     
-    // Don't allow drawing on default brushes
-    if (isDefaultBrush()) return;
+    // Don't allow drawing on read-only brushes
+    if (isBrushReadOnly()) return;
     
     // Save current state to undo stack before editing
     saveToUndoStack();
@@ -661,7 +790,7 @@ export default function MiniCanvas({
           className={`block ${
             spacebarPressed 
               ? (isPanning ? 'cursor-grabbing' : 'cursor-grab')
-              : (isDefaultBrush() ? 'cursor-default' : 'cursor-crosshair')
+              : (isBrushReadOnly() ? 'cursor-default' : 'cursor-crosshair')
           }`}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
@@ -698,7 +827,7 @@ export default function MiniCanvas({
                 {brushSettings.useSwatchColor ? '⬢' : '●'}
               </span>
             </button>
-            <div className="w-[2px] self-stretch bg-[#65656A]" />
+            <div className="w-[2px] self-stretch bg-[#424242]" />
           </>
         )}
         
@@ -711,7 +840,7 @@ export default function MiniCanvas({
           <Minus size={12} />
         </button>
         
-        <div className="w-[2px] self-stretch bg-[#65656A]" />
+        <div className="w-[2px] self-stretch bg-[#424242]" />
         
         {/* Zoom in */}
         <button
@@ -722,14 +851,14 @@ export default function MiniCanvas({
           <Plus size={12} />
         </button>
         
-        <div className="w-[2px] self-stretch bg-[#65656A]" />
+        <div className="w-[2px] self-stretch bg-[#424242]" />
         
         {/* Undo */}
         <button
           onClick={handleUndo}
-          disabled={undoStack.length === 0 || isDefaultBrush()}
+          disabled={undoStack.length === 0 || isBrushReadOnly()}
           className={`py-1 px-2 rounded flex-1 ${
-            undoStack.length === 0 || isDefaultBrush()
+            undoStack.length === 0 || isBrushReadOnly()
               ? 'text-[#666] cursor-not-allowed'
               : 'text-[#D9D9D9] hover:bg-[#3A3A42]'
           }`}
@@ -738,14 +867,14 @@ export default function MiniCanvas({
           <Undo2 size={12} />
         </button>
         
-        <div className="w-[2px] self-stretch bg-[#65656A]" />
+        <div className="w-[2px] self-stretch bg-[#424242]" />
         
         {/* Redo */}
         <button
           onClick={handleRedo}
-          disabled={redoStack.length === 0 || isDefaultBrush()}
+          disabled={redoStack.length === 0 || isBrushReadOnly()}
           className={`py-1 px-2 rounded flex-1 ${
-            redoStack.length === 0 || isDefaultBrush()
+            redoStack.length === 0 || isBrushReadOnly()
               ? 'text-[#666] cursor-not-allowed'
               : 'text-[#D9D9D9] hover:bg-[#3A3A42]'
           }`}

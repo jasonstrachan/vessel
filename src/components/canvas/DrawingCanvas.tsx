@@ -706,7 +706,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       selectedCustomBrush: customBrush.id,
       size: 100, // Default to 100% (original size) for custom brushes
       useSwatchColor: false, // Default to false so custom brushes use their tip colors
-      currentBrushTip: undefined // Clear any cached brush tips
+      currentBrushTip: undefined, // Clear any cached brush tips
+      hueShift: 0,           // Reset global hueShift when selecting custom brush
+      saturationAdjust: 100  // Reset global saturationAdjust when selecting custom brush
     });
     
     // Switch to brush tool for immediate use
@@ -810,7 +812,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       selectedCustomBrush: tempBrush.id,
       size: 100, // Default to 100% (original size) for custom brushes
       useSwatchColor: false, // Default to false so custom brushes use their tip colors
-      currentBrushTip: undefined // Clear any cached brush tips
+      currentBrushTip: undefined, // Clear any cached brush tips
+      hueShift: 0,           // Reset global hueShift when selecting custom brush
+      saturationAdjust: 100  // Reset global saturationAdjust when selecting custom brush
     });
     
     // Switch to brush tool for immediate use

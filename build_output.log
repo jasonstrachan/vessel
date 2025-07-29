@@ -1,0 +1,198 @@
+
+> tinybrush-v3@3.0.0 prebuild
+> npm run cache:clear
+
+
+> tinybrush-v3@3.0.0 cache:clear
+> rm -rf .next node_modules/.cache .turbo
+
+
+> tinybrush-v3@3.0.0 build
+> next build
+
+   ▲ Next.js 15.3.4
+   - Environments: .env.local, .env
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 2000ms
+   Linting and checking validity of types ...
+
+./src/components/BrushLibrary.tsx
+73:49  Warning: 'presetName' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/components/LayerPanel.tsx
+42:11  Warning: 'layer' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+
+./src/components/canvas/DrawingCanvas.tsx
+16:10  Warning: 'calculateGridDimensions' is defined but never used.  @typescript-eslint/no-unused-vars
+45:27  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+46:27  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+49:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+50:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+51:36  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+52:33  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+53:31  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+157:5  Warning: 'updateLayer' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+272:22  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+277:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+309:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+353:89  Warning: 'isCanvasEvent' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+373:6  Warning: React Hook useCallback has unnecessary dependencies: 'canvas.panX', 'canvas.panY', and 'canvas.zoom'. Either exclude them or remove the dependency array.  react-hooks/exhaustive-deps
+433:11  Warning: 'needsFullRedraw' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+538:6  Warning: React Hook useCallback has unnecessary dependencies: 'project.customBrushes', 'tools.brushSettings.brushShape', 'tools.brushSettings.gridSnapEnabled', 'tools.brushSettings.selectedCustomBrush', and 'tools.brushSettings.size'. Either exclude them or remove the dependency array.  react-hooks/exhaustive-deps
+644:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+722:6  Warning: React Hook useCallback has unnecessary dependencies: 'canvas.panX', 'canvas.panY', and 'canvas.zoom'. Either exclude them or remove the dependency array.  react-hooks/exhaustive-deps
+774:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+894:23  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+946:6  Warning: React Hook useCallback has missing dependencies: 'activeLayerId', 'captureCanvasToActiveLayer', 'layers', 'markFullRedraw', 'renderView', 'saveCanvasState', 'tools.brushSettings.color', 'tools.brushSettings.opacity', 'tools.brushSettings.pressureEnabled', 'tools.fillSettings.contiguous', and 'tools.fillSettings.threshold'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+1060:16  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+1063:6  Warning: React Hook useCallback has missing dependencies: 'sampleColor', 'tools.brushSettings.pressureEnabled', and 'tools.currentTool'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+1153:6  Warning: React Hook useCallback has a missing dependency: 'createTemporaryCustomBrush'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+1191:6  Warning: React Hook useCallback has missing dependencies: 'activeLayerId', 'layers', and 'tools.brushSettings.pressureEnabled'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+1221:16  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+1224:6  Warning: React Hook useCallback has a missing dependency: 'tools.brushSettings.pressureEnabled'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+1226:45  Warning: 'e' is defined but never used.  @typescript-eslint/no-unused-vars
+1247:13  Warning: 'touchEndTime' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+1345:15  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+1487:18  Warning: 'err' is defined but never used.  @typescript-eslint/no-unused-vars
+1545:6  Warning: React Hook useCallback has a missing dependency: 'markFullRedraw'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+1794:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/components/canvas/MiniCanvas.tsx
+51:49  Warning: 'saveCanvasState' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+55:11  Warning: 'renderBrushStroke' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+149:6  Warning: React Hook useEffect has missing dependencies: 'calculateFitZoom', 'getBrushTipSize', 'initializeBrushTip', 'previousBrushType', and 'renderCanvas'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+219:9  Warning: 'getCanvasSize' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+333:18  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+439:6  Warning: React Hook useCallback has a missing dependency: 'getBrushTipSize'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+761:6  Warning: React Hook useEffect has missing dependencies: 'getActualBrushDimensions' and 'onBrushTipChange'. Either include them or remove the dependency array. If 'onBrushTipChange' changes too often, find the parent component that defines it and wrap that definition in useCallback.  react-hooks/exhaustive-deps
+
+./src/components/modals/SettingsModal.tsx
+35:9  Warning: The 'handleClose' function makes the dependencies of useEffect Hook (at line 86) change on every render. To fix this, wrap the definition of 'handleClose' in its own useCallback() Hook.  react-hooks/exhaustive-deps
+
+./src/components/panels/MiniCanvasPanel.tsx
+20:3  Warning: 'onHueShiftChange' is defined but never used.  @typescript-eslint/no-unused-vars
+21:3  Warning: 'onSaturationChange' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/components/retroui/Slider.tsx
+19:6  Warning: 'className' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/components/toolbar/AdvancedColorPicker.tsx
+1:36  Warning: 'useState' is defined but never used.  @typescript-eslint/no-unused-vars
+397:6  Warning: React Hook useEffect has missing dependencies: 'color' and 'onChange'. Either include them or remove the dependency array. If 'onChange' changes too often, find the parent component that defines it and wrap that definition in useCallback.  react-hooks/exhaustive-deps
+
+./src/components/toolbar/ColorPicker.tsx
+446:16  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+455:6  Warning: React Hook useEffect has missing dependencies: 'color' and 'onChange'. Either include them or remove the dependency array. If 'onChange' changes too often, find the parent component that defines it and wrap that definition in useCallback.  react-hooks/exhaustive-deps
+
+./src/components/toolbar/ColorSwatches.tsx
+10:56  Warning: 'currentColor' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/components/toolbar/CustomBrushPanel.tsx
+4:23  Warning: 'BrushShape' is defined but never used.  @typescript-eslint/no-unused-vars
+14:5  Warning: 'setBrushSettings' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+15:5  Warning: 'tools' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+63:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/components/ui/FileBackupSettings.tsx
+16:5  Warning: 'setFileBackupMode' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+61:6  Warning: React Hook useCallback has missing dependencies: 'handleSelectDirectory' and 'handleSelectFile'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+90:6  Warning: React Hook useCallback has a missing dependency: 'isSupported'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+119:6  Warning: React Hook useCallback has a missing dependency: 'isSupported'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/components/ui/Input.tsx
+1:50  Warning: 'useState' is defined but never used.  @typescript-eslint/no-unused-vars
+18:8  Warning: React Hook useEffect has a missing dependency: 'inputRef'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+80:8  Warning: React Hook useCallback has a missing dependency: 'inputRef'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+100:8  Warning: React Hook useCallback has a missing dependency: 'inputRef'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/hooks/useBrushEngine.ts
+287:18  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+368:44  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+387:44  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+402:44  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+479:6  Warning: React Hook useCallback has a missing dependency: 'tools'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+505:15  Warning: 'originalSize' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+541:6  Warning: React Hook useCallback has a missing dependency: 'quantizeBrushSize'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+570:55  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+570:67  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+689:6  Warning: React Hook useCallback has a missing dependency: 'shouldDrawStamp'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+753:6  Warning: React Hook useCallback has missing dependencies: 'shouldDrawStamp' and 'tools.brushSettings'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+793:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+832:6  Warning: React Hook useCallback has missing dependencies: 'tools.brushSettings.hueShift' and 'tools.brushSettings.saturationAdjust'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+845:6  Warning: React Hook useCallback has a missing dependency: 'tools.brushSettings.pressureEnabled'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+1028:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+1320:13  Warning: 'strokeDuration' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+1323:6  Warning: React Hook useCallback has missing dependencies: 'calculateSmoothDirection', 'shouldDrawStamp', and 'temporaryCustomBrush'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/stores/useAppStore.ts
+129:44  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+394:22  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+470:22  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+578:15  Warning: 'layerToRemove' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+1099:13  Warning: 'drawnLayers' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+1143:17  Warning: 'activeLayer' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+
+./src/utils/__tests__/autosave.test.ts
+15:18  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+61:11  Warning: 'originalInterval' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+
+./src/utils/backgroundStorage.ts
+76:28  Warning: '_' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+81:21  Warning: '_layers' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+
+./src/utils/colorAnalysis.ts
+3:24  Warning: 'Layer' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/utils/devLog.ts
+7:18  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+62:42  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+87:48  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/utils/fileBackupService.ts
+27:42  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+41:21  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+57:47  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+67:21  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+111:21  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+174:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/utils/memoryCleanup.ts
+41:23  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+55:18  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+72:16  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+83:31  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+85:24  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+86:16  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+105:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/utils/performanceMonitor.ts
+153:18  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/utils/projectIO.ts
+121:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+145:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+281:12  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+327:43  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+339:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+361:45  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+372:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+493:12  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/utils/scaledBrushCache.ts
+311:18  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules
+Failed to compile.
+
+./src/components/canvas/MiniCanvas.tsx:358:14
+Type error: Type 'BrushShape.ROUND' is not comparable to type 'BrushShape.CUSTOM'.
+
+[0m [90m 356 |[39m       [0m
+[0m [90m 357 |[39m       [36mswitch[39m (brushSettings[33m.[39mbrushShape) {[0m
+[0m[31m[1m>[22m[39m[90m 358 |[39m         [36mcase[39m [33mBrushShape[39m[33m.[39m[33mROUND[39m[33m:[39m[0m
+[0m [90m     |[39m              [31m[1m^[22m[39m[0m
+[0m [90m 359 |[39m           ctx[33m.[39mbeginPath()[33m;[39m[0m
+[0m [90m 360 |[39m           ctx[33m.[39marc(center[33m,[39m center[33m,[39m radius[33m,[39m [35m0[39m[33m,[39m [35m2[39m [33m*[39m [33mMath[39m[33m.[39m[33mPI[39m)[33m;[39m[0m
+[0m [90m 361 |[39m           ctx[33m.[39mfill()[33m;[39m[0m
+Next.js build worker exited with code: 1 and signal: null

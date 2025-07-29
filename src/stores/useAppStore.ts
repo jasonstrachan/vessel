@@ -34,7 +34,9 @@ import {
   loadProjectFromFile, 
   exportProjectAsPNG
 } from '../utils/projectIO';
+import { memoryManager } from '../utils/memoryCleanup';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
+import { adjustHueAndSaturation } from '../utils/imageProcessing';
 
 interface AppState {
   // Project State
@@ -115,6 +117,7 @@ interface AppState {
   
   // Custom Brush Management
   addCustomBrush: (brush: CustomBrush) => void;
+  updateCustomBrush: (brushId: string, updates: Partial<CustomBrush>) => void;
   removeCustomBrush: (brushId: string) => void;
   saveCustomBrushAsPreset: (customBrushId: string) => void;
   
@@ -380,7 +383,25 @@ export const useAppStore = create<AppState>()(
             if (currentSettings.lastRegularBrushSize !== undefined) {
               newSettings.size = currentSettings.lastRegularBrushSize;
             }
+            // Clear stale custom brush tip data when switching away from custom brushes
+            newSettings.currentBrushTip = undefined;
+            newSettings.selectedCustomBrush = null;
           }
+          
+          // Invalidate brush caches when brush type changes to prevent stale preview data
+          if (wasCustom !== isCustom) {
+            try {
+              memoryManager.runCleanup();
+            } catch (error) {
+              // Cache cleanup failed, continue silently
+            }
+          }
+        }
+        
+        // CRITICAL: Always clear currentBrushTip for standard brushes to prevent contamination
+        if (newSettings.brushShape !== BrushShape.CUSTOM) {
+          newSettings.currentBrushTip = undefined;
+          newSettings.selectedCustomBrush = null;
         }
         
         // Update lastRegularBrushSize when size changes for regular brushes
@@ -390,12 +411,26 @@ export const useAppStore = create<AppState>()(
         }
         
         
-        return {
+        // Clear temporary brush when switching away from custom brushes
+        const updatedState = {
+          ...state,
           tools: {
             ...state.tools,
             brushSettings: newSettings
           }
         };
+        
+        // If switching away from custom brush, discard temporary brush
+        if (settings.brushShape !== undefined && 
+            currentSettings.brushShape === BrushShape.CUSTOM && 
+            settings.brushShape !== BrushShape.CUSTOM) {
+          return {
+            ...updatedState,
+            temporaryCustomBrush: null
+          };
+        }
+        
+        return updatedState;
       }),
       setEraserSettings: (settings) => set((state) => ({
         tools: {
@@ -438,6 +473,18 @@ export const useAppStore = create<AppState>()(
             if (currentSettings.lastRegularBrushSize !== undefined) {
               newBrushSettings.size = currentSettings.lastRegularBrushSize;
             }
+            // Clear stale custom brush tip data when switching away from custom brushes
+            newBrushSettings.currentBrushTip = undefined;
+            newBrushSettings.selectedCustomBrush = null;
+          }
+          
+          // Invalidate brush caches when brush type changes to prevent stale preview data
+          if (wasCustom !== isCustom) {
+            try {
+              memoryManager.runCleanup();
+            } catch (error) {
+              // Cache cleanup failed, continue silently
+            }
           }
         }
         
@@ -447,7 +494,9 @@ export const useAppStore = create<AppState>()(
           newBrushSettings.lastRegularBrushSize = settings.size;
         }
         
-        return {
+        // Clear temporary brush when switching away from custom brushes
+        const updatedState = {
+          ...state,
           currentBrushPreset: preset,
           activeBrushComponents: components,
           tools: {
@@ -455,6 +504,18 @@ export const useAppStore = create<AppState>()(
             brushSettings: newBrushSettings
           }
         };
+        
+        // If switching away from custom brush, discard temporary brush
+        if (settings.brushShape !== undefined && 
+            currentSettings.brushShape === BrushShape.CUSTOM && 
+            settings.brushShape !== BrushShape.CUSTOM) {
+          return {
+            ...updatedState,
+            temporaryCustomBrush: null
+          };
+        }
+        
+        return updatedState;
       }),
       getBrushPresets: () => brushPresets,
       getBrushPresetById: (id) => brushPresets.find(preset => preset.id === id),
@@ -611,12 +672,17 @@ export const useAppStore = create<AppState>()(
           customBrushes: [...state.project.customBrushes, brush]
         } : null;
 
-        // Automatically select the newly created custom brush
+        // IMPORTANT: Unconditionally set hueShift and saturationAdjust to neutral defaults
+        // when a new custom brush is added and automatically selected.
+        // This ensures the global sliders reflect the new brush's "baked" state.
         const newBrushSettings = {
           ...state.tools.brushSettings,
           brushShape: BrushShape.CUSTOM,
           selectedCustomBrush: brush.id,
-          size: 100
+          size: 100, // Default size for new custom brushes
+          useSwatchColor: false, // Ensure it uses the brush's colors
+          hueShift: 0,           // <--- CRITICAL: Reset global hueShift here
+          saturationAdjust: 100  // <--- CRITICAL: Reset global saturationAdjust here
         };
 
         return {
@@ -624,6 +690,20 @@ export const useAppStore = create<AppState>()(
           tools: {
             ...state.tools,
             brushSettings: newBrushSettings
+          }
+        };
+      }),
+      updateCustomBrush: (brushId, updates) => set((state) => {
+        if (!state.project) return state;
+        
+        const updatedBrushes = state.project.customBrushes.map(brush => 
+          brush.id === brushId ? { ...brush, ...updates } : brush
+        );
+        
+        return {
+          project: {
+            ...state.project,
+            customBrushes: updatedBrushes
           }
         };
       }),
@@ -641,13 +721,37 @@ export const useAppStore = create<AppState>()(
         }
         
         const customBrush = state.temporaryCustomBrush;
+        const currentBrushSettings = state.tools.brushSettings;
         
         if (!state.project) return state;
         
-        // Add the temporary brush to project's custom brushes
+        // CRITICAL FIX: Apply current hue shift and saturation adjustments to the brush ImageData
+        // This "bakes" the visual transformations into the saved brush so it looks the same
+        let finalImageData = customBrush.imageData;
+        
+        // Apply hue shift and saturation adjustments if they're not at defaults
+        const hasHueShift = currentBrushSettings.hueShift !== 0;
+        const hasSaturationAdjust = currentBrushSettings.saturationAdjust !== 100;
+        
+        if (hasHueShift || hasSaturationAdjust) {
+          // Apply the hue shift and saturation adjustments to the brush ImageData
+          finalImageData = adjustHueAndSaturation(
+            customBrush.imageData,
+            currentBrushSettings.hueShift || 0,
+            currentBrushSettings.saturationAdjust || 100
+          );
+        }
+        
+        // Create the final brush with transformed ImageData
+        const transformedBrush = {
+          ...customBrush,
+          imageData: finalImageData
+        };
+        
+        // Add the transformed brush to project's custom brushes
         const updatedProject = {
           ...state.project,
-          customBrushes: [...state.project.customBrushes, customBrush]
+          customBrushes: [...state.project.customBrushes, transformedBrush]
         };
         
         return {
@@ -655,7 +759,7 @@ export const useAppStore = create<AppState>()(
           temporaryCustomBrush: null,
           // Update the project with the new custom brush
           project: updatedProject,
-          // Keep the same brush selected (with its original ID)
+          // Keep the same brush selected but reset transformations since they're now baked in
           tools: {
             ...state.tools,
             brushSettings: {
@@ -663,7 +767,9 @@ export const useAppStore = create<AppState>()(
               brushShape: BrushShape.CUSTOM,
               selectedCustomBrush: customBrush.id, // Keep using the original brush ID
               currentBrushTip: undefined, // Clear currentBrushTip since the brush is now saved
-              useSwatchColor: false // Default to false so custom brushes use their tip colors
+              useSwatchColor: false, // Default to false so custom brushes use their tip colors
+              hueShift: 0,           // Reset since transformations are now baked into the brush
+              saturationAdjust: 100  // Reset since transformations are now baked into the brush
             }
           }
         };
