@@ -1040,6 +1040,85 @@ The Drawing Tools feature provides a comprehensive set of digital art tools for 
 - Clear selection only affects selected pixels
 - Layer clear removes all pixel data
 
+### Shape Brush Mode
+**Purpose**: Transform any brush into a shape-drawing tool that creates filled polygons with live preview.
+
+**Shape Creation System**:
+- **Universal Compatibility**: Works with all brush types (default brushes and custom brushes)
+- **Hold-to-Draw**: Continuous shape creation while mouse button is held down
+- **Live Preview**: Real-time preview that matches the final result exactly
+- **Smart Filling**: Default brushes use solid colors, custom brushes use tiled patterns
+- **Mouse-Up Completion**: Shape is finalized and baked when mouse button is released
+
+**Core Flow**:
+1. User toggles Shape mode in brush controls (above Pressure setting)
+2. User selects any brush (default or custom) with Shape mode enabled
+3. User presses and holds mouse button to start shape creation
+4. System continuously collects points as user drags mouse
+5. Live preview shows filled shape in real-time during drawing
+6. User releases mouse button to finalize and bake the shape
+7. Shape is permanently added to the active layer with no transparency
+
+**Key Inputs**:
+- **Shape Toggle**: Boolean setting in brush controls above Pressure
+- **Mouse Hold**: Continuous mouse button press to collect shape points
+- **Mouse Movement**: Path coordinates collected during mouse hold
+- **Mouse Release**: Triggers shape completion and baking
+- **Brush Settings**: Current brush color, opacity, and brush type
+- **Canvas Position**: All shape points relative to canvas coordinates
+
+**Key Outputs**:
+- **Live Preview**: Real-time filled shape preview during drawing
+- **Baked Shape**: Permanent filled polygon added to layer on mouse release
+- **Layer ImageData**: Modified pixel data with filled shape
+- **Shape Path**: Closed Path2D object for efficient rendering
+- **Visual Feedback**: Preview matches final result exactly (no transparency difference)
+
+**Shape Filling Behavior**:
+- **Default Brushes**: Filled with solid brush color respecting opacity settings
+- **Custom Brushes**: Filled with repeating tiled pattern from custom brush image
+- **Opacity Handling**: Shape respects brush opacity settings for both preview and final result
+- **No Transparency Issues**: Both preview and final shapes are solid, no disappearing
+
+**Dependencies**:
+- Path2D API for efficient shape path creation and rendering
+- Canvas composition operations for preview and baking
+- Shape utilities (createShapePath, renderShape, renderShapePreview)
+- Point collection and path simplification algorithms
+- Layer management system for baking final shapes
+- Mouse event handling for continuous point collection
+
+**Technical Implementation**:
+- **ShapePoint Interface**: `{ x: number, y: number }` for coordinate storage
+- **ShapeState Management**: Zustand store handles drawing state and point collection
+- **Path Simplification**: Removes redundant points within tolerance (2px default)
+- **Preview Rendering**: Uses same render function as final shape for consistency
+- **Async Baking**: Proper timing to prevent shape disappearing on mouse release
+- **Canvas Layers**: Preview on main canvas, baking to offscreen canvas with recomposition
+
+**Performance Optimizations**:
+- **Point Tolerance**: Path simplification reduces redundant points for smoother performance
+- **Efficient Rendering**: Path2D objects provide optimal canvas performance
+- **Preview Caching**: Shape path cached and reused until mouse release
+- **Minimal Redraws**: Only affected canvas areas updated during preview
+
+**Integration Points**:
+- **BrushSettings Interface**: `shapeEnabled: boolean` added to all brush settings
+- **BrushControls Component**: Shape toggle positioned above Pressure toggle
+- **DrawingCanvas Component**: Integrated into pointer event handlers
+- **Brush Presets**: All preset brushes default to `shapeEnabled: false`
+- **Store Management**: Shape state managed alongside other brush states
+
+**Business Rules**:
+- **Universal Tool**: Shape mode works with every brush type without exception
+- **Hold-to-Draw**: Shape collection only occurs while mouse button is held down
+- **Instant Baking**: Shape is immediately permanent when mouse button is released
+- **No Pressure Interaction**: Shape mode bypasses pressure sensitivity (shapes are solid fills)
+- **Preview Accuracy**: Live preview must look identical to final baked result
+- **Performance Requirement**: Smooth 60fps preview during shape creation
+- **Layer Respect**: Shapes are drawn to currently active layer only
+- **Color Consistency**: Shape color matches current brush color/pattern settings
+
 ## Advanced Tool Features
 
 ### Pressure Sensitivity Simulation

@@ -93,6 +93,20 @@ export default function BrushControls() {
         />
       </div>
 
+      {/* Shape */}
+      <div className="mb-3">
+        <div className="flex items-center space-x-2 mb-2">
+          <Switch
+            id="shape-enabled"
+            checked={activeSettings.shapeEnabled || false}
+            onChange={(checked) => setActiveSettings({ shapeEnabled: checked })}
+          />
+          <label htmlFor="shape-enabled" className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
+            Shape
+          </label>
+        </div>
+      </div>
+
       {/* Pressure */}
       <div className="mb-3">
         <div className="flex items-center space-x-2 mb-2">
@@ -121,7 +135,7 @@ export default function BrushControls() {
             <Input
               type="number"
               variant="compact"
-              value={activeSettings.maxPressure ?? ''}
+              value={activeSettings.maxPressure ?? (activeSettings.brushShape === BrushShape.CUSTOM ? 100 : '')}
               onChange={(e) => {
                 const value = parseInt(e.target.value);
                 setActiveSettings({ maxPressure: value || undefined });

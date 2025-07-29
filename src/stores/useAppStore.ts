@@ -26,6 +26,8 @@ import type {
   CustomBrush,
   HistoryState,
   CanvasSnapshot,
+  ShapeState,
+  ShapePoint,
 } from '../types';
 import { BrushShape } from '../types';
 import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
@@ -96,6 +98,12 @@ interface AppState {
   temporaryCustomBrush: CustomBrush | null;
   setTemporaryCustomBrush: (brush: CustomBrush | null) => void;
   
+  // Shape State
+  shapeState: ShapeState;
+  setShapeDrawing: (isDrawing: boolean) => void;
+  addShapePoint: (point: ShapePoint) => void;
+  clearShapePoints: () => void;
+  setShapePreviewPath: (path: Path2D | undefined) => void;
   
   // UI State
   ui: UIState;
@@ -210,6 +218,12 @@ const defaultHistoryState: HistoryState = {
   redoStack: [],
   maxHistorySize: 50,
   isCapturing: false
+};
+
+const defaultShapeState: ShapeState = {
+  isDrawing: false,
+  points: [],
+  previewPath: undefined
 };
 
 export const useAppStore = create<AppState>()(
@@ -453,6 +467,28 @@ export const useAppStore = create<AppState>()(
       // Temporary Custom Brush
       temporaryCustomBrush: null,
       setTemporaryCustomBrush: (brush) => set({ temporaryCustomBrush: brush }),
+      
+      // Shape State
+      shapeState: defaultShapeState,
+      setShapeDrawing: (isDrawing) => set((state) => ({
+        shapeState: { ...state.shapeState, isDrawing }
+      })),
+      addShapePoint: (point) => set((state) => ({
+        shapeState: { 
+          ...state.shapeState, 
+          points: [...state.shapeState.points, point] 
+        }
+      })),
+      clearShapePoints: () => set((state) => ({
+        shapeState: { 
+          ...state.shapeState, 
+          points: [], 
+          previewPath: undefined 
+        }
+      })),
+      setShapePreviewPath: (path) => set((state) => ({
+        shapeState: { ...state.shapeState, previewPath: path }
+      })),
       setBrushPreset: (preset) => set((state) => {
         
         const { settings, components } = applyBrushPreset(preset);

@@ -14,6 +14,7 @@ import { memoryManager } from '../../utils/memoryCleanup';
 import { scaledBrushCache } from '../../utils/scaledBrushCache';
 import { brushCache } from '../../utils/brushCache';
 import { calculateGridDimensions } from '../../utils/gridSnap';
+import { createShapePath, renderShape, renderShapePreview, simplifyPath } from '../../utils/shapeUtils';
 import type { Tool } from '../../types';
 import { BrushShape } from '../../types';
 import BrushCursor from './BrushCursor';
@@ -133,6 +134,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   const [cursorScreenX, setCursorScreenX] = useState(0);
   const [cursorScreenY, setCursorScreenY] = useState(0);
   
+  // Shape preview cache for performance
+  const shapePreviewCacheRef = useRef<HTMLCanvasElement | null>(null);
+  
   const {
     canvas,
     tools,
@@ -165,13 +169,31 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     captureCanvasToActiveLayer,
     captureCanvasToLayer,
     setProjectDimensions,
+    shapeState,
+    setShapeDrawing,
+    addShapePoint,
+    clearShapePoints,
+    setShapePreviewPath,
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue } = useBrushEngine();
   
+  // Get current custom brush data
+  const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
+  
   // Use project dimensions if available, otherwise use props or defaults
   const width = project?.width || propWidth || DEFAULT_CANVAS_WIDTH;
   const height = project?.height || propHeight || DEFAULT_CANVAS_HEIGHT;
+  
+  // Clear shape state when shape mode is disabled
+  useEffect(() => {
+    if (!tools.brushSettings.shapeEnabled && shapeState.isDrawing) {
+      setShapeDrawing(false);
+      clearShapePoints();
+      setShapePreviewPath(undefined);
+      shapePreviewCacheRef.current = null;
+    }
+  }, [tools.brushSettings.shapeEnabled, shapeState.isDrawing, setShapeDrawing, clearShapePoints, setShapePreviewPath]);
 
   // Deduplicated saveCanvasState to prevent double calls from pointer + touch events
   const saveCanvasStateDeduped = useCallback((canvas: HTMLCanvasElement, actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'paste', description: string) => {
@@ -367,10 +389,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     
     
-    // Show brush cursor for brush-like tools (optimized to avoid unnecessary updates)
+    // Show brush cursor for brush-like tools, including during shape drawing (optimized to avoid unnecessary updates)
     const shouldShowBrushCursor = (tools.currentTool === 'brush' || tools.currentTool === 'eraser') && !spacebarPressed && isMouseOverCanvas;
     setShowBrushCursor(prev => prev !== shouldShowBrushCursor ? shouldShowBrushCursor : prev);
-  }, [transformScreenToCanvas, canvas.panX, canvas.panY, canvas.zoom, tools.currentTool, spacebarPressed, isMouseOverCanvas]);
+  }, [transformScreenToCanvas, canvas.panX, canvas.panY, canvas.zoom, tools.currentTool, spacebarPressed, isMouseOverCanvas, shapeState.isDrawing]);
   
   // Convert screen coordinates to world coordinates
   // SIMPLIFIED: Use same coordinate system as cursor positioning for alignment
@@ -530,12 +552,56 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       ctx.setLineDash([]);
     }
     
+    // Draw shape preview if in shape mode (optimized with caching)
+    if (shapeState.isDrawing && shapeState.previewPath && tools.brushSettings.shapeEnabled) {
+      const brushSettings = tools.brushSettings;
+      const currentCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM && 
+        brushSettings.selectedCustomBrush
+        ? (temporaryCustomBrush && temporaryCustomBrush.id === brushSettings.selectedCustomBrush
+            ? temporaryCustomBrush
+            : project?.customBrushes?.find(b => b.id === brushSettings.selectedCustomBrush))
+        : null;
+
+      // Use cached preview canvas for better performance
+      if (!shapePreviewCacheRef.current) {
+        shapePreviewCacheRef.current = document.createElement('canvas');
+        shapePreviewCacheRef.current.width = width;
+        shapePreviewCacheRef.current.height = height;
+      }
+      
+      const previewCtx = shapePreviewCacheRef.current.getContext('2d');
+      if (previewCtx) {
+        // Clear and render to cache canvas
+        previewCtx.clearRect(0, 0, width, height);
+        previewCtx.save();
+        previewCtx.globalAlpha = brushSettings.opacity; // Use actual brush opacity - no transparency
+        previewCtx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
+        
+        renderShape(
+          previewCtx,
+          shapeState.previewPath,
+          brushSettings.color,
+          currentCustomBrush || undefined,
+          brushSettings.useSwatchColor,
+          brushSettings.hueShift,
+          brushSettings.saturationAdjust
+        );
+        
+        previewCtx.restore();
+        
+        // Draw cached preview to main canvas
+        ctx.save();
+        ctx.drawImage(shapePreviewCacheRef.current, 0, 0);
+        ctx.restore();
+      }
+    }
+    
     // Restore context state
     ctx.restore();
     
     // Clear dirty regions after rendering
     clearDirtyRegions();
-  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.selection, width, height, selectionStart, selectionEnd, checkerboardPattern, clearDirtyRegions, tools.brushSettings.brushShape, tools.brushSettings.selectedCustomBrush, tools.brushSettings.size, tools.brushSettings.gridSnapEnabled, project?.customBrushes]);
+  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.selection, width, height, selectionStart, selectionEnd, checkerboardPattern, clearDirtyRegions, tools.brushSettings.brushShape, tools.brushSettings.selectedCustomBrush, tools.brushSettings.size, tools.brushSettings.gridSnapEnabled, tools.brushSettings.shapeEnabled, project?.customBrushes, shapeState, temporaryCustomBrush]);
 
   // Enhanced drawing function - draws on offscreen canvas and re-renders view
   const drawLine = useCallback((from: { x: number; y: number }, to: { x: number; y: number }) => {
@@ -828,6 +894,12 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
   }, [selectionStart, selectionEnd, project, setBrushSettings, setCurrentTool, clearSelection]);
 
+  // Shape completion handler
+  const handleDoubleClick = useCallback(async (e: React.MouseEvent) => {
+    // Double-click now does nothing special for shapes since they complete on mouse up
+    e.preventDefault();
+  }, []);
+
   // Pointer event handlers (supports pressure from stylus/pen)
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     updateMousePosition(e, true); // Canvas event
@@ -919,6 +991,25 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     if (canvas.selection.active && isPointInSelection(point.x, point.y)) {
       setIsDraggingSelection(true);
       setSelectionDragStart(point);
+      e.preventDefault();
+      return;
+    }
+
+    // Handle shape mode for brush and eraser tools
+    if ((tools.currentTool === 'brush' || tools.currentTool === 'eraser') && tools.brushSettings.shapeEnabled) {
+      // Start new shape (like starting a brush stroke)
+      setShapeDrawing(true);
+      clearShapePoints();
+      addShapePoint(point);
+      
+      // Also set normal drawing state so pointer move events work
+      setIsDrawing(true);
+      setLastPoint(point);
+      
+      // Lock the target layer to prevent pixel swapping if user switches layers mid-stroke
+      const targetLayerId = activeLayerId || layers[0]?.id || null;
+      setDrawingTargetLayerId(targetLayerId);
+      
       e.preventDefault();
       return;
     }
@@ -1054,13 +1145,31 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
     // Only draw if not in selection mode
     if (isDrawing && lastPoint && !isSelecting) {
-      try {
-        drawLine(lastPoint, point);
-        setLastPoint(point);
-      } catch (error) {
+      // Handle shape mode - collect points while drawing
+      if ((tools.currentTool === 'brush' || tools.currentTool === 'eraser') && tools.brushSettings.shapeEnabled && shapeState.isDrawing) {
+        // Add point to shape with some distance threshold to avoid too many points
+        const lastShapePoint = shapeState.points[shapeState.points.length - 1];
+        if (!lastShapePoint || 
+            Math.sqrt(Math.pow(point.x - lastShapePoint.x, 2) + Math.pow(point.y - lastShapePoint.y, 2)) > 5) {
+          addShapePoint(point);
+          
+          // Update preview path
+          const simplifiedPoints = simplifyPath(shapeState.points, 3);
+          if (simplifiedPoints.length >= 2) {
+            const previewPath = createShapePath(simplifiedPoints);
+            setShapePreviewPath(previewPath);
+          }
+        }
+      } else {
+        // Normal brush drawing
+        try {
+          drawLine(lastPoint, point);
+        } catch (error) {
+        }
       }
+      setLastPoint(point);
     }
-  }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition, isDraggingSelection, selectionDragStart, canvas.selection, setSelection, isSelecting, selectionStart, setSelectionBounds, smoothPressure, isPalmRejectionEvent]);
+  }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition, isDraggingSelection, selectionDragStart, canvas.selection, setSelection, isSelecting, selectionStart, setSelectionBounds, smoothPressure, isPalmRejectionEvent, tools.currentTool, tools.brushSettings.shapeEnabled, shapeState.isDrawing, shapeState.points, addShapePoint, setShapePreviewPath]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     // Process immediately for drawing - pressure data is critical and cannot be throttled
@@ -1111,6 +1220,74 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       return;
     }
 
+    // Handle shape completion on pointer up (for shape mode)
+    if (shapeState.isDrawing && (tools.currentTool === 'brush' || tools.currentTool === 'eraser') && tools.brushSettings.shapeEnabled) {
+      // Complete the shape on mouse up
+      const offscreenCanvas = offscreenCanvasRef.current;
+      if (offscreenCanvas && shapeState.points.length >= 3) {
+        const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          // Create and render the final shape
+          const simplifiedPoints = simplifyPath(shapeState.points);
+          const shapePath = createShapePath(simplifiedPoints);
+          
+          // Get current brush settings for shape rendering
+          const brushSettings = tools.brushSettings;
+          const currentCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM && 
+            brushSettings.selectedCustomBrush
+            ? (temporaryCustomBrush && temporaryCustomBrush.id === brushSettings.selectedCustomBrush
+                ? temporaryCustomBrush
+                : project?.customBrushes?.find(b => b.id === brushSettings.selectedCustomBrush))
+            : null;
+
+          // Render the shape directly to offscreen canvas (this "bakes" it)
+          ctx.save();
+          ctx.globalAlpha = brushSettings.opacity;
+          ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
+          
+          console.log('Baking shape with', shapeState.points.length, 'points, opacity:', brushSettings.opacity);
+          
+          renderShape(
+            ctx,
+            shapePath,
+            brushSettings.color,
+            currentCustomBrush || undefined,
+            brushSettings.useSwatchColor,
+            brushSettings.hueShift,
+            brushSettings.saturationAdjust
+          );
+          
+          ctx.restore();
+
+          // Capture to layer and save state (shape is now baked into offscreen canvas)
+          const targetLayerId = activeLayerId || layers[0]?.id || null;
+          await captureCanvasToLayer(offscreenCanvas, targetLayerId);
+          const actionType = tools.currentTool === 'eraser' ? 'eraser' : 'brush';
+          saveCanvasStateDeduped(offscreenCanvas, actionType, `${actionType} shape`);
+          
+          // Force full redraw and layer recomposition to show the baked result
+          markFullRedraw();
+          setLayersNeedRecomposition(true);
+          renderView();
+          
+          // Reset shape state after the shape is baked and rendered
+          setTimeout(() => {
+            setShapeDrawing(false);
+            clearShapePoints();
+            setShapePreviewPath(undefined);
+            shapePreviewCacheRef.current = null;
+          }, 100); // Delay to ensure everything is rendered
+        }
+      }
+
+      // Also clear normal drawing state
+      setIsDrawing(false);
+      setLastPoint(null);
+      setDrawingTargetLayerId(null);
+      
+      return;
+    }
+
     // OPTIMIZATION: Immediately update UI state to prevent brush from continuing to paint
     // BUT only for actual drawing operations, not selections
     const wasDrawing = isDrawing;
@@ -1150,7 +1327,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         }, 0);
       }
     }
-  }, [isPanning, isDraggingSelection, isSelecting, tools, selectionStart, selectionEnd, project, createCustomBrushFromSelection, isDrawing, captureCanvasToLayer, drawingTargetLayerId, saveCanvasStateDeduped]);
+  }, [isPanning, isDraggingSelection, isSelecting, tools, selectionStart, selectionEnd, project, createTemporaryCustomBrush, isDrawing, captureCanvasToLayer, drawingTargetLayerId, saveCanvasStateDeduped, shapeState.isDrawing, shapeState.points, activeLayerId, layers, temporaryCustomBrush, markFullRedraw, renderView, setLayersNeedRecomposition, setShapeDrawing, clearShapePoints, setShapePreviewPath]);
 
   // Touch event handlers for mobile support
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -2018,8 +2195,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   }, [coordinatePool]);
 
 
-  // Get current custom brush data
-  const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
   const currentCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM && 
     tools.brushSettings.selectedCustomBrush
     ? (temporaryCustomBrush && temporaryCustomBrush.id === tools.brushSettings.selectedCustomBrush
@@ -2059,6 +2234,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          onDoubleClick={handleDoubleClick}
           onPointerEnter={() => {
             setIsMouseOverCanvas(true);
           }}
