@@ -257,7 +257,7 @@ export const useBrushEngine = () => {
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = pattern.width;
       tempCanvas.height = pattern.height;
-      const tempCtx = tempCanvas.getContext('2d');
+      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
       
       if (tempCtx) {
         try {
@@ -793,7 +793,7 @@ export const useBrushEngine = () => {
     } catch (error) {
       // Fallback to original method if cache fails
       const canvas = canvasPool.acquire(customBrush.width, customBrush.height);
-      const tempCtx = canvas.getContext('2d');
+      const tempCtx = canvas.getContext('2d', { willReadFrequently: true });
       if (!tempCtx) {
         canvasPool.release(canvas);
         return;

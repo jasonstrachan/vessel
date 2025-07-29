@@ -468,7 +468,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       // Draw the pasted image
       if (pixels && pixels.width > 0 && pixels.height > 0) {
         const tempCanvas = canvasPool.acquire(pixels.width, pixels.height);
-        const tempCtx = tempCanvas.getContext('2d');
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
         
         if (tempCtx) {
           tempCtx.putImageData(pixels, 0, 0);
@@ -547,7 +547,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
     
-    const offscreenCtx = offscreenCanvas.getContext('2d');
+    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
     if (!offscreenCtx) return;
     
     // Calculate actual brush size for dirty region (accounts for custom brushes)
@@ -658,7 +658,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Create thumbnail (max 64x64)
     const thumbnailSize = 64;
     const thumbnailCanvas = canvasPool.acquire(thumbnailSize, thumbnailSize);
-    const thumbnailCtx = thumbnailCanvas.getContext('2d');
+    const thumbnailCtx = thumbnailCanvas.getContext('2d', { willReadFrequently: true });
     
     if (thumbnailCtx) {
       // Scale to fit thumbnail while maintaining aspect ratio
@@ -1316,7 +1316,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Capture state before paste operation
     saveCanvasState(offscreenCanvas, 'paste', 'Paste selection');
     
-    const offscreenCtx = offscreenCanvas.getContext('2d');
+    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
     if (!offscreenCtx) return;
     
     const { bounds, pixels } = canvas.selection;
@@ -1324,7 +1324,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Draw selection onto offscreen canvas
     if (pixels && pixels.width > 0 && pixels.height > 0) {
       const tempCanvas = canvasPool.acquire(pixels.width, pixels.height);
-      const tempCtx = tempCanvas.getContext('2d');
+      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
       
       if (tempCtx) {
         tempCtx.putImageData(pixels, 0, 0);
@@ -1633,7 +1633,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       offscreenCanvasRef.current.height = height;
       
       // Initialize offscreen canvas
-      const offscreenCtx = offscreenCanvasRef.current.getContext('2d');
+      const offscreenCtx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true });
       if (offscreenCtx) {
         // Disable image smoothing for pixel-perfect rendering
         offscreenCtx.imageSmoothingEnabled = false;
