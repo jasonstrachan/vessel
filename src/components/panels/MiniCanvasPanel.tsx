@@ -4,6 +4,8 @@ import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import MiniCanvas from '../canvas/MiniCanvas';
 import { scaledBrushCache } from '../../utils/scaledBrushCache';
+import { brushCache } from '../../utils/brushCache';
+import { BrushShape } from '../../types';
 
 interface MiniCanvasPanelProps {
   hueShift: number;
@@ -23,17 +25,22 @@ export default function MiniCanvasPanel({
 
   // Handle brush tip changes from MiniCanvas
   const handleBrushTipChange = React.useCallback((imageData: ImageData, actualWidth: number, actualHeight: number) => {
-    // Create brush ID based on current brush
-    const brushId = brushSettings.brushShape === 'custom' && brushSettings.selectedCustomBrush 
-      ? brushSettings.selectedCustomBrush // Use the selectedCustomBrush ID directly (now contains preset ID)
-      : `standard_${brushSettings.brushShape}`;
+    // CRITICAL: Only allow brush tip changes for custom brushes
+    if (brushSettings.brushShape !== BrushShape.CUSTOM) {
+      return; // Standard brushes should never have their tips modified
+    }
     
-    // Default brushes should remain colorizable, custom brushes respect useSwatchColor setting
-    const isColorizable = brushSettings.brushShape !== 'custom' || brushSettings.useSwatchColor;
+    // Create brush ID for custom brush only
+    const brushId = brushSettings.selectedCustomBrush || 'no-custom-brush';
     
-    // Clear scaled brush cache for this brush to ensure color changes are reflected immediately
-    // This prevents the delay between MiniCanvas updates and main canvas drawing
+    // Custom brushes respect useSwatchColor setting
+    const isColorizable = brushSettings.useSwatchColor;
+    
+    // Clear both cache systems for custom brushes to ensure edits are reflected immediately
     scaledBrushCache.clearForBrush(brushId);
+    // Also clear cache for current-brush-tip which is used when drawing edited brushes
+    scaledBrushCache.clearForBrush('current-brush-tip');
+    brushCache.clear();
       
     setBrushSettings({ 
       currentBrushTip: {

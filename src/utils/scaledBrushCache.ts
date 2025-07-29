@@ -5,6 +5,7 @@
 
 import { CustomBrush } from '../types';
 import { canvasPool } from './canvasPool';
+import { adjustHueAndSaturation } from './imageProcessing';
 
 interface ScaledBrushData {
   canvas: HTMLCanvasElement;
@@ -14,6 +15,8 @@ interface ScaledBrushData {
   rotation: number;
   color?: string;
   isColorizable: boolean;
+  hueShift: number;
+  saturation: number;
   timestamp: number;
   customBrushId: string;
 }
@@ -33,7 +36,9 @@ class ScaledBrushCache {
     rotation: number,
     color?: string,
     isColorizable?: boolean,
-    isPressureSensitive?: boolean
+    isPressureSensitive?: boolean,
+    hueShift?: number,
+    saturation?: number
   ): string {
     // Adaptive cache key precision based on scale size
     // Larger brushes can use coarser precision without visible difference
@@ -57,13 +62,17 @@ class ScaledBrushCache {
     }
     
     const roundedRotation = Math.round(rotation * 100) / 100;
+    const roundedHueShift = Math.round((hueShift || 0) * 10) / 10;
+    const roundedSaturation = Math.round((saturation || 100) * 10) / 10;
     
     const parts = [
       customBrushId,
       scaleStr,
       roundedRotation.toFixed(2),
       color || 'none',
-      isColorizable ? '1' : '0'
+      isColorizable ? '1' : '0',
+      roundedHueShift.toFixed(1),
+      roundedSaturation.toFixed(1)
     ];
     
     return parts.join('_');
@@ -97,9 +106,11 @@ class ScaledBrushCache {
     rotation: number,
     color?: string,
     isColorizable?: boolean,
-    isPressureSensitive?: boolean
+    isPressureSensitive?: boolean,
+    hueShift?: number,
+    saturation?: number
   ): HTMLCanvasElement {
-    const cacheKey = this.getCacheKey(customBrush.id, scale, rotation, color, isColorizable, isPressureSensitive);
+    const cacheKey = this.getCacheKey(customBrush.id, scale, rotation, color, isColorizable, isPressureSensitive, hueShift, saturation);
     
     // Check if already cached
     const cached = this.get(cacheKey);
@@ -120,10 +131,24 @@ class ScaledBrushCache {
       throw new Error('Failed to get 2D context for base canvas');
     }
 
-    // Apply brush data to base canvas
-    baseCtx.putImageData(customBrush.imageData, 0, 0);
+    // Apply hue/saturation transformations first if specified
+    let processedImageData = customBrush.imageData;
+    const finalHueShift = hueShift || 0;
+    const finalSaturation = saturation || 100;
+    
+    
+    if (finalHueShift !== 0 || finalSaturation !== 100) {
+      processedImageData = adjustHueAndSaturation(
+        customBrush.imageData, 
+        finalHueShift, 
+        finalSaturation
+      );
+    }
+    
+    // Apply processed brush data to base canvas
+    baseCtx.putImageData(processedImageData, 0, 0);
 
-    // Apply color if colorizable
+    // Apply color if colorizable (after hue/saturation adjustments)
     if (isColorizable && color) {
       baseCtx.globalCompositeOperation = 'source-atop';
       baseCtx.fillStyle = color;
@@ -173,6 +198,8 @@ class ScaledBrushCache {
       rotation,
       color,
       isColorizable: isColorizable || false,
+      hueShift: finalHueShift,
+      saturation: finalSaturation,
       timestamp: Date.now(),
       customBrushId: customBrush.id
     };
@@ -220,15 +247,26 @@ class ScaledBrushCache {
    * Useful when brush colors change and we need immediate cache invalidation
    */
   clearForBrush(customBrushId: string): void {
+    if (!customBrushId) {
+      return; // Safety check for invalid brush ID
+    }
+    
     const keysToDelete: string[] = [];
     
     for (const [key, data] of this.cache.entries()) {
       if (data.customBrushId === customBrushId) {
         keysToDelete.push(key);
-        canvasPool.release(data.canvas);
+        // Safely release canvas back to pool with error handling
+        try {
+          canvasPool.release(data.canvas);
+        } catch (error) {
+          // Continue cleanup even if canvas release fails
+          console.warn('Failed to release canvas during cache cleanup:', error);
+        }
       }
     }
     
+    // Remove entries from cache
     for (const key of keysToDelete) {
       this.cache.delete(key);
     }
@@ -251,7 +289,9 @@ class ScaledBrushCache {
     customBrush: CustomBrush,
     color?: string,
     isColorizable?: boolean,
-    isPressureSensitive?: boolean
+    isPressureSensitive?: boolean,
+    hueShift?: number,
+    saturation?: number
   ): void {
     // For pressure-sensitive brushes, cache more granular sizes
     const scales = isPressureSensitive 
@@ -263,12 +303,12 @@ class ScaledBrushCache {
       if (index >= scales.length) return;
       
       const scale = scales[index];
-      const cacheKey = this.getCacheKey(customBrush.id, scale, 0, color, isColorizable, isPressureSensitive);
+      const cacheKey = this.getCacheKey(customBrush.id, scale, 0, color, isColorizable, isPressureSensitive, hueShift, saturation);
       
       // Skip if already cached
       if (!this.cache.has(cacheKey)) {
         try {
-          this.createScaledBrush(customBrush, scale, 0, color, isColorizable, isPressureSensitive);
+          this.createScaledBrush(customBrush, scale, 0, color, isColorizable, isPressureSensitive, hueShift, saturation);
         } catch (error) {
           // Pre-caching failed silently - not critical for functionality
         }

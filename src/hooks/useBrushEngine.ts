@@ -763,7 +763,8 @@ export const useBrushEngine = () => {
         if (!scaledBrushCache.hasCachedEntriesForBrush(customBrush.id)) {
           // Only trigger pre-caching for completely new brushes
           scaledBrushCache.precacheCommonSizes(
-            customBrush, color, isColorizable, isPressureSensitive
+            customBrush, color, isColorizable, isPressureSensitive,
+            tools.brushSettings.hueShift, tools.brushSettings.saturationAdjust
           );
         }
         
@@ -774,7 +775,9 @@ export const useBrushEngine = () => {
           rotation, 
           color, 
           isColorizable,
-          isPressureSensitive
+          isPressureSensitive,
+          tools.brushSettings.hueShift,
+          tools.brushSettings.saturationAdjust
         );
         
         

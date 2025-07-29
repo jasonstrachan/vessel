@@ -12,7 +12,7 @@ const ColorPickerPanel = () => {
   const setActiveSettings = currentTool === 'eraser' ? setEraserSettings : setBrushSettings;
 
   return (
-    <div className="h-full overflow-y-auto bg-[#31313A]">
+    <div className="h-full overflow-y-auto bg-[#2C2C2C]">
       {/* Advanced Color Picker - Full Width Section */}
       <div>
         <AdvancedColorPicker

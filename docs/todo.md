@@ -1,46 +1,35 @@
-# TinyBrush Development Tasks
+# TODO List
 
 ## Current Task
-- [ ] Create a reusable PlusButton component that matches the existing styling
+- [x] Fix custom brush saving to preserve hue shift and saturation adjustments
 
-## Completed  
-- [x] Fixed cursor alignment issue after panning
-- [x] Resolved port 3001 ERR_CONNECTION_REFUSED
-- [x] Consolidated documentation structure
-- [x] Updated CLAUDE.md to point to /docs/todo.md for planning
-- [x] **PIXEL-PERFECT DRAWING IMPLEMENTATION** - Implemented Tom Cantwell's pixel-perfect drawing algorithm
-  - [x] Added pixel queue state management with lastDrawn/waiting/current pixel tracking
-  - [x] Implemented hybrid speed detection: fast movement uses Bresenham's line algorithm, slow uses pixel queue
-  - [x] Fixed antialiasing issues by replacing ctx.stroke() with individual ctx.fillRect() pixel drawing
-  - [x] Added stroke start detection to reset pixel queue on mousedown/touchstart
-  - [x] Tested at all cursor speeds - works perfectly with no gaps or antialiasing
-  - [x] Algorithm follows Tom Cantwell's exact logic: `if (Math.abs(mouseX-lastX) > 1 || Math.abs(mouseY-lastY) > 1)`
-- [x] **PRESSURE SENSITIVITY MIN SIZE FIX** - Fixed min pressure values not working
-  - [x] Replaced hardcoded `minSizePx = 1` with `activeSettings.minPressure` in executeComponents function
-  - [x] Replaced hardcoded `minSizePx = 1` with `tools.brushSettings.minPressure` in renderBrushStroke function
-  - [x] Min size values now work correctly for pressure-sensitive brushes
-- [x] **PRESSURE SENSITIVITY DEADZONE** - Added pressure threshold for better low-pressure control
-  - [x] Added 0.2 pressure threshold in both executeComponents and renderBrushStroke functions
-  - [x] Pressure 0.0-0.2 now maps to minimum size for consistent thin lines
-  - [x] Pressure 0.2-1.0 maps linearly to full size range
+## Completed
+- [x] Fixed saveCustomBrushAsPreset to "bake" hue shift and saturation adjustments into saved brush ImageData
+- [x] Added import for adjustHueAndSaturation function in useAppStore.ts
+- [x] Reset hue shift and saturation to defaults after saving since transformations are now permanent
 
-## Next Steps
-- [ ] Await next development task
+## Review
 
----
+### Fix Summary
+The issue was that when saving a temporary custom brush, only the original ImageData was saved, not the hue-shifted/saturation-adjusted version that was being displayed. 
 
-## Task Management Notes
+### Changes Made
+1. **Modified `saveCustomBrushAsPreset` in `src/stores/useAppStore.ts`**:
+   - Added logic to check if current brush has hue shift (≠ 0) or saturation adjustments (≠ 100)
+   - If transformations are active, applies `adjustHueAndSaturation()` to the brush's ImageData before saving
+   - Creates a `transformedBrush` with the modified ImageData
+   - Resets `hueShift` to 0 and `saturationAdjust` to 100 after saving since changes are now baked in
 
-This file (`/docs/todo.md`) is the primary planning document for TinyBrush development. 
+2. **Added proper ES6 import**:
+   - Imported `adjustHueAndSaturation` from `../utils/imageProcessing` to avoid linting errors
 
-**When planning any feature or task:**
-1. Update the "Current Task" section with specific actionable items
-2. Break down complex tasks into smaller steps
-3. Move completed items to "Completed" section with checkmarks
-4. Add follow-up tasks to "Next Steps" as they're identified
+### Technical Details
+- The fix "bakes" temporary visual transformations into the permanent brush data
+- This ensures saved custom brushes look exactly like what the user sees during editing
+- After saving, the hue/saturation sliders reset to neutral since the brush now contains the transformed colors
+- The transformation is applied using the same `adjustHueAndSaturation` function used for real-time display
 
-**Task Format:**
-- Use clear, actionable descriptions
-- Include specific file names or components when relevant
-- Mark completion status accurately
-- Reference related issues in `/docs/issues.md` when applicable
+### Testing
+- Build completes successfully with no errors
+- All existing functionality preserved
+- Custom brushes should now save with their visual appearance intact

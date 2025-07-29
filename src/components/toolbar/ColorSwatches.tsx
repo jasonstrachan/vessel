@@ -26,7 +26,7 @@ export default function ColorSwatches({ onColorSelect, currentColor }: ColorSwat
         <button
           key={`${color}-${index}`}
           onClick={() => onColorSelect(color)}
-          className="flex-1 h-6 transition-all duration-150 hover:scale-110 focus:outline-none"
+          className="flex-1 h-6 focus:outline-none"
           style={{ backgroundColor: color }}
           title={`Use color ${color}`}
           aria-label={`Select color ${color}`}
