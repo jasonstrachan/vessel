@@ -75,7 +75,7 @@ export default function FileBackupSettings({ className = '' }: FileBackupSetting
         const file = fileBackupService.getBackupFile();
         if (file) {
           setFileBackupFile(file.handle, result.path);
-          console.log('[FileBackupSettings] File selected:', result.path);
+          // File selected: result.path
         }
       } else if (result.error && !result.error.includes('cancelled')) {
         console.error('[FileBackupSettings] File selection failed:', result.error);
@@ -104,7 +104,7 @@ export default function FileBackupSettings({ className = '' }: FileBackupSetting
         const directory = fileBackupService.getBackupDirectory();
         if (directory) {
           setFileBackupDirectory(directory.handle, result.path);
-          console.log('[FileBackupSettings] Directory selected:', result.path);
+          // Directory selected: result.path
         }
       } else if (result.error && !result.error.includes('cancelled')) {
         console.error('[FileBackupSettings] Directory selection failed:', result.error);

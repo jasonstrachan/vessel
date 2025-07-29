@@ -36,7 +36,7 @@ export class FileBackupService {
       // Get a display-friendly path name
       const path = this.fileHandle!.name || 'Selected File';
       
-      console.log(`[FileBackup] File selected: ${path}`);
+      // File selected: ${path}
       return { success: true, path };
     } catch (error: any) {
       if (error.name === 'AbortError') {
@@ -62,7 +62,7 @@ export class FileBackupService {
       // Get a display-friendly path name
       const path = this.directoryHandle!.name || 'Selected Directory';
       
-      console.log(`[FileBackup] Directory selected: ${path}`);
+      // Directory selected: ${path}
       return { success: true, path };
     } catch (error: any) {
       if (error.name === 'AbortError') {
@@ -106,7 +106,7 @@ export class FileBackupService {
       await writable.write(projectData);
       await writable.close();
 
-      console.log(`[FileBackup] Project backed up as: ${filename}`);
+      // Project backed up as: ${filename}
       return { success: true, filename };
     } catch (error: any) {
       console.error('[FileBackup] Failed to save backup:', error);
@@ -135,12 +135,12 @@ export class FileBackupService {
 
   clearBackupFile(): void {
     this.fileHandle = null;
-    console.log('[FileBackup] Backup file cleared');
+    // Backup file cleared
   }
 
   clearBackupDirectory(): void {
     this.directoryHandle = null;
-    console.log('[FileBackup] Backup directory cleared');
+    // Backup directory cleared
   }
 
   setFileHandle(fileHandle: FileSystemFileHandle | null): void {

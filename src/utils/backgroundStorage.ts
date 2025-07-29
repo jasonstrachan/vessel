@@ -28,7 +28,7 @@ class BackgroundStorageService {
 
   async initialize(): Promise<void> {
     if (typeof window === 'undefined' || !window.indexedDB) {
-      console.warn('[BackgroundStorage] IndexedDB not available');
+      // IndexedDB not available
       return;
     }
 
@@ -36,13 +36,13 @@ class BackgroundStorageService {
       const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
 
       request.onerror = () => {
-        console.error('[BackgroundStorage] Failed to open database:', request.error);
+        // Failed to open database
         reject(request.error);
       };
 
       request.onsuccess = () => {
         this.db = request.result;
-        console.log('[BackgroundStorage] Database initialized');
+        // Database initialized
         resolve();
       };
 
@@ -99,7 +99,7 @@ class BackgroundStorageService {
       };
 
       request.onsuccess = () => {
-        console.log(`[BackgroundStorage] Project "${project.name}" saved to IndexedDB`);
+        // Project "${project.name}" saved to IndexedDB
         this.updateSession(project.id, true);
         resolve();
       };
@@ -202,7 +202,7 @@ class BackgroundStorageService {
       };
 
       request.onsuccess = () => {
-        console.log(`[BackgroundStorage] Cleared autosave for project ${projectId}`);
+        // Cleared autosave for project ${projectId}
         this.updateSession(projectId, false);
         resolve();
       };
@@ -279,7 +279,7 @@ class BackgroundStorageService {
           cursor.delete();
           cursor.continue();
         } else {
-          console.log('[BackgroundStorage] Cleanup completed');
+          // Cleanup completed
           resolve();
         }
       };

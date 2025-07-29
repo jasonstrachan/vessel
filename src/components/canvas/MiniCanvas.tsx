@@ -146,7 +146,7 @@ export default function MiniCanvas({
     requestAnimationFrame(() => {
       renderCanvas();
     });
-  }, [width, height, brushSettings.brushShape, brushSettings.selectedCustomBrush, brushSettings.currentBrushTip, temporaryCustomBrush, brushPresets]);
+  }, [width, height, brushSettings.brushShape, brushSettings.selectedCustomBrush, brushSettings.currentBrushTip, brushSettings.color, temporaryCustomBrush, brushPresets]);
 
 
   // Get the actual dimensions of the custom brush
@@ -237,8 +237,8 @@ export default function MiniCanvas({
     
     // CRITICAL: Standard brushes should NEVER use currentBrushTip data
     if (brushSettings.brushShape !== BrushShape.CUSTOM) {
-      // For standard brushes, always generate fresh geometric preview
-      ctx.fillStyle = '#000000';
+      // For standard brushes, always generate fresh geometric preview with current color
+      ctx.fillStyle = brushSettings.color;
       
       const center = Math.max(dimensions.width, dimensions.height) / 2;
       const radius = Math.min(16, Math.max(dimensions.width, dimensions.height) / 4);
@@ -357,7 +357,7 @@ export default function MiniCanvas({
     } else {
       // Create preview for standard brushes
       const dimensions = getBrushTipSize(); // For standard brushes, this returns {width: 64, height: 64}
-      ctx.fillStyle = '#000000';
+      ctx.fillStyle = brushSettings.color;
       ctx.clearRect(0, 0, dimensions.width, dimensions.height);
       
       const center = Math.max(dimensions.width, dimensions.height) / 2;
@@ -508,9 +508,8 @@ export default function MiniCanvas({
     // Use the current brush settings but smaller size for mini canvas
     const brushSize = Math.max(1, Math.floor(brushSettings.size / 4));
     
-    // Always use black for standard brushes to keep them colorizable
-    const isStandardBrush = brushSettings.brushShape !== BrushShape.CUSTOM;
-    const drawColor = isStandardBrush ? '#000000' : brushSettings.color;
+    // Use current brush color for all brushes
+    const drawColor = brushSettings.color;
     
     if (isStart || !lastPoint) {
       // Single dot

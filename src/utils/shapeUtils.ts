@@ -1,4 +1,4 @@
-import { ShapePoint, CustomBrush } from '../types';
+import { ShapePoint, CustomBrush, BrushShape } from '../types';
 import { adjustHueAndSaturation } from './imageProcessing';
 
 /**
@@ -22,7 +22,74 @@ export function createShapePath(points: ShapePoint[]): Path2D {
 }
 
 /**
+ * Fills a polygon using pixel-perfect scanline algorithm
+ * This creates hard pixel edges without antialiasing
+ */
+function fillPolygonPixelPerfect(
+  ctx: CanvasRenderingContext2D,
+  points: ShapePoint[],
+  color: string
+): void {
+  if (points.length < 3) return;
+
+  // Find bounding box
+  let minX = points[0].x;
+  let maxX = points[0].x;
+  let minY = points[0].y;
+  let maxY = points[0].y;
+  
+  for (const point of points) {
+    minX = Math.min(minX, point.x);
+    maxX = Math.max(maxX, point.x);
+    minY = Math.min(minY, point.y);
+    maxY = Math.max(maxY, point.y);
+  }
+  
+  // Round to pixel boundaries
+  minX = Math.floor(minX);
+  maxX = Math.ceil(maxX);
+  minY = Math.floor(minY);
+  maxY = Math.ceil(maxY);
+  
+  ctx.fillStyle = color;
+  
+  // Scanline fill algorithm
+  for (let y = minY; y <= maxY; y++) {
+    const intersections: number[] = [];
+    
+    // Find all intersections with horizontal scanline at y
+    for (let i = 0; i < points.length; i++) {
+      const p1 = points[i];
+      const p2 = points[(i + 1) % points.length];
+      
+      // Check if edge crosses scanline
+      if ((p1.y <= y && p2.y > y) || (p2.y <= y && p1.y > y)) {
+        // Calculate intersection x coordinate
+        const x = p1.x + (y - p1.y) * (p2.x - p1.x) / (p2.y - p1.y);
+        intersections.push(x);
+      }
+    }
+    
+    // Sort intersections
+    intersections.sort((a, b) => a - b);
+    
+    // Fill pixels between pairs of intersections
+    for (let i = 0; i < intersections.length; i += 2) {
+      if (i + 1 < intersections.length) {
+        const startX = Math.floor(intersections[i]);
+        const endX = Math.floor(intersections[i + 1]);
+        
+        for (let x = startX; x <= endX; x++) {
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+    }
+  }
+}
+
+/**
  * Renders a filled shape using the current brush color or custom brush pattern
+ * Now supports brush-aware edge rendering for pixel vs soft brushes
  */
 export function renderShape(
   ctx: CanvasRenderingContext2D,
@@ -31,11 +98,28 @@ export function renderShape(
   customBrush?: CustomBrush,
   useSwatchColor?: boolean,
   hueShift?: number,
-  saturationAdjust?: number
+  saturationAdjust?: number,
+  brushShape?: BrushShape,
+  antiAliasing?: boolean,
+  points?: ShapePoint[]
 ): void {
   ctx.save();
 
-  if (customBrush && !useSwatchColor) {
+  // Apply brush-specific rendering settings
+  const isPixelBrush = brushShape === BrushShape.PIXEL_ROUND;
+  const shouldUsePixelPerfect = isPixelBrush || antiAliasing === false;
+  
+  if (shouldUsePixelPerfect) {
+    ctx.imageSmoothingEnabled = false;
+  } else {
+    ctx.imageSmoothingEnabled = true;
+  }
+
+  // For pixel brushes, use pixel-perfect fill if we have the points
+  if (shouldUsePixelPerfect && points && points.length >= 3 && !customBrush) {
+    // Use pixel-perfect scanline fill for hard edges
+    fillPolygonPixelPerfect(ctx, points, color);
+  } else if (customBrush && !useSwatchColor) {
     // Fill with tiled custom brush pattern
     const patternCanvas = document.createElement('canvas');
     patternCanvas.width = customBrush.width;
@@ -43,6 +127,9 @@ export function renderShape(
     const patternCtx = patternCanvas.getContext('2d');
     
     if (patternCtx) {
+      // Apply same rendering mode to pattern canvas
+      patternCtx.imageSmoothingEnabled = ctx.imageSmoothingEnabled;
+      
       let imageData = customBrush.imageData;
       
       // Apply hue shift and saturation adjustments if needed
@@ -64,7 +151,7 @@ export function renderShape(
       }
     }
   } else {
-    // Fill with solid color
+    // Fill with solid color using standard path fill
     ctx.fillStyle = color;
     ctx.fill(path);
   }
@@ -83,12 +170,15 @@ export function renderShapePreview(
   useSwatchColor?: boolean,
   brushOpacity: number = 1.0,
   hueShift?: number,
-  saturationAdjust?: number
+  saturationAdjust?: number,
+  brushShape?: BrushShape,
+  antiAliasing?: boolean,
+  points?: ShapePoint[]
 ): void {
   ctx.save();
   ctx.globalAlpha = brushOpacity * 0.7; // Slightly more transparent for preview, but respect brush opacity
   
-  renderShape(ctx, path, color, customBrush, useSwatchColor, hueShift, saturationAdjust);
+  renderShape(ctx, path, color, customBrush, useSwatchColor, hueShift, saturationAdjust, brushShape, antiAliasing, points);
   
   ctx.restore();
 }
