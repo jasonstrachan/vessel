@@ -2,57 +2,15 @@
 
 import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
-import Input from '../ui/Input';
 import { Switch } from '../retroui/Switch';
 import { Slider } from '../retroui/Slider';
-import ColorPicker from './ColorPicker';
-import AdvancedColorPicker from './AdvancedColorPicker';
-import ColorSwatches from './ColorSwatches';
 
 export default function FillControls() {
-  const { tools, setFillSettings, setBrushSettings } = useAppStore();
-  const { fillSettings, brushSettings } = tools;
+  const { tools, setFillSettings } = useAppStore();
+  const { fillSettings } = tools;
 
   return (
-    <div className="bg-[#31313A]">
-      {/* Advanced Color Picker - Full Width Section */}
-      <div>
-        <AdvancedColorPicker
-          color={brushSettings.color}
-          onChange={(color) => setBrushSettings({ color })}
-        />
-      </div>
-
-      {/* Color Swatches - Full Width Section */}
-      <div>
-        <ColorSwatches
-          currentColor={brushSettings.color}
-          onColorSelect={(color) => setBrushSettings({ color })}
-        />
-      </div>
-
-      {/* Rest of controls with padding */}
-      <div className="p-4">
-        {/* Color */}
-        <div className="mb-3">
-          <label className="block text-base text-[#D9D9D9] mb-2">Color</label>
-          <div className="flex items-start gap-2">
-            <ColorPicker
-              color={brushSettings.color}
-              onChange={(color) => setBrushSettings({ color })}
-            />
-            <Input
-              type="text"
-              variant="hex"
-              value={brushSettings.color}
-              onChange={(e) => setBrushSettings({ color: e.target.value })}
-              className="w-22"
-              placeholder="#000000"
-              onFocus={(e) => e.target.select()}
-            />
-          </div>
-        </div>
-
+    <div className="bg-[#31313A] p-4">
       {/* Threshold */}
       <div className="mb-4">
         <label className="block text-base text-[#D9D9D9] mb-2">
@@ -79,8 +37,6 @@ export default function FillControls() {
             onChange={(checked) => setFillSettings({ contiguous: checked })}
           />
         </div>
-      </div>
-      
       </div>
     </div>
   );
