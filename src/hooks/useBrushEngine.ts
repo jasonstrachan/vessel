@@ -11,6 +11,86 @@ import { pressureOptimizer } from '../utils/pressureOptimizer';
 import { memoryManager } from '../utils/memoryCleanup';
 import { performanceMonitor } from '../utils/performanceMonitor';
 
+// Color jitter utility function
+const applyColorJitter = (baseColor: string, jitterAmount: number): string => {
+  if (jitterAmount === 0) return baseColor;
+  
+  // Parse color to HSL for smooth jitter variations
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = baseColor;
+  const computedColor = ctx.fillStyle;
+  
+  // Extract RGB from computed color
+  let r: number, g: number, b: number;
+  if (computedColor.startsWith('#')) {
+    const hex = computedColor.slice(1);
+    r = parseInt(hex.substr(0, 2), 16);
+    g = parseInt(hex.substr(2, 2), 16);
+    b = parseInt(hex.substr(4, 2), 16);
+  } else if (computedColor.startsWith('rgb')) {
+    const matches = computedColor.match(/\d+/g);
+    if (!matches) return baseColor;
+    r = parseInt(matches[0]);
+    g = parseInt(matches[1]);
+    b = parseInt(matches[2]);
+  } else {
+    return baseColor;
+  }
+  
+  // Convert RGB to HSL
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h: number, s: number, l = (max + min) / 2;
+  
+  if (max === min) {
+    h = s = 0; // achromatic
+  } else {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+      default: h = 0;
+    }
+    h /= 6;
+  }
+  
+  // Apply jitter with smooth randomization
+  const jitterFactor = jitterAmount / 100;
+  h += (Math.random() - 0.5) * jitterFactor;
+  s = Math.max(0, Math.min(1, s + (Math.random() - 0.5) * jitterFactor * 0.5));
+  l = Math.max(0, Math.min(1, l + (Math.random() - 0.5) * jitterFactor * 0.3));
+  
+  // Keep hue within bounds
+  h = ((h % 1) + 1) % 1;
+  
+  // Convert HSL back to RGB
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1/6) return p + (q - p) * 6 * t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p;
+  };
+  
+  let rOut: number, gOut: number, bOut: number;
+  if (s === 0) {
+    rOut = gOut = bOut = l; // achromatic
+  } else {
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    rOut = hue2rgb(p, q, h + 1/3);
+    gOut = hue2rgb(p, q, h);
+    bOut = hue2rgb(p, q, h - 1/3);
+  }
+  
+  return `rgb(${Math.round(rOut * 255)}, ${Math.round(gOut * 255)}, ${Math.round(bOut * 255)})`;
+};
+
 // Base sizes for standard brushes (100% = these sizes in pixels)
 const BRUSH_BASE_SIZES = {
   [BrushShape.PIXEL_ROUND]: 1,
@@ -640,7 +720,8 @@ export const useBrushEngine = () => {
     settings: RenderSettings
   ) => {
     // Bresenham's line algorithm for pixel-perfect lines with distance-based spacing
-    ctx.fillStyle = settings.color;
+    const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
+    ctx.fillStyle = jitteredColor;
     
     const dx = Math.abs(x1 - x0);
     const dy = Math.abs(y1 - y0);
@@ -698,7 +779,8 @@ export const useBrushEngine = () => {
     const roundedX = Math.round(currentX);
     const roundedY = Math.round(currentY);
     
-    ctx.fillStyle = settings.color;
+    const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
+    ctx.fillStyle = jitteredColor;
     
     if (!queue.initialized) {
       // First pixel - initialize queue with distance-based state
@@ -1112,7 +1194,8 @@ export const useBrushEngine = () => {
       const isColorizable = tools.brushSettings.brushShape === BrushShape.CUSTOM 
         ? tools.brushSettings.useSwatchColor 
         : true;
-      const brushColor = isColorizable ? settings.color : undefined;
+      const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
+      const brushColor = isColorizable ? jitteredColor : undefined;
       
       
       // Scale custom brush using pressure-modified actualBrushSize
@@ -1241,7 +1324,8 @@ export const useBrushEngine = () => {
         for (const pos of gridPositions) {
           const posKey = `${pos.x},${pos.y}`;
           if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
-            ctx.fillStyle = settings.color;
+            const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
+            ctx.fillStyle = jitteredColor;
             drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
             queue.stampedGridPositions.add(posKey);
           }
@@ -1280,7 +1364,8 @@ export const useBrushEngine = () => {
         for (const pos of gridPositions) {
           const posKey = `${pos.x},${pos.y}`;
           if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
-            ctx.fillStyle = settings.color;
+            const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
+            ctx.fillStyle = jitteredColor;
             drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, true, settings.rotation, settings.pattern, settings.centerAlignment);
             queue.stampedGridPositions.add(posKey);
           }
@@ -1300,7 +1385,8 @@ export const useBrushEngine = () => {
             const x = queue.lastStrokePosition.x + (snappedTo.x - queue.lastStrokePosition.x) * progress;
             const y = queue.lastStrokePosition.y + (snappedTo.y - queue.lastStrokePosition.y) * progress;
             
-            ctx.fillStyle = settings.color;
+            const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
+            ctx.fillStyle = jitteredColor;
             drawShape(ctx, x, y, settings.size, settings.shape, true, settings.rotation, settings.pattern, settings.centerAlignment);
           }
           
