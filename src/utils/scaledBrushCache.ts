@@ -110,12 +110,17 @@ class ScaledBrushCache {
     hueShift?: number,
     saturation?: number
   ): HTMLCanvasElement {
-    const cacheKey = this.getCacheKey(customBrush.id, scale, rotation, color, isColorizable, isPressureSensitive, hueShift, saturation);
+    // Skip caching when jitter values are applied to ensure unique results
+    const hasJitterValues = (hueShift && hueShift !== 0) || (saturation && saturation !== 100);
     
-    // Check if already cached
-    const cached = this.get(cacheKey);
-    if (cached) {
-      return cached.canvas;
+    if (!hasJitterValues) {
+      const cacheKey = this.getCacheKey(customBrush.id, scale, rotation, color, isColorizable, isPressureSensitive, hueShift, saturation);
+      
+      // Check if already cached
+      const cached = this.get(cacheKey);
+      if (cached) {
+        return cached.canvas;
+      }
     }
 
     // Clean cache if full
@@ -189,22 +194,25 @@ class ScaledBrushCache {
     // Return base canvas to pool
     canvasPool.release(baseCanvas);
 
-    // Cache the scaled brush
-    const cacheData: ScaledBrushData = {
-      canvas: scaledCanvas,
-      width: scaledWidth,
-      height: scaledHeight,
-      scale,
-      rotation,
-      color,
-      isColorizable: isColorizable || false,
-      hueShift: finalHueShift,
-      saturation: finalSaturation,
-      timestamp: Date.now(),
-      customBrushId: customBrush.id
-    };
+    // Cache the scaled brush only when not using jitter values
+    if (!hasJitterValues) {
+      const cacheKey = this.getCacheKey(customBrush.id, scale, rotation, color, isColorizable, isPressureSensitive, hueShift, saturation);
+      const cacheData: ScaledBrushData = {
+        canvas: scaledCanvas,
+        width: scaledWidth,
+        height: scaledHeight,
+        scale,
+        rotation,
+        color,
+        isColorizable: isColorizable || false,
+        hueShift: finalHueShift,
+        saturation: finalSaturation,
+        timestamp: Date.now(),
+        customBrushId: customBrush.id
+      };
 
-    this.cache.set(cacheKey, cacheData);
+      this.cache.set(cacheKey, cacheData);
+    }
     
     return scaledCanvas;
   }

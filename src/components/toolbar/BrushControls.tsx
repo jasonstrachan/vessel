@@ -103,7 +103,9 @@ export default function BrushControls() {
           min={0}
           max={100}
           step={1}
-          onValueChange={(value) => setActiveSettings({ colorJitter: value[0] })}
+          onValueChange={(value) => {
+            setActiveSettings({ colorJitter: value[0] });
+          }}
           aria-label="Color Jitter"
         />
       </div>
