@@ -14,9 +14,7 @@ import { adjustHueAndSaturation } from '../utils/imageProcessing';
 
 // Color jitter utility function
 const applyColorJitter = (baseColor: string, jitterAmount: number): string => {
-  console.log('[COLOR JITTER DEBUG] Called with:', { baseColor, jitterAmount });
   if (jitterAmount === 0) {
-    console.log('[COLOR JITTER DEBUG] Returning base color (jitter = 0)');
     return baseColor;
   }
   
@@ -94,7 +92,6 @@ const applyColorJitter = (baseColor: string, jitterAmount: number): string => {
   }
   
   const result = `rgb(${Math.round(rOut * 255)}, ${Math.round(gOut * 255)}, ${Math.round(bOut * 255)})`;
-  console.log('[COLOR JITTER DEBUG] Generated jittered color:', { baseColor, result, jitterAmount });
   return result;
 };
 
@@ -754,13 +751,8 @@ export const useBrushEngine = () => {
         const brushSettings = tools.brushSettings;
         if (shouldDrawStamp(brushSettings, queue, settings.size)) {
           // Apply color jitter per stamp for true randomization
-          console.log('[STAMP DEBUG] Drawing stamp with jitter settings:', { 
-            colorJitter: brushSettings.colorJitter, 
-            settingsColor: settings.color 
-          });
           const jitteredColor = applyColorJitter(settings.color, brushSettings.colorJitter || 0);
           ctx.fillStyle = jitteredColor;
-          console.log('[STAMP DEBUG] Set fillStyle to:', jitteredColor);
           drawShape(ctx, x, y, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
         }
         queue.accumulatedDistance -= settings.spacing;

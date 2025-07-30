@@ -36,12 +36,6 @@ export function compareImageData(
   tolerance: number = 0,
   maxDifferencesToLog: number = 10
 ): ComparisonResult {
-  console.log('[PixelComparison] Starting comparison:', {
-    previewDimensions: `${previewData.width}x${previewData.height}`,
-    cacheDimensions: `${cacheData.width}x${cacheData.height}`,
-    tolerance,
-    maxDifferencesToLog
-  });
 
   // Check dimensions first
   if (previewData.width !== cacheData.width || previewData.height !== cacheData.height) {
@@ -131,16 +125,7 @@ export function compareImageData(
     }
   };
 
-  console.log('[PixelComparison] Comparison result:', {
-    identical: result.identical,
-    differingPixels: `${differingPixels}/${totalPixels} (${((differingPixels/totalPixels)*100).toFixed(2)}%)`,
-    maxDifference,
-    avgDifferences: result.summary
-  });
 
-  if (differences.length > 0) {
-    console.log('[PixelComparison] Sample differences:', differences);
-  }
 
   return result;
 }
@@ -158,10 +143,6 @@ export function extractImageDataFromCanvas(canvas: HTMLCanvasElement, label: str
   }
 
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  console.log(`[PixelComparison] Extracted ${label} ImageData:`, {
-    dimensions: `${imageData.width}x${imageData.height}`,
-    dataLength: imageData.data.length
-  });
 
   return imageData;
 }
@@ -187,9 +168,6 @@ export function createCleanCanvasCopy(sourceCanvas: HTMLCanvasElement, label: st
     tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
     tempCtx.drawImage(sourceCanvas, 0, 0);
 
-    console.log(`[PixelComparison] Created clean copy for ${label}:`, {
-      dimensions: `${tempCanvas.width}x${tempCanvas.height}`
-    });
 
     return tempCanvas;
   } catch (error) {
@@ -216,23 +194,11 @@ export function compareLatestBrushData(tolerance: number = 0): void {
     return;
   }
 
-  console.log('[PixelComparison] Comparing latest preview vs cache data...');
   const result = compareImageData(previewData, cacheData, tolerance, 20);
 
-  if (result.identical) {
-    console.log('✅ IDENTICAL: Preview and cache ImageData are identical!');
-  } else {
-    console.warn('❌ DIFFERENT: Preview and cache ImageData differ!', {
-      differingPixels: `${result.differingPixels}/${result.totalPixels}`,
-      percentageDifferent: `${((result.differingPixels/result.totalPixels)*100).toFixed(2)}%`,
-      maxDifference: result.maxDifference,
-      avgDifferences: result.summary
-    });
-  }
 }
 
 // Make the comparison function globally available
 if (typeof window !== 'undefined') {
   (window as any).compareLatestBrushData = compareLatestBrushData;
-  console.log('[PixelComparison] Global comparison function available: window.compareLatestBrushData()');
 }
