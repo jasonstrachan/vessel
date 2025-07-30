@@ -504,31 +504,37 @@ export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<Brush
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = false;
+    settings.colorJitter = 0; // Apply preset's colorJitter value
   } else if (preset.id === 'default-brush') {
     settings.size = 10; // 10px default for default brush
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = true;
+    settings.colorJitter = 0; // Apply preset's colorJitter value
   } else if (preset.id === 'square-pixel-1') {
     settings.size = 1; // 1px default as per name
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = false;
+    settings.colorJitter = 0; // Apply preset's colorJitter value
   } else if (preset.id === 'round-pixel-4') {
     settings.size = 4; // 4px default as per name
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = false;
+    settings.colorJitter = 0; // Apply preset's colorJitter value
   } else if (preset.id === 'round-soft-4') {
     settings.size = 4; // 4px default as per name
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = true;
+    settings.colorJitter = 0; // Apply preset's colorJitter value
   } else if (preset.id === 'round-square-6') {
     settings.size = 6; // 6px default as per name
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = true;
+    settings.colorJitter = 0; // Apply preset's colorJitter value
   } else if (preset.id === 'ink-brush') {
     settings.size = 10; // 10px default for ink brush
     settings.opacity = 1;
@@ -537,6 +543,7 @@ export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<Brush
     settings.pressureEnabled = true;
     settings.minPressure = 1;
     settings.maxPressure = 100;
+    settings.colorJitter = 0; // Apply preset's colorJitter value
   } else if (preset.category === 'Custom') {
     // Handle custom brush presets - apply sensible defaults
     settings.opacity = 1;
@@ -545,6 +552,7 @@ export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<Brush
     settings.pressureEnabled = true;
     settings.minPressure = 1;
     settings.maxPressure = 100;
+    settings.colorJitter = 0; // Apply preset's colorJitter value
   }
   
   return { settings, components: preset.components };
