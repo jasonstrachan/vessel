@@ -98,6 +98,56 @@ class ScaledBrushCache {
   }
 
   /**
+   * Create a processed base canvas with all color transformations applied
+   * Keeps everything on GPU until final draw
+   */
+  private createProcessedBaseCanvas(
+    customBrush: CustomBrush,
+    hueShift: number,
+    saturationPercent: number,
+    color?: string,
+    isColorizable?: boolean
+  ): HTMLCanvasElement {
+    const canvas = canvasPool.acquire(customBrush.width, customBrush.height);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        canvasPool.release(canvas);
+        throw new Error('Failed to get context for processing');
+    }
+
+    // Draw the original brush image data
+    ctx.putImageData(customBrush.imageData, 0, 0);
+
+    // If we are tinting the brush, that takes top priority. Jitter is ignored.
+    if (isColorizable && color) {
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+      // Otherwise, if not tinting, apply the GPU-accelerated jitter effects.
+      
+      // Apply saturation if needed
+      if (saturationPercent !== 100) {
+        ctx.globalCompositeOperation = 'saturation';
+        ctx.fillStyle = `hsl(0, ${saturationPercent}%, 50%)`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      // Apply hue shift if needed
+      if (hueShift !== 0) {
+        ctx.globalCompositeOperation = 'hue';
+        ctx.fillStyle = `hsl(${hueShift}, 100%, 50%)`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+    
+    // Reset composite operation for safety
+    ctx.globalCompositeOperation = 'source-over';
+
+    return canvas;
+  }
+
+  /**
    * Create and cache a pre-scaled custom brush canvas
    */
   createScaledBrush(
@@ -128,38 +178,17 @@ class ScaledBrushCache {
       this.cleanup();
     }
 
-    // Create the base brush canvas
-    const baseCanvas = canvasPool.acquire(customBrush.width, customBrush.height);
-    const baseCtx = baseCanvas.getContext('2d', { willReadFrequently: true });
-    if (!baseCtx) {
-      canvasPool.release(baseCanvas);
-      throw new Error('Failed to get 2D context for base canvas');
-    }
-
-    // Apply hue/saturation transformations first if specified
-    let processedImageData = customBrush.imageData;
+    // Create processed base canvas with all color transformations applied
     const finalHueShift = hueShift || 0;
     const finalSaturation = saturation || 100;
     
-    
-    if (finalHueShift !== 0 || finalSaturation !== 100) {
-      processedImageData = adjustHueAndSaturation(
-        customBrush.imageData, 
-        finalHueShift, 
-        finalSaturation
-      );
-    }
-    
-    // Apply processed brush data to base canvas
-    baseCtx.putImageData(processedImageData, 0, 0);
-
-    // Apply color if colorizable (after hue/saturation adjustments)
-    if (isColorizable && color) {
-      baseCtx.globalCompositeOperation = 'source-atop';
-      baseCtx.fillStyle = color;
-      baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
-      baseCtx.globalCompositeOperation = 'source-over';
-    }
+    const baseCanvas = this.createProcessedBaseCanvas(
+      customBrush,
+      finalHueShift,
+      finalSaturation,
+      color,
+      isColorizable
+    );
 
     // Calculate scaled dimensions
     const scaledWidth = Math.ceil(customBrush.width * scale);

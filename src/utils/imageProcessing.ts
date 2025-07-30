@@ -1,4 +1,5 @@
 // Image processing utilities for brush tip editing
+import { canvasPool } from './canvasPool';
 
 // Convert RGB to HSL
 export function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
@@ -123,43 +124,48 @@ export function adjustSaturation(imageData: ImageData, saturationPercent: number
   return new ImageData(data, imageData.width, imageData.height);
 }
 
-// Apply both hue shift and saturation adjustment
-export function adjustHueAndSaturation(imageData: ImageData, hueShift: number, saturationPercent: number): ImageData {
-  const data = new Uint8ClampedArray(imageData.data);
-  const saturationFactor = saturationPercent / 100;
-  
-  
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-    const a = data[i + 3];
-    
-    // Skip transparent pixels
-    if (a === 0) continue;
-    
-    // Convert to HSL
-    const [h, s, l] = rgbToHsl(r, g, b);
-    
-    // Shift hue (wrap around 360 degrees)
-    let newHue = h + hueShift;
-    if (newHue < 0) newHue += 360;
-    if (newHue >= 360) newHue -= 360;
-    
-    // Adjust saturation
-    const newSaturation = Math.max(0, Math.min(100, s * saturationFactor));
-    
-    // Convert back to RGB
-    const [newR, newG, newB] = hslToRgb(newHue, newSaturation, l);
-    
-    // Update the pixel data
-    data[i] = newR;
-    data[i + 1] = newG;
-    data[i + 2] = newB;
-    // Keep original alpha
+// Apply both hue shift and saturation adjustment using GPU acceleration
+export function adjustHueAndSaturation(
+  imageData: ImageData,
+  hueShift: number,
+  saturationPercent: number
+): ImageData {
+  // Use a temporary canvas from the pool for processing
+  const tempCanvas = canvasPool.acquire(imageData.width, imageData.height);
+  const ctx = tempCanvas.getContext('2d');
+
+  if (!ctx) {
+    canvasPool.release(tempCanvas);
+    return imageData; // Return original on failure
   }
-  
-  return new ImageData(data, imageData.width, imageData.height);
+
+  // Draw the original image
+  ctx.putImageData(imageData, 0, 0);
+
+  // Apply saturation first
+  if (saturationPercent !== 100) {
+    ctx.globalCompositeOperation = 'saturation';
+    ctx.fillStyle = `hsl(0, ${saturationPercent}%, 50%)`; // Only saturation component matters
+    ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+  }
+
+  // Apply hue shift
+  if (hueShift !== 0) {
+    ctx.globalCompositeOperation = 'hue';
+    ctx.fillStyle = `hsl(${hueShift}, 100%, 50%)`; // Only hue component matters
+    ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+  }
+
+  // Reset composite operation
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Get the modified image data
+  const resultImageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+
+  // Release the canvas back to the pool
+  canvasPool.release(tempCanvas);
+
+  return resultImageData;
 }
 
 // Apply brightness adjustment to ImageData

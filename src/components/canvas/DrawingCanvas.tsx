@@ -31,6 +31,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const needsRedraw = useRef(false);
   const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
   const handleKeyUpRef = useRef<(e: KeyboardEvent) => void>(() => {});
   const handleWheelRef = useRef<(e: WheelEvent) => void>(() => {});
@@ -655,9 +656,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Draw on the offscreen canvas (no transformations - world coordinates)
     renderBrushStroke(offscreenCtx, from, to);
     
-    // Re-render the view with current zoom/pan
-    renderView();
-  }, [renderBrushStroke, renderView, isSelecting, addDirtyRegion, project]);
+    // Mark that we need to redraw the view
+    needsRedraw.current = true;
+  }, [renderBrushStroke, isSelecting, addDirtyRegion, project]);
 
   // Create custom brush from current selection
   const createCustomBrushFromSelection = useCallback(async () => {
@@ -971,8 +972,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             
             // Flood fill affects large areas, require full redraw
             markFullRedraw();
-            // Re-render the view
-            renderView();
+            // Request re-render
+            needsRedraw.current = true;
           }
         }
       }
@@ -1272,7 +1273,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           // Force full redraw and layer recomposition to show the baked result
           markFullRedraw();
           setLayersNeedRecomposition(true);
-          renderView();
+          needsRedraw.current = true;
           
           // Reset shape state after the shape is baked and rendered
           setTimeout(() => {
@@ -1528,8 +1529,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Paste affects large areas, require full redraw
     markFullRedraw();
-    // Re-render view
-    renderView();
+    // Request re-render
+    needsRedraw.current = true;
   }, [canvas.selection, setSelection, renderView, saveCanvasState, captureCanvasToActiveLayer, markFullRedraw]);
 
   // Keyboard event handlers
@@ -1560,7 +1561,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           if (snapshot && offscreenCanvasRef.current) {
             restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
             markFullRedraw();
-            renderView();
+            needsRedraw.current = true;
           } else {
           }
         } else {
@@ -1572,7 +1573,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           if (snapshot && offscreenCanvasRef.current) {
             restoreCanvasSnapshot(offscreenCanvasRef.current, snapshot);
             markFullRedraw();
-            renderView();
+            needsRedraw.current = true;
           } else {
           }
         } else {
@@ -1883,7 +1884,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Force full redraw after dimension update
     markFullRedraw();
-    renderView();
+    needsRedraw.current = true;
   }, [width, height, markFullRedraw, renderView]);
 
   // Detect dimension changes and update canvas state
@@ -1934,8 +1935,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           // Restore content
           ctx.putImageData(imageData, 0, 0);
           
-          // Re-render the view
-          renderView();
+          // Request re-render
+          needsRedraw.current = true;
         }
       }
     }
@@ -2090,6 +2091,46 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     };
   }, [canvas.selection.active, selectionStart, selectionEnd, renderView]);
 
+  // Dedicated render loop for smooth drawing
+  useEffect(() => {
+    let animationFrameId: number;
+
+    const renderLoop = () => {
+      renderView();
+      animationFrameId = requestAnimationFrame(renderLoop);
+    };
+
+    // Only run the render loop while drawing to save resources
+    if (isDrawing) {
+      animationFrameId = requestAnimationFrame(renderLoop);
+    }
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [isDrawing, renderView]);
+
+  // Main rendering loop - only renders when needsRedraw is true
+  useEffect(() => {
+    let frameId: number | null = null;
+    
+    const render = () => {
+      if (needsRedraw.current) {
+        renderView();
+        needsRedraw.current = false;
+      }
+      frameId = requestAnimationFrame(render);
+    };
+    
+    frameId = requestAnimationFrame(render);
+    
+    return () => {
+      if (frameId) {
+        cancelAnimationFrame(frameId);
+      }
+    };
+  }, [renderView]);
+
   // Canvas styling with cursor updates
   const canvasStyle: React.CSSProperties = {
     cursor: spacebarPressed 
@@ -2159,7 +2200,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       if (offscreenCanvasRef.current) {
         compositeLayersToCanvas(offscreenCanvasRef.current);
         markFullRedraw();
-        renderView();
+        needsRedraw.current = true;
         setLayersNeedRecomposition(false);
       } else {
       }

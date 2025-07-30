@@ -859,58 +859,93 @@ export const useBrushEngine = () => {
   // Custom brush drawing functions
   const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean, isPressureSensitive?: boolean) => {
     return performanceMonitor.measureStampTime(() => {
-      // Add this log to see the calculated jitter values
       const colorJitterAmount = tools.brushSettings.colorJitter || 0;
-      let jitteredHueShift = tools.brushSettings.hueShift || 0;
-      let jitteredSaturationAdjust = tools.brushSettings.saturationAdjust || 100;
-      if (colorJitterAmount > 0) {
-        const jitterFactor = colorJitterAmount / 100;
-        jitteredHueShift += (Math.random() - 0.5) * jitterFactor * 360;
-        jitteredSaturationAdjust = Math.max(0, Math.min(200, jitteredSaturationAdjust + (Math.random() - 0.5) * jitterFactor * 100));
-      }
-      console.log('[JITTER TRACE] Calculated jitter:', { jitteredHueShift, jitteredSaturationAdjust });
-
+      
       try {
-        // Add this log to see if the TRY block is entered
-        console.log('[JITTER TRACE] Entering TRY block.');
+        let scaledCanvas: HTMLCanvasElement;
         
-        // Only pre-cache if this is a new brush to avoid delays
-        if (!scaledBrushCache.hasCachedEntriesForBrush(customBrush.id)) {
-          // Only trigger pre-caching for completely new brushes
-          // Don't precache when jitter is enabled since each stamp needs unique values
-          if (colorJitterAmount === 0) {
+        if (colorJitterAmount > 0) {
+          // For jittered stamps, bypass cache and create directly with canvas operations
+          let jitteredHueShift = tools.brushSettings.hueShift || 0;
+          let jitteredSaturationAdjust = tools.brushSettings.saturationAdjust || 100;
+          
+          const normalizedJitter = colorJitterAmount / 100;
+          const jitterFactor = normalizedJitter * normalizedJitter; // Quadratic curve for smoother low values
+          jitteredHueShift += (Math.random() - 0.5) * jitterFactor * 360;
+          jitteredSaturationAdjust = Math.max(0, Math.min(200, jitteredSaturationAdjust + (Math.random() - 0.5) * jitterFactor * 100));
+          
+          // Create processed base canvas directly (stays on GPU)
+          const baseCanvas = canvasPool.acquire(customBrush.width, customBrush.height);
+          const baseCtx = baseCanvas.getContext('2d');
+          if (!baseCtx) throw new Error('Failed to get context');
+          
+          // Apply all transformations directly to canvas
+          baseCtx.putImageData(customBrush.imageData, 0, 0);
+          
+          if (jitteredSaturationAdjust !== 100) {
+            baseCtx.globalCompositeOperation = 'saturation';
+            baseCtx.fillStyle = `hsl(0, ${jitteredSaturationAdjust}%, 50%)`;
+            baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
+          }
+          
+          if (jitteredHueShift !== 0) {
+            baseCtx.globalCompositeOperation = 'hue';
+            baseCtx.fillStyle = `hsl(${jitteredHueShift}, 100%, 50%)`;
+            baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
+          }
+          
+          if (color) {
+            baseCtx.globalCompositeOperation = 'source-atop';
+            baseCtx.fillStyle = color;
+            baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
+          }
+          
+          baseCtx.globalCompositeOperation = 'source-over';
+          
+          // Scale if needed
+          if (scale !== 1) {
+            const scaledWidth = Math.ceil(customBrush.width * scale);
+            const scaledHeight = Math.ceil(customBrush.height * scale);
+            scaledCanvas = canvasPool.acquire(scaledWidth, scaledHeight);
+            const scaledCtx = scaledCanvas.getContext('2d');
+            if (!scaledCtx) throw new Error('Failed to get scaled context');
+            
+            scaledCtx.imageSmoothingEnabled = false;
+            scaledCtx.drawImage(baseCanvas, 0, 0, scaledWidth, scaledHeight);
+            canvasPool.release(baseCanvas);
+          } else {
+            scaledCanvas = baseCanvas;
+          }
+        } else {
+          // No jitter or not colorizable - use cache
+          if (!scaledBrushCache.hasCachedEntriesForBrush(customBrush.id)) {
             scaledBrushCache.precacheCommonSizes(
               customBrush, color, isColorizable, isPressureSensitive,
-              jitteredHueShift, jitteredSaturationAdjust
+              tools.brushSettings.hueShift || 0, tools.brushSettings.saturationAdjust || 100
             );
           }
+          
+          scaledCanvas = scaledBrushCache.createScaledBrush(
+            customBrush, scale, rotation, color, isColorizable, isPressureSensitive,
+            tools.brushSettings.hueShift || 0, tools.brushSettings.saturationAdjust || 100
+          );
         }
-        
-        // Use pre-scaled brush cache (or create fresh when jitter is enabled)
-        const scaledCanvas = scaledBrushCache.createScaledBrush(
-          customBrush, 
-          scale, 
-          rotation, 
-          color, 
-          isColorizable,
-          isPressureSensitive,
-          jitteredHueShift,
-          jitteredSaturationAdjust
-        );
         
         
         // Calculate position for pre-scaled canvas
         const centerX = x - scaledCanvas.width / 2;
         const centerY = y - scaledCanvas.height / 2;
         
-        // Draw the scaled brush (jitter already applied via hue/saturation system)
+        // Draw the scaled brush
         ctx.imageSmoothingEnabled = false; // Custom brushes maintain pixel-perfect rendering
         ctx.drawImage(scaledCanvas, centerX, centerY);
+        
+        // Release canvas if we created it for jitter
+        if (colorJitterAmount > 0) {
+          canvasPool.release(scaledCanvas);
+        }
       
     } catch (error) {
-      // Add this log to see if the CATCH block is ever entered
-      console.error('[JITTER TRACE] Entering CATCH block. Fallback logic is broken!', error);
-      
       // Fallback to original method if cache fails
       const canvas = canvasPool.acquire(customBrush.width, customBrush.height);
       const tempCtx = canvas.getContext('2d', { willReadFrequently: true });
@@ -919,26 +954,38 @@ export const useBrushEngine = () => {
         return;
       }
       
-      tempCtx.clearRect(0, 0, canvas.width, canvas.height);
+      // Apply same canvas-based transformations as main path
+      tempCtx.putImageData(customBrush.imageData, 0, 0);
       
-      // 1. Get the original brush image data
-      let processedImageData = customBrush.imageData;
-      
-      // 2. Apply hue/saturation jitter to the image data (ALWAYS, not just when colorizable)
-      if (jitteredHueShift !== 0 || jitteredSaturationAdjust !== 100) {
-        processedImageData = adjustHueAndSaturation(processedImageData, jitteredHueShift, jitteredSaturationAdjust);
+      if (colorJitterAmount > 0) {
+        let jitteredHueShift = tools.brushSettings.hueShift || 0;
+        let jitteredSaturationAdjust = tools.brushSettings.saturationAdjust || 100;
+        
+        const normalizedJitter = colorJitterAmount / 100;
+        const jitterFactor = normalizedJitter * normalizedJitter; // Quadratic curve for smoother low values
+        jitteredHueShift += (Math.random() - 0.5) * jitterFactor * 360;
+        jitteredSaturationAdjust = Math.max(0, Math.min(200, jitteredSaturationAdjust + (Math.random() - 0.5) * jitterFactor * 100));
+        
+        if (jitteredSaturationAdjust !== 100) {
+          tempCtx.globalCompositeOperation = 'saturation';
+          tempCtx.fillStyle = `hsl(0, ${jitteredSaturationAdjust}%, 50%)`;
+          tempCtx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        
+        if (jitteredHueShift !== 0) {
+          tempCtx.globalCompositeOperation = 'hue';
+          tempCtx.fillStyle = `hsl(${jitteredHueShift}, 100%, 50%)`;
+          tempCtx.fillRect(0, 0, canvas.width, canvas.height);
+        }
       }
       
-      // 3. Put the jittered image data on canvas
-      tempCtx.putImageData(processedImageData, 0, 0);
-      
-      // 4. Apply color tint SEPARATELY if needed (after jitter)
       if (isColorizable && color) {
         tempCtx.globalCompositeOperation = 'source-atop';
-        tempCtx.fillStyle = color; // Use solid color, not jittered color
+        tempCtx.fillStyle = color;
         tempCtx.fillRect(0, 0, canvas.width, canvas.height);
-        tempCtx.globalCompositeOperation = 'source-over';
       }
+      
+      tempCtx.globalCompositeOperation = 'source-over';
       
       const scaledWidth = customBrush.width * scale;
       const scaledHeight = customBrush.height * scale;
@@ -1238,7 +1285,6 @@ export const useBrushEngine = () => {
     // Also use custom brush rendering if we have a currentBrushTip
     
     if (customBrush) {
-      console.log('[BRUSH DEBUG] Using custom brush path with colorJitter:', tools.brushSettings.colorJitter);
       // Determine if this brush should use swatch color or support jitter
       // Always respect the useSwatchColor setting for custom brushes
       const originalIsColorizable = tools.brushSettings.brushShape === BrushShape.CUSTOM 
@@ -1246,18 +1292,10 @@ export const useBrushEngine = () => {
         : true;
       const hasColorJitter = (tools.brushSettings.colorJitter || 0) > 0;
       
-      // For custom brushes: separate jitter from color tinting
-      // Color tinting only applies when useSwatchColor is explicitly enabled
+      // For custom brushes: allow jitter even when useSwatchColor is false
+      // But only apply color tint when useSwatchColor is explicitly enabled
       const shouldApplyColorTint = originalIsColorizable;
       const brushColor = shouldApplyColorTint ? settings.color : undefined;
-      console.log('[BRUSH DEBUG] Custom brush settings:', { 
-        originalIsColorizable, 
-        hasColorJitter, 
-        shouldApplyColorTint, 
-        brushColor,
-        useSwatchColor: tools.brushSettings.useSwatchColor,
-        colorJitter: tools.brushSettings.colorJitter
-      });
       
       
       // Scale custom brush using pressure-modified actualBrushSize
