@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { BrushShape } from '../../types';
 
 interface BrushCursorProps {
@@ -18,6 +18,59 @@ interface BrushCursorProps {
   visible: boolean;
 }
 
+// Helper to generate a cached data URL for the cursor canvas
+const useCursorDataURL = (
+  brushShape: BrushShape,
+  screenSize: number,
+  color: string // color is now used for the outline
+) => {
+  return useMemo(() => {
+    if (brushShape === BrushShape.CUSTOM) return null;
+
+    const canvas = document.createElement('canvas');
+    const size = Math.ceil(screenSize) + 8; // Add padding for shadow and border
+    canvas.width = size;
+    canvas.height = size;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+
+    // This is the fast, canvas-based equivalent of drop-shadow
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
+    ctx.shadowOffsetX = 1;
+    ctx.shadowOffsetY = 1;
+    ctx.shadowBlur = 1;
+
+    ctx.strokeStyle = '#ffffff'; // White outline for visibility
+    ctx.lineWidth = 2;
+    
+    const center = size / 2;
+    const radius = Math.max(0.5, screenSize / 2);
+
+    ctx.beginPath();
+
+    switch (brushShape) {
+      case BrushShape.ROUND:
+      case BrushShape.PIXEL_ROUND:
+        ctx.arc(center, center, radius, 0, Math.PI * 2);
+        break;
+      case BrushShape.SQUARE:
+        ctx.rect(center - radius, center - radius, screenSize, screenSize);
+        break;
+      case BrushShape.TRIANGLE:
+        ctx.moveTo(center, center - radius);
+        ctx.lineTo(center + radius, center + radius);
+        ctx.lineTo(center - radius, center + radius);
+        ctx.closePath();
+        break;
+    }
+    
+    ctx.stroke();
+    
+    return canvas.toDataURL();
+  }, [brushShape, screenSize, color]);
+};
+
 const BrushCursor = memo(function BrushCursor({
   screenX,
   screenY,
@@ -25,20 +78,15 @@ const BrushCursor = memo(function BrushCursor({
   brushShape,
   zoom,
   color,
-  customBrush,
-  visible
+  visible,
 }: BrushCursorProps) {
-  // Suppress unused variable warnings for custom brush mode
-  // We keep these parameters for interface compatibility
-  void color;
-  void customBrush;
-  // Calculate display size based on zoom and brush size
-  const screenSize = size * zoom;
 
+  const screenSize = size * zoom;
+  const cursorDataURL = useCursorDataURL(brushShape, screenSize, color);
 
   if (!visible) return null;
 
-  // Render crosshair for custom brushes
+  // Render a simple, static crosshair for custom brushes (already fast)
   if (brushShape === BrushShape.CUSTOM) {
     return (
       <div
@@ -50,146 +98,32 @@ const BrushCursor = memo(function BrushCursor({
           zIndex: 1000,
         }}
       >
-        <svg
-          width="21"
-          height="21"
-          style={{ 
-            display: 'block',
-            transform: 'translate3d(0, 0, 0)', // Force GPU acceleration
-          }}
-        >
-          {/* Crosshair lines */}
-          <line
-            x1="10.5"
-            y1="3"
-            x2="10.5"
-            y2="8"
-            stroke="#ffffff"
-            strokeWidth="2"
-            filter="drop-shadow(1px 1px 0px black)"
-          />
-          <line
-            x1="10.5"
-            y1="13"
-            x2="10.5"
-            y2="18"
-            stroke="#ffffff"
-            strokeWidth="2"
-            filter="drop-shadow(1px 1px 0px black)"
-          />
-          <line
-            x1="3"
-            y1="10.5"
-            x2="8"
-            y2="10.5"
-            stroke="#ffffff"
-            strokeWidth="2"
-            filter="drop-shadow(1px 1px 0px black)"
-          />
-          <line
-            x1="13"
-            y1="10.5"
-            x2="18"
-            y2="10.5"
-            stroke="#ffffff"
-            strokeWidth="2"
-            filter="drop-shadow(1px 1px 0px black)"
-          />
-          {/* Center dot */}
-          <circle
-            cx="10.5"
-            cy="10.5"
-            r="1"
-            fill="#ffffff"
-            filter="drop-shadow(1px 1px 0px black)"
-          />
+        <svg width="21" height="21">
+          <line x1="10.5" y1="3" x2="10.5" y2="8" stroke="#ffffff" strokeWidth="2" filter="drop-shadow(1px 1px 0px black)" />
+          <line x1="10.5" y1="13" x2="10.5" y2="18" stroke="#ffffff" strokeWidth="2" filter="drop-shadow(1px 1px 0px black)" />
+          <line x1="3" y1="10.5" x2="8" y2="10.5" stroke="#ffffff" strokeWidth="2" filter="drop-shadow(1px 1px 0px black)" />
+          <line x1="13" y1="10.5" x2="18" y2="10.5" stroke="#ffffff" strokeWidth="2" filter="drop-shadow(1px 1px 0px black)" />
+          <circle cx="10.5" cy="10.5" r="1" fill="#ffffff" filter="drop-shadow(1px 1px 0px black)" />
         </svg>
       </div>
     );
   }
 
-  // Render shape previews
+  // Render the fast, pre-baked cursor image for default brushes
   return (
     <div
       className="pointer-events-none fixed"
       style={{
         left: `${screenX}px`,
         top: `${screenY}px`,
-        transform: `translate(-50%, -50%)`,
+        width: `${Math.ceil(screenSize) + 8}px`,
+        height: `${Math.ceil(screenSize) + 8}px`,
+        transform: 'translate(-50%, -50%)',
         zIndex: 1000,
+        imageRendering: 'pixelated',
       }}
     >
-      {brushShape === BrushShape.ROUND && (
-        <svg
-          width={screenSize + 4}
-          height={screenSize + 4}
-          style={{ 
-            display: 'block',
-            transform: 'translate3d(0, 0, 0)', // Force GPU acceleration
-          }}
-        >
-          <circle
-            cx={(screenSize + 4) / 2}
-            cy={(screenSize + 4) / 2}
-            r={Math.max(0.5, screenSize / 2 - 1)}
-            fill="none"
-            stroke="#ffffff"
-            strokeWidth="2"
-            opacity={1}
-            filter="drop-shadow(1px 1px 0px black)"
-          />
-        </svg>
-      )}
-
-      {brushShape === BrushShape.PIXEL_ROUND && (
-        <div
-          style={{
-            width: `${screenSize + 4}px`,
-            height: `${screenSize + 4}px`,
-            padding: '2px',
-            boxSizing: 'border-box',
-            border: '2px solid #ffffff',
-            borderRadius: '50%',
-            opacity: 1,
-            imageRendering: 'pixelated',
-            filter: 'drop-shadow(1px 1px 0px black)',
-          }}
-        />
-      )}
-
-      {brushShape === BrushShape.SQUARE && (
-        <div
-          style={{
-            width: `${screenSize + 4}px`,
-            height: `${screenSize + 4}px`,
-            padding: '2px',
-            boxSizing: 'border-box',
-            border: '2px solid #ffffff',
-            opacity: 1,
-            filter: 'drop-shadow(1px 1px 0px black)',
-          }}
-        />
-      )}
-
-      {brushShape === BrushShape.TRIANGLE && (
-        <svg
-          width={screenSize + 4}
-          height={screenSize + 4}
-          style={{ 
-            display: 'block',
-            transform: 'translate3d(0, 0, 0)', // Force GPU acceleration
-          }}
-        >
-          <polygon
-            points={`${(screenSize + 4) / 2},${3} ${screenSize + 1},${screenSize + 1} ${3},${screenSize + 1}`}
-            fill="none"
-            stroke="#ffffff"
-            strokeWidth="2"
-            opacity={1}
-            filter="drop-shadow(1px 1px 0px black)"
-          />
-        </svg>
-      )}
+      <img src={cursorDataURL || ''} alt="Brush Cursor" />
     </div>
   );
 });
