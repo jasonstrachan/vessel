@@ -93,6 +93,21 @@ export default function BrushControls() {
         />
       </div>
 
+      {/* Color Jitter */}
+      <div className="mb-3">
+        <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
+          Color Jitter: {activeSettings.colorJitter || 0}%
+        </label>
+        <Slider
+          value={[activeSettings.colorJitter || 0]}
+          min={0}
+          max={100}
+          step={1}
+          onValueChange={(value) => setActiveSettings({ colorJitter: value[0] })}
+          aria-label="Color Jitter"
+        />
+      </div>
+
       {/* Shape */}
       <div className="mb-3">
         <div className="flex items-center space-x-2 mb-2">
