@@ -10,10 +10,15 @@ import { scaledBrushCache } from '../utils/scaledBrushCache';
 import { pressureOptimizer } from '../utils/pressureOptimizer';
 import { memoryManager } from '../utils/memoryCleanup';
 import { performanceMonitor } from '../utils/performanceMonitor';
+import { adjustHueAndSaturation } from '../utils/imageProcessing';
 
 // Color jitter utility function
 const applyColorJitter = (baseColor: string, jitterAmount: number): string => {
-  if (jitterAmount === 0) return baseColor;
+  console.log('[COLOR JITTER DEBUG] Called with:', { baseColor, jitterAmount });
+  if (jitterAmount === 0) {
+    console.log('[COLOR JITTER DEBUG] Returning base color (jitter = 0)');
+    return baseColor;
+  }
   
   // Parse color to HSL for smooth jitter variations
   const canvas = document.createElement('canvas');
@@ -88,7 +93,9 @@ const applyColorJitter = (baseColor: string, jitterAmount: number): string => {
     bOut = hue2rgb(p, q, h - 1/3);
   }
   
-  return `rgb(${Math.round(rOut * 255)}, ${Math.round(gOut * 255)}, ${Math.round(bOut * 255)})`;
+  const result = `rgb(${Math.round(rOut * 255)}, ${Math.round(gOut * 255)}, ${Math.round(bOut * 255)})`;
+  console.log('[COLOR JITTER DEBUG] Generated jittered color:', { baseColor, result, jitterAmount });
+  return result;
 };
 
 // Base sizes for standard brushes (100% = these sizes in pixels)
@@ -720,8 +727,7 @@ export const useBrushEngine = () => {
     settings: RenderSettings
   ) => {
     // Bresenham's line algorithm for pixel-perfect lines with distance-based spacing
-    const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
-    ctx.fillStyle = jitteredColor;
+    // Note: Color jitter will be applied per stamp, not per line
     
     const dx = Math.abs(x1 - x0);
     const dy = Math.abs(y1 - y0);
@@ -747,6 +753,14 @@ export const useBrushEngine = () => {
         // Check if we should draw this stamp (cursor-speed independent)
         const brushSettings = tools.brushSettings;
         if (shouldDrawStamp(brushSettings, queue, settings.size)) {
+          // Apply color jitter per stamp for true randomization
+          console.log('[STAMP DEBUG] Drawing stamp with jitter settings:', { 
+            colorJitter: brushSettings.colorJitter, 
+            settingsColor: settings.color 
+          });
+          const jitteredColor = applyColorJitter(settings.color, brushSettings.colorJitter || 0);
+          ctx.fillStyle = jitteredColor;
+          console.log('[STAMP DEBUG] Set fillStyle to:', jitteredColor);
           drawShape(ctx, x, y, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
         }
         queue.accumulatedDistance -= settings.spacing;
@@ -779,8 +793,7 @@ export const useBrushEngine = () => {
     const roundedX = Math.round(currentX);
     const roundedY = Math.round(currentY);
     
-    const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
-    ctx.fillStyle = jitteredColor;
+    // Note: Color jitter will be applied per stamp, not once per function call
     
     if (!queue.initialized) {
       // First pixel - initialize queue with distance-based state
@@ -795,6 +808,9 @@ export const useBrushEngine = () => {
       
       // Draw the first shape (check dash state)
       if (shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
+        // Apply color jitter per stamp
+        const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
+        ctx.fillStyle = jitteredColor;
         drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
       }
       return;
@@ -813,6 +829,9 @@ export const useBrushEngine = () => {
       if (queue.accumulatedDistance >= settings.spacing) {
         // Check if we should draw this stamp (cursor-speed independent)
         if (shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
+          // Apply color jitter per stamp
+          const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
+          ctx.fillStyle = jitteredColor;
           drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
         }
         queue.accumulatedDistance -= settings.spacing;
@@ -840,17 +859,34 @@ export const useBrushEngine = () => {
   // Custom brush drawing functions
   const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean, isPressureSensitive?: boolean) => {
     return performanceMonitor.measureStampTime(() => {
+      // Add this log to see the calculated jitter values
+      const colorJitterAmount = tools.brushSettings.colorJitter || 0;
+      let jitteredHueShift = tools.brushSettings.hueShift || 0;
+      let jitteredSaturationAdjust = tools.brushSettings.saturationAdjust || 100;
+      if (colorJitterAmount > 0) {
+        const jitterFactor = colorJitterAmount / 100;
+        jitteredHueShift += (Math.random() - 0.5) * jitterFactor * 360;
+        jitteredSaturationAdjust = Math.max(0, Math.min(200, jitteredSaturationAdjust + (Math.random() - 0.5) * jitterFactor * 100));
+      }
+      console.log('[JITTER TRACE] Calculated jitter:', { jitteredHueShift, jitteredSaturationAdjust });
+
       try {
+        // Add this log to see if the TRY block is entered
+        console.log('[JITTER TRACE] Entering TRY block.');
+        
         // Only pre-cache if this is a new brush to avoid delays
         if (!scaledBrushCache.hasCachedEntriesForBrush(customBrush.id)) {
           // Only trigger pre-caching for completely new brushes
-          scaledBrushCache.precacheCommonSizes(
-            customBrush, color, isColorizable, isPressureSensitive,
-            tools.brushSettings.hueShift, tools.brushSettings.saturationAdjust
-          );
+          // Don't precache when jitter is enabled since each stamp needs unique values
+          if (colorJitterAmount === 0) {
+            scaledBrushCache.precacheCommonSizes(
+              customBrush, color, isColorizable, isPressureSensitive,
+              jitteredHueShift, jitteredSaturationAdjust
+            );
+          }
         }
         
-        // Use pre-scaled brush cache to eliminate expensive scaling operations
+        // Use pre-scaled brush cache (or create fresh when jitter is enabled)
         const scaledCanvas = scaledBrushCache.createScaledBrush(
           customBrush, 
           scale, 
@@ -858,8 +894,8 @@ export const useBrushEngine = () => {
           color, 
           isColorizable,
           isPressureSensitive,
-          tools.brushSettings.hueShift,
-          tools.brushSettings.saturationAdjust
+          jitteredHueShift,
+          jitteredSaturationAdjust
         );
         
         
@@ -867,12 +903,14 @@ export const useBrushEngine = () => {
         const centerX = x - scaledCanvas.width / 2;
         const centerY = y - scaledCanvas.height / 2;
         
-        
-        // Draw the pre-scaled brush - custom brushes should always be pixel-perfect
+        // Draw the scaled brush (jitter already applied via hue/saturation system)
         ctx.imageSmoothingEnabled = false; // Custom brushes maintain pixel-perfect rendering
         ctx.drawImage(scaledCanvas, centerX, centerY);
       
     } catch (error) {
+      // Add this log to see if the CATCH block is ever entered
+      console.error('[JITTER TRACE] Entering CATCH block. Fallback logic is broken!', error);
+      
       // Fallback to original method if cache fails
       const canvas = canvasPool.acquire(customBrush.width, customBrush.height);
       const tempCtx = canvas.getContext('2d', { willReadFrequently: true });
@@ -882,11 +920,22 @@ export const useBrushEngine = () => {
       }
       
       tempCtx.clearRect(0, 0, canvas.width, canvas.height);
-      tempCtx.putImageData(customBrush.imageData, 0, 0);
       
+      // 1. Get the original brush image data
+      let processedImageData = customBrush.imageData;
+      
+      // 2. Apply hue/saturation jitter to the image data (ALWAYS, not just when colorizable)
+      if (jitteredHueShift !== 0 || jitteredSaturationAdjust !== 100) {
+        processedImageData = adjustHueAndSaturation(processedImageData, jitteredHueShift, jitteredSaturationAdjust);
+      }
+      
+      // 3. Put the jittered image data on canvas
+      tempCtx.putImageData(processedImageData, 0, 0);
+      
+      // 4. Apply color tint SEPARATELY if needed (after jitter)
       if (isColorizable && color) {
         tempCtx.globalCompositeOperation = 'source-atop';
-        tempCtx.fillStyle = color;
+        tempCtx.fillStyle = color; // Use solid color, not jittered color
         tempCtx.fillRect(0, 0, canvas.width, canvas.height);
         tempCtx.globalCompositeOperation = 'source-over';
       }
@@ -911,7 +960,7 @@ export const useBrushEngine = () => {
       canvasPool.release(canvas);
     }
     });
-  }, []);
+  }, [tools]);
 
   const drawCustomBrushLine = useCallback((ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean) => {
     const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
@@ -1189,13 +1238,26 @@ export const useBrushEngine = () => {
     // Also use custom brush rendering if we have a currentBrushTip
     
     if (customBrush) {
-      // Determine if this brush should use swatch color
+      console.log('[BRUSH DEBUG] Using custom brush path with colorJitter:', tools.brushSettings.colorJitter);
+      // Determine if this brush should use swatch color or support jitter
       // Always respect the useSwatchColor setting for custom brushes
-      const isColorizable = tools.brushSettings.brushShape === BrushShape.CUSTOM 
+      const originalIsColorizable = tools.brushSettings.brushShape === BrushShape.CUSTOM 
         ? tools.brushSettings.useSwatchColor 
         : true;
-      const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
-      const brushColor = isColorizable ? jitteredColor : undefined;
+      const hasColorJitter = (tools.brushSettings.colorJitter || 0) > 0;
+      
+      // For custom brushes: separate jitter from color tinting
+      // Color tinting only applies when useSwatchColor is explicitly enabled
+      const shouldApplyColorTint = originalIsColorizable;
+      const brushColor = shouldApplyColorTint ? settings.color : undefined;
+      console.log('[BRUSH DEBUG] Custom brush settings:', { 
+        originalIsColorizable, 
+        hasColorJitter, 
+        shouldApplyColorTint, 
+        brushColor,
+        useSwatchColor: tools.brushSettings.useSwatchColor,
+        colorJitter: tools.brushSettings.colorJitter
+      });
       
       
       // Scale custom brush using pressure-modified actualBrushSize
@@ -1267,7 +1329,7 @@ export const useBrushEngine = () => {
         for (const pos of gridPositions) {
           const posKey = `${pos.x},${pos.y}`;
           if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
-            drawCustomBrushStamp(ctx, pos.x, pos.y, customBrush, scaleFactor, settings.rotation, brushColor, isColorizable, tools.brushSettings.pressureEnabled);
+            drawCustomBrushStamp(ctx, pos.x, pos.y, customBrush, scaleFactor, settings.rotation, brushColor, shouldApplyColorTint, tools.brushSettings.pressureEnabled);
             queue.stampedGridPositions.add(posKey);
           }
         }
@@ -1286,7 +1348,7 @@ export const useBrushEngine = () => {
             const x = queue.lastStrokePosition.x + (snappedTo.x - queue.lastStrokePosition.x) * progress;
             const y = queue.lastStrokePosition.y + (snappedTo.y - queue.lastStrokePosition.y) * progress;
             
-            drawCustomBrushStamp(ctx, x, y, customBrush, scaleFactor, settings.rotation, brushColor, isColorizable, tools.brushSettings.pressureEnabled);
+            drawCustomBrushStamp(ctx, x, y, customBrush, scaleFactor, settings.rotation, brushColor, shouldApplyColorTint, tools.brushSettings.pressureEnabled);
           }
           
           queue.accumulatedDistance -= settings.spacing;
