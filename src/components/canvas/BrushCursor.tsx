@@ -26,6 +26,9 @@ const useCursorDataURL = (
 ) => {
   return useMemo(() => {
     if (brushShape === BrushShape.CUSTOM) return null;
+    
+    // Only run in browser environment
+    if (typeof document === 'undefined') return null;
 
     const canvas = document.createElement('canvas');
     const size = Math.ceil(screenSize) + 8; // Add padding for shadow and border
