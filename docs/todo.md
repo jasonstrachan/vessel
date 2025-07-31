@@ -1,9 +1,10 @@
 # Todo List
 
 ## Current Task
-- [x] Apply systematic colorSpace: 'srgb' fixes to all canvas operations
+- [x] Fix custom brush color transformation bug in MiniCanvas.tsx
 
 ## Completed
+- [x] Fix custom brush color transformation bug in MiniCanvas.tsx
 - [x] Apply systematic colorSpace: 'srgb' fixes to all canvas operations
 - [x] Fix color jitter not working due to applyBrushPreset not preserving colorJitter setting
 - [x] Remove renderView() call from drawLine() function
@@ -11,6 +12,54 @@
 - [x] Add dirty flag to track when redraw is needed
 - [x] Test the fix with antialiased brush at various speeds
 - [x] Update docs/todo.md with review of changes
+
+## Review of Changes
+
+### Custom Brush Color Transformation Fix (Complete)
+
+#### Issue
+Custom brushes in MiniCanvas.tsx were experiencing double/triple color transformations when hue shift or saturation adjustments were applied. The preview color in the mini canvas did not match the actual brush stroke color on the main canvas.
+
+#### Root Cause Analysis
+The problem was in the `initializeBrushTip` function (`/src/components/canvas/MiniCanvas.tsx:319-340`):
+
+1. **First Transformation**: `adjustHueAndSaturation` was applied to `customBrush.imageData` on lines 324-329
+2. **Stored as "Original"**: The already-transformed data was stored as `originalBrushData` on line 340
+3. **Second Transformation**: `renderCanvas` and `useEffect` functions applied `adjustHueAndSaturation` again to the supposedly "original" data
+4. **Result**: Color transformations were compounding (30° hue became 60°, 150% saturation became 225%)
+
+#### Solution Applied
+**Fixed the data flow to maintain single source of truth:**
+
+1. **Store True Original**: `setOriginalBrushData(customBrush.imageData)` now stores the unmodified brush data 
+2. **Transform for Display Only**: Hue/saturation transformations are applied only for preview display
+3. **Removed Redundant Calls**: Eliminated duplicate `onBrushTipChange` call since `useEffect` handles this correctly
+4. **Single Transformation**: All subsequent operations now work from the clean original data
+
+#### Key Code Changes
+```typescript
+// BEFORE (broken - stored transformed data):
+if (hueShift !== 0 || saturation !== 100) {
+  displayImageData = adjustHueAndSaturation(customBrush.imageData, hueShift, saturation);
+}
+const brushData = ctx.getImageData(0, 0, dimensions.width, dimensions.height); // This is transformed!
+setOriginalBrushData(brushData); // Storing transformed data as "original"
+
+// AFTER (fixed - store clean original):
+setOriginalBrushData(customBrush.imageData); // Store TRUE original first
+if (hueShift !== 0 || saturation !== 100) {
+  displayImageData = adjustHueAndSaturation(customBrush.imageData, hueShift, saturation);
+}
+ctx.putImageData(displayImageData, 0, 0); // Display transformed version only
+```
+
+#### Impact
+✅ **Color accuracy**: Mini canvas preview now matches main canvas brush strokes exactly  
+✅ **Single transformation**: Hue/saturation applied once instead of multiple times   
+✅ **Preserved functionality**: All existing features (undo/redo, parent communication) work correctly  
+✅ **Build verification**: No TypeScript errors, successful build completion  
+
+**Result**: Custom brush color transformations now work correctly, with mini canvas preview perfectly matching the actual drawing behavior.
 
 ## Review of Changes
 
@@ -449,3 +498,35 @@ Successfully implemented pixel brush stamp caching optimization to dramatically 
 This optimization addresses the core performance bottleneck in pixel brushes by eliminating redundant pixel-by-pixel drawing operations. The implementation is minimal, non-invasive, and maintains complete visual and functional compatibility while providing massive performance gains.
 
 The solution follows the project's simplicity principles - it's a focused optimization that changes only what's necessary to solve the specific performance problem.
+
+---
+
+### Double-Processing Fix for Current Brush Tip (Complete)
+
+#### Issue
+Custom brushes edited in MiniCanvas were experiencing double color transformations when used in the main drawing engine. The MiniCanvas would apply hue/saturation adjustments, but then the scaledBrushCache would apply the same transformations again, causing color mismatches between preview and actual brush strokes.
+
+#### Root Cause Analysis
+1. **MiniCanvas processing**: MiniCanvas applies `adjustHueAndSaturation` to create processed brush tips with ID 'current-brush-tip'
+2. **Engine reprocessing**: `scaledBrushCache.createProcessedBaseCanvas` applied `adjustHueAndSaturation` again to all brushes, including already-processed ones
+3. **Double transformation**: Same color adjustments applied twice, causing incorrect final colors
+
+#### Solution Applied
+Added early return in `createProcessedBaseCanvas` function at `scaledBrushCache.ts:120-123`:
+
+```typescript
+// If the brush is the special 'current-brush-tip', its imageData has already
+// been processed by the MiniCanvas. Use it directly without changes.
+if (customBrush.id === 'current-brush-tip') {
+  ctx.putImageData(customBrush.imageData, 0, 0);
+  return canvas;
+}
+```
+
+#### Impact
+✅ **Color accuracy**: MiniCanvas previews now match actual brush stroke colors exactly  
+✅ **Single transformation**: Eliminates double processing of edited brush tips  
+✅ **Preserved functionality**: All other brush processing paths unchanged  
+✅ **Simple fix**: Minimal code change with maximum impact  
+
+**Result**: Custom brush tips edited in MiniCanvas now render with correct colors that match their preview appearance.

@@ -316,33 +316,30 @@ export default function MiniCanvas({
       if (customBrush) {
         // Canvas already cleared above - no need to clear again
         
-        // Apply hue/saturation transformations to show real-time preview
+        // 1. Store the UNMODIFIED, original brush data. This is the crucial step.
+        setOriginalBrushData(customBrush.imageData);
+
+        // 2. Apply hue/saturation for the preview on the offscreen canvas.
+        //    Always transform from the true original data.
         let displayImageData = customBrush.imageData;
-        
-        
         if (hueShift !== 0 || saturation !== 100) {
           displayImageData = adjustHueAndSaturation(
-            customBrush.imageData,
+            customBrush.imageData, // Always use the clean source
             hueShift,
             saturation
           );
         }
         
-        // Put the transformed brush data at the origin (no centering needed)
+        // 3. Put the correctly transformed data onto the offscreen canvas.
         try {
           ctx.putImageData(displayImageData, 0, 0);
         } catch (error) {
+          console.error("Failed to put image data on offscreen canvas:", error);
         }
         
-        // Store original data for reset - use actual brush dimensions
-        const dimensions = getActualBrushDimensions();
-        const brushData = ctx.getImageData(0, 0, dimensions.width, dimensions.height);
-        setOriginalBrushData(brushData);
-        
-        // Notify parent that brush tip has changed
-        if (onBrushTipChange) {
-          onBrushTipChange(brushData, dimensions.width, dimensions.height);
-        }
+        // NOTE: The onBrushTipChange call that was here can be removed.
+        // A separate useEffect at the end of the file already handles this,
+        // and it will now work correctly with the fixed originalBrushData.
         
         // Render update will be handled by caller
       }
