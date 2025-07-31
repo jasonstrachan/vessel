@@ -12,6 +12,9 @@ import { memoryManager } from '../utils/memoryCleanup';
 import { performanceMonitor } from '../utils/performanceMonitor';
 import { adjustHueAndSaturation } from '../utils/imageProcessing';
 
+// Cache for pre-rendered pixel circle stamps
+const pixelCircleStampCache = new Map<string, HTMLCanvasElement>();
+
 // Color jitter utility function
 const applyColorJitter = (baseColor: string, jitterAmount: number): string => {
   if (jitterAmount === 0) {
@@ -242,7 +245,15 @@ export const useBrushEngine = () => {
   }, []);
 
   // Pixel-perfect circle patterns based on reference image
-  const getPixelCirclePattern = useCallback((size: number): Array<{x: number, y: number}> => {
+  const getPixelCircleStamp = useCallback((size: number, color: string): HTMLCanvasElement => {
+    const cacheKey = `${size}_${color}`;
+    
+    // Check cache first
+    if (pixelCircleStampCache.has(cacheKey)) {
+      return pixelCircleStampCache.get(cacheKey)!;
+    }
+
+    // Define hardcoded patterns for small sizes (1-8)
     const patterns: Record<number, Array<{x: number, y: number}>> = {
       1: [{x: 0, y: 0}],
       2: [{x: 0, y: 0}, {x: 1, y: 0}, {x: 0, y: 1}, {x: 1, y: 1}],
@@ -289,28 +300,44 @@ export const useBrushEngine = () => {
       ]
     };
 
-    // For sizes larger than our predefined patterns, use a simple filled circle algorithm
-    if (patterns[size]) {
-      return patterns[size];
-    }
+    let pixels: Array<{x: number, y: number}>;
 
-    // Fallback to calculated circle for larger sizes
-    const pixels: Array<{x: number, y: number}> = [];
-    const radius = size / 2;
-    const centerX = radius - 0.5;
-    const centerY = radius - 0.5;
-    
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const dx = x - centerX;
-        const dy = y - centerY;
-        if (dx * dx + dy * dy <= radius * radius) {
-          pixels.push({x, y});
+    if (patterns[size]) {
+      pixels = patterns[size];
+    } else {
+      // Fallback to calculated circle for larger sizes
+      pixels = [];
+      const radius = size / 2;
+      const centerX = radius - 0.5;
+      const centerY = radius - 0.5;
+      
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const dx = x - centerX;
+          const dy = y - centerY;
+          if (dx * dx + dy * dy <= radius * radius) {
+            pixels.push({x, y});
+          }
         }
       }
     }
-    
-    return pixels;
+
+    // Create an offscreen canvas for the stamp
+    const stampCanvas = document.createElement('canvas');
+    stampCanvas.width = size;
+    stampCanvas.height = size;
+    const stampCtx = stampCanvas.getContext('2d', { colorSpace: 'srgb' })!;
+
+    // Draw the pixel pattern with the actual color
+    stampCtx.fillStyle = color;
+    stampCtx.imageSmoothingEnabled = false;
+    pixels.forEach(pixel => {
+      stampCtx.fillRect(pixel.x, pixel.y, 1, 1);
+    });
+
+    // Store the new stamp in the cache and return it
+    pixelCircleStampCache.set(cacheKey, stampCanvas);
+    return stampCanvas;
   }, []);
   
   const drawShape = useCallback((
@@ -325,6 +352,25 @@ export const useBrushEngine = () => {
     centerAlignment?: boolean
   ) => {
     const halfSize = size / 2;
+    
+    // Check transparency lock before drawing
+    if ((window as any).transparencyLockEnabled) {
+      // Sample the center pixel to check if we can draw here
+      const centerX = Math.floor(x);
+      const centerY = Math.floor(y);
+      
+      try {
+        const imageData = ctx.getImageData(centerX, centerY, 1, 1);
+        const alpha = imageData.data[3]; // Alpha channel
+        
+        // If transparency lock is enabled and pixel is fully transparent, skip drawing
+        if (alpha === 0) {
+          return;
+        }
+      } catch (error) {
+        // If we can't read the pixel data, allow drawing
+      }
+    }
     
     ctx.save();
     
@@ -402,27 +448,19 @@ export const useBrushEngine = () => {
           ctx.fill();
           break;
           
-        case BrushShape.PIXEL_ROUND:
-          if (antiAliasing) {
-            // Even for "antialiased" mode, use pixel patterns for pixel round brushes
-            const pixelPattern = getPixelCirclePattern(size);
-            const offsetX = Math.round(x - Math.floor(size / 2));
-            const offsetY = Math.round(y - Math.floor(size / 2));
-            
-            pixelPattern.forEach(pixel => {
-              ctx.fillRect(offsetX + pixel.x, offsetY + pixel.y, 1, 1);
-            });
-          } else {
-            // Use pixel-perfect circle patterns for pixel mode
-            const pixelPattern = getPixelCirclePattern(size);
-            const offsetX = Math.round(x - Math.floor(size / 2));
-            const offsetY = Math.round(y - Math.floor(size / 2));
-            
-            pixelPattern.forEach(pixel => {
-              ctx.fillRect(offsetX + pixel.x, offsetY + pixel.y, 1, 1);
-            });
-          }
+        case BrushShape.PIXEL_ROUND: {
+          // Get the pre-rendered stamp canvas with color
+          const stampCanvas = getPixelCircleStamp(Math.max(1, Math.round(size)), ctx.fillStyle as string);
+          
+          // Calculate position
+          const offsetX = Math.round(x - stampCanvas.width / 2);
+          const offsetY = Math.round(y - stampCanvas.height / 2);
+          
+          // Simply draw the pre-colored stamp
+          ctx.drawImage(stampCanvas, offsetX, offsetY);
+          
           break;
+        }
           
         case BrushShape.TRIANGLE:
           ctx.beginPath();
@@ -453,7 +491,7 @@ export const useBrushEngine = () => {
     }
     
     ctx.restore();
-  }, [getPixelCirclePattern]);
+  }, [getPixelCircleStamp]);
   
   const calculateSizeModification = useCallback((
     component: BrushComponent,

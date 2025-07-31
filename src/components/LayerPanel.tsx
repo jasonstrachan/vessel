@@ -212,7 +212,7 @@ const LayerPanel = () => {
                   className={`w-4 h-4 flex items-center justify-center ${
                     layer.locked ? 'text-[#D9D9D9]' : 'text-[#666]'
                   } hover:text-[#FFFFFF]`}
-                  title={layer.locked ? 'Unlock Layer' : 'Lock Layer'}
+                  title={layer.locked ? 'Unlock Transparency' : 'Lock Transparency'}
                 >
                   {layer.locked ? <Lock size={14} /> : <Unlock size={14} />}
                 </button>
