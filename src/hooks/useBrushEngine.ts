@@ -20,7 +20,7 @@ const applyColorJitter = (baseColor: string, jitterAmount: number): string => {
   
   // Parse color to HSL for smooth jitter variations
   const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' })!;
   ctx.fillStyle = baseColor;
   const computedColor = ctx.fillStyle;
   
@@ -341,7 +341,7 @@ export const useBrushEngine = () => {
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = pattern.width;
       tempCanvas.height = pattern.height;
-      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
       
       if (tempCtx) {
         try {

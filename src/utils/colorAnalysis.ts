@@ -119,7 +119,7 @@ export function getLiveColorPalette(canvas: HTMLCanvasElement | null, maxColors:
   }
   
   try {
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!ctx) return getMostUsedColors(null, maxColors);
     
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);

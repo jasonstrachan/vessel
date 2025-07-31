@@ -109,7 +109,7 @@ class ScaledBrushCache {
     isColorizable?: boolean
   ): HTMLCanvasElement {
     const canvas = canvasPool.acquire(customBrush.width, customBrush.height);
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
     if (!ctx) {
         canvasPool.release(canvas);
         throw new Error('Failed to get context for processing');
@@ -188,7 +188,7 @@ class ScaledBrushCache {
 
     // Create scaled canvas
     const scaledCanvas = canvasPool.acquire(scaledWidth, scaledHeight);
-    const scaledCtx = scaledCanvas.getContext('2d', { willReadFrequently: true });
+    const scaledCtx = scaledCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!scaledCtx) {
       canvasPool.release(baseCanvas);
       canvasPool.release(scaledCanvas);

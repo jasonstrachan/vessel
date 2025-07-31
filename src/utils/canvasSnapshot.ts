@@ -5,7 +5,7 @@ export function captureCanvasSnapshot(
   actionType: CanvasSnapshot['actionType'], 
   description: string
 ): CanvasSnapshot {
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
   if (!ctx) {
     throw new Error('Cannot capture snapshot: canvas context is null');
   }
@@ -25,7 +25,7 @@ export function restoreCanvasSnapshot(
   canvas: HTMLCanvasElement, 
   snapshot: CanvasSnapshot
 ): void {
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
   if (!ctx) {
     throw new Error('Cannot restore snapshot: canvas context is null');
   }
