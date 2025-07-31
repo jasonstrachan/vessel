@@ -23,6 +23,7 @@ interface ScaledBrushData {
 
 class ScaledBrushCache {
   private cache = new Map<string, ScaledBrushData>();
+  private baseBrushCache = new Map<string, HTMLCanvasElement>(); // Cache for unmodified base brush canvases
   private readonly maxAge = 45000; // 45 seconds - longer retention for pressure-sensitive brushes
   private readonly maxEntries = 150; // Higher limit to accommodate pressure variations
   private readonly commonScales = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0]; // Common brush sizes to pre-cache
@@ -95,6 +96,26 @@ class ScaledBrushCache {
     }
     
     return null;
+  }
+
+  /**
+   * Gets a cached, unmodified canvas for a given custom brush.
+   * This avoids repeated putImageData calls for the source brush image.
+   */
+  public getBaseBrushCanvas(customBrush: CustomBrush): HTMLCanvasElement {
+    let canvas = this.baseBrushCache.get(customBrush.id);
+    if (canvas) {
+      return canvas;
+    }
+
+    // Not in cache, so we create it once and store it.
+    canvas = canvasPool.acquire(customBrush.width, customBrush.height);
+    const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
+    if (ctx) {
+      ctx.putImageData(customBrush.imageData, 0, 0);
+      this.baseBrushCache.set(customBrush.id, canvas);
+    }
+    return canvas;
   }
 
   /**
@@ -304,6 +325,13 @@ class ScaledBrushCache {
     for (const key of keysToDelete) {
       this.cache.delete(key);
     }
+
+    // Clear base brush cache for this brush ID
+    const baseCanvas = this.baseBrushCache.get(customBrushId);
+    if (baseCanvas) {
+      canvasPool.release(baseCanvas);
+      this.baseBrushCache.delete(customBrushId);
+    }
   }
 
   /**
@@ -314,6 +342,12 @@ class ScaledBrushCache {
       canvasPool.release(data.canvas);
     }
     this.cache.clear();
+
+    // Clear base brush cache
+    for (const canvas of this.baseBrushCache.values()) {
+      canvasPool.release(canvas);
+    }
+    this.baseBrushCache.clear();
   }
 
   /**
