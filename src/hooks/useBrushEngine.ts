@@ -928,7 +928,12 @@ export const useBrushEngine = () => {
         ctx.drawImage(scaledCanvas, centerX, centerY);
       }
     });
-  }, [tools]);
+  }, [
+    tools.brushSettings.colorJitter, 
+    tools.brushSettings.hueShift, 
+    tools.brushSettings.saturationAdjust,
+    tools.brushSettings.pressureEnabled
+  ]);
 
   const drawCustomBrushLine = useCallback((ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean) => {
     const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));

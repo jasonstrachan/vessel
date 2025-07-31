@@ -530,3 +530,40 @@ if (customBrush.id === 'current-brush-tip') {
 ✅ **Simple fix**: Minimal code change with maximum impact  
 
 **Result**: Custom brush tips edited in MiniCanvas now render with correct colors that match their preview appearance.
+
+---
+
+### useCallback Dependency Array Optimization (Complete)
+
+#### Issue
+The `drawCustomBrushStamp` function in `useBrushEngine.ts` had an overly broad dependency array `[tools]` that caused unnecessary function recreation whenever any tool setting changed, even when the changes were irrelevant to custom brush rendering.
+
+#### Root Cause Analysis
+1. **Broad dependencies**: Dependency array `[tools]` watched the entire tools object
+2. **Unnecessary invalidation**: Function recreated when eraser settings, fill settings, or other unrelated properties changed
+3. **Performance impact**: Cache invalidation and unnecessary re-renders
+4. **Function uses**: Only 4 specific brush settings are actually used in the function
+
+#### Solution Applied
+Fixed the dependency array at `useBrushEngine.ts:931-936` to watch only the specific brush settings that the function actually uses:
+
+```typescript
+// Before (overly broad):
+}, [tools]);
+
+// After (specific dependencies):
+}, [
+  tools.brushSettings.colorJitter, 
+  tools.brushSettings.hueShift, 
+  tools.brushSettings.saturationAdjust,
+  tools.brushSettings.pressureEnabled
+]);
+```
+
+#### Impact
+✅ **Performance**: Function only recreates when relevant brush settings change  
+✅ **Cache efficiency**: Better brush caching since function reference stays stable longer  
+✅ **Memory optimization**: Reduces garbage collection pressure from unnecessary function recreation  
+✅ **Correctness**: Eliminates cache invalidation from unrelated tool changes  
+
+**Result**: Custom brush stamp rendering is now optimally cached and only invalidates when the specific brush settings it depends on actually change.
