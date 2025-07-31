@@ -115,6 +115,13 @@ class ScaledBrushCache {
         throw new Error('Failed to get context for processing');
     }
 
+    // If the brush is the special 'current-brush-tip', its imageData has already
+    // been processed by the MiniCanvas. Use it directly without changes.
+    if (customBrush.id === 'current-brush-tip') {
+      ctx.putImageData(customBrush.imageData, 0, 0);
+      return canvas;
+    }
+
     // If we are tinting the brush, that takes top priority. Jitter is ignored.
     if (isColorizable && color) {
       // Draw the original brush image data
