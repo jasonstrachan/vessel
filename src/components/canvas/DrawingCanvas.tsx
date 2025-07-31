@@ -1012,6 +1012,17 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       
       // Lock the target layer to prevent pixel swapping if user switches layers mid-stroke
       const targetLayerId = activeLayerId || layers[0]?.id || null;
+      
+      // Check transparency lock - if enabled, only allow painting over non-transparent pixels
+      const targetLayer = layers.find(l => l.id === targetLayerId);
+      if (targetLayer?.locked) {
+        // Store transparency lock state for use in brush engine
+        (window as any).transparencyLockEnabled = true;
+        (window as any).transparencyLockLayerId = targetLayerId;
+      } else {
+        (window as any).transparencyLockEnabled = false;
+      }
+      
       setDrawingTargetLayerId(targetLayerId);
       
       e.preventDefault();
@@ -1022,6 +1033,17 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Lock the target layer to prevent pixel swapping if user switches layers mid-stroke
     const targetLayerId = activeLayerId || layers[0]?.id || null;
+    
+    // Check transparency lock - if enabled, only allow painting over non-transparent pixels
+    const targetLayer = layers.find(l => l.id === targetLayerId);
+    if (targetLayer?.locked) {
+      // Store transparency lock state for use in brush engine
+      (window as any).transparencyLockEnabled = true;
+      (window as any).transparencyLockLayerId = targetLayerId;
+    } else {
+      (window as any).transparencyLockEnabled = false;
+    }
+    
     setDrawingTargetLayerId(targetLayerId);
     
     setIsDrawing(true);

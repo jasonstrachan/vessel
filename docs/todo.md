@@ -567,3 +567,72 @@ Fixed the dependency array at `useBrushEngine.ts:931-936` to watch only the spec
 ✅ **Correctness**: Eliminates cache invalidation from unrelated tool changes  
 
 **Result**: Custom brush stamp rendering is now optimally cached and only invalidates when the specific brush settings it depends on actually change.
+
+---
+
+## Transparency Lock Implementation (Complete)
+
+### Overview
+Successfully implemented transparency lock functionality that repurposes the existing layer lock icon to prevent painting over transparent pixels.
+
+### Changes Made
+
+#### 1. Updated Layer Panel UI (`src/components/LayerPanel.tsx:215`)
+- **Tooltip Update**: Changed lock button tooltip from "Lock Layer" / "Unlock Layer" to "Lock Transparency" / "Unlock Transparency"
+- **Visual Impact**: Users now understand the lock prevents painting on transparent areas, not general layer editing
+
+#### 2. Added Drawing Canvas Transparency Checks (`src/components/canvas/DrawingCanvas.tsx`)
+- **Pointer Drawing** (lines 1027-1034): Added transparency lock detection in `handlePointerDown` 
+- **Shape Drawing** (lines 1017-1024): Added same check for shape-based brush strokes
+- **Implementation**: 
+  ```typescript
+  const targetLayer = layers.find(l => l.id === targetLayerId);
+  if (targetLayer?.locked) {
+    (window as any).transparencyLockEnabled = true;
+    (window as any).transparencyLockLayerId = targetLayerId;
+  } else {
+    (window as any).transparencyLockEnabled = false;
+  }
+  ```
+
+#### 3. Added Brush Engine Transparency Logic (`src/hooks/useBrushEngine.ts:356-373`)
+- **Per-Stamp Checking**: Added transparency check at the beginning of `drawShape` function
+- **Pixel Sampling**: Samples the center pixel's alpha channel before drawing each brush stamp
+- **Smart Skipping**: If transparency lock is enabled and pixel is fully transparent (alpha = 0), skip drawing
+- **Error Handling**: Gracefully handles cases where pixel data cannot be read
+
+### Technical Implementation
+
+#### Key Logic Flow:
+1. **Detection**: When user starts drawing, check if target layer has `locked: true`
+2. **Communication**: Pass transparency lock state to brush engine via window global
+3. **Per-Stamp Check**: Before each brush stamp, sample the center pixel's alpha value
+4. **Conditional Drawing**: Only draw if alpha > 0 (non-transparent) when lock is enabled
+
+#### Features:
+- **Works with all brush types**: Standard shapes, custom brushes, pixel brushes, patterns
+- **Per-stamp precision**: Each brush stamp individually checks its target pixel
+- **Performance optimized**: Single pixel sample per stamp (minimal overhead)
+- **Backward compatible**: Existing unlocked layers work exactly as before
+
+### User Experience
+
+#### Before:
+- Lock icon existed but had no functional effect
+- Users could always paint anywhere on any layer
+
+#### After:
+- Lock icon now prevents painting over transparent pixels
+- Tooltip clearly indicates "Lock Transparency" functionality
+- Locked layers only accept paint on areas that already have color (alpha > 0)
+- Perfect for protecting transparent backgrounds while allowing detail work on existing artwork
+
+### Impact
+
+✅ **Functional transparency lock**: Lock icon now has meaningful behavior preventing transparent pixel painting  
+✅ **Reuses existing UI**: No new icons or interface elements needed  
+✅ **Per-stamp precision**: Works correctly with all brush sizes and types  
+✅ **Clear user feedback**: Updated tooltips communicate the new behavior clearly  
+✅ **Performance efficient**: Minimal overhead with single-pixel alpha sampling  
+
+**Result**: Users can now lock transparency on layers to prevent accidental painting over transparent areas, enabling precise detail work on existing artwork while protecting transparent backgrounds.
