@@ -124,7 +124,7 @@ export function renderShape(
     const patternCanvas = document.createElement('canvas');
     patternCanvas.width = customBrush.width;
     patternCanvas.height = customBrush.height;
-    const patternCtx = patternCanvas.getContext('2d');
+    const patternCtx = patternCanvas.getContext('2d', { colorSpace: 'srgb' });
     
     if (patternCtx) {
       // Apply same rendering mode to pattern canvas

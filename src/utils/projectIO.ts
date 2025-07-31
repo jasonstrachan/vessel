@@ -89,7 +89,7 @@ function dataUrlToImageData(dataUrl: string): Promise<ImageData> {
           const canvas = document.createElement('canvas');
           canvas.width = img.width;
           canvas.height = img.height;
-          const ctx = canvas.getContext('2d');
+          const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
           if (!ctx) {
             reject(new Error('Failed to get canvas context'));
             return;
@@ -206,7 +206,7 @@ function generateProjectThumbnail(project: Project, layers: Layer[], maxSize: nu
     canvas.height = maxSize;
   }
   
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
   if (!ctx) return '';
   
   const scaleX = canvas.width / project.width;
@@ -229,7 +229,7 @@ function generateProjectThumbnail(project: Project, layers: Layer[], maxSize: nu
     const layerCanvas = document.createElement('canvas');
     layerCanvas.width = layer.imageData.width;
     layerCanvas.height = layer.imageData.height;
-    const layerCtx = layerCanvas.getContext('2d');
+    const layerCtx = layerCanvas.getContext('2d', { colorSpace: 'srgb' });
     if (layerCtx) {
       layerCtx.putImageData(layer.imageData, 0, 0);
       ctx.drawImage(layerCanvas, 0, 0);
@@ -415,7 +415,7 @@ export async function exportProjectAsPNG(
   const canvas = document.createElement('canvas');
   canvas.width = project.width * scale;
   canvas.height = project.height * scale;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
   
   if (!ctx) {
     throw new Error('Failed to get canvas context');
@@ -444,7 +444,7 @@ export async function exportProjectAsPNG(
     const layerCanvas = document.createElement('canvas');
     layerCanvas.width = layer.imageData.width;
     layerCanvas.height = layer.imageData.height;
-    const layerCtx = layerCanvas.getContext('2d');
+    const layerCtx = layerCanvas.getContext('2d', { colorSpace: 'srgb' });
     if (layerCtx) {
       layerCtx.putImageData(layer.imageData, 0, 0);
       ctx.drawImage(layerCanvas, 0, 0);

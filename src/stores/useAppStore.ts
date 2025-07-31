@@ -305,7 +305,7 @@ export const useAppStore = create<AppState>()(
           const newCanvas = document.createElement('canvas');
           newCanvas.width = width;
           newCanvas.height = height;
-          const newCtx = newCanvas.getContext('2d', { willReadFrequently: true });
+          const newCtx = newCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
           
           if (newCtx) {
             // Clear with transparent background
@@ -315,7 +315,7 @@ export const useAppStore = create<AppState>()(
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = layer.imageData.width;
             tempCanvas.height = layer.imageData.height;
-            const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+            const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
             
             if (tempCtx) {
               tempCtx.putImageData(layer.imageData, 0, 0);
@@ -852,7 +852,7 @@ export const useAppStore = create<AppState>()(
             return;
           }
           
-          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
           if (!ctx) return;
           
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -1142,7 +1142,7 @@ export const useAppStore = create<AppState>()(
           return;
         }
         
-        const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
+        const ctx = targetCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         if (!ctx) {
           return;
         }
@@ -1175,7 +1175,7 @@ export const useAppStore = create<AppState>()(
           const layerCanvas = document.createElement('canvas');
           layerCanvas.width = layer.imageData.width;
           layerCanvas.height = layer.imageData.height;
-          const layerCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
+          const layerCtx = layerCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
           
           if (layerCtx) {
             // Put the layer's ImageData onto the temporary canvas
@@ -1217,7 +1217,7 @@ export const useAppStore = create<AppState>()(
           return;
         }
         
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         if (!ctx) {
           return;
         }
@@ -1280,7 +1280,7 @@ export const useAppStore = create<AppState>()(
           return;
         }
         
-        const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+        const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         if (!ctx) {
           return;
         }

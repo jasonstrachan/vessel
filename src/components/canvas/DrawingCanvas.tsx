@@ -260,7 +260,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       img.onload = () => {
         // Convert image to canvas-compatible format
         const tempCanvas = canvasPool.acquire(img.width, img.height);
-        const ctx = tempCanvas.getContext('2d', { willReadFrequently: true });
+        const ctx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         
         if (!ctx) {
           canvasPool.release(tempCanvas);
@@ -315,7 +315,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return null;
     
-    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!offscreenCtx) return null;
     
     // Ensure coordinates are within bounds
@@ -422,7 +422,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const patternCanvas = document.createElement('canvas');
     patternCanvas.width = checkSize * 2;
     patternCanvas.height = checkSize * 2;
-    const patternCtx = patternCanvas.getContext('2d');
+    const patternCtx = patternCanvas.getContext('2d', { colorSpace: 'srgb' });
     if (!patternCtx) return null;
     
     // Create 2x2 checkerboard pattern
@@ -491,7 +491,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       // Draw the pasted image
       if (pixels && pixels.width > 0 && pixels.height > 0) {
         const tempCanvas = canvasPool.acquire(pixels.width, pixels.height);
-        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         
         if (tempCtx) {
           tempCtx.putImageData(pixels, 0, 0);
@@ -570,7 +570,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         shapePreviewCacheRef.current.height = height;
       }
       
-      const previewCtx = shapePreviewCacheRef.current.getContext('2d');
+      const previewCtx = shapePreviewCacheRef.current.getContext('2d', { colorSpace: 'srgb' });
       if (previewCtx) {
         // Clear and render to cache canvas
         previewCtx.clearRect(0, 0, width, height);
@@ -617,7 +617,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
     
-    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!offscreenCtx) return;
     
     // Calculate actual brush size for dirty region (accounts for custom brushes)
@@ -682,7 +682,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Create canvas to capture the selection
     const captureCanvas = canvasPool.acquire(width, height);
-    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
+    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     
     if (!captureCtx) {
       canvasPool.release(captureCanvas);
@@ -728,7 +728,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Create thumbnail (max 64x64)
     const thumbnailSize = 64;
     const thumbnailCanvas = canvasPool.acquire(thumbnailSize, thumbnailSize);
-    const thumbnailCtx = thumbnailCanvas.getContext('2d', { willReadFrequently: true });
+    const thumbnailCtx = thumbnailCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     
     if (thumbnailCtx) {
       // Scale to fit thumbnail while maintaining aspect ratio
@@ -813,7 +813,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Create canvas to capture the selection
     const captureCanvas = canvasPool.acquire(width, height);
-    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
+    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     
     if (!captureCtx) {
       canvasPool.release(captureCanvas);
@@ -934,7 +934,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       const offscreenCanvas = offscreenCanvasRef.current;
       if (offscreenCanvas) {
         // Get current canvas image data
-        const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+        const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         if (ctx) {
           const imageData = ctx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height);
           
@@ -1229,7 +1229,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       // Complete the shape on mouse up
       const offscreenCanvas = offscreenCanvasRef.current;
       if (offscreenCanvas && shapeState.points.length >= 3) {
-        const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+        const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         if (ctx) {
           // Create and render the final shape
           const simplifiedPoints = simplifyPath(shapeState.points);
@@ -1498,7 +1498,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Capture state before paste operation
     saveCanvasState(offscreenCanvas, 'paste', 'Paste selection');
     
-    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!offscreenCtx) return;
     
     const { bounds, pixels } = canvas.selection;
@@ -1506,7 +1506,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Draw selection onto offscreen canvas
     if (pixels && pixels.width > 0 && pixels.height > 0) {
       const tempCanvas = canvasPool.acquire(pixels.width, pixels.height);
-      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
       
       if (tempCtx) {
         tempCtx.putImageData(pixels, 0, 0);
@@ -1641,7 +1641,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
                   const img = new Image();
                   img.onload = () => {
                     const tempCanvas = canvasPool.acquire(img.width, img.height);
-                    const ctx = tempCanvas.getContext('2d', { willReadFrequently: true });
+                    const ctx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
                     
                     if (ctx) {
                       ctx.drawImage(img, 0, 0);
@@ -1789,7 +1789,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const canvasElement = canvasRef.current;
     if (!canvasElement) return;
     
-    const ctx = canvasElement.getContext('2d');
+    const ctx = canvasElement.getContext('2d', { colorSpace: 'srgb' });
     if (!ctx) return;
     
     // Get device pixel ratio for high-DPI displays
@@ -1815,7 +1815,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       offscreenCanvasRef.current.height = height;
       
       // Initialize offscreen canvas
-      const offscreenCtx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true });
+      const offscreenCtx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
       if (offscreenCtx) {
         // Disable image smoothing for pixel-perfect rendering
         offscreenCtx.imageSmoothingEnabled = false;
@@ -1834,7 +1834,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const wrapperElement = wrapperRef.current;
     if (!canvasElement || !wrapperElement) return;
     
-    const ctx = canvasElement.getContext('2d');
+    const ctx = canvasElement.getContext('2d', { colorSpace: 'srgb' });
     if (!ctx) return;
     
     // Update wrapper dimensions to match new canvas size
@@ -1865,7 +1865,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       // Only resize if dimensions actually changed
       if (currentWidth !== width || currentHeight !== height) {
         // Save current content before resizing
-        const offscreenCtx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true });
+        const offscreenCtx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         if (offscreenCtx) {
           const imageData = offscreenCtx.getImageData(0, 0, 
             Math.min(currentWidth, width), 
@@ -1921,7 +1921,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       if (currentWidth !== width || currentHeight !== height) {
         
         // Save current content before resizing
-        const ctx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true });
+        const ctx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         if (ctx) {
           const imageData = ctx.getImageData(0, 0, 
             Math.min(currentWidth, width), 
@@ -1949,7 +1949,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
     // Setup canvas context with error handling
     try {
-      const ctx = canvasElement.getContext('2d');
+      const ctx = canvasElement.getContext('2d', { colorSpace: 'srgb' });
       if (ctx) {
         // Only initialize once
         if (!isCanvasInitialized) {

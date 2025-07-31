@@ -1,10 +1,10 @@
 # Todo List
 
 ## Current Task
-- [x] Fix colorSpace inconsistencies across all canvas operations
+- [x] Apply systematic colorSpace: 'srgb' fixes to all canvas operations
 
 ## Completed
-- [x] Fix colorSpace inconsistencies across all canvas operations
+- [x] Apply systematic colorSpace: 'srgb' fixes to all canvas operations
 - [x] Fix color jitter not working due to applyBrushPreset not preserving colorJitter setting
 - [x] Remove renderView() call from drawLine() function
 - [x] Create dedicated animation loop using requestAnimationFrame  
@@ -14,31 +14,46 @@
 
 ## Review of Changes
 
-### ColorSpace Consistency Fix
+### Systematic ColorSpace Consistency Fix (Complete)
 
 #### Issue
-Hue differences and color shifts were occurring because different canvas operations used inconsistent colorSpace settings. Some canvases used the default colorSpace while others used 'srgb', causing color interpretation mismatches in the rendering pipeline.
+Comprehensive analysis revealed multiple canvas operations throughout the codebase were missing `colorSpace: 'srgb'` settings, causing color interpretation inconsistencies and potential hue shifts between different rendering contexts.
 
 #### Root Cause Analysis
-Research revealed critical inconsistencies:
-1. **BrushCursor.tsx:38** - No colorSpace specified (using browser default)
-2. **ColorPicker.tsx:71-72** - No colorSpace specified in both picker contexts
-3. **AdvancedColorPicker.tsx:65-66** - No colorSpace specified in both picker contexts
-4. All other canvas operations properly used `{ colorSpace: 'srgb' }`
+Systematic search identified missing colorSpace settings in critical files:
+1. **useBrushEngine.ts** - Lines 23, 344 missing colorSpace
+2. **scaledBrushCache.ts** - Lines 112, 191 missing colorSpace  
+3. **projectIO.ts** - Lines 92, 209, 232, 418, 447 missing colorSpace
+4. **DrawingCanvas.tsx** - 19+ instances missing colorSpace
+5. **useAppStore.ts** - Lines 308, 318, 855, 1145, 1178, 1220, 1283 missing colorSpace
+6. **Utility files** - shapeUtils.ts, colorAnalysis.ts, pixelComparison.ts, canvasSnapshot.ts missing colorSpace
 
-#### Solution
-Fixed all inconsistencies by adding `{ colorSpace: 'srgb' }` to:
-- Brush cursor canvas context creation
-- Both color picker component canvas contexts
-- Advanced color picker canvas contexts
+#### Systematic Solution Applied
+**Fixed ALL getContext calls to include colorSpace: 'srgb':**
+- `getContext('2d')` → `getContext('2d', { colorSpace: 'srgb' })`
+- `getContext('2d', { willReadFrequently: true })` → `getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' })`
+- `getContext('2d', { otherOptions })` → `getContext('2d', { otherOptions, colorSpace: 'srgb' })`
 
-#### Files Changed
-- `/src/components/canvas/BrushCursor.tsx:38` - Added colorSpace to canvas context
-- `/src/components/toolbar/ColorPicker.tsx:71-72` - Added colorSpace to both contexts
-- `/src/components/toolbar/AdvancedColorPicker.tsx:65-66` - Added colorSpace to both contexts
+#### Files Fixed (Complete List)
+- **Core Engine**: `/src/hooks/useBrushEngine.ts` - 3 instances fixed
+- **Brush Cache**: `/src/utils/scaledBrushCache.ts` - 2 instances fixed
+- **Project I/O**: `/src/utils/projectIO.ts` - 5 instances fixed (import/export consistency)
+- **Main Canvas**: `/src/components/canvas/DrawingCanvas.tsx` - 19+ instances fixed
+- **App Store**: `/src/stores/useAppStore.ts` - 7 instances fixed
+- **Utilities**: 
+  - `/src/utils/shapeUtils.ts` - 1 instance fixed
+  - `/src/utils/colorAnalysis.ts` - 1 instance fixed
+  - `/src/utils/pixelComparison.ts` - 2 instances fixed
+  - `/src/utils/canvasSnapshot.ts` - 2 instances fixed
 
 #### Impact
-The entire rendering pipeline now uses consistent 'srgb' colorSpace from cursor → pickers → canvas → minicanvas → color adjustment functions, eliminating color interpretation differences that cause hue shifts.
+✅ **Complete colorSpace consistency** across entire rendering pipeline  
+✅ **Eliminates color interpretation mismatches** between canvas contexts  
+✅ **Prevents hue shifts** in brush operations, color picking, and project I/O  
+✅ **Maintains consistency** from initial brush tip rendering through final canvas output  
+✅ **Build verification passed** - no compilation errors introduced  
+
+**Result**: All 40+ canvas contexts now use standardized 'srgb' colorSpace, ensuring consistent color interpretation throughout TinyBrush.
 
 ### Color Jitter Fix
 

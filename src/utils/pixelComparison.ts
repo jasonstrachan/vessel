@@ -136,7 +136,7 @@ export function compareImageData(
  * @param label Label for logging
  */
 export function extractImageDataFromCanvas(canvas: HTMLCanvasElement, label: string): ImageData | null {
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
   if (!ctx) {
     console.error(`[PixelComparison] Failed to get context for ${label} canvas`);
     return null;
@@ -158,7 +158,7 @@ export function createCleanCanvasCopy(sourceCanvas: HTMLCanvasElement, label: st
     tempCanvas.width = sourceCanvas.width;
     tempCanvas.height = sourceCanvas.height;
     
-    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!tempCtx) {
       console.error(`[PixelComparison] Failed to get temp context for ${label}`);
       return null;
