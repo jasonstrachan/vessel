@@ -849,151 +849,84 @@ export const useBrushEngine = () => {
   // Now we create a new canvas for each stamp to ensure isolation and correctness.
 
   // Custom brush drawing functions
-  const drawCustomBrushStamp = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean, isPressureSensitive?: boolean) => {
-    return performanceMonitor.measureStampTime(() => {
+  const drawCustomBrushStamp = useCallback((
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    customBrush: CustomBrush,
+    scale: number = 1,
+    rotation: number = 0,
+    color?: string,
+    isColorizable?: boolean,
+    isPressureSensitive?: boolean
+  ) => {
+    performanceMonitor.measureStampTime(() => {
       const colorJitterAmount = tools.brushSettings.colorJitter || 0;
-      
-      try {
-        let scaledCanvas: HTMLCanvasElement;
+
+      // Jitter is disabled when tinting the brush with a solid color.
+      if (colorJitterAmount > 0 && !isColorizable) {
+        // --- OPTIMIZED JITTER PATH ---
+
+        // 1. Get the base brush canvas (fast, cached, no CPU/GPU transfer).
+        const baseBrushCanvas = scaledBrushCache.getBaseBrushCanvas(customBrush);
         
-        if (colorJitterAmount > 0) {
-          // For jittered stamps, bypass cache and create directly with canvas operations
-          let jitteredHueShift = tools.brushSettings.hueShift || 0;
-          let jitteredSaturationAdjust = tools.brushSettings.saturationAdjust || 100;
-          
-          const normalizedJitter = colorJitterAmount / 100;
-          const jitterFactor = normalizedJitter * normalizedJitter; // Quadratic curve for smoother low values
-          jitteredHueShift += (Math.random() - 0.5) * jitterFactor * 360;
-          jitteredSaturationAdjust = Math.max(0, Math.min(200, jitteredSaturationAdjust + (Math.random() - 0.5) * jitterFactor * 100));
-          
-          // Create processed base canvas directly (stays on GPU)
-          const baseCanvas = canvasPool.acquire(customBrush.width, customBrush.height);
-          const baseCtx = baseCanvas.getContext('2d', { colorSpace: 'srgb' });
-          if (!baseCtx) throw new Error('Failed to get context');
-          
-          // Apply hue/saturation adjustments using the unified function
-          let processedImageData = customBrush.imageData;
-          
-          if (jitteredHueShift !== 0 || jitteredSaturationAdjust !== 100) {
-            processedImageData = adjustHueAndSaturation(
-              customBrush.imageData,
-              jitteredHueShift,
-              jitteredSaturationAdjust
-            );
-          }
-          
-          // Draw the processed image data
-          baseCtx.putImageData(processedImageData, 0, 0);
-          
-          if (color) {
-            baseCtx.globalCompositeOperation = 'source-atop';
-            baseCtx.fillStyle = color;
-            baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
-            baseCtx.globalCompositeOperation = 'source-over';
-          }
-          
-          // Scale if needed
-          if (scale !== 1) {
-            const scaledWidth = Math.ceil(customBrush.width * scale);
-            const scaledHeight = Math.ceil(customBrush.height * scale);
-            scaledCanvas = canvasPool.acquire(scaledWidth, scaledHeight);
-            const scaledCtx = scaledCanvas.getContext('2d', { colorSpace: 'srgb' });
-            if (!scaledCtx) throw new Error('Failed to get scaled context');
-            
-            scaledCtx.imageSmoothingEnabled = false;
-            scaledCtx.drawImage(baseCanvas, 0, 0, scaledWidth, scaledHeight);
-            canvasPool.release(baseCanvas);
-          } else {
-            scaledCanvas = baseCanvas;
-          }
-        } else {
-          // No jitter or not colorizable - use cache
-          if (!scaledBrushCache.hasCachedEntriesForBrush(customBrush.id)) {
-            scaledBrushCache.precacheCommonSizes(
-              customBrush, color, isColorizable, isPressureSensitive,
-              tools.brushSettings.hueShift || 0, tools.brushSettings.saturationAdjust || 100
-            );
-          }
-          
-          scaledCanvas = scaledBrushCache.createScaledBrush(
-            customBrush, scale, rotation, color, isColorizable, isPressureSensitive,
-            tools.brushSettings.hueShift || 0, tools.brushSettings.saturationAdjust || 100
-          );
-        }
-        
-        
-        // Calculate position for pre-scaled canvas
-        const centerX = x - scaledCanvas.width / 2;
-        const centerY = y - scaledCanvas.height / 2;
-        
-        // Draw the scaled brush
-        ctx.imageSmoothingEnabled = false; // Custom brushes maintain pixel-perfect rendering
-        ctx.drawImage(scaledCanvas, centerX, centerY);
-        
-        // Release canvas if we created it for jitter
-        if (colorJitterAmount > 0) {
-          canvasPool.release(scaledCanvas);
-        }
-      
-    } catch (error) {
-      // Fallback to original method if cache fails
-      const canvas = canvasPool.acquire(customBrush.width, customBrush.height);
-      const tempCtx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
-      if (!tempCtx) {
-        canvasPool.release(canvas);
-        return;
-      }
-      
-      // Apply same canvas-based transformations as main path
-      let processedImageData = customBrush.imageData;
-      
-      if (colorJitterAmount > 0) {
+        // 2. Calculate randomized filter values.
         let jitteredHueShift = tools.brushSettings.hueShift || 0;
         let jitteredSaturationAdjust = tools.brushSettings.saturationAdjust || 100;
         
         const normalizedJitter = colorJitterAmount / 100;
-        const jitterFactor = normalizedJitter * normalizedJitter; // Quadratic curve for smoother low values
+        const jitterFactor = normalizedJitter * normalizedJitter;
         jitteredHueShift += (Math.random() - 0.5) * jitterFactor * 360;
         jitteredSaturationAdjust = Math.max(0, Math.min(200, jitteredSaturationAdjust + (Math.random() - 0.5) * jitterFactor * 100));
-        
-        if (jitteredHueShift !== 0 || jitteredSaturationAdjust !== 100) {
-          processedImageData = adjustHueAndSaturation(
-            customBrush.imageData,
-            jitteredHueShift,
-            jitteredSaturationAdjust
-          );
+
+        // 3. Prepare a temporary canvas from the pool for this stamp.
+        const scaledWidth = Math.ceil(customBrush.width * scale);
+        const scaledHeight = Math.ceil(customBrush.height * scale);
+        const stampCanvas = canvasPool.acquire(scaledWidth, scaledHeight);
+        const stampCtx = stampCanvas.getContext('2d', { colorSpace: 'srgb' });
+
+        if (!stampCtx) {
+          canvasPool.release(stampCanvas);
+          return;
         }
+
+        try {
+          // 4. Apply the random filter to the context.
+          stampCtx.filter = `hue-rotate(${jitteredHueShift}deg) saturate(${jitteredSaturationAdjust}%)`;
+
+          // 5. Apply rotation if needed.
+          if (rotation !== 0) {
+            stampCtx.translate(scaledWidth / 2, scaledHeight / 2);
+            stampCtx.rotate(rotation);
+            stampCtx.translate(-scaledWidth / 2, -scaledHeight / 2);
+          }
+          
+          // 6. Draw the base brush onto the stamp canvas. The GPU applies the filter here.
+          stampCtx.imageSmoothingEnabled = false;
+          stampCtx.drawImage(baseBrushCanvas, 0, 0, scaledWidth, scaledHeight);
+          
+          // 7. Draw the final, jittered stamp to the main canvas.
+          const centerX = x - scaledWidth / 2;
+          const centerY = y - scaledHeight / 2;
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(stampCanvas, centerX, centerY);
+        } finally {
+          canvasPool.release(stampCanvas);
+        }
+
+      } else {
+        // --- NON-JITTER PATH (uses the existing fast cache) ---
+        const scaledCanvas = scaledBrushCache.createScaledBrush(
+          customBrush, scale, rotation, color, isColorizable, isPressureSensitive,
+          tools.brushSettings.hueShift || 0, tools.brushSettings.saturationAdjust || 100
+        );
+        
+        const centerX = x - scaledCanvas.width / 2;
+        const centerY = y - scaledCanvas.height / 2;
+        
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(scaledCanvas, centerX, centerY);
       }
-      
-      tempCtx.putImageData(processedImageData, 0, 0);
-      
-      if (isColorizable && color) {
-        tempCtx.globalCompositeOperation = 'source-atop';
-        tempCtx.fillStyle = color;
-        tempCtx.fillRect(0, 0, canvas.width, canvas.height);
-      }
-      
-      tempCtx.globalCompositeOperation = 'source-over';
-      
-      const scaledWidth = customBrush.width * scale;
-      const scaledHeight = customBrush.height * scale;
-      const centerX = x - scaledWidth / 2;
-      const centerY = y - scaledHeight / 2;
-      
-      ctx.save();
-      ctx.imageSmoothingEnabled = false; // Custom brushes always pixel-perfect
-      
-      if (rotation !== 0) {
-        ctx.translate(x, y);
-        ctx.rotate(rotation);
-        ctx.translate(-x, -y);
-      }
-      
-      ctx.drawImage(canvas, centerX, centerY, scaledWidth, scaledHeight);
-      ctx.restore();
-      
-      canvasPool.release(canvas);
-    }
     });
   }, [tools]);
 
