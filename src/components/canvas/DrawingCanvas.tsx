@@ -441,8 +441,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!canvasElement || !offscreenCanvas) return;
     
-    const ctx = canvasElement.getContext('2d', { willReadFrequently: true });
-    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+    const ctx = canvasElement.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!ctx || !offscreenCtx) return;
     
     // Disable image smoothing for pixel-perfect rendering

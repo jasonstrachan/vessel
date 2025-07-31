@@ -23,7 +23,7 @@ class CanvasPool {
    */
   release(canvas: HTMLCanvasElement): void {
     if (this.pool.length < this.maxSize) {
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
       if (ctx) {
         // Clear the canvas completely
         ctx.clearRect(0, 0, canvas.width, canvas.height);

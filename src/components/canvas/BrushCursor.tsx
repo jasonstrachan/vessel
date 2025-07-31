@@ -35,7 +35,7 @@ const useCursorDataURL = (
     canvas.width = size;
     canvas.height = size;
     
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
     if (!ctx) return '';
 
     // This is the fast, canvas-based equivalent of drop-shadow
