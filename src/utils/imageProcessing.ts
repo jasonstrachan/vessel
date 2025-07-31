@@ -127,46 +127,65 @@ export function adjustSaturation(imageData: ImageData, saturationPercent: number
 // Apply both hue shift and saturation adjustment using GPU acceleration
 export function adjustHueAndSaturation(
   imageData: ImageData,
-  hueShift: number,
-  saturationPercent: number
+  hueShift: number,          // in degrees
+  saturationPercent: number  // as a percentage (e.g., 100 is normal, 50 is half, 200 is double)
 ): ImageData {
-  // Use a temporary canvas from the pool for processing
-  const tempCanvas = canvasPool.acquire(imageData.width, imageData.height);
-  const ctx = tempCanvas.getContext('2d');
+  // Acquire two temporary canvases for processing to avoid conflicts
+  const sourceCanvas = canvasPool.acquire(imageData.width, imageData.height);
+  const destCanvas = canvasPool.acquire(imageData.width, imageData.height);
 
-  if (!ctx) {
-    canvasPool.release(tempCanvas);
+  const contextOptions: CanvasRenderingContext2DSettings = {
+    colorSpace: 'srgb', // Enforce consistent color space
+    alpha: true
+  };
+
+  const sourceCtx = sourceCanvas.getContext('2d', contextOptions);
+  const destCtx = destCanvas.getContext('2d', contextOptions);
+
+  // Ensure we got the contexts before proceeding
+  if (!sourceCtx || !destCtx) {
+    canvasPool.release(sourceCanvas);
+    canvasPool.release(destCanvas);
+    console.error("Failed to get 2D context for processing hue and saturation.");
     return imageData; // Return original on failure
   }
 
-  // Draw the original image
-  ctx.putImageData(imageData, 0, 0);
+  try {
+    // 1. Put the original image data onto the source canvas
+    sourceCtx.putImageData(imageData, 0, 0);
 
-  // Apply saturation first
-  if (saturationPercent !== 100) {
-    ctx.globalCompositeOperation = 'saturation';
-    ctx.fillStyle = `hsl(0, ${saturationPercent}%, 50%)`; // Only saturation component matters
-    ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+    // 2. Build the filter string for the destination context
+    const filters: string[] = [];
+    if (hueShift !== 0) {
+      // The hue-rotate filter takes an angle in degrees
+      filters.push(`hue-rotate(${hueShift}deg)`);
+    }
+    if (saturationPercent !== 100) {
+      // The saturate filter takes a percentage (100% is unchanged)
+      filters.push(`saturate(${saturationPercent}%)`);
+    }
+
+    // 3. Apply the combined filter if any adjustments are needed
+    if (filters.length > 0) {
+      destCtx.filter = filters.join(' ');
+    }
+
+    // 4. Draw the source canvas to the destination canvas.
+    // This is the step where the GPU applies the filter. It correctly handles alpha.
+    destCtx.drawImage(sourceCanvas, 0, 0);
+
+    // 5. Get the resulting image data from the destination canvas
+    const resultImageData = destCtx.getImageData(0, 0, destCanvas.width, destCanvas.height);
+
+    return resultImageData;
+
+  } finally {
+    // 6. Always release the canvases back to the pool
+    canvasPool.release(sourceCanvas);
+    canvasPool.release(destCanvas);
   }
-
-  // Apply hue shift
-  if (hueShift !== 0) {
-    ctx.globalCompositeOperation = 'hue';
-    ctx.fillStyle = `hsl(${hueShift}, 100%, 50%)`; // Only hue component matters
-    ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-  }
-
-  // Reset composite operation
-  ctx.globalCompositeOperation = 'source-over';
-
-  // Get the modified image data
-  const resultImageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-
-  // Release the canvas back to the pool
-  canvasPool.release(tempCanvas);
-
-  return resultImageData;
 }
+
 
 // Apply brightness adjustment to ImageData
 export function adjustBrightness(imageData: ImageData, brightness: number): ImageData {

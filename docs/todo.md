@@ -1,9 +1,10 @@
 # Todo List
 
 ## Current Task
-- [x] Fix color jitter not working due to applyBrushPreset not preserving colorJitter setting
+- [x] Fix colorSpace inconsistencies across all canvas operations
 
 ## Completed
+- [x] Fix colorSpace inconsistencies across all canvas operations
 - [x] Fix color jitter not working due to applyBrushPreset not preserving colorJitter setting
 - [x] Remove renderView() call from drawLine() function
 - [x] Create dedicated animation loop using requestAnimationFrame  
@@ -12,6 +13,32 @@
 - [x] Update docs/todo.md with review of changes
 
 ## Review of Changes
+
+### ColorSpace Consistency Fix
+
+#### Issue
+Hue differences and color shifts were occurring because different canvas operations used inconsistent colorSpace settings. Some canvases used the default colorSpace while others used 'srgb', causing color interpretation mismatches in the rendering pipeline.
+
+#### Root Cause Analysis
+Research revealed critical inconsistencies:
+1. **BrushCursor.tsx:38** - No colorSpace specified (using browser default)
+2. **ColorPicker.tsx:71-72** - No colorSpace specified in both picker contexts
+3. **AdvancedColorPicker.tsx:65-66** - No colorSpace specified in both picker contexts
+4. All other canvas operations properly used `{ colorSpace: 'srgb' }`
+
+#### Solution
+Fixed all inconsistencies by adding `{ colorSpace: 'srgb' }` to:
+- Brush cursor canvas context creation
+- Both color picker component canvas contexts
+- Advanced color picker canvas contexts
+
+#### Files Changed
+- `/src/components/canvas/BrushCursor.tsx:38` - Added colorSpace to canvas context
+- `/src/components/toolbar/ColorPicker.tsx:71-72` - Added colorSpace to both contexts
+- `/src/components/toolbar/AdvancedColorPicker.tsx:65-66` - Added colorSpace to both contexts
+
+#### Impact
+The entire rendering pipeline now uses consistent 'srgb' colorSpace from cursor → pickers → canvas → minicanvas → color adjustment functions, eliminating color interpretation differences that cause hue shifts.
 
 ### Color Jitter Fix
 

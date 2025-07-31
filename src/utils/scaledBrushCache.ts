@@ -115,30 +115,27 @@ class ScaledBrushCache {
         throw new Error('Failed to get context for processing');
     }
 
-    // Draw the original brush image data
-    ctx.putImageData(customBrush.imageData, 0, 0);
-
     // If we are tinting the brush, that takes top priority. Jitter is ignored.
     if (isColorizable && color) {
+      // Draw the original brush image data
+      ctx.putImageData(customBrush.imageData, 0, 0);
       ctx.globalCompositeOperation = 'source-atop';
       ctx.fillStyle = color;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     } else {
-      // Otherwise, if not tinting, apply the GPU-accelerated jitter effects.
+      // Apply hue/saturation adjustments using the unified function
+      let processedImageData = customBrush.imageData;
       
-      // Apply saturation if needed
-      if (saturationPercent !== 100) {
-        ctx.globalCompositeOperation = 'saturation';
-        ctx.fillStyle = `hsl(0, ${saturationPercent}%, 50%)`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      if (hueShift !== 0 || saturationPercent !== 100) {
+        processedImageData = adjustHueAndSaturation(
+          customBrush.imageData,
+          hueShift,
+          saturationPercent
+        );
       }
-
-      // Apply hue shift if needed
-      if (hueShift !== 0) {
-        ctx.globalCompositeOperation = 'hue';
-        ctx.fillStyle = `hsl(${hueShift}, 100%, 50%)`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
+      
+      // Draw the processed image data
+      ctx.putImageData(processedImageData, 0, 0);
     }
     
     // Reset composite operation for safety
@@ -160,17 +157,12 @@ class ScaledBrushCache {
     hueShift?: number,
     saturation?: number
   ): HTMLCanvasElement {
-    // Skip caching when jitter values are applied to ensure unique results
-    const hasJitterValues = (hueShift && hueShift !== 0) || (saturation && saturation !== 100);
+    // Always check the cache. The key is unique for static hue/saturation values.
+    const cacheKey = this.getCacheKey(customBrush.id, scale, rotation, color, isColorizable, isPressureSensitive, hueShift, saturation);
     
-    if (!hasJitterValues) {
-      const cacheKey = this.getCacheKey(customBrush.id, scale, rotation, color, isColorizable, isPressureSensitive, hueShift, saturation);
-      
-      // Check if already cached
-      const cached = this.get(cacheKey);
-      if (cached) {
-        return cached.canvas;
-      }
+    const cached = this.get(cacheKey);
+    if (cached) {
+      return cached.canvas;
     }
 
     // Clean cache if full
@@ -223,25 +215,23 @@ class ScaledBrushCache {
     // Return base canvas to pool
     canvasPool.release(baseCanvas);
 
-    // Cache the scaled brush only when not using jitter values
-    if (!hasJitterValues) {
-      const cacheKey = this.getCacheKey(customBrush.id, scale, rotation, color, isColorizable, isPressureSensitive, hueShift, saturation);
-      const cacheData: ScaledBrushData = {
-        canvas: scaledCanvas,
-        width: scaledWidth,
-        height: scaledHeight,
-        scale,
-        rotation,
-        color,
-        isColorizable: isColorizable || false,
-        hueShift: finalHueShift,
-        saturation: finalSaturation,
-        timestamp: Date.now(),
-        customBrushId: customBrush.id
-      };
+    // Always cache the result. The random jitter path doesn't call this function,
+    // so anything that gets here should be cached.
+    const cacheData: ScaledBrushData = {
+      canvas: scaledCanvas,
+      width: scaledWidth,
+      height: scaledHeight,
+      scale,
+      rotation,
+      color,
+      isColorizable: isColorizable || false,
+      hueShift: finalHueShift,
+      saturation: finalSaturation,
+      timestamp: Date.now(),
+      customBrushId: customBrush.id
+    };
 
-      this.cache.set(cacheKey, cacheData);
-    }
+    this.cache.set(cacheKey, cacheData);
     
     return scaledCanvas;
   }

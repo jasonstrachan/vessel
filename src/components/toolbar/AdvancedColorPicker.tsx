@@ -62,8 +62,8 @@ class AdvancedPicker {
     this.hueCanvas.style.touchAction = 'none';
     this.hueCanvas.style.userSelect = 'none';
     
-    const context = this.target.getContext("2d");
-    const hueContext = this.hueCanvas.getContext("2d");
+    const context = this.target.getContext("2d", { colorSpace: 'srgb' });
+    const hueContext = this.hueCanvas.getContext("2d", { colorSpace: 'srgb' });
     if (!context || !hueContext) throw new Error("Cannot get 2D context");
     this.context = context;
     this.hueContext = hueContext;

@@ -868,38 +868,36 @@ export const useBrushEngine = () => {
           
           // Create processed base canvas directly (stays on GPU)
           const baseCanvas = canvasPool.acquire(customBrush.width, customBrush.height);
-          const baseCtx = baseCanvas.getContext('2d');
+          const baseCtx = baseCanvas.getContext('2d', { colorSpace: 'srgb' });
           if (!baseCtx) throw new Error('Failed to get context');
           
-          // Apply all transformations directly to canvas
-          baseCtx.putImageData(customBrush.imageData, 0, 0);
+          // Apply hue/saturation adjustments using the unified function
+          let processedImageData = customBrush.imageData;
           
-          if (jitteredSaturationAdjust !== 100) {
-            baseCtx.globalCompositeOperation = 'saturation';
-            baseCtx.fillStyle = `hsl(0, ${jitteredSaturationAdjust}%, 50%)`;
-            baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
+          if (jitteredHueShift !== 0 || jitteredSaturationAdjust !== 100) {
+            processedImageData = adjustHueAndSaturation(
+              customBrush.imageData,
+              jitteredHueShift,
+              jitteredSaturationAdjust
+            );
           }
           
-          if (jitteredHueShift !== 0) {
-            baseCtx.globalCompositeOperation = 'hue';
-            baseCtx.fillStyle = `hsl(${jitteredHueShift}, 100%, 50%)`;
-            baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
-          }
+          // Draw the processed image data
+          baseCtx.putImageData(processedImageData, 0, 0);
           
           if (color) {
             baseCtx.globalCompositeOperation = 'source-atop';
             baseCtx.fillStyle = color;
             baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
+            baseCtx.globalCompositeOperation = 'source-over';
           }
-          
-          baseCtx.globalCompositeOperation = 'source-over';
           
           // Scale if needed
           if (scale !== 1) {
             const scaledWidth = Math.ceil(customBrush.width * scale);
             const scaledHeight = Math.ceil(customBrush.height * scale);
             scaledCanvas = canvasPool.acquire(scaledWidth, scaledHeight);
-            const scaledCtx = scaledCanvas.getContext('2d');
+            const scaledCtx = scaledCanvas.getContext('2d', { colorSpace: 'srgb' });
             if (!scaledCtx) throw new Error('Failed to get scaled context');
             
             scaledCtx.imageSmoothingEnabled = false;
@@ -940,14 +938,14 @@ export const useBrushEngine = () => {
     } catch (error) {
       // Fallback to original method if cache fails
       const canvas = canvasPool.acquire(customBrush.width, customBrush.height);
-      const tempCtx = canvas.getContext('2d', { willReadFrequently: true });
+      const tempCtx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
       if (!tempCtx) {
         canvasPool.release(canvas);
         return;
       }
       
       // Apply same canvas-based transformations as main path
-      tempCtx.putImageData(customBrush.imageData, 0, 0);
+      let processedImageData = customBrush.imageData;
       
       if (colorJitterAmount > 0) {
         let jitteredHueShift = tools.brushSettings.hueShift || 0;
@@ -958,18 +956,16 @@ export const useBrushEngine = () => {
         jitteredHueShift += (Math.random() - 0.5) * jitterFactor * 360;
         jitteredSaturationAdjust = Math.max(0, Math.min(200, jitteredSaturationAdjust + (Math.random() - 0.5) * jitterFactor * 100));
         
-        if (jitteredSaturationAdjust !== 100) {
-          tempCtx.globalCompositeOperation = 'saturation';
-          tempCtx.fillStyle = `hsl(0, ${jitteredSaturationAdjust}%, 50%)`;
-          tempCtx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-        
-        if (jitteredHueShift !== 0) {
-          tempCtx.globalCompositeOperation = 'hue';
-          tempCtx.fillStyle = `hsl(${jitteredHueShift}, 100%, 50%)`;
-          tempCtx.fillRect(0, 0, canvas.width, canvas.height);
+        if (jitteredHueShift !== 0 || jitteredSaturationAdjust !== 100) {
+          processedImageData = adjustHueAndSaturation(
+            customBrush.imageData,
+            jitteredHueShift,
+            jitteredSaturationAdjust
+          );
         }
       }
+      
+      tempCtx.putImageData(processedImageData, 0, 0);
       
       if (isColorizable && color) {
         tempCtx.globalCompositeOperation = 'source-atop';

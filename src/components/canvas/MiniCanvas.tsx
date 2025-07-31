@@ -108,7 +108,7 @@ export default function MiniCanvas({
     const brushSize = getBrushTipSize();
     
     // CRITICAL: Clear the offscreen canvas when resizing to prevent stale data
-    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (offscreenCtx) {
       // Save current dimensions
       const oldWidth = offscreenCanvas.width;
@@ -222,7 +222,7 @@ export default function MiniCanvas({
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
 
-    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!ctx) return;
 
     const dimensions = getBrushTipSize();
@@ -395,8 +395,8 @@ export default function MiniCanvas({
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!canvas || !offscreenCanvas) return;
 
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+    const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+    const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!ctx || !offscreenCtx) return;
 
     // Save the current canvas state before clearing
@@ -427,7 +427,7 @@ export default function MiniCanvas({
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = brushDimensions.width;
       tempCanvas.height = brushDimensions.height;
-      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
       if (tempCtx) {
         tempCtx.putImageData(adjustedData, 0, 0);
         ctx.drawImage(tempCanvas, 0, 0, brushDimensions.width, brushDimensions.height, x, y, displayWidth, displayHeight);
@@ -515,7 +515,7 @@ export default function MiniCanvas({
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
 
-    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!ctx) return;
 
     // Use the current brush settings but smaller size for mini canvas
@@ -630,7 +630,7 @@ export default function MiniCanvas({
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
     
-    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!ctx) return;
     
     const brushDimensions = getBrushTipSize();
@@ -653,7 +653,7 @@ export default function MiniCanvas({
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
     
-    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!ctx) return;
     
     // Save current state to redo stack
@@ -682,7 +682,7 @@ export default function MiniCanvas({
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return;
     
-    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!ctx) return;
     
     // Save current state to undo stack
