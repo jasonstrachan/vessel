@@ -152,6 +152,17 @@ export const useBrushEngine = () => {
   const directionHistoryRef = useRef<number[]>([]);
   const lastDirectionRef = useRef<number>(0);
 
+  // --- START FIX 1 ---
+  // Create a ref to hold a reusable input object.
+  const strokeInputRef = useRef<StrokeInput>({
+    position: { x: 0, y: 0 },
+    pressure: 0,
+    velocity: 0,
+    timestamp: 0,
+    direction: 0,
+  });
+  // --- END FIX 1 ---
+
   // Quantize brush size to prevent micro-variations when using grid snap + pressure
   const quantizeBrushSize = useCallback((size: number, stepSize: number = 0.5): number => {
     const invStepSize = 1 / stepSize; // Avoid division in hot path
@@ -1118,13 +1129,16 @@ export const useBrushEngine = () => {
     // Calculate smooth direction for rotation using snapped positions
     const direction = calculateSmoothDirection(snappedFrom, snappedTo);
     
-    const input: StrokeInput = {
-      position: snappedTo,
-      pressure: cursorPressure,
-      velocity: Math.sqrt(Math.pow(snappedTo.x - snappedFrom.x, 2) + Math.pow(snappedTo.y - snappedFrom.y, 2)),
-      timestamp: Date.now(),
-      direction
-    };
+    // --- START FIX 2 ---
+    // Instead of creating a new object, update the properties of the reusable one.
+    const input = strokeInputRef.current;
+    input.position.x = snappedTo.x;
+    input.position.y = snappedTo.y;
+    input.pressure = cursorPressure;
+    input.velocity = Math.sqrt(Math.pow(snappedTo.x - snappedFrom.x, 2) + Math.pow(snappedTo.y - snappedFrom.y, 2));
+    input.timestamp = Date.now();
+    input.direction = direction;
+    // --- END FIX 2 ---
     
     let settings;
     try {
