@@ -76,7 +76,8 @@ export enum BrushShape {
   SQUARE = 'square',
   TRIANGLE = 'triangle',
   CUSTOM = 'custom',
-  RECTANGLE_GRADIENT = 'rectangle_gradient'
+  RECTANGLE_GRADIENT = 'rectangle_gradient',
+  POLYGON_GRADIENT = 'polygon_gradient'
 }
 
 export interface CustomBrush {
@@ -306,5 +307,18 @@ export interface ShapePoint {
 export interface ShapeState {
   isDrawing: boolean;
   points: ShapePoint[];
+  previewPath?: Path2D;
+}
+
+// Polygon gradient brush types
+export interface PolygonGradientPoint {
+  x: number;
+  y: number;
+  color: string;
+}
+
+export interface PolygonGradientState {
+  drawingState: 'idle' | 'drawing' | 'completed';
+  points: PolygonGradientPoint[];
   previewPath?: Path2D;
 }

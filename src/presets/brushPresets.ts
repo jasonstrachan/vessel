@@ -508,6 +508,49 @@ export const rectangleGradientBrushPreset: BrushPreset = {
   modifiedAt: new Date()
 };
 
+// Polygon Gradient Brush Components
+const polygonGradientBrushComponents: BrushComponent[] = [
+  {
+    id: 'polygon-gradient-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      pressureInfluence: 0
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'polygon-gradient-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'polygon-gradient-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.POLYGON_GRADIENT
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+export const polygonGradientBrushPreset: BrushPreset = {
+  id: 'polygon-gradient-brush',
+  name: 'Polygon Gradient',
+  category: 'Special',
+  components: polygonGradientBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['gradient', 'polygon', 'special'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date()
+};
+
 // Available brush presets
 export const brushPresets: BrushPreset[] = [
   pixelBrushPreset,
@@ -517,7 +560,8 @@ export const brushPresets: BrushPreset[] = [
   roundSoft4Preset,
   roundSquare6Preset,
   inkBrushPreset,
-  rectangleGradientBrushPreset
+  rectangleGradientBrushPreset,
+  polygonGradientBrushPreset
 ];
 
 // Helper functions

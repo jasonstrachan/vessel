@@ -28,6 +28,7 @@ import type {
   CanvasSnapshot,
   ShapeState,
   ShapePoint,
+  PolygonGradientState,
 } from '../types';
 import { BrushShape } from '../types';
 import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
@@ -116,6 +117,12 @@ interface AppState {
     endColor: string;
   };
   setRectangleBrushState: (partialState: Partial<AppState['rectangleBrushState']>) => void;
+  
+  // Polygon Gradient Brush State
+  polygonGradientState: PolygonGradientState;
+  setPolygonGradientState: (partialState: Partial<PolygonGradientState>) => void;
+  addPolygonGradientPoint: (x: number, y: number, color: string) => void;
+  clearPolygonGradientPoints: () => void;
   
   // UI State
   ui: UIState;
@@ -246,6 +253,12 @@ const defaultRectangleBrushState = {
   width: 0,
   startColor: 'white',
   endColor: 'white',
+};
+
+const defaultPolygonGradientState: PolygonGradientState = {
+  drawingState: 'idle',
+  points: [],
+  previewPath: undefined
 };
 
 export const useAppStore = create<AppState>()(
@@ -516,6 +529,25 @@ export const useAppStore = create<AppState>()(
       rectangleBrushState: defaultRectangleBrushState,
       setRectangleBrushState: (partialState) => set((state) => ({
         rectangleBrushState: { ...state.rectangleBrushState, ...partialState }
+      })),
+      
+      // Polygon Gradient Brush State
+      polygonGradientState: defaultPolygonGradientState,
+      setPolygonGradientState: (partialState) => set((state) => ({
+        polygonGradientState: { ...state.polygonGradientState, ...partialState }
+      })),
+      addPolygonGradientPoint: (x, y, color) => set((state) => ({
+        polygonGradientState: {
+          ...state.polygonGradientState,
+          points: [...state.polygonGradientState.points, { x, y, color }]
+        }
+      })),
+      clearPolygonGradientPoints: () => set((state) => ({
+        polygonGradientState: {
+          ...state.polygonGradientState,
+          points: [],
+          previewPath: undefined
+        }
       })),
       setBrushPreset: (preset) => set((state) => {
         
