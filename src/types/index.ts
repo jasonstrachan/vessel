@@ -75,7 +75,8 @@ export enum BrushShape {
   PIXEL_ROUND = 'pixel_round',
   SQUARE = 'square',
   TRIANGLE = 'triangle',
-  CUSTOM = 'custom'
+  CUSTOM = 'custom',
+  RECTANGLE_GRADIENT = 'rectangle_gradient'
 }
 
 export interface CustomBrush {
