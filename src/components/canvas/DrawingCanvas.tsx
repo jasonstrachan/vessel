@@ -700,11 +700,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Save context state
     ctx.save();
     
-    // Clip to canvas boundaries to prevent drawing outside canvas (before transforms)
-    ctx.beginPath();
-    ctx.rect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
-    ctx.clip();
-    
     // Apply zoom and pan transformations (devicePixelRatio scaling already applied in initialization)
     ctx.translate(canvas.panX, canvas.panY);
     ctx.scale(canvas.zoom, canvas.zoom);
@@ -714,14 +709,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       const pattern = ctx.createPattern(checkerboardPattern, 'repeat');
       if (pattern) {
         ctx.fillStyle = pattern;
-        
-        // Always fill entire background since we cleared everything
         ctx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
       }
     }
     
     // Draw the offscreen canvas (containing artwork) with transformations
-    // Always draw full canvas since we cleared everything
     ctx.drawImage(offscreenCanvas, 0, 0);
     
     // Grid snap functionality is preserved in useBrushEngine, visual grid removed
