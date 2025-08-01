@@ -103,7 +103,19 @@ export const pixelBrushPreset: BrushPreset = {
   tags: ['pixel', 'hard', '1px', 'pixel-art'],
   isDefault: true,
   createdAt: new Date(),
-  modifiedAt: new Date()
+  modifiedAt: new Date(),
+  preferredSettings: {
+    size: 1,
+    opacity: 1,
+    spacing: 1,
+    antialiasing: false,
+    colorJitter: 0,
+    pressureEnabled: false,
+    rotationEnabled: false,
+    dashedEnabled: false,
+    gridSnapEnabled: false,
+    shapeEnabled: false
+  }
 };
 
 // Default brush components for smooth drawing
@@ -167,7 +179,19 @@ export const defaultBrushPreset: BrushPreset = {
   tags: ['default', 'smooth', 'digital-painting'],
   isDefault: true,
   createdAt: new Date(),
-  modifiedAt: new Date()
+  modifiedAt: new Date(),
+  preferredSettings: {
+    size: 100,
+    opacity: 1,
+    spacing: 1,
+    antialiasing: true,
+    colorJitter: 0,
+    pressureEnabled: false,
+    rotationEnabled: false,
+    dashedEnabled: false,
+    gridSnapEnabled: false,
+    shapeEnabled: false
+  }
 };
 
 // 1px Square Pixel Brush Components
@@ -222,7 +246,19 @@ export const squarePixel1Preset: BrushPreset = {
   tags: ['pixel', 'hard', '1px', 'square'],
   isDefault: false,
   createdAt: new Date(),
-  modifiedAt: new Date()
+  modifiedAt: new Date(),
+  preferredSettings: {
+    size: 1,
+    opacity: 1,
+    spacing: 1,
+    antialiasing: false,
+    colorJitter: 0,
+    pressureEnabled: false,
+    rotationEnabled: false,
+    dashedEnabled: false,
+    gridSnapEnabled: true,
+    shapeEnabled: false
+  }
 };
 
 // 4px Round Pixel Brush Components
@@ -460,7 +496,21 @@ export const inkBrushPreset: BrushPreset = {
   tags: ['ink', 'pressure', 'artistic', 'variable'],
   isDefault: false,
   createdAt: new Date(),
-  modifiedAt: new Date()
+  modifiedAt: new Date(),
+  preferredSettings: {
+    size: 50,
+    opacity: 0.8,
+    spacing: 5,
+    antialiasing: true,
+    colorJitter: 10,
+    pressureEnabled: true,
+    minPressure: 10,
+    maxPressure: 200,
+    rotationEnabled: true,
+    dashedEnabled: false,
+    gridSnapEnabled: false,
+    shapeEnabled: false
+  }
 };
 
 // Rectangle Gradient Brush Components
@@ -573,7 +623,7 @@ export const getBrushPresetsByCategory = (category: string): BrushPreset[] => {
   return brushPresets.filter(preset => preset.category === category);
 };
 
-export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<BrushSettings>; components: BrushComponent[] } => {
+export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partial<BrushSettings>): { settings: Partial<BrushSettings>; components: BrushComponent[] } => {
   const settings: Partial<BrushSettings> = {};
   
   // Extract behavior settings from components
@@ -587,6 +637,16 @@ export const applyBrushPreset = (preset: BrushPreset): { settings: Partial<Brush
         break;
     }
   });
+  
+  // Merge in preferred settings from the preset
+  if (preset.preferredSettings) {
+    Object.assign(settings, preset.preferredSettings);
+  }
+  
+  // User-saved settings have highest priority
+  if (userSavedSettings) {
+    Object.assign(settings, userSavedSettings);
+  }
   
   // Apply preset specific settings including default pixel sizes for default brushes
   if (preset.id === 'pixel-brush') {

@@ -812,13 +812,41 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       const { currentPos, width } = rectangleBrushLiveState.current;
 
       if (drawingState === 'definingLength') {
-        // Draw a preview line from the start point to the current mouse position
+        // --- 1. Get current state ---
+        const { brushSettings } = tools;
+
+        // --- 2. Define the shared width ---
+        // This single variable controls both the line and rectangle width.
+        // Change brushSettings.size to control the thickness.
+        const previewWidth = brushSettings.size / canvas.zoom;
+
+        // --- 3. Draw the main preview line ---
+        // This line is fully visible and sets the core direction and width.
         ctx.beginPath();
         ctx.moveTo(startPos.x, startPos.y);
         ctx.lineTo(currentPos.x, currentPos.y);
         ctx.strokeStyle = startColor;
-        ctx.lineWidth = 2 / canvas.zoom;
+        ctx.lineWidth = previewWidth; // Use the shared width
+        ctx.lineCap = 'round'; // Optional: makes the line ends look nicer
         ctx.stroke();
+
+        // --- 4. Draw the semi-transparent gradient preview on top ---
+        // Set transparency so the line underneath is still visible.
+        ctx.globalAlpha = 0.5; // 50% transparent, adjust as needed
+
+        const liveEndColor = sampleColor(currentPos.x, currentPos.y) || '#ffffff';
+
+        drawRectangleGradient(ctx, {
+          startPos,
+          endPos: currentPos,
+          width: previewWidth, // Use the same shared width
+          startColor: startColor,
+          endColor: liveEndColor,
+        });
+
+        // --- 5. IMPORTANT: Reset transparency ---
+        // Always reset globalAlpha so it doesn't affect other drawings.
+        ctx.globalAlpha = 1.0;
       } else if (drawingState === 'definingWidth') {
         // Create slightly hue-shifted colors for better visibility
         const offsetStartColor = shiftHue(startColor, 8);

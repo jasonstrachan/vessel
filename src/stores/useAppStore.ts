@@ -51,6 +51,12 @@ interface AppState {
   layersNeedRecomposition: boolean;
   setLayersNeedRecomposition: (needed: boolean) => void;
   
+  // Brush-specific settings storage
+  brushSpecificSettings: Record<string, Partial<BrushSettings>>;
+  saveBrushSettings: (brushId: string, settings: Partial<BrushSettings>) => void;
+  loadBrushSettings: (brushId: string) => Partial<BrushSettings>;
+  clearBrushSettings: (brushId: string) => void;
+  
   // History State
   history: HistoryState;
   saveCanvasState: (canvas: HTMLCanvasElement, actionType: CanvasSnapshot['actionType'], description: string) => void;
@@ -419,6 +425,31 @@ export const useAppStore = create<AppState>()(
         const currentSettings = state.tools.brushSettings;
         const newSettings = { ...currentSettings, ...settings };
         
+        // Auto-save brush-specific settings when they change
+        if (state.currentBrushPreset) {
+          const settingsToSave: Partial<BrushSettings> = {};
+          
+          // Only save the settings that were actually changed
+          if (settings.size !== undefined) settingsToSave.size = settings.size;
+          if (settings.opacity !== undefined) settingsToSave.opacity = settings.opacity;
+          if (settings.spacing !== undefined) settingsToSave.spacing = settings.spacing;
+          if (settings.colorJitter !== undefined) settingsToSave.colorJitter = settings.colorJitter;
+          if (settings.pressureEnabled !== undefined) settingsToSave.pressureEnabled = settings.pressureEnabled;
+          if (settings.minPressure !== undefined) settingsToSave.minPressure = settings.minPressure;
+          if (settings.maxPressure !== undefined) settingsToSave.maxPressure = settings.maxPressure;
+          if (settings.rotationEnabled !== undefined) settingsToSave.rotationEnabled = settings.rotationEnabled;
+          if (settings.dashedEnabled !== undefined) settingsToSave.dashedEnabled = settings.dashedEnabled;
+          if (settings.dashLength !== undefined) settingsToSave.dashLength = settings.dashLength;
+          if (settings.dashGap !== undefined) settingsToSave.dashGap = settings.dashGap;
+          if (settings.gridSnapEnabled !== undefined) settingsToSave.gridSnapEnabled = settings.gridSnapEnabled;
+          if (settings.shapeEnabled !== undefined) settingsToSave.shapeEnabled = settings.shapeEnabled;
+          
+          // Save the settings if any of the trackable settings changed
+          if (Object.keys(settingsToSave).length > 0) {
+            get().saveBrushSettings(state.currentBrushPreset.id, settingsToSave);
+          }
+        }
+        
         // Handle brush size restoration when switching between custom and regular brushes
         if (settings.brushShape !== undefined) {
           const wasCustom = currentSettings.brushShape === BrushShape.CUSTOM;
@@ -550,8 +581,30 @@ export const useAppStore = create<AppState>()(
         }
       })),
       setBrushPreset: (preset) => set((state) => {
+        // Save current settings to the currently active brush before switching
+        if (state.currentBrushPreset) {
+          const currentBrushId = state.currentBrushPreset.id;
+          const settingsToSave = {
+            size: state.tools.brushSettings.size,
+            opacity: state.tools.brushSettings.opacity,
+            spacing: state.tools.brushSettings.spacing,
+            colorJitter: state.tools.brushSettings.colorJitter,
+            pressureEnabled: state.tools.brushSettings.pressureEnabled,
+            minPressure: state.tools.brushSettings.minPressure,
+            maxPressure: state.tools.brushSettings.maxPressure,
+            rotationEnabled: state.tools.brushSettings.rotationEnabled,
+            dashedEnabled: state.tools.brushSettings.dashedEnabled,
+            dashLength: state.tools.brushSettings.dashLength,
+            dashGap: state.tools.brushSettings.dashGap,
+            gridSnapEnabled: state.tools.brushSettings.gridSnapEnabled,
+            shapeEnabled: state.tools.brushSettings.shapeEnabled
+          };
+          get().saveBrushSettings(currentBrushId, settingsToSave);
+        }
         
-        const { settings, components } = applyBrushPreset(preset);
+        // Load settings for the new brush
+        const userSavedSettings = get().loadBrushSettings(preset.id);
+        const { settings, components } = applyBrushPreset(preset, userSavedSettings);
         
         const currentSettings = state.tools.brushSettings;
         const newBrushSettings = { ...currentSettings, ...settings };
@@ -1406,7 +1459,27 @@ export const useAppStore = create<AppState>()(
       })),
       setHistorySize: (size) => set((state) => ({
         history: { ...state.history, maxHistorySize: size }
-      }))
+      })),
+      
+      // Brush-specific settings storage
+      brushSpecificSettings: {},
+      saveBrushSettings: (brushId, settings) => set((state) => {
+        const existingSettings = state.brushSpecificSettings[brushId] || {};
+        return { 
+          brushSpecificSettings: {
+            ...state.brushSpecificSettings,
+            [brushId]: { ...existingSettings, ...settings }
+          }
+        };
+      }),
+      loadBrushSettings: (brushId) => {
+        const state = get();
+        return state.brushSpecificSettings[brushId] || {};
+      },
+      clearBrushSettings: (brushId) => set((state) => {
+        const { [brushId]: _, ...remaining } = state.brushSpecificSettings;
+        return { brushSpecificSettings: remaining };
+      })
     }),
     { name: 'tinybrush-store' }
   )
