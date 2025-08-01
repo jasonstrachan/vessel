@@ -202,20 +202,37 @@ class AdvancedPicker {
   }
 
   calcSelector() {
-    this.pickerCircle.x = Math.round(this.saturation * this.width / 100);
-    this.pickerCircle.y = Math.round((100 - this.value) * this.height / 100);
+    // Align selector with grid cells
+    const cols = 10;
+    const rows = 12;
+    const cellWidth = this.width / cols;
+    const cellHeight = this.height / rows;
+    
+    // Calculate which cell the current saturation/value falls into
+    const col = Math.round((this.saturation / 100) * (cols - 1));
+    const row = Math.round(((100 - this.value) / 100) * (rows - 1));
+    
+    // Position at center of the cell
+    this.pickerCircle.x = (col + 0.5) * cellWidth;
+    this.pickerCircle.y = (row + 0.5) * cellHeight;
+    
     this.hueSelector.y = Math.round(this.hue * this.hueHeight / 360);
   }
 
   drawSelector() {
-    this.context.beginPath();
-    this.context.arc(this.pickerCircle.x, this.pickerCircle.y, 8, 0, 2 * Math.PI);
+    // Draw square selector
+    const size = 16; // 8px radius * 2
+    const halfSize = size / 2;
+    
+    // Black outer border
     this.context.strokeStyle = "#000";
     this.context.lineWidth = 3;
-    this.context.stroke();
+    this.context.strokeRect(this.pickerCircle.x - halfSize, this.pickerCircle.y - halfSize, size, size);
+    
+    // White inner border
     this.context.strokeStyle = "#fff";
     this.context.lineWidth = 2;
-    this.context.stroke();
+    this.context.strokeRect(this.pickerCircle.x - halfSize, this.pickerCircle.y - halfSize, size, size);
   }
 
   drawHueSelector() {
@@ -246,6 +263,10 @@ class AdvancedPicker {
     
     this.saturation = Math.round((constrainedCol / (cols - 1)) * 100);
     this.value = Math.round(((rows - 1 - constrainedRow) / (rows - 1)) * 100);
+    
+    // Update selector position to center of cell
+    this.pickerCircle.x = (constrainedCol + 0.5) * cellWidth;
+    this.pickerCircle.y = (constrainedRow + 0.5) * cellHeight;
     
     this.drawHSVGrad();
     this.HSVToRGB();

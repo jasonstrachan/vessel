@@ -1727,6 +1727,58 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       }
     }
     
+    // Brush settings toggle shortcuts
+    if (e.key === 's' || e.key === 'S') {
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        state.setBrushSettings({ shapeEnabled: !state.tools.brushSettings.shapeEnabled });
+        return;
+      }
+    }
+    
+    if (e.key === 'j' || e.key === 'J') {
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        // Toggle color jitter between 0 and previous value (or 20 as default)
+        const currentJitter = state.tools.brushSettings.colorJitter || 0;
+        const newJitter = currentJitter > 0 ? 0 : 20;
+        state.setBrushSettings({ colorJitter: newJitter });
+        return;
+      }
+    }
+    
+    if (e.key === 'g' || e.key === 'G') {
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        state.setBrushSettings({ gridSnapEnabled: !state.tools.brushSettings.gridSnapEnabled });
+        return;
+      }
+    }
+    
+    if (e.key === 'p' || e.key === 'P') {
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        state.setBrushSettings({ pressureEnabled: !state.tools.brushSettings.pressureEnabled });
+        return;
+      }
+    }
+    
+    if (e.key === 'r' || e.key === 'R') {
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        state.setBrushSettings({ rotationEnabled: !state.tools.brushSettings.rotationEnabled });
+        return;
+      }
+    }
+    
+    if (e.key === 'd' || e.key === 'D') {
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        state.setBrushSettings({ dashedEnabled: !state.tools.brushSettings.dashedEnabled });
+        return;
+      }
+    }
+    
     // Brush size shortcuts - different behavior for custom vs regular brushes
     if (e.key === '[') {
       if (state.tools.brushSettings.brushShape === BrushShape.CUSTOM) {

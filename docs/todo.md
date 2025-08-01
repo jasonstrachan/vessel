@@ -1,9 +1,25 @@
 # Todo List
 
 ## Current Task
-- [x] Fix custom brush color transformation bug in MiniCanvas.tsx
+- [ ] Group brushes by type with pixel square brushes first
+
+## Plan
+1. [ ] Analyze current brush library organization and display
+2. [ ] Define brush grouping categories (Pixel Art, Digital Painting, Artistic, Custom)
+3. [ ] Update BrushLibrary component to display brushes in grouped sections
+4. [ ] Sort brushes within each category with pixel/square brushes prioritized
+5. [ ] Add visual separators and category headers to the UI
+6. [ ] Test brush grouping with all existing presets
+
+## Implementation Details
+- Group brushes by their `category` field in BrushPreset
+- Display order: Pixel Art → Digital Painting → Artistic → Custom
+- Within Pixel Art category, prioritize square brushes (1px square, etc.)
+- Add section headers with clear visual separation
+- Maintain existing brush selection functionality
 
 ## Completed
+- [x] Research current brush structure and organization
 - [x] Fix custom brush color transformation bug in MiniCanvas.tsx
 - [x] Apply systematic colorSpace: 'srgb' fixes to all canvas operations
 - [x] Fix color jitter not working due to applyBrushPreset not preserving colorJitter setting

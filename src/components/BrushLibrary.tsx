@@ -42,7 +42,29 @@ const BrushLibrary = () => {
 
   // Combine all brushes: regular presets + custom brushes
   const allBrushes = React.useMemo(() => {
-    return [...brushPresets, ...customBrushPresets];
+    const combined = [...brushPresets, ...customBrushPresets];
+    
+    // Sort brushes: Pixel Art first (with square brushes prioritized), then other categories
+    return combined.sort((a, b) => {
+      // Custom brushes always go last
+      if (a.category === 'Custom' && b.category !== 'Custom') return 1;
+      if (b.category === 'Custom' && a.category !== 'Custom') return -1;
+      
+      // Pixel Art brushes go first
+      if (a.category === 'Pixel Art' && b.category !== 'Pixel Art') return -1;
+      if (b.category === 'Pixel Art' && a.category !== 'Pixel Art') return 1;
+      
+      // Within Pixel Art, prioritize square brushes
+      if (a.category === 'Pixel Art' && b.category === 'Pixel Art') {
+        const aIsSquare = a.name.toLowerCase().includes('square') || a.id === 'square-pixel-1';
+        const bIsSquare = b.name.toLowerCase().includes('square') || b.id === 'square-pixel-1';
+        if (aIsSquare && !bIsSquare) return -1;
+        if (bIsSquare && !aIsSquare) return 1;
+      }
+      
+      // Keep original order for other brushes
+      return 0;
+    });
   }, [brushPresets, customBrushPresets]);
   
   // Check if there's an active custom brush that can be saved

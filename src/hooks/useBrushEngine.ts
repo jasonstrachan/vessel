@@ -245,8 +245,8 @@ export const useBrushEngine = () => {
   }, []);
 
   // Pixel-perfect circle patterns based on reference image
-  const getPixelCircleStamp = useCallback((size: number, color: string): HTMLCanvasElement => {
-    const cacheKey = `${size}_${color}`;
+  const getPixelCircleStamp = useCallback((size: number): HTMLCanvasElement => {
+    const cacheKey = `${size}`;
     
     // Check cache first
     if (pixelCircleStampCache.has(cacheKey)) {
@@ -328,8 +328,8 @@ export const useBrushEngine = () => {
     stampCanvas.height = size;
     const stampCtx = stampCanvas.getContext('2d', { colorSpace: 'srgb' })!;
 
-    // Draw the pixel pattern with the actual color
-    stampCtx.fillStyle = color;
+    // Draw the pixel pattern in white (color will be applied during drawing)
+    stampCtx.fillStyle = 'white';
     stampCtx.imageSmoothingEnabled = false;
     pixels.forEach(pixel => {
       stampCtx.fillRect(pixel.x, pixel.y, 1, 1);
@@ -449,15 +449,29 @@ export const useBrushEngine = () => {
           break;
           
         case BrushShape.PIXEL_ROUND: {
-          // Get the pre-rendered stamp canvas with color
-          const stampCanvas = getPixelCircleStamp(Math.max(1, Math.round(size)), ctx.fillStyle as string);
+          // Get the colorless pre-rendered stamp canvas
+          const stampCanvas = getPixelCircleStamp(Math.max(1, Math.round(size)));
           
           // Calculate position
           const offsetX = Math.round(x - stampCanvas.width / 2);
           const offsetY = Math.round(y - stampCanvas.height / 2);
           
-          // Simply draw the pre-colored stamp
-          ctx.drawImage(stampCanvas, offsetX, offsetY);
+          // Create a temporary canvas to apply color without affecting the main canvas
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = stampCanvas.width;
+          tempCanvas.height = stampCanvas.height;
+          const tempCtx = tempCanvas.getContext('2d', { colorSpace: 'srgb' })!;
+          
+          // Draw the white stamp to temp canvas
+          tempCtx.drawImage(stampCanvas, 0, 0);
+          
+          // Apply color using source-in (only affects existing pixels)
+          tempCtx.globalCompositeOperation = 'source-in';
+          tempCtx.fillStyle = ctx.fillStyle;
+          tempCtx.fillRect(0, 0, stampCanvas.width, stampCanvas.height);
+          
+          // Draw the colored stamp to the main canvas
+          ctx.drawImage(tempCanvas, offsetX, offsetY);
           
           break;
         }
@@ -635,7 +649,6 @@ export const useBrushEngine = () => {
       
       // Quantize brush size when using grid snap + pressure to prevent multiple stamps per grid cell
       if (shouldApplyGridSnap(activeSettings)) {
-        const originalSize = finalSize;
         finalSize = quantizeBrushSize(finalSize, 0.5);
       }
     }
@@ -1268,7 +1281,6 @@ export const useBrushEngine = () => {
       const originalIsColorizable = tools.brushSettings.brushShape === BrushShape.CUSTOM 
         ? tools.brushSettings.useSwatchColor 
         : true;
-      const hasColorJitter = (tools.brushSettings.colorJitter || 0) > 0;
       
       // For custom brushes: allow jitter even when useSwatchColor is false
       // But only apply color tint when useSwatchColor is explicitly enabled
@@ -1480,8 +1492,8 @@ export const useBrushEngine = () => {
     
     // Performance monitoring (silent - data available in dev tools if needed)
     if (process.env.NODE_ENV === 'development' && strokeStartTime) {
-      const strokeDuration = performance.now() - strokeStartTime;
       // Stroke timing data available for debugging if needed
+      performance.now() - strokeStartTime;
     }
   }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp]);
   
