@@ -16,14 +16,44 @@ import { adjustHueAndSaturation } from '../utils/imageProcessing';
 const pixelCircleStampCache = new Map<string, HTMLCanvasElement>();
 
 // Color jitter utility function
+// Cache for color jitter canvas context (reused across all calls)
+let jitterCanvas: HTMLCanvasElement | null = null;
+let jitterCtx: CanvasRenderingContext2D | null = null;
+
+// Cache for pattern rendering temp canvas (reused for all pattern operations)
+let patternTempCanvas: HTMLCanvasElement | null = null;
+let patternTempCtx: CanvasRenderingContext2D | null = null;
+
+const getJitterContext = (): CanvasRenderingContext2D => {
+  if (!jitterCanvas || !jitterCtx) {
+    jitterCanvas = document.createElement('canvas');
+    jitterCanvas.width = 1;
+    jitterCanvas.height = 1;
+    jitterCtx = jitterCanvas.getContext('2d', { colorSpace: 'srgb' })!;
+  }
+  return jitterCtx;
+};
+
+const getPatternTempContext = (width: number, height: number): CanvasRenderingContext2D => {
+  if (!patternTempCanvas || !patternTempCtx || 
+      patternTempCanvas.width < width || patternTempCanvas.height < height) {
+    patternTempCanvas = document.createElement('canvas');
+    patternTempCanvas.width = Math.max(width, patternTempCanvas?.width || 0);
+    patternTempCanvas.height = Math.max(height, patternTempCanvas?.height || 0);
+    patternTempCtx = patternTempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' })!;
+  }
+  // Clear and resize for this pattern
+  patternTempCtx.clearRect(0, 0, width, height);
+  return patternTempCtx;
+};
+
 const applyColorJitter = (baseColor: string, jitterAmount: number): string => {
   if (jitterAmount === 0) {
     return baseColor;
   }
   
-  // Parse color to HSL for smooth jitter variations
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' })!;
+  // Parse color to HSL for smooth jitter variations using cached context
+  const ctx = getJitterContext();
   ctx.fillStyle = baseColor;
   const computedColor = ctx.fillStyle;
   
@@ -31,9 +61,9 @@ const applyColorJitter = (baseColor: string, jitterAmount: number): string => {
   let r: number, g: number, b: number;
   if (computedColor.startsWith('#')) {
     const hex = computedColor.slice(1);
-    r = parseInt(hex.substr(0, 2), 16);
-    g = parseInt(hex.substr(2, 2), 16);
-    b = parseInt(hex.substr(4, 2), 16);
+    r = parseInt(hex.slice(0, 2), 16);
+    g = parseInt(hex.slice(2, 4), 16);
+    b = parseInt(hex.slice(4, 6), 16);
   } else if (computedColor.startsWith('rgb')) {
     const matches = computedColor.match(/\d+/g);
     if (!matches) return baseColor;
@@ -394,11 +424,9 @@ export const useBrushEngine = () => {
     // Handle custom pattern rendering
     if (pattern && pattern.width > 0 && pattern.height > 0) {
       
-      // Create temporary canvas for pattern
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = pattern.width;
-      tempCanvas.height = pattern.height;
-      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+      // Use cached temporary canvas for pattern
+      const tempCtx = getPatternTempContext(pattern.width, pattern.height);
+      const tempCanvas = patternTempCanvas!;
       
       if (tempCtx) {
         try {

@@ -2,7 +2,7 @@
 
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
-import { useBrushEngine } from '../../hooks/useBrushEngine';
+import { shallow } from 'zustand/shallow';
 import { Minus, Plus, Undo2, Redo2 } from 'lucide-react';
 import { BrushShape } from '../../types';
 import { adjustHueAndSaturation } from '../../utils/imageProcessing';
@@ -16,14 +16,14 @@ interface MiniCanvasProps {
   onBrushTipChange?: (imageData: ImageData, actualWidth: number, actualHeight: number) => void;
 }
 
-export default function MiniCanvas({ 
+const MiniCanvas = ({ 
   width = 128, 
   height = 128, 
   className = '', 
   hueShift = 0, 
   saturation = 100,
   onBrushTipChange
-}: MiniCanvasProps) {
+}: MiniCanvasProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -48,12 +48,20 @@ export default function MiniCanvas({
   const [undoStack, setUndoStack] = useState<ImageData[]>([]);
   const [redoStack, setRedoStack] = useState<ImageData[]>([]);
 
-  // App state
-  const { tools, project, temporaryCustomBrush, saveCanvasState, brushPresets, setBrushSettings } = useAppStore();
-  const { brushSettings } = tools;
+  // Selective app state - only subscribe to what we actually need
+  const brushSettings = useAppStore(state => state.tools.brushSettings);
+  const temporaryCustomBrush = useAppStore(state => state.temporaryCustomBrush);
+  const customBrushes = useAppStore(state => state.project?.customBrushes || []);
+  const brushPresets = useAppStore(state => state.brushPresets);
   
-  // Get brush engine for drawing
-  const { renderBrushStroke } = useBrushEngine();
+  // Filter custom brush presets (memoized to avoid infinite loops)
+  const customBrushPresets = React.useMemo(() => 
+    brushPresets.filter(p => p.isCustomBrush && p.customBrushData),
+    [brushPresets]
+  );
+  
+  // Actions (stable references, don't cause re-renders)
+  const setBrushSettings = useAppStore(state => state.setBrushSettings);
 
   // Helper function to check if current brush is read-only (should not be editable)
   const isBrushReadOnly = useCallback(() => {
@@ -72,13 +80,13 @@ export default function MiniCanvas({
       // Check temporary custom brush
       (temporaryCustomBrush && temporaryCustomBrush.id === brushSettings.selectedCustomBrush) ||
       // Check project custom brushes
-      (project?.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush)) ||
+      (customBrushes.find(b => b.id === brushSettings.selectedCustomBrush)) ||
       // Check brush presets for custom brush data
-      (brushPresets.find(p => p.isCustomBrush && p.customBrushData && p.id === brushSettings.selectedCustomBrush))
+      (customBrushPresets.find(p => p.id === brushSettings.selectedCustomBrush))
     );
     
     return !customBrushExists; // Read-only if brush doesn't exist
-  }, [brushSettings.brushShape, brushSettings.selectedCustomBrush, temporaryCustomBrush, project?.customBrushes, brushPresets]);
+  }, [brushSettings.brushShape, brushSettings.selectedCustomBrush, temporaryCustomBrush, customBrushes, customBrushPresets]);
 
   // Helper function to calculate appropriate zoom
   const calculateFitZoom = (brushWidth: number, brushHeight: number): number => {
@@ -141,7 +149,7 @@ export default function MiniCanvas({
     
     // Schedule render
     scheduleRender();
-  }, [width, height, brushSettings.brushShape, brushSettings.selectedCustomBrush, brushSettings.currentBrushTip, brushSettings.color, temporaryCustomBrush, brushPresets]);
+  }, [width, height, brushSettings.brushShape, brushSettings.selectedCustomBrush, brushSettings.currentBrushTip, brushSettings.color, temporaryCustomBrush, customBrushPresets]);
 
 
   // Get the actual dimensions of the custom brush
@@ -149,12 +157,11 @@ export default function MiniCanvas({
     if (brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush) {
       let customBrush = temporaryCustomBrush && temporaryCustomBrush.id === brushSettings.selectedCustomBrush
         ? temporaryCustomBrush
-        : project?.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
+        : customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
       
       // If not found in temporary or project brushes, check brush presets
       if (!customBrush) {
-        const preset = brushPresets.find(p => p.isCustomBrush && p.customBrushData && 
-          p.id === brushSettings.selectedCustomBrush);
+        const preset = customBrushPresets.find(p => p.id === brushSettings.selectedCustomBrush);
         
         if (preset && preset.customBrushData) {
           customBrush = {
@@ -175,19 +182,18 @@ export default function MiniCanvas({
     }
     // For standard brushes
     return { width: 64, height: 64 };
-  }, [brushSettings.brushShape, brushSettings.selectedCustomBrush, temporaryCustomBrush, project, brushPresets]);
+  }, [brushSettings.brushShape, brushSettings.selectedCustomBrush, temporaryCustomBrush, customBrushes, customBrushPresets]);
 
   // Get the size of the brush tip to display
   const getBrushTipSize = useCallback(() => {
     if (brushSettings.brushShape === BrushShape.CUSTOM && brushSettings.selectedCustomBrush) {
       let customBrush = temporaryCustomBrush && temporaryCustomBrush.id === brushSettings.selectedCustomBrush
         ? temporaryCustomBrush
-        : project?.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
+        : customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
       
       // If not found in temporary or project brushes, check brush presets
       if (!customBrush) {
-        const preset = brushPresets.find(p => p.isCustomBrush && p.customBrushData && 
-          p.id === brushSettings.selectedCustomBrush);
+        const preset = customBrushPresets.find(p => p.id === brushSettings.selectedCustomBrush);
         
         if (preset && preset.customBrushData) {
           customBrush = {
@@ -209,13 +215,8 @@ export default function MiniCanvas({
     }
     // For standard brushes, use a fixed size for editing
     return { width: 64, height: 64 };
-  }, [brushSettings.brushShape, brushSettings.selectedCustomBrush, temporaryCustomBrush, project?.customBrushes, brushPresets]);
+  }, [brushSettings.brushShape, brushSettings.selectedCustomBrush, temporaryCustomBrush, customBrushes, customBrushPresets]);
 
-  // Helper to get canvas size (max dimension for display)
-  const getCanvasSize = useCallback(() => {
-    const size = getBrushTipSize();
-    return Math.max(size.width, size.height);
-  }, [getBrushTipSize]);
 
   // Initialize the brush tip data
   const initializeBrushTip = useCallback(() => {
@@ -292,13 +293,12 @@ export default function MiniCanvas({
       // Load custom brush - check temporary brush first, then project brushes, then brush presets
       let customBrush = temporaryCustomBrush && temporaryCustomBrush.id === brushSettings.selectedCustomBrush
         ? temporaryCustomBrush
-        : project?.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
+        : customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
       
       
       // If not found in temporary or project brushes, check brush presets
       if (!customBrush) {
-        const preset = brushPresets.find(p => p.isCustomBrush && p.customBrushData && 
-          p.id === brushSettings.selectedCustomBrush);
+        const preset = customBrushPresets.find(p => p.id === brushSettings.selectedCustomBrush);
         
         if (preset && preset.customBrushData) {
           customBrush = {
@@ -384,7 +384,7 @@ export default function MiniCanvas({
         setOriginalBrushData(ctx.getImageData(0, 0, dimensions.width, dimensions.height));
       }
     }
-  }, [brushSettings, temporaryCustomBrush, project, brushPresets, hueShift, saturation, originalBrushData, onBrushTipChange, getBrushTipSize, getActualBrushDimensions]);
+  }, [brushSettings, temporaryCustomBrush, customBrushes, customBrushPresets, hueShift, saturation, originalBrushData, onBrushTipChange, getBrushTipSize, getActualBrushDimensions]);
 
   // Render the canvas with zoom and pan
   const renderCanvas = useCallback(() => {
@@ -889,4 +889,13 @@ export default function MiniCanvas({
       </div>
     </div>
   );
-}
+};
+
+export default React.memo(MiniCanvas, (prevProps, nextProps) => {
+  return prevProps.width === nextProps.width &&
+         prevProps.height === nextProps.height &&
+         prevProps.className === nextProps.className &&
+         prevProps.hueShift === nextProps.hueShift &&
+         prevProps.saturation === nextProps.saturation &&
+         prevProps.onBrushTipChange === nextProps.onBrushTipChange;
+});

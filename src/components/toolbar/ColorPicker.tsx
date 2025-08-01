@@ -392,7 +392,7 @@ class Picker {
   }
 }
 
-export default function ColorPicker({ color, onChange }: ColorPickerProps) {
+const ColorPicker = ({ color, onChange }: ColorPickerProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hueCanvasRef = useRef<HTMLCanvasElement>(null);
   const pickerRef = useRef<Picker | null>(null);
@@ -670,4 +670,9 @@ export default function ColorPicker({ color, onChange }: ColorPickerProps) {
       )}
     </div>
   );
-}
+};
+
+export default React.memo(ColorPicker, (prevProps, nextProps) => {
+  return prevProps.color === nextProps.color &&
+         prevProps.onChange === nextProps.onChange;
+});

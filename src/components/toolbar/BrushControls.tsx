@@ -10,7 +10,7 @@ import ColorPicker from './ColorPicker';
 import Input from '../ui/Input';
 import { Switch } from '../retroui/Switch';
 import { Slider } from '../retroui/Slider';
-export default function BrushControls() {
+const BrushControls = () => {
   const { tools, setBrushSettings, setEraserSettings } = useAppStore();
   const { brushSettings, eraserSettings, currentTool } = tools;
   
@@ -241,4 +241,6 @@ export default function BrushControls() {
       </div>
     </div>
   );
-}
+};
+
+export default React.memo(BrushControls);
