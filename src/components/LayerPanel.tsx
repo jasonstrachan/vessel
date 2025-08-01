@@ -14,16 +14,17 @@ const LayerPanel = () => {
   const [draggedLayerId, setDraggedLayerId] = React.useState<string | null>(null);
   const opacityButtonRef = React.useRef<{ [key: string]: HTMLButtonElement | null }>({});
   const opacityPopoverRef = React.useRef<HTMLDivElement>(null);
-  const { 
-    layers, 
-    activeLayerId, 
-    project,
-    addLayer, 
-    removeLayer, 
-    updateLayer, 
-    setActiveLayer,
-    reorderLayers
-  } = useAppStore();
+  // Direct subscriptions to avoid object creation in selectors
+  const layers = useAppStore(state => state.layers);
+  const activeLayerId = useAppStore(state => state.activeLayerId);
+  const project = useAppStore(state => state.project);
+
+  // Actions (stable references)
+  const addLayer = useAppStore(state => state.addLayer);
+  const removeLayer = useAppStore(state => state.removeLayer);
+  const updateLayer = useAppStore(state => state.updateLayer);
+  const setActiveLayer = useAppStore(state => state.setActiveLayer);
+  const reorderLayers = useAppStore(state => state.reorderLayers);
 
   const handleAddLayer = () => {
     const newLayer: Omit<Layer, 'id' | 'order'> = {
@@ -238,4 +239,4 @@ const LayerPanel = () => {
   );
 };
 
-export default LayerPanel;
+export default React.memo(LayerPanel);

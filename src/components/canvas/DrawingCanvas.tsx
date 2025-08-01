@@ -860,9 +860,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         const { brushSettings } = tools;
 
         // --- 2. Define the shared width ---
-        // This single variable controls both the line and rectangle width.
-        // Change brushSettings.size to control the thickness.
-        const previewWidth = brushSettings.size / canvas.zoom;
+        // Fixed 4px preview line thickness, scaled for zoom
+        const previewWidth = 4 / canvas.zoom;
 
         // --- 3. Draw the main preview line ---
         // This line is fully visible and sets the core direction and width.
