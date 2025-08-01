@@ -1542,80 +1542,43 @@ export const useBrushEngine = () => {
   }, []);
 
   // Draw polygon gradient brush
-  const drawPolygonGradient = useCallback((ctx: CanvasRenderingContext2D, polygonState: any) => {
-    const { points } = polygonState;
+  const drawPolygonGradient = useCallback((ctx: CanvasRenderingContext2D, options: { vertices: Array<{ x: number; y: number }>, colors: string[] }) => {
+    const { vertices, colors } = options;
     const { brushSettings } = useAppStore.getState().tools;
     
-    if (!points || points.length < 3) return;
+    if (!vertices || vertices.length < 3 || !colors || colors.length < 2) return;
     
     ctx.save();
     ctx.globalAlpha = brushSettings.opacity;
     ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
     
-    // Calculate polygon bounds for gradient sizing
-    let minX = points[0].x, maxX = points[0].x;
-    let minY = points[0].y, maxY = points[0].y;
-    
-    for (const point of points) {
-      minX = Math.min(minX, point.x);
-      maxX = Math.max(maxX, point.x);
+    // Find bounding box for gradient direction
+    let minY = Infinity, maxY = -Infinity;
+    for (const point of vertices) {
       minY = Math.min(minY, point.y);
       maxY = Math.max(maxY, point.y);
     }
     
-    const polygonWidth = maxX - minX;
-    const polygonHeight = maxY - minY;
-    const maxDimension = Math.max(polygonWidth, polygonHeight);
+    // Create single linear gradient from top to bottom
+    const gradient = ctx.createLinearGradient(0, minY, 0, maxY);
     
-    // Create polygon path for clipping
-    const polygonPath = new Path2D();
-    polygonPath.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) {
-      polygonPath.lineTo(points[i].x, points[i].y);
+    // Add color stops for each sampled color
+    colors.forEach((color, index) => {
+      const position = index / (colors.length - 1);
+      gradient.addColorStop(position, color);
+    });
+    
+    // Create polygon path
+    ctx.beginPath();
+    ctx.moveTo(vertices[0].x, vertices[0].y);
+    for (let i = 1; i < vertices.length; i++) {
+      ctx.lineTo(vertices[i].x, vertices[i].y);
     }
-    polygonPath.closePath();
+    ctx.closePath();
     
-    // Clip to polygon shape
-    ctx.clip(polygonPath);
-    
-    // Create overlapping radial gradients for each point
-    // Use 'lighter' blend mode to create natural color mixing
-    ctx.globalCompositeOperation = 'normal';
-    
-    for (const point of points) {
-      const gradient = ctx.createRadialGradient(
-        point.x, point.y, 0,
-        point.x, point.y, maxDimension * 0.8
-      );
-      
-      // Parse color and add alpha for smooth blending
-      const color = point.color;
-      let colorWithAlpha: string;
-      
-      if (color.startsWith('#')) {
-        // Convert hex to rgba with alpha
-        const r = parseInt(color.slice(1, 3), 16);
-        const g = parseInt(color.slice(3, 5), 16);
-        const b = parseInt(color.slice(5, 7), 16);
-        colorWithAlpha = `rgba(${r}, ${g}, ${b}, 0.6)`;
-      } else if (color.startsWith('rgb')) {
-        // Already rgb/rgba, just modify alpha if needed
-        colorWithAlpha = color.replace('rgb(', 'rgba(').replace(')', ', 0.6)');
-        if (color.includes('rgba')) {
-          // If already rgba, replace the alpha value
-          colorWithAlpha = color.replace(/,\s*[\d.]+\)$/, ', 0.6)');
-        }
-      } else {
-        // Fallback for named colors
-        colorWithAlpha = color;
-      }
-      
-      gradient.addColorStop(0, colorWithAlpha);
-      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      
-      ctx.fillStyle = gradient;
-      ctx.fill(polygonPath);
-    }
+    // Fill the polygon once with the complete gradient
+    ctx.fillStyle = gradient;
+    ctx.fill();
     
     ctx.restore();
   }, []);
