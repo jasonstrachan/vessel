@@ -83,6 +83,64 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   const dirtyRegionsRef = useRef<{x: number, y: number, width: number, height: number}[]>([]);
   const fullRedrawNeeded = useRef(true); // Force full redraw initially
   
+  // Helper function to shift hue for better visibility
+  const shiftHue = useCallback((color: string, degrees: number): string => {
+    // Parse hex color
+    const hex = color.replace('#', '');
+    const r = parseInt(hex.substr(0, 2), 16) / 255;
+    const g = parseInt(hex.substr(2, 2), 16) / 255;
+    const b = parseInt(hex.substr(4, 2), 16) / 255;
+    
+    // Convert RGB to HSL
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let h, s;
+    const l = (max + min) / 2;
+    
+    if (max === min) {
+      h = s = 0; // achromatic
+    } else {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        case b: h = (r - g) / d + 4; break;
+        default: h = 0;
+      }
+      h /= 6;
+    }
+    
+    // Shift hue
+    h = (h + degrees / 360) % 1;
+    if (h < 0) h += 1;
+    
+    // Convert HSL back to RGB
+    const hue2rgb = (p: number, q: number, t: number) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+    
+    let newR, newG, newB;
+    if (s === 0) {
+      newR = newG = newB = l; // achromatic
+    } else {
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      newR = hue2rgb(p, q, h + 1/3);
+      newG = hue2rgb(p, q, h);
+      newB = hue2rgb(p, q, h - 1/3);
+    }
+    
+    // Convert back to hex
+    const toHex = (c: number) => Math.round(c * 255).toString(16).padStart(2, '0');
+    return `#${toHex(newR)}${toHex(newG)}${toHex(newB)}`;
+  }, []);
+
   // Helper functions for dirty rectangle management
   const addDirtyRegion = useCallback((x: number, y: number, width: number, height: number) => {
     const margin = 20; // Extra margin for brush effects
@@ -182,9 +240,13 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     setShapePreviewPath,
     rectangleBrushState,
     setRectangleBrushState,
+    polygonGradientState,
+    setPolygonGradientState,
+    addPolygonGradientPoint,
+    clearPolygonGradientPoints,
   } = useAppStore();
   
-  const { renderBrushStroke, resetPixelQueue, drawRectangleGradient } = useBrushEngine();
+  const { renderBrushStroke, resetPixelQueue, drawRectangleGradient, drawPolygonGradient } = useBrushEngine();
   
   // Get current custom brush data
   const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
@@ -634,21 +696,76 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         ctx.lineWidth = 2 / canvas.zoom;
         ctx.stroke();
       } else if (drawingState === 'definingWidth') {
+        // Create slightly hue-shifted colors for better visibility
+        const offsetStartColor = shiftHue(startColor, 8);
+        const offsetEndColor = shiftHue(endColor, 8);
+        
         // Use the final drawing function but with transparency for the preview
         ctx.globalAlpha = 0.65;
-        drawRectangleGradient(ctx, { startPos, endPos, width, startColor, endColor });
+        drawRectangleGradient(ctx, { startPos, endPos, width, startColor: offsetStartColor, endColor: offsetEndColor });
       }
 
       ctx.restore();
     }
     // --- RECTANGLE GRADIENT PREVIEW END ---
     
+    // --- POLYGON GRADIENT PREVIEW START ---
+    if (
+      tools.currentTool === 'brush' &&
+      tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT &&
+      polygonGradientState.drawingState === 'drawing' &&
+      polygonGradientState.points.length > 0
+    ) {
+      ctx.save();
+      
+      const points = polygonGradientState.points;
+      
+      // Draw polygon outline
+      if (points.length >= 2) {
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+          ctx.lineTo(points[i].x, points[i].y);
+        }
+        // If we have 3+ points, close the polygon preview
+        if (points.length >= 3) {
+          ctx.closePath();
+        }
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = 2 / canvas.zoom;
+        ctx.stroke();
+        
+        // Draw preview fill if we have 3+ points
+        if (points.length >= 3) {
+          ctx.globalAlpha = 0.4;
+          drawPolygonGradient(ctx, polygonGradientState);
+        }
+      }
+      
+      // Draw colored circles at each vertex
+      for (const point of points) {
+        ctx.fillStyle = point.color;
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 6 / canvas.zoom, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // White outline for better visibility
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 2 / canvas.zoom;
+        ctx.stroke();
+      }
+      
+      ctx.restore();
+    }
+    // --- POLYGON GRADIENT PREVIEW END ---
+    
     // Restore context state
     ctx.restore();
     
     // Clear dirty regions after rendering
     clearDirtyRegions();
-  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.selection, width, height, selectionStart, selectionEnd, checkerboardPattern, clearDirtyRegions, tools.brushSettings.brushShape, tools.brushSettings.selectedCustomBrush, tools.brushSettings.size, tools.brushSettings.gridSnapEnabled, tools.brushSettings.shapeEnabled, project?.customBrushes, shapeState, temporaryCustomBrush, rectangleBrushState, drawRectangleGradient]);
+  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.selection, width, height, selectionStart, selectionEnd, checkerboardPattern, clearDirtyRegions, tools.brushSettings.brushShape, tools.brushSettings.selectedCustomBrush, tools.brushSettings.size, tools.brushSettings.gridSnapEnabled, tools.brushSettings.shapeEnabled, project?.customBrushes, shapeState, temporaryCustomBrush, rectangleBrushState, drawRectangleGradient, polygonGradientState, drawPolygonGradient]);
 
   // Enhanced drawing function - draws on offscreen canvas and re-renders view
   const drawLine = useCallback((from: { x: number; y: number }, to: { x: number; y: number }) => {
@@ -1094,10 +1211,12 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         if (offscreenCanvas) {
           const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
           if (ctx) {
-            // Create final rectangle state with width from ref
+            // Create final rectangle state with width from ref and hue-shifted colors
             const finalRectangleState = {
               ...rectangleBrushState,
-              width: rectangleBrushLiveState.current.width
+              width: rectangleBrushLiveState.current.width,
+              startColor: shiftHue(rectangleBrushState.startColor, 8),
+              endColor: shiftHue(rectangleBrushState.endColor, 8)
             };
             
             // Draw the rectangle gradient
@@ -1110,6 +1229,24 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         }
         setRectangleBrushState({ drawingState: 'idle' });
       }
+      return;
+    }
+
+    // Handle polygon gradient brush
+    if (tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
+      e.preventDefault();
+      
+      // Sample color at click point
+      const sampledColor = sampleColor(point.x, point.y) || '#000000';
+      
+      if (polygonGradientState.drawingState === 'idle') {
+        // Start free drawing - add first point and begin drawing
+        setPolygonGradientState({ drawingState: 'drawing' });
+        addPolygonGradientPoint(point.x, point.y, sampledColor);
+        setIsDrawing(true);
+      }
+      
+      needsRedraw.current = true;
       return;
     }
 
@@ -1239,6 +1376,25 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       return;
     }
 
+    // --- POLYGON GRADIENT LOGIC ---
+    if (tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
+      if (polygonGradientState.drawingState === 'drawing' && isDrawing) {
+        // Sample color at current position and add to path
+        const sampledColor = sampleColor(point.x, point.y) || '#000000';
+        
+        // Only add point if it's far enough from the last point (path simplification)
+        const lastPoint = polygonGradientState.points[polygonGradientState.points.length - 1];
+        const minDistance = 5; // Minimum pixels between points
+        
+        if (!lastPoint || Math.hypot(point.x - lastPoint.x, point.y - lastPoint.y) >= minDistance) {
+          addPolygonGradientPoint(point.x, point.y, sampledColor);
+        }
+        
+        needsRedraw.current = true;
+      }
+      return;
+    }
+
     // Handle eyedropper color preview
     if (tools.currentTool === 'eyedropper') {
       const color = sampleColor(point.x, point.y);
@@ -1363,6 +1519,28 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           endPos: currentPos,
           endColor: sampleColor(currentPos.x, currentPos.y) || '#000000',
         });
+        return;
+      }
+    }
+
+    // Handle polygon gradient brush completion
+    if (tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
+      if (polygonGradientState.drawingState === 'drawing' && isDrawing) {
+        // Complete polygon if we have at least 3 points
+        if (polygonGradientState.points.length >= 3) {
+          const offscreenCanvas = offscreenCanvasRef.current;
+          if (offscreenCanvas) {
+            const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+            if (ctx) {
+              drawPolygonGradient(ctx, polygonGradientState);
+              saveCanvasState(offscreenCanvas, 'brush', 'Polygon gradient');
+              needsRedraw.current = true;
+            }
+          }
+        }
+        clearPolygonGradientPoints();
+        setPolygonGradientState({ drawingState: 'idle' });
+        setIsDrawing(false);
         return;
       }
     }
@@ -1919,7 +2097,21 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       }
     }
     
-  }, [offscreenCanvasRef, setEKeyPressed, setToolBeforeEraser, setAltKeyPressed, setToolBeforeEyedropper, setSpacebarPressed, setSelection, renderView]);
+    // Handle polygon gradient cancellation
+    if (tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        // Cancel polygon creation while drawing
+        if (polygonGradientState.drawingState === 'drawing') {
+          clearPolygonGradientPoints();
+          setPolygonGradientState({ drawingState: 'idle' });
+          setIsDrawing(false);
+          needsRedraw.current = true;
+        }
+      }
+    }
+    
+  }, [offscreenCanvasRef, setEKeyPressed, setToolBeforeEraser, setAltKeyPressed, setToolBeforeEyedropper, setSpacebarPressed, setSelection, renderView, tools.currentTool, tools.brushSettings.brushShape, polygonGradientState, drawPolygonGradient, clearPolygonGradientPoints, setPolygonGradientState]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
     // E key release - restore previous tool
@@ -2298,7 +2490,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   const canvasStyle: React.CSSProperties = {
     cursor: spacebarPressed 
       ? (isPanning ? 'grabbing' : 'grab') 
-      : tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT ? 'crosshair'
+      : (tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT || tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) ? 'crosshair'
       : ((tools.currentTool === 'brush' || tools.currentTool === 'eraser') ? 'none' 
          : (tools.currentTool === 'eyedropper' || tools.currentTool === 'fill') ? 'crosshair'
          : 'default'),
