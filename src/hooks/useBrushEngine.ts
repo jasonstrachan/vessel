@@ -479,28 +479,38 @@ export const useBrushEngine = () => {
         case BrushShape.PIXEL_ROUND: {
           // Get the colorless pre-rendered stamp canvas
           const stampCanvas = getPixelCircleStamp(Math.max(1, Math.round(size)));
-          
-          // Calculate position
-          const offsetX = Math.round(x - stampCanvas.width / 2);
-          const offsetY = Math.round(y - stampCanvas.height / 2);
-          
-          // Create a temporary canvas to apply color without affecting the main canvas
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = stampCanvas.width;
-          tempCanvas.height = stampCanvas.height;
-          const tempCtx = tempCanvas.getContext('2d', { colorSpace: 'srgb' })!;
-          
-          // Draw the white stamp to temp canvas
-          tempCtx.drawImage(stampCanvas, 0, 0);
-          
-          // Apply color using source-in (only affects existing pixels)
-          tempCtx.globalCompositeOperation = 'source-in';
-          tempCtx.fillStyle = ctx.fillStyle;
-          tempCtx.fillRect(0, 0, stampCanvas.width, stampCanvas.height);
-          
-          // Draw the colored stamp to the main canvas
-          ctx.drawImage(tempCanvas, offsetX, offsetY);
-          
+          const stampSize = stampCanvas.width;
+
+          // Acquire a canvas from the pool. It will be reused across calls.
+          const tempCanvas = canvasPool.acquire(stampSize, stampSize);
+          const tempCtx = tempCanvas.getContext('2d', { colorSpace: 'srgb' });
+
+          if (!tempCtx) {
+            canvasPool.release(tempCanvas);
+            break;
+          }
+
+          try {
+            const offsetX = Math.round(x - stampSize / 2);
+            const offsetY = Math.round(y - stampSize / 2);
+
+            // Clear previous content from the pooled canvas
+            tempCtx.clearRect(0, 0, stampSize, stampSize);
+            
+            // Draw the white stamp to temp canvas
+            tempCtx.drawImage(stampCanvas, 0, 0);
+            
+            // Apply color using source-in (only affects existing pixels)
+            tempCtx.globalCompositeOperation = 'source-in';
+            tempCtx.fillStyle = ctx.fillStyle;
+            tempCtx.fillRect(0, 0, stampSize, stampSize);
+            
+            // Draw the colored stamp to the main canvas
+            ctx.drawImage(tempCanvas, offsetX, offsetY);
+          } finally {
+            // IMPORTANT: Release the canvas back to the pool for reuse
+            canvasPool.release(tempCanvas);
+          }
           break;
         }
           
