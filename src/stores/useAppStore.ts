@@ -105,6 +105,18 @@ interface AppState {
   clearShapePoints: () => void;
   setShapePreviewPath: (path: Path2D | undefined) => void;
   
+  // Rectangle Brush State
+  rectangleBrushState: {
+    drawingState: 'idle' | 'definingLength' | 'definingWidth';
+    startPos: { x: number; y: number };
+    endPos: { x: number; y: number };
+    currentPos: { x: number; y: number };
+    width: number;
+    startColor: string;
+    endColor: string;
+  };
+  setRectangleBrushState: (partialState: Partial<AppState['rectangleBrushState']>) => void;
+  
   // UI State
   ui: UIState;
   togglePanel: (panel: keyof UIState['panels']) => void;
@@ -224,6 +236,16 @@ const defaultShapeState: ShapeState = {
   isDrawing: false,
   points: [],
   previewPath: undefined
+};
+
+const defaultRectangleBrushState = {
+  drawingState: 'idle' as const,
+  startPos: { x: 0, y: 0 },
+  endPos: { x: 0, y: 0 },
+  currentPos: { x: 0, y: 0 },
+  width: 0,
+  startColor: 'white',
+  endColor: 'white',
 };
 
 export const useAppStore = create<AppState>()(
@@ -488,6 +510,12 @@ export const useAppStore = create<AppState>()(
       })),
       setShapePreviewPath: (path) => set((state) => ({
         shapeState: { ...state.shapeState, previewPath: path }
+      })),
+      
+      // Rectangle Brush State
+      rectangleBrushState: defaultRectangleBrushState,
+      setRectangleBrushState: (partialState) => set((state) => ({
+        rectangleBrushState: { ...state.rectangleBrushState, ...partialState }
       })),
       setBrushPreset: (preset) => set((state) => {
         

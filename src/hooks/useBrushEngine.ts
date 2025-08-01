@@ -1497,10 +1497,55 @@ export const useBrushEngine = () => {
     }
   }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp]);
   
+  // Draw rectangle gradient brush
+  const drawRectangleGradient = useCallback((ctx: CanvasRenderingContext2D, rectangleState: any) => {
+    const { startPos, endPos, width, startColor, endColor } = rectangleState;
+    const { brushSettings } = useAppStore.getState().tools;
+    
+    // Calculate rectangle geometry
+    const dx = endPos.x - startPos.x;
+    const dy = endPos.y - startPos.y;
+    const length = Math.hypot(dx, dy);
+    
+    if (length === 0 || width === 0) return;
+    
+    // Calculate perpendicular vector for width
+    const perpX = -dy / length * (width / 2);
+    const perpY = dx / length * (width / 2);
+    
+    // Rectangle corners
+    const corners = [
+      { x: startPos.x + perpX, y: startPos.y + perpY },
+      { x: startPos.x - perpX, y: startPos.y - perpY },
+      { x: endPos.x - perpX, y: endPos.y - perpY },
+      { x: endPos.x + perpX, y: endPos.y + perpY }
+    ];
+    
+    ctx.save();
+    ctx.globalAlpha = brushSettings.opacity;
+    ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
+    
+    // Create linear gradient
+    const gradient = ctx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
+    gradient.addColorStop(0, startColor);
+    gradient.addColorStop(1, endColor);
+    
+    // Draw rectangle
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(corners[0].x, corners[0].y);
+    corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
+    ctx.closePath();
+    ctx.fill();
+    
+    ctx.restore();
+  }, []);
+
   return {
     executeComponents,
     executeComponent,
     renderBrushStroke,
-    resetPixelQueue
+    resetPixelQueue,
+    drawRectangleGradient
   };
 };

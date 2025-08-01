@@ -30,7 +30,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement>(null);
-  const animationFrameRef = useRef<number | null>(null);
   const needsRedraw = useRef(false);
   const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
   const handleKeyUpRef = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -138,6 +137,12 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   // Shape preview cache for performance
   const shapePreviewCacheRef = useRef<HTMLCanvasElement | null>(null);
   
+  // Rectangle brush live state (use ref to avoid re-renders during drag)
+  const rectangleBrushLiveState = useRef({
+    currentPos: { x: 0, y: 0 },
+    width: 0
+  });
+  
   const {
     canvas,
     tools,
@@ -175,9 +180,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     addShapePoint,
     clearShapePoints,
     setShapePreviewPath,
+    rectangleBrushState,
+    setRectangleBrushState,
   } = useAppStore();
   
-  const { renderBrushStroke, resetPixelQueue } = useBrushEngine();
+  const { renderBrushStroke, resetPixelQueue, drawRectangleGradient } = useBrushEngine();
   
   // Get current custom brush data
   const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
@@ -310,7 +317,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
            worldY >= bounds.y && worldY <= bounds.y + bounds.height;
   }, [canvas.selection]);
 
-  // Sample color from canvas at world coordinates
+  // Sample color from canvas at world coordinates (optimized for speed)
   const sampleColor = useCallback((worldX: number, worldY: number) => {
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!offscreenCanvas) return null;
@@ -318,18 +325,23 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!offscreenCtx) return null;
     
-    // Ensure coordinates are within bounds
+    // Fast bounds check and floor in one operation
     const x = Math.floor(Math.max(0, Math.min(worldX, offscreenCanvas.width - 1)));
     const y = Math.floor(Math.max(0, Math.min(worldY, offscreenCanvas.height - 1)));
     
     try {
+      // Use the fastest possible pixel read
       const imageData = offscreenCtx.getImageData(x, y, 1, 1);
-      const [r, g, b] = imageData.data;
+      const data = imageData.data;
       
-      // Convert to hex color
-      const hexColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-      return hexColor;
-    } catch (error) {
+      // Optimized hex conversion - avoid string padding when possible
+      const r = data[0];
+      const g = data[1]; 
+      const b = data[2];
+      
+      // Fast hex conversion
+      return `#${(r < 16 ? '0' : '') + r.toString(16)}${(g < 16 ? '0' : '') + g.toString(16)}${(b < 16 ? '0' : '') + b.toString(16)}`;
+    } catch {
       return null;
     }
   }, []);
@@ -600,12 +612,43 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       }
     }
     
+    // --- RECTANGLE GRADIENT PREVIEW START ---
+    if (
+      tools.currentTool === 'brush' &&
+      tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT &&
+      rectangleBrushState.drawingState !== 'idle'
+    ) {
+      ctx.save();
+      
+      // Get committed state from the store
+      const { drawingState, startPos, endPos, startColor, endColor } = rectangleBrushState;
+      // Get LIVE state from the ref for smooth previews
+      const { currentPos, width } = rectangleBrushLiveState.current;
+
+      if (drawingState === 'definingLength') {
+        // Draw a preview line from the start point to the current mouse position
+        ctx.beginPath();
+        ctx.moveTo(startPos.x, startPos.y);
+        ctx.lineTo(currentPos.x, currentPos.y);
+        ctx.strokeStyle = startColor;
+        ctx.lineWidth = 2 / canvas.zoom;
+        ctx.stroke();
+      } else if (drawingState === 'definingWidth') {
+        // Use the final drawing function but with transparency for the preview
+        ctx.globalAlpha = 0.65;
+        drawRectangleGradient(ctx, { startPos, endPos, width, startColor, endColor });
+      }
+
+      ctx.restore();
+    }
+    // --- RECTANGLE GRADIENT PREVIEW END ---
+    
     // Restore context state
     ctx.restore();
     
     // Clear dirty regions after rendering
     clearDirtyRegions();
-  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.selection, width, height, selectionStart, selectionEnd, checkerboardPattern, clearDirtyRegions, tools.brushSettings.brushShape, tools.brushSettings.selectedCustomBrush, tools.brushSettings.size, tools.brushSettings.gridSnapEnabled, tools.brushSettings.shapeEnabled, project?.customBrushes, shapeState, temporaryCustomBrush]);
+  }, [canvas.zoom, canvas.panX, canvas.panY, canvas.selection, width, height, selectionStart, selectionEnd, checkerboardPattern, clearDirtyRegions, tools.brushSettings.brushShape, tools.brushSettings.selectedCustomBrush, tools.brushSettings.size, tools.brushSettings.gridSnapEnabled, tools.brushSettings.shapeEnabled, project?.customBrushes, shapeState, temporaryCustomBrush, rectangleBrushState, drawRectangleGradient]);
 
   // Enhanced drawing function - draws on offscreen canvas and re-renders view
   const drawLine = useCallback((from: { x: number; y: number }, to: { x: number; y: number }) => {
@@ -1029,6 +1072,47 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       return;
     }
 
+    // Handle rectangle gradient brush
+    if (tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT) {
+      e.preventDefault();
+      
+      if (rectangleBrushState.drawingState === 'idle') {
+        // Start length definition - begin drag
+        setRectangleBrushState({
+          drawingState: 'definingLength',
+          startPos: point,
+          currentPos: point,
+          startColor: sampleColor(point.x, point.y) || '#000000',
+        });
+        // Initialize ref state for smooth dragging
+        rectangleBrushLiveState.current.currentPos = point;
+        setIsDrawing(true); // Enable drag mode
+        needsRedraw.current = true; // Immediately show the starting point
+      } else if (rectangleBrushState.drawingState === 'definingWidth') {
+        // Finalize rectangle
+        const offscreenCanvas = offscreenCanvasRef.current;
+        if (offscreenCanvas) {
+          const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+          if (ctx) {
+            // Create final rectangle state with width from ref
+            const finalRectangleState = {
+              ...rectangleBrushState,
+              width: rectangleBrushLiveState.current.width
+            };
+            
+            // Draw the rectangle gradient
+            drawRectangleGradient(ctx, finalRectangleState);
+            
+            // Save canvas state for undo/redo
+            saveCanvasState(offscreenCanvas, 'brush', 'Rectangle gradient');
+            needsRedraw.current = true;
+          }
+        }
+        setRectangleBrushState({ drawingState: 'idle' });
+      }
+      return;
+    }
+
     // Note: State will be captured AFTER stroke completion in handlePointerUp
     
     // Lock the target layer to prevent pixel swapping if user switches layers mid-stroke
@@ -1134,6 +1218,26 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const rawPressure = tools.brushSettings.pressureEnabled && e.pressure !== undefined ? e.pressure : 1.0;
     const smoothedPressure = smoothPressure(rawPressure);
     setCursor({ x: point.x, y: point.y, pressure: smoothedPressure });
+
+    // --- RECTANGLE GRADIENT LOGIC ---
+    if (tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT) {
+      const { drawingState, startPos, endPos } = rectangleBrushState;
+
+      if (drawingState === 'definingLength') {
+        // Update the LIVE state in the ref, NOT the store
+        rectangleBrushLiveState.current.currentPos = point;
+        needsRedraw.current = true; // Tell the render loop to draw the preview
+      } else if (drawingState === 'definingWidth') {
+        // Calculate and update the LIVE width in the ref
+        const dx = endPos.x - startPos.x;
+        const dy = endPos.y - startPos.y;
+        const dist = Math.abs(dy * point.x - dx * point.y + endPos.x * startPos.y - endPos.y * startPos.x) / Math.hypot(dx, dy);
+        rectangleBrushLiveState.current.width = dist * 2;
+        needsRedraw.current = true; // Tell the render loop to draw the preview
+      }
+      // IMPORTANT: We return here to stop any other brush logic from running
+      return;
+    }
 
     // Handle eyedropper color preview
     if (tools.currentTool === 'eyedropper') {
@@ -1244,6 +1348,23 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       setIsDraggingSelection(false);
       setSelectionDragStart(null);
       return;
+    }
+
+    // Handle rectangle gradient brush state transitions
+    if (tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT) {
+      const { drawingState } = rectangleBrushState;
+      
+      if (drawingState === 'definingLength' && isDrawing) {
+        // Release from drag - switch to width definition mode
+        setIsDrawing(false);
+        const currentPos = rectangleBrushLiveState.current.currentPos;
+        setRectangleBrushState({
+          drawingState: 'definingWidth',
+          endPos: currentPos,
+          endColor: sampleColor(currentPos.x, currentPos.y) || '#000000',
+        });
+        return;
+      }
     }
 
     // Handle shape completion on pointer up (for shape mode)
@@ -2127,88 +2248,57 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     }
   }, [isCanvasInitialized, project, layers.length, addLayer]);
 
-  // Re-render view when zoom/pan changes
+  // Re-render view when zoom/pan changes  
   useEffect(() => {
     if (isCanvasInitialized) {
       // These changes require full redraw
       markFullRedraw();
-      renderView();
+      needsRedraw.current = true;
     }
-  }, [canvas.zoom, canvas.panX, canvas.panY, renderView, isCanvasInitialized, markFullRedraw]);
+  }, [canvas.zoom, canvas.panX, canvas.panY, isCanvasInitialized, markFullRedraw]);
 
   // Optimized animation for marching ants - only updates selection border
   const lastRenderTime = useRef(0);
   
-  useEffect(() => {
-    const hasActiveSelection = canvas.selection.active;
-    const hasSelectionCreation = selectionStart && selectionEnd;
-    
-    if (!hasActiveSelection && !hasSelectionCreation) {
-      return;
-    }
-    
-    const animate = (timestamp: number) => {
-      // Throttle to 30fps for marching ants animation (smooth enough, better performance)
-      if (timestamp - lastRenderTime.current > 33) {
-        renderView();
-        lastRenderTime.current = timestamp;
-      }
-      animationFrameRef.current = requestAnimationFrame(animate);
-    };
-    
-    animationFrameRef.current = requestAnimationFrame(animate);
-    
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, [canvas.selection.active, selectionStart, selectionEnd, renderView]);
-
-  // Dedicated render loop for smooth drawing
+  // Master render loop - single source of truth for all rendering
   useEffect(() => {
     let animationFrameId: number;
-
-    const renderLoop = () => {
-      renderView();
-      animationFrameId = requestAnimationFrame(renderLoop);
+    
+    const masterRenderLoop = (timestamp: number) => {
+      // Check if rendering is needed for any reason
+      const hasSelection = canvas.selection.active || (selectionStart && selectionEnd);
+      const isCurrentlyDrawing = isDrawing;
+      
+      // Throttle selection animation to 30fps for better performance
+      const shouldRenderSelection = hasSelection && (timestamp - lastRenderTime.current > 33);
+      
+      // Render if: needsRedraw flag is set, drawing is active, or selection needs animation
+      if (needsRedraw.current || isCurrentlyDrawing || shouldRenderSelection) {
+        renderView();
+        needsRedraw.current = false;
+        
+        if (shouldRenderSelection) {
+          lastRenderTime.current = timestamp;
+        }
+      }
+      
+      // Continue the loop
+      animationFrameId = requestAnimationFrame(masterRenderLoop);
     };
-
-    // Only run the render loop while drawing to save resources
-    if (isDrawing) {
-      animationFrameId = requestAnimationFrame(renderLoop);
-    }
-
+    
+    // Start the master loop
+    animationFrameId = requestAnimationFrame(masterRenderLoop);
+    
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [isDrawing, renderView]);
-
-  // Main rendering loop - only renders when needsRedraw is true
-  useEffect(() => {
-    let frameId: number | null = null;
-    
-    const render = () => {
-      if (needsRedraw.current) {
-        renderView();
-        needsRedraw.current = false;
-      }
-      frameId = requestAnimationFrame(render);
-    };
-    
-    frameId = requestAnimationFrame(render);
-    
-    return () => {
-      if (frameId) {
-        cancelAnimationFrame(frameId);
-      }
-    };
-  }, [renderView]);
+  }, [renderView, canvas.selection.active, selectionStart, selectionEnd, isDrawing]);
 
   // Canvas styling with cursor updates
   const canvasStyle: React.CSSProperties = {
     cursor: spacebarPressed 
       ? (isPanning ? 'grabbing' : 'grab') 
+      : tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT ? 'crosshair'
       : ((tools.currentTool === 'brush' || tools.currentTool === 'eraser') ? 'none' 
          : (tools.currentTool === 'eyedropper' || tools.currentTool === 'fill') ? 'crosshair'
          : 'default'),

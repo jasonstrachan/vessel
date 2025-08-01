@@ -463,6 +463,51 @@ export const inkBrushPreset: BrushPreset = {
   modifiedAt: new Date()
 };
 
+// Rectangle Gradient Brush Components
+export const rectangleGradientBrushComponents: BrushComponent[] = [
+  {
+    id: 'rectangle-gradient-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      minSize: 1,
+      maxSize: 1000,
+      pressureInfluence: 0
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'rectangle-gradient-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'rectangle-gradient-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.RECTANGLE_GRADIENT
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+export const rectangleGradientBrushPreset: BrushPreset = {
+  id: 'rectangle-gradient-brush',
+  name: 'Rectangle Gradient',
+  category: 'Special',
+  components: rectangleGradientBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['gradient', 'rectangle', 'special'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date()
+};
+
 // Available brush presets
 export const brushPresets: BrushPreset[] = [
   pixelBrushPreset,
@@ -471,7 +516,8 @@ export const brushPresets: BrushPreset[] = [
   roundPixel4Preset,
   roundSoft4Preset,
   roundSquare6Preset,
-  inkBrushPreset
+  inkBrushPreset,
+  rectangleGradientBrushPreset
 ];
 
 // Helper functions
