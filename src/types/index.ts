@@ -48,6 +48,8 @@ export interface BrushPreset {
     width: number;
     height: number;
   };
+  // Preferred settings for this brush
+  preferredSettings?: Partial<BrushSettings>;
 }
 
 export interface BrushComponent {

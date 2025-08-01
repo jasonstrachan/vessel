@@ -200,6 +200,130 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     currentPos: { x: 0, y: 0 },
     width: 0
   });
+
+  // Live state for polygon gradient (performance optimization)
+  const polygonGradientLiveState = useRef({
+    livePoints: [] as Array<{ x: number; y: number; color: string }>
+  });
+
+  // Shift color hue by specified degrees
+  const shiftColorHue = useCallback((r: number, g: number, b: number, hueShift: number): string => {
+    // Convert RGB to HSL
+    r /= 255;
+    g /= 255;
+    b /= 255;
+    
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let h: number, s: number;
+    const l = (max + min) / 2;
+    
+    if (max === min) {
+      h = s = 0; // achromatic
+    } else {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        default: h = (r - g) / d + 4; break;
+      }
+      h /= 6;
+    }
+    
+    // Shift hue
+    h = (h + hueShift / 360) % 1;
+    if (h < 0) h += 1;
+    
+    // Convert HSL back to RGB
+    const hue2rgb = (p: number, q: number, t: number) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+    
+    let newR: number, newG: number, newB: number;
+    
+    if (s === 0) {
+      newR = newG = newB = l; // achromatic
+    } else {
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      newR = hue2rgb(p, q, h + 1/3);
+      newG = hue2rgb(p, q, h);
+      newB = hue2rgb(p, q, h - 1/3);
+    }
+    
+    // Convert back to 0-255 range
+    newR = Math.round(newR * 255);
+    newG = Math.round(newG * 255);
+    newB = Math.round(newB * 255);
+    
+    return `rgb(${newR}, ${newG}, ${newB})`;
+  }, []);
+
+  // Sample colors from canvas at actual drawing path points
+  const sampleCanvasColors = useCallback((ctx: CanvasRenderingContext2D, points: Array<{ x: number; y: number }>, numSamples: number): string[] => {
+    if (points.length < 1) {
+      return ['rgb(128, 128, 128)'];
+    }
+
+    // Select sampling points
+    const samplePoints = numSamples >= points.length 
+      ? points
+      : Array.from({ length: numSamples }, (_, i) => {
+          const pathIndex = Math.floor((i / (numSamples - 1)) * (points.length - 1));
+          return points[pathIndex];
+        });
+
+    // Find bounding box for efficient batch sampling
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const point of samplePoints) {
+      minX = Math.min(minX, Math.round(point.x));
+      minY = Math.min(minY, Math.round(point.y));
+      maxX = Math.max(maxX, Math.round(point.x));
+      maxY = Math.max(maxY, Math.round(point.y));
+    }
+
+    // Batch sample the entire region
+    const width = maxX - minX + 1;
+    const height = maxY - minY + 1;
+    
+    let imageData: ImageData;
+    try {
+      imageData = ctx.getImageData(minX, minY, width, height);
+    } catch (e) {
+      // Fallback to default colors if sampling fails
+      return Array(samplePoints.length).fill('rgb(128, 128, 128)');
+    }
+    
+    const colors: string[] = [];
+    
+    // Extract colors from the batch data
+    for (const point of samplePoints) {
+      const x = Math.round(point.x) - minX;
+      const y = Math.round(point.y) - minY;
+      
+      if (x >= 0 && x < width && y >= 0 && y < height) {
+        const pixelIndex = (y * width + x) * 4;
+        const r = imageData.data[pixelIndex];
+        const g = imageData.data[pixelIndex + 1];
+        const b = imageData.data[pixelIndex + 2];
+        
+        // Apply +8 hue shift to sampled colors
+        const hueShiftedColor = shiftColorHue(r, g, b, 8);
+        colors.push(hueShiftedColor);
+      } else {
+        colors.push('rgb(128, 128, 128)');
+      }
+    }
+
+    return colors;
+  }, []);
   
   const {
     canvas,
@@ -713,50 +837,35 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     if (
       tools.currentTool === 'brush' &&
       tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT &&
-      polygonGradientState.drawingState === 'drawing' &&
-      polygonGradientState.points.length > 0
+      polygonGradientState.drawingState === 'drawing'
     ) {
-      ctx.save();
-      
-      const points = polygonGradientState.points;
-      
-      // Draw polygon outline
-      if (points.length >= 2) {
-        ctx.beginPath();
-        ctx.moveTo(points[0].x, points[0].y);
-        for (let i = 1; i < points.length; i++) {
-          ctx.lineTo(points[i].x, points[i].y);
+      const livePoints = polygonGradientLiveState.current.livePoints;
+
+      if (livePoints.length >= 3) {
+        ctx.save();
+        // No transparency - match final result exactly
+
+        // Sample SAME number of colors as final (8) for identical appearance
+        // Sample from the main visible canvas instead of offscreen canvas
+        const mainCanvasCtx = canvasRef.current?.getContext('2d');
+        let previewColors = ['#FFF', '#000']; // Default fallback gradient
+
+        if (mainCanvasCtx) {
+          // Get 8 colors (same as final) for identical preview
+          previewColors = sampleCanvasColors(mainCanvasCtx, livePoints, 8);
         }
-        // If we have 3+ points, close the polygon preview
-        if (points.length >= 3) {
-          ctx.closePath();
-        }
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-        ctx.lineWidth = 2 / canvas.zoom;
-        ctx.stroke();
         
-        // Draw preview fill if we have 3+ points
-        if (points.length >= 3) {
-          ctx.globalAlpha = 0.4;
-          drawPolygonGradient(ctx, polygonGradientState);
-        }
-      }
-      
-      // Draw colored circles at each vertex
-      for (const point of points) {
-        ctx.fillStyle = point.color;
-        ctx.globalAlpha = 0.8;
-        ctx.beginPath();
-        ctx.arc(point.x, point.y, 6 / canvas.zoom, 0, Math.PI * 2);
-        ctx.fill();
+        // Create points with sampled colors for preview
+        const previewPointsWithColors = livePoints.map((point, index) => ({
+          ...point,
+          color: previewColors[Math.floor((index / livePoints.length) * previewColors.length)]
+        }));
         
-        // White outline for better visibility
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 2 / canvas.zoom;
-        ctx.stroke();
+        // Draw the polygon using SAME number of colors as final (8)
+        drawPolygonGradient(ctx, { vertices: livePoints, colors: previewColors });
+
+        ctx.restore();
       }
-      
-      ctx.restore();
     }
     // --- POLYGON GRADIENT PREVIEW END ---
     
@@ -1236,13 +1345,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     if (tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
       e.preventDefault();
       
-      // Sample color at click point
-      const sampledColor = sampleColor(point.x, point.y) || '#000000';
-      
       if (polygonGradientState.drawingState === 'idle') {
-        // Start free drawing - add first point and begin drawing
+        // Start free drawing - initialize live state and begin drawing
         setPolygonGradientState({ drawingState: 'drawing' });
-        addPolygonGradientPoint(point.x, point.y, sampledColor);
+        // Initialize live points with first point (no color sampling yet)
+        polygonGradientLiveState.current.livePoints = [{ x: point.x, y: point.y, color: '' }];
         setIsDrawing(true);
       }
       
@@ -1379,15 +1486,14 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // --- POLYGON GRADIENT LOGIC ---
     if (tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
       if (polygonGradientState.drawingState === 'drawing' && isDrawing) {
-        // Sample color at current position and add to path
-        const sampledColor = sampleColor(point.x, point.y) || '#000000';
-        
-        // Only add point if it's far enough from the last point (path simplification)
-        const lastPoint = polygonGradientState.points[polygonGradientState.points.length - 1];
-        const minDistance = 5; // Minimum pixels between points
+        // Only collect path points (no expensive color sampling)
+        const livePoints = polygonGradientLiveState.current.livePoints;
+        const lastPoint = livePoints[livePoints.length - 1];
+        const minDistance = 8; // Moderate distance for smooth drawing
         
         if (!lastPoint || Math.hypot(point.x - lastPoint.x, point.y - lastPoint.y) >= minDistance) {
-          addPolygonGradientPoint(point.x, point.y, sampledColor);
+          // Add to LIVE ref state (just coordinates, no color)
+          livePoints.push({ x: point.x, y: point.y, color: '' });
         }
         
         needsRedraw.current = true;
@@ -1526,18 +1632,36 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Handle polygon gradient brush completion
     if (tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
       if (polygonGradientState.drawingState === 'drawing' && isDrawing) {
+        const livePoints = polygonGradientLiveState.current.livePoints;
+        
         // Complete polygon if we have at least 3 points
-        if (polygonGradientState.points.length >= 3) {
+        if (livePoints.length >= 3) {
           const offscreenCanvas = offscreenCanvasRef.current;
           if (offscreenCanvas) {
             const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
             if (ctx) {
-              drawPolygonGradient(ctx, polygonGradientState);
+              // NOW do the expensive color sampling only once on completion
+              // Sample from the main visible canvas for accurate colors
+              const mainCanvasCtx = canvasRef.current?.getContext('2d');
+              const finalColors = mainCanvasCtx ? 
+                sampleCanvasColors(mainCanvasCtx, livePoints, 8) : 
+                ['#FFF', '#000'];
+              
+              // Create final points with proper color sampling
+              const finalPointsWithColors = livePoints.map((point, index) => ({
+                ...point,
+                color: finalColors[Math.floor((index / livePoints.length) * finalColors.length)]
+              }));
+              
+              drawPolygonGradient(ctx, { vertices: livePoints, colors: finalColors });
               saveCanvasState(offscreenCanvas, 'brush', 'Polygon gradient');
               needsRedraw.current = true;
             }
           }
         }
+        
+        // Clear both live and store state
+        polygonGradientLiveState.current.livePoints = [];
         clearPolygonGradientPoints();
         setPolygonGradientState({ drawingState: 'idle' });
         setIsDrawing(false);
@@ -2103,6 +2227,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         e.preventDefault();
         // Cancel polygon creation while drawing
         if (polygonGradientState.drawingState === 'drawing') {
+          // Clear both live and store state
+          polygonGradientLiveState.current.livePoints = [];
           clearPolygonGradientPoints();
           setPolygonGradientState({ drawingState: 'idle' });
           setIsDrawing(false);
