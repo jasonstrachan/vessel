@@ -1,88 +1,90 @@
-# Gradient Rectangle Brush Implementation Plan
+# Brush-Specific Settings Implementation (January 2025)
 
-## Current Task
-- [ ] Add RECTANGLE_GRADIENT brush shape to enum and types
-- [ ] Implement multi-step drawing state management in store
-- [ ] Add rectangle gradient drawing logic to brush engine
-- [ ] Integrate rectangle brush with DrawingCanvas event handlers
-- [ ] Add preview rendering for length and width definition
-- [ ] Test gradient rectangle brush functionality
+## ✅ COMPLETED: Brush-Specific Settings System
 
-## Implementation Details
+Successfully restructured the brush system so each brush has its own specific settings that are remembered when switching between brushes.
 
-### Phase 1: Type System Updates
-- [ ] Add RECTANGLE_GRADIENT to BrushShape enum in src/types/index.ts
-- [ ] Add rectangle brush state interface to AppState in useAppStore.ts
-- [ ] Add state management actions for rectangle brush workflow
+### Implementation Summary
 
-### Phase 2: State Management 
-- [ ] Add rectangleBrushState to store with:
-  - drawingState: 'idle' | 'definingLength' | 'definingWidth'
-  - startPos, endPos, currentPos coordinates
-  - width value for rectangle thickness
-  - startColor, endColor for gradient endpoints
-- [ ] Add setRectangleBrushState action for state updates
+**Key Features Implemented:**
 
-### Phase 3: Canvas Event Integration
-- [ ] Modify handlePointerDown to detect RECTANGLE_GRADIENT shape
-- [ ] Implement 3-step interaction flow:
-  1. First click: Start length definition
-  2. Mouse move: Preview length line
-  3. Second click: Switch to width definition
-  4. Mouse move: Preview rectangle width
-  5. Third click: Finalize rectangle
-- [ ] Update processPointerMove for live previews
-- [ ] Update handlePointerUp for state transitions
+1. **Extended BrushPreset Interface** (`src/types/index.ts`):
+   - Added `preferredSettings?: Partial<BrushSettings>` field to BrushPreset interface
+   - Allows each brush to define its optimal default settings
 
-### Phase 4: Rendering Implementation
-- [ ] Add rectangle gradient drawing logic to useBrushEngine.ts
-- [ ] Implement gradient interpolation between start and end colors
-- [ ] Add preview rendering to DrawingCanvas renderView function
-- [ ] Ensure proper color sampling at start and end points
+2. **Brush-Specific Settings Storage** (`src/stores/useAppStore.ts`):
+   - Added `brushSpecificSettings: Map<string, Partial<BrushSettings>>` to store user modifications per brush
+   - Created helper functions: `saveBrushSettings()`, `loadBrushSettings()`, `clearBrushSettings()`
+   - Enables memory of user customizations for each brush
 
-### Phase 5: Testing & Validation
-- [ ] Test the 3-step drawing workflow
-- [ ] Verify gradient color interpolation works correctly
-- [ ] Test with different brush sizes and opacities
-- [ ] Ensure proper canvas state saving and history
+3. **Enhanced Preset Application** (`src/presets/brushPresets.ts`):
+   - Updated `applyBrushPreset()` to accept optional `userSavedSettings` parameter
+   - Merge priority: User saved settings > Preferred settings > Preset defaults
+   - Ensures user customizations always take precedence
 
-## Technical Architecture
+4. **Smart Brush Switching** (`src/stores/useAppStore.ts`):
+   - Modified `setBrushPreset()` to save current settings before switching brushes
+   - Automatically loads saved settings when switching to a brush
+   - Falls back to preset defaults for first-time brush usage
 
-### Multi-Step Drawing Workflow
-1. **Idle State**: Waiting for first interaction
-2. **Length Definition**: User drags to define rectangle length and direction
-3. **Width Definition**: User moves perpendicular to set rectangle thickness
-4. **Completion**: Final rectangle drawn with gradient between sampled colors
+5. **Auto-Save Functionality** (`src/stores/useAppStore.ts`):
+   - Updated `setBrushSettings()` to automatically save modifications per brush
+   - Tracks changes to: size, opacity, spacing, colorJitter, pressure settings, rotation, dashes, grid snap, shape mode
+   - Settings are stored immediately when user makes changes
 
-### Gradient Logic
-- Sample color at start position (first click)
-- Sample color at end position (second click) 
-- Linear interpolation along rectangle length
-- Perpendicular fill for rectangle width
+6. **Default Preferred Settings**:
+   - **Pixel Brush**: size=1, opacity=1, spacing=1, antialiasing=false, gridSnap=false
+   - **Default Brush**: size=100, opacity=1, spacing=1, antialiasing=true, gridSnap=false  
+   - **1px Square**: size=1, opacity=1, spacing=1, antialiasing=false, gridSnap=true
+   - **Ink Brush**: size=50, opacity=0.8, spacing=5, colorJitter=10, pressure=true, rotation=true
 
-### Canvas Integration
-- Uses existing canvas infrastructure
-- Leverages current brush settings (opacity, blend mode)
-- Integrates with undo/redo system
-- Compatible with grid snapping if enabled
+### Technical Architecture
 
-## Files to Modify
-1. `src/types/index.ts` - Add RECTANGLE_GRADIENT enum value
-2. `src/stores/useAppStore.ts` - Add rectangle brush state and actions
-3. `src/hooks/useBrushEngine.ts` - Add rectangle gradient drawing logic
-4. `src/components/canvas/DrawingCanvas.tsx` - Integrate event handling and preview rendering
+**Settings Priority System:**
+```
+1. User-saved settings (highest priority)
+2. Brush preferred settings  
+3. Preset component defaults
+4. Global defaults (lowest priority)
+```
 
-## Completed
-- [x] Research current brush system architecture
-- [x] Analyze existing brush shape implementations
-- [x] Create detailed implementation plan
+**Data Flow:**
+```
+User modifies setting → Auto-save to brushSpecificSettings Map
+User switches brush → Save current settings → Load new brush settings
+New brush selected → Merge: user saved + preferred + defaults
+```
 
-## Next Steps
-- [ ] Begin implementation with type system updates
-- [ ] Test each phase incrementally
-- [ ] Ensure compatibility with existing brush system
+### Files Modified
 
-## Review Section
+1. `src/types/index.ts` - Extended BrushPreset interface
+2. `src/stores/useAppStore.ts` - Added brush-specific storage and switching logic
+3. `src/presets/brushPresets.ts` - Updated preset application with merge logic and added preferred settings
+
+### User Experience Improvements
+
+✅ **Brush Memory**: Each brush now remembers its optimal settings (size, opacity, spacing, etc.)
+✅ **Seamless Switching**: No more manual readjustment when switching between brushes  
+✅ **Smart Defaults**: Pixel brushes start at 1px, painting brushes at 100px, etc.
+✅ **User Customization**: All user modifications are preserved per brush
+✅ **No UI Changes**: Existing workflow remains unchanged
+
+### Migration & Compatibility
+
+- **Backwards Compatible**: Existing projects work without changes
+- **Progressive Enhancement**: New brush-specific settings are learned as user customizes
+- **Default Initialization**: All brushes start with sensible preferred settings
+- **Graceful Fallback**: Missing settings fall back to component defaults
+
+### Build Status
+✅ Project builds successfully with no compilation errors
+⚠️ Only linting warnings present (unused variables) but these are non-critical
+
+The brush-specific settings system is now fully functional and provides a much more intuitive drawing experience where each brush maintains its own optimal configuration!
+
+## Previous Implementation History
+
+### Rectangle Gradient Brush Implementation (August 2025)
 
 ### Implementation Summary
 ✅ **SUCCESS**: Rectangle Gradient brush implementation completed successfully
@@ -93,32 +95,32 @@
 
 2. **State Management**: Added complete state management system in `useAppStore.ts`:
    - `rectangleBrushState` with drawing workflow states: 'idle', 'definingLength', 'definingWidth'
-   - Position tracking: `startPos`, `endPos`, `currentPos`
-   - Color sampling: `startColor`, `endColor` automatically sampled from canvas
-   - Width calculation for rectangle thickness
+   - Position tracking: `startPos`, `endPos`, `currentPos` for rectangle definition
+   - Dimension tracking: `width` for rectangle height control
+   - Color sampling: `startColor`, `endColor` sampled from canvas at start/end positions
 
-3. **3-Step Interactive Workflow**:
-   - **Step 1**: Click to start length definition, samples start color
-   - **Step 2**: Move mouse to define rectangle length and direction
-   - **Step 3**: Click to switch to width definition, samples end color
-   - **Step 4**: Move perpendicular to define rectangle thickness
-   - **Step 5**: Click to finalize and draw gradient rectangle
+3. **Two-Phase Drawing Workflow**:
+   - **Phase 1**: Click and drag to define rectangle length (horizontal line)
+   - **Phase 2**: Move mouse vertically to set width, click to finalize
+   - **Colors**: Automatically samples colors from canvas at start and end positions
+   - **Escape**: Cancel rectangle creation at any phase
 
 4. **Live Preview System**:
-   - Red line preview during length definition with color indicators
-   - Semi-transparent rectangle preview during width definition
-   - Real-time gradient interpolation between sampled colors
+   - White outline showing current rectangle dimensions during definition
+   - Semi-transparent gradient fill preview in phase 2
+   - Real-time updates as mouse moves during width definition
 
 5. **Canvas Integration**: Full integration with `DrawingCanvas.tsx`:
-   - `handlePointerDown`: State transitions and color sampling
-   - `processPointerMove`: Live preview updates with width calculation
-   - `handlePointerUp`: State transitions and final drawing
-   - `renderView`: Preview rendering with proper zoom handling
+   - `handlePointerDown`: Phase management and position capture
+   - `handlePointerMove`: Live preview updates with proper coordinate transformation
+   - `handleKeyDown`: Escape key handling for cancellation
+   - `renderView`: Live preview rendering with zoom-aware coordinates
 
 6. **Brush Engine**: `drawRectangleGradient` function in `useBrushEngine.ts`:
-   - Geometric calculations for rectangle corners using perpendicular vectors
-   - Canvas linear gradient creation between sampled colors
+   - Linear gradient creation from start to end colors
+   - Rectangle path creation and filling
    - Proper opacity and blend mode support
+   - Canvas coordinate system compatibility
 
 7. **Brush Preset**: Added `rectangleGradientBrushPreset` to preset library:
    - Available in "Special" category as "Rectangle Gradient"
@@ -126,91 +128,39 @@
 
 ### Technical Architecture
 
-**Multi-Step Drawing State Machine:**
+**Two-Phase Drawing State Machine:**
 ```
 idle → definingLength → definingWidth → idle (with rectangle drawn)
 ```
 
-**Color Sampling**: Automatically samples colors from existing canvas content at click points
+**Color Sampling**: Automatically samples colors from existing canvas content at start and end drag positions
 
-**Geometric Calculations**: Uses perpendicular vector math to create rectangles of any orientation and width
+**Gradient Algorithm**: Creates linear gradient between the two sampled colors across the rectangle
 
-**Performance Optimizations**: Live preview updates use `needsRedraw.current = true` for efficient rendering
+**Coordinate Handling**: Proper transformation between screen coordinates and canvas coordinates with zoom support
 
 ### Files Modified
 
 1. `src/types/index.ts` - Added RECTANGLE_GRADIENT enum
-2. `src/stores/useAppStore.ts` - Added state management
+2. `src/stores/useAppStore.ts` - Added state management for rectangle workflow  
 3. `src/components/canvas/DrawingCanvas.tsx` - Added event handling and preview rendering
-4. `src/hooks/useBrushEngine.ts` - Added rectangle drawing logic
+4. `src/hooks/useBrushEngine.ts` - Added rectangle drawing algorithm
 5. `src/presets/brushPresets.ts` - Added brush preset
 
 ### Build Status
 ✅ Project builds successfully with no compilation errors
-⚠️ Some linting warnings present (unused variables, missing dependencies) but these are non-critical
+⚠️ Only linting warnings present (unused variables, missing dependencies) but these are non-critical
 
 ### Usage Instructions
 
 1. Select "Rectangle Gradient" brush from the brush library
-2. Click on canvas to start (samples start color)
-3. Drag to define rectangle length and direction
-4. Click to switch to width definition (samples end color)  
-5. Move perpendicular to set rectangle thickness
-6. Click to finalize - gradient rectangle is drawn between the two sampled colors
+2. Click and drag to define the rectangle length (you'll see a white line)
+3. Click to confirm length and enter width-definition mode
+4. Move mouse to set rectangle width (you'll see gradient preview)
+5. Click to finalize the rectangle
+6. Press **Escape** at any time to cancel
 
-The gradient rectangle brush is now fully functional and ready for use!
-
-## Rectangle Brush Performance Optimization (August 2025)
-
-### Issue Identified
-The rectangle brush was experiencing lag during the preview phase because the pointer up handler was incorrectly reading `currentPos` from the Zustand store instead of from the optimized `rectangleBrushLiveState.current.currentPos` ref.
-
-### Root Cause
-In the `handlePointerUp` function, the code was destructuring `currentPos` from `rectangleBrushState` store, but during mouse movement, only the ref was being updated for performance. This caused a mismatch where the store's `currentPos` was stale, leading to incorrect positioning when transitioning from length definition to width definition phase.
-
-### Fix Applied
-**File**: `src/components/canvas/DrawingCanvas.tsx`  
-**Line**: 1389-1399
-
-**Changed**:
-```typescript
-// Before
-const { drawingState, currentPos } = rectangleBrushState;
-endPos: currentPos,
-
-// After  
-const { drawingState } = rectangleBrushState;
-const currentPos = rectangleBrushLiveState.current.currentPos;
-endPos: currentPos,
-```
-
-### Performance Impact
-✅ **FIXED**: Rectangle brush lag eliminated - pointer up handler now reads correct position from optimized ref instead of stale store value.
-
-## Rectangle Brush Width Finalization Fix (August 2025)
-
-### Issue Identified
-After setting the rectangle width, clicking again would allow adjusting the width again instead of finalizing and baking the rectangle to the canvas.
-
-### Root Cause
-The `drawRectangleGradient` function was called with `rectangleBrushState` which didn't include the `width` property. The width was stored in `rectangleBrushLiveState.current.width` ref for performance optimization, but wasn't being passed to the drawing function.
-
-### Fix Applied
-**File**: `src/components/canvas/DrawingCanvas.tsx`  
-**Line**: 1131-1138
-
-**Changed**:
-```typescript
-// Before
-drawRectangleGradient(ctx, rectangleBrushState);
-
-// After
-const finalRectangleState = {
-  ...rectangleBrushState,
-  width: rectangleBrushLiveState.current.width
-};
-drawRectangleGradient(ctx, finalRectangleState);
-```
+The gradient uses colors sampled from the canvas at the start and end positions of your initial drag, creating smooth color transitions across the rectangle.
 
 ### Workflow Impact
 ✅ **FIXED**: Rectangle brush now properly finalizes after width setting:
