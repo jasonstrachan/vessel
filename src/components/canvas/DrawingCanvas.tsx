@@ -20,6 +20,50 @@ import { BrushShape } from '../../types';
 import BrushCursor from './BrushCursor';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../../constants/canvas';
 
+/**
+ * Samples a square area of pixels from a canvas context and returns the average color.
+ * @param {CanvasRenderingContext2D} ctx The canvas context to sample from.
+ * @param {number} x The center X coordinate of the sample area.
+ * @param {number} y The center Y coordinate of the sample area.
+ * @param {number} areaSize The width and height of the square area to sample (e.g., 5 for a 5x5 area).
+ * @returns {string|null} The average color as a hex string (e.g., '#RRGGBB'), or null on error.
+ */
+const sampleAverageColor = (ctx: CanvasRenderingContext2D, x: number, y: number, areaSize = 5): string | null => {
+  const halfSize = Math.floor(areaSize / 2);
+  const startX = Math.round(x - halfSize);
+  const startY = Math.round(y - halfSize);
+
+  try {
+    // Read the block of pixel data from the canvas
+    const imageData = ctx.getImageData(startX, startY, areaSize, areaSize).data;
+
+    let totalR = 0;
+    let totalG = 0;
+    let totalB = 0;
+
+    // Loop through all pixels in the data (each pixel is 4 bytes: R, G, B, A)
+    for (let i = 0; i < imageData.length; i += 4) {
+      totalR += imageData[i];
+      totalG += imageData[i + 1];
+      totalB += imageData[i + 2];
+    }
+
+    const pixelCount = areaSize * areaSize;
+    const avgR = Math.round(totalR / pixelCount);
+    const avgG = Math.round(totalG / pixelCount);
+    const avgB = Math.round(totalB / pixelCount);
+
+    // Helper to convert a number to a 2-digit hex string
+    const toHex = (c: number) => ('0' + c.toString(16)).slice(-2);
+
+    return `#${toHex(avgR)}${toHex(avgG)}${toHex(avgB)}`;
+  } catch (e) {
+    // This can happen if you sample outside the canvas bounds or have CORS issues.
+    console.error("Color sampling failed. This is often due to sampling off-canvas.", e);
+    return null;
+  }
+};
+
 interface DrawingCanvasProps {
   width?: number;
   height?: number;
@@ -834,7 +878,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         // Set transparency so the line underneath is still visible.
         ctx.globalAlpha = 0.5; // 50% transparent, adjust as needed
 
-        const liveEndColor = sampleColor(currentPos.x, currentPos.y) || '#ffffff';
+        const liveEndColor = sampleAverageColor(ctx, currentPos.x, currentPos.y, 5) || '#ffffff';
 
         drawRectangleGradient(ctx, {
           startPos,
