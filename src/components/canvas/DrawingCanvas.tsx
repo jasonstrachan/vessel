@@ -874,22 +874,22 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         ctx.lineCap = 'round'; // Optional: makes the line ends look nicer
         ctx.stroke();
 
-        // --- 4. Draw the semi-transparent gradient preview on top ---
-        // Set transparency so the line underneath is still visible.
-        ctx.globalAlpha = 0.5; // 50% transparent, adjust as needed
+        // --- 4. Draw live gradient preview (optimized) ---
+        // Only sample color and draw gradient every few frames for performance
+        if (!rectangleBrushLiveState.current.lastSampleTime || 
+            Date.now() - rectangleBrushLiveState.current.lastSampleTime > 16) { // ~60fps
+          rectangleBrushLiveState.current.cachedEndColor = sampleColor(currentPos.x, currentPos.y) || '#ffffff';
+          rectangleBrushLiveState.current.lastSampleTime = Date.now();
+        }
 
-        const liveEndColor = sampleAverageColor(ctx, currentPos.x, currentPos.y, 5) || '#ffffff';
-
+        ctx.globalAlpha = 0.5;
         drawRectangleGradient(ctx, {
           startPos,
           endPos: currentPos,
-          width: previewWidth, // Use the same shared width
+          width: previewWidth,
           startColor: startColor,
-          endColor: liveEndColor,
+          endColor: rectangleBrushLiveState.current.cachedEndColor || '#ffffff',
         });
-
-        // --- 5. IMPORTANT: Reset transparency ---
-        // Always reset globalAlpha so it doesn't affect other drawings.
         ctx.globalAlpha = 1.0;
       } else if (drawingState === 'definingWidth') {
         // Create slightly hue-shifted colors for better visibility
