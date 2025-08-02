@@ -317,13 +317,22 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     }
 
     // Select sampling points along the cursor path (drawing order)
+    // ALWAYS ensure first sample is from the start position
     const samplePoints = numSamples >= points.length 
       ? points
       : Array.from({ length: numSamples }, (_, i) => {
-          // Sample evenly along the path from start to end, following drawing order
-          const pathProgress = i / (numSamples - 1);
-          const pathIndex = Math.floor(pathProgress * (points.length - 1));
-          return points[pathIndex];
+          if (i === 0) {
+            // First sample is always from the start position
+            return points[0];
+          } else if (i === numSamples - 1) {
+            // Last sample is always from the end position
+            return points[points.length - 1];
+          } else {
+            // Middle samples distributed evenly along the path
+            const pathProgress = i / (numSamples - 1);
+            const pathIndex = Math.floor(pathProgress * (points.length - 1));
+            return points[pathIndex];
+          }
         });
 
     // Find bounding box for efficient batch sampling
@@ -931,14 +940,15 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         // No transparency - match final result exactly
 
         // Sample colors based on Colors slider setting
-        // Sample from the main visible canvas instead of offscreen canvas
+        // Sample from the offscreen canvas for accurate colors (before polygon is drawn)
         const numColors = tools.brushSettings.colors || 2;
-        const mainCanvasCtx = canvasRef.current?.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+        const offscreenCanvas = offscreenCanvasRef.current;
+        const offscreenCtx = offscreenCanvas?.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         let previewColors = ['#FFF', '#000']; // Default fallback gradient
 
-        if (mainCanvasCtx) {
+        if (offscreenCtx) {
           // Get specified number of colors for preview
-          previewColors = sampleCanvasColors(mainCanvasCtx, livePoints, numColors);
+          previewColors = sampleCanvasColors(offscreenCtx, livePoints, numColors);
         }
         
         // Create points with sampled colors for preview
@@ -1740,11 +1750,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
             if (ctx) {
               // NOW do the expensive color sampling only once on completion
-              // Sample from the main visible canvas for accurate colors
+              // Sample from the offscreen canvas (before this polygon is drawn) for accurate colors
               const numColors = tools.brushSettings.colors || 2;
-              const mainCanvasCtx = canvasRef.current?.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
-              const finalColors = mainCanvasCtx ? 
-                sampleCanvasColors(mainCanvasCtx, livePoints, numColors) : 
+              const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+              const finalColors = offscreenCtx ? 
+                sampleCanvasColors(offscreenCtx, livePoints, numColors) : 
                 ['#FFF', '#000'];
               
               // Create final points with proper color sampling
