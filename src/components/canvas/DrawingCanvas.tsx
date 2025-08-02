@@ -245,6 +245,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     width: 0
   });
 
+  // --- OPTIMIZATION: Decouple cursor state from React renders ---
+  // This ref holds the high-frequency cursor data (position, pressure)
+  // without triggering component re-renders on every mouse move.
+  const cursorStateRef = useRef({ x: 0, y: 0, pressure: 0.5 });
+
   // Live state for polygon gradient (performance optimization)
   const polygonGradientLiveState = useRef({
     livePoints: [] as Array<{ x: number; y: number; color: string }>
@@ -1019,8 +1024,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     );
     
     // Draw on the offscreen canvas (no transformations - world coordinates)
-    const pressure = useAppStore.getState().canvas.cursor.pressure ?? 1.0;
-    renderBrushStroke(offscreenCtx, from, to, { pressure });
+    // Pass the latest cursor state from the ref directly to the brush engine.
+    renderBrushStroke(offscreenCtx, from, to, cursorStateRef.current);
     
     // Mark that we need to redraw the view
     needsRedraw.current = true;
@@ -1488,6 +1493,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     setLastPoint(point);
     // Get pressure from pointer event (0.0 to 1.0), ensure consistent behavior between mouse and stylus
     const pressure = tools.brushSettings.pressureEnabled && e.pressure !== undefined ? e.pressure : 1.0;
+    
+    // Update cursor ref for drawing operations
+    cursorStateRef.current = { x: point.x, y: point.y, pressure };
     setCursor({ x: point.x, y: point.y, pressure });
     
     // Performance monitoring
@@ -1571,7 +1579,16 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Get pressure from pointer event (0.0 to 1.0), ensure consistent behavior between mouse and stylus
     const rawPressure = tools.brushSettings.pressureEnabled && e.pressure !== undefined ? e.pressure : 1.0;
     const smoothedPressure = smoothPressure(rawPressure);
-    setCursor({ x: point.x, y: point.y, pressure: smoothedPressure });
+    
+    // --- OPTIMIZATION: Update the ref, NOT the global store ---
+    cursorStateRef.current = {
+      x: point.x,
+      y: point.y,
+      pressure: smoothedPressure
+    };
+    
+    // --- Remove the expensive global state update from this hot path ---
+    // setCursor({ x: point.x, y: point.y, pressure: smoothedPressure }); // <-- REMOVED
 
     // --- RECTANGLE GRADIENT LOGIC ---
     if (tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT) {
@@ -1860,6 +1877,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     setLastPoint(null);
     setDrawingTargetLayerId(null);
     
+    // --- OPTIMIZATION: Update global store only once at the end of the stroke ---
+    // This allows other UI elements (like a coordinate display) to get the final position.
+    const { x, y, pressure } = cursorStateRef.current;
+    setCursor({ x, y, pressure });
+    
     // Performance monitoring (silent - data available in dev tools if needed)
     if (process.env.NODE_ENV === 'development' && wasDrawing) {
       performanceRef.current.pointerUpTime = performance.now();
@@ -1917,7 +1939,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     setIsDrawing(true);
     setLastPoint(point);
     // Touch events don't have pressure, use 0.0 when pressure is enabled, 1.0 otherwise
-    setCursor({ x: point.x, y: point.y, pressure: tools.brushSettings.pressureEnabled ? 0.0 : 1.0 });
+    const touchPressure = tools.brushSettings.pressureEnabled ? 0.0 : 1.0;
+    cursorStateRef.current = { x: point.x, y: point.y, pressure: touchPressure };
+    setCursor({ x: point.x, y: point.y, pressure: touchPressure });
     
     // Performance monitoring
     if (process.env.NODE_ENV === 'development') {
@@ -1950,7 +1974,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
     const point = screenToCanvas(touch.clientX, touch.clientY);
     // Touch events don't have pressure, use 0.0 when pressure is enabled, 1.0 otherwise
-    setCursor({ x: point.x, y: point.y, pressure: tools.brushSettings.pressureEnabled ? 0.0 : 1.0 });
+    const touchPressure = tools.brushSettings.pressureEnabled ? 0.0 : 1.0;
+    cursorStateRef.current = { x: point.x, y: point.y, pressure: touchPressure };
+    // Don't update global store in the hot path for touch moves
 
     if (isDrawing && lastPoint) {
       try {
@@ -1979,6 +2005,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     setIsDrawing(false);
     setLastPoint(null);
     setDrawingTargetLayerId(null);
+    
+    // Update global cursor state once at the end of touch
+    const { x, y, pressure } = cursorStateRef.current;
+    setCursor({ x, y, pressure });
     
     // Performance monitoring (silent - data available in dev tools if needed)
     if (process.env.NODE_ENV === 'development' && wasDrawing) {
