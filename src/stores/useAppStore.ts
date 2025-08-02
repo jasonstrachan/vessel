@@ -476,7 +476,7 @@ export const useAppStore = create<AppState>()(
           if (settings.opacity !== undefined) settingsToSave.opacity = newSettings.opacity;
           if (settings.spacing !== undefined) settingsToSave.spacing = newSettings.spacing;
           if (settings.colorJitter !== undefined) settingsToSave.colorJitter = newSettings.colorJitter;
-          if (settings.filmGrainIntensity !== undefined) settingsToSave.filmGrainIntensity = newSettings.filmGrainIntensity;
+          if (settings.risographIntensity !== undefined) settingsToSave.risographIntensity = newSettings.risographIntensity;
           if (settings.pressureEnabled !== undefined) settingsToSave.pressureEnabled = newSettings.pressureEnabled;
           if (settings.minPressure !== undefined) settingsToSave.minPressure = newSettings.minPressure;
           if (settings.maxPressure !== undefined) settingsToSave.maxPressure = newSettings.maxPressure;
@@ -633,7 +633,7 @@ export const useAppStore = create<AppState>()(
             opacity: state.tools.brushSettings.opacity,
             spacing: state.tools.brushSettings.spacing,
             colorJitter: state.tools.brushSettings.colorJitter,
-            filmGrainIntensity: state.tools.brushSettings.filmGrainIntensity,
+            risographIntensity: state.tools.brushSettings.risographIntensity,
             pressureEnabled: state.tools.brushSettings.pressureEnabled,
             minPressure: state.tools.brushSettings.minPressure,
             maxPressure: state.tools.brushSettings.maxPressure,

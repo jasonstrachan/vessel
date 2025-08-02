@@ -10,7 +10,7 @@
    - [Data Model](#data-model)
 3. [Features](#features)
    - [Drawing Tools](#drawing-tools)
-   - [Film Grain Effect](#film-grain-effect)
+   - [Risograph Effect](#risograph-effect)
    - [Modular Brush Engine](#modular-brush-engine)
    - [Pixel-Perfect Drawing](#pixel-perfect-drawing)
    - [Tool Interface](#tool-interface)
@@ -1219,7 +1219,7 @@ The Drawing Tools feature provides a comprehensive set of digital art tools for 
 - **Snap to Pixel Grid**: Align brush to pixel boundaries
 - **Disable Anti-aliasing**: Sharp pixel edges
 
-### Film Grain Effect
+### Risograph Effect
 **Purpose**: Add realistic film grain texture to brush strokes for enhanced artistic expression and traditional medium emulation.
 
 **Implementation**:
@@ -1248,7 +1248,7 @@ The Drawing Tools feature provides a comprehensive set of digital art tools for 
 - Uses `createPattern('repeat')` for seamless tiling
 - `globalCompositeOperation = 'source-atop'` ensures grain only appears on existing pixels
 - Noise generation creates random grayscale values for authentic film grain appearance
-- Zero overhead when disabled (filmGrainIntensity = 0)
+- Zero overhead when disabled (risographIntensity = 0)
 
 ## Tool Settings API
 
@@ -1279,8 +1279,8 @@ interface BrushSettings {
     gapLength: number;           // Pixels
   };
   
-  // Film grain effect
-  filmGrainIntensity: number;    // 0-100 grain visibility percentage (0 = disabled)
+  // Risograph texture effect
+  risographIntensity: number;    // 0-100 risograph dissolve intensity (0 = disabled)
   
   // Pixel-perfect mode
   pixelPerfect: boolean;

@@ -24,8 +24,11 @@ let jitterCtx: CanvasRenderingContext2D | null = null;
 let patternTempCanvas: HTMLCanvasElement | null = null;
 let patternTempCtx: CanvasRenderingContext2D | null = null;
 
-// Risograph texture cache
-let risographTexture: HTMLCanvasElement | null = null;
+// Film grain noise texture cache
+let noiseTexture: HTMLCanvasElement | null = null;
+
+// --- OPTIMIZATION: Cache the created noise pattern per canvas context ---
+const noisePatternCache = new Map<CanvasRenderingContext2D, CanvasPattern>();
 
 // --- OPTIMIZATION: Throttled and Interpolated Color Jitter ---
 // This object manages jitter state to avoid expensive calculations on every point.
@@ -124,78 +127,39 @@ const applyThrottledColorJitter = (baseColor: string, jitterAmount: number): str
 
 /**
  * Creates a tileable, monochromatic noise texture for film grain effect.
- * This is cached and reused for performance. Used by gradient functions.
+ * This is cached and reused for performance.
  */
 const createNoiseTexture = (): HTMLCanvasElement => {
-  const size = 256;
+  if (noiseTexture) {
+    return noiseTexture;
+  }
+
+  const size = 256; // 256x256 texture balances detail and performance
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
 
-  if (!ctx) return canvas;
+  if (!ctx) {
+    // Fallback to empty canvas if context unavailable
+    return canvas;
+  }
 
   const imageData = ctx.createImageData(size, size);
   const data = imageData.data;
 
   for (let i = 0; i < data.length; i += 4) {
+    // Generate random grayscale value for film grain
     const value = Math.random() * 255;
-    data[i] = value;
-    data[i + 1] = value;
-    data[i + 2] = value;
-    data[i + 3] = 255;
+    data[i] = value;     // Red
+    data[i + 1] = value; // Green
+    data[i + 2] = value; // Blue
+    data[i + 3] = 255;   // Alpha (fully opaque)
   }
 
   ctx.putImageData(imageData, 0, 0);
-  return canvas;
-};
-
-/**
- * Creates a tileable, structured noise texture that mimics a mezzotint or risograph screen.
- * It does this by generating noise, blurring it to create clumps, and increasing contrast.
- * This is cached and reused for high performance.
- */
-const createRisographTexture = (): HTMLCanvasElement => {
-  if (risographTexture) {
-    return risographTexture;
-  }
-
-  const size = 256; // A 256x256 texture is a good balance of detail and performance
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
-
-  if (!ctx) return canvas;
-
-  // 1. Create initial grayscale noise
-  const imageData = ctx.createImageData(size, size);
-  const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    const value = Math.random() * 255;
-    data[i] = data[i + 1] = data[i + 2] = value;
-    data[i + 3] = 255;
-  }
-  ctx.putImageData(imageData, 0, 0);
-
-  // 2. Blur the noise to create clumps
-  ctx.filter = 'blur(1px)';
-  ctx.drawImage(canvas, 0, 0);
-  ctx.filter = 'none'; // Reset filter
-
-  // 3. Increase contrast to create the hard-edged "dissolve" pattern
-  const contrastedImageData = ctx.getImageData(0, 0, size, size);
-  const contrastedData = contrastedImageData.data;
-  for (let i = 0; i < contrastedData.length; i += 4) {
-      // This is a simple contrast curve - pixels below mid-gray become darker, above become lighter
-      const value = contrastedData[i];
-      const contrastedValue = value > 128 ? 255 : 0;
-      contrastedData[i] = contrastedData[i + 1] = contrastedData[i + 2] = contrastedValue;
-  }
-  ctx.putImageData(contrastedImageData, 0, 0);
-
-  risographTexture = canvas;
-  return risographTexture;
+  noiseTexture = canvas;
+  return noiseTexture;
 };
 
 
@@ -227,7 +191,7 @@ export interface RenderSettings {
   spacing: number;
   rotation: number;
   shape: BrushShape;
-  risographIntensity: number;
+  noise: number;
   pattern?: ImageData;
   centerAlignment?: boolean;
   blendMode?: GlobalCompositeOperation;
@@ -452,28 +416,12 @@ export const useBrushEngine = () => {
     shape: BrushShape,
     antiAliasing: boolean,
     rotation: number = 0,
-    risographIntensity: number = 0,
+    noise: number = 0,
     pattern?: ImageData,
     centerAlignment?: boolean
   ) => {
     const halfSize = size / 2;
     
-    // --- RISOGRAPH EFFECT LOGIC ---
-    // If riso is active, we draw the shape to a temporary canvas first
-    // to manipulate its pixels before drawing to the main canvas.
-    const isRisoActive = risographIntensity > 0 && !pattern;
-    const targetCtx = isRisoActive ? canvasPool.acquire(Math.ceil(size) + 4, Math.ceil(size) + 4).getContext('2d')! : ctx;
-    const tempCanvas = isRisoActive ? targetCtx.canvas : null;
-
-    // Adjust coordinates to be local to the temp canvas if we're using one
-    const drawX = isRisoActive ? tempCanvas!.width / 2 : x;
-    const drawY = isRisoActive ? tempCanvas!.height / 2 : y;
-    
-    if (!targetCtx) {
-      if (tempCanvas) canvasPool.release(tempCanvas);
-      return;
-    }
-
     // Check transparency lock before drawing
     if ((window as any).transparencyLockEnabled) {
       // Sample the center pixel to check if we can draw here
@@ -486,7 +434,6 @@ export const useBrushEngine = () => {
         
         // If transparency lock is enabled and pixel is fully transparent, skip drawing
         if (alpha === 0) {
-          if (tempCanvas) canvasPool.release(tempCanvas);
           return;
         }
       } catch (error) {
@@ -494,31 +441,23 @@ export const useBrushEngine = () => {
       }
     }
     
-    targetCtx.save();
-
-    if (isRisoActive) {
-      targetCtx.clearRect(0, 0, tempCanvas!.width, tempCanvas!.height);
-      targetCtx.fillStyle = ctx.fillStyle;
-      targetCtx.globalAlpha = ctx.globalAlpha;
-    }
+    ctx.save();
     
     if (!antiAliasing) {
-      targetCtx.imageSmoothingEnabled = false;
+      ctx.imageSmoothingEnabled = false;
       // Round to pixel boundaries for pixel-perfect drawing
-      if (!isRisoActive) {
-        x = Math.round(x);
-        y = Math.round(y);
-      }
+      x = Math.round(x);
+      y = Math.round(y);
     } else {
       // Ensure smoothing is enabled for antialiased drawing
-      targetCtx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingEnabled = true;
     }
     
     // Apply rotation if specified
     if (rotation !== 0) {
-      targetCtx.translate(drawX, drawY);
-      targetCtx.rotate(rotation);
-      targetCtx.translate(-drawX, -drawY);
+      ctx.translate(x, y);
+      ctx.rotate(rotation);
+      ctx.translate(-x, -y);
     }
     
     // Handle custom pattern rendering
@@ -531,7 +470,7 @@ export const useBrushEngine = () => {
       if (tempCtx) {
         try {
           // Configure temp canvas context to match main context
-          tempCtx.imageSmoothingEnabled = targetCtx.imageSmoothingEnabled;
+          tempCtx.imageSmoothingEnabled = ctx.imageSmoothingEnabled;
           tempCtx.putImageData(pattern, 0, 0);
           
           // Use pattern at original pixel size
@@ -539,20 +478,20 @@ export const useBrushEngine = () => {
           const scaledHeight = pattern.height;
           
           // Calculate position based on alignment
-          let patternDrawX = drawX;
-          let patternDrawY = drawY;
+          let drawX = x;
+          let drawY = y;
           
           if (centerAlignment) {
-            patternDrawX = drawX - scaledWidth / 2;
-            patternDrawY = drawY - scaledHeight / 2;
+            drawX = x - scaledWidth / 2;
+            drawY = y - scaledHeight / 2;
           }
           
           // Round coordinates to prevent sub-pixel positioning
-          patternDrawX = Math.round(patternDrawX);
-          patternDrawY = Math.round(patternDrawY);
+          drawX = Math.round(drawX);
+          drawY = Math.round(drawY);
           
           // Draw the pattern at original size
-          targetCtx.drawImage(tempCanvas, patternDrawX, patternDrawY);
+          ctx.drawImage(tempCanvas, drawX, drawY);
         } catch (error) {
         }
       }
@@ -561,19 +500,19 @@ export const useBrushEngine = () => {
       switch (shape) {
         case BrushShape.SQUARE:
           if (antiAliasing) {
-            targetCtx.fillRect(drawX - halfSize, drawY - halfSize, size, size);
+            ctx.fillRect(x - halfSize, y - halfSize, size, size);
           } else {
             // Pixel-perfect square
             const offset = Math.floor(size / 2);
-            targetCtx.fillRect(drawX - offset, drawY - offset, size, size);
+            ctx.fillRect(x - offset, y - offset, size, size);
           }
           break;
           
         case BrushShape.ROUND:
           // Always use perfect circles for antialiased round brushes
-          targetCtx.beginPath();
-          targetCtx.arc(drawX, drawY, halfSize, 0, Math.PI * 2);
-          targetCtx.fill();
+          ctx.beginPath();
+          ctx.arc(x, y, halfSize, 0, Math.PI * 2);
+          ctx.fill();
           break;
           
         case BrushShape.PIXEL_ROUND: {
@@ -582,44 +521,44 @@ export const useBrushEngine = () => {
           const stampSize = stampCanvas.width;
 
           // Acquire a canvas from the pool. It will be reused across calls.
-          const pixelTempCanvas = canvasPool.acquire(stampSize, stampSize);
-          const pixelTempCtx = pixelTempCanvas.getContext('2d', { colorSpace: 'srgb' });
+          const tempCanvas = canvasPool.acquire(stampSize, stampSize);
+          const tempCtx = tempCanvas.getContext('2d', { colorSpace: 'srgb' });
 
-          if (!pixelTempCtx) {
-            canvasPool.release(pixelTempCanvas);
+          if (!tempCtx) {
+            canvasPool.release(tempCanvas);
             break;
           }
 
           try {
-            const offsetX = Math.round(drawX - stampSize / 2);
-            const offsetY = Math.round(drawY - stampSize / 2);
+            const offsetX = Math.round(x - stampSize / 2);
+            const offsetY = Math.round(y - stampSize / 2);
 
             // Clear previous content from the pooled canvas
-            pixelTempCtx.clearRect(0, 0, stampSize, stampSize);
+            tempCtx.clearRect(0, 0, stampSize, stampSize);
             
             // Draw the white stamp to temp canvas
-            pixelTempCtx.drawImage(stampCanvas, 0, 0);
+            tempCtx.drawImage(stampCanvas, 0, 0);
             
             // Apply color using source-in (only affects existing pixels)
-            pixelTempCtx.globalCompositeOperation = 'source-in';
-            pixelTempCtx.fillStyle = targetCtx.fillStyle;
-            pixelTempCtx.fillRect(0, 0, stampSize, stampSize);
+            tempCtx.globalCompositeOperation = 'source-in';
+            tempCtx.fillStyle = ctx.fillStyle;
+            tempCtx.fillRect(0, 0, stampSize, stampSize);
             
-            // Draw the colored stamp to the target canvas
-            targetCtx.drawImage(pixelTempCanvas, offsetX, offsetY);
+            // Draw the colored stamp to the main canvas
+            ctx.drawImage(tempCanvas, offsetX, offsetY);
           } finally {
             // IMPORTANT: Release the canvas back to the pool for reuse
-            canvasPool.release(pixelTempCanvas);
+            canvasPool.release(tempCanvas);
           }
           break;
         }
           
         case BrushShape.TRIANGLE:
-          targetCtx.beginPath();
+          ctx.beginPath();
           if (antiAliasing) {
-            targetCtx.moveTo(drawX, drawY - halfSize);
-            targetCtx.lineTo(drawX - halfSize, drawY + halfSize);
-            targetCtx.lineTo(drawX + halfSize, drawY + halfSize);
+            ctx.moveTo(x, y - halfSize);
+            ctx.lineTo(x - halfSize, y + halfSize);
+            ctx.lineTo(x + halfSize, y + halfSize);
           } else {
             // Pixel-perfect triangle
             const height = Math.floor(size * 0.866); // sqrt(3)/2
@@ -627,62 +566,109 @@ export const useBrushEngine = () => {
             // Draw filled triangle pixel by pixel
             for (let row = 0; row < height; row++) {
               const width = Math.floor((row + 1) * size / height);
-              const startX = Math.round(drawX - Math.floor(width / 2));
-              const startY = Math.round(drawY - Math.floor(height / 2));
+              const startX = Math.round(x - Math.floor(width / 2));
+              const startY = Math.round(y - Math.floor(height / 2));
               for (let col = 0; col < width; col++) {
-                targetCtx.fillRect(startX + col, startY + row, 1, 1);
+                ctx.fillRect(startX + col, startY + row, 1, 1);
               }
             }
           }
           if (antiAliasing) {
-            targetCtx.closePath();
-            targetCtx.fill();
+            ctx.closePath();
+            ctx.fill();
           }
           break;
       }
     }
-
-    targetCtx.restore();
-
-    // --- APPLY RISOGRAPH DISSOLVE ---
-    if (isRisoActive && tempCanvas) {
-        const risoTexture = createRisographTexture();
-        const threshold = 1 - (risographIntensity / 100);
-
-        const stampImageData = targetCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-        const data = stampImageData.data;
-
-        // Create a temporary context to get texture pixel data
-        const textureCtx = canvasPool.acquire(tempCanvas.width, tempCanvas.height).getContext('2d')!;
-        textureCtx.drawImage(risoTexture, 0, 0, tempCanvas.width, tempCanvas.height);
-        const textureData = textureCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height).data;
+    
+    // Apply film grain effect if enabled
+    if (noise > 0) {
+      const applyFilmGrain = () => {
+        const noiseCanvas = createNoiseTexture();
         
-        // This loop simulates the "Dissolve" blend mode
-        for (let i = 0; i < data.length; i += 4) {
-            // If the pixel in the shape is visible...
-            if (data[i + 3] > 0) {
-                // ...check the brightness of the corresponding noise pixel.
-                const noiseBrightness = textureData[i] / 255;
-                // If the noise brightness is below our slider threshold, "punch a hole"
-                // in the shape by making the pixel fully transparent.
-                if (noiseBrightness < threshold) {
-                    data[i + 3] = 0;
-                }
+        // --- OPTIMIZATION: Use cached pattern ---
+        if (!noisePatternCache.has(ctx)) {
+          noisePatternCache.set(ctx, ctx.createPattern(noiseCanvas, 'repeat')!);
+        }
+        const noisePattern = noisePatternCache.get(ctx);
+        if (!noisePattern) return;
+
+        const originalGCO = ctx.globalCompositeOperation;
+        const originalAlpha = ctx.globalAlpha;
+
+        // Use source-atop to only apply grain where the brush shape exists
+        ctx.globalCompositeOperation = 'source-atop';
+        ctx.globalAlpha = noise / 100;
+        ctx.fillStyle = noisePattern;
+
+        // Apply grain to the drawn area based on shape
+        if (pattern && pattern.width > 0 && pattern.height > 0) {
+          // For patterns, apply grain to the pattern area
+          let drawX = x;
+          let drawY = y;
+          
+          if (centerAlignment) {
+            drawX = x - pattern.width / 2;
+            drawY = y - pattern.height / 2;
+          }
+          
+          drawX = Math.round(drawX);
+          drawY = Math.round(drawY);
+          
+          ctx.fillRect(drawX, drawY, pattern.width, pattern.height);
+        } else {
+          // Apply grain based on shape
+          switch (shape) {
+            case BrushShape.SQUARE:
+              if (antiAliasing) {
+                ctx.fillRect(x - halfSize, y - halfSize, size, size);
+              } else {
+                const offset = Math.floor(size / 2);
+                ctx.fillRect(x - offset, y - offset, size, size);
+              }
+              break;
+              
+            case BrushShape.ROUND:
+              ctx.beginPath();
+              ctx.arc(x, y, halfSize, 0, Math.PI * 2);
+              ctx.fill();
+              break;
+              
+            case BrushShape.PIXEL_ROUND: {
+              const stampSize = Math.max(1, Math.round(size));
+              const offsetX = Math.round(x - stampSize / 2);
+              const offsetY = Math.round(y - stampSize / 2);
+              ctx.fillRect(offsetX, offsetY, stampSize, stampSize);
+              break;
             }
+              
+            case BrushShape.TRIANGLE:
+              if (antiAliasing) {
+                ctx.beginPath();
+                ctx.moveTo(x, y - halfSize);
+                ctx.lineTo(x - halfSize, y + halfSize);
+                ctx.lineTo(x + halfSize, y + halfSize);
+                ctx.closePath();
+                ctx.fill();
+              } else {
+                const height = Math.floor(size * 0.866);
+                const startX = Math.round(x - Math.floor(size / 2));
+                const startY = Math.round(y - Math.floor(height / 2));
+                ctx.fillRect(startX, startY, size, height);
+              }
+              break;
+          }
         }
 
-        // Put the modified, dissolved pixel data back onto the temp canvas
-        targetCtx.putImageData(stampImageData, 0, 0);
-        
-        // Draw the final, dissolved shape onto the main canvas
-        ctx.drawImage(tempCanvas, x - tempCanvas.width / 2, y - tempCanvas.height / 2);
+        // Restore original context state
+        ctx.globalCompositeOperation = originalGCO;
+        ctx.globalAlpha = originalAlpha;
+      };
 
-        // Release canvases back to the pool
-        canvasPool.release(textureCtx.canvas);
-        canvasPool.release(tempCanvas);
-    } else {
-      ctx.restore();
+      applyFilmGrain();
     }
+    
+    ctx.restore();
   }, [getPixelCircleStamp]);
   
   const calculateSizeModification = useCallback((
@@ -841,7 +827,7 @@ export const useBrushEngine = () => {
       spacing: activeSettings.spacing,
       rotation: activeSettings.rotationEnabled && input.direction !== undefined ? input.direction : 0,
       shape: activeSettings.brushShape || BrushShape.ROUND, // Use actual brush shape from settings
-      risographIntensity: activeSettings.risographIntensity || 0,
+      noise: activeSettings.filmGrainIntensity || 0,
       blendMode: activeSettings.blendMode || 'source-over'
     };    
     
@@ -994,7 +980,7 @@ export const useBrushEngine = () => {
           // --- OPTIMIZATION: Use throttled jitter ---
           const jitteredColor = applyThrottledColorJitter(settings.color, brushSettings.colorJitter || 0);
           ctx.fillStyle = jitteredColor;
-          drawShape(ctx, x, y, settings.size, settings.shape, false, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
+          drawShape(ctx, x, y, settings.size, settings.shape, false, settings.rotation, settings.noise, settings.pattern, settings.centerAlignment);
         }
         queue.accumulatedDistance -= settings.spacing;
       }
@@ -1044,7 +1030,7 @@ export const useBrushEngine = () => {
         // --- OPTIMIZATION: Use throttled jitter ---
         const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
         ctx.fillStyle = jitteredColor;
-        drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
+        drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.noise, settings.pattern, settings.centerAlignment);
       }
       return;
     }
@@ -1065,7 +1051,7 @@ export const useBrushEngine = () => {
           // --- OPTIMIZATION: Use throttled jitter ---
           const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
           ctx.fillStyle = jitteredColor;
-          drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
+          drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.noise, settings.pattern, settings.centerAlignment);
         }
         queue.accumulatedDistance -= settings.spacing;
         queue.lastStrokePosition = { x: queue.waitingPixelX, y: queue.waitingPixelY };
@@ -1153,7 +1139,7 @@ export const useBrushEngine = () => {
           ctx.drawImage(stampCanvas, centerX, centerY);
 
           // 8. Apply film grain if enabled
-          const filmGrainIntensity = tools.brushSettings.risographIntensity || 0;
+          const filmGrainIntensity = tools.brushSettings.filmGrainIntensity || 0;
           if (filmGrainIntensity > 0) {
             const noiseCanvas = createNoiseTexture();
             const noisePattern = ctx.createPattern(noiseCanvas, 'repeat');
@@ -1188,7 +1174,7 @@ export const useBrushEngine = () => {
         ctx.drawImage(scaledCanvas, centerX, centerY);
 
         // Apply film grain if enabled
-        const filmGrainIntensity = tools.brushSettings.risographIntensity || 0;
+        const filmGrainIntensity = tools.brushSettings.filmGrainIntensity || 0;
         if (filmGrainIntensity > 0) {
           const noiseCanvas = createNoiseTexture();
           const noisePattern = ctx.createPattern(noiseCanvas, 'repeat');
@@ -1212,7 +1198,7 @@ export const useBrushEngine = () => {
     tools.brushSettings.hueShift, 
     tools.brushSettings.saturationAdjust,
     tools.brushSettings.pressureEnabled,
-    tools.brushSettings.risographIntensity
+    tools.brushSettings.filmGrainIntensity
   ]);
 
   const drawCustomBrushLine = useCallback((ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean) => {
@@ -1635,7 +1621,7 @@ export const useBrushEngine = () => {
           if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
             const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
-            drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, false, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
+            drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, false, settings.rotation, settings.noise, settings.pattern, settings.centerAlignment);
             queue.stampedGridPositions.add(posKey);
           }
         }
@@ -1675,7 +1661,7 @@ export const useBrushEngine = () => {
           if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
             const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
-            drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, true, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
+            drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, true, settings.rotation, settings.noise, settings.pattern, settings.centerAlignment);
             queue.stampedGridPositions.add(posKey);
           }
         }
@@ -1696,7 +1682,7 @@ export const useBrushEngine = () => {
             
             const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
-            drawShape(ctx, x, y, settings.size, settings.shape, true, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
+            drawShape(ctx, x, y, settings.size, settings.shape, true, settings.rotation, settings.noise, settings.pattern, settings.centerAlignment);
           }
           
           queue.accumulatedDistance -= settings.spacing;
@@ -1791,7 +1777,7 @@ export const useBrushEngine = () => {
     ctx.fill();
     
     // Apply film grain effect if enabled
-    const noise = brushSettings.risographIntensity || 0;
+    const noise = brushSettings.filmGrainIntensity || 0;
     if (noise > 0) {
       const noiseCanvas = createNoiseTexture();
       
@@ -1858,7 +1844,7 @@ export const useBrushEngine = () => {
     ctx.fill();
     
     // Apply film grain effect if enabled
-    const noise = brushSettings.risographIntensity || 0;
+    const noise = brushSettings.filmGrainIntensity || 0;
     if (noise > 0) {
       const noiseCanvas = createNoiseTexture();
       

@@ -22,7 +22,7 @@ const BrushControls = () => {
     setActiveSettings({ size: 100 });
   }, [setActiveSettings]);
 
-  // Show only Colors slider for gradient brushes
+  // Show Colors and Film Grain sliders for gradient brushes
   if (activeSettings.brushShape === BrushShape.RECTANGLE_GRADIENT || 
       activeSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
     return (
@@ -38,6 +38,21 @@ const BrushControls = () => {
             step={1}
             onValueChange={(value) => setActiveSettings({ colors: value[0] })}
             aria-label="Gradient Colors"
+          />
+        </div>
+        
+        {/* Risograph */}
+        <div className="mb-3">
+          <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
+            Risograph: {activeSettings.risographIntensity || 0}%
+          </label>
+          <Slider
+            value={[activeSettings.risographIntensity || 0]}
+            min={0}
+            max={100}
+            step={1}
+            onValueChange={(value) => setActiveSettings({ risographIntensity: value[0] })}
+            aria-label="Risograph Intensity"
           />
         </div>
       </div>
@@ -112,18 +127,18 @@ const BrushControls = () => {
         />
       </div>
 
-      {/* Film Grain */}
+      {/* Risograph */}
       <div className="mb-3">
         <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
-          Film Grain: {activeSettings.filmGrainIntensity || 0}%
+          Risograph: {activeSettings.risographIntensity || 0}%
         </label>
         <Slider
-          value={[activeSettings.filmGrainIntensity || 0]}
+          value={[activeSettings.risographIntensity || 0]}
           min={0}
           max={100}
           step={1}
-          onValueChange={(value) => setActiveSettings({ filmGrainIntensity: value[0] })}
-          aria-label="Film Grain Intensity"
+          onValueChange={(value) => setActiveSettings({ risographIntensity: value[0] })}
+          aria-label="Risograph Intensity"
         />
       </div>
 
