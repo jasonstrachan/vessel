@@ -862,6 +862,30 @@ The Drawing Tools feature provides a comprehensive set of digital art tools for 
 - **Wacom Pressure**: Full pressure sensitivity support for professional tablets
 - **Modular Settings**: Brush settings can be transferred between different brushes
 
+### Special Brushes
+
+#### Rectangle Gradient Brush (Updated 2025-08-02)
+**Purpose**: Create gradient-filled rectangles with simplified controls for artistic effects.
+
+**Simplified Settings**:
+- **Colors Slider (1-10)**: Single control replacing all previous settings
+- **Default**: 2 colors (simple gradient from start to end)
+- **Multi-stop**: 3-10 colors create evenly distributed gradient stops
+- **Color Interpolation**: Smooth transitions between sampled colors
+
+**Core Flow**:
+1. User selects Rectangle Gradient brush from Special category
+2. Settings panel shows only Colors slider (1-10)
+3. User drags to define rectangle start and end points
+4. System samples colors from canvas at evenly spaced points along the path
+5. Gradient renders with specified number of color stops
+
+**Key Features**:
+- **Simplified UI**: Single slider replaces Size, Opacity, Spacing, etc.
+- **Path-Based Sampling**: Samples colors along the entire gradient path, not just endpoints
+- **Live Preview**: Real-time gradient preview while dragging with sampled colors
+- **Multi-Stop Gradients**: Creates smooth transitions between all sampled points
+
 ### Eraser Tool
 **Purpose**: Quick pixel erasing with layer-specific options and temporary E-key activation.
 

@@ -1537,7 +1537,7 @@ export const useBrushEngine = () => {
   
   // Draw rectangle gradient brush
   const drawRectangleGradient = useCallback((ctx: CanvasRenderingContext2D, rectangleState: any) => {
-    const { startPos, endPos, width, startColor, endColor } = rectangleState;
+    const { startPos, endPos, width, startColor, endColor, colors } = rectangleState;
     const { brushSettings } = useAppStore.getState().tools;
     
     // Calculate rectangle geometry
@@ -1565,8 +1565,41 @@ export const useBrushEngine = () => {
     
     // Create linear gradient
     const gradient = ctx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
-    gradient.addColorStop(0, startColor);
-    gradient.addColorStop(1, endColor);
+    
+    // Use provided colors array or fall back to start/end colors
+    if (colors && colors.length > 0) {
+      // Use the provided sampled colors
+      colors.forEach((color: string, index: number) => {
+        const position = index / (colors.length - 1);
+        gradient.addColorStop(position, color);
+      });
+    } else {
+      // Fallback to original behavior if no colors array provided
+      const numColors = brushSettings.colors || 2;
+      if (numColors === 2) {
+        gradient.addColorStop(0, startColor);
+        gradient.addColorStop(1, endColor);
+      } else {
+        // Interpolate between start and end
+        for (let i = 0; i < numColors; i++) {
+          const position = i / (numColors - 1);
+          
+          const start = startColor.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+          const end = endColor.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+          
+          if (start && end) {
+            const r = Math.round(parseInt(start[1], 16) + (parseInt(end[1], 16) - parseInt(start[1], 16)) * position);
+            const g = Math.round(parseInt(start[2], 16) + (parseInt(end[2], 16) - parseInt(start[2], 16)) * position);
+            const b = Math.round(parseInt(start[3], 16) + (parseInt(end[3], 16) - parseInt(start[3], 16)) * position);
+            
+            const interpolatedColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+            gradient.addColorStop(position, interpolatedColor);
+          } else {
+            gradient.addColorStop(position, position < 0.5 ? startColor : endColor);
+          }
+        }
+      }
+    }
     
     // Draw rectangle
     ctx.fillStyle = gradient;

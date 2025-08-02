@@ -22,6 +22,27 @@ const BrushControls = () => {
     setActiveSettings({ size: 100 });
   }, [setActiveSettings]);
 
+  // Show only Colors slider for Rectangle Gradient
+  if (activeSettings.brushShape === BrushShape.RECTANGLE_GRADIENT) {
+    return (
+      <div className="p-4">
+        <div className="mb-3">
+          <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
+            Colors: {activeSettings.colors || 2}
+          </label>
+          <Slider
+            value={[activeSettings.colors || 2]}
+            min={1}
+            max={10}
+            step={1}
+            onValueChange={(value) => setActiveSettings({ colors: value[0] })}
+            aria-label="Gradient Colors"
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4">
 
