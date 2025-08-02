@@ -216,6 +216,8 @@ export interface BrushSettings {
   saturationAdjust?: number; // 0 to 200 percent
   // Color jitter for randomizing colors per brush stamp
   colorJitter: number; // 0 to 100 (0 = no jitter, 100 = full spectrum jitter)
+  // Film grain effect settings
+  filmGrainIntensity: number; // 0 to 100 (0 = no grain, 100 = maximum grain)
   // Current brush tip (edited in mini canvas) with brush identifier
   currentBrushTip?: {
     imageData: ImageData;

@@ -112,6 +112,21 @@ const BrushControls = () => {
         />
       </div>
 
+      {/* Film Grain */}
+      <div className="mb-3">
+        <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
+          Film Grain: {activeSettings.filmGrainIntensity || 0}%
+        </label>
+        <Slider
+          value={[activeSettings.filmGrainIntensity || 0]}
+          min={0}
+          max={100}
+          step={1}
+          onValueChange={(value) => setActiveSettings({ filmGrainIntensity: value[0] })}
+          aria-label="Film Grain Intensity"
+        />
+      </div>
+
       {/* Shape */}
       <div className="mb-3">
         <div className="flex items-center space-x-2 mb-2">
