@@ -555,7 +555,10 @@ export const rectangleGradientBrushPreset: BrushPreset = {
   tags: ['gradient', 'rectangle', 'special'],
   isDefault: false,
   createdAt: new Date(),
-  modifiedAt: new Date()
+  modifiedAt: new Date(),
+  preferredSettings: {
+    colors: 2
+  }
 };
 
 // Polygon Gradient Brush Components

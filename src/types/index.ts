@@ -224,6 +224,8 @@ export interface BrushSettings {
     width?: number; // Actual brush width
     height?: number; // Actual brush height
   };
+  // Rectangle/Polygon gradient colors count
+  colors?: number; // 1-10 for gradient brushes
 }
 
 export interface ComponentParams {

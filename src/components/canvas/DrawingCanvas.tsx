@@ -873,23 +873,44 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           rectangleBrushLiveState.current.lastSampleTime = Date.now();
         }
 
+        // Sample colors along preview path
+        const numColors = tools.brushSettings.colors || 2;
+        const previewColors: string[] = [];
+        
+        for (let i = 0; i < numColors; i++) {
+          const t = i / (numColors - 1);
+          const sampleX = startPos.x + (currentPos.x - startPos.x) * t;
+          const sampleY = startPos.y + (currentPos.y - startPos.y) * t;
+          
+          const color = sampleColor(sampleX, sampleY) || (i === 0 ? startColor : '#ffffff');
+          previewColors.push(color);
+        }
+
         ctx.globalAlpha = 0.5;
         drawRectangleGradient(ctx, {
           startPos,
           endPos: currentPos,
           width: previewWidth,
-          startColor: startColor,
-          endColor: rectangleBrushLiveState.current.cachedEndColor || '#ffffff',
+          colors: previewColors,
         });
         ctx.globalAlpha = 1.0;
       } else if (drawingState === 'definingWidth') {
-        // Create slightly hue-shifted colors for better visibility
-        const offsetStartColor = shiftHue(startColor, 8);
-        const offsetEndColor = shiftHue(endColor, 8);
+        // Sample colors along preview path with hue shift for visibility
+        const numColors = tools.brushSettings.colors || 2;
+        const previewColors: string[] = [];
+        
+        for (let i = 0; i < numColors; i++) {
+          const t = i / (numColors - 1);
+          const sampleX = startPos.x + (endPos.x - startPos.x) * t;
+          const sampleY = startPos.y + (endPos.y - startPos.y) * t;
+          
+          const color = sampleColor(sampleX, sampleY) || (i === 0 ? startColor : endColor);
+          previewColors.push(shiftHue(color, 8)); // Apply hue shift for visibility
+        }
         
         // Use the final drawing function but with transparency for the preview
         ctx.globalAlpha = 0.65;
-        drawRectangleGradient(ctx, { startPos, endPos, width, startColor: offsetStartColor, endColor: offsetEndColor });
+        drawRectangleGradient(ctx, { startPos, endPos, width, colors: previewColors });
       }
 
       ctx.restore();
@@ -1383,12 +1404,25 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         if (offscreenCanvas) {
           const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
           if (ctx) {
-            // Create final rectangle state with width from ref and hue-shifted colors
+            // Sample colors along the gradient path
+            const numColors = tools.brushSettings.colors || 2;
+            const sampledColors: string[] = [];
+            
+            // Sample colors at evenly spaced points along the line
+            for (let i = 0; i < numColors; i++) {
+              const t = i / (numColors - 1);
+              const sampleX = rectangleBrushState.startPos.x + (rectangleBrushState.endPos.x - rectangleBrushState.startPos.x) * t;
+              const sampleY = rectangleBrushState.startPos.y + (rectangleBrushState.endPos.y - rectangleBrushState.startPos.y) * t;
+              
+              const color = sampleColor(sampleX, sampleY) || (i === 0 ? '#000000' : '#ffffff');
+              sampledColors.push(shiftHue(color, 8)); // Apply same hue shift as before
+            }
+            
+            // Create final rectangle state with sampled colors
             const finalRectangleState = {
               ...rectangleBrushState,
               width: rectangleBrushLiveState.current.width,
-              startColor: shiftHue(rectangleBrushState.startColor, 8),
-              endColor: shiftHue(rectangleBrushState.endColor, 8)
+              colors: sampledColors
             };
             
             // Draw the rectangle gradient
