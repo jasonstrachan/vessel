@@ -10,6 +10,7 @@
    - [Data Model](#data-model)
 3. [Features](#features)
    - [Drawing Tools](#drawing-tools)
+   - [Film Grain Effect](#film-grain-effect)
    - [Modular Brush Engine](#modular-brush-engine)
    - [Pixel-Perfect Drawing](#pixel-perfect-drawing)
    - [Tool Interface](#tool-interface)
@@ -1218,6 +1219,37 @@ The Drawing Tools feature provides a comprehensive set of digital art tools for 
 - **Snap to Pixel Grid**: Align brush to pixel boundaries
 - **Disable Anti-aliasing**: Sharp pixel edges
 
+### Film Grain Effect
+**Purpose**: Add realistic film grain texture to brush strokes for enhanced artistic expression and traditional medium emulation.
+
+**Implementation**:
+- GPU-accelerated noise texture application using `source-atop` composite operation
+- Single cached 256x256 noise texture reused across all strokes for optimal performance
+- Intensity-based opacity control for subtle to pronounced grain effects
+- Compatible with all brush shapes and custom brushes
+
+**Core Flow**:
+1. User adjusts Film Grain slider (0-100%) for desired grain strength
+2. During drawing, noise pattern applies only to drawn pixels using `source-atop`
+3. Grain texture tiles seamlessly across brush strokes
+4. Setting 0 = no grain, values above 0 enable the effect
+
+**Key Features**:
+- **Performance Optimized**: Single cached noise texture with GPU pattern filling
+- **Universal Compatibility**: Works with round, square, pixel, triangle brushes and custom brushes
+- **Intensity Control**: 0-100% opacity blending for precise grain strength
+- **Memory Efficient**: ~256KB texture cache, no per-stroke allocation
+- **Real-time Application**: No performance impact when disabled
+
+**Settings**:
+- **Film Grain**: Single slider 0-100% controls grain visibility (0 = disabled, 100 = maximum grain)
+
+**Technical Details**:
+- Uses `createPattern('repeat')` for seamless tiling
+- `globalCompositeOperation = 'source-atop'` ensures grain only appears on existing pixels
+- Noise generation creates random grayscale values for authentic film grain appearance
+- Zero overhead when disabled (filmGrainIntensity = 0)
+
 ## Tool Settings API
 
 ### BrushSettings Interface
@@ -1246,6 +1278,9 @@ interface BrushSettings {
     dashLength: number;          // Pixels
     gapLength: number;           // Pixels
   };
+  
+  // Film grain effect
+  filmGrainIntensity: number;    // 0-100 grain visibility percentage (0 = disabled)
   
   // Pixel-perfect mode
   pixelPerfect: boolean;

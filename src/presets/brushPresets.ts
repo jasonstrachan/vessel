@@ -22,7 +22,8 @@ export const pixelBrushSettings: BrushSettings = {
   useSwatchColor: false,
   hueShift: 0,
   saturationAdjust: 100,
-  colorJitter: 0
+  colorJitter: 0,
+  filmGrainIntensity: 0
 };
 
 // Default brush settings for smooth drawing
@@ -48,7 +49,8 @@ export const defaultBrushSettings: BrushSettings = {
   useSwatchColor: false,
   hueShift: 0,
   saturationAdjust: 100,
-  colorJitter: 0
+  colorJitter: 0,
+  filmGrainIntensity: 0
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect

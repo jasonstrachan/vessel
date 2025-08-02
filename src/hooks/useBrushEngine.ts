@@ -24,6 +24,9 @@ let jitterCtx: CanvasRenderingContext2D | null = null;
 let patternTempCanvas: HTMLCanvasElement | null = null;
 let patternTempCtx: CanvasRenderingContext2D | null = null;
 
+// Film grain noise texture cache
+let noiseTexture: HTMLCanvasElement | null = null;
+
 const getJitterContext = (): CanvasRenderingContext2D => {
   if (!jitterCanvas || !jitterCtx) {
     jitterCanvas = document.createElement('canvas');
@@ -45,6 +48,43 @@ const getPatternTempContext = (width: number, height: number): CanvasRenderingCo
   // Clear and resize for this pattern
   patternTempCtx.clearRect(0, 0, width, height);
   return patternTempCtx;
+};
+
+/**
+ * Creates a tileable, monochromatic noise texture for film grain effect.
+ * This is cached and reused for performance.
+ */
+const createNoiseTexture = (): HTMLCanvasElement => {
+  if (noiseTexture) {
+    return noiseTexture;
+  }
+
+  const size = 256; // 256x256 texture balances detail and performance
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
+
+  if (!ctx) {
+    // Fallback to empty canvas if context unavailable
+    return canvas;
+  }
+
+  const imageData = ctx.createImageData(size, size);
+  const data = imageData.data;
+
+  for (let i = 0; i < data.length; i += 4) {
+    // Generate random grayscale value for film grain
+    const value = Math.random() * 255;
+    data[i] = value;     // Red
+    data[i + 1] = value; // Green
+    data[i + 2] = value; // Blue
+    data[i + 3] = 255;   // Alpha (fully opaque)
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  noiseTexture = canvas;
+  return noiseTexture;
 };
 
 const applyColorJitter = (baseColor: string, jitterAmount: number): string => {
@@ -154,6 +194,7 @@ export interface RenderSettings {
   spacing: number;
   rotation: number;
   shape: BrushShape;
+  filmGrainIntensity: number;
   pattern?: ImageData;
   centerAlignment?: boolean;
   blendMode?: GlobalCompositeOperation;
@@ -378,6 +419,7 @@ export const useBrushEngine = () => {
     shape: BrushShape,
     antiAliasing: boolean,
     rotation: number = 0,
+    filmGrainIntensity: number = 0,
     pattern?: ImageData,
     centerAlignment?: boolean
   ) => {
@@ -542,6 +584,88 @@ export const useBrushEngine = () => {
       }
     }
     
+    // Apply film grain effect if enabled
+    if (filmGrainIntensity > 0) {
+      const applyFilmGrain = () => {
+        const noiseCanvas = createNoiseTexture();
+        const noisePattern = ctx.createPattern(noiseCanvas, 'repeat');
+        if (!noisePattern) return;
+
+        const originalGCO = ctx.globalCompositeOperation;
+        const originalAlpha = ctx.globalAlpha;
+
+        // Use source-atop to only apply grain where the brush shape exists
+        ctx.globalCompositeOperation = 'source-atop';
+        ctx.globalAlpha = filmGrainIntensity / 100;
+        ctx.fillStyle = noisePattern;
+
+        // Apply grain to the drawn area based on shape
+        if (pattern && pattern.width > 0 && pattern.height > 0) {
+          // For patterns, apply grain to the pattern area
+          let drawX = x;
+          let drawY = y;
+          
+          if (centerAlignment) {
+            drawX = x - pattern.width / 2;
+            drawY = y - pattern.height / 2;
+          }
+          
+          drawX = Math.round(drawX);
+          drawY = Math.round(drawY);
+          
+          ctx.fillRect(drawX, drawY, pattern.width, pattern.height);
+        } else {
+          // Apply grain based on shape
+          switch (shape) {
+            case BrushShape.SQUARE:
+              if (antiAliasing) {
+                ctx.fillRect(x - halfSize, y - halfSize, size, size);
+              } else {
+                const offset = Math.floor(size / 2);
+                ctx.fillRect(x - offset, y - offset, size, size);
+              }
+              break;
+              
+            case BrushShape.ROUND:
+              ctx.beginPath();
+              ctx.arc(x, y, halfSize, 0, Math.PI * 2);
+              ctx.fill();
+              break;
+              
+            case BrushShape.PIXEL_ROUND: {
+              const stampSize = Math.max(1, Math.round(size));
+              const offsetX = Math.round(x - stampSize / 2);
+              const offsetY = Math.round(y - stampSize / 2);
+              ctx.fillRect(offsetX, offsetY, stampSize, stampSize);
+              break;
+            }
+              
+            case BrushShape.TRIANGLE:
+              if (antiAliasing) {
+                ctx.beginPath();
+                ctx.moveTo(x, y - halfSize);
+                ctx.lineTo(x - halfSize, y + halfSize);
+                ctx.lineTo(x + halfSize, y + halfSize);
+                ctx.closePath();
+                ctx.fill();
+              } else {
+                const height = Math.floor(size * 0.866);
+                const startX = Math.round(x - Math.floor(size / 2));
+                const startY = Math.round(y - Math.floor(height / 2));
+                ctx.fillRect(startX, startY, size, height);
+              }
+              break;
+          }
+        }
+
+        // Restore original context state
+        ctx.globalCompositeOperation = originalGCO;
+        ctx.globalAlpha = originalAlpha;
+      };
+
+      applyFilmGrain();
+    }
+    
     ctx.restore();
   }, [getPixelCircleStamp]);
   
@@ -701,6 +825,7 @@ export const useBrushEngine = () => {
       spacing: activeSettings.spacing,
       rotation: activeSettings.rotationEnabled && input.direction !== undefined ? input.direction : 0,
       shape: activeSettings.brushShape || BrushShape.ROUND, // Use actual brush shape from settings
+      filmGrainIntensity: activeSettings.filmGrainIntensity || 0,
       blendMode: activeSettings.blendMode || 'source-over'
     };    
     
@@ -853,7 +978,7 @@ export const useBrushEngine = () => {
           // Apply color jitter per stamp for true randomization
           const jitteredColor = applyColorJitter(settings.color, brushSettings.colorJitter || 0);
           ctx.fillStyle = jitteredColor;
-          drawShape(ctx, x, y, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
+          drawShape(ctx, x, y, settings.size, settings.shape, false, settings.rotation, settings.filmGrainIntensity, settings.pattern, settings.centerAlignment);
         }
         queue.accumulatedDistance -= settings.spacing;
       }
@@ -903,7 +1028,7 @@ export const useBrushEngine = () => {
         // Apply color jitter per stamp
         const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
         ctx.fillStyle = jitteredColor;
-        drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
+        drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.filmGrainIntensity, settings.pattern, settings.centerAlignment);
       }
       return;
     }
@@ -924,7 +1049,7 @@ export const useBrushEngine = () => {
           // Apply color jitter per stamp
           const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
           ctx.fillStyle = jitteredColor;
-          drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
+          drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.filmGrainIntensity, settings.pattern, settings.centerAlignment);
         }
         queue.accumulatedDistance -= settings.spacing;
         queue.lastStrokePosition = { x: queue.waitingPixelX, y: queue.waitingPixelY };
@@ -1010,6 +1135,25 @@ export const useBrushEngine = () => {
           const centerY = y - scaledHeight / 2;
           ctx.imageSmoothingEnabled = false;
           ctx.drawImage(stampCanvas, centerX, centerY);
+
+          // 8. Apply film grain if enabled
+          const filmGrainIntensity = tools.brushSettings.filmGrainIntensity || 0;
+          if (filmGrainIntensity > 0) {
+            const noiseCanvas = createNoiseTexture();
+            const noisePattern = ctx.createPattern(noiseCanvas, 'repeat');
+            if (noisePattern) {
+              const originalGCO = ctx.globalCompositeOperation;
+              const originalAlpha = ctx.globalAlpha;
+
+              ctx.globalCompositeOperation = 'source-atop';
+              ctx.globalAlpha = filmGrainIntensity / 100;
+              ctx.fillStyle = noisePattern;
+              ctx.fillRect(centerX, centerY, scaledWidth, scaledHeight);
+
+              ctx.globalCompositeOperation = originalGCO;
+              ctx.globalAlpha = originalAlpha;
+            }
+          }
         } finally {
           canvasPool.release(stampCanvas);
         }
@@ -1026,13 +1170,34 @@ export const useBrushEngine = () => {
         
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(scaledCanvas, centerX, centerY);
+
+        // Apply film grain if enabled
+        const filmGrainIntensity = tools.brushSettings.filmGrainEnabled ? tools.brushSettings.filmGrainIntensity : 0;
+        if (filmGrainIntensity > 0) {
+          const noiseCanvas = createNoiseTexture();
+          const noisePattern = ctx.createPattern(noiseCanvas, 'repeat');
+          if (noisePattern) {
+            const originalGCO = ctx.globalCompositeOperation;
+            const originalAlpha = ctx.globalAlpha;
+
+            ctx.globalCompositeOperation = 'source-atop';
+            ctx.globalAlpha = filmGrainIntensity / 100;
+            ctx.fillStyle = noisePattern;
+            ctx.fillRect(centerX, centerY, scaledCanvas.width, scaledCanvas.height);
+
+            ctx.globalCompositeOperation = originalGCO;
+            ctx.globalAlpha = originalAlpha;
+          }
+        }
       }
     });
   }, [
     tools.brushSettings.colorJitter, 
     tools.brushSettings.hueShift, 
     tools.brushSettings.saturationAdjust,
-    tools.brushSettings.pressureEnabled
+    tools.brushSettings.pressureEnabled,
+    tools.brushSettings.filmGrainEnabled,
+    tools.brushSettings.filmGrainIntensity
   ]);
 
   const drawCustomBrushLine = useCallback((ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, customBrush: CustomBrush, scale: number = 1, rotation: number = 0, color?: string, isColorizable?: boolean) => {
@@ -1454,7 +1619,7 @@ export const useBrushEngine = () => {
           if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
             const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
-            drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, false, settings.rotation, settings.pattern, settings.centerAlignment);
+            drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, false, settings.rotation, settings.filmGrainIntensity, settings.pattern, settings.centerAlignment);
             queue.stampedGridPositions.add(posKey);
           }
         }
@@ -1494,7 +1659,7 @@ export const useBrushEngine = () => {
           if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
             const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
-            drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, true, settings.rotation, settings.pattern, settings.centerAlignment);
+            drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, true, settings.rotation, settings.filmGrainIntensity, settings.pattern, settings.centerAlignment);
             queue.stampedGridPositions.add(posKey);
           }
         }
@@ -1515,7 +1680,7 @@ export const useBrushEngine = () => {
             
             const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
-            drawShape(ctx, x, y, settings.size, settings.shape, true, settings.rotation, settings.pattern, settings.centerAlignment);
+            drawShape(ctx, x, y, settings.size, settings.shape, true, settings.rotation, settings.filmGrainIntensity, settings.pattern, settings.centerAlignment);
           }
           
           queue.accumulatedDistance -= settings.spacing;
