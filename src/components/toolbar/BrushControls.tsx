@@ -6,7 +6,6 @@
 import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { BrushShape } from '../../types';
-import ColorPicker from './ColorPicker';
 import Input from '../ui/Input';
 import { Switch } from '../retroui/Switch';
 import { Slider } from '../retroui/Slider';
@@ -25,25 +24,6 @@ const BrushControls = () => {
 
   return (
     <div className="p-4">
-        {/* Color */}
-        <div className="mb-3">
-          <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>Color</label>
-          <div className="flex items-start gap-2" suppressHydrationWarning>
-            <ColorPicker
-              color={activeSettings.color}
-              onChange={(color) => setActiveSettings({ color })}
-            />
-            <Input
-              type="text"
-              variant="hex"
-              value={activeSettings.color}
-              onChange={(e) => setActiveSettings({ color: e.target.value })}
-              className="w-22"
-              placeholder="#000000"
-              onFocus={(e) => e.target.select()}
-            />
-          </div>
-        </div>
 
 
       {/* Brush Size - Unified percentage-based slider for all brushes */}

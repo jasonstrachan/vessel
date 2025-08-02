@@ -51,6 +51,10 @@ interface AppState {
   layersNeedRecomposition: boolean;
   setLayersNeedRecomposition: (needed: boolean) => void;
   
+  // Global brush settings
+  globalBrushSize: number;
+  setGlobalBrushSize: (size: number) => void;
+  
   // Brush-specific settings storage
   brushSpecificSettings: Record<string, Partial<BrushSettings>>;
   saveBrushSettings: (brushId: string, settings: Partial<BrushSettings>) => void;
@@ -280,12 +284,39 @@ export const useAppStore = create<AppState>()(
         backgroundColor: 'transparent',
         createdAt: new Date(),
         updatedAt: new Date(),
-        customBrushes: []
+        customBrushes: [],
+        brushSpecificSettings: {}
       },
       setProject: (project) => set({ project }),
       updateProject: (updates) => set((state) => ({
         project: state.project ? { ...state.project, ...updates } : null
       })),
+      
+      // Global brush settings
+      globalBrushSize: 10, // Default global size
+      setGlobalBrushSize: (size) => set((state) => {
+        // Update global size
+        const newState = { globalBrushSize: size };
+        
+        // Also update current brush settings
+        if (state.tools) {
+          return {
+            ...newState,
+            tools: {
+              ...state.tools,
+              brushSettings: {
+                ...state.tools.brushSettings,
+                size
+              }
+            }
+          };
+        }
+        
+        return newState;
+      }),
+      
+      // Brush-specific settings storage (in-memory, separate from project)
+      brushSpecificSettings: {},
       
       // Layer composition trigger
       layersNeedRecomposition: false,
@@ -425,29 +456,38 @@ export const useAppStore = create<AppState>()(
         const currentSettings = state.tools.brushSettings;
         const newSettings = { ...currentSettings, ...settings };
         
-        // Auto-save brush-specific settings when they change
+        // If size is being changed, update global size
+        if (settings.size !== undefined) {
+          get().setGlobalBrushSize(settings.size);
+        }
+        
+        // Auto-save brush-specific settings when they change (excluding size)
         if (state.currentBrushPreset) {
-          const settingsToSave: Partial<BrushSettings> = {};
+          // Get existing saved settings for this brush
+          const existingSavedSettings = get().loadBrushSettings(state.currentBrushPreset.id);
           
-          // Only save the settings that were actually changed
-          if (settings.size !== undefined) settingsToSave.size = settings.size;
-          if (settings.opacity !== undefined) settingsToSave.opacity = settings.opacity;
-          if (settings.spacing !== undefined) settingsToSave.spacing = settings.spacing;
-          if (settings.colorJitter !== undefined) settingsToSave.colorJitter = settings.colorJitter;
-          if (settings.pressureEnabled !== undefined) settingsToSave.pressureEnabled = settings.pressureEnabled;
-          if (settings.minPressure !== undefined) settingsToSave.minPressure = settings.minPressure;
-          if (settings.maxPressure !== undefined) settingsToSave.maxPressure = settings.maxPressure;
-          if (settings.rotationEnabled !== undefined) settingsToSave.rotationEnabled = settings.rotationEnabled;
-          if (settings.dashedEnabled !== undefined) settingsToSave.dashedEnabled = settings.dashedEnabled;
-          if (settings.dashLength !== undefined) settingsToSave.dashLength = settings.dashLength;
-          if (settings.dashGap !== undefined) settingsToSave.dashGap = settings.dashGap;
-          if (settings.gridSnapEnabled !== undefined) settingsToSave.gridSnapEnabled = settings.gridSnapEnabled;
-          if (settings.shapeEnabled !== undefined) settingsToSave.shapeEnabled = settings.shapeEnabled;
+          // Merge with new settings
+          const settingsToSave: Partial<BrushSettings> = {
+            ...existingSavedSettings
+          };
           
-          // Save the settings if any of the trackable settings changed
-          if (Object.keys(settingsToSave).length > 0) {
-            get().saveBrushSettings(state.currentBrushPreset.id, settingsToSave);
-          }
+          // Update with changed settings (excluding size which is now global)
+          // if (settings.size !== undefined) settingsToSave.size = newSettings.size; // Size is now global
+          if (settings.opacity !== undefined) settingsToSave.opacity = newSettings.opacity;
+          if (settings.spacing !== undefined) settingsToSave.spacing = newSettings.spacing;
+          if (settings.colorJitter !== undefined) settingsToSave.colorJitter = newSettings.colorJitter;
+          if (settings.pressureEnabled !== undefined) settingsToSave.pressureEnabled = newSettings.pressureEnabled;
+          if (settings.minPressure !== undefined) settingsToSave.minPressure = newSettings.minPressure;
+          if (settings.maxPressure !== undefined) settingsToSave.maxPressure = newSettings.maxPressure;
+          if (settings.rotationEnabled !== undefined) settingsToSave.rotationEnabled = newSettings.rotationEnabled;
+          if (settings.dashedEnabled !== undefined) settingsToSave.dashedEnabled = newSettings.dashedEnabled;
+          if (settings.dashLength !== undefined) settingsToSave.dashLength = newSettings.dashLength;
+          if (settings.dashGap !== undefined) settingsToSave.dashGap = newSettings.dashGap;
+          if (settings.gridSnapEnabled !== undefined) settingsToSave.gridSnapEnabled = newSettings.gridSnapEnabled;
+          if (settings.shapeEnabled !== undefined) settingsToSave.shapeEnabled = newSettings.shapeEnabled;
+          
+          // Always save to ensure persistence
+          get().saveBrushSettings(state.currentBrushPreset.id, settingsToSave);
         }
         
         // Handle brush size restoration when switching between custom and regular brushes
@@ -581,11 +621,14 @@ export const useAppStore = create<AppState>()(
         }
       })),
       setBrushPreset: (preset) => set((state) => {
-        // Save current settings to the currently active brush before switching
+        // Save current settings to the currently active brush before switching (excluding size)
         if (state.currentBrushPreset) {
           const currentBrushId = state.currentBrushPreset.id;
+          // Get existing saved settings and merge with current
+          const existingSavedSettings = get().loadBrushSettings(currentBrushId);
           const settingsToSave = {
-            size: state.tools.brushSettings.size,
+            ...existingSavedSettings,
+            // size: state.tools.brushSettings.size, // Size is now global
             opacity: state.tools.brushSettings.opacity,
             spacing: state.tools.brushSettings.spacing,
             colorJitter: state.tools.brushSettings.colorJitter,
@@ -597,7 +640,8 @@ export const useAppStore = create<AppState>()(
             dashLength: state.tools.brushSettings.dashLength,
             dashGap: state.tools.brushSettings.dashGap,
             gridSnapEnabled: state.tools.brushSettings.gridSnapEnabled,
-            shapeEnabled: state.tools.brushSettings.shapeEnabled
+            shapeEnabled: state.tools.brushSettings.shapeEnabled,
+            antialiasing: state.tools.brushSettings.antialiasing
           };
           get().saveBrushSettings(currentBrushId, settingsToSave);
         }
@@ -607,7 +651,16 @@ export const useAppStore = create<AppState>()(
         const { settings, components } = applyBrushPreset(preset, userSavedSettings);
         
         const currentSettings = state.tools.brushSettings;
-        const newBrushSettings = { ...currentSettings, ...settings };
+        // Start with default settings, apply preset settings, then user saved settings
+        // Keep color, blend mode, and use global size
+        const newBrushSettings = { 
+          ...defaultBrushSettingsForStore, // Start with defaults
+          color: currentSettings.color,    // Keep current color
+          blendMode: currentSettings.blendMode, // Keep blend mode
+          ...settings,                     // Apply preset settings
+          ...userSavedSettings,           // Apply user saved settings (excluding size)
+          size: state.globalBrushSize     // Always use global size
+        };
         
         // Handle brush size restoration when switching between custom and regular brushes
         if (settings.brushShape !== undefined) {
@@ -1116,7 +1169,9 @@ export const useAppStore = create<AppState>()(
               zoom: freshState.canvas.zoom,
               panX: freshState.canvas.panX,
               panY: freshState.canvas.panY
-            }
+            },
+            brushSpecificSettings: freshState.brushSpecificSettings,
+            globalBrushSize: freshState.globalBrushSize
           };
           
           await saveProjectToFile(projectWithViewState, filename, freshState.layers);
@@ -1155,11 +1210,29 @@ export const useAppStore = create<AppState>()(
               zoom: loadedProject.viewState.zoom,
               panX: loadedProject.viewState.panX,
               panY: loadedProject.viewState.panY
-            } : get().canvas
+            } : get().canvas,
+            // Restore brush-specific settings
+            brushSpecificSettings: loadedProject.brushSpecificSettings || {},
+            // Restore global brush size
+            globalBrushSize: loadedProject.globalBrushSize || 10
           });
           
           // Restore canvas dimensions to match the loaded project
           state.setCanvasDimensions(loadedProject.width, loadedProject.height);
+          
+          // Update current brush size to match global
+          const currentState = get();
+          if (currentState.tools && currentState.globalBrushSize) {
+            set((s) => ({
+              tools: {
+                ...s.tools,
+                brushSettings: {
+                  ...s.tools.brushSettings,
+                  size: currentState.globalBrushSize
+                }
+              }
+            }));
+          }
           
           // Clear history when loading a new project
           state.clearHistory();
@@ -1228,7 +1301,8 @@ export const useAppStore = create<AppState>()(
           backgroundColor: 'transparent',
           createdAt: new Date(),
           updatedAt: new Date(),
-          customBrushes: []
+          customBrushes: [],
+          brushSpecificSettings: {}
         };
         
         set({
@@ -1240,7 +1314,9 @@ export const useAppStore = create<AppState>()(
             canvasWidth: width,
             canvasHeight: height
           },
-          layersNeedRecomposition: true
+          layersNeedRecomposition: true,
+          // Clear brush settings for new project
+          brushSpecificSettings: {}
         });
         
         // Clear history for new project
@@ -1461,8 +1537,7 @@ export const useAppStore = create<AppState>()(
         history: { ...state.history, maxHistorySize: size }
       })),
       
-      // Brush-specific settings storage
-      brushSpecificSettings: {},
+      // Brush-specific settings methods
       saveBrushSettings: (brushId, settings) => set((state) => {
         const existingSettings = state.brushSpecificSettings[brushId] || {};
         return { 

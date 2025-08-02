@@ -23,6 +23,8 @@ export interface TinyBrushProject {
     layers: SerializedLayer[];
     customBrushes: SerializedCustomBrush[];
     thumbnail?: string;
+    brushSpecificSettings?: Record<string, any>;
+    globalBrushSize?: number;
   };
 }
 
@@ -265,7 +267,9 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
       backgroundColor: project.backgroundColor,
       layers: serializedLayers,
       customBrushes: serializedCustomBrushes,
-      thumbnail: thumbnail || undefined
+      thumbnail: thumbnail || undefined,
+      brushSpecificSettings: project.brushSpecificSettings,
+      globalBrushSize: project.globalBrushSize
     }
   };
   
@@ -312,7 +316,9 @@ export async function deserializeProject(projectData: string): Promise<Project> 
     layers,
     customBrushes,
     createdAt: new Date(tinyBrushProject.metadata.created),
-    updatedAt: new Date(tinyBrushProject.metadata.modified)
+    updatedAt: new Date(tinyBrushProject.metadata.modified),
+    brushSpecificSettings: serializedProject.brushSpecificSettings,
+    globalBrushSize: serializedProject.globalBrushSize
   };
 }
 

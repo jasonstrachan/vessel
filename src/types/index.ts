@@ -17,6 +17,10 @@ export interface Project {
     panX: number;
     panY: number;
   };
+  // Brush-specific settings (size, opacity, etc per brush)
+  brushSpecificSettings?: Record<string, Partial<BrushSettings>>;
+  // Global brush size (applies to all brushes)
+  globalBrushSize?: number;
 }
 
 export interface Layer {
