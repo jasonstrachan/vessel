@@ -22,8 +22,9 @@ const BrushControls = () => {
     setActiveSettings({ size: 100 });
   }, [setActiveSettings]);
 
-  // Show only Colors slider for Rectangle Gradient
-  if (activeSettings.brushShape === BrushShape.RECTANGLE_GRADIENT) {
+  // Show only Colors slider for gradient brushes
+  if (activeSettings.brushShape === BrushShape.RECTANGLE_GRADIENT || 
+      activeSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
     return (
       <div className="p-4">
         <div className="mb-3">

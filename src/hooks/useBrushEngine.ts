@@ -1623,15 +1623,12 @@ export const useBrushEngine = () => {
     ctx.globalAlpha = brushSettings.opacity;
     ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
     
-    // Find bounding box for gradient direction
-    let minY = Infinity, maxY = -Infinity;
-    for (const point of vertices) {
-      minY = Math.min(minY, point.y);
-      maxY = Math.max(maxY, point.y);
-    }
+    // Create gradient along the path from first to last vertex (cursor path direction)
+    const startPoint = vertices[0];
+    const endPoint = vertices[vertices.length - 1];
     
-    // Create single linear gradient from top to bottom
-    const gradient = ctx.createLinearGradient(0, minY, 0, maxY);
+    // Create linear gradient from start to end of drawing path
+    const gradient = ctx.createLinearGradient(startPoint.x, startPoint.y, endPoint.x, endPoint.y);
     
     // Add color stops for each sampled color
     colors.forEach((color, index) => {
