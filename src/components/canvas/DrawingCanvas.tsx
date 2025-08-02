@@ -316,11 +316,13 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       return ['rgb(128, 128, 128)'];
     }
 
-    // Select sampling points
+    // Select sampling points along the cursor path (drawing order)
     const samplePoints = numSamples >= points.length 
       ? points
       : Array.from({ length: numSamples }, (_, i) => {
-          const pathIndex = Math.floor((i / (numSamples - 1)) * (points.length - 1));
+          // Sample evenly along the path from start to end, following drawing order
+          const pathProgress = i / (numSamples - 1);
+          const pathIndex = Math.floor(pathProgress * (points.length - 1));
           return points[pathIndex];
         });
 
@@ -358,9 +360,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         const g = imageData.data[pixelIndex + 1];
         const b = imageData.data[pixelIndex + 2];
         
-        // Apply +8 hue shift to sampled colors
-        const hueShiftedColor = shiftColorHue(r, g, b, 8);
-        colors.push(hueShiftedColor);
+        // Use actual sampled colors without hue shift for accuracy
+        colors.push(`rgb(${r}, ${g}, ${b})`);
       } else {
         colors.push('rgb(128, 128, 128)');
       }
@@ -929,14 +930,15 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         ctx.save();
         // No transparency - match final result exactly
 
-        // Sample SAME number of colors as final (8) for identical appearance
+        // Sample colors based on Colors slider setting
         // Sample from the main visible canvas instead of offscreen canvas
-        const mainCanvasCtx = canvasRef.current?.getContext('2d');
+        const numColors = tools.brushSettings.colors || 2;
+        const mainCanvasCtx = canvasRef.current?.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         let previewColors = ['#FFF', '#000']; // Default fallback gradient
 
         if (mainCanvasCtx) {
-          // Get 8 colors (same as final) for identical preview
-          previewColors = sampleCanvasColors(mainCanvasCtx, livePoints, 8);
+          // Get specified number of colors for preview
+          previewColors = sampleCanvasColors(mainCanvasCtx, livePoints, numColors);
         }
         
         // Create points with sampled colors for preview
@@ -945,7 +947,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           color: previewColors[Math.floor((index / livePoints.length) * previewColors.length)]
         }));
         
-        // Draw the polygon using SAME number of colors as final (8)
+        // Draw the polygon using same number of colors as final
         drawPolygonGradient(ctx, { vertices: livePoints, colors: previewColors });
 
         ctx.restore();
@@ -1739,9 +1741,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             if (ctx) {
               // NOW do the expensive color sampling only once on completion
               // Sample from the main visible canvas for accurate colors
-              const mainCanvasCtx = canvasRef.current?.getContext('2d');
+              const numColors = tools.brushSettings.colors || 2;
+              const mainCanvasCtx = canvasRef.current?.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
               const finalColors = mainCanvasCtx ? 
-                sampleCanvasColors(mainCanvasCtx, livePoints, 8) : 
+                sampleCanvasColors(mainCanvasCtx, livePoints, numColors) : 
                 ['#FFF', '#000'];
               
               // Create final points with proper color sampling

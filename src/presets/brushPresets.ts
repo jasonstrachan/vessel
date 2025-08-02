@@ -601,7 +601,10 @@ export const polygonGradientBrushPreset: BrushPreset = {
   tags: ['gradient', 'polygon', 'special'],
   isDefault: false,
   createdAt: new Date(),
-  modifiedAt: new Date()
+  modifiedAt: new Date(),
+  preferredSettings: {
+    colors: 2
+  }
 };
 
 // Available brush presets

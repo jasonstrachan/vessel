@@ -886,6 +886,28 @@ The Drawing Tools feature provides a comprehensive set of digital art tools for 
 - **Live Preview**: Real-time gradient preview while dragging with sampled colors
 - **Multi-Stop Gradients**: Creates smooth transitions between all sampled points
 
+#### Polygon Gradient Brush (Updated 2025-08-02)
+**Purpose**: Create gradient-filled polygons by drawing points, with simplified controls.
+
+**Simplified Settings**:
+- **Colors Slider (1-10)**: Single control replacing all previous settings
+- **Default**: 2 colors (simple gradient from top to bottom)
+- **Multi-stop**: 3-10 colors create evenly distributed gradient stops
+- **Automatic Sampling**: Colors sampled from underlying canvas artwork
+
+**Core Flow**:
+1. User selects Polygon Gradient brush from Special category
+2. Settings panel shows only Colors slider (1-10)
+3. User clicks/drags to place polygon points (minimum 3 points)
+4. System samples colors from canvas based on polygon vertex positions
+5. Gradient renders with specified number of color stops when polygon is completed
+
+**Key Features**:
+- **Simplified UI**: Single slider replaces Size, Opacity, Spacing, etc.
+- **Vertex-Based Sampling**: Samples colors from canvas at polygon vertex locations
+- **Live Preview**: Real-time gradient preview while drawing polygon
+- **Flexible Shapes**: Create any polygon shape for custom gradient areas
+
 ### Eraser Tool
 **Purpose**: Quick pixel erasing with layer-specific options and temporary E-key activation.
 
