@@ -27,6 +27,20 @@ let patternTempCtx: CanvasRenderingContext2D | null = null;
 // Film grain noise texture cache
 let noiseTexture: HTMLCanvasElement | null = null;
 
+// --- OPTIMIZATION: Cache the created noise pattern per canvas context ---
+const noisePatternCache = new Map<CanvasRenderingContext2D, CanvasPattern>();
+
+// --- OPTIMIZATION: Throttled and Interpolated Color Jitter ---
+// This object manages jitter state to avoid expensive calculations on every point.
+const jitterState = {
+  lastJitterColor: [0, 0, 0],
+  nextJitterColor: [0, 0, 0],
+  counter: 0,
+  // Recalculate the target jitter color every N points.
+  // A value of 5-10 provides good randomization without high cost.
+  recalcFrequency: 8, 
+};
+
 const getJitterContext = (): CanvasRenderingContext2D => {
   if (!jitterCanvas || !jitterCtx) {
     jitterCanvas = document.createElement('canvas');
@@ -48,6 +62,67 @@ const getPatternTempContext = (width: number, height: number): CanvasRenderingCo
   // Clear and resize for this pattern
   patternTempCtx.clearRect(0, 0, width, height);
   return patternTempCtx;
+};
+
+// Helper to parse color string to [r, g, b] array
+const parseColor = (color: string): [number, number, number] => {
+  if (!jitterCtx) jitterCtx = getJitterContext();
+  jitterCtx.fillStyle = '#000'; // Clear previous state
+  jitterCtx.fillStyle = color;
+  const computedColor = jitterCtx.fillStyle;
+
+  if (computedColor.startsWith('#')) {
+    const hex = computedColor.slice(1);
+    return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+  }
+  if (computedColor.startsWith('rgb')) {
+    const matches = computedColor.match(/\d+/g);
+    if (!matches) return [0, 0, 0];
+    return [parseInt(matches[0]), parseInt(matches[1]), parseInt(matches[2])];
+  }
+  return [0, 0, 0];
+};
+
+const applyThrottledColorJitter = (baseColor: string, jitterAmount: number): string => {
+  if (jitterAmount === 0) {
+    jitterState.counter = 0; // Reset counter when jitter is off
+    return baseColor;
+  }
+
+  // Every N points, calculate a new target jitter color
+  if (jitterState.counter % jitterState.recalcFrequency === 0) {
+    jitterState.lastJitterColor = jitterState.nextJitterColor;
+    
+    const [r, g, b] = parseColor(baseColor);
+    
+    // Simplified, faster RGB-based jitter. HSL is too slow for real-time.
+    const jitter = (jitterAmount / 100) * 128; // Scale jitter amount
+    const r_j = r + (Math.random() - 0.5) * jitter;
+    const g_j = g + (Math.random() - 0.5) * jitter;
+    const b_j = b + (Math.random() - 0.5) * jitter;
+
+    jitterState.nextJitterColor = [
+        Math.max(0, Math.min(255, r_j)),
+        Math.max(0, Math.min(255, g_j)),
+        Math.max(0, Math.min(255, b_j)),
+    ];
+
+    // If it's the very first point, use the target color immediately
+    if (jitterState.counter === 0) {
+        jitterState.lastJitterColor = jitterState.nextJitterColor;
+    }
+  }
+
+  // Interpolate between the last and next jitter color for smooth transitions
+  const progress = (jitterState.counter % jitterState.recalcFrequency) / jitterState.recalcFrequency;
+  
+  const r_interp = jitterState.lastJitterColor[0] + (jitterState.nextJitterColor[0] - jitterState.lastJitterColor[0]) * progress;
+  const g_interp = jitterState.lastJitterColor[1] + (jitterState.nextJitterColor[1] - jitterState.lastJitterColor[1]) * progress;
+  const b_interp = jitterState.lastJitterColor[2] + (jitterState.nextJitterColor[2] - jitterState.lastJitterColor[2]) * progress;
+  
+  jitterState.counter++;
+  
+  return `rgb(${Math.round(r_interp)}, ${Math.round(g_interp)}, ${Math.round(b_interp)})`;
 };
 
 /**
@@ -87,86 +162,6 @@ const createNoiseTexture = (): HTMLCanvasElement => {
   return noiseTexture;
 };
 
-const applyColorJitter = (baseColor: string, jitterAmount: number): string => {
-  if (jitterAmount === 0) {
-    return baseColor;
-  }
-  
-  // Parse color to HSL for smooth jitter variations using cached context
-  const ctx = getJitterContext();
-  ctx.fillStyle = baseColor;
-  const computedColor = ctx.fillStyle;
-  
-  // Extract RGB from computed color
-  let r: number, g: number, b: number;
-  if (computedColor.startsWith('#')) {
-    const hex = computedColor.slice(1);
-    r = parseInt(hex.slice(0, 2), 16);
-    g = parseInt(hex.slice(2, 4), 16);
-    b = parseInt(hex.slice(4, 6), 16);
-  } else if (computedColor.startsWith('rgb')) {
-    const matches = computedColor.match(/\d+/g);
-    if (!matches) return baseColor;
-    r = parseInt(matches[0]);
-    g = parseInt(matches[1]);
-    b = parseInt(matches[2]);
-  } else {
-    return baseColor;
-  }
-  
-  // Convert RGB to HSL
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  let h: number, s: number, l = (max + min) / 2;
-  
-  if (max === min) {
-    h = s = 0; // achromatic
-  } else {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-      case g: h = (b - r) / d + 2; break;
-      case b: h = (r - g) / d + 4; break;
-      default: h = 0;
-    }
-    h /= 6;
-  }
-  
-  // Apply jitter with smooth randomization
-  const jitterFactor = jitterAmount / 100;
-  h += (Math.random() - 0.5) * jitterFactor;
-  s = Math.max(0, Math.min(1, s + (Math.random() - 0.5) * jitterFactor * 0.5));
-  l = Math.max(0, Math.min(1, l + (Math.random() - 0.5) * jitterFactor * 0.3));
-  
-  // Keep hue within bounds
-  h = ((h % 1) + 1) % 1;
-  
-  // Convert HSL back to RGB
-  const hue2rgb = (p: number, q: number, t: number) => {
-    if (t < 0) t += 1;
-    if (t > 1) t -= 1;
-    if (t < 1/6) return p + (q - p) * 6 * t;
-    if (t < 1/2) return q;
-    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-    return p;
-  };
-  
-  let rOut: number, gOut: number, bOut: number;
-  if (s === 0) {
-    rOut = gOut = bOut = l; // achromatic
-  } else {
-    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-    const p = 2 * l - q;
-    rOut = hue2rgb(p, q, h + 1/3);
-    gOut = hue2rgb(p, q, h);
-    bOut = hue2rgb(p, q, h - 1/3);
-  }
-  
-  const result = `rgb(${Math.round(rOut * 255)}, ${Math.round(gOut * 255)}, ${Math.round(bOut * 255)})`;
-  return result;
-};
 
 // Base sizes for standard brushes (100% = these sizes in pixels)
 const BRUSH_BASE_SIZES = {
@@ -174,7 +169,9 @@ const BRUSH_BASE_SIZES = {
   [BrushShape.ROUND]: 10,
   [BrushShape.SQUARE]: 10,
   [BrushShape.TRIANGLE]: 10,
-  [BrushShape.CUSTOM]: 32 // Default for custom brushes
+  [BrushShape.CUSTOM]: 32, // Default for custom brushes
+  [BrushShape.RECTANGLE_GRADIENT]: 10,
+  [BrushShape.POLYGON_GRADIENT]: 10
 } as const;
 
 export interface StrokeInput {
@@ -194,7 +191,7 @@ export interface RenderSettings {
   spacing: number;
   rotation: number;
   shape: BrushShape;
-  filmGrainIntensity: number;
+  noise: number;
   pattern?: ImageData;
   centerAlignment?: boolean;
   blendMode?: GlobalCompositeOperation;
@@ -419,7 +416,7 @@ export const useBrushEngine = () => {
     shape: BrushShape,
     antiAliasing: boolean,
     rotation: number = 0,
-    filmGrainIntensity: number = 0,
+    noise: number = 0,
     pattern?: ImageData,
     centerAlignment?: boolean
   ) => {
@@ -585,10 +582,15 @@ export const useBrushEngine = () => {
     }
     
     // Apply film grain effect if enabled
-    if (filmGrainIntensity > 0) {
+    if (noise > 0) {
       const applyFilmGrain = () => {
         const noiseCanvas = createNoiseTexture();
-        const noisePattern = ctx.createPattern(noiseCanvas, 'repeat');
+        
+        // --- OPTIMIZATION: Use cached pattern ---
+        if (!noisePatternCache.has(ctx)) {
+          noisePatternCache.set(ctx, ctx.createPattern(noiseCanvas, 'repeat')!);
+        }
+        const noisePattern = noisePatternCache.get(ctx);
         if (!noisePattern) return;
 
         const originalGCO = ctx.globalCompositeOperation;
@@ -596,7 +598,7 @@ export const useBrushEngine = () => {
 
         // Use source-atop to only apply grain where the brush shape exists
         ctx.globalCompositeOperation = 'source-atop';
-        ctx.globalAlpha = filmGrainIntensity / 100;
+        ctx.globalAlpha = noise / 100;
         ctx.fillStyle = noisePattern;
 
         // Apply grain to the drawn area based on shape
@@ -825,7 +827,7 @@ export const useBrushEngine = () => {
       spacing: activeSettings.spacing,
       rotation: activeSettings.rotationEnabled && input.direction !== undefined ? input.direction : 0,
       shape: activeSettings.brushShape || BrushShape.ROUND, // Use actual brush shape from settings
-      filmGrainIntensity: activeSettings.filmGrainIntensity || 0,
+      noise: activeSettings.filmGrainIntensity || 0,
       blendMode: activeSettings.blendMode || 'source-over'
     };    
     
@@ -975,10 +977,10 @@ export const useBrushEngine = () => {
         // Check if we should draw this stamp (cursor-speed independent)
         const brushSettings = tools.brushSettings;
         if (shouldDrawStamp(brushSettings, queue, settings.size)) {
-          // Apply color jitter per stamp for true randomization
-          const jitteredColor = applyColorJitter(settings.color, brushSettings.colorJitter || 0);
+          // --- OPTIMIZATION: Use throttled jitter ---
+          const jitteredColor = applyThrottledColorJitter(settings.color, brushSettings.colorJitter || 0);
           ctx.fillStyle = jitteredColor;
-          drawShape(ctx, x, y, settings.size, settings.shape, false, settings.rotation, settings.filmGrainIntensity, settings.pattern, settings.centerAlignment);
+          drawShape(ctx, x, y, settings.size, settings.shape, false, settings.rotation, settings.noise, settings.pattern, settings.centerAlignment);
         }
         queue.accumulatedDistance -= settings.spacing;
       }
@@ -1025,10 +1027,10 @@ export const useBrushEngine = () => {
       
       // Draw the first shape (check dash state)
       if (shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
-        // Apply color jitter per stamp
-        const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
+        // --- OPTIMIZATION: Use throttled jitter ---
+        const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
         ctx.fillStyle = jitteredColor;
-        drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.filmGrainIntensity, settings.pattern, settings.centerAlignment);
+        drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.noise, settings.pattern, settings.centerAlignment);
       }
       return;
     }
@@ -1046,10 +1048,10 @@ export const useBrushEngine = () => {
       if (queue.accumulatedDistance >= settings.spacing) {
         // Check if we should draw this stamp (cursor-speed independent)
         if (shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
-          // Apply color jitter per stamp
-          const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
+          // --- OPTIMIZATION: Use throttled jitter ---
+          const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
           ctx.fillStyle = jitteredColor;
-          drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.filmGrainIntensity, settings.pattern, settings.centerAlignment);
+          drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.noise, settings.pattern, settings.centerAlignment);
         }
         queue.accumulatedDistance -= settings.spacing;
         queue.lastStrokePosition = { x: queue.waitingPixelX, y: queue.waitingPixelY };
@@ -1172,7 +1174,7 @@ export const useBrushEngine = () => {
         ctx.drawImage(scaledCanvas, centerX, centerY);
 
         // Apply film grain if enabled
-        const filmGrainIntensity = tools.brushSettings.filmGrainEnabled ? tools.brushSettings.filmGrainIntensity : 0;
+        const filmGrainIntensity = tools.brushSettings.filmGrainIntensity || 0;
         if (filmGrainIntensity > 0) {
           const noiseCanvas = createNoiseTexture();
           const noisePattern = ctx.createPattern(noiseCanvas, 'repeat');
@@ -1196,7 +1198,6 @@ export const useBrushEngine = () => {
     tools.brushSettings.hueShift, 
     tools.brushSettings.saturationAdjust,
     tools.brushSettings.pressureEnabled,
-    tools.brushSettings.filmGrainEnabled,
     tools.brushSettings.filmGrainIntensity
   ]);
 
@@ -1217,6 +1218,7 @@ export const useBrushEngine = () => {
     ctx: CanvasRenderingContext2D,
     from: { x: number; y: number },
     to: { x: number; y: number },
+    cursor: { pressure: number }, // Accept cursor data directly
     components: BrushComponent[] = activeBrushComponents
   ) => {
     // Mark stroke as active for cache retention
@@ -1225,8 +1227,8 @@ export const useBrushEngine = () => {
     // Performance monitoring for brush strokes
     const strokeStartTime = process.env.NODE_ENV === 'development' ? performance.now() : 0;
     
-    // Get actual pressure from cursor state in the store
-    const cursorPressure = useAppStore.getState().canvas.cursor.pressure ?? 1.0;
+    // Use passed-in pressure
+    const cursorPressure = cursor.pressure;
     
     const isCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM;
     
@@ -1617,9 +1619,9 @@ export const useBrushEngine = () => {
         for (const pos of gridPositions) {
           const posKey = `${pos.x},${pos.y}`;
           if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
-            const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
+            const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
-            drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, false, settings.rotation, settings.filmGrainIntensity, settings.pattern, settings.centerAlignment);
+            drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, false, settings.rotation, settings.noise, settings.pattern, settings.centerAlignment);
             queue.stampedGridPositions.add(posKey);
           }
         }
@@ -1657,9 +1659,9 @@ export const useBrushEngine = () => {
         for (const pos of gridPositions) {
           const posKey = `${pos.x},${pos.y}`;
           if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
-            const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
+            const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
-            drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, true, settings.rotation, settings.filmGrainIntensity, settings.pattern, settings.centerAlignment);
+            drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, true, settings.rotation, settings.noise, settings.pattern, settings.centerAlignment);
             queue.stampedGridPositions.add(posKey);
           }
         }
@@ -1678,9 +1680,9 @@ export const useBrushEngine = () => {
             const x = queue.lastStrokePosition.x + (snappedTo.x - queue.lastStrokePosition.x) * progress;
             const y = queue.lastStrokePosition.y + (snappedTo.y - queue.lastStrokePosition.y) * progress;
             
-            const jitteredColor = applyColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
+            const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
-            drawShape(ctx, x, y, settings.size, settings.shape, true, settings.rotation, settings.filmGrainIntensity, settings.pattern, settings.centerAlignment);
+            drawShape(ctx, x, y, settings.size, settings.shape, true, settings.rotation, settings.noise, settings.pattern, settings.centerAlignment);
           }
           
           queue.accumulatedDistance -= settings.spacing;

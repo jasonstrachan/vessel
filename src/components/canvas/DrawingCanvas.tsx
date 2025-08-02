@@ -1019,7 +1019,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     );
     
     // Draw on the offscreen canvas (no transformations - world coordinates)
-    renderBrushStroke(offscreenCtx, from, to);
+    const pressure = useAppStore.getState().canvas.cursor.pressure ?? 1.0;
+    renderBrushStroke(offscreenCtx, from, to, { pressure });
     
     // Mark that we need to redraw the view
     needsRedraw.current = true;
