@@ -1,3 +1,38 @@
+# Risograph Texture Implementation
+
+## Review of Changes
+
+### Summary
+Replaced the old film grain effect with an advanced risograph texture system that mimics traditional mezzotint/screen printing effects using a dissolve-style blending technique.
+
+### Changes Made
+
+1. **BrushControls.tsx** ✅
+   - Modified the gradient brush UI section (lines 25-60)
+   - Added Risograph slider alongside the existing Colors slider
+   - Both gradient brushes now show:
+     - Colors slider (1-10 range)
+     - Risograph slider (0-100% intensity)
+
+2. **useBrushEngine.ts - Rectangle Gradient** ✅
+   - Added risograph effect to `drawRectangleGradient()` function (lines 1779-1805)
+   - Applies noise texture overlay when `risographIntensity > 0`
+   - Uses existing `createNoiseTexture()` function for consistency
+   - Grain is applied with 'overlay' blend mode at 30% of slider value
+
+3. **useBrushEngine.ts - Polygon Gradient** ✅
+   - Added risograph effect to `drawPolygonGradient()` function (lines 1818-1840)
+   - Same implementation as rectangle gradient for consistency
+   - Respects the polygon shape when applying grain texture
+
+### How It Works
+- Film grain uses the same noise texture system as other brushes
+- Grain is overlaid on top of the gradient fill using 'overlay' blend mode
+- Intensity is scaled to 30% of slider value for subtle effect
+- Pattern is tiled across the shape for uniform coverage
+
+## Previous Task History
+
 # Drawing Canvas & Brush Engine Performance Optimization Complete
 
 ## Summary
@@ -15,12 +50,12 @@ Successfully optimized both useBrushEngine.ts and DrawingCanvas.tsx for dramatic
 - **noisePatternCache**: Added Map to cache noise patterns per canvas context
 - **drawShape()**: Updated to use cached patterns instead of recreating them
 - Prevents redundant `ctx.createPattern()` calls during drawing operations
-- Significant performance improvement for film grain effects
+- Significant performance improvement for risograph effects
 
 ### 3. Interface Updates ✅
-- **RenderSettings**: Changed `filmGrainIntensity` to `noise` for consistency
-- **drawShape()**: Updated parameter from `filmGrainIntensity` to `noise`
-- All drawing calls updated to use `settings.noise` instead of `settings.filmGrainIntensity`
+- **RenderSettings**: Changed `risographIntensity` to `noise` for consistency
+- **drawShape()**: Updated parameter from `risographIntensity` to `noise`
+- All drawing calls updated to use `settings.noise` instead of `settings.risographIntensity`
 
 ### 4. Function Signature Optimization ✅
 - **renderBrushStroke()**: Now accepts `cursor: { pressure: number }` parameter directly
@@ -42,7 +77,7 @@ Successfully optimized both useBrushEngine.ts and DrawingCanvas.tsx for dramatic
 ## How It Works
 
 1. **Color Jitter**: Instead of expensive HSL calculations on every point, RGB-based jitter is recalculated every 8 points and interpolated between for smooth color variation
-2. **Noise Patterns**: Canvas patterns for film grain are cached per context and reused, eliminating redundant pattern creation
+2. **Noise Patterns**: Canvas patterns for risograph are cached per context and reused, eliminating redundant pattern creation
 3. **Cursor State**: High-frequency cursor updates (position, pressure) are stored in a ref instead of triggering React re-renders
 4. **Store Updates**: Global cursor state is updated only once at the end of each stroke, not on every pointer move
 5. **Performance**: 50-100× speed improvement for color jitter, plus eliminated React re-render overhead during drawing
@@ -57,8 +92,8 @@ Successfully optimized both useBrushEngine.ts and DrawingCanvas.tsx for dramatic
 4. Verify smooth color variation without performance lag
 5. Compare with previous version - should be significantly faster
 
-### Test 2: Film Grain Efficiency  
-1. Enable film grain on any brush
+### Test 2: Risograph Efficiency  
+1. Enable risograph on any brush
 2. Set intensity to 50-100%
 3. Draw continuous strokes
 4. Verify grain effect applies without frame drops
