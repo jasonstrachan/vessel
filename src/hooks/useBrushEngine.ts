@@ -466,6 +466,7 @@ export const useBrushEngine = () => {
     const tempCanvas = isRisoActive ? targetCtx.canvas : null;
 
     // Adjust coordinates to be local to the temp canvas if we're using one
+    // When using riso, maintain the relative position within the temp canvas bounds
     const drawX = isRisoActive ? tempCanvas!.width / 2 : x;
     const drawY = isRisoActive ? tempCanvas!.height / 2 : y;
     
@@ -1646,10 +1647,15 @@ export const useBrushEngine = () => {
         const roundedToX = Math.round(snappedTo.x);
         const roundedToY = Math.round(snappedTo.y);
         
-        // If movement is > 1 pixel, use line drawing
+        // If movement is > 1 pixel, use line drawing (but not when riso is active)
         if (Math.abs(roundedToX - roundedFromX) > 1 || Math.abs(roundedToY - roundedFromY) > 1) {
-          // Fast movement - draw pixel-perfect line using shapes
-          drawPixelPerfectLine(ctx, roundedFromX, roundedFromY, roundedToX, roundedToY, settings);
+          // Fast movement - draw pixel-perfect line using shapes (skip when riso is active)
+          if (settings.risographIntensity === 0) {
+            drawPixelPerfectLine(ctx, roundedFromX, roundedFromY, roundedToX, roundedToY, settings);
+          } else {
+            // When riso is active, use individual stamps instead of line drawing
+            perfectPixels(ctx, snappedTo.x, snappedTo.y, settings);
+          }
         } else {
           // Slow movement - use perfect pixel queue algorithm
           perfectPixels(ctx, snappedTo.x, snappedTo.y, settings);
