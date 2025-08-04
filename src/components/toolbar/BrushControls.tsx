@@ -7,7 +7,8 @@ import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { BrushShape } from '../../types';
 import Input from '../ui/Input';
-import { Switch } from '../retroui/Switch';
+import CustomSwitch from '../ui/CustomSwitch';
+import ProgressSlider from '../ui/ProgressSlider';
 const BrushControls = () => {
   const { tools, setBrushSettings, setEraserSettings } = useAppStore();
   const { brushSettings, eraserSettings, currentTool } = tools;
@@ -66,120 +67,127 @@ const BrushControls = () => {
     <div className="p-4">
 
 
-      {/* Brush Size - Unified percentage-based slider for all brushes */}
-      <div className="mb-3">
-        <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
-          Size: {activeSettings.size}{activeSettings.brushShape !== BrushShape.CUSTOM ? 'px' : ''}
-        </label>
-        <div onDoubleClick={handleBrushSizeDoubleClick}>
-          <input
-            type="range"
-            className="slider flex-1"
+      {/* Size */}
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            Size
+          </label>
+          <ProgressSlider
             value={activeSettings.size}
             min={1}
             max={500}
             step={1}
-            onChange={(e) => setActiveSettings({ size: parseInt(e.target.value) })}
+            onChange={(value) => setActiveSettings({ size: Math.max(1, value) })}
             aria-label="Brush Size"
+            className="flex-1"
           />
         </div>
       </div>
 
       {/* Opacity */}
-      <div className="mb-3">
-        <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
-          Opacity: {Math.round(activeSettings.opacity * 100)}%
-        </label>
-        <input
-          type="range"
-          className="slider flex-1"
-          value={activeSettings.opacity}
-          min={0}
-          max={1}
-          step={0.01}
-          onChange={(e) => setActiveSettings({ opacity: parseFloat(e.target.value) })}
-          aria-label="Opacity"
-        />
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            Opacity
+          </label>
+          <input
+            type="range"
+            className="slider flex-1"
+            value={activeSettings.opacity}
+            min={0}
+            max={1}
+            step={0.01}
+            onChange={(e) => setActiveSettings({ opacity: parseFloat(e.target.value) })}
+            aria-label="Opacity"
+          />
+        </div>
       </div>
 
       {/* Spacing */}
-      <div className="mb-3">
-        <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
-          Spacing: {activeSettings.spacing}px
-        </label>
-        <input
-          type="range"
-          className="slider flex-1"
-          value={activeSettings.spacing}
-          min={1}
-          max={400}
-          step={1}
-          onChange={(e) => setActiveSettings({ spacing: parseInt(e.target.value) })}
-          aria-label="Spacing"
-        />
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            Spacing
+          </label>
+          <input
+            type="range"
+            className="slider flex-1"
+            value={activeSettings.spacing}
+            min={0}
+            max={400}
+            step={1}
+            onChange={(e) => setActiveSettings({ spacing: parseInt(e.target.value) })}
+            aria-label="Spacing"
+          />
+        </div>
       </div>
 
-      {/* Color Jitter */}
-      <div className="mb-3">
-        <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
-          Color Jitter: {activeSettings.colorJitter || 0}%
-        </label>
-        <input
-          type="range"
-          className="slider flex-1"
-          value={activeSettings.colorJitter || 0}
-          min={0}
-          max={100}
-          step={1}
-          onChange={(e) => {
-            setActiveSettings({ colorJitter: parseInt(e.target.value) });
-          }}
-          aria-label="Color Jitter"
-        />
+      {/* Col Jit */}
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            Col Jit
+          </label>
+          <input
+            type="range"
+            className="slider flex-1"
+            value={activeSettings.colorJitter || 0}
+            min={0}
+            max={100}
+            step={1}
+            onChange={(e) => {
+              setActiveSettings({ colorJitter: parseInt(e.target.value) });
+            }}
+            aria-label="Color Jitter"
+          />
+        </div>
       </div>
 
-      {/* Risograph */}
-      <div className="mb-3">
-        <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
-          Risograph: {activeSettings.risographIntensity || 0}%
-        </label>
-        <input
-          type="range"
-          className="slider flex-1"
-          value={activeSettings.risographIntensity || 0}
-          min={0}
-          max={100}
-          step={1}
-          onChange={(e) => setActiveSettings({ risographIntensity: parseInt(e.target.value) })}
-          aria-label="Risograph Intensity"
-        />
+      {/* Riso */}
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            Riso
+          </label>
+          <input
+            type="range"
+            className="slider flex-1"
+            value={activeSettings.risographIntensity || 0}
+            min={0}
+            max={100}
+            step={1}
+            onChange={(e) => setActiveSettings({ risographIntensity: parseInt(e.target.value) })}
+            aria-label="Risograph Intensity"
+          />
+        </div>
       </div>
 
       {/* Shape */}
-      <div className="mb-3">
-        <div className="flex items-center space-x-2 mb-2">
-          <Switch
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label htmlFor="shape-enabled" className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            Shape
+          </label>
+          <CustomSwitch
             id="shape-enabled"
             checked={activeSettings.shapeEnabled || false}
             onChange={(checked) => setActiveSettings({ shapeEnabled: checked })}
           />
-          <label htmlFor="shape-enabled" className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
-            Shape
-          </label>
         </div>
       </div>
 
       {/* Pressure */}
-      <div className="mb-3">
-        <div className="flex items-center space-x-2 mb-2">
-          <Switch
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label htmlFor="pressure-enabled" className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            Pressure
+          </label>
+          <CustomSwitch
             id="pressure-enabled"
             checked={activeSettings.pressureEnabled || false}
             onChange={(checked) => setActiveSettings({ pressureEnabled: checked })}
           />
-          <label htmlFor="pressure-enabled" className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
-            Pressure
-          </label>
         </div>
         
         {(activeSettings.pressureEnabled || false) && (
@@ -211,30 +219,30 @@ const BrushControls = () => {
       </div>
 
       {/* Rotation */}
-      <div className="mb-3">
-        <div className="flex items-center space-x-2">
-          <Switch
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label htmlFor="rotation-enabled" className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            Rotation
+          </label>
+          <CustomSwitch
             id="rotation-enabled"
             checked={activeSettings.rotationEnabled || false}
             onChange={(checked) => setActiveSettings({ rotationEnabled: checked })}
           />
-          <label htmlFor="rotation-enabled" className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
-            Rotation
-          </label>
         </div>
       </div>
 
       {/* Dashed */}
-      <div className="mb-3">
-        <div className="flex items-center space-x-2 mb-2">
-          <Switch
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label htmlFor="dashed-enabled" className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            Dashed
+          </label>
+          <CustomSwitch
             id="dashed-enabled"
             checked={activeSettings.dashedEnabled || false}
             onChange={(checked) => setActiveSettings({ dashedEnabled: checked })}
           />
-          <label htmlFor="dashed-enabled" className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
-            Dashed
-          </label>
         </div>
         
         {(activeSettings.dashedEnabled || false) && (
@@ -272,16 +280,16 @@ const BrushControls = () => {
       </div>
 
       {/* Grid Snap */}
-      <div className="mb-3">
-        <div className="flex items-center space-x-2">
-          <Switch
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label htmlFor="grid-snap-enabled" className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            Grid Snap
+          </label>
+          <CustomSwitch
             id="grid-snap-enabled"
             checked={activeSettings.gridSnapEnabled || false}
             onChange={(checked) => setActiveSettings({ gridSnapEnabled: checked })}
           />
-          <label htmlFor="grid-snap-enabled" className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
-            Grid Snap
-          </label>
         </div>
       </div>
     </div>
