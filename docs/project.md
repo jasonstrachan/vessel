@@ -1,5 +1,14 @@
 # TinyBrush Consolidated Documentation
 
+## Recent Updates
+
+### Color Cycling Performance Optimization (2025-01-04)
+- **Optimized color cycling system**: Implemented pre-computed index maps and RGB caching to eliminate repeated hex conversions during animation
+- **New optimized functions**: `buildLayerColorIndexMap()`, `applyCycleToLayer_Optimized()`, `buildShiftedColors()`, `applyCycleToLayers_Optimized()`
+- **State management updates**: Added `selectedColorsRGB` and `layerColorIndexMaps` fields to ColorCycleState
+- **Backward compatibility**: Legacy functions marked as deprecated but kept functional for gradual migration
+- **Animation integration**: Updated DrawingCanvas and compositeLayersToCanvas to use optimized path when pre-computed maps are available
+
 ## Table of Contents
 
 1. [Project Fundamentals](#project-fundamentals)
@@ -10,6 +19,7 @@
    - [Data Model](#data-model)
 3. [Features](#features)
    - [Drawing Tools](#drawing-tools)
+   - [Color Cycle Feature](#color-cycle-feature)
    - [Risograph Effect](#risograph-effect)
    - [Modular Brush Engine](#modular-brush-engine)
    - [Pixel-Perfect Drawing](#pixel-perfect-drawing)
@@ -1350,6 +1360,130 @@ interface ToolState {
 ---
 
 *The Drawing Tools provide a comprehensive foundation for digital art creation with professional-grade features and performance optimization.*
+
+# Color Cycle Feature
+
+## Purpose
+The Color Cycle feature enables palette animation effects by dynamically shifting colors through a selected set, creating the illusion of movement without modifying pixel data. This classic palette cycling technique is perfect for animating backgrounds, water, fire, and other dynamic elements in pixel art and digital artwork.
+
+## Core Functionality
+
+### Animation System
+**Real-time Color Shifting**: Uses `requestAnimationFrame` with FPS control (1-60 FPS, default 18) for smooth palette animation.
+
+**Non-destructive Preview**: Original layer data remains unchanged - color cycling is applied only during rendering composition.
+
+**Layer-specific Application**: Artists can select which layers to apply color cycling to, allowing fine control over animated elements.
+
+### Color Selection Tools
+
+**Manual Color Picker**: Advanced color picker modal with HSV wheel for precise color selection.
+
+**Current Brush Color**: One-click addition of the currently selected brush color to the cycle palette.
+
+**Auto-extraction**: "Extract from Canvas" button analyzes selected layers (or all visible layers) to automatically detect and add dominant colors to the cycle.
+
+**Smart Deduplication**: Prevents duplicate colors from being added to the cycle palette.
+
+### User Interface
+
+**Play/Pause Controls**: Large, prominent controls with visual icons for starting and stopping animation.
+
+**Color Swatches Grid**: Visual grid showing all selected colors with click-to-remove functionality.
+
+**FPS Slider**: Real-time control of animation speed from 1-60 FPS with visual feedback.
+
+**Layer Selection**: Individual checkboxes for each layer to control which layers participate in cycling.
+
+**Reset Function**: One-click reset to clear all colors and settings.
+
+## Core Flow
+
+1. **Tool Selection**: User selects Color Cycle tool from left toolbar (circular arrows icon)
+2. **Color Addition**: User adds colors via:
+   - "Current" button (adds brush color)
+   - "Pick" button (opens color picker modal)  
+   - "Extract" button (auto-detects colors from layers)
+3. **Layer Selection**: User selects which layers to apply cycling to via checkboxes
+4. **Speed Control**: User adjusts FPS via slider for desired animation speed
+5. **Animation Control**: User clicks Play to start animation, Pause to stop and examine current state
+6. **Real-time Preview**: Colors cycle through the palette, shifting all selected colors in sequence
+
+## Implementation Architecture
+
+### State Management
+```typescript
+interface ColorCycleState {
+  isActive: boolean;           // Tool is selected
+  isPlaying: boolean;          // Animation is running
+  selectedColors: string[];    // Color palette to cycle through
+  fps: number;                 // Animation speed (default 18)
+  selectedLayers: string[];    // Layer IDs to apply cycling to
+  currentColorIndex: number;   // Current position in cycle
+  colorMap: Map<string, string>; // Original to current color mapping
+}
+```
+
+### Animation Loop
+- Uses `requestAnimationFrame` for smooth animation
+- Respects FPS setting with frame timing control
+- Triggers layer recomposition to show updated colors
+- Automatically advances through color palette indices
+
+### Color Mapping Algorithm
+```typescript
+// Build color mapping for current cycle position
+const colorMap = buildColorMapping(selectedColors, cycleIndex);
+
+// Apply to layer during composition
+const cycledImageData = applyCycleToLayer(layer, colorMap, selectedColors);
+```
+
+### Canvas Integration
+- Integrates with existing `compositeLayersToCanvas` function
+- Applied during layer composition, not stored in layer data
+- Uses color distance matching to find pixels to cycle
+- Maintains layer blend modes and opacity settings
+
+## Technical Features
+
+**Performance Optimized**: 
+- Single cached color mappings
+- GPU-accelerated canvas operations
+- Efficient color matching algorithms
+- Memory-conscious ImageData handling
+
+**Color Matching**:
+- Uses Euclidean distance in RGB space
+- Configurable threshold for color similarity
+- Handles color variations and slight differences
+
+**UI Integration**:
+- Conditional panel display when tool is active
+- Modal color picker with proper z-index layering
+- Responsive grid layout for color swatches
+- Accessible controls with tooltips
+
+## Key Features
+
+- **Non-destructive**: Original artwork remains unchanged
+- **Layer-specific**: Apply to selected layers only
+- **Real-time control**: Adjust speed and colors while animating
+- **Professional tools**: Advanced color picker and auto-extraction
+- **Performance optimized**: 60fps smooth animation capability
+- **Memory efficient**: Minimal memory overhead during animation
+
+## Use Cases
+
+- **Animated Backgrounds**: Create flowing water, moving clouds, shifting gradients
+- **Dynamic Elements**: Animate fire, energy effects, magical auras
+- **Retro Aesthetics**: Classic 80s/90s palette cycling effects
+- **Interactive Art**: Real-time color shifting for dynamic presentations
+- **Game Development**: Animated tiles, environmental effects, UI elements
+
+---
+
+*The Color Cycle feature brings classic palette animation techniques to modern digital art creation with professional controls and smooth performance.*
 
 # Modular Brush Engine
 

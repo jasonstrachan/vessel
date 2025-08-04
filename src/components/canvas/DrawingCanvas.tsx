@@ -429,6 +429,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     setPolygonGradientState,
     addPolygonGradientPoint,
     clearPolygonGradientPoints,
+    colorCycleState,
+    updateColorCycleIndex,
+    incrementColorCycleIndex,
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue, drawRectangleGradient, drawPolygonGradient } = useBrushEngine();
@@ -2840,6 +2843,41 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       }
     }
   }, [layersNeedRecomposition, compositeLayersToCanvas, renderView, setLayersNeedRecomposition, layers, history.isCapturing, markFullRedraw]);
+
+  // Color cycle animation loop
+  useEffect(() => {
+    if (!colorCycleState.isPlaying || colorCycleState.selectedColors.length === 0) {
+      return;
+    }
+
+    const interval = 1000 / colorCycleState.fps;
+    let lastTime = 0;
+    let animationId: number;
+
+    const animate = (currentTime: number) => {
+      if (currentTime - lastTime >= interval) {
+        // Advance to next color in cycle using the optimized increment function
+        incrementColorCycleIndex();
+        
+        // Trigger layer recomposition to show the cycled colors
+        setLayersNeedRecomposition(true);
+        
+        lastTime = currentTime;
+      }
+      
+      if (colorCycleState.isPlaying) {
+        animationId = requestAnimationFrame(animate);
+      }
+    };
+    
+    animationId = requestAnimationFrame(animate);
+    
+    return () => {
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+      }
+    };
+  }, [colorCycleState.isPlaying, colorCycleState.fps, colorCycleState.selectedColors.length, incrementColorCycleIndex, setLayersNeedRecomposition]);
 
   // Object pooling for performance optimization
   const coordinatePool = useMemo(() => {

@@ -270,7 +270,7 @@ export interface HistoryState {
   isCapturing: boolean;
 }
 
-export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'pan' | 'new-document' | 'save' | 'load' | 'export-png' | 'custom' | 'options';
+export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'pan' | 'new-document' | 'save' | 'load' | 'export-png' | 'custom' | 'options' | 'color-cycle';
 
 export type BlendMode = GlobalCompositeOperation;
 
@@ -335,4 +335,16 @@ export interface PolygonGradientState {
   drawingState: 'idle' | 'drawing' | 'completed';
   points: PolygonGradientPoint[];
   previewPath?: Path2D;
+}
+
+export interface ColorCycleState {
+  isActive: boolean;
+  isPlaying: boolean;
+  selectedColors: string[];
+  selectedColorsRGB: { r: number; g: number; b: number }[];
+  fps: number;
+  selectedLayers: string[];
+  currentColorIndex: number;
+  colorMap: Map<string, string>;
+  layerColorIndexMaps: Map<string, Map<string, number>>;
 }

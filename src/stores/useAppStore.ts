@@ -29,6 +29,7 @@ import type {
   ShapeState,
   ShapePoint,
   PolygonGradientState,
+  ColorCycleState,
 } from '../types';
 import { BrushShape } from '../types';
 import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
@@ -40,6 +41,7 @@ import {
 import { memoryManager } from '../utils/memoryCleanup';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 import { adjustHueAndSaturation } from '../utils/imageProcessing';
+import { applyCycleToLayer, buildColorMapping, buildLayerColorIndexMap, hexToRgb, buildShiftedColors, applyCycleToLayers_Optimized } from '../utils/colorCycling';
 
 // Helper function to get serializable brush settings for persistence
 const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSettings> => {
@@ -156,6 +158,20 @@ interface AppState {
   setPolygonGradientState: (partialState: Partial<PolygonGradientState>) => void;
   addPolygonGradientPoint: (x: number, y: number, color: string) => void;
   clearPolygonGradientPoints: () => void;
+  
+  // Color Cycle State
+  colorCycleState: ColorCycleState;
+  setColorCycleActive: (active: boolean) => void;
+  setColorCyclePlaying: (playing: boolean) => void;
+  addColorCycleColor: (color: string) => void;
+  removeColorCycleColor: (index: number) => void;
+  setColorCycleFPS: (fps: number) => void;
+  setColorCycleLayers: (layers: string[]) => void;
+  updateColorCycleIndex: (index: number) => void;
+  incrementColorCycleIndex: () => void;
+  precomputeColorCycleMaps: () => void;
+  refreshColorCycleMapsIfNeeded: () => void;
+  resetColorCycle: () => void;
   
   // UI State
   ui: UIState;
@@ -292,6 +308,18 @@ const defaultPolygonGradientState: PolygonGradientState = {
   drawingState: 'idle',
   points: [],
   previewPath: undefined
+};
+
+const defaultColorCycleState: ColorCycleState = {
+  isActive: false,
+  isPlaying: false,
+  selectedColors: [],
+  selectedColorsRGB: [],
+  fps: 18,
+  selectedLayers: [],
+  currentColorIndex: 0,
+  colorMap: new Map(),
+  layerColorIndexMaps: new Map()
 };
 
 export const useAppStore = create<AppState>()(
@@ -665,6 +693,115 @@ export const useAppStore = create<AppState>()(
           previewPath: undefined
         }
       })),
+      
+      // Color Cycle State
+      colorCycleState: defaultColorCycleState,
+      setColorCycleActive: (active) => set((state) => ({
+        colorCycleState: { ...state.colorCycleState, isActive: active }
+      })),
+      setColorCyclePlaying: (playing) => set((state) => ({
+        colorCycleState: { ...state.colorCycleState, isPlaying: playing }
+      })),
+      addColorCycleColor: (color) => set((state) => {
+        const hexToRgb = (hex: string): { r: number; g: number; b: number } => {
+          const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+          return result ? {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16)
+          } : { r: 0, g: 0, b: 0 };
+        };
+
+        const newColors = [...state.colorCycleState.selectedColors, color];
+        const newColorsRGB = [...state.colorCycleState.selectedColorsRGB, hexToRgb(color)];
+
+        return {
+          colorCycleState: {
+            ...state.colorCycleState,
+            selectedColors: newColors,
+            selectedColorsRGB: newColorsRGB
+          }
+        };
+      }),
+      removeColorCycleColor: (index) => set((state) => ({
+        colorCycleState: {
+          ...state.colorCycleState,
+          selectedColors: state.colorCycleState.selectedColors.filter((_, i) => i !== index),
+          selectedColorsRGB: state.colorCycleState.selectedColorsRGB.filter((_, i) => i !== index)
+        }
+      })),
+      setColorCycleFPS: (fps) => set((state) => ({
+        colorCycleState: { ...state.colorCycleState, fps }
+      })),
+      setColorCycleLayers: (layers) => set((state) => ({
+        colorCycleState: { ...state.colorCycleState, selectedLayers: layers }
+      })),
+      updateColorCycleIndex: (index) => set((state) => ({
+        colorCycleState: { ...state.colorCycleState, currentColorIndex: index }
+      })),
+      incrementColorCycleIndex: () => set((state) => {
+        const nextIndex = (state.colorCycleState.currentColorIndex + 1) % Math.max(1, state.colorCycleState.selectedColors.length);
+        return {
+          colorCycleState: { ...state.colorCycleState, currentColorIndex: nextIndex }
+        };
+      }),
+      precomputeColorCycleMaps: () => set((state) => {
+        const { layers, colorCycleState } = state;
+        const { selectedLayers, selectedColors } = colorCycleState;
+        
+        if (selectedColors.length === 0 || selectedLayers.length === 0) {
+          return {
+            colorCycleState: {
+              ...colorCycleState,
+              layerColorIndexMaps: new Map(),
+              selectedColorsRGB: []
+            }
+          };
+        }
+        
+        const newIndexMaps = new Map<string, Map<string, number>>();
+        const selectedColorsRGB = selectedColors.map(hexToRgb);
+
+        // Always use the current layer state, not cached state
+        const layersToProcess = layers.filter(l => selectedLayers.includes(l.id));
+
+        for (const layer of layersToProcess) {
+          // Skip layers without current imageData
+          if (!layer.imageData) continue;
+          
+          const indexMap = buildLayerColorIndexMap(layer, selectedColors, selectedColorsRGB);
+          newIndexMaps.set(layer.id, indexMap);
+        }
+
+        console.log(`Precomputed color cycle maps for ${newIndexMaps.size} layers with ${selectedColors.length} colors`);
+
+        return {
+          colorCycleState: {
+            ...colorCycleState,
+            layerColorIndexMaps: newIndexMaps,
+            selectedColorsRGB: selectedColorsRGB,
+          }
+        };
+      }),
+      refreshColorCycleMapsIfNeeded: () => {
+        const state = get();
+        const { colorCycleState } = state;
+        
+        // Only refresh if color cycling is active and we have maps to refresh
+        if (colorCycleState.isActive && 
+            colorCycleState.selectedColors.length > 0 && 
+            colorCycleState.selectedLayers.length > 0) {
+          // Trigger a fresh precomputation
+          get().precomputeColorCycleMaps();
+        }
+      },
+      resetColorCycle: () => set({
+        colorCycleState: { 
+          ...defaultColorCycleState,
+          layerColorIndexMaps: new Map(),
+          selectedColorsRGB: []
+        }
+      }),
       setBrushPreset: (preset) => set((state) => {
         // Save current settings to the currently active brush before switching (excluding size)
         if (state.currentBrushPreset) {
@@ -1386,20 +1523,67 @@ export const useAppStore = create<AppState>()(
         // Sort layers by order and draw each visible layer
         const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
         let drawnLayers = 0;
+        
+        // Check if color cycling is active and has colors
+        const isColorCycling = state.tools.currentTool === 'color-cycle' && 
+                               state.colorCycleState.selectedColors.length > 0 &&
+                               state.colorCycleState.selectedLayers.length > 0;
+        
+        // Use optimized color cycling if available, fallback to old method
+        const useOptimizedCycling = isColorCycling && 
+                                   state.colorCycleState.selectedColorsRGB.length > 0 &&
+                                   state.colorCycleState.layerColorIndexMaps.size > 0;
+        
+        // Pre-compute shifted colors for optimized path
+        const shiftedColorsRGB = useOptimizedCycling ? 
+          buildShiftedColors(state.colorCycleState.selectedColorsRGB, state.colorCycleState.currentColorIndex) : 
+          [];
+          
+        // Fallback color map for legacy path
+        const colorMap = (isColorCycling && !useOptimizedCycling) ? 
+          buildColorMapping(state.colorCycleState.selectedColors, state.colorCycleState.currentColorIndex) : 
+          new Map();
+        
         for (const layer of sortedLayers) {
           if (!layer.visible || !layer.imageData) {
             continue;
           }
           
+          // Apply color cycling if this layer is selected for cycling
+          let layerImageData = layer.imageData;
+          if (isColorCycling && state.colorCycleState.selectedLayers.includes(layer.id)) {
+            if (useOptimizedCycling) {
+              // Use optimized path with pre-computed maps
+              const layerIndexMap = state.colorCycleState.layerColorIndexMaps.get(layer.id);
+              if (layerIndexMap) {
+                const cycledData = applyCycleToLayers_Optimized(
+                  [layer], 
+                  [layer.id], 
+                  new Map([[layer.id, layerIndexMap]]), 
+                  shiftedColorsRGB
+                ).get(layer.id);
+                if (cycledData) {
+                  layerImageData = cycledData;
+                }
+              }
+            } else {
+              // Fallback to legacy method
+              const cycledData = applyCycleToLayer(layer, colorMap, state.colorCycleState.selectedColors);
+              if (cycledData) {
+                layerImageData = cycledData;
+              }
+            }
+          }
+          
           // Create temporary canvas for the layer
           const layerCanvas = document.createElement('canvas');
-          layerCanvas.width = layer.imageData.width;
-          layerCanvas.height = layer.imageData.height;
+          layerCanvas.width = layerImageData.width;
+          layerCanvas.height = layerImageData.height;
           const layerCtx = layerCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
           
           if (layerCtx) {
             // Put the layer's ImageData onto the temporary canvas
-            layerCtx.putImageData(layer.imageData, 0, 0);
+            layerCtx.putImageData(layerImageData, 0, 0);
             
             // Set composite operation and opacity
             ctx.globalCompositeOperation = layer.blendMode;
