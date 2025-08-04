@@ -41,6 +41,29 @@ import { memoryManager } from '../utils/memoryCleanup';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 import { adjustHueAndSaturation } from '../utils/imageProcessing';
 
+// Helper function to get serializable brush settings for persistence
+const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSettings> => {
+  return {
+    opacity: settings.opacity,
+    spacing: settings.spacing,
+    colorJitter: settings.colorJitter,
+    risographIntensity: settings.risographIntensity,
+    ditherEnabled: settings.ditherEnabled,
+    fillResolution: settings.fillResolution,
+    pressureEnabled: settings.pressureEnabled,
+    minPressure: settings.minPressure,
+    maxPressure: settings.maxPressure,
+    rotationEnabled: settings.rotationEnabled,
+    dashedEnabled: settings.dashedEnabled,
+    dashLength: settings.dashLength,
+    dashGap: settings.dashGap,
+    gridSnapEnabled: settings.gridSnapEnabled,
+    shapeEnabled: settings.shapeEnabled,
+    antialiasing: settings.antialiasing,
+    colors: settings.colors
+  };
+};
+
 interface AppState {
   // Project State
   project: Project | null;
@@ -439,22 +462,7 @@ export const useAppStore = create<AppState>()(
           const existingSavedSettings = get().loadBrushSettings(currentBrushId);
           const settingsToSave = {
             ...existingSavedSettings,
-            opacity: state.tools.brushSettings.opacity,
-            spacing: state.tools.brushSettings.spacing,
-            colorJitter: state.tools.brushSettings.colorJitter,
-            risographIntensity: state.tools.brushSettings.risographIntensity,
-            ditherEnabled: state.tools.brushSettings.ditherEnabled,
-            pressureEnabled: state.tools.brushSettings.pressureEnabled,
-            minPressure: state.tools.brushSettings.minPressure,
-            maxPressure: state.tools.brushSettings.maxPressure,
-            rotationEnabled: state.tools.brushSettings.rotationEnabled,
-            dashedEnabled: state.tools.brushSettings.dashedEnabled,
-            dashLength: state.tools.brushSettings.dashLength,
-            dashGap: state.tools.brushSettings.dashGap,
-            gridSnapEnabled: state.tools.brushSettings.gridSnapEnabled,
-            shapeEnabled: state.tools.brushSettings.shapeEnabled,
-            antialiasing: state.tools.brushSettings.antialiasing,
-            colors: state.tools.brushSettings.colors
+            ...getSerializableBrushSettings(state.tools.brushSettings)
           };
           get().saveBrushSettings(currentBrushId, settingsToSave);
         }
@@ -510,6 +518,7 @@ export const useAppStore = create<AppState>()(
           if (settings.colorJitter !== undefined) settingsToSave.colorJitter = newSettings.colorJitter;
           if (settings.risographIntensity !== undefined) settingsToSave.risographIntensity = newSettings.risographIntensity;
           if (settings.ditherEnabled !== undefined) settingsToSave.ditherEnabled = newSettings.ditherEnabled;
+          if (settings.fillResolution !== undefined) settingsToSave.fillResolution = newSettings.fillResolution;
           if (settings.pressureEnabled !== undefined) settingsToSave.pressureEnabled = newSettings.pressureEnabled;
           if (settings.minPressure !== undefined) settingsToSave.minPressure = newSettings.minPressure;
           if (settings.maxPressure !== undefined) settingsToSave.maxPressure = newSettings.maxPressure;
@@ -520,15 +529,16 @@ export const useAppStore = create<AppState>()(
           if (settings.gridSnapEnabled !== undefined) settingsToSave.gridSnapEnabled = newSettings.gridSnapEnabled;
           if (settings.shapeEnabled !== undefined) settingsToSave.shapeEnabled = newSettings.shapeEnabled;
           if (settings.antialiasing !== undefined) settingsToSave.antialiasing = newSettings.antialiasing;
+          if (settings.colors !== undefined) settingsToSave.colors = newSettings.colors;
           
           // Always save to ensure persistence
           get().saveBrushSettings(currentBrushId, settingsToSave);
         }
         
         // Handle brush size restoration when switching between custom and regular brushes
-        if (settings.brushShape !== undefined) {
+        if (newSettings.brushShape !== undefined) {
           const wasCustom = currentSettings.brushShape === BrushShape.CUSTOM;
-          const isCustom = settings.brushShape === BrushShape.CUSTOM;
+          const isCustom = newSettings.brushShape === BrushShape.CUSTOM;
           
           if (!wasCustom && isCustom) {
             // Switching TO custom brush: save current regular size
@@ -576,9 +586,9 @@ export const useAppStore = create<AppState>()(
         };
         
         // If switching away from custom brush, discard temporary brush
-        if (settings.brushShape !== undefined && 
+        if (newSettings.brushShape !== undefined && 
             currentSettings.brushShape === BrushShape.CUSTOM && 
-            settings.brushShape !== BrushShape.CUSTOM) {
+            newSettings.brushShape !== BrushShape.CUSTOM) {
           return {
             ...updatedState,
             temporaryCustomBrush: null
@@ -664,45 +674,31 @@ export const useAppStore = create<AppState>()(
           const settingsToSave = {
             ...existingSavedSettings,
             // size: state.tools.brushSettings.size, // Size is now global
-            opacity: state.tools.brushSettings.opacity,
-            spacing: state.tools.brushSettings.spacing,
-            colorJitter: state.tools.brushSettings.colorJitter,
-            risographIntensity: state.tools.brushSettings.risographIntensity,
-            ditherEnabled: state.tools.brushSettings.ditherEnabled,
-            pressureEnabled: state.tools.brushSettings.pressureEnabled,
-            minPressure: state.tools.brushSettings.minPressure,
-            maxPressure: state.tools.brushSettings.maxPressure,
-            rotationEnabled: state.tools.brushSettings.rotationEnabled,
-            dashedEnabled: state.tools.brushSettings.dashedEnabled,
-            dashLength: state.tools.brushSettings.dashLength,
-            dashGap: state.tools.brushSettings.dashGap,
-            gridSnapEnabled: state.tools.brushSettings.gridSnapEnabled,
-            shapeEnabled: state.tools.brushSettings.shapeEnabled,
-            antialiasing: state.tools.brushSettings.antialiasing,
-            colors: state.tools.brushSettings.colors
+            ...getSerializableBrushSettings(state.tools.brushSettings)
           };
           get().saveBrushSettings(currentBrushId, settingsToSave);
         }
         
-        // Load settings for the new brush
-        const userSavedSettings = get().loadBrushSettings(preset.id);
-        const { settings, components } = applyBrushPreset(preset, userSavedSettings);
-        
+        // --- THIS IS THE NEW, ROBUST REPLACEMENT ---
+        const userOverrides = get().loadBrushSettings(preset.id);
+        const { settings: presetDefaults, components } = applyBrushPreset(preset, userOverrides);
         const currentSettings = state.tools.brushSettings;
-        // Start with default settings, apply preset settings (which already includes user saved settings)
-        // Keep color, blend mode, and use global size
-        const newBrushSettings = { 
-          ...defaultBrushSettingsForStore, // Start with defaults
-          color: currentSettings.color,    // Keep current color
-          blendMode: currentSettings.blendMode, // Keep blend mode
-          ...settings,                     // Apply preset settings (includes user saved settings)
-          size: state.globalBrushSize     // Always use global size
+
+
+        const newBrushSettings = {
+          ...defaultBrushSettingsForStore, // 1. Start with the absolute base defaults.
+          ...presetDefaults,               // 2. Apply the preset settings (which now includes user overrides).
+          
+          // 3. Finally, preserve the settings that carry over between any brush.
+          color: currentSettings.color,
+          blendMode: currentSettings.blendMode,
+          size: state.globalBrushSize      // The global size always overrides any saved size.
         };
         
         // Handle brush size restoration when switching between custom and regular brushes
-        if (settings.brushShape !== undefined) {
+        if (presetDefaults.brushShape !== undefined) {
           const wasCustom = currentSettings.brushShape === BrushShape.CUSTOM;
-          const isCustom = settings.brushShape === BrushShape.CUSTOM;
+          const isCustom = presetDefaults.brushShape === BrushShape.CUSTOM;
           
           if (!wasCustom && isCustom) {
             // Switching TO custom brush: save current regular size
@@ -728,9 +724,9 @@ export const useAppStore = create<AppState>()(
         }
         
         // Update lastRegularBrushSize when size changes for regular brushes
-        if (settings.size !== undefined && 
+        if (newBrushSettings.size !== undefined && 
             newBrushSettings.brushShape !== BrushShape.CUSTOM) {
-          newBrushSettings.lastRegularBrushSize = settings.size;
+          newBrushSettings.lastRegularBrushSize = newBrushSettings.size;
         }
         
         // Clear temporary brush when switching away from custom brushes
@@ -745,9 +741,9 @@ export const useAppStore = create<AppState>()(
         };
         
         // If switching away from custom brush, discard temporary brush
-        if (settings.brushShape !== undefined && 
+        if (presetDefaults.brushShape !== undefined && 
             currentSettings.brushShape === BrushShape.CUSTOM && 
-            settings.brushShape !== BrushShape.CUSTOM) {
+            presetDefaults.brushShape !== BrushShape.CUSTOM) {
           return {
             ...updatedState,
             temporaryCustomBrush: null
@@ -843,7 +839,6 @@ export const useAppStore = create<AppState>()(
         };
       }),
       removeLayer: (id) => set((state) => {
-        const layerToRemove = state.layers.find(l => l.id === id);
         const updatedLayers = state.layers.filter(l => l.id !== id);
         const newActiveLayerId = state.activeLayerId === id ? 
           updatedLayers.find(l => l.id !== id)?.id || null : 
@@ -1456,7 +1451,6 @@ export const useAppStore = create<AppState>()(
           
           // Find the active layer or use the first layer
           const activeLayerId = state.activeLayerId || state.layers[0]?.id;
-          const activeLayer = state.layers.find(l => l.id === activeLayerId);
           
           if (activeLayerId) {
             // Update the layer with the captured ImageData using direct set

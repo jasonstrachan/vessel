@@ -94,6 +94,20 @@ const BrushControls = () => {
                 setActiveSettings({ ditherEnabled: checked })
               }
             />
+            {/* Fill Res - only show when dithering is enabled */}
+            {activeSettings.ditherEnabled && (
+              <ProgressSlider
+                value={activeSettings.fillResolution || 1}
+                min={1}
+                max={32}
+                step={1}
+                onChange={(value) =>
+                  setActiveSettings({ fillResolution: Math.round(value) })
+                }
+                aria-label="Fill Resolution"
+                className="flex-1 ml-2"
+              />
+            )}
           </div>
         </div>
       </div>

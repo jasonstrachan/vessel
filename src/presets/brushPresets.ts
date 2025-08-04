@@ -52,7 +52,8 @@ export const defaultBrushSettings: BrushSettings = {
   saturationAdjust: 100,
   colorJitter: 0,
   risographIntensity: 0,
-  ditherEnabled: false
+  ditherEnabled: false,
+  fillResolution: 1
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect
@@ -487,8 +488,7 @@ export const rectangleGradientBrushPreset: BrushPreset = {
   tags: ['gradient', 'rectangle', 'special'],
   isDefault: false,
   createdAt: new Date(),
-  modifiedAt: new Date(),
-  preferredSettings: {}
+  modifiedAt: new Date()
 };
 
 // Polygon Gradient Brush Components
@@ -531,8 +531,7 @@ export const polygonGradientBrushPreset: BrushPreset = {
   tags: ['gradient', 'polygon', 'special'],
   isDefault: false,
   createdAt: new Date(),
-  modifiedAt: new Date(),
-  preferredSettings: {}
+  modifiedAt: new Date()
 };
 
 // Available brush presets
