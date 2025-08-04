@@ -24,7 +24,7 @@ export const pixelBrushSettings: BrushSettings = {
   saturationAdjust: 100,
   colorJitter: 0,
   risographIntensity: 0,
-  ditherIntensity: 0
+  ditherEnabled: false
 };
 
 // Default brush settings for smooth drawing
@@ -52,7 +52,7 @@ export const defaultBrushSettings: BrushSettings = {
   saturationAdjust: 100,
   colorJitter: 0,
   risographIntensity: 0,
-  ditherIntensity: 0
+  ditherEnabled: false
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect

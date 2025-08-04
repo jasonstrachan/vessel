@@ -67,17 +67,13 @@ const BrushControls = () => {
         {/* Dither */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            <label htmlFor="dither-enabled" className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
               Dither
             </label>
-            <ProgressSlider
-              value={activeSettings.ditherIntensity || 0}
-              min={0}
-              max={100}
-              step={1}
-              onChange={(value) => setActiveSettings({ ditherIntensity: Math.round(value) })}
-              aria-label="Dither Intensity"
-              className="flex-1"
+            <CustomSwitch
+              id="dither-enabled"
+              checked={activeSettings.ditherEnabled || false}
+              onChange={(checked) => setActiveSettings({ ditherEnabled: checked })}
             />
           </div>
         </div>

@@ -242,7 +242,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   // Rectangle brush live state (use ref to avoid re-renders during drag)
   const rectangleBrushLiveState = useRef({
     currentPos: { x: 0, y: 0 },
-    width: 0
+    width: 0,
+    cachedEndColor: '#ffffff',
+    lastSampleTime: 0
   });
 
   // --- OPTIMIZATION: Decouple cursor state from React renders ---
@@ -907,7 +909,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           endPos: currentPos,
           width: previewWidth,
           colors: previewColors,
-        });
+        }, true); // isPreview = true
         ctx.globalAlpha = 1.0;
       } else if (drawingState === 'definingWidth') {
         // Sample colors along preview path with hue shift for visibility
@@ -925,7 +927,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         
         // Use the final drawing function but with transparency for the preview
         ctx.globalAlpha = 0.65;
-        drawRectangleGradient(ctx, { startPos, endPos, width, colors: previewColors });
+        drawRectangleGradient(ctx, { startPos, endPos, width, colors: previewColors }, true); // isPreview = true
       }
 
       ctx.restore();
@@ -963,7 +965,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         }));
         
         // Draw the polygon using same number of colors as final
-        drawPolygonGradient(ctx, { vertices: livePoints, colors: previewColors });
+        drawPolygonGradient(ctx, { vertices: livePoints, colors: previewColors }, true); // isPreview = true
 
         ctx.restore();
       }
@@ -1428,7 +1430,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             
             // Sample colors at evenly spaced points along the line
             for (let i = 0; i < numColors; i++) {
-              const t = i / (numColors - 1);
+              // Handle single color case to avoid division by zero
+              const t = numColors === 1 ? 0 : i / (numColors - 1);
               const sampleX = rectangleBrushState.startPos.x + (rectangleBrushState.endPos.x - rectangleBrushState.startPos.x) * t;
               const sampleY = rectangleBrushState.startPos.y + (rectangleBrushState.endPos.y - rectangleBrushState.startPos.y) * t;
               
@@ -2295,7 +2298,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     if (e.key === 's' || e.key === 'S') {
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        state.setBrushSettings({ shapeEnabled: !state.tools.brushSettings.shapeEnabled });
+        const fullState = useAppStore.getState();
+        fullState.setBrushSettings({ shapeEnabled: !fullState.tools.brushSettings.shapeEnabled });
         return;
       }
     }
@@ -2304,9 +2308,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         // Toggle color jitter between 0 and previous value (or 20 as default)
-        const currentJitter = state.tools.brushSettings.colorJitter || 0;
+        const fullState = useAppStore.getState();
+        const currentJitter = fullState.tools.brushSettings.colorJitter || 0;
         const newJitter = currentJitter > 0 ? 0 : 20;
-        state.setBrushSettings({ colorJitter: newJitter });
+        fullState.setBrushSettings({ colorJitter: newJitter });
         return;
       }
     }
@@ -2314,7 +2319,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     if (e.key === 'g' || e.key === 'G') {
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        state.setBrushSettings({ gridSnapEnabled: !state.tools.brushSettings.gridSnapEnabled });
+        const fullState = useAppStore.getState();
+        fullState.setBrushSettings({ gridSnapEnabled: !fullState.tools.brushSettings.gridSnapEnabled });
         return;
       }
     }
@@ -2322,7 +2328,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     if (e.key === 'p' || e.key === 'P') {
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        state.setBrushSettings({ pressureEnabled: !state.tools.brushSettings.pressureEnabled });
+        const fullState = useAppStore.getState();
+        fullState.setBrushSettings({ pressureEnabled: !fullState.tools.brushSettings.pressureEnabled });
         return;
       }
     }
@@ -2330,7 +2337,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     if (e.key === 'r' || e.key === 'R') {
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        state.setBrushSettings({ rotationEnabled: !state.tools.brushSettings.rotationEnabled });
+        const fullState = useAppStore.getState();
+        fullState.setBrushSettings({ rotationEnabled: !fullState.tools.brushSettings.rotationEnabled });
         return;
       }
     }
@@ -2338,27 +2346,30 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     if (e.key === 'd' || e.key === 'D') {
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        state.setBrushSettings({ dashedEnabled: !state.tools.brushSettings.dashedEnabled });
+        const fullState = useAppStore.getState();
+        fullState.setBrushSettings({ dashedEnabled: !fullState.tools.brushSettings.dashedEnabled });
         return;
       }
     }
     
     // Brush size shortcuts - different behavior for custom vs regular brushes
     if (e.key === '[') {
-      if (state.tools.brushSettings.brushShape === BrushShape.CUSTOM) {
+      const fullState = useAppStore.getState();
+      if (fullState.tools.brushSettings.brushShape === BrushShape.CUSTOM) {
         // Custom brush: decrease by 10% increments, minimum 10%
-        state.setBrushSettings({ size: Math.max(10, state.tools.brushSettings.size - 10) });
+        fullState.setBrushSettings({ size: Math.max(10, fullState.tools.brushSettings.size - 10) });
       } else {
         // Regular brush: decrease by 1px, minimum 1px
-        state.setBrushSettings({ size: Math.max(1, state.tools.brushSettings.size - 1) });
+        fullState.setBrushSettings({ size: Math.max(1, fullState.tools.brushSettings.size - 1) });
       }
     } else if (e.key === ']') {
-      if (state.tools.brushSettings.brushShape === BrushShape.CUSTOM) {
+      const fullState = useAppStore.getState();
+      if (fullState.tools.brushSettings.brushShape === BrushShape.CUSTOM) {
         // Custom brush: increase by 10% increments, maximum 500%
-        state.setBrushSettings({ size: Math.min(500, state.tools.brushSettings.size + 10) });
+        fullState.setBrushSettings({ size: Math.min(500, fullState.tools.brushSettings.size + 10) });
       } else {
         // Regular brush: increase by 1px, maximum 100px
-        state.setBrushSettings({ size: Math.min(100, state.tools.brushSettings.size + 1) });
+        fullState.setBrushSettings({ size: Math.min(100, fullState.tools.brushSettings.size + 1) });
       }
     }
     
