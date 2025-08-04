@@ -568,65 +568,43 @@ export const getBrushPresetsByCategory = (category: string): BrushPreset[] => {
 export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partial<BrushSettings>): { settings: Partial<BrushSettings>; components: BrushComponent[] } => {
   const settings: Partial<BrushSettings> = {};
   
-  // Extract behavior settings from components
-  preset.components.forEach(component => {
-    switch (component.type) {
-      case ComponentType.ANTI_ALIASING:
-        settings.antialiasing = component.parameters.mode === 'antialiased';
-        break;
-      case ComponentType.SHAPE_RENDERER:
-        settings.brushShape = component.parameters.shape as BrushShape;
-        break;
-    }
-  });
-  
-  // Merge in preferred settings from the preset
-  if (preset.preferredSettings) {
-    Object.assign(settings, preset.preferredSettings);
-  }
-  
-  // User-saved settings have highest priority
-  if (userSavedSettings) {
-    Object.assign(settings, userSavedSettings);
-  }
-  
-  // Apply preset specific settings including default pixel sizes for default brushes
+  // FIRST: ALWAYS apply preset-specific defaults to ensure all brushes have baseline settings
   if (preset.id === 'pixel-brush') {
     settings.size = 1; // 1px default for pixel brush
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = false;
-    settings.colorJitter = 0; // Apply preset's colorJitter value
+    settings.colorJitter = 0;
   } else if (preset.id === 'default-brush') {
     settings.size = 10; // 10px default for default brush
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = true;
-    settings.colorJitter = 0; // Apply preset's colorJitter value
+    settings.colorJitter = 0;
   } else if (preset.id === 'square-pixel-1') {
     settings.size = 1; // 1px default as per name
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = false;
-    settings.colorJitter = 0; // Apply preset's colorJitter value
+    settings.colorJitter = 0;
   } else if (preset.id === 'round-pixel-4') {
     settings.size = 4; // 4px default as per name
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = false;
-    settings.colorJitter = 0; // Apply preset's colorJitter value
+    settings.colorJitter = 0;
   } else if (preset.id === 'round-soft-4') {
     settings.size = 4; // 4px default as per name
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = true;
-    settings.colorJitter = 0; // Apply preset's colorJitter value
+    settings.colorJitter = 0;
   } else if (preset.id === 'round-square-6') {
     settings.size = 6; // 6px default as per name
     settings.opacity = 1;
     settings.spacing = 1;
     settings.antialiasing = true;
-    settings.colorJitter = 0; // Apply preset's colorJitter value
+    settings.colorJitter = 0;
   } else if (preset.id === 'ink-brush') {
     settings.size = 10; // 10px default for ink brush
     settings.opacity = 1;
@@ -635,7 +613,7 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     settings.pressureEnabled = true;
     settings.minPressure = 1;
     settings.maxPressure = 100;
-    settings.colorJitter = 0; // Apply preset's colorJitter value
+    settings.colorJitter = 0;
   } else if (preset.category === 'Custom') {
     // Handle custom brush presets - apply sensible defaults
     settings.opacity = 1;
@@ -644,7 +622,32 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     settings.pressureEnabled = true;
     settings.minPressure = 1;
     settings.maxPressure = 100;
-    settings.colorJitter = 0; // Apply preset's colorJitter value
+    settings.colorJitter = 0;
+  }
+  
+  // SECOND: Extract behavior settings from components (only core functionality, not user preferences)
+  preset.components.forEach(component => {
+    switch (component.type) {
+      case ComponentType.ANTI_ALIASING:
+        // Only override if user hasn't saved a preference
+        if (!userSavedSettings?.antialiasing) {
+          settings.antialiasing = component.parameters.mode === 'antialiased';
+        }
+        break;
+      case ComponentType.SHAPE_RENDERER:
+        settings.brushShape = component.parameters.shape as BrushShape;
+        break;
+    }
+  });
+  
+  // THIRD: ALWAYS merge in preferred settings from the preset to provide baseline
+  if (preset.preferredSettings) {
+    Object.assign(settings, preset.preferredSettings);
+  }
+  
+  // FINAL: User-saved settings have absolute highest priority and CANNOT be overridden
+  if (userSavedSettings) {
+    Object.assign(settings, userSavedSettings);
   }
   
   return { settings, components: preset.components };

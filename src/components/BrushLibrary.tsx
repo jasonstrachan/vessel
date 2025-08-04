@@ -14,6 +14,9 @@ const BrushLibrary = () => {
   const removeCustomBrush = useAppStore((state) => state.removeCustomBrush);
   const tools = useAppStore((state) => state.tools);
   
+  const saveBrushSettings = useAppStore((state) => state.saveBrushSettings);
+  const loadBrushSettings = useAppStore((state) => state.loadBrushSettings);
+  
   const project = useAppStore((state) => state.project);
   const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
   
@@ -108,9 +111,17 @@ const BrushLibrary = () => {
   };
   
   const handlePresetClick = (preset: BrushPreset) => {
+    // DEBUG: Log brush preset click
+    console.log('🔘 [DEBUG] BrushLibrary handlePresetClick:', {
+      clickedPreset: preset.id,
+      presetName: preset.name,
+      isCustomBrush: preset.isCustomBrush,
+      currentBrushPreset: currentBrushPreset?.id,
+      currentBrushSettings: tools.brushSettings
+    });
     
     if (preset.isCustomBrush && preset.customBrushData) {
-      // For custom brush presets, set the brush settings to use custom brush
+      // For custom brush presets, save current settings and load saved settings for the target brush
       // For saved presets (prefix: preset_), use the preset ID directly
       // For project custom brushes (prefix: custom_), extract the original ID
       let customBrushId: string;
@@ -121,14 +132,48 @@ const BrushLibrary = () => {
         customBrushId = preset.id;
       }
       
+      // Save current brush settings before switching (similar to setBrushPreset logic)
+      const currentBrushId = currentBrushPreset 
+        ? currentBrushPreset.id 
+        : (tools.brushSettings.brushShape === BrushShape.CUSTOM && tools.brushSettings.selectedCustomBrush 
+           ? tools.brushSettings.selectedCustomBrush 
+           : null);
+           
+      if (currentBrushId) {
+        const existingSavedSettings = loadBrushSettings(currentBrushId);
+        const settingsToSave = {
+          ...existingSavedSettings,
+          opacity: tools.brushSettings.opacity,
+          spacing: tools.brushSettings.spacing,
+          colorJitter: tools.brushSettings.colorJitter,
+          risographIntensity: tools.brushSettings.risographIntensity,
+          ditherIntensity: tools.brushSettings.ditherIntensity,
+          pressureEnabled: tools.brushSettings.pressureEnabled,
+          minPressure: tools.brushSettings.minPressure,
+          maxPressure: tools.brushSettings.maxPressure,
+          rotationEnabled: tools.brushSettings.rotationEnabled,
+          dashedEnabled: tools.brushSettings.dashedEnabled,
+          dashLength: tools.brushSettings.dashLength,
+          dashGap: tools.brushSettings.dashGap,
+          gridSnapEnabled: tools.brushSettings.gridSnapEnabled,
+          shapeEnabled: tools.brushSettings.shapeEnabled,
+          antialiasing: tools.brushSettings.antialiasing
+        };
+        saveBrushSettings(currentBrushId, settingsToSave);
+      }
+      
+      // Load saved settings for the target custom brush
+      const savedSettings = loadBrushSettings(customBrushId);
       
       setBrushSettings({
         brushShape: BrushShape.CUSTOM,
         selectedCustomBrush: customBrushId,
-        size: 100, // Default to 100% (original size) for custom brushes
+        // Use saved settings or defaults
+        size: tools.brushSettings.size, // Keep current global size
         useSwatchColor: false, // Default to false so custom brushes use their tip colors
         hueShift: 0,           // Reset global hueShift when selecting custom brush
-        saturationAdjust: 100  // Reset global saturationAdjust when selecting custom brush
+        saturationAdjust: 100, // Reset global saturationAdjust when selecting custom brush
+        ...savedSettings       // Apply saved settings last to override defaults
       });
     } else {
       // For regular presets, use setBrushPreset directly
