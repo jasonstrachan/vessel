@@ -5,6 +5,7 @@ import LeftToolbar from '../components/LeftToolbar';
 import BrushLibrary from '../components/BrushLibrary';
 import ControlsPanel from '../components/ControlsPanel';
 import ColorPickerPanel from '../components/panels/ColorPickerPanel';
+import ColorCyclePanel from '../components/panels/ColorCyclePanel';
 import DrawingCanvas from '../components/canvas/DrawingCanvas';
 import RHC1Panel from '../components/panels/RHC1Panel';
 import { DocumentModal } from '../components/modals/DocumentModal';
@@ -15,7 +16,7 @@ import { autosaveService } from '../utils/autosave';
 
 export default function Home() {
   // Global mouse tracking removed - now handled directly in canvas
-  const { saveProject, loadProject, ui, toggleModal, autosave } = useAppStore();
+  const { saveProject, loadProject, ui, toggleModal, autosave, tools } = useAppStore();
 
   // Load settings from localStorage on initial mount only
   useEffect(() => {
@@ -117,19 +118,29 @@ export default function Home() {
       {/* Separator */}
       <div className="w-[2px] bg-[#424242] h-screen flex-shrink-0" />
       
-      {/* RHC2 - ColorPickerPanel + BrushLibrary + ControlsPanel */}
+      {/* RHC2 - ColorPickerPanel + BrushLibrary + ControlsPanel OR ColorCyclePanel */}
       <div className="flex flex-col h-screen flex-shrink-0" style={{ width: '240px', minWidth: '240px', maxWidth: '240px' }}>
-        <div className="flex-shrink-0">
-          <ColorPickerPanel />
-        </div>
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <BrushLibrary />
-        </div>
-        {/* Separator */}
-        <div className="h-[2px] bg-[#424242] w-full flex-shrink-0" />
-        <div className="flex-[2] min-h-0 overflow-y-auto">
-          <ControlsPanel />
-        </div>
+        {tools.currentTool === 'color-cycle' ? (
+          // Show Color Cycle Panel when color-cycle tool is active
+          <div className="flex-1 overflow-y-auto">
+            <ColorCyclePanel />
+          </div>
+        ) : (
+          // Show normal panels for other tools
+          <>
+            <div className="flex-shrink-0">
+              <ColorPickerPanel />
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <BrushLibrary />
+            </div>
+            {/* Separator */}
+            <div className="h-[2px] bg-[#424242] w-full flex-shrink-0" />
+            <div className="flex-[2] min-h-0 overflow-y-auto">
+              <ControlsPanel />
+            </div>
+          </>
+        )}
       </div>
       
       {/* Document Modal */}

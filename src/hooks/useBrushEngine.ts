@@ -422,10 +422,6 @@ const applySierraLiteDitherWithFillResolution = (imageData: ImageData, numColors
       }
     }
     
-    // Debug logging - more frequent for diagnosis
-    if (Math.random() < 0.01) { // Log 1% of color matches
-      console.log(`Apple II Dither Block: (${r},${g},${b}) -> (${nearest[0]},${nearest[1]},${nearest[2]}) distance: ${minDiff.toFixed(1)}`);
-    }
     
     return nearest;
   };

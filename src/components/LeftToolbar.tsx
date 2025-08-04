@@ -19,6 +19,7 @@ const LeftToolbar = () => {
       { id: 'eraser' as Tool, icon: null, label: 'Eraser' },
       { id: 'eyedropper' as Tool, icon: null, label: 'Eyedropper' },
       { id: 'fill' as Tool, icon: null, label: 'Fill' },
+      { id: 'color-cycle' as Tool, icon: null, label: 'Color Cycle' },
     ],
     [
       { id: 'save' as Tool, icon: null, label: 'Save File' },
@@ -122,6 +123,17 @@ const LeftToolbar = () => {
               <rect x="11.8984" y="2.64685" width="9.78835" height="12.7943" transform="rotate(45 11.8984 2.64685)" fill="currentColor" fillOpacity="0.8"/>
               <rect x="19.4903" y="10.097" width="2.34517" height="2.34517" transform="rotate(45 19.4903 10.097)" fill="currentColor" fillOpacity="0.8"/>
               <rect x="19.4903" y="13.4137" width="2.34517" height="2.34517" transform="rotate(45 19.4903 13.4137)" fill="currentColor" fillOpacity="0.8"/>
+            </svg>
+          ) : tool.id === 'color-cycle' ? (
+            <svg width="28" height="28" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10" stroke="currentColor" strokeWidth="2" fill="none" opacity="0.8"/>
+              <path d="M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10" stroke="currentColor" strokeWidth="2" fill="none" opacity="0.8"/>
+              <polygon points="15,8 17,10 15,12" fill="currentColor" fillOpacity="0.8"/>
+              <polygon points="5,12 3,10 5,8" fill="currentColor" fillOpacity="0.8"/>
+              <circle cx="10" cy="6" r="1.5" fill="currentColor" fillOpacity="0.8"/>
+              <circle cx="14" cy="10" r="1.5" fill="currentColor" fillOpacity="0.8"/>
+              <circle cx="10" cy="14" r="1.5" fill="currentColor" fillOpacity="0.8"/>
+              <circle cx="6" cy="10" r="1.5" fill="currentColor" fillOpacity="0.8"/>
             </svg>
           ) : tool.id === 'save' ? (
             <svg width="32" height="28" viewBox="0 0 22 19" fill="none" xmlns="http://www.w3.org/2000/svg">
