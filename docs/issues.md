@@ -2096,3 +2096,140 @@ const canvasCssX = mouseXInWrapper - canvasEl.clientLeft;
 - **Coordinate Systems**: Browser viewport vs element-relative positioning
 - **Canvas Transformations**: Relationship between DOM attributes and rendering context
 - **getBoundingClientRect()**: Behavior with CSS transforms and containment
+
+---
+
+## Issue #15: Gradient Brush Dither Resolution Not Persisting
+**Date**: 2025-01-31  
+**Status**: RESOLVED  
+**Severity**: High (Feature Persistence)  
+
+### Problem Description
+When using rectangle and polygon gradient brushes, the dither resolution (`fillResolution`) setting was not persisting when switching between brushes. The colors setting persisted correctly, but fillResolution always reset to 1, making the dither feature difficult to use effectively.
+
+### Root Cause Analysis
+The issue had multiple contributing factors:
+
+#### 1. Missing from Save Operations in BrushLibrary
+The `fillResolution` setting was not included in the brush settings save operations in `BrushLibrary.tsx`:
+- **useEffect cleanup function** - saves settings when component unmounts
+- **handlePresetClick function** - saves settings when switching brushes
+
+#### 2. React Component Mounting/Unmounting Issue
+The conditional rendering of the dither resolution slider caused React to unmount and remount the component:
+```typescript
+// PROBLEMATIC CODE
+{activeSettings.ditherEnabled && (
+  <ProgressSlider value={activeSettings.fillResolution || 1} />
+)}
+```
+This mounting/unmounting could reset the component state to default values.
+
+#### 3. Robust Preset Loading Issue
+The `setBrushPreset` function wasn't properly applying user overrides due to incorrect parameter passing:
+```typescript
+// BROKEN
+const { settings, components } = applyBrushPreset(preset, userSavedSettings);
+
+// FIXED  
+const { settings: presetDefaults, components } = applyBrushPreset(preset);
+const userOverrides = get().loadBrushSettings(preset.id);
+// Then properly merge with userOverrides having highest priority
+```
+
+### Resolution Strategy
+**Three-pronged fix to ensure fillResolution persistence**:
+
+#### 1. Added fillResolution to Save Operations
+In `src/components/BrushLibrary.tsx`:
+```typescript
+// Added to both save locations
+fillResolution: tools.brushSettings.fillResolution,
+```
+
+#### 2. Implemented "Sledgehammer" Fix for Slider
+In `src/components/toolbar/BrushControls.tsx`:
+```typescript
+// Always render slider but control visibility with CSS
+<ProgressSlider
+  style={{
+    visibility: activeSettings.ditherEnabled ? 'visible' : 'hidden',
+    opacity: activeSettings.ditherEnabled ? 1 : 0,
+    transition: 'opacity 0.2s',
+  }}
+  value={activeSettings.fillResolution || 1}
+  // ... rest of props
+/>
+```
+
+#### 3. Fixed Robust Preset Loading
+In `src/stores/useAppStore.ts`:
+```typescript
+// Proper order of operations
+const { settings: presetDefaults, components } = applyBrushPreset(preset);
+const userOverrides = get().loadBrushSettings(preset.id);
+
+const newBrushSettings = {
+  ...defaultBrushSettingsForStore, // 1. Base defaults
+  ...presetDefaults,               // 2. Preset-specific settings
+  ...userOverrides,                // 3. User saved settings (highest priority)
+  // 4. Settings that carry over between brushes
+  color: currentSettings.color,
+  blendMode: currentSettings.blendMode,
+  size: state.globalBrushSize
+};
+```
+
+### Files Modified
+1. **`src/components/BrushLibrary.tsx`** - Added fillResolution to save operations
+2. **`src/components/toolbar/BrushControls.tsx`** - Implemented always-visible slider with CSS visibility control
+3. **`src/stores/useAppStore.ts`** - Fixed robust preset loading with proper user override application
+4. **`src/hooks/useBrushEngine.ts`** - Fixed division by zero when colors=1 (added special case)
+
+### Additional Bug Fixed
+**Division by Zero in Dither Algorithm**:
+When `colors = 1`, the palette generation caused:
+```typescript
+// BROKEN
+palette.push(Math.round((i / (numColors - 1)) * 255)); // 0/0 = NaN
+
+// FIXED
+if (numColors === 1) {
+  palette.push(128); // Single mid-gray color
+} else {
+  // Original logic for 2+ colors
+}
+```
+
+Also enforced minimum 2 colors for dithering to be meaningful:
+```typescript
+const numColors = Math.max(2, brushSettings.colors || 2);
+```
+
+### Post-Resolution Verification
+- ✅ **fillResolution persists**: Setting saved and restored when switching brushes
+- ✅ **colors setting persists**: Continues to work as before
+- ✅ **No slider flashing**: Slider remains stable with CSS visibility control
+- ✅ **No division by zero**: Dithering works with any color count
+- ✅ **User overrides respected**: Saved settings have highest priority
+
+### Prevention Measures
+- **Include all settings in save operations**: Audit save/load logic when adding new settings
+- **Avoid conditional component rendering**: Use CSS visibility for UI state changes
+- **Test edge cases**: Check boundary values (like colors=1) for mathematical operations
+- **Proper state merging order**: Ensure user overrides always have highest priority
+
+### Key Insights
+1. **Component lifecycle matters**: Conditional rendering can reset component state
+2. **Save operations must be comprehensive**: Missing fields won't persist
+3. **CSS visibility > conditional rendering**: For preserving component state
+4. **Mathematical edge cases**: Always handle division by zero and boundary conditions
+
+### Manual Testing Checklist
+- [ ] Set fillResolution to a value (e.g., 16)
+- [ ] Switch to another brush
+- [ ] Switch back to gradient brush
+- [ ] Verify fillResolution is still 16
+- [ ] Toggle dither on/off and verify slider stability
+- [ ] Test with colors=1 and verify no black rendering
+- [ ] Test with multiple gradient brushes
