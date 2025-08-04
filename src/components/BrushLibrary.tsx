@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushShape, BrushPreset } from '../types';
 import PlusButton from './ui/PlusButton';
@@ -87,6 +87,36 @@ const BrushLibrary = () => {
     return null;
   }, [tools.brushSettings.selectedCustomBrush, temporaryCustomBrush, project]);
   
+  // Save brush settings when component unmounts or loses focus
+  useEffect(() => {
+    return () => {
+      if (currentBrushPreset && (tools.currentTool === 'brush' || tools.currentTool === 'custom')) {
+        const currentBrushId = currentBrushPreset.id;
+        const existingSavedSettings = loadBrushSettings(currentBrushId);
+        const settingsToSave = {
+          ...existingSavedSettings,
+          opacity: tools.brushSettings.opacity,
+          spacing: tools.brushSettings.spacing,
+          colorJitter: tools.brushSettings.colorJitter,
+          risographIntensity: tools.brushSettings.risographIntensity,
+          ditherIntensity: tools.brushSettings.ditherIntensity,
+          pressureEnabled: tools.brushSettings.pressureEnabled,
+          minPressure: tools.brushSettings.minPressure,
+          maxPressure: tools.brushSettings.maxPressure,
+          rotationEnabled: tools.brushSettings.rotationEnabled,
+          dashedEnabled: tools.brushSettings.dashedEnabled,
+          dashLength: tools.brushSettings.dashLength,
+          dashGap: tools.brushSettings.dashGap,
+          gridSnapEnabled: tools.brushSettings.gridSnapEnabled,
+          shapeEnabled: tools.brushSettings.shapeEnabled,
+          antialiasing: tools.brushSettings.antialiasing,
+          colors: tools.brushSettings.colors
+        };
+        saveBrushSettings(currentBrushId, settingsToSave);
+      }
+    };
+  }, [currentBrushPreset, tools.currentTool, tools.brushSettings, loadBrushSettings, saveBrushSettings]);
+  
   const canSaveCustomBrush = true; // Always show the + button
   
   const handleSaveCustomBrushAsPreset = () => {
@@ -111,15 +141,6 @@ const BrushLibrary = () => {
   };
   
   const handlePresetClick = (preset: BrushPreset) => {
-    // DEBUG: Log brush preset click
-    console.log('🔘 [DEBUG] BrushLibrary handlePresetClick:', {
-      clickedPreset: preset.id,
-      presetName: preset.name,
-      isCustomBrush: preset.isCustomBrush,
-      currentBrushPreset: currentBrushPreset?.id,
-      currentBrushSettings: tools.brushSettings
-    });
-    
     if (preset.isCustomBrush && preset.customBrushData) {
       // For custom brush presets, save current settings and load saved settings for the target brush
       // For saved presets (prefix: preset_), use the preset ID directly
@@ -157,7 +178,8 @@ const BrushLibrary = () => {
           dashGap: tools.brushSettings.dashGap,
           gridSnapEnabled: tools.brushSettings.gridSnapEnabled,
           shapeEnabled: tools.brushSettings.shapeEnabled,
-          antialiasing: tools.brushSettings.antialiasing
+          antialiasing: tools.brushSettings.antialiasing,
+          colors: tools.brushSettings.colors
         };
         saveBrushSettings(currentBrushId, settingsToSave);
       }

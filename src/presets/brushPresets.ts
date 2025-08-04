@@ -23,7 +23,8 @@ export const pixelBrushSettings: BrushSettings = {
   hueShift: 0,
   saturationAdjust: 100,
   colorJitter: 0,
-  risographIntensity: 0
+  risographIntensity: 0,
+  ditherIntensity: 0
 };
 
 // Default brush settings for smooth drawing
@@ -109,15 +110,13 @@ export const pixelBrushPreset: BrushPreset = {
   modifiedAt: new Date(),
   preferredSettings: {
     size: 1,
-    opacity: 1,
-    spacing: 1,
     antialiasing: false,
-    colorJitter: 0,
     pressureEnabled: false,
     rotationEnabled: false,
     dashedEnabled: false,
     gridSnapEnabled: false,
     shapeEnabled: false
+    // Removed opacity, spacing, colorJitter - these are user preferences, not brush technical requirements
   }
 };
 
@@ -185,15 +184,13 @@ export const defaultBrushPreset: BrushPreset = {
   modifiedAt: new Date(),
   preferredSettings: {
     size: 100,
-    opacity: 1,
-    spacing: 1,
     antialiasing: true,
-    colorJitter: 0,
     pressureEnabled: false,
     rotationEnabled: false,
     dashedEnabled: false,
     gridSnapEnabled: false,
     shapeEnabled: false
+    // Removed opacity, spacing, colorJitter - these are user preferences, not brush technical requirements
   }
 };
 
@@ -436,10 +433,7 @@ export const inkBrushPreset: BrushPreset = {
   modifiedAt: new Date(),
   preferredSettings: {
     size: 50,
-    opacity: 0.8,
-    spacing: 5,
     antialiasing: true,
-    colorJitter: 10,
     pressureEnabled: true,
     minPressure: 10,
     maxPressure: 200,
@@ -447,6 +441,7 @@ export const inkBrushPreset: BrushPreset = {
     dashedEnabled: false,
     gridSnapEnabled: false,
     shapeEnabled: false
+    // Removed opacity, spacing, colorJitter - these are user preferences, not brush technical requirements
   }
 };
 
@@ -493,9 +488,7 @@ export const rectangleGradientBrushPreset: BrushPreset = {
   isDefault: false,
   createdAt: new Date(),
   modifiedAt: new Date(),
-  preferredSettings: {
-    colors: 2
-  }
+  preferredSettings: {}
 };
 
 // Polygon Gradient Brush Components
@@ -539,9 +532,7 @@ export const polygonGradientBrushPreset: BrushPreset = {
   isDefault: false,
   createdAt: new Date(),
   modifiedAt: new Date(),
-  preferredSettings: {
-    colors: 2
-  }
+  preferredSettings: {}
 };
 
 // Available brush presets
@@ -568,62 +559,39 @@ export const getBrushPresetsByCategory = (category: string): BrushPreset[] => {
 export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partial<BrushSettings>): { settings: Partial<BrushSettings>; components: BrushComponent[] } => {
   const settings: Partial<BrushSettings> = {};
   
-  // FIRST: ALWAYS apply preset-specific defaults to ensure all brushes have baseline settings
+  // FIRST: Apply only technical defaults (size and functional settings), not user preferences
   if (preset.id === 'pixel-brush') {
     settings.size = 1; // 1px default for pixel brush
-    settings.opacity = 1;
-    settings.spacing = 1;
     settings.antialiasing = false;
-    settings.colorJitter = 0;
   } else if (preset.id === 'default-brush') {
     settings.size = 10; // 10px default for default brush
-    settings.opacity = 1;
-    settings.spacing = 1;
     settings.antialiasing = true;
-    settings.colorJitter = 0;
   } else if (preset.id === 'square-pixel-1') {
     settings.size = 1; // 1px default as per name
-    settings.opacity = 1;
-    settings.spacing = 1;
     settings.antialiasing = false;
-    settings.colorJitter = 0;
   } else if (preset.id === 'round-pixel-4') {
     settings.size = 4; // 4px default as per name
-    settings.opacity = 1;
-    settings.spacing = 1;
     settings.antialiasing = false;
-    settings.colorJitter = 0;
   } else if (preset.id === 'round-soft-4') {
     settings.size = 4; // 4px default as per name
-    settings.opacity = 1;
-    settings.spacing = 1;
     settings.antialiasing = true;
-    settings.colorJitter = 0;
   } else if (preset.id === 'round-square-6') {
     settings.size = 6; // 6px default as per name
-    settings.opacity = 1;
-    settings.spacing = 1;
     settings.antialiasing = true;
-    settings.colorJitter = 0;
   } else if (preset.id === 'ink-brush') {
     settings.size = 10; // 10px default for ink brush
-    settings.opacity = 1;
-    settings.spacing = 1;
     settings.antialiasing = true;
     settings.pressureEnabled = true;
     settings.minPressure = 1;
     settings.maxPressure = 100;
-    settings.colorJitter = 0;
   } else if (preset.category === 'Custom') {
     // Handle custom brush presets - apply sensible defaults
-    settings.opacity = 1;
-    settings.spacing = 1;
     settings.antialiasing = true;
     settings.pressureEnabled = true;
     settings.minPressure = 1;
     settings.maxPressure = 100;
-    settings.colorJitter = 0;
   }
+  // Removed hardcoded opacity, spacing, colorJitter - these should come from user preferences or store defaults
   
   // SECOND: Extract behavior settings from components (only core functionality, not user preferences)
   preset.components.forEach(component => {

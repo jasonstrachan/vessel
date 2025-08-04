@@ -433,6 +433,32 @@ export const useAppStore = create<AppState>()(
         return defaultToolState;
       })(),
       setCurrentTool: (tool) => set((state) => {
+        // Save current brush settings before switching tools
+        if (state.currentBrushPreset && (state.tools.currentTool === 'brush' || state.tools.currentTool === 'custom')) {
+          const currentBrushId = state.currentBrushPreset.id;
+          const existingSavedSettings = get().loadBrushSettings(currentBrushId);
+          const settingsToSave = {
+            ...existingSavedSettings,
+            opacity: state.tools.brushSettings.opacity,
+            spacing: state.tools.brushSettings.spacing,
+            colorJitter: state.tools.brushSettings.colorJitter,
+            risographIntensity: state.tools.brushSettings.risographIntensity,
+            ditherIntensity: state.tools.brushSettings.ditherIntensity,
+            pressureEnabled: state.tools.brushSettings.pressureEnabled,
+            minPressure: state.tools.brushSettings.minPressure,
+            maxPressure: state.tools.brushSettings.maxPressure,
+            rotationEnabled: state.tools.brushSettings.rotationEnabled,
+            dashedEnabled: state.tools.brushSettings.dashedEnabled,
+            dashLength: state.tools.brushSettings.dashLength,
+            dashGap: state.tools.brushSettings.dashGap,
+            gridSnapEnabled: state.tools.brushSettings.gridSnapEnabled,
+            shapeEnabled: state.tools.brushSettings.shapeEnabled,
+            antialiasing: state.tools.brushSettings.antialiasing,
+            colors: state.tools.brushSettings.colors
+          };
+          get().saveBrushSettings(currentBrushId, settingsToSave);
+        }
+
         const newBrushSettings = { ...state.tools.brushSettings };
         
         // Reset custom brush state when switching to incompatible tools
@@ -452,14 +478,6 @@ export const useAppStore = create<AppState>()(
         };
       }),
       setBrushSettings: (settings) => set((state) => {
-        // DEBUG: Log setBrushSettings call
-        console.log('🎨 [DEBUG] setBrushSettings called:', {
-          settingsToApply: settings,
-          currentBrushSettings: state.tools.brushSettings,
-          currentBrushPreset: state.currentBrushPreset?.id,
-          currentBrushSpecificSettings: state.brushSpecificSettings
-        });
-        
         const currentSettings = state.tools.brushSettings;
         const newSettings = { ...currentSettings, ...settings };
         
@@ -638,14 +656,6 @@ export const useAppStore = create<AppState>()(
         }
       })),
       setBrushPreset: (preset) => set((state) => {
-        // DEBUG: Log setBrushPreset call
-        console.log('🖌️ [DEBUG] setBrushPreset called:', {
-          newPreset: preset.id,
-          oldPreset: state.currentBrushPreset?.id,
-          currentBrushSettings: state.tools.brushSettings,
-          currentBrushSpecificSettings: state.brushSpecificSettings
-        });
-        
         // Save current settings to the currently active brush before switching (excluding size)
         if (state.currentBrushPreset) {
           const currentBrushId = state.currentBrushPreset.id;
@@ -668,7 +678,8 @@ export const useAppStore = create<AppState>()(
             dashGap: state.tools.brushSettings.dashGap,
             gridSnapEnabled: state.tools.brushSettings.gridSnapEnabled,
             shapeEnabled: state.tools.brushSettings.shapeEnabled,
-            antialiasing: state.tools.brushSettings.antialiasing
+            antialiasing: state.tools.brushSettings.antialiasing,
+            colors: state.tools.brushSettings.colors
           };
           get().saveBrushSettings(currentBrushId, settingsToSave);
         }
@@ -1567,15 +1578,6 @@ export const useAppStore = create<AppState>()(
         const existingSettings = state.brushSpecificSettings[brushId] || {};
         const newSettings = { ...existingSettings, ...settings };
         
-        // DEBUG: Log save operation
-        console.log('🔧 [DEBUG] saveBrushSettings called:', {
-          brushId,
-          settingsToSave: settings,
-          existingSettings,
-          finalSettings: newSettings,
-          currentBrushSpecificSettings: state.brushSpecificSettings
-        });
-        
         return { 
           brushSpecificSettings: {
             ...state.brushSpecificSettings,
@@ -1586,13 +1588,6 @@ export const useAppStore = create<AppState>()(
       loadBrushSettings: (brushId) => {
         const state = get();
         const loadedSettings = state.brushSpecificSettings[brushId] || {};
-        
-        // DEBUG: Log load operation
-        console.log('🔍 [DEBUG] loadBrushSettings called:', {
-          brushId,
-          loadedSettings,
-          allBrushSpecificSettings: state.brushSpecificSettings
-        });
         
         return loadedSettings;
       },
