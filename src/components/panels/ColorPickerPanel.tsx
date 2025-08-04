@@ -59,7 +59,7 @@ const ColorPickerPanel = () => {
           {/* Red slider */}
           <input
             type="range"
-            className="slider w-full"
+            className="slider rgb-slider red-slider w-full"
             value={rgbValues.r}
             min={0}
             max={255}
@@ -72,7 +72,7 @@ const ColorPickerPanel = () => {
           <div className="-mt-0.5">
             <input
               type="range"
-              className="slider w-full"
+              className="slider rgb-slider green-slider w-full"
               value={rgbValues.g}
               min={0}
               max={255}
@@ -86,7 +86,7 @@ const ColorPickerPanel = () => {
           <div className="-mt-0.5">
             <input
               type="range"
-              className="slider w-full"
+              className="slider rgb-slider blue-slider w-full"
               value={rgbValues.b}
               min={0}
               max={255}
