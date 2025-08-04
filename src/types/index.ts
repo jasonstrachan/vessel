@@ -218,6 +218,8 @@ export interface BrushSettings {
   colorJitter: number; // 0 to 100 (0 = no jitter, 100 = full spectrum jitter)
   // Risograph texture effect settings
   risographIntensity: number; // 0 to 100 (0 = no effect, 100 = maximum dissolve effect)
+  // Dither effect for gradients
+  ditherIntensity: number; // 0 to 100 (0 = off, 100 = max dither)
   // Current brush tip (edited in mini canvas) with brush identifier
   currentBrushTip?: {
     imageData: ImageData;

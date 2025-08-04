@@ -13,6 +13,7 @@ const BrushControls = () => {
   const { tools, setBrushSettings, setEraserSettings } = useAppStore();
   const { brushSettings, eraserSettings, currentTool } = tools;
   
+  
   // Use the appropriate settings and setter based on current tool
   const activeSettings = currentTool === 'eraser' ? eraserSettings : brushSettings;
   const setActiveSettings = currentTool === 'eraser' ? setEraserSettings : setBrushSettings;
@@ -27,37 +28,58 @@ const BrushControls = () => {
       activeSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
     return (
       <div className="p-4">
-        <div className="mb-3">
-          <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
-            Colors: {activeSettings.colors || 2}
-          </label>
-          <input
-            type="range"
-            className="slider flex-1"
-            value={activeSettings.colors || 2}
-            min={1}
-            max={10}
-            step={1}
-            onChange={(e) => setActiveSettings({ colors: parseInt(e.target.value) })}
-            aria-label="Gradient Colors"
-          />
+        {/* Colors */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Colors
+            </label>
+            <ProgressSlider
+              value={activeSettings.colors || 2}
+              min={1}
+              max={10}
+              step={1}
+              onChange={(value) => setActiveSettings({ colors: Math.round(value) })}
+              aria-label="Gradient Colors"
+              className="flex-1"
+            />
+          </div>
         </div>
         
-        {/* Risograph */}
-        <div className="mb-3">
-          <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
-            Risograph: {activeSettings.risographIntensity || 0}%
-          </label>
-          <input
-            type="range"
-            className="slider flex-1"
-            value={activeSettings.risographIntensity || 0}
-            min={0}
-            max={100}
-            step={1}
-            onChange={(e) => setActiveSettings({ risographIntensity: parseInt(e.target.value) })}
-            aria-label="Risograph Intensity"
-          />
+        {/* Riso */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Riso
+            </label>
+            <ProgressSlider
+              value={activeSettings.risographIntensity || 0}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(value) => setActiveSettings({ risographIntensity: Math.round(value) })}
+              aria-label="Risograph Intensity"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Dither */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Dither
+            </label>
+            <ProgressSlider
+              value={activeSettings.ditherIntensity || 0}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(value) => setActiveSettings({ ditherIntensity: Math.round(value) })}
+              aria-label="Dither Intensity"
+              className="flex-1"
+            />
+          </div>
         </div>
       </div>
     );
@@ -91,15 +113,14 @@ const BrushControls = () => {
           <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
             Opacity
           </label>
-          <input
-            type="range"
-            className="slider flex-1"
+          <ProgressSlider
             value={activeSettings.opacity}
             min={0}
             max={1}
             step={0.01}
-            onChange={(e) => setActiveSettings({ opacity: parseFloat(e.target.value) })}
+            onChange={(value) => setActiveSettings({ opacity: value })}
             aria-label="Opacity"
+            className="flex-1"
           />
         </div>
       </div>
@@ -110,15 +131,14 @@ const BrushControls = () => {
           <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
             Spacing
           </label>
-          <input
-            type="range"
-            className="slider flex-1"
+          <ProgressSlider
             value={activeSettings.spacing}
             min={0}
             max={400}
             step={1}
-            onChange={(e) => setActiveSettings({ spacing: parseInt(e.target.value) })}
+            onChange={(value) => setActiveSettings({ spacing: Math.round(value) })}
             aria-label="Spacing"
+            className="flex-1"
           />
         </div>
       </div>
@@ -129,17 +149,14 @@ const BrushControls = () => {
           <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
             Col Jit
           </label>
-          <input
-            type="range"
-            className="slider flex-1"
+          <ProgressSlider
             value={activeSettings.colorJitter || 0}
             min={0}
             max={100}
             step={1}
-            onChange={(e) => {
-              setActiveSettings({ colorJitter: parseInt(e.target.value) });
-            }}
+            onChange={(value) => setActiveSettings({ colorJitter: Math.round(value) })}
             aria-label="Color Jitter"
+            className="flex-1"
           />
         </div>
       </div>
@@ -150,15 +167,14 @@ const BrushControls = () => {
           <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
             Riso
           </label>
-          <input
-            type="range"
-            className="slider flex-1"
+          <ProgressSlider
             value={activeSettings.risographIntensity || 0}
             min={0}
             max={100}
             step={1}
-            onChange={(e) => setActiveSettings({ risographIntensity: parseInt(e.target.value) })}
+            onChange={(value) => setActiveSettings({ risographIntensity: Math.round(value) })}
             aria-label="Risograph Intensity"
+            className="flex-1"
           />
         </div>
       </div>

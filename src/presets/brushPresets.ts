@@ -50,7 +50,8 @@ export const defaultBrushSettings: BrushSettings = {
   hueShift: 0,
   saturationAdjust: 100,
   colorJitter: 0,
-  risographIntensity: 0
+  risographIntensity: 0,
+  ditherIntensity: 0
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect
@@ -196,72 +197,6 @@ export const defaultBrushPreset: BrushPreset = {
   }
 };
 
-// 1px Square Pixel Brush Components
-export const squarePixel1Components: BrushComponent[] = [
-  {
-    id: 'square-pixel-1-size',
-    type: ComponentType.SIZE_MODIFIER,
-    parameters: {
-      minSize: 1,
-      maxSize: 1000,
-      pressureInfluence: 0
-    },
-    priority: 10,
-    enabled: true
-  },
-  {
-    id: 'square-pixel-1-opacity',
-    type: ComponentType.OPACITY_MODIFIER,
-    parameters: {
-      pressureInfluence: 0
-    },
-    priority: 20,
-    enabled: true
-  },
-  {
-    id: 'square-pixel-1-antialiasing',
-    type: ComponentType.ANTI_ALIASING,
-    parameters: {
-      mode: 'pixel'
-    },
-    priority: 30,
-    enabled: true
-  },
-  {
-    id: 'square-pixel-1-shape',
-    type: ComponentType.SHAPE_RENDERER,
-    parameters: {
-      shape: BrushShape.SQUARE
-    },
-    priority: 40,
-    enabled: true
-  }
-];
-
-// 1px Square Pixel Brush Preset
-export const squarePixel1Preset: BrushPreset = {
-  id: 'square-pixel-1',
-  name: '1px Square',
-  category: 'Pixel Art',
-  components: squarePixel1Components,
-  thumbnail: '/assets/images/Brush.png',
-  tags: ['pixel', 'hard', '1px', 'square'],
-  isDefault: false,
-  createdAt: new Date(),
-  modifiedAt: new Date(),
-  preferredSettings: {
-    size: 1,
-    opacity: 1,
-    spacing: 1,
-    antialiasing: false,
-    colorJitter: 0,
-    pressureEnabled: false,
-    rotationEnabled: false,
-    dashedEnabled: false,
-    gridSnapEnabled: true,
-    shapeEnabled: false
-  }
-};
 
 // 4px Round Pixel Brush Components
 export const roundPixel4Components: BrushComponent[] = [
@@ -613,7 +548,6 @@ export const polygonGradientBrushPreset: BrushPreset = {
 export const brushPresets: BrushPreset[] = [
   pixelBrushPreset,
   defaultBrushPreset,
-  squarePixel1Preset,
   roundPixel4Preset,
   roundSoft4Preset,
   roundSquare6Preset,

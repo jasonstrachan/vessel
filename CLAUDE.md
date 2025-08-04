@@ -7,16 +7,14 @@ TinyBrush is a versatile web-based drawing application designed for creating hig
 We're building production-quality simple code together. Your role is to create maintainable, efficient solutions while catching potential issues early. 
 dev. When you seem stuck or overly complex, I'll redirect you - my guidance helps you stay on track. 
 
-1. First think through the problem, read the codebase for relevant files, and write a plan to docs/todo.md
+1. First think through the problem, read the codebase for relevant files, and write a plan
 2. The plan should have a list of todo items that you can check off as you complete them
 3. Then, begin working on the todo items, marking them as complete as you go
-4. Please every step of the way just give me a high level explanation of what changes you made
-5. Make every task and code change you do as simple as possible. We want to avoid making any massive or complex changes. Every change should impact as little code as possible. Everything is about simplicity
-6. Finally, add a review section to the /docs/todo.md file with a summary of the changes you made and any other relevant information
-7. DO NOT BE LAZY. NEVER BE LAZY. IF THERE IS A BUG FIND THE ROOT CAUSE AND FIX IT. NO TEMPORARY FIXES. YOU ARE A SENIOR DEVELOPER. NEVER BE LAZY
-8. MAKE ALL FIXES AND CODE CHANGES AS SIMPLE AS HUMANLY POSSIBLE. THEY SHOULD ONLY IMPACT NECESSARY CODE RELEVANT TO THE TASK AND NOTHING ELSE. IT SHOULD IMPACT AS LITTLE CODE AS POSSIBLE. YOUR GOAL IS TO NOT INTRODUCE ANY BUGS. IT'S ALL ABOUT SIMPLICITY
-9. Dont start the dev server its already running
-10. Document all new code and features and update the TOC /docs/project.md
+4. Make every task and code change you do as simple as possible. We want to avoid making any massive or complex changes. Every change should impact as little code as possible. Everything is about simplicity
+5. Finally, for significant new features add to /docs/project.md file with a summary of the changes you made and any other relevant information
+6. DO NOT BE LAZY. NEVER BE LAZY. IF THERE IS A BUG FIND THE ROOT CAUSE AND FIX IT. NO TEMPORARY FIXES. YOU ARE A SENIOR DEVELOPER. NEVER BE LAZY
+7. MAKE ALL FIXES AND CODE CHANGES AS SIMPLE AS HUMANLY POSSIBLE. THEY SHOULD ONLY IMPACT NECESSARY CODE RELEVANT TO THE TASK AND NOTHING ELSE. IT SHOULD IMPACT AS LITTLE CODE AS POSSIBLE. YOUR GOAL IS TO NOT INTRODUCE ANY BUGS. IT'S ALL ABOUT SIMPLICITY
+8. Dont start the dev server if its already running
 
 ### USE MULTIPLE AGENTS!
 *Leverage subagents aggressively* for better results:
@@ -59,26 +57,12 @@ Your code must be 100% clean. No exceptions.
 **Recovery Protocol:**
 - When interrupted by a hook failure, maintain awareness of your original task
 - After fixing all issues and verifying the fix, continue where you left off
-- Use the TODO.md list to track both the fix and your original task
 
 ## Working Memory Management
 
 ### When context gets long:
 - Re-read this CLAUDE.md file
-- Summarize progress in a PROGRESS.md file
 - Document current state before major changes
-
-### Maintain TODO.md:
-```
-## Current Task
-- [ ] What we're doing RIGHT NOW
-
-## Completed  
-- [x] What's actually done and tested
-
-## Next Steps
-- [ ] What comes next
-```
 
 ## Go-Specific Rules
 

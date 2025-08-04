@@ -150,6 +150,50 @@ const createNoiseTexture = (): HTMLCanvasElement => {
   return canvas;
 };
 
+const createDitherPattern = (intensity: number): HTMLCanvasElement => {
+  const size = 8; // Small pattern for ordered dithering
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
+
+  if (!ctx) return canvas;
+
+  const imageData = ctx.createImageData(size, size);
+  const data = imageData.data;
+
+  // Ordered dither matrix (8x8 Bayer matrix scaled down)
+  const matrix = [
+    [0, 32, 8, 40, 2, 34, 10, 42],
+    [48, 16, 56, 24, 50, 18, 58, 26],
+    [12, 44, 4, 36, 14, 46, 6, 38],
+    [60, 28, 52, 20, 62, 30, 54, 22],
+    [3, 35, 11, 43, 1, 33, 9, 41],
+    [51, 19, 59, 27, 49, 17, 57, 25],
+    [15, 47, 7, 39, 13, 45, 5, 37],
+    [63, 31, 55, 23, 61, 29, 53, 21]
+  ];
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const threshold = matrix[y][x] / 64; // Normalize to 0-1
+      const scaledIntensity = intensity / 100;
+      
+      // Create a pattern where higher intensity creates more contrast
+      const value = threshold < scaledIntensity ? 0 : 255;
+      
+      const index = (y * size + x) * 4;
+      data[index] = value;     // R
+      data[index + 1] = value; // G
+      data[index + 2] = value; // B
+      data[index + 3] = 255;   // A
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
+};
+
 /**
  * Creates a tileable, structured noise texture that mimics a mezzotint or risograph screen.
  * It does this by generating noise, blurring it to create clumps, and increasing contrast.
@@ -1718,7 +1762,8 @@ export const useBrushEngine = () => {
     // Performance monitoring (silent - data available in dev tools if needed)
     if (process.env.NODE_ENV === 'development' && strokeStartTime) {
       // Stroke timing data available for debugging if needed
-      performance.now() - strokeStartTime;
+      const strokeDuration = performance.now() - strokeStartTime;
+      // Stroke duration stored for potential debugging use
     }
   }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp]);
   
@@ -1823,6 +1868,30 @@ export const useBrushEngine = () => {
         ctx.globalCompositeOperation = prevComposite;
       }
     }
+
+    // Apply dither effect if enabled
+    const ditherIntensity = brushSettings.ditherIntensity || 0;
+    if (ditherIntensity > 0) {
+      // Create ordered dither pattern
+      const ditherPattern = createDitherPattern(ditherIntensity);
+      const pattern = ctx.createPattern(ditherPattern, 'repeat');
+      
+      if (pattern) {
+        const prevComposite = ctx.globalCompositeOperation;
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.globalAlpha = ditherIntensity / 100;
+        
+        // Apply dither to the rectangle area
+        ctx.beginPath();
+        ctx.moveTo(corners[0].x, corners[0].y);
+        corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
+        ctx.closePath();
+        ctx.fillStyle = pattern;
+        ctx.fill();
+        
+        ctx.globalCompositeOperation = prevComposite;
+      }
+    }
     
     ctx.restore();
   }, []);
@@ -1883,6 +1952,26 @@ export const useBrushEngine = () => {
         ctx.fill();
         
         // Restore composite operation
+        ctx.globalCompositeOperation = prevComposite;
+      }
+    }
+
+    // Apply dither effect if enabled
+    const ditherIntensity = brushSettings.ditherIntensity || 0;
+    if (ditherIntensity > 0) {
+      // Create ordered dither pattern
+      const ditherPattern = createDitherPattern(ditherIntensity);
+      const pattern = ctx.createPattern(ditherPattern, 'repeat');
+      
+      if (pattern) {
+        const prevComposite = ctx.globalCompositeOperation;
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.globalAlpha = ditherIntensity / 100;
+        
+        // Apply dither to the polygon area
+        ctx.fillStyle = pattern;
+        ctx.fill();
+        
         ctx.globalCompositeOperation = prevComposite;
       }
     }
