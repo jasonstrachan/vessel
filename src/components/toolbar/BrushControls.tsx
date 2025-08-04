@@ -8,7 +8,6 @@ import { useAppStore } from '../../stores/useAppStore';
 import { BrushShape } from '../../types';
 import Input from '../ui/Input';
 import { Switch } from '../retroui/Switch';
-import { Slider } from '../retroui/Slider';
 const BrushControls = () => {
   const { tools, setBrushSettings, setEraserSettings } = useAppStore();
   const { brushSettings, eraserSettings, currentTool } = tools;
@@ -31,12 +30,14 @@ const BrushControls = () => {
           <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
             Colors: {activeSettings.colors || 2}
           </label>
-          <Slider
-            value={[activeSettings.colors || 2]}
+          <input
+            type="range"
+            className="slider flex-1"
+            value={activeSettings.colors || 2}
             min={1}
             max={10}
             step={1}
-            onValueChange={(value) => setActiveSettings({ colors: value[0] })}
+            onChange={(e) => setActiveSettings({ colors: parseInt(e.target.value) })}
             aria-label="Gradient Colors"
           />
         </div>
@@ -46,12 +47,14 @@ const BrushControls = () => {
           <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
             Risograph: {activeSettings.risographIntensity || 0}%
           </label>
-          <Slider
-            value={[activeSettings.risographIntensity || 0]}
+          <input
+            type="range"
+            className="slider flex-1"
+            value={activeSettings.risographIntensity || 0}
             min={0}
             max={100}
             step={1}
-            onValueChange={(value) => setActiveSettings({ risographIntensity: value[0] })}
+            onChange={(e) => setActiveSettings({ risographIntensity: parseInt(e.target.value) })}
             aria-label="Risograph Intensity"
           />
         </div>
@@ -69,12 +72,14 @@ const BrushControls = () => {
           Size: {activeSettings.size}{activeSettings.brushShape !== BrushShape.CUSTOM ? 'px' : ''}
         </label>
         <div onDoubleClick={handleBrushSizeDoubleClick}>
-          <Slider
-            value={[activeSettings.size]}
+          <input
+            type="range"
+            className="slider flex-1"
+            value={activeSettings.size}
             min={1}
             max={500}
             step={1}
-            onValueChange={(value) => setActiveSettings({ size: value[0] })}
+            onChange={(e) => setActiveSettings({ size: parseInt(e.target.value) })}
             aria-label="Brush Size"
           />
         </div>
@@ -85,12 +90,14 @@ const BrushControls = () => {
         <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
           Opacity: {Math.round(activeSettings.opacity * 100)}%
         </label>
-        <Slider
-          value={[activeSettings.opacity]}
+        <input
+          type="range"
+          className="slider flex-1"
+          value={activeSettings.opacity}
           min={0}
           max={1}
           step={0.01}
-          onValueChange={(value) => setActiveSettings({ opacity: value[0] })}
+          onChange={(e) => setActiveSettings({ opacity: parseFloat(e.target.value) })}
           aria-label="Opacity"
         />
       </div>
@@ -100,12 +107,14 @@ const BrushControls = () => {
         <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
           Spacing: {activeSettings.spacing}px
         </label>
-        <Slider
-          value={[activeSettings.spacing]}
+        <input
+          type="range"
+          className="slider flex-1"
+          value={activeSettings.spacing}
           min={1}
           max={400}
           step={1}
-          onValueChange={(value) => setActiveSettings({ spacing: value[0] })}
+          onChange={(e) => setActiveSettings({ spacing: parseInt(e.target.value) })}
           aria-label="Spacing"
         />
       </div>
@@ -115,13 +124,15 @@ const BrushControls = () => {
         <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
           Color Jitter: {activeSettings.colorJitter || 0}%
         </label>
-        <Slider
-          value={[activeSettings.colorJitter || 0]}
+        <input
+          type="range"
+          className="slider flex-1"
+          value={activeSettings.colorJitter || 0}
           min={0}
           max={100}
           step={1}
-          onValueChange={(value) => {
-            setActiveSettings({ colorJitter: value[0] });
+          onChange={(e) => {
+            setActiveSettings({ colorJitter: parseInt(e.target.value) });
           }}
           aria-label="Color Jitter"
         />
@@ -132,12 +143,14 @@ const BrushControls = () => {
         <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>
           Risograph: {activeSettings.risographIntensity || 0}%
         </label>
-        <Slider
-          value={[activeSettings.risographIntensity || 0]}
+        <input
+          type="range"
+          className="slider flex-1"
+          value={activeSettings.risographIntensity || 0}
           min={0}
           max={100}
           step={1}
-          onValueChange={(value) => setActiveSettings({ risographIntensity: value[0] })}
+          onChange={(e) => setActiveSettings({ risographIntensity: parseInt(e.target.value) })}
           aria-label="Risograph Intensity"
         />
       </div>

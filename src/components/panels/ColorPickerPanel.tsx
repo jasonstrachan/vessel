@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import AdvancedColorPicker from '../toolbar/AdvancedColorPicker';
 import ColorSwatches from '../toolbar/ColorSwatches';
-import { Slider } from '../retroui/Slider';
 import { useAppStore } from '../../stores/useAppStore';
 
 const ColorPickerPanel = () => {
@@ -58,39 +57,42 @@ const ColorPickerPanel = () => {
       <div className="px-1 py-1 bg-[#2C2C2C]">
         <div>
           {/* Red slider */}
-          <Slider
-            value={[rgbValues.r]}
+          <input
+            type="range"
+            className="slider w-full"
+            value={rgbValues.r}
             min={0}
             max={255}
             step={1}
-            onValueChange={(value) => handleRgbChange('r', value[0])}
+            onChange={(e) => handleRgbChange('r', parseInt(e.target.value))}
             aria-label="Red"
-            thumbColor="rgb(255, 0, 0)"
           />
           
           {/* Green slider */}
           <div className="-mt-0.5">
-            <Slider
-              value={[rgbValues.g]}
+            <input
+              type="range"
+              className="slider w-full"
+              value={rgbValues.g}
               min={0}
               max={255}
               step={1}
-              onValueChange={(value) => handleRgbChange('g', value[0])}
+              onChange={(e) => handleRgbChange('g', parseInt(e.target.value))}
               aria-label="Green"
-              thumbColor="rgb(0, 255, 0)"
             />
           </div>
           
           {/* Blue slider */}
           <div className="-mt-0.5">
-            <Slider
-              value={[rgbValues.b]}
+            <input
+              type="range"
+              className="slider w-full"
+              value={rgbValues.b}
               min={0}
               max={255}
               step={1}
-              onValueChange={(value) => handleRgbChange('b', value[0])}
+              onChange={(e) => handleRgbChange('b', parseInt(e.target.value))}
               aria-label="Blue"
-              thumbColor="rgb(0, 0, 255)"
             />
           </div>
         </div>
