@@ -26,6 +26,11 @@ let patternTempCtx: CanvasRenderingContext2D | null = null;
 
 // Risograph texture cache
 let risographTexture: HTMLCanvasElement | null = null;
+let risographTextureData: Uint8ClampedArray | null = null;
+
+// Reusable texture canvas for riso operations
+let risoTextureCanvas: HTMLCanvasElement | null = null;
+let risoTextureCtx: CanvasRenderingContext2D | null = null;
 
 // --- OPTIMIZATION: Throttled and Interpolated Color Jitter ---
 // This object manages jitter state to avoid expensive calculations on every point.
@@ -36,6 +41,17 @@ const jitterState = {
   // Recalculate the target jitter color every N points.
   // A value of 5-10 provides good randomization without high cost.
   recalcFrequency: 8, 
+};
+
+// --- OPTIMIZATION: Riso Effect Throttling ---
+// Throttle riso operations to improve performance during continuous drawing
+const risoThrottleState = {
+  lastProcessTime: 0,
+  throttleInterval: 16, // ~60fps throttling for riso operations
+  aggressiveThrottleInterval: 33, // ~30fps for continuous strokes
+  lastRisoCanvas: null as HTMLCanvasElement | null,
+  lastRisoSettings: { intensity: 0, size: 0, x: 0, y: 0 },
+  continuousStrokeCount: 0,
 };
 
 const getJitterContext = (): CanvasRenderingContext2D => {
@@ -267,6 +283,8 @@ const createRisographTexture = (): HTMLCanvasElement => {
   ctx.putImageData(contrastedImageData, 0, 0);
 
   risographTexture = canvas;
+  // Cache the texture data to avoid repeated getImageData calls
+  risographTextureData = contrastedData;
   return risographTexture;
 };
 
@@ -719,40 +737,67 @@ export const useBrushEngine = () => {
 
     // --- APPLY RISOGRAPH DISSOLVE ---
     if (isRisoActive && tempCanvas) {
-        const risoTexture = createRisographTexture();
-        const threshold = 1 - (risographIntensity / 100);
-
-        const stampImageData = targetCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-        const data = stampImageData.data;
-
-        // Create a temporary context to get texture pixel data
-        const textureCtx = canvasPool.acquire(tempCanvas.width, tempCanvas.height).getContext('2d')!;
-        textureCtx.drawImage(risoTexture, 0, 0, tempCanvas.width, tempCanvas.height);
-        const textureData = textureCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height).data;
+        // Throttle riso operations for performance during continuous drawing
+        const now = performance.now();
+        const settingsChanged = risoThrottleState.lastRisoSettings.intensity !== risographIntensity ||
+                               risoThrottleState.lastRisoSettings.size !== size ||
+                               Math.abs(risoThrottleState.lastRisoSettings.x - x) > 2 ||
+                               Math.abs(risoThrottleState.lastRisoSettings.y - y) > 2;
         
-        // This loop simulates the "Dissolve" blend mode
-        for (let i = 0; i < data.length; i += 4) {
-            // If the pixel in the shape is visible...
-            if (data[i + 3] > 0) {
-                // ...check the brightness of the corresponding noise pixel.
-                const noiseBrightness = textureData[i] / 255;
-                // If the noise brightness is below our slider threshold, "punch a hole"
-                // in the shape by making the pixel fully transparent.
-                if (noiseBrightness < threshold) {
-                    data[i + 3] = 0;
+        // Adaptive throttling: use aggressive throttling during continuous strokes
+        risoThrottleState.continuousStrokeCount++;
+        const currentThrottleInterval = risoThrottleState.continuousStrokeCount > 10 
+            ? risoThrottleState.aggressiveThrottleInterval 
+            : risoThrottleState.throttleInterval;
+        
+        // Only process riso if enough time has passed or settings changed significantly
+        if (now - risoThrottleState.lastProcessTime > currentThrottleInterval || settingsChanged) {
+            const risoTexture = createRisographTexture();
+            const threshold = 1 - (risographIntensity / 100);
+            
+            risoThrottleState.lastProcessTime = now;
+            risoThrottleState.lastRisoSettings = { intensity: risographIntensity, size, x, y };
+
+            const stampImageData = targetCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            const data = stampImageData.data;
+
+            // Use optimized reusable texture canvas
+            if (!risoTextureCanvas || risoTextureCanvas.width !== tempCanvas.width || risoTextureCanvas.height !== tempCanvas.height) {
+                risoTextureCanvas = document.createElement('canvas');
+                risoTextureCanvas.width = tempCanvas.width;
+                risoTextureCanvas.height = tempCanvas.height;
+                risoTextureCtx = risoTextureCanvas.getContext('2d')!;
+            }
+            risoTextureCtx!.drawImage(risoTexture, 0, 0, tempCanvas.width, tempCanvas.height);
+            const textureData = risoTextureCtx!.getImageData(0, 0, tempCanvas.width, tempCanvas.height).data;
+            
+            // This loop simulates the "Dissolve" blend mode
+            for (let i = 0; i < data.length; i += 4) {
+                // If the pixel in the shape is visible...
+                if (data[i + 3] > 0) {
+                    // ...check the brightness of the corresponding noise pixel.
+                    const noiseBrightness = textureData[i] / 255;
+                    // If the noise brightness is below our slider threshold, "punch a hole"
+                    // in the shape by making the pixel fully transparent.
+                    if (noiseBrightness < threshold) {
+                        data[i + 3] = 0;
+                    }
                 }
             }
+
+            // Put the modified, dissolved pixel data back onto the temp canvas
+            targetCtx.putImageData(stampImageData, 0, 0);
+            
+            // Draw the final, dissolved shape onto the main canvas
+            ctx.drawImage(tempCanvas, x - tempCanvas.width / 2, y - tempCanvas.height / 2);
+
+            // Release only the temp canvas (texture canvas is reused globally)
+            canvasPool.release(tempCanvas);
+        } else {
+            // Skip expensive riso processing, just draw the shape directly
+            ctx.drawImage(tempCanvas, x - tempCanvas.width / 2, y - tempCanvas.height / 2);
+            canvasPool.release(tempCanvas);
         }
-
-        // Put the modified, dissolved pixel data back onto the temp canvas
-        targetCtx.putImageData(stampImageData, 0, 0);
-        
-        // Draw the final, dissolved shape onto the main canvas
-        ctx.drawImage(tempCanvas, x - tempCanvas.width / 2, y - tempCanvas.height / 2);
-
-        // Release canvases back to the pool
-        canvasPool.release(textureCtx.canvas);
-        canvasPool.release(tempCanvas);
     } else {
       ctx.restore();
     }
@@ -962,6 +1007,9 @@ export const useBrushEngine = () => {
     // Mark stroke as inactive and trigger memory cleanup
     brushCache.markStrokeInactive();
     memoryManager.runCleanup();
+    
+    // Reset riso throttling state for new stroke
+    risoThrottleState.continuousStrokeCount = 0;
   }, []);
 
   // Helper function to determine if we should draw the current stamp (cursor-speed independent)
@@ -1789,9 +1837,7 @@ export const useBrushEngine = () => {
     
     // Performance monitoring (silent - data available in dev tools if needed)
     if (process.env.NODE_ENV === 'development' && strokeStartTime) {
-      // Stroke timing data available for debugging if needed
-      const strokeDuration = performance.now() - strokeStartTime;
-      // Stroke duration stored for potential debugging use
+      performance.now() - strokeStartTime;
     }
   }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp]);
   
