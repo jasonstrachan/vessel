@@ -452,6 +452,13 @@ export const useAppStore = create<AppState>()(
         };
       }),
       setBrushSettings: (settings) => set((state) => {
+        // DEBUG: Log setBrushSettings call
+        console.log('🎨 [DEBUG] setBrushSettings called:', {
+          settingsToApply: settings,
+          currentBrushSettings: state.tools.brushSettings,
+          currentBrushPreset: state.currentBrushPreset?.id,
+          currentBrushSpecificSettings: state.brushSpecificSettings
+        });
         
         const currentSettings = state.tools.brushSettings;
         const newSettings = { ...currentSettings, ...settings };
@@ -462,9 +469,16 @@ export const useAppStore = create<AppState>()(
         }
         
         // Auto-save brush-specific settings when they change (excluding size)
-        if (state.currentBrushPreset) {
+        // Determine current brush ID (standard brush preset or custom brush)
+        const currentBrushId = state.currentBrushPreset 
+          ? state.currentBrushPreset.id 
+          : (currentSettings.brushShape === BrushShape.CUSTOM && currentSettings.selectedCustomBrush 
+             ? currentSettings.selectedCustomBrush 
+             : null);
+             
+        if (currentBrushId) {
           // Get existing saved settings for this brush
-          const existingSavedSettings = get().loadBrushSettings(state.currentBrushPreset.id);
+          const existingSavedSettings = get().loadBrushSettings(currentBrushId);
           
           // Merge with new settings
           const settingsToSave: Partial<BrushSettings> = {
@@ -487,9 +501,10 @@ export const useAppStore = create<AppState>()(
           if (settings.dashGap !== undefined) settingsToSave.dashGap = newSettings.dashGap;
           if (settings.gridSnapEnabled !== undefined) settingsToSave.gridSnapEnabled = newSettings.gridSnapEnabled;
           if (settings.shapeEnabled !== undefined) settingsToSave.shapeEnabled = newSettings.shapeEnabled;
+          if (settings.antialiasing !== undefined) settingsToSave.antialiasing = newSettings.antialiasing;
           
           // Always save to ensure persistence
-          get().saveBrushSettings(state.currentBrushPreset.id, settingsToSave);
+          get().saveBrushSettings(currentBrushId, settingsToSave);
         }
         
         // Handle brush size restoration when switching between custom and regular brushes
@@ -623,6 +638,14 @@ export const useAppStore = create<AppState>()(
         }
       })),
       setBrushPreset: (preset) => set((state) => {
+        // DEBUG: Log setBrushPreset call
+        console.log('🖌️ [DEBUG] setBrushPreset called:', {
+          newPreset: preset.id,
+          oldPreset: state.currentBrushPreset?.id,
+          currentBrushSettings: state.tools.brushSettings,
+          currentBrushSpecificSettings: state.brushSpecificSettings
+        });
+        
         // Save current settings to the currently active brush before switching (excluding size)
         if (state.currentBrushPreset) {
           const currentBrushId = state.currentBrushPreset.id;
@@ -655,14 +678,13 @@ export const useAppStore = create<AppState>()(
         const { settings, components } = applyBrushPreset(preset, userSavedSettings);
         
         const currentSettings = state.tools.brushSettings;
-        // Start with default settings, apply preset settings, then user saved settings
+        // Start with default settings, apply preset settings (which already includes user saved settings)
         // Keep color, blend mode, and use global size
         const newBrushSettings = { 
           ...defaultBrushSettingsForStore, // Start with defaults
           color: currentSettings.color,    // Keep current color
           blendMode: currentSettings.blendMode, // Keep blend mode
-          ...settings,                     // Apply preset settings
-          ...userSavedSettings,           // Apply user saved settings (excluding size)
+          ...settings,                     // Apply preset settings (includes user saved settings)
           size: state.globalBrushSize     // Always use global size
         };
         
@@ -1318,9 +1340,8 @@ export const useAppStore = create<AppState>()(
             canvasWidth: width,
             canvasHeight: height
           },
-          layersNeedRecomposition: true,
-          // Clear brush settings for new project
-          brushSpecificSettings: {}
+          layersNeedRecomposition: true
+          // Preserve brush settings across projects - they are user preferences
         });
         
         // Clear history for new project
@@ -1544,16 +1565,36 @@ export const useAppStore = create<AppState>()(
       // Brush-specific settings methods
       saveBrushSettings: (brushId, settings) => set((state) => {
         const existingSettings = state.brushSpecificSettings[brushId] || {};
+        const newSettings = { ...existingSettings, ...settings };
+        
+        // DEBUG: Log save operation
+        console.log('🔧 [DEBUG] saveBrushSettings called:', {
+          brushId,
+          settingsToSave: settings,
+          existingSettings,
+          finalSettings: newSettings,
+          currentBrushSpecificSettings: state.brushSpecificSettings
+        });
+        
         return { 
           brushSpecificSettings: {
             ...state.brushSpecificSettings,
-            [brushId]: { ...existingSettings, ...settings }
+            [brushId]: newSettings
           }
         };
       }),
       loadBrushSettings: (brushId) => {
         const state = get();
-        return state.brushSpecificSettings[brushId] || {};
+        const loadedSettings = state.brushSpecificSettings[brushId] || {};
+        
+        // DEBUG: Log load operation
+        console.log('🔍 [DEBUG] loadBrushSettings called:', {
+          brushId,
+          loadedSettings,
+          allBrushSpecificSettings: state.brushSpecificSettings
+        });
+        
+        return loadedSettings;
       },
       clearBrushSettings: (brushId) => set((state) => {
         const { [brushId]: _, ...remaining } = state.brushSpecificSettings;
