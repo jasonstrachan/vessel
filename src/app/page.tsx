@@ -11,22 +11,11 @@ import { DocumentModal } from '../components/modals/DocumentModal';
 import { SettingsModal } from '../components/modals/SettingsModal';
 import { useAppStore } from '../stores/useAppStore';
 import { autosaveService } from '../utils/autosave';
-import { setupGlobalBrushDebug } from '../utils/debugUtils';
 
 
 export default function Home() {
   // Global mouse tracking removed - now handled directly in canvas
   const { saveProject, loadProject, ui, toggleModal, autosave } = useAppStore();
-
-  // Setup debug utilities in development
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      setupGlobalBrushDebug(useAppStore);
-      console.log('🐛 [DEBUG] Brush settings persistence debugging is active');
-      console.log('Use brushDebug.testBrushPersistence() to test the issue');
-      console.log('Use brushDebug.watchBrushChanges() to monitor state changes');
-    }
-  }, []);
 
   // Load settings from localStorage on initial mount only
   useEffect(() => {

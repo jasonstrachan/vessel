@@ -10,7 +10,7 @@ import Input from '../ui/Input';
 import CustomSwitch from '../ui/CustomSwitch';
 import ProgressSlider from '../ui/ProgressSlider';
 const BrushControls = () => {
-  const { tools, setBrushSettings, setEraserSettings } = useAppStore();
+  const { tools, setBrushSettings, setEraserSettings, globalBrushSize, setGlobalBrushSize } = useAppStore();
   const { brushSettings, eraserSettings, currentTool } = tools;
   
   
@@ -20,8 +20,8 @@ const BrushControls = () => {
 
   // Handle double-click to reset brush size to 100%
   const handleBrushSizeDoubleClick = React.useCallback(() => {
-    setActiveSettings({ size: 100 });
-  }, [setActiveSettings]);
+    setGlobalBrushSize(100);
+  }, [setGlobalBrushSize]);
 
   // Show Colors and Film Grain sliders for gradient brushes
   if (activeSettings.brushShape === BrushShape.RECTANGLE_GRADIENT || 
@@ -96,11 +96,11 @@ const BrushControls = () => {
             Size
           </label>
           <ProgressSlider
-            value={activeSettings.size}
+            value={globalBrushSize}
             min={1}
             max={500}
             step={1}
-            onChange={(value) => setActiveSettings({ size: Math.max(1, value) })}
+            onChange={(value) => setGlobalBrushSize(Math.max(1, value))}
             aria-label="Brush Size"
             className="flex-1"
           />
@@ -133,10 +133,10 @@ const BrushControls = () => {
           </label>
           <ProgressSlider
             value={activeSettings.spacing}
-            min={0}
+            min={1}
             max={400}
             step={1}
-            onChange={(value) => setActiveSettings({ spacing: Math.round(value) })}
+            onChange={(value) => setActiveSettings({ spacing: Math.max(1, Math.round(value)) })}
             aria-label="Spacing"
             className="flex-1"
           />
