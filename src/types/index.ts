@@ -218,8 +218,8 @@ export interface BrushSettings {
   colorJitter: number; // 0 to 100 (0 = no jitter, 100 = full spectrum jitter)
   // Risograph texture effect settings
   risographIntensity: number; // 0 to 100 (0 = no effect, 100 = maximum dissolve effect)
-  // Dither effect for gradients
-  ditherIntensity: number; // 0 to 100 (0 = off, 100 = max dither)
+  // Dither effect for gradients using Sierra Lite algorithm
+  ditherEnabled: boolean; // true = use Sierra Lite dithering with colors palette
   // Current brush tip (edited in mini canvas) with brush identifier
   currentBrushTip?: {
     imageData: ImageData;

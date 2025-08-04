@@ -22,6 +22,9 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
   className = ''
 }) => {
   const percentage = ((value - min) / (max - min)) * 100;
+  
+  // Format value for display - show decimals only if step < 1
+  const displayValue = step < 1 ? value.toFixed(2) : Math.round(value).toString();
 
   return (
     <div className={`relative h-[20px] ${className}`}>
@@ -32,6 +35,12 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
         className="absolute top-0 left-0 h-[20px] bg-[#D9D9D9] z-1 pointer-events-none"
         style={{ width: `${percentage}%` }}
       />
+      {/* Value display */}
+      <div 
+        className="absolute top-0 left-0 h-[20px] flex items-center justify-center text-xs font-medium text-black z-20 pointer-events-none w-full"
+      >
+        {displayValue}
+      </div>
       <input
         type="range"
         className="slider relative z-10"

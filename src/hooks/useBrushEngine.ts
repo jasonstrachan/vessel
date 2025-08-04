@@ -150,48 +150,76 @@ const createNoiseTexture = (): HTMLCanvasElement => {
   return canvas;
 };
 
-const createDitherPattern = (intensity: number): HTMLCanvasElement => {
-  const size = 8; // Small pattern for ordered dithering
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
-
-  if (!ctx) return canvas;
-
-  const imageData = ctx.createImageData(size, size);
-  const data = imageData.data;
-
-  // Ordered dither matrix (8x8 Bayer matrix scaled down)
-  const matrix = [
-    [0, 32, 8, 40, 2, 34, 10, 42],
-    [48, 16, 56, 24, 50, 18, 58, 26],
-    [12, 44, 4, 36, 14, 46, 6, 38],
-    [60, 28, 52, 20, 62, 30, 54, 22],
-    [3, 35, 11, 43, 1, 33, 9, 41],
-    [51, 19, 59, 27, 49, 17, 57, 25],
-    [15, 47, 7, 39, 13, 45, 5, 37],
-    [63, 31, 55, 23, 61, 29, 53, 21]
-  ];
-
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const threshold = matrix[y][x] / 64; // Normalize to 0-1
-      const scaledIntensity = intensity / 100;
+/**
+ * Applies Sierra Lite dithering to image data using a limited color palette
+ * Sierra Lite uses a simplified error diffusion matrix:
+ *     X  2
+ *  1  1
+ * Errors are distributed with weights: current pixel gets corrected,
+ * right pixel gets 2/4 of error, bottom-left gets 1/4, bottom gets 1/4
+ */
+const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageData => {
+  const data = new Uint8ClampedArray(imageData.data);
+  const width = imageData.width;
+  const height = imageData.height;
+  
+  // Create color palette - evenly spaced colors from 0 to 255
+  const palette: number[] = [];
+  for (let i = 0; i < numColors; i++) {
+    palette.push(Math.round((i / (numColors - 1)) * 255));
+  }
+  
+  // Find nearest palette color
+  const findNearestColor = (value: number): number => {
+    let nearest = palette[0];
+    let minDiff = Math.abs(value - nearest);
+    
+    for (let i = 1; i < palette.length; i++) {
+      const diff = Math.abs(value - palette[i]);
+      if (diff < minDiff) {
+        minDiff = diff;
+        nearest = palette[i];
+      }
+    }
+    return nearest;
+  };
+  
+  // Apply Sierra Lite dithering
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
       
-      // Create a pattern where higher intensity creates more contrast
-      const value = threshold < scaledIntensity ? 0 : 255;
-      
-      const index = (y * size + x) * 4;
-      data[index] = value;     // R
-      data[index + 1] = value; // G
-      data[index + 2] = value; // B
-      data[index + 3] = 255;   // A
+      // Process each color channel
+      for (let c = 0; c < 3; c++) { // R, G, B (skip alpha)
+        const oldValue = data[idx + c];
+        const newValue = findNearestColor(oldValue);
+        const error = oldValue - newValue;
+        
+        data[idx + c] = newValue;
+        
+        // Distribute error using Sierra Lite weights
+        // Right pixel (2/4 of error)
+        if (x < width - 1) {
+          const rightIdx = (y * width + (x + 1)) * 4;
+          data[rightIdx + c] = Math.max(0, Math.min(255, data[rightIdx + c] + error * 2 / 4));
+        }
+        
+        // Bottom-left pixel (1/4 of error)
+        if (y < height - 1 && x > 0) {
+          const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
+          data[bottomLeftIdx + c] = Math.max(0, Math.min(255, data[bottomLeftIdx + c] + error * 1 / 4));
+        }
+        
+        // Bottom pixel (1/4 of error)  
+        if (y < height - 1) {
+          const bottomIdx = ((y + 1) * width + x) * 4;
+          data[bottomIdx + c] = Math.max(0, Math.min(255, data[bottomIdx + c] + error * 1 / 4));
+        }
+      }
     }
   }
-
-  ctx.putImageData(imageData, 0, 0);
-  return canvas;
+  
+  return new ImageData(data, width, height);
 };
 
 /**
@@ -1768,7 +1796,7 @@ export const useBrushEngine = () => {
   }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp]);
   
   // Draw rectangle gradient brush
-  const drawRectangleGradient = useCallback((ctx: CanvasRenderingContext2D, rectangleState: any) => {
+  const drawRectangleGradient = useCallback((ctx: CanvasRenderingContext2D, rectangleState: any, isPreview: boolean = false) => {
     const { startPos, endPos, width, startColor, endColor, colors } = rectangleState;
     const { brushSettings } = useAppStore.getState().tools;
     
@@ -1802,13 +1830,23 @@ export const useBrushEngine = () => {
     if (colors && colors.length > 0) {
       // Use the provided sampled colors
       colors.forEach((color: string, index: number) => {
-        const position = index / (colors.length - 1);
+        // Handle single color case to avoid division by zero
+        const position = colors.length === 1 ? 0 : index / (colors.length - 1);
         gradient.addColorStop(position, color);
       });
+      
+      // For single color, add the same color at position 1 to ensure solid fill
+      if (colors.length === 1) {
+        gradient.addColorStop(1, colors[0]);
+      }
     } else {
       // Fallback to original behavior if no colors array provided
       const numColors = brushSettings.colors || 2;
-      if (numColors === 2) {
+      if (numColors === 1) {
+        // Single color - use solid fill
+        gradient.addColorStop(0, startColor);
+        gradient.addColorStop(1, startColor);
+      } else if (numColors === 2) {
         gradient.addColorStop(0, startColor);
         gradient.addColorStop(1, endColor);
       } else {
@@ -1869,27 +1907,69 @@ export const useBrushEngine = () => {
       }
     }
 
-    // Apply dither effect if enabled
-    const ditherIntensity = brushSettings.ditherIntensity || 0;
-    if (ditherIntensity > 0) {
-      // Create ordered dither pattern
-      const ditherPattern = createDitherPattern(ditherIntensity);
-      const pattern = ctx.createPattern(ditherPattern, 'repeat');
+    // Apply Sierra Lite dither effect if enabled (only for final drawing, not preview)
+    const ditherEnabled = brushSettings.ditherEnabled || false;
+    const numColors = brushSettings.colors || 2;
+    if (ditherEnabled && !isPreview) {
+      // Get the bounds of the rectangle for dithering
+      const minX = Math.floor(Math.min(...corners.map(c => c.x)));
+      const minY = Math.floor(Math.min(...corners.map(c => c.y)));
+      const maxX = Math.ceil(Math.max(...corners.map(c => c.x)));
+      const maxY = Math.ceil(Math.max(...corners.map(c => c.y)));
+      const boundWidth = maxX - minX;
+      const boundHeight = maxY - minY;
       
-      if (pattern) {
-        const prevComposite = ctx.globalCompositeOperation;
-        ctx.globalCompositeOperation = 'multiply';
-        ctx.globalAlpha = ditherIntensity / 100;
+      if (boundWidth > 0 && boundHeight > 0) {
+        // Get the current image data from the bounding area
+        const imageData = ctx.getImageData(minX, minY, boundWidth, boundHeight);
         
-        // Apply dither to the rectangle area
-        ctx.beginPath();
-        ctx.moveTo(corners[0].x, corners[0].y);
-        corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
-        ctx.closePath();
-        ctx.fillStyle = pattern;
-        ctx.fill();
+        // Create a temporary canvas for clipping
+        const tempCanvas = canvasPool.acquire(boundWidth, boundHeight);
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         
-        ctx.globalCompositeOperation = prevComposite;
+        if (tempCtx) {
+          // Put the original image data on temp canvas
+          tempCtx.putImageData(imageData, 0, 0);
+          
+          // Create clipping mask for the rectangle shape
+          const maskCanvas = canvasPool.acquire(boundWidth, boundHeight);
+          const maskCtx = maskCanvas.getContext('2d', { colorSpace: 'srgb' });
+          
+          if (maskCtx) {
+            // Draw the rectangle shape as a mask (translated to local coordinates)
+            maskCtx.fillStyle = 'white';
+            maskCtx.beginPath();
+            maskCtx.moveTo(corners[0].x - minX, corners[0].y - minY);
+            corners.slice(1).forEach(corner => maskCtx.lineTo(corner.x - minX, corner.y - minY));
+            maskCtx.closePath();
+            maskCtx.fill();
+            
+            // Get mask data
+            const maskData = maskCtx.getImageData(0, 0, boundWidth, boundHeight);
+            
+            // Apply dithering only to pixels inside the rectangle
+            const ditheredData = applySierraLiteDither(imageData, numColors);
+            
+            // Composite: use dithered data only where mask is white
+            const finalData = new Uint8ClampedArray(imageData.data);
+            for (let i = 0; i < maskData.data.length; i += 4) {
+              if (maskData.data[i + 3] > 0) { // If mask pixel is not transparent
+                finalData[i] = ditheredData.data[i];
+                finalData[i + 1] = ditheredData.data[i + 1];
+                finalData[i + 2] = ditheredData.data[i + 2];
+                finalData[i + 3] = ditheredData.data[i + 3];
+              }
+            }
+            
+            // Put the final composited data back
+            const finalImageData = new ImageData(finalData, boundWidth, boundHeight);
+            ctx.putImageData(finalImageData, minX, minY);
+            
+            canvasPool.release(maskCanvas);
+          }
+          
+          canvasPool.release(tempCanvas);
+        }
       }
     }
     
@@ -1897,11 +1977,11 @@ export const useBrushEngine = () => {
   }, []);
 
   // Draw polygon gradient brush
-  const drawPolygonGradient = useCallback((ctx: CanvasRenderingContext2D, options: { vertices: Array<{ x: number; y: number }>, colors: string[] }) => {
+  const drawPolygonGradient = useCallback((ctx: CanvasRenderingContext2D, options: { vertices: Array<{ x: number; y: number }>, colors: string[] }, isPreview: boolean = false) => {
     const { vertices, colors } = options;
     const { brushSettings } = useAppStore.getState().tools;
     
-    if (!vertices || vertices.length < 3 || !colors || colors.length < 2) return;
+    if (!vertices || vertices.length < 3 || !colors || colors.length < 1) return;
     
     ctx.save();
     ctx.globalAlpha = brushSettings.opacity;
@@ -1916,9 +1996,15 @@ export const useBrushEngine = () => {
     
     // Add color stops for each sampled color
     colors.forEach((color, index) => {
-      const position = index / (colors.length - 1);
+      // Handle single color case to avoid division by zero
+      const position = colors.length === 1 ? 0 : index / (colors.length - 1);
       gradient.addColorStop(position, color);
     });
+    
+    // For single color, add the same color at position 1 to ensure solid fill
+    if (colors.length === 1) {
+      gradient.addColorStop(1, colors[0]);
+    }
     
     // Create polygon path
     ctx.beginPath();
@@ -1956,23 +2042,69 @@ export const useBrushEngine = () => {
       }
     }
 
-    // Apply dither effect if enabled
-    const ditherIntensity = brushSettings.ditherIntensity || 0;
-    if (ditherIntensity > 0) {
-      // Create ordered dither pattern
-      const ditherPattern = createDitherPattern(ditherIntensity);
-      const pattern = ctx.createPattern(ditherPattern, 'repeat');
+    // Apply Sierra Lite dither effect if enabled (only for final drawing, not preview)
+    const ditherEnabled = brushSettings.ditherEnabled || false;
+    const numColors = brushSettings.colors || 2;
+    if (ditherEnabled && !isPreview) {
+      // Get the bounds of the polygon for dithering
+      const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
+      const minY = Math.floor(Math.min(...vertices.map(v => v.y)));
+      const maxX = Math.ceil(Math.max(...vertices.map(v => v.x)));
+      const maxY = Math.ceil(Math.max(...vertices.map(v => v.y)));
+      const boundWidth = maxX - minX;
+      const boundHeight = maxY - minY;
       
-      if (pattern) {
-        const prevComposite = ctx.globalCompositeOperation;
-        ctx.globalCompositeOperation = 'multiply';
-        ctx.globalAlpha = ditherIntensity / 100;
+      if (boundWidth > 0 && boundHeight > 0) {
+        // Get the current image data from the bounding area
+        const imageData = ctx.getImageData(minX, minY, boundWidth, boundHeight);
         
-        // Apply dither to the polygon area
-        ctx.fillStyle = pattern;
-        ctx.fill();
+        // Create a temporary canvas for clipping
+        const tempCanvas = canvasPool.acquire(boundWidth, boundHeight);
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         
-        ctx.globalCompositeOperation = prevComposite;
+        if (tempCtx) {
+          // Put the original image data on temp canvas
+          tempCtx.putImageData(imageData, 0, 0);
+          
+          // Create clipping mask for the polygon shape
+          const maskCanvas = canvasPool.acquire(boundWidth, boundHeight);
+          const maskCtx = maskCanvas.getContext('2d', { colorSpace: 'srgb' });
+          
+          if (maskCtx) {
+            // Draw the polygon shape as a mask (translated to local coordinates)
+            maskCtx.fillStyle = 'white';
+            maskCtx.beginPath();
+            maskCtx.moveTo(vertices[0].x - minX, vertices[0].y - minY);
+            vertices.slice(1).forEach(v => maskCtx.lineTo(v.x - minX, v.y - minY));
+            maskCtx.closePath();
+            maskCtx.fill();
+            
+            // Get mask data
+            const maskData = maskCtx.getImageData(0, 0, boundWidth, boundHeight);
+            
+            // Apply dithering only to pixels inside the polygon
+            const ditheredData = applySierraLiteDither(imageData, numColors);
+            
+            // Composite: use dithered data only where mask is white
+            const finalData = new Uint8ClampedArray(imageData.data);
+            for (let i = 0; i < maskData.data.length; i += 4) {
+              if (maskData.data[i + 3] > 0) { // If mask pixel is not transparent
+                finalData[i] = ditheredData.data[i];
+                finalData[i + 1] = ditheredData.data[i + 1];
+                finalData[i + 2] = ditheredData.data[i + 2];
+                finalData[i + 3] = ditheredData.data[i + 3];
+              }
+            }
+            
+            // Put the final composited data back
+            const finalImageData = new ImageData(finalData, boundWidth, boundHeight);
+            ctx.putImageData(finalImageData, minX, minY);
+            
+            canvasPool.release(maskCanvas);
+          }
+          
+          canvasPool.release(tempCanvas);
+        }
       }
     }
     

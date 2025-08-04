@@ -443,7 +443,7 @@ export const useAppStore = create<AppState>()(
             spacing: state.tools.brushSettings.spacing,
             colorJitter: state.tools.brushSettings.colorJitter,
             risographIntensity: state.tools.brushSettings.risographIntensity,
-            ditherIntensity: state.tools.brushSettings.ditherIntensity,
+            ditherEnabled: state.tools.brushSettings.ditherEnabled,
             pressureEnabled: state.tools.brushSettings.pressureEnabled,
             minPressure: state.tools.brushSettings.minPressure,
             maxPressure: state.tools.brushSettings.maxPressure,
@@ -509,7 +509,7 @@ export const useAppStore = create<AppState>()(
           if (settings.spacing !== undefined) settingsToSave.spacing = newSettings.spacing;
           if (settings.colorJitter !== undefined) settingsToSave.colorJitter = newSettings.colorJitter;
           if (settings.risographIntensity !== undefined) settingsToSave.risographIntensity = newSettings.risographIntensity;
-          if (settings.ditherIntensity !== undefined) settingsToSave.ditherIntensity = newSettings.ditherIntensity;
+          if (settings.ditherEnabled !== undefined) settingsToSave.ditherEnabled = newSettings.ditherEnabled;
           if (settings.pressureEnabled !== undefined) settingsToSave.pressureEnabled = newSettings.pressureEnabled;
           if (settings.minPressure !== undefined) settingsToSave.minPressure = newSettings.minPressure;
           if (settings.maxPressure !== undefined) settingsToSave.maxPressure = newSettings.maxPressure;
@@ -668,7 +668,7 @@ export const useAppStore = create<AppState>()(
             spacing: state.tools.brushSettings.spacing,
             colorJitter: state.tools.brushSettings.colorJitter,
             risographIntensity: state.tools.brushSettings.risographIntensity,
-            ditherIntensity: state.tools.brushSettings.ditherIntensity,
+            ditherEnabled: state.tools.brushSettings.ditherEnabled,
             pressureEnabled: state.tools.brushSettings.pressureEnabled,
             minPressure: state.tools.brushSettings.minPressure,
             maxPressure: state.tools.brushSettings.maxPressure,
