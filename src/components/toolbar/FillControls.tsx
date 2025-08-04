@@ -3,7 +3,6 @@
 import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { Switch } from '../retroui/Switch';
-import { Slider } from '../retroui/Slider';
 
 export default function FillControls() {
   const { tools, setFillSettings } = useAppStore();
@@ -16,13 +15,14 @@ export default function FillControls() {
         <label className="block text-base text-[#D9D9D9] mb-2">
           Threshold: {fillSettings.threshold}
         </label>
-        <Slider
-          defaultValue={[fillSettings.threshold]}
-          value={[fillSettings.threshold]}
+        <input
+          type="range"
+          className="slider w-full"
+          value={fillSettings.threshold}
           min={0}
           max={255}
           step={1}
-          onValueChange={(value) => setFillSettings({ threshold: value[0] })}
+          onChange={(e) => setFillSettings({ threshold: parseInt(e.target.value) })}
           aria-label="Fill Threshold"
         />
       </div>

@@ -5,7 +5,6 @@ import { useAppStore } from '../stores/useAppStore';
 import { Layer } from '../types';
 import { XIcon } from './icons/XIcon';
 import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
-import { Slider } from './retroui/Slider';
 import PlusButton from './ui/PlusButton';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 
@@ -193,12 +192,14 @@ const LayerPanel = () => {
                       onClick={(e) => e.stopPropagation()}
                     >
                       <label className="block text-[#D9D9D9] mb-2" style={{ fontSize: '14px' }}>{Math.round(layer.opacity * 100)}%</label>
-                      <Slider
-                        value={[layer.opacity * 100]}
+                      <input
+                        type="range"
+                        className="slider w-full"
+                        value={layer.opacity * 100}
                         min={0}
                         max={100}
                         step={1}
-                        onValueChange={(value) => handleOpacityChange(layer.id, value[0])}
+                        onChange={(e) => handleOpacityChange(layer.id, parseInt(e.target.value))}
                         aria-label="Layer Opacity"
                       />
                     </div>
