@@ -179,24 +179,96 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
   const width = imageData.width;
   const height = imageData.height;
   
-  // Create color palette - evenly spaced colors from 0 to 255
-  const palette: number[] = [];
-  for (let i = 0; i < numColors; i++) {
-    palette.push(Math.round((i / (numColors - 1)) * 255));
-  }
+  // Authentic Apple II color palette (RGB values)
+  const appleIIPalette: [number, number, number][] = [
+    [0, 0, 0],         // Black
+    [148, 41, 66],     // Magenta
+    [33, 33, 165],     // Dark Blue
+    [195, 65, 229],    // Purple
+    [0, 99, 66],       // Dark Green
+    [99, 99, 99],      // Dark Gray
+    [33, 132, 229],    // Medium Blue
+    [148, 165, 255],   // Light Blue
+    [99, 66, 0],       // Brown
+    [229, 99, 0],      // Orange
+    [148, 148, 148],   // Light Gray
+    [255, 148, 148],   // Pink
+    [0, 195, 0],       // Green
+    [195, 195, 0],     // Yellow
+    [148, 255, 148],   // Aquamarine
+    [255, 255, 255]    // White
+  ];
   
-  // Find nearest palette color
-  const findNearestColor = (value: number): number => {
+  // Select best Apple II colors for this image based on content
+  const selectBestColors = (imageData: ImageData, numColors: number): [number, number, number][] => {
+    if (numColors >= appleIIPalette.length) return appleIIPalette;
+    
+    // Sample pixels from the image to find dominant colors
+    const sampleColors: [number, number, number][] = [];
+    const data = imageData.data;
+    const step = Math.max(1, Math.floor(data.length / (4 * 100))); // Sample ~100 pixels
+    
+    for (let i = 0; i < data.length; i += step * 4) {
+      sampleColors.push([data[i], data[i + 1], data[i + 2]]);
+    }
+    
+    // Score each Apple II color by how well it represents the image
+    const colorScores = appleIIPalette.map((appleColor, index) => {
+      let totalDistance = 0;
+      let bestMatches = 0;
+      
+      sampleColors.forEach(sampleColor => {
+        const distance = Math.sqrt(
+          (sampleColor[0] - appleColor[0])**2 + 
+          (sampleColor[1] - appleColor[1])**2 + 
+          (sampleColor[2] - appleColor[2])**2
+        );
+        
+        // Check if this Apple II color is the best match for this sample
+        const isBestMatch = appleIIPalette.every(otherColor => {
+          const otherDistance = Math.sqrt(
+            (sampleColor[0] - otherColor[0])**2 + 
+            (sampleColor[1] - otherColor[1])**2 + 
+            (sampleColor[2] - otherColor[2])**2
+          );
+          return distance <= otherDistance;
+        });
+        
+        if (isBestMatch) bestMatches++;
+        totalDistance += distance;
+      });
+      
+      return { color: appleColor, score: bestMatches - totalDistance / 1000, index };
+    });
+    
+    // Sort by score and take top numColors
+    return colorScores
+      .sort((a, b) => b.score - a.score)
+      .slice(0, numColors)
+      .map(item => item.color);
+  };
+  
+  const palette = selectBestColors(imageData, numColors);
+  
+  // Find nearest palette color for RGB values
+  const findNearestColor = (r: number, g: number, b: number): [number, number, number] => {
     let nearest = palette[0];
-    let minDiff = Math.abs(value - nearest);
+    let minDiff = Math.sqrt((r - nearest[0])**2 + (g - nearest[1])**2 + (b - nearest[2])**2);
     
     for (let i = 1; i < palette.length; i++) {
-      const diff = Math.abs(value - palette[i]);
+      const color = palette[i];
+      const diff = Math.sqrt((r - color[0])**2 + (g - color[1])**2 + (b - color[2])**2);
       if (diff < minDiff) {
         minDiff = diff;
-        nearest = palette[i];
+        nearest = color;
       }
     }
+    
+    // Debug logging - more frequent for diagnosis
+    if (Math.random() < 0.01) { // Log 1% of color matches
+      console.log(`Apple II Dither: (${r},${g},${b}) -> (${nearest[0]},${nearest[1]},${nearest[2]}) distance: ${minDiff.toFixed(1)}`);
+    }
+    
     return nearest;
   };
   
@@ -205,31 +277,254 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
     for (let x = 0; x < width; x++) {
       const idx = (y * width + x) * 4;
       
-      // Process each color channel
-      for (let c = 0; c < 3; c++) { // R, G, B (skip alpha)
-        const oldValue = data[idx + c];
-        const newValue = findNearestColor(oldValue);
-        const error = oldValue - newValue;
+      // Get original RGB values
+      const oldR = data[idx];
+      const oldG = data[idx + 1]; 
+      const oldB = data[idx + 2];
+      
+      // Find nearest color in Apple II palette
+      const [newR, newG, newB] = findNearestColor(oldR, oldG, oldB);
+      
+      // Calculate error for each channel
+      const errorR = oldR - newR;
+      const errorG = oldG - newG;
+      const errorB = oldB - newB;
+      
+      // Set new color
+      data[idx] = newR;
+      data[idx + 1] = newG;
+      data[idx + 2] = newB;
+      
+      // Distribute error using Sierra Lite weights
+      // Right pixel (2/4 of error)
+      if (x < width - 1) {
+        const rightIdx = (y * width + (x + 1)) * 4;
+        data[rightIdx] = Math.max(0, Math.min(255, data[rightIdx] + errorR * 2 / 4));
+        data[rightIdx + 1] = Math.max(0, Math.min(255, data[rightIdx + 1] + errorG * 2 / 4));
+        data[rightIdx + 2] = Math.max(0, Math.min(255, data[rightIdx + 2] + errorB * 2 / 4));
+      }
+      
+      // Bottom-left pixel (1/4 of error)
+      if (y < height - 1 && x > 0) {
+        const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
+        data[bottomLeftIdx] = Math.max(0, Math.min(255, data[bottomLeftIdx] + errorR * 1 / 4));
+        data[bottomLeftIdx + 1] = Math.max(0, Math.min(255, data[bottomLeftIdx + 1] + errorG * 1 / 4));
+        data[bottomLeftIdx + 2] = Math.max(0, Math.min(255, data[bottomLeftIdx + 2] + errorB * 1 / 4));
+      }
+      
+      // Bottom pixel (1/4 of error)  
+      if (y < height - 1) {
+        const bottomIdx = ((y + 1) * width + x) * 4;
+        data[bottomIdx] = Math.max(0, Math.min(255, data[bottomIdx] + errorR * 1 / 4));
+        data[bottomIdx + 1] = Math.max(0, Math.min(255, data[bottomIdx + 1] + errorG * 1 / 4));
+        data[bottomIdx + 2] = Math.max(0, Math.min(255, data[bottomIdx + 2] + errorB * 1 / 4));
+      }
+    }
+  }
+  
+  return new ImageData(data, width, height);
+};
+
+/**
+ * Applies block-based Sierra Lite dithering with customizable fill resolution.
+ * Instead of dithering individual pixels, this works on blocks of pixels for a chunky effect.
+ */
+const applySierraLiteDitherWithFillResolution = (imageData: ImageData, numColors: number, fillResolution: number): ImageData => {
+  if (fillResolution <= 1) {
+    return applySierraLiteDither(imageData, numColors);
+  }
+
+  const data = new Uint8ClampedArray(imageData.data);
+  const width = imageData.width;
+  const height = imageData.height;
+  const blockSize = fillResolution;
+  
+  // Authentic Apple II color palette (RGB values)
+  const appleIIPalette: [number, number, number][] = [
+    [0, 0, 0],         // Black
+    [148, 41, 66],     // Magenta
+    [33, 33, 165],     // Dark Blue
+    [195, 65, 229],    // Purple
+    [0, 99, 66],       // Dark Green
+    [99, 99, 99],      // Dark Gray
+    [33, 132, 229],    // Medium Blue
+    [148, 165, 255],   // Light Blue
+    [99, 66, 0],       // Brown
+    [229, 99, 0],      // Orange
+    [148, 148, 148],   // Light Gray
+    [255, 148, 148],   // Pink
+    [0, 195, 0],       // Green
+    [195, 195, 0],     // Yellow
+    [148, 255, 148],   // Aquamarine
+    [255, 255, 255]    // White
+  ];
+  
+  // Select best Apple II colors for this image based on content
+  const selectBestColors = (imageData: ImageData, numColors: number): [number, number, number][] => {
+    if (numColors >= appleIIPalette.length) return appleIIPalette;
+    
+    // Sample pixels from the image to find dominant colors
+    const sampleColors: [number, number, number][] = [];
+    const data = imageData.data;
+    const step = Math.max(1, Math.floor(data.length / (4 * 100))); // Sample ~100 pixels
+    
+    for (let i = 0; i < data.length; i += step * 4) {
+      sampleColors.push([data[i], data[i + 1], data[i + 2]]);
+    }
+    
+    // Score each Apple II color by how well it represents the image
+    const colorScores = appleIIPalette.map((appleColor, index) => {
+      let totalDistance = 0;
+      let bestMatches = 0;
+      
+      sampleColors.forEach(sampleColor => {
+        const distance = Math.sqrt(
+          (sampleColor[0] - appleColor[0])**2 + 
+          (sampleColor[1] - appleColor[1])**2 + 
+          (sampleColor[2] - appleColor[2])**2
+        );
         
-        data[idx + c] = newValue;
+        // Check if this Apple II color is the best match for this sample
+        const isBestMatch = appleIIPalette.every(otherColor => {
+          const otherDistance = Math.sqrt(
+            (sampleColor[0] - otherColor[0])**2 + 
+            (sampleColor[1] - otherColor[1])**2 + 
+            (sampleColor[2] - otherColor[2])**2
+          );
+          return distance <= otherDistance;
+        });
         
-        // Distribute error using Sierra Lite weights
-        // Right pixel (2/4 of error)
-        if (x < width - 1) {
-          const rightIdx = (y * width + (x + 1)) * 4;
-          data[rightIdx + c] = Math.max(0, Math.min(255, data[rightIdx + c] + error * 2 / 4));
+        if (isBestMatch) bestMatches++;
+        totalDistance += distance;
+      });
+      
+      return { color: appleColor, score: bestMatches - totalDistance / 1000, index };
+    });
+    
+    // Sort by score and take top numColors
+    return colorScores
+      .sort((a, b) => b.score - a.score)
+      .slice(0, numColors)
+      .map(item => item.color);
+  };
+  
+  const palette = selectBestColors(imageData, numColors);
+  
+  const findNearestColor = (r: number, g: number, b: number): [number, number, number] => {
+    let nearest = palette[0];
+    let minDiff = Math.sqrt((r - nearest[0])**2 + (g - nearest[1])**2 + (b - nearest[2])**2);
+    for (let i = 1; i < palette.length; i++) {
+      const color = palette[i];
+      const diff = Math.sqrt((r - color[0])**2 + (g - color[1])**2 + (b - color[2])**2);
+      if (diff < minDiff) {
+        minDiff = diff;
+        nearest = color;
+      }
+    }
+    
+    // Debug logging - more frequent for diagnosis
+    if (Math.random() < 0.01) { // Log 1% of color matches
+      console.log(`Apple II Dither Block: (${r},${g},${b}) -> (${nearest[0]},${nearest[1]},${nearest[2]}) distance: ${minDiff.toFixed(1)}`);
+    }
+    
+    return nearest;
+  };
+  
+  // Calculate block dimensions
+  const blockWidth = Math.ceil(width / blockSize);
+  const blockHeight = Math.ceil(height / blockSize);
+  
+  // Create block average data
+  const blockData: number[][][] = [];
+  for (let by = 0; by < blockHeight; by++) {
+    blockData[by] = [];
+    for (let bx = 0; bx < blockWidth; bx++) {
+      // Average all pixels in this block for each channel
+      let r = 0, g = 0, b = 0, count = 0;
+      
+      for (let dy = 0; dy < blockSize; dy++) {
+        for (let dx = 0; dx < blockSize; dx++) {
+          const pixelX = bx * blockSize + dx;
+          const pixelY = by * blockSize + dy;
+          
+          if (pixelX < width && pixelY < height) {
+            const idx = (pixelY * width + pixelX) * 4;
+            r += data[idx];
+            g += data[idx + 1];
+            b += data[idx + 2];
+            count++;
+          }
         }
-        
-        // Bottom-left pixel (1/4 of error)
-        if (y < height - 1 && x > 0) {
-          const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
-          data[bottomLeftIdx + c] = Math.max(0, Math.min(255, data[bottomLeftIdx + c] + error * 1 / 4));
-        }
-        
-        // Bottom pixel (1/4 of error)  
-        if (y < height - 1) {
-          const bottomIdx = ((y + 1) * width + x) * 4;
-          data[bottomIdx + c] = Math.max(0, Math.min(255, data[bottomIdx + c] + error * 1 / 4));
+      }
+      
+      if (count > 0) {
+        blockData[by][bx] = [r / count, g / count, b / count];
+      } else {
+        blockData[by][bx] = [0, 0, 0];
+      }
+    }
+  }
+  
+  // Apply Sierra Lite dithering to blocks
+  const ditheredBlocks: number[][][] = JSON.parse(JSON.stringify(blockData));
+  
+  for (let by = 0; by < blockHeight; by++) {
+    for (let bx = 0; bx < blockWidth; bx++) {
+      // Get original RGB values
+      const oldR = ditheredBlocks[by][bx][0];
+      const oldG = ditheredBlocks[by][bx][1];
+      const oldB = ditheredBlocks[by][bx][2];
+      
+      // Find nearest color in Apple II palette
+      const [newR, newG, newB] = findNearestColor(oldR, oldG, oldB);
+      
+      // Calculate error for each channel
+      const errorR = oldR - newR;
+      const errorG = oldG - newG;
+      const errorB = oldB - newB;
+      
+      // Set new color
+      ditheredBlocks[by][bx] = [newR, newG, newB];
+      
+      // Distribute error to neighboring blocks using Sierra Lite weights
+      if (bx < blockWidth - 1) {
+        ditheredBlocks[by][bx + 1][0] = Math.max(0, Math.min(255, ditheredBlocks[by][bx + 1][0] + errorR * 2 / 4));
+        ditheredBlocks[by][bx + 1][1] = Math.max(0, Math.min(255, ditheredBlocks[by][bx + 1][1] + errorG * 2 / 4));
+        ditheredBlocks[by][bx + 1][2] = Math.max(0, Math.min(255, ditheredBlocks[by][bx + 1][2] + errorB * 2 / 4));
+      }
+      
+      if (by < blockHeight - 1 && bx > 0) {
+        ditheredBlocks[by + 1][bx - 1][0] = Math.max(0, Math.min(255, ditheredBlocks[by + 1][bx - 1][0] + errorR * 1 / 4));
+        ditheredBlocks[by + 1][bx - 1][1] = Math.max(0, Math.min(255, ditheredBlocks[by + 1][bx - 1][1] + errorG * 1 / 4));
+        ditheredBlocks[by + 1][bx - 1][2] = Math.max(0, Math.min(255, ditheredBlocks[by + 1][bx - 1][2] + errorB * 1 / 4));
+      }
+      
+      if (by < blockHeight - 1) {
+        ditheredBlocks[by + 1][bx][0] = Math.max(0, Math.min(255, ditheredBlocks[by + 1][bx][0] + errorR * 1 / 4));
+        ditheredBlocks[by + 1][bx][1] = Math.max(0, Math.min(255, ditheredBlocks[by + 1][bx][1] + errorG * 1 / 4));
+        ditheredBlocks[by + 1][bx][2] = Math.max(0, Math.min(255, ditheredBlocks[by + 1][bx][2] + errorB * 1 / 4));
+      }
+    }
+  }
+  
+  // Expand dithered blocks back to full resolution
+  for (let by = 0; by < blockHeight; by++) {
+    for (let bx = 0; bx < blockWidth; bx++) {
+      const blockColor = ditheredBlocks[by][bx];
+      
+      // Fill all pixels in this block with the dithered color
+      for (let dy = 0; dy < blockSize; dy++) {
+        for (let dx = 0; dx < blockSize; dx++) {
+          const pixelX = bx * blockSize + dx;
+          const pixelY = by * blockSize + dy;
+          
+          if (pixelX < width && pixelY < height) {
+            const idx = (pixelY * width + pixelX) * 4;
+            data[idx] = blockColor[0];
+            data[idx + 1] = blockColor[1];
+            data[idx + 2] = blockColor[2];
+            // Keep original alpha
+          }
         }
       }
     }
@@ -1887,7 +2182,7 @@ export const useBrushEngine = () => {
       }
     } else {
       // Fallback to original behavior if no colors array provided
-      const numColors = brushSettings.colors || 2;
+      const numColors = Math.max(2, brushSettings.colors || 2);
       if (numColors === 1) {
         // Single color - use solid fill
         gradient.addColorStop(0, startColor);
@@ -1917,7 +2212,7 @@ export const useBrushEngine = () => {
       }
     }
     
-    // Draw rectangle
+    // Draw rectangle with gradient
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.moveTo(corners[0].x, corners[0].y);
@@ -1955,7 +2250,7 @@ export const useBrushEngine = () => {
 
     // Apply Sierra Lite dither effect if enabled (only for final drawing, not preview)
     const ditherEnabled = brushSettings.ditherEnabled || false;
-    const numColors = brushSettings.colors || 2;
+    const numColors = Math.max(2, brushSettings.colors || 2);
     if (ditherEnabled && !isPreview) {
       // Get the bounds of the rectangle for dithering
       const minX = Math.floor(Math.min(...corners.map(c => c.x)));
@@ -1994,7 +2289,8 @@ export const useBrushEngine = () => {
             const maskData = maskCtx.getImageData(0, 0, boundWidth, boundHeight);
             
             // Apply dithering only to pixels inside the rectangle
-            const ditheredData = applySierraLiteDither(imageData, numColors);
+            const fillResolution = brushSettings.fillResolution || 1;
+            const ditheredData = applySierraLiteDitherWithFillResolution(imageData, numColors, fillResolution);
             
             // Composite: use dithered data only where mask is white
             const finalData = new Uint8ClampedArray(imageData.data);
@@ -2037,7 +2333,7 @@ export const useBrushEngine = () => {
     const startPoint = vertices[0];
     const endPoint = vertices[vertices.length - 1];
     
-    // Create linear gradient from start to end of drawing path
+    // Create linear gradient from start to end
     const gradient = ctx.createLinearGradient(startPoint.x, startPoint.y, endPoint.x, endPoint.y);
     
     // Add color stops for each sampled color
@@ -2090,7 +2386,7 @@ export const useBrushEngine = () => {
 
     // Apply Sierra Lite dither effect if enabled (only for final drawing, not preview)
     const ditherEnabled = brushSettings.ditherEnabled || false;
-    const numColors = brushSettings.colors || 2;
+    const numColors = Math.max(2, brushSettings.colors || 2);
     if (ditherEnabled && !isPreview) {
       // Get the bounds of the polygon for dithering
       const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
@@ -2129,7 +2425,8 @@ export const useBrushEngine = () => {
             const maskData = maskCtx.getImageData(0, 0, boundWidth, boundHeight);
             
             // Apply dithering only to pixels inside the polygon
-            const ditheredData = applySierraLiteDither(imageData, numColors);
+            const fillResolution = brushSettings.fillResolution || 1;
+            const ditheredData = applySierraLiteDitherWithFillResolution(imageData, numColors, fillResolution);
             
             // Composite: use dithered data only where mask is white
             const finalData = new Uint8ClampedArray(imageData.data);

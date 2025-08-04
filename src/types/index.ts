@@ -230,6 +230,8 @@ export interface BrushSettings {
   };
   // Rectangle/Polygon gradient colors count
   colors?: number; // 1-10 for gradient brushes
+  // Fill resolution for dither block size (1-32 pixels per block)
+  fillResolution?: number; // 1-32 for dithering block size
 }
 
 export interface ComponentParams {
