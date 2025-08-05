@@ -4,6 +4,8 @@ const nextConfig: NextConfig = {
   // Static export for GitHub Pages
   output: 'export',
   trailingSlash: true,
+  basePath: '/tinybrush',
+  assetPrefix: '/tinybrush/',
   images: {
     unoptimized: true,
   },
@@ -51,8 +53,7 @@ const nextConfig: NextConfig = {
   //   return []
   // },
   
-  // Ensure assets are served correctly
-  assetPrefix: process.env.NODE_ENV === 'production' ? '' : '',
+  // Note: assetPrefix now set above for GitHub Pages
   
   // Removed experimental features that were causing instability
   // experimental: {
