@@ -2273,12 +2273,14 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
   // Client-side mount check for static export compatibility
   useEffect(() => {
+    // Add debugging for GitHub Pages
+    console.log('DrawingCanvas: Setting mounted to true');
     setIsMounted(true);
   }, []);
 
   // Initialize canvases - main display and offscreen drawing buffer
   const initializeCanvas = useCallback(() => {
-    if (!isMounted) return; // Only initialize on client side
+    if (typeof window === 'undefined') return; // Only initialize on client side
     const canvasElement = canvasRef.current;
     if (!canvasElement) return;
     
@@ -2322,7 +2324,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         }
       }
     }
-  }, [width, height, project?.backgroundColor, isMounted]);
+  }, [width, height, project?.backgroundColor]);
 
   // Update canvas dimensions when needed
   const updateCanvasDimensions = useCallback(() => {
@@ -2471,7 +2473,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       }
     } catch {
     }
-  }, [isCanvasInitialized, initializeCanvas, setPan, setProjectDimensions, width, height, saveCanvasState, isMounted]);
+  }, [isCanvasInitialized, initializeCanvas, setPan, setProjectDimensions, width, height, saveCanvasState]);
 
   // Event listeners setup - separate from canvas initialization
   useEffect(() => {
@@ -2749,7 +2751,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
 
   // Don't render canvas during SSR
-  if (!isMounted) {
+  if (!isMounted && typeof window === 'undefined') {
     return (
       <div className="w-full h-full bg-[#141514] relative flex items-center justify-center">
         <div className="text-gray-500">Loading canvas...</div>
