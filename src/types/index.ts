@@ -347,4 +347,5 @@ export interface ColorCycleState {
   currentColorIndex: number;
   colorMap: Map<string, string>;
   layerColorIndexMaps: Map<string, Map<string, number>>;
+  originalLayerImageData: Map<string, ImageData>; // Store original state before color cycling
 }

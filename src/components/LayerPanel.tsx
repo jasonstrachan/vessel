@@ -39,7 +39,6 @@ const LayerPanel = () => {
   };
 
   const handleDeleteLayer = (layerId: string) => {
-    const layer = layers.find(l => l.id === layerId);
     if (layers.length > 1) {
       removeLayer(layerId);
     }

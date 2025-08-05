@@ -163,6 +163,7 @@ interface AppState {
   colorCycleState: ColorCycleState;
   setColorCycleActive: (active: boolean) => void;
   setColorCyclePlaying: (playing: boolean) => void;
+  setColorCyclePlayingWithCapture: (playing: boolean, sourceCanvas?: HTMLCanvasElement) => Promise<void>;
   addColorCycleColor: (color: string) => void;
   removeColorCycleColor: (index: number) => void;
   setColorCycleFPS: (fps: number) => void;
@@ -172,6 +173,9 @@ interface AppState {
   precomputeColorCycleMaps: () => void;
   refreshColorCycleMapsIfNeeded: () => void;
   resetColorCycle: () => void;
+  
+  // Internal state
+  _colorCycleRefreshTimeout: ReturnType<typeof setTimeout> | null;
   
   // UI State
   ui: UIState;
@@ -200,10 +204,14 @@ interface AppState {
   // Brush Preset Management
   removeBrushPreset: (presetId: string) => void;
   
+  // Canvas Reference Management
+  currentOffscreenCanvas: HTMLCanvasElement | null;
+  setCurrentOffscreenCanvas: (canvas: HTMLCanvasElement | null) => void;
+  
   // Project Save/Load Management
   saveProject: (filename?: string) => Promise<void>;
   loadProject: () => Promise<void>;
-  exportProject: (format: 'png', options?: any) => Promise<void>;
+  exportProject: (format: 'png', options?: { quality?: number; scale?: number }) => Promise<void>;
   newProject: (width: number, height: number, name?: string) => void;
   compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => void;
   captureCanvasToActiveLayer: (sourceCanvas?: HTMLCanvasElement) => Promise<void>;
@@ -319,7 +327,8 @@ const defaultColorCycleState: ColorCycleState = {
   selectedLayers: [],
   currentColorIndex: 0,
   colorMap: new Map(),
-  layerColorIndexMaps: new Map()
+  layerColorIndexMaps: new Map(),
+  originalLayerImageData: new Map()
 };
 
 export const useAppStore = create<AppState>()(
@@ -585,7 +594,7 @@ export const useAppStore = create<AppState>()(
           if (wasCustom !== isCustom) {
             try {
               memoryManager.runCleanup();
-            } catch (error) {
+            } catch {
               // Cache cleanup failed, continue silently
             }
           }
@@ -694,34 +703,92 @@ export const useAppStore = create<AppState>()(
         }
       })),
       
+      // Canvas Reference
+      currentOffscreenCanvas: null,
+      setCurrentOffscreenCanvas: (canvas) => set({ currentOffscreenCanvas: canvas }),
+      
       // Color Cycle State
       colorCycleState: defaultColorCycleState,
+      _colorCycleRefreshTimeout: null,
       setColorCycleActive: (active) => set((state) => ({
         colorCycleState: { ...state.colorCycleState, isActive: active }
       })),
       setColorCyclePlaying: (playing) => set((state) => {
-        // When stopping, always reset to frame 0 and force recomposition
         if (!playing) {
+          // When stopping, restore original layer data if we have it
+          const restoredLayers = state.layers.map(layer => {
+            const originalImageData = state.colorCycleState.originalLayerImageData.get(layer.id);
+            if (originalImageData && state.colorCycleState.selectedLayers.includes(layer.id)) {
+              // Create a deep copy of the imageData to restore
+              const restoredImageData = new ImageData(
+                new Uint8ClampedArray(originalImageData.data),
+                originalImageData.width,
+                originalImageData.height
+              );
+              return { ...layer, imageData: restoredImageData };
+            }
+            return layer;
+          });
+          
           return {
+            layers: restoredLayers,
+            project: state.project ? {
+              ...state.project,
+              layers: restoredLayers
+            } : null,
             colorCycleState: { 
               ...state.colorCycleState, 
               isPlaying: false,
               isActive: false,
-              currentColorIndex: 0 // Always reset to first frame when stopping
+              currentColorIndex: 0,
+              originalLayerImageData: new Map() // Clear original data after restoration
             },
             layersNeedRecomposition: true // Always trigger recomposition when stopping
           };
         }
         
-        // When starting, just set playing state
+        // When starting, capture original state of selected layers
+        const originalLayerImageData = new Map();
+        state.colorCycleState.selectedLayers.forEach(layerId => {
+          const layer = state.layers.find(l => l.id === layerId);
+          if (layer && layer.imageData) {
+            // Create a deep copy of the current imageData before cycling starts
+            const originalImageData = new ImageData(
+              new Uint8ClampedArray(layer.imageData.data),
+              layer.imageData.width,
+              layer.imageData.height
+            );
+            originalLayerImageData.set(layerId, originalImageData);
+          }
+        });
+        
         return {
           colorCycleState: { 
             ...state.colorCycleState, 
             isPlaying: true,
-            isActive: true
+            isActive: true,
+            originalLayerImageData
           }
         };
       }),
+      setColorCyclePlayingWithCapture: async (playing, sourceCanvas?) => {
+        const state = get();
+        const canvas = sourceCanvas || state.currentOffscreenCanvas;
+        
+        if (playing && canvas) {
+          // First, capture current canvas state to ensure we have the latest data
+          try {
+            await get().captureCanvasToActiveLayer(canvas);
+            // Small delay to ensure capture completes before starting color cycling
+            await new Promise(resolve => setTimeout(resolve, 50));
+          } catch (error) {
+            console.error('Failed to capture canvas before color cycling:', error);
+          }
+        }
+        
+        // Now start/stop color cycling with the current state
+        get().setColorCyclePlaying(playing);
+      },
       addColorCycleColor: (color) => set((state) => {
         const hexToRgb = (hex: string): { r: number; g: number; b: number } => {
           const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -814,23 +881,27 @@ export const useAppStore = create<AppState>()(
             colorCycleState.selectedLayers.length > 0) {
           // Debounce the refresh to avoid too frequent updates during drawing
           // Clear any existing timeout
-          if ((get() as any)._colorCycleRefreshTimeout) {
-            clearTimeout((get() as any)._colorCycleRefreshTimeout);
+          const currentState = get();
+          if (currentState._colorCycleRefreshTimeout) {
+            clearTimeout(currentState._colorCycleRefreshTimeout);
           }
           
           // Set a new timeout for refresh
-          (get() as any)._colorCycleRefreshTimeout = setTimeout(() => {
+          const timeoutId = setTimeout(() => {
             console.log('Refreshing color cycle maps after layer update');
             get().precomputeColorCycleMaps();
-            (get() as any)._colorCycleRefreshTimeout = null;
+            set({ _colorCycleRefreshTimeout: null });
           }, 100); // 100ms debounce
+          
+          set({ _colorCycleRefreshTimeout: timeoutId });
         }
       },
       resetColorCycle: () => set({
         colorCycleState: { 
           ...defaultColorCycleState,
           layerColorIndexMaps: new Map(),
-          selectedColorsRGB: []
+          selectedColorsRGB: [],
+          originalLayerImageData: new Map()
         }
       }),
       setBrushPreset: (preset) => set((state) => {
@@ -885,7 +956,7 @@ export const useAppStore = create<AppState>()(
           if (wasCustom !== isCustom) {
             try {
               memoryManager.runCleanup();
-            } catch (error) {
+            } catch {
               // Cache cleanup failed, continue silently
             }
           }
@@ -1553,10 +1624,9 @@ export const useAppStore = create<AppState>()(
         
         // Sort layers by order and draw each visible layer
         const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
-        let drawnLayers = 0;
         
         // Check if color cycling is active and has colors
-        const isColorCycling = (state.colorCycleState.isPlaying || state.tools.currentTool === 'color-cycle') && 
+        const isColorCycling = state.colorCycleState.isPlaying && 
                                state.colorCycleState.selectedColors.length > 0 &&
                                state.colorCycleState.selectedLayers.length > 0;
         
@@ -1643,7 +1713,6 @@ export const useAppStore = create<AppState>()(
             
             // Draw the layer onto the target canvas
             ctx.drawImage(layerCanvas, 0, 0);
-            drawnLayers++;
           }
         }
         
@@ -1836,7 +1905,7 @@ export const useAppStore = create<AppState>()(
         return loadedSettings;
       },
       clearBrushSettings: (brushId) => set((state) => {
-        const { [brushId]: _, ...remaining } = state.brushSpecificSettings;
+        const { [brushId]: _deleted, ...remaining } = state.brushSpecificSettings;
         return { brushSpecificSettings: remaining };
       })
     }),

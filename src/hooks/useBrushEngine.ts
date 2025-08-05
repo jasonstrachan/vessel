@@ -2,7 +2,7 @@
 
 import { useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
-import { BrushComponent, ComponentType, BrushShape, CustomBrush } from '../types';
+import { BrushComponent, ComponentType, BrushShape, CustomBrush, BrushSettings } from '../types';
 import { shouldApplyGridSnap, snapToGrid, getGridPositionsBetween, calculateGridDimensions, snapToRectangularGrid, getRectangularGridPositionsBetween } from '../utils/gridSnap';
 import { canvasPool } from '../utils/canvasPool';
 import { brushCache } from '../utils/brushCache';
@@ -11,6 +11,32 @@ import { pressureOptimizer } from '../utils/pressureOptimizer';
 import { memoryManager } from '../utils/memoryCleanup';
 import { performanceMonitor } from '../utils/performanceMonitor';
 import { adjustHueAndSaturation } from '../utils/imageProcessing';
+
+// Internal types for this hook
+interface PixelQueue {
+  initialized: boolean;
+  lastDrawnX: number;
+  lastDrawnY: number;
+  waitingPixelX: number;
+  waitingPixelY: number;
+  spacingCounter: number;
+  lastStrokePosition: { x: number; y: number };
+  accumulatedDistance: number;
+  stampedGridPositions: Set<string>;
+  dashStampCounter: number;
+}
+
+interface RectangleState {
+  startPos: { x: number; y: number };
+  endPos: { x: number; y: number };
+  width: number;
+  startColor: string;
+  endColor: string;
+  colors: number;
+  ditherEnabled?: boolean;
+  ditherIntensity?: number;
+  risographIntensity?: number;
+}
 
 // Cache for pre-rendered pixel circle stamps
 const pixelCircleStampCache = new Map<string, HTMLCanvasElement>();
@@ -871,7 +897,7 @@ export const useBrushEngine = () => {
           if (tempCanvas) canvasPool.release(tempCanvas);
           return;
         }
-      } catch (error) {
+      } catch {
         // If we can't read the pixel data, allow drawing
       }
     }
@@ -935,7 +961,7 @@ export const useBrushEngine = () => {
           
           // Draw the pattern at original size
           targetCtx.drawImage(tempCanvas, patternDrawX, patternDrawY);
-        } catch (error) {
+        } catch {
         }
       }
     } else {
@@ -1304,7 +1330,7 @@ export const useBrushEngine = () => {
   }, []);
 
   // Helper function to determine if we should draw the current stamp (cursor-speed independent)
-  const shouldDrawStamp = useCallback((brushSettings: any, queue: any, actualSize?: number, isGridSnapping: boolean = false): boolean => {
+  const shouldDrawStamp = useCallback((brushSettings: BrushSettings, queue: PixelQueue, actualSize?: number, isGridSnapping: boolean = false): boolean => {
     // Defensive checks for brush settings
     if (!brushSettings || typeof brushSettings !== 'object') {
       return true;
@@ -1825,7 +1851,7 @@ export const useBrushEngine = () => {
     let settings;
     try {
       settings = executeComponents(components, input);
-    } catch (error) {
+    } catch {
       return; // Exit early to prevent further issues
     }
     
@@ -2128,12 +2154,14 @@ export const useBrushEngine = () => {
     
     // Performance monitoring (silent - data available in dev tools if needed)
     if (process.env.NODE_ENV === 'development' && strokeStartTime) {
-      performance.now() - strokeStartTime;
+      const strokeDuration = performance.now() - strokeStartTime;
+      // Performance data available in dev tools if needed
+      void strokeDuration;
     }
   }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp]);
   
   // Draw rectangle gradient brush
-  const drawRectangleGradient = useCallback((ctx: CanvasRenderingContext2D, rectangleState: any, isPreview: boolean = false) => {
+  const drawRectangleGradient = useCallback((ctx: CanvasRenderingContext2D, rectangleState: RectangleState, isPreview: boolean = false) => {
     const { startPos, endPos, width, startColor, endColor, colors } = rectangleState;
     const { brushSettings } = useAppStore.getState().tools;
     

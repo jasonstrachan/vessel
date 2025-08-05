@@ -102,7 +102,7 @@ class AutosaveService {
               // File backup saved: ${backupResult.filename}
             }
             // File backup failed: ${backupResult.error}
-          } catch (fileError) {
+          } catch {
             // File backup error
           }
         }
@@ -112,7 +112,7 @@ class AutosaveService {
       freshState.clearDirtyState();
       
       // Project "${freshState.project.name}" saved to background storage
-    } catch (error) {
+    } catch {
       // Failed to save project to background storage
       
       // Only show notification for critical failures, not for every autosave issue

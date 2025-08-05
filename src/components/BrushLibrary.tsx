@@ -126,7 +126,7 @@ const BrushLibrary = () => {
     saveCustomBrushAsPreset(activeCustomBrush.id);
   };
 
-  const handleDeletePreset = (presetId: string, presetName: string) => {
+  const handleDeletePreset = (presetId: string) => {
     // Check if this is a custom brush from save file
     if (presetId.startsWith('custom_')) {
       // Extract the original custom brush ID
@@ -266,7 +266,7 @@ const BrushLibrary = () => {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleDeletePreset(preset.id, preset.name);
+                    handleDeletePreset(preset.id);
                   }}
                   className="w-4 h-4 text-[#D9D9D9] hover:text-red-400 transition-colors opacity-60 hover:opacity-100"
                   title={`Delete ${preset.name}`}

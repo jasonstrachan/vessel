@@ -71,7 +71,7 @@ const useCursorDataURL = (
     ctx.stroke();
     
     return canvas.toDataURL();
-  }, [brushShape, screenSize, color]);
+  }, [brushShape, screenSize]);
 };
 
 const BrushCursor = memo(function BrushCursor({

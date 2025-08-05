@@ -7,6 +7,7 @@ const ColorCyclePanel = () => {
   const { 
     colorCycleState,
     setColorCyclePlaying,
+    setColorCyclePlayingWithCapture,
     addColorCycleColor,
     removeColorCycleColor,
     setColorCycleFPS,
@@ -36,8 +37,14 @@ const ColorCyclePanel = () => {
     }
   }, [colorCycleState.selectedLayers, colorCycleState.selectedColors, precomputeColorCycleMaps]);
 
-  const handlePlayPause = () => {
-    setColorCyclePlaying(!colorCycleState.isPlaying);
+  const handlePlayPause = async () => {
+    if (!colorCycleState.isPlaying) {
+      // When starting, use the new method that captures current state
+      await setColorCyclePlayingWithCapture(true);
+    } else {
+      // When stopping, use regular method
+      setColorCyclePlaying(false);
+    }
   };
 
   const handleAddColor = () => {

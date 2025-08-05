@@ -13,56 +13,12 @@ import { canvasPool } from '../../utils/canvasPool';
 import { memoryManager } from '../../utils/memoryCleanup';
 import { scaledBrushCache } from '../../utils/scaledBrushCache';
 import { brushCache } from '../../utils/brushCache';
-import { calculateGridDimensions } from '../../utils/gridSnap';
-import { createShapePath, renderShape, renderShapePreview, simplifyPath } from '../../utils/shapeUtils';
-import type { Tool } from '../../types';
+import { createShapePath, renderShape, simplifyPath } from '../../utils/shapeUtils';
+import type { Tool, CanvasSnapshot } from '../../types';
 import { BrushShape } from '../../types';
 import BrushCursor from './BrushCursor';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../../constants/canvas';
 
-/**
- * Samples a square area of pixels from a canvas context and returns the average color.
- * @param {CanvasRenderingContext2D} ctx The canvas context to sample from.
- * @param {number} x The center X coordinate of the sample area.
- * @param {number} y The center Y coordinate of the sample area.
- * @param {number} areaSize The width and height of the square area to sample (e.g., 5 for a 5x5 area).
- * @returns {string|null} The average color as a hex string (e.g., '#RRGGBB'), or null on error.
- */
-const sampleAverageColor = (ctx: CanvasRenderingContext2D, x: number, y: number, areaSize = 5): string | null => {
-  const halfSize = Math.floor(areaSize / 2);
-  const startX = Math.round(x - halfSize);
-  const startY = Math.round(y - halfSize);
-
-  try {
-    // Read the block of pixel data from the canvas
-    const imageData = ctx.getImageData(startX, startY, areaSize, areaSize).data;
-
-    let totalR = 0;
-    let totalG = 0;
-    let totalB = 0;
-
-    // Loop through all pixels in the data (each pixel is 4 bytes: R, G, B, A)
-    for (let i = 0; i < imageData.length; i += 4) {
-      totalR += imageData[i];
-      totalG += imageData[i + 1];
-      totalB += imageData[i + 2];
-    }
-
-    const pixelCount = areaSize * areaSize;
-    const avgR = Math.round(totalR / pixelCount);
-    const avgG = Math.round(totalG / pixelCount);
-    const avgB = Math.round(totalB / pixelCount);
-
-    // Helper to convert a number to a 2-digit hex string
-    const toHex = (c: number) => ('0' + c.toString(16)).slice(-2);
-
-    return `#${toHex(avgR)}${toHex(avgG)}${toHex(avgB)}`;
-  } catch (e) {
-    // This can happen if you sample outside the canvas bounds or have CORS issues.
-    console.error("Color sampling failed. This is often due to sampling off-canvas.", e);
-    return null;
-  }
-};
 
 interface DrawingCanvasProps {
   width?: number;
@@ -87,15 +43,15 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     isSelecting: false,
     canUndo: (() => false) as () => boolean,
     canRedo: (() => false) as () => boolean,
-    undo: (() => null) as any,
-    redo: (() => null) as any,
+    undo: (() => null) as () => CanvasSnapshot | null,
+    redo: (() => null) as () => CanvasSnapshot | null,
     tools: { currentTool: 'brush' as Tool, brushSettings: { size: 10, brushShape: BrushShape.ROUND } },
     canvas: { selection: { active: false } },
-    setBrushSettings: (() => {}) as any,
-    setCurrentTool: (() => {}) as any,
-    commitSelection: (() => {}) as any,
-    setSelection: (() => {}) as any,
-    renderView: (() => {}) as any,
+    setBrushSettings: ((_settings: any) => {}) as (settings: any) => void,
+    setCurrentTool: ((_tool: any) => {}) as (tool: any) => void,
+    commitSelection: (() => {}) as () => void,
+    setSelection: ((_selection: any) => {}) as (selection: any) => void,
+    renderView: (() => {}) as () => void,
     toolBeforeEraser: null as Tool | null,
     toolBeforeEyedropper: null as Tool | null
   });
@@ -257,65 +213,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     livePoints: [] as Array<{ x: number; y: number; color: string }>
   });
 
-  // Shift color hue by specified degrees
-  const shiftColorHue = useCallback((r: number, g: number, b: number, hueShift: number): string => {
-    // Convert RGB to HSL
-    r /= 255;
-    g /= 255;
-    b /= 255;
-    
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    let h: number, s: number;
-    const l = (max + min) / 2;
-    
-    if (max === min) {
-      h = s = 0; // achromatic
-    } else {
-      const d = max - min;
-      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-      
-      switch (max) {
-        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-        case g: h = (b - r) / d + 2; break;
-        default: h = (r - g) / d + 4; break;
-      }
-      h /= 6;
-    }
-    
-    // Shift hue
-    h = (h + hueShift / 360) % 1;
-    if (h < 0) h += 1;
-    
-    // Convert HSL back to RGB
-    const hue2rgb = (p: number, q: number, t: number) => {
-      if (t < 0) t += 1;
-      if (t > 1) t -= 1;
-      if (t < 1/6) return p + (q - p) * 6 * t;
-      if (t < 1/2) return q;
-      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-      return p;
-    };
-    
-    let newR: number, newG: number, newB: number;
-    
-    if (s === 0) {
-      newR = newG = newB = l; // achromatic
-    } else {
-      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-      const p = 2 * l - q;
-      newR = hue2rgb(p, q, h + 1/3);
-      newG = hue2rgb(p, q, h);
-      newB = hue2rgb(p, q, h - 1/3);
-    }
-    
-    // Convert back to 0-255 range
-    newR = Math.round(newR * 255);
-    newG = Math.round(newG * 255);
-    newB = Math.round(newB * 255);
-    
-    return `rgb(${newR}, ${newG}, ${newB})`;
-  }, []);
 
   // Sample colors from canvas at actual drawing path points
   const sampleCanvasColors = useCallback((ctx: CanvasRenderingContext2D, points: Array<{ x: number; y: number }>, numSamples: number): string[] => {
@@ -358,7 +255,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     let imageData: ImageData;
     try {
       imageData = ctx.getImageData(minX, minY, width, height);
-    } catch (e) {
+    } catch {
       // Fallback to default colors if sampling fails
       return Array(samplePoints.length).fill('rgb(128, 128, 128)');
     }
@@ -407,7 +304,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     clearSelection,
     addCustomBrush,
     addLayer,
-    updateLayer,
     saveCanvasState,
     undo,
     redo,
@@ -427,13 +323,12 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     setRectangleBrushState,
     polygonGradientState,
     setPolygonGradientState,
-    addPolygonGradientPoint,
     clearPolygonGradientPoints,
     colorCycleState,
-    updateColorCycleIndex,
     incrementColorCycleIndex,
     temporaryCustomBrush,
     setTemporaryCustomBrush,
+    setCurrentOffscreenCanvas,
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue, drawRectangleGradient, drawPolygonGradient } = useBrushEngine();
@@ -550,12 +445,12 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         canvasPool.release(tempCanvas);
       };
       
-      img.onerror = (error) => {
+      img.onerror = () => {
       };
       
       const objectURL = URL.createObjectURL(file);
       img.src = objectURL;
-    } catch (error) {
+    } catch {
     }
   }, [setSelection]);
 
@@ -636,7 +531,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   }, [canvas.zoom, canvas.panX, canvas.panY, canvas.canvasWidth, canvas.canvasHeight, width, height]);
 
   // Update mouse position and world coordinates
-  const updateMousePosition = useCallback((event: { clientX: number; clientY: number }, isCanvasEvent: boolean = false) => {
+  const updateMousePosition = useCallback((event: { clientX: number; clientY: number }) => {
     if (!canvasRef.current || !wrapperRef.current) return;
     
     const coords = transformScreenToCanvas(event.clientX, event.clientY);
@@ -716,8 +611,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     ctx.clearRect(0, 0, width, height);
     
     // Determine what needs to redraw for optimization purposes
-    const needsFullRedraw = fullRedrawNeeded.current || dirtyRegionsRef.current.length === 0;
-    
     // Save context state
     ctx.save();
     
@@ -870,7 +763,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
       if (drawingState === 'definingLength') {
         // --- 1. Get current state ---
-        const { brushSettings } = tools;
 
         // --- 2. Define the shared width ---
         // Fixed 4px preview line thickness, scaled for zoom
@@ -963,11 +855,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         }
         
         // Create points with sampled colors for preview
-        const previewPointsWithColors = livePoints.map((point, index) => ({
-          ...point,
-          color: previewColors[Math.floor((index / livePoints.length) * previewColors.length)]
-        }));
-        
         // Draw the polygon using same number of colors as final
         drawPolygonGradient(ctx, { vertices: livePoints, colors: previewColors }, true); // isPreview = true
 
@@ -1088,7 +975,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         0, 0, width, height        // Destination rectangle (brush space)
       );
       
-    } catch (error) {
+    } catch {
       canvasPool.release(captureCanvas);
       return null;
     }
@@ -1218,7 +1105,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         sourceX, sourceY, sourceWidth, sourceHeight, // Source rectangle (world space)
         0, 0, width, height        // Destination rectangle (brush space)
       );
-    } catch (error) {
+    } catch {
       canvasPool.release(captureCanvas);
       return null;
     }
@@ -1282,7 +1169,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
   // Pointer event handlers (supports pressure from stylus/pen)
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    updateMousePosition(e, true); // Canvas event
+    updateMousePosition(e); // Canvas event
     
     if (spacebarPressed) {
       // Start panning
@@ -1343,7 +1230,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             captureCanvasToActiveLayer(offscreenCanvas).then(() => {
               // Save state AFTER the fill is complete and captured
               saveCanvasState(offscreenCanvas, 'fill', 'Fill operation');
-            }).catch((error) => {
+            }).catch(() => {
             });
             
             // Flood fill affects large areas, require full redraw
@@ -1393,10 +1280,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       const targetLayer = layers.find(l => l.id === targetLayerId);
       if (targetLayer?.locked) {
         // Store transparency lock state for use in brush engine
-        (window as any).transparencyLockEnabled = true;
-        (window as any).transparencyLockLayerId = targetLayerId;
+        (window as typeof window & { transparencyLockEnabled: boolean; transparencyLockLayerId: string }).transparencyLockEnabled = true;
+        (window as typeof window & { transparencyLockEnabled: boolean; transparencyLockLayerId: string }).transparencyLockLayerId = targetLayerId;
       } else {
-        (window as any).transparencyLockEnabled = false;
+        (window as typeof window & { transparencyLockEnabled: boolean }).transparencyLockEnabled = false;
       }
       
       setDrawingTargetLayerId(targetLayerId);
@@ -1487,10 +1374,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const targetLayer = layers.find(l => l.id === targetLayerId);
     if (targetLayer?.locked) {
       // Store transparency lock state for use in brush engine
-      (window as any).transparencyLockEnabled = true;
-      (window as any).transparencyLockLayerId = targetLayerId;
+      (window as typeof window & { transparencyLockEnabled: boolean; transparencyLockLayerId: string }).transparencyLockEnabled = true;
+      (window as typeof window & { transparencyLockEnabled: boolean; transparencyLockLayerId: string }).transparencyLockLayerId = targetLayerId;
     } else {
-      (window as any).transparencyLockEnabled = false;
+      (window as typeof window & { transparencyLockEnabled: boolean }).transparencyLockEnabled = false;
     }
     
     setDrawingTargetLayerId(targetLayerId);
@@ -1566,7 +1453,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       return;
     }
     
-    updateMousePosition(e, true); // Canvas event
+    updateMousePosition(e); // Canvas event
     
     if (isPanning) {
       // Handle panning - calculate delta in canvas coordinates
@@ -1924,7 +1811,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const touch = e.touches[0];
     
     // Update mouse position from touch
-    updateMousePosition(touch, true); // Canvas event
+    updateMousePosition(touch); // Canvas event
     
     if (spacebarPressed) {
       // Start panning
@@ -1963,7 +1850,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const touch = e.touches[0];
     
     // Update mouse position from touch
-    updateMousePosition(touch, true); // Canvas event
+    updateMousePosition(touch); // Canvas event
     
     if (isPanning) {
       // Handle panning - calculate delta in canvas coordinates
@@ -2053,7 +1940,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     if (!canvasRef.current) return;
     
     // Update mouse position first
-    updateMousePosition(e, true); // Canvas event
+    updateMousePosition(e); // Canvas event
     
     const oldZoom = canvas.zoom;
     
@@ -2116,7 +2003,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Capture the pasted content to the active layer
     captureCanvasToActiveLayer(offscreenCanvas).then(() => {
-    }).catch((error) => {
+    }).catch(() => {
     });
     
     // Paste affects large areas, require full redraw
@@ -2550,6 +2437,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       offscreenCanvasRef.current.width = width;
       offscreenCanvasRef.current.height = height;
       
+      // Register canvas with store for color cycling capture
+      setCurrentOffscreenCanvas(offscreenCanvasRef.current);
+      
       // Initialize offscreen canvas
       const offscreenCtx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
       if (offscreenCtx) {
@@ -2709,7 +2599,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           }, 100); // Small delay to ensure canvas is fully initialized
         }
       }
-    } catch (error) {
+    } catch {
     }
   }, [isCanvasInitialized, initializeCanvas, setPan, setProjectDimensions, width, height, saveCanvasState]);
 
