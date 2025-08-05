@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Static export for GitHub Pages
+  output: 'export',
+  trailingSlash: true,
+  images: {
+    unoptimized: true,
+  },
+  
   // Ensure proper development server configuration
   webpack: (config, { dev, isServer }) => {
     if (dev) {
@@ -39,10 +46,10 @@ const nextConfig: NextConfig = {
   // Allow cross-origin requests in development
   allowedDevOrigins: ['172.24.178.199'],
   
-  // Server configuration
-  async rewrites() {
-    return []
-  },
+  // Server configuration (disabled for static export)
+  // async rewrites() {
+  //   return []
+  // },
   
   // Ensure assets are served correctly
   assetPrefix: process.env.NODE_ENV === 'production' ? '' : '',

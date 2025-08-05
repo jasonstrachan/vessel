@@ -55,19 +55,8 @@ function analyzeImageData(imageData: ImageData): Map<string, number> {
  */
 export function getMostUsedColors(project: Project | null, maxColors: number = 10): string[] {
   if (!project || !project.layers.length) {
-    // Return default color palette if no project
-    return [
-      '#000000', // Black
-      '#ffffff', // White  
-      '#ff0000', // Red
-      '#00ff00', // Green
-      '#0000ff', // Blue
-      '#ffff00', // Yellow
-      '#ff00ff', // Magenta
-      '#00ffff', // Cyan
-      '#ff8000', // Orange
-      '#8000ff'  // Purple
-    ].slice(0, maxColors);
+    // Return empty array if no project
+    return [];
   }
   
   const globalColorCount = new Map<string, number>();
@@ -91,21 +80,6 @@ export function getMostUsedColors(project: Project | null, maxColors: number = 1
     .slice(0, maxColors)
     .map(([color]) => color);
   
-  // If we don't have enough colors, fill with defaults
-  const defaultColors = [
-    '#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff',
-    '#ffff00', '#ff00ff', '#00ffff', '#ff8000', '#8000ff'
-  ];
-  
-  while (sortedColors.length < maxColors) {
-    const defaultColor = defaultColors[sortedColors.length];
-    if (defaultColor && !sortedColors.includes(defaultColor)) {
-      sortedColors.push(defaultColor);
-    } else {
-      break;
-    }
-  }
-  
   return sortedColors;
 }
 
@@ -115,12 +89,12 @@ export function getMostUsedColors(project: Project | null, maxColors: number = 1
  */
 export function getLiveColorPalette(canvas: HTMLCanvasElement | null, maxColors: number = 10): string[] {
   if (!canvas) {
-    return getMostUsedColors(null, maxColors);
+    return [];
   }
   
   try {
     const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
-    if (!ctx) return getMostUsedColors(null, maxColors);
+    if (!ctx) return [];
     
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const colorCount = analyzeImageData(imageData);
@@ -130,25 +104,10 @@ export function getLiveColorPalette(canvas: HTMLCanvasElement | null, maxColors:
       .slice(0, maxColors)
       .map(([color]) => color);
     
-    // Fill with defaults if needed
-    const defaultColors = [
-      '#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff',
-      '#ffff00', '#ff00ff', '#00ffff', '#ff8000', '#8000ff'
-    ];
-    
-    while (sortedColors.length < maxColors) {
-      const defaultColor = defaultColors[sortedColors.length];
-      if (defaultColor && !sortedColors.includes(defaultColor)) {
-        sortedColors.push(defaultColor);
-      } else {
-        break;
-      }
-    }
-    
     return sortedColors;
   } catch (error) {
     console.warn('Failed to analyze canvas colors:', error);
-    return getMostUsedColors(null, maxColors);
+    return [];
   }
 }
 
@@ -204,7 +163,7 @@ function sortColorsForCycling(colors: string[]): string[] {
  */
 export function extractColorsFromLayers(layers: Layer[], maxColors: number = 10): string[] {
   if (!layers.length) {
-    return getMostUsedColors(null, maxColors);
+    return [];
   }
   
   const globalColorCount = new Map<string, number>();
@@ -231,21 +190,7 @@ export function extractColorsFromLayers(layers: Layer[], maxColors: number = 10)
   // Sort the frequent colors by hue and lightness for smooth cycling
   const sortedColors = sortColorsForCycling(frequentColors);
   
-  // Fill with defaults if needed
-  const defaultColors = [
-    '#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff',
-    '#ffff00', '#ff00ff', '#00ffff', '#ff8000', '#8000ff'
-  ];
-  
-  while (sortedColors.length < maxColors) {
-    const defaultColor = defaultColors[sortedColors.length];
-    if (defaultColor && !sortedColors.includes(defaultColor)) {
-      sortedColors.push(defaultColor);
-    } else {
-      break;
-    }
-  }
-  
+  // Don't add default colors - only return what's actually in the image
   return sortedColors;
 }
 
@@ -254,7 +199,7 @@ export function extractColorsFromLayers(layers: Layer[], maxColors: number = 10)
  */
 export function extractColorsFromSelection(imageData: ImageData, bounds: { x: number; y: number; width: number; height: number }, maxColors: number = 10): string[] {
   if (!imageData) {
-    return getMostUsedColors(null, maxColors);
+    return [];
   }
   
   try {
@@ -289,24 +234,9 @@ export function extractColorsFromSelection(imageData: ImageData, bounds: { x: nu
       .slice(0, maxColors)
       .map(([color]) => color);
     
-    // Fill with defaults if needed
-    const defaultColors = [
-      '#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff',
-      '#ffff00', '#ff00ff', '#00ffff', '#ff8000', '#8000ff'
-    ];
-    
-    while (sortedColors.length < maxColors) {
-      const defaultColor = defaultColors[sortedColors.length];
-      if (defaultColor && !sortedColors.includes(defaultColor)) {
-        sortedColors.push(defaultColor);
-      } else {
-        break;
-      }
-    }
-    
     return sortedColors;
   } catch (error) {
     console.warn('Failed to analyze selection colors:', error);
-    return getMostUsedColors(null, maxColors);
+    return [];
   }
 }

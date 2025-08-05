@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
-import AdvancedColorPicker from '../toolbar/AdvancedColorPicker';
 import { extractColorsFromLayers } from '../../utils/colorAnalysis';
 
 const ColorCyclePanel = () => {
@@ -20,9 +19,8 @@ const ColorCyclePanel = () => {
     project
   } = useAppStore();
 
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const [pickerColor, setPickerColor] = useState('#ff0000');
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [isPickingColor, setIsPickingColor] = useState(false);
 
   // Trigger precomputation when colors or layers change
   useEffect(() => {
@@ -54,10 +52,30 @@ const ColorCyclePanel = () => {
     addColorCycleColor(tools.brushSettings.color);
   };
 
-  const handlePickerAddColor = () => {
-    // Add color from color picker
-    addColorCycleColor(pickerColor);
-    setShowColorPicker(false);
+  const handleToggleColorPicking = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsPickingColor(!isPickingColor);
+  };
+
+  // Function to get color from canvas coordinates
+  const getColorFromCanvas = (x: number, y: number, canvas: HTMLCanvasElement): string | null => {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+
+    try {
+      const imageData = ctx.getImageData(x, y, 1, 1);
+      const [r, g, b, a] = imageData.data;
+      
+      // Skip transparent pixels
+      if (a < 10) return null;
+      
+      // Convert RGB to hex
+      const toHex = (n: number) => n.toString(16).padStart(2, '0');
+      return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    } catch (error) {
+      console.warn('Failed to get color from canvas:', error);
+      return null;
+    }
   };
 
   const handleExtractFromCanvas = () => {
@@ -125,6 +143,76 @@ const ColorCyclePanel = () => {
     setDraggedIndex(null);
   };
 
+  // Handle canvas clicks for color picking
+  useEffect(() => {
+    if (!isPickingColor) return;
+
+    const handleCanvasClick = (e: MouseEvent) => {
+      // Prevent this click from bubbling and closing the picker
+      e.stopPropagation();
+      
+      // Check if we clicked on a canvas element
+      const target = e.target as HTMLElement;
+      if (target.tagName !== 'CANVAS') return;
+
+      // Get the visible canvas (the one user sees and clicks on)
+      const visibleCanvas = target as HTMLCanvasElement;
+      
+      // Try to find the offscreen canvas from the store
+      const offscreenCanvas = useAppStore.getState().currentOffscreenCanvas;
+      
+      // Use offscreen canvas if available, otherwise use the visible canvas
+      const sourceCanvas = offscreenCanvas || visibleCanvas;
+
+      // Get click coordinates relative to the canvas
+      const rect = visibleCanvas.getBoundingClientRect();
+      const scale = sourceCanvas.width / rect.width; // Handle any scaling
+      const x = Math.floor((e.clientX - rect.left) * scale);
+      const y = Math.floor((e.clientY - rect.top) * scale);
+
+      const color = getColorFromCanvas(x, y, sourceCanvas);
+      if (color) {
+        // Check if color already exists
+        if (!colorCycleState.selectedColors.includes(color)) {
+          addColorCycleColor(color);
+          console.log('Added color:', color);
+        } else {
+          console.log('Color already in cycle:', color);
+        }
+      }
+      
+      // Don't turn off picking mode - keep it active
+      e.preventDefault();
+    };
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsPickingColor(false);
+      }
+    };
+
+    if (isPickingColor) {
+      // Use capture phase to get canvas clicks before they bubble
+      document.addEventListener('click', handleCanvasClick, true);
+      document.addEventListener('keydown', handleEscape);
+      // Set cursor on the whole document
+      const style = document.createElement('style');
+      style.id = 'color-picker-cursor';
+      style.textContent = '* { cursor: crosshair !important; }';
+      document.head.appendChild(style);
+    }
+
+    return () => {
+      document.removeEventListener('click', handleCanvasClick, true);
+      document.removeEventListener('keydown', handleEscape);
+      // Remove cursor style
+      const style = document.getElementById('color-picker-cursor');
+      if (style) {
+        style.remove();
+      }
+    };
+  }, [isPickingColor, addColorCycleColor, colorCycleState.selectedColors]);
+
   return (
     <div className="h-full overflow-y-auto bg-[#2C2C2C] p-3">
       <div className="mb-4">
@@ -167,11 +255,15 @@ const ColorCyclePanel = () => {
                 Current
               </button>
               <button
-                onClick={() => setShowColorPicker(true)}
-                className="bg-[#404040] hover:bg-[#505050] text-white text-xs px-2 py-1 rounded transition-colors"
-                title="Pick a color"
+                onClick={handleToggleColorPicking}
+                className={`text-white text-xs px-2 py-1 rounded transition-colors ${
+                  isPickingColor 
+                    ? 'bg-blue-600 hover:bg-blue-700' 
+                    : 'bg-[#404040] hover:bg-[#505050]'
+                }`}
+                title={isPickingColor ? "Click on canvas to pick colors (Click here or ESC to stop)" : "Pick colors from canvas"}
               >
-                Pick
+                {isPickingColor ? 'Stop' : 'Pick'}
               </button>
               <button
                 onClick={handleExtractFromCanvas}
@@ -276,43 +368,6 @@ const ColorCyclePanel = () => {
         </button>
       </div>
 
-      {/* Color Picker Modal */}
-      {showColorPicker && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-[#2C2C2C] border border-[#404040] rounded-lg p-4 max-w-sm w-full mx-4">
-            <div className="mb-4">
-              <h3 className="text-white text-sm font-medium mb-3">Pick a Color</h3>
-              <div className="mb-3">
-                <AdvancedColorPicker
-                  color={pickerColor}
-                  onChange={setPickerColor}
-                />
-              </div>
-              <div className="flex items-center gap-2 mb-3">
-                <div
-                  className="w-8 h-8 rounded border border-[#404040]"
-                  style={{ backgroundColor: pickerColor }}
-                />
-                <span className="text-white text-sm font-mono">{pickerColor}</span>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={handlePickerAddColor}
-                className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm py-2 px-3 rounded transition-colors"
-              >
-                Add Color
-              </button>
-              <button
-                onClick={() => setShowColorPicker(false)}
-                className="flex-1 bg-[#404040] hover:bg-[#505050] text-white text-sm py-2 px-3 rounded transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
