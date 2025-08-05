@@ -2008,7 +2008,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
               }
             }
           }
-        }).catch(err => {
+        }).catch(_err => {
         });
       }
       return;

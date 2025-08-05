@@ -443,7 +443,7 @@ const ColorPicker = ({ color, onChange }: ColorPickerProps) => {
             v: pickerRef.current.value 
           });
         }
-      } catch (error) {
+      } catch (_error) {
       }
     }
     

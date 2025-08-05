@@ -17,8 +17,8 @@ interface MiniCanvasPanelProps {
 export default function MiniCanvasPanel({ 
   hueShift, 
   saturation, 
-  onHueShiftChange, 
-  onSaturationChange 
+  onHueShiftChange: _onHueShiftChange, 
+  onSaturationChange: _onSaturationChange 
 }: MiniCanvasPanelProps) {
   const { tools, setBrushSettings } = useAppStore();
   const { brushSettings } = tools;

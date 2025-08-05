@@ -2,7 +2,6 @@
 
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
-import { shallow } from 'zustand/shallow';
 import { Minus, Plus, Undo2, Redo2 } from 'lucide-react';
 import { BrushShape } from '../../types';
 import { adjustHueAndSaturation } from '../../utils/imageProcessing';

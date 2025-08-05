@@ -25,10 +25,6 @@ const BrushControls = () => {
   const setActiveSettings =
     currentTool === "eraser" ? setEraserSettings : setBrushSettings;
 
-  // Handle double-click to reset brush size to 100%
-  const handleBrushSizeDoubleClick = React.useCallback(() => {
-    setGlobalBrushSize(100);
-  }, [setGlobalBrushSize]);
 
   // Show Colors and Film Grain sliders for gradient brushes
   if (

@@ -13,7 +13,6 @@ export default function FileBackupSettings({ className = '' }: FileBackupSetting
   const {
     fileBackup,
     setFileBackupEnabled,
-    setFileBackupMode,
     setFileBackupFile,
     setFileBackupDirectory
   } = useAutosave();

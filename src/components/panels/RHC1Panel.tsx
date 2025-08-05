@@ -10,7 +10,7 @@ import { brushCache } from '../../utils/brushCache';
 import { BrushShape } from '../../types';
 
 export default function RHC1Panel() {
-  const { tools, setBrushSettings, temporaryCustomBrush } = useAppStore();
+  const { tools, setBrushSettings } = useAppStore();
   const { brushSettings } = tools;
   
   // Use global state for hue shift and saturation

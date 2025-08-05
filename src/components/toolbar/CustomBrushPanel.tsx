@@ -1,7 +1,7 @@
 'use client';
 
 import { useAppStore } from '@/stores/useAppStore';
-import { CustomBrush, BrushShape } from '@/types';
+import { CustomBrush } from '@/types';
 
 export const CustomBrushPanel = () => {
   const { 
@@ -10,9 +10,7 @@ export const CustomBrushPanel = () => {
     currentLayer,
     selectionStart,
     selectionEnd,
-    clearSelection,
-    setBrushSettings,
-    tools
+    clearSelection
   } = useAppStore();
 
   const handleAddCustomBrush = () => {
@@ -60,7 +58,7 @@ export const CustomBrushPanel = () => {
         minX, minY, width, height, // Source rectangle
         0, 0, width, height        // Destination rectangle
       );
-    } catch (error) {
+    } catch (_error) {
       return;
     }
     

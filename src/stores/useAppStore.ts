@@ -166,6 +166,7 @@ interface AppState {
   setColorCyclePlayingWithCapture: (playing: boolean, sourceCanvas?: HTMLCanvasElement) => Promise<void>;
   addColorCycleColor: (color: string) => void;
   removeColorCycleColor: (index: number) => void;
+  reorderColorCycleColors: (startIndex: number, endIndex: number) => void;
   setColorCycleFPS: (fps: number) => void;
   setColorCycleLayers: (layers: string[]) => void;
   updateColorCycleIndex: (index: number) => void;
@@ -817,6 +818,25 @@ export const useAppStore = create<AppState>()(
           selectedColorsRGB: state.colorCycleState.selectedColorsRGB.filter((_, i) => i !== index)
         }
       })),
+      reorderColorCycleColors: (startIndex, endIndex) => set((state) => {
+        const newColors = [...state.colorCycleState.selectedColors];
+        const newColorsRGB = [...state.colorCycleState.selectedColorsRGB];
+        
+        // Move color from startIndex to endIndex
+        const [movedColor] = newColors.splice(startIndex, 1);
+        const [movedColorRGB] = newColorsRGB.splice(startIndex, 1);
+        
+        newColors.splice(endIndex, 0, movedColor);
+        newColorsRGB.splice(endIndex, 0, movedColorRGB);
+        
+        return {
+          colorCycleState: {
+            ...state.colorCycleState,
+            selectedColors: newColors,
+            selectedColorsRGB: newColorsRGB
+          }
+        };
+      }),
       setColorCycleFPS: (fps) => set((state) => ({
         colorCycleState: { ...state.colorCycleState, fps }
       })),
@@ -1905,7 +1925,7 @@ export const useAppStore = create<AppState>()(
         return loadedSettings;
       },
       clearBrushSettings: (brushId) => set((state) => {
-        const { [brushId]: _, ...remaining } = state.brushSpecificSettings;
+        const { [brushId]: _unused, ...remaining } = state.brushSpecificSettings;
         return { brushSpecificSettings: remaining };
       })
     }),

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import AdvancedColorPicker from '../toolbar/AdvancedColorPicker';
-import { extractColorsFromLayers, getLiveColorPalette } from '../../utils/colorAnalysis';
+import { extractColorsFromLayers } from '../../utils/colorAnalysis';
 
 const ColorCyclePanel = () => {
   const { 
@@ -10,6 +10,7 @@ const ColorCyclePanel = () => {
     setColorCyclePlayingWithCapture,
     addColorCycleColor,
     removeColorCycleColor,
+    reorderColorCycleColors,
     setColorCycleFPS,
     setColorCycleLayers,
     resetColorCycle,
@@ -21,6 +22,7 @@ const ColorCyclePanel = () => {
 
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [pickerColor, setPickerColor] = useState('#ff0000');
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   // Trigger precomputation when colors or layers change
   useEffect(() => {
@@ -101,6 +103,28 @@ const ColorCyclePanel = () => {
     }
   };
 
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    if (draggedIndex !== null && draggedIndex !== dropIndex) {
+      reorderColorCycleColors(draggedIndex, dropIndex);
+    }
+    setDraggedIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
+  };
+
   return (
     <div className="h-full overflow-y-auto bg-[#2C2C2C] p-3">
       <div className="mb-4">
@@ -161,10 +185,23 @@ const ColorCyclePanel = () => {
           
           <div className="grid grid-cols-4 gap-2 mb-2">
             {colorCycleState.selectedColors.map((color, index) => (
-              <div key={index} className="relative group">
+              <div 
+                key={index} 
+                className="relative group"
+                draggable
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, index)}
+                onDragEnd={handleDragEnd}
+              >
                 <div
-                  className="w-12 h-12 rounded border-2 border-[#404040] transition-colors"
+                  className={`w-12 h-12 rounded border-2 transition-all cursor-move ${
+                    draggedIndex === index 
+                      ? 'border-blue-500 opacity-50 scale-105' 
+                      : 'border-[#404040] hover:border-[#606060]'
+                  }`}
                   style={{ backgroundColor: color }}
+                  title={`${color} - Drag to reorder`}
                 />
                 <button
                   className="absolute -bottom-1 -right-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity bg-red-600 rounded-full w-6 h-6 flex items-center justify-center text-white text-sm font-bold shadow-lg hover:bg-red-700 cursor-pointer"

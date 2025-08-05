@@ -153,6 +153,53 @@ export function getLiveColorPalette(canvas: HTMLCanvasElement | null, maxColors:
 }
 
 /**
+ * Convert hex color to HSL for sorting
+ */
+function hexToHsl(hex: string): { h: number; s: number; l: number } {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h, s;
+  const l = (max + min) / 2;
+  
+  if (max === min) {
+    h = s = 0; // achromatic
+  } else {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+      default: h = 0;
+    }
+    h /= 6;
+  }
+  
+  return { h: h * 360, s: s * 100, l: l * 100 };
+}
+
+/**
+ * Sort colors by hue and lightness for smooth color cycling
+ */
+function sortColorsForCycling(colors: string[]): string[] {
+  return colors.sort((a, b) => {
+    const hslA = hexToHsl(a);
+    const hslB = hexToHsl(b);
+    
+    // Sort primarily by hue, then by lightness
+    if (Math.abs(hslA.h - hslB.h) > 5) {
+      return hslA.h - hslB.h;
+    }
+    return hslA.l - hslB.l;
+  });
+}
+
+/**
  * Extract the most commonly used colors from specific layers
  */
 export function extractColorsFromLayers(layers: Layer[], maxColors: number = 10): string[] {
@@ -176,10 +223,13 @@ export function extractColorsFromLayers(layers: Layer[], maxColors: number = 10)
   }
   
   // Sort colors by frequency and return top N
-  const sortedColors = Array.from(globalColorCount.entries())
+  const frequentColors = Array.from(globalColorCount.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, maxColors)
     .map(([color]) => color);
+  
+  // Sort the frequent colors by hue and lightness for smooth cycling
+  const sortedColors = sortColorsForCycling(frequentColors);
   
   // Fill with defaults if needed
   const defaultColors = [

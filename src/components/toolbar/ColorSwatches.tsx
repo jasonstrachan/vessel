@@ -7,7 +7,7 @@ interface ColorSwatchesProps {
   currentColor: string;
 }
 
-export default function ColorSwatches({ onColorSelect, currentColor }: ColorSwatchesProps) {
+export default function ColorSwatches({ onColorSelect, currentColor: _currentColor }: ColorSwatchesProps) {
   const { project } = useAppStore();
   const [swatchColors, setSwatchColors] = useState<string[]>(() => {
     // Initialize with default colors immediately
