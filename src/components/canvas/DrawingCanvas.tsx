@@ -2750,14 +2750,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     : null;
 
 
-  // Don't render canvas during SSR
-  if (!isMounted && typeof window === 'undefined') {
-    return (
-      <div className="w-full h-full bg-[#141514] relative flex items-center justify-center">
-        <div className="text-gray-500">Loading canvas...</div>
-      </div>
-    );
-  }
+  // Note: Removed loading state check to prevent static HTML generation issues
 
   return (
     <>
