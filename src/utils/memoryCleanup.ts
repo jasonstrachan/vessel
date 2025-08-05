@@ -52,7 +52,7 @@ class MemoryManager {
         // Clear any stored image data
         try {
           ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-        } catch (error) {
+        } catch {
           // Canvas might be destroyed, ignore
         }
       });
@@ -69,7 +69,7 @@ class MemoryManager {
     for (const cleanup of toClean) {
       try {
         cleanup();
-      } catch (error) {
+      } catch {
         // Ignore cleanup errors
       }
     }
@@ -83,7 +83,7 @@ class MemoryManager {
     if (typeof (globalThis as any).gc === 'function' && process.env.NODE_ENV === 'development') {
       try {
         (globalThis as any).gc();
-      } catch (error) {
+      } catch {
         // GC not available, ignore
       }
     }
@@ -102,7 +102,7 @@ class MemoryManager {
       
       // Clean scaled brush cache
       scaledBrushCache.clear();
-    } catch (error) {
+    } catch {
       // Ignore cache cleanup errors
     }
   }

@@ -1,4 +1,4 @@
-import React, { forwardRef, useRef, useCallback, useState, useEffect } from 'react';
+import React, { forwardRef, useRef, useCallback, useEffect } from 'react';
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   variant?: 'default' | 'hex' | 'compact';

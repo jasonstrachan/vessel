@@ -194,7 +194,7 @@ export function compareLatestBrushData(tolerance: number = 0): void {
     return;
   }
 
-  const result = compareImageData(previewData, cacheData, tolerance, 20);
+  compareImageData(previewData, cacheData, tolerance, 20);
 
 }
 

@@ -171,7 +171,7 @@ export class FileBackupService {
       // Test if we still have access by trying to get a test file handle
       await this.directoryHandle.getFileHandle('__test__', { create: false });
       return true;
-    } catch (error) {
+    } catch {
       // Expected to fail for non-existent test file, but will also fail if no access
       // For now, assume we have access if we have a handle
       return true;

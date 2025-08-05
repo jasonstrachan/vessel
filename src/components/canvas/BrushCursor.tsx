@@ -1,6 +1,7 @@
 'use client';
 
 import React, { memo, useMemo } from 'react';
+import Image from 'next/image';
 import { BrushShape } from '../../types';
 
 interface BrushCursorProps {
@@ -21,8 +22,7 @@ interface BrushCursorProps {
 // Helper to generate a cached data URL for the cursor canvas
 const useCursorDataURL = (
   brushShape: BrushShape,
-  screenSize: number,
-  color: string // color is now used for the outline
+  screenSize: number
 ) => {
   return useMemo(() => {
     if (brushShape === BrushShape.CUSTOM) return null;
@@ -80,12 +80,11 @@ const BrushCursor = memo(function BrushCursor({
   size,
   brushShape,
   zoom,
-  color,
   visible,
 }: BrushCursorProps) {
 
   const screenSize = size * zoom;
-  const cursorDataURL = useCursorDataURL(brushShape, screenSize, color);
+  const cursorDataURL = useCursorDataURL(brushShape, screenSize);
 
   if (!visible) return null;
 
@@ -126,7 +125,7 @@ const BrushCursor = memo(function BrushCursor({
         imageRendering: 'pixelated',
       }}
     >
-      <img src={cursorDataURL || ''} alt="Brush Cursor" />
+      <Image src={cursorDataURL || ''} alt="Brush Cursor" width={32} height={32} unoptimized />
     </div>
   );
 });

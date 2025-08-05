@@ -47,10 +47,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     redo: (() => null) as () => CanvasSnapshot | null,
     tools: { currentTool: 'brush' as Tool, brushSettings: { size: 10, brushShape: BrushShape.ROUND } },
     canvas: { selection: { active: false } },
-    setBrushSettings: ((_settings: any) => {}) as (settings: any) => void,
-    setCurrentTool: ((_tool: any) => {}) as (tool: any) => void,
+    setBrushSettings: (() => {}) as (settings: any) => void,
+    setCurrentTool: (() => {}) as (tool: any) => void,
     commitSelection: (() => {}) as () => void,
-    setSelection: ((_selection: any) => {}) as (selection: any) => void,
+    setSelection: (() => {}) as (selection: any) => void,
     renderView: (() => {}) as () => void,
     toolBeforeEraser: null as Tool | null,
     toolBeforeEyedropper: null as Tool | null
@@ -302,7 +302,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     selectionEnd,
     setSelectionBounds,
     clearSelection,
-    addCustomBrush,
     addLayer,
     saveCanvasState,
     undo,
@@ -924,136 +923,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     needsRedraw.current = true;
   }, [renderBrushStroke, isSelecting, addDirtyRegion, project]);
 
-  // Create custom brush from current selection
-  const createCustomBrushFromSelection = useCallback(async () => {
-    
-    if (!selectionStart || !selectionEnd || !project) {
-      return null;
-    }
-    
-    // Calculate selection bounds
-    const minX = Math.floor(Math.min(selectionStart.x, selectionEnd.x));
-    const minY = Math.floor(Math.min(selectionStart.y, selectionEnd.y));
-    const maxX = Math.floor(Math.max(selectionStart.x, selectionEnd.x));
-    const maxY = Math.floor(Math.max(selectionStart.y, selectionEnd.y));
-    const width = maxX - minX;
-    const height = maxY - minY;
-    
-    
-    if (width <= 0 || height <= 0) {
-      return null;
-    }
-    
-    // Create canvas to capture the selection
-    const captureCanvas = canvasPool.acquire(width, height);
-    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
-    
-    if (!captureCtx) {
-      canvasPool.release(captureCanvas);
-      return null;
-    }
-    
-    // Get the offscreen canvas (contains actual drawing without overlays)
-    const layerCanvas = offscreenCanvasRef.current;
-    if (!layerCanvas) {
-      return null;
-    }
-    
-    
-    // Capture the selection area from the offscreen canvas (no zoom/pan needed)
-    try {
-      // Offscreen canvas contains raw drawing data without transformations
-      const sourceX = minX;
-      const sourceY = minY;
-      const sourceWidth = width;
-      const sourceHeight = height;
-      
-      
-      captureCtx.drawImage(
-        layerCanvas,
-        sourceX, sourceY, sourceWidth, sourceHeight, // Source rectangle (world space)
-        0, 0, width, height        // Destination rectangle (brush space)
-      );
-      
-    } catch {
-      canvasPool.release(captureCanvas);
-      return null;
-    }
-    
-    // Get ImageData for the brush
-    const imageData = captureCtx.getImageData(0, 0, width, height);
-    
-    // Schedule cleanup of the ImageData after use
-    memoryManager.scheduleCleanup(() => {
-      // The imageData will be stored in the custom brush object, so we don't null it here
-      // But we can schedule periodic cleanup of old unused ImageData objects
-    });
-    
-    // Create thumbnail (max 64x64)
-    const thumbnailSize = 64;
-    const thumbnailCanvas = canvasPool.acquire(thumbnailSize, thumbnailSize);
-    const thumbnailCtx = thumbnailCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
-    
-    if (thumbnailCtx) {
-      // Scale to fit thumbnail while maintaining aspect ratio
-      const scale = Math.min(thumbnailSize / width, thumbnailSize / height);
-      const scaledWidth = width * scale;
-      const scaledHeight = height * scale;
-      const offsetX = (thumbnailSize - scaledWidth) / 2;
-      const offsetY = (thumbnailSize - scaledHeight) / 2;
-      
-      // Set background to transparent
-      thumbnailCtx.clearRect(0, 0, thumbnailSize, thumbnailSize);
-      
-      // Draw scaled capture
-      thumbnailCtx.drawImage(
-        captureCanvas,
-        offsetX, offsetY, scaledWidth, scaledHeight
-      );
-    }
-    
-    // Create custom brush object
-    const customBrush = {
-      id: `brush_${Date.now()}`,
-      name: `B${(project?.customBrushes?.length || 0) + 1}`,
-      imageData,
-      thumbnail: thumbnailCanvas.toDataURL(),
-      width,
-      height,
-      createdAt: Date.now()
-    };
-    
-    // Release canvases back to pool
-    canvasPool.release(captureCanvas);
-    canvasPool.release(thumbnailCanvas);
-    
-    // Add the brush to the project
-    addCustomBrush(customBrush);
-    
-    // CRITICAL: Clear brush caches to ensure immediate update
-    scaledBrushCache.clear();
-    brushCache.clear();
-    
-    // Auto-select the newly created custom brush and clear any cached brush tips
-    setBrushSettings({ 
-      brushShape: BrushShape.CUSTOM,
-      selectedCustomBrush: customBrush.id,
-      size: 100, // Default to 100% (original size) for custom brushes
-      useSwatchColor: false, // Default to false so custom brushes use their tip colors
-      currentBrushTip: undefined, // Clear any cached brush tips
-      hueShift: 0,           // Reset global hueShift when selecting custom brush
-      saturationAdjust: 100  // Reset global saturationAdjust when selecting custom brush
-    });
-    
-    // Switch to brush tool for immediate use
-    setCurrentTool('brush');
-    
-    // Clear the selection
-    clearSelection();
-    
-    
-    return customBrush;
-  }, [selectionStart, selectionEnd, project, canvas.zoom, canvas.panX, canvas.panY, addCustomBrush, setBrushSettings, setCurrentTool, clearSelection]);
 
   // Create temporary custom brush for immediate use (without saving to library)
   const createTemporaryCustomBrush = useCallback(async () => {
@@ -1281,7 +1150,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       if (targetLayer?.locked) {
         // Store transparency lock state for use in brush engine
         (window as typeof window & { transparencyLockEnabled: boolean; transparencyLockLayerId: string }).transparencyLockEnabled = true;
-        (window as typeof window & { transparencyLockEnabled: boolean; transparencyLockLayerId: string }).transparencyLockLayerId = targetLayerId;
+        (window as typeof window & { transparencyLockEnabled: boolean; transparencyLockLayerId: string }).transparencyLockLayerId = targetLayerId || '';
       } else {
         (window as typeof window & { transparencyLockEnabled: boolean }).transparencyLockEnabled = false;
       }
@@ -1375,7 +1244,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     if (targetLayer?.locked) {
       // Store transparency lock state for use in brush engine
       (window as typeof window & { transparencyLockEnabled: boolean; transparencyLockLayerId: string }).transparencyLockEnabled = true;
-      (window as typeof window & { transparencyLockEnabled: boolean; transparencyLockLayerId: string }).transparencyLockLayerId = targetLayerId;
+      (window as typeof window & { transparencyLockEnabled: boolean; transparencyLockLayerId: string }).transparencyLockLayerId = targetLayerId || '';
     } else {
       (window as typeof window & { transparencyLockEnabled: boolean }).transparencyLockEnabled = false;
     }
@@ -1576,7 +1445,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         // Normal brush drawing
         try {
           drawLine(lastPoint, point);
-        } catch (error) {
+        } catch {
         }
       }
       setLastPoint(point);
@@ -1667,12 +1536,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
               const finalColors = offscreenCtx ? 
                 sampleCanvasColors(offscreenCtx, livePoints, numColors) : 
                 ['#FFF', '#000'];
-              
-              // Create final points with proper color sampling
-              const finalPointsWithColors = livePoints.map((point, index) => ({
-                ...point,
-                color: finalColors[Math.floor((index / livePoints.length) * finalColors.length)]
-              }));
               
               drawPolygonGradient(ctx, { vertices: livePoints, colors: finalColors });
               saveCanvasState(offscreenCanvas, 'brush', 'Polygon gradient');
@@ -1875,12 +1738,12 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       try {
         drawLine(lastPoint, point);
         setLastPoint(point);
-      } catch (error) {
+      } catch {
       }
     }
   }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition]);
 
-  const handleTouchEnd = useCallback(async (e: React.TouchEvent) => {
+  const handleTouchEnd = useCallback(async () => {
     // Note: preventDefault will be handled by native event listener for passive events
     
     if (isPanning) {
@@ -1905,7 +1768,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Performance monitoring (silent - data available in dev tools if needed)
     if (process.env.NODE_ENV === 'development' && wasDrawing) {
-      const touchEndTime = performance.now();
+      performance.now();
       // Touch stroke timing data available for debugging if needed
     }
 

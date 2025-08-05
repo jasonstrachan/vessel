@@ -10,7 +10,6 @@ import { scaledBrushCache } from '../utils/scaledBrushCache';
 import { pressureOptimizer } from '../utils/pressureOptimizer';
 import { memoryManager } from '../utils/memoryCleanup';
 import { performanceMonitor } from '../utils/performanceMonitor';
-import { adjustHueAndSaturation } from '../utils/imageProcessing';
 
 // Internal types for this hook
 interface PixelQueue {
@@ -30,9 +29,9 @@ interface RectangleState {
   startPos: { x: number; y: number };
   endPos: { x: number; y: number };
   width: number;
-  startColor: string;
-  endColor: string;
-  colors: number;
+  startColor?: string;
+  endColor?: string;
+  colors?: string[];
   ditherEnabled?: boolean;
   ditherIntensity?: number;
   risographIntensity?: number;
@@ -52,7 +51,6 @@ let patternTempCtx: CanvasRenderingContext2D | null = null;
 
 // Risograph texture cache
 let risographTexture: HTMLCanvasElement | null = null;
-let risographTextureData: Uint8ClampedArray | null = null;
 
 // Reusable texture canvas for riso operations
 let risoTextureCanvas: HTMLCanvasElement | null = null;
@@ -601,7 +599,6 @@ const createRisographTexture = (): HTMLCanvasElement => {
 
   risographTexture = canvas;
   // Cache the texture data to avoid repeated getImageData calls
-  risographTextureData = contrastedData;
   return risographTexture;
 };
 
@@ -2165,6 +2162,11 @@ export const useBrushEngine = () => {
     const { startPos, endPos, width, startColor, endColor, colors } = rectangleState;
     const { brushSettings } = useAppStore.getState().tools;
     
+    // Use provided colors or fall back to default brush color
+    const defaultColor = brushSettings.color;
+    const finalStartColor = startColor || defaultColor;
+    const finalEndColor = endColor || defaultColor;
+    
     // Calculate rectangle geometry
     const dx = endPos.x - startPos.x;
     const dy = endPos.y - startPos.y;
@@ -2209,18 +2211,18 @@ export const useBrushEngine = () => {
       const numColors = Math.max(2, brushSettings.colors || 2);
       if (numColors === 1) {
         // Single color - use solid fill
-        gradient.addColorStop(0, startColor);
-        gradient.addColorStop(1, startColor);
+        gradient.addColorStop(0, finalStartColor);
+        gradient.addColorStop(1, finalStartColor);
       } else if (numColors === 2) {
-        gradient.addColorStop(0, startColor);
-        gradient.addColorStop(1, endColor);
+        gradient.addColorStop(0, finalStartColor);
+        gradient.addColorStop(1, finalEndColor);
       } else {
         // Interpolate between start and end
         for (let i = 0; i < numColors; i++) {
           const position = i / (numColors - 1);
           
-          const start = startColor.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
-          const end = endColor.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+          const start = finalStartColor.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+          const end = finalEndColor.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
           
           if (start && end) {
             const r = Math.round(parseInt(start[1], 16) + (parseInt(end[1], 16) - parseInt(start[1], 16)) * position);
@@ -2230,7 +2232,7 @@ export const useBrushEngine = () => {
             const interpolatedColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
             gradient.addColorStop(position, interpolatedColor);
           } else {
-            gradient.addColorStop(position, position < 0.5 ? startColor : endColor);
+            gradient.addColorStop(position, position < 0.5 ? finalStartColor : finalEndColor);
           }
         }
       }

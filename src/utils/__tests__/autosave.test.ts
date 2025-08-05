@@ -58,7 +58,6 @@ describe('AutosaveService', () => {
   });
 
   it('should change interval', () => {
-    const originalInterval = 2; // 2 minutes default
     const newInterval = 5; // 5 minutes
     
     autosaveService.setInterval(newInterval);

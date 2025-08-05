@@ -377,7 +377,7 @@ class ScaledBrushCache {
       if (!this.cache.has(cacheKey)) {
         try {
           this.createScaledBrush(customBrush, scale, 0, color, isColorizable, isPressureSensitive, hueShift, saturation);
-        } catch (error) {
+        } catch {
           // Pre-caching failed silently - not critical for functionality
         }
       }

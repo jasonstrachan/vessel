@@ -39,7 +39,7 @@ export class CrashRecoveryService {
         layers: recoveryData.layers,
         lastSaveTime: recoveryData.project.updatedAt?.getTime() || Date.now()
       };
-    } catch (error) {
+    } catch {
       // Failed to check for unsaved work
       return null;
     }

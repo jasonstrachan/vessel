@@ -113,12 +113,11 @@ class PerformanceMonitor {
   logSummary(): void {
     if (!this.monitoringEnabled) return;
 
-    const metrics = this.getMetrics();
+    this.getMetrics();
     
     // Performance metrics available for debugging if needed:
     // Stamps: metrics.brushStampCount | Avg Time: metrics.averageStampTime
     // Cache Hit Rate: metrics.cacheHitRate | Memory pressure events: metrics.memoryPressureEvents
-    const cacheStats = metrics.memoryStats.cacheStats;
     // Cache Entries: Brush(cacheStats.brushCache.entries) | Pressure(cacheStats.pressureOptimizer.entries) | Scaled(cacheStats.scaledBrushCache.entries)
   }
 

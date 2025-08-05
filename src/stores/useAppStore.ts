@@ -1905,7 +1905,7 @@ export const useAppStore = create<AppState>()(
         return loadedSettings;
       },
       clearBrushSettings: (brushId) => set((state) => {
-        const { [brushId]: _deleted, ...remaining } = state.brushSpecificSettings;
+        const { [brushId]: _, ...remaining } = state.brushSpecificSettings;
         return { brushSpecificSettings: remaining };
       })
     }),

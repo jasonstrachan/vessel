@@ -120,7 +120,7 @@ function serializeLayer(layer: Layer): SerializedLayer {
   if (layer.imageData) {
     try {
       imageDataUrl = imageDataToDataUrl(layer.imageData);
-    } catch (error) {
+    } catch {
     }
   } else {
   }
@@ -144,7 +144,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
   if (serializedLayer.imageDataUrl) {
     try {
       imageData = await dataUrlToImageData(serializedLayer.imageDataUrl);
-    } catch (error) {
+    } catch {
     }
   } else {
   }
@@ -282,7 +282,7 @@ export async function deserializeProject(projectData: string): Promise<Project> 
   
   try {
     tinyBrushProject = JSON.parse(projectData);
-  } catch (error) {
+  } catch {
     throw new Error('Invalid project file format');
   }
   
@@ -342,7 +342,7 @@ export async function saveProjectToFile(project: Project, filename?: string, lay
       await writable.write(projectData);
       await writable.close();
       return;
-    } catch (error) {
+    } catch {
       // User cancelled or API not supported, fall back to download
     }
   }
@@ -375,7 +375,7 @@ export async function loadProjectFromFile(): Promise<Project> {
       const file = await fileHandle.getFile();
       const projectData = await file.text();
       return await deserializeProject(projectData);
-    } catch (error) {
+    } catch {
       // User cancelled or API not supported, fall back to file input
     }
   }
@@ -496,7 +496,7 @@ export function validateProjectFile(projectData: string): { valid: boolean; erro
     }
     
     return { valid: true };
-  } catch (error) {
+  } catch {
     return { valid: false, error: 'Invalid JSON format' };
   }
 }
