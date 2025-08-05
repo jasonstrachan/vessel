@@ -804,7 +804,7 @@ const MiniCanvas = ({
         {/* Offscreen canvas for actual brush data */}
         <canvas
           ref={offscreenCanvasRef}
-          style={{ display: 'none' }}
+          className="truly-offscreen-canvas"
         />
       </div>
 

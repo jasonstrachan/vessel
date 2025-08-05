@@ -10,6 +10,14 @@ canvas {
   display: block;
 }
 
+/* Hide offscreen canvas */
+.truly-offscreen-canvas {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  visibility: hidden;
+}
+
 @font-face {
   font-family: 'MEKSANS';
   src: url('/assets/fonts/MEKSANS-REGULAR.OTF') format('opentype');

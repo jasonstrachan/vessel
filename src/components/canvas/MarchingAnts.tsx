@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef, useEffect } from 'react';
+import { useAppStore } from '../../stores/useAppStore';
 
 interface MarchingAntsProps {
   bounds: {
@@ -20,6 +21,9 @@ export default function MarchingAnts({ bounds, zoom, panX, panY, canvasWidth, ca
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number>(0);
   const offsetRef = useRef(0);
+  
+  // Get editing state from store to make the component lifecycle-aware
+  const isEditing = useAppStore((state) => state.brushEditing.isEditing);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -28,65 +32,75 @@ export default function MarchingAnts({ bounds, zoom, panX, panY, canvasWidth, ca
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Set canvas size to match parent
-    const resizeCanvas = () => {
+    // --- RESTRUCTURED LOGIC ---
+
+    // Conditionally set up the animation only if we are in editing mode.
+    if (isEditing) {
       const parent = canvas.parentElement;
-      if (parent) {
-        canvas.width = parent.clientWidth;
-        canvas.height = parent.clientHeight;
-      }
-    };
+      const resizeCanvas = () => {
+        if (parent) {
+          canvas.width = parent.clientWidth;
+          canvas.height = parent.clientHeight;
+        }
+      };
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
 
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
+      const drawMarchingAnts = () => {
+        // No need for an extra state check here, the loop will be cancelled by cleanup.
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const drawMarchingAnts = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const screenX = bounds.x * zoom + panX;
+        const screenY = bounds.y * zoom + panY;
+        const screenWidth = bounds.width * zoom;
+        const screenHeight = bounds.height * zoom;
 
-      // Transform bounds to screen coordinates (world to screen)
-      const screenX = bounds.x * zoom + panX;
-      const screenY = bounds.y * zoom + panY;
-      const screenWidth = bounds.width * zoom;
-      const screenHeight = bounds.height * zoom;
+        // Draw overlay
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Create a "hole"
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillRect(screenX, screenY, screenWidth, screenHeight);
+        ctx.globalCompositeOperation = 'source-over';
 
-      // Draw 50% black overlay everywhere except the editing area
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      // Clear the editing area (create a "hole" in the overlay)
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.fillRect(screenX, screenY, screenWidth, screenHeight);
-      ctx.globalCompositeOperation = 'source-over';
+        // Draw ants border
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 6]);
+        ctx.lineDashOffset = offsetRef.current;
+        ctx.strokeRect(screenX, screenY, screenWidth, screenHeight);
 
-      // Set up marching ants style
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 6]);
-      ctx.lineDashOffset = offsetRef.current;
+        ctx.strokeStyle = '#000000';
+        ctx.lineDashOffset = offsetRef.current + 6;
+        ctx.strokeRect(screenX, screenY, screenWidth, screenHeight);
 
-      // Draw selection rectangle
-      ctx.strokeRect(screenX, screenY, screenWidth, screenHeight);
+        offsetRef.current = (offsetRef.current + 0.5) % 12;
+        animationRef.current = requestAnimationFrame(drawMarchingAnts);
+      };
 
-      // Draw second stroke with inverted color for better visibility
-      ctx.strokeStyle = '#000000';
-      ctx.lineDashOffset = offsetRef.current + 6;
-      ctx.strokeRect(screenX, screenY, screenWidth, screenHeight);
+      drawMarchingAnts();
 
-      // Update animation offset
-      offsetRef.current = (offsetRef.current + 0.5) % 12;
+      // The cleanup function is now tied to THIS effect instance
+      return () => {
+        console.log('🐜✨ MarchingAnts Cleanup: Cancelling animation and clearing canvas.');
+        window.removeEventListener('resize', resizeCanvas);
+        if (animationRef.current) {
+          cancelAnimationFrame(animationRef.current);
+          animationRef.current = 0;
+        }
+        if (ctx && canvas) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+      };
+    }
 
-      animationRef.current = requestAnimationFrame(drawMarchingAnts);
-    };
+    // If isEditing is false, the effect does nothing but will still
+    // have triggered the cleanup from the previous (true) state.
+    // We can return an empty cleanup function for this case.
+    return () => {};
 
-    drawMarchingAnts();
-
-    return () => {
-      window.removeEventListener('resize', resizeCanvas);
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, [bounds, zoom, panX, panY, canvasWidth, canvasHeight]);
+  }, [isEditing, bounds, zoom, panX, panY]); // Removed canvasWidth/Height as they are derived inside
 
   return (
     <canvas

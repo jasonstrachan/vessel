@@ -1304,8 +1304,9 @@ export const useAppStore = create<AppState>()(
       // Brush Editing State
       brushEditing: defaultBrushEditingState,
       enterBrushEditMode: (brushId, bounds) => set((state) => {
+        
         // Simply set editing state - no complex layer management
-        return {
+        const newState = {
           brushEditing: {
             isEditing: true,
             editingBrushId: brushId,
@@ -1313,22 +1314,33 @@ export const useAppStore = create<AppState>()(
             originalImageData: null // Will be set when brush is placed
           }
         };
+        return newState;
       }),
-      exitBrushEditMode: () => set((state) => ({
-        brushEditing: defaultBrushEditingState
-      })),
+      exitBrushEditMode: () => set(() => {
+        console.log('🚪 exitBrushEditMode called - clearing editing state');
+        return {
+          brushEditing: defaultBrushEditingState
+        };
+      }),
       cancelBrushEdit: () => set((state) => {
-        // Restore original ImageData if available
-        if (state.brushEditing.originalImageData && state.brushEditing.editingBounds && state.currentOffscreenCanvas) {
-          const ctx = state.currentOffscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
-          if (ctx) {
-            ctx.putImageData(
-              state.brushEditing.originalImageData,
-              state.brushEditing.editingBounds.x,
-              state.brushEditing.editingBounds.y
-            );
+        
+        try {
+          // Restore original ImageData if available
+          if (state.brushEditing.originalImageData && state.brushEditing.editingBounds && state.currentOffscreenCanvas) {
+            
+            const ctx = state.currentOffscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+            if (ctx) {
+              ctx.putImageData(
+                state.brushEditing.originalImageData,
+                state.brushEditing.editingBounds.x,
+                state.brushEditing.editingBounds.y
+              );
+            }
           }
+        } catch (error) {
+          // Silent error handling
         }
+        
         return {
           brushEditing: defaultBrushEditingState
         };
@@ -1663,6 +1675,7 @@ export const useAppStore = create<AppState>()(
       compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => {
         const state = get();
         // Starting layer composition
+        console.log('🎨 compositeLayersToCanvas - brushEditing state:', state.brushEditing);
         
         if (!state.project || !state.layers.length) {
           return;
@@ -1685,6 +1698,7 @@ export const useAppStore = create<AppState>()(
         
         // Handle brush editing mode - hide everything except the brush area
         if (state.brushEditing.isEditing && state.brushEditing.editingBounds) {
+          console.log('🔥 APPLYING EDITING MODE OVERLAY - bounds:', state.brushEditing.editingBounds);
           // In brush editing mode, make everything transparent except the editing area
           // Draw a very dark background to make the brush stand out
           ctx.fillStyle = 'rgba(20, 20, 20, 1)';
@@ -1694,7 +1708,11 @@ export const useAppStore = create<AppState>()(
           const bounds = state.brushEditing.editingBounds;
           ctx.clearRect(bounds.x, bounds.y, bounds.width, bounds.height);
         } else {
-          // Normal mode - draw background color only if not transparent
+          console.log('✅ NORMAL MODE - no editing overlay');
+          // Normal mode - always clear the canvas completely first to remove any editing overlay
+          ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+          
+          // Then draw background color if not transparent
           if (state.project.backgroundColor && state.project.backgroundColor !== 'transparent') {
             ctx.fillStyle = state.project.backgroundColor;
             ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
