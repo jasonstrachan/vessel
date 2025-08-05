@@ -17,6 +17,7 @@ import { createShapePath, renderShape, simplifyPath } from '../../utils/shapeUti
 import type { Tool, CanvasSnapshot } from '../../types';
 import { BrushShape } from '../../types';
 import BrushCursor from './BrushCursor';
+import MarchingAnts from './MarchingAnts';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../../constants/canvas';
 
 
@@ -329,6 +330,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     temporaryCustomBrush,
     setTemporaryCustomBrush,
     setCurrentOffscreenCanvas,
+    brushEditing,
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue, drawRectangleGradient, drawPolygonGradient } = useBrushEngine();
@@ -883,6 +885,29 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!offscreenCtx) return;
     
+    // Check if we're in editing mode and apply constraints
+    if (brushEditing.isEditing && brushEditing.editingBounds) {
+      const bounds = brushEditing.editingBounds;
+      
+      // Check if the stroke is completely outside editing bounds
+      const strokeMinX = Math.min(from.x, to.x);
+      const strokeMaxX = Math.max(from.x, to.x);
+      const strokeMinY = Math.min(from.y, to.y);
+      const strokeMaxY = Math.max(from.y, to.y);
+      
+      if (strokeMaxX < bounds.x || strokeMinX > bounds.x + bounds.width ||
+          strokeMaxY < bounds.y || strokeMinY > bounds.y + bounds.height) {
+        // Stroke is completely outside editing bounds, skip it
+        return;
+      }
+      
+      // Apply clipping to context for editing bounds
+      offscreenCtx.save();
+      offscreenCtx.beginPath();
+      offscreenCtx.rect(bounds.x, bounds.y, bounds.width, bounds.height);
+      offscreenCtx.clip();
+    }
+    
     // Calculate actual brush size for dirty region (accounts for custom brushes)
     const { brushSettings } = useAppStore.getState().tools;
     let actualBrushSize = brushSettings.size || 20;
@@ -920,9 +945,14 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Pass the latest cursor state from the ref directly to the brush engine.
     renderBrushStroke(offscreenCtx, from, to, cursorStateRef.current);
     
+    // Restore context if we applied clipping for editing mode
+    if (brushEditing.isEditing && brushEditing.editingBounds) {
+      offscreenCtx.restore();
+    }
+    
     // Mark that we need to redraw the view
     needsRedraw.current = true;
-  }, [renderBrushStroke, isSelecting, addDirtyRegion, project]);
+  }, [renderBrushStroke, isSelecting, addDirtyRegion, project, brushEditing]);
 
 
   // Create temporary custom brush for immediate use (without saving to library)
@@ -2831,6 +2861,18 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           </div>
         )}
       </div>
+
+      {/* Marching ants for brush editing mode */}
+      {brushEditing.isEditing && brushEditing.editingBounds && (
+        <MarchingAnts
+          bounds={brushEditing.editingBounds}
+          zoom={canvas.zoom}
+          panX={canvas.panX}
+          panY={canvas.panY}
+          canvasWidth={width}
+          canvasHeight={height}
+        />
+      )}
 
       {/* Brush cursor preview */}
       <BrushCursor

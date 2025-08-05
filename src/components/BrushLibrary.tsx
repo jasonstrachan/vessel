@@ -7,11 +7,17 @@ const BrushLibrary = () => {
   const brushPresets = useAppStore((state) => state.brushPresets);
   const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
   const setBrushPreset = useAppStore((state) => state.setBrushPreset);
+  const brushEditing = useAppStore((state) => state.brushEditing);
+  const enterBrushEditMode = useAppStore((state) => state.enterBrushEditMode);
+  const exitBrushEditMode = useAppStore((state) => state.exitBrushEditMode);
+  const cancelBrushEdit = useAppStore((state) => state.cancelBrushEdit);
+  const setLayersNeedRecomposition = useAppStore((state) => state.setLayersNeedRecomposition);
   
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);
   const saveCustomBrushAsPreset = useAppStore((state) => state.saveCustomBrushAsPreset);
   const removeBrushPreset = useAppStore((state) => state.removeBrushPreset);
   const removeCustomBrush = useAppStore((state) => state.removeCustomBrush);
+  const updateCustomBrush = useAppStore((state) => state.updateCustomBrush);
   const tools = useAppStore((state) => state.tools);
   
   const saveBrushSettings = useAppStore((state) => state.saveBrushSettings);
@@ -87,6 +93,21 @@ const BrushLibrary = () => {
     return null;
   }, [tools.brushSettings.selectedCustomBrush, temporaryCustomBrush, project]);
   
+  // Handle escape key to cancel editing
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && brushEditing.isEditing) {
+        cancelBrushEdit();
+        setLayersNeedRecomposition(true);
+      }
+    };
+
+    if (brushEditing.isEditing) {
+      document.addEventListener('keydown', handleKeyDown);
+      return () => document.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [brushEditing.isEditing, cancelBrushEdit]);
+
   // Save brush settings when component unmounts or loses focus
   useEffect(() => {
     return () => {
@@ -139,6 +160,154 @@ const BrushLibrary = () => {
       // Regular brush preset
       removeBrushPreset(presetId);
     }
+  };
+
+  const handleEditBrush = async (preset: BrushPreset) => {
+    if (!preset.isCustomBrush || !preset.customBrushData || !project) return;
+    
+    // Find the actual custom brush data
+    let customBrushId: string;
+    if (preset.id.startsWith('custom_')) {
+      customBrushId = preset.id.substring(7);
+    } else {
+      customBrushId = preset.id;
+    }
+    
+    const customBrush = project.customBrushes.find(b => b.id === customBrushId);
+    if (!customBrush) return;
+    
+    // Calculate bounds - center the brush on the canvas
+    const canvasWidth = project.width;
+    const canvasHeight = project.height;
+    const brushWidth = customBrush.width;
+    const brushHeight = customBrush.height;
+    
+    const bounds = {
+      x: Math.floor((canvasWidth - brushWidth) / 2),
+      y: Math.floor((canvasHeight - brushHeight) / 2),
+      width: brushWidth,
+      height: brushHeight
+    };
+    
+    // Get current offscreen canvas and capture to active layer first
+    const state = useAppStore.getState();
+    const offscreenCanvas = state.currentOffscreenCanvas;
+    if (!offscreenCanvas) return;
+    
+    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+    if (!ctx) return;
+    
+    // Capture the original area that will be edited (for restoration)
+    const originalImageData = ctx.getImageData(bounds.x, bounds.y, bounds.width, bounds.height);
+    
+    // Enter edit mode and store original data immediately
+    enterBrushEditMode(customBrushId, bounds);
+    useAppStore.setState((state) => ({
+      brushEditing: {
+        ...state.brushEditing,
+        originalImageData
+      }
+    }));
+    
+    // Place the brush ImageData on the canvas
+    ctx.putImageData(customBrush.imageData, bounds.x, bounds.y);
+    
+    // Capture the brush to the active layer BEFORE triggering recomposition
+    // This ensures the brush pixels survive the canvas clearing in compositeLayersToCanvas
+    const captureCanvasToActiveLayer = useAppStore.getState().captureCanvasToActiveLayer;
+    await captureCanvasToActiveLayer(offscreenCanvas);
+    
+    // Now trigger layer recomposition to show the updated layer
+    setLayersNeedRecomposition(true);
+  };
+
+  const handleSaveBrush = async () => {
+    if (!brushEditing.isEditing || !brushEditing.editingBounds || !brushEditing.editingBrushId || !project) {
+      exitBrushEditMode();
+      return;
+    }
+    
+    const bounds = brushEditing.editingBounds;
+    const state = useAppStore.getState();
+    const offscreenCanvas = state.currentOffscreenCanvas;
+    if (!offscreenCanvas) {
+      exitBrushEditMode();
+      return;
+    }
+    
+    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+    if (!ctx) {
+      exitBrushEditMode();
+      return;
+    }
+    
+    try {
+      // Capture the edited area from the canvas
+      const editedImageData = ctx.getImageData(bounds.x, bounds.y, bounds.width, bounds.height);
+      
+      // Create thumbnail (max 64x64)
+      const thumbnailSize = 64;
+      const thumbnailCanvas = document.createElement('canvas');
+      thumbnailCanvas.width = thumbnailSize;
+      thumbnailCanvas.height = thumbnailSize;
+      const thumbnailCtx = thumbnailCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+      
+      if (thumbnailCtx) {
+        // Scale to fit thumbnail while maintaining aspect ratio
+        const scale = Math.min(thumbnailSize / bounds.width, thumbnailSize / bounds.height);
+        const scaledWidth = bounds.width * scale;
+        const scaledHeight = bounds.height * scale;
+        const offsetX = (thumbnailSize - scaledWidth) / 2;
+        const offsetY = (thumbnailSize - scaledHeight) / 2;
+        
+        // Set background to transparent
+        thumbnailCtx.clearRect(0, 0, thumbnailSize, thumbnailSize);
+        
+        // Create temporary canvas for the edited area
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = bounds.width;
+        tempCanvas.height = bounds.height;
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+        
+        if (tempCtx) {
+          tempCtx.putImageData(editedImageData, 0, 0);
+          
+          // Draw scaled version to thumbnail
+          thumbnailCtx.drawImage(
+            tempCanvas,
+            offsetX, offsetY, scaledWidth, scaledHeight
+          );
+        }
+      }
+      
+      // Update the custom brush with the new data
+      updateCustomBrush(brushEditing.editingBrushId, {
+        imageData: editedImageData,
+        thumbnail: thumbnailCanvas.toDataURL(),
+        width: bounds.width,
+        height: bounds.height
+      });
+      
+      // Restore original content to the offscreen canvas
+      if (brushEditing.originalImageData) {
+        ctx.putImageData(brushEditing.originalImageData, bounds.x, bounds.y);
+        
+        // Capture the restored state to the active layer and wait for completion
+        const captureCanvasToActiveLayer = useAppStore.getState().captureCanvasToActiveLayer;
+        await captureCanvasToActiveLayer(offscreenCanvas);
+        
+        // Add a small delay to ensure layer update is fully processed
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      
+    } catch (error) {
+      console.error('Failed to save brush edits:', error);
+    }
+    
+    exitBrushEditMode();
+    
+    // Trigger layer recomposition to refresh the canvas
+    setLayersNeedRecomposition(true);
   };
   
   const handlePresetClick = (preset: BrushPreset) => {
@@ -262,6 +431,32 @@ const BrushLibrary = () => {
               <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
                 {preset.isCustomBrush ? '◆' : preset.isDefault ? '★' : '☆'}
               </span>
+              {preset.isCustomBrush && (
+                <>
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
+                      const isEditingThisBrush = brushEditing.isEditing && brushEditing.editingBrushId === customBrushId;
+                      
+                      if (isEditingThisBrush) {
+                        await handleSaveBrush();
+                      } else if (brushEditing.isEditing) {
+                        // If editing a different brush, cancel current edit and start new one
+                        cancelBrushEdit();
+                        setLayersNeedRecomposition(true);
+                        await handleEditBrush(preset);
+                      } else {
+                        await handleEditBrush(preset);
+                      }
+                    }}
+                    className="px-2 py-0.5 text-xs text-[#D9D9D9] hover:text-green-400 transition-colors opacity-60 hover:opacity-100 border border-[#606060] hover:border-green-400 rounded"
+                    title={brushEditing.isEditing && brushEditing.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save changes' : 'Edit brush'}
+                  >
+                    {brushEditing.isEditing && brushEditing.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save' : 'Edit'}
+                  </button>
+                </>
+              )}
               {!preset.isDefault && (
                 <button
                   onClick={(e) => {

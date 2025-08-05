@@ -1,11 +1,16 @@
 import type { NextConfig } from "next";
 
+const isProd = process.env.NODE_ENV === 'production'
+
 const nextConfig: NextConfig = {
   // Static export for GitHub Pages
   output: 'export',
   trailingSlash: true,
-  basePath: '/tinybrush',
-  assetPrefix: '/tinybrush/',
+  // Only use basePath and assetPrefix in production for GitHub Pages
+  ...(isProd && {
+    basePath: '/tinybrush',
+    assetPrefix: '/tinybrush/',
+  }),
   images: {
     unoptimized: true,
   },

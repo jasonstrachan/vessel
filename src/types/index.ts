@@ -149,6 +149,18 @@ export interface UIState {
   notifications: Notification[];
 }
 
+export interface BrushEditingState {
+  isEditing: boolean;
+  editingBrushId: string | null;
+  editingBounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null;
+  originalImageData: ImageData | null;
+}
+
 export interface AutosaveState {
   isEnabled: boolean;
   isRunning: boolean;

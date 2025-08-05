@@ -30,6 +30,7 @@ import type {
   ShapePoint,
   PolygonGradientState,
   ColorCycleState,
+  BrushEditingState,
 } from '../types';
 import { BrushShape } from '../types';
 import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
@@ -202,6 +203,12 @@ interface AppState {
   removeCustomBrush: (brushId: string) => void;
   saveCustomBrushAsPreset: (customBrushId: string) => void;
   
+  // Brush Editing State
+  brushEditing: BrushEditingState;
+  enterBrushEditMode: (brushId: string, bounds: { x: number; y: number; width: number; height: number }) => void;
+  exitBrushEditMode: () => void;
+  cancelBrushEdit: () => void;
+  
   // Brush Preset Management
   removeBrushPreset: (presetId: string) => void;
   
@@ -295,6 +302,13 @@ const defaultHistoryState: HistoryState = {
   redoStack: [],
   maxHistorySize: 50,
   isCapturing: false
+};
+
+const defaultBrushEditingState: BrushEditingState = {
+  isEditing: false,
+  editingBrushId: null,
+  editingBounds: null,
+  originalImageData: null
 };
 
 const defaultShapeState: ShapeState = {
@@ -1287,6 +1301,39 @@ export const useAppStore = create<AppState>()(
         };
       }),
       
+      // Brush Editing State
+      brushEditing: defaultBrushEditingState,
+      enterBrushEditMode: (brushId, bounds) => set((state) => {
+        // Simply set editing state - no complex layer management
+        return {
+          brushEditing: {
+            isEditing: true,
+            editingBrushId: brushId,
+            editingBounds: bounds,
+            originalImageData: null // Will be set when brush is placed
+          }
+        };
+      }),
+      exitBrushEditMode: () => set((state) => ({
+        brushEditing: defaultBrushEditingState
+      })),
+      cancelBrushEdit: () => set((state) => {
+        // Restore original ImageData if available
+        if (state.brushEditing.originalImageData && state.brushEditing.editingBounds && state.currentOffscreenCanvas) {
+          const ctx = state.currentOffscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+          if (ctx) {
+            ctx.putImageData(
+              state.brushEditing.originalImageData,
+              state.brushEditing.editingBounds.x,
+              state.brushEditing.editingBounds.y
+            );
+          }
+        }
+        return {
+          brushEditing: defaultBrushEditingState
+        };
+      }),
+      
       // History Management
       saveCanvasState: (canvas, actionType, description) => {
         if (isHistoryOperationInProgress) {
@@ -1636,10 +1683,22 @@ export const useAppStore = create<AppState>()(
         // Clear the canvas
         ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
         
-        // Draw background color only if not transparent
-        if (state.project.backgroundColor && state.project.backgroundColor !== 'transparent') {
-          ctx.fillStyle = state.project.backgroundColor;
+        // Handle brush editing mode - hide everything except the brush area
+        if (state.brushEditing.isEditing && state.brushEditing.editingBounds) {
+          // In brush editing mode, make everything transparent except the editing area
+          // Draw a very dark background to make the brush stand out
+          ctx.fillStyle = 'rgba(20, 20, 20, 1)';
           ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+          
+          // Clear the editing area to show only the brush pixels there
+          const bounds = state.brushEditing.editingBounds;
+          ctx.clearRect(bounds.x, bounds.y, bounds.width, bounds.height);
+        } else {
+          // Normal mode - draw background color only if not transparent
+          if (state.project.backgroundColor && state.project.backgroundColor !== 'transparent') {
+            ctx.fillStyle = state.project.backgroundColor;
+            ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+          }
         }
         
         // Sort layers by order and draw each visible layer
@@ -1672,6 +1731,15 @@ export const useAppStore = create<AppState>()(
         for (const layer of sortedLayers) {
           if (!layer.visible || !layer.imageData) {
             continue;
+          }
+          
+          // Apply clipping if in brush editing mode
+          if (state.brushEditing.isEditing && state.brushEditing.editingBounds) {
+            ctx.save();
+            const bounds = state.brushEditing.editingBounds;
+            ctx.beginPath();
+            ctx.rect(bounds.x, bounds.y, bounds.width, bounds.height);
+            ctx.clip();
           }
           
           // Apply color cycling if this layer is selected for cycling
@@ -1733,6 +1801,11 @@ export const useAppStore = create<AppState>()(
             
             // Draw the layer onto the target canvas
             ctx.drawImage(layerCanvas, 0, 0);
+          }
+          
+          // Restore context if clipping was applied
+          if (state.brushEditing.isEditing && state.brushEditing.editingBounds) {
+            ctx.restore();
           }
         }
         
