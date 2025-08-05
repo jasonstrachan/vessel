@@ -111,11 +111,8 @@ const ColorCyclePanel = () => {
           >
             {colorCycleState.isPlaying ? (
               <div className="flex items-center justify-center gap-2">
-                <div className="w-3 h-3 flex gap-1">
-                  <div className="w-1 h-3 bg-white"></div>
-                  <div className="w-1 h-3 bg-white"></div>
-                </div>
-                Pause
+                <div className="w-3 h-3 bg-white"></div>
+                Stop
               </div>
             ) : (
               <div className="flex items-center justify-center gap-2">
