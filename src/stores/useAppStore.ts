@@ -699,9 +699,29 @@ export const useAppStore = create<AppState>()(
       setColorCycleActive: (active) => set((state) => ({
         colorCycleState: { ...state.colorCycleState, isActive: active }
       })),
-      setColorCyclePlaying: (playing) => set((state) => ({
-        colorCycleState: { ...state.colorCycleState, isPlaying: playing }
-      })),
+      setColorCyclePlaying: (playing) => set((state) => {
+        // When stopping, always reset to frame 0 and force recomposition
+        if (!playing) {
+          return {
+            colorCycleState: { 
+              ...state.colorCycleState, 
+              isPlaying: false,
+              isActive: false,
+              currentColorIndex: 0 // Always reset to first frame when stopping
+            },
+            layersNeedRecomposition: true // Always trigger recomposition when stopping
+          };
+        }
+        
+        // When starting, just set playing state
+        return {
+          colorCycleState: { 
+            ...state.colorCycleState, 
+            isPlaying: true,
+            isActive: true
+          }
+        };
+      }),
       addColorCycleColor: (color) => set((state) => {
         const hexToRgb = (hex: string): { r: number; g: number; b: number } => {
           const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -741,6 +761,7 @@ export const useAppStore = create<AppState>()(
       })),
       incrementColorCycleIndex: () => set((state) => {
         const nextIndex = (state.colorCycleState.currentColorIndex + 1) % Math.max(1, state.colorCycleState.selectedColors.length);
+        console.log(`Color cycle: ${state.colorCycleState.currentColorIndex} -> ${nextIndex} (of ${state.colorCycleState.selectedColors.length} colors)`);
         return {
           colorCycleState: { ...state.colorCycleState, currentColorIndex: nextIndex }
         };
@@ -791,8 +812,18 @@ export const useAppStore = create<AppState>()(
         if (colorCycleState.isActive && 
             colorCycleState.selectedColors.length > 0 && 
             colorCycleState.selectedLayers.length > 0) {
-          // Trigger a fresh precomputation
-          get().precomputeColorCycleMaps();
+          // Debounce the refresh to avoid too frequent updates during drawing
+          // Clear any existing timeout
+          if ((get() as any)._colorCycleRefreshTimeout) {
+            clearTimeout((get() as any)._colorCycleRefreshTimeout);
+          }
+          
+          // Set a new timeout for refresh
+          (get() as any)._colorCycleRefreshTimeout = setTimeout(() => {
+            console.log('Refreshing color cycle maps after layer update');
+            get().precomputeColorCycleMaps();
+            (get() as any)._colorCycleRefreshTimeout = null;
+          }, 100); // 100ms debounce
         }
       },
       resetColorCycle: () => set({
@@ -1525,7 +1556,7 @@ export const useAppStore = create<AppState>()(
         let drawnLayers = 0;
         
         // Check if color cycling is active and has colors
-        const isColorCycling = state.tools.currentTool === 'color-cycle' && 
+        const isColorCycling = (state.colorCycleState.isPlaying || state.tools.currentTool === 'color-cycle') && 
                                state.colorCycleState.selectedColors.length > 0 &&
                                state.colorCycleState.selectedLayers.length > 0;
         
@@ -1538,6 +1569,10 @@ export const useAppStore = create<AppState>()(
         const shiftedColorsRGB = useOptimizedCycling ? 
           buildShiftedColors(state.colorCycleState.selectedColorsRGB, state.colorCycleState.currentColorIndex) : 
           [];
+          
+        if (useOptimizedCycling && shiftedColorsRGB.length > 0) {
+          console.log(`Compositing with color cycle index ${state.colorCycleState.currentColorIndex}, ${shiftedColorsRGB.length} shifted colors`);
+        }
           
         // Fallback color map for legacy path
         const colorMap = (isColorCycling && !useOptimizedCycling) ? 
@@ -1554,7 +1589,24 @@ export const useAppStore = create<AppState>()(
           if (isColorCycling && state.colorCycleState.selectedLayers.includes(layer.id)) {
             if (useOptimizedCycling) {
               // Use optimized path with pre-computed maps
-              const layerIndexMap = state.colorCycleState.layerColorIndexMaps.get(layer.id);
+              let layerIndexMap = state.colorCycleState.layerColorIndexMaps.get(layer.id);
+              
+              // If map doesn't exist or is stale, rebuild it on-the-fly
+              if (!layerIndexMap) {
+                console.log(`Building color index map on-the-fly for layer ${layer.name}`);
+                layerIndexMap = buildLayerColorIndexMap(layer, state.colorCycleState.selectedColors, state.colorCycleState.selectedColorsRGB);
+                
+                // Update the store with the new map for future use
+                const updatedMaps = new Map(state.colorCycleState.layerColorIndexMaps);
+                updatedMaps.set(layer.id, layerIndexMap);
+                set((currentState) => ({
+                  colorCycleState: {
+                    ...currentState.colorCycleState,
+                    layerColorIndexMaps: updatedMaps
+                  }
+                }));
+              }
+              
               if (layerIndexMap) {
                 const cycledData = applyCycleToLayers_Optimized(
                   [layer], 
@@ -1653,6 +1705,13 @@ export const useAppStore = create<AppState>()(
             
             // Wait for the next tick to ensure store update is complete
             await new Promise(resolve => setTimeout(resolve, 0));
+            
+            // Refresh color cycle maps if cycling is active and this layer is being cycled
+            const currentState = get();
+            if (currentState.colorCycleState.isActive && 
+                currentState.colorCycleState.selectedLayers.includes(activeLayerId)) {
+              get().refreshColorCycleMapsIfNeeded();
+            }
           }
         } catch (error) {
           console.error('Capture failed with error:', error);
@@ -1717,6 +1776,13 @@ export const useAppStore = create<AppState>()(
           
           // Wait for the next tick to ensure store update is complete
           await new Promise(resolve => setTimeout(resolve, 0));
+          
+          // Refresh color cycle maps if cycling is active and this layer is being cycled
+          const currentState = get();
+          if (currentState.colorCycleState.isActive && 
+              currentState.colorCycleState.selectedLayers.includes(targetLayerId)) {
+            get().refreshColorCycleMapsIfNeeded();
+          }
         } catch (error) {
           console.error('Capture to specific layer failed with error:', error);
         }

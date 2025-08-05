@@ -6,6 +6,11 @@
 - **Optimized color cycling system**: Implemented pre-computed index maps and RGB caching to eliminate repeated hex conversions during animation
 - **New optimized functions**: `buildLayerColorIndexMap()`, `applyCycleToLayer_Optimized()`, `buildShiftedColors()`, `applyCycleToLayers_Optimized()`
 - **State management updates**: Added `selectedColorsRGB` and `layerColorIndexMaps` fields to ColorCycleState
+- **Dynamic layer updates**: Fixed issue where color cycling would revert to old layer state - now automatically refreshes maps when layers are modified during animation
+- **Smart map refreshing**: Added `refreshColorCycleMapsIfNeeded()` with debouncing to efficiently rebuild maps when layer content changes
+- **Simplified color matching**: All pixels on selected layers are mapped to the nearest cycling color - no thresholds or complex detection
+- **Universal pixel support**: Works with all effects (polygon fills, risograph, dither, gradients) by simply mapping whatever pixels exist
+- **Fallback handling**: On-the-fly map building when pre-computed maps are missing or stale
 - **Backward compatibility**: Legacy functions marked as deprecated but kept functional for gradual migration
 - **Animation integration**: Updated DrawingCanvas and compositeLayersToCanvas to use optimized path when pre-computed maps are available
 

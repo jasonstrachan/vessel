@@ -20,17 +20,16 @@ export function hexToRgb(hex: string): { r: number; g: number; b: number } {
 
 /**
  * Finds the closest color index from a pre-calculated RGB array.
- * This is much faster as it avoids repeated hex-to-rgb conversions.
+ * Only returns a match if the color is actually close to a selected palette color.
  */
 function findClosestColorIndex(
     r: number, g: number, b: number, 
-    selectedColorsRGB: { r: number; g: number; b: number }[], 
-    threshold: number = 30
+    selectedColorsRGB: { r: number; g: number; b: number }[]
 ): number | null {
     if (selectedColorsRGB.length === 0) return null;
 
-    let closestIndex: number | null = null;
-    let closestDistanceSq = threshold * threshold; // Use squared distance to avoid sqrt
+    let closestIndex = 0;
+    let closestDistanceSq = Infinity;
 
     for (let i = 0; i < selectedColorsRGB.length; i++) {
         const candidate = selectedColorsRGB[i];
@@ -41,8 +40,16 @@ function findClosestColorIndex(
             closestIndex = i;
         }
     }
-    return closestIndex;
+
+    // Only return a match if it's actually close (threshold for color matching)
+    const threshold = 100; // Reasonable threshold - only fairly close colors will cycle
+    if (closestDistanceSq <= threshold * threshold) {
+        return closestIndex;
+    }
+
+    return null; // Color is not close enough to any selected palette color
 }
+
 
 // --- CORE OPTIMIZATION FUNCTIONS ---
 
@@ -63,7 +70,10 @@ export function buildLayerColorIndexMap(
     }
 
     const data = layer.imageData.data;
-    const colorCache = new Map<string, number | null>(); // Memoize findClosestColorIndex results
+    const colorCache = new Map<string, number | null>(); // Color to index cache (null = no match)
+
+    let totalUniqueColors = 0;
+    let mappedColors = 0;
 
     for (let i = 0; i < data.length; i += 4) {
         const a = data[i + 3];
@@ -75,20 +85,26 @@ export function buildLayerColorIndexMap(
         
         const currentColorHex = rgbToHex(r, g, b);
 
-        if (colorCache.has(currentColorHex)) {
+        if (!colorCache.has(currentColorHex)) {
+            totalUniqueColors++;
+            // Find closest color index - only returns index if close enough
+            const closestIndex = findClosestColorIndex(r, g, b, selectedColorsRGB);
+            colorCache.set(currentColorHex, closestIndex);
+            
+            if (closestIndex !== null) {
+                mappedColors++;
+                indexMap.set(currentColorHex, closestIndex);
+            }
+        } else {
+            // Add to index map if it has a valid mapping and not already there
             const cachedIndex = colorCache.get(currentColorHex);
             if (cachedIndex !== null && cachedIndex !== undefined && !indexMap.has(currentColorHex)) {
                 indexMap.set(currentColorHex, cachedIndex);
             }
-        } else {
-            const closestIndex = findClosestColorIndex(r, g, b, selectedColorsRGB);
-            colorCache.set(currentColorHex, closestIndex);
-            if (closestIndex !== null) {
-                indexMap.set(currentColorHex, closestIndex);
-            }
         }
     }
-    console.log(`Built index map for layer "${layer.name}". Found ${indexMap.size} mappable colors.`);
+    
+    console.log(`Built index map for layer "${layer.name}": ${mappedColors}/${totalUniqueColors} colors will cycle (${totalUniqueColors - mappedColors} excluded)`);
     return indexMap;
 }
 

@@ -432,12 +432,13 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     colorCycleState,
     updateColorCycleIndex,
     incrementColorCycleIndex,
+    temporaryCustomBrush,
+    setTemporaryCustomBrush,
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue, drawRectangleGradient, drawPolygonGradient } = useBrushEngine();
   
-  // Get current custom brush data
-  const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
+  // Get current custom brush data (already imported above)
   
   // Use project dimensions if available, otherwise use props or defaults
   const width = project?.width || propWidth || DEFAULT_CANVAS_WIDTH;
@@ -1002,7 +1003,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // For custom brushes, calculate the actual pixel size
     if (brushSettings.brushShape === BrushShape.CUSTOM) {
       const customBrush = project?.customBrushes?.find(b => b.id === brushSettings.selectedCustomBrush) ||
-                         useAppStore.getState().temporaryCustomBrush;
+                         temporaryCustomBrush;
       
       if (customBrush) {
         // Custom brush size is percentage of brush dimensions
@@ -1245,8 +1246,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     canvasPool.release(captureCanvas);
     
     // Store the temporary brush in the store
-    const store = useAppStore.getState();
-    store.setTemporaryCustomBrush(tempBrush);
+    setTemporaryCustomBrush(tempBrush);
     
     // CRITICAL: Clear brush caches to ensure immediate update
     scaledBrushCache.clear();
@@ -2391,8 +2391,76 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         }
       }
     }
+
+    // Handle rectangle gradient cancellation
+    if (tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        // Cancel rectangle creation while drawing
+        if (rectangleBrushState.drawingState === 'definingLength' || rectangleBrushState.drawingState === 'definingWidth') {
+          // Clear both live and store state
+          rectangleBrushLiveState.current.currentPos = { x: 0, y: 0 };
+          setRectangleBrushState({
+            drawingState: 'idle',
+            startPos: { x: 0, y: 0 },
+            endPos: { x: 0, y: 0 },
+            currentPos: { x: 0, y: 0 },
+            width: 0,
+            startColor: '#000000',
+            endColor: '#000000'
+          });
+          setIsDrawing(false);
+          needsRedraw.current = true;
+        }
+      }
+    }
+
+    // Handle shape drawing cancellation
+    if ((tools.currentTool === 'brush' || tools.currentTool === 'eraser') && tools.brushSettings.shapeEnabled) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        // Cancel shape creation while drawing
+        if (shapeState.isDrawing) {
+          setShapeDrawing(false);
+          clearShapePoints();
+          setShapePreviewPath(undefined);
+          setIsDrawing(false);
+          needsRedraw.current = true;
+        }
+      }
+    }
+
+    // Handle custom brush selection cancellation
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      // Cancel temporary custom brush creation/editing
+      if (temporaryCustomBrush) {
+        setTemporaryCustomBrush(null);
+        needsRedraw.current = true;
+      }
+      // Cancel active selection process for custom brush creation
+      if (isSelecting) {
+        setIsSelecting(false);
+        clearSelection();
+        needsRedraw.current = true;
+      }
+      if (isDraggingSelection) {
+        setIsDraggingSelection(false);
+        setSelectionDragStart(null);
+        needsRedraw.current = true;
+      }
+      // Clear any active selection area
+      if (canvas.selection.active) {
+        setSelection({
+          active: false,
+          bounds: { x: 0, y: 0, width: 0, height: 0 },
+          pixels: typeof ImageData !== 'undefined' ? new ImageData(1, 1) : {} as ImageData
+        });
+        needsRedraw.current = true;
+      }
+    }
     
-  }, [offscreenCanvasRef, setEKeyPressed, setToolBeforeEraser, setAltKeyPressed, setToolBeforeEyedropper, setSpacebarPressed, setSelection, renderView, tools.currentTool, tools.brushSettings.brushShape, polygonGradientState, drawPolygonGradient, clearPolygonGradientPoints, setPolygonGradientState]);
+  }, [offscreenCanvasRef, setEKeyPressed, setToolBeforeEraser, setAltKeyPressed, setToolBeforeEyedropper, setSpacebarPressed, setSelection, renderView, tools.currentTool, tools.brushSettings.brushShape, tools.brushSettings.shapeEnabled, polygonGradientState, drawPolygonGradient, clearPolygonGradientPoints, setPolygonGradientState, rectangleBrushState, setRectangleBrushState, shapeState, setShapeDrawing, clearShapePoints, setShapePreviewPath, temporaryCustomBrush, setTemporaryCustomBrush, isSelecting, clearSelection, isDraggingSelection, setSelectionDragStart, canvas.selection]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
     // E key release - restore previous tool
