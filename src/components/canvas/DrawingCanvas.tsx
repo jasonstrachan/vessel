@@ -78,6 +78,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   const [mouseX, setMouseX] = useState(0);
   const [mouseY, setMouseY] = useState(0);
   const [isCanvasInitialized, setIsCanvasInitialized] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
   
   // Dirty rectangle tracking for performance optimization (using refs to avoid render loops)
   const dirtyRegionsRef = useRef<{x: number, y: number, width: number, height: number}[]>([]);
@@ -2270,8 +2271,14 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     };
   }, [setCanvasDimensions]);
 
+  // Client-side mount check for static export compatibility
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   // Initialize canvases - main display and offscreen drawing buffer
   const initializeCanvas = useCallback(() => {
+    if (!isMounted) return; // Only initialize on client side
     const canvasElement = canvasRef.current;
     if (!canvasElement) return;
     
@@ -2315,7 +2322,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         }
       }
     }
-  }, [width, height, project?.backgroundColor]);
+  }, [width, height, project?.backgroundColor, isMounted]);
 
   // Update canvas dimensions when needed
   const updateCanvasDimensions = useCallback(() => {
@@ -2464,7 +2471,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       }
     } catch {
     }
-  }, [isCanvasInitialized, initializeCanvas, setPan, setProjectDimensions, width, height, saveCanvasState]);
+  }, [isCanvasInitialized, initializeCanvas, setPan, setProjectDimensions, width, height, saveCanvasState, isMounted]);
 
   // Event listeners setup - separate from canvas initialization
   useEffect(() => {
@@ -2740,6 +2747,15 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         : project?.customBrushes?.find(b => b.id === tools.brushSettings.selectedCustomBrush))
     : null;
 
+
+  // Don't render canvas during SSR
+  if (!isMounted) {
+    return (
+      <div className="w-full h-full bg-[#141514] relative flex items-center justify-center">
+        <div className="text-gray-500">Loading canvas...</div>
+      </div>
+    );
+  }
 
   return (
     <>
