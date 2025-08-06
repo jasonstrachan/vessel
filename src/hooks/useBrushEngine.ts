@@ -1584,8 +1584,8 @@ export const useBrushEngine = () => {
           // 7. Draw the final, jittered stamp to the main canvas.
           const centerX = x - scaledWidth / 2;
           const centerY = y - scaledHeight / 2;
-          ctx.imageSmoothingEnabled = false;
           
+          ctx.imageSmoothingEnabled = false;
           ctx.drawImage(stampCanvas, centerX, centerY);
 
           // 8. Apply film grain if enabled
@@ -1621,7 +1621,6 @@ export const useBrushEngine = () => {
         const centerY = y - scaledCanvas.height / 2;
         
         ctx.imageSmoothingEnabled = false;
-        
         ctx.drawImage(scaledCanvas, centerX, centerY);
 
         // Apply film grain if enabled
@@ -1670,7 +1669,8 @@ export const useBrushEngine = () => {
     from: { x: number; y: number },
     to: { x: number; y: number },
     cursor: { pressure: number }, // Accept cursor data directly
-    components: BrushComponent[] = activeBrushComponents
+    components: BrushComponent[] = activeBrushComponents,
+    clipBounds?: { x: number; y: number; width: number; height: number } | null
   ) => {
     // Mark stroke as active for cache retention
     brushCache.markStrokeActive();
@@ -1910,6 +1910,13 @@ export const useBrushEngine = () => {
     }
     
     ctx.save();
+    
+    // Apply clipping if specified (after save to preserve context)
+    if (clipBounds) {
+      ctx.beginPath();
+      ctx.rect(clipBounds.x, clipBounds.y, clipBounds.width, clipBounds.height);
+      ctx.clip();
+    }
     
     // Initialize distance tracking state if needed
     const queue = pixelQueueRef.current;
@@ -2331,9 +2338,15 @@ export const useBrushEngine = () => {
               }
             }
             
-            // Put the final composited data back
+            // Put the final composited data back using temp canvas to respect clipping
             const finalImageData = new ImageData(finalData, boundWidth, boundHeight);
-            ctx.putImageData(finalImageData, minX, minY);
+            const finalCanvas = canvasPool.acquire(boundWidth, boundHeight);
+            const finalCtx = finalCanvas.getContext('2d');
+            if (finalCtx) {
+              finalCtx.putImageData(finalImageData, 0, 0);
+              ctx.drawImage(finalCanvas, minX, minY);
+            }
+            canvasPool.release(finalCanvas);
             
             canvasPool.release(maskCanvas);
           }
@@ -2467,9 +2480,15 @@ export const useBrushEngine = () => {
               }
             }
             
-            // Put the final composited data back
+            // Put the final composited data back using temp canvas to respect clipping
             const finalImageData = new ImageData(finalData, boundWidth, boundHeight);
-            ctx.putImageData(finalImageData, minX, minY);
+            const finalCanvas = canvasPool.acquire(boundWidth, boundHeight);
+            const finalCtx = finalCanvas.getContext('2d');
+            if (finalCtx) {
+              finalCtx.putImageData(finalImageData, 0, 0);
+              ctx.drawImage(finalCanvas, minX, minY);
+            }
+            canvasPool.release(finalCanvas);
             
             canvasPool.release(maskCanvas);
           }

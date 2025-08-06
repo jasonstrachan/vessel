@@ -71,7 +71,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     top: screenY - 2,
     width: screenWidth,
     height: screenHeight,
-    border: '2px dashed #00ff88',
+    border: '2px dashed #000000',
     pointerEvents: 'none',
     zIndex: 11,
     boxSizing: 'content-box',

@@ -650,58 +650,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           canvasPool.release(tempCanvas);
         }
       }
-      
-      // Draw marching ants border
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = 1 / canvas.zoom;
-      ctx.setLineDash([4 / canvas.zoom, 4 / canvas.zoom]);
-      ctx.lineDashOffset = -(Date.now() * 0.01) % (8 / canvas.zoom);
-      
-      ctx.beginPath();
-      ctx.rect(bounds.x, bounds.y, bounds.width, bounds.height);
-      ctx.stroke();
-      
-      // Draw white dashed border offset for contrast
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineDashOffset = -(Date.now() * 0.01) % (8 / canvas.zoom) + (4 / canvas.zoom);
-      
-      ctx.beginPath();
-      ctx.rect(bounds.x, bounds.y, bounds.width, bounds.height);
-      ctx.stroke();
-      
-      // Reset line dash
-      ctx.setLineDash([]);
-    }
-    
-    // Draw selection creation overlay with marching ants
-    if (selectionStart && selectionEnd) {
-      const minX = Math.min(selectionStart.x, selectionEnd.x);
-      const minY = Math.min(selectionStart.y, selectionEnd.y);
-      const maxX = Math.max(selectionStart.x, selectionEnd.x);
-      const maxY = Math.max(selectionStart.y, selectionEnd.y);
-      const width = maxX - minX;
-      const height = maxY - minY;
-      
-      // Draw marching ants border for selection creation
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = 1 / canvas.zoom;
-      ctx.setLineDash([4 / canvas.zoom, 4 / canvas.zoom]);
-      ctx.lineDashOffset = -(Date.now() * 0.01) % (8 / canvas.zoom);
-      
-      ctx.beginPath();
-      ctx.rect(minX, minY, width, height);
-      ctx.stroke();
-      
-      // Draw white dashed border offset for contrast
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineDashOffset = -(Date.now() * 0.01) % (8 / canvas.zoom) + (4 / canvas.zoom);
-      
-      ctx.beginPath();
-      ctx.rect(minX, minY, width, height);
-      ctx.stroke();
-      
-      // Reset line dash
-      ctx.setLineDash([]);
     }
     
     // Draw shape preview if in shape mode (optimized with caching)
@@ -869,6 +817,66 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Restore context state
     ctx.restore();
     
+    // Draw selection overlays AFTER context restore to ensure proper colors
+    if (canvas.selection.active || (selectionStart && selectionEnd)) {
+      ctx.save();
+      ctx.translate(canvas.panX, canvas.panY);
+      ctx.scale(canvas.zoom, canvas.zoom);
+      
+      // Active selection marching ants
+      if (canvas.selection.active) {
+        const { bounds } = canvas.selection;
+        
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 1 / canvas.zoom;
+        ctx.setLineDash([4 / canvas.zoom, 4 / canvas.zoom]);
+        ctx.lineDashOffset = -(Date.now() * 0.01) % (8 / canvas.zoom);
+        
+        ctx.beginPath();
+        ctx.rect(bounds.x, bounds.y, bounds.width, bounds.height);
+        ctx.stroke();
+        
+        ctx.strokeStyle = 'white';
+        ctx.lineDashOffset = -(Date.now() * 0.01) % (8 / canvas.zoom) + (4 / canvas.zoom);
+        
+        ctx.beginPath();
+        ctx.rect(bounds.x, bounds.y, bounds.width, bounds.height);
+        ctx.stroke();
+        
+        ctx.setLineDash([]);
+      }
+      
+      // Selection creation marching ants
+      if (selectionStart && selectionEnd) {
+        const minX = Math.min(selectionStart.x, selectionEnd.x);
+        const minY = Math.min(selectionStart.y, selectionEnd.y);
+        const maxX = Math.max(selectionStart.x, selectionEnd.x);
+        const maxY = Math.max(selectionStart.y, selectionEnd.y);
+        const width = maxX - minX;
+        const height = maxY - minY;
+        
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 1 / canvas.zoom;
+        ctx.setLineDash([4 / canvas.zoom, 4 / canvas.zoom]);
+        ctx.lineDashOffset = -(Date.now() * 0.01) % (8 / canvas.zoom);
+        
+        ctx.beginPath();
+        ctx.rect(minX, minY, width, height);
+        ctx.stroke();
+        
+        ctx.strokeStyle = 'white';
+        ctx.lineDashOffset = -(Date.now() * 0.01) % (8 / canvas.zoom) + (4 / canvas.zoom);
+        
+        ctx.beginPath();
+        ctx.rect(minX, minY, width, height);
+        ctx.stroke();
+        
+        ctx.setLineDash([]);
+      }
+      
+      ctx.restore();
+    }
+    
     // Clear dirty regions after rendering
     clearDirtyRegions();
   }, [canvas.zoom, canvas.panX, canvas.panY, canvas.selection, width, height, selectionStart, selectionEnd, checkerboardPattern, clearDirtyRegions, tools.brushSettings.brushShape, tools.brushSettings.selectedCustomBrush, tools.brushSettings.size, tools.brushSettings.gridSnapEnabled, tools.brushSettings.shapeEnabled, project?.customBrushes, shapeState, temporaryCustomBrush, rectangleBrushState, drawRectangleGradient, polygonGradientState, drawPolygonGradient]);
@@ -885,20 +893,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!offscreenCtx) return;
-    
-    // Apply clipping if in brush editing mode
-    if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
-      offscreenCtx.save();
-      offscreenCtx.beginPath();
-      offscreenCtx.rect(
-        brushEditor.editingBounds.x,
-        brushEditor.editingBounds.y,
-        brushEditor.editingBounds.width,
-        brushEditor.editingBounds.height
-      );
-      offscreenCtx.clip();
-    }
-    
     
     // Calculate actual brush size for dirty region (accounts for custom brushes)
     const { brushSettings } = useAppStore.getState().tools;
@@ -934,13 +928,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     );
     
     // Draw on the offscreen canvas (no transformations - world coordinates)
-    // Pass the latest cursor state from the ref directly to the brush engine.
-    renderBrushStroke(offscreenCtx, from, to, cursorStateRef.current);
-    
-    // Restore context if we applied clipping
-    if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
-      offscreenCtx.restore();
-    }
+    // Pass clipping bounds to renderBrushStroke if in brush editing mode
+    const clipBounds = (brushEditor.status === 'EDITING' && brushEditor.editingBounds) 
+      ? brushEditor.editingBounds 
+      : null;
+    renderBrushStroke(offscreenCtx, from, to, cursorStateRef.current, undefined, clipBounds);
     
     // Mark that we need to redraw the view
     needsRedraw.current = true;
