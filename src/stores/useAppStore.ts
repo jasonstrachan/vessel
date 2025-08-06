@@ -87,6 +87,7 @@ interface AppState {
   saveBrushSettings: (brushId: string, settings: Partial<BrushSettings>) => void;
   loadBrushSettings: (brushId: string) => Partial<BrushSettings>;
   clearBrushSettings: (brushId: string) => void;
+  _saveCurrentBrushSettings: () => void;
   
   // History State
   history: HistoryState;
@@ -508,17 +509,37 @@ export const useAppStore = create<AppState>()(
       tools: (() => {
         return defaultToolState;
       })(),
-      setCurrentTool: (tool) => set((state) => {
-        // Save current brush settings before switching tools
-        if (state.currentBrushPreset && (state.tools.currentTool === 'brush' || state.tools.currentTool === 'custom')) {
-          const currentBrushId = state.currentBrushPreset.id;
-          const existingSavedSettings = get().loadBrushSettings(currentBrushId);
+      // Helper function to save current brush settings
+      _saveCurrentBrushSettings: () => {
+        const state = get();
+        const { tools, currentBrushPreset, brushSpecificSettings } = state;
+        const currentTool = tools.currentTool;
+        const currentBrushSettings = tools.brushSettings;
+        
+        const brushIdToSave = currentBrushPreset?.id ?? 
+            (currentBrushSettings.brushShape === BrushShape.CUSTOM && currentBrushSettings.selectedCustomBrush
+                ? currentBrushSettings.selectedCustomBrush
+                : null);
+
+        if (brushIdToSave && (currentTool === 'brush' || currentTool === 'custom')) {
+          const existingSettings = brushSpecificSettings[brushIdToSave] || {};
           const settingsToSave = {
-            ...existingSavedSettings,
-            ...getSerializableBrushSettings(state.tools.brushSettings)
+              ...existingSettings,
+              ...getSerializableBrushSettings(currentBrushSettings),
           };
-          get().saveBrushSettings(currentBrushId, settingsToSave);
+          set(prevState => ({
+            brushSpecificSettings: {
+                ...prevState.brushSpecificSettings,
+                [brushIdToSave]: settingsToSave,
+            },
+          }));
         }
+      },
+      setCurrentTool: (tool) => {
+        // Save current settings before switching
+        get()._saveCurrentBrushSettings();
+        
+        set((state) => {
 
         const newBrushSettings = { ...state.tools.brushSettings };
         
@@ -529,15 +550,16 @@ export const useAppStore = create<AppState>()(
           newBrushSettings.selectedCustomBrush = null;
         }
         
-        return {
-          tools: {
-            ...state.tools,
-            previousTool: state.tools.currentTool,
-            currentTool: tool,
-            brushSettings: newBrushSettings
-          }
-        };
-      }),
+          return {
+            tools: {
+              ...state.tools,
+              previousTool: state.tools.currentTool,
+              currentTool: tool,
+              brushSettings: newBrushSettings
+            }
+          };
+        });
+      },
       setBrushSettings: (settings) => set((state) => {
         const currentSettings = state.tools.brushSettings;
         const newSettings = { ...currentSettings, ...settings };
@@ -940,20 +962,20 @@ export const useAppStore = create<AppState>()(
           originalLayerImageData: new Map()
         }
       }),
-      setBrushPreset: (preset) => set((state) => {
-        // Save current settings to the currently active brush before switching (excluding size)
-        if (state.currentBrushPreset) {
-          const currentBrushId = state.currentBrushPreset.id;
-          // Get existing saved settings and merge with current
-          const existingSavedSettings = get().loadBrushSettings(currentBrushId);
-          const settingsToSave = {
-            ...existingSavedSettings,
-            // size: state.tools.brushSettings.size, // Size is now global
-            ...getSerializableBrushSettings(state.tools.brushSettings)
-          };
-          get().saveBrushSettings(currentBrushId, settingsToSave);
-        }
+      setBrushPreset: (preset) => {
+        // Save current settings before switching
+        get()._saveCurrentBrushSettings();
         
+        // Cancel any active brush edit session before switching
+        const state = get();
+        if (state.brushEditor.status === 'EDITING') {
+          const canvas = state.currentOffscreenCanvas;
+          if (canvas) {
+            get().cancelBrushEdit(canvas);
+          }
+        }
+
+        set((state) => {
         // --- THIS IS THE NEW, ROBUST REPLACEMENT ---
         const userOverrides = get().loadBrushSettings(preset.id);
         const { settings: presetDefaults, components } = applyBrushPreset(preset, userOverrides);
@@ -1027,7 +1049,8 @@ export const useAppStore = create<AppState>()(
         }
         
         return updatedState;
-      }),
+        });
+      },
       getBrushPresets: () => brushPresets,
       getBrushPresetById: (id) => brushPresets.find(preset => preset.id === id),
       
@@ -1387,18 +1410,12 @@ export const useAppStore = create<AppState>()(
         const captureCanvasToActiveLayer = get().captureCanvasToActiveLayer;
         captureCanvasToActiveLayer(canvas);
 
-        // Set currentBrushTip so the brush engine can render the brush being edited
-        const updatedBrushSettings = {
-          ...state.tools.brushSettings,
-          currentBrushTip: {
-            brushId: brushId,
-            imageData: brushData.imageData,
-            width: brushData.width,
-            height: brushData.height
-          },
-          brushShape: BrushShape.CUSTOM,
-          selectedCustomBrush: brushId
-        };
+        // Switch to default drawing tool to allow drawing on the brush tip
+        // This prevents the confusing state of editing a brush with itself
+        const defaultBrushPreset = get().getBrushPresetById('pixel-brush') || get().getBrushPresets()[0];
+        if (defaultBrushPreset) {
+          get().setBrushPreset(defaultBrushPreset);
+        }
 
         return {
           brushEditor: {
@@ -1406,10 +1423,6 @@ export const useAppStore = create<AppState>()(
             editingBrushId: brushId,
             editingBounds: bounds,
             originalCanvasState
-          },
-          tools: {
-            ...state.tools,
-            brushSettings: updatedBrushSettings
           }
         };
       }),

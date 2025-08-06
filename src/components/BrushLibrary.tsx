@@ -4,27 +4,22 @@ import { BrushShape, BrushPreset } from '../types';
 import PlusButton from './ui/PlusButton';
 
 const BrushLibrary = () => {
+  // FIX: Use individual selectors to avoid creating new objects on every render
   const brushPresets = useAppStore((state) => state.brushPresets);
   const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
-  const setBrushPreset = useAppStore((state) => state.setBrushPreset);
+  const project = useAppStore((state) => state.project);
+  const tools = useAppStore((state) => state.tools);
   const brushEditor = useAppStore((state) => state.brushEditor);
+  const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
+  const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
+  const setBrushPreset = useAppStore((state) => state.setBrushPreset);
   const startBrushEdit = useAppStore((state) => state.startBrushEdit);
   const saveBrushEdit = useAppStore((state) => state.saveBrushEdit);
   const cancelBrushEdit = useAppStore((state) => state.cancelBrushEdit);
   const setLayersNeedRecomposition = useAppStore((state) => state.setLayersNeedRecomposition);
-  
-  const setBrushSettings = useAppStore((state) => state.setBrushSettings);
   const saveCustomBrushAsPreset = useAppStore((state) => state.saveCustomBrushAsPreset);
-  const removeBrushPreset = useAppStore((state) => state.removeBrushPreset);
   const removeCustomBrush = useAppStore((state) => state.removeCustomBrush);
-  const tools = useAppStore((state) => state.tools);
-  
-  const saveBrushSettings = useAppStore((state) => state.saveBrushSettings);
-  const loadBrushSettings = useAppStore((state) => state.loadBrushSettings);
-  
-  const project = useAppStore((state) => state.project);
-  const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
-  const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
+  const removeBrushPreset = useAppStore((state) => state.removeBrushPreset);
   
   // Create combined list of brushes: regular presets + custom brushes from project
   const customBrushPresets = React.useMemo(() => {
@@ -108,36 +103,8 @@ const BrushLibrary = () => {
     }
   }, [brushEditor.status, cancelBrushEdit, setLayersNeedRecomposition, currentOffscreenCanvas]);
 
-  // Save brush settings when component unmounts or loses focus
-  useEffect(() => {
-    return () => {
-      if (currentBrushPreset && (tools.currentTool === 'brush' || tools.currentTool === 'custom')) {
-        const currentBrushId = currentBrushPreset.id;
-        const existingSavedSettings = loadBrushSettings(currentBrushId);
-        const settingsToSave = {
-          ...existingSavedSettings,
-          opacity: tools.brushSettings.opacity,
-          spacing: tools.brushSettings.spacing,
-          colorJitter: tools.brushSettings.colorJitter,
-          risographIntensity: tools.brushSettings.risographIntensity,
-          ditherEnabled: tools.brushSettings.ditherEnabled,
-          fillResolution: tools.brushSettings.fillResolution,
-          pressureEnabled: tools.brushSettings.pressureEnabled,
-          minPressure: tools.brushSettings.minPressure,
-          maxPressure: tools.brushSettings.maxPressure,
-          rotationEnabled: tools.brushSettings.rotationEnabled,
-          dashedEnabled: tools.brushSettings.dashedEnabled,
-          dashLength: tools.brushSettings.dashLength,
-          dashGap: tools.brushSettings.dashGap,
-          gridSnapEnabled: tools.brushSettings.gridSnapEnabled,
-          shapeEnabled: tools.brushSettings.shapeEnabled,
-          antialiasing: tools.brushSettings.antialiasing,
-          colors: tools.brushSettings.colors
-        };
-        saveBrushSettings(currentBrushId, settingsToSave);
-      }
-    };
-  }, [currentBrushPreset, tools.currentTool, tools.brushSettings, loadBrushSettings, saveBrushSettings]);
+  // REFACTOR: Removed the redundant useEffect for saving settings. 
+  // This is now handled reliably by the store before any tool/preset switch.
   
   const canSaveCustomBrush = true; // Always show the + button
   
@@ -161,93 +128,70 @@ const BrushLibrary = () => {
       removeBrushPreset(presetId);
     }
   };
-
-
   
   const handlePresetClick = (preset: BrushPreset) => {
-    if (preset.isCustomBrush && preset.customBrushData) {
-      // For custom brush presets, save current settings and load saved settings for the target brush
-      // For saved presets (prefix: preset_), use the preset ID directly
-      // For project custom brushes (prefix: custom_), extract the original ID
-      let customBrushId: string;
-      if (preset.id.startsWith('custom_')) {
-        customBrushId = preset.id.substring(7);
-      } else {
-        // For preset_ IDs, use the full preset ID so MiniCanvas can find it
-        customBrushId = preset.id;
+    // FIX: If we are in edit mode, always cancel it before doing anything else.
+    if (brushEditor.status === 'EDITING' && currentOffscreenCanvas) {
+      cancelBrushEdit(currentOffscreenCanvas);
+    }
+    
+    // REFACTOR: Simplified logic. The store's `setBrushPreset` now handles almost everything.
+    // We just need to handle the case where a custom brush is selected directly.
+    if (preset.isCustomBrush && project) {
+      // Find the full custom brush data from the project
+      const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
+      const customBrushData = project.customBrushes.find(b => b.id === customBrushId);
+
+      if (customBrushData) {
+        // First, save settings for the outgoing brush.
+        useAppStore.getState()._saveCurrentBrushSettings();
+
+        // Then, set the new brush.
+        useAppStore.getState().setBrushSettings({
+          brushShape: BrushShape.CUSTOM,
+          selectedCustomBrush: customBrushId,
+          useSwatchColor: false,
+          hueShift: 0,
+          saturationAdjust: 100,
+          // Load any saved settings for this specific brush
+          ...useAppStore.getState().loadBrushSettings(customBrushId),
+        });
       }
-      
-      // Save current brush settings before switching (similar to setBrushPreset logic)
-      const currentBrushId = currentBrushPreset 
-        ? currentBrushPreset.id 
-        : (tools.brushSettings.brushShape === BrushShape.CUSTOM && tools.brushSettings.selectedCustomBrush 
-           ? tools.brushSettings.selectedCustomBrush 
-           : null);
-           
-      if (currentBrushId) {
-        const existingSavedSettings = loadBrushSettings(currentBrushId);
-        const settingsToSave = {
-          ...existingSavedSettings,
-          opacity: tools.brushSettings.opacity,
-          spacing: tools.brushSettings.spacing,
-          colorJitter: tools.brushSettings.colorJitter,
-          risographIntensity: tools.brushSettings.risographIntensity,
-          ditherEnabled: tools.brushSettings.ditherEnabled,
-          fillResolution: tools.brushSettings.fillResolution,
-          pressureEnabled: tools.brushSettings.pressureEnabled,
-          minPressure: tools.brushSettings.minPressure,
-          maxPressure: tools.brushSettings.maxPressure,
-          rotationEnabled: tools.brushSettings.rotationEnabled,
-          dashedEnabled: tools.brushSettings.dashedEnabled,
-          dashLength: tools.brushSettings.dashLength,
-          dashGap: tools.brushSettings.dashGap,
-          gridSnapEnabled: tools.brushSettings.gridSnapEnabled,
-          shapeEnabled: tools.brushSettings.shapeEnabled,
-          antialiasing: tools.brushSettings.antialiasing,
-          colors: tools.brushSettings.colors
-        };
-        saveBrushSettings(currentBrushId, settingsToSave);
-      }
-      
-      // Load saved settings for the target custom brush
-      const savedSettings = loadBrushSettings(customBrushId);
-      
-      setBrushSettings({
-        brushShape: BrushShape.CUSTOM,
-        selectedCustomBrush: customBrushId,
-        // Use saved settings or defaults
-        size: tools.brushSettings.size, // Keep current global size
-        useSwatchColor: false, // Default to false so custom brushes use their tip colors
-        hueShift: 0,           // Reset global hueShift when selecting custom brush
-        saturationAdjust: 100, // Reset global saturationAdjust when selecting custom brush
-        ...savedSettings       // Apply saved settings last to override defaults
-      });
     } else {
-      // For regular presets, use setBrushPreset directly
-      // The state cleanup logic in setBrushPreset will handle clearing custom brush state atomically
+      // For all regular presets, this is all we need. The store handles the rest.
       setBrushPreset(preset);
     }
   };
-  
-  const isPresetActive = (preset: BrushPreset) => {
+
+  const isPresetActive = (preset: BrushPreset): boolean => {
+    // REFACTOR: Robust check for active state
     if (preset.isCustomBrush) {
-      // Custom brush preset is active if brush shape is custom and selected brush matches
-      // For saved presets (prefix: preset_), compare with full preset ID
-      // For project custom brushes (prefix: custom_), extract the original ID
-      let expectedBrushId: string;
-      if (preset.id.startsWith('custom_')) {
-        expectedBrushId = preset.id.substring(7);
-      } else {
-        // For preset_ IDs, use the full preset ID
-        expectedBrushId = preset.id;
-      }
-      return tools.brushSettings.brushShape === BrushShape.CUSTOM && 
-             tools.brushSettings.selectedCustomBrush === expectedBrushId;
-    } else {
-      // Regular preset is active ONLY when no custom brush is selected and preset matches
-      return tools.brushSettings.brushShape !== BrushShape.CUSTOM && 
-             currentBrushPreset?.id === preset.id;
+      const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
+      return tools.brushSettings.brushShape === BrushShape.CUSTOM &&
+             tools.brushSettings.selectedCustomBrush === customBrushId;
     }
+    // A regular preset is active if the current preset ID matches and we are NOT in custom brush mode.
+    return tools.brushSettings.brushShape !== BrushShape.CUSTOM &&
+           currentBrushPreset?.id === preset.id;
+  };
+
+  const handleEditClick = (e: React.MouseEvent, preset: BrushPreset) => {
+    e.stopPropagation();
+    if (!currentOffscreenCanvas) return;
+
+    const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
+    const isEditingThisBrush = brushEditor.status === 'EDITING' && brushEditor.editingBrushId === customBrushId;
+
+    if (isEditingThisBrush) {
+      saveBrushEdit(currentOffscreenCanvas);
+    } else {
+      // If editing another brush, cancel first, then start new edit
+      if (brushEditor.status === 'EDITING') {
+        cancelBrushEdit(currentOffscreenCanvas);
+      }
+      startBrushEdit(customBrushId, currentOffscreenCanvas);
+    }
+    setLayersNeedRecomposition(true);
   };
 
   return (
@@ -286,32 +230,13 @@ const BrushLibrary = () => {
                 {preset.isCustomBrush ? '◆' : preset.isDefault ? '★' : '☆'}
               </span>
               {preset.isCustomBrush && (
-                <>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      
-                      if (!currentOffscreenCanvas) return;
-
-                      const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
-                      const isEditingThisBrush = brushEditor.status === 'EDITING' && brushEditor.editingBrushId === customBrushId;
-
-                      if (isEditingThisBrush) {
-                        saveBrushEdit(currentOffscreenCanvas);
-                      } else if (brushEditor.status === 'EDITING') {
-                        cancelBrushEdit(currentOffscreenCanvas);
-                        startBrushEdit(customBrushId, currentOffscreenCanvas);
-                      } else {
-                        startBrushEdit(customBrushId, currentOffscreenCanvas);
-                      }
-                      setLayersNeedRecomposition(true);
-                    }}
-                    className="px-2 py-0.5 text-xs text-[#D9D9D9] hover:text-green-400 transition-colors opacity-60 hover:opacity-100 border border-[#606060] hover:border-green-400 rounded"
-                    title={brushEditor.status === 'EDITING' && brushEditor.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save changes' : 'Edit brush'}
-                  >
-                    {brushEditor.status === 'EDITING' && brushEditor.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save' : 'Edit'}
-                  </button>
-                </>
+                <button
+                  onClick={(e) => handleEditClick(e, preset)}
+                  className="px-2 py-0.5 text-xs text-[#D9D9D9] hover:text-green-400 transition-colors opacity-60 hover:opacity-100 border border-[#606060] hover:border-green-400 rounded"
+                  title={brushEditor.status === 'EDITING' && brushEditor.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save changes' : 'Edit brush'}
+                >
+                  {brushEditor.status === 'EDITING' && brushEditor.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save' : 'Edit'}
+                </button>
               )}
               {!preset.isDefault && (
                 <button
@@ -328,7 +253,6 @@ const BrushLibrary = () => {
             </div>
           </div>
         ))}
-        
       </div>
     </div>
   );

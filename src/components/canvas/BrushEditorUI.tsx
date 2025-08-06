@@ -67,18 +67,31 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   // Animated border around the editing area
   const borderStyle: React.CSSProperties = {
     position: 'absolute',
-    left: screenX - 2,
-    top: screenY - 2,
+    // FIX: Position the border precisely over the editable area.
+    // Subtracting half the border width from left/top ensures it's centered on the edge.
+    left: screenX - 1,
+    top: screenY - 1,
     width: screenWidth,
     height: screenHeight,
-    border: '2px dashed #000000',
+    border: '2px dashed #FFF', // Changed color for better visibility against dark overlay
+    // FIX: Use 'border-box' so the border width is included IN the element's dimensions.
+    // This prevents the gap that was stopping you from drawing to the edge.
+    boxSizing: 'border-box',
     pointerEvents: 'none',
     zIndex: 11,
-    boxSizing: 'content-box',
+    // Add a simple animation
+    animation: 'pulse 2s infinite',
   };
 
   return (
     <>
+      <style>{`
+        @keyframes pulse {
+          0% { opacity: 1; }
+          50% { opacity: 0.4; }
+          100% { opacity: 1; }
+        }
+      `}</style>
       <div style={overlayParts.top} />
       <div style={overlayParts.bottom} />
       <div style={overlayParts.left} />
