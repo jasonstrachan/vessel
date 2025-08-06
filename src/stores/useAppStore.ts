@@ -40,6 +40,7 @@ import {
   exportProjectAsPNG
 } from '../utils/projectIO';
 import { memoryManager } from '../utils/memoryCleanup';
+import { brushCache } from '../utils/brushCache';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 import { adjustHueAndSaturation } from '../utils/imageProcessing';
 import { applyCycleToLayer, buildColorMapping, buildLayerColorIndexMap, hexToRgb, buildShiftedColors, applyCycleToLayers_Optimized } from '../utils/colorCycling';
@@ -605,10 +606,11 @@ export const useAppStore = create<AppState>()(
             newSettings.selectedCustomBrush = null;
           }
           
-          // Invalidate brush caches when brush type changes to prevent stale preview data
+          // Only clear specific brush caches, not all memory when brush type changes
           if (wasCustom !== isCustom) {
             try {
-              memoryManager.runCleanup();
+              // Clear only brush-specific caches, preserve other caches for performance
+              brushCache.clear();
             } catch {
               // Cache cleanup failed, continue silently
             }
@@ -986,10 +988,11 @@ export const useAppStore = create<AppState>()(
             newBrushSettings.selectedCustomBrush = null;
           }
           
-          // Invalidate brush caches when brush type changes to prevent stale preview data
+          // Only clear specific brush caches, not all memory when brush type changes
           if (wasCustom !== isCustom) {
             try {
-              memoryManager.runCleanup();
+              // Clear only brush-specific caches, preserve other caches for performance
+              brushCache.clear();
             } catch {
               // Cache cleanup failed, continue silently
             }
@@ -1384,12 +1387,29 @@ export const useAppStore = create<AppState>()(
         const captureCanvasToActiveLayer = get().captureCanvasToActiveLayer;
         captureCanvasToActiveLayer(canvas);
 
+        // Set currentBrushTip so the brush engine can render the brush being edited
+        const updatedBrushSettings = {
+          ...state.tools.brushSettings,
+          currentBrushTip: {
+            brushId: brushId,
+            imageData: brushData.imageData,
+            width: brushData.width,
+            height: brushData.height
+          },
+          brushShape: BrushShape.CUSTOM,
+          selectedCustomBrush: brushId
+        };
+
         return {
           brushEditor: {
             status: 'EDITING' as const,
             editingBrushId: brushId,
             editingBounds: bounds,
             originalCanvasState
+          },
+          tools: {
+            ...state.tools,
+            brushSettings: updatedBrushSettings
           }
         };
       }),
@@ -1482,12 +1502,30 @@ export const useAppStore = create<AppState>()(
             ...state.project,
             customBrushes: updatedCustomBrushes
           },
-          brushEditor: defaultBrushEditorState
+          brushEditor: defaultBrushEditorState,
+          tools: {
+            ...state.tools,
+            brushSettings: {
+              ...state.tools.brushSettings,
+              currentBrushTip: undefined // Clear currentBrushTip after saving
+            }
+          }
         };
       }),
       cancelBrushEdit: (canvas) => set((state) => {
         if (state.brushEditor.status !== 'EDITING' || !state.brushEditor.originalCanvasState || !state.brushEditor.editingBounds) {
-          return { brushEditor: defaultBrushEditorState };
+          return { 
+            brushEditor: defaultBrushEditorState,
+            tools: {
+              ...state.tools,
+              brushSettings: {
+                ...state.tools.brushSettings,
+                currentBrushTip: undefined,
+                selectedCustomBrush: null,
+                brushShape: BrushShape.ROUND // Reset to default
+              }
+            }
+          };
         }
 
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -1500,7 +1538,19 @@ export const useAppStore = create<AppState>()(
           captureCanvasToActiveLayer(canvas);
         }
 
-        return { brushEditor: defaultBrushEditorState };
+        // Clear currentBrushTip when canceling brush edit
+        return { 
+          brushEditor: defaultBrushEditorState,
+          tools: {
+            ...state.tools,
+            brushSettings: {
+              ...state.tools.brushSettings,
+              currentBrushTip: undefined,
+              selectedCustomBrush: null,
+              brushShape: BrushShape.ROUND // Reset to default
+            }
+          }
+        };
       }),
       
       // History Management
