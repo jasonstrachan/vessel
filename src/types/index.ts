@@ -149,8 +149,8 @@ export interface UIState {
   notifications: Notification[];
 }
 
-export interface BrushEditingState {
-  isEditing: boolean;
+export interface BrushEditorState {
+  status: 'IDLE' | 'EDITING';
   editingBrushId: string | null;
   editingBounds: {
     x: number;
@@ -158,7 +158,7 @@ export interface BrushEditingState {
     width: number;
     height: number;
   } | null;
-  originalImageData: ImageData | null;
+  originalCanvasState: ImageData | null;
 }
 
 export interface AutosaveState {

@@ -1585,6 +1585,7 @@ export const useBrushEngine = () => {
           const centerX = x - scaledWidth / 2;
           const centerY = y - scaledHeight / 2;
           ctx.imageSmoothingEnabled = false;
+          
           ctx.drawImage(stampCanvas, centerX, centerY);
 
           // 8. Apply film grain if enabled
@@ -1620,6 +1621,7 @@ export const useBrushEngine = () => {
         const centerY = y - scaledCanvas.height / 2;
         
         ctx.imageSmoothingEnabled = false;
+        
         ctx.drawImage(scaledCanvas, centerX, centerY);
 
         // Apply film grain if enabled

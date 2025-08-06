@@ -30,7 +30,7 @@ import type {
   ShapePoint,
   PolygonGradientState,
   ColorCycleState,
-  BrushEditingState,
+  BrushEditorState,
 } from '../types';
 import { BrushShape } from '../types';
 import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
@@ -203,11 +203,11 @@ interface AppState {
   removeCustomBrush: (brushId: string) => void;
   saveCustomBrushAsPreset: (customBrushId: string) => void;
   
-  // Brush Editing State
-  brushEditing: BrushEditingState;
-  enterBrushEditMode: (brushId: string, bounds: { x: number; y: number; width: number; height: number }) => void;
-  exitBrushEditMode: () => void;
-  cancelBrushEdit: () => void;
+  // Brush Editor State
+  brushEditor: BrushEditorState;
+  startBrushEdit: (brushId: string, canvas: HTMLCanvasElement) => void;
+  saveBrushEdit: (canvas: HTMLCanvasElement) => void;
+  cancelBrushEdit: (canvas: HTMLCanvasElement) => void;
   
   // Brush Preset Management
   removeBrushPreset: (presetId: string) => void;
@@ -304,11 +304,11 @@ const defaultHistoryState: HistoryState = {
   isCapturing: false
 };
 
-const defaultBrushEditingState: BrushEditingState = {
-  isEditing: false,
+const defaultBrushEditorState: BrushEditorState = {
+  status: 'IDLE',
   editingBrushId: null,
   editingBounds: null,
-  originalImageData: null
+  originalCanvasState: null
 };
 
 const defaultShapeState: ShapeState = {
@@ -1301,49 +1301,206 @@ export const useAppStore = create<AppState>()(
         };
       }),
       
-      // Brush Editing State
-      brushEditing: defaultBrushEditingState,
-      enterBrushEditMode: (brushId, bounds) => set((state) => {
-        
-        // Simply set editing state - no complex layer management
-        const newState = {
-          brushEditing: {
-            isEditing: true,
-            editingBrushId: brushId,
-            editingBounds: bounds,
-            originalImageData: null // Will be set when brush is placed
-          }
-        };
-        return newState;
-      }),
-      exitBrushEditMode: () => set(() => {
-        console.log('🚪 exitBrushEditMode called - clearing editing state');
-        return {
-          brushEditing: defaultBrushEditingState
-        };
-      }),
-      cancelBrushEdit: () => set((state) => {
-        
-        try {
-          // Restore original ImageData if available
-          if (state.brushEditing.originalImageData && state.brushEditing.editingBounds && state.currentOffscreenCanvas) {
-            
-            const ctx = state.currentOffscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
-            if (ctx) {
-              ctx.putImageData(
-                state.brushEditing.originalImageData,
-                state.brushEditing.editingBounds.x,
-                state.brushEditing.editingBounds.y
-              );
+      // Brush Editor State
+      brushEditor: defaultBrushEditorState,
+      startBrushEdit: (brushId, canvas) => set((state) => {
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx || !state.project) return state;
+
+        let brushData: CustomBrush | null = null;
+
+        // First, try to find in custom brushes
+        if (state.project.customBrushes) {
+          brushData = state.project.customBrushes.find(b => b.id === brushId) || null;
+        }
+
+        // If not found in custom brushes, check default brush presets
+        if (!brushData) {
+          const defaultBrush = brushPresets.find(b => b.id === brushId);
+          if (defaultBrush) {
+            // Generate temporary image data for the default brush
+            const tempCanvas = document.createElement('canvas');
+            const size = 32; // Default editing size for brush presets
+            tempCanvas.width = size;
+            tempCanvas.height = size;
+            const tempCtx = tempCanvas.getContext('2d');
+            if (tempCtx) {
+              // Create a simple black brush shape based on the preset
+              tempCtx.fillStyle = '#000000';
+              if (defaultBrush.id === 'pixel-brush' || defaultBrush.id.includes('pixel')) {
+                // Square pixel brush
+                tempCtx.fillRect(0, 0, size, size);
+              } else if (defaultBrush.id.includes('square')) {
+                // Square brush
+                tempCtx.fillRect(0, 0, size, size);
+              } else {
+                // Round brush (default)
+                tempCtx.beginPath();
+                tempCtx.arc(size/2, size/2, size/2, 0, Math.PI * 2);
+                tempCtx.fill();
+              }
+              
+              // Create temporary brush data
+              brushData = {
+                id: brushId,
+                name: defaultBrush.name,
+                imageData: tempCtx.getImageData(0, 0, size, size),
+                thumbnail: tempCanvas.toDataURL(),
+                width: size,
+                height: size,
+                createdAt: Date.now()
+              };
             }
           }
-        } catch (error) {
-          // Silent error handling
         }
+
+        // If still no brush found, exit
+        if (!brushData) return state;
+
+        // Calculate centered bounds
+        const brushWidth = brushData.imageData.width;
+        const brushHeight = brushData.imageData.height;
+        const centerX = Math.floor((canvas.width - brushWidth) / 2);
+        const centerY = Math.floor((canvas.height - brushHeight) / 2);
         
+        const bounds = { x: centerX, y: centerY, width: brushWidth, height: brushHeight };
+
+        // Capture original canvas state at bounds
+        const originalCanvasState = ctx.getImageData(bounds.x, bounds.y, bounds.width, bounds.height);
+
+        // Set up clipping region for the editing bounds
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(bounds.x, bounds.y, bounds.width, bounds.height);
+        ctx.clip();
+        
+        // Place brush pixel data onto canvas
+        ctx.putImageData(brushData.imageData, bounds.x, bounds.y);
+        
+        // Restore the clipping context
+        ctx.restore();
+
+        // Capture to active layer so it's visible
+        const captureCanvasToActiveLayer = get().captureCanvasToActiveLayer;
+        captureCanvasToActiveLayer(canvas);
+
         return {
-          brushEditing: defaultBrushEditingState
+          brushEditor: {
+            status: 'EDITING' as const,
+            editingBrushId: brushId,
+            editingBounds: bounds,
+            originalCanvasState
+          }
         };
+      }),
+      saveBrushEdit: (canvas) => set((state) => {
+        if (state.brushEditor.status !== 'EDITING' || !state.brushEditor.editingBounds || !state.brushEditor.editingBrushId) {
+          return state;
+        }
+
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx || !state.project) return state;
+
+        const bounds = state.brushEditor.editingBounds;
+        const brushId = state.brushEditor.editingBrushId;
+        
+        // Capture edited pixel data
+        const editedImageData = ctx.getImageData(bounds.x, bounds.y, bounds.width, bounds.height);
+
+        // Create thumbnail (max 64x64)
+        const thumbnailSize = 64;
+        const thumbnailCanvas = document.createElement('canvas');
+        thumbnailCanvas.width = thumbnailSize;
+        thumbnailCanvas.height = thumbnailSize;
+        const thumbnailCtx = thumbnailCanvas.getContext('2d', { willReadFrequently: true });
+        
+        let thumbnail = '';
+        if (thumbnailCtx) {
+          // Scale to fit thumbnail while maintaining aspect ratio
+          const scale = Math.min(thumbnailSize / bounds.width, thumbnailSize / bounds.height);
+          const scaledWidth = bounds.width * scale;
+          const scaledHeight = bounds.height * scale;
+          const offsetX = (thumbnailSize - scaledWidth) / 2;
+          const offsetY = (thumbnailSize - scaledHeight) / 2;
+          
+          // Set background to transparent
+          thumbnailCtx.clearRect(0, 0, thumbnailSize, thumbnailSize);
+          
+          // Create temporary canvas for the edited area
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = bounds.width;
+          tempCanvas.height = bounds.height;
+          const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+          
+          if (tempCtx) {
+            tempCtx.putImageData(editedImageData, 0, 0);
+            // Draw scaled version to thumbnail
+            thumbnailCtx.drawImage(tempCanvas, offsetX, offsetY, scaledWidth, scaledHeight);
+          }
+          
+          thumbnail = thumbnailCanvas.toDataURL();
+        }
+
+        // Check if this is an existing custom brush or a default brush being turned into custom
+        const existingCustomBrush = state.project.customBrushes?.find(b => b.id === brushId);
+        let updatedCustomBrushes: CustomBrush[];
+        
+        if (existingCustomBrush) {
+          // Update existing custom brush
+          updatedCustomBrushes = state.project.customBrushes!.map(brush => 
+            brush.id === brushId 
+              ? { ...brush, imageData: editedImageData, thumbnail, width: bounds.width, height: bounds.height }
+              : brush
+          );
+        } else {
+          // This was a default brush - create a new custom brush
+          const defaultBrush = brushPresets.find(b => b.id === brushId);
+          const newCustomBrush: CustomBrush = {
+            id: `custom-${brushId}-${Date.now()}`, // Generate unique ID
+            name: `Custom ${defaultBrush?.name || 'Brush'}`,
+            imageData: editedImageData,
+            thumbnail,
+            width: bounds.width,
+            height: bounds.height,
+            createdAt: Date.now()
+          };
+          
+          updatedCustomBrushes = [...(state.project.customBrushes || []), newCustomBrush];
+        }
+
+        // Restore original canvas state
+        if (state.brushEditor.originalCanvasState) {
+          ctx.putImageData(state.brushEditor.originalCanvasState, bounds.x, bounds.y);
+          
+          // Capture the restored state to active layer
+          const captureCanvasToActiveLayer = get().captureCanvasToActiveLayer;
+          captureCanvasToActiveLayer(canvas);
+        }
+
+        return {
+          project: {
+            ...state.project,
+            customBrushes: updatedCustomBrushes
+          },
+          brushEditor: defaultBrushEditorState
+        };
+      }),
+      cancelBrushEdit: (canvas) => set((state) => {
+        if (state.brushEditor.status !== 'EDITING' || !state.brushEditor.originalCanvasState || !state.brushEditor.editingBounds) {
+          return { brushEditor: defaultBrushEditorState };
+        }
+
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          // Restore original canvas state
+          ctx.putImageData(state.brushEditor.originalCanvasState, state.brushEditor.editingBounds.x, state.brushEditor.editingBounds.y);
+          
+          // Capture the restored state to active layer
+          const captureCanvasToActiveLayer = get().captureCanvasToActiveLayer;
+          captureCanvasToActiveLayer(canvas);
+        }
+
+        return { brushEditor: defaultBrushEditorState };
       }),
       
       // History Management
@@ -1675,7 +1832,6 @@ export const useAppStore = create<AppState>()(
       compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => {
         const state = get();
         // Starting layer composition
-        console.log('🎨 compositeLayersToCanvas - brushEditing state:', state.brushEditing);
         
         if (!state.project || !state.layers.length) {
           return;
@@ -1696,27 +1852,10 @@ export const useAppStore = create<AppState>()(
         // Clear the canvas
         ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
         
-        // Handle brush editing mode - hide everything except the brush area
-        if (state.brushEditing.isEditing && state.brushEditing.editingBounds) {
-          console.log('🔥 APPLYING EDITING MODE OVERLAY - bounds:', state.brushEditing.editingBounds);
-          // In brush editing mode, make everything transparent except the editing area
-          // Draw a very dark background to make the brush stand out
-          ctx.fillStyle = 'rgba(20, 20, 20, 1)';
+        // Draw background color if not transparent
+        if (state.project.backgroundColor && state.project.backgroundColor !== 'transparent') {
+          ctx.fillStyle = state.project.backgroundColor;
           ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
-          
-          // Clear the editing area to show only the brush pixels there
-          const bounds = state.brushEditing.editingBounds;
-          ctx.clearRect(bounds.x, bounds.y, bounds.width, bounds.height);
-        } else {
-          console.log('✅ NORMAL MODE - no editing overlay');
-          // Normal mode - always clear the canvas completely first to remove any editing overlay
-          ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-          
-          // Then draw background color if not transparent
-          if (state.project.backgroundColor && state.project.backgroundColor !== 'transparent') {
-            ctx.fillStyle = state.project.backgroundColor;
-            ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
-          }
         }
         
         // Sort layers by order and draw each visible layer
@@ -1751,14 +1890,6 @@ export const useAppStore = create<AppState>()(
             continue;
           }
           
-          // Apply clipping if in brush editing mode
-          if (state.brushEditing.isEditing && state.brushEditing.editingBounds) {
-            ctx.save();
-            const bounds = state.brushEditing.editingBounds;
-            ctx.beginPath();
-            ctx.rect(bounds.x, bounds.y, bounds.width, bounds.height);
-            ctx.clip();
-          }
           
           // Apply color cycling if this layer is selected for cycling
           let layerImageData = layer.imageData;
@@ -1821,10 +1952,6 @@ export const useAppStore = create<AppState>()(
             ctx.drawImage(layerCanvas, 0, 0);
           }
           
-          // Restore context if clipping was applied
-          if (state.brushEditing.isEditing && state.brushEditing.editingBounds) {
-            ctx.restore();
-          }
         }
         
         // Reset context state
@@ -1863,7 +1990,54 @@ export const useAppStore = create<AppState>()(
           const captureWidth = Math.min(state.project.width, canvas.width);
           const captureHeight = Math.min(state.project.height, canvas.height);
           
-          const imageData = ctx.getImageData(0, 0, captureWidth, captureHeight);
+          let imageData: ImageData;
+          
+          // If in brush editing mode, only capture the editing bounds
+          if (state.brushEditor.status === 'EDITING' && state.brushEditor.editingBounds) {
+            const bounds = state.brushEditor.editingBounds;
+            
+            // Get the existing layer data first
+            const activeLayerId = state.activeLayerId || state.layers[0]?.id;
+            const activeLayer = state.layers.find(l => l.id === activeLayerId);
+            
+            if (activeLayer && activeLayer.imageData) {
+              // Clone the existing layer data
+              imageData = new ImageData(
+                new Uint8ClampedArray(activeLayer.imageData.data),
+                activeLayer.imageData.width,
+                activeLayer.imageData.height
+              );
+              
+              // Get just the edited region from canvas
+              const editedRegion = ctx.getImageData(
+                bounds.x,
+                bounds.y,
+                bounds.width,
+                bounds.height
+              );
+              
+              // Copy the edited region into the cloned layer data
+              const tempCanvas = document.createElement('canvas');
+              tempCanvas.width = imageData.width;
+              tempCanvas.height = imageData.height;
+              const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+              
+              if (tempCtx) {
+                // Put the existing layer data
+                tempCtx.putImageData(imageData, 0, 0);
+                // Overwrite just the edited region
+                tempCtx.putImageData(editedRegion, bounds.x, bounds.y);
+                // Get the combined result
+                imageData = tempCtx.getImageData(0, 0, captureWidth, captureHeight);
+              }
+            } else {
+              // Fallback to full capture if no existing layer
+              imageData = ctx.getImageData(0, 0, captureWidth, captureHeight);
+            }
+          } else {
+            // Normal capture when not in editing mode
+            imageData = ctx.getImageData(0, 0, captureWidth, captureHeight);
+          }
           
           // Find the active layer or use the first layer
           const activeLayerId = state.activeLayerId || state.layers[0]?.id;

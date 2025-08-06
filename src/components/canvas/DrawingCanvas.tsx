@@ -17,7 +17,7 @@ import { createShapePath, renderShape, simplifyPath } from '../../utils/shapeUti
 import type { Tool, CanvasSnapshot } from '../../types';
 import { BrushShape } from '../../types';
 import BrushCursor from './BrushCursor';
-import MarchingAnts from './MarchingAnts';
+import BrushEditorUI from './BrushEditorUI';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../../constants/canvas';
 
 
@@ -330,10 +330,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     temporaryCustomBrush,
     setTemporaryCustomBrush,
     setCurrentOffscreenCanvas,
-    brushEditing,
+    brushEditor,
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue, drawRectangleGradient, drawPolygonGradient } = useBrushEngine();
+  
   
   // Get current custom brush data (already imported above)
   
@@ -885,28 +886,19 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!offscreenCtx) return;
     
-    // Check if we're in editing mode and apply constraints
-    if (brushEditing.isEditing && brushEditing.editingBounds) {
-      const bounds = brushEditing.editingBounds;
-      
-      // Check if the stroke is completely outside editing bounds
-      const strokeMinX = Math.min(from.x, to.x);
-      const strokeMaxX = Math.max(from.x, to.x);
-      const strokeMinY = Math.min(from.y, to.y);
-      const strokeMaxY = Math.max(from.y, to.y);
-      
-      if (strokeMaxX < bounds.x || strokeMinX > bounds.x + bounds.width ||
-          strokeMaxY < bounds.y || strokeMinY > bounds.y + bounds.height) {
-        // Stroke is completely outside editing bounds, skip it
-        return;
-      }
-      
-      // Apply clipping to context for editing bounds
+    // Apply clipping if in brush editing mode
+    if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
       offscreenCtx.save();
       offscreenCtx.beginPath();
-      offscreenCtx.rect(bounds.x, bounds.y, bounds.width, bounds.height);
+      offscreenCtx.rect(
+        brushEditor.editingBounds.x,
+        brushEditor.editingBounds.y,
+        brushEditor.editingBounds.width,
+        brushEditor.editingBounds.height
+      );
       offscreenCtx.clip();
     }
+    
     
     // Calculate actual brush size for dirty region (accounts for custom brushes)
     const { brushSettings } = useAppStore.getState().tools;
@@ -945,14 +937,14 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Pass the latest cursor state from the ref directly to the brush engine.
     renderBrushStroke(offscreenCtx, from, to, cursorStateRef.current);
     
-    // Restore context if we applied clipping for editing mode
-    if (brushEditing.isEditing && brushEditing.editingBounds) {
+    // Restore context if we applied clipping
+    if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
       offscreenCtx.restore();
     }
     
     // Mark that we need to redraw the view
     needsRedraw.current = true;
-  }, [renderBrushStroke, isSelecting, addDirtyRegion, project, brushEditing]);
+  }, [renderBrushStroke, isSelecting, addDirtyRegion, project, brushEditor]);
 
 
   // Create temporary custom brush for immediate use (without saving to library)
@@ -1236,8 +1228,26 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
               colors: sampledColors
             };
             
+            // Apply clipping if in brush editing mode
+            if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
+              ctx.save();
+              ctx.beginPath();
+              ctx.rect(
+                brushEditor.editingBounds.x,
+                brushEditor.editingBounds.y,
+                brushEditor.editingBounds.width,
+                brushEditor.editingBounds.height
+              );
+              ctx.clip();
+            }
+            
             // Draw the rectangle gradient
             drawRectangleGradient(ctx, finalRectangleState);
+            
+            // Restore context if we applied clipping
+            if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
+              ctx.restore();
+            }
             
             // Save canvas state for undo/redo
             saveCanvasState(offscreenCanvas, 'brush', 'Rectangle gradient');
@@ -1266,6 +1276,35 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     }
 
     // Note: State will be captured AFTER stroke completion in handlePointerUp
+    
+    // Check if we're in brush editing mode and if the brush area is within bounds
+    const currentState = useAppStore.getState();
+    if (currentState.brushEditor.status === 'EDITING' && currentState.brushEditor.editingBounds) {
+      const bounds = currentState.brushEditor.editingBounds;
+      const { brushSettings } = currentState.tools;
+      
+      // Calculate brush radius (half of brush size)
+      let brushRadius = (brushSettings.size || 20) / 2;
+      
+      // For custom brushes, use actual dimensions
+      if (brushSettings.brushShape === BrushShape.CUSTOM && project?.customBrushes) {
+        const customBrush = project.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
+        if (customBrush) {
+          brushRadius = Math.max(customBrush.width, customBrush.height) / 2;
+        }
+      }
+      
+      // Check if the brush area (center + radius) stays within bounds
+      const inBounds = (point.x - brushRadius) >= bounds.x && 
+                      (point.x + brushRadius) <= bounds.x + bounds.width &&
+                      (point.y - brushRadius) >= bounds.y && 
+                      (point.y + brushRadius) <= bounds.y + bounds.height;
+                      
+      if (!inBounds) {
+        e.preventDefault();
+        return; // Don't start drawing if brush would extend outside editing bounds
+      }
+    }
     
     // Lock the target layer to prevent pixel swapping if user switches layers mid-stroke
     const targetLayerId = activeLayerId || layers[0]?.id || null;
@@ -1457,26 +1496,54 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
     // Only draw if not in selection mode
     if (isDrawing && lastPoint && !isSelecting) {
-      // Handle shape mode - collect points while drawing
-      if ((tools.currentTool === 'brush' || tools.currentTool === 'eraser') && tools.brushSettings.shapeEnabled && shapeState.isDrawing) {
-        // Add point to shape with some distance threshold to avoid too many points
-        const lastShapePoint = shapeState.points[shapeState.points.length - 1];
-        if (!lastShapePoint || 
-            Math.sqrt(Math.pow(point.x - lastShapePoint.x, 2) + Math.pow(point.y - lastShapePoint.y, 2)) > 5) {
-          addShapePoint(point);
-          
-          // Update preview path
-          const simplifiedPoints = simplifyPath(shapeState.points, 3);
-          if (simplifiedPoints.length >= 2) {
-            const previewPath = createShapePath(simplifiedPoints);
-            setShapePreviewPath(previewPath);
+      // Check if we're in brush editing mode and if the brush area is within bounds
+      const currentBrushEditorState = useAppStore.getState();
+      let canDraw = true;
+      
+      if (currentBrushEditorState.brushEditor.status === 'EDITING' && currentBrushEditorState.brushEditor.editingBounds) {
+        const bounds = currentBrushEditorState.brushEditor.editingBounds;
+        const { brushSettings } = currentBrushEditorState.tools;
+        
+        // Calculate brush radius (half of brush size)
+        let brushRadius = (brushSettings.size || 20) / 2;
+        
+        // For custom brushes, use actual dimensions
+        if (brushSettings.brushShape === BrushShape.CUSTOM && project?.customBrushes) {
+          const customBrush = project.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
+          if (customBrush) {
+            brushRadius = Math.max(customBrush.width, customBrush.height) / 2;
           }
         }
-      } else {
-        // Normal brush drawing
-        try {
-          drawLine(lastPoint, point);
-        } catch {
+        
+        // Check if the brush area (center + radius) stays within bounds
+        canDraw = (point.x - brushRadius) >= bounds.x && 
+                 (point.x + brushRadius) <= bounds.x + bounds.width &&
+                 (point.y - brushRadius) >= bounds.y && 
+                 (point.y + brushRadius) <= bounds.y + bounds.height;
+      }
+      
+      if (canDraw) {
+        // Handle shape mode - collect points while drawing
+        if ((tools.currentTool === 'brush' || tools.currentTool === 'eraser') && tools.brushSettings.shapeEnabled && shapeState.isDrawing) {
+          // Add point to shape with some distance threshold to avoid too many points
+          const lastShapePoint = shapeState.points[shapeState.points.length - 1];
+          if (!lastShapePoint || 
+              Math.sqrt(Math.pow(point.x - lastShapePoint.x, 2) + Math.pow(point.y - lastShapePoint.y, 2)) > 5) {
+            addShapePoint(point);
+            
+            // Update preview path
+            const simplifiedPoints = simplifyPath(shapeState.points, 3);
+            if (simplifiedPoints.length >= 2) {
+              const previewPath = createShapePath(simplifiedPoints);
+              setShapePreviewPath(previewPath);
+            }
+          }
+        } else {
+          // Normal brush drawing
+          try {
+            drawLine(lastPoint, point);
+          } catch {
+          }
         }
       }
       setLastPoint(point);
@@ -1568,7 +1635,25 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
                 sampleCanvasColors(offscreenCtx, livePoints, numColors) : 
                 ['#FFF', '#000'];
               
+              // Apply clipping if in brush editing mode
+              if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(
+                  brushEditor.editingBounds.x,
+                  brushEditor.editingBounds.y,
+                  brushEditor.editingBounds.width,
+                  brushEditor.editingBounds.height
+                );
+                ctx.clip();
+              }
+              
               drawPolygonGradient(ctx, { vertices: livePoints, colors: finalColors });
+              
+              // Restore context if we applied clipping
+              if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
+                ctx.restore();
+              }
               saveCanvasState(offscreenCanvas, 'brush', 'Polygon gradient');
               needsRedraw.current = true;
             }
@@ -1609,6 +1694,19 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           ctx.globalAlpha = brushSettings.opacity;
           ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
           
+          // Apply clipping if in brush editing mode
+          if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(
+              brushEditor.editingBounds.x,
+              brushEditor.editingBounds.y,
+              brushEditor.editingBounds.width,
+              brushEditor.editingBounds.height
+            );
+            ctx.clip();
+          }
+          
           renderShape(
             ctx,
             shapePath,
@@ -1621,6 +1719,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             brushSettings.antialiasing,
             shapeState.points
           );
+          
+          // Restore context if we applied clipping (in addition to the existing restore)
+          if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
+            ctx.restore();
+          }
           
           ctx.restore();
 
@@ -2862,17 +2965,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         )}
       </div>
 
-      {/* Marching ants for brush editing mode */}
-      {brushEditing.isEditing && brushEditing.editingBounds && (
-        <MarchingAnts
-          bounds={brushEditing.editingBounds}
-          zoom={canvas.zoom}
-          panX={canvas.panX}
-          panY={canvas.panY}
-          canvasWidth={width}
-          canvasHeight={height}
-        />
-      )}
+      {/* Brush Editor UI */}
+      <BrushEditorUI />
 
       {/* Brush cursor preview */}
       <BrushCursor
