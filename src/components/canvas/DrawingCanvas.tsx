@@ -213,6 +213,37 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   // without triggering component re-renders on every mouse move.
   const cursorStateRef = useRef({ x: 0, y: 0, pressure: 0.5 });
 
+  // RAF throttling for cursor position updates to reduce React re-renders
+  const cursorUpdateRafId = useRef<number | null>(null);
+  const pendingCursorUpdate = useRef<{ x: number; y: number } | null>(null);
+
+  // Throttled cursor position update function
+  const updateCursorPositionThrottled = useCallback((clientX: number, clientY: number) => {
+    pendingCursorUpdate.current = { x: clientX, y: clientY };
+    
+    if (cursorUpdateRafId.current) {
+      return; // Update already scheduled
+    }
+    
+    cursorUpdateRafId.current = requestAnimationFrame(() => {
+      if (pendingCursorUpdate.current) {
+        setCursorScreenX(pendingCursorUpdate.current.x);
+        setCursorScreenY(pendingCursorUpdate.current.y);
+        pendingCursorUpdate.current = null;
+      }
+      cursorUpdateRafId.current = null;
+    });
+  }, []);
+
+  // Cleanup RAF on unmount
+  useEffect(() => {
+    return () => {
+      if (cursorUpdateRafId.current) {
+        cancelAnimationFrame(cursorUpdateRafId.current);
+      }
+    };
+  }, []);
+
   // Live state for polygon gradient (performance optimization)
   const polygonGradientLiveState = useRef({
     livePoints: [] as Array<{ x: number; y: number; color: string }>
@@ -544,19 +575,13 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     setMouseX(coords.canvasX);
     setMouseY(coords.canvasY);
     
-    
-    // SIMPLE FIX: Use raw coordinates - if painting works, this should too
-    // The coordinate system alignment happens in the coordinate transformation functions
-    setCursorScreenX(event.clientX);
-    setCursorScreenY(event.clientY);
-    
-    
-    
+    // Use throttled cursor position updates to reduce React re-renders
+    updateCursorPositionThrottled(event.clientX, event.clientY);
     
     // Show brush cursor for brush-like tools, including during shape drawing (optimized to avoid unnecessary updates)
     const shouldShowBrushCursor = (tools.currentTool === 'brush' || tools.currentTool === 'eraser') && !spacebarPressed && isMouseOverCanvas;
     setShowBrushCursor(prev => prev !== shouldShowBrushCursor ? shouldShowBrushCursor : prev);
-  }, [transformScreenToCanvas, canvas.panX, canvas.panY, canvas.zoom, tools.currentTool, spacebarPressed, isMouseOverCanvas, shapeState.isDrawing]);
+  }, [transformScreenToCanvas, updateCursorPositionThrottled, tools.currentTool, spacebarPressed, isMouseOverCanvas]);
   
   // Convert screen coordinates to world coordinates
   // Account for responsive canvas scaling
@@ -1935,7 +1960,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
     
-    if (!canvasRef.current) return;
+    if (!canvasRef.current || !wrapperRef.current) return;
     
     const oldZoom = canvas.zoom;
     
@@ -1949,23 +1974,37 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       newZoom = Math.max(0.1, calculateZoomIncrement(oldZoom, 'out'));
     }
     
-    // Get the mouse position in canvas coordinates with proper scaling
-    const coords = transformScreenToCanvas(e.clientX, e.clientY);
-    const canvasMouseX = coords.canvasX;
-    const canvasMouseY = coords.canvasY;
+    // Get raw canvas logical coordinates (not world coordinates) for precise zoom pivot
+    const wrapperEl = wrapperRef.current;
+    const canvasEl = canvasRef.current;
+    
+    const wrapperRect = wrapperEl.getBoundingClientRect();
+    const canvasRect = canvasEl.getBoundingClientRect();
+    
+    // Calculate mouse position relative to wrapper
+    const mouseXInWrapper = e.clientX - wrapperRect.left;
+    const mouseYInWrapper = e.clientY - wrapperRect.top;
+    
+    // Calculate scaling factors
+    const scaleX = width / canvasRect.width;
+    const scaleY = height / canvasRect.height;
+    
+    // Convert to canvas logical coordinates (these are the pivot point)
+    const canvasLogicalX = mouseXInWrapper * scaleX;
+    const canvasLogicalY = mouseYInWrapper * scaleY;
     
     // Calculate world coordinates that should remain under cursor
-    const worldX = (canvasMouseX - canvas.panX) / oldZoom;
-    const worldY = (canvasMouseY - canvas.panY) / oldZoom;
+    const worldX = (canvasLogicalX - canvas.panX) / oldZoom;
+    const worldY = (canvasLogicalY - canvas.panY) / oldZoom;
     
     // Calculate new pan to keep world point under cursor
-    const newPanX = canvasMouseX - worldX * newZoom;
-    const newPanY = canvasMouseY - worldY * newZoom;
+    const newPanX = canvasLogicalX - worldX * newZoom;
+    const newPanY = canvasLogicalY - worldY * newZoom;
     
     // Update zoom and pan
     setZoom(newZoom);
     setPan(newPanX, newPanY);
-  }, [canvas.zoom, canvas.panX, canvas.panY, setZoom, setPan, transformScreenToCanvas]);
+  }, [canvas.zoom, canvas.panX, canvas.panY, setZoom, setPan, width, height]);
 
   // Commit selection to canvas
   const commitSelection = useCallback(() => {

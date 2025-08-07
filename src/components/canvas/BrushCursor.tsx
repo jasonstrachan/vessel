@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useMemo } from 'react';
+import React, { memo, useMemo, useRef, useEffect } from 'react';
 import Image from 'next/image';
 import { BrushShape } from '../../types';
 
@@ -82,9 +82,24 @@ const BrushCursor = memo(function BrushCursor({
   zoom,
   visible,
 }: BrushCursorProps) {
-
+  const cursorRef = useRef<HTMLDivElement>(null);
   const screenSize = size * zoom;
   const cursorDataURL = useCursorDataURL(brushShape, screenSize);
+
+  // Use direct DOM manipulation for position updates to avoid React re-renders
+  useEffect(() => {
+    if (!cursorRef.current || !visible) return;
+    
+    const element = cursorRef.current;
+    // Use transform for better performance than changing left/top
+    if (brushShape === BrushShape.CUSTOM) {
+      // Center the 21x21 crosshair
+      element.style.transform = `translate(${screenX - 10.5}px, ${screenY - 10.5}px)`;
+    } else {
+      // Center the brush cursor with padding
+      element.style.transform = `translate(${screenX - (Math.ceil(screenSize) + 8) / 2}px, ${screenY - (Math.ceil(screenSize) + 8) / 2}px)`;
+    }
+  }, [screenX, screenY, screenSize, visible, brushShape]);
 
   if (!visible) return null;
 
@@ -92,11 +107,11 @@ const BrushCursor = memo(function BrushCursor({
   if (brushShape === BrushShape.CUSTOM) {
     return (
       <div
+        ref={cursorRef}
         className="pointer-events-none fixed"
         style={{
-          left: `${screenX}px`,
-          top: `${screenY}px`,
-          transform: 'translate(-50%, -50%)',
+          left: 0,
+          top: 0,
           zIndex: 1000,
         }}
       >
@@ -114,13 +129,13 @@ const BrushCursor = memo(function BrushCursor({
   // Render the fast, pre-baked cursor image for default brushes
   return (
     <div
+      ref={cursorRef}
       className="pointer-events-none fixed"
       style={{
-        left: `${screenX}px`,
-        top: `${screenY}px`,
+        left: 0,
+        top: 0,
         width: `${Math.ceil(screenSize) + 8}px`,
         height: `${Math.ceil(screenSize) + 8}px`,
-        transform: 'translate(-50%, -50%)',
         zIndex: 1000,
         imageRendering: 'pixelated',
       }}
