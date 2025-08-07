@@ -540,8 +540,8 @@ const applySierraLiteDitherWithFillResolution = (imageData: ImageData, numColors
 };
 
 /**
- * Creates a tileable, structured noise texture that mimics a mezzotint or risograph screen.
- * It does this by generating noise, blurring it to create clumps, and increasing contrast.
+ * Creates a realistic risograph halftone pattern with irregular dots.
+ * Mimics the characteristic organic, grainy texture of risograph printing.
  * This is cached and reused for high performance.
  */
 const createRisographTexture = (): HTMLCanvasElement => {
@@ -549,42 +549,46 @@ const createRisographTexture = (): HTMLCanvasElement => {
     return risographTexture;
   }
 
-  const size = 256; // A 256x256 texture is a good balance of detail and performance
+  const size = 256; // Texture resolution for good detail/performance balance
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
+  const ctx = canvas.getContext('2d', { colorSpace: 'srgb', willReadFrequently: true });
 
   if (!ctx) return canvas;
 
-  // 1. Create initial grayscale noise
+  // Create fine-grain noise pattern for authentic dissolve effect
   const imageData = ctx.createImageData(size, size);
   const data = imageData.data;
+  
   for (let i = 0; i < data.length; i += 4) {
+    // Create very fine random noise
     const value = Math.random() * 255;
     data[i] = data[i + 1] = data[i + 2] = value;
     data[i + 3] = 255;
   }
+  
   ctx.putImageData(imageData, 0, 0);
-
-  // 2. Blur the noise to create clumps
-  ctx.filter = 'blur(1px)';
+  
+  // Very slight blur to avoid aliasing while keeping fine detail
+  ctx.filter = 'blur(0.25px)';
   ctx.drawImage(canvas, 0, 0);
-  ctx.filter = 'none'; // Reset filter
-
-  // 3. Increase contrast to create the hard-edged "dissolve" pattern
-  const contrastedImageData = ctx.getImageData(0, 0, size, size);
-  const contrastedData = contrastedImageData.data;
-  for (let i = 0; i < contrastedData.length; i += 4) {
-      // This is a simple contrast curve - pixels below mid-gray become darker, above become lighter
-      const value = contrastedData[i];
-      const contrastedValue = value > 128 ? 255 : 0;
-      contrastedData[i] = contrastedData[i + 1] = contrastedData[i + 2] = contrastedValue;
+  ctx.filter = 'none';
+  
+  // High contrast adjustment for sharp dissolve effect
+  const finalData = ctx.getImageData(0, 0, size, size);
+  const final = finalData.data;
+  
+  for (let i = 0; i < final.length; i += 4) {
+    const value = final[i];
+    // Sharp threshold for clean dissolve
+    const adjusted = value > 128 ? 255 : 0;
+    final[i] = final[i + 1] = final[i + 2] = adjusted;
   }
-  ctx.putImageData(contrastedImageData, 0, 0);
+  
+  ctx.putImageData(finalData, 0, 0);
 
   risographTexture = canvas;
-  // Cache the texture data to avoid repeated getImageData calls
   return risographTexture;
 };
 
@@ -1075,7 +1079,10 @@ export const useBrushEngine = () => {
         // Only process riso if enough time has passed or settings changed significantly
         if (now - risoThrottleState.lastProcessTime > currentThrottleInterval || settingsChanged) {
             const risoTexture = createRisographTexture();
-            const threshold = 1 - (risographIntensity / 100);
+            // Adjust threshold calculation for more dramatic contrast at high values
+            // At 100% intensity, we want maximum effect (threshold = 0.2)
+            // At 0% intensity, no effect (threshold = 1.0)
+            const threshold = 1 - (risographIntensity / 100) * 0.8;
             
             risoThrottleState.lastProcessTime = now;
             risoThrottleState.lastRisoSettings = { intensity: risographIntensity, size, x, y };
@@ -1088,7 +1095,7 @@ export const useBrushEngine = () => {
                 risoTextureCanvas = document.createElement('canvas');
                 risoTextureCanvas.width = tempCanvas.width;
                 risoTextureCanvas.height = tempCanvas.height;
-                risoTextureCtx = risoTextureCanvas.getContext('2d')!;
+                risoTextureCtx = risoTextureCanvas.getContext('2d', { willReadFrequently: true })!;
             }
             risoTextureCtx!.drawImage(risoTexture, 0, 0, tempCanvas.width, tempCanvas.height);
             const textureData = risoTextureCtx!.getImageData(0, 0, tempCanvas.width, tempCanvas.height).data;
@@ -2310,31 +2317,65 @@ export const useBrushEngine = () => {
     ctx.closePath();
     ctx.fill();
     
-    // Apply film grain effect if enabled
-    const noise = brushSettings.risographIntensity || 0;
-    if (noise > 0) {
-      const noiseCanvas = createNoiseTexture();
+    // Apply risograph effect if enabled
+    const risographIntensity = brushSettings.risographIntensity || 0;
+    if (risographIntensity > 0 && !isPreview) {
+      // Get the bounds of the rectangle for effect
+      const minX = Math.floor(Math.min(...corners.map(c => c.x)));
+      const minY = Math.floor(Math.min(...corners.map(c => c.y)));
+      const maxX = Math.ceil(Math.max(...corners.map(c => c.x)));
+      const maxY = Math.ceil(Math.max(...corners.map(c => c.y)));
+      const boundWidth = maxX - minX;
+      const boundHeight = maxY - minY;
       
-      // Save current composite operation
-      const prevComposite = ctx.globalCompositeOperation;
-      
-      // Create a pattern from the noise texture
-      const pattern = ctx.createPattern(noiseCanvas, 'repeat');
-      if (pattern) {
-        // Set up grain blending
-        ctx.globalCompositeOperation = 'overlay';
-        ctx.globalAlpha = noise / 100 * 0.3; // Scale down for subtlety
+      if (boundWidth > 0 && boundHeight > 0) {
+        // Create a temporary canvas to test if points are inside the shape
+        const tempCanvas = canvasPool.acquire(boundWidth, boundHeight);
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
         
-        // Apply grain to the rectangle area
-        ctx.beginPath();
-        ctx.moveTo(corners[0].x, corners[0].y);
-        corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
-        ctx.closePath();
-        ctx.fillStyle = pattern;
-        ctx.fill();
-        
-        // Restore composite operation
-        ctx.globalCompositeOperation = prevComposite;
+        if (tempCtx) {
+          // Draw the shape outline on temp canvas for point-in-path testing
+          tempCtx.beginPath();
+          tempCtx.moveTo(corners[0].x - minX, corners[0].y - minY);
+          corners.slice(1).forEach(corner => tempCtx.lineTo(corner.x - minX, corner.y - minY));
+          tempCtx.closePath();
+          
+          // Get the current gradient image data
+          const imageData = ctx.getImageData(minX, minY, boundWidth, boundHeight);
+          const data = imageData.data;
+          
+          // Create fine-grain dither pattern
+          const threshold = 1 - (risographIntensity / 100) * 0.8; // 0.2 to 1.0 range
+          
+          // Apply risograph dither effect pixel by pixel, but only inside the shape
+          for (let y = 0; y < boundHeight; y++) {
+            for (let x = 0; x < boundWidth; x++) {
+              // Check if this point is inside the rectangle shape
+              if (tempCtx.isPointInPath(x, y)) {
+                const index = (y * boundWidth + x) * 4;
+                
+                // Only process pixels that have content
+                if (data[index + 3] > 0) {
+                  // Create fine noise pattern for this pixel
+                  const noise = Math.random();
+                  
+                  // If noise is below threshold, darken the pixel
+                  if (noise < threshold) {
+                    data[index] = Math.floor(data[index] * 0.3);     // Red
+                    data[index + 1] = Math.floor(data[index + 1] * 0.3); // Green  
+                    data[index + 2] = Math.floor(data[index + 2] * 0.3); // Blue
+                  }
+                }
+              }
+            }
+          }
+          
+          // Put the modified image data back
+          ctx.putImageData(imageData, minX, minY);
+          
+          // Release the temporary canvas
+          canvasPool.release(tempCanvas);
+        }
       }
     }
 
@@ -2456,27 +2497,67 @@ export const useBrushEngine = () => {
     ctx.fillStyle = gradient;
     ctx.fill();
     
-    // Apply film grain effect if enabled
-    const noise = brushSettings.risographIntensity || 0;
-    if (noise > 0) {
-      const noiseCanvas = createNoiseTexture();
+    // Apply risograph effect if enabled
+    const risographIntensity = brushSettings.risographIntensity || 0;
+    if (risographIntensity > 0 && !isPreview) {
+      // Get the bounds of the polygon for effect
+      const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
+      const minY = Math.floor(Math.min(...vertices.map(v => v.y)));
+      const maxX = Math.ceil(Math.max(...vertices.map(v => v.x)));
+      const maxY = Math.ceil(Math.max(...vertices.map(v => v.y)));
+      const boundWidth = maxX - minX;
+      const boundHeight = maxY - minY;
       
-      // Save current composite operation
-      const prevComposite = ctx.globalCompositeOperation;
-      
-      // Create a pattern from the noise texture
-      const pattern = ctx.createPattern(noiseCanvas, 'repeat');
-      if (pattern) {
-        // Set up grain blending
-        ctx.globalCompositeOperation = 'overlay';
-        ctx.globalAlpha = noise / 100 * 0.3; // Scale down for subtlety
+      if (boundWidth > 0 && boundHeight > 0) {
+        // Create a temporary canvas to test if points are inside the shape
+        const tempCanvas = canvasPool.acquire(boundWidth, boundHeight);
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
         
-        // Apply grain to the polygon area
-        ctx.fillStyle = pattern;
-        ctx.fill();
-        
-        // Restore composite operation
-        ctx.globalCompositeOperation = prevComposite;
+        if (tempCtx) {
+          // Draw the polygon outline on temp canvas for point-in-path testing
+          tempCtx.beginPath();
+          tempCtx.moveTo(vertices[0].x - minX, vertices[0].y - minY);
+          for (let i = 1; i < vertices.length; i++) {
+            tempCtx.lineTo(vertices[i].x - minX, vertices[i].y - minY);
+          }
+          tempCtx.closePath();
+          
+          // Get the current gradient image data
+          const imageData = ctx.getImageData(minX, minY, boundWidth, boundHeight);
+          const data = imageData.data;
+          
+          // Create fine-grain dither pattern
+          const threshold = 1 - (risographIntensity / 100) * 0.8; // 0.2 to 1.0 range
+          
+          // Apply risograph dither effect pixel by pixel, but only inside the shape
+          for (let y = 0; y < boundHeight; y++) {
+            for (let x = 0; x < boundWidth; x++) {
+              // Check if this point is inside the polygon shape
+              if (tempCtx.isPointInPath(x, y)) {
+                const index = (y * boundWidth + x) * 4;
+                
+                // Only process pixels that have content
+                if (data[index + 3] > 0) {
+                  // Create fine noise pattern for this pixel
+                  const noise = Math.random();
+                  
+                  // If noise is below threshold, darken the pixel
+                  if (noise < threshold) {
+                    data[index] = Math.floor(data[index] * 0.3);     // Red
+                    data[index + 1] = Math.floor(data[index + 1] * 0.3); // Green  
+                    data[index + 2] = Math.floor(data[index + 2] * 0.3); // Blue
+                  }
+                }
+              }
+            }
+          }
+          
+          // Put the modified image data back
+          ctx.putImageData(imageData, minX, minY);
+          
+          // Release the temporary canvas
+          canvasPool.release(tempCanvas);
+        }
       }
     }
 
