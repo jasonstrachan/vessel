@@ -101,7 +101,7 @@ export const pixelBrushComponents: BrushComponent[] = [
 // Pixel brush preset
 export const pixelBrushPreset: BrushPreset = {
   id: 'pixel-brush',
-  name: 'Pixel Brush',
+  name: 'Pixel Square',
   category: 'Pixel Art',
   components: pixelBrushComponents,
   thumbnail: '/assets/images/Brush.png',
@@ -175,7 +175,7 @@ export const defaultBrushComponents: BrushComponent[] = [
 // Default brush preset
 export const defaultBrushPreset: BrushPreset = {
   id: 'default-brush',
-  name: 'Default Brush',
+  name: 'Soft Round',
   category: 'Digital Painting',
   components: defaultBrushComponents,
   thumbnail: '/assets/images/Brush.png',
@@ -196,7 +196,7 @@ export const defaultBrushPreset: BrushPreset = {
 };
 
 
-// 4px Round Pixel Brush Components
+// Pixel Round Brush Components
 export const roundPixel4Components: BrushComponent[] = [
   {
     id: 'round-pixel-4-size',
@@ -238,78 +238,14 @@ export const roundPixel4Components: BrushComponent[] = [
   }
 ];
 
-// 4px Round Pixel Brush Preset
+// Pixel Round Brush Preset
 export const roundPixel4Preset: BrushPreset = {
   id: 'round-pixel-4',
-  name: '4px Round Pixel',
+  name: 'Pixel Round',
   category: 'Pixel Art',
   components: roundPixel4Components,
   thumbnail: '/assets/images/Brush.png',
   tags: ['pixel', 'round', '4px', 'hard'],
-  isDefault: false,
-  createdAt: new Date(),
-  modifiedAt: new Date()
-};
-
-// 4px Round Soft Brush Components
-export const roundSoft4Components: BrushComponent[] = [
-  {
-    id: 'round-soft-4-size',
-    type: ComponentType.SIZE_MODIFIER,
-    parameters: {
-      minSize: 1,
-      maxSize: 1000,
-      pressureInfluence: 0.3
-    },
-    priority: 10,
-    enabled: true
-  },
-  {
-    id: 'round-soft-4-opacity',
-    type: ComponentType.OPACITY_MODIFIER,
-    parameters: {
-      pressureInfluence: 0.5
-    },
-    priority: 20,
-    enabled: true
-  },
-  {
-    id: 'round-soft-4-antialiasing',
-    type: ComponentType.ANTI_ALIASING,
-    parameters: {
-      mode: 'antialiased'
-    },
-    priority: 30,
-    enabled: true
-  },
-  {
-    id: 'round-soft-4-shape',
-    type: ComponentType.SHAPE_RENDERER,
-    parameters: {
-      shape: BrushShape.ROUND
-    },
-    priority: 40,
-    enabled: true
-  },
-  {
-    id: 'round-soft-4-rotation',
-    type: ComponentType.ROTATION_TRANSFORM,
-    parameters: {
-      enableRotation: true
-    },
-    priority: 50,
-    enabled: true
-  }
-];
-
-// 4px Round Soft Brush Preset
-export const roundSoft4Preset: BrushPreset = {
-  id: 'round-soft-4',
-  name: '4px Round Soft',
-  category: 'Digital Painting',
-  components: roundSoft4Components,
-  thumbnail: '/assets/images/Brush.png',
-  tags: ['soft', 'round', '4px', 'smooth'],
   isDefault: false,
   createdAt: new Date(),
   modifiedAt: new Date()
@@ -360,7 +296,7 @@ export const roundSquare6Components: BrushComponent[] = [
 // 6px Round Square Brush Preset
 export const roundSquare6Preset: BrushPreset = {
   id: 'round-square-6',
-  name: '6px Round Square',
+  name: 'Soft Square',
   category: 'Digital Painting',
   components: roundSquare6Components,
   thumbnail: '/assets/images/Brush.png',
@@ -539,7 +475,6 @@ export const brushPresets: BrushPreset[] = [
   pixelBrushPreset,
   defaultBrushPreset,
   roundPixel4Preset,
-  roundSoft4Preset,
   roundSquare6Preset,
   inkBrushPreset,
   rectangleGradientBrushPreset,
@@ -571,9 +506,6 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
   } else if (preset.id === 'round-pixel-4') {
     settings.size = 4; // 4px default as per name
     settings.antialiasing = false;
-  } else if (preset.id === 'round-soft-4') {
-    settings.size = 4; // 4px default as per name
-    settings.antialiasing = true;
   } else if (preset.id === 'round-square-6') {
     settings.size = 6; // 6px default as per name
     settings.antialiasing = true;

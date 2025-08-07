@@ -415,7 +415,7 @@ export default function AdvancedColorPicker({ color, onChange }: AdvancedColorPi
         pickerRef.current.destroy();
       }
     };
-  }, []);
+  }, [color, onChange]); // Include color and onChange to fix fast refresh stale closure issue
 
   useEffect(() => {
     if (pickerRef.current && color !== pickerRef.current.hexcode) {

@@ -452,7 +452,7 @@ const ColorPicker = ({ color, onChange }: ColorPickerProps) => {
         pickerRef.current.destroy();
       }
     };
-  }, [isOpen]); // Removed color and onChange from dependencies
+  }, [isOpen, color, onChange]); // Include color and onChange to fix fast refresh stale closure issue
 
   // Click outside to close
   useEffect(() => {
