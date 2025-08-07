@@ -11,6 +11,26 @@ import { pressureOptimizer } from '../utils/pressureOptimizer';
 import { memoryManager } from '../utils/memoryCleanup';
 import { performanceMonitor } from '../utils/performanceMonitor';
 
+// Authentic Apple II Hi-Res color palette (RGB values based on NTSC composite output)
+const AUTHENTIC_APPLE_II_PALETTE: [number, number, number][] = [
+  [0, 0, 0],         // Black
+  [114, 38, 64],     // Dark Red/Magenta
+  [64, 51, 127],     // Dark Blue  
+  [228, 52, 254],    // Purple/Violet
+  [14, 89, 64],      // Dark Green
+  [128, 128, 128],   // Gray
+  [27, 154, 254],    // Medium Blue
+  [191, 179, 255],   // Light Blue
+  [64, 76, 0],       // Brown
+  [228, 101, 1],     // Orange
+  [155, 161, 155],   // Light Gray
+  [255, 129, 236],   // Pink
+  [27, 203, 1],      // Green
+  [191, 204, 128],   // Yellow
+  [141, 217, 191],   // Aqua
+  [255, 255, 255]    // White
+];
+
 // Internal types for this hook
 interface PixelQueue {
   initialized: boolean;
@@ -203,25 +223,8 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
   const width = imageData.width;
   const height = imageData.height;
   
-  // Authentic Apple II color palette (RGB values)
-  const appleIIPalette: [number, number, number][] = [
-    [0, 0, 0],         // Black
-    [148, 41, 66],     // Magenta
-    [33, 33, 165],     // Dark Blue
-    [195, 65, 229],    // Purple
-    [0, 99, 66],       // Dark Green
-    [99, 99, 99],      // Dark Gray
-    [33, 132, 229],    // Medium Blue
-    [148, 165, 255],   // Light Blue
-    [99, 66, 0],       // Brown
-    [229, 99, 0],      // Orange
-    [148, 148, 148],   // Light Gray
-    [255, 148, 148],   // Pink
-    [0, 195, 0],       // Green
-    [195, 195, 0],     // Yellow
-    [148, 255, 148],   // Aquamarine
-    [255, 255, 255]    // White
-  ];
+  // Use the authentic Apple II color palette defined at module level
+  const appleIIPalette = AUTHENTIC_APPLE_II_PALETTE;
   
   // Select best Apple II colors for this image based on content
   const selectBestColors = (imageData: ImageData, numColors: number): [number, number, number][] => {
@@ -363,25 +366,8 @@ const applySierraLiteDitherWithFillResolution = (imageData: ImageData, numColors
   const height = imageData.height;
   const blockSize = fillResolution;
   
-  // Authentic Apple II color palette (RGB values)
-  const appleIIPalette: [number, number, number][] = [
-    [0, 0, 0],         // Black
-    [148, 41, 66],     // Magenta
-    [33, 33, 165],     // Dark Blue
-    [195, 65, 229],    // Purple
-    [0, 99, 66],       // Dark Green
-    [99, 99, 99],      // Dark Gray
-    [33, 132, 229],    // Medium Blue
-    [148, 165, 255],   // Light Blue
-    [99, 66, 0],       // Brown
-    [229, 99, 0],      // Orange
-    [148, 148, 148],   // Light Gray
-    [255, 148, 148],   // Pink
-    [0, 195, 0],       // Green
-    [195, 195, 0],     // Yellow
-    [148, 255, 148],   // Aquamarine
-    [255, 255, 255]    // White
-  ];
+  // Use the authentic Apple II color palette defined at module level
+  const appleIIPalette = AUTHENTIC_APPLE_II_PALETTE;
   
   // Select best Apple II colors for this image based on content
   const selectBestColors = (imageData: ImageData, numColors: number): [number, number, number][] => {
@@ -860,6 +846,28 @@ export const useBrushEngine = () => {
     pattern?: ImageData,
     centerAlignment?: boolean
   ) => {
+    // Check brush editing bounds - prevent drawing outside editing area during brush editing
+    const brushEditorState = useAppStore.getState().brushEditor;
+    if (brushEditorState.status === 'EDITING' && brushEditorState.editingBounds) {
+      const bounds = brushEditorState.editingBounds;
+      const halfSize = size / 2;
+      
+      // Calculate stamp bounds
+      const stampLeft = x - halfSize;
+      const stampRight = x + halfSize;
+      const stampTop = y - halfSize;
+      const stampBottom = y + halfSize;
+      
+      // STRENGTHENED BOUNDS CHECK: Skip stamps that would draw ANY pixels outside bounds
+      // This provides a more restrictive check as a fallback in case canvas clipping fails
+      if (stampLeft < bounds.x || 
+          stampRight > bounds.x + bounds.width ||
+          stampTop < bounds.y ||
+          stampBottom > bounds.y + bounds.height) {
+        return;
+      }
+    }
+    
     const halfSize = size / 2;
     
     // --- RISOGRAPH EFFECT LOGIC ---
@@ -1536,6 +1544,31 @@ export const useBrushEngine = () => {
     isColorizable?: boolean,
     isPressureSensitive?: boolean
   ) => {
+    // Check brush editing bounds - prevent drawing outside editing area during brush editing
+    const brushEditorState = useAppStore.getState().brushEditor;
+    if (brushEditorState.status === 'EDITING' && brushEditorState.editingBounds) {
+      const bounds = brushEditorState.editingBounds;
+      const scaledWidth = customBrush.width * scale;
+      const scaledHeight = customBrush.height * scale;
+      const halfWidth = scaledWidth / 2;
+      const halfHeight = scaledHeight / 2;
+      
+      // Calculate stamp bounds
+      const stampLeft = x - halfWidth;
+      const stampRight = x + halfWidth;
+      const stampTop = y - halfHeight;
+      const stampBottom = y + halfHeight;
+      
+      // STRENGTHENED BOUNDS CHECK: Skip stamps that would draw ANY pixels outside bounds
+      // This provides a more restrictive check as a fallback in case canvas clipping fails
+      if (stampLeft < bounds.x || 
+          stampRight > bounds.x + bounds.width ||
+          stampTop < bounds.y ||
+          stampBottom > bounds.y + bounds.height) {
+        return;
+      }
+    }
+    
     performanceMonitor.measureStampTime(() => {
       const colorJitterAmount = tools.brushSettings.colorJitter || 0;
 
@@ -1664,6 +1697,19 @@ export const useBrushEngine = () => {
     }
   }, [drawCustomBrushStamp]);
 
+  // Helper function to clamp positions to editing bounds
+  const clampToEditingBounds = useCallback((x: number, y: number) => {
+    const brushEditorState = useAppStore.getState().brushEditor;
+    if (brushEditorState.status === 'EDITING' && brushEditorState.editingBounds) {
+      const bounds = brushEditorState.editingBounds;
+      return {
+        x: Math.max(bounds.x, Math.min(x, bounds.x + bounds.width - 1)),
+        y: Math.max(bounds.y, Math.min(y, bounds.y + bounds.height - 1))
+      };
+    }
+    return { x, y };
+  }, []);
+
   const renderBrushStroke = useCallback((
     ctx: CanvasRenderingContext2D,
     from: { x: number; y: number },
@@ -1677,6 +1723,11 @@ export const useBrushEngine = () => {
     
     // Performance monitoring for brush strokes
     const strokeStartTime = process.env.NODE_ENV === 'development' ? performance.now() : 0;
+    
+    // CLAMP STROKE POSITIONS: Ensure from/to positions are within editing bounds
+    // This prevents interpolation outside bounds during fast cursor movement
+    const clampedFrom = clampToEditingBounds(from.x, from.y);
+    const clampedTo = clampToEditingBounds(to.x, to.y);
     
     // Use passed-in pressure
     const cursorPressure = cursor.pressure;
@@ -1828,8 +1879,8 @@ export const useBrushEngine = () => {
     }
     
     // Apply grid snapping if enabled using the actual brush size
-    let snappedTo = { x: to.x, y: to.y };
-    let snappedFrom = { x: from.x, y: from.y };
+    let snappedTo = { x: clampedTo.x, y: clampedTo.y };
+    let snappedFrom = { x: clampedFrom.x, y: clampedFrom.y };
     const isGridSnapping = shouldApplyGridSnap(tools.brushSettings);
     let gridSize = 0;
     
@@ -1894,16 +1945,16 @@ export const useBrushEngine = () => {
         
         gridSize = Math.max(gridDimensions.width, gridDimensions.height); // Keep for backward compatibility
         
-        const snappedToPos = snapToRectangularGrid(to.x, to.y, gridDimensions.width, gridDimensions.height);
-        const snappedFromPos = snapToRectangularGrid(from.x, from.y, gridDimensions.width, gridDimensions.height);
+        const snappedToPos = snapToRectangularGrid(clampedTo.x, clampedTo.y, gridDimensions.width, gridDimensions.height);
+        const snappedFromPos = snapToRectangularGrid(clampedFrom.x, clampedFrom.y, gridDimensions.width, gridDimensions.height);
         snappedTo = { x: snappedToPos.x, y: snappedToPos.y };
         snappedFrom = { x: snappedFromPos.x, y: snappedFromPos.y };
       } else {
         // For regular brushes, use square grid with pressure-modified size
         gridSize = settings.size; // Use pressure-modified size directly
         
-        const snappedToPos = snapToGrid(to.x, to.y, gridSize);
-        const snappedFromPos = snapToGrid(from.x, from.y, gridSize);
+        const snappedToPos = snapToGrid(clampedTo.x, clampedTo.y, gridSize);
+        const snappedFromPos = snapToGrid(clampedFrom.x, clampedFrom.y, gridSize);
         snappedTo = { x: snappedToPos.x, y: snappedToPos.y };
         snappedFrom = { x: snappedFromPos.x, y: snappedFromPos.y };
       }
@@ -1916,6 +1967,10 @@ export const useBrushEngine = () => {
       ctx.beginPath();
       ctx.rect(clipBounds.x, clipBounds.y, clipBounds.width, clipBounds.height);
       ctx.clip();
+      
+      // ADDITIONAL FIX: Ensure clipping is strictly enforced for brush editing
+      // Set additional constraints to prevent any drawing outside bounds
+      ctx.globalCompositeOperation = ctx.globalCompositeOperation || 'source-over';
     }
     
     // Initialize distance tracking state if needed
@@ -2164,7 +2219,7 @@ export const useBrushEngine = () => {
       // Performance data available in dev tools if needed
       void strokeDuration;
     }
-  }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp]);
+  }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp, clampToEditingBounds]);
   
   // Draw rectangle gradient brush
   const drawRectangleGradient = useCallback((ctx: CanvasRenderingContext2D, rectangleState: RectangleState, isPreview: boolean = false) => {

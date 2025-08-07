@@ -129,7 +129,7 @@ interface AppState {
   brushPresets: BrushPreset[];
   currentBrushPreset: BrushPreset | null;
   activeBrushComponents: BrushComponent[];
-  setBrushPreset: (preset: BrushPreset) => void;
+  setBrushPreset: (preset: BrushPreset, preserveEditMode?: boolean) => void;
   getBrushPresets: () => BrushPreset[];
   getBrushPresetById: (id: string) => BrushPreset | undefined;
   
@@ -962,13 +962,13 @@ export const useAppStore = create<AppState>()(
           originalLayerImageData: new Map()
         }
       }),
-      setBrushPreset: (preset) => {
+      setBrushPreset: (preset, preserveEditMode = false) => {
         // Save current settings before switching
         get()._saveCurrentBrushSettings();
         
-        // Cancel any active brush edit session before switching
+        // Cancel any active brush edit session before switching (unless preserveEditMode is true)
         const state = get();
-        if (state.brushEditor.status === 'EDITING') {
+        if (state.brushEditor.status === 'EDITING' && !preserveEditMode) {
           const canvas = state.currentOffscreenCanvas;
           if (canvas) {
             get().cancelBrushEdit(canvas);

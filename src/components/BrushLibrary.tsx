@@ -130,9 +130,26 @@ const BrushLibrary = () => {
   };
   
   const handlePresetClick = (preset: BrushPreset) => {
-    // FIX: If we are in edit mode, always cancel it before doing anything else.
+    // Special handling when in edit mode
     if (brushEditor.status === 'EDITING' && currentOffscreenCanvas) {
-      cancelBrushEdit(currentOffscreenCanvas);
+      // If clicking another custom brush while editing, transition to editing that brush
+      if (preset.isCustomBrush) {
+        const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
+        
+        // Save current edits first
+        if (brushEditor.editingBrushId !== customBrushId) {
+          saveBrushEdit(currentOffscreenCanvas);
+          // Start editing the new brush
+          startBrushEdit(customBrushId, currentOffscreenCanvas);
+          setLayersNeedRecomposition(true);
+        }
+        // If clicking the same brush that's being edited, do nothing
+        return;
+      }
+      // For regular presets while editing, just switch the drawing tool without exiting edit mode
+      // The edit session continues, allowing users to draw with different brushes on the custom brush
+      setBrushPreset(preset, true); // preserveEditMode = true
+      return;
     }
     
     // REFACTOR: Simplified logic. The store's `setBrushPreset` now handles almost everything.
