@@ -78,6 +78,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   const [lastMouseY, setLastMouseY] = useState(0);
   const [mouseX, setMouseX] = useState(0);
   const [mouseY, setMouseY] = useState(0);
+  // Screen coordinates for smooth panning (not transformed)
+  const [lastScreenX, setLastScreenX] = useState(0);
+  const [lastScreenY, setLastScreenY] = useState(0);
   const [isCanvasInitialized, setIsCanvasInitialized] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   
@@ -513,22 +516,21 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const mouseXInWrapper = clientX - wrapperRect.left;
     const mouseYInWrapper = clientY - wrapperRect.top;
 
-    // 3. Adjust for the canvas border to get the coordinate relative to the drawable area.
-    // This gives us the final coordinate in "Canvas CSS Pixels".
-    const canvasCssX = mouseXInWrapper - canvasEl.clientLeft;
-    const canvasCssY = mouseYInWrapper - canvasEl.clientTop;
+    // 3. Get the canvas visual dimensions and calculate scaling factors
+    const canvasRect = canvasEl.getBoundingClientRect();
+    const scaleX = width / canvasRect.width;
+    const scaleY = height / canvasRect.height;
 
-    // 4. Convert to world coordinates by inverting the pan and zoom transformation.
-    // Use current canvas dimensions from state for accurate coordinate mapping
-    const currentCanvasWidth = canvas.canvasWidth || width;
-    const currentCanvasHeight = canvas.canvasHeight || height;
+    // 4. Convert to canvas logical coordinates accounting for responsive scaling
+    const canvasLogicalX = mouseXInWrapper * scaleX;
+    const canvasLogicalY = mouseYInWrapper * scaleY;
+
+    // 5. Convert to world coordinates by inverting the pan and zoom transformation
+    const worldX = (canvasLogicalX - canvas.panX) / canvas.zoom;
+    const worldY = (canvasLogicalY - canvas.panY) / canvas.zoom;
     
-    // Clamp coordinates to canvas bounds before transformation
-    const clampedX = Math.max(0, Math.min(canvasCssX, currentCanvasWidth));
-    const clampedY = Math.max(0, Math.min(canvasCssY, currentCanvasHeight));
-    
-    const worldX = (clampedX - canvas.panX) / canvas.zoom;
-    const worldY = (clampedY - canvas.panY) / canvas.zoom;
+    const clampedX = Math.max(0, Math.min(width - 1, Math.round(worldX)));
+    const clampedY = Math.max(0, Math.min(height - 1, Math.round(worldY)));
 
     return { canvasX: clampedX, canvasY: clampedY, worldX, worldY };
   }, [canvas.zoom, canvas.panX, canvas.panY, canvas.canvasWidth, canvas.canvasHeight, width, height]);
@@ -557,23 +559,30 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   }, [transformScreenToCanvas, canvas.panX, canvas.panY, canvas.zoom, tools.currentTool, spacebarPressed, isMouseOverCanvas, shapeState.isDrawing]);
   
   // Convert screen coordinates to world coordinates
-  // SIMPLIFIED: Use same coordinate system as cursor positioning for alignment
+  // Account for responsive canvas scaling
   const screenToCanvas = useCallback((clientX: number, clientY: number) => {
     if (!canvasRef.current) return { x: 0, y: 0 };
     
     const rect = canvasRef.current.getBoundingClientRect();
     
-    // Use same coordinate system as cursor positioning
-    // Canvas is positioned absolutely within its wrapper, so coordinates align directly
+    // Calculate coordinates relative to canvas
     const canvasX = clientX - rect.left;
     const canvasY = clientY - rect.top;
     
-    // Convert to world coordinates (no scaling needed if canvas CSS size matches logical size)
-    const worldX = (canvasX - canvas.panX) / canvas.zoom;
-    const worldY = (canvasY - canvas.panY) / canvas.zoom;
+    // Account for responsive scaling
+    const scaleX = width / rect.width;
+    const scaleY = height / rect.height;
+    
+    // Convert to logical canvas coordinates
+    const logicalX = canvasX * scaleX;
+    const logicalY = canvasY * scaleY;
+    
+    // Convert to world coordinates
+    const worldX = (logicalX - canvas.panX) / canvas.zoom;
+    const worldY = (logicalY - canvas.panY) / canvas.zoom;
     
     return { x: worldX, y: worldY };
-  }, [canvas.panX, canvas.panY, canvas.zoom]);
+  }, [canvas.panX, canvas.panY, canvas.zoom, width, height]);
 
   // Cached checkerboard pattern for performance
   const checkerboardPattern = useMemo(() => {
@@ -621,7 +630,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     ctx.translate(canvas.panX, canvas.panY);
     ctx.scale(canvas.zoom, canvas.zoom);
     
-    // Draw checkerboard pattern as background for transparency
+    // Draw checkerboard pattern as background for transparency - scales with zoom
     if (checkerboardPattern) {
       const pattern = ctx.createPattern(checkerboardPattern, 'repeat');
       if (pattern) {
@@ -1056,10 +1065,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     updateMousePosition(e); // Canvas event
     
     if (spacebarPressed) {
-      // Start panning
+      // Start panning - initialize screen coordinates
       setIsPanning(true);
-      setLastMouseX(mouseX);
-      setLastMouseY(mouseY);
+      setLastScreenX(e.clientX);
+      setLastScreenY(e.clientY);
       e.preventDefault();
       return;
     }
@@ -1387,15 +1396,15 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     updateMousePosition(e); // Canvas event
     
     if (isPanning) {
-      // Handle panning - calculate delta in canvas coordinates
-      const deltaX = mouseX - lastMouseX;
-      const deltaY = mouseY - lastMouseY;
+      // Handle panning - calculate delta in screen coordinates for smooth movement
+      const deltaX = e.clientX - lastScreenX;
+      const deltaY = e.clientY - lastScreenY;
       
       setPan(canvas.panX + deltaX, canvas.panY + deltaY);
       
-      // Update last mouse position for next frame
-      setLastMouseX(mouseX);
-      setLastMouseY(mouseY);
+      // Update last screen position for next frame
+      setLastScreenX(e.clientX);
+      setLastScreenY(e.clientY);
       return;
     }
 
@@ -1803,10 +1812,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     updateMousePosition(touch); // Canvas event
     
     if (spacebarPressed) {
-      // Start panning
+      // Start panning - initialize screen coordinates
       setIsPanning(true);
-      setLastMouseX(mouseX);
-      setLastMouseY(mouseY);
+      setLastScreenX(touch.clientX);
+      setLastScreenY(touch.clientY);
       return;
     }
 
@@ -1842,15 +1851,15 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     updateMousePosition(touch); // Canvas event
     
     if (isPanning) {
-      // Handle panning - calculate delta in canvas coordinates
-      const deltaX = mouseX - lastMouseX;
-      const deltaY = mouseY - lastMouseY;
+      // Handle panning - calculate delta in screen coordinates for smooth movement
+      const deltaX = touch.clientX - lastScreenX;
+      const deltaY = touch.clientY - lastScreenY;
       
       setPan(canvas.panX + deltaX, canvas.panY + deltaY);
       
-      // Update last mouse position for next frame
-      setLastMouseX(mouseX);
-      setLastMouseY(mouseY);
+      // Update last screen position for next frame
+      setLastScreenX(touch.clientX);
+      setLastScreenY(touch.clientY);
       return;
     }
 
@@ -1928,9 +1937,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     if (!canvasRef.current) return;
     
-    // Update mouse position first
-    updateMousePosition(e); // Canvas event
-    
     const oldZoom = canvas.zoom;
     
     // Determine zoom direction and calculate new zoom with curve
@@ -1943,18 +1949,23 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       newZoom = Math.max(0.1, calculateZoomIncrement(oldZoom, 'out'));
     }
     
+    // Get the mouse position in canvas coordinates with proper scaling
+    const coords = transformScreenToCanvas(e.clientX, e.clientY);
+    const canvasMouseX = coords.canvasX;
+    const canvasMouseY = coords.canvasY;
+    
     // Calculate world coordinates that should remain under cursor
-    const worldX = (mouseX - canvas.panX) / oldZoom;
-    const worldY = (mouseY - canvas.panY) / oldZoom;
+    const worldX = (canvasMouseX - canvas.panX) / oldZoom;
+    const worldY = (canvasMouseY - canvas.panY) / oldZoom;
     
     // Calculate new pan to keep world point under cursor
-    const newPanX = mouseX - worldX * newZoom;
-    const newPanY = mouseY - worldY * newZoom;
+    const newPanX = canvasMouseX - worldX * newZoom;
+    const newPanY = canvasMouseY - worldY * newZoom;
     
     // Update zoom and pan
     setZoom(newZoom);
     setPan(newPanX, newPanY);
-  }, [canvas.zoom, canvas.panX, canvas.panY, mouseX, mouseY, setZoom, setPan, updateMousePosition]);
+  }, [canvas.zoom, canvas.panX, canvas.panY, setZoom, setPan, transformScreenToCanvas]);
 
   // Commit selection to canvas
   const commitSelection = useCallback(() => {
@@ -2425,9 +2436,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     canvasElement.width = scaledWidth;
     canvasElement.height = scaledHeight;
     
-    // Set CSS display size (original dimensions) 
-    canvasElement.style.width = `${width}px`;
-    canvasElement.style.height = `${height}px`;
+    // CSS display size is now handled by the wrapper and CSS (responsive)
     
     // Scale context to match device pixel ratio
     ctx.scale(pixelRatio, pixelRatio);
@@ -2477,9 +2486,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     canvasElement.width = scaledWidth;
     canvasElement.height = scaledHeight;
     
-    // Set CSS display size (original dimensions) 
-    canvasElement.style.width = `${width}px`;
-    canvasElement.style.height = `${height}px`;
+    // CSS display size is now handled by the wrapper and CSS (responsive)
     
     // Scale context to match device pixel ratio
     ctx.scale(pixelRatio, pixelRatio);
@@ -2755,13 +2762,13 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       
       if (isPanning) {
         // Handle panning when mouse moves outside canvas
-        const deltaX = mouseX - lastMouseX;
-        const deltaY = mouseY - lastMouseY;
+        const deltaX = e.clientX - lastScreenX;
+        const deltaY = e.clientY - lastScreenY;
         
         setPan(canvas.panX + deltaX, canvas.panY + deltaY);
         
-        setLastMouseX(mouseX);
-        setLastMouseY(mouseY);
+        setLastScreenX(e.clientX);
+        setLastScreenY(e.clientY);
       } else {
         // Clear eyedropper preview when not over canvas
         setPreviewColor(null);
@@ -2884,13 +2891,23 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   return (
     <>
       <div 
-        className="w-full h-full bg-[#141514] relative"
+        className="w-full h-full bg-[#141514] relative flex items-center justify-center"
         style={{
           overflow: 'visible'
         }}
       >
-        {/* Wrapper div for absolute positioning context */}
-        <div ref={wrapperRef} className="relative mx-auto" style={{ width: `${width}px`, height: `${height}px` }}>
+        {/* Wrapper div for absolute positioning context - now responsive */}
+        <div 
+          ref={wrapperRef} 
+          className="relative"
+          style={{ 
+            width: '100%',
+            height: '100%',
+            maxWidth: `${width}px`,
+            maxHeight: `${height}px`,
+            aspectRatio: `${width} / ${height}`
+          }}
+        >
           <canvas
           ref={canvasRef}
           width={width}
@@ -2901,6 +2918,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             position: 'absolute',
             top: 0,
             left: 0,
+            width: '100%',
+            height: '100%',
             zIndex: 1,
             border: 'none',
             outline: 'none',

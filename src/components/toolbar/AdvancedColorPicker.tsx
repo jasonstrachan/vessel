@@ -30,6 +30,11 @@ class AdvancedPicker {
   
   boundHandleMouseMove: (e: PointerEvent) => void;
   boundHandleMouseUp: (e: PointerEvent) => void;
+  
+  // Performance optimization: cache HSV grids by hue
+  private hsvGridCache: Map<number, ImageData> = new Map();
+  private rafId: number | null = null;
+  private pendingUpdate = false;
 
   constructor(
     target: HTMLCanvasElement, 
@@ -96,6 +101,10 @@ class AdvancedPicker {
   destroy() {
     document.removeEventListener("pointermove", this.boundHandleMouseMove);
     document.removeEventListener("pointerup", this.boundHandleMouseUp);
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+    }
+    this.hsvGridCache.clear();
   }
 
   hexToHSV(hex: string) {
@@ -148,24 +157,93 @@ class AdvancedPicker {
   }
 
   drawHSVGrad() {
+    const hueKey = Math.round(this.hue);
+    let imageData = this.hsvGridCache.get(hueKey);
+    
+    if (!imageData) {
+      // Generate and cache HSV grid for this hue
+      imageData = this.generateHSVGrid(hueKey);
+      this.hsvGridCache.set(hueKey, imageData);
+      
+      // Limit cache size to prevent memory issues
+      if (this.hsvGridCache.size > 36) { // 360/10 = 36 max cached hues
+        const oldestKey = this.hsvGridCache.keys().next().value;
+        if (oldestKey !== undefined) {
+          this.hsvGridCache.delete(oldestKey);
+        }
+      }
+    }
+    
+    // Fast blit cached grid to canvas
+    this.context.putImageData(imageData, 0, 0);
+    this.calcSelector();
+    this.drawSelector();
+  }
+  
+  private generateHSVGrid(hue: number): ImageData {
     // Create 10x12 HSV grid: 10 columns (saturation), 12 rows (value)
     const cols = 10;
     const rows = 12;
     const cellWidth = this.width / cols;
     const cellHeight = this.height / rows;
     
+    const imageData = this.context.createImageData(this.width, this.height);
+    const data = imageData.data;
+    
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
         const saturation = (col / (cols - 1)) * 100;
         const value = ((rows - 1 - row) / (rows - 1)) * 100;
         
-        const color = this.HSVToRGBString(this.hue, saturation, value);
-        this.context.fillStyle = color;
-        this.context.fillRect(col * cellWidth, row * cellHeight, cellWidth, cellHeight);
+        const rgb = this.HSVToRGB(hue, saturation, value);
+        
+        // Fill cell pixels with color
+        for (let cy = Math.floor(row * cellHeight); cy < Math.floor((row + 1) * cellHeight); cy++) {
+          for (let cx = Math.floor(col * cellWidth); cx < Math.floor((col + 1) * cellWidth); cx++) {
+            const index = (cy * this.width + cx) * 4;
+            data[index] = rgb.r;     // Red
+            data[index + 1] = rgb.g; // Green  
+            data[index + 2] = rgb.b; // Blue
+            data[index + 3] = 255;   // Alpha
+          }
+        }
       }
     }
-    this.calcSelector();
-    this.drawSelector();
+    
+    return imageData;
+  }
+  
+  // Optimized HSV to RGB conversion that returns RGB object
+  private HSVToRGB(h: number, s: number, v: number): {r: number, g: number, b: number} {
+    const hNorm = h / 60;
+    const sNorm = s / 100;
+    const vNorm = v / 100;
+
+    const c = vNorm * sNorm;
+    const x = c * (1 - Math.abs((hNorm % 2) - 1));
+    const m = vNorm - c;
+
+    let r, g, b;
+
+    if (hNorm >= 0 && hNorm < 1) {
+      r = c; g = x; b = 0;
+    } else if (hNorm >= 1 && hNorm < 2) {
+      r = x; g = c; b = 0;
+    } else if (hNorm >= 2 && hNorm < 3) {
+      r = 0; g = c; b = x;
+    } else if (hNorm >= 3 && hNorm < 4) {
+      r = 0; g = x; b = c;
+    } else if (hNorm >= 4 && hNorm < 5) {
+      r = x; g = 0; b = c;
+    } else {
+      r = c; g = 0; b = x;
+    }
+
+    return {
+      r: Math.round((r + m) * 255),
+      g: Math.round((g + m) * 255),
+      b: Math.round((b + m) * 255)
+    };
   }
 
   // Helper method to convert HSV to RGB string for canvas gradients
@@ -241,7 +319,7 @@ class AdvancedPicker {
     this.hueContext.fillRect(0, this.hueSelector.y - 2, this.hueWidth, 4);
   }
 
-  selectSL(x: number, y: number) {
+  selectSL(x: number, y: number, updateColor = true) {
     // Account for canvas scaling
     const scaleX = this.width / this.target.offsetWidth;
     const scaleY = this.height / this.target.offsetHeight;
@@ -261,31 +339,45 @@ class AdvancedPicker {
     const constrainedCol = Math.max(0, Math.min(cols - 1, col));
     const constrainedRow = Math.max(0, Math.min(rows - 1, row));
     
-    this.saturation = Math.round((constrainedCol / (cols - 1)) * 100);
-    this.value = Math.round(((rows - 1 - constrainedRow) / (rows - 1)) * 100);
+    const newSaturation = Math.round((constrainedCol / (cols - 1)) * 100);
+    const newValue = Math.round(((rows - 1 - constrainedRow) / (rows - 1)) * 100);
     
-    // Update selector position to center of cell
-    this.pickerCircle.x = (constrainedCol + 0.5) * cellWidth;
-    this.pickerCircle.y = (constrainedRow + 0.5) * cellHeight;
-    
-    this.drawHSVGrad();
-    this.HSVToRGB();
-    this.RGBToHex();
-    this.updateColor();
+    // Only update if values actually changed
+    if (this.saturation !== newSaturation || this.value !== newValue) {
+      this.saturation = newSaturation;
+      this.value = newValue;
+      
+      // Update selector position to center of cell
+      this.pickerCircle.x = (constrainedCol + 0.5) * cellWidth;
+      this.pickerCircle.y = (constrainedRow + 0.5) * cellHeight;
+      
+      this.drawHSVGrad();
+      this.updateRGBFromHSV();
+      this.RGBToHex();
+      if (updateColor) {
+        this.updateColor();
+      }
+    }
   }
 
-  selectHue(y: number) {
+  selectHue(y: number, updateColor = true) {
     // Account for canvas scaling
     const scaleY = this.hueHeight / this.hueCanvas.offsetHeight;
     const canvasY = y * scaleY;
     
-    this.hue = Math.round(canvasY / this.hueHeight * 360);
-    this.hue = Math.max(0, Math.min(360, this.hue));
-    this.drawHueGrad();
-    this.drawHSVGrad();
-    this.HSVToRGB();
-    this.RGBToHex();
-    this.updateColor();
+    const newHue = Math.max(0, Math.min(360, Math.round(canvasY / this.hueHeight * 360)));
+    
+    // Only update if hue actually changed
+    if (this.hue !== newHue) {
+      this.hue = newHue;
+      this.drawHueGrad();
+      this.drawHSVGrad();
+      this.updateRGBFromHSV();
+      this.RGBToHex();
+      if (updateColor) {
+        this.updateColor();
+      }
+    }
   }
 
   handleMouseDown(e: PointerEvent) {
@@ -342,34 +434,11 @@ class AdvancedPicker {
     }
   }
 
-  HSVToRGB() {
-    const h = this.hue / 60;
-    const s = this.saturation / 100;
-    const v = this.value / 100;
-
-    const c = v * s;
-    const x = c * (1 - Math.abs((h % 2) - 1));
-    const m = v - c;
-
-    let r, g, b;
-
-    if (h >= 0 && h < 1) {
-      r = c; g = x; b = 0;
-    } else if (h >= 1 && h < 2) {
-      r = x; g = c; b = 0;
-    } else if (h >= 2 && h < 3) {
-      r = 0; g = c; b = x;
-    } else if (h >= 3 && h < 4) {
-      r = 0; g = x; b = c;
-    } else if (h >= 4 && h < 5) {
-      r = x; g = 0; b = c;
-    } else {
-      r = c; g = 0; b = x;
-    }
-
-    this.red = Math.round((r + m) * 255);
-    this.green = Math.round((g + m) * 255);
-    this.blue = Math.round((b + m) * 255);
+  updateRGBFromHSV() {
+    const rgb = this.HSVToRGB(this.hue, this.saturation, this.value);
+    this.red = rgb.r;
+    this.green = rgb.g;
+    this.blue = rgb.b;
   }
 
   RGBToHex() {
@@ -377,7 +446,14 @@ class AdvancedPicker {
   }
 
   updateColor() {
-    this.onColorChange(this.hexcode);
+    if (this.pendingUpdate) return;
+    
+    this.pendingUpdate = true;
+    this.rafId = requestAnimationFrame(() => {
+      this.onColorChange(this.hexcode);
+      this.pendingUpdate = false;
+      this.rafId = null;
+    });
   }
 }
 
