@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import MiniCanvasPanel from './MiniCanvasPanel';
 import ColorSlidersPanel from './ColorSlidersPanel';
 import LayerPanel from '../LayerPanel';
 import { useAppStore } from '../../stores/useAppStore';
@@ -55,16 +54,6 @@ export default function RHC1Panel() {
 
   return (
     <div className="bg-[#2C2C2C] flex flex-col h-screen flex-shrink-0" style={{ width: '240px', minWidth: '240px', maxWidth: '240px' }}>
-      {/* MiniCanvas Section */}
-      <div className="flex-shrink-0">
-        <MiniCanvasPanel 
-          hueShift={hueShift}
-          saturation={saturation}
-          onHueShiftChange={handleHueShiftChange}
-          onSaturationChange={handleSaturationChange}
-        />
-      </div>
-      
       {/* Color Sliders Section */}
       <div className="flex-shrink-0">
         <ColorSlidersPanel

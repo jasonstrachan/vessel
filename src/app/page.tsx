@@ -7,7 +7,7 @@ import ControlsPanel from '../components/ControlsPanel';
 import ColorPickerPanel from '../components/panels/ColorPickerPanel';
 import ColorCyclePanel from '../components/panels/ColorCyclePanel';
 import DrawingCanvas from '../components/canvas/DrawingCanvas';
-import RHC1Panel from '../components/panels/RHC1Panel';
+// import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
 import { DocumentModal } from '../components/modals/DocumentModal';
 import { SettingsModal } from '../components/modals/SettingsModal';
 import { useAppStore } from '../stores/useAppStore';
@@ -110,13 +110,13 @@ export default function Home() {
       </div>
       
       {/* Separator */}
-      <div className="w-[2px] bg-[#424242] h-screen flex-shrink-0" />
+      {/* <div className="w-[2px] bg-[#424242] h-screen flex-shrink-0" /> */}
       
-      {/* RHC1 - MiniCanvas + Layers */}
-      <RHC1Panel />
+      {/* RHC1 - Color Controls + Layers - HIDDEN */}
+      {/* <RHC1Panel /> */}
       
       {/* Separator */}
-      <div className="w-[2px] bg-[#424242] h-screen flex-shrink-0" />
+      {/* <div className="w-[2px] bg-[#424242] h-screen flex-shrink-0" /> */}
       
       {/* RHC2 - ColorPickerPanel + BrushLibrary + ControlsPanel OR ColorCyclePanel */}
       <div className="flex flex-col h-screen flex-shrink-0" style={{ width: '240px', minWidth: '240px', maxWidth: '240px' }}>
