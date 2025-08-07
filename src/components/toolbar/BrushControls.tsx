@@ -19,6 +19,10 @@ const BrushControls = () => {
   } = useAppStore();
   const { brushSettings, eraserSettings, currentTool } = tools;
 
+  // Determine if current brush is custom (uses percentage) or default (uses pixels)
+  const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
+  const sizeUnit = isCustomBrush ? '%' : 'px';
+
   // Use the appropriate settings and setter based on current tool
   const activeSettings =
     currentTool === "eraser" ? eraserSettings : brushSettings;
@@ -122,15 +126,15 @@ const BrushControls = () => {
       <div className="mb-2">
         <div className="flex items-center gap-2">
           <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-            Size
+            Size {sizeUnit}
           </label>
           <ProgressSlider
             value={globalBrushSize}
-            min={1}
-            max={500}
+            min={isCustomBrush ? 1 : 1}
+            max={isCustomBrush ? 500 : 500}
             step={1}
             onChange={(value) => setGlobalBrushSize(Math.max(1, value))}
-            aria-label="Brush Size"
+            aria-label={`Brush Size (${sizeUnit})`}
             className="flex-1"
           />
         </div>

@@ -82,6 +82,10 @@ interface AppState {
   globalBrushSize: number;
   setGlobalBrushSize: (size: number) => void;
   
+  // Brush-specific size storage for default brushes (pixel-based)
+  defaultBrushSizes: Record<string, number>;
+  setDefaultBrushSize: (brushId: string, size: number) => void;
+  
   // Brush-specific settings storage
   brushSpecificSettings: Record<string, Partial<BrushSettings>>;
   saveBrushSettings: (brushId: string, settings: Partial<BrushSettings>) => void;
@@ -370,27 +374,53 @@ export const useAppStore = create<AppState>()(
       })),
       
       // Global brush settings
-      globalBrushSize: 10, // Default global size
+      globalBrushSize: 5, // Start with default brush size (5px)
       setGlobalBrushSize: (size) => set((state) => {
+        const currentSettings = state.tools.brushSettings;
+        const isCustomBrush = currentSettings.brushShape === BrushShape.CUSTOM;
+        
         // Update global size
         const newState = { globalBrushSize: size };
         
         // Also update current brush settings
         if (state.tools) {
+          const updatedBrushSettings = {
+            ...state.tools.brushSettings,
+            size
+          };
+          
+          // If it's a default brush, also save its size for persistence
+          if (!isCustomBrush && state.currentBrushPreset) {
+            get().setDefaultBrushSize(state.currentBrushPreset.id, size);
+          }
+          
           return {
             ...newState,
             tools: {
               ...state.tools,
-              brushSettings: {
-                ...state.tools.brushSettings,
-                size
-              }
+              brushSettings: updatedBrushSettings
             }
           };
         }
         
         return newState;
       }),
+      
+      // Default brush sizes storage (initialize with common defaults)
+      defaultBrushSizes: {
+        'pixel-brush': 1,
+        'default-brush': 5,
+        'round-pixel-4': 4,
+        'round-soft-4': 4,
+        'round-square-6': 6,
+        'ink-brush': 10
+      },
+      setDefaultBrushSize: (brushId, size) => set((state) => ({
+        defaultBrushSizes: {
+          ...state.defaultBrushSizes,
+          [brushId]: size
+        }
+      })),
       
       // Brush-specific settings storage (in-memory, separate from project)
       brushSpecificSettings: {},
@@ -982,6 +1012,20 @@ export const useAppStore = create<AppState>()(
         const currentSettings = state.tools.brushSettings;
 
 
+        // Determine if the new preset is custom or default
+        const isNewPresetCustom = presetDefaults.brushShape === BrushShape.CUSTOM;
+        
+        // Get appropriate size for this brush type
+        let appropriateSize;
+        if (isNewPresetCustom) {
+          // Custom brushes use percentage sizing (default 100%)
+          appropriateSize = 100;
+        } else {
+          // Default brushes use pixel sizing with persistence
+          const savedSize = state.defaultBrushSizes[preset.id];
+          appropriateSize = savedSize !== undefined ? savedSize : 5; // Default to 5px
+        }
+        
         const newBrushSettings = {
           ...defaultBrushSettingsForStore, // 1. Start with the absolute base defaults.
           ...presetDefaults,               // 2. Apply the preset settings (which now includes user overrides).
@@ -989,7 +1033,7 @@ export const useAppStore = create<AppState>()(
           // 3. Finally, preserve the settings that carry over between any brush.
           color: currentSettings.color,
           blendMode: currentSettings.blendMode,
-          size: state.globalBrushSize      // The global size always overrides any saved size.
+          size: appropriateSize            // Use appropriate size based on brush type
         };
         
         // Handle brush size restoration when switching between custom and regular brushes
@@ -1032,6 +1076,7 @@ export const useAppStore = create<AppState>()(
           ...state,
           currentBrushPreset: preset,
           activeBrushComponents: components,
+          globalBrushSize: appropriateSize, // Update global size to match new brush
           tools: {
             ...state.tools,
             brushSettings: newBrushSettings
@@ -1212,7 +1257,7 @@ export const useAppStore = create<AppState>()(
           ...state.tools.brushSettings,
           brushShape: BrushShape.CUSTOM,
           selectedCustomBrush: brush.id,
-          size: 100, // Default size for new custom brushes
+          size: 100, // Default size for custom brushes (100%)
           useSwatchColor: false, // Ensure it uses the brush's colors
           hueShift: 0,           // <--- CRITICAL: Reset global hueShift here
           saturationAdjust: 100  // <--- CRITICAL: Reset global saturationAdjust here
@@ -1220,6 +1265,7 @@ export const useAppStore = create<AppState>()(
 
         return {
           project: newProject,
+          globalBrushSize: 100, // Update global brush size to 100 for custom brushes
           tools: {
             ...state.tools,
             brushSettings: newBrushSettings
@@ -1292,6 +1338,8 @@ export const useAppStore = create<AppState>()(
           temporaryCustomBrush: null,
           // Update the project with the new custom brush
           project: updatedProject,
+          // Update global brush size to 100 for custom brushes
+          globalBrushSize: 100,
           // Keep the same brush selected but reset transformations since they're now baked in
           tools: {
             ...state.tools,
@@ -1302,7 +1350,8 @@ export const useAppStore = create<AppState>()(
               currentBrushTip: undefined, // Clear currentBrushTip since the brush is now saved
               useSwatchColor: false, // Default to false so custom brushes use their tip colors
               hueShift: 0,           // Reset since transformations are now baked into the brush
-              saturationAdjust: 100  // Reset since transformations are now baked into the brush
+              saturationAdjust: 100, // Reset since transformations are now baked into the brush
+              size: 100              // Set size to 100 for custom brushes
             }
           }
         };
@@ -1477,6 +1526,7 @@ export const useAppStore = create<AppState>()(
         // Check if this is an existing custom brush or a default brush being turned into custom
         const existingCustomBrush = state.project.customBrushes?.find(b => b.id === brushId);
         let updatedCustomBrushes: CustomBrush[];
+        let targetCustomBrushId: string;
         
         if (existingCustomBrush) {
           // Update existing custom brush
@@ -1485,11 +1535,13 @@ export const useAppStore = create<AppState>()(
               ? { ...brush, imageData: editedImageData, thumbnail, width: bounds.width, height: bounds.height }
               : brush
           );
+          targetCustomBrushId = existingCustomBrush.id;
         } else {
           // This was a default brush - create a new custom brush
           const defaultBrush = brushPresets.find(b => b.id === brushId);
+          const newCustomBrushId = `custom-${brushId}-${Date.now()}`;
           const newCustomBrush: CustomBrush = {
-            id: `custom-${brushId}-${Date.now()}`, // Generate unique ID
+            id: newCustomBrushId,
             name: `Custom ${defaultBrush?.name || 'Brush'}`,
             imageData: editedImageData,
             thumbnail,
@@ -1499,6 +1551,7 @@ export const useAppStore = create<AppState>()(
           };
           
           updatedCustomBrushes = [...(state.project.customBrushes || []), newCustomBrush];
+          targetCustomBrushId = newCustomBrushId;
         }
 
         // Restore original canvas state
@@ -1510,6 +1563,7 @@ export const useAppStore = create<AppState>()(
           captureCanvasToActiveLayer(canvas);
         }
 
+
         return {
           project: {
             ...state.project,
@@ -1520,6 +1574,9 @@ export const useAppStore = create<AppState>()(
             ...state.tools,
             brushSettings: {
               ...state.tools.brushSettings,
+              brushShape: BrushShape.CUSTOM,
+              selectedCustomBrush: targetCustomBrushId,
+              size: 100, // Set to 100% for custom brushes
               currentBrushTip: undefined // Clear currentBrushTip after saving
             }
           }

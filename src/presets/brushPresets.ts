@@ -184,7 +184,7 @@ export const defaultBrushPreset: BrushPreset = {
   createdAt: new Date(),
   modifiedAt: new Date(),
   preferredSettings: {
-    size: 100,
+    size: 5,
     antialiasing: true,
     pressureEnabled: false,
     rotationEnabled: false,
@@ -433,7 +433,7 @@ export const inkBrushPreset: BrushPreset = {
   createdAt: new Date(),
   modifiedAt: new Date(),
   preferredSettings: {
-    size: 50,
+    size: 5,
     antialiasing: true,
     pressureEnabled: true,
     minPressure: 10,
@@ -563,7 +563,7 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     settings.size = 1; // 1px default for pixel brush
     settings.antialiasing = false;
   } else if (preset.id === 'default-brush') {
-    settings.size = 10; // 10px default for default brush
+    settings.size = 5; // 5px default for default brush
     settings.antialiasing = true;
   } else if (preset.id === 'square-pixel-1') {
     settings.size = 1; // 1px default as per name
@@ -578,7 +578,7 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     settings.size = 6; // 6px default as per name
     settings.antialiasing = true;
   } else if (preset.id === 'ink-brush') {
-    settings.size = 10; // 10px default for ink brush
+    settings.size = 5; // 5px default for ink brush
     settings.antialiasing = true;
     settings.pressureEnabled = true;
     settings.minPressure = 1;
