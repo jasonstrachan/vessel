@@ -1517,7 +1517,11 @@ export const useAppStore = create<AppState>()(
           if (tempCtx) {
             tempCtx.putImageData(editedImageData, 0, 0);
             // Draw scaled version to thumbnail
-            thumbnailCtx.drawImage(tempCanvas, offsetX, offsetY, scaledWidth, scaledHeight);
+            thumbnailCtx.drawImage(
+              tempCanvas,
+              0, 0, bounds.width, bounds.height,         // Source: full tempCanvas
+              offsetX, offsetY, scaledWidth, scaledHeight // Destination: scaled in thumbnail
+            );
           }
           
           thumbnail = thumbnailCanvas.toDataURL();

@@ -1,7 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushShape, BrushPreset } from '../types';
 import PlusButton from './ui/PlusButton';
+import { generateBrushThumbnail } from '../utils/brushThumbnailGenerator';
 
 const BrushLibrary = () => {
   // FIX: Use individual selectors to avoid creating new objects on every render
@@ -43,6 +44,25 @@ const BrushLibrary = () => {
       }
     } as BrushPreset));
   }, [project?.customBrushes]);
+
+  // Generate thumbnails for regular brush presets (client-side only)
+  const [brushThumbnails, setBrushThumbnails] = React.useState<Record<string, string>>({});
+  
+  React.useEffect(() => {
+    const thumbnails: Record<string, string> = {};
+    
+    brushPresets.forEach(preset => {
+      if (!preset.isCustomBrush) {
+        thumbnails[preset.id] = generateBrushThumbnail(preset, {
+          size: 40,
+          brushColor: '#D9D9D9',
+          backgroundColor: 'transparent'
+        });
+      }
+    });
+    
+    setBrushThumbnails(thumbnails);
+  }, [brushPresets]);
 
   // Combine all brushes: regular presets + custom brushes
   const allBrushes = React.useMemo(() => {
@@ -225,21 +245,43 @@ const BrushLibrary = () => {
         </div>
       </div>
       
-      <div className="flex-1 px-3 py-2 space-y-0 overflow-y-auto">
+      <div className="flex-1 px-3 py-1 space-y-0 overflow-y-auto">
         {allBrushes.map((preset) => (
           <div
             key={preset.id}
             onClick={() => handlePresetClick(preset)}
-            className={`flex items-center justify-between px-2 py-1 cursor-pointer transition-colors ${
+            className={`flex items-center justify-between px-0 py-0 cursor-pointer transition-colors ${
               isPresetActive(preset)
                 ? 'bg-[#505050]' 
                 : 'hover:bg-[#404040]'
             }`}
           >
             <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-[#606060] rounded-sm flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '14px' }}>
-                {preset.isCustomBrush ? '▣' : preset.category === 'Pixel Art' ? '▪' : '●'}
-              </div>
+              {preset.isCustomBrush ? (
+                preset.thumbnail ? (
+                  <img 
+                    src={preset.thumbnail} 
+                    alt={`${preset.name} thumbnail`}
+                    className="w-10 h-10"
+                    style={{ imageRendering: 'pixelated' }}
+                  />
+                ) : (
+                  <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+                    ▣
+                  </div>
+                )
+              ) : brushThumbnails[preset.id] ? (
+                <img 
+                  src={brushThumbnails[preset.id]} 
+                  alt={`${preset.name} thumbnail`}
+                  className="w-10 h-10"
+                  style={{ imageRendering: 'auto' }}
+                />
+              ) : (
+                <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+                  {preset.category === 'Pixel Art' ? '▪' : '●'}
+                </div>
+              )}
               <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>{preset.name}</span>
             </div>
             <div className="flex items-center space-x-1">

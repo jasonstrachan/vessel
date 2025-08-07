@@ -86,7 +86,8 @@ export const CustomBrushPanel = () => {
       // Draw scaled capture
       thumbnailCtx.drawImage(
         captureCanvas,
-        offsetX, offsetY, scaledWidth, scaledHeight
+        0, 0, width, height,                          // Source: full captureCanvas
+        offsetX, offsetY, scaledWidth, scaledHeight   // Destination: scaled in thumbnail
       );
     }
     

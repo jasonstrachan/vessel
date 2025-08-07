@@ -2233,6 +2233,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Brush size shortcuts - different behavior for custom vs regular brushes
     if (e.key === '[') {
+      e.preventDefault();
       const fullState = useAppStore.getState();
       if (fullState.tools.brushSettings.brushShape === BrushShape.CUSTOM) {
         // Custom brush: decrease by 10% increments, minimum 10%
@@ -2241,7 +2242,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         // Regular brush: decrease by 1px, minimum 1px
         fullState.setBrushSettings({ size: Math.max(1, fullState.tools.brushSettings.size - 1) });
       }
+      return;
     } else if (e.key === ']') {
+      e.preventDefault();
       const fullState = useAppStore.getState();
       if (fullState.tools.brushSettings.brushShape === BrushShape.CUSTOM) {
         // Custom brush: increase by 10% increments, maximum 500%
@@ -2250,6 +2253,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         // Regular brush: increase by 1px, maximum 100px
         fullState.setBrushSettings({ size: Math.min(100, fullState.tools.brushSettings.size + 1) });
       }
+      return;
     }
     
     // Handle polygon gradient cancellation
