@@ -3,6 +3,17 @@
 // Basic Canvas Component with native Canvas API
 // Based on /docs/02_System_Architecture/Overall_Design.md (lines 65-74)
 
+// A simple helper function to log the content of a canvas for debugging
+const debugCanvas = (canvas: HTMLCanvasElement, label: string) => {
+  if (!canvas) {
+    console.log(`%c[CANVAS DEBUG] ${label}:`, 'color: orange; font-weight: bold;', 'Canvas element is null.');
+    return;
+  }
+  // Most browser consoles will render this data URL as a clickable link to the image
+  console.log(`%c[CANVAS DEBUG] ${label}:`, 'color: orange; font-weight: bold;', `(Dimensions: ${canvas.width}x${canvas.height})`);
+  console.log(canvas.toDataURL());
+};
+
 import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { useBrushEngine } from '../../hooks/useBrushEngine';
@@ -17,7 +28,6 @@ import { createShapePath, renderShape, simplifyPath } from '../../utils/shapeUti
 import type { Tool, CanvasSnapshot } from '../../types';
 import { BrushShape } from '../../types';
 import BrushCursor from './BrushCursor';
-import BrushEditorUI from './BrushEditorUI';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../../constants/canvas';
 
 
@@ -31,6 +41,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement>(null);
+  const debugNextRender = useRef(false); // Debug flag to track render loop
   const needsRedraw = useRef(false);
   const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
   const handleKeyUpRef = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -200,6 +211,14 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   
   // Shape preview cache for performance
   const shapePreviewCacheRef = useRef<HTMLCanvasElement | null>(null);
+  const brushPreviewRef = useRef<{
+    tempCanvas: HTMLCanvasElement;
+    centerX: number;
+    centerY: number;
+    brushWidth: number;
+    brushHeight: number;
+    bounds: { x: number; y: number; width: number; height: number };
+  } | null>(null);
   
   // Rectangle brush live state (use ref to avoid re-renders during drag)
   const rectangleBrushLiveState = useRef({
@@ -334,6 +353,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   const colorCycleState = useAppStore(state => state.colorCycleState);
   const temporaryCustomBrush = useAppStore(state => state.temporaryCustomBrush);
   const brushEditor = useAppStore(state => state.brushEditor);
+  const brushPresets = useAppStore(state => state.brushPresets);
   
   // Get store actions (these don't cause re-renders when called)
   const {
@@ -636,6 +656,13 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
   // Render the view with zoom/pan transformations using dirty rectangle optimization
   const renderView = useCallback(() => {
+    // --- ADD THIS CONDITIONAL BLOCK ---
+    if (debugNextRender.current) {
+      debugCanvas(offscreenCanvasRef.current, 'Offscreen canvas at START of renderView');
+      debugNextRender.current = false; // Reset the flag so it only runs once
+    }
+    // --- END OF BLOCK ---
+
     const canvasElement = canvasRef.current;
     const offscreenCanvas = offscreenCanvasRef.current;
     if (!canvasElement || !offscreenCanvas) return;
@@ -913,6 +940,45 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       }
       
       ctx.restore();
+    }
+    
+    // Draw brush editing bounds indicator
+    if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
+      const bounds = brushEditor.editingBounds;
+      
+      ctx.save();
+      ctx.strokeStyle = '#00ff00'; // Bright green border
+      ctx.lineWidth = 2 / canvas.zoom; // Scale with zoom
+      ctx.setLineDash([5 / canvas.zoom, 5 / canvas.zoom]); // Dashed line
+      ctx.strokeRect(
+        (bounds.x - canvas.panX) * canvas.zoom,
+        (bounds.y - canvas.panY) * canvas.zoom,
+        bounds.width * canvas.zoom,
+        bounds.height * canvas.zoom
+      );
+      ctx.restore();
+    }
+    
+    // Draw brush preview in editing mode (aligned with the green border)
+    if (brushEditor.status === 'EDITING' && brushPreviewRef.current) {
+      const preview = brushPreviewRef.current;
+      
+      ctx.save();
+      // Draw the brush preview at the same transformed position as the green border
+      ctx.drawImage(
+        preview.tempCanvas,
+        (preview.centerX - canvas.panX) * canvas.zoom,
+        (preview.centerY - canvas.panY) * canvas.zoom,
+        preview.brushWidth * canvas.zoom,
+        preview.brushHeight * canvas.zoom
+      );
+      ctx.restore();
+    }
+    
+    // --- DEBUG: Check what was actually rendered to the visible canvas ---
+    // Only run this debug when we're in a brush editing debug session
+    if (brushEditor.status === 'EDITING') {
+      debugCanvas(canvasElement, 'Visible canvas at END of renderView (what user should see)');
     }
     
     // Clear dirty regions after rendering
@@ -2487,8 +2553,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Create offscreen canvas for storing artwork
     if (!offscreenCanvasRef.current) {
       offscreenCanvasRef.current = document.createElement('canvas');
-      offscreenCanvasRef.current.width = width;
-      offscreenCanvasRef.current.height = height;
+      offscreenCanvasRef.current.width = scaledWidth;
+      offscreenCanvasRef.current.height = scaledHeight;
       
       // Register canvas with store for color cycling capture
       setCurrentOffscreenCanvas(offscreenCanvasRef.current);
@@ -2537,19 +2603,19 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       const currentWidth = offscreenCanvasRef.current.width;
       const currentHeight = offscreenCanvasRef.current.height;
       
-      // Only resize if dimensions actually changed
-      if (currentWidth !== width || currentHeight !== height) {
+      // Only resize if dimensions actually changed (now checking against scaledWidth/Height)
+      if (currentWidth !== scaledWidth || currentHeight !== scaledHeight) {
         // Save current content before resizing
         const offscreenCtx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         if (offscreenCtx) {
           const imageData = offscreenCtx.getImageData(0, 0, 
-            Math.min(currentWidth, width), 
-            Math.min(currentHeight, height)
+            Math.min(currentWidth, scaledWidth), 
+            Math.min(currentHeight, scaledHeight)
           );
           
           // Resize the canvas
-          offscreenCanvasRef.current.width = width;
-          offscreenCanvasRef.current.height = height;
+          offscreenCanvasRef.current.width = scaledWidth;
+          offscreenCanvasRef.current.height = scaledHeight;
           
           // Restore content
           offscreenCtx.putImageData(imageData, 0, 0);
@@ -2592,20 +2658,25 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       const currentWidth = offscreenCanvasRef.current.width;
       const currentHeight = offscreenCanvasRef.current.height;
       
+      // Get device pixel ratio for consistent scaling
+      const pixelRatio = window.devicePixelRatio || 1;
+      const scaledWidth = width * pixelRatio;
+      const scaledHeight = height * pixelRatio;
+      
       // Only resize if dimensions actually changed
-      if (currentWidth !== width || currentHeight !== height) {
+      if (currentWidth !== scaledWidth || currentHeight !== scaledHeight) {
         
         // Save current content before resizing
         const ctx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         if (ctx) {
           const imageData = ctx.getImageData(0, 0, 
-            Math.min(currentWidth, width), 
-            Math.min(currentHeight, height)
+            Math.min(currentWidth, scaledWidth), 
+            Math.min(currentHeight, scaledHeight)
           );
           
           // Resize the canvas
-          offscreenCanvasRef.current.width = width;
-          offscreenCanvasRef.current.height = height;
+          offscreenCanvasRef.current.width = scaledWidth;
+          offscreenCanvasRef.current.height = scaledHeight;
           
           // Restore content
           ctx.putImageData(imageData, 0, 0);
@@ -2836,20 +2907,167 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   useEffect(() => {
     if (layersNeedRecomposition) {
       
-      // Skip layer recomposition during history operations to prevent interference
-      if (history.isCapturing) {
-        return;
+      // FIX: Add a guard to prevent wiping the canvas when entering edit mode.
+      // In edit mode or during undo/redo, the canvas is already in the desired state.
+      // We just need to trigger a redraw, not a full, destructive recomposition.
+      if (history.isCapturing || brushEditor.status === 'EDITING') {
+        console.log('🔍 LAYER GUARD DEBUG: Skipping layer recomposition in edit mode');
+        if (offscreenCanvasRef.current) {
+          debugCanvas(offscreenCanvasRef.current, 'Layer guard - preserving canvas');
+        }
+        markFullRedraw();
+        needsRedraw.current = true;
+        setLayersNeedRecomposition(false); // Always consume the flag
+        return; // Exit early
       }
       
       if (offscreenCanvasRef.current) {
+        console.log('🔍 LAYER RECOMPOSITION DEBUG: Compositing layers to canvas');
+        debugCanvas(offscreenCanvasRef.current, 'Before layer recomposition');
         compositeLayersToCanvas(offscreenCanvasRef.current);
+        debugCanvas(offscreenCanvasRef.current, 'After layer recomposition');
         markFullRedraw();
         needsRedraw.current = true;
         setLayersNeedRecomposition(false);
-      } else {
       }
     }
-  }, [layersNeedRecomposition, compositeLayersToCanvas, renderView, setLayersNeedRecomposition, layers, history.isCapturing, markFullRedraw]);
+  }, [
+    layersNeedRecomposition, 
+    compositeLayersToCanvas, 
+    setLayersNeedRecomposition, 
+    history.isCapturing, 
+    brushEditor.status, // Add brushEditor.status as a dependency
+    markFullRedraw
+  ]);
+
+  // Brush editor drawing effect - handles drawing the brush preview when entering edit mode
+  useEffect(() => {
+    const offscreenCanvas = offscreenCanvasRef.current;
+    
+    console.log(`%c[DEBUG] Brush editor useEffect triggered`, 'color: yellow', {
+      status: brushEditor.status,
+      editingBrushId: brushEditor.editingBrushId,
+      hasBounds: !!brushEditor.editingBounds,
+      hasCanvas: !!offscreenCanvas
+    });
+    
+    // Check if we just entered editing mode
+    if (brushEditor.status === 'EDITING' && offscreenCanvas && brushEditor.editingBrushId && brushEditor.editingBounds) {
+      console.log('🔍 BRUSH EDIT DEBUG: Starting brush drawing useEffect');
+      debugCanvas(offscreenCanvas, 'Before brush drawing');
+      
+      const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+      if (!offscreenCtx) return;
+
+      // --- Find the brush data (logic adapted from the store) ---
+      let brushData: any | null = null; // Use `any` to match store types
+
+      // 1. Check project's custom brushes
+      if (project?.customBrushes) {
+        brushData = project.customBrushes.find(b => b.id === brushEditor.editingBrushId) || null;
+      }
+
+      // 2. If not found, check default presets and generate a temporary shape
+      if (!brushData) {
+        const defaultBrush = brushPresets.find(b => b.id === brushEditor.editingBrushId);
+        if (defaultBrush) {
+          const tempCanvas = document.createElement('canvas');
+          const size = 32;
+          tempCanvas.width = size;
+          tempCanvas.height = size;
+          const tempCtx = tempCanvas.getContext('2d');
+          if (tempCtx) {
+            tempCtx.fillStyle = '#000000';
+            if (defaultBrush.id.includes('square') || defaultBrush.id.includes('pixel')) {
+              tempCtx.fillRect(0, 0, size, size);
+            } else {
+              tempCtx.beginPath();
+              tempCtx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+              tempCtx.fill();
+            }
+            brushData = { imageData: tempCtx.getImageData(0, 0, size, size) };
+          }
+        }
+      }
+
+      // --- ADD THIS DEBUG BLOCK ---
+      console.log(`%c[DEBUG] Trying to find brush with ID: ${brushEditor.editingBrushId}`, 'color: cyan');
+      
+      if (!brushData) {
+        console.error('[DEBUG] Brush data could not be found for the given ID.');
+        console.log('Available brushes in project:', project?.customBrushes?.map(b => b.id));
+        console.log('Available preset brushes:', brushPresets.map(b => b.id));
+        return;
+      }
+      if (!brushData.imageData) {
+        console.error('[DEBUG] Brush data was found, but it has no imageData property.', brushData);
+        return;
+      }
+      
+      console.log('%c[DEBUG] Found brushData, imageData is:', 'color: lightgreen', brushData.imageData);
+      // --- END DEBUG BLOCK ---
+
+      console.log('🔍 BRUSH EDIT DEBUG: Found brush data, preparing to draw');
+      // --- Now, perform the drawing side-effect here in the component ---
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = brushData.imageData.width;
+      tempCanvas.height = brushData.imageData.height;
+      const tempCtx = tempCanvas.getContext('2d');
+
+      if (tempCtx) {
+        tempCtx.putImageData(brushData.imageData, 0, 0);
+
+        // Draw the brush onto the offscreen canvas
+        const bounds = brushEditor.editingBounds;
+        const offscreenCtx = offscreenCanvas.getContext('2d');
+        if (!offscreenCtx) return;
+        
+        offscreenCtx.save();
+        
+        // Set up clipping to the editing bounds
+        offscreenCtx.beginPath();
+        offscreenCtx.rect(bounds.x, bounds.y, bounds.width, bounds.height);
+        offscreenCtx.clip();
+        
+        // Calculate centered position for the brush at its original size
+        const brushWidth = brushData.imageData.width;
+        const brushHeight = brushData.imageData.height;
+        const centerX = bounds.x + (bounds.width - brushWidth) / 2;
+        const centerY = bounds.y + (bounds.height - brushHeight) / 2;
+        
+        console.log(`%c[DEBUG] Drawing brush at position:`, 'color: orange', {
+          centerX, centerY, brushWidth, brushHeight,
+          boundsX: bounds.x, boundsY: bounds.y,
+          boundsWidth: bounds.width, boundsHeight: bounds.height
+        });
+        
+        // Store brush preview data for rendering, don't draw permanently to offscreen canvas
+        brushPreviewRef.current = {
+          tempCanvas,
+          centerX,
+          centerY,
+          brushWidth,
+          brushHeight,
+          bounds
+        };
+        
+        offscreenCtx.restore();
+
+        // --- ADD THE FOLLOWING DEBUG LINES ---
+        console.log('%c[DEBUG] Brush preview stored, ready for rendering.', 'color: lightgreen');
+        debugCanvas(offscreenCanvas, 'Offscreen canvas (should be clean for editing)');
+        debugNextRender.current = true; // Tell the render loop to log the next frame
+        // --- END OF DEBUG LINES ---
+
+        // IMPORTANT: Trigger a redraw of the visible canvas
+        markFullRedraw();
+        needsRedraw.current = true;
+      }
+    } else {
+      // Clear brush preview when not in editing mode
+      brushPreviewRef.current = null;
+    }
+  }, [brushEditor.status, brushEditor.editingBrushId, brushEditor.editingBounds, project, brushPresets, markFullRedraw]);
 
   // Color cycle animation loop
   useEffect(() => {
@@ -3018,8 +3236,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         )}
       </div>
 
-      {/* Brush Editor UI */}
-      <BrushEditorUI />
 
       {/* Brush cursor preview */}
       <BrushCursor

@@ -175,7 +175,7 @@ const ColorPickerPanel = React.memo(() => {
       </div>
 
       {/* RGB Sliders - Full Width Section */}
-      <div className="px-1 py-1 bg-[#2C2C2C]">
+      <div className="px-2 py-1 bg-[#2C2C2C]">
         <div>
           {/* Red slider */}
           <input

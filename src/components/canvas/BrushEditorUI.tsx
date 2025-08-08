@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
@@ -7,23 +7,55 @@ interface BrushEditorUIProps {}
 const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   const brushEditor = useAppStore((state) => state.brushEditor);
   const canvas = useAppStore((state) => state.canvas);
+  const [screenBounds, setScreenBounds] = useState<{x: number, y: number, width: number, height: number} | null>(null);
 
-  if (brushEditor.status !== 'EDITING' || !brushEditor.editingBounds) {
+  // Calculate screen coordinates by finding the actual canvas element position
+  useEffect(() => {
+    if (brushEditor.status !== 'EDITING' || !brushEditor.editingBounds) {
+      setScreenBounds(null);
+      return;
+    }
+
+    const bounds = brushEditor.editingBounds;
+    
+    // Find the canvas element to get its screen position
+    const canvasElement = document.querySelector('canvas') as HTMLCanvasElement;
+    if (!canvasElement) {
+      setScreenBounds(null);
+      return;
+    }
+    
+    const canvasRect = canvasElement.getBoundingClientRect();
+    
+    // Transform world coordinates to canvas logical coordinates
+    const canvasLogicalX = (bounds.x - canvas.panX) * canvas.zoom;
+    const canvasLogicalY = (bounds.y - canvas.panY) * canvas.zoom;
+    const canvasLogicalWidth = bounds.width * canvas.zoom;
+    const canvasLogicalHeight = bounds.height * canvas.zoom;
+    
+    // Calculate scaling factor from canvas logical size to screen size
+    const scaleX = canvasRect.width / canvasElement.width;
+    const scaleY = canvasRect.height / canvasElement.height;
+    
+    // Convert to screen coordinates
+    const screenX = canvasRect.left + canvasLogicalX * scaleX;
+    const screenY = canvasRect.top + canvasLogicalY * scaleY;
+    const screenWidth = canvasLogicalWidth * scaleX;
+    const screenHeight = canvasLogicalHeight * scaleY;
+    
+    setScreenBounds({ x: screenX, y: screenY, width: screenWidth, height: screenHeight });
+  }, [brushEditor.status, brushEditor.editingBounds, canvas.zoom, canvas.panX, canvas.panY]);
+
+  if (brushEditor.status !== 'EDITING' || !brushEditor.editingBounds || !screenBounds) {
     return null;
   }
 
-  const bounds = brushEditor.editingBounds;
+  const { x: screenX, y: screenY, width: screenWidth, height: screenHeight } = screenBounds;
 
-  // Calculate screen coordinates for the editing area
-  const screenX = bounds.x * canvas.zoom + canvas.panX;
-  const screenY = bounds.y * canvas.zoom + canvas.panY;
-  const screenWidth = bounds.width * canvas.zoom;
-  const screenHeight = bounds.height * canvas.zoom;
-
-  // Create overlay parts around the editing area
+  // Create overlay parts around the editing area using fixed positioning
   const overlayParts = {
     top: {
-      position: 'absolute' as const,
+      position: 'fixed' as const,
       top: 0,
       left: 0,
       right: 0,
@@ -33,7 +65,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
       zIndex: 10,
     },
     bottom: {
-      position: 'absolute' as const,
+      position: 'fixed' as const,
       top: screenY + screenHeight,
       left: 0,
       right: 0,
@@ -43,7 +75,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
       zIndex: 10,
     },
     left: {
-      position: 'absolute' as const,
+      position: 'fixed' as const,
       top: screenY,
       left: 0,
       width: Math.max(0, screenX),
@@ -53,7 +85,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
       zIndex: 10,
     },
     right: {
-      position: 'absolute' as const,
+      position: 'fixed' as const,
       top: screenY,
       left: screenX + screenWidth,
       right: 0,
@@ -66,30 +98,26 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
 
   // Animated border around the editing area
   const borderStyle: React.CSSProperties = {
-    position: 'absolute',
-    // FIX: Position the border precisely over the editable area.
-    // Subtracting half the border width from left/top ensures it's centered on the edge.
+    position: 'fixed',
+    // Position the border precisely over the editable area using screen coordinates
     left: screenX - 1,
     top: screenY - 1,
     width: screenWidth,
     height: screenHeight,
-    border: '2px dashed #FFF', // Changed color for better visibility against dark overlay
-    // FIX: Use 'border-box' so the border width is included IN the element's dimensions.
-    // This prevents the gap that was stopping you from drawing to the edge.
+    border: '2px dashed #FFF', // White dashed border for visibility
     boxSizing: 'border-box',
     pointerEvents: 'none',
     zIndex: 11,
-    // Add a simple animation
-    animation: 'pulse 2s infinite',
+    // Add marching ants animation
+    animation: 'marchingAnts 1s linear infinite',
   };
 
   return (
     <>
       <style>{`
-        @keyframes pulse {
-          0% { opacity: 1; }
-          50% { opacity: 0.4; }
-          100% { opacity: 1; }
+        @keyframes marchingAnts {
+          0% { border-offset: 0; }
+          100% { border-offset: 8px; }
         }
       `}</style>
       <div style={overlayParts.top} />

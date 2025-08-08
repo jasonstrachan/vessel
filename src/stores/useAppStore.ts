@@ -39,11 +39,11 @@ import {
   loadProjectFromFile, 
   exportProjectAsPNG
 } from '../utils/projectIO';
-import { memoryManager } from '../utils/memoryCleanup';
+// import { memoryManager } from '../utils/memoryCleanup';
 import { brushCache } from '../utils/brushCache';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 import { adjustHueAndSaturation } from '../utils/imageProcessing';
-import { applyCycleToLayer, buildColorMapping, buildLayerColorIndexMap, hexToRgb, buildShiftedColors, applyCycleToLayers_Optimized } from '../utils/colorCycling';
+import { buildLayerColorIndexMap, hexToRgb, buildShiftedColors, applyCycleToLayers_Optimized } from '../utils/colorCycling';
 
 // Helper function to get serializable brush settings for persistence
 const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSettings> => {
@@ -82,7 +82,13 @@ interface AppState {
   globalBrushSize: number;
   setGlobalBrushSize: (size: number) => void;
   
-  // Brush-specific size storage for default brushes (pixel-based)
+  // Unified size settings - one for all default brushes, one for all custom brushes
+  defaultBrushesSize: number;  // Pixel-based size for all default brushes
+  customBrushesSize: number;   // Percentage-based size for all custom brushes
+  setDefaultBrushesSize: (size: number) => void;
+  setCustomBrushesSize: (size: number) => void;
+  
+  // Brush-specific size storage for default brushes (pixel-based) - DEPRECATED
   defaultBrushSizes: Record<string, number>;
   setDefaultBrushSize: (brushId: string, size: number) => void;
   
@@ -375,12 +381,24 @@ export const useAppStore = create<AppState>()(
       
       // Global brush settings
       globalBrushSize: 5, // Start with default brush size (5px)
+      
+      // Unified size settings - one for all default brushes, one for all custom brushes
+      defaultBrushesSize: 5,   // 5px for all default brushes
+      customBrushesSize: 100,  // 100% for all custom brushes
       setGlobalBrushSize: (size) => set((state) => {
         const currentSettings = state.tools.brushSettings;
         const isCustomBrush = currentSettings.brushShape === BrushShape.CUSTOM;
         
-        // Update global size
-        const newState = { globalBrushSize: size };
+        // Update the appropriate unified size based on brush type
+        const newState: { globalBrushSize: number; customBrushesSize?: number; defaultBrushesSize?: number } = { globalBrushSize: size };
+        
+        if (isCustomBrush) {
+          // Update custom brushes size
+          newState.customBrushesSize = size;
+        } else {
+          // Update default brushes size
+          newState.defaultBrushesSize = size;
+        }
         
         // Also update current brush settings
         if (state.tools) {
@@ -388,11 +406,6 @@ export const useAppStore = create<AppState>()(
             ...state.tools.brushSettings,
             size
           };
-          
-          // If it's a default brush, also save its size for persistence
-          if (!isCustomBrush && state.currentBrushPreset) {
-            get().setDefaultBrushSize(state.currentBrushPreset.id, size);
-          }
           
           return {
             ...newState,
@@ -420,6 +433,16 @@ export const useAppStore = create<AppState>()(
           ...state.defaultBrushSizes,
           [brushId]: size
         }
+      })),
+      
+      // Unified size setter functions
+      setDefaultBrushesSize: (size) => set(() => ({
+        defaultBrushesSize: size,
+        globalBrushSize: size // Keep global size in sync
+      })),
+      setCustomBrushesSize: (size) => set(() => ({
+        customBrushesSize: size,
+        globalBrushSize: size // Keep global size in sync
       })),
       
       // Brush-specific settings storage (in-memory, separate from project)
@@ -1028,15 +1051,14 @@ export const useAppStore = create<AppState>()(
         // Determine if the new preset is custom or default
         const isNewPresetCustom = presetDefaults.brushShape === BrushShape.CUSTOM;
         
-        // Get appropriate size for this brush type
+        // Get appropriate size for this brush type using unified sizing
         let appropriateSize;
         if (isNewPresetCustom) {
-          // Custom brushes use percentage sizing (default 100%)
-          appropriateSize = 100;
+          // All custom brushes use the shared custom brushes size
+          appropriateSize = state.customBrushesSize;
         } else {
-          // Default brushes use pixel sizing with persistence
-          const savedSize = state.defaultBrushSizes[preset.id];
-          appropriateSize = savedSize !== undefined ? savedSize : 5; // Default to 5px
+          // All default brushes use the shared default brushes size
+          appropriateSize = state.defaultBrushesSize;
         }
         
         const newBrushSettings = {
@@ -1270,7 +1292,7 @@ export const useAppStore = create<AppState>()(
           ...state.tools.brushSettings,
           brushShape: BrushShape.CUSTOM,
           selectedCustomBrush: brush.id,
-          size: 100, // Default size for custom brushes (100%)
+          // Preserve current size instead of resetting to 100
           useSwatchColor: false, // Ensure it uses the brush's colors
           hueShift: 0,           // <--- CRITICAL: Reset global hueShift here
           saturationAdjust: 100  // <--- CRITICAL: Reset global saturationAdjust here
@@ -1278,10 +1300,15 @@ export const useAppStore = create<AppState>()(
 
         return {
           project: newProject,
-          globalBrushSize: 100, // Update global brush size to 100 for custom brushes
+          // When creating a new custom brush, set all custom brushes to 100%
+          customBrushesSize: 100,
+          globalBrushSize: 100,
           tools: {
             ...state.tools,
-            brushSettings: newBrushSettings
+            brushSettings: {
+              ...newBrushSettings,
+              size: 100 // New custom brush starts at 100%
+            }
           }
         };
       }),
@@ -1299,12 +1326,16 @@ export const useAppStore = create<AppState>()(
           }
         };
       }),
-      removeCustomBrush: (brushId) => set((state) => ({
-        project: state.project ? {
-          ...state.project,
-          customBrushes: state.project.customBrushes.filter(b => b.id !== brushId)
-        } : null
-      })),
+      removeCustomBrush: (brushId) => set((state) => {
+        if (!state.project) return state;
+        
+        return {
+          project: {
+            ...state.project,
+            customBrushes: state.project.customBrushes.filter(b => b.id !== brushId)
+          }
+        };
+      }),
       saveCustomBrushAsPreset: (customBrushId) => set((state) => {
         // This function should actually just save temporary brushes to the project
         // Check if this is a temporary brush
@@ -1351,7 +1382,8 @@ export const useAppStore = create<AppState>()(
           temporaryCustomBrush: null,
           // Update the project with the new custom brush
           project: updatedProject,
-          // Update global brush size to 100 for custom brushes
+          // When saving a new custom brush, set all custom brushes to 100%
+          customBrushesSize: 100,
           globalBrushSize: 100,
           // Keep the same brush selected but reset transformations since they're now baked in
           tools: {
@@ -1364,7 +1396,7 @@ export const useAppStore = create<AppState>()(
               useSwatchColor: false, // Default to false so custom brushes use their tip colors
               hueShift: 0,           // Reset since transformations are now baked into the brush
               saturationAdjust: 100, // Reset since transformations are now baked into the brush
-              size: 100              // Set size to 100 for custom brushes
+              size: 100              // New custom brush starts at 100%
             }
           }
         };
@@ -1393,7 +1425,9 @@ export const useAppStore = create<AppState>()(
       brushEditor: defaultBrushEditorState,
       startBrushEdit: (brushId, canvas) => set((state) => {
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        if (!ctx || !state.project) return state;
+        if (!ctx || !state.project) {
+          return state;
+        }
 
         let brushData: CustomBrush | null = null;
 
@@ -1445,32 +1479,21 @@ export const useAppStore = create<AppState>()(
         // If still no brush found, exit
         if (!brushData) return state;
 
-        // Calculate centered bounds
+        // Calculate centered bounds using the actual canvas dimensions
         const brushWidth = brushData.imageData.width;
         const brushHeight = brushData.imageData.height;
-        const centerX = Math.floor((canvas.width - brushWidth) / 2);
-        const centerY = Math.floor((canvas.height - brushHeight) / 2);
+        
+        // Get the canvas dimensions - if it's the offscreen canvas, use project dimensions
+        const canvasWidth = state.project?.width || canvas.width;
+        const canvasHeight = state.project?.height || canvas.height;
+        
+        const centerX = Math.floor((canvasWidth - brushWidth) / 2);
+        const centerY = Math.floor((canvasHeight - brushHeight) / 2);
         
         const bounds = { x: centerX, y: centerY, width: brushWidth, height: brushHeight };
 
         // Capture original canvas state at bounds
         const originalCanvasState = ctx.getImageData(bounds.x, bounds.y, bounds.width, bounds.height);
-
-        // Set up clipping region for the editing bounds
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(bounds.x, bounds.y, bounds.width, bounds.height);
-        ctx.clip();
-        
-        // Place brush pixel data onto canvas
-        ctx.putImageData(brushData.imageData, bounds.x, bounds.y);
-        
-        // Restore the clipping context
-        ctx.restore();
-
-        // Capture to active layer so it's visible
-        const captureCanvasToActiveLayer = get().captureCanvasToActiveLayer;
-        captureCanvasToActiveLayer(canvas);
 
         // Switch to default drawing tool to allow drawing on the brush tip
         // This prevents the confusing state of editing a brush with itself
@@ -1479,6 +1502,12 @@ export const useAppStore = create<AppState>()(
           get().setBrushPreset(defaultBrushPreset);
         }
 
+        console.log('🔍 STORE DEBUG: startBrushEdit setting status to EDITING', {
+          brushId,
+          bounds,
+          hasOriginalCanvasState: !!originalCanvasState
+        });
+        
         return {
           brushEditor: {
             status: 'EDITING' as const,
@@ -1575,16 +1604,16 @@ export const useAppStore = create<AppState>()(
         if (state.brushEditor.originalCanvasState) {
           ctx.putImageData(state.brushEditor.originalCanvasState, bounds.x, bounds.y);
           
-          // Capture the restored state to active layer
-          const captureCanvasToActiveLayer = get().captureCanvasToActiveLayer;
-          captureCanvasToActiveLayer(canvas);
+          // NOTE: Removed captureCanvasToActiveLayer call here as it was corrupting the project layers
+          // The canvas restoration is sufficient for visual feedback
         }
 
 
         return {
           project: {
             ...state.project,
-            customBrushes: updatedCustomBrushes
+            customBrushes: updatedCustomBrushes,
+            updatedAt: new Date()
           },
           brushEditor: defaultBrushEditorState,
           tools: {
@@ -1593,7 +1622,7 @@ export const useAppStore = create<AppState>()(
               ...state.tools.brushSettings,
               brushShape: BrushShape.CUSTOM,
               selectedCustomBrush: targetCustomBrushId,
-              size: 100, // Set to 100% for custom brushes
+              // Preserve current size instead of resetting to 100
               currentBrushTip: undefined // Clear currentBrushTip after saving
             }
           }
@@ -1620,9 +1649,8 @@ export const useAppStore = create<AppState>()(
           // Restore original canvas state
           ctx.putImageData(state.brushEditor.originalCanvasState, state.brushEditor.editingBounds.x, state.brushEditor.editingBounds.y);
           
-          // Capture the restored state to active layer
-          const captureCanvasToActiveLayer = get().captureCanvasToActiveLayer;
-          captureCanvasToActiveLayer(canvas);
+          // NOTE: Removed captureCanvasToActiveLayer call here as it was corrupting the project layers
+          // The canvas restoration is sufficient for visual feedback
         }
 
         // Clear currentBrushTip when canceling brush edit
@@ -2017,10 +2045,7 @@ export const useAppStore = create<AppState>()(
           console.log(`Compositing with color cycle index ${state.colorCycleState.currentColorIndex}, ${shiftedColorsRGB.length} shifted colors`);
         }
           
-        // Fallback color map for legacy path
-        const colorMap = (isColorCycling && !useOptimizedCycling) ? 
-          buildColorMapping(state.colorCycleState.selectedColors, state.colorCycleState.currentColorIndex) : 
-          new Map();
+        // Using optimized color cycling only
         
         for (const layer of sortedLayers) {
           if (!layer.visible || !layer.imageData) {
@@ -2063,11 +2088,8 @@ export const useAppStore = create<AppState>()(
                 }
               }
             } else {
-              // Fallback to legacy method
-              const cycledData = applyCycleToLayer(layer, colorMap, state.colorCycleState.selectedColors);
-              if (cycledData) {
-                layerImageData = cycledData;
-              }
+              // No fallback - use original layer data
+              layerImageData = layer.imageData;
             }
           }
           

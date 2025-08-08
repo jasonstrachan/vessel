@@ -10,7 +10,8 @@ export const CustomBrushPanel = () => {
     currentLayer,
     selectionStart,
     selectionEnd,
-    clearSelection
+    clearSelection,
+    currentOffscreenCanvas
   } = useAppStore();
 
   const handleAddCustomBrush = () => {
@@ -42,14 +43,14 @@ export const CustomBrushPanel = () => {
       return;
     }
     
-    // Get the P5 layer canvas
-    const layerCanvas = document.querySelector('canvas'); // This gets the main P5 canvas
+    // Get the offscreen canvas where the actual drawing data is stored
+    const layerCanvas = currentOffscreenCanvas;
     if (!layerCanvas) {
       return;
     }
     
-    // The canvas coordinates are already in canvas space (not screen space)
-    // since selection coordinates are calculated with zoom/pan adjustments
+    // The selection coordinates are in world space (accounting for zoom/pan)
+    // and can be used directly with the offscreen canvas
     
     // Capture the selection area from the main canvas (composite of all layers)
     try {

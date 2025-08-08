@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushShape, BrushPreset } from '../types';
 import PlusButton from './ui/PlusButton';
@@ -161,7 +161,7 @@ const BrushLibrary = () => {
           saveBrushEdit(currentOffscreenCanvas);
           // Start editing the new brush
           startBrushEdit(customBrushId, currentOffscreenCanvas);
-          setLayersNeedRecomposition(true);
+          // Note: Don't call setLayersNeedRecomposition here - let the brush drawing useEffect handle redraw
         }
         // If clicking the same brush that's being edited, do nothing
         return;
@@ -228,7 +228,7 @@ const BrushLibrary = () => {
       }
       startBrushEdit(customBrushId, currentOffscreenCanvas);
     }
-    setLayersNeedRecomposition(true);
+    // Note: Don't call setLayersNeedRecomposition here - let the brush drawing useEffect handle redraw
   };
 
   return (
