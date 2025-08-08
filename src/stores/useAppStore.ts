@@ -1502,11 +1502,6 @@ export const useAppStore = create<AppState>()(
           get().setBrushPreset(defaultBrushPreset);
         }
 
-        console.log('🔍 STORE DEBUG: startBrushEdit setting status to EDITING', {
-          brushId,
-          bounds,
-          hasOriginalCanvasState: !!originalCanvasState
-        });
         
         return {
           brushEditor: {
@@ -1622,7 +1617,7 @@ export const useAppStore = create<AppState>()(
               ...state.tools.brushSettings,
               brushShape: BrushShape.CUSTOM,
               selectedCustomBrush: targetCustomBrushId,
-              // Preserve current size instead of resetting to 100
+              size: 100, // Always set to 100% size after editing
               currentBrushTip: undefined // Clear currentBrushTip after saving
             }
           }
