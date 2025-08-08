@@ -221,6 +221,7 @@ const BrushLibrary = () => {
 
     if (isEditingThisBrush) {
       saveBrushEdit(currentOffscreenCanvas);
+      setLayersNeedRecomposition(true); // Force immediate redraw to remove editing border
     } else {
       // If editing another brush, cancel first, then start new edit
       if (brushEditor.status === 'EDITING') {
@@ -228,7 +229,6 @@ const BrushLibrary = () => {
       }
       startBrushEdit(customBrushId, currentOffscreenCanvas);
     }
-    // Note: Don't call setLayersNeedRecomposition here - let the brush drawing useEffect handle redraw
   };
 
   return (

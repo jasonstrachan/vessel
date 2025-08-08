@@ -6,6 +6,7 @@
     "dev": "next dev",
     "dev:clean": "rm -rf .next && next dev",
     "dev:turbo": "next dev --turbo",
+    "dev:memory": "WEBPACK_CACHE_TYPE=memory next dev",
     "build": "next build",
     "build:github": "next build && touch out/.nojekyll",
     "start": "next start",

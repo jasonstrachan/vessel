@@ -1564,6 +1564,15 @@ export const useAppStore = create<AppState>()(
           thumbnail = thumbnailCanvas.toDataURL();
         }
 
+        // Restore original canvas state BEFORE updating state to prevent race condition
+        // with layer recomposition that could clear the canvas
+        if (state.brushEditor.originalCanvasState) {
+          ctx.putImageData(state.brushEditor.originalCanvasState, bounds.x, bounds.y);
+          
+          // NOTE: Removed captureCanvasToActiveLayer call here as it was corrupting the project layers
+          // The canvas restoration is sufficient for visual feedback
+        }
+
         // Check if this is an existing custom brush or a default brush being turned into custom
         const existingCustomBrush = state.project.customBrushes?.find(b => b.id === brushId);
         let updatedCustomBrushes: CustomBrush[];
@@ -1595,15 +1604,6 @@ export const useAppStore = create<AppState>()(
           targetCustomBrushId = newCustomBrushId;
         }
 
-        // Restore original canvas state
-        if (state.brushEditor.originalCanvasState) {
-          ctx.putImageData(state.brushEditor.originalCanvasState, bounds.x, bounds.y);
-          
-          // NOTE: Removed captureCanvasToActiveLayer call here as it was corrupting the project layers
-          // The canvas restoration is sufficient for visual feedback
-        }
-
-
         return {
           project: {
             ...state.project,
@@ -1620,8 +1620,12 @@ export const useAppStore = create<AppState>()(
               size: 100, // Always set to 100% size after editing
               currentBrushTip: undefined // Clear currentBrushTip after saving
             }
-          }
+          },
+          customBrushesSize: 100 // Sync unified size to match individual brush size
         };
+        
+        // Clear brush cache to ensure updated brush is used immediately
+        brushCache.clear();
       }),
       cancelBrushEdit: (canvas) => set((state) => {
         if (state.brushEditor.status !== 'EDITING' || !state.brushEditor.originalCanvasState || !state.brushEditor.editingBounds) {

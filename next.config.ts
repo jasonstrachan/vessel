@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const isProd = process.env.NODE_ENV === 'production'
 
@@ -17,12 +18,12 @@ const nextConfig: NextConfig = {
   // Ensure proper development server configuration
   webpack: (config, { dev, isServer }) => {
     if (dev) {
-      // Development optimizations for faster hot reload
+      // WSL2-optimized watch configuration to prevent cache corruption
       config.watchOptions = {
-        // Reduce poll interval for faster change detection (was 5000ms)
-        poll: 1000,
-        // Batch changes within 200ms window
-        aggregateTimeout: 200,
+        // Slower polling prevents file system race conditions in WSL2
+        poll: 3000,
+        // Longer aggregate timeout for WSL2 file system latency
+        aggregateTimeout: 1000,
         // Ignore paths that don't need watching
         ignored: [
           '**/node_modules',
@@ -35,11 +36,25 @@ const nextConfig: NextConfig = {
         ],
       }
       
-      // Use default Next.js caching to avoid warnings
-      // Custom cache config was causing compiled config warnings
+      // Configure cache to be more resilient to file system race conditions
+      // Fall back to memory cache if environment variable is set
+      if (process.env.WEBPACK_CACHE_TYPE === 'memory') {
+        config.cache = { type: 'memory' }
+      } else {
+        config.cache = {
+          type: 'filesystem',
+          cacheDirectory: path.resolve('.next/cache/webpack'),
+          // Increase cache write timeout for WSL2
+          idleTimeout: 30000,
+          idleTimeoutAfterLargeChanges: 5000,
+          // Use pack store for atomic writes
+          store: 'pack',
+          compression: false, // Disable compression to reduce write complexity
+        }
+      }
       
-      // Keep default source maps to avoid Next.js warnings
-      // Next.js handles devtool optimization internally
+      // Reduce parallelism to prevent concurrent cache access
+      config.parallelism = 1
     }
     return config
   },
