@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { getMostUsedColors } from '../../utils/colorAnalysis';
 
@@ -7,8 +7,9 @@ interface ColorSwatchesProps {
   currentColor: string;
 }
 
-export default function ColorSwatches({ onColorSelect, currentColor: _currentColor }: ColorSwatchesProps) {
-  const { project } = useAppStore();
+const ColorSwatches = React.memo(({ onColorSelect, currentColor: _currentColor }: ColorSwatchesProps) => {
+  // Optimize subscription - only subscribe to project
+  const project = useAppStore(state => state.project);
   const [swatchColors, setSwatchColors] = useState<string[]>(() => {
     // Initialize with default colors immediately
     return getMostUsedColors(null, 10);
@@ -20,12 +21,17 @@ export default function ColorSwatches({ onColorSelect, currentColor: _currentCol
     setSwatchColors(colors);
   }, [project]);
 
+  // Memoize color selection handler
+  const handleColorSelect = useCallback((color: string) => {
+    onColorSelect(color);
+  }, [onColorSelect]);
+
   return (
     <div className="flex w-full">
       {swatchColors.map((color, index) => (
         <button
           key={`${color}-${index}`}
-          onClick={() => onColorSelect(color)}
+          onClick={() => handleColorSelect(color)}
           className="flex-1 h-6 focus:outline-none"
           style={{ backgroundColor: color }}
           title={`Use color ${color}`}
@@ -34,4 +40,8 @@ export default function ColorSwatches({ onColorSelect, currentColor: _currentCol
       ))}
     </div>
   );
-}
+});
+
+ColorSwatches.displayName = 'ColorSwatches';
+
+export default ColorSwatches;

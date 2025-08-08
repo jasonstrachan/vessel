@@ -10,14 +10,14 @@ import Input from "../ui/Input";
 import CustomSwitch from "../ui/CustomSwitch";
 import ProgressSlider from "../ui/ProgressSlider";
 const BrushControls = () => {
-  const {
-    tools,
-    setBrushSettings,
-    setEraserSettings,
-    globalBrushSize,
-    setGlobalBrushSize,
-  } = useAppStore();
-  const { brushSettings, eraserSettings, currentTool } = tools;
+  // Use individual selectors to avoid unstable object references
+  const setBrushSettings = useAppStore(state => state.setBrushSettings);
+  const setEraserSettings = useAppStore(state => state.setEraserSettings);
+  const setGlobalBrushSize = useAppStore(state => state.setGlobalBrushSize);
+  const brushSettings = useAppStore(state => state.tools.brushSettings);
+  const eraserSettings = useAppStore(state => state.tools.eraserSettings);
+  const currentTool = useAppStore(state => state.tools.currentTool);
+  const globalBrushSize = useAppStore(state => state.globalBrushSize);
 
   // Determine if current brush is custom (uses percentage) or default (uses pixels)
   const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;

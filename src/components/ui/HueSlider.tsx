@@ -23,7 +23,7 @@ const HueSlider = React.forwardRef<
     onValueChange={onValueChange}
     {...props}
   >
-    <SliderPrimitive.Track className="relative h-3 w-full grow overflow-hidden">
+    <SliderPrimitive.Track className="relative h-3 w-full grow overflow-hidden m-0 p-0">
       {/* Hue spectrum gradient */}
       <div 
         className="absolute inset-0"

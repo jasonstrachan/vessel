@@ -76,8 +76,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   const [isPanning, setIsPanning] = useState(false);
   const [lastMouseX, setLastMouseX] = useState(0);
   const [lastMouseY, setLastMouseY] = useState(0);
-  const [mouseX, setMouseX] = useState(0);
-  const [mouseY, setMouseY] = useState(0);
+  // Use refs instead of state for mouse coordinates to avoid re-renders
+  const mouseXRef = useRef(0);
+  const mouseYRef = useRef(0);
   // Screen coordinates for smooth panning (not transformed)
   const [lastScreenX, setLastScreenX] = useState(0);
   const [lastScreenY, setLastScreenY] = useState(0);
@@ -319,14 +320,23 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     return colors;
   }, []);
   
+  // Optimize store subscriptions - only subscribe to needed slices
+  const canvas = useAppStore(state => state.canvas);
+  const tools = useAppStore(state => state.tools);
+  const project = useAppStore(state => state.project);
+  const history = useAppStore(state => state.history);
+  const layers = useAppStore(state => state.layers);
+  const layersNeedRecomposition = useAppStore(state => state.layersNeedRecomposition);
+  const activeLayerId = useAppStore(state => state.activeLayerId);
+  const shapeState = useAppStore(state => state.shapeState);
+  const rectangleBrushState = useAppStore(state => state.rectangleBrushState);
+  const polygonGradientState = useAppStore(state => state.polygonGradientState);
+  const colorCycleState = useAppStore(state => state.colorCycleState);
+  const temporaryCustomBrush = useAppStore(state => state.temporaryCustomBrush);
+  const brushEditor = useAppStore(state => state.brushEditor);
+  
+  // Get store actions (these don't cause re-renders when called)
   const {
-    canvas,
-    tools,
-    project,
-    history,
-    layers,
-    layersNeedRecomposition,
-    activeLayerId,
     setZoom,
     setCursor,
     setBrushSettings,
@@ -349,22 +359,16 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     captureCanvasToActiveLayer,
     captureCanvasToLayer,
     setProjectDimensions,
-    shapeState,
     setShapeDrawing,
     addShapePoint,
     clearShapePoints,
     setShapePreviewPath,
-    rectangleBrushState,
     setRectangleBrushState,
-    polygonGradientState,
     setPolygonGradientState,
     clearPolygonGradientPoints,
-    colorCycleState,
     incrementColorCycleIndex,
-    temporaryCustomBrush,
     setTemporaryCustomBrush,
     setCurrentOffscreenCanvas,
-    brushEditor,
   } = useAppStore();
   
   const { renderBrushStroke, resetPixelQueue, drawRectangleGradient, drawPolygonGradient } = useBrushEngine();
@@ -572,8 +576,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     const coords = transformScreenToCanvas(event.clientX, event.clientY);
     
-    setMouseX(coords.canvasX);
-    setMouseY(coords.canvasY);
+    mouseXRef.current = coords.canvasX;
+    mouseYRef.current = coords.canvasY;
     
     // Use throttled cursor position updates to reduce React re-renders
     updateCursorPositionThrottled(event.clientX, event.clientY);
@@ -581,7 +585,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Show brush cursor for brush-like tools, including during shape drawing (optimized to avoid unnecessary updates)
     const shouldShowBrushCursor = (tools.currentTool === 'brush' || tools.currentTool === 'eraser') && !spacebarPressed && isMouseOverCanvas;
     setShowBrushCursor(prev => prev !== shouldShowBrushCursor ? shouldShowBrushCursor : prev);
-  }, [transformScreenToCanvas, updateCursorPositionThrottled, tools.currentTool, spacebarPressed, isMouseOverCanvas]);
+  }, [transformScreenToCanvas, tools.currentTool, spacebarPressed, isMouseOverCanvas]);
   
   // Convert screen coordinates to world coordinates
   // Account for responsive canvas scaling
@@ -1364,7 +1368,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
-  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, canvas.selection.active, isPointInSelection, tools.currentTool, sampleColor, setBrushSettings, setSelectionBounds, setIsSelecting, saveCanvasStateDeduped, offscreenCanvasRef]);
+  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, canvas.selection.active, isPointInSelection, tools.currentTool, sampleColor, setBrushSettings, setSelectionBounds, setIsSelecting, saveCanvasStateDeduped, offscreenCanvasRef]);
 
   // RAF-throttled pointer event processing for performance
   const pendingPointerEvent = useRef<React.PointerEvent | null>(null);
@@ -1574,7 +1578,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       }
       setLastPoint(point);
     }
-  }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition, isDraggingSelection, selectionDragStart, canvas.selection, setSelection, isSelecting, selectionStart, setSelectionBounds, smoothPressure, isPalmRejectionEvent, tools.currentTool, tools.brushSettings.shapeEnabled, shapeState.isDrawing, shapeState.points, addShapePoint, setShapePreviewPath]);
+  }, [isPanning, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition, isDraggingSelection, selectionDragStart, canvas.selection, setSelection, isSelecting, selectionStart, setSelectionBounds, smoothPressure, isPalmRejectionEvent, tools.currentTool, tools.brushSettings.shapeEnabled, shapeState.isDrawing, shapeState.points, addShapePoint, setShapePreviewPath]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     // Process immediately for drawing - pressure data is critical and cannot be throttled
@@ -1866,7 +1870,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
-  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, mouseX, mouseY, saveCanvasStateDeduped, offscreenCanvasRef]);
+  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, saveCanvasStateDeduped, offscreenCanvasRef]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     // Note: preventDefault will be handled by native event listener for passive events
@@ -1901,7 +1905,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       } catch {
       }
     }
-  }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition]);
+  }, [isPanning, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition]);
 
   const handleTouchEnd = useCallback(async () => {
     // Note: preventDefault will be handled by native event listener for passive events
@@ -2512,9 +2516,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     const ctx = canvasElement.getContext('2d', { colorSpace: 'srgb' });
     if (!ctx) return;
     
-    // Update wrapper dimensions to match new canvas size
-    wrapperElement.style.width = `${width}px`;
-    wrapperElement.style.height = `${height}px`;
+    // Wrapper dimensions are handled by CSS for responsive design
     
     // Get device pixel ratio for high-DPI displays
     const pixelRatio = window.devicePixelRatio || 1;
@@ -2828,7 +2830,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       document.body.removeEventListener('pointermove', handleDocumentPointerMove);
       document.body.removeEventListener('pointerup', handleDocumentPointerUp);
     };
-  }, [isPanning, mouseX, mouseY, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, updateMousePosition]);
+  }, [isPanning, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, updateMousePosition]);
 
   // Layer recomposition when project loads
   useEffect(() => {
@@ -2930,20 +2932,17 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   return (
     <>
       <div 
-        className="w-full h-full bg-[#141514] relative flex items-center justify-center"
+        className="w-full h-full relative flex items-center justify-center"
         style={{
           overflow: 'visible'
         }}
       >
-        {/* Wrapper div for absolute positioning context - now responsive */}
+        {/* Wrapper div for absolute positioning context - maintains aspect ratio */}
         <div 
           ref={wrapperRef} 
           className="relative"
           style={{ 
             width: '100%',
-            height: '100%',
-            maxWidth: `${width}px`,
-            maxHeight: `${height}px`,
             aspectRatio: `${width} / ${height}`
           }}
         >

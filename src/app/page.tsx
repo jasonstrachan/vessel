@@ -16,7 +16,13 @@ import { autosaveService } from '../utils/autosave';
 
 export default function Home() {
   // Global mouse tracking removed - now handled directly in canvas
-  const { saveProject, loadProject, ui, toggleModal, autosave, tools } = useAppStore();
+  // Use individual selectors to avoid unstable object references
+  const saveProject = useAppStore(state => state.saveProject);
+  const loadProject = useAppStore(state => state.loadProject);
+  const toggleModal = useAppStore(state => state.toggleModal);
+  const ui = useAppStore(state => state.ui);
+  const autosave = useAppStore(state => state.autosave);
+  const currentTool = useAppStore(state => state.tools.currentTool);
 
   // Load settings from localStorage on initial mount only
   useEffect(() => {
@@ -120,7 +126,7 @@ export default function Home() {
       
       {/* RHC2 - ColorPickerPanel + BrushLibrary + ControlsPanel OR ColorCyclePanel */}
       <div className="flex flex-col h-screen flex-shrink-0" style={{ width: '240px', minWidth: '240px', maxWidth: '240px' }}>
-        {tools.currentTool === 'color-cycle' ? (
+        {currentTool === 'color-cycle' ? (
           // Show Color Cycle Panel when color-cycle tool is active
           <div className="flex-1 overflow-y-auto">
             <ColorCyclePanel />

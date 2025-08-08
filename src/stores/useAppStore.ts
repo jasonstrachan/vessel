@@ -607,9 +607,12 @@ export const useAppStore = create<AppState>()(
              ? currentSettings.selectedCustomBrush 
              : null);
              
+        // Store brush settings to save for later
+        let brushSettingsToSave: { brushId: string; settings: Partial<BrushSettings> } | null = null;
+        
         if (currentBrushId) {
           // Get existing saved settings for this brush
-          const existingSavedSettings = get().loadBrushSettings(currentBrushId);
+          const existingSavedSettings = state.brushSpecificSettings[currentBrushId] || {};
           
           // Merge with new settings
           const settingsToSave: Partial<BrushSettings> = {
@@ -636,8 +639,7 @@ export const useAppStore = create<AppState>()(
           if (settings.antialiasing !== undefined) settingsToSave.antialiasing = newSettings.antialiasing;
           if (settings.colors !== undefined) settingsToSave.colors = newSettings.colors;
           
-          // Always save to ensure persistence
-          get().saveBrushSettings(currentBrushId, settingsToSave);
+          brushSettingsToSave = { brushId: currentBrushId, settings: settingsToSave };
         }
         
         // Handle brush size restoration when switching between custom and regular brushes
@@ -683,13 +685,24 @@ export const useAppStore = create<AppState>()(
         
         
         // Clear temporary brush when switching away from custom brushes
-        const updatedState = {
+        let updatedState = {
           ...state,
           tools: {
             ...state.tools,
             brushSettings: newSettings
           }
         };
+        
+        // Apply brush settings save if needed (avoid circular dependency)
+        if (brushSettingsToSave) {
+          updatedState = {
+            ...updatedState,
+            brushSpecificSettings: {
+              ...updatedState.brushSpecificSettings,
+              [brushSettingsToSave.brushId]: brushSettingsToSave.settings
+            }
+          };
+        }
         
         // If switching away from custom brush, discard temporary brush
         if (newSettings.brushShape !== undefined && 
