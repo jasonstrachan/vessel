@@ -48,6 +48,7 @@ import { buildLayerColorIndexMap, hexToRgb, buildShiftedColors, applyCycleToLaye
 // Helper function to get serializable brush settings for persistence
 const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSettings> => {
   return {
+    size: settings.size, // Include size in serializable settings for proper restoration
     opacity: settings.opacity,
     spacing: settings.spacing,
     colorJitter: settings.colorJitter,
@@ -642,8 +643,8 @@ export const useAppStore = create<AppState>()(
             ...existingSavedSettings
           };
           
-          // Update with changed settings (excluding size which is now global)
-          // if (settings.size !== undefined) settingsToSave.size = newSettings.size; // Size is now global
+          // Update with changed settings
+          if (settings.size !== undefined) settingsToSave.size = newSettings.size;
           if (settings.opacity !== undefined) settingsToSave.opacity = newSettings.opacity;
           if (settings.spacing !== undefined) settingsToSave.spacing = newSettings.spacing;
           if (settings.colorJitter !== undefined) settingsToSave.colorJitter = newSettings.colorJitter;
@@ -1054,8 +1055,9 @@ export const useAppStore = create<AppState>()(
         // Get appropriate size for this brush type using unified sizing
         let appropriateSize;
         if (isNewPresetCustom) {
-          // All custom brushes use the shared custom brushes size
-          appropriateSize = state.customBrushesSize;
+          // For custom brushes, use saved size if available, otherwise fall back to shared size
+          const savedSize = userOverrides.size;
+          appropriateSize = savedSize !== undefined ? savedSize : state.customBrushesSize;
         } else {
           // All default brushes use the shared default brushes size
           appropriateSize = state.defaultBrushesSize;
@@ -1070,6 +1072,16 @@ export const useAppStore = create<AppState>()(
           blendMode: currentSettings.blendMode,
           size: appropriateSize            // Use appropriate size based on brush type
         };
+        
+        // Handle custom brush presets specifically
+        if (preset.isCustomBrush) {
+          const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
+          newBrushSettings.brushShape = BrushShape.CUSTOM;
+          newBrushSettings.selectedCustomBrush = customBrushId;
+          newBrushSettings.useSwatchColor = false;
+          newBrushSettings.hueShift = 0;
+          newBrushSettings.saturationAdjust = 100;
+        }
         
         // Handle brush size restoration when switching between custom and regular brushes
         if (presetDefaults.brushShape !== undefined) {
@@ -1608,6 +1620,9 @@ export const useAppStore = create<AppState>()(
           targetCustomBrushId = newCustomBrushId;
         }
 
+        // Find the updated custom brush to set as current
+        const updatedBrush = updatedCustomBrushes.find(b => b.id === targetCustomBrushId);
+        
         return {
           project: {
             ...state.project,
@@ -1622,7 +1637,13 @@ export const useAppStore = create<AppState>()(
               brushShape: BrushShape.CUSTOM,
               selectedCustomBrush: targetCustomBrushId,
               size: 100, // Always set to 100% size after editing
-              currentBrushTip: undefined // Clear currentBrushTip after saving
+              currentBrushTip: updatedBrush ? {
+                imageData: updatedBrush.imageData,
+                brushId: updatedBrush.id,
+                isColorizable: false,
+                width: updatedBrush.width,
+                height: updatedBrush.height
+              } : undefined // Set the updated brush data immediately
             }
           },
           customBrushesSize: 100, // Sync unified size to match individual brush size

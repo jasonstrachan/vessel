@@ -172,32 +172,8 @@ const BrushLibrary = () => {
       return;
     }
     
-    // REFACTOR: Simplified logic. The store's `setBrushPreset` now handles almost everything.
-    // We just need to handle the case where a custom brush is selected directly.
-    if (preset.isCustomBrush && project) {
-      // Find the full custom brush data from the project
-      const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
-      const customBrushData = project.customBrushes.find(b => b.id === customBrushId);
-
-      if (customBrushData) {
-        // First, save settings for the outgoing brush.
-        useAppStore.getState()._saveCurrentBrushSettings();
-
-        // Then, set the new brush.
-        useAppStore.getState().setBrushSettings({
-          brushShape: BrushShape.CUSTOM,
-          selectedCustomBrush: customBrushId,
-          useSwatchColor: false,
-          hueShift: 0,
-          saturationAdjust: 100,
-          // Load any saved settings for this specific brush
-          ...useAppStore.getState().loadBrushSettings(customBrushId),
-        });
-      }
-    } else {
-      // For all regular presets, this is all we need. The store handles the rest.
-      setBrushPreset(preset);
-    }
+    // Use setBrushPreset for all brushes to ensure consistent loading of saved settings
+    setBrushPreset(preset);
   };
 
   const isPresetActive = (preset: BrushPreset): boolean => {
