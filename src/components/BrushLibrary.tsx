@@ -214,16 +214,19 @@ const BrushLibrary = () => {
 
   const handleEditClick = (e: React.MouseEvent, preset: BrushPreset) => {
     e.stopPropagation();
-    if (!currentOffscreenCanvas) return;
+    
+    if (!currentOffscreenCanvas) {
+      console.warn('No canvas available for brush editing');
+      return;
+    }
 
     const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
     const isEditingThisBrush = brushEditor.status === 'EDITING' && brushEditor.editingBrushId === customBrushId;
 
     if (isEditingThisBrush) {
       saveBrushEdit(currentOffscreenCanvas);
-      setLayersNeedRecomposition(true); // Force immediate redraw to remove editing border
+      setLayersNeedRecomposition(true);
     } else {
-      // If editing another brush, cancel first, then start new edit
       if (brushEditor.status === 'EDITING') {
         cancelBrushEdit(currentOffscreenCanvas);
       }

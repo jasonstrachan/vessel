@@ -437,12 +437,12 @@ export const useAppStore = create<AppState>()(
       
       // Unified size setter functions
       setDefaultBrushesSize: (size) => set(() => ({
-        defaultBrushesSize: size,
-        globalBrushSize: size // Keep global size in sync
+        defaultBrushesSize: size
+        // Do not sync globalBrushSize here - it should only be synced during brush switching
       })),
       setCustomBrushesSize: (size) => set(() => ({
-        customBrushesSize: size,
-        globalBrushSize: size // Keep global size in sync
+        customBrushesSize: size
+        // Do not sync globalBrushSize here - it should only be synced during brush switching
       })),
       
       // Brush-specific settings storage (in-memory, separate from project)
@@ -1292,7 +1292,7 @@ export const useAppStore = create<AppState>()(
           ...state.tools.brushSettings,
           brushShape: BrushShape.CUSTOM,
           selectedCustomBrush: brush.id,
-          // Preserve current size instead of resetting to 100
+          size: 100, // New custom brush starts at 100%
           useSwatchColor: false, // Ensure it uses the brush's colors
           hueShift: 0,           // <--- CRITICAL: Reset global hueShift here
           saturationAdjust: 100  // <--- CRITICAL: Reset global saturationAdjust here
@@ -1426,6 +1426,7 @@ export const useAppStore = create<AppState>()(
       startBrushEdit: (brushId, canvas) => set((state) => {
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx || !state.project) {
+          console.warn('Cannot start brush edit: Missing canvas context or project');
           return state;
         }
 
@@ -1477,7 +1478,10 @@ export const useAppStore = create<AppState>()(
         }
 
         // If still no brush found, exit
-        if (!brushData) return state;
+        if (!brushData) {
+          console.warn(`Cannot find brush data for ID: ${brushId}`);
+          return state;
+        }
 
         // Calculate centered bounds using the actual canvas dimensions
         const brushWidth = brushData.imageData.width;
@@ -1621,7 +1625,8 @@ export const useAppStore = create<AppState>()(
               currentBrushTip: undefined // Clear currentBrushTip after saving
             }
           },
-          customBrushesSize: 100 // Sync unified size to match individual brush size
+          customBrushesSize: 100, // Sync unified size to match individual brush size
+          globalBrushSize: 100 // Update slider display to show 100
         };
         
         // Clear brush cache to ensure updated brush is used immediately
