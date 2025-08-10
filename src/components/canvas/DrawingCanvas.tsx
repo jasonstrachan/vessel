@@ -690,6 +690,11 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         preview.brushWidth,
         preview.brushHeight
       );
+    } else {
+      // Clear brushPreviewRef immediately if status is not EDITING to prevent stale renders
+      if (brushEditor.status !== 'EDITING' && brushPreviewRef.current) {
+        brushPreviewRef.current = null;
+      }
     }
     
     // Draw the offscreen canvas (containing artwork) with transformations
@@ -1348,34 +1353,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
     // Note: State will be captured AFTER stroke completion in handlePointerUp
     
-    // Check if we're in brush editing mode and if the brush area is within bounds
-    const currentState = useAppStore.getState();
-    if (currentState.brushEditor.status === 'EDITING' && currentState.brushEditor.editingBounds) {
-      const bounds = currentState.brushEditor.editingBounds;
-      const { brushSettings } = currentState.tools;
-      
-      // Calculate brush radius (half of brush size)
-      let brushRadius = (brushSettings.size || 20) / 2;
-      
-      // For custom brushes, use actual dimensions
-      if (brushSettings.brushShape === BrushShape.CUSTOM && project?.customBrushes) {
-        const customBrush = project.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
-        if (customBrush) {
-          brushRadius = Math.max(customBrush.width, customBrush.height) / 2;
-        }
-      }
-      
-      // Check if the brush area (center + radius) stays within bounds
-      const inBounds = (point.x - brushRadius) >= bounds.x && 
-                      (point.x + brushRadius) <= bounds.x + bounds.width &&
-                      (point.y - brushRadius) >= bounds.y && 
-                      (point.y + brushRadius) <= bounds.y + bounds.height;
-                      
-      if (!inBounds) {
-        e.preventDefault();
-        return; // Don't start drawing if brush would extend outside editing bounds
-      }
-    }
+    // Canvas clipping (ctx.clip) automatically handles brush editing bounds
     
     // Lock the target layer to prevent pixel swapping if user switches layers mid-stroke
     const targetLayerId = activeLayerId || layers[0]?.id || null;
@@ -1567,33 +1545,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
     // Only draw if not in selection mode
     if (isDrawing && lastPoint && !isSelecting) {
-      // Check if we're in brush editing mode and if the brush area is within bounds
-      const currentBrushEditorState = useAppStore.getState();
-      let canDraw = true;
+      // Canvas clipping (ctx.clip) automatically handles brush editing bounds
+      // No manual bounds checking needed - canvas won't draw outside clipped region
       
-      if (currentBrushEditorState.brushEditor.status === 'EDITING' && currentBrushEditorState.brushEditor.editingBounds) {
-        const bounds = currentBrushEditorState.brushEditor.editingBounds;
-        const { brushSettings } = currentBrushEditorState.tools;
-        
-        // Calculate brush radius (half of brush size)
-        let brushRadius = (brushSettings.size || 20) / 2;
-        
-        // For custom brushes, use actual dimensions
-        if (brushSettings.brushShape === BrushShape.CUSTOM && project?.customBrushes) {
-          const customBrush = project.customBrushes.find(b => b.id === brushSettings.selectedCustomBrush);
-          if (customBrush) {
-            brushRadius = Math.max(customBrush.width, customBrush.height) / 2;
-          }
-        }
-        
-        // Check if the brush area (center + radius) stays within bounds
-        canDraw = (point.x - brushRadius) >= bounds.x && 
-                 (point.x + brushRadius) <= bounds.x + bounds.width &&
-                 (point.y - brushRadius) >= bounds.y && 
-                 (point.y + brushRadius) <= bounds.y + bounds.height;
-      }
-      
-      if (canDraw) {
+      {
         // Handle shape mode - collect points while drawing
         if ((tools.currentTool === 'brush' || tools.currentTool === 'eraser') && tools.brushSettings.shapeEnabled && shapeState.isDrawing) {
           // Add point to shape with some distance threshold to avoid too many points
@@ -1850,7 +1805,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     }
 
     // Defer heavy operations to avoid blocking the UI
-    if (wasDrawing && offscreenCanvas) {
+    // IMPORTANT: Don't capture to layer when in brush editing mode - those pixels are temporary!
+    if (wasDrawing && offscreenCanvas && brushEditor.status !== 'EDITING') {
       // Use requestIdleCallback for non-critical operations
       if ('requestIdleCallback' in window) {
         requestIdleCallback(() => {

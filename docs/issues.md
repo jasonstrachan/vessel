@@ -512,12 +512,22 @@ const screenSize = Math.max(4, size * zoom);
 ```
 
 #### Simplified Bounds Checking
-Originally added complex manual bounds checking in both `drawShape` and `drawCustomBrushStamp` functions. However, discovered that canvas already uses `ctx.clip()` for automatic bounds restriction. Removed redundant manual checks since canvas clipping prevents any pixels from being drawn outside the clipped region automatically.
+Originally added complex manual bounds checking in multiple places:
+1. `drawShape` function - checking if brush stamps would extend outside bounds
+2. `drawCustomBrushStamp` function - similar stamp boundary checks  
+3. `DrawingCanvas.tsx` handlePointerDown - checking if brush radius stays within bounds
+4. `DrawingCanvas.tsx` handlePointerMove - redundant brush radius calculations and checks
 
-**Before**: Complex manual bounds calculations
-**After**: Single comment noting canvas clipping handles it automatically
+However, discovered that canvas already uses `ctx.clip()` for automatic bounds restriction. Removed ALL redundant manual checks since canvas clipping prevents any pixels from being drawn outside the clipped region automatically.
 
-This simplification reduces code complexity while maintaining the same functionality through the browser's built-in canvas clipping mechanism.
+**Files cleaned up**:
+- `/src/hooks/useBrushEngine.ts` - Removed manual bounds checks from drawShape and drawCustomBrushStamp
+- `/src/components/canvas/DrawingCanvas.tsx` - Removed brush radius calculations and bounds checks
+
+**Before**: Complex manual bounds calculations with brush radius math
+**After**: Simple comments noting canvas clipping handles everything
+
+This simplification removes ~50 lines of redundant code while maintaining the same functionality through the browser's built-in canvas clipping mechanism. The canvas API's `ctx.clip()` is more efficient and reliable than manual bounds checking.
 
 ---
 

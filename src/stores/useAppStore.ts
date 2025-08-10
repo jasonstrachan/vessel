@@ -955,7 +955,6 @@ export const useAppStore = create<AppState>()(
       })),
       incrementColorCycleIndex: () => set((state) => {
         const nextIndex = (state.colorCycleState.currentColorIndex + 1) % Math.max(1, state.colorCycleState.selectedColors.length);
-        console.log(`Color cycle: ${state.colorCycleState.currentColorIndex} -> ${nextIndex} (of ${state.colorCycleState.selectedColors.length} colors)`);
         return {
           colorCycleState: { ...state.colorCycleState, currentColorIndex: nextIndex }
         };
@@ -988,8 +987,6 @@ export const useAppStore = create<AppState>()(
           newIndexMaps.set(layer.id, indexMap);
         }
 
-        console.log(`Precomputed color cycle maps for ${newIndexMaps.size} layers with ${selectedColors.length} colors`);
-
         return {
           colorCycleState: {
             ...colorCycleState,
@@ -1015,7 +1012,6 @@ export const useAppStore = create<AppState>()(
           
           // Set a new timeout for refresh
           const timeoutId = setTimeout(() => {
-            console.log('Refreshing color cycle maps after layer update');
             get().precomputeColorCycleMaps();
             set({ _colorCycleRefreshTimeout: null });
           }, 100); // 100ms debounce
@@ -1455,7 +1451,6 @@ export const useAppStore = create<AppState>()(
       startBrushEdit: (brushId, canvas) => set((state) => {
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx || !state.project) {
-          console.warn('Cannot start brush edit: Missing canvas context or project');
           return state;
         }
 
@@ -1508,7 +1503,6 @@ export const useAppStore = create<AppState>()(
 
         // If still no brush found, exit
         if (!brushData) {
-          console.warn(`Cannot find brush data for ID: ${brushId}`);
           return state;
         }
 
@@ -1556,8 +1550,38 @@ export const useAppStore = create<AppState>()(
         const bounds = state.brushEditor.editingBounds;
         const brushId = state.brushEditor.editingBrushId;
         
-        // Capture edited pixel data
-        const editedImageData = ctx.getImageData(bounds.x, bounds.y, bounds.width, bounds.height);
+        // Find the original brush data
+        let originalBrushData = state.project.customBrushes?.find(b => b.id === brushId) || null;
+        
+        // Create a composite canvas to merge original + edits
+        const compositeCanvas = document.createElement('canvas');
+        compositeCanvas.width = bounds.width;
+        compositeCanvas.height = bounds.height;
+        const compositeCtx = compositeCanvas.getContext('2d', { willReadFrequently: true });
+        
+        if (!compositeCtx) return state;
+        
+        // Step 1: Draw the original brush if it exists
+        if (originalBrushData && originalBrushData.imageData) {
+          compositeCtx.putImageData(originalBrushData.imageData, 0, 0);
+        }
+        
+        // Step 2: Draw the new edits on top (from the canvas)
+        const newEditsImageData = ctx.getImageData(bounds.x, bounds.y, bounds.width, bounds.height);
+        
+        // Create temp canvas for the new edits to composite them properly
+        const editsCanvas = document.createElement('canvas');
+        editsCanvas.width = bounds.width;
+        editsCanvas.height = bounds.height;
+        const editsCtx = editsCanvas.getContext('2d');
+        if (editsCtx) {
+          editsCtx.putImageData(newEditsImageData, 0, 0);
+          // Composite new edits on top of original, preserving transparency
+          compositeCtx.drawImage(editsCanvas, 0, 0);
+        }
+        
+        // Step 3: Get the final combined image data
+        const editedImageData = compositeCtx.getImageData(0, 0, bounds.width, bounds.height);
 
         // Create thumbnail (max 64x64)
         const thumbnailSize = 64;
@@ -1597,10 +1621,11 @@ export const useAppStore = create<AppState>()(
           thumbnail = thumbnailCanvas.toDataURL();
         }
 
-        // Don't manually restore canvas state - let layer recomposition handle the cleanup
-        // The putImageData restoration was causing issues where originalCanvasState
-        // might already contain partial edits, resulting in a "dirty" restore.
-        // Instead, rely on layersNeedRecomposition to properly clean the canvas.
+        // Force immediate canvas clearing - don't wait for recomposition
+        // Clear the entire canvas to remove both the brush preview and any edit strokes
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // The layersNeedRecomposition flag will redraw the layers properly
 
         // Check if this is an existing custom brush or a default brush being turned into custom
         const existingCustomBrush = state.project.customBrushes?.find(b => b.id === brushId);
@@ -1636,6 +1661,10 @@ export const useAppStore = create<AppState>()(
         // Find the updated custom brush to set as current
         const updatedBrush = updatedCustomBrushes.find(b => b.id === targetCustomBrushId);
         
+        // Clear brush cache to ensure updated brush is used immediately
+        brushCache.clear();
+        scaledBrushCache.clear();
+        
         return {
           project: {
             ...state.project,
@@ -1663,10 +1692,6 @@ export const useAppStore = create<AppState>()(
           globalBrushSize: 100, // Update slider display to show 100
           layersNeedRecomposition: true // Trigger recomposition after editor state reset
         };
-        
-        // Clear brush cache to ensure updated brush is used immediately
-        brushCache.clear();
-        scaledBrushCache.clear();
       }),
       cancelBrushEdit: (canvas) => set((state) => {
         if (state.brushEditor.status !== 'EDITING' || !state.brushEditor.originalCanvasState || !state.brushEditor.editingBounds) {
@@ -2084,7 +2109,6 @@ export const useAppStore = create<AppState>()(
           [];
           
         if (useOptimizedCycling && shiftedColorsRGB.length > 0) {
-          console.log(`Compositing with color cycle index ${state.colorCycleState.currentColorIndex}, ${shiftedColorsRGB.length} shifted colors`);
         }
           
         // Using optimized color cycling only
@@ -2104,7 +2128,6 @@ export const useAppStore = create<AppState>()(
               
               // If map doesn't exist or is stale, rebuild it on-the-fly
               if (!layerIndexMap) {
-                console.log(`Building color index map on-the-fly for layer ${layer.name}`);
                 layerIndexMap = buildLayerColorIndexMap(layer, state.colorCycleState.selectedColors, state.colorCycleState.selectedColorsRGB);
                 
                 // Update the store with the new map for future use
