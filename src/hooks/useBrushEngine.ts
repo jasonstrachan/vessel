@@ -854,21 +854,29 @@ export const useBrushEngine = () => {
     const brushEditorState = useAppStore.getState().brushEditor;
     if (brushEditorState.status === 'EDITING' && brushEditorState.editingBounds) {
       const bounds = brushEditorState.editingBounds;
-      const halfSize = size / 2;
       
-      // Calculate stamp bounds
-      const stampLeft = x - halfSize;
-      const stampRight = x + halfSize;
-      const stampTop = y - halfSize;
-      const stampBottom = y + halfSize;
-      
-      // STRENGTHENED BOUNDS CHECK: Skip stamps that would draw ANY pixels outside bounds
-      // This provides a more restrictive check as a fallback in case canvas clipping fails
-      if (stampLeft < bounds.x || 
-          stampRight > bounds.x + bounds.width ||
-          stampTop < bounds.y ||
-          stampBottom > bounds.y + bounds.height) {
-        return;
+      // For pixel brushes during editing, clamp position to bounds instead of rejecting
+      // This allows pixel brushes to work at the edges of the editing area
+      if (shape === BrushShape.PIXEL_ROUND) {
+        x = Math.max(bounds.x, Math.min(x, bounds.x + bounds.width - 1));
+        y = Math.max(bounds.y, Math.min(y, bounds.y + bounds.height - 1));
+      } else {
+        // For other brushes, use the original bounds check
+        const halfSize = size / 2;
+        
+        // Calculate stamp bounds
+        const stampLeft = x - halfSize;
+        const stampRight = x + halfSize;
+        const stampTop = y - halfSize;
+        const stampBottom = y + halfSize;
+        
+        // Skip stamps that would draw ANY pixels outside bounds
+        if (stampLeft < bounds.x || 
+            stampRight > bounds.x + bounds.width ||
+            stampTop < bounds.y ||
+            stampBottom > bounds.y + bounds.height) {
+          return;
+        }
       }
     }
     
@@ -1008,6 +1016,7 @@ export const useBrushEngine = () => {
           }
 
           try {
+            // Use the potentially clamped coordinates (drawX/drawY are already adjusted)
             const offsetX = Math.round(drawX - stampSize / 2);
             const offsetY = Math.round(drawY - stampSize / 2);
 
@@ -2005,8 +2014,9 @@ export const useBrushEngine = () => {
     
     // Handle custom brush rendering with spacing support
     // Also use custom brush rendering if we have a currentBrushTip
+    // BUT: Never use custom brush path for pixel round brushes - they need special handling
     
-    if (customBrush) {
+    if (customBrush && tools.brushSettings.brushShape !== BrushShape.PIXEL_ROUND) {
       // Determine if this brush should use swatch color or support jitter
       // Always respect the useSwatchColor setting for custom brushes
       const originalIsColorizable = tools.brushSettings.brushShape === BrushShape.CUSTOM 

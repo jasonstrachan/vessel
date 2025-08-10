@@ -83,7 +83,8 @@ const BrushCursor = memo(function BrushCursor({
   visible,
 }: BrushCursorProps) {
   const cursorRef = useRef<HTMLDivElement>(null);
-  const screenSize = size * zoom;
+  // Ensure minimum visible cursor size, especially for pixel brushes
+  const screenSize = Math.max(4, size * zoom);
   const cursorDataURL = useCursorDataURL(brushShape, screenSize);
 
   // Use direct DOM manipulation for position updates to avoid React re-renders
