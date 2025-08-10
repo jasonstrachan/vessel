@@ -480,6 +480,45 @@ const canvasCssX = mouseXInWrapper - canvasEl.clientLeft;
 - **Canvas Transformations**: Relationship between DOM attributes and rendering context
 - **getBoundingClientRect()**: Behavior with CSS transforms and containment
 
+### Issue #16a: Pixel Round Brush Not Working in Custom Brush Edit Mode
+**Date**: 2025-01-31  
+**Status**: ✅ RESOLVED  
+**Severity**: High (Feature not working)
+
+#### Problem Description
+Pixel round brush wasn't working when editing custom brushes:
+- No cursor visible when pixel round selected
+- No pixels drawn on the custom brush canvas
+- Other brush shapes worked fine
+
+#### Root Cause
+The pixel round brush was incorrectly being routed through the custom brush rendering path in `useBrushEngine.ts`. When `customBrush` was set (which happens during custom brush editing), ALL brushes were treated as custom brushes, including pixel round.
+
+#### Solution
+Added explicit check to prevent PIXEL_ROUND from going through custom brush path:
+```typescript
+// Ensure PIXEL_ROUND never goes through custom brush path
+if (customBrush && tools.brushSettings.brushShape !== BrushShape.PIXEL_ROUND) {
+  // Custom brush rendering
+} else {
+  // Regular brush rendering including PIXEL_ROUND
+}
+```
+
+Also added minimum cursor size in BrushCursor.tsx for visibility:
+```typescript
+// Ensure minimum visible cursor size, especially for pixel brushes
+const screenSize = Math.max(4, size * zoom);
+```
+
+#### Simplified Bounds Checking
+Originally added complex manual bounds checking in both `drawShape` and `drawCustomBrushStamp` functions. However, discovered that canvas already uses `ctx.clip()` for automatic bounds restriction. Removed redundant manual checks since canvas clipping prevents any pixels from being drawn outside the clipped region automatically.
+
+**Before**: Complex manual bounds calculations
+**After**: Single comment noting canvas clipping handles it automatically
+
+This simplification reduces code complexity while maintaining the same functionality through the browser's built-in canvas clipping mechanism.
+
 ---
 
 [Rest of issues remain unchanged from Issue #12 downward...]

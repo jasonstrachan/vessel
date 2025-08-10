@@ -850,35 +850,8 @@ export const useBrushEngine = () => {
     pattern?: ImageData,
     centerAlignment?: boolean
   ) => {
-    // Check brush editing bounds - prevent drawing outside editing area during brush editing
-    const brushEditorState = useAppStore.getState().brushEditor;
-    if (brushEditorState.status === 'EDITING' && brushEditorState.editingBounds) {
-      const bounds = brushEditorState.editingBounds;
-      
-      // For pixel brushes during editing, clamp position to bounds instead of rejecting
-      // This allows pixel brushes to work at the edges of the editing area
-      if (shape === BrushShape.PIXEL_ROUND) {
-        x = Math.max(bounds.x, Math.min(x, bounds.x + bounds.width - 1));
-        y = Math.max(bounds.y, Math.min(y, bounds.y + bounds.height - 1));
-      } else {
-        // For other brushes, use the original bounds check
-        const halfSize = size / 2;
-        
-        // Calculate stamp bounds
-        const stampLeft = x - halfSize;
-        const stampRight = x + halfSize;
-        const stampTop = y - halfSize;
-        const stampBottom = y + halfSize;
-        
-        // Skip stamps that would draw ANY pixels outside bounds
-        if (stampLeft < bounds.x || 
-            stampRight > bounds.x + bounds.width ||
-            stampTop < bounds.y ||
-            stampBottom > bounds.y + bounds.height) {
-          return;
-        }
-      }
-    }
+    // Canvas clipping (ctx.clip) automatically handles bounds restriction
+    // No manual bounds checking needed - canvas won't draw outside clipped region
     
     const halfSize = size / 2;
     
@@ -1560,30 +1533,8 @@ export const useBrushEngine = () => {
     isColorizable?: boolean,
     isPressureSensitive?: boolean
   ) => {
-    // Check brush editing bounds - prevent drawing outside editing area during brush editing
-    const brushEditorState = useAppStore.getState().brushEditor;
-    if (brushEditorState.status === 'EDITING' && brushEditorState.editingBounds) {
-      const bounds = brushEditorState.editingBounds;
-      const scaledWidth = customBrush.width * scale;
-      const scaledHeight = customBrush.height * scale;
-      const halfWidth = scaledWidth / 2;
-      const halfHeight = scaledHeight / 2;
-      
-      // Calculate stamp bounds
-      const stampLeft = x - halfWidth;
-      const stampRight = x + halfWidth;
-      const stampTop = y - halfHeight;
-      const stampBottom = y + halfHeight;
-      
-      // STRENGTHENED BOUNDS CHECK: Skip stamps that would draw ANY pixels outside bounds
-      // This provides a more restrictive check as a fallback in case canvas clipping fails
-      if (stampLeft < bounds.x || 
-          stampRight > bounds.x + bounds.width ||
-          stampTop < bounds.y ||
-          stampBottom > bounds.y + bounds.height) {
-        return;
-      }
-    }
+    // Canvas clipping (ctx.clip) automatically handles bounds restriction
+    // No manual bounds checking needed - canvas won't draw outside clipped region
     
     performanceMonitor.measureStampTime(() => {
       const colorJitterAmount = tools.brushSettings.colorJitter || 0;
