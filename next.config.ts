@@ -15,15 +15,20 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   
+  // Increase timeout for slow WSL2 file operations
+  httpAgentOptions: {
+    keepAlive: true,
+  },
+  
   // Ensure proper development server configuration
   webpack: (config, { dev, isServer }) => {
     if (dev) {
       // WSL2-optimized watch configuration to prevent cache corruption
       config.watchOptions = {
-        // Slower polling prevents file system race conditions in WSL2
-        poll: 3000,
-        // Longer aggregate timeout for WSL2 file system latency
-        aggregateTimeout: 1000,
+        // Use native polling for WSL2 stability
+        poll: 2000,
+        // Batch changes to reduce file system stress
+        aggregateTimeout: 500,
         // Ignore paths that don't need watching
         ignored: [
           '**/node_modules',
@@ -33,28 +38,40 @@ const nextConfig: NextConfig = {
           '**/build',
           '**/.turbo',
           '**/coverage',
+          '**/*.log',
         ],
       }
       
-      // Configure cache to be more resilient to file system race conditions
-      // Fall back to memory cache if environment variable is set
-      if (process.env.WEBPACK_CACHE_TYPE === 'memory') {
-        config.cache = { type: 'memory' }
+      // Force memory cache in WSL2 for maximum stability
+      // Filesystem cache is too unreliable on WSL2
+      if (process.env.WSL_DISTRO_NAME || process.env.WEBPACK_CACHE_TYPE === 'memory') {
+        config.cache = { 
+          type: 'memory',
+          maxGenerations: 1, // Aggressive memory cleanup
+        }
       } else {
         config.cache = {
           type: 'filesystem',
           cacheDirectory: path.resolve('.next/cache/webpack'),
-          // Increase cache write timeout for WSL2
-          idleTimeout: 30000,
-          idleTimeoutAfterLargeChanges: 5000,
+          // Shorter timeouts to prevent stale cache
+          idleTimeout: 10000,
+          idleTimeoutAfterLargeChanges: 2000,
           // Use pack store for atomic writes
           store: 'pack',
-          compression: false, // Disable compression to reduce write complexity
+          compression: false,
+          maxAge: 1000 * 60 * 60, // 1 hour max cache age
         }
       }
       
-      // Reduce parallelism to prevent concurrent cache access
-      config.parallelism = 1
+      // Optimize for stability over speed in WSL2
+      if (process.env.WSL_DISTRO_NAME) {
+        config.parallelism = 1
+        config.optimization = {
+          ...config.optimization,
+          removeAvailableModules: false,
+          removeEmptyChunks: false,
+        }
+      }
     }
     return config
   },

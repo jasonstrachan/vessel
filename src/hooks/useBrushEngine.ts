@@ -1780,8 +1780,12 @@ export const useBrushEngine = () => {
     
     // If not found in project custom brushes, check brush presets for custom brush presets
     if (!customBrush && isCustomBrush && tools.brushSettings.selectedCustomBrush) {
+      // CRITICAL BUG FIX: Handle ID mismatch between selectedCustomBrush and brushPresets
+      // selectedCustomBrush contains the original ID, but brushPresets may have "custom_" prefix
       const customBrushPreset = brushPresets.find(p => 
-        p.id === tools.brushSettings.selectedCustomBrush && p.isCustomBrush && p.customBrushData
+        (p.id === tools.brushSettings.selectedCustomBrush || 
+         p.id === `custom_${tools.brushSettings.selectedCustomBrush}`) &&
+        p.isCustomBrush && p.customBrushData
       );
       if (customBrushPreset?.customBrushData) {
         // Convert preset to custom brush format
@@ -1848,6 +1852,7 @@ export const useBrushEngine = () => {
     if (tools.brushSettings.currentBrushTip && tools.brushSettings.currentBrushTip.brushId === currentBrushId && customBrush) {
       // For currentBrushTip, use the max dimension of the brush tip as base size
       const brushTipBaseSize = Math.max(customBrush.width, customBrush.height);
+      // Custom brushes use percentage scaling
       const baseBrushSize = (tools.brushSettings.size / 100) * brushTipBaseSize;
       
       // For currentBrushTip, if maxPressure is not set, use the calculated brush size
@@ -1866,6 +1871,7 @@ export const useBrushEngine = () => {
     } else if (isCustomBrush && customBrush) {
       // For custom brushes, calculate base size from the brush's actual dimensions
       const customBrushMaxDimension = Math.max(customBrush.width, customBrush.height);
+      // Custom brushes use percentage scaling
       const baseBrushSize = (tools.brushSettings.size / 100) * customBrushMaxDimension;
       
       // For custom brushes, if maxPressure is not set, use the calculated brush size
@@ -2022,12 +2028,16 @@ export const useBrushEngine = () => {
       // Calculate scale factor using the brush's actual dimensions, not the fixed base size
       const customBrushMaxDimension = Math.max(customBrush.width, customBrush.height);
       
-      const scaleFactor = pressureOptimizer.calculateScaleFactor(
-        actualBrushSize,
-        customBrushMaxDimension,
-        !!isCurrentBrushTip,
-        brushTipBaseSize
-      );
+      // CRITICAL FIX: For custom brushes at 100% size, use scale factor of 1.0
+      // The size=100 means "use at natural size", not "scale down"
+      const scaleFactor = tools.brushSettings.size === 100 
+        ? 1.0  // At 100%, no scaling - use natural size
+        : pressureOptimizer.calculateScaleFactor(
+            actualBrushSize,
+            customBrushMaxDimension,
+            !!isCurrentBrushTip,
+            brushTipBaseSize
+          );
       
       // For grid snapping, the scale factor should still preserve pressure effects
       // (actualBrushSize already includes pressure modifications)

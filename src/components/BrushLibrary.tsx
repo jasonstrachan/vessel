@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { useAppStore } from '../stores/useAppStore';
-import { BrushShape, BrushPreset } from '../types';
+import { BrushShape, BrushPreset, ComponentType } from '../types';
 import PlusButton from './ui/PlusButton';
 import { generateBrushThumbnail } from '../utils/brushThumbnailGenerator';
 
@@ -17,7 +17,6 @@ const BrushLibrary = () => {
   const startBrushEdit = useAppStore((state) => state.startBrushEdit);
   const saveBrushEdit = useAppStore((state) => state.saveBrushEdit);
   const cancelBrushEdit = useAppStore((state) => state.cancelBrushEdit);
-  const setLayersNeedRecomposition = useAppStore((state) => state.setLayersNeedRecomposition);
   const saveCustomBrushAsPreset = useAppStore((state) => state.saveCustomBrushAsPreset);
   const removeCustomBrush = useAppStore((state) => state.removeCustomBrush);
   const removeBrushPreset = useAppStore((state) => state.removeBrushPreset);
@@ -30,7 +29,17 @@ const BrushLibrary = () => {
       id: `custom_${customBrush.id}`,
       name: customBrush.name,
       category: 'Custom',
-      components: [],
+      components: [
+        {
+          id: 'custom-shape-renderer',
+          type: ComponentType.SHAPE_RENDERER,
+          parameters: {
+            shape: BrushShape.CUSTOM
+          },
+          priority: 40,
+          enabled: true
+        }
+      ],
       thumbnail: customBrush.thumbnail,
       tags: ['custom', 'loaded'],
       isDefault: false,
@@ -113,7 +122,6 @@ const BrushLibrary = () => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && brushEditor.status === 'EDITING' && currentOffscreenCanvas) {
         cancelBrushEdit(currentOffscreenCanvas);
-        setLayersNeedRecomposition(true);
       }
     };
 
@@ -121,7 +129,7 @@ const BrushLibrary = () => {
       document.addEventListener('keydown', handleKeyDown);
       return () => document.removeEventListener('keydown', handleKeyDown);
     }
-  }, [brushEditor.status, cancelBrushEdit, setLayersNeedRecomposition, currentOffscreenCanvas]);
+  }, [brushEditor.status, cancelBrushEdit, currentOffscreenCanvas]);
 
   // REFACTOR: Removed the redundant useEffect for saving settings. 
   // This is now handled reliably by the store before any tool/preset switch.
@@ -201,7 +209,6 @@ const BrushLibrary = () => {
 
     if (isEditingThisBrush) {
       saveBrushEdit(currentOffscreenCanvas);
-      setLayersNeedRecomposition(true);
     } else {
       if (brushEditor.status === 'EDITING') {
         cancelBrushEdit(currentOffscreenCanvas);

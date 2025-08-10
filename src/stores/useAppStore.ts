@@ -41,6 +41,7 @@ import {
 } from '../utils/projectIO';
 // import { memoryManager } from '../utils/memoryCleanup';
 import { brushCache } from '../utils/brushCache';
+import { scaledBrushCache } from '../utils/scaledBrushCache';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 import { adjustHueAndSaturation } from '../utils/imageProcessing';
 import { buildLayerColorIndexMap, hexToRgb, buildShiftedColors, applyCycleToLayers_Optimized } from '../utils/colorCycling';
@@ -689,6 +690,7 @@ export const useAppStore = create<AppState>()(
             try {
               // Clear only brush-specific caches, preserve other caches for performance
               brushCache.clear();
+              scaledBrushCache.clear();
             } catch {
               // Cache cleanup failed, continue silently
             }
@@ -1052,15 +1054,16 @@ export const useAppStore = create<AppState>()(
         // Determine if the new preset is custom or default
         const isNewPresetCustom = presetDefaults.brushShape === BrushShape.CUSTOM;
         
-        // Get appropriate size for this brush type using unified sizing
+        // Get appropriate size for this brush type using individual brush-specific sizing
         let appropriateSize;
         if (isNewPresetCustom) {
-          // For custom brushes, use saved size if available, otherwise fall back to shared size
-          const savedSize = userOverrides.size;
-          appropriateSize = savedSize !== undefined ? savedSize : state.customBrushesSize;
+          // Custom brushes ALWAYS use 100% size
+          // This ensures consistent behavior when switching to custom brushes
+          appropriateSize = 100;
         } else {
-          // All default brushes use the shared default brushes size
-          appropriateSize = state.defaultBrushesSize;
+          // Default brushes use saved size if available, otherwise shared size
+          const savedSize = userOverrides.size;
+          appropriateSize = savedSize !== undefined ? savedSize : state.defaultBrushesSize;
         }
         
         const newBrushSettings = {
@@ -1081,6 +1084,19 @@ export const useAppStore = create<AppState>()(
           newBrushSettings.useSwatchColor = false;
           newBrushSettings.hueShift = 0;
           newBrushSettings.saturationAdjust = 100;
+          
+          // CRITICAL FIX: Load the custom brush data into currentBrushTip
+          // Without this, the brush won't render at the correct size
+          const customBrush = state.project?.customBrushes?.find(b => b.id === customBrushId);
+          if (customBrush) {
+            newBrushSettings.currentBrushTip = {
+              imageData: customBrush.imageData,
+              brushId: customBrush.id,
+              isColorizable: false,
+              width: customBrush.width,
+              height: customBrush.height
+            };
+          }
         }
         
         // Handle brush size restoration when switching between custom and regular brushes
@@ -1106,6 +1122,7 @@ export const useAppStore = create<AppState>()(
             try {
               // Clear only brush-specific caches, preserve other caches for performance
               brushCache.clear();
+              scaledBrushCache.clear();
             } catch {
               // Cache cleanup failed, continue silently
             }
@@ -1580,14 +1597,10 @@ export const useAppStore = create<AppState>()(
           thumbnail = thumbnailCanvas.toDataURL();
         }
 
-        // Restore original canvas state BEFORE updating state to prevent race condition
-        // with layer recomposition that could clear the canvas
-        if (state.brushEditor.originalCanvasState) {
-          ctx.putImageData(state.brushEditor.originalCanvasState, bounds.x, bounds.y);
-          
-          // NOTE: Removed captureCanvasToActiveLayer call here as it was corrupting the project layers
-          // The canvas restoration is sufficient for visual feedback
-        }
+        // Don't manually restore canvas state - let layer recomposition handle the cleanup
+        // The putImageData restoration was causing issues where originalCanvasState
+        // might already contain partial edits, resulting in a "dirty" restore.
+        // Instead, rely on layersNeedRecomposition to properly clean the canvas.
 
         // Check if this is an existing custom brush or a default brush being turned into custom
         const existingCustomBrush = state.project.customBrushes?.find(b => b.id === brushId);
@@ -1647,11 +1660,13 @@ export const useAppStore = create<AppState>()(
             }
           },
           customBrushesSize: 100, // Sync unified size to match individual brush size
-          globalBrushSize: 100 // Update slider display to show 100
+          globalBrushSize: 100, // Update slider display to show 100
+          layersNeedRecomposition: true // Trigger recomposition after editor state reset
         };
         
         // Clear brush cache to ensure updated brush is used immediately
         brushCache.clear();
+        scaledBrushCache.clear();
       }),
       cancelBrushEdit: (canvas) => set((state) => {
         if (state.brushEditor.status !== 'EDITING' || !state.brushEditor.originalCanvasState || !state.brushEditor.editingBounds) {
@@ -1665,7 +1680,8 @@ export const useAppStore = create<AppState>()(
                 selectedCustomBrush: null,
                 brushShape: BrushShape.ROUND // Reset to default
               }
-            }
+            },
+            layersNeedRecomposition: true // Trigger recomposition after editor state reset
           };
         }
 
@@ -1689,7 +1705,8 @@ export const useAppStore = create<AppState>()(
               selectedCustomBrush: null,
               brushShape: BrushShape.ROUND // Reset to default
             }
-          }
+          },
+          layersNeedRecomposition: true // Trigger recomposition after editor state reset
         };
       }),
       

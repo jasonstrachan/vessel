@@ -3,10 +3,12 @@
   "version": "3.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/dev-server.js",
+    "dev:raw": "next dev",
     "dev:clean": "rm -rf .next && next dev",
     "dev:turbo": "next dev --turbo",
     "dev:memory": "WEBPACK_CACHE_TYPE=memory next dev",
+    "dev:safe": "WEBPACK_CACHE_TYPE=memory WSL_DISTRO_NAME=1 next dev",
     "build": "next build",
     "build:github": "next build && touch out/.nojekyll",
     "start": "next start",

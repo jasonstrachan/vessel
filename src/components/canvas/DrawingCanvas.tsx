@@ -678,6 +678,20 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       }
     }
     
+    // Draw brush preview in editing mode FIRST (so new strokes appear on top)
+    if (brushEditor.status === 'EDITING' && brushPreviewRef.current) {
+      const preview = brushPreviewRef.current;
+      
+      // Draw the brush preview using world coordinates (already transformed)
+      ctx.drawImage(
+        preview.tempCanvas,
+        preview.centerX,
+        preview.centerY,
+        preview.brushWidth,
+        preview.brushHeight
+      );
+    }
+    
     // Draw the offscreen canvas (containing artwork) with transformations
     ctx.drawImage(offscreenCanvas, 0, 0);
     
@@ -941,25 +955,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       ctx.restore();
     }
     
-    // Draw brush preview in editing mode (apply transformations for world coordinates)
-    if (brushEditor.status === 'EDITING' && brushPreviewRef.current) {
-      const preview = brushPreviewRef.current;
-      
-      ctx.save();
-      // Apply the same transformations as the main drawing
-      ctx.translate(canvas.panX, canvas.panY);
-      ctx.scale(canvas.zoom, canvas.zoom);
-      
-      // Draw the brush preview using world coordinates
-      ctx.drawImage(
-        preview.tempCanvas,
-        preview.centerX,
-        preview.centerY,
-        preview.brushWidth,
-        preview.brushHeight
-      );
-      ctx.restore();
-    }
     
     // Clear dirty regions after rendering
     clearDirtyRegions();
@@ -2885,10 +2880,12 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   useEffect(() => {
     if (layersNeedRecomposition) {
       
-      // FIX: Add a guard to prevent wiping the canvas when entering edit mode.
-      // In edit mode or during undo/redo, the canvas is already in the desired state.
+      // FIX: Add a guard to prevent wiping the canvas during certain operations.
+      // During undo/redo, the canvas is already in the desired state.
       // We just need to trigger a redraw, not a full, destructive recomposition.
-      if (history.isCapturing || brushEditor.status === 'EDITING') {
+      // Note: When EXITING brush edit mode (saving/canceling), we DO want full recomposition
+      // to clean up any brush edits that weren't committed to layers.
+      if (history.isCapturing) {
         markFullRedraw();
         needsRedraw.current = true;
         setLayersNeedRecomposition(false); // Always consume the flag
