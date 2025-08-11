@@ -125,6 +125,52 @@ export function adjustSaturation(imageData: ImageData, saturationPercent: number
 }
 
 // Apply both hue shift and saturation adjustment using GPU acceleration
+export function adjustHueLightness(
+  imageData: ImageData,
+  hueShift: number,          // in degrees (-180 to 180)
+  lightnessAdjust: number    // in percentage (-100 to 100)
+): ImageData {
+  const result = new ImageData(
+    new Uint8ClampedArray(imageData.data),
+    imageData.width,
+    imageData.height
+  );
+  
+  const data = result.data;
+  
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const a = data[i + 3];
+    
+    // Skip transparent pixels
+    if (a === 0) continue;
+    
+    // Convert to HSL
+    const [hOriginal, s, lOriginal] = rgbToHsl(r, g, b);
+    let h = hOriginal;
+    let l = lOriginal;
+    
+    // Apply hue shift
+    h = (h + hueShift + 360) % 360;
+    
+    // Apply lightness adjustment
+    // Lightness is 0-100, adjustment is -100 to 100
+    l = Math.max(0, Math.min(100, l + lightnessAdjust));
+    
+    // Convert back to RGB
+    const [newR, newG, newB] = hslToRgb(h, s, l);
+    
+    data[i] = newR;
+    data[i + 1] = newG;
+    data[i + 2] = newB;
+    // Keep alpha unchanged
+  }
+  
+  return result;
+}
+
 export function adjustHueAndSaturation(
   imageData: ImageData,
   hueShift: number,          // in degrees

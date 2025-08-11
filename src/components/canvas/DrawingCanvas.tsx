@@ -15,9 +15,11 @@ import { memoryManager } from '../../utils/memoryCleanup';
 import { scaledBrushCache } from '../../utils/scaledBrushCache';
 import { brushCache } from '../../utils/brushCache';
 import { createShapePath, renderShape, simplifyPath } from '../../utils/shapeUtils';
+import { adjustHueLightness } from '../../utils/imageProcessing';
 import type { Tool, CanvasSnapshot } from '../../types';
 import { BrushShape } from '../../types';
 import BrushCursor from './BrushCursor';
+import BrushEditorUI from '../BrushEditorUI';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../../constants/canvas';
 
 
@@ -665,7 +667,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Save context state
     ctx.save();
     
-    // Apply zoom and pan transformations (devicePixelRatio scaling already applied in initialization)
+    // Apply zoom and pan transformations
     ctx.translate(canvas.panX, canvas.panY);
     ctx.scale(canvas.zoom, canvas.zoom);
     
@@ -678,23 +680,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       }
     }
     
-    // Draw brush preview in editing mode FIRST (so new strokes appear on top)
-    if (brushEditor.status === 'EDITING' && brushPreviewRef.current) {
-      const preview = brushPreviewRef.current;
-      
-      // Draw the brush preview using world coordinates (already transformed)
-      ctx.drawImage(
-        preview.tempCanvas,
-        preview.centerX,
-        preview.centerY,
-        preview.brushWidth,
-        preview.brushHeight
-      );
-    } else {
-      // Clear brushPreviewRef immediately if status is not EDITING to prevent stale renders
-      if (brushEditor.status !== 'EDITING' && brushPreviewRef.current) {
-        brushPreviewRef.current = null;
-      }
+    // Clear brushPreviewRef if it exists
+    if (brushPreviewRef.current) {
+      brushPreviewRef.current = null;
     }
     
     // Draw the offscreen canvas (containing artwork) with transformations
@@ -944,21 +932,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       ctx.restore();
     }
     
-    // Draw brush editing bounds indicator (apply transformations for world coordinates)
-    if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
-      const bounds = brushEditor.editingBounds;
-      
-      ctx.save();
-      // Apply the same transformations as the main drawing
-      ctx.translate(canvas.panX, canvas.panY);
-      ctx.scale(canvas.zoom, canvas.zoom);
-      
-      ctx.strokeStyle = '#00ff00'; // Bright green border
-      ctx.lineWidth = 2 / canvas.zoom; // Scale with zoom
-      ctx.setLineDash([5 / canvas.zoom, 5 / canvas.zoom]); // Dashed line
-      ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
-      ctx.restore();
-    }
+    // Brush editing bounds are now handled by BrushEditorUI visual border
     
     
     // Clear dirty regions after rendering
@@ -1012,11 +986,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     );
     
     // Draw on the offscreen canvas (no transformations - world coordinates)
-    // Pass clipping bounds to renderBrushStroke if in brush editing mode
-    const clipBounds = (brushEditor.status === 'EDITING' && brushEditor.editingBounds) 
-      ? brushEditor.editingBounds 
-      : null;
-    renderBrushStroke(offscreenCtx, from, to, cursorStateRef.current, undefined, clipBounds);
+    renderBrushStroke(offscreenCtx, from, to, cursorStateRef.current, undefined, null);
     
     // Mark that we need to redraw the view
     needsRedraw.current = true;
@@ -1304,26 +1274,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
               colors: sampledColors
             };
             
-            // Apply clipping if in brush editing mode
-            if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
-              ctx.save();
-              ctx.beginPath();
-              ctx.rect(
-                brushEditor.editingBounds.x,
-                brushEditor.editingBounds.y,
-                brushEditor.editingBounds.width,
-                brushEditor.editingBounds.height
-              );
-              ctx.clip();
-            }
             
             // Draw the rectangle gradient
             drawRectangleGradient(ctx, finalRectangleState);
             
-            // Restore context if we applied clipping
-            if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
-              ctx.restore();
-            }
             
             // Save canvas state for undo/redo
             saveCanvasState(offscreenCanvas, 'brush', 'Rectangle gradient');
@@ -1599,7 +1553,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   }, [processPointerMove, isDrawing]);
 
   const handlePointerUp = useCallback(async () => {
-    
     if (isPanning) {
       // End panning
       setIsPanning(false);
@@ -1661,25 +1614,9 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
                 sampleCanvasColors(offscreenCtx, livePoints, numColors) : 
                 ['#FFF', '#000'];
               
-              // Apply clipping if in brush editing mode
-              if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
-                ctx.save();
-                ctx.beginPath();
-                ctx.rect(
-                  brushEditor.editingBounds.x,
-                  brushEditor.editingBounds.y,
-                  brushEditor.editingBounds.width,
-                  brushEditor.editingBounds.height
-                );
-                ctx.clip();
-              }
               
               drawPolygonGradient(ctx, { vertices: livePoints, colors: finalColors });
               
-              // Restore context if we applied clipping
-              if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
-                ctx.restore();
-              }
               saveCanvasState(offscreenCanvas, 'brush', 'Polygon gradient');
               needsRedraw.current = true;
             }
@@ -1719,20 +1656,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
           ctx.save();
           ctx.globalAlpha = brushSettings.opacity;
           ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
-          
-          // Apply clipping if in brush editing mode
-          if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(
-              brushEditor.editingBounds.x,
-              brushEditor.editingBounds.y,
-              brushEditor.editingBounds.width,
-              brushEditor.editingBounds.height
-            );
-            ctx.clip();
-          }
-          
           renderShape(
             ctx,
             shapePath,
@@ -1745,11 +1668,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             brushSettings.antialiasing,
             shapeState.points
           );
-          
-          // Restore context if we applied clipping (in addition to the existing restore)
-          if (brushEditor.status === 'EDITING' && brushEditor.editingBounds) {
-            ctx.restore();
-          }
           
           ctx.restore();
 
@@ -2864,102 +2782,13 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     markFullRedraw
   ]);
 
-  // Brush editor drawing effect - handles drawing the brush preview when entering edit mode
+  // Keep offscreen canvas reference in store up-to-date
   useEffect(() => {
-    const offscreenCanvas = offscreenCanvasRef.current;
-    
-    // Check if we just entered editing mode
-    if (brushEditor.status === 'EDITING' && offscreenCanvas && brushEditor.editingBrushId && brushEditor.editingBounds) {
-      
-      const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
-      if (!offscreenCtx) return;
-
-      // --- Find the brush data (logic adapted from the store) ---
-      let brushData: any | null = null; // Use `any` to match store types
-
-      // 1. Check project's custom brushes
-      if (project?.customBrushes) {
-        brushData = project.customBrushes.find(b => b.id === brushEditor.editingBrushId) || null;
-      }
-
-      // 2. If not found, check default presets and generate a temporary shape
-      if (!brushData) {
-        const defaultBrush = brushPresets.find(b => b.id === brushEditor.editingBrushId);
-        if (defaultBrush) {
-          const tempCanvas = document.createElement('canvas');
-          const size = 32;
-          tempCanvas.width = size;
-          tempCanvas.height = size;
-          const tempCtx = tempCanvas.getContext('2d');
-          if (tempCtx) {
-            tempCtx.fillStyle = '#000000';
-            if (defaultBrush.id.includes('square') || defaultBrush.id.includes('pixel')) {
-              tempCtx.fillRect(0, 0, size, size);
-            } else {
-              tempCtx.beginPath();
-              tempCtx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
-              tempCtx.fill();
-            }
-            brushData = { imageData: tempCtx.getImageData(0, 0, size, size) };
-          }
-        }
-      }
-
-      if (!brushData) {
-        return;
-      }
-      if (!brushData.imageData) {
-        return;
-      }
-      
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = brushData.imageData.width;
-      tempCanvas.height = brushData.imageData.height;
-      const tempCtx = tempCanvas.getContext('2d');
-
-      if (tempCtx) {
-        tempCtx.putImageData(brushData.imageData, 0, 0);
-
-        // Draw the brush onto the offscreen canvas
-        const bounds = brushEditor.editingBounds;
-        const offscreenCtx = offscreenCanvas.getContext('2d');
-        if (!offscreenCtx) return;
-        
-        offscreenCtx.save();
-        
-        // Set up clipping to the editing bounds
-        offscreenCtx.beginPath();
-        offscreenCtx.rect(bounds.x, bounds.y, bounds.width, bounds.height);
-        offscreenCtx.clip();
-        
-        // Calculate centered position for the brush at its original size
-        const brushWidth = brushData.imageData.width;
-        const brushHeight = brushData.imageData.height;
-        const centerX = bounds.x + (bounds.width - brushWidth) / 2;
-        const centerY = bounds.y + (bounds.height - brushHeight) / 2;
-        
-        // Store brush preview data for rendering, don't draw permanently to offscreen canvas
-        brushPreviewRef.current = {
-          tempCanvas,
-          centerX,
-          centerY,
-          brushWidth,
-          brushHeight,
-          bounds
-        };
-        
-        offscreenCtx.restore();
-
-
-        // IMPORTANT: Trigger a redraw of the visible canvas
-        markFullRedraw();
-        needsRedraw.current = true;
-      }
-    } else {
-      // Clear brush preview when not in editing mode
-      brushPreviewRef.current = null;
+    if (offscreenCanvasRef.current) {
+      setCurrentOffscreenCanvas(offscreenCanvasRef.current);
     }
-  }, [brushEditor.status, brushEditor.editingBrushId, brushEditor.editingBounds, project, brushPresets, markFullRedraw]);
+  }, [setCurrentOffscreenCanvas]);
+
 
   // Color cycle animation loop
   useEffect(() => {
@@ -3074,7 +2903,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             padding: 0,
             margin: 0,
             boxSizing: 'border-box',
-            pointerEvents: 'auto'
+            pointerEvents: brushEditor.status === 'EDITING' ? 'none' : 'auto'
           }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
@@ -3145,6 +2974,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         visible={showBrushCursor}
       />
       
+      {/* Brush editor UI overlay */}
+      <BrushEditorUI canvasRef={canvasRef} />
       
     </>
   );

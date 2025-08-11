@@ -42,6 +42,7 @@ import {
 // import { memoryManager } from '../utils/memoryCleanup';
 import { brushCache } from '../utils/brushCache';
 import { scaledBrushCache } from '../utils/scaledBrushCache';
+import { adjustHueLightness } from '../utils/imageProcessing';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 import { adjustHueAndSaturation } from '../utils/imageProcessing';
 import { buildLayerColorIndexMap, hexToRgb, buildShiftedColors, applyCycleToLayers_Optimized } from '../utils/colorCycling';
@@ -222,6 +223,8 @@ interface AppState {
   startBrushEdit: (brushId: string, canvas: HTMLCanvasElement) => void;
   saveBrushEdit: (canvas: HTMLCanvasElement) => void;
   cancelBrushEdit: (canvas: HTMLCanvasElement) => void;
+  setBrushEditorHue: (hue: number) => void;
+  setBrushEditorLightness: (lightness: number) => void;
   
   // Brush Preset Management
   removeBrushPreset: (presetId: string) => void;
@@ -322,7 +325,9 @@ const defaultBrushEditorState: BrushEditorState = {
   status: 'IDLE',
   editingBrushId: null,
   editingBounds: null,
-  originalCanvasState: null
+  originalCanvasState: null,
+  hueShift: 0,
+  lightness: 0
 };
 
 const defaultShapeState: ShapeState = {
@@ -1521,6 +1526,9 @@ export const useAppStore = create<AppState>()(
 
         // Capture original canvas state at bounds
         const originalCanvasState = ctx.getImageData(bounds.x, bounds.y, bounds.width, bounds.height);
+        
+        // Draw the brush onto the canvas at the editing location
+        ctx.putImageData(brushData.imageData, bounds.x, bounds.y);
 
         // Switch to default drawing tool to allow drawing on the brush tip
         // This prevents the confusing state of editing a brush with itself
@@ -1535,7 +1543,9 @@ export const useAppStore = create<AppState>()(
             status: 'EDITING' as const,
             editingBrushId: brushId,
             editingBounds: bounds,
-            originalCanvasState
+            originalCanvasState,
+            hueShift: 0,  // Reset adjustments for new edit
+            lightness: 0
           }
         };
       }),
@@ -1551,37 +1561,34 @@ export const useAppStore = create<AppState>()(
         const brushId = state.brushEditor.editingBrushId;
         
         // Find the original brush data
-        let originalBrushData = state.project.customBrushes?.find(b => b.id === brushId) || null;
+        const originalBrushData = state.project.customBrushes?.find(b => b.id === brushId) || null;
         
-        // Create a composite canvas to merge original + edits
+        // Create a composite canvas to match the modal canvas size
         const compositeCanvas = document.createElement('canvas');
-        compositeCanvas.width = bounds.width;
-        compositeCanvas.height = bounds.height;
+        compositeCanvas.width = canvas.width;
+        compositeCanvas.height = canvas.height;
         const compositeCtx = compositeCanvas.getContext('2d', { willReadFrequently: true });
         
         if (!compositeCtx) return state;
         
-        // Step 1: Draw the original brush if it exists
-        if (originalBrushData && originalBrushData.imageData) {
-          compositeCtx.putImageData(originalBrushData.imageData, 0, 0);
+        // Get the pixels directly from the modal canvas (starts at 0,0)
+        const newEditsImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        
+        // Apply hue/lightness adjustments if any
+        let finalImageData = newEditsImageData;
+        if (state.brushEditor.hueShift !== 0 || state.brushEditor.lightness !== 0) {
+          finalImageData = adjustHueLightness(
+            newEditsImageData, 
+            state.brushEditor.hueShift, 
+            state.brushEditor.lightness
+          );
         }
         
-        // Step 2: Draw the new edits on top (from the canvas)
-        const newEditsImageData = ctx.getImageData(bounds.x, bounds.y, bounds.width, bounds.height);
+        // Put the final adjusted image data on the composite canvas
+        compositeCtx.putImageData(finalImageData, 0, 0);
         
-        // Create temp canvas for the new edits to composite them properly
-        const editsCanvas = document.createElement('canvas');
-        editsCanvas.width = bounds.width;
-        editsCanvas.height = bounds.height;
-        const editsCtx = editsCanvas.getContext('2d');
-        if (editsCtx) {
-          editsCtx.putImageData(newEditsImageData, 0, 0);
-          // Composite new edits on top of original, preserving transparency
-          compositeCtx.drawImage(editsCanvas, 0, 0);
-        }
-        
-        // Step 3: Get the final combined image data
-        const editedImageData = compositeCtx.getImageData(0, 0, bounds.width, bounds.height);
+        // Get the final image data
+        const editedImageData = compositeCtx.getImageData(0, 0, canvas.width, canvas.height);
 
         // Create thumbnail (max 64x64)
         const thumbnailSize = 64;
@@ -1593,9 +1600,9 @@ export const useAppStore = create<AppState>()(
         let thumbnail = '';
         if (thumbnailCtx) {
           // Scale to fit thumbnail while maintaining aspect ratio
-          const scale = Math.min(thumbnailSize / bounds.width, thumbnailSize / bounds.height);
-          const scaledWidth = bounds.width * scale;
-          const scaledHeight = bounds.height * scale;
+          const scale = Math.min(thumbnailSize / canvas.width, thumbnailSize / canvas.height);
+          const scaledWidth = canvas.width * scale;
+          const scaledHeight = canvas.height * scale;
           const offsetX = (thumbnailSize - scaledWidth) / 2;
           const offsetY = (thumbnailSize - scaledHeight) / 2;
           
@@ -1604,8 +1611,8 @@ export const useAppStore = create<AppState>()(
           
           // Create temporary canvas for the edited area
           const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = bounds.width;
-          tempCanvas.height = bounds.height;
+          tempCanvas.width = canvas.width;
+          tempCanvas.height = canvas.height;
           const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
           
           if (tempCtx) {
@@ -1636,7 +1643,7 @@ export const useAppStore = create<AppState>()(
           // Update existing custom brush
           updatedCustomBrushes = state.project.customBrushes!.map(brush => 
             brush.id === brushId 
-              ? { ...brush, imageData: editedImageData, thumbnail, width: bounds.width, height: bounds.height }
+              ? { ...brush, imageData: editedImageData, thumbnail, width: canvas.width, height: canvas.height }
               : brush
           );
           targetCustomBrushId = existingCustomBrush.id;
@@ -1649,8 +1656,8 @@ export const useAppStore = create<AppState>()(
             name: `Custom ${defaultBrush?.name || 'Brush'}`,
             imageData: editedImageData,
             thumbnail,
-            width: bounds.width,
-            height: bounds.height,
+            width: canvas.width,
+            height: canvas.height,
             createdAt: Date.now()
           };
           
@@ -1693,6 +1700,12 @@ export const useAppStore = create<AppState>()(
           layersNeedRecomposition: true // Trigger recomposition after editor state reset
         };
       }),
+      setBrushEditorHue: (hue: number) => set((state) => ({
+        brushEditor: { ...state.brushEditor, hueShift: hue }
+      })),
+      setBrushEditorLightness: (lightness: number) => set((state) => ({
+        brushEditor: { ...state.brushEditor, lightness: lightness }
+      })),
       cancelBrushEdit: (canvas) => set((state) => {
         if (state.brushEditor.status !== 'EDITING' || !state.brushEditor.originalCanvasState || !state.brushEditor.editingBounds) {
           return { 

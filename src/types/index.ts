@@ -159,6 +159,8 @@ export interface BrushEditorState {
     height: number;
   } | null;
   originalCanvasState: ImageData | null;
+  hueShift: number; // -180 to 180
+  lightness: number; // -100 to 100
 }
 
 export interface AutosaveState {

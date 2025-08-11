@@ -200,7 +200,10 @@ const BrushLibrary = () => {
     e.stopPropagation();
     
     if (!currentOffscreenCanvas) {
-      console.warn('No canvas available for brush editing');
+      console.error('No offscreen canvas reference available in store');
+      // As a fallback, try to use the visible canvas element
+      // The offscreen canvas is created but not added to DOM, so we can't query it
+      // Instead, we'll need to ensure setCurrentOffscreenCanvas is called properly
       return;
     }
 
