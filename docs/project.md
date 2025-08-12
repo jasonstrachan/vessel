@@ -2789,7 +2789,7 @@ requestAnimationFrame(() => renderView());
 
 ### Overview
 
-TinyBrush supports creating custom brushes from canvas selections. These brushes can be used temporarily or saved to the brush library for persistent use.
+TinyBrush features a sophisticated custom brush creation and editing system that allows users to create brushes from canvas selections and modify them with advanced color adjustments.
 
 ### Custom Brush Workflow
 
@@ -2797,11 +2797,61 @@ TinyBrush supports creating custom brushes from canvas selections. These brushes
 
 Custom brushes are created from canvas selections:
 1. User selects an area with the selection tool
-2. Creates a custom brush via context menu or keyboard shortcut
+2. Creates a custom brush via context menu or keyboard shortcut (Ctrl+B)
 3. Brush is stored as `temporaryCustomBrush` with ID format: `temp_brush_{timestamp}`
 4. The `addCustomBrush` action automatically selects the new brush
 
-#### 2. Temporary vs Saved Brushes
+#### 2. Custom Brush Editor
+
+The brush editor provides a powerful interface for modifying custom brushes with real-time preview and color adjustments.
+
+**Editor Features:**
+- **Draggable Modal**: Click and drag the top bar (::::::::) to reposition the editor window
+- **Zoom Controls**: Scroll wheel to zoom in/out, with zoom-to-cursor functionality
+- **Pan Controls**: Hold spacebar and drag to pan around the canvas
+- **Drawing Tools**: Draw directly on the brush with selected color and size
+- **Fill Tool**: Fill areas with the selected color
+
+**Color Adjustment System:**
+
+The editor uses a sophisticated three-layer pixel management system:
+
+1. **basePixelsForShift**: Stores pixels that should receive color adjustments
+2. **originalBrushPixels**: Contains all drawn pixels including new additions
+3. **brushPixels**: Final display with adjustments applied
+
+**Adjustment Sliders:**
+- **Hue Shift** (-180° to +180°): Rotates colors around the color wheel
+- **Lightness** (-100 to +100): Brightens or darkens the brush
+- **Saturation** (0% to 200%): Adjusts color intensity
+
+**Color Behavior:**
+- Original brush pixels and previously drawn pixels get color shifts applied
+- Newly drawn pixels use the exact color from the color picker (no shift)
+- When sliders are adjusted, all existing pixels (including newly drawn) become part of the base and will be shifted
+- This allows for precise color control while editing
+
+**Technical Implementation:**
+```typescript
+// Color adjustment logic
+for each pixel:
+  if pixel exists in basePixelsForShift:
+    apply HSL adjustments
+  else:
+    keep original color from drawing
+```
+
+**Zoom-to-Cursor Implementation:**
+The editor implements smooth zoom-to-cursor functionality:
+```typescript
+const canvasX = (mouseX - pan.x) / zoom;
+const canvasY = (mouseY - pan.y) / zoom;
+const newZoom = zoom * delta;
+const newPanX = mouseX - canvasX * newZoom;
+const newPanY = mouseY - canvasY * newZoom;
+```
+
+#### 3. Temporary vs Saved Brushes
 
 **Temporary Custom Brushes:**
 - Created from canvas selection

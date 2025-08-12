@@ -89,31 +89,31 @@ async function startServer(cleanFirst = false) {
     
     console.log(`\n⚠️  Dev server exited with code ${code} (signal: ${signal})`);
     
-    // Always restart unless explicitly shutting down
-    // Code 0 can happen from Next.js internal reloads or port conflicts
-    if (retryCount < MAX_RETRIES) {
-      retryCount++;
-      
-      // Log possible causes
-      if (code === 0) {
-        console.log('💡 Possible causes: Port conflict, Next.js reload, or memory limit');
+    // Only restart on actual failures (non-zero exit codes)
+    // Code 0 means normal exit - don't restart
+    if (code !== 0 && code !== null) {
+      if (retryCount < MAX_RETRIES) {
+        retryCount++;
+        
+        console.log(`🔄 Auto-restarting in ${RESTART_DELAY/1000} seconds (attempt ${retryCount}/${MAX_RETRIES})...`);
+        
+        // Clean cache on every other retry
+        const shouldClean = retryCount % 2 === 0;
+        
+        setTimeout(() => {
+          startServer(shouldClean);
+        }, RESTART_DELAY);
+      } else {
+        console.log('❌ Max retries reached. Performing full cache clean and final attempt...');
+        retryCount = 0;
+        cleanCache();
+        setTimeout(() => {
+          startServer(false);
+        }, RESTART_DELAY);
       }
-      
-      console.log(`🔄 Auto-restarting in ${RESTART_DELAY/1000} seconds...`);
-      
-      // Clean cache on every other retry or on code 0
-      const shouldClean = retryCount % 2 === 0 || code === 0;
-      
-      setTimeout(() => {
-        startServer(shouldClean);
-      }, RESTART_DELAY);
-    } else if (retryCount >= MAX_RETRIES) {
-      console.log('❌ Max retries reached. Performing full cache clean and final attempt...');
-      retryCount = 0;
-      cleanCache();
-      setTimeout(() => {
-        startServer(false);
-      }, RESTART_DELAY);
+    } else if (code === 0) {
+      console.log('✅ Dev server exited normally');
+      process.exit(0);
     }
   });
   

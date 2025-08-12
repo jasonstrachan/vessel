@@ -289,7 +289,7 @@ const defaultToolState: ToolState = {
   currentTool: 'brush',
   previousTool: 'brush',
   brushSettings: defaultBrushSettingsForStore,
-  eraserSettings: { ...defaultBrushSettingsForStore, blendMode: 'source-over', color: 'rgba(255, 255, 255, 0.1)' },
+  eraserSettings: { ...defaultBrushSettingsForStore, blendMode: 'destination-out', color: 'rgba(255, 255, 255, 0.1)' },
   fillSettings: {
     threshold: 0,
     contiguous: true
@@ -1620,11 +1620,10 @@ export const useAppStore = create<AppState>()(
           thumbnail = thumbnailCanvas.toDataURL();
         }
 
-        // Force immediate canvas clearing - don't wait for recomposition
-        // Clear the entire canvas to remove both the brush preview and any edit strokes
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // The layersNeedRecomposition flag will redraw the layers properly
+        // Note: The canvas parameter here should be the modal canvas from BrushEditorUI,
+        // not the main canvas. We don't need to clear it since it's a separate UI element
+        // that will be hidden after saving. The main canvas will be properly recomposed
+        // via the layersNeedRecomposition flag below
 
         // Check if this is an existing custom brush or a default brush being turned into custom
         const existingCustomBrush = state.project.customBrushes?.find(b => b.id === brushId);
@@ -1688,8 +1687,8 @@ export const useAppStore = create<AppState>()(
             }
           },
           customBrushesSize: 100, // Sync unified size to match individual brush size
-          globalBrushSize: 100, // Update slider display to show 100
-          layersNeedRecomposition: true // Trigger recomposition after editor state reset
+          globalBrushSize: 100 // Update slider display to show 100
+          // REMOVED: layersNeedRecomposition: true - brush editing doesn't change layers
         };
       }),
       setBrushEditorHue: (hue: number) => set((state) => ({
@@ -1713,8 +1712,8 @@ export const useAppStore = create<AppState>()(
                 selectedCustomBrush: null,
                 brushShape: BrushShape.ROUND // Reset to default
               }
-            },
-            layersNeedRecomposition: true // Trigger recomposition after editor state reset
+            }
+            // REMOVED: layersNeedRecomposition: true - brush editing doesn't change layers
           };
         }
 
@@ -1732,8 +1731,8 @@ export const useAppStore = create<AppState>()(
               selectedCustomBrush: null,
               brushShape: BrushShape.ROUND // Reset to default
             }
-          },
-          layersNeedRecomposition: true // Trigger recomposition after editor state reset
+          }
+          // REMOVED: layersNeedRecomposition: true - brush editing doesn't change layers
         };
       }),
       
@@ -2076,11 +2075,16 @@ export const useAppStore = create<AppState>()(
           return;
         }
         
-        // Only resize canvas if dimensions don't match project
-        // This prevents unnecessary canvas resets when toggling layer visibility
-        if (targetCanvas.width !== state.project.width || targetCanvas.height !== state.project.height) {
-          targetCanvas.width = state.project.width;
-          targetCanvas.height = state.project.height;
+        // FIXED: Account for device pixel ratio when checking/setting canvas dimensions
+        // The offscreen canvas from DrawingCanvas uses device pixel ratio scaling
+        const pixelRatio = window.devicePixelRatio || 1;
+        const expectedWidth = state.project.width * pixelRatio;
+        const expectedHeight = state.project.height * pixelRatio;
+        
+        // Only resize canvas if dimensions don't match the expected scaled dimensions
+        if (targetCanvas.width !== expectedWidth || targetCanvas.height !== expectedHeight) {
+          targetCanvas.width = expectedWidth;
+          targetCanvas.height = expectedHeight;
         }
         
         // Clear the canvas

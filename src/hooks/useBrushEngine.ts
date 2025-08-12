@@ -892,12 +892,21 @@ export const useBrushEngine = () => {
       }
     }
     
+    // Save the current composite operation before save() overwrites it
+    const currentCompositeOp = ctx.globalCompositeOperation;
+    
     targetCtx.save();
 
     if (isRisoActive) {
       targetCtx.clearRect(0, 0, tempCanvas!.width, tempCanvas!.height);
       targetCtx.fillStyle = ctx.fillStyle;
       targetCtx.globalAlpha = ctx.globalAlpha;
+      // CRITICAL FIX: Also preserve globalCompositeOperation for riso path
+      targetCtx.globalCompositeOperation = currentCompositeOp;
+    } else {
+      // Preserve the globalCompositeOperation from the main context for eraser functionality
+      // IMPORTANT: We must set this AFTER save() since targetCtx === ctx when not riso
+      targetCtx.globalCompositeOperation = currentCompositeOp;
     }
     
     if (!antiAliasing) {
@@ -956,6 +965,7 @@ export const useBrushEngine = () => {
       }
     } else {
       // Original shape rendering
+      console.log('[ERASER DEBUG] drawShape - About to draw shape, targetCtx.globalCompositeOperation:', targetCtx.globalCompositeOperation, 'targetCtx.fillStyle:', targetCtx.fillStyle);
       switch (shape) {
         case BrushShape.SQUARE:
           if (antiAliasing) {
@@ -1042,6 +1052,12 @@ export const useBrushEngine = () => {
     }
 
     targetCtx.restore();
+    
+    // Restore the composite operation after restore() cleared it
+    if (!isRisoActive) {
+      // For non-riso path, we need to restore the composite operation since targetCtx === ctx
+      targetCtx.globalCompositeOperation = currentCompositeOp;
+    }
 
     // --- APPLY RISOGRAPH DISSOLVE ---
     if (isRisoActive && tempCanvas) {
@@ -1100,18 +1116,27 @@ export const useBrushEngine = () => {
             targetCtx.putImageData(stampImageData, 0, 0);
             
             // Draw the final, dissolved shape onto the main canvas
+            // CRITICAL FIX: Preserve the globalCompositeOperation when drawing back to main canvas
+            const savedGlobalCompositeOperation = ctx.globalCompositeOperation;
             ctx.drawImage(tempCanvas, x - tempCanvas.width / 2, y - tempCanvas.height / 2);
+            // Restore the globalCompositeOperation in case drawImage affected it
+            ctx.globalCompositeOperation = savedGlobalCompositeOperation;
 
             // Release only the temp canvas (texture canvas is reused globally)
             canvasPool.release(tempCanvas);
         } else {
             // Skip expensive riso processing, just draw the shape directly
+            // CRITICAL FIX: Preserve the globalCompositeOperation when drawing back to main canvas
+            const savedGlobalCompositeOperation = ctx.globalCompositeOperation;
             ctx.drawImage(tempCanvas, x - tempCanvas.width / 2, y - tempCanvas.height / 2);
+            // Restore the globalCompositeOperation in case drawImage affected it
+            ctx.globalCompositeOperation = savedGlobalCompositeOperation;
             canvasPool.release(tempCanvas);
         }
-    } else {
-      ctx.restore();
     }
+    // Note: We don't need ctx.restore() here because:
+    // 1. For non-riso path, targetCtx === ctx and we already did targetCtx.restore()
+    // 2. For riso path, we're working with a different context and don't need to restore ctx
   }, [getPixelCircleStamp]);
   
   const calculateSizeModification = useCallback((
@@ -1271,7 +1296,7 @@ export const useBrushEngine = () => {
       rotation: activeSettings.rotationEnabled && input.direction !== undefined ? input.direction : 0,
       shape: activeSettings.brushShape || BrushShape.ROUND, // Use actual brush shape from settings
       risographIntensity: activeSettings.risographIntensity || 0,
-      blendMode: activeSettings.blendMode || 'source-over'
+      blendMode: currentTool === 'eraser' ? 'destination-out' : (activeSettings.blendMode || 'source-over')
     };    
     
     // Add pattern if using a brush tip from mini canvas
@@ -1535,6 +1560,7 @@ export const useBrushEngine = () => {
   ) => {
     // Canvas clipping (ctx.clip) automatically handles bounds restriction
     // No manual bounds checking needed - canvas won't draw outside clipped region
+    console.log('[ERASER DEBUG] drawCustomBrushStamp - ctx.globalCompositeOperation:', ctx.globalCompositeOperation, 'isColorizable:', isColorizable);
     
     performanceMonitor.measureStampTime(() => {
       const colorJitterAmount = tools.brushSettings.colorJitter || 0;
@@ -1921,6 +1947,7 @@ export const useBrushEngine = () => {
     }
     
     ctx.save();
+    // console.log('[ERASER DEBUG] Context saved, ctx.globalCompositeOperation before setting:', ctx.globalCompositeOperation);
     
     // Apply clipping if specified (after save to preserve context)
     if (clipBounds) {
@@ -1929,8 +1956,7 @@ export const useBrushEngine = () => {
       ctx.clip();
       
       // ADDITIONAL FIX: Ensure clipping is strictly enforced for brush editing
-      // Set additional constraints to prevent any drawing outside bounds
-      ctx.globalCompositeOperation = ctx.globalCompositeOperation || 'source-over';
+      // Don't override the composite operation - it's already set correctly above
     }
     
     // Initialize distance tracking state if needed
@@ -1942,8 +1968,14 @@ export const useBrushEngine = () => {
     }
     
     // Apply rendering settings
-    ctx.globalCompositeOperation = settings.blendMode || 'source-over';
-    ctx.globalAlpha = settings.opacity;
+    // For eraser, we use a special approach: clear the pixels by drawing transparent
+    if (tools.currentTool === 'eraser') {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.globalAlpha = 1; // Full strength erasing
+    } else {
+      ctx.globalCompositeOperation = settings.blendMode || 'source-over';
+      ctx.globalAlpha = settings.opacity;
+    }
     ctx.lineWidth = settings.size;
     ctx.lineCap = settings.pixelAlignment ? 'butt' : 'round';
     ctx.lineJoin = settings.pixelAlignment ? 'miter' : 'round';
@@ -1955,6 +1987,7 @@ export const useBrushEngine = () => {
     // BUT: Never use custom brush path for pixel round brushes - they need special handling
     
     if (customBrush && tools.brushSettings.brushShape !== BrushShape.PIXEL_ROUND) {
+      console.log('[ERASER DEBUG] Using custom brush rendering - ctx.globalCompositeOperation:', ctx.globalCompositeOperation, 'currentTool:', tools.currentTool);
       // Determine if this brush should use swatch color or support jitter
       // Always respect the useSwatchColor setting for custom brushes
       const originalIsColorizable = tools.brushSettings.brushShape === BrushShape.CUSTOM 
@@ -2099,6 +2132,7 @@ export const useBrushEngine = () => {
           if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
             const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
+            // console.log('[ERASER DEBUG] Calling drawShape (pixel mode grid) - risographIntensity:', settings.risographIntensity, 'currentTool:', tools.currentTool);
             drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, false, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
             queue.stampedGridPositions.add(posKey);
           }
@@ -2144,6 +2178,7 @@ export const useBrushEngine = () => {
           if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
             const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
+            // console.log('[ERASER DEBUG] Calling drawShape (antialiased grid) - risographIntensity:', settings.risographIntensity, 'currentTool:', tools.currentTool);
             drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, true, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
             queue.stampedGridPositions.add(posKey);
           }
@@ -2165,6 +2200,7 @@ export const useBrushEngine = () => {
             
             const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
+            // console.log('[ERASER DEBUG] Calling drawShape (normal antialiased) - risographIntensity:', settings.risographIntensity, 'currentTool:', tools.currentTool);
             drawShape(ctx, x, y, settings.size, settings.shape, true, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
           }
           
@@ -2176,7 +2212,9 @@ export const useBrushEngine = () => {
     // Update last stroke position for next call
     queue.lastStrokePosition = { x: snappedTo.x, y: snappedTo.y };
     
+    // console.log('[ERASER DEBUG] Before restore, ctx.globalCompositeOperation:', ctx.globalCompositeOperation);
     ctx.restore();
+    // console.log('[ERASER DEBUG] After restore, ctx.globalCompositeOperation:', ctx.globalCompositeOperation);
     
     // Performance monitoring (silent - data available in dev tools if needed)
     if (process.env.NODE_ENV === 'development' && strokeStartTime) {
@@ -2189,7 +2227,7 @@ export const useBrushEngine = () => {
   // Draw rectangle gradient brush
   const drawRectangleGradient = useCallback((ctx: CanvasRenderingContext2D, rectangleState: RectangleState, isPreview: boolean = false) => {
     const { startPos, endPos, width, startColor, endColor, colors } = rectangleState;
-    const { brushSettings } = useAppStore.getState().tools;
+    const { brushSettings, currentTool } = useAppStore.getState().tools;
     
     // Use provided colors or fall back to default brush color
     const defaultColor = brushSettings.color;
@@ -2216,8 +2254,9 @@ export const useBrushEngine = () => {
     ];
     
     ctx.save();
-    ctx.globalAlpha = brushSettings.opacity;
-    ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
+    // CRITICAL FIX: Eraser must always use full opacity to completely remove pixels
+    ctx.globalAlpha = currentTool === 'eraser' ? 1 : brushSettings.opacity;
+    ctx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : (brushSettings.blendMode || 'source-over');
     
     // Create linear gradient
     const gradient = ctx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
@@ -2416,13 +2455,14 @@ export const useBrushEngine = () => {
   // Draw polygon gradient brush
   const drawPolygonGradient = useCallback((ctx: CanvasRenderingContext2D, options: { vertices: Array<{ x: number; y: number }>, colors: string[] }, isPreview: boolean = false) => {
     const { vertices, colors } = options;
-    const { brushSettings } = useAppStore.getState().tools;
+    const { brushSettings, currentTool } = useAppStore.getState().tools;
     
     if (!vertices || vertices.length < 3 || !colors || colors.length < 1) return;
     
     ctx.save();
-    ctx.globalAlpha = brushSettings.opacity;
-    ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
+    // CRITICAL FIX: Eraser must always use full opacity to completely remove pixels
+    ctx.globalAlpha = currentTool === 'eraser' ? 1 : brushSettings.opacity;
+    ctx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : (brushSettings.blendMode || 'source-over');
     
     // Create gradient along the path from first to last vertex (cursor path direction)
     const startPoint = vertices[0];

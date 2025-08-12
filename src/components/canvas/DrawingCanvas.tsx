@@ -1202,6 +1202,21 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
 
     // Handle shape mode for brush and eraser tools
     if ((tools.currentTool === 'brush' || tools.currentTool === 'eraser') && tools.brushSettings.shapeEnabled) {
+      // Lock the target layer to prevent pixel swapping if user switches layers mid-stroke
+      const targetLayerId = activeLayerId || layers[0]?.id || null;
+      
+      // CRITICAL FIX: For eraser, we need to draw the target layer to offscreen canvas first
+      if (tools.currentTool === 'eraser' && offscreenCanvasRef.current) {
+        const eraserTargetLayer = layers.find(l => l.id === targetLayerId);
+        if (eraserTargetLayer?.imageData) {
+          const offscreenCtx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+          if (offscreenCtx) {
+            offscreenCtx.clearRect(0, 0, offscreenCanvasRef.current.width, offscreenCanvasRef.current.height);
+            offscreenCtx.putImageData(eraserTargetLayer.imageData, 0, 0);
+          }
+        }
+      }
+      
       // Start new shape (like starting a brush stroke)
       setShapeDrawing(true);
       clearShapePoints();
@@ -1210,9 +1225,6 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       // Also set normal drawing state so pointer move events work
       setIsDrawing(true);
       setLastPoint(point);
-      
-      // Lock the target layer to prevent pixel swapping if user switches layers mid-stroke
-      const targetLayerId = activeLayerId || layers[0]?.id || null;
       
       // Check transparency lock - if enabled, only allow painting over non-transparent pixels
       const targetLayer = layers.find(l => l.id === targetLayerId);
@@ -1233,8 +1245,15 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     // Handle rectangle gradient brush
     if (tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT) {
       e.preventDefault();
+      e.stopPropagation(); // Stop event propagation
       
-      if (rectangleBrushState.drawingState === 'idle') {
+      // Get fresh state from store to avoid closure issues
+      const currentRectangleState = useAppStore.getState().rectangleBrushState;
+      
+      // Only respond to left mouse button (button === 0)
+      if (e.button !== 0) return;
+      
+      if (currentRectangleState.drawingState === 'idle') {
         // Start length definition - begin drag
         setRectangleBrushState({
           drawingState: 'definingLength',
@@ -1246,8 +1265,27 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         rectangleBrushLiveState.current.currentPos = point;
         setIsDrawing(true); // Enable drag mode
         needsRedraw.current = true; // Immediately show the starting point
-      } else if (rectangleBrushState.drawingState === 'definingWidth') {
-        // Finalize rectangle
+      } else if (currentRectangleState.drawingState === 'definingWidth') {
+        // Finalize rectangle - check we have the required positions
+        if (!currentRectangleState.startPos || !currentRectangleState.endPos) {
+          console.error('Missing start or end position for rectangle gradient');
+          setRectangleBrushState({ drawingState: 'idle' });
+          return;
+        }
+        
+        // Calculate width at click time using current mouse position
+        const { startPos, endPos } = currentRectangleState;
+        const dx = endPos.x - startPos.x;
+        const dy = endPos.y - startPos.y;
+        const length = Math.hypot(dx, dy);
+        let finalWidth = rectangleBrushLiveState.current.width || 0;
+        
+        // If width is 0 (user clicked without moving mouse), calculate it from current mouse position
+        if (finalWidth === 0 && length > 0) {
+          const dist = Math.abs(dy * point.x - dx * point.y + endPos.x * startPos.y - endPos.y * startPos.x) / length;
+          finalWidth = Math.max(dist * 2, 10); // Minimum width of 10 pixels
+        }
+        
         const offscreenCanvas = offscreenCanvasRef.current;
         if (offscreenCanvas) {
           const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
@@ -1260,8 +1298,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             for (let i = 0; i < numColors; i++) {
               // Handle single color case to avoid division by zero
               const t = numColors === 1 ? 0 : i / (numColors - 1);
-              const sampleX = rectangleBrushState.startPos.x + (rectangleBrushState.endPos.x - rectangleBrushState.startPos.x) * t;
-              const sampleY = rectangleBrushState.startPos.y + (rectangleBrushState.endPos.y - rectangleBrushState.startPos.y) * t;
+              const sampleX = currentRectangleState.startPos.x + (currentRectangleState.endPos.x - currentRectangleState.startPos.x) * t;
+              const sampleY = currentRectangleState.startPos.y + (currentRectangleState.endPos.y - currentRectangleState.startPos.y) * t;
               
               const color = sampleColor(sampleX, sampleY) || (i === 0 ? '#000000' : '#ffffff');
               sampledColors.push(shiftHue(color, 8)); // Apply same hue shift as before
@@ -1269,22 +1307,36 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             
             // Create final rectangle state with sampled colors
             const finalRectangleState = {
-              ...rectangleBrushState,
-              width: rectangleBrushLiveState.current.width,
+              ...currentRectangleState,
+              width: finalWidth,
               colors: sampledColors
             };
-            
             
             // Draw the rectangle gradient
             drawRectangleGradient(ctx, finalRectangleState);
             
-            
             // Save canvas state for undo/redo
             saveCanvasState(offscreenCanvas, 'brush', 'Rectangle gradient');
             needsRedraw.current = true;
+            
+            // Reset to idle state completely - clear all data for next rectangle
+            setRectangleBrushState({
+              drawingState: 'idle',
+              startPos: { x: 0, y: 0 },
+              endPos: { x: 0, y: 0 },
+              currentPos: { x: 0, y: 0 },
+              width: 0,
+              startColor: '',
+              endColor: ''
+            });
+            
+            // Also clear the live state
+            rectangleBrushLiveState.current = {
+              currentPos: { x: 0, y: 0 },
+              width: 0
+            };
           }
         }
-        setRectangleBrushState({ drawingState: 'idle' });
       }
       return;
     }
@@ -1311,6 +1363,21 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Lock the target layer to prevent pixel swapping if user switches layers mid-stroke
     const targetLayerId = activeLayerId || layers[0]?.id || null;
+    
+    // CRITICAL FIX: For eraser, we need to draw the target layer to offscreen canvas first
+    // so that destination-out can erase from it
+    if (tools.currentTool === 'eraser' && offscreenCanvasRef.current) {
+      const eraserTargetLayer = layers.find(l => l.id === targetLayerId);
+      if (eraserTargetLayer?.imageData) {
+        const offscreenCtx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+        if (offscreenCtx) {
+          // Clear the offscreen canvas first
+          offscreenCtx.clearRect(0, 0, offscreenCanvasRef.current.width, offscreenCanvasRef.current.height);
+          // Draw the target layer's content to the offscreen canvas
+          offscreenCtx.putImageData(eraserTargetLayer.imageData, 0, 0);
+        }
+      }
+    }
     
     // Check transparency lock - if enabled, only allow painting over non-transparent pixels
     const targetLayer = layers.find(l => l.id === targetLayerId);
@@ -1433,13 +1500,16 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         // Update the LIVE state in the ref, NOT the store
         rectangleBrushLiveState.current.currentPos = point;
         needsRedraw.current = true; // Tell the render loop to draw the preview
-      } else if (drawingState === 'definingWidth') {
+      } else if (drawingState === 'definingWidth' && startPos && endPos) {
         // Calculate and update the LIVE width in the ref
         const dx = endPos.x - startPos.x;
         const dy = endPos.y - startPos.y;
-        const dist = Math.abs(dy * point.x - dx * point.y + endPos.x * startPos.y - endPos.y * startPos.x) / Math.hypot(dx, dy);
-        rectangleBrushLiveState.current.width = dist * 2;
-        needsRedraw.current = true; // Tell the render loop to draw the preview
+        const length = Math.hypot(dx, dy);
+        if (length > 0) {
+          const dist = Math.abs(dy * point.x - dx * point.y + endPos.x * startPos.y - endPos.y * startPos.x) / length;
+          rectangleBrushLiveState.current.width = dist * 2;
+          needsRedraw.current = true; // Tell the render loop to draw the preview
+        }
       }
       // IMPORTANT: We return here to stop any other brush logic from running
       return;
@@ -1552,7 +1622,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     });
   }, [processPointerMove, isDrawing]);
 
-  const handlePointerUp = useCallback(async () => {
+  const handlePointerUp = useCallback(async (e?: React.PointerEvent) => {
     if (isPanning) {
       // End panning
       setIsPanning(false);
@@ -1586,11 +1656,13 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         // Release from drag - switch to width definition mode
         setIsDrawing(false);
         const currentPos = rectangleBrushLiveState.current.currentPos;
+        // Don't use callback form, just pass the partial state directly
         setRectangleBrushState({
           drawingState: 'definingWidth',
           endPos: currentPos,
           endColor: sampleColor(currentPos.x, currentPos.y) || '#000000',
         });
+        e?.stopPropagation(); // Prevent event from bubbling
         return;
       }
     }
@@ -1769,6 +1841,18 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Lock the target layer to prevent pixel swapping if user switches layers mid-stroke  
     const targetLayerId = activeLayerId || layers[0]?.id || null;
+    
+    // CRITICAL FIX: For eraser, we need to draw the target layer to offscreen canvas first
+    if (tools.currentTool === 'eraser' && offscreenCanvasRef.current) {
+      const eraserTargetLayer = layers.find(l => l.id === targetLayerId);
+      if (eraserTargetLayer?.imageData) {
+        const offscreenCtx = offscreenCanvasRef.current.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+        if (offscreenCtx) {
+          offscreenCtx.clearRect(0, 0, offscreenCanvasRef.current.width, offscreenCanvasRef.current.height);
+          offscreenCtx.putImageData(eraserTargetLayer.imageData, 0, 0);
+        }
+      }
+    }
     setDrawingTargetLayerId(targetLayerId);
     
     setIsDrawing(true);

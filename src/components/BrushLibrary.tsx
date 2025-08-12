@@ -164,9 +164,9 @@ const BrushLibrary = () => {
       if (preset.isCustomBrush) {
         const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
         
-        // Save current edits first
+        // Cancel current edits and start editing the new brush
         if (brushEditor.editingBrushId !== customBrushId) {
-          saveBrushEdit(currentOffscreenCanvas);
+          cancelBrushEdit(currentOffscreenCanvas);
           // Start editing the new brush
           startBrushEdit(customBrushId, currentOffscreenCanvas);
           // Note: Don't call setLayersNeedRecomposition here - let the brush drawing useEffect handle redraw
@@ -211,7 +211,8 @@ const BrushLibrary = () => {
     const isEditingThisBrush = brushEditor.status === 'EDITING' && brushEditor.editingBrushId === customBrushId;
 
     if (isEditingThisBrush) {
-      saveBrushEdit(currentOffscreenCanvas);
+      // Do nothing - already editing this brush
+      return;
     } else {
       if (brushEditor.status === 'EDITING') {
         cancelBrushEdit(currentOffscreenCanvas);
