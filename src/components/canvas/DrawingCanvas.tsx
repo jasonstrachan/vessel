@@ -183,6 +183,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
   }, []);
   const [isDraggingSelection, setIsDraggingSelection] = useState(false);
   const [selectionDragStart, setSelectionDragStart] = useState<{ x: number; y: number } | null>(null);
+  // New state for floating pasted image that follows cursor until placed
+  const [isFloatingPaste, setIsFloatingPaste] = useState(false);
   // Selection creation state
   const [isSelecting, setIsSelecting] = useState(false);
   // E key for temporary eraser mode
@@ -480,18 +482,19 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
         const worldX = Math.round(state.canvas.cursor.x);
         const worldY = Math.round(state.canvas.cursor.y);
         
-        // Create selection with pasted image
+        // Create selection with pasted image - initially floating at cursor
         const selection = {
           active: true,
           bounds: {
-            x: worldX,
-            y: worldY,
+            x: worldX - Math.floor(img.width / 2),
+            y: worldY - Math.floor(img.height / 2),
             width: img.width,
             height: img.height
           },
           pixels: imageData
         };
         setSelection(selection);
+        setIsFloatingPaste(true); // Mark as floating until user clicks to place
         
         // Release canvas back to pool
         canvasPool.release(tempCanvas);
@@ -1192,6 +1195,13 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       return;
     }
     
+    // Handle floating paste - click to place, then it becomes draggable
+    if (isFloatingPaste && canvas.selection.active) {
+      setIsFloatingPaste(false); // Stop floating, image is now placed
+      e.preventDefault();
+      return;
+    }
+    
     // Check if clicking on selection
     if (canvas.selection.active && isPointInSelection(point.x, point.y)) {
       setIsDraggingSelection(true);
@@ -1408,7 +1418,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     
     // Reset pixel queue for new stroke
     resetPixelQueue();
-  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, canvas.selection.active, isPointInSelection, tools.currentTool, sampleColor, setBrushSettings, setSelectionBounds, setIsSelecting, saveCanvasStateDeduped, offscreenCanvasRef]);
+  }, [spacebarPressed, screenToCanvas, setCursor, resetPixelQueue, updateMousePosition, canvas.selection.active, isPointInSelection, tools.currentTool, sampleColor, setBrushSettings, setSelectionBounds, setIsSelecting, saveCanvasStateDeduped, offscreenCanvasRef, isFloatingPaste]);
 
   // RAF-throttled pointer event processing for performance
   const pendingPointerEvent = useRef<React.PointerEvent | null>(null);
@@ -1463,6 +1473,22 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     }
     
     updateMousePosition(e); // Canvas event
+    
+    // Handle floating paste - make pasted image follow cursor
+    if (isFloatingPaste && canvas.selection.active) {
+      const point = screenToCanvas(e.clientX, e.clientY);
+      const { width, height } = canvas.selection.bounds;
+      setSelection({
+        ...canvas.selection,
+        bounds: {
+          x: point.x - Math.floor(width / 2),
+          y: point.y - Math.floor(height / 2),
+          width,
+          height
+        }
+      });
+      return;
+    }
     
     if (isPanning) {
       // Handle panning - calculate delta in screen coordinates for smooth movement
@@ -1598,7 +1624,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
       }
       setLastPoint(point);
     }
-  }, [isPanning, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition, isDraggingSelection, selectionDragStart, canvas.selection, setSelection, isSelecting, selectionStart, setSelectionBounds, smoothPressure, isPalmRejectionEvent, tools.currentTool, tools.brushSettings.shapeEnabled, shapeState.isDrawing, shapeState.points, addShapePoint, setShapePreviewPath]);
+  }, [isPanning, lastMouseX, lastMouseY, canvas.panX, canvas.panY, setPan, screenToCanvas, setCursor, isDrawing, lastPoint, drawLine, updateMousePosition, isDraggingSelection, selectionDragStart, canvas.selection, setSelection, isSelecting, selectionStart, setSelectionBounds, smoothPressure, isPalmRejectionEvent, tools.currentTool, tools.brushSettings.shapeEnabled, shapeState.isDrawing, shapeState.points, addShapePoint, setShapePreviewPath, isFloatingPaste]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     // Process immediately for drawing - pressure data is critical and cannot be throttled
@@ -2174,9 +2200,10 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
                       
                       setSelection({
                         active: true,
-                        bounds: { x: worldX, y: worldY, width: img.width, height: img.height },
+                        bounds: { x: worldX - Math.floor(img.width / 2), y: worldY - Math.floor(img.height / 2), width: img.width, height: img.height },
                         pixels: imageData
                       });
+                      setIsFloatingPaste(true); // Mark as floating until user clicks to place
                       
                       canvasPool.release(tempCanvas);
                     }

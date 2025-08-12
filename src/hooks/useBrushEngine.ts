@@ -293,7 +293,6 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
     
     // Debug logging - more frequent for diagnosis
     if (Math.random() < 0.01) { // Log 1% of color matches
-      console.log(`Apple II Dither: (${r},${g},${b}) -> (${nearest[0]},${nearest[1]},${nearest[2]}) distance: ${minDiff.toFixed(1)}`);
     }
     
     return nearest;
@@ -2263,7 +2262,7 @@ export const useBrushEngine = () => {
     
     // Use provided colors array or fall back to start/end colors
     if (colors && colors.length > 0) {
-      // Use the provided sampled colors
+      // Use the provided sampled colors with smooth gradient
       colors.forEach((color: string, index: number) => {
         // Handle single color case to avoid division by zero
         const position = colors.length === 1 ? 0 : index / (colors.length - 1);
@@ -2282,10 +2281,11 @@ export const useBrushEngine = () => {
         gradient.addColorStop(0, finalStartColor);
         gradient.addColorStop(1, finalStartColor);
       } else if (numColors === 2) {
+        // Smooth gradient between two colors
         gradient.addColorStop(0, finalStartColor);
         gradient.addColorStop(1, finalEndColor);
       } else {
-        // Interpolate between start and end
+        // Interpolate smoothly between start and end
         for (let i = 0; i < numColors; i++) {
           const position = i / (numColors - 1);
           
@@ -2376,10 +2376,10 @@ export const useBrushEngine = () => {
       }
     }
 
-    // Apply Sierra Lite dither effect if enabled (only for final drawing, not preview)
-    const ditherEnabled = brushSettings.ditherEnabled || false;
+    // Apply Sierra Lite dither effect if 2+ colors (always, not just when enabled)
     const numColors = Math.max(2, brushSettings.colors || 2);
-    if (ditherEnabled && !isPreview) {
+    // Always apply dithering if 2 or more colors, regardless of ditherEnabled setting
+    if (numColors >= 2 && !isPreview) {
       // Get the bounds of the rectangle for dithering
       const minX = Math.floor(Math.min(...corners.map(c => c.x)));
       const minY = Math.floor(Math.min(...corners.map(c => c.y)));
@@ -2559,10 +2559,10 @@ export const useBrushEngine = () => {
       }
     }
 
-    // Apply Sierra Lite dither effect if enabled (only for final drawing, not preview)
-    const ditherEnabled = brushSettings.ditherEnabled || false;
+    // Apply Sierra Lite dither effect if 2+ colors (always, not just when enabled)
     const numColors = Math.max(2, brushSettings.colors || 2);
-    if (ditherEnabled && !isPreview) {
+    // Always apply dithering if 2 or more colors, regardless of ditherEnabled setting
+    if (numColors >= 2 && !isPreview) {
       // Get the bounds of the polygon for dithering
       const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
       const minY = Math.floor(Math.min(...vertices.map(v => v.y)));

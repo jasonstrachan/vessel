@@ -168,6 +168,20 @@ Optimize rectangle drawing for pressure-sensitive stylus.
 - Corner radius based on initial pressure
 - Fill opacity from average pressure
 
+### Rectangle Gradient with Dither Fallback
+Smart gradient generation for rectangle tool with automatic dithering when gradient not possible.
+
+**Implementation:**
+- Sample colors from both ends of rectangle drag
+- If sampled colors are identical (no gradient possible):
+  - When color slider is set to 2 colors
+  - Find the two closest colors in the palette
+  - Generate dither pattern to represent the sampled color
+  - Apply dither pattern as rectangle fill
+- If colors differ: Apply standard gradient
+- Dither patterns: Ordered (Bayer), Floyd-Steinberg simulation
+- Visual preview during drag
+
 ### Data Input Visualizer
 Convert any data into pixel patterns.
 
@@ -177,61 +191,6 @@ Convert any data into pixel patterns.
 - Real-time preview of data visualization
 - Encoding options: Color mapping, size mapping, position mapping
 - Export as brush or direct canvas drawing
-
-## Creative & Experimental Brushes
-
-### Chaotic Brush System
-Unpredictable, generative brush behaviors.
-
-**Implementation:**
-- Strange attractors (Lorenz, Rössler)
-- Fractal generation (Julia sets, Mandelbrot)
-- Rule-based cellular automata
-- Particle systems with physics
-- Parameters: Chaos level, seed value, evolution rate
-
-### Sampler Brush
-Dynamically samples canvas content for each stroke.
-
-**Implementation:**
-- Sample area = current brush size
-- Capture on stroke start
-- Clone sampled pixels with each stamp
-- Options: Blend mode, opacity, rotation
-- Performance: Limit sampling frequency to maintain speed
-
-### Texturizer Brush
-Adds texture while respecting underlying pixels.
-
-**Implementation:**
-- Analyze pixels under brush area
-- Generate complementary texture
-- Blend modes: Multiply, overlay, soft light
-- Texture library: Paper, canvas, wood, stone
-- Pressure affects texture intensity
-- Smart edge detection to preserve details
-
-### Image Hose
-Spray images from a dynamic collection.
-
-**Implementation:**
-- Image source: Search API, local folder, predefined sets
-- Caching strategy for loaded images
-- Spray patterns: Random, sequential, pressure-based
-- Size/rotation variation
-- Blend mode per image
-- Performance: Preload and resize images, limit concurrent sprites
-
-### Haywire Brush
-Inverted control mappings for experimental effects.
-
-**Implementation:**
-- Velocity → Color (faster = different hue)
-- Pressure → Position offset (harder = more displacement)
-- Position → Brush size (edges = larger, center = smaller)
-- Configurable mapping curves
-- Visual feedback showing active mappings
-- Preset chaos modes
 
 ## Canvas & Performance
 
