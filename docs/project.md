@@ -3,13 +3,19 @@
 ## Recent Updates
 
 ### Dithering Palette Fix (2025-01-08)
-- **Fixed dithering to use full extended palette**: Now always uses all 20 colors from DITHER_PALETTE for color matching
-- **Problem**: Previous implementations were limiting the palette based on numColors, causing poor color matches
+- **Fixed dithering color selection and numColors slider**: Now intelligently selects the best N colors from palette based on image content
+- **Problem**: Previous implementations either ignored numColors or selected wrong colors for the content
 - **Solution**: 
-  - Both dithering functions now always use the full `DITHER_PALETTE` for finding nearest colors
-  - This ensures orange/brown gradients map to appropriate browns/tans instead of black/white
-  - NumColors slider temporarily disabled in favor of proper color matching
-- **Result**: Dithering now properly maps any color to its nearest match from the full 20-color palette (including Russet, Coffee, Beige, Saddle, Sienna, Peru, Tan, etc.)
+  - Both dithering functions now sample the image to find which palette colors best represent the content
+  - Scores each of the 20 palette colors based on how well they match the sampled pixels
+  - Selects the top N colors based on numColors slider setting
+  - These selected colors are then used for the dithering process
+- **Result**: Dithering now:
+  - Respects the numColors slider (2-20 colors)
+  - Intelligently picks the best colors from the palette for the actual content
+  - Orange gradients will select browns/tans when available
+  - Black/white gradients will select grays
+  - Full 20-color palette includes: Black, White, grays, Saddle, Sienna, Peru, Tan, Burlywood, Wheat, Bisque, Russet, Coffee, Rosy, Sandy, Peach, Antique, Beige
 
 ### Color Cycling Performance Optimization (2025-01-04)
 - **Optimized color cycling system**: Implemented pre-computed index maps and RGB caching to eliminate repeated hex conversions during animation

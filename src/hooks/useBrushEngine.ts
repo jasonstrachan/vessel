@@ -446,13 +446,93 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
   const width = imageData.width;
   const height = imageData.height;
   
-  // Always use the FULL palette for finding nearest colors
-  // This ensures any color can be matched to its closest palette color
-  const palette = DITHER_PALETTE;
+  // Sample the image to find the best colors from our palette
+  const selectBestPaletteColors = (numColors: number): [number, number, number][] => {
+    if (numColors >= DITHER_PALETTE.length) return DITHER_PALETTE;
+    
+    // Sample pixels from the image
+    const sampleStep = Math.max(1, Math.floor(data.length / (4 * 1000))); // Sample ~1000 pixels
+    const sampledColors: [number, number, number][] = [];
+    
+    for (let i = 0; i < data.length; i += sampleStep * 4) {
+      if (data[i + 3] > 0) { // Only sample non-transparent pixels
+        sampledColors.push([data[i], data[i + 1], data[i + 2]]);
+      }
+    }
+    
+    if (sampledColors.length === 0) {
+      // No valid samples, return default palette subset
+      return DITHER_PALETTE.slice(0, numColors);
+    }
+    
+    // Debug: Show what colors we're actually sampling
+    if (Math.random() < 0.2) { // Log 20% of the time
+      const sampleSummary = sampledColors.slice(0, 10).map(c => 
+        `(${c[0]},${c[1]},${c[2]})`
+      ).join(', ');
+      console.log(`[Dither Debug] Sample colors (first 10): ${sampleSummary}`);
+      
+      // Find min and max values in samples
+      const minR = Math.min(...sampledColors.map(c => c[0]));
+      const maxR = Math.max(...sampledColors.map(c => c[0]));
+      const avgR = sampledColors.reduce((sum, c) => sum + c[0], 0) / sampledColors.length;
+      console.log(`[Dither Debug] Red range: ${minR}-${maxR}, avg: ${avgR.toFixed(0)}`);
+    }
+    
+    // Score each palette color by how well it represents the sampled colors
+    const colorScores = DITHER_PALETTE.map((paletteColor, index) => {
+      let minDistance = Infinity;
+      let totalDistance = 0;
+      let closeMatches = 0;
+      
+      sampledColors.forEach(sample => {
+        const dist = Math.sqrt(
+          (sample[0] - paletteColor[0]) ** 2 +
+          (sample[1] - paletteColor[1]) ** 2 +
+          (sample[2] - paletteColor[2]) ** 2
+        );
+        totalDistance += dist;
+        minDistance = Math.min(minDistance, dist);
+        if (dist < 30) closeMatches++; // Count very close matches
+      });
+      
+      const avgDistance = totalDistance / sampledColors.length;
+      // New scoring: prioritize colors that have very close matches to some samples
+      // This helps select black for black pixels and white for white pixels
+      return {
+        color: paletteColor,
+        index: index,
+        score: closeMatches * 10000 - avgDistance - minDistance * 10
+      };
+    });
+    
+    // Sort by score and take the best numColors
+    colorScores.sort((a, b) => b.score - a.score);
+    
+    // Debug: Log top scoring colors and also Black/White scores
+    console.log('[Dither Debug] Top scoring colors:', colorScores.slice(0, Math.min(5, numColors)).map((item, i) => {
+      const name = DITHER_COLOR_NAMES[item.index] || 'Unknown';
+      return `${i}: ${name} (score: ${item.score.toFixed(0)})`;
+    }));
+    
+    // Also show Black and White scores specifically
+    const blackScore = colorScores.find(item => item.index === 0);
+    const whiteScore = colorScores.find(item => item.index === 1);
+    if (blackScore && whiteScore) {
+      console.log(`[Dither Debug] Black score: ${blackScore.score.toFixed(0)}, White score: ${whiteScore.score.toFixed(0)}`);
+    }
+    
+    return colorScores.slice(0, numColors).map(item => item.color);
+  };
+  
+  const palette = selectBestPaletteColors(numColors);
   
   // Debug: Log selected palette colors
-  console.log(`[Dither Debug] Using ${palette.length} colors from palette for dithering:`, 
-    palette.map((color, i) => `${i}: RGB(${color[0]}, ${color[1]}, ${color[2]})`));
+  console.log(`[Dither Debug] Selected ${palette.length} best colors for content:`, 
+    palette.map((color, i) => {
+      const name = DITHER_COLOR_NAMES[DITHER_PALETTE.findIndex(p => p[0] === color[0] && p[1] === color[1] && p[2] === color[2])] || 'Unknown';
+      return `${i}: ${name} RGB(${color[0]}, ${color[1]}, ${color[2]})`;
+    }));
   
   // Find nearest palette color for RGB values
   const findNearestColor = (r: number, g: number, b: number): [number, number, number] => {
@@ -478,17 +558,23 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
     return nearest;
   };
   
+  // Create a working copy for error accumulation
+  const workingData = new Float32Array(data.length);
+  for (let i = 0; i < data.length; i++) {
+    workingData[i] = data[i];
+  }
+  
   // Apply Sierra Lite dithering
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = (y * width + x) * 4;
       
-      // Get original RGB values
-      const oldR = data[idx];
-      const oldG = data[idx + 1]; 
-      const oldB = data[idx + 2];
+      // Get current RGB values (with accumulated error)
+      const oldR = Math.max(0, Math.min(255, workingData[idx]));
+      const oldG = Math.max(0, Math.min(255, workingData[idx + 1]));
+      const oldB = Math.max(0, Math.min(255, workingData[idx + 2]));
       
-      // Find nearest color in Apple II palette
+      // Find nearest color in selected palette
       const [newR, newG, newB] = findNearestColor(oldR, oldG, oldB);
       
       // Calculate error for each channel
@@ -496,34 +582,37 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
       const errorG = oldG - newG;
       const errorB = oldB - newB;
       
-      // Set new color
+      // Set new color in output
       data[idx] = newR;
       data[idx + 1] = newG;
       data[idx + 2] = newB;
       
       // Distribute error using Sierra Lite weights
+      // Add a small amount of noise to prevent banding
+      const noiseAmount = 2; // Small noise to break up patterns
+      
       // Right pixel (2/4 of error)
       if (x < width - 1) {
         const rightIdx = (y * width + (x + 1)) * 4;
-        data[rightIdx] = Math.max(0, Math.min(255, data[rightIdx] + errorR * 2 / 4));
-        data[rightIdx + 1] = Math.max(0, Math.min(255, data[rightIdx + 1] + errorG * 2 / 4));
-        data[rightIdx + 2] = Math.max(0, Math.min(255, data[rightIdx + 2] + errorB * 2 / 4));
+        workingData[rightIdx] += errorR * 2 / 4 + (Math.random() - 0.5) * noiseAmount;
+        workingData[rightIdx + 1] += errorG * 2 / 4 + (Math.random() - 0.5) * noiseAmount;
+        workingData[rightIdx + 2] += errorB * 2 / 4 + (Math.random() - 0.5) * noiseAmount;
       }
       
       // Bottom-left pixel (1/4 of error)
       if (y < height - 1 && x > 0) {
         const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
-        data[bottomLeftIdx] = Math.max(0, Math.min(255, data[bottomLeftIdx] + errorR * 1 / 4));
-        data[bottomLeftIdx + 1] = Math.max(0, Math.min(255, data[bottomLeftIdx + 1] + errorG * 1 / 4));
-        data[bottomLeftIdx + 2] = Math.max(0, Math.min(255, data[bottomLeftIdx + 2] + errorB * 1 / 4));
+        workingData[bottomLeftIdx] += errorR * 1 / 4 + (Math.random() - 0.5) * noiseAmount;
+        workingData[bottomLeftIdx + 1] += errorG * 1 / 4 + (Math.random() - 0.5) * noiseAmount;
+        workingData[bottomLeftIdx + 2] += errorB * 1 / 4 + (Math.random() - 0.5) * noiseAmount;
       }
       
       // Bottom pixel (1/4 of error)  
       if (y < height - 1) {
         const bottomIdx = ((y + 1) * width + x) * 4;
-        data[bottomIdx] = Math.max(0, Math.min(255, data[bottomIdx] + errorR * 1 / 4));
-        data[bottomIdx + 1] = Math.max(0, Math.min(255, data[bottomIdx + 1] + errorG * 1 / 4));
-        data[bottomIdx + 2] = Math.max(0, Math.min(255, data[bottomIdx + 2] + errorB * 1 / 4));
+        workingData[bottomIdx] += errorR * 1 / 4 + (Math.random() - 0.5) * noiseAmount;
+        workingData[bottomIdx + 1] += errorG * 1 / 4 + (Math.random() - 0.5) * noiseAmount;
+        workingData[bottomIdx + 2] += errorB * 1 / 4 + (Math.random() - 0.5) * noiseAmount;
       }
     }
   }
@@ -545,13 +634,90 @@ const applySierraLiteDitherWithFillResolution = (imageData: ImageData, numColors
   const height = imageData.height;
   const blockSize = fillResolution;
   
-  // Always use the FULL palette for finding nearest colors
-  // This ensures any color can be matched to its closest palette color
-  const palette = DITHER_PALETTE;
+  // Sample the image to find the best colors from our palette
+  const selectBestPaletteColors = (numColors: number): [number, number, number][] => {
+    if (numColors >= DITHER_PALETTE.length) return DITHER_PALETTE;
+    
+    // Sample pixels from the image
+    const sampleStep = Math.max(1, Math.floor(data.length / (4 * 1000))); // Sample ~1000 pixels
+    const sampledColors: [number, number, number][] = [];
+    
+    for (let i = 0; i < data.length; i += sampleStep * 4) {
+      if (data[i + 3] > 0) { // Only sample non-transparent pixels
+        sampledColors.push([data[i], data[i + 1], data[i + 2]]);
+      }
+    }
+    
+    if (sampledColors.length === 0) {
+      // No valid samples, return default palette subset
+      return DITHER_PALETTE.slice(0, numColors);
+    }
+    
+    // Debug: Show what colors we're actually sampling
+    if (Math.random() < 0.2) { // Log 20% of the time
+      const sampleSummary = sampledColors.slice(0, 10).map(c => 
+        `(${c[0]},${c[1]},${c[2]})`
+      ).join(', ');
+      console.log(`[Dither Debug] Sample colors (first 10): ${sampleSummary}`);
+      
+      // Find min and max values in samples
+      const minR = Math.min(...sampledColors.map(c => c[0]));
+      const maxR = Math.max(...sampledColors.map(c => c[0]));
+      const avgR = sampledColors.reduce((sum, c) => sum + c[0], 0) / sampledColors.length;
+      console.log(`[Dither Debug] Red range: ${minR}-${maxR}, avg: ${avgR.toFixed(0)}`);
+    }
+    
+    // Score each palette color by how well it represents the sampled colors
+    const colorScores = DITHER_PALETTE.map((paletteColor, index) => {
+      let minDistance = Infinity;
+      let totalDistance = 0;
+      let closeMatches = 0;
+      
+      sampledColors.forEach(sample => {
+        const dist = Math.sqrt(
+          (sample[0] - paletteColor[0]) ** 2 +
+          (sample[1] - paletteColor[1]) ** 2 +
+          (sample[2] - paletteColor[2]) ** 2
+        );
+        totalDistance += dist;
+        minDistance = Math.min(minDistance, dist);
+        if (dist < 30) closeMatches++; // Count very close matches
+      });
+      
+      const avgDistance = totalDistance / sampledColors.length;
+      // New scoring: prioritize colors that have very close matches to some samples
+      // This helps select black for black pixels and white for white pixels
+      return {
+        color: paletteColor,
+        index: index,
+        score: closeMatches * 10000 - avgDistance - minDistance * 10
+      };
+    });
+    
+    // Sort by score and take the best numColors
+    colorScores.sort((a, b) => b.score - a.score);
+    
+    // Debug: Log top scoring colors and also Black/White scores
+    console.log('[Dither Debug] Top scoring colors:', colorScores.slice(0, Math.min(5, numColors)).map((item, i) => {
+      const name = DITHER_COLOR_NAMES[item.index] || 'Unknown';
+      return `${i}: ${name} (score: ${item.score.toFixed(0)})`;
+    }));
+    
+    // Also show Black and White scores specifically
+    const blackScore = colorScores.find(item => item.index === 0);
+    const whiteScore = colorScores.find(item => item.index === 1);
+    if (blackScore && whiteScore) {
+      console.log(`[Dither Debug] Black score: ${blackScore.score.toFixed(0)}, White score: ${whiteScore.score.toFixed(0)}`);
+    }
+    
+    return colorScores.slice(0, numColors).map(item => item.color);
+  };
+  
+  const palette = selectBestPaletteColors(numColors);
   
   // Debug: Log selected palette colors (less frequent for fill resolution version)
   if (Math.random() < 0.1) {
-    console.log(`[Dither Debug - Fill] Selected ${palette.length} colors for fill resolution dithering:`, 
+    console.log(`[Dither Debug - Fill] Selected ${palette.length} best colors for content:`, 
       palette.map((color, i) => `${i}: RGB(${color[0]}, ${color[1]}, ${color[2]})`));
   }
   
