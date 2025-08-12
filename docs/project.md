@@ -2,6 +2,15 @@
 
 ## Recent Updates
 
+### Dithering Palette Fix (2025-01-08)
+- **Fixed dithering to use full extended palette**: Now always uses all 20 colors from DITHER_PALETTE for color matching
+- **Problem**: Previous implementations were limiting the palette based on numColors, causing poor color matches
+- **Solution**: 
+  - Both dithering functions now always use the full `DITHER_PALETTE` for finding nearest colors
+  - This ensures orange/brown gradients map to appropriate browns/tans instead of black/white
+  - NumColors slider temporarily disabled in favor of proper color matching
+- **Result**: Dithering now properly maps any color to its nearest match from the full 20-color palette (including Russet, Coffee, Beige, Saddle, Sienna, Peru, Tan, etc.)
+
 ### Color Cycling Performance Optimization (2025-01-04)
 - **Optimized color cycling system**: Implemented pre-computed index maps and RGB caching to eliminate repeated hex conversions during animation
 - **New optimized functions**: `buildLayerColorIndexMap()`, `applyCycleToLayer_Optimized()`, `buildShiftedColors()`, `applyCycleToLayers_Optimized()`
@@ -517,6 +526,7 @@ Animation Frame → Layer Composition → Canvas Render → UI Overlay
 - **Layer System**: Unlimited layers with efficient compositing
 - **Brush System**: Extensible brush architecture
 - **Export System**: Multiple export formats supported
+
 
 ## Development Architecture
 

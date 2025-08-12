@@ -368,7 +368,15 @@ const defaultColorCycleState: ColorCycleState = {
 
 export const useAppStore = create<AppState>()(
   devtools(
-    (set, get) => ({
+    (set, get) => {
+      // Expose store globally for debugging and test utilities
+      if (typeof window !== 'undefined') {
+        setTimeout(() => {
+          (window as any).__tinybrushStore = useAppStore;
+        }, 0);
+      }
+      
+      return {
       // Project State
       project: {
         id: 'default-project',
@@ -2378,7 +2386,8 @@ export const useAppStore = create<AppState>()(
         const { [brushId]: _unused, ...remaining } = state.brushSpecificSettings;
         return { brushSpecificSettings: remaining };
       })
-    }),
+    };
+    },
     { name: 'tinybrush-store' }
   )
 );

@@ -243,3 +243,57 @@ export function simplifyPath(points: ShapePoint[], tolerance: number = 2): Shape
   
   return simplified;
 }
+
+/**
+ * Douglas-Peucker algorithm for better path simplification
+ * Preserves important vertices while removing redundant ones
+ */
+export function simplifyPathDouglasPeucker(points: ShapePoint[], epsilon: number = 1.5): ShapePoint[] {
+  if (points.length <= 2) {
+    return points;
+  }
+
+  // Find the point with max distance from line between start and end
+  let maxDist = 0;
+  let maxIndex = 0;
+  const start = points[0];
+  const end = points[points.length - 1];
+  
+  for (let i = 1; i < points.length - 1; i++) {
+    const dist = perpendicularDistance(points[i], start, end);
+    if (dist > maxDist) {
+      maxDist = dist;
+      maxIndex = i;
+    }
+  }
+  
+  // If max distance is greater than epsilon, recursively simplify
+  if (maxDist > epsilon) {
+    const left = simplifyPathDouglasPeucker(points.slice(0, maxIndex + 1), epsilon);
+    const right = simplifyPathDouglasPeucker(points.slice(maxIndex), epsilon);
+    
+    // Combine results (remove duplicate middle point)
+    return [...left.slice(0, -1), ...right];
+  } else {
+    // Return just the endpoints
+    return [start, end];
+  }
+}
+
+/**
+ * Calculate perpendicular distance from point to line
+ */
+function perpendicularDistance(point: ShapePoint, lineStart: ShapePoint, lineEnd: ShapePoint): number {
+  const dx = lineEnd.x - lineStart.x;
+  const dy = lineEnd.y - lineStart.y;
+  
+  if (dx === 0 && dy === 0) {
+    // lineStart and lineEnd are the same point
+    return Math.hypot(point.x - lineStart.x, point.y - lineStart.y);
+  }
+  
+  const normalLength = Math.hypot(dx, dy);
+  const distance = Math.abs((dy * point.x - dx * point.y + lineEnd.x * lineStart.y - lineEnd.y * lineStart.x) / normalLength);
+  
+  return distance;
+}

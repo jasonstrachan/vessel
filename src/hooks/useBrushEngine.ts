@@ -10,6 +10,229 @@ import { scaledBrushCache } from '../utils/scaledBrushCache';
 import { pressureOptimizer } from '../utils/pressureOptimizer';
 import { memoryManager } from '../utils/memoryCleanup';
 import { performanceMonitor } from '../utils/performanceMonitor';
+import { BAYER_4x4_MATRIX } from '../utils/ditherAlgorithms';
+
+// Helper function for point-in-polygon test
+const pointInPolygon = (x: number, y: number, corners: Array<{x: number, y: number}>): boolean => {
+  let inside = false;
+  const n = corners.length;
+  
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = corners[i].x, yi = corners[i].y;
+    const xj = corners[j].x, yj = corners[j].y;
+    
+    const intersect = ((yi > y) !== (yj > y))
+        && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    
+    if (intersect) inside = !inside;
+  }
+  
+  return inside;
+};
+
+// Shared dithering palette with browns and neutral colors
+const DITHER_PALETTE: [number, number, number][] = [
+  [0, 0, 0],          // Black
+  [255, 255, 255],    // White
+  [128, 128, 128],    // Medium Grey
+  [192, 192, 192],    // Light Grey
+  [64, 64, 64],       // Dark Grey
+  
+  // Browns and earth tones
+  [139, 69, 19],      // Saddle Brown
+  [160, 82, 45],      // Sienna
+  [205, 133, 63],     // Peru
+  [210, 180, 140],    // Tan
+  [222, 184, 135],    // Burlywood
+  [245, 222, 179],    // Wheat
+  [255, 228, 196],    // Bisque
+  
+  // Dark browns
+  [101, 67, 33],      // Dark Brown
+  [92, 51, 23],       // Russet
+  [61, 43, 31],       // Dark Coffee
+  
+  // Warm neutrals
+  [188, 143, 143],    // Rosy Brown
+  [244, 164, 96],     // Sandy Brown
+  [255, 218, 185],    // Peach Puff
+  [250, 235, 215],    // Antique White
+  [245, 245, 220]     // Beige
+];
+
+// Color names for logging
+const DITHER_COLOR_NAMES = [
+  'Black', 'White', 'Medium Grey', 'Light Grey', 'Dark Grey',
+  'Saddle Brown', 'Sienna', 'Peru', 'Tan', 'Burlywood', 'Wheat', 'Bisque',
+  'Dark Brown', 'Russet', 'Dark Coffee',
+  'Rosy Brown', 'Sandy Brown', 'Peach Puff', 'Antique White', 'Beige'
+];
+
+// Track which colors have been used (for debugging)
+const usedColorIndices = new Set<number>();
+
+// Test function to show which colors would be selected for various inputs
+const testDitherPalette = () => {
+  console.log('=== Testing Dither Palette Selection ===');
+  
+  // Test different numColors values
+  for (let numColors = 2; numColors <= 8; numColors++) {
+    const selectedPalette = selectDiversePalette(numColors);
+    console.log(`\nNumColors: ${numColors}`);
+    console.log('Selected colors:', selectedPalette.map((color, i) => 
+      `${i}: RGB(${color[0]}, ${color[1]}, ${color[2]}) - ${DITHER_COLOR_NAMES[DITHER_PALETTE.findIndex(p => p[0] === color[0] && p[1] === color[1] && p[2] === color[2])]}`
+    ));
+  }
+  
+  const testColors = [
+    { name: 'Pure Black', rgb: [0, 0, 0] },
+    { name: 'Pure White', rgb: [255, 255, 255] },
+    { name: 'Dark Brown', rgb: [90, 50, 30] },
+    { name: 'Medium Brown', rgb: [150, 100, 70] },
+    { name: 'Light Brown', rgb: [200, 160, 120] },
+    { name: 'Dark Grey', rgb: [64, 64, 64] },
+    { name: 'Light Grey', rgb: [192, 192, 192] },
+    { name: 'Tan', rgb: [210, 180, 140] },
+    { name: 'Sienna', rgb: [160, 82, 45] },
+  ];
+  
+  testColors.forEach(test => {
+    const result = findDitherColors(test.rgb[0], test.rgb[1], test.rgb[2]);
+  });
+  
+};
+
+// Uncomment to run test:
+// testDitherPalette();
+
+// Smart palette selection that distributes colors across the spectrum
+const selectDiversePalette = (numColors: number): [number, number, number][] => {
+  if (numColors >= DITHER_PALETTE.length) {
+    return DITHER_PALETTE;
+  }
+  
+  // For very small palettes, strategically pick colors
+  if (numColors === 1) {
+    return [DITHER_PALETTE[0]]; // Just black
+  } else if (numColors === 2) {
+    return [DITHER_PALETTE[0], DITHER_PALETTE[1]]; // Black and white
+  } else if (numColors === 3) {
+    return [DITHER_PALETTE[0], DITHER_PALETTE[2], DITHER_PALETTE[1]]; // Black, medium grey, white
+  } else if (numColors === 4) {
+    return [
+      DITHER_PALETTE[0],  // Black
+      DITHER_PALETTE[4],  // Dark grey
+      DITHER_PALETTE[3],  // Light grey
+      DITHER_PALETTE[1]   // White
+    ];
+  }
+  
+  // For 5+ colors, include some browns/colors
+  const selectedColors: [number, number, number][] = [];
+  
+  // Always start with black and white
+  selectedColors.push(DITHER_PALETTE[0]); // Black
+  selectedColors.push(DITHER_PALETTE[1]); // White
+  
+  if (numColors > 2) {
+    // Add a middle grey
+    selectedColors.push(DITHER_PALETTE[2]); // Medium grey
+  }
+  
+  if (numColors > 3) {
+    // Start adding browns and colors
+    const colorIndices = [
+      6,  // Sienna (brown)
+      8,  // Peru (brown)
+      9,  // Tan (light brown)
+      11, // Wheat
+      3,  // Light grey
+      4,  // Dark grey
+      5,  // Saddle brown
+      7,  // Sienna
+      10, // Burlywood
+      12, // Bisque
+      13, // Dark brown
+      14, // Russet
+      15, // Dark coffee
+      16, // Rosy brown
+      17, // Sandy brown
+      18, // Peach puff
+      19, // Antique white
+    ];
+    
+    // Add colors from our priority list until we reach numColors
+    for (const idx of colorIndices) {
+      if (selectedColors.length >= numColors) break;
+      if (idx < DITHER_PALETTE.length) {
+        // Check if not already added
+        const color = DITHER_PALETTE[idx];
+        if (!selectedColors.some(c => c[0] === color[0] && c[1] === color[1] && c[2] === color[2])) {
+          selectedColors.push(color);
+        }
+      }
+    }
+  }
+  
+  // Fill any remaining slots
+  while (selectedColors.length < numColors && selectedColors.length < DITHER_PALETTE.length) {
+    // Find first color not yet selected
+    let added = false;
+    for (let i = 0; i < DITHER_PALETTE.length; i++) {
+      const color = DITHER_PALETTE[i];
+      if (!selectedColors.some(c => c[0] === color[0] && c[1] === color[1] && c[2] === color[2])) {
+        selectedColors.push(color);
+        added = true;
+        break;
+      }
+    }
+    if (!added) {
+      break;
+    }
+  }
+  
+  return selectedColors;
+};
+
+// Shared function to find the two best colors for dithering a target color
+const findDitherColors = (targetR: number, targetG: number, targetB: number) => {
+  // Find the two closest colors in the palette to the target color
+  const colorDistances = DITHER_PALETTE.map(([r, g, b], index) => {
+    // Use weighted Euclidean distance for better perceptual accuracy
+    // Human eyes are more sensitive to green, then red, then blue
+    const dr = targetR - r;
+    const dg = targetG - g;
+    const db = targetB - b;
+    const distance = Math.sqrt(dr * dr * 0.3 + dg * dg * 0.59 + db * db * 0.11);
+    return { index, distance, color: [r, g, b] as [number, number, number], name: DITHER_COLOR_NAMES[index] };
+  });
+  
+  // Sort by distance and get the two closest colors
+  colorDistances.sort((a, b) => a.distance - b.distance);
+  const closest = colorDistances[0];
+  const secondClosest = colorDistances[1];
+  
+  // Track which colors are being used
+  usedColorIndices.add(closest.index);
+  usedColorIndices.add(secondClosest.index);
+  
+  // Calculate the mix ratio based on relative distances
+  const totalDist = closest.distance + secondClosest.distance;
+  const ratio = totalDist > 0 ? closest.distance / totalDist : 0.5;
+  
+  // Log the dither colors and show top 3 candidates
+  
+  // Periodically report which colors have been used
+  if (usedColorIndices.size > 0 && Math.random() < 0.2) { // 20% chance to report
+    const usedNames = Array.from(usedColorIndices).map(i => DITHER_COLOR_NAMES[i]);
+  }
+  
+  return {
+    baseColor: closest.color,
+    mixColor: secondClosest.color,
+    ratio: ratio
+  };
+};
 
 // Authentic Apple II Hi-Res color palette (RGB values based on NTSC composite output)
 const AUTHENTIC_APPLE_II_PALETTE: [number, number, number][] = [
@@ -223,63 +446,18 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
   const width = imageData.width;
   const height = imageData.height;
   
-  // Use the authentic Apple II color palette defined at module level
-  const appleIIPalette = AUTHENTIC_APPLE_II_PALETTE;
+  // Always use the FULL palette for finding nearest colors
+  // This ensures any color can be matched to its closest palette color
+  const palette = DITHER_PALETTE;
   
-  // Select best Apple II colors for this image based on content
-  const selectBestColors = (imageData: ImageData, numColors: number): [number, number, number][] => {
-    if (numColors >= appleIIPalette.length) return appleIIPalette;
-    
-    // Sample pixels from the image to find dominant colors
-    const sampleColors: [number, number, number][] = [];
-    const data = imageData.data;
-    const step = Math.max(1, Math.floor(data.length / (4 * 100))); // Sample ~100 pixels
-    
-    for (let i = 0; i < data.length; i += step * 4) {
-      sampleColors.push([data[i], data[i + 1], data[i + 2]]);
-    }
-    
-    // Score each Apple II color by how well it represents the image
-    const colorScores = appleIIPalette.map((appleColor, index) => {
-      let totalDistance = 0;
-      let bestMatches = 0;
-      
-      sampleColors.forEach(sampleColor => {
-        const distance = Math.sqrt(
-          (sampleColor[0] - appleColor[0])**2 + 
-          (sampleColor[1] - appleColor[1])**2 + 
-          (sampleColor[2] - appleColor[2])**2
-        );
-        
-        // Check if this Apple II color is the best match for this sample
-        const isBestMatch = appleIIPalette.every(otherColor => {
-          const otherDistance = Math.sqrt(
-            (sampleColor[0] - otherColor[0])**2 + 
-            (sampleColor[1] - otherColor[1])**2 + 
-            (sampleColor[2] - otherColor[2])**2
-          );
-          return distance <= otherDistance;
-        });
-        
-        if (isBestMatch) bestMatches++;
-        totalDistance += distance;
-      });
-      
-      return { color: appleColor, score: bestMatches - totalDistance / 1000, index };
-    });
-    
-    // Sort by score and take top numColors
-    return colorScores
-      .sort((a, b) => b.score - a.score)
-      .slice(0, numColors)
-      .map(item => item.color);
-  };
-  
-  const palette = selectBestColors(imageData, numColors);
+  // Debug: Log selected palette colors
+  console.log(`[Dither Debug] Using ${palette.length} colors from palette for dithering:`, 
+    palette.map((color, i) => `${i}: RGB(${color[0]}, ${color[1]}, ${color[2]})`));
   
   // Find nearest palette color for RGB values
   const findNearestColor = (r: number, g: number, b: number): [number, number, number] => {
     let nearest = palette[0];
+    let nearestIndex = 0;
     let minDiff = Math.sqrt((r - nearest[0])**2 + (g - nearest[1])**2 + (b - nearest[2])**2);
     
     for (let i = 1; i < palette.length; i++) {
@@ -288,11 +466,13 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
       if (diff < minDiff) {
         minDiff = diff;
         nearest = color;
+        nearestIndex = i;
       }
     }
     
-    // Debug logging - more frequent for diagnosis
-    if (Math.random() < 0.01) { // Log 1% of color matches
+    // Debug logging - sample color matches
+    if (Math.random() < 0.001) { // Log 0.1% of color matches
+      console.log(`[Dither Debug] Mapped RGB(${r}, ${g}, ${b}) -> palette[${nearestIndex}] RGB(${nearest[0]}, ${nearest[1]}, ${nearest[2]})`);
     }
     
     return nearest;
@@ -365,62 +545,19 @@ const applySierraLiteDitherWithFillResolution = (imageData: ImageData, numColors
   const height = imageData.height;
   const blockSize = fillResolution;
   
-  // Use the authentic Apple II color palette defined at module level
-  const appleIIPalette = AUTHENTIC_APPLE_II_PALETTE;
+  // Always use the FULL palette for finding nearest colors
+  // This ensures any color can be matched to its closest palette color
+  const palette = DITHER_PALETTE;
   
-  // Select best Apple II colors for this image based on content
-  const selectBestColors = (imageData: ImageData, numColors: number): [number, number, number][] => {
-    if (numColors >= appleIIPalette.length) return appleIIPalette;
-    
-    // Sample pixels from the image to find dominant colors
-    const sampleColors: [number, number, number][] = [];
-    const data = imageData.data;
-    const step = Math.max(1, Math.floor(data.length / (4 * 100))); // Sample ~100 pixels
-    
-    for (let i = 0; i < data.length; i += step * 4) {
-      sampleColors.push([data[i], data[i + 1], data[i + 2]]);
-    }
-    
-    // Score each Apple II color by how well it represents the image
-    const colorScores = appleIIPalette.map((appleColor, index) => {
-      let totalDistance = 0;
-      let bestMatches = 0;
-      
-      sampleColors.forEach(sampleColor => {
-        const distance = Math.sqrt(
-          (sampleColor[0] - appleColor[0])**2 + 
-          (sampleColor[1] - appleColor[1])**2 + 
-          (sampleColor[2] - appleColor[2])**2
-        );
-        
-        // Check if this Apple II color is the best match for this sample
-        const isBestMatch = appleIIPalette.every(otherColor => {
-          const otherDistance = Math.sqrt(
-            (sampleColor[0] - otherColor[0])**2 + 
-            (sampleColor[1] - otherColor[1])**2 + 
-            (sampleColor[2] - otherColor[2])**2
-          );
-          return distance <= otherDistance;
-        });
-        
-        if (isBestMatch) bestMatches++;
-        totalDistance += distance;
-      });
-      
-      return { color: appleColor, score: bestMatches - totalDistance / 1000, index };
-    });
-    
-    // Sort by score and take top numColors
-    return colorScores
-      .sort((a, b) => b.score - a.score)
-      .slice(0, numColors)
-      .map(item => item.color);
-  };
-  
-  const palette = selectBestColors(imageData, numColors);
+  // Debug: Log selected palette colors (less frequent for fill resolution version)
+  if (Math.random() < 0.1) {
+    console.log(`[Dither Debug - Fill] Selected ${palette.length} colors for fill resolution dithering:`, 
+      palette.map((color, i) => `${i}: RGB(${color[0]}, ${color[1]}, ${color[2]})`));
+  }
   
   const findNearestColor = (r: number, g: number, b: number): [number, number, number] => {
     let nearest = palette[0];
+    let nearestIndex = 0;
     let minDiff = Math.sqrt((r - nearest[0])**2 + (g - nearest[1])**2 + (b - nearest[2])**2);
     for (let i = 1; i < palette.length; i++) {
       const color = palette[i];
@@ -428,9 +565,9 @@ const applySierraLiteDitherWithFillResolution = (imageData: ImageData, numColors
       if (diff < minDiff) {
         minDiff = diff;
         nearest = color;
+        nearestIndex = i;
       }
     }
-    
     
     return nearest;
   };
@@ -964,7 +1101,6 @@ export const useBrushEngine = () => {
       }
     } else {
       // Original shape rendering
-      console.log('[ERASER DEBUG] drawShape - About to draw shape, targetCtx.globalCompositeOperation:', targetCtx.globalCompositeOperation, 'targetCtx.fillStyle:', targetCtx.fillStyle);
       switch (shape) {
         case BrushShape.SQUARE:
           if (antiAliasing) {
@@ -1559,7 +1695,6 @@ export const useBrushEngine = () => {
   ) => {
     // Canvas clipping (ctx.clip) automatically handles bounds restriction
     // No manual bounds checking needed - canvas won't draw outside clipped region
-    console.log('[ERASER DEBUG] drawCustomBrushStamp - ctx.globalCompositeOperation:', ctx.globalCompositeOperation, 'isColorizable:', isColorizable);
     
     performanceMonitor.measureStampTime(() => {
       const colorJitterAmount = tools.brushSettings.colorJitter || 0;
@@ -1946,7 +2081,6 @@ export const useBrushEngine = () => {
     }
     
     ctx.save();
-    // console.log('[ERASER DEBUG] Context saved, ctx.globalCompositeOperation before setting:', ctx.globalCompositeOperation);
     
     // Apply clipping if specified (after save to preserve context)
     if (clipBounds) {
@@ -1986,7 +2120,6 @@ export const useBrushEngine = () => {
     // BUT: Never use custom brush path for pixel round brushes - they need special handling
     
     if (customBrush && tools.brushSettings.brushShape !== BrushShape.PIXEL_ROUND) {
-      console.log('[ERASER DEBUG] Using custom brush rendering - ctx.globalCompositeOperation:', ctx.globalCompositeOperation, 'currentTool:', tools.currentTool);
       // Determine if this brush should use swatch color or support jitter
       // Always respect the useSwatchColor setting for custom brushes
       const originalIsColorizable = tools.brushSettings.brushShape === BrushShape.CUSTOM 
@@ -2131,7 +2264,6 @@ export const useBrushEngine = () => {
           if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
             const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
-            // console.log('[ERASER DEBUG] Calling drawShape (pixel mode grid) - risographIntensity:', settings.risographIntensity, 'currentTool:', tools.currentTool);
             drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, false, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
             queue.stampedGridPositions.add(posKey);
           }
@@ -2177,7 +2309,6 @@ export const useBrushEngine = () => {
           if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
             const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
-            // console.log('[ERASER DEBUG] Calling drawShape (antialiased grid) - risographIntensity:', settings.risographIntensity, 'currentTool:', tools.currentTool);
             drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, true, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
             queue.stampedGridPositions.add(posKey);
           }
@@ -2199,7 +2330,6 @@ export const useBrushEngine = () => {
             
             const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
-            // console.log('[ERASER DEBUG] Calling drawShape (normal antialiased) - risographIntensity:', settings.risographIntensity, 'currentTool:', tools.currentTool);
             drawShape(ctx, x, y, settings.size, settings.shape, true, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
           }
           
@@ -2211,9 +2341,7 @@ export const useBrushEngine = () => {
     // Update last stroke position for next call
     queue.lastStrokePosition = { x: snappedTo.x, y: snappedTo.y };
     
-    // console.log('[ERASER DEBUG] Before restore, ctx.globalCompositeOperation:', ctx.globalCompositeOperation);
     ctx.restore();
-    // console.log('[ERASER DEBUG] After restore, ctx.globalCompositeOperation:', ctx.globalCompositeOperation);
     
     // Performance monitoring (silent - data available in dev tools if needed)
     if (process.env.NODE_ENV === 'development' && strokeStartTime) {
@@ -2257,62 +2385,175 @@ export const useBrushEngine = () => {
     ctx.globalAlpha = currentTool === 'eraser' ? 1 : brushSettings.opacity;
     ctx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : (brushSettings.blendMode || 'source-over');
     
-    // Create linear gradient
-    const gradient = ctx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
+    // Get the actual number of colors (default to 2 if not set)
+    const numColors = brushSettings.colors || 2;
     
-    // Use provided colors array or fall back to start/end colors
-    if (colors && colors.length > 0) {
-      // Use the provided sampled colors with smooth gradient
-      colors.forEach((color: string, index: number) => {
-        // Handle single color case to avoid division by zero
-        const position = colors.length === 1 ? 0 : index / (colors.length - 1);
-        gradient.addColorStop(position, color);
-      });
-      
-      // For single color, add the same color at position 1 to ensure solid fill
-      if (colors.length === 1) {
-        gradient.addColorStop(1, colors[0]);
-      }
-    } else {
-      // Fallback to original behavior if no colors array provided
-      const numColors = Math.max(2, brushSettings.colors || 2);
-      if (numColors === 1) {
-        // Single color - use solid fill
-        gradient.addColorStop(0, finalStartColor);
-        gradient.addColorStop(1, finalStartColor);
-      } else if (numColors === 2) {
-        // Smooth gradient between two colors
-        gradient.addColorStop(0, finalStartColor);
-        gradient.addColorStop(1, finalEndColor);
-      } else {
-        // Interpolate smoothly between start and end
-        for (let i = 0; i < numColors; i++) {
-          const position = i / (numColors - 1);
-          
-          const start = finalStartColor.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
-          const end = finalEndColor.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
-          
-          if (start && end) {
-            const r = Math.round(parseInt(start[1], 16) + (parseInt(end[1], 16) - parseInt(start[1], 16)) * position);
-            const g = Math.round(parseInt(start[2], 16) + (parseInt(end[2], 16) - parseInt(start[2], 16)) * position);
-            const b = Math.round(parseInt(start[3], 16) + (parseInt(end[3], 16) - parseInt(start[3], 16)) * position);
-            
-            const interpolatedColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-            gradient.addColorStop(position, interpolatedColor);
-          } else {
-            gradient.addColorStop(position, position < 0.5 ? finalStartColor : finalEndColor);
-          }
-        }
+    // Check if we should use dithering for 2-color mode when colors are the same
+    const shouldUseDither = colors && colors.length === 2 && 
+                           colors[0] === colors[1] && 
+                           numColors === 2 &&
+                           !isPreview; // Don't dither in preview mode for performance
+    
+    // For single color mode, always use solid fill
+    const shouldUseSolidFill = numColors === 1 || (colors && colors.length === 1);
+    
+    // Log dithering decision (only on final draw, not preview)
+    if (!isPreview && numColors === 2) {
+      if (shouldUseDither) {
+      } else if (colors && colors.length === 2) {
       }
     }
     
-    // Draw rectangle with gradient
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.moveTo(corners[0].x, corners[0].y);
-    corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
-    ctx.closePath();
-    ctx.fill();
+    if (shouldUseSolidFill) {
+      // For single color mode, use solid fill without gradient
+      const solidColor = colors && colors.length > 0 ? colors[0] : finalStartColor;
+      
+      ctx.fillStyle = solidColor;
+      ctx.beginPath();
+      ctx.moveTo(corners[0].x, corners[0].y);
+      corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
+      ctx.closePath();
+      ctx.fill();
+    } else if (shouldUseDither) {
+      // Use dithering when both sampled colors are the same and we're in 2-color mode
+      
+      // Parse the sampled color
+      const colorMatch = colors[0].match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      let targetR = 128, targetG = 128, targetB = 128;
+      if (colorMatch) {
+        targetR = parseInt(colorMatch[1]);
+        targetG = parseInt(colorMatch[2]);
+        targetB = parseInt(colorMatch[3]);
+      }
+      
+      // Use shared function to find dither colors
+      const { baseColor, mixColor, ratio } = findDitherColors(targetR, targetG, targetB);
+      
+      // Draw dithered rectangle
+      const minX = Math.floor(Math.min(...corners.map(c => c.x)));
+      const maxX = Math.ceil(Math.max(...corners.map(c => c.x)));
+      const minY = Math.floor(Math.min(...corners.map(c => c.y)));
+      const maxY = Math.ceil(Math.max(...corners.map(c => c.y)));
+      
+      const rectWidth = maxX - minX;
+      const rectHeight = maxY - minY;
+      
+      // Create temporary canvas for dithering
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = rectWidth;
+      tempCanvas.height = rectHeight;
+      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+      
+      if (tempCtx) {
+        // Fill with the base color
+        tempCtx.fillStyle = `rgba(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]}, 1)`;
+        tempCtx.fillRect(0, 0, rectWidth, rectHeight);
+        
+        // Apply Bayer dithering pattern
+        const imageData = tempCtx.getImageData(0, 0, rectWidth, rectHeight);
+        const data = imageData.data;
+        const matrixSize = BAYER_4x4_MATRIX.length;
+        
+        for (let y = 0; y < rectHeight; y++) {
+          for (let x = 0; x < rectWidth; x++) {
+            // Check if pixel is inside the actual rectangle shape
+            const worldX = minX + x;
+            const worldY = minY + y;
+            
+            // Simple point-in-polygon test for rectangle
+            // Using cross product method for a convex quadrilateral
+            const isInside = pointInPolygon(worldX, worldY, corners);
+            
+            if (isInside) {
+              const bayerValue = BAYER_4x4_MATRIX[y % matrixSize][x % matrixSize];
+              const idx = (y * rectWidth + x) * 4;
+              
+              if (bayerValue < ratio) {
+                // Use the mix color (second closest)
+                data[idx] = mixColor[0];
+                data[idx + 1] = mixColor[1];
+                data[idx + 2] = mixColor[2];
+                data[idx + 3] = 255; // Ensure alpha is set
+              } else {
+                // Explicitly set base color (in case it wasn't set properly)
+                data[idx] = baseColor[0];
+                data[idx + 1] = baseColor[1];
+                data[idx + 2] = baseColor[2];
+                data[idx + 3] = 255; // Ensure alpha is set
+              }
+            }
+          }
+        }
+        
+        tempCtx.putImageData(imageData, 0, 0);
+        
+        // Draw the dithered pattern with clipping
+        ctx.beginPath();
+        ctx.moveTo(corners[0].x, corners[0].y);
+        corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
+        ctx.closePath();
+        ctx.clip();
+        
+        ctx.drawImage(tempCanvas, minX, minY);
+      }
+    } else {
+      // Original gradient code
+      const gradient = ctx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
+      
+      // Use provided colors array or fall back to start/end colors
+      if (colors && colors.length > 0) {
+        // Use the provided sampled colors with smooth gradient
+        colors.forEach((color: string, index: number) => {
+          // Handle single color case to avoid division by zero
+          const position = colors.length === 1 ? 0 : index / (colors.length - 1);
+          gradient.addColorStop(position, color);
+        });
+        
+        // For single color, add the same color at position 1 to ensure solid fill
+        if (colors.length === 1) {
+          gradient.addColorStop(1, colors[0]);
+        }
+      } else {
+        // Fallback to original behavior if no colors array provided
+        const numColors = Math.max(2, brushSettings.colors || 2);
+        if (numColors === 1) {
+          // Single color - use solid fill
+          gradient.addColorStop(0, finalStartColor);
+          gradient.addColorStop(1, finalStartColor);
+        } else if (numColors === 2) {
+          // Smooth gradient between two colors
+          gradient.addColorStop(0, finalStartColor);
+          gradient.addColorStop(1, finalEndColor);
+        } else {
+          // Interpolate smoothly between start and end
+          for (let i = 0; i < numColors; i++) {
+            const position = i / (numColors - 1);
+            
+            const start = finalStartColor.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+            const end = finalEndColor.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+            
+            if (start && end) {
+              const r = Math.round(parseInt(start[1], 16) + (parseInt(end[1], 16) - parseInt(start[1], 16)) * position);
+              const g = Math.round(parseInt(start[2], 16) + (parseInt(end[2], 16) - parseInt(start[2], 16)) * position);
+              const b = Math.round(parseInt(start[3], 16) + (parseInt(end[3], 16) - parseInt(start[3], 16)) * position);
+              
+              const interpolatedColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+              gradient.addColorStop(position, interpolatedColor);
+            } else {
+              gradient.addColorStop(position, position < 0.5 ? finalStartColor : finalEndColor);
+            }
+          }
+        }
+      }
+      
+      // Draw rectangle with gradient
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.moveTo(corners[0].x, corners[0].y);
+      corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
+      ctx.closePath();
+      ctx.fill();
+    }
     
     // Apply risograph effect if enabled
     const risographIntensity = brushSettings.risographIntensity || 0;
@@ -2376,10 +2617,10 @@ export const useBrushEngine = () => {
       }
     }
 
-    // Apply Sierra Lite dither effect if 2+ colors (always, not just when enabled)
-    const numColors = Math.max(2, brushSettings.colors || 2);
-    // Always apply dithering if 2 or more colors, regardless of ditherEnabled setting
-    if (numColors >= 2 && !isPreview) {
+    // Apply Sierra Lite dither effect if enabled and 2+ colors
+    // Use numColors already declared above
+    // Only apply dithering if explicitly enabled in settings
+    if (brushSettings.ditherEnabled && numColors >= 2 && !isPreview) {
       // Get the bounds of the rectangle for dithering
       const minX = Math.floor(Math.min(...corners.map(c => c.x)));
       const minY = Math.floor(Math.min(...corners.map(c => c.y)));
@@ -2459,6 +2700,19 @@ export const useBrushEngine = () => {
     
     if (!vertices || vertices.length < 3 || !colors || colors.length < 1) return;
     
+    // Get the actual number of colors (default to 2 if not set)
+    const numColors = brushSettings.colors || 2;
+    
+    // Check if we should use dithering for 2-color mode when colors are the same
+    const shouldUseDither = colors && colors.length === 2 && 
+                           colors[0] === colors[1] && 
+                           numColors === 2 &&
+                           !isPreview;
+    
+    // Only log when dithering will actually happen
+    if (shouldUseDither && !isPreview) {
+    }
+    
     ctx.save();
     // CRITICAL FIX: Eraser must always use full opacity to completely remove pixels
     ctx.globalAlpha = currentTool === 'eraser' ? 1 : brushSettings.opacity;
@@ -2483,7 +2737,7 @@ export const useBrushEngine = () => {
       gradient.addColorStop(1, colors[0]);
     }
     
-    // Create polygon path
+    // Create polygon path with processed vertices for better precision
     ctx.beginPath();
     ctx.moveTo(vertices[0].x, vertices[0].y);
     for (let i = 1; i < vertices.length; i++) {
@@ -2559,10 +2813,10 @@ export const useBrushEngine = () => {
       }
     }
 
-    // Apply Sierra Lite dither effect if 2+ colors (always, not just when enabled)
-    const numColors = Math.max(2, brushSettings.colors || 2);
-    // Always apply dithering if 2 or more colors, regardless of ditherEnabled setting
-    if (numColors >= 2 && !isPreview) {
+    // Apply Sierra Lite dither effect if enabled and 2+ colors
+    // Use numColors already declared above
+    // Only apply dithering if explicitly enabled in settings
+    if (brushSettings.ditherEnabled && numColors >= 2 && !isPreview) {
       // Get the bounds of the polygon for dithering
       const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
       const minY = Math.floor(Math.min(...vertices.map(v => v.y)));

@@ -2,7 +2,6 @@
 
 ## Brushes
 
-### Core Brush Features
 
 #### Brush Spacing Jitter
 Dynamic randomization of brush stamp spacing for more organic, natural-looking strokes.
@@ -14,30 +13,15 @@ Dynamic randomization of brush stamp spacing for more organic, natural-looking s
 - UI: Slider control in brush settings panel
 - Store jitter value per brush preset
 
-#### Eraser Fix
-Ensure eraser properly removes pixels without color bleeding or opacity issues.
-
-**Current Issue:**
-- Eraser may not fully clear pixels or leaves artifacts
-- Pressure sensitivity not working correctly
-
-**Solution:**
-- Use `globalCompositeOperation = 'destination-out'`
-- Ensure alpha channel properly zeroed
-- Test with all brush types
-- Verify pressure mapping for eraser mode
-
-#### Mini Canvas Brush Size
-Always start with 1px brush when editing custom brushes, with clear size adjustment.
+#### ASCII Brush (Pressure Sensitive)
+Text-based drawing brush that renders ASCII characters with pressure-mapped density.
 
 **Implementation:**
-- Default to 1px on mini canvas open
-- Add visible size indicator overlay
-- Keyboard shortcuts: [ and ] for size adjustment
-- Mouse wheel + modifier for size control
-- Visual feedback showing current brush size
-
-### Advanced Brush Features
+- Character set: [' ', '.', ':', '-', '=', '+', '*', '#', '%', '@']
+- Map pressure (0-1) to character index
+- Render characters to canvas using fillText()
+- Settings: Font size, character set selection, rotation based on stroke direction
+- Integration point: New brush type in `BrushType` enum
 
 #### Color Jitter
 Randomize color within HSL ranges for each stamp.
@@ -60,18 +44,6 @@ Add texture to brush strokes for traditional media feel.
 - Blend mode selection for grain application
 - Performance: Generate noise textures on brush selection, not per-stamp
 
-### Creative Brush Types
-
-#### ASCII Brush (Pressure Sensitive)
-Text-based drawing brush that renders ASCII characters with pressure-mapped density.
-
-**Implementation:**
-- Character set: [' ', '.', ':', '-', '=', '+', '*', '#', '%', '@']
-- Map pressure (0-1) to character index
-- Render characters to canvas using fillText()
-- Settings: Font size, character set selection, rotation based on stroke direction
-- Integration point: New brush type in `BrushType` enum
-
 #### Dithering Brush (Pressure Sensitive)
 Applies dithering patterns with pressure controlling pattern density.
 
@@ -86,12 +58,10 @@ Applies dithering patterns with pressure controlling pattern density.
 Creates topographic-style polygonal patterns.
 
 **Implementation:**
-- Generate Voronoi cells or Delaunay triangulation
-- Map pressure to polygon density
-- Color based on "elevation" (pressure history)
-- Line thickness variation
-- Real-time tessellation with adjustable complexity
-- Cache polygon meshes for performance
+- Generate contours based on the shape of the polygon
+- uses similar shape making as the polygon tool
+- only once the shape is complete does it calualyte all the contours 
+- add heights markers for each contour going into the centre - heighest
 
 #### Layered Paint Thickness
 Simulate paint buildup with multiple stroke passes.

@@ -9,6 +9,7 @@ import { BrushShape } from "../../types";
 import Input from "../ui/Input";
 import CustomSwitch from "../ui/CustomSwitch";
 import ProgressSlider from "../ui/ProgressSlider";
+import { drawTestSwatches } from "../../utils/drawTestSwatches";
 const BrushControls = () => {
   // Use individual selectors to avoid unstable object references
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
@@ -115,6 +116,17 @@ const BrushControls = () => {
               />
             </div>
           </div>
+        </div>
+
+        {/* Test Swatches Button */}
+        <div className="mb-2">
+          <button
+            onClick={drawTestSwatches}
+            className="w-full px-3 py-1 text-sm bg-[#4a4a4a] text-[#D9D9D9] rounded hover:bg-[#5a5a5a] transition-colors"
+            style={{ fontSize: "12px" }}
+          >
+            Draw Test Swatches
+          </button>
         </div>
       </div>
     );

@@ -175,9 +175,6 @@ const ColorCyclePanel = () => {
         // Check if color already exists
         if (!colorCycleState.selectedColors.includes(color)) {
           addColorCycleColor(color);
-          console.log('Added color:', color);
-        } else {
-          console.log('Color already in cycle:', color);
         }
       }
       

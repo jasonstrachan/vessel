@@ -104,7 +104,6 @@ export function buildLayerColorIndexMap(
         }
     }
     
-    console.log(`Built index map for layer "${layer.name}": ${mappedColors}/${totalUniqueColors} colors will cycle (${totalUniqueColors - mappedColors} excluded)`);
     return indexMap;
 }
 

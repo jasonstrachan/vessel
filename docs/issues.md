@@ -4,7 +4,8 @@ This document tracks all critical issues encountered during TinyBrush developmen
 
 ## Table of Contents
 
-1. [Issue #16: Custom Brush Size Persistence Issues](#issue-16-custom-brush-size-persistence-issues) - Multiple related bugs with custom brush sizing
+1. [Issue #17: Paste and Drag Selection Not Working](#issue-17-paste-and-drag-selection-not-working) - Selection dragging unresponsive after pasting
+2. [Issue #16: Custom Brush Size Persistence Issues](#issue-16-custom-brush-size-persistence-issues) - Multiple related bugs with custom brush sizing
 2. [Issue #15: Gradient Brush Dither Resolution Not Persisting](#issue-15-gradient-brush-dither-resolution-not-persisting) - Feature persistence for gradient brushes
 3. [Issue #14: Custom Brush Hue/Saturation Cache Invalidation](#issue-14-custom-brush-huesaturation-cache-invalidation) - Dual cache system requiring comprehensive clearing
 4. [Issue #13: Coordinate System Fix Documentation](#issue-13-coordinate-system-fix-documentation) - Complete drawing system coordinate alignment fix
@@ -27,6 +28,99 @@ This document tracks all critical issues encountered during TinyBrush developmen
 - [Faint Traces During Undo/Redo](#fixed-faint-traces-during-undoredo) - Canvas state management enhancement
 - [Stroke Capture Missing](#fixed-stroke-capture-missing) - Missing finishStroke() call
 - [Cursor Alignment After Panning](#fixed-cursor-alignment-after-panning) - Coordinate transformation order fix
+
+---
+
+## Issue #17: Paste and Drag Selection Not Working
+**Date**: 2025-08-12  
+**Status**: ✅ RESOLVED  
+**Severity**: High (Core functionality broken)
+
+### Problem Description
+After pasting an image from clipboard, clicking and dragging the pasted selection was unresponsive or extremely laggy. The selection would be created correctly but couldn't be moved properly.
+
+### Symptoms
+- ✅ Image pasted correctly and selection created
+- ✅ Selection drag initiated (console logs confirmed)
+- ❌ Dragging was unresponsive/laggy
+- ❌ Selection didn't follow mouse movement smoothly
+
+### Root Cause Analysis
+
+The issue had two main causes:
+
+1. **Throttled pointer move events for selection dragging**
+   - Selection dragging was being processed through `requestAnimationFrame` throttling
+   - This caused ~16ms delays between each position update
+   - Made dragging feel laggy and unresponsive
+
+2. **Missing immediate processing flag**
+   - The `handlePointerMove` callback only checked `isDrawing` for immediate processing
+   - `isDraggingSelection` was not included in the immediate processing condition
+   - Selection drag events went through the throttled path
+
+### Solution Implemented
+
+#### Fix: Added immediate processing for selection dragging
+**File**: `/src/components/canvas/DrawingCanvas.tsx` (lines ~1615-1623)
+
+```typescript
+// BEFORE:
+const handlePointerMove = useCallback((e: React.PointerEvent) => {
+  // Process immediately for drawing - pressure data is critical and cannot be throttled
+  if (isDrawing) {
+    processPointerMove(e);
+    return;
+  }
+  // Only throttle non-drawing interactions for performance
+  pendingPointerEvent.current = e;
+  ...
+}, [processPointerMove, isDrawing]);
+
+// AFTER:
+const handlePointerMove = useCallback((e: React.PointerEvent) => {
+  // Process immediately for drawing or selection dragging - these need real-time updates
+  if (isDrawing || isDraggingSelection) {
+    processPointerMove(e);
+    return;
+  }
+  // Only throttle non-drawing/non-dragging interactions for performance
+  pendingPointerEvent.current = e;
+  ...
+}, [processPointerMove, isDrawing, isDraggingSelection]);
+```
+
+### Additional Safety Check
+Added null safety check for selection bounds:
+```typescript
+const isPointInSelection = useCallback((worldX: number, worldY: number) => {
+  if (!canvas.selection?.active || !canvas.selection?.bounds) return false;
+  // ... rest of bounds checking
+}, [canvas.selection]);
+```
+
+### Technical Details
+
+The key insight was that selection dragging requires the same real-time, unthrottled processing as drawing operations. Both involve continuous user interaction that requires immediate visual feedback. The throttling through `requestAnimationFrame` was appropriate for hover effects and UI updates, but not for active dragging operations.
+
+### Post-Resolution Verification
+- ✅ Pasting creates selection at cursor position
+- ✅ Clicking on selection initiates drag immediately  
+- ✅ Dragging is smooth and responsive
+- ✅ Selection can be dragged in any tool mode
+- ✅ Drawing tools work normally outside selection
+
+### Prevention Measures
+- Always process user drag operations immediately (no throttling)
+- Include all interactive states in immediate processing conditions
+- Test drag responsiveness at different frame rates
+- Consider user interaction patterns when implementing performance optimizations
+
+### Key Insights
+1. **User interaction responsiveness > performance optimization**
+2. **Drag operations need real-time updates** like drawing operations
+3. **`requestAnimationFrame` throttling** is good for passive updates, not active interactions
+4. **State dependencies** in React callbacks must be comprehensive
 
 ---
 
