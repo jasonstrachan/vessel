@@ -161,6 +161,7 @@ export interface BrushEditorState {
   originalCanvasState: ImageData | null;
   hueShift: number; // -180 to 180
   lightness: number; // -100 to 100
+  saturation: number; // 0 to 200 (100 is normal)
 }
 
 export interface AutosaveState {

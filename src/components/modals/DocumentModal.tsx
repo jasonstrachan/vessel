@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { XIcon } from '../icons/XIcon';
 import Input from '../ui/Input';
+import Button from '../ui/Button';
 
 interface DocumentModalProps {
   isOpen: boolean;
@@ -148,12 +149,14 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
                 />
               </div>
               <div className="flex items-end">
-                <button
+                <Button
                   onClick={handleResize}
-                  className="w-36 px-4 h-[25px] bg-[#D9D9D9] border-2 border-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] hover:text-[#31313A]  text-base transition-all duration-300 whitespace-nowrap text-center"
+                  variant="primary"
+                  size="md"
+                  className="w-36"
                 >
                   Resize
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -214,12 +217,14 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
                 />
               </div>
               <div className="flex items-end">
-                <button
+                <Button
                   onClick={handleNewDocument}
-                  className="w-36 px-4 h-[25px] bg-[#D9D9D9] border-2 border-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] hover:text-[#31313A]  text-base transition-all duration-300 whitespace-nowrap text-center"
+                  variant="primary"
+                  size="md"
+                  className="w-36"
                 >
                   New Document
-                </button>
+                </Button>
               </div>
             </div>
           </div>

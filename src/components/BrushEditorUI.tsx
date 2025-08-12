@@ -1,5 +1,6 @@
 import React, { useCallback, useRef, useEffect, useState } from 'react';
 import { useAppStore } from '../stores/useAppStore';
+import Button from './ui/Button';
 
 interface BrushEditorUIProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -13,6 +14,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
   const currentTool = useAppStore((state) => state.tools.currentTool);
   const setBrushEditorHue = useAppStore((state) => state.setBrushEditorHue);
   const setBrushEditorLightness = useAppStore((state) => state.setBrushEditorLightness);
+  const setBrushEditorSaturation = useAppStore((state) => state.setBrushEditorSaturation);
   const saveBrushEdit = useAppStore((state) => state.saveBrushEdit);
   const cancelBrushEdit = useAppStore((state) => state.cancelBrushEdit);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -27,6 +29,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
   const [isPanning, setIsPanning] = useState(false);
   const [lastPanPoint, setLastPanPoint] = useState<{x: number, y: number} | null>(null);
   const [spacePressed, setSpacePressed] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Helper functions for flood fill
   const getPixelColor = (imageData: ImageData, x: number, y: number) => {
@@ -107,6 +110,10 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
   const handleLightnessChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setBrushEditorLightness(Number(e.target.value));
   }, [setBrushEditorLightness]);
+
+  const handleSaturationChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setBrushEditorSaturation(Number(e.target.value));
+  }, [setBrushEditorSaturation]);
 
   const handleClose = useCallback(() => {
     // Save changes and close the modal - use the modal canvas, not main canvas
@@ -223,12 +230,6 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
     setLastPanPoint(null);
   }, []);
 
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom(prev => Math.max(0.1, Math.min(10, prev * delta)));
-  }, []);
-
   // Drag handlers
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     const modalElement = e.currentTarget.parentElement as HTMLElement;
@@ -270,6 +271,23 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
       };
     }
   }, [isDragging, handleDragMove, handleDragEnd]);
+
+  // Add non-passive wheel event listener
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    const wheelHandler = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      setZoom(prev => Math.max(0.1, Math.min(10, prev * delta)));
+    };
+    
+    container.addEventListener('wheel', wheelHandler, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', wheelHandler);
+    };
+  }, []);
 
   // Keyboard handlers for spacebar panning
   useEffect(() => {
@@ -364,9 +382,10 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
         // Apply adjustments
         const newH = (h + brushEditor.hueShift + 360) % 360;
         const newL = Math.max(0, Math.min(100, l + brushEditor.lightness));
+        const newS = Math.max(0, Math.min(100, s * (brushEditor.saturation / 100)));
 
         // Convert back to RGB
-        const [newR, newG, newB] = hslToRgb(newH, s, newL);
+        const [newR, newG, newB] = hslToRgb(newH, newS, newL);
 
         // Set new values
         data[i] = newR;
@@ -384,7 +403,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
     // Clear and draw the adjusted image
     ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     ctx.putImageData(imageData, 0, 0);
-  }, [brushPixels, brushEditor.hueShift, brushEditor.lightness]);
+  }, [brushPixels, brushEditor.hueShift, brushEditor.lightness, brushEditor.saturation]);
 
   if (brushEditor.status !== 'EDITING' || !brushEditor.editingBounds) {
     return null;
@@ -449,7 +468,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
   const sliderStyle: React.CSSProperties = {
     width: '100%',
     height: '20px',
-    borderRadius: '4px',
+    borderRadius: '0',
     outline: 'none',
     appearance: 'none',
     WebkitAppearance: 'none' as any,
@@ -465,7 +484,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
 
   const buttonStyle: React.CSSProperties = {
     padding: '8px 16px',
-    borderRadius: '4px',
+    borderRadius: '0',
     border: 'none',
     cursor: 'pointer',
     fontSize: '14px',
@@ -486,6 +505,11 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
     'hsl(0, 0%, 0%), ' +
     'hsl(0, 0%, 50%), ' +
     'hsl(0, 0%, 100%))';
+
+  const saturationGradient = 'linear-gradient(to right, ' +
+    'hsl(0, 0%, 50%), ' +      // Gray (no saturation)
+    'hsl(0, 50%, 50%), ' +     // Medium saturation
+    'hsl(0, 100%, 50%))';      // Full saturation
 
   return (
     <>
@@ -531,7 +555,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
         gap: '10px',
         zIndex: 100,
         backgroundColor: 'rgba(0, 0, 0, 0.9)',
-        borderRadius: '8px',
+        borderRadius: '0',
         overflow: 'hidden',
         boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
       }}>
@@ -554,13 +578,13 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
         <div style={{ padding: '15px', paddingTop: '0' }}>
         {/* Canvas Preview */}
         <div 
+          ref={containerRef}
           style={{
             ...canvasContainerStyle,
             position: 'relative',
             overflow: 'hidden',
             backgroundColor: '#404040', // Match main canvas dark grey
           }}
-          onWheel={handleWheel}
         >
           <div
             style={{
@@ -624,20 +648,33 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
               }}
             />
           </div>
+
+          {/* Saturation Slider */}
+          <div style={sliderContainerStyle}>
+            <input
+              className="brush-editor-slider"
+              type="range"
+              min="0"
+              max="200"
+              value={brushEditor.saturation}
+              onChange={handleSaturationChange}
+              style={{
+                ...sliderStyle,
+                background: saturationGradient,
+              }}
+            />
+          </div>
         </div>
 
         {/* Apply Button */}
         <div style={buttonContainerStyle}>
-          <button
+          <Button
             onClick={handleClose}
-            style={{
-              ...buttonStyle,
-              backgroundColor: '#00ff00',
-              color: 'white',
-            }}
+            variant="secondary"
+            size="md"
           >
             Save
-          </button>
+          </Button>
         </div>
         </div>
       </div>

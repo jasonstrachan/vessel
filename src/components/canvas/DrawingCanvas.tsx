@@ -1723,8 +1723,8 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
     }
 
     // Defer heavy operations to avoid blocking the UI
-    // IMPORTANT: Don't capture to layer when in brush editing mode - those pixels are temporary!
-    if (wasDrawing && offscreenCanvas && brushEditor.status !== 'EDITING') {
+    // Always capture to layer even when brush editing modal is open - we want to allow normal drawing
+    if (wasDrawing && offscreenCanvas) {
       // Use requestIdleCallback for non-critical operations
       if ('requestIdleCallback' in window) {
         requestIdleCallback(() => {
@@ -2903,7 +2903,7 @@ export default function DrawingCanvas({ width: propWidth, height: propHeight }: 
             padding: 0,
             margin: 0,
             boxSizing: 'border-box',
-            pointerEvents: brushEditor.status === 'EDITING' ? 'none' : 'auto'
+            pointerEvents: 'auto' // Always allow drawing
           }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}

@@ -42,7 +42,6 @@ import {
 // import { memoryManager } from '../utils/memoryCleanup';
 import { brushCache } from '../utils/brushCache';
 import { scaledBrushCache } from '../utils/scaledBrushCache';
-import { adjustHueLightness } from '../utils/imageProcessing';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 import { adjustHueAndSaturation } from '../utils/imageProcessing';
 import { buildLayerColorIndexMap, hexToRgb, buildShiftedColors, applyCycleToLayers_Optimized } from '../utils/colorCycling';
@@ -225,6 +224,7 @@ interface AppState {
   cancelBrushEdit: (canvas: HTMLCanvasElement) => void;
   setBrushEditorHue: (hue: number) => void;
   setBrushEditorLightness: (lightness: number) => void;
+  setBrushEditorSaturation: (saturation: number) => void;
   
   // Brush Preset Management
   removeBrushPreset: (presetId: string) => void;
@@ -327,7 +327,8 @@ const defaultBrushEditorState: BrushEditorState = {
   editingBounds: null,
   originalCanvasState: null,
   hueShift: 0,
-  lightness: 0
+  lightness: 0,
+  saturation: 100
 };
 
 const defaultShapeState: ShapeState = {
@@ -1524,11 +1525,12 @@ export const useAppStore = create<AppState>()(
         
         const bounds = { x: centerX, y: centerY, width: brushWidth, height: brushHeight };
 
-        // Capture original canvas state at bounds
-        const originalCanvasState = ctx.getImageData(bounds.x, bounds.y, bounds.width, bounds.height);
+        // Create an empty ImageData for originalCanvasState since we're not modifying the main canvas
+        // This is just to satisfy the type requirements and prevent errors
+        const originalCanvasState = ctx.createImageData(bounds.width, bounds.height);
         
-        // Draw the brush onto the canvas at the editing location
-        ctx.putImageData(brushData.imageData, bounds.x, bounds.y);
+        // NOTE: We don't draw the brush onto the main canvas here
+        // The BrushEditorUI component will display it in its own modal canvas
 
         // Switch to default drawing tool to allow drawing on the brush tip
         // This prevents the confusing state of editing a brush with itself
@@ -1545,7 +1547,8 @@ export const useAppStore = create<AppState>()(
             editingBounds: bounds,
             originalCanvasState,
             hueShift: 0,  // Reset adjustments for new edit
-            lightness: 0
+            lightness: 0,
+            saturation: 100
           }
         };
       }),
@@ -1572,23 +1575,12 @@ export const useAppStore = create<AppState>()(
         if (!compositeCtx) return state;
         
         // Get the pixels directly from the modal canvas (starts at 0,0)
-        const newEditsImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        // Note: The canvas already has the hue/lightness/saturation adjustments applied
+        // by the BrushEditorUI component's useEffect, so we don't need to apply them again
+        const editedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         
-        // Apply hue/lightness adjustments if any
-        let finalImageData = newEditsImageData;
-        if (state.brushEditor.hueShift !== 0 || state.brushEditor.lightness !== 0) {
-          finalImageData = adjustHueLightness(
-            newEditsImageData, 
-            state.brushEditor.hueShift, 
-            state.brushEditor.lightness
-          );
-        }
-        
-        // Put the final adjusted image data on the composite canvas
-        compositeCtx.putImageData(finalImageData, 0, 0);
-        
-        // Get the final image data
-        const editedImageData = compositeCtx.getImageData(0, 0, canvas.width, canvas.height);
+        // Put the image data on the composite canvas
+        compositeCtx.putImageData(editedImageData, 0, 0);
 
         // Create thumbnail (max 64x64)
         const thumbnailSize = 64;
@@ -1706,6 +1698,9 @@ export const useAppStore = create<AppState>()(
       setBrushEditorLightness: (lightness: number) => set((state) => ({
         brushEditor: { ...state.brushEditor, lightness: lightness }
       })),
+      setBrushEditorSaturation: (saturation: number) => set((state) => ({
+        brushEditor: { ...state.brushEditor, saturation: saturation }
+      })),
       cancelBrushEdit: (canvas) => set((state) => {
         if (state.brushEditor.status !== 'EDITING' || !state.brushEditor.originalCanvasState || !state.brushEditor.editingBounds) {
           return { 
@@ -1723,14 +1718,8 @@ export const useAppStore = create<AppState>()(
           };
         }
 
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        if (ctx) {
-          // Restore original canvas state
-          ctx.putImageData(state.brushEditor.originalCanvasState, state.brushEditor.editingBounds.x, state.brushEditor.editingBounds.y);
-          
-          // NOTE: Removed captureCanvasToActiveLayer call here as it was corrupting the project layers
-          // The canvas restoration is sufficient for visual feedback
-        }
+        // NOTE: We don't need to restore anything to the main canvas
+        // The brush editor works entirely in its own modal canvas
 
         // Clear currentBrushTip when canceling brush edit
         return { 
@@ -2227,54 +2216,9 @@ export const useAppStore = create<AppState>()(
           const captureWidth = Math.min(state.project.width, canvas.width);
           const captureHeight = Math.min(state.project.height, canvas.height);
           
-          let imageData: ImageData;
-          
-          // If in brush editing mode, only capture the editing bounds
-          if (state.brushEditor.status === 'EDITING' && state.brushEditor.editingBounds) {
-            const bounds = state.brushEditor.editingBounds;
-            
-            // Get the existing layer data first
-            const activeLayerId = state.activeLayerId || state.layers[0]?.id;
-            const activeLayer = state.layers.find(l => l.id === activeLayerId);
-            
-            if (activeLayer && activeLayer.imageData) {
-              // Clone the existing layer data
-              imageData = new ImageData(
-                new Uint8ClampedArray(activeLayer.imageData.data),
-                activeLayer.imageData.width,
-                activeLayer.imageData.height
-              );
-              
-              // Get just the edited region from canvas
-              const editedRegion = ctx.getImageData(
-                bounds.x,
-                bounds.y,
-                bounds.width,
-                bounds.height
-              );
-              
-              // Copy the edited region into the cloned layer data
-              const tempCanvas = document.createElement('canvas');
-              tempCanvas.width = imageData.width;
-              tempCanvas.height = imageData.height;
-              const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-              
-              if (tempCtx) {
-                // Put the existing layer data
-                tempCtx.putImageData(imageData, 0, 0);
-                // Overwrite just the edited region
-                tempCtx.putImageData(editedRegion, bounds.x, bounds.y);
-                // Get the combined result
-                imageData = tempCtx.getImageData(0, 0, captureWidth, captureHeight);
-              }
-            } else {
-              // Fallback to full capture if no existing layer
-              imageData = ctx.getImageData(0, 0, captureWidth, captureHeight);
-            }
-          } else {
-            // Normal capture when not in editing mode
-            imageData = ctx.getImageData(0, 0, captureWidth, captureHeight);
-          }
+          // Always capture the full canvas, regardless of brush editor status
+          // This allows normal drawing on the main canvas while the modal is open
+          const imageData = ctx.getImageData(0, 0, captureWidth, captureHeight);
           
           // Find the active layer or use the first layer
           const activeLayerId = state.activeLayerId || state.layers[0]?.id;

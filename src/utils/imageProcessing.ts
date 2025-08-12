@@ -171,6 +171,58 @@ export function adjustHueLightness(
   return result;
 }
 
+// Apply hue, lightness, and saturation adjustments
+export function adjustHueLightnessSaturation(
+  imageData: ImageData,
+  hueShift: number,          // in degrees (-180 to 180)
+  lightnessAdjust: number,   // in percentage (-100 to 100)
+  saturationPercent: number  // 0 to 200 (100 is normal)
+): ImageData {
+  const result = new ImageData(
+    new Uint8ClampedArray(imageData.data),
+    imageData.width,
+    imageData.height
+  );
+  
+  const data = result.data;
+  const saturationFactor = saturationPercent / 100;
+  
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const a = data[i + 3];
+    
+    // Skip transparent pixels
+    if (a === 0) continue;
+    
+    // Convert to HSL
+    const [hOriginal, sOriginal, lOriginal] = rgbToHsl(r, g, b);
+    let h = hOriginal;
+    let s = sOriginal;
+    let l = lOriginal;
+    
+    // Apply hue shift
+    h = (h + hueShift + 360) % 360;
+    
+    // Apply lightness adjustment
+    l = Math.max(0, Math.min(100, l + lightnessAdjust));
+    
+    // Apply saturation adjustment
+    s = Math.max(0, Math.min(100, s * saturationFactor));
+    
+    // Convert back to RGB
+    const [newR, newG, newB] = hslToRgb(h, s, l);
+    
+    data[i] = newR;
+    data[i + 1] = newG;
+    data[i + 2] = newB;
+    // Keep alpha unchanged
+  }
+  
+  return result;
+}
+
 export function adjustHueAndSaturation(
   imageData: ImageData,
   hueShift: number,          // in degrees

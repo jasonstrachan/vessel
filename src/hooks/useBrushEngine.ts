@@ -1664,18 +1664,8 @@ export const useBrushEngine = () => {
     }
   }, [drawCustomBrushStamp]);
 
-  // Helper function to clamp positions to editing bounds
-  const clampToEditingBounds = useCallback((x: number, y: number) => {
-    const brushEditorState = useAppStore.getState().brushEditor;
-    if (brushEditorState.status === 'EDITING' && brushEditorState.editingBounds) {
-      const bounds = brushEditorState.editingBounds;
-      return {
-        x: Math.max(bounds.x, Math.min(x, bounds.x + bounds.width - 1)),
-        y: Math.max(bounds.y, Math.min(y, bounds.y + bounds.height - 1))
-      };
-    }
-    return { x, y };
-  }, []);
+  // Note: Removed clampToEditingBounds function - users should be able to draw 
+  // on the entire canvas even when brush editor modal is open
 
   const renderBrushStroke = useCallback((
     ctx: CanvasRenderingContext2D,
@@ -1691,10 +1681,7 @@ export const useBrushEngine = () => {
     // Performance monitoring for brush strokes
     const strokeStartTime = process.env.NODE_ENV === 'development' ? performance.now() : 0;
     
-    // CLAMP STROKE POSITIONS: Ensure from/to positions are within editing bounds
-    // This prevents interpolation outside bounds during fast cursor movement
-    const clampedFrom = clampToEditingBounds(from.x, from.y);
-    const clampedTo = clampToEditingBounds(to.x, to.y);
+    // Allow drawing anywhere on canvas - no position clamping needed
     
     // Use passed-in pressure
     const cursorPressure = cursor.pressure;
@@ -1852,8 +1839,8 @@ export const useBrushEngine = () => {
     }
     
     // Apply grid snapping if enabled using the actual brush size
-    let snappedTo = { x: clampedTo.x, y: clampedTo.y };
-    let snappedFrom = { x: clampedFrom.x, y: clampedFrom.y };
+    let snappedTo = { x: to.x, y: to.y };
+    let snappedFrom = { x: from.x, y: from.y };
     const isGridSnapping = shouldApplyGridSnap(tools.brushSettings);
     let gridSize = 0;
     
@@ -1918,16 +1905,16 @@ export const useBrushEngine = () => {
         
         gridSize = Math.max(gridDimensions.width, gridDimensions.height); // Keep for backward compatibility
         
-        const snappedToPos = snapToRectangularGrid(clampedTo.x, clampedTo.y, gridDimensions.width, gridDimensions.height);
-        const snappedFromPos = snapToRectangularGrid(clampedFrom.x, clampedFrom.y, gridDimensions.width, gridDimensions.height);
+        const snappedToPos = snapToRectangularGrid(to.x, to.y, gridDimensions.width, gridDimensions.height);
+        const snappedFromPos = snapToRectangularGrid(from.x, from.y, gridDimensions.width, gridDimensions.height);
         snappedTo = { x: snappedToPos.x, y: snappedToPos.y };
         snappedFrom = { x: snappedFromPos.x, y: snappedFromPos.y };
       } else {
         // For regular brushes, use square grid with pressure-modified size
         gridSize = settings.size; // Use pressure-modified size directly
         
-        const snappedToPos = snapToGrid(clampedTo.x, clampedTo.y, gridSize);
-        const snappedFromPos = snapToGrid(clampedFrom.x, clampedFrom.y, gridSize);
+        const snappedToPos = snapToGrid(to.x, to.y, gridSize);
+        const snappedFromPos = snapToGrid(from.x, from.y, gridSize);
         snappedTo = { x: snappedToPos.x, y: snappedToPos.y };
         snappedFrom = { x: snappedFromPos.x, y: snappedFromPos.y };
       }
@@ -2197,7 +2184,7 @@ export const useBrushEngine = () => {
       // Performance data available in dev tools if needed
       void strokeDuration;
     }
-  }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp, clampToEditingBounds]);
+  }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp]);
   
   // Draw rectangle gradient brush
   const drawRectangleGradient = useCallback((ctx: CanvasRenderingContext2D, rectangleState: RectangleState, isPreview: boolean = false) => {
