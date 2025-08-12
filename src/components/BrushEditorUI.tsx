@@ -272,22 +272,47 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
     }
   }, [isDragging, handleDragMove, handleDragEnd]);
 
-  // Add non-passive wheel event listener
+  // Handle wheel zoom with non-passive listener (zoom to cursor)
   useEffect(() => {
+    if (brushEditor.status !== 'EDITING') return;
+    
     const container = containerRef.current;
     if (!container) return;
     
-    const wheelHandler = (e: WheelEvent) => {
+    const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
+      
+      // Get container bounds
+      const rect = container.getBoundingClientRect();
+      
+      // Calculate mouse position relative to container
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      
+      // Calculate the position in canvas space (before zoom)
+      const canvasX = (mouseX - pan.x) / zoom;
+      const canvasY = (mouseY - pan.y) / zoom;
+      
+      // Calculate new zoom
       const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      setZoom(prev => Math.max(0.1, Math.min(10, prev * delta)));
+      const newZoom = Math.max(0.1, Math.min(10, zoom * delta));
+      
+      // Calculate new pan to keep the mouse position fixed
+      const newPanX = mouseX - canvasX * newZoom;
+      const newPanY = mouseY - canvasY * newZoom;
+      
+      // Apply both zoom and pan together
+      setZoom(newZoom);
+      setPan({ x: newPanX, y: newPanY });
     };
     
-    container.addEventListener('wheel', wheelHandler, { passive: false });
+    // Add listener with passive: false to allow preventDefault
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    
     return () => {
-      container.removeEventListener('wheel', wheelHandler);
+      container.removeEventListener('wheel', handleWheel);
     };
-  }, []);
+  }, [brushEditor.status, zoom, pan]);
 
   // Keyboard handlers for spacebar panning
   useEffect(() => {
@@ -477,9 +502,9 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
 
   const buttonContainerStyle: React.CSSProperties = {
     display: 'flex',
-    gap: '10px',
-    justifyContent: 'flex-end',
-    marginTop: '10px',
+    gap: '0',
+    justifyContent: 'stretch',
+    marginTop: '0',
   };
 
   const buttonStyle: React.CSSProperties = {
@@ -519,8 +544,8 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
           width: 20px;
           height: 20px;
           background: white;
-          border: 2px solid #333;
-          border-radius: 50%;
+          border: none;
+          border-radius: 0;
           cursor: pointer;
           box-shadow: 0 2px 4px rgba(0,0,0,0.3);
         }
@@ -529,8 +554,8 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
           width: 20px;
           height: 20px;
           background: white;
-          border: 2px solid #333;
-          border-radius: 50%;
+          border: none;
+          border-radius: 0;
           cursor: pointer;
           box-shadow: 0 2px 4px rgba(0,0,0,0.3);
         }
@@ -552,7 +577,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
         transform: 'none', // Remove centering transform
         display: 'flex',
         flexDirection: 'column',
-        gap: '10px',
+        gap: '0',
         zIndex: 100,
         backgroundColor: 'rgba(0, 0, 0, 0.9)',
         borderRadius: '0',
@@ -575,7 +600,6 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
         >
 ::::::::::::::::::
         </div>
-        <div style={{ padding: '15px', paddingTop: '0' }}>
         {/* Canvas Preview */}
         <div 
           ref={containerRef}
@@ -670,12 +694,12 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
         <div style={buttonContainerStyle}>
           <Button
             onClick={handleClose}
-            variant="secondary"
+            variant="primary"
             size="md"
+            fullWidth
           >
             Save
           </Button>
-        </div>
         </div>
       </div>
     </>

@@ -22,10 +22,10 @@ const Button: React.FC<ButtonProps> = ({
 
   const variantClasses = {
     primary: 'bg-[#D9D9D9] border-2 border-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] hover:text-[#31313A]',
-    secondary: 'bg-[#00ff00] border-2 border-[#00ff00] text-white hover:bg-[#00dd00] hover:border-[#00dd00]'
+    secondary: 'bg-transparent border-2 border-[#888] text-[#D9D9D9] hover:bg-[#555] hover:border-[#999]'
   };
 
-  const baseClasses = 'transition-all duration-300 whitespace-nowrap text-center font-medium disabled:opacity-50 disabled:cursor-not-allowed';
+  const baseClasses = 'transition-all duration-300 whitespace-nowrap text-center disabled:opacity-50 disabled:cursor-not-allowed';
   const widthClass = fullWidth ? 'w-full' : '';
 
   return (
