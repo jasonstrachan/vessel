@@ -235,6 +235,8 @@ export interface BrushSettings {
   risographIntensity: number; // 0 to 100 (0 = no effect, 100 = maximum dissolve effect)
   // Dither effect for gradients using Sierra Lite algorithm
   ditherEnabled: boolean; // true = use Sierra Lite dithering with colors palette
+  ditherAlgorithm?: 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern';
+  patternStyle?: 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
   // Current brush tip (edited in mini canvas) with brush identifier
   currentBrushTip?: {
     imageData: ImageData;

@@ -28,10 +28,45 @@ function isPortAvailable(port) {
 async function killPortProcess(port) {
   try {
     console.log(`🔍 Checking for process on port ${port}...`);
+    
+    // More aggressive port killing for Linux/WSL
+    try {
+      // First try with ss (more reliable on Linux)
+      const ssOutput = execSync(`ss -tulpn | grep :${port} | grep -oP 'pid=\\K[0-9]+' | head -1`, { encoding: 'utf8' }).trim();
+      if (ssOutput) {
+        console.log(`⚠️  Found process ${ssOutput} on port ${port}, terminating...`);
+        try {
+          process.kill(parseInt(ssOutput), 'SIGKILL'); // Use SIGKILL for stubborn processes
+        } catch (e) {
+          execSync(`kill -9 ${ssOutput} 2>/dev/null || true`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        return;
+      }
+    } catch (e) {
+      // Fallback to lsof
+    }
+    
+    // Fallback to lsof
     const pid = execSync(`lsof -ti:${port} 2>/dev/null || true`, { encoding: 'utf8' }).trim();
     if (pid) {
-      console.log(`⚠️  Found process ${pid} on port ${port}, killing it...`);
-      process.kill(parseInt(pid), 'SIGTERM');
+      const pids = pid.split('\n').filter(p => p);
+      console.log(`⚠️  Found process(es) ${pids.join(', ')} on port ${port}, terminating...`);
+      for (const p of pids) {
+        try {
+          process.kill(parseInt(p), 'SIGKILL');
+        } catch (e) {
+          execSync(`kill -9 ${p} 2>/dev/null || true`);
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+    
+    // Nuclear option - kill all node processes running next
+    const nextProcesses = execSync(`pgrep -f "next dev" 2>/dev/null || true`, { encoding: 'utf8' }).trim();
+    if (nextProcesses) {
+      console.log(`☠️  Found stale Next.js processes, removing...`);
+      execSync(`pkill -9 -f "next dev" 2>/dev/null || true`);
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
   } catch (err) {
@@ -61,11 +96,8 @@ async function startServer(cleanFirst = false) {
     cleanCache();
   }
   
-  // Check and free port if needed
-  const portAvailable = await isPortAvailable(PORT);
-  if (!portAvailable) {
-    await killPortProcess(PORT);
-  }
+  // ALWAYS kill any existing processes on port - no mercy
+  await killPortProcess(PORT);
   
   console.log(`🚀 Starting Next.js dev server on port ${PORT} (attempt ${retryCount + 1})...`);
   
@@ -174,6 +206,10 @@ let corruptionCheckInterval = setInterval(() => {
   }
 }, 30000); // Check every 30 seconds
 
+// Check for monitor mode
+const args = process.argv.slice(2);
+const monitorMode = args.includes('--monitor') || args.includes('-m');
+
 // Start the server
 console.log('🎨 TinyBrush Development Server Manager');
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -182,6 +218,29 @@ console.log('  • Auto-recovery from crashes');
 console.log('  • Cache corruption detection');
 console.log('  • Automatic cache cleaning');
 console.log('  • Memory-based caching for stability');
+if (monitorMode) {
+  console.log('  • 👁️  MONITOR MODE - Watching existing server');
+}
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-startServer(false);
+if (monitorMode) {
+  // In monitor mode, just watch the port
+  console.log('📡 Monitoring mode activated...');
+  console.log('ℹ️  Watching for server on port', PORT);
+  console.log('   (Server will be auto-started if it crashes)\n');
+  
+  // Check if server is running
+  let checkInterval = setInterval(async () => {
+    const available = await isPortAvailable(PORT);
+    if (available) {
+      console.log('\n⚠️  Server not detected on port', PORT);
+      console.log('🚀 Starting new server...\n');
+      clearInterval(checkInterval);
+      startServer(false);
+    }
+  }, 5000);
+  
+  console.log('Press Ctrl+C to stop monitoring\n');
+} else {
+  startServer(false);
+}

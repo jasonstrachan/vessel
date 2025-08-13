@@ -2,6 +2,22 @@
 
 ## Recent Updates
 
+### Enhanced Dithering Algorithms (2025-01-12)
+- **Added three new dithering algorithms** to expand artistic options beyond Floyd-Steinberg, Bayer, and Sierra Lite
+- **Atkinson Dithering**: 
+  - Classic Macintosh algorithm that only diffuses 75% of error for higher contrast
+  - Creates distinctive vintage computer graphics look
+  - Excellent for high-contrast artwork and text-heavy images
+- **Blue Noise Dithering**:
+  - Uses pre-computed 16x16 blue noise matrix for organic-looking patterns
+  - No directional artifacts or visible patterns
+  - Superior for smooth gradients and photographic content
+- **Pattern Dithering**:
+  - Six geometric styles: dots, diagonal lines, vertical lines, horizontal lines, crosshatch, diamond
+  - Creates texture-like effects reminiscent of halftone printing
+  - Each pattern style creates unique artistic effects
+- **UI Updates**: Algorithm dropdown now includes all six algorithms with pattern style selector appearing for Pattern algorithm
+
 ### Dithering Palette Fix (2025-01-08)
 - **Fixed dithering color selection and numColors slider**: Now intelligently selects the best N colors from palette based on image content
 - **Problem**: Previous implementations either ignored numColors or selected wrong colors for the content

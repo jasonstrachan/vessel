@@ -22,13 +22,16 @@ export const drawTestSwatches = async () => {
   const ctx = offscreenCanvas.getContext('2d');
   if (!ctx) return;
   
-  // Dither palette colors (must match the ones in useBrushEngine.ts)
+  // Combined dithering palette (from useBrushEngine.ts DITHER_PALETTE)
   const testColors = [
+    // Core neutrals
     { color: [0, 0, 0], name: 'Black' },
     { color: [255, 255, 255], name: 'White' },
     { color: [128, 128, 128], name: 'Med Grey' },
     { color: [192, 192, 192], name: 'Lt Grey' },
     { color: [64, 64, 64], name: 'Dk Grey' },
+    
+    // Browns and earth tones
     { color: [139, 69, 19], name: 'Saddle' },
     { color: [160, 82, 45], name: 'Sienna' },
     { color: [205, 133, 63], name: 'Peru' },
@@ -39,20 +42,37 @@ export const drawTestSwatches = async () => {
     { color: [101, 67, 33], name: 'DkBrown' },
     { color: [92, 51, 23], name: 'Russet' },
     { color: [61, 43, 31], name: 'Coffee' },
+    
+    // Warm neutrals
     { color: [188, 143, 143], name: 'Rosy' },
     { color: [244, 164, 96], name: 'Sandy' },
     { color: [255, 218, 185], name: 'Peach' },
     { color: [250, 235, 215], name: 'Antique' },
-    { color: [245, 245, 220], name: 'Beige' }
+    { color: [245, 245, 220], name: 'Beige' },
+    
+    // Apple II vibrant colors
+    { color: [114, 38, 64], name: 'Magenta' },
+    { color: [64, 51, 127], name: 'DkBlue' },
+    { color: [228, 52, 254], name: 'Purple' },
+    { color: [14, 89, 64], name: 'DkGreen' },
+    { color: [27, 154, 254], name: 'MedBlue' },
+    { color: [191, 179, 255], name: 'LtBlue' },
+    { color: [64, 76, 0], name: 'A2Brown' },
+    { color: [228, 101, 1], name: 'Orange' },
+    { color: [155, 161, 155], name: 'A2Gray' },
+    { color: [255, 129, 236], name: 'Pink' },
+    { color: [27, 203, 1], name: 'Green' },
+    { color: [191, 204, 128], name: 'Yellow' },
+    { color: [141, 217, 191], name: 'Aqua' }
   ];
   
   // Save current state
   ctx.save();
   
   // Draw swatches in a grid
-  const swatchSize = 60;
-  const padding = 5;
-  const cols = 5;
+  const swatchSize = 50;
+  const padding = 4;
+  const cols = 8;
   const rows = Math.ceil(testColors.length / cols);
   
   // Calculate grid dimensions
@@ -89,8 +109,9 @@ export const drawTestSwatches = async () => {
   // Capture the canvas to the active layer to persist the swatches
   await state.captureCanvasToActiveLayer(offscreenCanvas);
   
-  console.log('✅ Test swatches drawn! Draw rectangles on each color with colors=2 to test dithering.');
-  console.log('The swatches show all 20 colors from the dither palette.');
+  console.log('✅ Test swatches drawn! Total colors in combined palette: ' + testColors.length);
+  console.log('Palette includes: neutrals, browns, and Apple II vibrant colors');
+  console.log('Draw rectangles on each color with colors=2 to test dithering.');
 };
 
 // Make it available globally

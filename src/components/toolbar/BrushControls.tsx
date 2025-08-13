@@ -88,34 +88,76 @@ const BrushControls = () => {
             >
               Dither
             </label>
-            <CustomSwitch
-              id="dither-enabled"
-              checked={activeSettings.ditherEnabled || false}
-              onChange={(checked) =>
-                setActiveSettings({ ditherEnabled: checked })
-              }
-            />
-            {/* Fill Res - only show when dithering is enabled */}
-            <div
-              style={{
-                visibility: activeSettings.ditherEnabled ? 'visible' : 'hidden',
-                opacity: activeSettings.ditherEnabled ? 1 : 0,
-                transition: 'opacity 0.2s',
-              }}
-            >
-              <ProgressSlider
-                value={activeSettings.fillResolution || 1}
-                min={1}
-                max={32}
-                step={1}
-                onChange={(value) =>
-                  setActiveSettings({ fillResolution: Math.round(value) })
+            <div className="flex items-center gap-2 flex-1">
+              <CustomSwitch
+                id="dither-enabled"
+                checked={activeSettings.ditherEnabled || false}
+                onChange={(checked) =>
+                  setActiveSettings({ ditherEnabled: checked })
                 }
-                aria-label="Fill Resolution"
-                className="flex-1 ml-2"
               />
+              {/* Fill Res - only show when dithering is enabled */}
+              {activeSettings.ditherEnabled && (
+                <ProgressSlider
+                  value={activeSettings.fillResolution || 1}
+                  min={1}
+                  max={16}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ fillResolution: Math.round(value) })
+                  }
+                  aria-label="Fill Resolution"
+                  className="flex-1"
+                />
+              )}
             </div>
           </div>
+          
+          {/* Dither Algorithm Dropdown - only show when dithering is enabled */}
+          {activeSettings.ditherEnabled && (
+            <>
+              <div className="flex items-center gap-2 mt-2">
+                <div className="w-16" /> {/* Empty space to align with label column */}
+                <select
+                  value={activeSettings.ditherAlgorithm || 'sierra-lite'}
+                  onChange={(e) => {
+                    setActiveSettings({ ditherAlgorithm: e.target.value as any });
+                    e.currentTarget.blur();
+                  }}
+                  className="flex-1 bg-[#4a4a4a] text-[#D9D9D9] border border-[#5a5a5a] rounded px-2 py-1 text-xs focus:outline-none focus:border-[#6a6a6a]"
+                >
+                  <option value="sierra-lite">Sierra Lite</option>
+                  <option value="floyd-steinberg">Floyd-Steinberg</option>
+                  <option value="bayer">Bayer Matrix</option>
+                  <option value="atkinson">Atkinson</option>
+                  <option value="blue-noise">Blue Noise</option>
+                  <option value="pattern">Pattern</option>
+                </select>
+              </div>
+              
+              {/* Pattern Style Dropdown - only show when Pattern algorithm is selected */}
+              {activeSettings.ditherAlgorithm === 'pattern' && (
+                <div className="flex items-center gap-2 mt-2">
+                  <div className="w-16" /> {/* Empty space to align with label column */}
+                  <select
+                    value={activeSettings.patternStyle || 'dots'}
+                    onChange={(e) => {
+                      setActiveSettings({ patternStyle: e.target.value as any });
+                      e.currentTarget.blur();
+                    }}
+                    className="flex-1 bg-[#4a4a4a] text-[#D9D9D9] border border-[#5a5a5a] rounded px-2 py-1 text-xs focus:outline-none focus:border-[#6a6a6a]"
+                  >
+                    <option value="dots">Dots</option>
+                    <option value="lines">Diagonal Lines</option>
+                    <option value="vertical-lines">Vertical Lines</option>
+                    <option value="horizontal-lines">Horizontal Lines</option>
+                    <option value="crosshatch">Crosshatch</option>
+                    <option value="diagonal">Diamond</option>
+                  </select>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* Test Swatches Button */}

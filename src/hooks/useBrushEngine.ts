@@ -10,7 +10,17 @@ import { scaledBrushCache } from '../utils/scaledBrushCache';
 import { pressureOptimizer } from '../utils/pressureOptimizer';
 import { memoryManager } from '../utils/memoryCleanup';
 import { performanceMonitor } from '../utils/performanceMonitor';
-import { BAYER_4x4_MATRIX } from '../utils/ditherAlgorithms';
+import { 
+  BAYER_4x4_MATRIX,
+  applyFloydSteinbergDither,
+  applyBayerDither,
+  applyAtkinsonDither,
+  applyBlueNoiseDither,
+  applyPatternDither,
+  DitherSettings,
+  DitherAlgorithm as DitherAlgorithmType,
+  PatternStyle
+} from '../utils/ditherAlgorithms';
 
 // Helper function for point-in-polygon test
 const pointInPolygon = (x: number, y: number, corners: Array<{x: number, y: number}>): boolean => {
@@ -30,8 +40,9 @@ const pointInPolygon = (x: number, y: number, corners: Array<{x: number, y: numb
   return inside;
 };
 
-// Shared dithering palette with browns and neutral colors
+// Combined dithering palette with browns, neutrals, and Apple II colors
 const DITHER_PALETTE: [number, number, number][] = [
+  // Core neutrals (shared between both palettes)
   [0, 0, 0],          // Black
   [255, 255, 255],    // White
   [128, 128, 128],    // Medium Grey
@@ -46,8 +57,6 @@ const DITHER_PALETTE: [number, number, number][] = [
   [222, 184, 135],    // Burlywood
   [245, 222, 179],    // Wheat
   [255, 228, 196],    // Bisque
-  
-  // Dark browns
   [101, 67, 33],      // Dark Brown
   [92, 51, 23],       // Russet
   [61, 43, 31],       // Dark Coffee
@@ -57,7 +66,22 @@ const DITHER_PALETTE: [number, number, number][] = [
   [244, 164, 96],     // Sandy Brown
   [255, 218, 185],    // Peach Puff
   [250, 235, 215],    // Antique White
-  [245, 245, 220]     // Beige
+  [245, 245, 220],    // Beige
+  
+  // Apple II vibrant colors (excluding duplicates)
+  [114, 38, 64],      // A2 Dark Red/Magenta
+  [64, 51, 127],      // A2 Dark Blue
+  [228, 52, 254],     // A2 Purple/Violet
+  [14, 89, 64],       // A2 Dark Green
+  [27, 154, 254],     // A2 Medium Blue
+  [191, 179, 255],    // A2 Light Blue
+  [64, 76, 0],        // A2 Brown (different from other browns)
+  [228, 101, 1],      // A2 Orange
+  [155, 161, 155],    // A2 Light Gray (slightly different)
+  [255, 129, 236],    // A2 Pink
+  [27, 203, 1],       // A2 Green
+  [191, 204, 128],    // A2 Yellow
+  [141, 217, 191],    // A2 Aqua
 ];
 
 // Color names for logging
@@ -65,7 +89,10 @@ const DITHER_COLOR_NAMES = [
   'Black', 'White', 'Medium Grey', 'Light Grey', 'Dark Grey',
   'Saddle Brown', 'Sienna', 'Peru', 'Tan', 'Burlywood', 'Wheat', 'Bisque',
   'Dark Brown', 'Russet', 'Dark Coffee',
-  'Rosy Brown', 'Sandy Brown', 'Peach Puff', 'Antique White', 'Beige'
+  'Rosy Brown', 'Sandy Brown', 'Peach Puff', 'Antique White', 'Beige',
+  'A2 Magenta', 'A2 Dark Blue', 'A2 Purple', 'A2 Dark Green',
+  'A2 Medium Blue', 'A2 Light Blue', 'A2 Brown', 'A2 Orange',
+  'A2 Light Gray', 'A2 Pink', 'A2 Green', 'A2 Yellow', 'A2 Aqua'
 ];
 
 // Track which colors have been used (for debugging)
@@ -73,15 +100,12 @@ const usedColorIndices = new Set<number>();
 
 // Test function to show which colors would be selected for various inputs
 const testDitherPalette = () => {
-  console.log('=== Testing Dither Palette Selection ===');
+  // Testing Dither Palette Selection (logging removed)
   
   // Test different numColors values
   for (let numColors = 2; numColors <= 8; numColors++) {
     const selectedPalette = selectDiversePalette(numColors);
-    console.log(`\nNumColors: ${numColors}`);
-    console.log('Selected colors:', selectedPalette.map((color, i) => 
-      `${i}: RGB(${color[0]}, ${color[1]}, ${color[2]}) - ${DITHER_COLOR_NAMES[DITHER_PALETTE.findIndex(p => p[0] === color[0] && p[1] === color[1] && p[2] === color[2])]}`
-    ));
+    // NumColors and selected colors (logging removed)
   }
   
   const testColors = [
@@ -219,13 +243,6 @@ const findDitherColors = (targetR: number, targetG: number, targetB: number) => 
   // Calculate the mix ratio based on relative distances
   const totalDist = closest.distance + secondClosest.distance;
   const ratio = totalDist > 0 ? closest.distance / totalDist : 0.5;
-  
-  // Log the dither colors and show top 3 candidates
-  
-  // Periodically report which colors have been used
-  if (usedColorIndices.size > 0 && Math.random() < 0.2) { // 20% chance to report
-    const usedNames = Array.from(usedColorIndices).map(i => DITHER_COLOR_NAMES[i]);
-  }
   
   return {
     baseColor: closest.color,
@@ -434,6 +451,97 @@ const createNoiseTexture = (): HTMLCanvasElement => {
 };
 
 /**
+ * Universal dithering function that routes to the appropriate algorithm
+ */
+const applyDithering = (
+  imageData: ImageData, 
+  numColors: number, 
+  algorithm?: string,
+  patternStyle?: string
+): ImageData => {
+  // First select the best colors from palette based on content
+  const selectBestPaletteColors = (numColors: number): [number, number, number][] => {
+    if (numColors >= DITHER_PALETTE.length) return DITHER_PALETTE;
+    
+    const data = imageData.data;
+    // Sample pixels from the image
+    const sampleStep = Math.max(1, Math.floor(data.length / (4 * 1000))); // Sample ~1000 pixels
+    const sampledColors: [number, number, number][] = [];
+    
+    for (let i = 0; i < data.length; i += sampleStep * 4) {
+      if (data[i + 3] > 0) { // Only sample non-transparent pixels
+        sampledColors.push([data[i], data[i + 1], data[i + 2]]);
+      }
+    }
+    
+    if (sampledColors.length === 0) {
+      // No valid samples, return default palette subset
+      return DITHER_PALETTE.slice(0, numColors);
+    }
+    
+    // Score each palette color by how well it represents the sampled colors
+    const colorScores = DITHER_PALETTE.map((paletteColor, index) => {
+      let minDistance = Infinity;
+      let totalDistance = 0;
+      let closeMatches = 0;
+      
+      sampledColors.forEach(sample => {
+        const dist = Math.sqrt(
+          (sample[0] - paletteColor[0]) ** 2 +
+          (sample[1] - paletteColor[1]) ** 2 +
+          (sample[2] - paletteColor[2]) ** 2
+        );
+        totalDistance += dist;
+        minDistance = Math.min(minDistance, dist);
+        if (dist < 30) closeMatches++; // Count very close matches
+      });
+      
+      const avgDistance = totalDistance / sampledColors.length;
+      // Prioritize colors that have very close matches to some samples
+      return {
+        color: paletteColor,
+        index: index,
+        score: closeMatches * 10000 - avgDistance - minDistance * 10
+      };
+    });
+    
+    // Sort by score and take the best numColors
+    colorScores.sort((a, b) => b.score - a.score);
+    return colorScores.slice(0, numColors).map(item => item.color);
+  };
+  
+  const palette = selectBestPaletteColors(numColors);
+  
+  // Create dither settings
+  const ditherSettings: DitherSettings = {
+    algorithm: (algorithm as DitherAlgorithmType) || 'sierra-lite',
+    pressure: 0.5,
+    intensity: 0.75,
+    bayerMatrixSize: 8,
+    palette: palette,
+    patternStyle: (patternStyle as PatternStyle) || 'dots'
+  };
+  
+  // Route to the appropriate algorithm
+  switch (algorithm) {
+    case 'floyd-steinberg':
+      return applyFloydSteinbergDither(imageData, ditherSettings);
+    case 'bayer':
+      return applyBayerDither(imageData, ditherSettings);
+    case 'atkinson':
+      return applyAtkinsonDither(imageData, ditherSettings);
+    case 'blue-noise':
+      return applyBlueNoiseDither(imageData, ditherSettings);
+    case 'pattern':
+      return applyPatternDither(imageData, ditherSettings);
+    case 'sierra-lite':
+    default:
+      // Keep the existing Sierra Lite implementation as default
+      return applySierraLiteDither(imageData, numColors);
+  }
+};
+
+/**
  * Applies Sierra Lite dithering to image data using a limited color palette
  * Sierra Lite uses a simplified error diffusion matrix:
  *     X  2
@@ -470,13 +578,13 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
       const sampleSummary = sampledColors.slice(0, 10).map(c => 
         `(${c[0]},${c[1]},${c[2]})`
       ).join(', ');
-      console.log(`[Dither Debug] Sample colors (first 10): ${sampleSummary}`);
+      // Debug: Sample colors (logging removed)
       
       // Find min and max values in samples
       const minR = Math.min(...sampledColors.map(c => c[0]));
       const maxR = Math.max(...sampledColors.map(c => c[0]));
       const avgR = sampledColors.reduce((sum, c) => sum + c[0], 0) / sampledColors.length;
-      console.log(`[Dither Debug] Red range: ${minR}-${maxR}, avg: ${avgR.toFixed(0)}`);
+      // Debug: Red range (logging removed)
     }
     
     // Score each palette color by how well it represents the sampled colors
@@ -510,16 +618,13 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
     colorScores.sort((a, b) => b.score - a.score);
     
     // Debug: Log top scoring colors and also Black/White scores
-    console.log('[Dither Debug] Top scoring colors:', colorScores.slice(0, Math.min(5, numColors)).map((item, i) => {
-      const name = DITHER_COLOR_NAMES[item.index] || 'Unknown';
-      return `${i}: ${name} (score: ${item.score.toFixed(0)})`;
-    }));
+    // Debug: Top scoring colors (logging removed)
     
     // Also show Black and White scores specifically
     const blackScore = colorScores.find(item => item.index === 0);
     const whiteScore = colorScores.find(item => item.index === 1);
     if (blackScore && whiteScore) {
-      console.log(`[Dither Debug] Black score: ${blackScore.score.toFixed(0)}, White score: ${whiteScore.score.toFixed(0)}`);
+      // Debug: Black and white scores (logging removed)
     }
     
     return colorScores.slice(0, numColors).map(item => item.color);
@@ -528,11 +633,7 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
   const palette = selectBestPaletteColors(numColors);
   
   // Debug: Log selected palette colors
-  console.log(`[Dither Debug] Selected ${palette.length} best colors for content:`, 
-    palette.map((color, i) => {
-      const name = DITHER_COLOR_NAMES[DITHER_PALETTE.findIndex(p => p[0] === color[0] && p[1] === color[1] && p[2] === color[2])] || 'Unknown';
-      return `${i}: ${name} RGB(${color[0]}, ${color[1]}, ${color[2]})`;
-    }));
+  // Debug: Selected palette colors (logging removed)
   
   // Find nearest palette color for RGB values
   const findNearestColor = (r: number, g: number, b: number): [number, number, number] => {
@@ -552,7 +653,7 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
     
     // Debug logging - sample color matches
     if (Math.random() < 0.001) { // Log 0.1% of color matches
-      console.log(`[Dither Debug] Mapped RGB(${r}, ${g}, ${b}) -> palette[${nearestIndex}] RGB(${nearest[0]}, ${nearest[1]}, ${nearest[2]})`);
+      // Debug: Mapped RGB to palette (logging removed)
     }
     
     return nearest;
@@ -621,122 +722,24 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
 };
 
 /**
- * Applies block-based Sierra Lite dithering with customizable fill resolution.
+ * Applies any dithering algorithm with customizable fill resolution.
  * Instead of dithering individual pixels, this works on blocks of pixels for a chunky effect.
  */
-const applySierraLiteDitherWithFillResolution = (imageData: ImageData, numColors: number, fillResolution: number): ImageData => {
+const applyDitheringWithFillResolution = (
+  imageData: ImageData, 
+  numColors: number, 
+  fillResolution: number,
+  algorithm: string,
+  patternStyle?: string
+): ImageData => {
   if (fillResolution <= 1) {
-    return applySierraLiteDither(imageData, numColors);
+    return applyDithering(imageData, numColors, algorithm, patternStyle);
   }
 
   const data = new Uint8ClampedArray(imageData.data);
   const width = imageData.width;
   const height = imageData.height;
   const blockSize = fillResolution;
-  
-  // Sample the image to find the best colors from our palette
-  const selectBestPaletteColors = (numColors: number): [number, number, number][] => {
-    if (numColors >= DITHER_PALETTE.length) return DITHER_PALETTE;
-    
-    // Sample pixels from the image
-    const sampleStep = Math.max(1, Math.floor(data.length / (4 * 1000))); // Sample ~1000 pixels
-    const sampledColors: [number, number, number][] = [];
-    
-    for (let i = 0; i < data.length; i += sampleStep * 4) {
-      if (data[i + 3] > 0) { // Only sample non-transparent pixels
-        sampledColors.push([data[i], data[i + 1], data[i + 2]]);
-      }
-    }
-    
-    if (sampledColors.length === 0) {
-      // No valid samples, return default palette subset
-      return DITHER_PALETTE.slice(0, numColors);
-    }
-    
-    // Debug: Show what colors we're actually sampling
-    if (Math.random() < 0.2) { // Log 20% of the time
-      const sampleSummary = sampledColors.slice(0, 10).map(c => 
-        `(${c[0]},${c[1]},${c[2]})`
-      ).join(', ');
-      console.log(`[Dither Debug] Sample colors (first 10): ${sampleSummary}`);
-      
-      // Find min and max values in samples
-      const minR = Math.min(...sampledColors.map(c => c[0]));
-      const maxR = Math.max(...sampledColors.map(c => c[0]));
-      const avgR = sampledColors.reduce((sum, c) => sum + c[0], 0) / sampledColors.length;
-      console.log(`[Dither Debug] Red range: ${minR}-${maxR}, avg: ${avgR.toFixed(0)}`);
-    }
-    
-    // Score each palette color by how well it represents the sampled colors
-    const colorScores = DITHER_PALETTE.map((paletteColor, index) => {
-      let minDistance = Infinity;
-      let totalDistance = 0;
-      let closeMatches = 0;
-      
-      sampledColors.forEach(sample => {
-        const dist = Math.sqrt(
-          (sample[0] - paletteColor[0]) ** 2 +
-          (sample[1] - paletteColor[1]) ** 2 +
-          (sample[2] - paletteColor[2]) ** 2
-        );
-        totalDistance += dist;
-        minDistance = Math.min(minDistance, dist);
-        if (dist < 30) closeMatches++; // Count very close matches
-      });
-      
-      const avgDistance = totalDistance / sampledColors.length;
-      // New scoring: prioritize colors that have very close matches to some samples
-      // This helps select black for black pixels and white for white pixels
-      return {
-        color: paletteColor,
-        index: index,
-        score: closeMatches * 10000 - avgDistance - minDistance * 10
-      };
-    });
-    
-    // Sort by score and take the best numColors
-    colorScores.sort((a, b) => b.score - a.score);
-    
-    // Debug: Log top scoring colors and also Black/White scores
-    console.log('[Dither Debug] Top scoring colors:', colorScores.slice(0, Math.min(5, numColors)).map((item, i) => {
-      const name = DITHER_COLOR_NAMES[item.index] || 'Unknown';
-      return `${i}: ${name} (score: ${item.score.toFixed(0)})`;
-    }));
-    
-    // Also show Black and White scores specifically
-    const blackScore = colorScores.find(item => item.index === 0);
-    const whiteScore = colorScores.find(item => item.index === 1);
-    if (blackScore && whiteScore) {
-      console.log(`[Dither Debug] Black score: ${blackScore.score.toFixed(0)}, White score: ${whiteScore.score.toFixed(0)}`);
-    }
-    
-    return colorScores.slice(0, numColors).map(item => item.color);
-  };
-  
-  const palette = selectBestPaletteColors(numColors);
-  
-  // Debug: Log selected palette colors (less frequent for fill resolution version)
-  if (Math.random() < 0.1) {
-    console.log(`[Dither Debug - Fill] Selected ${palette.length} best colors for content:`, 
-      palette.map((color, i) => `${i}: RGB(${color[0]}, ${color[1]}, ${color[2]})`));
-  }
-  
-  const findNearestColor = (r: number, g: number, b: number): [number, number, number] => {
-    let nearest = palette[0];
-    let nearestIndex = 0;
-    let minDiff = Math.sqrt((r - nearest[0])**2 + (g - nearest[1])**2 + (b - nearest[2])**2);
-    for (let i = 1; i < palette.length; i++) {
-      const color = palette[i];
-      const diff = Math.sqrt((r - color[0])**2 + (g - color[1])**2 + (b - color[2])**2);
-      if (diff < minDiff) {
-        minDiff = diff;
-        nearest = color;
-        nearestIndex = i;
-      }
-    }
-    
-    return nearest;
-  };
   
   // Calculate block dimensions
   const blockWidth = Math.ceil(width / blockSize);
@@ -773,45 +776,34 @@ const applySierraLiteDitherWithFillResolution = (imageData: ImageData, numColors
     }
   }
   
-  // Apply Sierra Lite dithering to blocks
-  const ditheredBlocks: number[][][] = JSON.parse(JSON.stringify(blockData));
+  // Create a temporary image from the block data to apply dithering
+  const blockImageData = new ImageData(blockWidth, blockHeight);
+  for (let by = 0; by < blockHeight; by++) {
+    for (let bx = 0; bx < blockWidth; bx++) {
+      const idx = (by * blockWidth + bx) * 4;
+      blockImageData.data[idx] = blockData[by][bx][0];
+      blockImageData.data[idx + 1] = blockData[by][bx][1];
+      blockImageData.data[idx + 2] = blockData[by][bx][2];
+      blockImageData.data[idx + 3] = 255;
+    }
+  }
+  
+  // Apply the selected dithering algorithm to the block-averaged data
+  const ditheredBlockImage = applyDithering(blockImageData, numColors, algorithm, patternStyle);
+  
+  // Extract dithered blocks from the result
+  const ditheredBlocks: number[][][] = Array(blockHeight).fill(null).map(() => 
+    Array(blockWidth).fill(null).map(() => [0, 0, 0])
+  );
   
   for (let by = 0; by < blockHeight; by++) {
     for (let bx = 0; bx < blockWidth; bx++) {
-      // Get original RGB values
-      const oldR = ditheredBlocks[by][bx][0];
-      const oldG = ditheredBlocks[by][bx][1];
-      const oldB = ditheredBlocks[by][bx][2];
-      
-      // Find nearest color in Apple II palette
-      const [newR, newG, newB] = findNearestColor(oldR, oldG, oldB);
-      
-      // Calculate error for each channel
-      const errorR = oldR - newR;
-      const errorG = oldG - newG;
-      const errorB = oldB - newB;
-      
-      // Set new color
-      ditheredBlocks[by][bx] = [newR, newG, newB];
-      
-      // Distribute error to neighboring blocks using Sierra Lite weights
-      if (bx < blockWidth - 1) {
-        ditheredBlocks[by][bx + 1][0] = Math.max(0, Math.min(255, ditheredBlocks[by][bx + 1][0] + errorR * 2 / 4));
-        ditheredBlocks[by][bx + 1][1] = Math.max(0, Math.min(255, ditheredBlocks[by][bx + 1][1] + errorG * 2 / 4));
-        ditheredBlocks[by][bx + 1][2] = Math.max(0, Math.min(255, ditheredBlocks[by][bx + 1][2] + errorB * 2 / 4));
-      }
-      
-      if (by < blockHeight - 1 && bx > 0) {
-        ditheredBlocks[by + 1][bx - 1][0] = Math.max(0, Math.min(255, ditheredBlocks[by + 1][bx - 1][0] + errorR * 1 / 4));
-        ditheredBlocks[by + 1][bx - 1][1] = Math.max(0, Math.min(255, ditheredBlocks[by + 1][bx - 1][1] + errorG * 1 / 4));
-        ditheredBlocks[by + 1][bx - 1][2] = Math.max(0, Math.min(255, ditheredBlocks[by + 1][bx - 1][2] + errorB * 1 / 4));
-      }
-      
-      if (by < blockHeight - 1) {
-        ditheredBlocks[by + 1][bx][0] = Math.max(0, Math.min(255, ditheredBlocks[by + 1][bx][0] + errorR * 1 / 4));
-        ditheredBlocks[by + 1][bx][1] = Math.max(0, Math.min(255, ditheredBlocks[by + 1][bx][1] + errorG * 1 / 4));
-        ditheredBlocks[by + 1][bx][2] = Math.max(0, Math.min(255, ditheredBlocks[by + 1][bx][2] + errorB * 1 / 4));
-      }
+      const idx = (by * blockWidth + bx) * 4;
+      ditheredBlocks[by][bx] = [
+        ditheredBlockImage.data[idx],
+        ditheredBlockImage.data[idx + 1],
+        ditheredBlockImage.data[idx + 2]
+      ];
     }
   }
   
@@ -2825,7 +2817,13 @@ export const useBrushEngine = () => {
             
             // Apply dithering only to pixels inside the rectangle
             const fillResolution = brushSettings.fillResolution || 1;
-            const ditheredData = applySierraLiteDitherWithFillResolution(imageData, numColors, fillResolution);
+            const algorithm = brushSettings.ditherAlgorithm || 'sierra-lite';
+            const patternStyle = brushSettings.patternStyle || 'dots';
+            
+            // Apply dithering with fill resolution support for all algorithms
+            const ditheredData = fillResolution > 1 
+              ? applyDitheringWithFillResolution(imageData, numColors, fillResolution, algorithm, patternStyle)
+              : applyDithering(imageData, numColors, algorithm, patternStyle);
             
             // Composite: use dithered data only where mask is white
             const finalData = new Uint8ClampedArray(imageData.data);
@@ -3021,7 +3019,13 @@ export const useBrushEngine = () => {
             
             // Apply dithering only to pixels inside the polygon
             const fillResolution = brushSettings.fillResolution || 1;
-            const ditheredData = applySierraLiteDitherWithFillResolution(imageData, numColors, fillResolution);
+            const algorithm = brushSettings.ditherAlgorithm || 'sierra-lite';
+            const patternStyle = brushSettings.patternStyle || 'dots';
+            
+            // Apply dithering with fill resolution support for all algorithms
+            const ditheredData = fillResolution > 1 
+              ? applyDitheringWithFillResolution(imageData, numColors, fillResolution, algorithm, patternStyle)
+              : applyDithering(imageData, numColors, algorithm, patternStyle);
             
             // Composite: use dithered data only where mask is white
             const finalData = new Uint8ClampedArray(imageData.data);

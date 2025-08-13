@@ -11,6 +11,7 @@ import {
   DitherSettings, 
   DitherAlgorithm, 
   BayerMatrixSize,
+  PatternStyle,
   APPLE_II_PALETTE,
   createGrayscalePalette,
   calculatePressureDitherThreshold
@@ -22,6 +23,7 @@ export interface DitherBrushSettings extends BrushSettings {
   pressureSensitiveDither: boolean;
   ditherPalette: 'apple-ii' | 'grayscale-2' | 'grayscale-4' | 'grayscale-8' | 'custom';
   bayerMatrixSize: BayerMatrixSize;
+  patternStyle: PatternStyle;
   realtimeProcessing: boolean; // true = chunked processing for large strokes
 }
 
@@ -55,6 +57,7 @@ export const DEFAULT_DITHER_SETTINGS: DitherBrushSettings = {
   pressureSensitiveDither: true,
   ditherPalette: 'apple-ii',
   bayerMatrixSize: 8,
+  patternStyle: 'dots',
   realtimeProcessing: true
 };
 
@@ -110,6 +113,7 @@ export const applyDitherBrushStroke = (
       pressure: brushSettings.pressureSensitiveDither ? pressure : 0.5,
       intensity: brushSettings.ditherIntensity / 100,
       bayerMatrixSize: brushSettings.bayerMatrixSize,
+      patternStyle: brushSettings.patternStyle,
       palette: getDitherPalette(brushSettings.ditherPalette)
     };
     
@@ -194,6 +198,9 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
           <option value="bayer">Bayer Matrix</option>
           <option value="floyd-steinberg">Floyd-Steinberg</option>
           <option value="sierra-lite">Sierra Lite</option>
+          <option value="atkinson">Atkinson</option>
+          <option value="blue-noise">Blue Noise</option>
+          <option value="pattern">Pattern</option>
         </select>
       </div>
       
@@ -253,6 +260,25 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
             <option value={2}>2×2 (Subtle)</option>
             <option value={4}>4×4 (Medium)</option>
             <option value={8}>8×8 (Detailed)</option>
+          </select>
+        </div>
+      )}
+      
+      {/* Pattern Style (only for Pattern algorithm) */}
+      {settings.ditherAlgorithm === 'pattern' && (
+        <div className="space-y-1">
+          <label className="text-xs text-gray-400">Pattern Style</label>
+          <select
+            value={settings.patternStyle}
+            onChange={(e) => onChange({ patternStyle: e.target.value as PatternStyle })}
+            className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs text-white"
+          >
+            <option value="dots">Dots</option>
+            <option value="lines">Diagonal Lines</option>
+            <option value="vertical-lines">Vertical Lines</option>
+            <option value="horizontal-lines">Horizontal Lines</option>
+            <option value="crosshatch">Crosshatch</option>
+            <option value="diagonal">Diamond</option>
           </select>
         </div>
       )}
