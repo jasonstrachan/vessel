@@ -9,13 +9,35 @@ interface DocumentModalProps {
   onClose: () => void;
 }
 
+// Canvas size presets
+const CANVAS_PRESETS = [
+  { name: 'HD (1920×1080)', width: 1920, height: 1080 },
+  { name: 'Full HD (1920×1200)', width: 1920, height: 1200 },
+  { name: '4K (3840×2160)', width: 3840, height: 2160 },
+  { name: 'Square (1024×1024)', width: 1024, height: 1024 },
+  { name: 'Square (2048×2048)', width: 2048, height: 2048 },
+  { name: 'A4 Portrait (2480×3508)', width: 2480, height: 3508 },
+  { name: 'A4 Landscape (3508×2480)', width: 3508, height: 2480 },
+  { name: 'Mobile (1080×1920)', width: 1080, height: 1920 },
+  { name: 'Tablet (1536×2048)', width: 1536, height: 2048 },
+];
+
+// Calculate memory usage estimate in MB
+const calculateMemoryUsage = (width: number, height: number): number => {
+  // Each pixel uses 4 bytes (RGBA), estimate 3 layers average
+  const bytesPerLayer = width * height * 4;
+  const estimatedLayers = 3;
+  const totalBytes = bytesPerLayer * estimatedLayers;
+  return Math.round(totalBytes / (1024 * 1024)); // Convert to MB
+};
+
 export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose }) => {
   const { project, newProject, resizeCanvas } = useAppStore();
   
-  const [resizeWidth, setResizeWidth] = useState<number | string>(project?.width || 800);
-  const [resizeHeight, setResizeHeight] = useState<number | string>(project?.height || 600);
-  const [newWidth, setNewWidth] = useState(project?.width || 800);
-  const [newHeight, setNewHeight] = useState(project?.height || 600);
+  const [resizeWidth, setResizeWidth] = useState<number | string>(project?.width || 1920);
+  const [resizeHeight, setResizeHeight] = useState<number | string>(project?.height || 1080);
+  const [newWidth, setNewWidth] = useState(1920);
+  const [newHeight, setNewHeight] = useState(1080);
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
 
@@ -58,6 +80,7 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
     if (project) {
       const width = resizeWidth === '' ? 1 : Number(resizeWidth);
       const height = resizeHeight === '' ? 1 : Number(resizeHeight);
+      console.log('📏 User requesting canvas resize from DocumentModal:', { width, height });
       resizeCanvas(width, height);
     }
     onClose();
@@ -97,6 +120,20 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
           {/* Resize Section */}
           <div>
             <h3 className="text-[#D9D9D9] text-base font-medium mb-3">Resize Canvas</h3>
+            
+            {/* Memory warning for resize */}
+            {(() => {
+              const memUsage = calculateMemoryUsage(
+                typeof resizeWidth === 'string' ? parseInt(resizeWidth) || 1 : resizeWidth,
+                typeof resizeHeight === 'string' ? parseInt(resizeHeight) || 1 : resizeHeight
+              );
+              return memUsage > 500 ? (
+                <div className="mb-3 p-2 bg-yellow-900/20 border border-yellow-600/30 rounded text-yellow-500 text-sm">
+                  ⚠️ Large canvas size (~{memUsage}MB memory usage)
+                </div>
+              ) : null;
+            })()}
+            
             <div className="flex gap-3">
               <div className="w-20">
                 <label className="block text-base text-[#888] mb-1">Width</label>
@@ -167,6 +204,34 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
           {/* New Document Section */}
           <div>
             <h3 className="text-[#D9D9D9] text-base font-medium mb-3">New Document</h3>
+            
+            {/* Preset buttons */}
+            <div className="mb-3 flex flex-wrap gap-2">
+              {CANVAS_PRESETS.map((preset) => (
+                <button
+                  key={preset.name}
+                  onClick={() => {
+                    setNewWidth(preset.width);
+                    setNewHeight(preset.height);
+                  }}
+                  className="px-2 py-1 text-xs bg-[#444] hover:bg-[#555] text-[#D9D9D9] rounded transition-colors"
+                  title={`${preset.width}×${preset.height} (${calculateMemoryUsage(preset.width, preset.height)}MB)`}
+                >
+                  {preset.name}
+                </button>
+              ))}
+            </div>
+            
+            {/* Memory warning for new document */}
+            {(() => {
+              const memUsage = calculateMemoryUsage(newWidth, newHeight);
+              return memUsage > 500 ? (
+                <div className="mb-3 p-2 bg-yellow-900/20 border border-yellow-600/30 rounded text-yellow-500 text-sm">
+                  ⚠️ Large canvas size (~{memUsage}MB memory usage)
+                </div>
+              ) : null;
+            })()}
+            
             <div className="flex gap-3">
               <div className="w-20">
                 <label className="block text-base text-[#888] mb-1">Width</label>

@@ -1,6 +1,7 @@
 // Default canvas dimensions used throughout the application
-export const DEFAULT_CANVAS_WIDTH = 2000;
-export const DEFAULT_CANVAS_HEIGHT = 2000;
+// Using common HD resolution as default for better performance
+export const DEFAULT_CANVAS_WIDTH = 1920;
+export const DEFAULT_CANVAS_HEIGHT = 1080;
 
 // Canvas rendering settings
 export const CANVAS_CONTEXT_SETTINGS = {

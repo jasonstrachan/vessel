@@ -23,6 +23,16 @@ export default function Home() {
   const ui = useAppStore(state => state.ui);
   const autosave = useAppStore(state => state.autosave);
   const currentTool = useAppStore(state => state.tools.currentTool);
+  const project = useAppStore(state => state.project);
+  const newProject = useAppStore(state => state.newProject);
+
+  // Create default project on initial load if no project exists
+  useEffect(() => {
+    if (!project) {
+      console.log('🎨 Creating default project on load');
+      newProject(800, 600, 'Untitled');
+    }
+  }, []); // Only run once on mount
 
   // Load settings from localStorage on initial mount only
   useEffect(() => {

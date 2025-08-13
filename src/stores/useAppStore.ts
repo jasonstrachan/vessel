@@ -508,6 +508,13 @@ export const useAppStore = create<AppState>()(
         const oldWidth = state.project.width;
         const oldHeight = state.project.height;
         
+        console.log('🔧 Resizing canvas:', {
+          oldSize: { width: oldWidth, height: oldHeight },
+          newSize: { width, height },
+          currentZoom: state.canvas.zoom,
+          currentPan: { x: state.canvas.panX, y: state.canvas.panY }
+        });
+        
         // Calculate offset to center content
         const offsetX = (width - oldWidth) / 2;
         const offsetY = (height - oldHeight) / 2;
@@ -517,47 +524,59 @@ export const useAppStore = create<AppState>()(
         
         // Resize layers while preserving content position from center
         const resizedLayers = state.layers.map(layer => {
-          if (!layer.imageData) return layer;
-          
-          // Create new canvas with new dimensions
-          const newCanvas = document.createElement('canvas');
-          newCanvas.width = width;
-          newCanvas.height = height;
-          const newCtx = newCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+          // Create new offscreen canvas with new dimensions
+          const newFramebuffer = new OffscreenCanvas(width, height);
+          const newCtx = newFramebuffer.getContext('2d', { willReadFrequently: true }) as OffscreenCanvasRenderingContext2D;
           
           if (newCtx) {
-            // Clear with transparent background
-            newCtx.clearRect(0, 0, width, height);
-            
-            // Create temporary canvas for existing content
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = layer.imageData.width;
-            tempCanvas.height = layer.imageData.height;
-            const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
-            
-            if (tempCtx) {
-              tempCtx.putImageData(layer.imageData, 0, 0);
-              
-              // Draw existing content centered in new canvas
-              newCtx.drawImage(tempCanvas, offsetX, offsetY);
+            // First, ensure the old framebuffer has the latest imageData
+            if (layer.imageData && layer.framebuffer) {
+              const oldCtx = layer.framebuffer.getContext('2d', { willReadFrequently: true }) as OffscreenCanvasRenderingContext2D;
+              if (oldCtx) {
+                // Sync imageData to framebuffer before copying
+                oldCtx.clearRect(0, 0, layer.framebuffer.width, layer.framebuffer.height);
+                oldCtx.putImageData(layer.imageData, 0, 0);
+              }
             }
             
-            // Get new image data
+            // Now draw the synced framebuffer content centered in new canvas
+            if (layer.framebuffer) {
+              newCtx.drawImage(layer.framebuffer, offsetX, offsetY);
+            }
+            
+            // Get imageData from the new framebuffer for compatibility
             const newImageData = newCtx.getImageData(0, 0, width, height);
             
             return {
               ...layer,
-              imageData: newImageData
+              imageData: newImageData,
+              framebuffer: newFramebuffer
             };
           }
           
           return layer;
         });
         
+        // Reset zoom and pan to default values
+        // Keep pan at (0,0) for consistent coordinate system
+        console.log('✅ Canvas resized - resetting view:', {
+          newZoom: 1,
+          newPan: { x: 0, y: 0 },
+          dimensions: { width, height }
+        });
+        
         return {
           project: updatedProject,
           layers: resizedLayers,
-          canvas: { ...state.canvas, canvasWidth: width, canvasHeight: height, needsDimensionUpdate: true },
+          canvas: { 
+            ...state.canvas,
+            zoom: 1,         // Reset to default zoom
+            panX: 0,         // Reset pan to origin
+            panY: 0,         // Reset pan to origin
+            canvasWidth: width, 
+            canvasHeight: height,
+            needsDimensionUpdate: true 
+          },
           layersNeedRecomposition: true
         };
       }),
@@ -2040,12 +2059,26 @@ export const useAppStore = create<AppState>()(
       },
       
       newProject: (width: number, height: number, name = 'Untitled') => {
+        // Create a default layer with empty image data
+        const defaultLayerId = `layer-${Date.now()}-${Math.random()}`;
+        const defaultLayer: Layer = {
+          id: defaultLayerId,
+          name: 'Layer 1',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          order: 0,
+          locked: false,
+          imageData: new ImageData(width, height),
+          framebuffer: new OffscreenCanvas(width, height)
+        };
+        
         const newProject: Project = {
           id: `project-${Date.now()}-${Math.random()}`,
           name,
           width,
           height,
-          layers: [],
+          layers: [defaultLayer],
           backgroundColor: 'transparent',
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -2055,8 +2088,8 @@ export const useAppStore = create<AppState>()(
         
         set({
           project: newProject,
-          layers: [],
-          activeLayerId: null,
+          layers: [defaultLayer],
+          activeLayerId: defaultLayerId,
           canvas: {
             ...get().canvas,
             canvasWidth: width,
@@ -2083,13 +2116,11 @@ export const useAppStore = create<AppState>()(
           return;
         }
         
-        // FIXED: Account for device pixel ratio when checking/setting canvas dimensions
-        // The offscreen canvas from DrawingCanvas uses device pixel ratio scaling
-        const pixelRatio = window.devicePixelRatio || 1;
-        const expectedWidth = state.project.width * pixelRatio;
-        const expectedHeight = state.project.height * pixelRatio;
+        // Set canvas dimensions to match project size
+        const expectedWidth = state.project.width;
+        const expectedHeight = state.project.height;
         
-        // Only resize canvas if dimensions don't match the expected scaled dimensions
+        // Only resize canvas if dimensions don't match
         if (targetCanvas.width !== expectedWidth || targetCanvas.height !== expectedHeight) {
           targetCanvas.width = expectedWidth;
           targetCanvas.height = expectedHeight;
@@ -2201,13 +2232,16 @@ export const useAppStore = create<AppState>()(
       
       captureCanvasToActiveLayer: async (sourceCanvas?: HTMLCanvasElement) => {
         const state = get();
+        console.log('🔍 captureCanvasToActiveLayer called');
         
         // Skip if we're in the middle of a history operation
         if (state.history.isCapturing) {
+          console.log('⚠️ Skipping: history is capturing');
           return;
         }
         
         if (!state.project || state.layers.length === 0) {
+          console.log('⚠️ Skipping: no project or layers');
           return;
         }
         
@@ -2215,13 +2249,16 @@ export const useAppStore = create<AppState>()(
         const canvas = sourceCanvas;
         
         if (!canvas) {
+          console.log('⚠️ Skipping: no source canvas');
           return;
         }
         
         const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         if (!ctx) {
+          console.log('⚠️ Skipping: no context');
           return;
         }
+        console.log('🔍 Got context, proceeding with capture');
         
         try {
           // Capture only the project area, not the full canvas
@@ -2236,11 +2273,21 @@ export const useAppStore = create<AppState>()(
           const activeLayerId = state.activeLayerId || state.layers[0]?.id;
           
           if (activeLayerId) {
-            // Update the layer with the captured ImageData using direct set
+            // Update the layer with the captured ImageData AND framebuffer using direct set
             set((currentState) => {
-              const updatedLayers = currentState.layers.map(layer =>
-                layer.id === activeLayerId ? { ...layer, imageData } : layer
-              );
+              const updatedLayers = currentState.layers.map(layer => {
+                if (layer.id === activeLayerId) {
+                  // Update both imageData and framebuffer to stay in sync
+                  const framebufferCtx = layer.framebuffer.getContext('2d', { willReadFrequently: true });
+                  if (framebufferCtx) {
+                    // Clear the framebuffer and draw the captured imageData
+                    framebufferCtx.clearRect(0, 0, layer.framebuffer.width, layer.framebuffer.height);
+                    framebufferCtx.putImageData(imageData, 0, 0);
+                  }
+                  return { ...layer, imageData };
+                }
+                return layer;
+              });
               return {
                 layers: updatedLayers,
                 project: currentState.project ? {
@@ -2259,9 +2306,11 @@ export const useAppStore = create<AppState>()(
                 currentState.colorCycleState.selectedLayers.includes(activeLayerId)) {
               get().refreshColorCycleMapsIfNeeded();
             }
+            console.log('✅ captureCanvasToActiveLayer completed successfully');
           }
         } catch (error) {
-          console.error('Capture failed with error:', error);
+          console.error('❌ Capture failed with error:', error);
+          throw error; // Re-throw to trigger the catch in DrawingCanvas
         }
       },
       

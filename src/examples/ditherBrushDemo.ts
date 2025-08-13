@@ -19,7 +19,7 @@ export class DitherBrushEngine {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private isDrawing: boolean = false;
-  private lastPoint: { x: number; y: number } | null = null;
+  private lastPoint: { x: number; y: number; pressure: number } | null = null;
   private ditherSettings: DitherSettings;
   
   constructor(canvas: HTMLCanvasElement) {
@@ -71,10 +71,10 @@ export class DitherBrushEngine {
       clientY = touch.clientY;
       // Simulate pressure based on touch force (if available)
       pressure = (touch as any).force || 0.5;
-    } else if (event instanceof PointerEvent) {
-      clientX = event.clientX;
-      clientY = event.clientY;
-      pressure = event.pressure || 0.5; // Real pressure from stylus
+    } else if ((event as any).pressure !== undefined) {
+      clientX = (event as any).clientX;
+      clientY = (event as any).clientY;
+      pressure = (event as any).pressure || 0.5; // Real pressure from stylus
     } else {
       return { x: 0, y: 0, pressure: 0.5 };
     }

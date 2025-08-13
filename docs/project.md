@@ -2,6 +2,20 @@
 
 ## Recent Updates
 
+### Dynamic Canvas Size (2025-01-13)
+- **Removed hardcoded 2000x2000 canvas limit**: Canvas can now be any custom size
+- **New default dimensions**: 1920x1080 (HD resolution) for better performance
+- **Canvas size presets added to Document Modal**:
+  - HD (1920×1080)
+  - Full HD (1920×1200) 
+  - 4K (3840×2160)
+  - Square formats (1024×1024, 2048×2048)
+  - A4 Portrait (2480×3508) and Landscape (3508×2480)
+  - Mobile (1080×1920) and Tablet (1536×2048) sizes
+- **Memory usage warnings**: Displays estimated memory usage and warns when >500MB
+- **Resize existing canvas**: Maintains content centered when resizing
+- **Custom dimensions**: Full support for any width/height via input fields
+
 ### Enhanced Dithering Algorithms (2025-01-12)
 - **Added three new dithering algorithms** to expand artistic options beyond Floyd-Steinberg, Bayer, and Sierra Lite
 - **Atkinson Dithering**: 
