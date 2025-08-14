@@ -2,6 +2,24 @@
 
 ## Recent Updates
 
+### Custom Brush Integration with New Rendering Pipeline (2025-01-14)
+- **'C' Hotkey**: Press 'C' to quickly enter selection mode for creating custom brushes
+- **Full Pipeline Compatibility**: Custom brushes work seamlessly with the new world/screen space separation
+- **Composite Canvas Integration**: Automatically sets currentOffscreenCanvas for brush creation from selections
+- **BrushEditorUI Modal**: Added to main page for editing custom brushes with real-time preview
+- **Features Preserved**:
+  - Create brushes from selections
+  - Test brushes before saving (temporaryCustomBrush)
+  - Edit with HSL adjustments
+  - Save to project library
+  - Color tinting and pressure sensitivity
+  - Grid snapping for pixel-perfect placement
+- **Technical Details**:
+  - drawCustomBrushStamp properly handles view transformations
+  - Cached composite canvas only recreates when layers change
+  - scaledBrushCache optimizes performance
+  - Memory-efficient ImageData handling
+
 ### Dynamic Canvas Size (2025-01-13)
 - **Removed hardcoded 2000x2000 canvas limit**: Canvas can now be any custom size
 - **New default dimensions**: 1920x1080 (HD resolution) for better performance

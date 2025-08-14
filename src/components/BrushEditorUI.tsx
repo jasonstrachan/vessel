@@ -2,11 +2,10 @@ import React, { useCallback, useRef, useEffect, useState } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import Button from './ui/Button';
 
-interface BrushEditorUIProps {
-  canvasRef: React.RefObject<HTMLCanvasElement | null>;
-}
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+interface BrushEditorUIProps {}
 
-const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef }) => {
+const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   const brushEditor = useAppStore((state) => state.brushEditor);
   const customBrushes = useAppStore((state) => state.project?.customBrushes || []);
   const brushColor = useAppStore((state) => state.tools.brushSettings.color);
@@ -32,6 +31,8 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
   const [lastPanPoint, setLastPanPoint] = useState<{x: number, y: number} | null>(null);
   const [spacePressed, setSpacePressed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [isResizing, setIsResizing] = useState(false);
+  const [modalSize, setModalSize] = useState({ width: 400, height: 500 });
 
   // Helper functions for flood fill
   const getPixelColor = (imageData: ImageData, x: number, y: number) => {
@@ -131,11 +132,11 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
   }, [saveBrushEdit]);
 
   const handleCancel = useCallback(() => {
-    // Cancel without saving - still need main canvas for restoring state
-    if (mainCanvasRef.current) {
-      cancelBrushEdit(mainCanvasRef.current);
+    // Cancel without saving - use the brush editor modal canvas
+    if (canvasRef.current) {
+      cancelBrushEdit(canvasRef.current);
     }
-  }, [cancelBrushEdit, mainCanvasRef]);
+  }, [cancelBrushEdit]);
 
   // Drawing handlers for the modal canvas
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -295,6 +296,32 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
     setIsDragging(false);
   }, []);
 
+  // Resize handlers
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+  }, []);
+
+  const handleResizeMove = useCallback((e: MouseEvent) => {
+    if (!isResizing) return;
+    
+    // Calculate new size based on mouse position
+    // Since resize handle is in bottom-right, width increases as mouse moves right
+    const modalElement = document.querySelector('.brush-editor-modal') as HTMLElement;
+    if (!modalElement) return;
+    
+    const rect = modalElement.getBoundingClientRect();
+    const newWidth = Math.max(300, e.clientX - rect.left);
+    const newHeight = Math.max(400, e.clientY - rect.top);
+    
+    setModalSize({ width: newWidth, height: newHeight });
+  }, [isResizing]);
+
+  const handleResizeEnd = useCallback(() => {
+    setIsResizing(false);
+  }, []);
+
   useEffect(() => {
     if (isDragging) {
       document.addEventListener('mousemove', handleDragMove);
@@ -305,6 +332,17 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
       };
     }
   }, [isDragging, handleDragMove, handleDragEnd]);
+
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleResizeMove);
+      document.addEventListener('mouseup', handleResizeEnd);
+      return () => {
+        document.removeEventListener('mousemove', handleResizeMove);
+        document.removeEventListener('mouseup', handleResizeEnd);
+      };
+    }
+  }, [isResizing, handleResizeMove, handleResizeEnd]);
 
   // Handle wheel zoom with non-passive listener (zoom to cursor)
   useEffect(() => {
@@ -624,12 +662,16 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
         }
       `}</style>
       
-      {/* Brush Editor Panel - Draggable */}
-      <div style={{
+      {/* Brush Editor Panel - Draggable and Resizable */}
+      <div 
+        className="brush-editor-modal"
+        style={{
         position: 'fixed',
         left: `${modalPosition.x}%`,
         top: `${modalPosition.y}%`,
         transform: 'none', // Remove centering transform
+        width: `${modalSize.width}px`,
+        height: `${modalSize.height}px`,
         display: 'flex',
         flexDirection: 'column',
         gap: '0',
@@ -663,6 +705,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
             position: 'relative',
             overflow: 'hidden',
             backgroundColor: '#404040', // Match main canvas dark grey
+            flex: 1, // Take remaining space after header and controls
           }}
         >
           <div
@@ -756,6 +799,31 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = ({ canvasRef: mainCanvasRef 
             Save
           </Button>
         </div>
+        
+        {/* Resize Handle - Bottom Right Corner */}
+        <div
+          onMouseDown={handleResizeStart}
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            right: 0,
+            width: '20px',
+            height: '20px',
+            cursor: isResizing ? 'grabbing' : 'nwse-resize',
+            backgroundColor: 'transparent',
+            borderRight: '3px solid rgba(255, 255, 255, 0.3)',
+            borderBottom: '3px solid rgba(255, 255, 255, 0.3)',
+            transition: 'border-color 0.2s',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.6)';
+          }}
+          onMouseLeave={(e) => {
+            if (!isResizing) {
+              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+            }
+          }}
+        />
       </div>
     </>
   );

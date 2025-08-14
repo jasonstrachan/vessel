@@ -7,6 +7,7 @@ import ControlsPanel from '../components/ControlsPanel';
 import ColorPickerPanel from '../components/panels/ColorPickerPanel';
 import ColorCyclePanel from '../components/panels/ColorCyclePanel';
 import DrawingCanvas from '../components/canvas/DrawingCanvas';
+import BrushEditorUI from '../components/BrushEditorUI';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
 import { DocumentModal } from '../components/modals/DocumentModal';
 import { SettingsModal } from '../components/modals/SettingsModal';
@@ -26,13 +27,13 @@ export default function Home() {
   const project = useAppStore(state => state.project);
   const newProject = useAppStore(state => state.newProject);
 
-  // Create default project on initial load if no project exists
+  // Create default project on initial load if no layers exist
   useEffect(() => {
-    if (!project) {
-      console.log('🎨 Creating default project on load');
-      newProject(800, 600, 'Untitled');
+    if (project && project.layers.length === 0) {
+      console.log('🎨 Creating default project with layer on load');
+      newProject(1920, 1080, 'Untitled');
     }
-  }, []); // Only run once on mount
+  }, []); // Run once on mount only
 
   // Load settings from localStorage on initial mount only
   useEffect(() => {
@@ -170,6 +171,9 @@ export default function Home() {
         isOpen={ui.modals.settings}
         onClose={() => toggleModal('settings')}
       />
+      
+      {/* Brush Editor UI Modal */}
+      <BrushEditorUI />
       
     </main>
   );

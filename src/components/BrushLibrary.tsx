@@ -201,23 +201,51 @@ const BrushLibrary = () => {
     
     if (!currentOffscreenCanvas) {
       console.error('No offscreen canvas reference available in store');
-      // As a fallback, try to use the visible canvas element
-      // The offscreen canvas is created but not added to DOM, so we can't query it
-      // Instead, we'll need to ensure setCurrentOffscreenCanvas is called properly
       return;
     }
-
-    const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
-    const isEditingThisBrush = brushEditor.status === 'EDITING' && brushEditor.editingBrushId === customBrushId;
-
-    if (isEditingThisBrush) {
-      // Do nothing - already editing this brush
-      return;
-    } else {
-      if (brushEditor.status === 'EDITING') {
-        cancelBrushEdit(currentOffscreenCanvas);
+    
+    // For regular brushes, we need to create a temporary custom brush from the current brush state
+    if (!preset.isCustomBrush) {
+      // First, select the brush preset to use it as the base for editing
+      setBrushPreset(preset);
+      
+      // Draw a sample of the brush to create a custom brush from it
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = 64;
+      tempCanvas.height = 64;
+      const ctx = tempCanvas.getContext('2d');
+      
+      if (ctx) {
+        // Clear with transparency
+        ctx.clearRect(0, 0, 64, 64);
+        
+        // Draw a sample brush stroke in the center
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(32, 32, 20, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Get the image data to create a temporary custom brush
+        const imageData = ctx.getImageData(0, 0, 64, 64);
+        
+        // Start editing with this temporary brush data
+        // Use the preset ID as the brush ID for editing
+        startBrushEdit(preset.id, currentOffscreenCanvas);
       }
-      startBrushEdit(customBrushId, currentOffscreenCanvas);
+    } else {
+      // For custom brushes, use the existing logic - DON'T call setBrushPreset
+      const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
+      const isEditingThisBrush = brushEditor.status === 'EDITING' && brushEditor.editingBrushId === customBrushId;
+
+      if (isEditingThisBrush) {
+        // Do nothing - already editing this brush
+        return;
+      } else {
+        if (brushEditor.status === 'EDITING') {
+          cancelBrushEdit(currentOffscreenCanvas);
+        }
+        startBrushEdit(customBrushId, currentOffscreenCanvas);
+      }
     }
   };
 

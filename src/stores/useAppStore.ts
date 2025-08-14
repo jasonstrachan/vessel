@@ -651,6 +651,8 @@ export const useAppStore = create<AppState>()(
       setBrushSettings: (settings) => set((state) => {
         const currentSettings = state.tools.brushSettings;
         const newSettings = { ...currentSettings, ...settings };
+        console.log('setBrushSettings called with:', settings);
+        console.log('newSettings.brushShape:', newSettings.brushShape, 'currentBrushTip:', !!newSettings.currentBrushTip);
         
         // If size is being changed, update global size
         if (settings.size !== undefined) {
@@ -731,7 +733,9 @@ export const useAppStore = create<AppState>()(
         }
         
         // CRITICAL: Always clear currentBrushTip for standard brushes to prevent contamination
-        if (newSettings.brushShape !== BrushShape.CUSTOM) {
+        // But ONLY if we're not in the process of setting it to CUSTOM with a currentBrushTip
+        if (newSettings.brushShape !== BrushShape.CUSTOM && !settings.currentBrushTip) {
+          console.log('Clearing currentBrushTip because shape is not CUSTOM');
           newSettings.currentBrushTip = undefined;
           newSettings.selectedCustomBrush = null;
         }
@@ -751,6 +755,13 @@ export const useAppStore = create<AppState>()(
             brushSettings: newSettings
           }
         };
+        
+        console.log('setBrushSettings final state:', {
+          brushShape: newSettings.brushShape,
+          selectedCustomBrush: newSettings.selectedCustomBrush,
+          currentBrushTip: !!newSettings.currentBrushTip,
+          size: newSettings.size
+        });
         
         // Apply brush settings save if needed (avoid circular dependency)
         if (brushSettingsToSave) {
@@ -1108,6 +1119,16 @@ export const useAppStore = create<AppState>()(
         // Handle custom brush presets specifically
         if (preset.isCustomBrush) {
           const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
+          console.log('Setting custom brush:', customBrushId, 'from preset:', preset.id);
+          console.log('customBrushData exists:', !!preset.customBrushData);
+          if (preset.customBrushData) {
+            console.log('customBrushData dimensions:', preset.customBrushData.width, 'x', preset.customBrushData.height);
+            console.log('imageData exists:', !!preset.customBrushData.imageData);
+            if (preset.customBrushData.imageData) {
+              console.log('imageData dimensions:', preset.customBrushData.imageData.width, 'x', preset.customBrushData.imageData.height);
+            }
+          }
+          
           newBrushSettings.brushShape = BrushShape.CUSTOM;
           newBrushSettings.selectedCustomBrush = customBrushId;
           newBrushSettings.useSwatchColor = false;
@@ -1115,9 +1136,37 @@ export const useAppStore = create<AppState>()(
           newBrushSettings.saturationAdjust = 100;
           
           // CRITICAL FIX: Load the custom brush data into currentBrushTip
-          // Without this, the brush won't render at the correct size
-          const customBrush = state.project?.customBrushes?.find(b => b.id === customBrushId);
+          // The issue was that custom brushes selected from the library weren't
+          // properly loading their imageData into currentBrushTip
+          
+          // First check temporary custom brush
+          let customBrush = state.temporaryCustomBrush && state.temporaryCustomBrush.id === customBrushId 
+            ? state.temporaryCustomBrush 
+            : null;
+          
+          // If not temporary, check project custom brushes
+          if (!customBrush && state.project?.customBrushes) {
+            customBrush = state.project.customBrushes.find(b => b.id === customBrushId) || null;
+          }
+          
+          // IMPORTANT: Always use preset.customBrushData as the primary source
+          // This ensures custom brushes loaded from BrushLibrary work correctly
+          if (preset.customBrushData) {
+            const data = preset.customBrushData;
+            // Create/update the custom brush object with preset data
+            customBrush = {
+              id: customBrushId,
+              name: preset.name,
+              imageData: data.imageData,
+              width: data.width,
+              height: data.height,
+              thumbnail: preset.thumbnail || '',
+              createdAt: customBrush?.createdAt || Date.now()
+            };
+          }
+          
           if (customBrush) {
+            console.log('Setting currentBrushTip with customBrush:', customBrush.id, customBrush.width, 'x', customBrush.height);
             newBrushSettings.currentBrushTip = {
               imageData: customBrush.imageData,
               brushId: customBrush.id,
@@ -1125,6 +1174,9 @@ export const useAppStore = create<AppState>()(
               width: customBrush.width,
               height: customBrush.height
             };
+            console.log('currentBrushTip set:', !!newBrushSettings.currentBrushTip);
+          } else {
+            console.warn('Custom brush data not found for preset:', preset.id);
           }
         }
         
@@ -1338,10 +1390,12 @@ export const useAppStore = create<AppState>()(
       
       // Custom Brush Management
       addCustomBrush: (brush) => set((state) => {
+        console.log('addCustomBrush called with:', brush.id, brush.name);
         const newProject = state.project ? {
           ...state.project,
           customBrushes: [...state.project.customBrushes, brush]
         } : null;
+        console.log('Project custom brushes will be:', newProject?.customBrushes.map(b => b.id));
 
         // IMPORTANT: Unconditionally set hueShift and saturationAdjust to neutral defaults
         // when a new custom brush is added and automatically selected.
@@ -2232,16 +2286,13 @@ export const useAppStore = create<AppState>()(
       
       captureCanvasToActiveLayer: async (sourceCanvas?: HTMLCanvasElement) => {
         const state = get();
-        console.log('🔍 captureCanvasToActiveLayer called');
         
         // Skip if we're in the middle of a history operation
         if (state.history.isCapturing) {
-          console.log('⚠️ Skipping: history is capturing');
           return;
         }
         
         if (!state.project || state.layers.length === 0) {
-          console.log('⚠️ Skipping: no project or layers');
           return;
         }
         
@@ -2249,16 +2300,13 @@ export const useAppStore = create<AppState>()(
         const canvas = sourceCanvas;
         
         if (!canvas) {
-          console.log('⚠️ Skipping: no source canvas');
           return;
         }
         
         const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         if (!ctx) {
-          console.log('⚠️ Skipping: no context');
           return;
         }
-        console.log('🔍 Got context, proceeding with capture');
         
         try {
           // Capture only the project area, not the full canvas
@@ -2306,10 +2354,8 @@ export const useAppStore = create<AppState>()(
                 currentState.colorCycleState.selectedLayers.includes(activeLayerId)) {
               get().refreshColorCycleMapsIfNeeded();
             }
-            console.log('✅ captureCanvasToActiveLayer completed successfully');
           }
         } catch (error) {
-          console.error('❌ Capture failed with error:', error);
           throw error; // Re-throw to trigger the catch in DrawingCanvas
         }
       },

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useMemo } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushComponent, ComponentType, BrushShape, CustomBrush, BrushSettings } from '../types';
 import { shouldApplyGridSnap, snapToGrid, getGridPositionsBetween, calculateGridDimensions, snapToRectangularGrid, getRectangularGridPositionsBetween } from '../utils/gridSnap';
@@ -573,19 +573,6 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
       return DITHER_PALETTE.slice(0, numColors);
     }
     
-    // Debug: Show what colors we're actually sampling
-    if (Math.random() < 0.2) { // Log 20% of the time
-      const sampleSummary = sampledColors.slice(0, 10).map(c => 
-        `(${c[0]},${c[1]},${c[2]})`
-      ).join(', ');
-      // Debug: Sample colors (logging removed)
-      
-      // Find min and max values in samples
-      const minR = Math.min(...sampledColors.map(c => c[0]));
-      const maxR = Math.max(...sampledColors.map(c => c[0]));
-      const avgR = sampledColors.reduce((sum, c) => sum + c[0], 0) / sampledColors.length;
-      // Debug: Red range (logging removed)
-    }
     
     // Score each palette color by how well it represents the sampled colors
     const colorScores = DITHER_PALETTE.map((paletteColor, index) => {
@@ -594,14 +581,13 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
       let closeMatches = 0;
       
       sampledColors.forEach(sample => {
-        const dist = Math.sqrt(
+        const distSquared = 
           (sample[0] - paletteColor[0]) ** 2 +
           (sample[1] - paletteColor[1]) ** 2 +
-          (sample[2] - paletteColor[2]) ** 2
-        );
-        totalDistance += dist;
-        minDistance = Math.min(minDistance, dist);
-        if (dist < 30) closeMatches++; // Count very close matches
+          (sample[2] - paletteColor[2]) ** 2;
+        totalDistance += distSquared;
+        minDistance = Math.min(minDistance, distSquared);
+        if (distSquared < 900) closeMatches++; // Count very close matches (30^2 = 900)
       });
       
       const avgDistance = totalDistance / sampledColors.length;
@@ -617,44 +603,27 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
     // Sort by score and take the best numColors
     colorScores.sort((a, b) => b.score - a.score);
     
-    // Debug: Log top scoring colors and also Black/White scores
-    // Debug: Top scoring colors (logging removed)
-    
-    // Also show Black and White scores specifically
-    const blackScore = colorScores.find(item => item.index === 0);
-    const whiteScore = colorScores.find(item => item.index === 1);
-    if (blackScore && whiteScore) {
-      // Debug: Black and white scores (logging removed)
-    }
-    
     return colorScores.slice(0, numColors).map(item => item.color);
   };
   
   const palette = selectBestPaletteColors(numColors);
   
-  // Debug: Log selected palette colors
-  // Debug: Selected palette colors (logging removed)
-  
   // Find nearest palette color for RGB values
   const findNearestColor = (r: number, g: number, b: number): [number, number, number] => {
     let nearest = palette[0];
     let nearestIndex = 0;
-    let minDiff = Math.sqrt((r - nearest[0])**2 + (g - nearest[1])**2 + (b - nearest[2])**2);
+    let minDiffSquared = (r - nearest[0])**2 + (g - nearest[1])**2 + (b - nearest[2])**2;
     
     for (let i = 1; i < palette.length; i++) {
       const color = palette[i];
-      const diff = Math.sqrt((r - color[0])**2 + (g - color[1])**2 + (b - color[2])**2);
-      if (diff < minDiff) {
-        minDiff = diff;
+      const diffSquared = (r - color[0])**2 + (g - color[1])**2 + (b - color[2])**2;
+      if (diffSquared < minDiffSquared) {
+        minDiffSquared = diffSquared;
         nearest = color;
         nearestIndex = i;
       }
     }
     
-    // Debug logging - sample color matches
-    if (Math.random() < 0.001) { // Log 0.1% of color matches
-      // Debug: Mapped RGB to palette (logging removed)
-    }
     
     return nearest;
   };
@@ -689,31 +658,34 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
       data[idx + 2] = newB;
       
       // Distribute error using Sierra Lite weights
-      // Add a small amount of noise to prevent banding
+      // Pre-calculate noise values for better performance
       const noiseAmount = 2; // Small noise to break up patterns
+      const noise1 = (Math.random() - 0.5) * noiseAmount;
+      const noise2 = (Math.random() - 0.5) * noiseAmount;
+      const noise3 = (Math.random() - 0.5) * noiseAmount;
       
       // Right pixel (2/4 of error)
       if (x < width - 1) {
         const rightIdx = (y * width + (x + 1)) * 4;
-        workingData[rightIdx] += errorR * 2 / 4 + (Math.random() - 0.5) * noiseAmount;
-        workingData[rightIdx + 1] += errorG * 2 / 4 + (Math.random() - 0.5) * noiseAmount;
-        workingData[rightIdx + 2] += errorB * 2 / 4 + (Math.random() - 0.5) * noiseAmount;
+        workingData[rightIdx] += errorR * 0.5 + noise1;
+        workingData[rightIdx + 1] += errorG * 0.5 + noise1;
+        workingData[rightIdx + 2] += errorB * 0.5 + noise1;
       }
       
       // Bottom-left pixel (1/4 of error)
       if (y < height - 1 && x > 0) {
         const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
-        workingData[bottomLeftIdx] += errorR * 1 / 4 + (Math.random() - 0.5) * noiseAmount;
-        workingData[bottomLeftIdx + 1] += errorG * 1 / 4 + (Math.random() - 0.5) * noiseAmount;
-        workingData[bottomLeftIdx + 2] += errorB * 1 / 4 + (Math.random() - 0.5) * noiseAmount;
+        workingData[bottomLeftIdx] += errorR * 0.25 + noise2;
+        workingData[bottomLeftIdx + 1] += errorG * 0.25 + noise2;
+        workingData[bottomLeftIdx + 2] += errorB * 0.25 + noise2;
       }
       
       // Bottom pixel (1/4 of error)  
       if (y < height - 1) {
         const bottomIdx = ((y + 1) * width + x) * 4;
-        workingData[bottomIdx] += errorR * 1 / 4 + (Math.random() - 0.5) * noiseAmount;
-        workingData[bottomIdx + 1] += errorG * 1 / 4 + (Math.random() - 0.5) * noiseAmount;
-        workingData[bottomIdx + 2] += errorB * 1 / 4 + (Math.random() - 0.5) * noiseAmount;
+        workingData[bottomIdx] += errorR * 0.25 + noise3;
+        workingData[bottomIdx + 1] += errorG * 0.25 + noise3;
+        workingData[bottomIdx + 2] += errorB * 0.25 + noise3;
       }
     }
   }
@@ -1203,7 +1175,15 @@ export const useBrushEngine = () => {
       targetCtx.globalCompositeOperation = currentCompositeOp;
     }
     
-    if (!antiAliasing) {
+    // Special handling for pixel brushes - they should NEVER be smoothed
+    if (shape === BrushShape.PIXEL_ROUND) {
+      targetCtx.imageSmoothingEnabled = false;
+      // Always round to pixel boundaries for pixel brushes
+      if (!isRisoActive) {
+        x = Math.round(x);
+        y = Math.round(y);
+      }
+    } else if (!antiAliasing) {
       targetCtx.imageSmoothingEnabled = false;
       // Round to pixel boundaries for pixel-perfect drawing
       if (!isRisoActive) {
@@ -2014,8 +1994,15 @@ export const useBrushEngine = () => {
       ? tools.brushSettings.selectedCustomBrush // Use raw format (matches BrushControls/MiniCanvas)
       : `standard_${tools.brushSettings.brushShape}`;
     
+    console.log('useBrushEngine: isCustomBrush:', isCustomBrush, 'currentBrushId:', currentBrushId);
+    console.log('useBrushEngine: currentBrushTip exists:', !!tools.brushSettings.currentBrushTip);
+    console.log('useBrushEngine: selectedCustomBrush:', tools.brushSettings.selectedCustomBrush);
+    
     // Check if there's a currentBrushTip for this specific brush
-    if (tools.brushSettings.currentBrushTip && tools.brushSettings.currentBrushTip.brushId === currentBrushId) {
+    // CRITICAL FIX: For custom brushes, always use currentBrushTip if available, regardless of ID
+    // This ensures custom brushes loaded from project work correctly
+    if (isCustomBrush && tools.brushSettings.currentBrushTip) {
+      console.log('Using currentBrushTip for custom brush');
       // Create a temporary custom brush from the current brush tip
       const imageData = tools.brushSettings.currentBrushTip.imageData;
       
@@ -2032,14 +2019,32 @@ export const useBrushEngine = () => {
         height: actualHeight,
         createdAt: Date.now()
       };
+    } else if (tools.brushSettings.currentBrushTip && tools.brushSettings.currentBrushTip.brushId === currentBrushId) {
+      // For non-custom brushes with currentBrushTip (shouldn't happen normally)
+      const imageData = tools.brushSettings.currentBrushTip.imageData;
+      const actualWidth = tools.brushSettings.currentBrushTip.width || imageData.width;
+      const actualHeight = tools.brushSettings.currentBrushTip.height || imageData.height;
+      
+      customBrush = {
+        id: 'current-brush-tip',
+        name: 'Current Brush Tip',
+        imageData: imageData,
+        thumbnail: '',
+        width: actualWidth,
+        height: actualHeight,
+        createdAt: Date.now()
+      };
     } else if (isCustomBrush && tools.brushSettings.selectedCustomBrush) {
+      console.log('Looking for custom brush in temporaryCustomBrush or project.customBrushes');
       
       // Check temporary custom brush first
       if (temporaryCustomBrush && temporaryCustomBrush.id === tools.brushSettings.selectedCustomBrush) {
+        console.log('Found in temporaryCustomBrush');
         customBrush = temporaryCustomBrush;
       } else if (project) {
         // Check project custom brushes
         customBrush = project.customBrushes.find(b => b.id === tools.brushSettings.selectedCustomBrush);
+        console.log('Found in project.customBrushes:', !!customBrush);
       }
     }
     
@@ -2661,15 +2666,24 @@ export const useBrushEngine = () => {
       // Use provided colors array or fall back to start/end colors
       if (colors && colors.length > 0) {
         // Use the provided sampled colors with smooth gradient
-        colors.forEach((color: string, index: number) => {
-          // Handle single color case to avoid division by zero
-          const position = colors.length === 1 ? 0 : index / (colors.length - 1);
-          gradient.addColorStop(position, color);
-        });
-        
-        // For single color, add the same color at position 1 to ensure solid fill
-        if (colors.length === 1) {
-          gradient.addColorStop(1, colors[0]);
+        // Filter out undefined colors first
+        const validColors = colors.filter((c: string | undefined) => c !== undefined && c !== null);
+        if (validColors.length === 0) {
+          // Fallback to current brush color if no valid colors
+          const fallbackColor = brushSettings.color || '#000000';
+          gradient.addColorStop(0, fallbackColor);
+          gradient.addColorStop(1, fallbackColor);
+        } else {
+          validColors.forEach((color: string, index: number) => {
+            // Handle single color case to avoid division by zero
+            const position = validColors.length === 1 ? 0 : index / (validColors.length - 1);
+            gradient.addColorStop(position, color);
+          });
+          
+          // For single color, add the same color at position 1 to ensure solid fill
+          if (validColors.length === 1) {
+            gradient.addColorStop(1, validColors[0]);
+          }
         }
       } else {
         // Fallback to original behavior if no colors array provided
@@ -2890,15 +2904,24 @@ export const useBrushEngine = () => {
     const gradient = ctx.createLinearGradient(startPoint.x, startPoint.y, endPoint.x, endPoint.y);
     
     // Add color stops for each sampled color
-    colors.forEach((color, index) => {
-      // Handle single color case to avoid division by zero
-      const position = colors.length === 1 ? 0 : index / (colors.length - 1);
-      gradient.addColorStop(position, color);
-    });
-    
-    // For single color, add the same color at position 1 to ensure solid fill
-    if (colors.length === 1) {
-      gradient.addColorStop(1, colors[0]);
+    // Filter out undefined colors and ensure we have valid colors
+    const validColors = colors.filter(c => c !== undefined && c !== null);
+    if (validColors.length === 0) {
+      // Fallback to current brush color if no valid colors provided
+      const fallbackColor = brushSettings.color || '#000000';
+      gradient.addColorStop(0, fallbackColor);
+      gradient.addColorStop(1, fallbackColor);
+    } else {
+      validColors.forEach((color, index) => {
+        // Handle single color case to avoid division by zero
+        const position = validColors.length === 1 ? 0 : index / (validColors.length - 1);
+        gradient.addColorStop(position, color);
+      });
+      
+      // For single color, add the same color at position 1 to ensure solid fill
+      if (validColors.length === 1) {
+        gradient.addColorStop(1, validColors[0]);
+      }
     }
     
     // Create polygon path with processed vertices for better precision
@@ -3059,12 +3082,12 @@ export const useBrushEngine = () => {
     ctx.restore();
   }, []);
 
-  return {
+  return useMemo(() => ({
     executeComponents,
     executeComponent,
     renderBrushStroke,
     resetPixelQueue,
     drawRectangleGradient,
     drawPolygonGradient
-  };
+  }), [executeComponents, executeComponent, renderBrushStroke, resetPixelQueue, drawRectangleGradient, drawPolygonGradient]);
 };
