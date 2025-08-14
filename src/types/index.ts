@@ -162,6 +162,7 @@ export interface BrushEditorState {
   hueShift: number; // -180 to 180
   lightness: number; // -100 to 100
   saturation: number; // 0 to 200 (100 is normal)
+  editingBrushData?: CustomBrush | null; // Store the brush being edited
 }
 
 export interface AutosaveState {

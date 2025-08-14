@@ -12,6 +12,8 @@ const MIN_SAVE_INTERVAL = 100; // Minimum 0.1 second between saves
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { brushCache } from '../utils/brushCache';
+import { scaledBrushCache } from '../utils/scaledBrushCache';
 import type {
   Project,
   Layer,
@@ -40,8 +42,6 @@ import {
   exportProjectAsPNG
 } from '../utils/projectIO';
 // import { memoryManager } from '../utils/memoryCleanup';
-import { brushCache } from '../utils/brushCache';
-import { scaledBrushCache } from '../utils/scaledBrushCache';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 import { adjustHueAndSaturation } from '../utils/imageProcessing';
 import { buildLayerColorIndexMap, hexToRgb, buildShiftedColors, applyCycleToLayers_Optimized } from '../utils/colorCycling';
@@ -225,6 +225,7 @@ interface AppState {
   setBrushEditorHue: (hue: number) => void;
   setBrushEditorLightness: (lightness: number) => void;
   setBrushEditorSaturation: (saturation: number) => void;
+  updateCurrentBrushTip: (brushTip: any) => void;
   
   // Brush Preset Management
   removeBrushPreset: (presetId: string) => void;
@@ -1591,13 +1592,24 @@ export const useAppStore = create<AppState>()(
         // NOTE: We don't draw the brush onto the main canvas here
         // The BrushEditorUI component will display it in its own modal canvas
 
-        // Switch to default drawing tool to allow drawing on the brush tip
-        // This prevents the confusing state of editing a brush with itself
-        const defaultBrushPreset = get().getBrushPresetById('pixel-brush') || get().getBrushPresets()[0];
-        if (defaultBrushPreset) {
-          get().setBrushPreset(defaultBrushPreset);
-        }
-
+        // Automatically select the brush being edited
+        const newBrushSettings = {
+          ...state.tools.brushSettings,
+          brushShape: BrushShape.CUSTOM,
+          selectedCustomBrush: brushId,
+          currentBrushTip: {
+            imageData: brushData.imageData,
+            brushId: brushId,
+            isColorizable: false,
+            width: brushData.width,
+            height: brushData.height
+          },
+          size: 100
+        };
+        
+        // Clear caches to ensure fresh brush data
+        brushCache.clear();
+        scaledBrushCache.clear();
         
         return {
           brushEditor: {
@@ -1607,8 +1619,15 @@ export const useAppStore = create<AppState>()(
             originalCanvasState,
             hueShift: 0,  // Reset adjustments for new edit
             lightness: 0,
-            saturation: 100
-          }
+            saturation: 100,
+            editingBrushData: brushData // Store the brush data for reference
+          },
+          tools: {
+            ...state.tools,
+            brushSettings: newBrushSettings
+          },
+          customBrushesSize: 100,
+          globalBrushSize: 100
         };
       }),
       saveBrushEdit: (canvas) => set((state) => {
@@ -1758,6 +1777,15 @@ export const useAppStore = create<AppState>()(
       })),
       setBrushEditorSaturation: (saturation: number) => set((state) => ({
         brushEditor: { ...state.brushEditor, saturation: saturation }
+      })),
+      updateCurrentBrushTip: (brushTip) => set((state) => ({
+        tools: {
+          ...state.tools,
+          brushSettings: {
+            ...state.tools.brushSettings,
+            currentBrushTip: brushTip
+          }
+        }
       })),
       cancelBrushEdit: (canvas) => set((state) => {
         if (state.brushEditor.status !== 'EDITING' || !state.brushEditor.originalCanvasState || !state.brushEditor.editingBounds) {

@@ -158,30 +158,8 @@ const BrushLibrary = () => {
   };
   
   const handlePresetClick = (preset: BrushPreset) => {
-    // Special handling when in edit mode
-    if (brushEditor.status === 'EDITING' && currentOffscreenCanvas) {
-      // If clicking another custom brush while editing, transition to editing that brush
-      if (preset.isCustomBrush) {
-        const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
-        
-        // Cancel current edits and start editing the new brush
-        if (brushEditor.editingBrushId !== customBrushId) {
-          cancelBrushEdit(currentOffscreenCanvas);
-          // Start editing the new brush
-          startBrushEdit(customBrushId, currentOffscreenCanvas);
-          // Note: Don't call setLayersNeedRecomposition here - let the brush drawing useEffect handle redraw
-        }
-        // If clicking the same brush that's being edited, do nothing
-        return;
-      }
-      // For regular presets while editing, just switch the drawing tool without exiting edit mode
-      // The edit session continues, allowing users to draw with different brushes on the custom brush
-      setBrushPreset(preset, true); // preserveEditMode = true
-      return;
-    }
-    
-    // Use setBrushPreset for all brushes to ensure consistent loading of saved settings
-    setBrushPreset(preset);
+    // Always allow normal brush selection - editing mode doesn't prevent switching brushes
+    setBrushPreset(preset, true); // preserveEditMode = true to keep editor open if active
   };
 
   const isPresetActive = (preset: BrushPreset): boolean => {

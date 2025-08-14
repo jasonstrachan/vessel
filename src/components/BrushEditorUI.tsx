@@ -1,6 +1,9 @@
 import React, { useCallback, useRef, useEffect, useState } from 'react';
 import { useAppStore } from '../stores/useAppStore';
+import { BrushShape } from '../types';
 import Button from './ui/Button';
+import { brushCache } from '../utils/brushCache';
+import { scaledBrushCache } from '../utils/scaledBrushCache';
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 interface BrushEditorUIProps {}
@@ -17,9 +20,8 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   const saveBrushEdit = useAppStore((state) => state.saveBrushEdit);
   const cancelBrushEdit = useAppStore((state) => state.cancelBrushEdit);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [brushPixels, setBrushPixels] = useState<ImageData | null>(null);
-  const [originalBrushPixels, setOriginalBrushPixels] = useState<ImageData | null>(null);
-  const [basePixelsForShift, setBasePixelsForShift] = useState<ImageData | null>(null); // Pixels to apply shift to
+  const [lastSavedBrush, setLastSavedBrush] = useState<ImageData | null>(null); // The brush state when editing started
+  const [basePixels, setBasePixels] = useState<ImageData | null>(null); // Current base pixels (original + drawn) before adjustments
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPoint, setLastPoint] = useState<{x: number, y: number} | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -32,7 +34,10 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   const [spacePressed, setSpacePressed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isResizing, setIsResizing] = useState(false);
-  const [modalSize, setModalSize] = useState({ width: 400, height: 500 });
+  const [modalSize, setModalSize] = useState({ width: 600, height: 500 });
+  const testCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [isTestDrawing, setIsTestDrawing] = useState(false);
+  const [lastTestPoint, setLastTestPoint] = useState<{x: number, y: number} | null>(null);
 
   // Helper functions for flood fill
   const getPixelColor = (imageData: ImageData, x: number, y: number) => {
@@ -107,22 +112,16 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   }, []);
 
   const handleHueChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    // When slider changes, current drawing becomes the new base
-    setBasePixelsForShift(originalBrushPixels);
     setBrushEditorHue(Number(e.target.value));
-  }, [setBrushEditorHue, originalBrushPixels]);
+  }, [setBrushEditorHue]);
 
   const handleLightnessChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    // When slider changes, current drawing becomes the new base
-    setBasePixelsForShift(originalBrushPixels);
     setBrushEditorLightness(Number(e.target.value));
-  }, [setBrushEditorLightness, originalBrushPixels]);
+  }, [setBrushEditorLightness]);
 
   const handleSaturationChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    // When slider changes, current drawing becomes the new base
-    setBasePixelsForShift(originalBrushPixels);
     setBrushEditorSaturation(Number(e.target.value));
-  }, [setBrushEditorSaturation, originalBrushPixels]);
+  }, [setBrushEditorSaturation]);
 
   const handleClose = useCallback(() => {
     // Save changes and close the modal - use the modal canvas, not main canvas
@@ -132,11 +131,19 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   }, [saveBrushEdit]);
 
   const handleCancel = useCallback(() => {
-    // Cancel without saving - use the brush editor modal canvas
+    // Restore last saved state before canceling
+    if (canvasRef.current && lastSavedBrush) {
+      const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        ctx.putImageData(lastSavedBrush, 0, 0);
+      }
+    }
+    // Cancel without saving
     if (canvasRef.current) {
       cancelBrushEdit(canvasRef.current);
     }
-  }, [cancelBrushEdit]);
+  }, [cancelBrushEdit, lastSavedBrush]);
+
 
   // Drawing handlers for the modal canvas
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -162,21 +169,21 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     
     // Handle flood fill
     if (currentTool === 'fill') {
-      // Create a copy of original pixels to modify
-      const imageData = originalBrushPixels ? 
-        new ImageData(
-          new Uint8ClampedArray(originalBrushPixels.data),
-          originalBrushPixels.width,
-          originalBrushPixels.height
-        ) : ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
+      // Get current canvas state (includes all drawings)
+      const currentImageData = ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
       
-      const targetColor = getPixelColor(imageData, Math.floor(x), Math.floor(y));
+      const targetColor = getPixelColor(currentImageData, Math.floor(x), Math.floor(y));
       const fillColor = hexToRgba(brushColor);
       
       if (colorsMatch(targetColor, fillColor)) return;
       
-      floodFillCanvas(imageData, Math.floor(x), Math.floor(y), fillColor, targetColor);
-      setOriginalBrushPixels(imageData);
+      // Flood fill modifies the current state
+      floodFillCanvas(currentImageData, Math.floor(x), Math.floor(y), fillColor, targetColor);
+      
+      // Draw the filled result directly to canvas
+      ctx.putImageData(currentImageData, 0, 0);
+      
+      // Don't update basePixels here - that would trigger adjustments
       return;
     }
     
@@ -184,38 +191,16 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     setIsDrawing(true);
     setLastPoint({ x, y });
     
-    // Draw on a temporary canvas first to get the raw drawing
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = canvasRef.current.width;
-    tempCanvas.height = canvasRef.current.height;
-    const tempCtx = tempCanvas.getContext('2d');
-    if (!tempCtx) return;
-    
-    // First, create a canvas with the original pixels to use as an image source
-    if (originalBrushPixels) {
-      const sourceCanvas = document.createElement('canvas');
-      sourceCanvas.width = originalBrushPixels.width;
-      sourceCanvas.height = originalBrushPixels.height;
-      const sourceCtx = sourceCanvas.getContext('2d');
-      if (sourceCtx) {
-        sourceCtx.putImageData(originalBrushPixels, 0, 0);
-        // Draw the original image using drawImage (preserves compositing)
-        tempCtx.drawImage(sourceCanvas, 0, 0);
-      }
-    }
-    
-    // Draw new stroke on top
-    tempCtx.globalCompositeOperation = 'source-over';
-    tempCtx.fillStyle = brushColor;
+    // Draw directly on the canvas (don't replace existing content)
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = brushColor;
     const halfSize = brushSize / 2;
-    tempCtx.beginPath();
-    tempCtx.arc(x, y, halfSize, 0, Math.PI * 2);
-    tempCtx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, halfSize, 0, Math.PI * 2);
+    ctx.fill();
     
-    // Update original brush pixels
-    const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-    setOriginalBrushPixels(imageData);
-  }, [brushColor, brushSize, currentTool, spacePressed, originalBrushPixels]);
+    // Don't update basePixels here - that would trigger adjustments
+  }, [brushColor, brushSize, currentTool, spacePressed]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current) return;
@@ -239,50 +224,45 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     const x = (e.clientX - canvasRect.left) * (canvasRef.current.width / canvasRect.width);
     const y = (e.clientY - canvasRect.top) * (canvasRef.current.height / canvasRect.height);
     
-    // Draw on a temporary canvas to maintain original pixels
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = canvasRef.current.width;
-    tempCanvas.height = canvasRef.current.height;
-    const tempCtx = tempCanvas.getContext('2d');
-    if (!tempCtx) return;
+    const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
     
-    // First, create a canvas with the original pixels to use as an image source
-    if (originalBrushPixels) {
-      const sourceCanvas = document.createElement('canvas');
-      sourceCanvas.width = originalBrushPixels.width;
-      sourceCanvas.height = originalBrushPixels.height;
-      const sourceCtx = sourceCanvas.getContext('2d');
-      if (sourceCtx) {
-        sourceCtx.putImageData(originalBrushPixels, 0, 0);
-        // Draw the original image using drawImage (preserves compositing)
-        tempCtx.drawImage(sourceCanvas, 0, 0);
-      }
-    }
-    
-    // Draw new stroke on top
-    tempCtx.globalCompositeOperation = 'source-over';
-    tempCtx.strokeStyle = brushColor;
-    tempCtx.lineWidth = brushSize;
-    tempCtx.lineCap = 'round';
-    tempCtx.lineJoin = 'round';
-    tempCtx.beginPath();
-    tempCtx.moveTo(lastPoint.x, lastPoint.y);
-    tempCtx.lineTo(x, y);
-    tempCtx.stroke();
+    // Draw directly on the canvas (don't replace existing content)
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = brushColor;
+    ctx.lineWidth = brushSize;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(lastPoint.x, lastPoint.y);
+    ctx.lineTo(x, y);
+    ctx.stroke();
     
     setLastPoint({ x, y });
     
-    // Update original brush pixels
-    const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-    setOriginalBrushPixels(imageData);
-  }, [isDrawing, isPanning, lastPoint, lastPanPoint, brushColor, brushSize, originalBrushPixels]);
+    // Don't update basePixels here - that would trigger adjustments
+  }, [isDrawing, isPanning, lastPoint, lastPanPoint, brushColor, brushSize]);
 
   const handlePointerUp = useCallback(() => {
+    // If we were drawing, capture the new state as base pixels and reset adjustments
+    if (isDrawing && canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        const currentCanvas = ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
+        setBasePixels(currentCanvas);
+        
+        // Reset adjustments since we've drawn new pixels
+        setBrushEditorHue(0);
+        setBrushEditorLightness(0);
+        setBrushEditorSaturation(100);
+      }
+    }
+    
     setIsDrawing(false);
     setLastPoint(null);
     setIsPanning(false);
     setLastPanPoint(null);
-  }, []);
+  }, [isDrawing, setBrushEditorHue, setBrushEditorLightness, setBrushEditorSaturation]);
 
   // Drag handlers
   const handleDragStart = useCallback((e: React.MouseEvent) => {
@@ -457,55 +437,49 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
         // Use the stored brush data directly (it's already ImageData)
         const imageData = existingBrush.imageData;
         
-        // Set both original and display pixels
-        setOriginalBrushPixels(imageData);
-        setBasePixelsForShift(imageData);
-        setBrushPixels(imageData);
+        // Store both last saved and base pixels
+        setLastSavedBrush(imageData);
+        setBasePixels(imageData);
         
-        // Draw the brush on top of checkerboard
+        // Draw the brush on canvas
         ctx.putImageData(imageData, 0, 0);
       } else {
         // Start with empty canvas for new brush
         const emptyData = ctx.getImageData(0, 0, bounds.width, bounds.height);
-        setOriginalBrushPixels(emptyData);
-        setBasePixelsForShift(emptyData);
-        setBrushPixels(emptyData);
+        setLastSavedBrush(emptyData);
+        setBasePixels(emptyData);
       }
     } else {
       // Start with empty canvas for new brush
       const emptyData = ctx.getImageData(0, 0, bounds.width, bounds.height);
-      setOriginalBrushPixels(emptyData);
-      setBasePixelsForShift(emptyData);
-      setBrushPixels(emptyData);
+      setLastSavedBrush(emptyData);
+      setBasePixels(emptyData);
     }
   }, [brushEditor.status, brushEditor.editingBounds, brushEditor.editingBrushId, customBrushes, drawCheckerboard]);
 
-  // Apply adjustments: shift basePixels, keep new drawings in original color
+  // Apply adjustments to base pixels
   useEffect(() => {
-    if (!originalBrushPixels || !basePixelsForShift) {
-      setBrushPixels(originalBrushPixels);
+    if (!basePixels || !canvasRef.current || isDrawing) {
       return;
     }
 
-    // Start with the current drawing state (includes new pixels)
-    const imageData = new ImageData(
-      new Uint8ClampedArray(originalBrushPixels.data),
-      originalBrushPixels.width,
-      originalBrushPixels.height
+    const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    // Apply color adjustments to ALL base pixels
+    const adjustedPixels = new ImageData(
+      new Uint8ClampedArray(basePixels.data),
+      basePixels.width,
+      basePixels.height
     );
-    const data = imageData.data;
-    const baseData = basePixelsForShift.data;
+    const data = adjustedPixels.data;
 
     for (let i = 0; i < data.length; i += 4) {
       const a = data[i + 3];
-      const baseA = baseData[i + 3];
-
-      // Only apply adjustments to pixels that existed in basePixelsForShift
-      if (a > 0 && baseA > 0) {
-        // Get RGB values from base (pre-shift state)
-        const r = baseData[i];
-        const g = baseData[i + 1];
-        const b = baseData[i + 2];
+      if (a > 0) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
         
         // Convert to HSL
         const [h, s, l] = rgbToHsl(r, g, b);
@@ -518,29 +492,37 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
         // Convert back to RGB
         const [newR, newG, newB] = hslToRgb(newH, newS, newL);
 
-        // Set new values (overwriting what's in originalBrushPixels for these pixels)
         data[i] = newR;
         data[i + 1] = newG;
         data[i + 2] = newB;
       }
-      // New pixels (not in basePixelsForShift) keep their original color from originalBrushPixels
     }
 
-    // Set the adjusted pixels for display
-    setBrushPixels(imageData);
-  }, [originalBrushPixels, basePixelsForShift, brushEditor.hueShift, brushEditor.lightness, brushEditor.saturation]);
-
-  // Draw the adjusted pixels to canvas whenever they change
-  useEffect(() => {
-    if (!brushPixels || !canvasRef.current) return;
-    
-    const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return;
-    
-    // Clear and draw the adjusted image
+    // Draw the adjusted pixels
     ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-    ctx.putImageData(brushPixels, 0, 0);
-  }, [brushPixels]);
+    ctx.putImageData(adjustedPixels, 0, 0);
+    
+    // Update the brush if it's currently selected
+    const currentBrushSettings = useAppStore.getState().tools.brushSettings;
+    if (brushEditor.editingBrushId && 
+        currentBrushSettings.brushShape === BrushShape.CUSTOM &&
+        currentBrushSettings.selectedCustomBrush === brushEditor.editingBrushId) {
+      // Clear caches and update the current brush tip
+      brushCache.clear();
+      scaledBrushCache.clear();
+      
+      useAppStore.getState().updateCurrentBrushTip({
+        imageData: adjustedPixels,
+        brushId: brushEditor.editingBrushId,
+        isColorizable: false,
+        width: adjustedPixels.width,
+        height: adjustedPixels.height
+      });
+    }
+  }, [basePixels, brushEditor.hueShift, brushEditor.lightness, brushEditor.saturation, brushEditor.editingBrushId, isDrawing]);
+
+  // This effect is now handled by the color adjustment effect above
+  // Removed to prevent conflicts
 
   if (brushEditor.status !== 'EDITING' || !brushEditor.editingBounds) {
     return null;
@@ -807,7 +789,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
           </div>
         </div>
 
-        {/* Apply Button */}
+        {/* Save Button */}
         <div style={buttonContainerStyle}>
           <Button
             onClick={handleClose}
