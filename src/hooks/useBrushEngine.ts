@@ -484,6 +484,7 @@ const applyDithering = (
       let minDistance = Infinity;
       let totalDistance = 0;
       let closeMatches = 0;
+      let blackBonus = 0;
       
       sampledColors.forEach(sample => {
         const dist = Math.sqrt(
@@ -494,6 +495,13 @@ const applyDithering = (
         totalDistance += dist;
         minDistance = Math.min(minDistance, dist);
         if (dist < 30) closeMatches++; // Count very close matches
+        
+        // Give huge bonus to pure black if we have dark samples
+        if (paletteColor[0] === 0 && paletteColor[1] === 0 && paletteColor[2] === 0) {
+          if (sample[0] <= 40 && sample[1] <= 40 && sample[2] <= 40) {
+            blackBonus += 50000; // Massive bonus for black when sampling dark colors
+          }
+        }
       });
       
       const avgDistance = totalDistance / sampledColors.length;
@@ -501,7 +509,7 @@ const applyDithering = (
       return {
         color: paletteColor,
         index: index,
-        score: closeMatches * 10000 - avgDistance - minDistance * 10
+        score: blackBonus + closeMatches * 10000 - avgDistance - minDistance * 10
       };
     });
     
@@ -579,6 +587,7 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
       let minDistance = Infinity;
       let totalDistance = 0;
       let closeMatches = 0;
+      let blackBonus = 0;
       
       sampledColors.forEach(sample => {
         const distSquared = 
@@ -588,6 +597,13 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
         totalDistance += distSquared;
         minDistance = Math.min(minDistance, distSquared);
         if (distSquared < 900) closeMatches++; // Count very close matches (30^2 = 900)
+        
+        // Give huge bonus to pure black if we have dark samples
+        if (paletteColor[0] === 0 && paletteColor[1] === 0 && paletteColor[2] === 0) {
+          if (sample[0] <= 40 && sample[1] <= 40 && sample[2] <= 40) {
+            blackBonus += 50000; // Massive bonus for black when sampling dark colors
+          }
+        }
       });
       
       const avgDistance = totalDistance / sampledColors.length;
@@ -596,7 +612,7 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
       return {
         color: paletteColor,
         index: index,
-        score: closeMatches * 10000 - avgDistance - minDistance * 10
+        score: blackBonus + closeMatches * 10000 - avgDistance - minDistance * 10
       };
     });
     
@@ -691,6 +707,120 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
   }
   
   return new ImageData(data, width, height);
+};
+
+/**
+ * Snaps near-black and near-white colors to pure black/white for cleaner dithering.
+ * This ensures that dark grays become pure black and light grays become pure white.
+ */
+const snapColorToExtremes = (r: number, g: number, b: number, threshold: number = 20): [number, number, number] => {
+  // If all channels are below threshold, snap to black
+  if (r <= threshold && g <= threshold && b <= threshold) {
+    return [0, 0, 0];
+  }
+  // If all channels are above 255-threshold, snap to white
+  if (r >= 255 - threshold && g >= 255 - threshold && b >= 255 - threshold) {
+    return [255, 255, 255];
+  }
+  // Otherwise return the original color
+  return [r, g, b];
+};
+
+/**
+ * Calculates the average color from an array of colors.
+ * Used for 1-color mode to create a flat solid fill.
+ */
+const getAverageColor = (colors: string[]): string => {
+  if (colors.length === 0) return 'rgb(128, 128, 128)';
+  if (colors.length === 1) return colors[0];
+  
+  let totalR = 0, totalG = 0, totalB = 0;
+  let validCount = 0;
+  
+  colors.forEach(color => {
+    const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+    if (match) {
+      totalR += parseInt(match[1]);
+      totalG += parseInt(match[2]);
+      totalB += parseInt(match[3]);
+      validCount++;
+    } else {
+      // Fallback for hex colors
+      const hexMatch = color.match(/#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
+      if (hexMatch) {
+        totalR += parseInt(hexMatch[1], 16);
+        totalG += parseInt(hexMatch[2], 16);
+        totalB += parseInt(hexMatch[3], 16);
+        validCount++;
+      }
+    }
+  });
+  
+  if (validCount === 0) return 'rgb(128, 128, 128)';
+  
+  const avgR = Math.round(totalR / validCount);
+  const avgG = Math.round(totalG / validCount);
+  const avgB = Math.round(totalB / validCount);
+  
+  return `rgb(${avgR}, ${avgG}, ${avgB})`;
+};
+
+/**
+ * Quantizes a set of colors to a limited palette.
+ * This creates distinct color bands for gradient dithering.
+ */
+const quantizeColorPalette = (colors: string[], targetColors: number): string[] => {
+  if (colors.length === 0 || targetColors <= 1) {
+    return colors;
+  }
+  
+  // For simple gradient dithering, just use the first and last sampled colors
+  // This creates a clean linear gradient that dithering can work with
+  if (targetColors === 2 && colors.length >= 2) {
+    return [colors[0], colors[colors.length - 1]];
+  }
+  
+  // Parse all colors to RGB
+  const rgbColors = colors.map(color => {
+    const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+    if (match) {
+      return {
+        r: parseInt(match[1]),
+        g: parseInt(match[2]),
+        b: parseInt(match[3])
+      };
+    }
+    // Fallback for hex colors
+    const hexMatch = color.match(/#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
+    if (hexMatch) {
+      return {
+        r: parseInt(hexMatch[1], 16),
+        g: parseInt(hexMatch[2], 16),
+        b: parseInt(hexMatch[3], 16)
+      };
+    }
+    return { r: 128, g: 128, b: 128 }; // Default gray
+  });
+  
+  // Find min and max values for each channel
+  const minR = Math.min(...rgbColors.map(c => c.r));
+  const maxR = Math.max(...rgbColors.map(c => c.r));
+  const minG = Math.min(...rgbColors.map(c => c.g));
+  const maxG = Math.max(...rgbColors.map(c => c.g));
+  const minB = Math.min(...rgbColors.map(c => c.b));
+  const maxB = Math.max(...rgbColors.map(c => c.b));
+  
+  // Create evenly spaced colors between min and max
+  const quantizedPalette: string[] = [];
+  for (let i = 0; i < targetColors; i++) {
+    const t = targetColors === 1 ? 0.5 : i / (targetColors - 1);
+    const r = Math.round(minR + (maxR - minR) * t);
+    const g = Math.round(minG + (maxG - minG) * t);
+    const b = Math.round(minB + (maxB - minB) * t);
+    quantizedPalette.push(`rgb(${r}, ${g}, ${b})`);
+  }
+  
+  return quantizedPalette;
 };
 
 /**
@@ -2570,88 +2700,6 @@ export const useBrushEngine = () => {
       corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
       ctx.closePath();
       ctx.fill();
-    } else if (shouldUseDither) {
-      // Use dithering when both sampled colors are the same and we're in 2-color mode
-      
-      // Parse the sampled color
-      const colorMatch = colors[0].match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-      let targetR = 128, targetG = 128, targetB = 128;
-      if (colorMatch) {
-        targetR = parseInt(colorMatch[1]);
-        targetG = parseInt(colorMatch[2]);
-        targetB = parseInt(colorMatch[3]);
-      }
-      
-      // Use shared function to find dither colors
-      const { baseColor, mixColor, ratio } = findDitherColors(targetR, targetG, targetB);
-      
-      // Draw dithered rectangle
-      const minX = Math.floor(Math.min(...corners.map(c => c.x)));
-      const maxX = Math.ceil(Math.max(...corners.map(c => c.x)));
-      const minY = Math.floor(Math.min(...corners.map(c => c.y)));
-      const maxY = Math.ceil(Math.max(...corners.map(c => c.y)));
-      
-      const rectWidth = maxX - minX;
-      const rectHeight = maxY - minY;
-      
-      // Create temporary canvas for dithering
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = rectWidth;
-      tempCanvas.height = rectHeight;
-      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-      
-      if (tempCtx) {
-        // Fill with the base color
-        tempCtx.fillStyle = `rgba(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]}, 1)`;
-        tempCtx.fillRect(0, 0, rectWidth, rectHeight);
-        
-        // Apply Bayer dithering pattern
-        const imageData = tempCtx.getImageData(0, 0, rectWidth, rectHeight);
-        const data = imageData.data;
-        const matrixSize = BAYER_4x4_MATRIX.length;
-        
-        for (let y = 0; y < rectHeight; y++) {
-          for (let x = 0; x < rectWidth; x++) {
-            // Check if pixel is inside the actual rectangle shape
-            const worldX = minX + x;
-            const worldY = minY + y;
-            
-            // Simple point-in-polygon test for rectangle
-            // Using cross product method for a convex quadrilateral
-            const isInside = pointInPolygon(worldX, worldY, corners);
-            
-            if (isInside) {
-              const bayerValue = BAYER_4x4_MATRIX[y % matrixSize][x % matrixSize];
-              const idx = (y * rectWidth + x) * 4;
-              
-              if (bayerValue < ratio) {
-                // Use the mix color (second closest)
-                data[idx] = mixColor[0];
-                data[idx + 1] = mixColor[1];
-                data[idx + 2] = mixColor[2];
-                data[idx + 3] = 255; // Ensure alpha is set
-              } else {
-                // Explicitly set base color (in case it wasn't set properly)
-                data[idx] = baseColor[0];
-                data[idx + 1] = baseColor[1];
-                data[idx + 2] = baseColor[2];
-                data[idx + 3] = 255; // Ensure alpha is set
-              }
-            }
-          }
-        }
-        
-        tempCtx.putImageData(imageData, 0, 0);
-        
-        // Draw the dithered pattern with clipping
-        ctx.beginPath();
-        ctx.moveTo(corners[0].x, corners[0].y);
-        corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
-        ctx.closePath();
-        ctx.clip();
-        
-        ctx.drawImage(tempCanvas, minX, minY);
-      }
     } else {
       // Original gradient code
       const gradient = ctx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
@@ -2785,6 +2833,7 @@ export const useBrushEngine = () => {
     // Apply Sierra Lite dither effect if enabled and 2+ colors
     // Use numColors already declared above
     // Only apply dithering if explicitly enabled in settings
+    // NEVER apply dithering for 1-color mode - it should be flat
     if (brushSettings.ditherEnabled && numColors >= 2 && !isPreview) {
       // Get the bounds of the rectangle for dithering
       const minX = Math.floor(Math.min(...corners.map(c => c.x)));
@@ -2885,18 +2934,44 @@ export const useBrushEngine = () => {
     }
     
     ctx.save();
+    // Disable anti-aliasing for pixel-perfect rendering
+    ctx.imageSmoothingEnabled = false;
     // CRITICAL FIX: Eraser must always use full opacity to completely remove pixels
     ctx.globalAlpha = currentTool === 'eraser' ? 1 : brushSettings.opacity;
     ctx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : (brushSettings.blendMode || 'source-over');
     
-    // Create gradient along the path from first to last vertex (cursor path direction)
-    const startPoint = vertices[0];
-    const endPoint = vertices[vertices.length - 1];
+    // Calculate polygon bounds for better gradient coverage
+    const minX = Math.min(...vertices.map(v => v.x));
+    const minY = Math.min(...vertices.map(v => v.y));
+    const maxX = Math.max(...vertices.map(v => v.x));
+    const maxY = Math.max(...vertices.map(v => v.y));
     
-    // Create linear gradient from start to end
-    const gradient = ctx.createLinearGradient(startPoint.x, startPoint.y, endPoint.x, endPoint.y);
+    // Calculate polygon dimensions
+    const width = maxX - minX;
+    const height = maxY - minY;
     
-    // Add color stops for each sampled color
+    // Determine gradient direction based on the dominant dimension
+    // This ensures the gradient spans the full polygon properly
+    let gradient;
+    let gradientStartPoint, gradientEndPoint;
+    if (width > height * 1.5) {
+      // Predominantly horizontal polygon - use horizontal gradient
+      gradientStartPoint = { x: minX, y: (minY + maxY) / 2 };
+      gradientEndPoint = { x: maxX, y: (minY + maxY) / 2 };
+      gradient = ctx.createLinearGradient(gradientStartPoint.x, gradientStartPoint.y, gradientEndPoint.x, gradientEndPoint.y);
+    } else if (height > width * 1.5) {
+      // Predominantly vertical polygon - use vertical gradient
+      gradientStartPoint = { x: (minX + maxX) / 2, y: minY };
+      gradientEndPoint = { x: (minX + maxX) / 2, y: maxY };
+      gradient = ctx.createLinearGradient(gradientStartPoint.x, gradientStartPoint.y, gradientEndPoint.x, gradientEndPoint.y);
+    } else {
+      // Roughly square or diagonal - use diagonal gradient from top-left to bottom-right
+      gradientStartPoint = { x: minX, y: minY };
+      gradientEndPoint = { x: maxX, y: maxY };
+      gradient = ctx.createLinearGradient(gradientStartPoint.x, gradientStartPoint.y, gradientEndPoint.x, gradientEndPoint.y);
+    }
+    
+    // Add color stops for a smooth gradient
     // Filter out undefined colors and ensure we have valid colors
     const validColors = colors.filter(c => c !== undefined && c !== null);
     if (validColors.length === 0) {
@@ -2905,15 +2980,55 @@ export const useBrushEngine = () => {
       gradient.addColorStop(0, fallbackColor);
       gradient.addColorStop(1, fallbackColor);
     } else {
-      validColors.forEach((color, index) => {
-        // Handle single color case to avoid division by zero
-        const position = validColors.length === 1 ? 0 : index / (validColors.length - 1);
-        gradient.addColorStop(position, color);
-      });
-      
-      // For single color, add the same color at position 1 to ensure solid fill
-      if (validColors.length === 1) {
-        gradient.addColorStop(1, validColors[0]);
+      // For 1-color mode, always use flat solid fill (average of all sampled colors)
+      if (numColors === 1) {
+        // Calculate average color from all sampled colors
+        const avgColor = getAverageColor(validColors);
+        gradient.addColorStop(0, avgColor);
+        gradient.addColorStop(1, avgColor);
+      } else if (brushSettings.ditherEnabled && numColors >= 2) {
+        // When dithering is enabled, we'll skip the gradient and render directly
+        // Just create a placeholder gradient for now - we'll handle dithering manually below
+        if (validColors.length === 0) {
+          gradient.addColorStop(0, 'rgb(0, 0, 0)');
+          gradient.addColorStop(1, 'rgb(255, 255, 255)');
+        } else if (validColors.length === 1) {
+          // Single color - use it for both stops (solid fill)
+          gradient.addColorStop(0, validColors[0]);
+          gradient.addColorStop(1, validColors[0]);
+        } else {
+          // Use first and last colors for a clean gradient
+          gradient.addColorStop(0, validColors[0]);
+          gradient.addColorStop(1, validColors[validColors.length - 1]);
+        }
+      } else {
+        // Original gradient logic for non-dithered or 2-color mode
+        // Distribute colors evenly across the gradient
+        if (validColors.length >= 3) {
+          // Sample key colors to prevent gradient crushing
+          // Use first, some middle samples, and last for better distribution
+          const keyIndices = [];
+          const numStops = Math.min(8, validColors.length); // Limit to 8 stops for performance
+          
+          for (let i = 0; i < numStops; i++) {
+            const index = Math.floor((i / (numStops - 1)) * (validColors.length - 1));
+            keyIndices.push(index);
+          }
+          
+          // Add color stops at evenly distributed positions
+          keyIndices.forEach((colorIndex, i) => {
+            const position = i / (numStops - 1);
+            gradient.addColorStop(position, validColors[colorIndex]);
+          });
+        } else if (validColors.length === 2) {
+          // Two colors - simple gradient
+          gradient.addColorStop(0, validColors[0]);
+          gradient.addColorStop(1, validColors[1]);
+        } else {
+          // Single color - solid fill
+          gradient.addColorStop(0, validColors[0]);
+          gradient.addColorStop(1, validColors[0]);
+        }
       }
     }
     
@@ -2925,9 +3040,141 @@ export const useBrushEngine = () => {
     }
     ctx.closePath();
     
-    // Fill the polygon once with the complete gradient
-    ctx.fillStyle = gradient;
-    ctx.fill();
+    // Handle dithered gradients specially - create the pattern directly
+    if (brushSettings.ditherEnabled && numColors >= 2 && !isPreview) {
+      // Get the bounds of the polygon for direct gradient dithering
+      const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
+      const minY = Math.floor(Math.min(...vertices.map(v => v.y)));
+      const maxX = Math.ceil(Math.max(...vertices.map(v => v.x)));
+      const maxY = Math.ceil(Math.max(...vertices.map(v => v.y)));
+      const boundWidth = maxX - minX;
+      const boundHeight = maxY - minY;
+      
+      if (boundWidth > 0 && boundHeight > 0) {
+        // Create a canvas to generate the dithered gradient directly
+        const tempCanvas = canvasPool.acquire(boundWidth, boundHeight);
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+        
+        if (tempCtx) {
+          // Determine gradient colors - use actual sampled colors without shifting
+          let startColor, endColor;
+          if (validColors.length === 0) {
+            // No colors sampled - use black to white as fallback
+            startColor = [0, 0, 0];
+            endColor = [255, 255, 255];
+          } else if (validColors.length === 1) {
+            // Single color - use it for both start and end (solid fill)
+            const match = validColors[0].match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+            const rawColor = match ? [parseInt(match[1]), parseInt(match[2]), parseInt(match[3])] : [128, 128, 128];
+            // Snap near-black/white colors for cleaner dithering
+            const color = snapColorToExtremes(rawColor[0], rawColor[1], rawColor[2]);
+            startColor = color;
+            endColor = color;
+          } else {
+            // Multiple colors - use first and last as sampled
+            const startMatch = validColors[0].match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+            const endMatch = validColors[validColors.length - 1].match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+            const rawStartColor = startMatch ? [parseInt(startMatch[1]), parseInt(startMatch[2]), parseInt(startMatch[3])] : [0, 0, 0];
+            const rawEndColor = endMatch ? [parseInt(endMatch[1]), parseInt(endMatch[2]), parseInt(endMatch[3])] : [255, 255, 255];
+            // Snap near-black/white colors for cleaner dithering
+            startColor = snapColorToExtremes(rawStartColor[0], rawStartColor[1], rawStartColor[2]);
+            endColor = snapColorToExtremes(rawEndColor[0], rawEndColor[1], rawEndColor[2]);
+          }
+          
+          // Create an image data for the gradient area
+          const imageData = tempCtx.createImageData(boundWidth, boundHeight);
+          const data = imageData.data;
+          
+          // Generate gradient manually pixel by pixel based on the gradient direction
+          const gradientVector = {
+            x: gradientEndPoint.x - gradientStartPoint.x,
+            y: gradientEndPoint.y - gradientStartPoint.y
+          };
+          const gradientLength = Math.sqrt(gradientVector.x * gradientVector.x + gradientVector.y * gradientVector.y);
+          
+          if (gradientLength > 0) {
+            const normalizedVector = {
+              x: gradientVector.x / gradientLength,
+              y: gradientVector.y / gradientLength
+            };
+            
+            for (let y = 0; y < boundHeight; y++) {
+              for (let x = 0; x < boundWidth; x++) {
+                const worldX = x + minX;
+                const worldY = y + minY;
+                
+                // Calculate position along gradient line from start point
+                const pointVector = {
+                  x: worldX - gradientStartPoint.x,
+                  y: worldY - gradientStartPoint.y
+                };
+                
+                // Project point onto gradient line to get position (0 to 1)
+                const projectionLength = pointVector.x * normalizedVector.x + pointVector.y * normalizedVector.y;
+                const t = Math.max(0, Math.min(1, projectionLength / gradientLength));
+                
+                // Interpolate color
+                const r = Math.round(startColor[0] + (endColor[0] - startColor[0]) * t);
+                const g = Math.round(startColor[1] + (endColor[1] - startColor[1]) * t);
+                const b = Math.round(startColor[2] + (endColor[2] - startColor[2]) * t);
+                
+                const index = (y * boundWidth + x) * 4;
+                data[index] = r;
+                data[index + 1] = g;
+                data[index + 2] = b;
+                data[index + 3] = 255; // Full opacity
+              }
+            }
+          }
+          
+          // Now apply dithering to this generated gradient
+          const fillResolution = brushSettings.fillResolution || 1;
+          const algorithm = brushSettings.ditherAlgorithm || 'sierra-lite';
+          const patternStyle = brushSettings.patternStyle || 'dots';
+          
+          const ditheredData = fillResolution > 1 
+            ? applyDitheringWithFillResolution(imageData, numColors, fillResolution, algorithm, patternStyle)
+            : applyDithering(imageData, numColors, algorithm, patternStyle);
+          
+          // Apply the polygon clipping mask
+          const maskCanvas = canvasPool.acquire(boundWidth, boundHeight);
+          const maskCtx = maskCanvas.getContext('2d', { colorSpace: 'srgb' });
+          
+          if (maskCtx) {
+            // Draw the polygon shape as a mask
+            maskCtx.fillStyle = 'white';
+            maskCtx.beginPath();
+            maskCtx.moveTo(vertices[0].x - minX, vertices[0].y - minY);
+            vertices.slice(1).forEach(v => maskCtx.lineTo(v.x - minX, v.y - minY));
+            maskCtx.closePath();
+            maskCtx.fill();
+            
+            const maskData = maskCtx.getImageData(0, 0, boundWidth, boundHeight);
+            
+            // Apply mask to dithered data
+            const finalData = new Uint8ClampedArray(ditheredData.data);
+            for (let i = 0; i < maskData.data.length; i += 4) {
+              if (maskData.data[i + 3] === 0) { // If mask pixel is transparent
+                finalData[i + 3] = 0; // Make final pixel transparent
+              }
+            }
+            
+            // Render the final result
+            const finalImageData = new ImageData(finalData, boundWidth, boundHeight);
+            tempCtx.putImageData(finalImageData, 0, 0);
+            ctx.drawImage(tempCanvas, minX, minY);
+            
+            canvasPool.release(maskCanvas);
+          }
+          
+          canvasPool.release(tempCanvas);
+        }
+      }
+    } else {
+      // Fill the polygon with the complete gradient (non-dithered case)
+      ctx.fillStyle = gradient;
+      ctx.fill();
+    }
     
     // Apply risograph effect if enabled
     const risographIntensity = brushSettings.risographIntensity || 0;
@@ -2993,84 +3240,9 @@ export const useBrushEngine = () => {
       }
     }
 
-    // Apply Sierra Lite dither effect if enabled and 2+ colors
-    // Use numColors already declared above
-    // Only apply dithering if explicitly enabled in settings
-    if (brushSettings.ditherEnabled && numColors >= 2 && !isPreview) {
-      // Get the bounds of the polygon for dithering
-      const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
-      const minY = Math.floor(Math.min(...vertices.map(v => v.y)));
-      const maxX = Math.ceil(Math.max(...vertices.map(v => v.x)));
-      const maxY = Math.ceil(Math.max(...vertices.map(v => v.y)));
-      const boundWidth = maxX - minX;
-      const boundHeight = maxY - minY;
-      
-      if (boundWidth > 0 && boundHeight > 0) {
-        // Get the current image data from the bounding area
-        const imageData = ctx.getImageData(minX, minY, boundWidth, boundHeight);
-        
-        // Create a temporary canvas for clipping
-        const tempCanvas = canvasPool.acquire(boundWidth, boundHeight);
-        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
-        
-        if (tempCtx) {
-          // Put the original image data on temp canvas
-          tempCtx.putImageData(imageData, 0, 0);
-          
-          // Create clipping mask for the polygon shape
-          const maskCanvas = canvasPool.acquire(boundWidth, boundHeight);
-          const maskCtx = maskCanvas.getContext('2d', { colorSpace: 'srgb' });
-          
-          if (maskCtx) {
-            // Draw the polygon shape as a mask (translated to local coordinates)
-            maskCtx.fillStyle = 'white';
-            maskCtx.beginPath();
-            maskCtx.moveTo(vertices[0].x - minX, vertices[0].y - minY);
-            vertices.slice(1).forEach(v => maskCtx.lineTo(v.x - minX, v.y - minY));
-            maskCtx.closePath();
-            maskCtx.fill();
-            
-            // Get mask data
-            const maskData = maskCtx.getImageData(0, 0, boundWidth, boundHeight);
-            
-            // Apply dithering only to pixels inside the polygon
-            const fillResolution = brushSettings.fillResolution || 1;
-            const algorithm = brushSettings.ditherAlgorithm || 'sierra-lite';
-            const patternStyle = brushSettings.patternStyle || 'dots';
-            
-            // Apply dithering with fill resolution support for all algorithms
-            const ditheredData = fillResolution > 1 
-              ? applyDitheringWithFillResolution(imageData, numColors, fillResolution, algorithm, patternStyle)
-              : applyDithering(imageData, numColors, algorithm, patternStyle);
-            
-            // Composite: use dithered data only where mask is white
-            const finalData = new Uint8ClampedArray(imageData.data);
-            for (let i = 0; i < maskData.data.length; i += 4) {
-              if (maskData.data[i + 3] > 0) { // If mask pixel is not transparent
-                finalData[i] = ditheredData.data[i];
-                finalData[i + 1] = ditheredData.data[i + 1];
-                finalData[i + 2] = ditheredData.data[i + 2];
-                finalData[i + 3] = ditheredData.data[i + 3];
-              }
-            }
-            
-            // Put the final composited data back using temp canvas to respect clipping
-            const finalImageData = new ImageData(finalData, boundWidth, boundHeight);
-            const finalCanvas = canvasPool.acquire(boundWidth, boundHeight);
-            const finalCtx = finalCanvas.getContext('2d');
-            if (finalCtx) {
-              finalCtx.putImageData(finalImageData, 0, 0);
-              ctx.drawImage(finalCanvas, minX, minY);
-            }
-            canvasPool.release(finalCanvas);
-            
-            canvasPool.release(maskCanvas);
-          }
-          
-          canvasPool.release(tempCanvas);
-        }
-      }
-    }
+    // Note: Dithering is now handled directly in the gradient generation above
+    // This eliminates the hard boundary issues that occurred when dithering
+    // was applied to an already-rendered gradient
     
     ctx.restore();
   }, []);

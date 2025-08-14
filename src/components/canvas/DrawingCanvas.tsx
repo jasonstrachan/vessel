@@ -33,7 +33,11 @@ const DrawingCanvas = () => {
     selectionStart,
     selectionEnd,
     setSelectionBounds,
-    clearSelection
+    clearSelection,
+    updateLayer,
+    undo,
+    redo,
+    saveCanvasState
   } = useAppStore();
 
   // State for the view transformation (pan and zoom)
@@ -61,6 +65,7 @@ const DrawingCanvas = () => {
   const isDrawingRef = useRef(false); // Ref to track drawing state for event handlers
   const drawingCanvasHasContent = useRef(false); // Track if drawing canvas has content
   const drawAnimationFrameRef = useRef<number | null>(null); // For drawing animation frame
+  const isCapturing = useRef(false); // Track if we're in the middle of capturing to prevent premature redraws
   
   // Selection state
   const [isSelecting, setIsSelecting] = useState(false);
@@ -111,20 +116,36 @@ const DrawingCanvas = () => {
 
   // Helper function to sample color at a specific world position
   const sampleColorAtPosition = useCallback((x: number, y: number): string => {
-    if (!compositeCanvasRef.current) return '#000000';
+    if (!compositeCanvasRef.current) return 'rgb(0, 0, 0)';
     
     const ctx = compositeCanvasRef.current.getContext('2d');
-    if (!ctx) return '#000000';
+    if (!ctx) return 'rgb(0, 0, 0)';
     
     // Clamp coordinates to canvas bounds
     const clampedX = Math.max(0, Math.min(compositeCanvasRef.current.width - 1, Math.floor(x)));
     const clampedY = Math.max(0, Math.min(compositeCanvasRef.current.height - 1, Math.floor(y)));
     
     const imageData = ctx.getImageData(clampedX, clampedY, 1, 1);
-    const [r, g, b] = imageData.data;
+    let [r, g, b, a] = imageData.data;
     
-    // Convert to hex color
-    return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+    // If transparent or nearly transparent, return the current canvas background color (white)
+    if (a < 10) return 'rgb(255, 255, 255)';
+    
+    // Snap very dark colors to pure black (threshold of 30)
+    if (r <= 30 && g <= 30 && b <= 30) {
+      r = 0;
+      g = 0; 
+      b = 0;
+    }
+    // Snap very light colors to pure white (threshold of 225)
+    else if (r >= 225 && g >= 225 && b >= 225) {
+      r = 255;
+      g = 255;
+      b = 255;
+    }
+    
+    // Return RGB format for proper gradient rendering
+    return `rgb(${r}, ${g}, ${b})`;
   }, []);
 
   // Helper function to sample N colors along a line
@@ -146,6 +167,7 @@ const DrawingCanvas = () => {
   // All drawing operations are done in WORLD coordinates.
   const draw = useCallback((ctx: CanvasRenderingContext2D, transform: typeof viewTransform, skipDrawingCanvas = false) => {
     const { scale, offsetX, offsetY } = transform;
+
 
     // Clear the canvas with very dark grey background
     ctx.fillStyle = '#1a1a1a';
@@ -277,21 +299,32 @@ const DrawingCanvas = () => {
   const handleMouseDown = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
     const mousePos = getMousePos(event);
     
-    // Check for panning: space + left click, middle mouse, or right mouse
+    // Handle panning first
     if (isSpacePressed || event.button === 1 || event.button === 2) {
       event.preventDefault();
       setIsPanning(true);
-      // Store the starting position and current offset
       panStartRef.current = mousePos;
       panStartOffsetRef.current = { x: viewTransform.offsetX, y: viewTransform.offsetY };
       return;
     }
     
-    // Left click for drawing or selection (only if space not pressed)
+    // Handle left click
     if (event.button === 0 && !isSpacePressed) {
+      // --- FIX: Check the tool's state BEFORE doing anything else ---
+      const brushShape = tools.brushSettings.brushShape;
+      const currentRectState = useAppStore.getState().rectangleBrushState;
+
+      // If we are in the middle of defining the width, this mousedown should do nothing.
+      // The subsequent `mouseup` event will handle the finalization.
+      if (brushShape === BrushShape.RECTANGLE_GRADIENT && currentRectState.drawingState === 'definingWidth') {
+        event.preventDefault();
+        return; // <-- This return is the entire fix.
+      }
+      // --- End of Fix ---
+
       const worldPos = screenToWorld(mousePos.x, mousePos.y);
       
-      // Handle selection for both selection tool and custom brush tool
+      // Handle selection tool
       if (tools.currentTool === 'selection' || tools.currentTool === 'custom') {
         setIsSelecting(true);
         selectionStartRef.current = worldPos;
@@ -299,14 +332,9 @@ const DrawingCanvas = () => {
         return;
       }
       
-      const brushShape = tools.brushSettings.brushShape;
-      
-      // Handle gradient brushes separately
+      // Handle starting a NEW rectangle gradient
       if (brushShape === BrushShape.RECTANGLE_GRADIENT) {
-        // Sample the color at the starting position
         const startColor = sampleColorAtPosition(worldPos.x, worldPos.y);
-        
-        // Start rectangle gradient drawing
         setRectangleBrushState({
           drawingState: 'definingLength',
           startPos: { x: worldPos.x, y: worldPos.y },
@@ -317,18 +345,23 @@ const DrawingCanvas = () => {
         isDrawingRef.current = true;
         return;
       } else if (brushShape === BrushShape.POLYGON_GRADIENT) {
-        // Add point to polygon gradient
-        const newPoints = [...polygonGradientState.points, {
-          x: worldPos.x,
-          y: worldPos.y,
-          color: tools.brushSettings.color
-        }];
-        setPolygonGradientState({
-          ...polygonGradientState,
-          points: newPoints
-        });
+        // Start polygon gradient drawing - first point
+        const startColor = sampleColorAtPosition(worldPos.x, worldPos.y);
+        
+        const newState = {
+          drawingState: 'drawing' as const,
+          points: [{
+            x: worldPos.x,
+            y: worldPos.y,
+            color: startColor
+          }]
+        };
+        
+        
+        setPolygonGradientState(newState);
         setIsDrawing(true);
         isDrawingRef.current = true;
+        lastDrawPosRef.current = null; // Clear this to prevent normal brush drawing
         return;
       }
       
@@ -402,55 +435,90 @@ const DrawingCanvas = () => {
     
     // Special handling for rectangle gradient
     const brushShape = tools.brushSettings.brushShape;
-    if (brushShape === BrushShape.RECTANGLE_GRADIENT && rectangleBrushState.drawingState !== 'idle') {
-        if (rectangleBrushState.drawingState === 'definingLength') {
-          // First mouse up: transition to defining width
+    if (brushShape === BrushShape.RECTANGLE_GRADIENT) { // Check for the tool first
+        
+        // --- FIX: Get fresh state from the store ---
+        const currentRectState = useAppStore.getState().rectangleBrushState;
+
+        if (currentRectState.drawingState === 'definingLength') {
+          
+          // --- FIX: Transition state AND explicitly stop the "drawing" mode ---
           setRectangleBrushState({
-            ...rectangleBrushState,
+            ...currentRectState,
             drawingState: 'definingWidth'
           });
-          // Keep drawing active to track width
-          return;
-        } else if (rectangleBrushState.drawingState === 'definingWidth') {
+          // This is the key change: we are no longer "drawing" with the mouse down.
+          setIsDrawing(false);
+          isDrawingRef.current = false; 
+          return; // Exit to prevent other logic from running
+        } else if (currentRectState.drawingState === 'definingWidth') {
+          
+          
           // Second mouse up: actually draw the rectangle
           initDrawingCanvas();
           const drawCtx = drawingCanvasRef.current?.getContext('2d');
           
+          
           if (drawCtx && brushEngine) {
+            // Check if we have valid start and end positions
+            if (!currentRectState.startPos || !currentRectState.endPos) {
+              console.log('⚠️ [RECT DEBUG] Missing start or end position, resetting state');
+              setRectangleBrushState({ isDrawing: false, startPos: null, endPos: null, drawingState: 'idle' });
+              return;
+            }
+            
             // Calculate width from mouse position perpendicular to the line
             const mousePos = getMousePos(event);
             const worldPos = screenToWorld(mousePos.x, mousePos.y);
             
             // Calculate the perpendicular distance for width
-            const dx = rectangleBrushState.endPos.x - rectangleBrushState.startPos.x;
-            const dy = rectangleBrushState.endPos.y - rectangleBrushState.startPos.y;
+            const dx = currentRectState.endPos.x - currentRectState.startPos.x;
+            const dy = currentRectState.endPos.y - currentRectState.startPos.y;
             const length = Math.hypot(dx, dy);
             
+            console.log('🔍 [RECT DEBUG] Rectangle dimensions:', {
+              dx, dy, length,
+              startPos: currentRectState.startPos,
+              endPos: currentRectState.endPos
+            });
+            
             if (length > 0) {
+              console.log('✅ [RECT DEBUG] Length check passed, proceeding with drawing');
               // Calculate perpendicular distance from mouse to line
               const lineVecX = dx / length;
               const lineVecY = dy / length;
-              const toMouseX = worldPos.x - rectangleBrushState.startPos.x;
-              const toMouseY = worldPos.y - rectangleBrushState.startPos.y;
+              const toMouseX = worldPos.x - currentRectState.startPos.x;
+              const toMouseY = worldPos.y - currentRectState.startPos.y;
               const perpDist = Math.abs(-lineVecY * toMouseX + lineVecX * toMouseY);
               const width = perpDist * 2; // Full width is twice the perpendicular distance
               
               // Sample colors along the rectangle length based on the number of colors setting
               const numColors = tools.brushSettings.colors || 2;
               const sampledColors = sampleColorsAlongLine(
-                rectangleBrushState.startPos.x,
-                rectangleBrushState.startPos.y,
-                rectangleBrushState.endPos.x,
-                rectangleBrushState.endPos.y,
+                currentRectState.startPos.x,
+                currentRectState.startPos.y,
+                currentRectState.endPos.x,
+                currentRectState.endPos.y,
                 numColors
               );
+              
+              console.log('🎨 [RECT DEBUG] Drawing rectangle with parameters:', {
+                startPos: currentRectState.startPos,
+                endPos: currentRectState.endPos,
+                width,
+                length,
+                numColors,
+                sampledColors,
+                drawingCanvasHasContent: drawingCanvasHasContent.current,
+                isCapturing: isCapturing.current
+              });
               
               // Draw the rectangle gradient with sampled colors
               brushEngine.drawRectangleGradient(
                 drawCtx,
                 {
-                  startPos: rectangleBrushState.startPos,
-                  endPos: rectangleBrushState.endPos,
+                  startPos: currentRectState.startPos,
+                  endPos: currentRectState.endPos,
                   width: width,
                   startColor: sampledColors[0] || tools.color,
                   endColor: sampledColors[sampledColors.length - 1] || tools.backgroundColor || tools.color,
@@ -460,8 +528,35 @@ const DrawingCanvas = () => {
                 },
                 false // not preview
               );
-              drawingCanvasHasContent.current = true;
+              
+              console.log('✅ [RECT DEBUG] Rectangle drawn to drawingCanvas, setting flags:', {
+                drawingCanvasHasContentBefore: drawingCanvasHasContent.current,
+                isCapturingBefore: isCapturing.current
+              });
+              
+              drawingCanvasHasContent.current = true; // Set this first to trigger layers effect redraw
+              isCapturing.current = true; // Set this after to prevent further layers effect redraws
+              
+              console.log('🔧 [RECT DEBUG] Flags after setting:', {
+                drawingCanvasHasContentAfter: drawingCanvasHasContent.current,
+                isCapturingAfter: isCapturing.current
+              });
+            } else {
+              console.log('⚠️ [RECT DEBUG] Rectangle too small to draw, resetting state:', {
+                dx,
+                dy,
+                length,
+                startPos: currentRectState.startPos,
+                endPos: currentRectState.endPos
+              });
+              // Reset state for rectangles that are too small
+              setRectangleBrushState({ isDrawing: false, startPos: null, endPos: null, drawingState: 'idle' });
             }
+          } else {
+            console.error('❌ [RECT DEBUG] Missing drawCtx or brushEngine:', {
+              drawCtx: !!drawCtx,
+              brushEngine: !!brushEngine
+            });
           }
           
           // Reset rectangle state
@@ -471,33 +566,139 @@ const DrawingCanvas = () => {
             endPos: { x: 0, y: 0 }
           });
           
-          // Fall through to capture the drawing - DON'T RETURN
+          // Keep isDrawingRef true until capture completes to prevent premature redraws
+          // This prevents the layers effect from triggering a redraw while capture is in progress
+          
+          console.log('🚀 [RECT DEBUG] Starting capture process:', {
+            hasDrawingCanvas: !!drawingCanvasRef.current,
+            hasProject: !!project,
+            drawingCanvasHasContent: drawingCanvasHasContent.current,
+            activeLayerId,
+            layersCount: layers.length
+          });
+          
+          // Need to manually handle capture for rectangle gradient
+          // Since we don't use the normal isDrawing flow
+          if (drawingCanvasRef.current && project && drawingCanvasHasContent.current) {
+            const activeLayer = layers.find(l => l.id === activeLayerId) || layers[0];
+            if (activeLayer) {
+              console.log('🔄 [RECT DEBUG] Creating temp canvas for capture:', {
+                activeLayerHasImageData: !!activeLayer.imageData,
+                projectDimensions: { width: project.width, height: project.height }
+              });
+              
+              // Create a temporary canvas with merged content
+              const tempCanvas = document.createElement('canvas');
+              tempCanvas.width = project.width;
+              tempCanvas.height = project.height;
+              const tempCtx = tempCanvas.getContext('2d');
+              
+              if (tempCtx) {
+                // First draw the existing layer content
+                tempCtx.putImageData(activeLayer.imageData, 0, 0);
+                
+                // Then composite the drawing on top
+                tempCtx.drawImage(drawingCanvasRef.current, 0, 0);
+                
+                console.log('📡 [RECT DEBUG] About to capture to layer...');
+                
+                // Capture this merged canvas directly to the active layer
+                captureCanvasToActiveLayer(tempCanvas).then(() => {
+                  console.log('✅ [RECT DEBUG] Capture completed successfully, cleaning up...');
+                  
+                  // Save state for undo/redo after capturing
+                  if (tempCanvas) {
+                    saveCanvasState(tempCanvas, 'brush', 'Rectangle brush stroke');
+                  }
+                  
+                  // Wait for next frame to ensure React has re-rendered with the updated layer
+                  requestAnimationFrame(() => {
+                    console.log('🧹 [RECT DEBUG] Cleaning drawing canvas and resetting flags...');
+                    
+                    // Clear the drawing canvas itself
+                    const clearCtx = drawingCanvasRef.current?.getContext('2d');
+                    if (clearCtx) {
+                      clearCtx.clearRect(0, 0, drawingCanvasRef.current!.width, drawingCanvasRef.current!.height);
+                      console.log('🗑️ [RECT DEBUG] Drawing canvas cleared');
+                    }
+                    
+                    // Now it's safe to stop showing the offscreen canvas and allow redraws
+                    console.log('🏁 [RECT DEBUG] Resetting flags:', {
+                      drawingCanvasHasContentBefore: drawingCanvasHasContent.current,
+                      isDrawingRefBefore: isDrawingRef.current,
+                      isCapturingBefore: isCapturing.current
+                    });
+                    
+                    drawingCanvasHasContent.current = false;
+                    isDrawingRef.current = false; // NOW it's safe to set this to false
+                    isCapturing.current = false; // Clear capturing flag
+                    
+                    console.log('🏁 [RECT DEBUG] Flags reset:', {
+                      drawingCanvasHasContentAfter: drawingCanvasHasContent.current,
+                      isDrawingRefAfter: isDrawingRef.current,
+                      isCapturingAfter: isCapturing.current
+                    });
+                    
+                    // Invalidate the composite cache since we just updated a layer
+                    lastLayersHashRef.current = '';
+                    
+                    console.log('🎨 [RECT DEBUG] Triggering final redraw...');
+                    
+                    // Trigger a redraw to reflect the change
+                    const canvas = canvasRef.current;
+                    const ctx = canvas?.getContext('2d');
+                    if (ctx) {
+                      draw(ctx, viewTransformRef.current);
+                    }
+                  });
+                }).catch(err => {
+                  console.error('❌ [RECT DEBUG] Failed to capture rectangle:', err);
+                  drawingCanvasHasContent.current = false;
+                  isDrawingRef.current = false; // Also clear in error case
+                  isCapturing.current = false; // Also clear capturing flag in error case
+                });
+              }
+            }
+          }
+          return; // Exit after handling rectangle
         }
     }
     
     if (isDrawingRef.current) {
-      // Handle polygon gradient completion (e.g., on double-click or special key)
-      if (brushShape === BrushShape.POLYGON_GRADIENT && polygonGradientState.points.length >= 3) {
-        initDrawingCanvas();
-        const drawCtx = drawingCanvasRef.current?.getContext('2d');
+      // Skip normal capture flow for rectangle gradients - they handle it themselves
+      if (brushShape === BrushShape.RECTANGLE_GRADIENT) {
+        return;
+      }
+      
+      // FIX: Get fresh polygon state to avoid stale closure
+      const currentPolygonState = useAppStore.getState().polygonGradientState;
+      
+      // Handle polygon gradient completion
+      if (brushShape === BrushShape.POLYGON_GRADIENT && currentPolygonState.drawingState === 'drawing') {
         
-        if (drawCtx && brushEngine) {
-          // Draw the polygon gradient with proper format
-          brushEngine.drawPolygonGradient(
-            drawCtx,
-            {
-              vertices: polygonGradientState.points.map(p => ({ x: p.x, y: p.y })),
-              colors: polygonGradientState.points.map(p => p.color)
-            },
-            false // not preview
-          );
-          drawingCanvasHasContent.current = true;
+        if (currentPolygonState.points.length >= 3) {
+          initDrawingCanvas();
+          const drawCtx = drawingCanvasRef.current?.getContext('2d');
+          
+          if (drawCtx && brushEngine) {
+            
+            // Use fresh state to get the points and colors
+            brushEngine.drawPolygonGradient(
+              drawCtx,
+              {
+                vertices: currentPolygonState.points.map(p => ({ x: p.x, y: p.y })),
+                colors: currentPolygonState.points.map(p => p.color)
+              },
+              false // not preview
+            );
+            drawingCanvasHasContent.current = true;
+          }
         }
         
-        // Reset polygon state
+        // Always reset polygon state when releasing mouse, regardless of point count
         setPolygonGradientState({
-          points: [],
-          isDrawing: false
+          drawingState: 'idle',
+          points: []
         });
       }
       
@@ -507,6 +708,7 @@ const DrawingCanvas = () => {
       
       // Capture the drawing to the active layer
       if (drawingCanvasRef.current && project) {
+        isCapturing.current = true;
         const activeLayer = layers.find(l => l.id === activeLayerId) || layers[0];
         if (activeLayer) {
           // Create a temporary canvas with merged content
@@ -525,6 +727,10 @@ const DrawingCanvas = () => {
             // Capture this merged canvas directly to the active layer
             // Note: captureCanvasToActiveLayer replaces the layer content entirely
             captureCanvasToActiveLayer(tempCanvas).then(() => {
+              // Save state for undo/redo after capturing
+              if (tempCanvas) {
+                saveCanvasState(tempCanvas, 'brush', 'Drawing stroke');
+              }
               // Wait for next frame to ensure React has re-rendered with the updated layer
               requestAnimationFrame(() => {
                 // Clear the drawing canvas itself
@@ -534,6 +740,7 @@ const DrawingCanvas = () => {
                 }
                 // Now it's safe to stop showing the offscreen canvas
                 drawingCanvasHasContent.current = false;
+                isCapturing.current = false; // Clear capturing flag
                 
                 // Invalidate the composite cache since we just updated a layer
                 lastLayersHashRef.current = '';
@@ -548,21 +755,127 @@ const DrawingCanvas = () => {
             }).catch(err => {
               console.error('❌ Failed to capture layer:', err);
               drawingCanvasHasContent.current = false;
+              isCapturing.current = false; // Also clear capturing flag in error case
             });
           }
         }
       }
     }
-  }, [isPanning, viewTransform, setPan, draw, captureCanvasToActiveLayer, project, layers, activeLayerId, tools, rectangleBrushState, setRectangleBrushState, polygonGradientState, setPolygonGradientState, brushEngine, initDrawingCanvas, isSelecting, getMousePos, screenToWorld, setSelectionBounds, sampleColorsAlongLine]);
+  }, [isPanning, viewTransform, setPan, draw, captureCanvasToActiveLayer, project, layers, activeLayerId, tools, rectangleBrushState, setRectangleBrushState, polygonGradientState, setPolygonGradientState, brushEngine, initDrawingCanvas, isSelecting, getMousePos, screenToWorld, setSelectionBounds, sampleColorsAlongLine, saveCanvasState]);
+
+  const handleMouseLeave = useCallback(() => {
+    // Only handle panning and normal drawing on mouse leave
+    // Do NOT finalize polygon or rectangle gradients as the user might just be moving fast
+    if (isPanning) {
+      setIsPanning(false);
+      setViewTransform(viewTransformRef.current);
+      setPan(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
+    }
+    
+    // Only stop normal drawing, not gradient tools
+    const brushShape = tools.brushSettings.brushShape;
+    if (isDrawingRef.current && 
+        brushShape !== BrushShape.POLYGON_GRADIENT && 
+        brushShape !== BrushShape.RECTANGLE_GRADIENT) {
+      setIsDrawing(false);
+      isDrawingRef.current = false;
+      lastDrawPosRef.current = null;
+    }
+  }, [isPanning, setPan, tools.brushSettings.brushShape]);
 
   const handleMouseMove = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
-    // Special case: rectangle gradient in definingWidth state needs mouse tracking even when not "drawing"
-    const isDefiningWidth = tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT && 
-                           rectangleBrushState.drawingState === 'definingWidth';
-    
-    if (!isPanning && !isDrawing && !isSelecting && !isDefiningWidth) return;
-    
     const currentMousePos = getMousePos(event);
+    const worldPos = screenToWorld(currentMousePos.x, currentMousePos.y);
+
+    // --- REFACTORED LOGIC ---
+    // Check for and handle the 'definingWidth' state separately and first.
+    // This allows the width preview to work even when the mouse is not down.
+    const currentRectState = useAppStore.getState().rectangleBrushState;
+    if (tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT && currentRectState.drawingState === 'definingWidth') {
+      // All the preview drawing logic for width definition
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (ctx) {
+        draw(ctx, viewTransformRef.current); // Redraw base
+        
+        const startPos = currentRectState.startPos;
+        const endPos = currentRectState.endPos;
+        const dx = endPos.x - startPos.x;
+        const dy = endPos.y - startPos.y;
+        const length = Math.hypot(dx, dy);
+
+        if (length > 0) {
+          const lineVecX = dx / length;
+          const lineVecY = dy / length;
+          const toMouseX = worldPos.x - startPos.x;
+          const toMouseY = worldPos.y - startPos.y;
+          const perpDist = Math.abs(-lineVecY * toMouseX + lineVecX * toMouseY);
+          const previewWidth = perpDist * 2;
+          
+          const perpX = -dy / length * (previewWidth / 2);
+          const perpY = dx / length * (previewWidth / 2);
+          
+          const corners = [
+            { x: startPos.x + perpX, y: startPos.y + perpY },
+            { x: startPos.x - perpX, y: startPos.y - perpY },
+            { x: endPos.x - perpX, y: endPos.y - perpY },
+            { x: endPos.x + perpX, y: endPos.y + perpY }
+          ];
+          
+          ctx.save();
+          ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
+          ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
+          
+          ctx.globalAlpha = tools.brushSettings.opacity || 1;
+          ctx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
+          
+          // Sample colors for preview
+          const numColors = tools.brushSettings.colors || 2;
+          const sampledColors = sampleColorsAlongLine(
+            startPos.x,
+            startPos.y,
+            endPos.x,
+            endPos.y,
+            numColors
+          );
+          
+          // Create gradient for preview
+          const gradient = ctx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
+          
+          if (sampledColors.length > 0) {
+            sampledColors.forEach((color, index) => {
+              const position = sampledColors.length === 1 ? 0 : index / (sampledColors.length - 1);
+              gradient.addColorStop(position, color);
+            });
+          } else {
+            gradient.addColorStop(0, tools.brushSettings.color);
+            gradient.addColorStop(1, tools.brushSettings.color);
+          }
+          
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.moveTo(corners[0].x, corners[0].y);
+          ctx.lineTo(corners[1].x, corners[1].y);
+          ctx.lineTo(corners[2].x, corners[2].y);
+          ctx.lineTo(corners[3].x, corners[3].y);
+          ctx.closePath();
+          ctx.fill();
+          
+          ctx.restore();
+        }
+      }
+      return; // Exit after handling width preview
+    }
+    
+    // Check if we're in polygon gradient drawing state
+    const isPolygonDrawing = tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT && 
+                             polygonGradientState.drawingState === 'drawing';
+    
+    // --- Standard mouse move logic for panning, selecting, and drawing ---
+    // Early return if nothing requires mouse move handling
+    if (!isPanning && !isDrawingRef.current && !isSelecting && !isPolygonDrawing) {
+      return;
+    }
     
     // Handle panning
     if (isPanning && panStartRef.current) {
@@ -613,129 +926,186 @@ const DrawingCanvas = () => {
       return;
     }
     
-    // Handle drawing and rectangle width definition
-    if ((isDrawing || isDefiningWidth) && project) {
-      const worldPos = screenToWorld(currentMousePos.x, currentMousePos.y);
+    // Handle all "mouse is down" drawing (including rectangle length)
+    if (isDrawingRef.current && project) {
       const brushShape = tools.brushSettings.brushShape;
       
-      // Handle rectangle gradient preview
+      // The logic for defining the rectangle's LENGTH still happens here
       if (brushShape === BrushShape.RECTANGLE_GRADIENT) {
-        // Only update endPos during length definition
-        if (rectangleBrushState.drawingState === 'definingLength') {
-          setRectangleBrushState({
-            ...rectangleBrushState,
-            endPos: { x: worldPos.x, y: worldPos.y }
-          });
-        }
-        // During width definition, we just show preview without updating state
+        const currentRectState = useAppStore.getState().rectangleBrushState;
         
-        // Draw preview
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext('2d');
-        if (ctx) {
-          draw(ctx, viewTransformRef.current);
+        if (currentRectState.drawingState === 'definingLength') {
+          // Update endPos during length definition
+          const newState = {
+            ...currentRectState,
+            endPos: { x: worldPos.x, y: worldPos.y }
+          };
+          setRectangleBrushState(newState);
           
-          // Calculate rectangle geometry for preview
-          // Use different endpoints based on state
-          const endX = rectangleBrushState.drawingState === 'definingWidth' ? rectangleBrushState.endPos.x : worldPos.x;
-          const endY = rectangleBrushState.drawingState === 'definingWidth' ? rectangleBrushState.endPos.y : worldPos.y;
-          
-          const dx = endX - rectangleBrushState.startPos.x;
-          const dy = endY - rectangleBrushState.startPos.y;
-          const length = Math.hypot(dx, dy);
-          
-          if (length > 0) {
-            // Different preview based on current state
-            let previewWidth = 2; // Default thin line for length definition
+          // Draw preview for length definition
+          const canvas = canvasRef.current;
+          const ctx = canvas?.getContext('2d');
+          if (ctx) {
+            draw(ctx, viewTransformRef.current);
             
-            if (rectangleBrushState.drawingState === 'definingWidth') {
-              // Calculate perpendicular distance from mouse to line for width preview
-              const lineVecX = dx / length;
-              const lineVecY = dy / length;
-              const toMouseX = worldPos.x - rectangleBrushState.startPos.x;
-              const toMouseY = worldPos.y - rectangleBrushState.startPos.y;
-              const perpDist = Math.abs(-lineVecY * toMouseX + lineVecX * toMouseY);
-              previewWidth = perpDist * 2;
+            // For length definition, show a thin line preview
+            const endX = worldPos.x;
+            const endY = worldPos.y;
+            
+            const dx = endX - currentRectState.startPos.x;
+            const dy = endY - currentRectState.startPos.y;
+            const length = Math.hypot(dx, dy);
+            
+            if (length > 0) {
+              // Thin line preview for length definition
+              const previewWidth = 2;
+              
+              // Calculate perpendicular vector for width
+              const perpX = -dy / length * (previewWidth / 2);
+              const perpY = dx / length * (previewWidth / 2);
+              
+              // Rectangle corners
+              const corners = [
+                { x: currentRectState.startPos.x + perpX, y: currentRectState.startPos.y + perpY },
+                { x: currentRectState.startPos.x - perpX, y: currentRectState.startPos.y - perpY },
+                { x: endX - perpX, y: endY - perpY },
+                { x: endX + perpX, y: endY + perpY }
+              ];
+              
+              // Draw thin line preview
+              ctx.save();
+              ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
+              ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
+              
+              // Simple line for length preview
+              ctx.strokeStyle = tools.brushSettings.color;
+              ctx.lineWidth = 2 / viewTransformRef.current.scale;
+              ctx.beginPath();
+              ctx.moveTo(currentRectState.startPos.x, currentRectState.startPos.y);
+              ctx.lineTo(endX, endY);
+              ctx.stroke();
+              
+              ctx.restore();
             }
-            
-            // Calculate perpendicular vector for width
-            const perpX = -dy / length * (previewWidth / 2);
-            const perpY = dx / length * (previewWidth / 2);
-            
-            // Rectangle corners
-            const corners = [
-              { x: rectangleBrushState.startPos.x + perpX, y: rectangleBrushState.startPos.y + perpY },
-              { x: rectangleBrushState.startPos.x - perpX, y: rectangleBrushState.startPos.y - perpY },
-              { x: endX - perpX, y: endY - perpY },
-              { x: endX + perpX, y: endY + perpY }
-            ];
-            
-            // Draw FULL rectangle preview with gradient
-            ctx.save();
-            ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
-            ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
-            
-            // Use actual brush opacity for preview
-            ctx.globalAlpha = tools.brushSettings.opacity || 1;
-            ctx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
-            
-            // Sample colors for preview
-            const numColors = tools.brushSettings.colors || 2;
-            const sampledColors = sampleColorsAlongLine(
-              rectangleBrushState.startPos.x,
-              rectangleBrushState.startPos.y,
-              endX,
-              endY,
-              numColors
-            );
-            
-            // Create gradient for preview
-            const gradient = ctx.createLinearGradient(
-              rectangleBrushState.startPos.x,
-              rectangleBrushState.startPos.y,
-              endX,
-              endY
-            );
-            
-            // Add color stops from sampled colors
-            if (sampledColors.length > 0) {
-              sampledColors.forEach((color, index) => {
-                const position = sampledColors.length === 1 ? 0 : index / (sampledColors.length - 1);
-                gradient.addColorStop(position, color);
-              });
-            } else {
-              // Fallback to brush color if no samples
-              gradient.addColorStop(0, tools.brushSettings.color);
-              gradient.addColorStop(1, tools.brushSettings.color);
-            }
-            
-            // Fill the rectangle with gradient
-            ctx.fillStyle = gradient;
-            ctx.beginPath();
-            ctx.moveTo(corners[0].x, corners[0].y);
-            corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
-            ctx.closePath();
-            ctx.fill();
-            
-            ctx.restore();
           }
         }
         return;
       }
       
-      // Handle polygon gradient preview (just visual feedback)
+      // The logic for the polygon gradient brush still happens here
       if (brushShape === BrushShape.POLYGON_GRADIENT) {
-        // Could draw preview lines here if needed
-        return;
-      }
-      
-      // Exit early if we're just tracking width for rectangle gradient
-      if (isDefiningWidth) {
+        // FIX: Get the LATEST state directly from the store
+        const currentPolygonState = useAppStore.getState().polygonGradientState;
+        
+        // Now check the drawingState using the fresh state
+        if (currentPolygonState.drawingState === 'drawing') {
+          
+          // Use currentPolygonState for all logic from here
+          const lastPoint = currentPolygonState.points[currentPolygonState.points.length - 1];
+          if (lastPoint) {
+            const distance = Math.hypot(worldPos.x - lastPoint.x, worldPos.y - lastPoint.y);
+            const minSpacing = 5; // Minimum spacing between points for higher resolution
+            
+            if (distance >= minSpacing) {
+              const newColor = sampleColorAtPosition(worldPos.x, worldPos.y);
+              const newPoints = [...currentPolygonState.points, {
+                x: worldPos.x,
+                y: worldPos.y,
+                color: newColor
+              }];
+              
+              
+              // Update the state with new points
+              setPolygonGradientState({
+                drawingState: 'drawing',
+                points: newPoints
+              });
+            }
+          }
+          
+          // Update preview logic to use fresh state
+          const canvas = canvasRef.current;
+          const ctx = canvas?.getContext('2d');
+          // Use currentPolygonState for the check and rendering
+          if (ctx && currentPolygonState.points.length > 0) {
+            draw(ctx, viewTransformRef.current);
+            
+            ctx.save();
+            // Disable anti-aliasing for pixel-perfect polygon
+            ctx.imageSmoothingEnabled = false;
+            ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
+            ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
+            
+            // Use currentPolygonState to build preview vertices
+            const previewVertices = [
+              ...currentPolygonState.points.map(p => ({ x: p.x, y: p.y })),
+              { x: worldPos.x, y: worldPos.y }
+            ];
+            
+            if (previewVertices.length >= 3) {
+              // Calculate bounds for better gradient
+              const minX = Math.min(...previewVertices.map(v => v.x));
+              const minY = Math.min(...previewVertices.map(v => v.y));
+              const maxX = Math.max(...previewVertices.map(v => v.x));
+              const maxY = Math.max(...previewVertices.map(v => v.y));
+              const width = maxX - minX;
+              const height = maxY - minY;
+              
+              // Choose gradient direction based on polygon shape
+              let gradient;
+              if (width > height) {
+                // Horizontal gradient for wide polygons
+                gradient = ctx.createLinearGradient(minX, (minY + maxY) / 2, maxX, (minY + maxY) / 2);
+              } else {
+                // Vertical gradient for tall polygons
+                gradient = ctx.createLinearGradient((minX + maxX) / 2, minY, (minX + maxX) / 2, maxY);
+              }
+              
+              // Use currentPolygonState to build preview colors
+              const previewColors = [
+                ...currentPolygonState.points.map(p => p.color),
+                sampleColorAtPosition(worldPos.x, worldPos.y)
+              ];
+              
+              // Match the gradient logic from useBrushEngine.ts
+              // For smoother gradients, use key colors instead of all points
+              if (previewColors.length >= 3) {
+                // Use first color, a middle color, and last color for smooth gradient
+                gradient.addColorStop(0, previewColors[0]);
+                gradient.addColorStop(0.5, previewColors[Math.floor(previewColors.length / 2)]);
+                gradient.addColorStop(1, previewColors[previewColors.length - 1]);
+              } else if (previewColors.length === 2) {
+                // Two colors - simple gradient
+                gradient.addColorStop(0, previewColors[0]);
+                gradient.addColorStop(1, previewColors[1]);
+              } else if (previewColors.length === 1) {
+                // Single color - solid fill
+                gradient.addColorStop(0, previewColors[0]);
+                gradient.addColorStop(1, previewColors[0]);
+              }
+              
+              // Draw filled polygon preview with full opacity and no outline
+              ctx.fillStyle = gradient;
+              ctx.beginPath();
+              ctx.moveTo(previewVertices[0].x, previewVertices[0].y);
+              for (let i = 1; i < previewVertices.length; i++) {
+                ctx.lineTo(previewVertices[i].x, previewVertices[i].y);
+              }
+              ctx.closePath();
+              ctx.fill();
+            }
+            
+            ctx.restore();
+          }
+          return; // This return is crucial to prevent falling through to normal drawing logic
+        }
+        // Also return if polygon brush is selected but not drawing to prevent normal brush
         return;
       }
       
       // Normal brush drawing
       if (!lastDrawPosRef.current) return;
+      
       
       // Clamp positions to project bounds
       const clampedPos = {
@@ -777,7 +1147,7 @@ const DrawingCanvas = () => {
         });
       }
     }
-  }, [getMousePos, isPanning, isDrawing, isSelecting, screenToWorld, draw, brushEngine, activeBrushComponents, project, tools, rectangleBrushState, setRectangleBrushState, setSelectionBounds, sampleColorsAlongLine]);
+  }, [getMousePos, isPanning, isSelecting, screenToWorld, draw, brushEngine, activeBrushComponents, project, tools, setRectangleBrushState, setSelectionBounds, sampleColorsAlongLine, polygonGradientState, setPolygonGradientState, sampleColorAtPosition]);
 
   const handleWheel = useCallback((event: WheelEvent) => {
     event.preventDefault();
@@ -856,7 +1226,45 @@ const DrawingCanvas = () => {
   // Handle keyboard events for space key and wheel events
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.code === 'Space' && !event.repeat) {
+      // Handle Undo (Ctrl+Z / Cmd+Z)
+      if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        const snapshot = undo();
+        if (snapshot) {
+          // Apply the restored snapshot to the active layer
+          const activeLayer = layers.find(l => l.id === activeLayerId);
+          if (activeLayer && snapshot.imageData) {
+            updateLayer(activeLayer.id, { imageData: snapshot.imageData });
+            // Force redraw
+            lastLayersHashRef.current = '';
+            const canvas = canvasRef.current;
+            const ctx = canvas?.getContext('2d');
+            if (ctx) {
+              draw(ctx, viewTransformRef.current);
+            }
+          }
+        }
+      } 
+      // Handle Redo (Ctrl+Shift+Z / Cmd+Shift+Z)
+      else if ((event.ctrlKey || event.metaKey) && event.key === 'z' && event.shiftKey) {
+        event.preventDefault();
+        const snapshot = redo();
+        if (snapshot) {
+          // Apply the restored snapshot to the active layer
+          const activeLayer = layers.find(l => l.id === activeLayerId);
+          if (activeLayer && snapshot.imageData) {
+            updateLayer(activeLayer.id, { imageData: snapshot.imageData });
+            // Force redraw
+            lastLayersHashRef.current = '';
+            const canvas = canvasRef.current;
+            const ctx = canvas?.getContext('2d');
+            if (ctx) {
+              draw(ctx, viewTransformRef.current);
+            }
+          }
+        }
+      } 
+      else if (event.code === 'Space' && !event.repeat) {
         event.preventDefault();
         setIsSpacePressed(true);
       } else if (event.key === 'c' || event.key === 'C') {
@@ -877,6 +1285,73 @@ const DrawingCanvas = () => {
         const currentSize = store.tools.brushSettings.size;
         const newSize = Math.min(500, currentSize + 5);
         store.setBrushSettings({ size: newSize });
+      } else if ((event.key === 'Enter' || event.key === 'Escape') && 
+                 tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT && 
+                 polygonGradientState.points.length >= 3) {
+        // Complete polygon gradient on Enter, cancel on Escape
+        event.preventDefault();
+        
+        if (event.key === 'Enter') {
+          // Complete the polygon
+          initDrawingCanvas();
+          const drawCtx = drawingCanvasRef.current?.getContext('2d');
+          
+          if (drawCtx && brushEngine) {
+            brushEngine.drawPolygonGradient(
+              drawCtx,
+              {
+                vertices: polygonGradientState.points.map(p => ({ x: p.x, y: p.y })),
+                colors: polygonGradientState.points.map(p => p.color)
+              },
+              false
+            );
+            drawingCanvasHasContent.current = true;
+            
+            // Capture to layer
+            if (drawingCanvasRef.current && project) {
+              const activeLayer = layers.find(l => l.id === activeLayerId) || layers[0];
+              if (activeLayer) {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = project.width;
+                tempCanvas.height = project.height;
+                const tempCtx = tempCanvas.getContext('2d');
+                
+                if (tempCtx) {
+                  tempCtx.putImageData(activeLayer.imageData, 0, 0);
+                  tempCtx.drawImage(drawingCanvasRef.current, 0, 0);
+                  
+                  captureCanvasToActiveLayer(tempCanvas).then(() => {
+                    // Save state for undo/redo after capturing
+                    if (tempCanvas) {
+                      saveCanvasState(tempCanvas, 'brush', 'Polygon gradient');
+                    }
+                    requestAnimationFrame(() => {
+                      const clearCtx = drawingCanvasRef.current?.getContext('2d');
+                      if (clearCtx) {
+                        clearCtx.clearRect(0, 0, drawingCanvasRef.current!.width, drawingCanvasRef.current!.height);
+                      }
+                      drawingCanvasHasContent.current = false;
+                      lastLayersHashRef.current = '';
+                      const canvas = canvasRef.current;
+                      const ctx = canvas?.getContext('2d');
+                      if (ctx) {
+                        draw(ctx, viewTransformRef.current);
+                      }
+                    });
+                  });
+                }
+              }
+            }
+          }
+        }
+        
+        // Reset polygon state for both Enter and Escape
+        setPolygonGradientState({
+          drawingState: 'idle',
+          points: []
+        });
+        setIsDrawing(false);
+        isDrawingRef.current = false;
       }
     };
 
@@ -904,7 +1379,7 @@ const DrawingCanvas = () => {
         canvas.removeEventListener('wheel', handleWheel);
       }
     };
-  }, [handleWheel, setCurrentTool]);
+  }, [handleWheel, setCurrentTool, undo, redo, layers, activeLayerId, updateLayer, draw, polygonGradientState, setPolygonGradientState, tools.brushSettings.brushShape, brushEngine, initDrawingCanvas, project, captureCanvasToActiveLayer, saveCanvasState]);
 
   // Initialize view transform from store on mount only
   useEffect(() => {
@@ -925,8 +1400,8 @@ const DrawingCanvas = () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Only redraw if we're not currently drawing or panning
-    if (!isDrawingRef.current && !isPanning) {
+    // Only redraw if we're not currently drawing, panning, or capturing
+    if (!isDrawingRef.current && !isPanning && !isCapturing.current) {
       draw(ctx, viewTransformRef.current);
     }
   }, [layers, draw, isPanning]);
@@ -993,7 +1468,7 @@ const DrawingCanvas = () => {
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseUp} // Stop panning/drawing if mouse leaves canvas
+        onMouseLeave={handleMouseLeave} // Use dedicated handler that doesn't finalize gradient tools
         onContextMenu={(e) => e.preventDefault()} // Prevent context menu
         style={{ 
           display: 'block', 
