@@ -651,8 +651,6 @@ export const useAppStore = create<AppState>()(
       setBrushSettings: (settings) => set((state) => {
         const currentSettings = state.tools.brushSettings;
         const newSettings = { ...currentSettings, ...settings };
-        console.log('setBrushSettings called with:', settings);
-        console.log('newSettings.brushShape:', newSettings.brushShape, 'currentBrushTip:', !!newSettings.currentBrushTip);
         
         // If size is being changed, update global size
         if (settings.size !== undefined) {
@@ -735,7 +733,6 @@ export const useAppStore = create<AppState>()(
         // CRITICAL: Always clear currentBrushTip for standard brushes to prevent contamination
         // But ONLY if we're not in the process of setting it to CUSTOM with a currentBrushTip
         if (newSettings.brushShape !== BrushShape.CUSTOM && !settings.currentBrushTip) {
-          console.log('Clearing currentBrushTip because shape is not CUSTOM');
           newSettings.currentBrushTip = undefined;
           newSettings.selectedCustomBrush = null;
         }
@@ -756,12 +753,6 @@ export const useAppStore = create<AppState>()(
           }
         };
         
-        console.log('setBrushSettings final state:', {
-          brushShape: newSettings.brushShape,
-          selectedCustomBrush: newSettings.selectedCustomBrush,
-          currentBrushTip: !!newSettings.currentBrushTip,
-          size: newSettings.size
-        });
         
         // Apply brush settings save if needed (avoid circular dependency)
         if (brushSettingsToSave) {
@@ -1119,15 +1110,6 @@ export const useAppStore = create<AppState>()(
         // Handle custom brush presets specifically
         if (preset.isCustomBrush) {
           const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
-          console.log('Setting custom brush:', customBrushId, 'from preset:', preset.id);
-          console.log('customBrushData exists:', !!preset.customBrushData);
-          if (preset.customBrushData) {
-            console.log('customBrushData dimensions:', preset.customBrushData.width, 'x', preset.customBrushData.height);
-            console.log('imageData exists:', !!preset.customBrushData.imageData);
-            if (preset.customBrushData.imageData) {
-              console.log('imageData dimensions:', preset.customBrushData.imageData.width, 'x', preset.customBrushData.imageData.height);
-            }
-          }
           
           newBrushSettings.brushShape = BrushShape.CUSTOM;
           newBrushSettings.selectedCustomBrush = customBrushId;
@@ -1166,7 +1148,6 @@ export const useAppStore = create<AppState>()(
           }
           
           if (customBrush) {
-            console.log('Setting currentBrushTip with customBrush:', customBrush.id, customBrush.width, 'x', customBrush.height);
             newBrushSettings.currentBrushTip = {
               imageData: customBrush.imageData,
               brushId: customBrush.id,
@@ -1174,7 +1155,6 @@ export const useAppStore = create<AppState>()(
               width: customBrush.width,
               height: customBrush.height
             };
-            console.log('currentBrushTip set:', !!newBrushSettings.currentBrushTip);
           } else {
             console.warn('Custom brush data not found for preset:', preset.id);
           }
@@ -1390,12 +1370,10 @@ export const useAppStore = create<AppState>()(
       
       // Custom Brush Management
       addCustomBrush: (brush) => set((state) => {
-        console.log('addCustomBrush called with:', brush.id, brush.name);
         const newProject = state.project ? {
           ...state.project,
           customBrushes: [...state.project.customBrushes, brush]
         } : null;
-        console.log('Project custom brushes will be:', newProject?.customBrushes.map(b => b.id));
 
         // IMPORTANT: Unconditionally set hueShift and saturationAdjust to neutral defaults
         // when a new custom brush is added and automatically selected.

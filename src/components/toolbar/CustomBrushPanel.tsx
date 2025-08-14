@@ -21,14 +21,7 @@ export const CustomBrushPanel = () => {
 
   // Create temporary brush whenever selection changes
   useEffect(() => {
-    console.log('CustomBrushPanel useEffect:', {
-      selectionStart: !!selectionStart,
-      selectionEnd: !!selectionEnd,
-      project: !!project,
-      currentOffscreenCanvas: !!currentOffscreenCanvas
-    });
     if (!selectionStart || !selectionEnd || !project || !currentOffscreenCanvas) return;
-    console.log('Selection bounds:', selectionStart, 'to', selectionEnd);
     
     // Calculate selection bounds
     const minX = Math.floor(Math.min(selectionStart.x, selectionEnd.x));
@@ -100,7 +93,6 @@ export const CustomBrushPanel = () => {
     };
     
     // Set as temporary brush and switch to it
-    console.log('CustomBrushPanel: Creating temporary brush:', tempBrush.id, tempBrush.width + 'x' + tempBrush.height);
     setTemporaryCustomBrush(tempBrush);
     
     // Switch to using this temporary brush at 100% size
@@ -115,7 +107,6 @@ export const CustomBrushPanel = () => {
         height: tempBrush.height
       }
     };
-    console.log('CustomBrushPanel: Calling setBrushSettings with:', brushSettings);
     setBrushSettings(brushSettings);
     
     // Also update the unified custom brush size
@@ -123,11 +114,7 @@ export const CustomBrushPanel = () => {
   }, [selectionStart, selectionEnd, project, currentOffscreenCanvas, setTemporaryCustomBrush, setBrushSettings]);
 
   const handleSaveCustomBrush = () => {
-    console.log('handleSaveCustomBrush: temporaryCustomBrush:', temporaryCustomBrush);
-    if (!temporaryCustomBrush) {
-      console.log('No temporary brush to save');
-      return;
-    }
+    if (!temporaryCustomBrush) return;
     
     // Create a permanent brush from the temporary one
     const permanentBrush: CustomBrush = {
@@ -135,13 +122,11 @@ export const CustomBrushPanel = () => {
       id: `brush_${Date.now()}`,
       name: `Custom ${(project?.customBrushes?.length || 0) + 1}`,
     };
-    console.log('Creating permanent brush:', permanentBrush.id, permanentBrush.name);
     
     // Add the brush to the project
     addCustomBrush(permanentBrush);
     
     // Update brush settings to use the new permanent brush
-    console.log('Updating brush settings to use permanent brush');
     setBrushSettings({
       selectedCustomBrush: permanentBrush.id,
       currentBrushTip: undefined // Clear currentBrushTip since it's now saved
@@ -150,7 +135,6 @@ export const CustomBrushPanel = () => {
     // Clear temporary brush and selection
     setTemporaryCustomBrush(null);
     clearSelection();
-    console.log('Save complete');
   };
 
 

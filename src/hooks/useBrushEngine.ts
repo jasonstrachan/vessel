@@ -1994,15 +1994,11 @@ export const useBrushEngine = () => {
       ? tools.brushSettings.selectedCustomBrush // Use raw format (matches BrushControls/MiniCanvas)
       : `standard_${tools.brushSettings.brushShape}`;
     
-    console.log('useBrushEngine: isCustomBrush:', isCustomBrush, 'currentBrushId:', currentBrushId);
-    console.log('useBrushEngine: currentBrushTip exists:', !!tools.brushSettings.currentBrushTip);
-    console.log('useBrushEngine: selectedCustomBrush:', tools.brushSettings.selectedCustomBrush);
     
     // Check if there's a currentBrushTip for this specific brush
     // CRITICAL FIX: For custom brushes, always use currentBrushTip if available, regardless of ID
     // This ensures custom brushes loaded from project work correctly
     if (isCustomBrush && tools.brushSettings.currentBrushTip) {
-      console.log('Using currentBrushTip for custom brush');
       // Create a temporary custom brush from the current brush tip
       const imageData = tools.brushSettings.currentBrushTip.imageData;
       
@@ -2035,16 +2031,13 @@ export const useBrushEngine = () => {
         createdAt: Date.now()
       };
     } else if (isCustomBrush && tools.brushSettings.selectedCustomBrush) {
-      console.log('Looking for custom brush in temporaryCustomBrush or project.customBrushes');
       
       // Check temporary custom brush first
       if (temporaryCustomBrush && temporaryCustomBrush.id === tools.brushSettings.selectedCustomBrush) {
-        console.log('Found in temporaryCustomBrush');
         customBrush = temporaryCustomBrush;
       } else if (project) {
         // Check project custom brushes
         customBrush = project.customBrushes.find(b => b.id === tools.brushSettings.selectedCustomBrush);
-        console.log('Found in project.customBrushes:', !!customBrush);
       }
     }
     

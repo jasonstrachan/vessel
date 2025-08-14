@@ -142,13 +142,13 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current) return;
     
-    // Get the parent container rect (not affected by transform)
-    const containerRect = canvasRef.current.parentElement?.parentElement?.getBoundingClientRect();
-    if (!containerRect) return;
+    // Get the canvas bounding rect
+    const canvasRect = canvasRef.current.getBoundingClientRect();
     
-    // Calculate position relative to canvas origin, accounting for pan and zoom
-    const x = ((e.clientX - containerRect.left) - pan.x) / zoom;
-    const y = ((e.clientY - containerRect.top) - pan.y) / zoom;
+    // Calculate position relative to the canvas element itself
+    // Since the canvas is transformed, we need to account for that
+    const x = (e.clientX - canvasRect.left) * (canvasRef.current.width / canvasRect.width);
+    const y = (e.clientY - canvasRect.top) * (canvasRef.current.height / canvasRect.height);
     
     // Handle spacebar panning
     if (spacePressed || currentTool === 'pan') {
@@ -191,12 +191,21 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     const tempCtx = tempCanvas.getContext('2d');
     if (!tempCtx) return;
     
-    // Copy original pixels to temp canvas
+    // First, create a canvas with the original pixels to use as an image source
     if (originalBrushPixels) {
-      tempCtx.putImageData(originalBrushPixels, 0, 0);
+      const sourceCanvas = document.createElement('canvas');
+      sourceCanvas.width = originalBrushPixels.width;
+      sourceCanvas.height = originalBrushPixels.height;
+      const sourceCtx = sourceCanvas.getContext('2d');
+      if (sourceCtx) {
+        sourceCtx.putImageData(originalBrushPixels, 0, 0);
+        // Draw the original image using drawImage (preserves compositing)
+        tempCtx.drawImage(sourceCanvas, 0, 0);
+      }
     }
     
-    // Draw with brush size on temp canvas
+    // Draw new stroke on top
+    tempCtx.globalCompositeOperation = 'source-over';
     tempCtx.fillStyle = brushColor;
     const halfSize = brushSize / 2;
     tempCtx.beginPath();
@@ -206,7 +215,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     // Update original brush pixels
     const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
     setOriginalBrushPixels(imageData);
-  }, [brushColor, brushSize, currentTool, zoom, pan, spacePressed, originalBrushPixels]);
+  }, [brushColor, brushSize, currentTool, spacePressed, originalBrushPixels]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current) return;
@@ -222,13 +231,13 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     
     if (!isDrawing || !lastPoint) return;
     
-    // Get the parent container rect (not affected by transform)
-    const containerRect = canvasRef.current.parentElement?.parentElement?.getBoundingClientRect();
-    if (!containerRect) return;
+    // Get the canvas bounding rect
+    const canvasRect = canvasRef.current.getBoundingClientRect();
     
-    // Calculate position relative to canvas origin, accounting for pan and zoom
-    const x = ((e.clientX - containerRect.left) - pan.x) / zoom;
-    const y = ((e.clientY - containerRect.top) - pan.y) / zoom;
+    // Calculate position relative to the canvas element itself
+    // Since the canvas is transformed, we need to account for that
+    const x = (e.clientX - canvasRect.left) * (canvasRef.current.width / canvasRect.width);
+    const y = (e.clientY - canvasRect.top) * (canvasRef.current.height / canvasRect.height);
     
     // Draw on a temporary canvas to maintain original pixels
     const tempCanvas = document.createElement('canvas');
@@ -237,15 +246,25 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     const tempCtx = tempCanvas.getContext('2d');
     if (!tempCtx) return;
     
-    // Copy original pixels to temp canvas
+    // First, create a canvas with the original pixels to use as an image source
     if (originalBrushPixels) {
-      tempCtx.putImageData(originalBrushPixels, 0, 0);
+      const sourceCanvas = document.createElement('canvas');
+      sourceCanvas.width = originalBrushPixels.width;
+      sourceCanvas.height = originalBrushPixels.height;
+      const sourceCtx = sourceCanvas.getContext('2d');
+      if (sourceCtx) {
+        sourceCtx.putImageData(originalBrushPixels, 0, 0);
+        // Draw the original image using drawImage (preserves compositing)
+        tempCtx.drawImage(sourceCanvas, 0, 0);
+      }
     }
     
-    // Draw a line from last point to current point with brush size
+    // Draw new stroke on top
+    tempCtx.globalCompositeOperation = 'source-over';
     tempCtx.strokeStyle = brushColor;
     tempCtx.lineWidth = brushSize;
     tempCtx.lineCap = 'round';
+    tempCtx.lineJoin = 'round';
     tempCtx.beginPath();
     tempCtx.moveTo(lastPoint.x, lastPoint.y);
     tempCtx.lineTo(x, y);
@@ -256,7 +275,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     // Update original brush pixels
     const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
     setOriginalBrushPixels(imageData);
-  }, [isDrawing, isPanning, lastPoint, lastPanPoint, brushColor, brushSize, zoom, pan, originalBrushPixels]);
+  }, [isDrawing, isPanning, lastPoint, lastPanPoint, brushColor, brushSize, originalBrushPixels]);
 
   const handlePointerUp = useCallback(() => {
     setIsDrawing(false);
