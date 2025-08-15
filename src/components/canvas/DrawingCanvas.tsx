@@ -471,7 +471,15 @@ const DrawingCanvas = () => {
     event.preventDefault();
     
     const mousePos = getMousePos(event);
-    const worldPos = panAndZoom.screenToWorld(mousePos.x, mousePos.y);
+    let worldPos = panAndZoom.screenToWorld(mousePos.x, mousePos.y);
+    
+    // Clamp world position to canvas bounds
+    if (project) {
+      worldPos = {
+        x: Math.max(0, Math.min(project.width - 1, worldPos.x)),
+        y: Math.max(0, Math.min(project.height - 1, worldPos.y))
+      };
+    }
     
     
     // Handle panning - check isTemporaryPanMode instead of keyboard.isSpacePressed
@@ -642,16 +650,24 @@ const DrawingCanvas = () => {
         return;
       }
       
-      // Normal brush
+      // Normal brush or shape mode
       interaction.dispatch({ type: 'DRAWING_START' });
-      drawingHandlers.startDrawing(worldPos);
+      drawingHandlers.startShapeDrawing(worldPos);
     }
   }, [getMousePos, panAndZoom, interaction, tools.currentTool, toolStateMachine, 
-      setSelectionBounds, drawingHandlers, floatingPaste]);
+      setSelectionBounds, drawingHandlers, floatingPaste, project]);
   
   const handleMouseMove = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
     const currentMousePos = getMousePos(event);
-    const worldPos = panAndZoom.screenToWorld(currentMousePos.x, currentMousePos.y);
+    let worldPos = panAndZoom.screenToWorld(currentMousePos.x, currentMousePos.y);
+    
+    // Clamp world position to canvas bounds to prevent edge drawing artifacts
+    if (project) {
+      worldPos = {
+        x: Math.max(0, Math.min(project.width - 1, worldPos.x)),
+        y: Math.max(0, Math.min(project.height - 1, worldPos.y))
+      };
+    }
     
     // Update mouse position for cursor
     setMousePosition({ x: event.clientX, y: event.clientY });
@@ -980,11 +996,89 @@ const DrawingCanvas = () => {
         return;
       }
       
-      // Normal brush
-      drawingHandlers.continueDrawing(worldPos);
+      // Normal brush or shape mode
+      drawingHandlers.continueShapeDrawing(worldPos);
+      
+      // Draw shape preview if in shape mode
+      if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current && drawingHandlers.shapePointsRef.current.length > 0) {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d');
+        if (ctx) {
+          draw(ctx, panAndZoom.viewTransformRef.current);
+          
+          // Draw preview of the shape
+          ctx.save();
+          ctx.translate(panAndZoom.viewTransformRef.current.offsetX, panAndZoom.viewTransformRef.current.offsetY);
+          ctx.scale(panAndZoom.viewTransformRef.current.scale, panAndZoom.viewTransformRef.current.scale);
+          
+          // Set up preview style with actual brush settings
+          ctx.globalAlpha = tools.brushSettings.opacity; // Full opacity as requested
+          ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
+          
+          // Create the path
+          ctx.beginPath();
+          const points = drawingHandlers.shapePointsRef.current;
+          ctx.moveTo(points[0].x, points[0].y);
+          for (let i = 1; i < points.length; i++) {
+            ctx.lineTo(points[i].x, points[i].y);
+          }
+          // Connect to current mouse position
+          ctx.lineTo(worldPos.x, worldPos.y);
+          ctx.closePath();
+          
+          // Fill with color or pattern based on brush type
+          if (tools.brushSettings.brushShape === BrushShape.CUSTOM && 
+              tools.brushSettings.selectedCustomBrush && 
+              tools.brushSettings.currentBrushTip) {
+            // Create tiled pattern for custom brush
+            const patternCanvas = document.createElement('canvas');
+            const brushTip = tools.brushSettings.currentBrushTip;
+            const brushWidth = brushTip.width || 32;
+            const brushHeight = brushTip.height || 32;
+            const scaledSize = (tools.brushSettings.size / 100) * Math.max(brushWidth, brushHeight);
+            
+            patternCanvas.width = scaledSize;
+            patternCanvas.height = scaledSize;
+            const patternCtx = patternCanvas.getContext('2d');
+            
+            if (patternCtx) {
+              // Create temp canvas for the brush tip
+              const tipCanvas = document.createElement('canvas');
+              tipCanvas.width = brushWidth;
+              tipCanvas.height = brushHeight;
+              const tipCtx = tipCanvas.getContext('2d');
+              
+              if (tipCtx) {
+                tipCtx.putImageData(brushTip.imageData, 0, 0);
+                
+                // Scale and draw to pattern canvas
+                patternCtx.drawImage(tipCanvas, 0, 0, scaledSize, scaledSize);
+                
+                // Create pattern and fill
+                const pattern = ctx.createPattern(patternCanvas, 'repeat');
+                if (pattern) {
+                  ctx.fillStyle = pattern;
+                  ctx.fill();
+                }
+              }
+            }
+          } else {
+            // Fill with solid color for regular brushes
+            ctx.fillStyle = tools.brushSettings.color;
+            ctx.fill();
+          }
+          
+          // Draw outline
+          ctx.strokeStyle = tools.brushSettings.color;
+          ctx.lineWidth = Math.max(1, tools.brushSettings.size) / panAndZoom.viewTransformRef.current.scale;
+          ctx.stroke();
+          
+          ctx.restore();
+        }
+      }
     }
   }, [getMousePos, panAndZoom, interaction, toolStateMachine, setSelectionBounds, 
-      draw, drawingHandlers, isDraggingFloatingPaste, floatingPaste, updateFloatingPastePosition]);
+      draw, drawingHandlers, isDraggingFloatingPaste, floatingPaste, updateFloatingPastePosition, project]);
   
   const handleMouseUp = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
     // Handle floating paste drag end
@@ -1021,7 +1115,15 @@ const DrawingCanvas = () => {
     if (interaction.state.isSelecting) {
       interaction.dispatch({ type: 'SELECTION_END' });
       const mousePos = getMousePos(event);
-      const worldPos = panAndZoom.screenToWorld(mousePos.x, mousePos.y);
+      let worldPos = panAndZoom.screenToWorld(mousePos.x, mousePos.y);
+      
+      // Clamp world position to canvas bounds
+      if (project) {
+        worldPos = {
+          x: Math.max(0, Math.min(project.width - 1, worldPos.x)),
+          y: Math.max(0, Math.min(project.height - 1, worldPos.y))
+        };
+      }
       if (interaction.refs.selectionStart.current) {
         setSelectionBounds(interaction.refs.selectionStart.current, worldPos);
         if (tools.currentTool === 'custom') {
@@ -1077,12 +1179,12 @@ const DrawingCanvas = () => {
         return;
       }
       
-      // Normal brush
+      // Normal brush or shape mode
       interaction.dispatch({ type: 'DRAWING_END' });
-      drawingHandlers.finalizeDrawing();
+      drawingHandlers.finalizeShapeDrawing();
     }
   }, [interaction, panAndZoom, getMousePos, setSelectionBounds, tools.currentTool, 
-      setCurrentTool, clearSelection, toolStateMachine, drawingHandlers, isDraggingFloatingPaste]);
+      setCurrentTool, clearSelection, toolStateMachine, drawingHandlers, isDraggingFloatingPaste, project]);
   
   const handleMouseLeave = useCallback(() => {
     setShowBrushCursor(false);
@@ -1098,9 +1200,18 @@ const DrawingCanvas = () => {
       panAndZoom.finalizePan();
     }
     
-    // Don't stop drawing on mouse leave - let user continue drawing when re-entering
-    // The clipping region in useDrawingHandlers prevents edge artifacts
-  }, [interaction, panAndZoom]);
+    // If the user is drawing, finalize the stroke when they leave the canvas
+    if (interaction.state.isDrawing) {
+      interaction.dispatch({ type: 'DRAWING_END' });
+      
+      // Check if we're in shape mode or regular drawing mode
+      if (drawingHandlers.isDrawingShapeRef && drawingHandlers.isDrawingShapeRef.current) {
+        drawingHandlers.finalizeShapeDrawing();
+      } else {
+        drawingHandlers.finalizeDrawing();
+      }
+    }
+  }, [interaction, panAndZoom, drawingHandlers]);
   
   // Effects
   

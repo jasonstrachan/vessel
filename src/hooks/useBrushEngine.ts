@@ -1346,17 +1346,23 @@ export const useBrushEngine = () => {
       const centerX = Math.floor(x);
       const centerY = Math.floor(y);
       
-      try {
-        const imageData = ctx.getImageData(centerX, centerY, 1, 1);
-        const alpha = imageData.data[3]; // Alpha channel
-        
-        // If transparency lock is enabled and pixel is fully transparent, skip drawing
-        if (alpha === 0) {
-          if (tempCanvas) canvasPool.release(tempCanvas);
-          return;
+      // Ensure coordinates are within canvas bounds before getImageData
+      const canvasWidth = ctx.canvas.width;
+      const canvasHeight = ctx.canvas.height;
+      
+      if (centerX >= 0 && centerX < canvasWidth && centerY >= 0 && centerY < canvasHeight) {
+        try {
+          const imageData = ctx.getImageData(centerX, centerY, 1, 1);
+          const alpha = imageData.data[3]; // Alpha channel
+          
+          // If transparency lock is enabled and pixel is fully transparent, skip drawing
+          if (alpha === 0) {
+            if (tempCanvas) canvasPool.release(tempCanvas);
+            return;
+          }
+        } catch {
+          // If we can't read the pixel data, allow drawing
         }
-      } catch {
-        // If we can't read the pixel data, allow drawing
       }
     }
     
@@ -2868,8 +2874,22 @@ export const useBrushEngine = () => {
           corners.slice(1).forEach(corner => tempCtx.lineTo(corner.x - minX, corner.y - minY));
           tempCtx.closePath();
           
-          // Get the current gradient image data
-          const imageData = ctx.getImageData(minX, minY, boundWidth, boundHeight);
+          // Get the current gradient image data with bounds checking
+          const canvasWidth = ctx.canvas.width;
+          const canvasHeight = ctx.canvas.height;
+          const safeMinX = Math.max(0, minX);
+          const safeMinY = Math.max(0, minY);
+          const safeMaxX = Math.min(canvasWidth, minX + boundWidth);
+          const safeMaxY = Math.min(canvasHeight, minY + boundHeight);
+          const safeBoundWidth = safeMaxX - safeMinX;
+          const safeBoundHeight = safeMaxY - safeMinY;
+          
+          if (safeBoundWidth <= 0 || safeBoundHeight <= 0) {
+            canvasPool.release(tempCanvas);
+            return;
+          }
+          
+          const imageData = ctx.getImageData(safeMinX, safeMinY, safeBoundWidth, safeBoundHeight);
           const data = imageData.data;
           
           // Create fine-grain dither pattern
@@ -2899,7 +2919,7 @@ export const useBrushEngine = () => {
           }
           
           // Put the modified image data back
-          ctx.putImageData(imageData, minX, minY);
+          ctx.putImageData(imageData, safeMinX, safeMinY);
           
           // Release the temporary canvas
           canvasPool.release(tempCanvas);
@@ -3330,8 +3350,22 @@ export const useBrushEngine = () => {
           }
           tempCtx.closePath();
           
-          // Get the current gradient image data
-          const imageData = ctx.getImageData(minX, minY, boundWidth, boundHeight);
+          // Get the current gradient image data with bounds checking
+          const canvasWidth = ctx.canvas.width;
+          const canvasHeight = ctx.canvas.height;
+          const safeMinX = Math.max(0, minX);
+          const safeMinY = Math.max(0, minY);
+          const safeMaxX = Math.min(canvasWidth, minX + boundWidth);
+          const safeMaxY = Math.min(canvasHeight, minY + boundHeight);
+          const safeBoundWidth = safeMaxX - safeMinX;
+          const safeBoundHeight = safeMaxY - safeMinY;
+          
+          if (safeBoundWidth <= 0 || safeBoundHeight <= 0) {
+            canvasPool.release(tempCanvas);
+            return;
+          }
+          
+          const imageData = ctx.getImageData(safeMinX, safeMinY, safeBoundWidth, safeBoundHeight);
           const data = imageData.data;
           
           // Create fine-grain dither pattern
@@ -3361,7 +3395,7 @@ export const useBrushEngine = () => {
           }
           
           // Put the modified image data back
-          ctx.putImageData(imageData, minX, minY);
+          ctx.putImageData(imageData, safeMinX, safeMinY);
           
           // Release the temporary canvas
           canvasPool.release(tempCanvas);

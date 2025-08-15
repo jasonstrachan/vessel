@@ -1997,13 +1997,7 @@ export const useAppStore = create<AppState>()(
       undo: () => {
         const state = get();
         
-        console.log('🔙 STORE UNDO: Starting with stacks:', {
-          undoStackSize: state.history.undoStack.length,
-          redoStackSize: state.history.redoStack.length
-        });
-        
         if (state.history.undoStack.length === 0) {
-          console.log('🔙 STORE UNDO: Not enough history to undo');
           return null; // Can't undo if stack is empty
         }
         
@@ -2012,19 +2006,11 @@ export const useAppStore = create<AppState>()(
         
         // If there's only one state, we can't undo further but we should handle it gracefully
         if (state.history.undoStack.length === 1) {
-          console.log('🔙 STORE UNDO: At initial state, cannot undo further');
           return null;
         }
         
         // Previous state is what we want to restore to
         const previousState = state.history.undoStack[state.history.undoStack.length - 2];
-        
-        console.log('🔙 STORE UNDO: Moving state:', {
-          currentStateDesc: currentState.description,
-          previousStateDesc: previousState.description,
-          previousStateLayers: previousState.layers?.length,
-          previousStateActiveLayer: previousState.activeLayerId
-        });
         
         const newUndoStack = state.history.undoStack.slice(0, -1); // Remove current state
         const newRedoStack = [currentState, ...state.history.redoStack]; // Add current to redo stack

@@ -19,6 +19,8 @@ const BrushControls = () => {
   const eraserSettings = useAppStore(state => state.tools.eraserSettings);
   const currentTool = useAppStore(state => state.tools.currentTool);
   const globalBrushSize = useAppStore(state => state.globalBrushSize);
+  const shapeMode = useAppStore(state => state.tools.shapeMode);
+  const setShapeMode = useAppStore(state => state.setShapeMode);
 
   // Determine if current brush is custom (uses percentage) or default (uses pixels)
   const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
@@ -272,20 +274,20 @@ const BrushControls = () => {
         </div>
       </div>
 
-      {/* Shape */}
+      {/* Shape Mode - Draw closed polygon shapes */}
       <div className="mb-2">
         <div className="flex items-center gap-2">
           <label
-            htmlFor="shape-enabled"
+            htmlFor="shape-mode"
             className="text-[#D9D9D9] w-16"
             style={{ fontSize: "14px" }}
           >
             Shape
           </label>
           <CustomSwitch
-            id="shape-enabled"
-            checked={activeSettings.shapeEnabled || false}
-            onChange={(checked) => setActiveSettings({ shapeEnabled: checked })}
+            id="shape-mode"
+            checked={shapeMode || false}
+            onChange={(checked) => setShapeMode(checked)}
           />
         </div>
       </div>

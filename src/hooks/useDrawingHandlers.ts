@@ -18,7 +18,7 @@ export function useDrawingHandlers({
   canvasRef,
 }: UseDrawingHandlersProps) {
   const brushEngine = useBrushEngine();
-  const { activeBrushComponents, layers, activeLayerId, captureCanvasToActiveLayer, saveCanvasState } = useAppStore();
+  const { activeBrushComponents, layers, activeLayerId, captureCanvasToActiveLayer, saveCanvasState, tools } = useAppStore();
   
   // Drawing canvas ref
   const drawingCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -26,6 +26,10 @@ export function useDrawingHandlers({
   const isCapturing = useRef(false);
   const lastDrawPosRef = useRef<{ x: number; y: number } | null>(null);
   const drawAnimationFrameRef = useRef<number | null>(null);
+  
+  // Shape mode state
+  const shapePointsRef = useRef<Array<{ x: number; y: number }>>([]);
+  const isDrawingShapeRef = useRef(false);
   
   // Initialize drawing canvas
   const initDrawingCanvas = useCallback(() => {
@@ -207,6 +211,123 @@ export function useDrawingHandlers({
     lastDrawPosRef.current = null;
   }, []);
   
+  // Shape mode functions
+  const startShapeDrawing = useCallback((worldPos: { x: number; y: number }) => {
+    if (tools.shapeMode) {
+      initDrawingCanvas();
+      shapePointsRef.current = [worldPos];
+      isDrawingShapeRef.current = true;
+    } else {
+      // Regular drawing
+      startDrawing(worldPos);
+    }
+  }, [tools.shapeMode, initDrawingCanvas, startDrawing]);
+  
+  const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }) => {
+    if (tools.shapeMode && isDrawingShapeRef.current) {
+      // Add points to shape with minimum distance check
+      const lastPoint = shapePointsRef.current[shapePointsRef.current.length - 1];
+      if (lastPoint) {
+        const distance = Math.hypot(worldPos.x - lastPoint.x, worldPos.y - lastPoint.y);
+        if (distance >= 5) { // Minimum spacing between points
+          shapePointsRef.current.push(worldPos);
+        }
+      }
+    } else if (!tools.shapeMode) {
+      // Regular drawing
+      continueDrawing(worldPos);
+    }
+  }, [tools.shapeMode, continueDrawing]);
+  
+  const finalizeShapeDrawing = useCallback(() => {
+    if (tools.shapeMode && isDrawingShapeRef.current && shapePointsRef.current.length >= 3) {
+      // Draw closed polygon with current brush
+      const drawCtx = drawingCanvasRef.current?.getContext('2d');
+      if (drawCtx && brushEngine) {
+        drawCtx.save();
+        
+        // Disable antialiasing for pixel brushes
+        const isPixelBrush = tools.brushSettings.brushShape === 'pixel_round' || 
+                            tools.brushSettings.brushShape === 'square' ||
+                            !tools.brushSettings.antiAliasing;
+        drawCtx.imageSmoothingEnabled = !isPixelBrush;
+        
+        drawCtx.globalAlpha = tools.brushSettings.opacity;
+        drawCtx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
+        
+        // Create path for the polygon
+        drawCtx.beginPath();
+        drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
+        for (let i = 1; i < shapePointsRef.current.length; i++) {
+          drawCtx.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
+        }
+        drawCtx.closePath();
+        
+        // Fill with appropriate style based on brush type
+        if (tools.brushSettings.brushShape === 'custom' && tools.brushSettings.selectedCustomBrush && tools.brushSettings.currentBrushTip) {
+          // Create a pattern from the custom brush
+          const patternCanvas = document.createElement('canvas');
+          const brushTip = tools.brushSettings.currentBrushTip;
+          const brushWidth = brushTip.width || 32;
+          const brushHeight = brushTip.height || 32;
+          const scaledSize = (tools.brushSettings.size / 100) * Math.max(brushWidth, brushHeight);
+          
+          patternCanvas.width = scaledSize;
+          patternCanvas.height = scaledSize;
+          const patternCtx = patternCanvas.getContext('2d');
+          
+          if (patternCtx) {
+            // Create temp canvas for the brush tip
+            const tipCanvas = document.createElement('canvas');
+            tipCanvas.width = brushWidth;
+            tipCanvas.height = brushHeight;
+            const tipCtx = tipCanvas.getContext('2d');
+            
+            if (tipCtx) {
+              tipCtx.putImageData(brushTip.imageData, 0, 0);
+              
+              // Scale and draw to pattern canvas
+              patternCtx.drawImage(tipCanvas, 0, 0, scaledSize, scaledSize);
+              
+              // Create pattern and fill the polygon
+              const pattern = drawCtx.createPattern(patternCanvas, 'repeat');
+              if (pattern) {
+                drawCtx.fillStyle = pattern;
+                drawCtx.fill();
+              }
+            }
+          }
+        } else {
+          // Solid fill for regular brushes
+          drawCtx.fillStyle = tools.brushSettings.color;
+          drawCtx.fill();
+        }
+        
+        // Draw outline with current brush settings
+        drawCtx.strokeStyle = tools.brushSettings.color;
+        drawCtx.lineWidth = Math.max(1, tools.brushSettings.size);
+        drawCtx.stroke();
+        
+        drawCtx.restore();
+        drawingCanvasHasContent.current = true;
+      }
+      
+      // Reset shape state
+      shapePointsRef.current = [];
+      isDrawingShapeRef.current = false;
+      
+      // Finalize to layer
+      finalizeDrawing();
+    } else if (!tools.shapeMode) {
+      // Regular finalize
+      finalizeDrawing();
+    } else if (tools.shapeMode && isDrawingShapeRef.current) {
+      // Not enough points for a shape, clear
+      shapePointsRef.current = [];
+      isDrawingShapeRef.current = false;
+    }
+  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing]);
+  
   return {
     drawingCanvasRef,
     drawingCanvasHasContent,
@@ -216,5 +337,10 @@ export function useDrawingHandlers({
     continueDrawing,
     finalizeDrawing,
     clearDrawingCanvas,
+    startShapeDrawing,
+    continueShapeDrawing,
+    finalizeShapeDrawing,
+    shapePointsRef,
+    isDrawingShapeRef,
   };
 }

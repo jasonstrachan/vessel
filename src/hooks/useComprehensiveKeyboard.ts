@@ -61,17 +61,6 @@ export function useComprehensiveKeyboard({
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
     if (!enabled) return;
 
-    // Debug logging for ALL Ctrl/Cmd keys
-    if (event.ctrlKey || event.metaKey) {
-      console.log('🔑 Ctrl/Cmd key detected:', {
-        key: event.key,
-        code: event.code,
-        shiftKey: event.shiftKey,
-        ctrlKey: event.ctrlKey,
-        metaKey: event.metaKey,
-        repeat: event.repeat
-      });
-    }
 
     // Update modifier states
     keyboardStateRef.current.isShiftPressed = event.shiftKey;
@@ -82,7 +71,6 @@ export function useComprehensiveKeyboard({
     // Handle Undo (Ctrl/Cmd + Z) - must come before general key tracking
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.shiftKey) {
       event.preventDefault();
-      console.log('🔙 Undo triggered from useComprehensiveKeyboard');
       onUndo?.();
       return;
     }
