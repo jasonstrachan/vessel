@@ -1660,16 +1660,59 @@ export const useBrushEngine = () => {
     const isInkBrush = params.pressureInfluence >= 100;
     
     if (isInkBrush) {
-      // For ink brush: use velocity-based sizing
-      // Low velocity (slow drawing) = thicker strokes (up to 150% of base size)
-      // High velocity (fast drawing) = thinner strokes (down to 50% of base size)
-      const maxVelocity = 500; // pixels per frame - adjust based on testing
-      const normalizedVelocity = Math.min(input.velocity / maxVelocity, 1.0);
+      // For ink brush: use velocity-based sizing with ink blob effects
       
-      // Invert velocity: slow = thick, fast = thin
-      // At velocity 0: size multiplier = 1.5 (150%)
-      // At max velocity: size multiplier = 0.5 (50%)
-      const sizeMultiplier = 1.5 - (normalizedVelocity * 1.0);
+      // Get smoothed velocity for more natural transitions
+      const smoothedVelocity = calculateSmoothedVelocity(input.velocity);
+      
+      // Check stroke state for blob effects
+      const currentTime = Date.now();
+      const timeSinceStart = currentTime - strokeStartTimeRef.current;
+      
+      // Detect stroke start (first few milliseconds)
+      if (strokeStateRef.current === 'idle') {
+        strokeStateRef.current = 'starting';
+        strokeStartTimeRef.current = currentTime;
+      }
+      
+      // Calculate base size from velocity
+      const maxVelocity = 20; // pixels per frame - VERY low so even slight movement triggers thinning
+      const normalizedVelocity = Math.min(smoothedVelocity / maxVelocity, 1.0);
+      
+      // Apply an aggressive exponential curve to make thinning happen VERY early
+      // This makes the transition from thick to thin happen almost immediately
+      const curvedVelocity = Math.pow(normalizedVelocity, 0.15); // Very aggressive curve - even tiny movement = thin
+      
+      // More dramatic velocity effect
+      // Slow drawing (velocity near 0): thick strokes (up to 2x size)
+      // Fast drawing (high velocity): VERY thin strokes (down to 0.1x size)
+      const minMultiplier = 0.1;  // Fast = 10% of base size (very thin!)
+      const maxMultiplier = 2.0;  // Slow = 200% of base size
+      
+      // Invert velocity: slow = thick, fast = thin (using curved velocity)
+      let sizeMultiplier = maxMultiplier - (curvedVelocity * (maxMultiplier - minMultiplier));
+      
+      // Add ink blob at stroke start (first 150ms)
+      if (strokeStateRef.current === 'starting' && timeSinceStart < 150) {
+        // Start with a blob that quickly reduces
+        const blobFactor = 1.0 - (timeSinceStart / 150); // 1.0 to 0.0 over 150ms
+        sizeMultiplier += blobFactor * 1.0; // Add up to 100% extra size for initial blob
+        
+        if (timeSinceStart >= 150) {
+          strokeStateRef.current = 'drawing';
+        }
+      }
+      
+      // When completely stopped, use similar blob size
+      if (strokeStateRef.current === 'drawing' && smoothedVelocity < 2) {
+        // When stopped or nearly stopped, add blob effect
+        sizeMultiplier = 3.0; // Consistent blob size when stopped
+      }
+      
+      // Add more randomness for natural ink feel
+      const jitter = (Math.random() - 0.5) * 0.4; // ±20% random variation for sketchy effect
+      sizeMultiplier += jitter;
+      
       const modifiedSize = baseSize * sizeMultiplier;
       
       // Apply min/max constraints
@@ -1691,7 +1734,7 @@ export const useBrushEngine = () => {
         Math.min(params.maxSize || 1000, modifiedSize)
       );
     }
-  }, []);
+  }, [calculateSmoothedVelocity]);
   
   const calculateOpacityModification = useCallback((
     component: BrushComponent,
@@ -1799,9 +1842,12 @@ export const useBrushEngine = () => {
     const { brushSettings, eraserSettings, currentTool } = tools;
     const activeSettings = currentTool === 'eraser' ? eraserSettings : brushSettings;
     
-    // Apply pressure-based size modification if enabled
+    // Check if this is the ink brush (will use velocity instead of pressure)
+    const isInkBrush = activeSettings.selectedBrushPreset === 'ink-brush';
+    
+    // Apply pressure-based size modification if enabled (but not for ink brush)
     let finalSize = activeSettings.size;
-    if (activeSettings.pressureEnabled) {
+    if (activeSettings.pressureEnabled && !isInkBrush) {
       // Map pressure (0.0-1.0) to size range based on maxPressure setting
       // maxPressure directly sets the max pixel size at full pressure
       const minSizePx = activeSettings.minPressure || 1;
@@ -1874,6 +1920,11 @@ export const useBrushEngine = () => {
     // Reset direction history for rotation
     directionHistoryRef.current = [];
     lastDirectionRef.current = 0;
+    
+    // Reset velocity and stroke state for ink brush
+    velocityHistoryRef.current = [];
+    strokeStateRef.current = 'idle';
+    strokeStartTimeRef.current = 0;
     
     // Mark stroke as inactive and trigger memory cleanup
     brushCache.markStrokeInactive();
@@ -2237,6 +2288,26 @@ export const useBrushEngine = () => {
   ) => {
     // Mark stroke as active for cache retention
     brushCache.markStrokeActive();
+
+    // --- START PROPOSED FIX ---
+    const queue = pixelQueueRef.current;
+    // The distance between the start of this segment (`from`) and the engine's last known drawing position.
+    const jumpDistance = Math.hypot(
+      from.x - (queue.lastStrokePosition.x || from.x),
+      from.y - (queue.lastStrokePosition.y || from.y)
+    );
+
+    // A "jump" occurs if this is the first point of a stroke OR if the start
+    // of this new line segment is not contiguous with the end of the last one.
+    // This happens when drawing off-canvas and re-entering.
+    // We reset the engine's internal position tracker to prevent it from drawing
+    // a line connecting the old exit point to the new entry point.
+    if (!queue.initialized || jumpDistance > 2.0) {
+      queue.lastStrokePosition = { x: from.x, y: from.y };
+      queue.accumulatedDistance = 0;
+      queue.initialized = true;
+    }
+    // --- END PROPOSED FIX ---
     
     // Performance monitoring for brush strokes
     const strokeStartTime = process.env.NODE_ENV === 'development' ? performance.now() : 0;
@@ -2511,7 +2582,7 @@ export const useBrushEngine = () => {
     }
     
     // Initialize distance tracking state if needed
-    const queue = pixelQueueRef.current;
+    // (queue already declared at the top of the function)
     if (!queue.initialized) {
       queue.lastStrokePosition = { x: snappedFrom.x, y: snappedFrom.y };
       queue.accumulatedDistance = 0;

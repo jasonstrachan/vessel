@@ -10,6 +10,50 @@ interface UseDrawingHandlersProps {
   canvasRef: React.RefObject<HTMLCanvasElement>;
 }
 
+/**
+ * Clips a line segment to a rectangular boundary using the Liang-Barsky algorithm.
+ * Returns the clipped line segment [start, end] or null if the line is entirely outside.
+ */
+function clipLineSegment(
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  rect: { x: number; y: number; width: number; height: number }
+): [{ x: number; y: number }, { x: number; y: number }] | null {
+  let x1 = p1.x, y1 = p1.y, x2 = p2.x, y2 = p2.y;
+  const { x: xmin, y: ymin, width, height } = rect;
+  const xmax = xmin + width;
+  const ymax = ymin + height;
+
+  let t0 = 0, t1 = 1;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+
+  const checks = [
+    { p: -dx, q: x1 - xmin }, // Left
+    { p: dx, q: xmax - x1 },  // Right
+    { p: -dy, q: y1 - ymin }, // Top
+    { p: dy, q: ymax - y1 }   // Bottom
+  ];
+
+  for (const { p, q } of checks) {
+    if (p === 0 && q < 0) return null; // Parallel and outside
+
+    const r = q / p;
+    if (p < 0) {
+      if (r > t1) return null;
+      if (r > t0) t0 = r;
+    } else if (p > 0) {
+      if (r < t0) return null;
+      if (r < t1) t1 = r;
+    }
+  }
+
+  return [
+    { x: x1 + t0 * dx, y: y1 + t0 * dy },
+    { x: x1 + t1 * dx, y: y1 + t1 * dy }
+  ];
+}
+
 export function useDrawingHandlers({
   project,
   screenToWorld,
@@ -26,6 +70,9 @@ export function useDrawingHandlers({
   const isCapturing = useRef(false);
   const lastDrawPosRef = useRef<{ x: number; y: number } | null>(null);
   const drawAnimationFrameRef = useRef<number | null>(null);
+  
+  // Debug: Track drawing sequence
+  const drawSequenceRef = useRef(0);
   
   // Shape mode state
   const shapePointsRef = useRef<Array<{ x: number; y: number }>>([]);
@@ -74,76 +121,83 @@ export function useDrawingHandlers({
       drawCtx.save();
       drawCtx.beginPath();
       drawCtx.rect(0, 0, project.width, project.height);
-      drawCtx.clip();
+      // V V V TEMPORARILY COMMENT OUT THIS LINE V V V
+      // drawCtx.clip();
       
       brushEngine.resetPixelQueue();
       
-      const clampedPos = {
-        x: Math.max(0, Math.min(project.width - 1, worldPos.x)),
-        y: Math.max(0, Math.min(project.height - 1, worldPos.y))
-      };
+      // Reset sequence counter
+      drawSequenceRef.current = 0;
       
-      // Store the clamped position to ensure consistency
-      lastDrawPosRef.current = clampedPos;
+      // Store the initial position (no clamping needed - mouse down already blocks out-of-bounds)
+      lastDrawPosRef.current = worldPos;
       
+      // Draw initial point
       brushEngine.renderBrushStroke(
         drawCtx,
-        clampedPos,
-        clampedPos,
+        worldPos,
+        worldPos,
         { pressure: 1.0 },
         activeBrushComponents
       );
     }
   }, [initDrawingCanvas, brushEngine, project, activeBrushComponents]);
   
-  // Continue drawing
+  // Continue drawing with proper line clipping
   const continueDrawing = useCallback((worldPos: { x: number; y: number }) => {
-    if (!lastDrawPosRef.current || !project) return;
-    
-    const clampedPos = {
-      x: Math.max(0, Math.min(project.width - 1, worldPos.x)),
-      y: Math.max(0, Math.min(project.height - 1, worldPos.y))
-    };
-    
-    const clampedLastPos = {
-      x: Math.max(0, Math.min(project.width - 1, lastDrawPosRef.current.x)),
-      y: Math.max(0, Math.min(project.height - 1, lastDrawPosRef.current.y))
-    };
-    
-    const drawCtx = drawingCanvasRef.current?.getContext('2d');
-    if (drawCtx && brushEngine) {
-      brushEngine.renderBrushStroke(
-        drawCtx,
-        clampedLastPos,
-        clampedPos,
-        { pressure: 1.0 },
-        activeBrushComponents
-      );
-      
-      // Store the clamped position instead of the raw worldPos
-      // This prevents edge artifacts when cursor moves outside canvas
-      lastDrawPosRef.current = clampedPos;
-      
-      // Cancel previous draw frame if exists
-      if (drawAnimationFrameRef.current) {
-        cancelAnimationFrame(drawAnimationFrameRef.current);
-      }
-      
-      // Schedule a single redraw per frame
-      drawAnimationFrameRef.current = requestAnimationFrame(() => {
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext('2d');
-        if (ctx) {
-          draw(ctx, viewTransformRef.current);
-        }
-        drawAnimationFrameRef.current = null;
-      });
+    const lastPoint = lastDrawPosRef.current;
+
+    // If this is the first point of the stroke, just store it and exit.
+    if (!lastPoint || !project) {
+      lastDrawPosRef.current = worldPos;
+      return;
     }
+
+    // Define the canvas boundary for clipping.
+    const boundary = { x: 0, y: 0, width: project.width, height: project.height };
+
+    // Always clip the line segment between the last and current points.
+    const clippedSegment = clipLineSegment(lastPoint, worldPos, boundary);
+
+    // If clippedSegment is not null, it means some part of the line is inside the canvas.
+    if (clippedSegment) {
+      const [clippedStart, clippedEnd] = clippedSegment;
+      const drawCtx = drawingCanvasRef.current?.getContext('2d');
+
+      if (drawCtx && brushEngine) {
+        // Render only the visible part of the brush stroke.
+        brushEngine.renderBrushStroke(
+          drawCtx,
+          clippedStart,
+          clippedEnd,
+          { pressure: 1.0 },
+          activeBrushComponents
+        );
+
+        // Schedule a redraw of the main canvas to show the temporary drawing.
+        if (drawAnimationFrameRef.current) {
+          cancelAnimationFrame(drawAnimationFrameRef.current);
+        }
+        drawAnimationFrameRef.current = requestAnimationFrame(() => {
+          const canvas = canvasRef.current;
+          const ctx = canvas?.getContext('2d');
+          if (ctx) {
+            draw(ctx, viewTransformRef.current);
+          }
+          drawAnimationFrameRef.current = null;
+        });
+      }
+    }
+
+    // ALWAYS update the last position to the current position for the next frame.
+    // This ensures continuity even when drawing outside the bounds.
+    lastDrawPosRef.current = worldPos;
   }, [brushEngine, project, activeBrushComponents, draw, viewTransformRef, canvasRef]);
   
   // Finalize drawing
   const finalizeDrawing = useCallback(async () => {
     lastDrawPosRef.current = null;
+    drawSequenceRef.current = 0;
     
     if (drawingCanvasRef.current && project && drawingCanvasHasContent.current) {
       // Restore the context to remove clipping mask

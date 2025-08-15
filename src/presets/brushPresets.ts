@@ -358,28 +358,28 @@ export const inkBrushComponents: BrushComponent[] = [
   }
 ];
 
-// Ink Brush Preset (pressure overrides size slider)
+// Ink Brush Preset (velocity-based sizing with ink blob effects)
 export const inkBrushPreset: BrushPreset = {
   id: 'ink-brush',
   name: 'Ink',
   category: 'Artistic',
   components: inkBrushComponents,
   thumbnail: '/assets/images/Brush.png',
-  tags: ['ink', 'pressure', 'artistic', 'variable'],
+  tags: ['ink', 'velocity', 'artistic', 'variable', 'sketchy'],
   isDefault: false,
   createdAt: new Date(),
   modifiedAt: new Date(),
   preferredSettings: {
-    size: 5,
+    size: 10,  // Base size that will be modified by velocity
     antialiasing: true,
-    pressureEnabled: true,
-    minPressure: 10,
-    maxPressure: 200,
+    pressureEnabled: false,  // Turned off - ink uses velocity instead
+    minPressure: 5,  // Not used but kept for compatibility
+    maxPressure: 20,  // Not used but kept for compatibility
     rotationEnabled: true,
     dashedEnabled: false,
     gridSnapEnabled: false,
-    shapeEnabled: false
-    // Removed opacity, spacing, colorJitter - these are user preferences, not brush technical requirements
+    shapeEnabled: false,
+    spacing: 0.8  // Tighter spacing for smoother ink flow
   }
 };
 

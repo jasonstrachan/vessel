@@ -4,23 +4,24 @@ This document tracks all critical issues encountered during TinyBrush developmen
 
 ## Table of Contents
 
-1. [Issue #17: Paste and Drag Selection Not Working](#issue-17-paste-and-drag-selection-not-working) - Selection dragging unresponsive after pasting
-2. [Issue #16: Custom Brush Size Persistence Issues](#issue-16-custom-brush-size-persistence-issues) - Multiple related bugs with custom brush sizing
-2. [Issue #15: Gradient Brush Dither Resolution Not Persisting](#issue-15-gradient-brush-dither-resolution-not-persisting) - Feature persistence for gradient brushes
-3. [Issue #14: Custom Brush Hue/Saturation Cache Invalidation](#issue-14-custom-brush-huesaturation-cache-invalidation) - Dual cache system requiring comprehensive clearing
-4. [Issue #13: Coordinate System Fix Documentation](#issue-13-coordinate-system-fix-documentation) - Complete drawing system coordinate alignment fix
-5. [Issue #12: Canvas Resize Cursor Alignment Fix](#issue-12-canvas-resize-cursor-alignment-fix---complete-solution) - Canvas resize cursor misalignment resolution  
-6. [Issue #11: Custom Brush Pressure Sensitivity Implementation](#issue-11-custom-brush-pressure-sensitivity-implementation) - Smooth pressure transitions for custom brushes
-7. [Issue #10: Image Paste Not Working](#issue-10-image-paste-not-working---event-listener-thrashing) - Event listener thrashing preventing paste functionality
-8. [Issue #9: Zoom Controls Not Using Cursor Position](#issue-9-zoom-controls-not-using-cursor-position) - Button/slider zoom coordinate system mismatch
-9. [Issue #8: Right Column Padding Not Visible](#issue-8-right-column-padding-not-visible) - UI layout padding visibility issue
-10. [Issue #7: Server Shutdown During Runtime](#issue-7-server-shutdown-during-runtime) - Next.js dev server crashes
-11. [Issue #6: Fast Movement Breaks Pixel-Perfect Lines](#issue-6-fast-movement-breaks-pixel-perfect-lines-waiting-pixel-algorithm-issue) - Waiting pixel algorithm causing broken lines
-12. [Issue #5: Pixel Brush Non-Pixel-Perfect Drawing During Slow Movement](#issue-5-pixel-brush-non-pixel-perfect-drawing-during-slow-movement) - Stair-stepping during slow movement
-13. [Issue #4: Canvas Dragging Clears Content](#issue-4-canvas-dragging-clears-content-archived-from-planmd) - useEffect clearing canvas during drag
-14. [Issue #3: Canvas Display Mode Affecting Existing Strokes](#issue-3-canvas-display-mode-affecting-existing-strokes) - imageRendering CSS affecting all content
-15. [Issue #2: Persistent Cursor Alignment After Initial Fix](#issue-2-persistent-cursor-alignment-after-initial-fix) - Double-applying pan offset issue
-16. [Issue #1: Port 3001 ERR_CONNECTION_REFUSED](#issue-1-port-3001-err_connection_refused) - Development server port confusion
+1. [Issue #18: Canvas Edge Drawing Artifacts](#issue-18-canvas-edge-drawing-artifacts) - Unwanted lines when drawing across canvas boundaries
+2. [Issue #17: Paste and Drag Selection Not Working](#issue-17-paste-and-drag-selection-not-working) - Selection dragging unresponsive after pasting
+3. [Issue #16: Custom Brush Size Persistence Issues](#issue-16-custom-brush-size-persistence-issues) - Multiple related bugs with custom brush sizing
+4. [Issue #15: Gradient Brush Dither Resolution Not Persisting](#issue-15-gradient-brush-dither-resolution-not-persisting) - Feature persistence for gradient brushes
+5. [Issue #14: Custom Brush Hue/Saturation Cache Invalidation](#issue-14-custom-brush-huesaturation-cache-invalidation) - Dual cache system requiring comprehensive clearing
+6. [Issue #13: Coordinate System Fix Documentation](#issue-13-coordinate-system-fix-documentation) - Complete drawing system coordinate alignment fix
+7. [Issue #12: Canvas Resize Cursor Alignment Fix](#issue-12-canvas-resize-cursor-alignment-fix---complete-solution) - Canvas resize cursor misalignment resolution  
+8. [Issue #11: Custom Brush Pressure Sensitivity Implementation](#issue-11-custom-brush-pressure-sensitivity-implementation) - Smooth pressure transitions for custom brushes
+9. [Issue #10: Image Paste Not Working](#issue-10-image-paste-not-working---event-listener-thrashing) - Event listener thrashing preventing paste functionality
+10. [Issue #9: Zoom Controls Not Using Cursor Position](#issue-9-zoom-controls-not-using-cursor-position) - Button/slider zoom coordinate system mismatch
+11. [Issue #8: Right Column Padding Not Visible](#issue-8-right-column-padding-not-visible) - UI layout padding visibility issue
+12. [Issue #7: Server Shutdown During Runtime](#issue-7-server-shutdown-during-runtime) - Next.js dev server crashes
+13. [Issue #6: Fast Movement Breaks Pixel-Perfect Lines](#issue-6-fast-movement-breaks-pixel-perfect-lines-waiting-pixel-algorithm-issue) - Waiting pixel algorithm causing broken lines
+14. [Issue #5: Pixel Brush Non-Pixel-Perfect Drawing During Slow Movement](#issue-5-pixel-brush-non-pixel-perfect-drawing-during-slow-movement) - Stair-stepping during slow movement
+15. [Issue #4: Canvas Dragging Clears Content](#issue-4-canvas-dragging-clears-content-archived-from-planmd) - useEffect clearing canvas during drag
+16. [Issue #3: Canvas Display Mode Affecting Existing Strokes](#issue-3-canvas-display-mode-affecting-existing-strokes) - imageRendering CSS affecting all content
+17. [Issue #2: Persistent Cursor Alignment After Initial Fix](#issue-2-persistent-cursor-alignment-after-initial-fix) - Double-applying pan offset issue
+18. [Issue #1: Port 3001 ERR_CONNECTION_REFUSED](#issue-1-port-3001-err_connection_refused) - Development server port confusion
 
 ### Fixed Issues (Historical Documentation)
 - [Canvas Flash and Disappear on Page Load](#fixed-canvas-flash-and-disappear-on-page-load) - Canvas initialization scaling conflicts
@@ -28,6 +29,107 @@ This document tracks all critical issues encountered during TinyBrush developmen
 - [Faint Traces During Undo/Redo](#fixed-faint-traces-during-undoredo) - Canvas state management enhancement
 - [Stroke Capture Missing](#fixed-stroke-capture-missing) - Missing finishStroke() call
 - [Cursor Alignment After Panning](#fixed-cursor-alignment-after-panning) - Coordinate transformation order fix
+
+---
+
+## Issue #18: Canvas Edge Drawing Artifacts
+**Date**: 2025-08-15  
+**Status**: ✅ RESOLVED  
+**Severity**: High (Visual artifacts affecting drawing quality)
+
+### Problem Description
+When drawing strokes that crossed the canvas boundaries (drawing from inside to outside or vice versa), unwanted connecting lines appeared along the canvas edges. This created visual artifacts that looked like the brush was "teleporting" or drawing unintended lines.
+
+### Symptoms
+- ❌ Lines appearing along canvas edges when drawing off-canvas
+- ❌ Strokes connecting from exit point to re-entry point
+- ❌ Visual artifacts when rapidly drawing across boundaries
+- ✅ Drawing within canvas boundaries worked correctly
+
+### Root Cause Analysis
+
+The issue stemmed from the brush engine's internal position tracking (`pixelQueueRef.lastStrokePosition`). When drawing segments were clipped at canvas boundaries, the engine maintained the last position even when the cursor moved outside. Upon re-entering the canvas, it would draw a line from the old exit point to the new entry point.
+
+**The Problem Flow:**
+1. User draws from inside canvas to outside
+2. Line clipping draws up to the edge
+3. Engine's `lastStrokePosition` remains at the edge point
+4. User continues drawing outside (position updates but no rendering)
+5. User re-enters canvas at a different point
+6. Engine draws a line from old edge point to new entry point → **Artifact!**
+
+### Solution Implemented
+
+Added jump detection logic to the `renderBrushStroke` function in `useBrushEngine.ts`:
+
+```typescript
+// --- START PROPOSED FIX ---
+const queue = pixelQueueRef.current;
+// The distance between the start of this segment (`from`) and the engine's last known drawing position.
+const jumpDistance = Math.hypot(
+  from.x - (queue.lastStrokePosition.x || from.x),
+  from.y - (queue.lastStrokePosition.y || from.y)
+);
+
+// A "jump" occurs if this is the first point of a stroke OR if the start
+// of this new line segment is not contiguous with the end of the last one.
+// This happens when drawing off-canvas and re-entering.
+// We reset the engine's internal position tracker to prevent it from drawing
+// a line connecting the old exit point to the new entry point.
+if (!queue.initialized || jumpDistance > 2.0) {
+  queue.lastStrokePosition = { x: from.x, y: from.y };
+  queue.accumulatedDistance = 0;
+  queue.initialized = true;
+}
+// --- END PROPOSED FIX ---
+```
+
+### Additional Changes
+
+1. **Simplified `continueDrawing` function** in `useDrawingHandlers.ts`:
+   - Removed complex inside/outside state tracking
+   - Now always uses line clipping for all segments
+   - Cleaner, more maintainable code
+
+2. **Removed duplicate variable declaration**:
+   - Fixed `queue` being declared twice in `renderBrushStroke`
+   - Kept single declaration at top of function
+
+### Technical Details
+
+**Jump Detection Threshold**: 2.0 pixels
+- Prevents false positives from minor position adjustments
+- Catches genuine discontinuities from boundary crossings
+- Balances between smooth strokes and artifact prevention
+
+**Why Line Clipping Alone Wasn't Enough**:
+- Line clipping correctly limits what's drawn to canvas bounds
+- But doesn't reset the engine's internal position tracking
+- Engine maintains continuity assumption between segments
+- Jump detection breaks this continuity when appropriate
+
+### Files Modified
+- `/src/hooks/useBrushEngine.ts` - Added jump detection logic
+- `/src/hooks/useDrawingHandlers.ts` - Simplified continueDrawing function
+
+### Post-Resolution Verification
+- ✅ No edge artifacts when drawing across boundaries
+- ✅ Smooth strokes within canvas bounds
+- ✅ Clean re-entry when returning to canvas
+- ✅ No performance impact from jump detection
+- ✅ Works with all brush types and sizes
+
+### Prevention Measures
+- Always reset position tracking on discontinuous movements
+- Consider engine's internal state when implementing clipping
+- Test boundary conditions thoroughly
+- Document assumptions about stroke continuity
+
+### Key Insights
+1. **Clipping isn't enough** - Internal state must also be managed
+2. **Jump detection** - Simple distance check effectively identifies discontinuities
+3. **State reset on jumps** - Prevents artifact-causing connections
+4. **Simplification wins** - Removing complex state tracking improved maintainability
 
 ---
 

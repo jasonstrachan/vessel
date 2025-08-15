@@ -471,14 +471,15 @@ const DrawingCanvas = () => {
     event.preventDefault();
     
     const mousePos = getMousePos(event);
-    let worldPos = panAndZoom.screenToWorld(mousePos.x, mousePos.y);
+    const worldPos = panAndZoom.screenToWorld(mousePos.x, mousePos.y);
     
-    // Clamp world position to canvas bounds
+    // --- PROPER FIX: Block clicks outside canvas bounds ---
     if (project) {
-      worldPos = {
-        x: Math.max(0, Math.min(project.width - 1, worldPos.x)),
-        y: Math.max(0, Math.min(project.height - 1, worldPos.y))
-      };
+      if (worldPos.x < 0 || worldPos.x > project.width || 
+          worldPos.y < 0 || worldPos.y > project.height) {
+        console.log('Mouse down ignored: click was outside project bounds.', worldPos);
+        return; // Don't start any action if click is out of bounds
+      }
     }
     
     
@@ -659,15 +660,9 @@ const DrawingCanvas = () => {
   
   const handleMouseMove = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
     const currentMousePos = getMousePos(event);
-    let worldPos = panAndZoom.screenToWorld(currentMousePos.x, currentMousePos.y);
+    const worldPos = panAndZoom.screenToWorld(currentMousePos.x, currentMousePos.y);
     
-    // Clamp world position to canvas bounds to prevent edge drawing artifacts
-    if (project) {
-      worldPos = {
-        x: Math.max(0, Math.min(project.width - 1, worldPos.x)),
-        y: Math.max(0, Math.min(project.height - 1, worldPos.y))
-      };
-    }
+    // No clamping needed - line clipping in useDrawingHandlers handles edge cases properly
     
     // Update mouse position for cursor
     setMousePosition({ x: event.clientX, y: event.clientY });
@@ -1262,6 +1257,8 @@ const DrawingCanvas = () => {
           const canvas = canvasRef.current;
           const ctx = canvas?.getContext('2d');
           if (ctx) {
+            // We need to call draw here, but we don't include it in dependencies
+            // to avoid circular dependency that causes infinite loop
             draw(ctx, panAndZoom.viewTransformRef.current);
           }
         }
@@ -1275,7 +1272,10 @@ const DrawingCanvas = () => {
         cancelAnimationFrame(animationId);
       }
     };
-  }, [selectionStart, selectionEnd, floatingPaste, draw, panAndZoom.viewTransformRef]);
+  // FIX: Removed `draw` from dependencies to break circular dependency
+  // The animation only needs to know when to start/stop, not when draw changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionStart, selectionEnd, floatingPaste, panAndZoom.viewTransformRef]);
   
   // Handle wheel events
   useEffect(() => {
