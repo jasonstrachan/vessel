@@ -1074,10 +1074,7 @@ const DrawingCanvas = () => {
             ctx.fill();
           }
           
-          // Draw outline
-          ctx.strokeStyle = tools.brushSettings.color;
-          ctx.lineWidth = Math.max(1, tools.brushSettings.size) / panAndZoom.viewTransformRef.current.scale;
-          ctx.stroke();
+          // No outline - only fill as requested
           
           ctx.restore();
         }

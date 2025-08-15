@@ -303,10 +303,7 @@ export function useDrawingHandlers({
           drawCtx.fill();
         }
         
-        // Draw outline with current brush settings
-        drawCtx.strokeStyle = tools.brushSettings.color;
-        drawCtx.lineWidth = Math.max(1, tools.brushSettings.size);
-        drawCtx.stroke();
+        // No outline - only fill as requested
         
         drawCtx.restore();
         drawingCanvasHasContent.current = true;
