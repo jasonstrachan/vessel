@@ -129,6 +129,7 @@ export interface ToolState {
     threshold: number;
     contiguous: boolean;
   };
+  shapeMode: boolean; // When true, draws closed polygon shapes with current brush
 }
 
 export interface UIState {

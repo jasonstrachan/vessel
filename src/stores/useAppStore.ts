@@ -155,6 +155,7 @@ interface AppState {
   setBrushSettings: (settings: Partial<BrushSettings>) => void;
   setEraserSettings: (settings: Partial<BrushSettings>) => void;
   setFillSettings: (settings: Partial<ToolState['fillSettings']>) => void;
+  setShapeMode: (enabled: boolean) => void;
   
   // Brush Presets
   brushPresets: BrushPreset[];
@@ -314,7 +315,8 @@ const defaultToolState: ToolState = {
   fillSettings: {
     threshold: 0,
     contiguous: true
-  }
+  },
+  shapeMode: false
 };
 
 const defaultUIState: UIState = {
@@ -867,6 +869,12 @@ export const useAppStore = create<AppState>()(
         tools: {
           ...state.tools,
           fillSettings: { ...state.tools.fillSettings, ...settings }
+        }
+      })),
+      setShapeMode: (enabled) => set((state) => ({
+        tools: {
+          ...state.tools,
+          shapeMode: enabled
         }
       })),
       
