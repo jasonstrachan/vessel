@@ -1120,6 +1120,11 @@ export const useBrushEngine = () => {
   // Direction smoothing for rotation
   const directionHistoryRef = useRef<number[]>([]);
   const lastDirectionRef = useRef<number>(0);
+  
+  // Velocity smoothing for ink brush
+  const velocityHistoryRef = useRef<number[]>([]);
+  const strokeStateRef = useRef<'idle' | 'starting' | 'drawing'>('idle');
+  const strokeStartTimeRef = useRef<number>(0);
 
   // --- START FIX 1 ---
   // Create a ref to hold a reusable input object.
@@ -1136,6 +1141,30 @@ export const useBrushEngine = () => {
   const quantizeBrushSize = useCallback((size: number, stepSize: number = 0.5): number => {
     const invStepSize = 1 / stepSize; // Avoid division in hot path
     return Math.round(size * invStepSize) / invStepSize;
+  }, []);
+  
+  // Calculate smoothed velocity for ink brush
+  const calculateSmoothedVelocity = useCallback((rawVelocity: number): number => {
+    // Add to velocity history
+    velocityHistoryRef.current.push(rawVelocity);
+    
+    // Keep only last 5 samples for smoothing
+    if (velocityHistoryRef.current.length > 5) {
+      velocityHistoryRef.current.shift();
+    }
+    
+    // Calculate weighted average (more recent = higher weight)
+    const weights = [0.1, 0.15, 0.2, 0.25, 0.3];
+    let weightedSum = 0;
+    let weightSum = 0;
+    
+    for (let i = 0; i < velocityHistoryRef.current.length; i++) {
+      const weight = weights[i] || weights[weights.length - 1];
+      weightedSum += velocityHistoryRef.current[i] * weight;
+      weightSum += weight;
+    }
+    
+    return weightSum > 0 ? weightedSum / weightSum : rawVelocity;
   }, []);
 
   // Calculate and smooth direction from movement vector
@@ -1626,17 +1655,42 @@ export const useBrushEngine = () => {
     baseSize: number
   ): number => {
     const params = component.parameters as any;
-    const pressure = input.pressure || 0.5;
     
-    // Apply pressure influence
-    const pressureEffect = (pressure - 0.5) * (params.pressureInfluence || 0);
-    const modifiedSize = baseSize * (1 + pressureEffect);
+    // Check if this is the ink brush (high pressure influence)
+    const isInkBrush = params.pressureInfluence >= 100;
     
-    // Apply min/max constraints from component
-    return Math.max(
-      params.minSize || 1,
-      Math.min(params.maxSize || 1000, modifiedSize)
-    );
+    if (isInkBrush) {
+      // For ink brush: use velocity-based sizing
+      // Low velocity (slow drawing) = thicker strokes (up to 150% of base size)
+      // High velocity (fast drawing) = thinner strokes (down to 50% of base size)
+      const maxVelocity = 500; // pixels per frame - adjust based on testing
+      const normalizedVelocity = Math.min(input.velocity / maxVelocity, 1.0);
+      
+      // Invert velocity: slow = thick, fast = thin
+      // At velocity 0: size multiplier = 1.5 (150%)
+      // At max velocity: size multiplier = 0.5 (50%)
+      const sizeMultiplier = 1.5 - (normalizedVelocity * 1.0);
+      const modifiedSize = baseSize * sizeMultiplier;
+      
+      // Apply min/max constraints
+      return Math.max(
+        params.minSize || 1,
+        Math.min(params.maxSize || 1000, modifiedSize)
+      );
+    } else {
+      // Regular pressure-based sizing for other brushes
+      const pressure = input.pressure || 0.5;
+      
+      // Apply pressure influence
+      const pressureEffect = (pressure - 0.5) * (params.pressureInfluence || 0);
+      const modifiedSize = baseSize * (1 + pressureEffect);
+      
+      // Apply min/max constraints from component
+      return Math.max(
+        params.minSize || 1,
+        Math.min(params.maxSize || 1000, modifiedSize)
+      );
+    }
   }, []);
   
   const calculateOpacityModification = useCallback((
