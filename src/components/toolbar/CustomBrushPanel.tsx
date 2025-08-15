@@ -7,16 +7,14 @@ import { useEffect } from 'react';
 export const CustomBrushPanel = () => {
   const { 
     project, 
-    addCustomBrush, 
-    currentLayer,
+    addCustomBrush,
     selectionStart,
     selectionEnd,
     clearSelection,
     currentOffscreenCanvas,
     temporaryCustomBrush,
     setTemporaryCustomBrush,
-    setBrushSettings,
-    tools
+    setBrushSettings
   } = useAppStore();
 
   // Create temporary brush whenever selection changes
@@ -52,7 +50,8 @@ export const CustomBrushPanel = () => {
         minX, minY, width, height, // Source rectangle
         0, 0, width, height        // Destination rectangle
       );
-    } catch (_error) {
+    } catch {
+      // Error capturing image data
       return;
     }
     
@@ -182,6 +181,7 @@ export const CustomBrushPanel = () => {
       {hasTemporaryBrush && (
         <div className="mt-4 p-3 bg-[#1a1a1a] rounded">
           <div className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img 
               src={temporaryCustomBrush.thumbnail} 
               alt="Temporary brush"

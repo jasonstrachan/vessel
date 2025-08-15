@@ -245,7 +245,13 @@ interface AppState {
   setBrushEditorHue: (hue: number) => void;
   setBrushEditorLightness: (lightness: number) => void;
   setBrushEditorSaturation: (saturation: number) => void;
-  updateCurrentBrushTip: (brushTip: any) => void;
+  updateCurrentBrushTip: (brushTip: {
+    imageData: ImageData;
+    brushId: string;
+    isColorizable: boolean;
+    width?: number;
+    height?: number;
+  }) => void;
   
   // Brush Preset Management
   removeBrushPreset: (presetId: string) => void;
@@ -392,7 +398,7 @@ export const useAppStore = create<AppState>()(
       // Expose store globally for debugging and test utilities
       if (typeof window !== 'undefined') {
         setTimeout(() => {
-          (window as any).__tinybrushStore = useAppStore;
+          (window as Window & { __tinybrushStore?: typeof useAppStore }).__tinybrushStore = useAppStore;
         }, 0);
       }
       
@@ -1723,8 +1729,7 @@ export const useAppStore = create<AppState>()(
         const bounds = state.brushEditor.editingBounds;
         const brushId = state.brushEditor.editingBrushId;
         
-        // Find the original brush data
-        const originalBrushData = state.project.customBrushes?.find(b => b.id === brushId) || null;
+        // Find the original brush data (unused variable removed)
         
         // Create a composite canvas to match the modal canvas size
         const compositeCanvas = document.createElement('canvas');
@@ -1869,7 +1874,7 @@ export const useAppStore = create<AppState>()(
           }
         }
       })),
-      cancelBrushEdit: (canvas) => set((state) => {
+      cancelBrushEdit: () => set((state) => {
         if (state.brushEditor.status !== 'EDITING' || !state.brushEditor.originalCanvasState || !state.brushEditor.editingBounds) {
           return { 
             brushEditor: defaultBrushEditorState,
@@ -2593,7 +2598,7 @@ export const useAppStore = create<AppState>()(
         return loadedSettings;
       },
       clearBrushSettings: (brushId) => set((state) => {
-        const { [brushId]: _unused, ...remaining } = state.brushSpecificSettings;
+        const { [brushId]: _, ...remaining } = state.brushSpecificSettings;
         return { brushSpecificSettings: remaining };
       })
     };

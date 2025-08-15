@@ -11,7 +11,7 @@ import { floodFill } from '../../utils/floodFill';
 import BrushCursor from './BrushCursor';
 
 const DrawingCanvas = () => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null); 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const isSpacePressed = useRef(false);
   
@@ -100,7 +100,7 @@ const DrawingCanvas = () => {
   const sampleColorAtPosition = useCallback((x: number, y: number): string => {
     if (!compositeCanvasRef.current) return 'rgb(0, 0, 0)';
     
-    const ctx = compositeCanvasRef.current.getContext('2d');
+    const ctx = compositeCanvasRef.current.getContext('2d', { willReadFrequently: true });
     if (!ctx) return 'rgb(0, 0, 0)';
     
     const clampedX = Math.max(0, Math.min(compositeCanvasRef.current.width - 1, Math.floor(x)));
@@ -307,8 +307,15 @@ const DrawingCanvas = () => {
   // Comprehensive keyboard handling
   useComprehensiveKeyboard({
     onSpacePressed: () => {
+      console.log('[SPACE] Pressed - Current state:', {
+        isPanning: pan.panState.isPanning,
+        isDrawing: interaction.stateRef.current.isDrawing,
+        isSpacePressed: isSpacePressed.current
+      });
+      
       // If we're drawing, end it immediately to switch to pan mode
       if (interaction.stateRef.current.isDrawing) {
+        console.log('[SPACE] Ending drawing to switch to pan mode');
         interaction.dispatch({ type: 'DRAWING_END' });
         // Don't wait for async finalize, just clear the drawing canvas
         drawingHandlers.clearDrawingCanvas();
@@ -316,16 +323,26 @@ const DrawingCanvas = () => {
       
       isSpacePressed.current = true;
       setCursorStyle('grab');
+      console.log('[SPACE] Activated pan mode');
     },
     onSpaceReleased: () => {
+      console.log('[SPACE] Released - Current state:', {
+        isPanning: pan.panState.isPanning,
+        isSpacePressed: isSpacePressed.current
+      });
+      
       isSpacePressed.current = false;
 
-      // Only update the cursor if we are NOT in the middle of a pan action.
-      // handleMouseUp will take care of the cursor if we are.
-      if (!pan.panState.isPanning) {
-        setCursorStyle(defaultCursorStyle);
-        setShowBrushCursor(true);
+      // End panning if it's still active
+      if (pan.panState.isPanning) {
+        console.log('[SPACE] Ending active pan');
+        pan.endPan();
       }
+      
+      // Restore cursor
+      setCursorStyle(defaultCursorStyle);
+      setShowBrushCursor(true);
+      console.log('[SPACE] Pan mode deactivated');
     },
     onCustomTool: () => {
       setCurrentTool('custom');
@@ -496,6 +513,7 @@ const DrawingCanvas = () => {
     
     // Handle panning with space key or middle/right mouse button
     if (isSpacePressed.current || event.button === 1 || event.button === 2) {
+      console.log('[MOUSE DOWN] Starting pan - button:', event.button, 'space:', isSpacePressed.current);
       setShowBrushCursor(false); // Hide brush cursor when panning
       setCursorStyle('grabbing');
       pan.startPan(mousePos.x, mousePos.y);
@@ -1081,6 +1099,7 @@ const DrawingCanvas = () => {
     
     // Handle panning
     if (pan.panState.isPanning) {
+      console.log('[MOUSE UP] Ending pan - space still pressed:', isSpacePressed.current);
       // If space is still held, stay in grab mode, otherwise restore tool cursor
       if (isSpacePressed.current) {
         setCursorStyle('grab');
@@ -1316,34 +1335,57 @@ const DrawingCanvas = () => {
     // The ref handles stale data, so dependencies can be minimal and stable.
   }, [pan, setZoom, viewTransformRef]);
   
-  // Window blur safety net - reset pan mode if window loses focus
+  // Consolidated safety net for resetting interaction state
   useEffect(() => {
-    const handleWindowBlur = () => {
-      // This is our safety net. If the window loses focus,
-      // we assume all keys have been released.
+    const handleInteractionReset = () => {
+      console.log('[SAFETY] Interaction reset triggered - Current state:', {
+        isSpacePressed: isSpacePressed.current,
+        isPanning: pan.panState.isPanning
+      });
+      
+      // Check if the space key state is stuck
       if (isSpacePressed.current) {
-        console.log('Window blurred, resetting pan mode.');
+        console.warn('[SAFETY] Space key was stuck! Resetting...');
+        
         isSpacePressed.current = false;
         
-        // We must also check if a pan action is happening and end it.
+        // If a pan action was in progress, terminate it
         if (pan.panState.isPanning) {
+          console.log('[SAFETY] Forcing pan.endPan()');
           pan.endPan();
         }
         
-        // And finally, reset the cursor and UI state.
+        // Always restore the default cursor and show the brush
         setCursorStyle(defaultCursorStyle);
         setShowBrushCursor(true);
-              }
+        console.log('[SAFETY] Reset complete');
+      } else {
+        console.log('[SAFETY] No reset needed - space not pressed');
+      }
     };
 
-    // Listen for the blur event on the window
-    window.addEventListener('blur', handleWindowBlur);
+    const handleVisibilityChange = () => {
+      console.log('[VISIBILITY] Tab visibility changed - hidden:', document.hidden);
+      // Reset state if the tab is hidden
+      if (document.hidden) {
+        handleInteractionReset();
+      }
+    };
 
-    // Cleanup: remove the listener when the component unmounts
+    // Listen for the window losing focus (e.g., Alt-Tab)
+    window.addEventListener('blur', handleInteractionReset);
+    
+    // Listen for the tab being switched away
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Cleanup: remove listeners when the component unmounts
     return () => {
-      window.removeEventListener('blur', handleWindowBlur);
+      window.removeEventListener('blur', handleInteractionReset);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [defaultCursorStyle, interaction, pan, setCursorStyle, setShowBrushCursor]);
+    
+    // Dependencies ensure the handler has the correct functions/values if they ever change.
+  }, [defaultCursorStyle, pan, setCursorStyle, setShowBrushCursor]);
   
   // Center canvas on mount and focus
   useEffect(() => {

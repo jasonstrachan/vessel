@@ -3,15 +3,11 @@ import { useAppStore } from '../stores/useAppStore';
 import { BrushShape } from '../types';
 
 interface ToolStateMachineProps {
-  screenToWorld: (x: number, y: number) => { x: number; y: number };
   sampleColorAtPosition: (x: number, y: number) => string;
-  sampleColorsAlongLine: (startX: number, startY: number, endX: number, endY: number, numSamples: number) => string[];
 }
 
 export function useToolStateMachine({ 
-  screenToWorld, 
-  sampleColorAtPosition,
-  sampleColorsAlongLine 
+  sampleColorAtPosition
 }: ToolStateMachineProps) {
   const {
     tools,

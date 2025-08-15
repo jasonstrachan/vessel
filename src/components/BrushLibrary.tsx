@@ -16,7 +16,6 @@ const BrushLibrary = () => {
   const setBrushPreset = useAppStore((state) => state.setBrushPreset);
   const setCurrentTool = useAppStore((state) => state.setCurrentTool);
   const startBrushEdit = useAppStore((state) => state.startBrushEdit);
-  const saveBrushEdit = useAppStore((state) => state.saveBrushEdit);
   const cancelBrushEdit = useAppStore((state) => state.cancelBrushEdit);
   const saveCustomBrushAsPreset = useAppStore((state) => state.saveCustomBrushAsPreset);
   const removeCustomBrush = useAppStore((state) => state.removeCustomBrush);
@@ -207,7 +206,7 @@ const BrushLibrary = () => {
         ctx.fill();
         
         // Get the image data to create a temporary custom brush
-        const imageData = ctx.getImageData(0, 0, 64, 64);
+        ctx.getImageData(0, 0, 64, 64);
         
         // Start editing with this temporary brush data
         // Use the preset ID as the brush ID for editing
@@ -258,6 +257,7 @@ const BrushLibrary = () => {
             <div className="flex items-center space-x-2">
               {preset.isCustomBrush ? (
                 preset.thumbnail ? (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img 
                     src={preset.thumbnail} 
                     alt={`${preset.name} thumbnail`}
@@ -270,6 +270,7 @@ const BrushLibrary = () => {
                   </div>
                 )
               ) : brushThumbnails[preset.id] ? (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img 
                   src={brushThumbnails[preset.id]} 
                   alt={`${preset.name} thumbnail`}

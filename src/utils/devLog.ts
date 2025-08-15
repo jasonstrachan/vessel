@@ -4,7 +4,7 @@
  */
 
 interface LogContext {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 class DevLogger {
@@ -59,7 +59,7 @@ class DevLogger {
   /**
    * Log errors (always shown)
    */
-  error(message: string, error?: Error | any, context?: LogContext): void {
+  error(message: string, error?: Error | unknown, context?: LogContext): void {
     if (this.currentLevel > this.logLevels.error) return;
     
     if (error && context) {
@@ -84,7 +84,7 @@ class DevLogger {
         this.info(`[${moduleName}] ${message}`, context),
       warn: (message: string, context?: LogContext) => 
         this.warn(`[${moduleName}] ${message}`, context),
-      error: (message: string, error?: Error | any, context?: LogContext) => 
+      error: (message: string, error?: Error | unknown, context?: LogContext) => 
         this.error(`[${moduleName}] ${message}`, error, context)
     };
   }

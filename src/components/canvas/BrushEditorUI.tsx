@@ -76,7 +76,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     borderRadius: '2px',
     outline: 'none',
     appearance: 'none',
-    WebkitAppearance: 'none' as any,
+    WebkitAppearance: 'none' as const,
     cursor: 'pointer',
     marginBottom: '4px', // Space between sliders
     display: 'block',

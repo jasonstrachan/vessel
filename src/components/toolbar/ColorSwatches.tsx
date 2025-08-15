@@ -7,7 +7,7 @@ interface ColorSwatchesProps {
   currentColor: string;
 }
 
-const ColorSwatches = React.memo(({ onColorSelect, currentColor: _currentColor }: ColorSwatchesProps) => {
+const ColorSwatches = React.memo(({ onColorSelect }: ColorSwatchesProps) => {
   // Optimize subscription - only subscribe to project
   const project = useAppStore(state => state.project);
   const [swatchColors, setSwatchColors] = useState<string[]>(() => {

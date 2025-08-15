@@ -70,11 +70,11 @@ export class DitherBrushEngine {
       clientX = touch.clientX;
       clientY = touch.clientY;
       // Simulate pressure based on touch force (if available)
-      pressure = (touch as any).force || 0.5;
-    } else if ((event as any).pressure !== undefined) {
-      clientX = (event as any).clientX;
-      clientY = (event as any).clientY;
-      pressure = (event as any).pressure || 0.5; // Real pressure from stylus
+      pressure = (touch as Touch & { force?: number }).force || 0.5;
+    } else if ((event as PointerEvent).pressure !== undefined) {
+      clientX = (event as PointerEvent).clientX;
+      clientY = (event as PointerEvent).clientY;
+      pressure = (event as PointerEvent).pressure || 0.5; // Real pressure from stylus
     } else {
       return { x: 0, y: 0, pressure: 0.5 };
     }

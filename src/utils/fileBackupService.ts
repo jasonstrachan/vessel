@@ -24,7 +24,13 @@ export class FileBackupService {
 
     try {
       // Request file save dialog from user
-      this.fileHandle = await (window as any).showSaveFilePicker({
+      this.fileHandle = await (window as Window & {
+        showSaveFilePicker?: (options: {
+          suggestedName?: string;
+          types?: { description: string; accept: Record<string, string[]> }[];
+          startIn?: string;
+        }) => Promise<FileSystemFileHandle>;
+      }).showSaveFilePicker!({
         suggestedName: 'autosave.tb',
         types: [{
           description: 'TinyBrush files',
@@ -38,12 +44,12 @@ export class FileBackupService {
       
       // File selected: ${path}
       return { success: true, path };
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
         return { success: false, error: 'File selection cancelled' };
       }
       console.error('[FileBackup] Failed to select file:', error);
-      return { success: false, error: `Failed to select file: ${error.message}` };
+      return { success: false, error: `Failed to select file: ${error instanceof Error ? error.message : 'Unknown error'}` };
     }
   }
 
@@ -54,7 +60,12 @@ export class FileBackupService {
 
     try {
       // Request directory access from user
-      this.directoryHandle = await (window as any).showDirectoryPicker({
+      this.directoryHandle = await (window as Window & {
+        showDirectoryPicker?: (options: {
+          mode?: string;
+          startIn?: string;
+        }) => Promise<FileSystemDirectoryHandle>;
+      }).showDirectoryPicker!({
         mode: 'readwrite',
         startIn: 'documents'
       });
@@ -64,12 +75,12 @@ export class FileBackupService {
       
       // Directory selected: ${path}
       return { success: true, path };
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
         return { success: false, error: 'Directory selection cancelled' };
       }
       console.error('[FileBackup] Failed to select directory:', error);
-      return { success: false, error: `Failed to select directory: ${error.message}` };
+      return { success: false, error: `Failed to select directory: ${error instanceof Error ? error.message : 'Unknown error'}` };
     }
   }
 
@@ -108,9 +119,9 @@ export class FileBackupService {
 
       // Project backed up as: ${filename}
       return { success: true, filename };
-    } catch (error: any) {
+    } catch (error) {
       console.error('[FileBackup] Failed to save backup:', error);
-      return { success: false, error: `Failed to save backup: ${error.message}` };
+      return { success: false, error: `Failed to save backup: ${error instanceof Error ? error.message : 'Unknown error'}` };
     }
   }
 

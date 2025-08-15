@@ -3,10 +3,10 @@ import { useAppStore } from '../stores/useAppStore';
 import { useBrushEngine } from './useBrushEngine';
 
 interface UseDrawingHandlersProps {
-  project: any;
+  project: { width: number; height: number } | null;
   screenToWorld: (x: number, y: number) => { x: number; y: number };
   viewTransformRef: React.MutableRefObject<{ scale: number; offsetX: number; offsetY: number }>;
-  draw: (ctx: CanvasRenderingContext2D, transform: any) => void;
+  draw: (ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }) => void;
   canvasRef: React.RefObject<HTMLCanvasElement>;
 }
 
@@ -19,7 +19,7 @@ function clipLineSegment(
   p2: { x: number; y: number },
   rect: { x: number; y: number; width: number; height: number }
 ): [{ x: number; y: number }, { x: number; y: number }] | null {
-  let x1 = p1.x, y1 = p1.y, x2 = p2.x, y2 = p2.y;
+  const x1 = p1.x, y1 = p1.y, x2 = p2.x, y2 = p2.y;
   const { x: xmin, y: ymin, width, height } = rect;
   const xmax = xmin + width;
   const ymax = ymin + height;
@@ -56,7 +56,6 @@ function clipLineSegment(
 
 export function useDrawingHandlers({
   project,
-  screenToWorld,
   viewTransformRef,
   draw,
   canvasRef,
@@ -215,7 +214,7 @@ export function useDrawingHandlers({
         tempCanvas.height = project.height;
         const tempCtx = tempCanvas.getContext('2d');
         
-        if (tempCtx) {
+        if (tempCtx && activeLayer.imageData) {
           tempCtx.putImageData(activeLayer.imageData, 0, 0);
           tempCtx.drawImage(drawingCanvasRef.current, 0, 0);
           
@@ -228,7 +227,7 @@ export function useDrawingHandlers({
             saveCanvas.width = project.width;
             saveCanvas.height = project.height;
             const saveCtx = saveCanvas.getContext('2d');
-            if (saveCtx) {
+            if (saveCtx && updatedLayer.imageData) {
               saveCtx.putImageData(updatedLayer.imageData, 0, 0);
               saveCanvasState(saveCanvas, 'brush', 'Drawing stroke');
             }

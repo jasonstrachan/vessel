@@ -18,9 +18,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   const setBrushEditorLightness = useAppStore((state) => state.setBrushEditorLightness);
   const setBrushEditorSaturation = useAppStore((state) => state.setBrushEditorSaturation);
   const saveBrushEdit = useAppStore((state) => state.saveBrushEdit);
-  const cancelBrushEdit = useAppStore((state) => state.cancelBrushEdit);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [lastSavedBrush, setLastSavedBrush] = useState<ImageData | null>(null); // The brush state when editing started
   const [basePixels, setBasePixels] = useState<ImageData | null>(null); // Current base pixels (original + drawn) before adjustments
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPoint, setLastPoint] = useState<{x: number, y: number} | null>(null);
@@ -35,9 +33,6 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isResizing, setIsResizing] = useState(false);
   const [modalSize, setModalSize] = useState({ width: 600, height: 500 });
-  const testCanvasRef = useRef<HTMLCanvasElement>(null);
-  const [isTestDrawing, setIsTestDrawing] = useState(false);
-  const [lastTestPoint, setLastTestPoint] = useState<{x: number, y: number} | null>(null);
 
   // Helper functions for flood fill
   const getPixelColor = (imageData: ImageData, x: number, y: number) => {
@@ -60,11 +55,11 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     } : { r: 0, g: 0, b: 0, a: 255 };
   };
 
-  const colorsMatch = (c1: any, c2: any) => {
+  const colorsMatch = (c1: { r: number; g: number; b: number; a: number }, c2: { r: number; g: number; b: number; a: number }) => {
     return c1.r === c2.r && c1.g === c2.g && c1.b === c2.b && c1.a === c2.a;
   };
 
-  const floodFillCanvas = (imageData: ImageData, x: number, y: number, fillColor: any, targetColor: any) => {
+  const floodFillCanvas = (imageData: ImageData, x: number, y: number, fillColor: { r: number; g: number; b: number; a: number }, targetColor: { r: number; g: number; b: number; a: number }) => {
     const stack = [[x, y]];
     const width = imageData.width;
     const height = imageData.height;
@@ -130,19 +125,6 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     }
   }, [saveBrushEdit]);
 
-  const handleCancel = useCallback(() => {
-    // Restore last saved state before canceling
-    if (canvasRef.current && lastSavedBrush) {
-      const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
-      if (ctx) {
-        ctx.putImageData(lastSavedBrush, 0, 0);
-      }
-    }
-    // Cancel without saving
-    if (canvasRef.current) {
-      cancelBrushEdit(canvasRef.current);
-    }
-  }, [cancelBrushEdit, lastSavedBrush]);
 
 
   // Drawing handlers for the modal canvas
@@ -529,33 +511,6 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   }
 
   // Modal overlay styles
-  const overlayStyle: React.CSSProperties = {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1000,
-  };
-
-  const modalStyle: React.CSSProperties = {
-    backgroundColor: 'transparent',
-    maxWidth: '90vw',
-    maxHeight: '90vh',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0',
-  };
-
-  const headerStyle: React.CSSProperties = {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-  };
 
   const canvasContainerStyle: React.CSSProperties = {
     display: 'flex',
@@ -590,7 +545,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     borderRadius: '0',
     outline: 'none',
     appearance: 'none',
-    WebkitAppearance: 'none' as any,
+    WebkitAppearance: 'none' as const,
     cursor: 'pointer',
   };
 
@@ -601,14 +556,6 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     marginTop: '0',
   };
 
-  const buttonStyle: React.CSSProperties = {
-    padding: '8px 16px',
-    borderRadius: '0',
-    border: 'none',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: '500',
-  };
 
   // Create gradient backgrounds
   const hueGradient = 'linear-gradient(to right, ' +

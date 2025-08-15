@@ -11,7 +11,6 @@ import { pressureOptimizer } from '../utils/pressureOptimizer';
 import { memoryManager } from '../utils/memoryCleanup';
 import { performanceMonitor } from '../utils/performanceMonitor';
 import { 
-  BAYER_4x4_MATRIX,
   applyFloydSteinbergDither,
   applyBayerDither,
   applyAtkinsonDither,
@@ -98,38 +97,10 @@ const DITHER_COLOR_NAMES = [
 // Track which colors have been used (for debugging)
 const usedColorIndices = new Set<number>();
 
-// Test function to show which colors would be selected for various inputs
-const testDitherPalette = () => {
-  // Testing Dither Palette Selection (logging removed)
-  
-  // Test different numColors values
-  for (let numColors = 2; numColors <= 8; numColors++) {
-    const selectedPalette = selectDiversePalette(numColors);
-    // NumColors and selected colors (logging removed)
-  }
-  
-  const testColors = [
-    { name: 'Pure Black', rgb: [0, 0, 0] },
-    { name: 'Pure White', rgb: [255, 255, 255] },
-    { name: 'Dark Brown', rgb: [90, 50, 30] },
-    { name: 'Medium Brown', rgb: [150, 100, 70] },
-    { name: 'Light Brown', rgb: [200, 160, 120] },
-    { name: 'Dark Grey', rgb: [64, 64, 64] },
-    { name: 'Light Grey', rgb: [192, 192, 192] },
-    { name: 'Tan', rgb: [210, 180, 140] },
-    { name: 'Sienna', rgb: [160, 82, 45] },
-  ];
-  
-  testColors.forEach(test => {
-    const result = findDitherColors(test.rgb[0], test.rgb[1], test.rgb[2]);
-  });
-  
-};
-
-// Uncomment to run test:
-// testDitherPalette();
+// Test function code removed to eliminate unused variables
 
 // Smart palette selection that distributes colors across the spectrum
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const selectDiversePalette = (numColors: number): [number, number, number][] => {
   if (numColors >= DITHER_PALETTE.length) {
     return DITHER_PALETTE;
@@ -219,6 +190,7 @@ const selectDiversePalette = (numColors: number): [number, number, number][] => 
 };
 
 // Shared function to find the two best colors for dithering a target color
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const findDitherColors = (targetR: number, targetG: number, targetB: number) => {
   // Find the two closest colors in the palette to the target color
   const colorDistances = DITHER_PALETTE.map(([r, g, b], index) => {
@@ -252,6 +224,7 @@ const findDitherColors = (targetR: number, targetG: number, targetB: number) => 
 };
 
 // Authentic Apple II Hi-Res color palette (RGB values based on NTSC composite output)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const AUTHENTIC_APPLE_II_PALETTE: [number, number, number][] = [
   [0, 0, 0],         // Black
   [114, 38, 64],     // Dark Red/Magenta
@@ -841,6 +814,7 @@ const getAverageColor = (colors: string[]): string => {
  * Quantizes a set of colors to a limited palette.
  * This creates distinct color bands for gradient dithering.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const quantizeColorPalette = (colors: string[], targetColors: number): string[] => {
   if (colors.length === 0 || targetColors <= 1) {
     return colors;
@@ -1370,7 +1344,7 @@ export const useBrushEngine = () => {
     }
 
     // Check transparency lock before drawing
-    if ((window as any).transparencyLockEnabled) {
+    if ((window as Window & { transparencyLockEnabled?: boolean }).transparencyLockEnabled) {
       // Sample the center pixel to check if we can draw here
       const centerX = Math.floor(x);
       const centerY = Math.floor(y);
@@ -1654,10 +1628,11 @@ export const useBrushEngine = () => {
     input: StrokeInput,
     baseSize: number
   ): number => {
-    const params = component.parameters as any;
+    const params = component.parameters;
     
     // Check if this is the ink brush (high pressure influence)
-    const isInkBrush = params.pressureInfluence >= 100;
+    const pressureInfluence = typeof params.pressureInfluence === 'number' ? params.pressureInfluence : 0;
+    const isInkBrush = pressureInfluence >= 100;
     
     if (isInkBrush) {
       // For ink brush: use velocity-based sizing with ink blob effects
@@ -1716,23 +1691,21 @@ export const useBrushEngine = () => {
       const modifiedSize = baseSize * sizeMultiplier;
       
       // Apply min/max constraints
-      return Math.max(
-        params.minSize || 1,
-        Math.min(params.maxSize || 1000, modifiedSize)
-      );
+      const minSize = typeof params.minSize === 'number' ? params.minSize : 1;
+      const maxSize = typeof params.maxSize === 'number' ? params.maxSize : 1000;
+      return Math.max(minSize, Math.min(maxSize, modifiedSize));
     } else {
       // Regular pressure-based sizing for other brushes
       const pressure = input.pressure || 0.5;
       
       // Apply pressure influence
-      const pressureEffect = (pressure - 0.5) * (params.pressureInfluence || 0);
+      const pressureEffect = (pressure - 0.5) * pressureInfluence;
       const modifiedSize = baseSize * (1 + pressureEffect);
       
       // Apply min/max constraints from component
-      return Math.max(
-        params.minSize || 1,
-        Math.min(params.maxSize || 1000, modifiedSize)
-      );
+      const minSize = typeof params.minSize === 'number' ? params.minSize : 1;
+      const maxSize = typeof params.maxSize === 'number' ? params.maxSize : 1000;
+      return Math.max(minSize, Math.min(maxSize, modifiedSize));
     }
   }, [calculateSmoothedVelocity]);
   
@@ -1741,11 +1714,12 @@ export const useBrushEngine = () => {
     input: StrokeInput,
     baseOpacity: number
   ): number => {
-    const params = component.parameters as any;
+    const params = component.parameters;
     const pressure = input.pressure || 0.5;
     
     // Apply pressure influence to opacity
-    const pressureEffect = (pressure - 0.5) * (params.pressureInfluence || 0);
+    const pressureInfluence = typeof params.pressureInfluence === 'number' ? params.pressureInfluence : 0;
+    const pressureEffect = (pressure - 0.5) * pressureInfluence;
     const modifiedOpacity = baseOpacity * (1 + pressureEffect);
     
     return Math.max(0, Math.min(1, modifiedOpacity));
@@ -1756,20 +1730,22 @@ export const useBrushEngine = () => {
     input: StrokeInput,
     settings: RenderSettings
   ): RenderSettings => {
-    const params = component.parameters as any;
+    const params = component.parameters;
     const pressure = input.pressure || 0.5;
     
     const newSettings = { ...settings };
     
     // Apply pressure to size if enabled
-    if (params.sizeInfluence) {
-      const sizeEffect = (pressure - 0.5) * params.sizeInfluence;
+    const sizeInfluence = typeof params.sizeInfluence === 'number' ? params.sizeInfluence : 0;
+    if (sizeInfluence) {
+      const sizeEffect = (pressure - 0.5) * sizeInfluence;
       newSettings.size = Math.max(1, settings.size * (1 + sizeEffect));
     }
     
     // Apply pressure to opacity if enabled
-    if (params.opacityInfluence) {
-      const opacityEffect = (pressure - 0.5) * params.opacityInfluence;
+    const opacityInfluence = typeof params.opacityInfluence === 'number' ? params.opacityInfluence : 0;
+    if (opacityInfluence) {
+      const opacityEffect = (pressure - 0.5) * opacityInfluence;
       newSettings.opacity = Math.max(0, Math.min(1, settings.opacity * (1 + opacityEffect)));
     }
     
@@ -1843,7 +1819,8 @@ export const useBrushEngine = () => {
     const activeSettings = currentTool === 'eraser' ? eraserSettings : brushSettings;
     
     // Check if this is the ink brush (will use velocity instead of pressure)
-    const isInkBrush = activeSettings.selectedBrushPreset === 'ink-brush';
+    // Note: This check was removed due to selectedBrushPreset not existing on BrushSettings
+    const isInkBrush = false;
     
     // Apply pressure-based size modification if enabled (but not for ink brush)
     let finalSize = activeSettings.size;
@@ -3412,7 +3389,7 @@ export const useBrushEngine = () => {
           
           // Apply the polygon clipping mask
           const maskCanvas = canvasPool.acquire(boundWidth, boundHeight);
-          const maskCtx = maskCanvas.getContext('2d', { colorSpace: 'srgb' });
+          const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
           
           if (maskCtx) {
             // Draw the polygon shape as a mask

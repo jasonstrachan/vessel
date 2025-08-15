@@ -3,7 +3,7 @@
 
 export const drawTestSwatches = async () => {
   // Get the store to access canvas through proper methods
-  const store = (window as any).__tinybrushStore;
+  const store = (window as Window & { __tinybrushStore?: unknown }).__tinybrushStore;
   if (!store) {
     console.error('Store not found - click the button again in a moment');
     return;
@@ -116,5 +116,5 @@ export const drawTestSwatches = async () => {
 
 // Make it available globally
 if (typeof window !== 'undefined') {
-  (window as any).drawTestSwatches = drawTestSwatches;
+  (window as Window & { drawTestSwatches?: typeof drawTestSwatches }).drawTestSwatches = drawTestSwatches;
 }

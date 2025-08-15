@@ -143,5 +143,5 @@ export const performanceMonitor = new PerformanceMonitor();
 
 // Global access for debugging in development
 if (process.env.NODE_ENV === 'development') {
-  (globalThis as any).brushPerformance = performanceMonitor;
+  (globalThis as typeof globalThis & { brushPerformance?: typeof performanceMonitor }).brushPerformance = performanceMonitor;
 }

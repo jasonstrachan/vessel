@@ -181,8 +181,12 @@ export function createCleanCanvasCopy(sourceCanvas: HTMLCanvasElement, label: st
  * Available in browser console as window.compareLatestBrushData()
  */
 export function compareLatestBrushData(tolerance: number = 0): void {
-  const previewData = (window as any).latestPreviewImageData as ImageData;
-  const cacheData = (window as any).latestCacheImageData as ImageData;
+  const windowWithDebugData = window as Window & {
+    latestPreviewImageData?: ImageData;
+    latestCacheImageData?: ImageData;
+  };
+  const previewData = windowWithDebugData.latestPreviewImageData;
+  const cacheData = windowWithDebugData.latestCacheImageData;
 
   if (!previewData) {
     console.error('[PixelComparison] No preview ImageData available. Make sure to interact with MiniCanvas first.');
@@ -200,5 +204,5 @@ export function compareLatestBrushData(tolerance: number = 0): void {
 
 // Make the comparison function globally available
 if (typeof window !== 'undefined') {
-  (window as any).compareLatestBrushData = compareLatestBrushData;
+  (window as Window & { compareLatestBrushData?: typeof compareLatestBrushData }).compareLatestBrushData = compareLatestBrushData;
 }

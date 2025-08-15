@@ -12,7 +12,19 @@ jest.mock('../../stores/useAppStore', () => ({
 }));
 
 describe('AutosaveService', () => {
-  let mockStore: any;
+  let mockStore: {
+    autosave: {
+      isEnabled: boolean;
+      hasUnsavedChanges: boolean;
+      isRunning: boolean;
+    };
+    project: {
+      id: string;
+      name: string;
+    } | null;
+    saveProject: jest.Mock;
+    addNotification: jest.Mock;
+  };
 
   beforeEach(() => {
     mockStore = {

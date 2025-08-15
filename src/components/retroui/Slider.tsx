@@ -17,7 +17,7 @@ interface SliderProps {
 const Slider = React.forwardRef<
   React.ElementRef<typeof SliderPrimitive.Root>,
   React.ComponentPropsWithoutRef<typeof SliderPrimitive.Root> & SliderProps
->(({ className: _className, thumbColor, ...props }, ref) => (
+>(({ thumbColor, ...props }, ref) => (
   <SliderPrimitive.Root
     ref={ref}
     className="relative flex w-full touch-none select-none items-center"

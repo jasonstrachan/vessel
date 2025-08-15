@@ -38,7 +38,12 @@ class MemoryManager {
     if (imageData) {
       // Explicitly null the data reference to help GC
       this.scheduleCleanup(() => {
-        (imageData as any).data = null;
+        // Force clear ImageData for GC
+        try {
+          Object.defineProperty(imageData, 'data', { value: null });
+        } catch {
+          // Ignore if property is not configurable
+        }
       });
     }
   }
@@ -80,9 +85,10 @@ class MemoryManager {
     }
 
     // Force garbage collection if available (development only)
-    if (typeof (globalThis as any).gc === 'function' && process.env.NODE_ENV === 'development') {
+    const globalWithGC = globalThis as typeof globalThis & { gc?: () => void };
+    if (typeof globalWithGC.gc === 'function' && process.env.NODE_ENV === 'development') {
       try {
-        (globalThis as any).gc();
+        globalWithGC.gc();
       } catch {
         // GC not available, ignore
       }

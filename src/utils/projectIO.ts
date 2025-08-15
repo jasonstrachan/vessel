@@ -23,7 +23,7 @@ export interface TinyBrushProject {
     layers: SerializedLayer[];
     customBrushes: SerializedCustomBrush[];
     thumbnail?: string;
-    brushSpecificSettings?: Record<string, any>;
+    brushSpecificSettings?: Record<string, unknown>;
     globalBrushSize?: number;
   };
 }
@@ -330,7 +330,12 @@ export async function saveProjectToFile(project: Project, filename?: string, lay
   // Check if File System Access API is supported
   if ('showSaveFilePicker' in window) {
     try {
-      const fileHandle = await (window as any).showSaveFilePicker({
+      const fileHandle = await (window as Window & {
+        showSaveFilePicker?: (options: {
+          suggestedName?: string;
+          types?: { description: string; accept: Record<string, string[]> }[];
+        }) => Promise<FileSystemFileHandle>;
+      }).showSaveFilePicker!({
         suggestedName: fileName,
         types: [{
           description: 'TinyBrush Project Files',
@@ -364,7 +369,12 @@ export async function loadProjectFromFile(): Promise<Project> {
   // Check if File System Access API is supported
   if ('showOpenFilePicker' in window) {
     try {
-      const [fileHandle] = await (window as any).showOpenFilePicker({
+      const [fileHandle] = await (window as Window & {
+        showOpenFilePicker?: (options: {
+          types?: { description: string; accept: Record<string, string[]> }[];
+          multiple?: boolean;
+        }) => Promise<FileSystemFileHandle[]>;
+      }).showOpenFilePicker!({
         types: [{
           description: 'TinyBrush Project Files',
           accept: { 'application/json': ['.tb'] }

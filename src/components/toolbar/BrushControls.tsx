@@ -123,7 +123,7 @@ const BrushControls = () => {
                 <select
                   value={activeSettings.ditherAlgorithm || 'sierra-lite'}
                   onChange={(e) => {
-                    setActiveSettings({ ditherAlgorithm: e.target.value as any });
+                    setActiveSettings({ ditherAlgorithm: e.target.value as 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern' });
                     e.currentTarget.blur();
                   }}
                   className="flex-1 bg-[#4a4a4a] text-[#D9D9D9] border border-[#5a5a5a] rounded px-2 py-1 text-xs focus:outline-none focus:border-[#6a6a6a]"
@@ -144,7 +144,7 @@ const BrushControls = () => {
                   <select
                     value={activeSettings.patternStyle || 'dots'}
                     onChange={(e) => {
-                      setActiveSettings({ patternStyle: e.target.value as any });
+                      setActiveSettings({ patternStyle: e.target.value as 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal' });
                       e.currentTarget.blur();
                     }}
                     className="flex-1 bg-[#4a4a4a] text-[#D9D9D9] border border-[#5a5a5a] rounded px-2 py-1 text-xs focus:outline-none focus:border-[#6a6a6a]"
