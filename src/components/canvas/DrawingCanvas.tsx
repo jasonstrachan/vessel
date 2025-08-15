@@ -1011,6 +1011,12 @@ const DrawingCanvas = () => {
           ctx.translate(panAndZoom.viewTransformRef.current.offsetX, panAndZoom.viewTransformRef.current.offsetY);
           ctx.scale(panAndZoom.viewTransformRef.current.scale, panAndZoom.viewTransformRef.current.scale);
           
+          // Disable antialiasing for pixel brushes
+          const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND || 
+                              tools.brushSettings.brushShape === BrushShape.SQUARE ||
+                              !tools.brushSettings.antialiasing;
+          ctx.imageSmoothingEnabled = !isPixelBrush;
+          
           // Set up preview style with actual brush settings
           ctx.globalAlpha = tools.brushSettings.opacity; // Full opacity as requested
           ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';

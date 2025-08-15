@@ -249,7 +249,7 @@ export function useDrawingHandlers({
         // Disable antialiasing for pixel brushes
         const isPixelBrush = tools.brushSettings.brushShape === 'pixel_round' || 
                             tools.brushSettings.brushShape === 'square' ||
-                            !tools.brushSettings.antiAliasing;
+                            !tools.brushSettings.antialiasing;
         drawCtx.imageSmoothingEnabled = !isPixelBrush;
         
         drawCtx.globalAlpha = tools.brushSettings.opacity;

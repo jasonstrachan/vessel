@@ -1,8 +1,8 @@
 # commit
 
-Auto-commits all changes with an automatic descriptive message.
+Auto-commits all changes with an automatic descriptive message (runs in background).
 
-```bash
+```bash:background
 # Stage all changes
 cd /home/jason/projects/tinybrush && git add -A
 
