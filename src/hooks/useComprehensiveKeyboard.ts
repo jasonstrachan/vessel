@@ -108,18 +108,27 @@ export function useComprehensiveKeyboard({
       return;
     }
 
-    // Prevent repeat events for other keys
-    if (pressedKeysRef.current.has(event.code)) {
-      return;
-    }
-    pressedKeysRef.current.add(event.code);
-
-    // Handle Space for panning
+    // Handle Space for panning (prevent repeat)
     if (event.code === 'Space') {
+      if (pressedKeysRef.current.has(event.code)) {
+        return;
+      }
+      pressedKeysRef.current.add(event.code);
       event.preventDefault();
       keyboardStateRef.current.isSpacePressed = true;
       onSpacePressed?.();
       return;
+    }
+
+    // For bracket keys, allow repeat events for continuous size adjustment
+    const allowRepeat = event.key === '[' || event.key === ']';
+    
+    // Prevent repeat events for other keys (but allow for bracket keys)
+    if (!allowRepeat && pressedKeysRef.current.has(event.code)) {
+      return;
+    }
+    if (!allowRepeat) {
+      pressedKeysRef.current.add(event.code);
     }
 
     // Handle Save (Ctrl/Cmd + S) - prevent default browser save
@@ -141,6 +150,42 @@ export function useComprehensiveKeyboard({
       if (!event.ctrlKey && !event.metaKey) {
         event.preventDefault();
         onCustomTool?.();
+        return;
+      }
+    }
+
+    // Tool switching - F for fill tool
+    if (event.key === 'f' || event.key === 'F') {
+      if (!event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        setCurrentTool('fill');
+        return;
+      }
+    }
+
+    // Tool switching - B for brush tool
+    if (event.key === 'b' || event.key === 'B') {
+      if (!event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        setCurrentTool('brush');
+        return;
+      }
+    }
+
+    // Tool switching - E for eraser tool
+    if (event.key === 'e' || event.key === 'E') {
+      if (!event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        setCurrentTool('eraser');
+        return;
+      }
+    }
+
+    // Tool switching - S for selection tool
+    if (event.key === 's' || event.key === 'S') {
+      if (!event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        setCurrentTool('selection');
         return;
       }
     }

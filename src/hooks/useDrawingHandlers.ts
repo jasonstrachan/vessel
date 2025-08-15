@@ -62,7 +62,6 @@ export function useDrawingHandlers({
     }
     
     drawingCanvasHasContent.current = true;
-    lastDrawPosRef.current = worldPos;
     
     // Draw initial point
     const drawCtx = drawingCanvasRef.current?.getContext('2d');
@@ -73,6 +72,9 @@ export function useDrawingHandlers({
         x: Math.max(0, Math.min(project.width - 1, worldPos.x)),
         y: Math.max(0, Math.min(project.height - 1, worldPos.y))
       };
+      
+      // Store the clamped position to ensure consistency
+      lastDrawPosRef.current = clampedPos;
       
       brushEngine.renderBrushStroke(
         drawCtx,
@@ -108,7 +110,9 @@ export function useDrawingHandlers({
         activeBrushComponents
       );
       
-      lastDrawPosRef.current = worldPos;
+      // Store the clamped position instead of the raw worldPos
+      // This prevents edge artifacts when cursor moves outside canvas
+      lastDrawPosRef.current = clampedPos;
       
       // Cancel previous draw frame if exists
       if (drawAnimationFrameRef.current) {

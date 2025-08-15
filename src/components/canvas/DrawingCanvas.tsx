@@ -7,6 +7,7 @@ import { useToolStateMachine } from '../../hooks/useToolStateMachine';
 import { useComprehensiveKeyboard } from '../../hooks/useComprehensiveKeyboard';
 import { useDrawingHandlers } from '../../hooks/useDrawingHandlers';
 import { BrushShape } from '../../types';
+import { floodFill } from '../../utils/floodFill';
 import BrushCursor from './BrushCursor';
 
 const DrawingCanvas = () => {
@@ -48,14 +49,19 @@ const DrawingCanvas = () => {
   const [showBrushCursor, setShowBrushCursor] = useState(false);
   const [marchingAntsOffset, setMarchingAntsOffset] = useState(0);
   
-  // Determine cursor style based on brush shape
+  // Determine cursor style based on tool and brush shape
   const defaultCursorStyle = useMemo(() => {
+    // Fill tool uses crosshair cursor
+    if (tools.currentTool === 'fill') {
+      return 'crosshair';
+    }
+    // Gradient brushes use crosshair cursor
     const brushShape = tools.brushSettings.brushShape;
     if (brushShape === BrushShape.RECTANGLE_GRADIENT || brushShape === BrushShape.POLYGON_GRADIENT) {
       return 'crosshair';
     }
     return 'none';
-  }, [tools.brushSettings.brushShape]);
+  }, [tools.currentTool, tools.brushSettings.brushShape]);
   
   const [cursorStyle, setCursorStyle] = useState(defaultCursorStyle);
   
@@ -501,6 +507,58 @@ const DrawingCanvas = () => {
           setCursorStyle('move');
           return;
         }
+      }
+      
+      // Handle fill tool
+      if (tools.currentTool === 'fill') {
+        // Get the active layer
+        const activeLayer = layers.find(l => l.id === activeLayerId);
+        if (!activeLayer || !activeLayer.imageData) return;
+        
+        // Parse fill color - handle both hex and rgb formats
+        const fillColor = tools.brushSettings.color;
+        let r = 0, g = 0, b = 0;
+        
+        if (fillColor.startsWith('#')) {
+          // Handle hex color
+          const hex = fillColor.slice(1);
+          r = parseInt(hex.substr(0, 2), 16);
+          g = parseInt(hex.substr(2, 2), 16);
+          b = parseInt(hex.substr(4, 2), 16);
+        } else if (fillColor.startsWith('rgb')) {
+          // Handle rgb/rgba color
+          const matches = fillColor.match(/\d+/g);
+          if (matches) {
+            [r, g, b] = matches.map(Number);
+          }
+        }
+        
+        // Perform flood fill on the active layer's image data
+        const filledImageData = floodFill(
+          activeLayer.imageData,
+          Math.floor(worldPos.x),
+          Math.floor(worldPos.y),
+          { r, g, b, a: 255 },
+          {
+            threshold: tools.fillSettings.threshold,
+            contiguous: tools.fillSettings.contiguous
+          }
+        );
+        
+        // Update the layer with the filled image data
+        updateLayer(activeLayerId, { imageData: filledImageData });
+        
+        // Save state for undo
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = project?.width || 1920;
+        tempCanvas.height = project?.height || 1080;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (tempCtx) {
+          tempCtx.putImageData(filledImageData, 0, 0);
+          saveCanvasState(tempCanvas, 'fill', 'Flood fill');
+        }
+        
+        return;
       }
       
       // Handle selection tool
@@ -1046,8 +1104,10 @@ const DrawingCanvas = () => {
         brushShape !== BrushShape.POLYGON_GRADIENT && 
         brushShape !== BrushShape.RECTANGLE_GRADIENT) {
       interaction.dispatch({ type: 'DRAWING_END' });
+      // Finalize the drawing to commit any existing strokes
+      drawingHandlers.finalizeDrawing();
     }
-  }, [interaction, panAndZoom, tools.brushSettings.brushShape]);
+  }, [interaction, panAndZoom, tools.brushSettings.brushShape, drawingHandlers]);
   
   // Effects
   

@@ -14,6 +14,7 @@ const BrushLibrary = () => {
   const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
   const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
   const setBrushPreset = useAppStore((state) => state.setBrushPreset);
+  const setCurrentTool = useAppStore((state) => state.setCurrentTool);
   const startBrushEdit = useAppStore((state) => state.startBrushEdit);
   const saveBrushEdit = useAppStore((state) => state.saveBrushEdit);
   const cancelBrushEdit = useAppStore((state) => state.cancelBrushEdit);
@@ -160,6 +161,8 @@ const BrushLibrary = () => {
   const handlePresetClick = (preset: BrushPreset) => {
     // Always allow normal brush selection - editing mode doesn't prevent switching brushes
     setBrushPreset(preset, true); // preserveEditMode = true to keep editor open if active
+    // Also switch to Brush tool when any brush is selected
+    setCurrentTool('brush');
   };
 
   const isPresetActive = (preset: BrushPreset): boolean => {
