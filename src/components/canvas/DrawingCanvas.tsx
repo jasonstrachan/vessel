@@ -1273,15 +1273,120 @@ const DrawingCanvas = () => {
     };
   }, [selectionStart, selectionEnd, draw]);
 
+  // Handle paste event
+  useEffect(() => {
+    const handlePaste = async (event: ClipboardEvent) => {
+      event.preventDefault();
+      
+      const items = event.clipboardData?.items;
+      if (!items) return;
+      
+      for (const item of items) {
+        if (item.type.indexOf('image') !== -1) {
+          const blob = item.getAsFile();
+          if (!blob) continue;
+          
+          // Convert blob to image
+          const reader = new FileReader();
+          reader.onload = async (e) => {
+            const img = new Image();
+            img.onload = async () => {
+              // Create a canvas to draw the image
+              const tempCanvas = document.createElement('canvas');
+              const tempCtx = tempCanvas.getContext('2d');
+              if (!tempCtx || !project) return;
+              
+              // Set canvas size to match project
+              tempCanvas.width = project.width;
+              tempCanvas.height = project.height;
+              
+              // Calculate position to center the image
+              const scale = Math.min(
+                project.width / img.width,
+                project.height / img.height,
+                1 // Don't scale up
+              );
+              
+              const scaledWidth = img.width * scale;
+              const scaledHeight = img.height * scale;
+              const x = (project.width - scaledWidth) / 2;
+              const y = (project.height - scaledHeight) / 2;
+              
+              // Draw the image centered and scaled
+              tempCtx.drawImage(img, x, y, scaledWidth, scaledHeight);
+              
+              // Get the active layer
+              const activeLayer = layers.find(l => l.id === activeLayerId) || layers[0];
+              if (!activeLayer || !activeLayer.imageData) return;
+              
+              // Merge with existing layer content
+              const mergeCanvas = document.createElement('canvas');
+              mergeCanvas.width = project.width;
+              mergeCanvas.height = project.height;
+              const mergeCtx = mergeCanvas.getContext('2d');
+              if (!mergeCtx) return;
+              
+              // Draw existing layer content
+              mergeCtx.putImageData(activeLayer.imageData, 0, 0);
+              
+              // Draw pasted image on top
+              mergeCtx.drawImage(tempCanvas, 0, 0);
+              
+              // Capture to active layer
+              await captureCanvasToActiveLayer(mergeCanvas);
+              
+              // Save state for undo
+              const updatedLayer = useAppStore.getState().layers.find(l => l.id === activeLayerId);
+              if (updatedLayer && updatedLayer.imageData) {
+                const saveCanvas = document.createElement('canvas');
+                saveCanvas.width = project.width;
+                saveCanvas.height = project.height;
+                const saveCtx = saveCanvas.getContext('2d');
+                if (saveCtx) {
+                  saveCtx.putImageData(updatedLayer.imageData, 0, 0);
+                  saveCanvasState(saveCanvas, 'paste', 'Pasted image');
+                }
+              }
+              
+              // Trigger redraw
+              requestAnimationFrame(() => {
+                const canvas = canvasRef.current;
+                const ctx = canvas?.getContext('2d');
+                if (ctx) {
+                  draw(ctx, viewTransformRef.current);
+                }
+              });
+            };
+            
+            img.src = e.target?.result as string;
+          };
+          
+          reader.readAsDataURL(blob);
+          break; // Only handle first image
+        }
+      }
+    };
+    
+    // Add paste event listener
+    document.addEventListener('paste', handlePaste);
+    
+    return () => {
+      document.removeEventListener('paste', handlePaste);
+    };
+  }, [project, layers, activeLayerId, captureCanvasToActiveLayer, saveCanvasState, draw]);
+
   // Handle keyboard events for space key and wheel events
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Handle Undo (Ctrl+Z / Cmd+Z)
-      if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
+      // Handle Undo (Ctrl+Z / Cmd+Z) - prevent repeat events for proper key state handling
+      if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey && !event.repeat) {
         event.preventDefault();
+        event.stopPropagation();
+        console.log('🔙 Undo key pressed');
         const snapshot = undo();
         
         if (snapshot) {
+          console.log('✅ Undo snapshot retrieved:', snapshot.description);
           // Get the store instance to update layers
           const store = useAppStore.getState();
           
@@ -1308,12 +1413,18 @@ const DrawingCanvas = () => {
           }, 0);
         }
       } 
-      // Handle Redo (Ctrl+Shift+Z / Cmd+Shift+Z) - check both lowercase and uppercase
-      else if ((event.ctrlKey || event.metaKey) && (event.key === 'z' || event.key === 'Z') && event.shiftKey) {
+      // Handle Redo (Ctrl+Shift+Z / Cmd+Shift+Z or Ctrl+Y / Cmd+Y) - prevent repeat
+      else if (!event.repeat && (
+        ((event.ctrlKey || event.metaKey) && (event.key === 'z' || event.key === 'Z') && event.shiftKey) ||
+        ((event.ctrlKey || event.metaKey) && (event.key === 'y' || event.key === 'Y') && !event.shiftKey)
+      )) {
         event.preventDefault();
+        event.stopPropagation();
+        console.log('🔄 Redo key pressed');
         const snapshot = redo();
         
         if (snapshot) {
+          console.log('✅ Redo snapshot retrieved:', snapshot.description);
           // Get the store instance to update layers
           const store = useAppStore.getState();
           

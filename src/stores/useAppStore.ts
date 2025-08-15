@@ -130,6 +130,25 @@ interface AppState {
   setSelectionBounds: (start: { x: number; y: number } | null, end: { x: number; y: number } | null) => void;
   clearSelection: () => void;
   
+  // Floating Paste State
+  floatingPaste: {
+    active: boolean;
+    imageData: ImageData | null;
+    position: { x: number; y: number };
+    originalPosition: { x: number; y: number };
+    width: number;
+    height: number;
+  } | null;
+  setFloatingPaste: (paste: {
+    imageData: ImageData;
+    position: { x: number; y: number };
+    width: number;
+    height: number;
+  } | null) => void;
+  updateFloatingPastePosition: (position: { x: number; y: number }) => void;
+  commitFloatingPaste: () => Promise<void>;
+  cancelFloatingPaste: () => void;
+  
   // Tool State
   tools: ToolState;
   setCurrentTool: (tool: Tool) => void;
@@ -594,6 +613,65 @@ export const useAppStore = create<AppState>()(
       selectionEnd: null,
       setSelectionBounds: (start, end) => set({ selectionStart: start, selectionEnd: end }),
       clearSelection: () => set({ selectionStart: null, selectionEnd: null }),
+      
+      // Floating Paste State
+      floatingPaste: null,
+      setFloatingPaste: (paste) => set({ 
+        floatingPaste: paste ? {
+          active: true,
+          imageData: paste.imageData,
+          position: paste.position,
+          originalPosition: paste.position,
+          width: paste.width,
+          height: paste.height
+        } : null 
+      }),
+      updateFloatingPastePosition: (position) => set((state) => ({
+        floatingPaste: state.floatingPaste ? {
+          ...state.floatingPaste,
+          position
+        } : null
+      })),
+      commitFloatingPaste: async () => {
+        const state = get();
+        const { floatingPaste, layers, activeLayerId, project } = state;
+        
+        if (!floatingPaste || !floatingPaste.imageData || !project) return;
+        
+        const activeLayer = layers.find(l => l.id === activeLayerId) || layers[0];
+        if (!activeLayer || !activeLayer.imageData) return;
+        
+        // Create a temporary canvas to merge the floating paste
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = project.width;
+        tempCanvas.height = project.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        
+        if (tempCtx) {
+          // Draw existing layer content
+          tempCtx.putImageData(activeLayer.imageData, 0, 0);
+          
+          // Draw floating paste at its position
+          const pasteCanvas = document.createElement('canvas');
+          pasteCanvas.width = floatingPaste.width;
+          pasteCanvas.height = floatingPaste.height;
+          const pasteCtx = pasteCanvas.getContext('2d');
+          if (pasteCtx) {
+            pasteCtx.putImageData(floatingPaste.imageData, 0, 0);
+            tempCtx.drawImage(pasteCanvas, floatingPaste.position.x, floatingPaste.position.y);
+          }
+          
+          // Capture to active layer
+          await state.captureCanvasToActiveLayer(tempCanvas);
+          
+          // Save state for undo
+          state.saveCanvasState(tempCanvas, 'paste', 'Committed paste');
+        }
+        
+        // Clear floating paste
+        set({ floatingPaste: null });
+      },
+      cancelFloatingPaste: () => set({ floatingPaste: null }),
       
       // Tool State
       tools: (() => {
@@ -1916,13 +1994,20 @@ export const useAppStore = create<AppState>()(
           redoStackSize: state.history.redoStack.length
         });
         
-        if (state.history.undoStack.length <= 1) {
+        if (state.history.undoStack.length === 0) {
           console.log('🔙 STORE UNDO: Not enough history to undo');
-          return null; // Need at least 2 states to undo
+          return null; // Can't undo if stack is empty
         }
         
         // Current state is the last item in undoStack - move it to redoStack
         const currentState = state.history.undoStack[state.history.undoStack.length - 1];
+        
+        // If there's only one state, we can't undo further but we should handle it gracefully
+        if (state.history.undoStack.length === 1) {
+          console.log('🔙 STORE UNDO: At initial state, cannot undo further');
+          return null;
+        }
+        
         // Previous state is what we want to restore to
         const previousState = state.history.undoStack[state.history.undoStack.length - 2];
         
