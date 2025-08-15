@@ -276,7 +276,9 @@ export interface DrawingAction {
 export interface CanvasSnapshot {
   id: string;
   timestamp: number;
-  imageData: ImageData;
+  imageData: ImageData;  // Keep for backward compatibility
+  layers: Layer[];  // Full layers state
+  activeLayerId: string;  // Active layer at time of snapshot
   actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'paste';
   description: string;
 }

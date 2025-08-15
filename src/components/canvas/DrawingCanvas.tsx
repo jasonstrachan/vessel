@@ -606,9 +606,17 @@ const DrawingCanvas = () => {
                 captureCanvasToActiveLayer(tempCanvas).then(() => {
                   console.log('✅ [RECT DEBUG] Capture completed successfully, cleaning up...');
                   
-                  // Save state for undo/redo after capturing
-                  if (tempCanvas) {
-                    saveCanvasState(tempCanvas, 'brush', 'Rectangle brush stroke');
+                  // Save state for undo/redo after layer has been updated
+                  const updatedLayer = useAppStore.getState().layers.find(l => l.id === activeLayerId);
+                  if (updatedLayer) {
+                    const saveCanvas = document.createElement('canvas');
+                    saveCanvas.width = project.width;
+                    saveCanvas.height = project.height;
+                    const saveCtx = saveCanvas.getContext('2d');
+                    if (saveCtx) {
+                      saveCtx.putImageData(updatedLayer.imageData, 0, 0);
+                      saveCanvasState(saveCanvas, 'brush', 'Rectangle brush stroke');
+                    }
                   }
                   
                   // Wait for next frame to ensure React has re-rendered with the updated layer
@@ -727,10 +735,20 @@ const DrawingCanvas = () => {
             // Capture this merged canvas directly to the active layer
             // Note: captureCanvasToActiveLayer replaces the layer content entirely
             captureCanvasToActiveLayer(tempCanvas).then(() => {
-              // Save state for undo/redo after capturing
-              if (tempCanvas) {
-                saveCanvasState(tempCanvas, 'brush', 'Drawing stroke');
+              // Save state for undo/redo after layer has been updated
+              // We need to get the updated layer data
+              const updatedLayer = useAppStore.getState().layers.find(l => l.id === activeLayerId);
+              if (updatedLayer) {
+                const saveCanvas = document.createElement('canvas');
+                saveCanvas.width = project.width;
+                saveCanvas.height = project.height;
+                const saveCtx = saveCanvas.getContext('2d');
+                if (saveCtx) {
+                  saveCtx.putImageData(updatedLayer.imageData, 0, 0);
+                  saveCanvasState(saveCanvas, 'brush', 'Drawing stroke');
+                }
               }
+              
               // Wait for next frame to ensure React has re-rendered with the updated layer
               requestAnimationFrame(() => {
                 // Clear the drawing canvas itself
@@ -1231,18 +1249,33 @@ const DrawingCanvas = () => {
         event.preventDefault();
         const snapshot = undo();
         if (snapshot) {
-          // Apply the restored snapshot to the active layer
-          const activeLayer = layers.find(l => l.id === activeLayerId);
-          if (activeLayer && snapshot.imageData) {
-            updateLayer(activeLayer.id, { imageData: snapshot.imageData });
-            // Force redraw
+          // Get the store instance to update layers
+          const store = useAppStore.getState();
+          
+          // If snapshot has the new layers format, restore full state
+          if (snapshot.layers && snapshot.activeLayerId) {
+            // Update all layers and active layer
+            snapshot.layers.forEach(layer => {
+              store.updateLayer(layer.id, layer);
+            });
+            store.setActiveLayer(snapshot.activeLayerId);
+          } else {
+            // Fallback for old snapshots with only imageData
+            const activeLayer = layers.find(l => l.id === activeLayerId);
+            if (activeLayer && snapshot.imageData) {
+              store.updateLayer(activeLayer.id, { imageData: snapshot.imageData });
+            }
+          }
+          
+          // Force redraw after state update completes
+          setTimeout(() => {
             lastLayersHashRef.current = '';
             const canvas = canvasRef.current;
             const ctx = canvas?.getContext('2d');
             if (ctx) {
               draw(ctx, viewTransformRef.current);
             }
-          }
+          }, 0);
         }
       } 
       // Handle Redo (Ctrl+Shift+Z / Cmd+Shift+Z)
@@ -1250,18 +1283,33 @@ const DrawingCanvas = () => {
         event.preventDefault();
         const snapshot = redo();
         if (snapshot) {
-          // Apply the restored snapshot to the active layer
-          const activeLayer = layers.find(l => l.id === activeLayerId);
-          if (activeLayer && snapshot.imageData) {
-            updateLayer(activeLayer.id, { imageData: snapshot.imageData });
-            // Force redraw
+          // Get the store instance to update layers
+          const store = useAppStore.getState();
+          
+          // If snapshot has the new layers format, restore full state
+          if (snapshot.layers && snapshot.activeLayerId) {
+            // Update all layers and active layer
+            snapshot.layers.forEach(layer => {
+              store.updateLayer(layer.id, layer);
+            });
+            store.setActiveLayer(snapshot.activeLayerId);
+          } else {
+            // Fallback for old snapshots with only imageData
+            const activeLayer = layers.find(l => l.id === activeLayerId);
+            if (activeLayer && snapshot.imageData) {
+              store.updateLayer(activeLayer.id, { imageData: snapshot.imageData });
+            }
+          }
+          
+          // Force redraw after state update completes
+          setTimeout(() => {
             lastLayersHashRef.current = '';
             const canvas = canvasRef.current;
             const ctx = canvas?.getContext('2d');
             if (ctx) {
               draw(ctx, viewTransformRef.current);
             }
-          }
+          }, 0);
         }
       } 
       else if (event.code === 'Space' && !event.repeat) {
@@ -1275,16 +1323,52 @@ const DrawingCanvas = () => {
         // [ key to decrease brush size
         event.preventDefault();
         const store = useAppStore.getState();
-        const currentSize = store.tools.brushSettings.size;
-        const newSize = Math.max(1, currentSize - 5);
+        const { brushSettings } = store.tools;
+        const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
+        const currentSize = brushSettings.size;
+        
+        // For custom brushes, adjust by 5% increments, for default brushes by 5px
+        const adjustment = isCustomBrush ? 5 : 5;
+        const minSize = isCustomBrush ? 10 : 1;
+        const newSize = Math.max(minSize, currentSize - adjustment);
+        
+        // Update global brush size first to trigger UI update
+        store.setGlobalBrushSize(newSize);
+        
+        // Then update brush settings
         store.setBrushSettings({ size: newSize });
+        
+        // Update the appropriate unified size
+        if (isCustomBrush) {
+          store.setCustomBrushesSize(newSize);
+        } else {
+          store.setDefaultBrushesSize(newSize);
+        }
       } else if (event.key === ']') {
         // ] key to increase brush size
         event.preventDefault();
         const store = useAppStore.getState();
-        const currentSize = store.tools.brushSettings.size;
-        const newSize = Math.min(500, currentSize + 5);
+        const { brushSettings } = store.tools;
+        const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
+        const currentSize = brushSettings.size;
+        
+        // For custom brushes, adjust by 5% increments, for default brushes by 5px
+        const adjustment = isCustomBrush ? 5 : 5;
+        const maxSize = isCustomBrush ? 200 : 500;
+        const newSize = Math.min(maxSize, currentSize + adjustment);
+        
+        // Update global brush size first to trigger UI update
+        store.setGlobalBrushSize(newSize);
+        
+        // Then update brush settings
         store.setBrushSettings({ size: newSize });
+        
+        // Update the appropriate unified size
+        if (isCustomBrush) {
+          store.setCustomBrushesSize(newSize);
+        } else {
+          store.setDefaultBrushesSize(newSize);
+        }
       } else if ((event.key === 'Enter' || event.key === 'Escape') && 
                  tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT && 
                  polygonGradientState.points.length >= 3) {
@@ -1316,14 +1400,22 @@ const DrawingCanvas = () => {
                 tempCanvas.height = project.height;
                 const tempCtx = tempCanvas.getContext('2d');
                 
-                if (tempCtx) {
+                if (tempCtx && activeLayer.imageData) {
                   tempCtx.putImageData(activeLayer.imageData, 0, 0);
                   tempCtx.drawImage(drawingCanvasRef.current, 0, 0);
                   
                   captureCanvasToActiveLayer(tempCanvas).then(() => {
-                    // Save state for undo/redo after capturing
-                    if (tempCanvas) {
-                      saveCanvasState(tempCanvas, 'brush', 'Polygon gradient');
+                    // Save state for undo/redo after layer has been updated
+                    const updatedLayer = useAppStore.getState().layers.find(l => l.id === activeLayerId);
+                    if (updatedLayer) {
+                      const saveCanvas = document.createElement('canvas');
+                      saveCanvas.width = project.width;
+                      saveCanvas.height = project.height;
+                      const saveCtx = saveCanvas.getContext('2d');
+                      if (saveCtx && updatedLayer.imageData) {
+                        saveCtx.putImageData(updatedLayer.imageData, 0, 0);
+                        saveCanvasState(saveCanvas, 'brush', 'Polygon gradient');
+                      }
                     }
                     requestAnimationFrame(() => {
                       const clearCtx = drawingCanvasRef.current?.getContext('2d');
@@ -1381,17 +1473,55 @@ const DrawingCanvas = () => {
     };
   }, [handleWheel, setCurrentTool, undo, redo, layers, activeLayerId, updateLayer, draw, polygonGradientState, setPolygonGradientState, tools.brushSettings.brushShape, brushEngine, initDrawingCanvas, project, captureCanvasToActiveLayer, saveCanvasState]);
 
-  // Initialize view transform from store on mount only
+  // Initialize view transform and center canvas on mount
   useEffect(() => {
-    if (canvas) {
-      setViewTransform({
+    if (canvas && project && wrapperRef.current) {
+      // Get viewport dimensions
+      const viewport = wrapperRef.current.getBoundingClientRect();
+      const viewportWidth = viewport.width;
+      const viewportHeight = viewport.height;
+      
+      // Calculate center position
+      const centerX = (viewportWidth - project.width * canvas.zoom) / 2;
+      const centerY = (viewportHeight - project.height * canvas.zoom) / 2;
+      
+      // Set initial view transform with centered position
+      const initialTransform = {
         scale: canvas.zoom,
-        offsetX: canvas.panX,
-        offsetY: canvas.panY,
-      });
+        offsetX: centerX,
+        offsetY: centerY,
+      };
+      
+      setViewTransform(initialTransform);
+      viewTransformRef.current = initialTransform;
+      
+      // Update the store with centered position
+      setPan(centerX, centerY);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Intentionally empty - only run on mount
+  
+  // Save initial state for undo functionality
+  useEffect(() => {
+    if (project && layers.length > 0 && compositeCanvasRef.current) {
+      // Check if we have an empty history (no initial state saved)
+      const store = useAppStore.getState();
+      if (store.history.undoStack.length === 0) {
+        // Create the initial canvas state
+        const activeLayer = layers.find(l => l.id === activeLayerId) || layers[0];
+        if (activeLayer) {
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = project.width;
+          tempCanvas.height = project.height;
+          const tempCtx = tempCanvas.getContext('2d');
+          if (tempCtx && activeLayer.imageData) {
+            tempCtx.putImageData(activeLayer.imageData, 0, 0);
+            saveCanvasState(tempCanvas, 'brush', 'Initial state');
+          }
+        }
+      }
+    }
+  }, [project, layers, activeLayerId, saveCanvasState]);
   
   // Redraw when layers change
   useEffect(() => {

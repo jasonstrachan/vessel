@@ -450,6 +450,12 @@ const createNoiseTexture = (): HTMLCanvasElement => {
   return canvas;
 };
 
+// Converts a single sRGB color channel (0-255) to linear space (0-1)
+const srgbToLinear = (c: number): number => Math.pow(c / 255.0, 2.2);
+
+// Converts a linear color channel (0-1) back to sRGB (0-255)
+const linearToSrgb = (c: number): number => Math.round(Math.pow(c, 1.0 / 2.2) * 255.0);
+
 /**
  * Universal dithering function that routes to the appropriate algorithm
  */
@@ -459,66 +465,93 @@ const applyDithering = (
   algorithm?: string,
   patternStyle?: string
 ): ImageData => {
-  // First select the best colors from palette based on content
-  const selectBestPaletteColors = (numColors: number): [number, number, number][] => {
+  // Improved palette selection that guarantees gradient endpoints
+  const selectDynamicPalette = (numColors: number): [number, number, number][] => {
     if (numColors >= DITHER_PALETTE.length) return DITHER_PALETTE;
-    
+
     const data = imageData.data;
-    // Sample pixels from the image
-    const sampleStep = Math.max(1, Math.floor(data.length / (4 * 1000))); // Sample ~1000 pixels
     const sampledColors: [number, number, number][] = [];
-    
+    const sampleStep = Math.max(1, Math.floor(data.length / (4 * 1000)));
+
+    let darkestSample = { color: [255, 255, 255] as [number, number, number], luma: 255 };
+    let lightestSample = { color: [0, 0, 0] as [number, number, number], luma: 0 };
+
     for (let i = 0; i < data.length; i += sampleStep * 4) {
-      if (data[i + 3] > 0) { // Only sample non-transparent pixels
-        sampledColors.push([data[i], data[i + 1], data[i + 2]]);
+      if (data[i + 3] > 128) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        const color: [number, number, number] = [r, g, b];
+        sampledColors.push(color);
+
+        // Find the darkest and lightest sampled colors by luminance
+        const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+        if (luma < darkestSample.luma) darkestSample = { color, luma };
+        if (luma > lightestSample.luma) lightestSample = { color, luma };
+      }
+    }
+
+    if (sampledColors.length === 0) return DITHER_PALETTE.slice(0, numColors);
+
+    // Helper to find the single closest palette color to a target
+    const findClosestPaletteColor = (target: [number, number, number]): [number, number, number] => {
+      let bestMatch: [number, number, number] = DITHER_PALETTE[0];
+      let minDistanceSq = Infinity;
+      DITHER_PALETTE.forEach(pColor => {
+        const distSq = (target[0] - pColor[0]) ** 2 + (target[1] - pColor[1]) ** 2 + (target[2] - pColor[2]) ** 2;
+        if (distSq < minDistanceSq) {
+          minDistanceSq = distSq;
+          bestMatch = pColor;
+        }
+      });
+      return bestMatch;
+    };
+
+    const selectedColors = new Set<string>();
+    const selectedColorsList: [number, number, number][] = [];
+
+    // Forcibly add the best matches for the gradient's endpoints
+    if (numColors >= 1) {
+      const darkest = findClosestPaletteColor(darkestSample.color);
+      const key = `${darkest[0]},${darkest[1]},${darkest[2]}`;
+      if (!selectedColors.has(key)) {
+        selectedColors.add(key);
+        selectedColorsList.push(darkest);
+      }
+    }
+    if (numColors >= 2) {
+      const lightest = findClosestPaletteColor(lightestSample.color);
+      const key = `${lightest[0]},${lightest[1]},${lightest[2]}`;
+      if (!selectedColors.has(key)) {
+        selectedColors.add(key);
+        selectedColorsList.push(lightest);
+      }
+    }
+
+    // Now, fill the rest of the palette using the scoring logic for best fit
+    if (numColors > selectedColorsList.length) {
+      const remainingPalette = DITHER_PALETTE.filter(pColor => {
+        const key = `${pColor[0]},${pColor[1]},${pColor[2]}`;
+        return !selectedColors.has(key);
+      });
+      
+      const colorScores = remainingPalette.map(pColor => {
+        let totalDistanceSq = 0;
+        sampledColors.forEach(sample => {
+          totalDistanceSq += (sample[0] - pColor[0]) ** 2 + (sample[1] - pColor[1]) ** 2 + (sample[2] - pColor[2]) ** 2;
+        });
+        return { color: pColor, score: -totalDistanceSq }; // Simple average distance scoring
+      });
+      colorScores.sort((a, b) => b.score - a.score);
+      
+      const needed = numColors - selectedColorsList.length;
+      for(let i = 0; i < needed && i < colorScores.length; i++) {
+        selectedColorsList.push(colorScores[i].color);
       }
     }
     
-    if (sampledColors.length === 0) {
-      // No valid samples, return default palette subset
-      return DITHER_PALETTE.slice(0, numColors);
-    }
-    
-    // Score each palette color by how well it represents the sampled colors
-    const colorScores = DITHER_PALETTE.map((paletteColor, index) => {
-      let minDistance = Infinity;
-      let totalDistance = 0;
-      let closeMatches = 0;
-      let blackBonus = 0;
-      
-      sampledColors.forEach(sample => {
-        const dist = Math.sqrt(
-          (sample[0] - paletteColor[0]) ** 2 +
-          (sample[1] - paletteColor[1]) ** 2 +
-          (sample[2] - paletteColor[2]) ** 2
-        );
-        totalDistance += dist;
-        minDistance = Math.min(minDistance, dist);
-        if (dist < 30) closeMatches++; // Count very close matches
-        
-        // Give huge bonus to pure black if we have dark samples
-        if (paletteColor[0] === 0 && paletteColor[1] === 0 && paletteColor[2] === 0) {
-          if (sample[0] <= 40 && sample[1] <= 40 && sample[2] <= 40) {
-            blackBonus += 50000; // Massive bonus for black when sampling dark colors
-          }
-        }
-      });
-      
-      const avgDistance = totalDistance / sampledColors.length;
-      // Prioritize colors that have very close matches to some samples
-      return {
-        color: paletteColor,
-        index: index,
-        score: blackBonus + closeMatches * 10000 - avgDistance - minDistance * 10
-      };
-    });
-    
-    // Sort by score and take the best numColors
-    colorScores.sort((a, b) => b.score - a.score);
-    return colorScores.slice(0, numColors).map(item => item.color);
+    return selectedColorsList;
   };
   
-  const palette = selectBestPaletteColors(numColors);
+  const palette = selectDynamicPalette(numColors);
   
   // Create dither settings
   const ditherSettings: DitherSettings = {
@@ -562,85 +595,124 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
   const width = imageData.width;
   const height = imageData.height;
   
-  // Sample the image to find the best colors from our palette
-  const selectBestPaletteColors = (numColors: number): [number, number, number][] => {
+  // Improved palette selection that guarantees gradient endpoints
+  const selectDynamicPalette = (numColors: number): [number, number, number][] => {
     if (numColors >= DITHER_PALETTE.length) return DITHER_PALETTE;
-    
-    // Sample pixels from the image
-    const sampleStep = Math.max(1, Math.floor(data.length / (4 * 1000))); // Sample ~1000 pixels
+
     const sampledColors: [number, number, number][] = [];
-    
+    const sampleStep = Math.max(1, Math.floor(data.length / (4 * 1000)));
+
+    let darkestSample = { color: [255, 255, 255] as [number, number, number], luma: 255 };
+    let lightestSample = { color: [0, 0, 0] as [number, number, number], luma: 0 };
+
     for (let i = 0; i < data.length; i += sampleStep * 4) {
-      if (data[i + 3] > 0) { // Only sample non-transparent pixels
-        sampledColors.push([data[i], data[i + 1], data[i + 2]]);
+      if (data[i + 3] > 128) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        const color: [number, number, number] = [r, g, b];
+        sampledColors.push(color);
+
+        // Find the darkest and lightest sampled colors by luminance
+        const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+        if (luma < darkestSample.luma) darkestSample = { color, luma };
+        if (luma > lightestSample.luma) lightestSample = { color, luma };
       }
     }
-    
-    if (sampledColors.length === 0) {
-      // No valid samples, return default palette subset
-      return DITHER_PALETTE.slice(0, numColors);
-    }
-    
-    
-    // Score each palette color by how well it represents the sampled colors
-    const colorScores = DITHER_PALETTE.map((paletteColor, index) => {
-      let minDistance = Infinity;
-      let totalDistance = 0;
-      let closeMatches = 0;
-      let blackBonus = 0;
-      
-      sampledColors.forEach(sample => {
-        const distSquared = 
-          (sample[0] - paletteColor[0]) ** 2 +
-          (sample[1] - paletteColor[1]) ** 2 +
-          (sample[2] - paletteColor[2]) ** 2;
-        totalDistance += distSquared;
-        minDistance = Math.min(minDistance, distSquared);
-        if (distSquared < 900) closeMatches++; // Count very close matches (30^2 = 900)
-        
-        // Give huge bonus to pure black if we have dark samples
-        if (paletteColor[0] === 0 && paletteColor[1] === 0 && paletteColor[2] === 0) {
-          if (sample[0] <= 40 && sample[1] <= 40 && sample[2] <= 40) {
-            blackBonus += 50000; // Massive bonus for black when sampling dark colors
-          }
+
+    if (sampledColors.length === 0) return DITHER_PALETTE.slice(0, numColors);
+
+    // Helper to find the single closest palette color to a target
+    const findClosestPaletteColor = (target: [number, number, number]): [number, number, number] => {
+      let bestMatch: [number, number, number] = DITHER_PALETTE[0];
+      let minDistanceSq = Infinity;
+      DITHER_PALETTE.forEach(pColor => {
+        const distSq = (target[0] - pColor[0]) ** 2 + (target[1] - pColor[1]) ** 2 + (target[2] - pColor[2]) ** 2;
+        if (distSq < minDistanceSq) {
+          minDistanceSq = distSq;
+          bestMatch = pColor;
         }
       });
+      return bestMatch;
+    };
+
+    const selectedColors = new Set<string>();
+    const selectedColorsList: [number, number, number][] = [];
+
+    // Forcibly add the best matches for the gradient's endpoints
+    if (numColors >= 1) {
+      const darkest = findClosestPaletteColor(darkestSample.color);
+      const key = `${darkest[0]},${darkest[1]},${darkest[2]}`;
+      if (!selectedColors.has(key)) {
+        selectedColors.add(key);
+        selectedColorsList.push(darkest);
+      }
+    }
+    if (numColors >= 2) {
+      const lightest = findClosestPaletteColor(lightestSample.color);
+      const key = `${lightest[0]},${lightest[1]},${lightest[2]}`;
+      if (!selectedColors.has(key)) {
+        selectedColors.add(key);
+        selectedColorsList.push(lightest);
+      }
+    }
+
+    // Now, fill the rest of the palette using the scoring logic for best fit
+    if (numColors > selectedColorsList.length) {
+      const remainingPalette = DITHER_PALETTE.filter(pColor => {
+        const key = `${pColor[0]},${pColor[1]},${pColor[2]}`;
+        return !selectedColors.has(key);
+      });
       
-      const avgDistance = totalDistance / sampledColors.length;
-      // New scoring: prioritize colors that have very close matches to some samples
-      // This helps select black for black pixels and white for white pixels
-      return {
-        color: paletteColor,
-        index: index,
-        score: blackBonus + closeMatches * 10000 - avgDistance - minDistance * 10
-      };
-    });
-    
-    // Sort by score and take the best numColors
-    colorScores.sort((a, b) => b.score - a.score);
-    
-    return colorScores.slice(0, numColors).map(item => item.color);
-  };
-  
-  const palette = selectBestPaletteColors(numColors);
-  
-  // Find nearest palette color for RGB values
-  const findNearestColor = (r: number, g: number, b: number): [number, number, number] => {
-    let nearest = palette[0];
-    let nearestIndex = 0;
-    let minDiffSquared = (r - nearest[0])**2 + (g - nearest[1])**2 + (b - nearest[2])**2;
-    
-    for (let i = 1; i < palette.length; i++) {
-      const color = palette[i];
-      const diffSquared = (r - color[0])**2 + (g - color[1])**2 + (b - color[2])**2;
-      if (diffSquared < minDiffSquared) {
-        minDiffSquared = diffSquared;
-        nearest = color;
-        nearestIndex = i;
+      const colorScores = remainingPalette.map(pColor => {
+        let totalDistanceSq = 0;
+        sampledColors.forEach(sample => {
+          totalDistanceSq += (sample[0] - pColor[0]) ** 2 + (sample[1] - pColor[1]) ** 2 + (sample[2] - pColor[2]) ** 2;
+        });
+        return { color: pColor, score: -totalDistanceSq }; // Simple average distance scoring
+      });
+      colorScores.sort((a, b) => b.score - a.score);
+      
+      const needed = numColors - selectedColorsList.length;
+      for(let i = 0; i < needed && i < colorScores.length; i++) {
+        selectedColorsList.push(colorScores[i].color);
       }
     }
     
+    return selectedColorsList;
+  };
+  
+  const palette = selectDynamicPalette(numColors);
+  
+  // Find nearest palette color using linear color space for accurate comparison
+  const findNearestColor = (r: number, g: number, b: number): [number, number, number] => {
+    let nearest = palette[0];
+    let minDiff = Infinity;
+
+    // Convert the source pixel color to linear space once
+    const lr = srgbToLinear(r);
+    const lg = srgbToLinear(g);
+    const lb = srgbToLinear(b);
     
+    for (let i = 0; i < palette.length; i++) {
+      const color = palette[i];
+      
+      // Convert the palette color to linear space for comparison
+      const plr = srgbToLinear(color[0]);
+      const plg = srgbToLinear(color[1]);
+      const plb = srgbToLinear(color[2]);
+
+      // Compare distance in linear space for gamma-correct matching
+      const dr = lr - plr;
+      const dg = lg - plg;
+      const db = lb - plb;
+      
+      // Using simple squared distance is accurate in linear space
+      const diff = dr * dr + dg * dg + db * db;
+      
+      if (diff < minDiff) {
+        minDiff = diff;
+        nearest = color; // Still return the original sRGB palette color
+      }
+    }
     return nearest;
   };
   
@@ -2830,10 +2902,7 @@ export const useBrushEngine = () => {
       }
     }
 
-    // Apply Sierra Lite dither effect if enabled and 2+ colors
-    // Use numColors already declared above
-    // Only apply dithering if explicitly enabled in settings
-    // NEVER apply dithering for 1-color mode - it should be flat
+    // Apply dithering with manual gamma-correct gradient rendering
     if (brushSettings.ditherEnabled && numColors >= 2 && !isPreview) {
       // Get the bounds of the rectangle for dithering
       const minX = Math.floor(Math.min(...corners.map(c => c.x)));
@@ -2844,66 +2913,108 @@ export const useBrushEngine = () => {
       const boundHeight = maxY - minY;
       
       if (boundWidth > 0 && boundHeight > 0) {
-        // Get the current image data from the bounding area
-        const imageData = ctx.getImageData(minX, minY, boundWidth, boundHeight);
-        
-        // Create a temporary canvas for clipping
+        // Create a temporary canvas for manual gradient rendering
         const tempCanvas = canvasPool.acquire(boundWidth, boundHeight);
         const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         
         if (tempCtx) {
-          // Put the original image data on temp canvas
-          tempCtx.putImageData(imageData, 0, 0);
+          // Create image data for manual pixel rendering
+          const gradientImageData = tempCtx.createImageData(boundWidth, boundHeight);
+          const data = gradientImageData.data;
           
-          // Create clipping mask for the rectangle shape
-          const maskCanvas = canvasPool.acquire(boundWidth, boundHeight);
-          const maskCtx = maskCanvas.getContext('2d', { colorSpace: 'srgb' });
+          // Parse start and end colors
+          let startColorRGB: [number, number, number];
+          let endColorRGB: [number, number, number];
           
-          if (maskCtx) {
-            // Draw the rectangle shape as a mask (translated to local coordinates)
-            maskCtx.fillStyle = 'white';
-            maskCtx.beginPath();
-            maskCtx.moveTo(corners[0].x - minX, corners[0].y - minY);
-            corners.slice(1).forEach(corner => maskCtx.lineTo(corner.x - minX, corner.y - minY));
-            maskCtx.closePath();
-            maskCtx.fill();
-            
-            // Get mask data
-            const maskData = maskCtx.getImageData(0, 0, boundWidth, boundHeight);
-            
-            // Apply dithering only to pixels inside the rectangle
-            const fillResolution = brushSettings.fillResolution || 1;
-            const algorithm = brushSettings.ditherAlgorithm || 'sierra-lite';
-            const patternStyle = brushSettings.patternStyle || 'dots';
-            
-            // Apply dithering with fill resolution support for all algorithms
-            const ditheredData = fillResolution > 1 
-              ? applyDitheringWithFillResolution(imageData, numColors, fillResolution, algorithm, patternStyle)
-              : applyDithering(imageData, numColors, algorithm, patternStyle);
-            
-            // Composite: use dithered data only where mask is white
-            const finalData = new Uint8ClampedArray(imageData.data);
-            for (let i = 0; i < maskData.data.length; i += 4) {
-              if (maskData.data[i + 3] > 0) { // If mask pixel is not transparent
-                finalData[i] = ditheredData.data[i];
-                finalData[i + 1] = ditheredData.data[i + 1];
-                finalData[i + 2] = ditheredData.data[i + 2];
-                finalData[i + 3] = ditheredData.data[i + 3];
+          if (colors && colors.length > 0) {
+            const validColors = colors.filter(c => c !== undefined && c !== null);
+            if (validColors.length > 0) {
+              startColorRGB = parseColor(validColors[0]);
+              endColorRGB = parseColor(validColors[validColors.length - 1]);
+            } else {
+              const fallbackColor = brushSettings.color || '#000000';
+              startColorRGB = parseColor(fallbackColor);
+              endColorRGB = startColorRGB;
+            }
+          } else {
+            startColorRGB = parseColor(finalStartColor);
+            endColorRGB = parseColor(finalEndColor);
+          }
+          
+          // Convert to linear space for correct interpolation
+          const l_startR = srgbToLinear(startColorRGB[0]);
+          const l_startG = srgbToLinear(startColorRGB[1]);
+          const l_startB = srgbToLinear(startColorRGB[2]);
+          const l_endR = srgbToLinear(endColorRGB[0]);
+          const l_endG = srgbToLinear(endColorRGB[1]);
+          const l_endB = srgbToLinear(endColorRGB[2]);
+          
+          // Calculate gradient vector
+          const gradientVector = { x: endPos.x - startPos.x, y: endPos.y - startPos.y };
+          const gradientLength = Math.hypot(gradientVector.x, gradientVector.y);
+          
+          // Convert corners to local coordinates
+          const localCorners = corners.map(c => ({ x: c.x - minX, y: c.y - minY }));
+          
+          // Manually fill the rectangle with gamma-correct gradient
+          if (gradientLength > 0) {
+            for (let y = 0; y < boundHeight; y++) {
+              for (let x = 0; x < boundWidth; x++) {
+                // Check if point is inside the rectangle
+                if (pointInPolygon(x, y, localCorners)) {
+                  const worldX = x + minX;
+                  const worldY = y + minY;
+                  
+                  // Project the current point onto the gradient vector to find its position (t)
+                  const pointVec = { x: worldX - startPos.x, y: worldY - startPos.y };
+                  const projection = (pointVec.x * gradientVector.x + pointVec.y * gradientVector.y) / (gradientLength * gradientLength);
+                  const t = Math.max(0, Math.min(1, projection));
+                  
+                  // Interpolate in linear space
+                  const t_r = l_startR + (l_endR - l_startR) * t;
+                  const t_g = l_startG + (l_endG - l_startG) * t;
+                  const t_b = l_startB + (l_endB - l_startB) * t;
+                  
+                  // Convert back to sRGB for display
+                  const r = linearToSrgb(t_r);
+                  const g = linearToSrgb(t_g);
+                  const b = linearToSrgb(t_b);
+                  
+                  const index = (y * boundWidth + x) * 4;
+                  data[index] = r;
+                  data[index + 1] = g;
+                  data[index + 2] = b;
+                  data[index + 3] = 255;
+                }
               }
             }
-            
-            // Put the final composited data back using temp canvas to respect clipping
-            const finalImageData = new ImageData(finalData, boundWidth, boundHeight);
-            const finalCanvas = canvasPool.acquire(boundWidth, boundHeight);
-            const finalCtx = finalCanvas.getContext('2d');
-            if (finalCtx) {
-              finalCtx.putImageData(finalImageData, 0, 0);
-              ctx.drawImage(finalCanvas, minX, minY);
+          } else {
+            // Solid fill if gradient has no length
+            for (let y = 0; y < boundHeight; y++) {
+              for (let x = 0; x < boundWidth; x++) {
+                if (pointInPolygon(x, y, localCorners)) {
+                  const index = (y * boundWidth + x) * 4;
+                  data[index] = startColorRGB[0];
+                  data[index + 1] = startColorRGB[1];
+                  data[index + 2] = startColorRGB[2];
+                  data[index + 3] = 255;
+                }
+              }
             }
-            canvasPool.release(finalCanvas);
-            
-            canvasPool.release(maskCanvas);
           }
+          
+          // Apply dithering to the manually created gradient
+          const fillResolution = brushSettings.fillResolution || 1;
+          const algorithm = brushSettings.ditherAlgorithm || 'sierra-lite';
+          const patternStyle = brushSettings.patternStyle || 'dots';
+          
+          const ditheredData = fillResolution > 1 
+            ? applyDitheringWithFillResolution(gradientImageData, numColors, fillResolution, algorithm, patternStyle)
+            : applyDithering(gradientImageData, numColors, algorithm, patternStyle);
+          
+          // Draw the final result
+          tempCtx.putImageData(ditheredData, 0, 0);
+          ctx.drawImage(tempCanvas, minX, minY);
           
           canvasPool.release(tempCanvas);
         }
@@ -3113,10 +3224,23 @@ export const useBrushEngine = () => {
                 const projectionLength = pointVector.x * normalizedVector.x + pointVector.y * normalizedVector.y;
                 const t = Math.max(0, Math.min(1, projectionLength / gradientLength));
                 
-                // Interpolate color
-                const r = Math.round(startColor[0] + (endColor[0] - startColor[0]) * t);
-                const g = Math.round(startColor[1] + (endColor[1] - startColor[1]) * t);
-                const b = Math.round(startColor[2] + (endColor[2] - startColor[2]) * t);
+                // Convert start and end colors to linear space for proper interpolation
+                const l_startR = srgbToLinear(startColor[0]);
+                const l_startG = srgbToLinear(startColor[1]);
+                const l_startB = srgbToLinear(startColor[2]);
+                const l_endR = srgbToLinear(endColor[0]);
+                const l_endG = srgbToLinear(endColor[1]);
+                const l_endB = srgbToLinear(endColor[2]);
+                
+                // Interpolate in linear space for perceptually correct gradient
+                const t_r = l_startR + (l_endR - l_startR) * t;
+                const t_g = l_startG + (l_endG - l_startG) * t;
+                const t_b = l_startB + (l_endB - l_startB) * t;
+                
+                // Convert back to sRGB for display
+                const r = linearToSrgb(t_r);
+                const g = linearToSrgb(t_g);
+                const b = linearToSrgb(t_b);
                 
                 const index = (y * boundWidth + x) * 4;
                 data[index] = r;

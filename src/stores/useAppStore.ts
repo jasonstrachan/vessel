@@ -1324,6 +1324,7 @@ export const useAppStore = create<AppState>()(
         };
       }),
       updateLayer: (id, updates) => set((state) => {
+        
         const updatedLayers = state.layers.map(layer =>
           layer.id === id ? { ...layer, ...updates } : layer
         );
@@ -1853,6 +1854,8 @@ export const useAppStore = create<AppState>()(
             id: `snapshot_${Date.now()}_${Math.random()}`,
             timestamp: Date.now(),
             imageData,
+            layers: [...state.layers],  // Deep copy of all layers
+            activeLayerId: state.activeLayerId,  // Current active layer
             actionType,
             description
           };
