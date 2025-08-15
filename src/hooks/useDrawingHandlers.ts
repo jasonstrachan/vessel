@@ -66,6 +66,12 @@ export function useDrawingHandlers({
     // Draw initial point
     const drawCtx = drawingCanvasRef.current?.getContext('2d');
     if (drawCtx && brushEngine && project) {
+      // Set up clipping region to prevent drawing outside canvas bounds
+      drawCtx.save();
+      drawCtx.beginPath();
+      drawCtx.rect(0, 0, project.width, project.height);
+      drawCtx.clip();
+      
       brushEngine.resetPixelQueue();
       
       const clampedPos = {
@@ -136,6 +142,12 @@ export function useDrawingHandlers({
     lastDrawPosRef.current = null;
     
     if (drawingCanvasRef.current && project && drawingCanvasHasContent.current) {
+      // Restore the context to remove clipping mask
+      const drawCtx = drawingCanvasRef.current.getContext('2d');
+      if (drawCtx) {
+        drawCtx.restore();
+      }
+      
       isCapturing.current = true;
       const activeLayer = layers.find(l => l.id === activeLayerId) || layers[0];
       

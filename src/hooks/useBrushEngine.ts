@@ -32,7 +32,7 @@ const pointInPolygon = (x: number, y: number, corners: Array<{x: number, y: numb
     const xj = corners[j].x, yj = corners[j].y;
     
     const intersect = ((yi > y) !== (yj > y))
-        && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+        && (x <= (xj - xi) * (y - yi) / (yj - yi) + xi);
     
     if (intersect) inside = !inside;
   }

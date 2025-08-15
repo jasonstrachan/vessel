@@ -1098,16 +1098,9 @@ const DrawingCanvas = () => {
       panAndZoom.finalizePan();
     }
     
-    // Only stop normal drawing, not gradient tools
-    const brushShape = tools.brushSettings.brushShape;
-    if (interaction.state.isDrawing && 
-        brushShape !== BrushShape.POLYGON_GRADIENT && 
-        brushShape !== BrushShape.RECTANGLE_GRADIENT) {
-      interaction.dispatch({ type: 'DRAWING_END' });
-      // Finalize the drawing to commit any existing strokes
-      drawingHandlers.finalizeDrawing();
-    }
-  }, [interaction, panAndZoom, tools.brushSettings.brushShape, drawingHandlers]);
+    // Don't stop drawing on mouse leave - let user continue drawing when re-entering
+    // The clipping region in useDrawingHandlers prevents edge artifacts
+  }, [interaction, panAndZoom]);
   
   // Effects
   
