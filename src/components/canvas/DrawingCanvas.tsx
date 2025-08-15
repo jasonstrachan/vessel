@@ -41,6 +41,9 @@ const DrawingCanvas = () => {
     saveCanvasState
   } = useAppStore();
 
+  // State to track panning
+  const [isPanning, setIsPanning] = useState(false);
+
   // State for the view transformation (pan and zoom)
   const [viewTransform, setViewTransform] = useState({
     scale: canvas?.zoom || 1,
@@ -49,11 +52,12 @@ const DrawingCanvas = () => {
   });
 
   // Use ref for immediate updates during interaction
-  const viewTransformRef = useRef(viewTransform);
-  viewTransformRef.current = viewTransform;
-
-  // State to track panning
-  const [isPanning, setIsPanning] = useState(false);
+  // Initialize with the same values as state
+  const viewTransformRef = useRef({
+    scale: canvas?.zoom || 1,
+    offsetX: canvas?.panX || 0,
+    offsetY: canvas?.panY || 0,
+  });
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const panStartRef = useRef({ x: 0, y: 0 });
   const panStartOffsetRef = useRef({ x: 0, y: 0 });
@@ -316,7 +320,8 @@ const DrawingCanvas = () => {
       event.preventDefault();
       setIsPanning(true);
       panStartRef.current = mousePos;
-      panStartOffsetRef.current = { x: viewTransform.offsetX, y: viewTransform.offsetY };
+      // Use viewTransformRef.current to ensure we have the most up-to-date transform
+      panStartOffsetRef.current = { x: viewTransformRef.current.offsetX, y: viewTransformRef.current.offsetY };
       return;
     }
     
@@ -416,10 +421,16 @@ const DrawingCanvas = () => {
         );
       }
     }
-  }, [getMousePos, screenToWorld, isSpacePressed, viewTransform, initDrawingCanvas, brushEngine, activeBrushComponents, project, tools.brushSettings.brushShape, tools.color, tools.currentTool, setRectangleBrushState, polygonGradientState, setPolygonGradientState, setSelectionBounds, sampleColorAtPosition]);
+  }, [getMousePos, screenToWorld, isSpacePressed, initDrawingCanvas, brushEngine, activeBrushComponents, project, tools.brushSettings.brushShape, tools.color, tools.currentTool, setRectangleBrushState, polygonGradientState, setPolygonGradientState, setSelectionBounds, sampleColorAtPosition]);
 
   const handleMouseUp = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
     if (isPanning) {
+      // Cancel any pending animation frame
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      
       setIsPanning(false);
       // Update state to match the ref (which has been updated during panning)
       setViewTransform(viewTransformRef.current);
@@ -794,6 +805,12 @@ const DrawingCanvas = () => {
     // Only handle panning and normal drawing on mouse leave
     // Do NOT finalize polygon or rectangle gradients as the user might just be moving fast
     if (isPanning) {
+      // Cancel any pending animation frame
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      
       setIsPanning(false);
       setViewTransform(viewTransformRef.current);
       setPan(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
@@ -931,15 +948,14 @@ const DrawingCanvas = () => {
         cancelAnimationFrame(animationFrameRef.current);
       }
       
-      // Schedule redraw
+      // Schedule redraw using the ref transform for immediate feedback
       animationFrameRef.current = requestAnimationFrame(() => {
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d');
-        if (ctx) {
-          draw(ctx, viewTransformRef.current);
+        if (ctx && isPanning) { // Double-check we're still panning
+          draw(ctx, newTransform);
         }
-        // Don't update state during panning - only update ref
-        // State will be updated on mouse up
+        animationFrameRef.current = null;
       });
       return;
     }
@@ -1464,30 +1480,34 @@ const DrawingCanvas = () => {
     };
   }, [handleWheel, setCurrentTool, undo, redo, layers, activeLayerId, updateLayer, draw, polygonGradientState, setPolygonGradientState, tools.brushSettings.brushShape, brushEngine, initDrawingCanvas, project, captureCanvasToActiveLayer, saveCanvasState]);
 
-  // Initialize view transform and center canvas on mount
+  // Initialize view transform and center canvas ONLY on mount when pan is 0,0
   useEffect(() => {
     if (canvas && project && wrapperRef.current) {
-      // Get viewport dimensions
-      const viewport = wrapperRef.current.getBoundingClientRect();
-      const viewportWidth = viewport.width;
-      const viewportHeight = viewport.height;
-      
-      // Calculate center position
-      const centerX = (viewportWidth - project.width * canvas.zoom) / 2;
-      const centerY = (viewportHeight - project.height * canvas.zoom) / 2;
-      
-      // Set initial view transform with centered position
-      const initialTransform = {
-        scale: canvas.zoom,
-        offsetX: centerX,
-        offsetY: centerY,
-      };
-      
-      setViewTransform(initialTransform);
-      viewTransformRef.current = initialTransform;
-      
-      // Update the store with centered position
-      setPan(centerX, centerY);
+      // Only center if we haven't panned yet (pan is at origin)
+      if (canvas.panX === 0 && canvas.panY === 0) {
+        // Get viewport dimensions
+        const viewport = wrapperRef.current.getBoundingClientRect();
+        const viewportWidth = viewport.width;
+        const viewportHeight = viewport.height;
+        
+        // Calculate center position
+        const centerX = (viewportWidth - project.width * canvas.zoom) / 2;
+        const centerY = (viewportHeight - project.height * canvas.zoom) / 2;
+        
+        // Set initial view transform with centered position
+        const initialTransform = {
+          scale: canvas.zoom,
+          offsetX: centerX,
+          offsetY: centerY,
+        };
+        
+        // Update both state and ref for initial position
+        setViewTransform(initialTransform);
+        viewTransformRef.current = initialTransform;
+        
+        // Update the store with centered position
+        setPan(centerX, centerY);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Intentionally empty - only run on mount
@@ -1514,18 +1534,16 @@ const DrawingCanvas = () => {
     }
   }, [project, layers, activeLayerId, saveCanvasState]);
   
-  // Redraw when composite updates or panning state changes
+  // Redraw when composite updates
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Only redraw if we're not currently drawing, panning, or capturing
-    if (!isDrawingRef.current && !isPanning && !isCapturing.current) {
-      draw(ctx, viewTransformRef.current);
-    }
-  }, [needsRedraw, draw, isPanning]);
+    // Always draw using the ref to get the most current position
+    draw(ctx, viewTransformRef.current);
+  }, [needsRedraw, draw]);
 
   // This effect only handles canvas resizing, not redrawing
   useEffect(() => {

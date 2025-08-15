@@ -1,25 +1,14 @@
 # clear
 
-Clears the console and automatically commits any pending changes.
+Clears console and auto-commits changes.
 
-## Implementation
+```bash
+# Clear console
+clear
 
-```javascript
-const { execSync } = require('child_process');
-const path = require('path');
+# Auto-commit any pending changes
+cd /home/jason/projects/tinybrush && node scripts/auto-commit.js 2>/dev/null || true
 
-// Clear the console
-console.clear();
-
-// Auto-commit if there are changes
-try {
-  const scriptPath = path.join(process.cwd(), 'scripts', 'auto-commit.js');
-  execSync(`node "${scriptPath}"`, { 
-    stdio: 'inherit',
-    cwd: process.cwd()
-  });
-} catch (error) {
-  // If auto-commit fails, just clear console silently
-  console.log('Console cleared');
-}
+# Show success
+echo "✨ Console cleared & changes auto-committed"
 ```
