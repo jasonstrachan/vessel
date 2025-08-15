@@ -56,12 +56,12 @@ export default function ZoomControls() {
 
   const handleZoomReset = () => {
     setZoom(1);
-    setPan(0, 0);
+    // TODO: Reset pan when we have access to pan state
   };
 
   const handleZoomFit = () => {
     setZoom(1);
-    setPan(0, 0);
+    // TODO: Reset pan when we have access to pan state
   };
 
   return (

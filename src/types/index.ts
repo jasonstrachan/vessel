@@ -14,8 +14,6 @@ export interface Project {
   // Canvas view state
   viewState?: {
     zoom: number;
-    panX: number;
-    panY: number;
   };
   // Brush-specific settings (size, opacity, etc per brush)
   brushSpecificSettings?: Record<string, Partial<BrushSettings>>;
@@ -99,8 +97,6 @@ export interface CustomBrush {
 
 export interface CanvasState {
   zoom: number;
-  panX: number;
-  panY: number;
   rotation: number;
   gridSize: number;
   showRulers: boolean;

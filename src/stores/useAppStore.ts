@@ -113,7 +113,6 @@ interface AppState {
   // Canvas State
   canvas: CanvasState;
   setZoom: (zoom: number) => void;
-  setPan: (panX: number, panY: number) => void;
   setRotation: (rotation: number) => void;
   setGridSize: (size: number) => void;
   toggleRulers: () => void;
@@ -287,8 +286,6 @@ const defaultBrushSettingsForStore: BrushSettings = {
 
 const defaultCanvasState: CanvasState = {
   zoom: 1,
-  panX: 0,
-  panY: 0,
   rotation: 0,
   gridSize: 16,
   showRulers: false,
@@ -502,9 +499,6 @@ export const useAppStore = create<AppState>()(
       setZoom: (zoom) => set((state) => ({
         canvas: { ...state.canvas, zoom: Math.max(0.1, Math.min(10, zoom)) }
       })),
-      setPan: (panX, panY) => set((state) => ({
-        canvas: { ...state.canvas, panX, panY }
-      })),
       setRotation: (rotation) => set((state) => ({
         canvas: { ...state.canvas, rotation }
       })),
@@ -534,8 +528,7 @@ export const useAppStore = create<AppState>()(
         console.log('🔧 Resizing canvas:', {
           oldSize: { width: oldWidth, height: oldHeight },
           newSize: { width, height },
-          currentZoom: state.canvas.zoom,
-          currentPan: { x: state.canvas.panX, y: state.canvas.panY }
+          currentZoom: state.canvas.zoom
         });
         
         // Calculate offset to center content
@@ -594,8 +587,6 @@ export const useAppStore = create<AppState>()(
           canvas: { 
             ...state.canvas,
             zoom: 1,         // Reset to default zoom
-            panX: 0,         // Reset pan to origin
-            panY: 0,         // Reset pan to origin
             canvasWidth: width, 
             canvasHeight: height,
             needsDimensionUpdate: true 
@@ -2115,9 +2106,7 @@ export const useAppStore = create<AppState>()(
           const projectWithViewState = {
             ...freshState.project!,
             viewState: {
-              zoom: freshState.canvas.zoom,
-              panX: freshState.canvas.panX,
-              panY: freshState.canvas.panY
+              zoom: freshState.canvas.zoom
             },
             brushSpecificSettings: freshState.brushSpecificSettings,
             globalBrushSize: freshState.globalBrushSize
@@ -2156,9 +2145,7 @@ export const useAppStore = create<AppState>()(
             // Restore view state if available
             canvas: loadedProject.viewState ? {
               ...get().canvas,
-              zoom: loadedProject.viewState.zoom,
-              panX: loadedProject.viewState.panX,
-              panY: loadedProject.viewState.panY
+              zoom: loadedProject.viewState.zoom
             } : get().canvas,
             // Restore brush-specific settings
             brushSpecificSettings: loadedProject.brushSpecificSettings || {},

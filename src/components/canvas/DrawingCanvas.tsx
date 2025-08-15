@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react'
 import { useAppStore } from '../../stores/useAppStore';
 import { useBrushEngine } from '../../hooks/useBrushEngine';
 import { useCanvasInteraction } from '../../hooks/useCanvasInteraction';
-import { usePanAndZoom } from '../../hooks/usePanAndZoom';
+import { useSimplePan } from '../../hooks/useSimplePan';
 import { useToolStateMachine } from '../../hooks/useToolStateMachine';
 import { useComprehensiveKeyboard } from '../../hooks/useComprehensiveKeyboard';
 import { useDrawingHandlers } from '../../hooks/useDrawingHandlers';
@@ -13,6 +13,7 @@ import BrushCursor from './BrushCursor';
 const DrawingCanvas = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const isSpacePressed = useRef(false);
   
   // Get essential store state - removed shallow comparison to avoid infinite loop
   const project = useAppStore((state) => state.project);
@@ -32,6 +33,7 @@ const DrawingCanvas = () => {
     setCurrentOffscreenCanvas,
     compositeLayersToCanvas,
     setCanvasDimensions,
+    setZoom,
     undo,
     redo,
     saveCanvasState,
@@ -65,8 +67,6 @@ const DrawingCanvas = () => {
   
   const [cursorStyle, setCursorStyle] = useState(defaultCursorStyle);
   
-  // Track if we're in temporary pan mode (space held)
-  const isTemporaryPanMode = useRef(false);
   
   // Track floating paste dragging
   const [isDraggingFloatingPaste, setIsDraggingFloatingPaste] = useState(false);
@@ -262,34 +262,47 @@ const DrawingCanvas = () => {
   
   // Use custom hooks
   const interaction = useCanvasInteraction();
-  const panAndZoom = usePanAndZoom({ canvasRef, wrapperRef, draw });
+  const pan = useSimplePan({ scale: canvas?.zoom || 1 });
+  
+  // View transform ref that combines zoom and pan
+  const viewTransformRef = useRef({ 
+    scale: canvas?.zoom || 1, 
+    offsetX: 0, 
+    offsetY: 0 
+  });
+  
+  // Update view transform when pan or zoom changes
+  React.useEffect(() => {
+    viewTransformRef.current.offsetX = pan.panState.offsetX;
+    viewTransformRef.current.offsetY = pan.panState.offsetY;
+    viewTransformRef.current.scale = canvas?.zoom || 1;
+  }, [pan.panState.offsetX, pan.panState.offsetY, canvas?.zoom]);
+  
   const toolStateMachine = useToolStateMachine({
-    screenToWorld: panAndZoom.screenToWorld,
+    screenToWorld: pan.screenToWorld,
     sampleColorAtPosition,
     sampleColorsAlongLine,
   });
   const drawingHandlers = useDrawingHandlers({
     project,
-    screenToWorld: panAndZoom.screenToWorld,
-    viewTransformRef: panAndZoom.viewTransformRef,
+    screenToWorld: pan.screenToWorld,
+    viewTransformRef,
     draw,
     canvasRef,
   });
   
-  // Handle blur to reset pan state when losing focus
+  // Handle blur to reset space key state when losing focus
   const handleBlur = useCallback(() => {
     // If spacebar was stuck down, force a release
-    if (isTemporaryPanMode.current) {
-      isTemporaryPanMode.current = false;
+    if (isSpacePressed.current) {
+      isSpacePressed.current = false;
       setCursorStyle(defaultCursorStyle);
       setShowBrushCursor(true);
-      interaction.dispatch({ type: 'SPACE_RELEASED' });
-      if (interaction.stateRef.current.isPanning) {
-        interaction.dispatch({ type: 'PAN_END' });
-        panAndZoom.finalizePan();
+      if (pan.panState.isPanning) {
+        pan.endPan();
       }
     }
-  }, [interaction, panAndZoom]);
+  }, [pan, defaultCursorStyle]);
 
   // Comprehensive keyboard handling
   useComprehensiveKeyboard({
@@ -301,17 +314,15 @@ const DrawingCanvas = () => {
         drawingHandlers.clearDrawingCanvas();
       }
       
-      isTemporaryPanMode.current = true;
+      isSpacePressed.current = true;
       setCursorStyle('grab');
-      interaction.dispatch({ type: 'SPACE_PRESSED' });
     },
     onSpaceReleased: () => {
-      isTemporaryPanMode.current = false;
-      interaction.dispatch({ type: 'SPACE_RELEASED' });
+      isSpacePressed.current = false;
 
       // Only update the cursor if we are NOT in the middle of a pan action.
       // handleMouseUp will take care of the cursor if we are.
-      if (!interaction.stateRef.current.isPanning) {
+      if (!pan.panState.isPanning) {
         setCursorStyle(defaultCursorStyle);
         setShowBrushCursor(true);
       }
@@ -340,7 +351,7 @@ const DrawingCanvas = () => {
             const canvas = canvasRef.current;
             const ctx = canvas?.getContext('2d');
             if (ctx) {
-              draw(ctx, panAndZoom.viewTransformRef.current);
+              draw(ctx, viewTransformRef.current);
             }
           });
         } else {
@@ -375,7 +386,7 @@ const DrawingCanvas = () => {
             const canvas = canvasRef.current;
             const ctx = canvas?.getContext('2d');
             if (ctx) {
-              draw(ctx, panAndZoom.viewTransformRef.current);
+              draw(ctx, viewTransformRef.current);
             }
           });
         } else {
@@ -397,7 +408,7 @@ const DrawingCanvas = () => {
               const canvas = canvasRef.current;
               const ctx = canvas?.getContext('2d');
               if (ctx) {
-                draw(ctx, panAndZoom.viewTransformRef.current);
+                draw(ctx, viewTransformRef.current);
               }
             });
           }
@@ -437,7 +448,7 @@ const DrawingCanvas = () => {
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d');
         if (ctx) {
-          draw(ctx, panAndZoom.viewTransformRef.current);
+          draw(ctx, viewTransformRef.current);
         }
       }
     },
@@ -449,7 +460,7 @@ const DrawingCanvas = () => {
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d');
         if (ctx) {
-          draw(ctx, panAndZoom.viewTransformRef.current);
+          draw(ctx, viewTransformRef.current);
         }
       }
     },
@@ -471,7 +482,7 @@ const DrawingCanvas = () => {
     event.preventDefault();
     
     const mousePos = getMousePos(event);
-    const worldPos = panAndZoom.screenToWorld(mousePos.x, mousePos.y);
+    const worldPos = pan.screenToWorld(mousePos.x, mousePos.y, canvas?.zoom || 1);
     
     // --- PROPER FIX: Block clicks outside canvas bounds ---
     if (project) {
@@ -483,23 +494,16 @@ const DrawingCanvas = () => {
     }
     
     
-    // Handle panning - check isTemporaryPanMode instead of keyboard.isSpacePressed
-    // This ensures we check the actual pan mode state
-    if (isTemporaryPanMode.current || event.button === 1 || event.button === 2) {
+    // Handle panning with space key or middle/right mouse button
+    if (isSpacePressed.current || event.button === 1 || event.button === 2) {
       setShowBrushCursor(false); // Hide brush cursor when panning
       setCursorStyle('grabbing');
-      interaction.dispatch({ type: 'PAN_START', payload: mousePos });
-      interaction.refs.panStartOffset.current = { 
-        x: panAndZoom.viewTransformRef.current.offsetX, 
-        y: panAndZoom.viewTransformRef.current.offsetY 
-      };
-      // Store the initial pan position in the state
-      interaction.state.panStart = mousePos;
+      pan.startPan(mousePos.x, mousePos.y);
       return;
     }
     
     // Handle left click
-    if (event.button === 0 && !isTemporaryPanMode.current) {
+    if (event.button === 0 && !isSpacePressed.current) {
       // Check if clicking on floating paste to drag it
       if (floatingPaste) {
         const pasteX = floatingPaste.position.x;
@@ -655,12 +659,12 @@ const DrawingCanvas = () => {
       interaction.dispatch({ type: 'DRAWING_START' });
       drawingHandlers.startShapeDrawing(worldPos);
     }
-  }, [getMousePos, panAndZoom, interaction, tools.currentTool, toolStateMachine, 
+  }, [getMousePos, pan, interaction, tools.currentTool, toolStateMachine, 
       setSelectionBounds, drawingHandlers, floatingPaste, project]);
   
   const handleMouseMove = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
     const currentMousePos = getMousePos(event);
-    const worldPos = panAndZoom.screenToWorld(currentMousePos.x, currentMousePos.y);
+    const worldPos = pan.screenToWorld(currentMousePos.x, currentMousePos.y, canvas?.zoom || 1);
     
     // No clamping needed - line clipping in useDrawingHandlers handles edge cases properly
     
@@ -668,7 +672,7 @@ const DrawingCanvas = () => {
     setMousePosition({ x: event.clientX, y: event.clientY });
     
     // Show brush cursor unless we're in pan mode or custom brush selection or dragging floating paste
-    if (!isTemporaryPanMode.current && !interaction.state.isPanning && tools.currentTool !== 'custom' && !isDraggingFloatingPaste) {
+    if (!isSpacePressed.current && !pan.panState.isPanning && tools.currentTool !== 'custom' && !isDraggingFloatingPaste) {
       setShowBrushCursor(true);
     } else if (tools.currentTool === 'custom' || isDraggingFloatingPaste) {
       setShowBrushCursor(false);
@@ -688,7 +692,7 @@ const DrawingCanvas = () => {
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext('2d');
       if (ctx) {
-        draw(ctx, panAndZoom.viewTransformRef.current);
+        draw(ctx, viewTransformRef.current);
       }
       return;
     }
@@ -699,7 +703,7 @@ const DrawingCanvas = () => {
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext('2d');
       if (ctx) {
-        draw(ctx, panAndZoom.viewTransformRef.current);
+        draw(ctx, viewTransformRef.current);
         
         // Width definition preview - show full rectangle with gradient
         const currentRectState = toolStateMachine.rectangleBrushState;
@@ -728,8 +732,8 @@ const DrawingCanvas = () => {
           ];
           
           ctx.save();
-          ctx.translate(panAndZoom.viewTransformRef.current.offsetX, panAndZoom.viewTransformRef.current.offsetY);
-          ctx.scale(panAndZoom.viewTransformRef.current.scale, panAndZoom.viewTransformRef.current.scale);
+          ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
+          ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
           
           ctx.globalAlpha = tools.brushSettings.opacity || 1;
           ctx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
@@ -772,31 +776,17 @@ const DrawingCanvas = () => {
       return;
     }
     
-    // Handle panning - check both state and actual panning condition
-    if (interaction.state.isPanning) {
-      if (!interaction.refs.panStartOffset.current) {
-        interaction.refs.panStartOffset.current = {
-          x: panAndZoom.viewTransformRef.current.offsetX,
-          y: panAndZoom.viewTransformRef.current.offsetY
-        };
-      }
-      const deltaX = currentMousePos.x - interaction.state.panStart.x;
-      const deltaY = currentMousePos.y - interaction.state.panStart.y;
+    // Handle panning
+    if (pan.panState.isPanning) {
+      pan.updatePan(currentMousePos.x, currentMousePos.y);
       
-      const newTransform = panAndZoom.updatePan(deltaX, deltaY, interaction.refs.panStartOffset.current);
-      
-      // Cancel previous frame if exists
-      if (interaction.refs.panAnimationFrame.current) {
-        cancelAnimationFrame(interaction.refs.panAnimationFrame.current);
-      }
-      
-      interaction.refs.panAnimationFrame.current = requestAnimationFrame(() => {
+      // Redraw with new pan offset
+      requestAnimationFrame(() => {
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d');
-        if (ctx && interaction.state.isPanning) {
-          draw(ctx, newTransform);
+        if (ctx) {
+          draw(ctx, viewTransformRef.current);
         }
-        interaction.refs.panAnimationFrame.current = null;
       });
       return;
     }
@@ -809,7 +799,7 @@ const DrawingCanvas = () => {
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext('2d');
       if (ctx) {
-        draw(ctx, panAndZoom.viewTransformRef.current);
+        draw(ctx, viewTransformRef.current);
       }
       return;
     }
@@ -824,7 +814,7 @@ const DrawingCanvas = () => {
           const canvas = canvasRef.current;
           const ctx = canvas?.getContext('2d');
           if (ctx) {
-            draw(ctx, panAndZoom.viewTransformRef.current);
+            draw(ctx, viewTransformRef.current);
             
             // Get current rectangle state
             const currentRectState = toolStateMachine.rectangleBrushState;
@@ -832,11 +822,11 @@ const DrawingCanvas = () => {
             if (previewType === 'length') {
               // Length definition preview - show thin line
               ctx.save();
-              ctx.translate(panAndZoom.viewTransformRef.current.offsetX, panAndZoom.viewTransformRef.current.offsetY);
-              ctx.scale(panAndZoom.viewTransformRef.current.scale, panAndZoom.viewTransformRef.current.scale);
+              ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
+              ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
               
               ctx.strokeStyle = tools.brushSettings.color;
-              ctx.lineWidth = 2 / panAndZoom.viewTransformRef.current.scale;
+              ctx.lineWidth = 2 / viewTransformRef.current.scale;
               ctx.beginPath();
               ctx.moveTo(currentRectState.startPos.x, currentRectState.startPos.y);
               ctx.lineTo(currentRectState.endPos.x, currentRectState.endPos.y);
@@ -870,8 +860,8 @@ const DrawingCanvas = () => {
                 ];
                 
                 ctx.save();
-                ctx.translate(panAndZoom.viewTransformRef.current.offsetX, panAndZoom.viewTransformRef.current.offsetY);
-                ctx.scale(panAndZoom.viewTransformRef.current.scale, panAndZoom.viewTransformRef.current.scale);
+                ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
+                ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
                 
                 ctx.globalAlpha = tools.brushSettings.opacity || 1;
                 ctx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
@@ -925,12 +915,12 @@ const DrawingCanvas = () => {
           const currentPolygonState = toolStateMachine.polygonGradientState;
           
           if (ctx && currentPolygonState.points.length > 0) {
-            draw(ctx, panAndZoom.viewTransformRef.current);
+            draw(ctx, viewTransformRef.current);
             
             ctx.save();
             ctx.imageSmoothingEnabled = false;
-            ctx.translate(panAndZoom.viewTransformRef.current.offsetX, panAndZoom.viewTransformRef.current.offsetY);
-            ctx.scale(panAndZoom.viewTransformRef.current.scale, panAndZoom.viewTransformRef.current.scale);
+            ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
+            ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
             
             // Build preview vertices including current mouse position
             const previewVertices = [
@@ -999,12 +989,12 @@ const DrawingCanvas = () => {
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d');
         if (ctx) {
-          draw(ctx, panAndZoom.viewTransformRef.current);
+          draw(ctx, viewTransformRef.current);
           
           // Draw preview of the shape
           ctx.save();
-          ctx.translate(panAndZoom.viewTransformRef.current.offsetX, panAndZoom.viewTransformRef.current.offsetY);
-          ctx.scale(panAndZoom.viewTransformRef.current.scale, panAndZoom.viewTransformRef.current.scale);
+          ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
+          ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
           
           // Disable antialiasing for pixel brushes
           const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND || 
@@ -1075,7 +1065,7 @@ const DrawingCanvas = () => {
         }
       }
     }
-  }, [getMousePos, panAndZoom, interaction, toolStateMachine, setSelectionBounds, 
+  }, [getMousePos, pan, interaction, toolStateMachine, setSelectionBounds, 
       draw, drawingHandlers, isDraggingFloatingPaste, floatingPaste, updateFloatingPastePosition, project]);
   
   const handleMouseUp = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1090,22 +1080,16 @@ const DrawingCanvas = () => {
     }
     
     // Handle panning
-    if (interaction.state.isPanning) {
-      if (interaction.refs.panAnimationFrame.current) {
-        cancelAnimationFrame(interaction.refs.panAnimationFrame.current);
-        interaction.refs.panAnimationFrame.current = null;
-      }
-      
+    if (pan.panState.isPanning) {
       // If space is still held, stay in grab mode, otherwise restore tool cursor
-      if (isTemporaryPanMode.current) {
+      if (isSpacePressed.current) {
         setCursorStyle('grab');
       } else {
         setCursorStyle(defaultCursorStyle);
         setShowBrushCursor(true); // Restore brush cursor
       }
       
-      interaction.dispatch({ type: 'PAN_END' });
-      panAndZoom.finalizePan();
+      pan.endPan();
       return;
     }
     
@@ -1113,7 +1097,7 @@ const DrawingCanvas = () => {
     if (interaction.state.isSelecting) {
       interaction.dispatch({ type: 'SELECTION_END' });
       const mousePos = getMousePos(event);
-      let worldPos = panAndZoom.screenToWorld(mousePos.x, mousePos.y);
+      let worldPos = pan.screenToWorld(mousePos.x, mousePos.y, canvas?.zoom || 1);
       
       // Clamp world position to canvas bounds
       if (project) {
@@ -1181,7 +1165,7 @@ const DrawingCanvas = () => {
       interaction.dispatch({ type: 'DRAWING_END' });
       drawingHandlers.finalizeShapeDrawing();
     }
-  }, [interaction, panAndZoom, getMousePos, setSelectionBounds, tools.currentTool, 
+  }, [interaction, pan, getMousePos, setSelectionBounds, tools.currentTool, 
       setCurrentTool, clearSelection, toolStateMachine, drawingHandlers, isDraggingFloatingPaste, project]);
   
   const handleMouseLeave = useCallback(() => {
@@ -1189,13 +1173,8 @@ const DrawingCanvas = () => {
     
     // Don't end panning on mouse leave if space is held
     // This allows user to pan beyond canvas boundaries
-    if (interaction.state.isPanning && !isTemporaryPanMode.current) {
-      if (interaction.refs.panAnimationFrame.current) {
-        cancelAnimationFrame(interaction.refs.panAnimationFrame.current);
-        interaction.refs.panAnimationFrame.current = null;
-      }
-      interaction.dispatch({ type: 'PAN_END' });
-      panAndZoom.finalizePan();
+    if (pan.panState.isPanning && !isSpacePressed.current) {
+      pan.endPan();
     }
     
     // If the user is drawing, finalize the stroke when they leave the canvas
@@ -1209,14 +1188,14 @@ const DrawingCanvas = () => {
         drawingHandlers.finalizeDrawing();
       }
     }
-  }, [interaction, panAndZoom, drawingHandlers]);
+  }, [interaction, pan, drawingHandlers]);
   
   // Effects
   
   // Update cursor style when brush shape changes
   useEffect(() => {
     // Only update if we're not in a special mode (panning, dragging, etc.)
-    if (!isTemporaryPanMode.current && !isDraggingFloatingPaste) {
+    if (!isSpacePressed.current && !isDraggingFloatingPaste) {
       setCursorStyle(defaultCursorStyle);
     }
   }, [defaultCursorStyle, isDraggingFloatingPaste]);
@@ -1246,11 +1225,15 @@ const DrawingCanvas = () => {
   
   // Animate marching ants
   useEffect(() => {
-    let animationId: number;
+    let animationId: number | null = null;
     let frameCount = 0;
+    let isActive = true;
     
     if ((selectionStart && selectionEnd) || floatingPaste) {
       const animate = () => {
+        // Check if effect is still active before continuing animation
+        if (!isActive) return;
+        
         frameCount++;
         if (frameCount % 3 === 0) {
           setMarchingAntsOffset(prev => (prev + 1) % 10);
@@ -1259,7 +1242,7 @@ const DrawingCanvas = () => {
           if (ctx) {
             // We need to call draw here, but we don't include it in dependencies
             // to avoid circular dependency that causes infinite loop
-            draw(ctx, panAndZoom.viewTransformRef.current);
+            draw(ctx, viewTransformRef.current);
           }
         }
         animationId = requestAnimationFrame(animate);
@@ -1268,48 +1251,89 @@ const DrawingCanvas = () => {
     }
     
     return () => {
-      if (animationId) {
+      isActive = false;
+      if (animationId !== null) {
         cancelAnimationFrame(animationId);
+        animationId = null;
       }
     };
   // FIX: Removed `draw` from dependencies to break circular dependency
   // The animation only needs to know when to start/stop, not when draw changes
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectionStart, selectionEnd, floatingPaste, panAndZoom.viewTransformRef]);
+  }, [selectionStart, selectionEnd, floatingPaste, viewTransformRef]);
   
-  // Handle wheel events
+  // Handle wheel events for zooming and panning
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (canvas) {
-      canvas.addEventListener('wheel', panAndZoom.handleWheel, { passive: false });
-    }
-    return () => {
-      if (canvas) {
-        canvas.removeEventListener('wheel', panAndZoom.handleWheel);
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+
+      // Always read from the ref to get the most up-to-date values
+      // without needing to re-create this handler on every render.
+      const { scale: currentScale, offsetX: currentOffsetX, offsetY: currentOffsetY } = viewTransformRef.current;
+
+      // Always zoom with vertical scroll, pan with horizontal scroll
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        // --- Zoom Logic (vertical scroll) ---
+        const rect = canvasRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        
+        const scrollSensitivity = 0.001;
+        const zoomFactor = 1 - e.deltaY * scrollSensitivity;
+        const newScale = Math.max(0.1, Math.min(currentScale * zoomFactor, 32));
+        
+        const worldX = (mouseX - currentOffsetX) / currentScale;
+        const worldY = (mouseY - currentOffsetY) / currentScale;
+        
+        const newOffsetX = mouseX - worldX * newScale;
+        const newOffsetY = mouseY - worldY * newScale;
+        
+        // Set state and let React handle the redraw
+        setZoom(newScale);
+        pan.setPan(newOffsetX, newOffsetY);
+
+      } else if (e.deltaX !== 0) {
+        // --- Pan Logic (horizontal scroll or shift+scroll) ---
+        const newOffsetX = currentOffsetX - e.deltaX;
+        const newOffsetY = currentOffsetY - e.deltaY;
+
+        // Set state and let React handle the redraw
+        pan.setPan(newOffsetX, newOffsetY);
       }
     };
-  }, [panAndZoom.handleWheel]);
+    
+    const canvasElement = canvasRef.current;
+    if (canvasElement) {
+      canvasElement.addEventListener('wheel', handleWheel, { passive: false });
+    }
+    return () => {
+      if (canvasElement) {
+        canvasElement.removeEventListener('wheel', handleWheel);
+      }
+    };
+    // The ref handles stale data, so dependencies can be minimal and stable.
+  }, [pan, setZoom, viewTransformRef]);
   
   // Window blur safety net - reset pan mode if window loses focus
   useEffect(() => {
     const handleWindowBlur = () => {
       // This is our safety net. If the window loses focus,
       // we assume all keys have been released.
-      if (isTemporaryPanMode.current) {
+      if (isSpacePressed.current) {
         console.log('Window blurred, resetting pan mode.');
-        isTemporaryPanMode.current = false;
+        isSpacePressed.current = false;
         
         // We must also check if a pan action is happening and end it.
-        if (interaction.stateRef.current.isPanning) {
-          interaction.dispatch({ type: 'PAN_END' });
-          panAndZoom.finalizePan();
+        if (pan.panState.isPanning) {
+          pan.endPan();
         }
         
         // And finally, reset the cursor and UI state.
         setCursorStyle(defaultCursorStyle);
         setShowBrushCursor(true);
-        interaction.dispatch({ type: 'SPACE_RELEASED' });
-      }
+              }
     };
 
     // Listen for the blur event on the window
@@ -1319,11 +1343,11 @@ const DrawingCanvas = () => {
     return () => {
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [defaultCursorStyle, interaction, panAndZoom, setCursorStyle, setShowBrushCursor]);
+  }, [defaultCursorStyle, interaction, pan, setCursorStyle, setShowBrushCursor]);
   
   // Center canvas on mount and focus
   useEffect(() => {
-    panAndZoom.centerCanvas();
+    // centerCanvas removed();
     // Auto-focus the canvas wrapper for keyboard events
     if (wrapperRef.current) {
       wrapperRef.current.focus();
@@ -1350,14 +1374,23 @@ const DrawingCanvas = () => {
     }
   }, [project, layers, activeLayerId, saveCanvasState]);
   
-  // Redraw when composite updates
+  // Redraw whenever the view transform state or composite canvas changes
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const canvasElement = canvasRef.current;
+    const ctx = canvasElement?.getContext('2d');
     if (!ctx) return;
-    draw(ctx, panAndZoom.viewTransformRef.current);
-  }, [needsRedraw, draw, panAndZoom.viewTransformRef]);
+    
+    // Build the transform from the latest state that triggered this render
+    const transform = {
+      scale: canvas?.zoom || 1,  // canvas here is from store, not DOM element
+      offsetX: pan.panState.offsetX,
+      offsetY: pan.panState.offsetY
+    };
+    
+    draw(ctx, transform);
+
+  // This now correctly depends on the sources of truth for a redraw
+  }, [canvas?.zoom, pan.panState.offsetX, pan.panState.offsetY, draw, needsRedraw]);
   
   // Handle paste event
   useEffect(() => {
@@ -1423,7 +1456,7 @@ const DrawingCanvas = () => {
                 const canvas = canvasRef.current;
                 const ctx = canvas?.getContext('2d');
                 if (ctx) {
-                  draw(ctx, panAndZoom.viewTransformRef.current);
+                  draw(ctx, viewTransformRef.current);
                 }
               });
             };
@@ -1443,7 +1476,7 @@ const DrawingCanvas = () => {
     return () => {
       document.removeEventListener('paste', handlePaste);
     };
-  }, [project, layers, activeLayerId, saveCanvasState, draw, panAndZoom]);
+  }, [project, layers, activeLayerId, saveCanvasState, draw, pan]);
 
   // Handle canvas resizing
   useEffect(() => {
@@ -1461,7 +1494,7 @@ const DrawingCanvas = () => {
         canvas.width = width;
         canvas.height = height;
         setCanvasDimensions(width, height);
-        draw(ctx, panAndZoom.viewTransformRef.current);
+        draw(ctx, viewTransformRef.current);
       });
     });
     resizeObserver.observe(wrapper);
@@ -1470,10 +1503,10 @@ const DrawingCanvas = () => {
     canvas.width = width;
     canvas.height = height;
     setCanvasDimensions(width, height);
-    draw(ctx, panAndZoom.viewTransformRef.current);
+    draw(ctx, viewTransformRef.current);
     
     return () => resizeObserver.disconnect();
-  }, [draw, setCanvasDimensions, panAndZoom.viewTransformRef]);
+  }, [draw, setCanvasDimensions, viewTransformRef]);
   
   return (
     <div
@@ -1499,13 +1532,13 @@ const DrawingCanvas = () => {
           display: 'block', 
           width: '100%', 
           height: '100%',
-          imageRendering: panAndZoom.viewTransform.scale > 3 ? 'pixelated' : 'auto'
+          imageRendering: { scale: 1, offsetX: pan.panState.offsetX, offsetY: pan.panState.offsetY }.scale > 3 ? 'pixelated' : 'auto'
         }}
       />
       
       {/* Zoom indicator */}
       <div className="absolute bottom-4 right-4 bg-black/50 text-white px-2 py-1 rounded text-sm">
-        {Math.round(panAndZoom.viewTransform.scale * 100)}%
+        {Math.round((canvas?.zoom || 1) * 100)}%
       </div>
       
       {/* Brush cursor preview */}
@@ -1514,14 +1547,14 @@ const DrawingCanvas = () => {
         screenY={mousePosition.y}
         size={tools.brushSettings.size}
         brushShape={tools.brushSettings.brushShape || BrushShape.ROUND}
-        zoom={panAndZoom.viewTransform.scale}
+        zoom={canvas?.zoom || 1}
         color={tools.brushSettings.color}
         customBrush={tools.brushSettings.currentBrushTip ? {
           imageData: tools.brushSettings.currentBrushTip.imageData,
           width: tools.brushSettings.currentBrushTip.width || 32,
           height: tools.brushSettings.currentBrushTip.height || 32
         } : null}
-        visible={showBrushCursor && !interaction.state.isPanning && !isTemporaryPanMode.current && cursorStyle !== 'crosshair'}
+        visible={showBrushCursor && !pan.panState.isPanning && !isSpacePressed.current && cursorStyle !== 'crosshair'}
       />
     </div>
   );
