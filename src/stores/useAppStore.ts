@@ -209,6 +209,7 @@ interface AppState {
   removeLayer: (id: string) => void;
   updateLayer: (id: string, updates: Partial<Layer>) => void;
   setActiveLayer: (id: string) => void;
+  setLayers: (layers: Layer[]) => void;
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
   
   // Custom Brush Management
@@ -1347,6 +1348,9 @@ export const useAppStore = create<AppState>()(
       setActiveLayer: (id) => {
         set({ activeLayerId: id });
       },
+      setLayers: (layers) => {
+        set({ layers });
+      },
       reorderLayers: (sourceIndex, destinationIndex) => set((state) => {
         const newLayers = [...state.layers];
         const [removed] = newLayers.splice(sourceIndex, 1);
@@ -1850,11 +1854,21 @@ export const useAppStore = create<AppState>()(
           if (!ctx) return;
           
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          // Deep copy layers to preserve their individual ImageData
+          const layersCopy = state.layers.map(layer => ({
+            ...layer,
+            imageData: layer.imageData ? new ImageData(
+              new Uint8ClampedArray(layer.imageData.data),
+              layer.imageData.width,
+              layer.imageData.height
+            ) : layer.imageData
+          }));
+          
           const snapshot: CanvasSnapshot = {
             id: `snapshot_${Date.now()}_${Math.random()}`,
             timestamp: Date.now(),
             imageData,
-            layers: [...state.layers],  // Deep copy of all layers
+            layers: layersCopy,  // Deep copy of all layers with cloned ImageData
             activeLayerId: state.activeLayerId,  // Current active layer
             actionType,
             description
@@ -1897,7 +1911,13 @@ export const useAppStore = create<AppState>()(
       undo: () => {
         const state = get();
         
+        console.log('🔙 STORE UNDO: Starting with stacks:', {
+          undoStackSize: state.history.undoStack.length,
+          redoStackSize: state.history.redoStack.length
+        });
+        
         if (state.history.undoStack.length <= 1) {
+          console.log('🔙 STORE UNDO: Not enough history to undo');
           return null; // Need at least 2 states to undo
         }
         
@@ -1905,6 +1925,13 @@ export const useAppStore = create<AppState>()(
         const currentState = state.history.undoStack[state.history.undoStack.length - 1];
         // Previous state is what we want to restore to
         const previousState = state.history.undoStack[state.history.undoStack.length - 2];
+        
+        console.log('🔙 STORE UNDO: Moving state:', {
+          currentStateDesc: currentState.description,
+          previousStateDesc: previousState.description,
+          previousStateLayers: previousState.layers?.length,
+          previousStateActiveLayer: previousState.activeLayerId
+        });
         
         const newUndoStack = state.history.undoStack.slice(0, -1); // Remove current state
         const newRedoStack = [currentState, ...state.history.redoStack]; // Add current to redo stack
@@ -1936,12 +1963,25 @@ export const useAppStore = create<AppState>()(
       redo: () => {
         const state = get();
         
+        console.log('🔄 STORE REDO: Starting with stacks:', {
+          undoStackSize: state.history.undoStack.length,
+          redoStackSize: state.history.redoStack.length
+        });
+        
         if (state.history.redoStack.length === 0) {
+          console.log('🔄 STORE REDO: No states to redo');
           return null;
         }
         
         // The first item in redoStack is the state we want to restore to
         const stateToRestore = state.history.redoStack[0];
+        
+        console.log('🔄 STORE REDO: Restoring state:', {
+          stateDesc: stateToRestore.description,
+          stateLayers: stateToRestore.layers?.length,
+          stateActiveLayer: stateToRestore.activeLayerId
+        });
+        
         const newRedoStack = state.history.redoStack.slice(1); // Remove restored state from redo stack
         const newUndoStack = [...state.history.undoStack, stateToRestore]; // Add restored state to undo stack
         

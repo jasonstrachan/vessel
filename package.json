@@ -18,7 +18,9 @@
     "type-check": "tsc --noEmit",
     "cache:clear": "rm -rf .next node_modules/.cache .turbo",
     "clean": "rm -rf .next out dist node_modules/.cache .turbo coverage",
-    "prebuild": "npm run cache:clear"
+    "prebuild": "npm run cache:clear",
+    "commit": "node scripts/auto-commit.js",
+    "cc": "clear && node scripts/auto-commit.js"
   },
   "dependencies": {
     "@heroui/react": "^2.8.2",

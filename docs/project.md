@@ -2,6 +2,24 @@
 
 ## Recent Updates
 
+### Performance Optimization: Composite Canvas Caching (2025-01-15)
+- **Fixed major performance issue**: Composite canvas was being regenerated on every frame during panning
+- **Solution implemented**:
+  - Memoized layers hash calculation using useMemo to create efficient fingerprint of layers' content
+  - Moved composite canvas generation from draw() function to dedicated useEffect hook
+  - useEffect now depends on layersHash instead of layers array directly
+  - Added needsRedraw state to trigger canvas updates when composite changes
+  - Draw function simplified to only render the cached composite canvas
+- **Technical details**:
+  - layersHash tracks: layer id, visibility, opacity, and imageData size
+  - Composite canvas only recreates when hash changes or dimensions change
+  - Direct draw() call in composite useEffect ensures immediate visual update
+- **Results**:
+  - Smooth panning without performance drops
+  - Composite canvas only regenerates when layers actually change (opacity, visibility, content)
+  - Significant reduction in CPU usage during view transformations
+  - No race conditions between composite generation and drawing
+
 ### Custom Brush Integration with New Rendering Pipeline (2025-01-14)
 - **'C' Hotkey**: Press 'C' to quickly enter selection mode for creating custom brushes
 - **Full Pipeline Compatibility**: Custom brushes work seamlessly with the new world/screen space separation

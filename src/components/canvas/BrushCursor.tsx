@@ -31,24 +31,19 @@ const useCursorDataURL = (
     if (typeof document === 'undefined') return null;
 
     const canvas = document.createElement('canvas');
-    const size = Math.ceil(screenSize) + 8; // Add padding for shadow and border
+    const size = Math.ceil(screenSize); // No extra padding needed
     canvas.width = size;
     canvas.height = size;
     
     const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
     if (!ctx) return '';
 
-    // This is the fast, canvas-based equivalent of drop-shadow
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
-    ctx.shadowOffsetX = 1;
-    ctx.shadowOffsetY = 1;
-    ctx.shadowBlur = 1;
-
-    ctx.strokeStyle = '#ffffff'; // White outline for visibility
-    ctx.lineWidth = 2;
+    // Simple white stroke, will use mix-blend-mode in CSS
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
     
     const center = size / 2;
-    const radius = Math.max(0.5, screenSize / 2);
+    const radius = Math.max(0.5, (screenSize - ctx.lineWidth) / 2);
 
     ctx.beginPath();
 
@@ -58,7 +53,8 @@ const useCursorDataURL = (
         ctx.arc(center, center, radius, 0, Math.PI * 2);
         break;
       case BrushShape.SQUARE:
-        ctx.rect(center - radius, center - radius, screenSize, screenSize);
+      case BrushShape.PIXEL:
+        ctx.rect(center - radius, center - radius, screenSize - ctx.lineWidth, screenSize - ctx.lineWidth);
         break;
       case BrushShape.TRIANGLE:
         ctx.moveTo(center, center - radius);
@@ -81,10 +77,15 @@ const BrushCursor = memo(function BrushCursor({
   brushShape,
   zoom,
   visible,
+  customBrush,
 }: BrushCursorProps) {
   const cursorRef = useRef<HTMLDivElement>(null);
-  // Ensure minimum visible cursor size, especially for pixel brushes
-  const screenSize = Math.max(4, size * zoom);
+  
+  // Calculate screen size differently for custom brushes (percentage) vs regular brushes (pixels)
+  const screenSize = brushShape === BrushShape.CUSTOM && customBrush
+    ? Math.max(4, (size / 100) * Math.max(customBrush.width, customBrush.height) * zoom)
+    : Math.max(4, size * zoom);
+    
   const cursorDataURL = useCursorDataURL(brushShape, screenSize);
 
   // Use direct DOM manipulation for position updates to avoid React re-renders
@@ -92,19 +93,13 @@ const BrushCursor = memo(function BrushCursor({
     if (!cursorRef.current || !visible) return;
     
     const element = cursorRef.current;
-    // Use transform for better performance than changing left/top
-    if (brushShape === BrushShape.CUSTOM) {
-      // Center the 21x21 crosshair
-      element.style.transform = `translate(${screenX - 10.5}px, ${screenY - 10.5}px)`;
-    } else {
-      // Center the brush cursor with padding
-      element.style.transform = `translate(${screenX - (Math.ceil(screenSize) + 8) / 2}px, ${screenY - (Math.ceil(screenSize) + 8) / 2}px)`;
-    }
-  }, [screenX, screenY, screenSize, visible, brushShape]);
+    // Center all cursors properly
+    element.style.transform = `translate(${screenX - Math.ceil(screenSize) / 2}px, ${screenY - Math.ceil(screenSize) / 2}px)`;
+  }, [screenX, screenY, screenSize, visible]);
 
   if (!visible) return null;
 
-  // Render a simple, static crosshair for custom brushes (already fast)
+  // Show a box outline for custom brushes to indicate size
   if (brushShape === BrushShape.CUSTOM) {
     return (
       <div
@@ -113,17 +108,13 @@ const BrushCursor = memo(function BrushCursor({
         style={{
           left: 0,
           top: 0,
+          width: `${Math.ceil(screenSize)}px`,
+          height: `${Math.ceil(screenSize)}px`,
           zIndex: 1000,
+          border: '1px solid white',
+          mixBlendMode: 'difference',
         }}
-      >
-        <svg width="21" height="21">
-          <line x1="10.5" y1="3" x2="10.5" y2="8" stroke="#ffffff" strokeWidth="2" filter="drop-shadow(1px 1px 0px black)" />
-          <line x1="10.5" y1="13" x2="10.5" y2="18" stroke="#ffffff" strokeWidth="2" filter="drop-shadow(1px 1px 0px black)" />
-          <line x1="3" y1="10.5" x2="8" y2="10.5" stroke="#ffffff" strokeWidth="2" filter="drop-shadow(1px 1px 0px black)" />
-          <line x1="13" y1="10.5" x2="18" y2="10.5" stroke="#ffffff" strokeWidth="2" filter="drop-shadow(1px 1px 0px black)" />
-          <circle cx="10.5" cy="10.5" r="1" fill="#ffffff" filter="drop-shadow(1px 1px 0px black)" />
-        </svg>
-      </div>
+      />
     );
   }
 
@@ -135,13 +126,20 @@ const BrushCursor = memo(function BrushCursor({
       style={{
         left: 0,
         top: 0,
-        width: `${Math.ceil(screenSize) + 8}px`,
-        height: `${Math.ceil(screenSize) + 8}px`,
+        width: `${Math.ceil(screenSize)}px`,
+        height: `${Math.ceil(screenSize)}px`,
         zIndex: 1000,
+        mixBlendMode: 'difference',
         imageRendering: 'pixelated',
       }}
     >
-      <Image src={cursorDataURL || ''} alt="Brush Cursor" width={32} height={32} unoptimized />
+      <Image 
+        src={cursorDataURL || ''} 
+        alt="Brush Cursor" 
+        width={Math.ceil(screenSize)} 
+        height={Math.ceil(screenSize)} 
+        unoptimized 
+      />
     </div>
   );
 });

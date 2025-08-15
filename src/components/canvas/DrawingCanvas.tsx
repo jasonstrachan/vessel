@@ -1,7 +1,8 @@
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { useBrushEngine } from '../../hooks/useBrushEngine';
 import { BrushShape } from '../../types';
+import BrushCursor from './BrushCursor';
 
 // This component implements a responsive canvas with pan and zoom functionality.
 // It separates "world space" (where drawings live) from "screen space" (the visible canvas).
@@ -72,12 +73,52 @@ const DrawingCanvas = () => {
   const selectionStartRef = useRef<{ x: number, y: number } | null>(null);
   const [marchingAntsOffset, setMarchingAntsOffset] = useState(0);
   
+  // Mouse position for brush cursor
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [showBrushCursor, setShowBrushCursor] = useState(false);
+  
   // Cached composite canvas - only recreate when layers change
   const compositeCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const lastLayersHashRef = useRef<string>('');
+  const [needsRedraw, setNeedsRedraw] = useState(0); // Trigger redraws when composite updates
   
   // Get brush engine
   const brushEngine = useBrushEngine();
+
+  // Memoized layers hash - only recalculates when layers actually change
+  const layersHash = useMemo(() => {
+    return layers.map(l => `${l.id}_${l.visible}_${l.opacity}_${l.imageData?.data.length || 0}`).join('|');
+  }, [layers]);
+
+  // Dedicated effect for regenerating composite canvas only when layers change
+  useEffect(() => {
+    // Guard clause in case project isn't loaded yet
+    if (!project || !compositeLayersToCanvas) return;
+
+    // Create or resize composite canvas
+    if (!compositeCanvasRef.current) {
+      compositeCanvasRef.current = document.createElement('canvas');
+    }
+    if (compositeCanvasRef.current.width !== project.width || 
+        compositeCanvasRef.current.height !== project.height) {
+      compositeCanvasRef.current.width = project.width;
+      compositeCanvasRef.current.height = project.height;
+    }
+    
+    // Ensure no smoothing on composite canvas
+    const compCtx = compositeCanvasRef.current.getContext('2d');
+    if (compCtx) {
+      compCtx.imageSmoothingEnabled = false;
+    }
+    
+    // Composite layers to the cached canvas
+    compositeLayersToCanvas(compositeCanvasRef.current);
+    
+    // Update the offscreen canvas for other tools
+    setCurrentOffscreenCanvas(compositeCanvasRef.current);
+
+    // CRITICAL: Trigger a redraw after compositing is done
+    setNeedsRedraw(prev => prev + 1);
+  }, [layersHash, project, compositeLayersToCanvas, setCurrentOffscreenCanvas]);
 
   // --- Coordinate Conversion Helpers ---
 
@@ -126,7 +167,8 @@ const DrawingCanvas = () => {
     const clampedY = Math.max(0, Math.min(compositeCanvasRef.current.height - 1, Math.floor(y)));
     
     const imageData = ctx.getImageData(clampedX, clampedY, 1, 1);
-    let [r, g, b, a] = imageData.data;
+    let [r, g, b] = imageData.data;
+    const a = imageData.data[3];
     
     // If transparent or nearly transparent, return the current canvas background color (white)
     if (a < 10) return 'rgb(255, 255, 255)';
@@ -175,36 +217,6 @@ const DrawingCanvas = () => {
 
     // Draw the layers from the project
     if (project && project.layers.length > 0) {
-      // Generate a simple hash of layers to detect changes
-      const layersHash = layers.map(l => `${l.id}_${l.visible}_${l.opacity}_${l.imageData?.data.length || 0}`).join('|');
-      
-      // Only recreate composite canvas if layers changed or it doesn't exist
-      if (!compositeCanvasRef.current || 
-          compositeCanvasRef.current.width !== project.width || 
-          compositeCanvasRef.current.height !== project.height ||
-          lastLayersHashRef.current !== layersHash) {
-        
-        // Create or resize composite canvas
-        if (!compositeCanvasRef.current) {
-          compositeCanvasRef.current = document.createElement('canvas');
-        }
-        compositeCanvasRef.current.width = project.width;
-        compositeCanvasRef.current.height = project.height;
-        
-        // Ensure no smoothing on composite canvas
-        const compCtx = compositeCanvasRef.current.getContext('2d');
-        if (compCtx) {
-          compCtx.imageSmoothingEnabled = false;
-        }
-        
-        // Composite layers to cached canvas
-        compositeLayersToCanvas(compositeCanvasRef.current);
-        lastLayersHashRef.current = layersHash;
-        
-        // Update the currentOffscreenCanvas for custom brush creation
-        setCurrentOffscreenCanvas(compositeCanvasRef.current);
-      }
-      
       ctx.save();
       ctx.translate(offsetX, offsetY);
       ctx.scale(scale, scale);
@@ -283,7 +295,7 @@ const DrawingCanvas = () => {
       }
     }
     
-  }, [project, compositeLayersToCanvas, isDrawing, layers, tools.brushSettings.brushShape, setCurrentOffscreenCanvas, selectionStart, selectionEnd, isSelecting, marchingAntsOffset]);
+  }, [project, isDrawing, tools.brushSettings.brushShape, selectionStart, selectionEnd, isSelecting, marchingAntsOffset]);
 
   // --- Event Handlers for Pan and Zoom ---
 
@@ -647,9 +659,6 @@ const DrawingCanvas = () => {
                       isCapturingAfter: isCapturing.current
                     });
                     
-                    // Invalidate the composite cache since we just updated a layer
-                    lastLayersHashRef.current = '';
-                    
                     console.log('🎨 [RECT DEBUG] Triggering final redraw...');
                     
                     // Trigger a redraw to reflect the change
@@ -760,9 +769,6 @@ const DrawingCanvas = () => {
                 drawingCanvasHasContent.current = false;
                 isCapturing.current = false; // Clear capturing flag
                 
-                // Invalidate the composite cache since we just updated a layer
-                lastLayersHashRef.current = '';
-                
                 // Trigger a redraw to reflect the change
                 const canvas = canvasRef.current;
                 const ctx = canvas?.getContext('2d');
@@ -782,6 +788,9 @@ const DrawingCanvas = () => {
   }, [isPanning, viewTransform, setPan, draw, captureCanvasToActiveLayer, project, layers, activeLayerId, tools, rectangleBrushState, setRectangleBrushState, polygonGradientState, setPolygonGradientState, brushEngine, initDrawingCanvas, isSelecting, getMousePos, screenToWorld, setSelectionBounds, sampleColorsAlongLine, saveCanvasState]);
 
   const handleMouseLeave = useCallback(() => {
+    // Hide brush cursor when mouse leaves canvas
+    setShowBrushCursor(false);
+    
     // Only handle panning and normal drawing on mouse leave
     // Do NOT finalize polygon or rectangle gradients as the user might just be moving fast
     if (isPanning) {
@@ -804,6 +813,13 @@ const DrawingCanvas = () => {
   const handleMouseMove = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
     const currentMousePos = getMousePos(event);
     const worldPos = screenToWorld(currentMousePos.x, currentMousePos.y);
+    
+    // Update mouse position for brush cursor - need absolute position for fixed positioning
+    setMousePosition({
+      x: event.clientX,
+      y: event.clientY
+    });
+    setShowBrushCursor(true);
 
     // --- REFACTORED LOGIC ---
     // Check for and handle the 'definingWidth' state separately and first.
@@ -1248,16 +1264,15 @@ const DrawingCanvas = () => {
       if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
         event.preventDefault();
         const snapshot = undo();
+        
         if (snapshot) {
           // Get the store instance to update layers
           const store = useAppStore.getState();
           
           // If snapshot has the new layers format, restore full state
           if (snapshot.layers && snapshot.activeLayerId) {
-            // Update all layers and active layer
-            snapshot.layers.forEach(layer => {
-              store.updateLayer(layer.id, layer);
-            });
+            // Replace the entire layers array
+            store.setLayers(snapshot.layers);
             store.setActiveLayer(snapshot.activeLayerId);
           } else {
             // Fallback for old snapshots with only imageData
@@ -1269,7 +1284,6 @@ const DrawingCanvas = () => {
           
           // Force redraw after state update completes
           setTimeout(() => {
-            lastLayersHashRef.current = '';
             const canvas = canvasRef.current;
             const ctx = canvas?.getContext('2d');
             if (ctx) {
@@ -1278,20 +1292,19 @@ const DrawingCanvas = () => {
           }, 0);
         }
       } 
-      // Handle Redo (Ctrl+Shift+Z / Cmd+Shift+Z)
-      else if ((event.ctrlKey || event.metaKey) && event.key === 'z' && event.shiftKey) {
+      // Handle Redo (Ctrl+Shift+Z / Cmd+Shift+Z) - check both lowercase and uppercase
+      else if ((event.ctrlKey || event.metaKey) && (event.key === 'z' || event.key === 'Z') && event.shiftKey) {
         event.preventDefault();
         const snapshot = redo();
+        
         if (snapshot) {
           // Get the store instance to update layers
           const store = useAppStore.getState();
           
           // If snapshot has the new layers format, restore full state
           if (snapshot.layers && snapshot.activeLayerId) {
-            // Update all layers and active layer
-            snapshot.layers.forEach(layer => {
-              store.updateLayer(layer.id, layer);
-            });
+            // Replace the entire layers array
+            store.setLayers(snapshot.layers);
             store.setActiveLayer(snapshot.activeLayerId);
           } else {
             // Fallback for old snapshots with only imageData
@@ -1303,7 +1316,6 @@ const DrawingCanvas = () => {
           
           // Force redraw after state update completes
           setTimeout(() => {
-            lastLayersHashRef.current = '';
             const canvas = canvasRef.current;
             const ctx = canvas?.getContext('2d');
             if (ctx) {
@@ -1332,18 +1344,8 @@ const DrawingCanvas = () => {
         const minSize = isCustomBrush ? 10 : 1;
         const newSize = Math.max(minSize, currentSize - adjustment);
         
-        // Update global brush size first to trigger UI update
+        // Use setGlobalBrushSize which handles all the updates internally
         store.setGlobalBrushSize(newSize);
-        
-        // Then update brush settings
-        store.setBrushSettings({ size: newSize });
-        
-        // Update the appropriate unified size
-        if (isCustomBrush) {
-          store.setCustomBrushesSize(newSize);
-        } else {
-          store.setDefaultBrushesSize(newSize);
-        }
       } else if (event.key === ']') {
         // ] key to increase brush size
         event.preventDefault();
@@ -1357,18 +1359,8 @@ const DrawingCanvas = () => {
         const maxSize = isCustomBrush ? 200 : 500;
         const newSize = Math.min(maxSize, currentSize + adjustment);
         
-        // Update global brush size first to trigger UI update
+        // Use setGlobalBrushSize which handles all the updates internally
         store.setGlobalBrushSize(newSize);
-        
-        // Then update brush settings
-        store.setBrushSettings({ size: newSize });
-        
-        // Update the appropriate unified size
-        if (isCustomBrush) {
-          store.setCustomBrushesSize(newSize);
-        } else {
-          store.setDefaultBrushesSize(newSize);
-        }
       } else if ((event.key === 'Enter' || event.key === 'Escape') && 
                  tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT && 
                  polygonGradientState.points.length >= 3) {
@@ -1423,7 +1415,6 @@ const DrawingCanvas = () => {
                         clearCtx.clearRect(0, 0, drawingCanvasRef.current!.width, drawingCanvasRef.current!.height);
                       }
                       drawingCanvasHasContent.current = false;
-                      lastLayersHashRef.current = '';
                       const canvas = canvasRef.current;
                       const ctx = canvas?.getContext('2d');
                       if (ctx) {
@@ -1523,7 +1514,7 @@ const DrawingCanvas = () => {
     }
   }, [project, layers, activeLayerId, saveCanvasState]);
   
-  // Redraw when layers change
+  // Redraw when composite updates or panning state changes
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1534,7 +1525,7 @@ const DrawingCanvas = () => {
     if (!isDrawingRef.current && !isPanning && !isCapturing.current) {
       draw(ctx, viewTransformRef.current);
     }
-  }, [layers, draw, isPanning]);
+  }, [needsRedraw, draw, isPanning]);
 
   // This effect only handles canvas resizing, not redrawing
   useEffect(() => {
@@ -1579,8 +1570,7 @@ const DrawingCanvas = () => {
   const getCursorStyle = () => {
     if (isPanning) return 'grabbing';
     if (isSpacePressed) return 'grab';
-    if (isDrawing) return 'crosshair';
-    return 'crosshair';
+    return 'none'; // Hide default cursor, we're using custom cursor
   };
 
   return (
@@ -1612,6 +1602,22 @@ const DrawingCanvas = () => {
       <div className="absolute bottom-4 right-4 bg-black/50 text-white px-2 py-1 rounded text-sm">
         {Math.round(viewTransform.scale * 100)}%
       </div>
+      
+      {/* Brush cursor preview */}
+      <BrushCursor
+        screenX={mousePosition.x}
+        screenY={mousePosition.y}
+        size={tools.brushSettings.size}
+        brushShape={tools.brushSettings.brushShape || BrushShape.ROUND}
+        zoom={viewTransform.scale}
+        color={tools.brushSettings.color}
+        customBrush={tools.brushSettings.currentBrushTip ? {
+          imageData: tools.brushSettings.currentBrushTip.imageData,
+          width: tools.brushSettings.currentBrushTip.width || 32,
+          height: tools.brushSettings.currentBrushTip.height || 32
+        } : null}
+        visible={showBrushCursor && !isPanning}
+      />
     </div>
   );
 };

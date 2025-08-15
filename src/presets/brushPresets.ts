@@ -424,7 +424,12 @@ export const rectangleGradientBrushPreset: BrushPreset = {
   tags: ['gradient', 'rectangle', 'special'],
   isDefault: false,
   createdAt: new Date(),
-  modifiedAt: new Date()
+  modifiedAt: new Date(),
+  preferredSettings: {
+    ditherEnabled: true,
+    ditherIntensity: 0.25,
+    colors: 8
+  }
 };
 
 // Polygon Gradient Brush Components
@@ -467,7 +472,12 @@ export const polygonGradientBrushPreset: BrushPreset = {
   tags: ['gradient', 'polygon', 'special'],
   isDefault: false,
   createdAt: new Date(),
-  modifiedAt: new Date()
+  modifiedAt: new Date(),
+  preferredSettings: {
+    ditherEnabled: true,
+    ditherIntensity: 0.25,
+    colors: 8
+  }
 };
 
 // Available brush presets
