@@ -913,15 +913,21 @@ const DrawingCanvasRefactored = () => {
               // Draw the image centered and scaled
               tempCtx.drawImage(img, x, y, scaledWidth, scaledHeight);
               
-              // Get the image data from the temporary canvas
-              const pasteImageData = tempCtx.getImageData(0, 0, project.width, project.height);
+              // Get only the actual image area, not the entire canvas
+              const imageX = Math.floor(x);
+              const imageY = Math.floor(y);
+              const imageWidth = Math.ceil(scaledWidth);
+              const imageHeight = Math.ceil(scaledHeight);
               
-              // Create floating paste instead of immediately merging
+              // Get the image data for just the pasted content
+              const pasteImageData = tempCtx.getImageData(imageX, imageY, imageWidth, imageHeight);
+              
+              // Create floating paste with actual image dimensions
               setFloatingPaste({
                 imageData: pasteImageData,
-                position: { x: 0, y: 0 }, // Start at top-left, user can drag it
-                width: project.width,
-                height: project.height
+                position: { x: imageX, y: imageY }, // Start at the centered position
+                width: imageWidth,
+                height: imageHeight
               });
               
               // Trigger redraw to show floating paste
