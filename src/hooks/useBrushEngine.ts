@@ -2739,6 +2739,8 @@ export const useBrushEngine = () => {
     ];
     
     ctx.save();
+    // Disable antialiasing for clean edges
+    ctx.imageSmoothingEnabled = false;
     // CRITICAL FIX: Eraser must always use full opacity to completely remove pixels
     ctx.globalAlpha = currentTool === 'eraser' ? 1 : brushSettings.opacity;
     ctx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : (brushSettings.blendMode || 'source-over');
@@ -2762,8 +2764,11 @@ export const useBrushEngine = () => {
       }
     }
     
-    if (shouldUseSolidFill) {
-      // For single color mode, use solid fill without gradient
+    // Check if we'll be applying dithering later (to avoid double-drawing)
+    const willApplyDithering = brushSettings.ditherEnabled && numColors >= 2 && !isPreview;
+    
+    if (shouldUseSolidFill && !willApplyDithering) {
+      // For single color mode, use solid fill without gradient (skip if dithering will be applied)
       const solidColor = colors && colors.length > 0 ? colors[0] : finalStartColor;
       
       ctx.fillStyle = solidColor;
@@ -2772,7 +2777,7 @@ export const useBrushEngine = () => {
       corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
       ctx.closePath();
       ctx.fill();
-    } else {
+    } else if (!willApplyDithering) {
       // Original gradient code
       const gradient = ctx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
       
@@ -2840,9 +2845,9 @@ export const useBrushEngine = () => {
       ctx.fill();
     }
     
-    // Apply risograph effect if enabled
+    // Apply risograph effect if enabled (only if we drew something and no dithering will be applied)
     const risographIntensity = brushSettings.risographIntensity || 0;
-    if (risographIntensity > 0 && !isPreview) {
+    if (risographIntensity > 0 && !isPreview && !willApplyDithering) {
       // Get the bounds of the rectangle for effect
       const minX = Math.floor(Math.min(...corners.map(c => c.x)));
       const minY = Math.floor(Math.min(...corners.map(c => c.y)));

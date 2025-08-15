@@ -65,7 +65,7 @@ function interactionReducer(state: InteractionState, action: InteractionAction):
       return { ...state, isSpacePressed: true };
     
     case 'SPACE_RELEASED':
-      return { ...state, isSpacePressed: false, isPanning: false };
+      return { ...state, isSpacePressed: false };
     
     case 'RESET':
       return initialState;

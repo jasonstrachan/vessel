@@ -25,9 +25,9 @@ export function useToolStateMachine({
   const handleRectangleGradientMouseDown = useCallback((worldPos: { x: number; y: number }) => {
     const currentState = useAppStore.getState().rectangleBrushState;
     
-    // If defining width, don't start a new rectangle
+    // If defining width, this click finalizes the width
     if (currentState.drawingState === 'definingWidth') {
-      return false; // Don't proceed with drawing
+      return 'finalize'; // Special return value to indicate we should finalize
     }
     
     // Start defining length

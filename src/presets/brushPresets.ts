@@ -53,7 +53,8 @@ export const defaultBrushSettings: BrushSettings = {
   colorJitter: 0,
   risographIntensity: 0,
   ditherEnabled: false,
-  fillResolution: 1
+  fillResolution: 1,
+  colors: 2 // Default to 2 colors for rectangle and polygon gradient brushes
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect
@@ -428,7 +429,7 @@ export const rectangleGradientBrushPreset: BrushPreset = {
   preferredSettings: {
     ditherEnabled: true,
     ditherIntensity: 0.25,
-    colors: 8
+    colors: 2
   }
 };
 
@@ -476,7 +477,7 @@ export const polygonGradientBrushPreset: BrushPreset = {
   preferredSettings: {
     ditherEnabled: true,
     ditherIntensity: 0.25,
-    colors: 8
+    colors: 2
   }
 };
 

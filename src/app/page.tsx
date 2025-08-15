@@ -6,8 +6,7 @@ import BrushLibrary from '../components/BrushLibrary';
 import ControlsPanel from '../components/ControlsPanel';
 import ColorPickerPanel from '../components/panels/ColorPickerPanel';
 import ColorCyclePanel from '../components/panels/ColorCyclePanel';
-// import DrawingCanvas from '../components/canvas/DrawingCanvas';
-import DrawingCanvas from '../components/canvas/DrawingCanvasRefactored';
+import DrawingCanvas from '../components/canvas/DrawingCanvas';
 import BrushEditorUI from '../components/BrushEditorUI';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
 import { DocumentModal } from '../components/modals/DocumentModal';
