@@ -297,7 +297,6 @@ export const benchmarkDitherAlgorithms = (canvas: HTMLCanvasElement): Promise<vo
       { algorithm: 'sierra-lite', pressure: 0.5, intensity: 0.8, bayerMatrixSize: 8, palette: APPLE_II_PALETTE }
     ];
     
-    console.log('Benchmarking dithering algorithms...');
     
     algorithms.forEach((settings, index) => {
       const start = performance.now();
@@ -309,7 +308,6 @@ export const benchmarkDitherAlgorithms = (canvas: HTMLCanvasElement): Promise<vo
       const end = performance.now();
       const avgTime = (end - start) / 10;
       
-      console.log(`${settings.algorithm} (${settings.bayerMatrixSize}x${settings.bayerMatrixSize}): ${avgTime.toFixed(2)}ms avg`);
     });
     
     resolve();

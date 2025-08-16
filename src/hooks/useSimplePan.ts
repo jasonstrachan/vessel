@@ -20,15 +20,19 @@ export function useSimplePan(options: SimplePanOptions = {}) {
   
   const panStartRef = useRef({ x: 0, y: 0 });
   const panStartOffsetRef = useRef({ x: 0, y: 0 });
+  const isPanningRef = useRef(false);
   
   const startPan = useCallback((x: number, y: number) => {
     panStartRef.current = { x, y };
-    panStartOffsetRef.current = { x: panState.offsetX, y: panState.offsetY };
-    setPanState(prev => ({ ...prev, isPanning: true }));
-  }, [panState.offsetX, panState.offsetY]);
+    setPanState(prev => {
+      panStartOffsetRef.current = { x: prev.offsetX, y: prev.offsetY };
+      isPanningRef.current = true;
+      return { ...prev, isPanning: true };
+    });
+  }, []);
   
   const updatePan = useCallback((currentX: number, currentY: number) => {
-    if (!panState.isPanning) return;
+    if (!isPanningRef.current) return;
     
     const deltaX = currentX - panStartRef.current.x;
     const deltaY = currentY - panStartRef.current.y;
@@ -38,18 +42,19 @@ export function useSimplePan(options: SimplePanOptions = {}) {
       offsetX: panStartOffsetRef.current.x + deltaX,
       offsetY: panStartOffsetRef.current.y + deltaY
     }));
-  }, [panState.isPanning]);
+  }, []);
   
-  // Direct setter for wheel panning  
   const setPan = useCallback((offsetX: number, offsetY: number) => {
     setPanState(prev => ({ ...prev, offsetX, offsetY }));
   }, []);
   
   const endPan = useCallback(() => {
+    isPanningRef.current = false;
     setPanState(prev => ({ ...prev, isPanning: false }));
   }, []);
   
   const resetPan = useCallback(() => {
+    isPanningRef.current = false;
     setPanState({
       offsetX: 0,
       offsetY: 0,
@@ -57,7 +62,6 @@ export function useSimplePan(options: SimplePanOptions = {}) {
     });
   }, []);
   
-  // Transform screen coordinates to world coordinates
   const screenToWorld = useCallback((x: number, y: number, currentScale: number = scale) => {
     return {
       x: (x - panState.offsetX) / currentScale,
@@ -65,7 +69,6 @@ export function useSimplePan(options: SimplePanOptions = {}) {
     };
   }, [panState.offsetX, panState.offsetY, scale]);
   
-  // Transform world coordinates to screen coordinates
   const worldToScreen = useCallback((x: number, y: number, currentScale: number = scale) => {
     return {
       x: x * currentScale + panState.offsetX,

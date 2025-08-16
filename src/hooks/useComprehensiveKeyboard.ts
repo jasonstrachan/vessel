@@ -81,17 +81,9 @@ export function useComprehensiveKeyboard({
       (event.key.toLowerCase() === 'y' && !event.shiftKey)
     )) {
       event.preventDefault();
-      console.log('🔄 Redo triggered from useComprehensiveKeyboard', {
-        key: event.key,
-        shiftKey: event.shiftKey,
-        ctrlKey: event.ctrlKey,
-        metaKey: event.metaKey,
-        hasOnRedo: !!onRedo
-      });
       if (onRedo) {
         onRedo();
       } else {
-        console.log('❌ No onRedo callback provided!');
       }
       return;
     }

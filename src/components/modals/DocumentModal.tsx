@@ -80,7 +80,6 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
     if (project) {
       const width = resizeWidth === '' ? 1 : Number(resizeWidth);
       const height = resizeHeight === '' ? 1 : Number(resizeHeight);
-      console.log('📏 User requesting canvas resize from DocumentModal:', { width, height });
       resizeCanvas(width, height);
     }
     onClose();

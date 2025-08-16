@@ -116,9 +116,6 @@ export const drawTestSwatches = async () => {
   // Capture the canvas to the active layer to persist the swatches
   await state.captureCanvasToActiveLayer(offscreenCanvas);
   
-  console.log('✅ Test swatches drawn! Total colors in combined palette: ' + testColors.length);
-  console.log('Palette includes: neutrals, browns, and Apple II vibrant colors');
-  console.log('Draw rectangles on each color with colors=2 to test dithering.');
 };
 
 // Make it available globally

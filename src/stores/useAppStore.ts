@@ -531,11 +531,6 @@ export const useAppStore = create<AppState>()(
         const oldWidth = state.project.width;
         const oldHeight = state.project.height;
         
-        console.log('🔧 Resizing canvas:', {
-          oldSize: { width: oldWidth, height: oldHeight },
-          newSize: { width, height },
-          currentZoom: state.canvas.zoom
-        });
         
         // Calculate offset to center content
         const offsetX = (width - oldWidth) / 2;
@@ -579,13 +574,7 @@ export const useAppStore = create<AppState>()(
           return layer;
         });
         
-        // Reset zoom and pan to default values
-        // Keep pan at (0,0) for consistent coordinate system
-        console.log('✅ Canvas resized - resetting view:', {
-          newZoom: 1,
-          newPan: { x: 0, y: 0 },
-          dimensions: { width, height }
-        });
+        // Reset zoom to default value
         
         return {
           project: updatedProject,
@@ -644,7 +633,7 @@ export const useAppStore = create<AppState>()(
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = project.width;
         tempCanvas.height = project.height;
-        const tempCtx = tempCanvas.getContext('2d');
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
         
         if (tempCtx) {
           // Draw existing layer content
@@ -654,7 +643,7 @@ export const useAppStore = create<AppState>()(
           const pasteCanvas = document.createElement('canvas');
           pasteCanvas.width = floatingPaste.width;
           pasteCanvas.height = floatingPaste.height;
-          const pasteCtx = pasteCanvas.getContext('2d');
+          const pasteCtx = pasteCanvas.getContext('2d', { willReadFrequently: true });
           if (pasteCtx) {
             pasteCtx.putImageData(floatingPaste.imageData, 0, 0);
             tempCtx.drawImage(pasteCanvas, floatingPaste.position.x, floatingPaste.position.y);
@@ -1624,7 +1613,7 @@ export const useAppStore = create<AppState>()(
             const size = 32; // Default editing size for brush presets
             tempCanvas.width = size;
             tempCanvas.height = size;
-            const tempCtx = tempCanvas.getContext('2d');
+            const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
             if (tempCtx) {
               // Create a simple black brush shape based on the preset
               tempCtx.fillStyle = '#000000';
@@ -2038,24 +2027,13 @@ export const useAppStore = create<AppState>()(
       redo: () => {
         const state = get();
         
-        console.log('🔄 STORE REDO: Starting with stacks:', {
-          undoStackSize: state.history.undoStack.length,
-          redoStackSize: state.history.redoStack.length
-        });
         
         if (state.history.redoStack.length === 0) {
-          console.log('🔄 STORE REDO: No states to redo');
           return null;
         }
         
         // The first item in redoStack is the state we want to restore to
         const stateToRestore = state.history.redoStack[0];
-        
-        console.log('🔄 STORE REDO: Restoring state:', {
-          stateDesc: stateToRestore.description,
-          stateLayers: stateToRestore.layers?.length,
-          stateActiveLayer: stateToRestore.activeLayerId
-        });
         
         const newRedoStack = state.history.redoStack.slice(1); // Remove restored state from redo stack
         const newUndoStack = [...state.history.undoStack, stateToRestore]; // Add restored state to undo stack
@@ -2433,9 +2411,19 @@ export const useAppStore = create<AppState>()(
           const captureWidth = Math.min(state.project.width, canvas.width);
           const captureHeight = Math.min(state.project.height, canvas.height);
           
+          
+          // CRITICAL CHECK: Are we capturing the right area?
+          if (captureWidth !== state.project.width || captureHeight !== state.project.height) {
+            console.warn('[CAPTURE] WARNING: Capture size mismatch!', {
+              captureSize: { width: captureWidth, height: captureHeight },
+              projectSize: { width: state.project.width, height: state.project.height }
+            });
+          }
+          
           // Always capture the full canvas, regardless of brush editor status
           // This allows normal drawing on the main canvas while the modal is open
           const imageData = ctx.getImageData(0, 0, captureWidth, captureHeight);
+          
           
           // Find the active layer or use the first layer
           const activeLayerId = state.activeLayerId || state.layers[0]?.id;

@@ -8,6 +8,7 @@ interface UseDrawingHandlersProps {
   viewTransformRef: React.MutableRefObject<{ scale: number; offsetX: number; offsetY: number }>;
   draw: (ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }) => void;
   canvasRef: React.RefObject<HTMLCanvasElement>;
+  isBusyRef?: React.MutableRefObject<boolean>; // Lock ref to prevent concurrent operations
 }
 
 /**
@@ -59,9 +60,10 @@ export function useDrawingHandlers({
   viewTransformRef,
   draw,
   canvasRef,
+  isBusyRef,
 }: UseDrawingHandlersProps) {
   const brushEngine = useBrushEngine();
-  const { activeBrushComponents, layers, activeLayerId, captureCanvasToActiveLayer, saveCanvasState, tools } = useAppStore();
+  const { activeBrushComponents, captureCanvasToActiveLayer, saveCanvasState, tools } = useAppStore();
   
   // Drawing canvas ref
   const drawingCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -83,7 +85,7 @@ export function useDrawingHandlers({
       drawingCanvasRef.current = document.createElement('canvas');
       drawingCanvasRef.current.width = project.width;
       drawingCanvasRef.current.height = project.height;
-      const ctx = drawingCanvasRef.current.getContext('2d');
+      const ctx = drawingCanvasRef.current.getContext('2d', { willReadFrequently: true });
       if (ctx) {
         ctx.imageSmoothingEnabled = false;
         ctx.clearRect(0, 0, project.width, project.height);
@@ -100,11 +102,13 @@ export function useDrawingHandlers({
   
   // Start drawing
   const startDrawing = useCallback((worldPos: { x: number; y: number }) => {
+    
+    
     initDrawingCanvas();
     
     // Clear the drawing canvas for a fresh start
     if (drawingCanvasRef.current) {
-      const clearCtx = drawingCanvasRef.current.getContext('2d');
+      const clearCtx = drawingCanvasRef.current.getContext('2d', { willReadFrequently: true });
       if (clearCtx) {
         clearCtx.imageSmoothingEnabled = false;
         clearCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
@@ -114,7 +118,7 @@ export function useDrawingHandlers({
     drawingCanvasHasContent.current = true;
     
     // Draw initial point
-    const drawCtx = drawingCanvasRef.current?.getContext('2d');
+    const drawCtx = drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
     if (drawCtx && brushEngine && project) {
       // Set up clipping region to prevent drawing outside canvas bounds
       drawCtx.save();
@@ -161,7 +165,7 @@ export function useDrawingHandlers({
     // If clippedSegment is not null, it means some part of the line is inside the canvas.
     if (clippedSegment) {
       const [clippedStart, clippedEnd] = clippedSegment;
-      const drawCtx = drawingCanvasRef.current?.getContext('2d');
+      const drawCtx = drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
 
       if (drawCtx && brushEngine) {
         // Render only the visible part of the brush stroke.
@@ -179,7 +183,7 @@ export function useDrawingHandlers({
         }
         drawAnimationFrameRef.current = requestAnimationFrame(() => {
           const canvas = canvasRef.current;
-          const ctx = canvas?.getContext('2d');
+          const ctx = canvas?.getContext('2d', { willReadFrequently: true });
           if (ctx) {
             draw(ctx, viewTransformRef.current);
           }
@@ -195,38 +199,80 @@ export function useDrawingHandlers({
   
   // Finalize drawing
   const finalizeDrawing = useCallback(async () => {
-    lastDrawPosRef.current = null;
-    drawSequenceRef.current = 0;
+    // Don't allow this function to run if the app is already busy
+    if (isBusyRef?.current || !drawingCanvasRef.current) return;
     
-    if (drawingCanvasRef.current && project && drawingCanvasHasContent.current) {
+    try {
+      if (isBusyRef) isBusyRef.current = true; // Engage the lock
+      
+      lastDrawPosRef.current = null;
+      drawSequenceRef.current = 0;
+      
+      if (drawingCanvasRef.current && project && drawingCanvasHasContent.current) {
       // Restore the context to remove clipping mask
-      const drawCtx = drawingCanvasRef.current.getContext('2d');
+      const drawCtx = drawingCanvasRef.current.getContext('2d', { willReadFrequently: true });
       if (drawCtx) {
         drawCtx.restore();
       }
       
+      
       isCapturing.current = true;
-      const activeLayer = layers.find(l => l.id === activeLayerId) || layers[0];
+      
+      // CRITICAL FIX: Wait a moment to ensure any previous store updates have completed
+      await new Promise(resolve => setTimeout(resolve, 5));
+      
+      // Get fresh state from the store to avoid stale closures
+      const currentState = useAppStore.getState();
+      const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId) || currentState.layers[0];
+      
+      
       
       if (activeLayer) {
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = project.width;
         tempCanvas.height = project.height;
-        const tempCtx = tempCanvas.getContext('2d');
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+        
         
         if (tempCtx && activeLayer.imageData) {
+          
           tempCtx.putImageData(activeLayer.imageData, 0, 0);
+          
+          
           tempCtx.drawImage(drawingCanvasRef.current, 0, 0);
+          
           
           await captureCanvasToActiveLayer(tempCanvas);
           
+          // Removed delay - proceed immediately for snappy UI
+          
+          // After capture, check if the layer was actually updated
+          const postCaptureState = useAppStore.getState();
+          const postCaptureLayer = postCaptureState.layers.find(l => l.id === currentState.activeLayerId);
+          if (postCaptureLayer?.imageData) {
+            let postCapturePixels = 0;
+            for (let i = 3; i < postCaptureLayer.imageData.data.length; i += 4) {
+              if (postCaptureLayer.imageData.data[i] > 0) postCapturePixels++;
+            }
+            
+            // CRITICAL CHECK: Ensure this data will be available for the next stroke
+            const mergedImageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            let nonTransparentPixels = 0;
+            for (let i = 3; i < mergedImageData.data.length; i += 4) {
+              if (mergedImageData.data[i] > 0) nonTransparentPixels++;
+            }
+            if (postCapturePixels === 0 && nonTransparentPixels > 0) {
+              console.error('[FINALIZE] CRITICAL ERROR: Layer data was lost during capture!');
+            }
+          }
+          
           // Save state for undo/redo
-          const updatedLayer = useAppStore.getState().layers.find(l => l.id === activeLayerId);
+          const updatedLayer = useAppStore.getState().layers.find(l => l.id === currentState.activeLayerId);
           if (updatedLayer) {
             const saveCanvas = document.createElement('canvas');
             saveCanvas.width = project.width;
             saveCanvas.height = project.height;
-            const saveCtx = saveCanvas.getContext('2d');
+            const saveCtx = saveCanvas.getContext('2d', { willReadFrequently: true });
             if (saveCtx && updatedLayer.imageData) {
               saveCtx.putImageData(updatedLayer.imageData, 0, 0);
               saveCanvasState(saveCanvas, 'brush', 'Drawing stroke');
@@ -234,15 +280,16 @@ export function useDrawingHandlers({
           }
           
           requestAnimationFrame(() => {
-            const clearCtx = drawingCanvasRef.current?.getContext('2d');
+            const clearCtx = drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
             if (clearCtx) {
               clearCtx.clearRect(0, 0, drawingCanvasRef.current!.width, drawingCanvasRef.current!.height);
             }
             drawingCanvasHasContent.current = false;
             isCapturing.current = false;
             
+            
             const canvas = canvasRef.current;
-            const ctx = canvas?.getContext('2d');
+            const ctx = canvas?.getContext('2d', { willReadFrequently: true });
             if (ctx) {
               draw(ctx, viewTransformRef.current);
             }
@@ -250,12 +297,20 @@ export function useDrawingHandlers({
         }
       }
     }
-  }, [project, layers, activeLayerId, captureCanvasToActiveLayer, saveCanvasState, draw, viewTransformRef, canvasRef]);
+      
+      // Removed artificial delay - lock releases immediately for snappy UI
+      
+    } catch (error) {
+      console.error("Error during finalization:", error);
+    } finally {
+      if (isBusyRef) isBusyRef.current = false; // Always release the lock
+    }
+  }, [project, captureCanvasToActiveLayer, saveCanvasState, draw, viewTransformRef, canvasRef, isBusyRef]);
   
   // Clear drawing canvas
   const clearDrawingCanvas = useCallback(() => {
     if (drawingCanvasRef.current) {
-      const ctx = drawingCanvasRef.current.getContext('2d');
+      const ctx = drawingCanvasRef.current.getContext('2d', { willReadFrequently: true });
       if (ctx) {
         ctx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
       }
@@ -292,10 +347,21 @@ export function useDrawingHandlers({
     }
   }, [tools.shapeMode, continueDrawing]);
   
-  const finalizeShapeDrawing = useCallback(() => {
-    if (tools.shapeMode && isDrawingShapeRef.current && shapePointsRef.current.length >= 3) {
+  const finalizeShapeDrawing = useCallback(async () => {
+    // For non-shape mode, just call finalizeDrawing directly
+    if (!tools.shapeMode) {
+      return finalizeDrawing();
+    }
+    
+    // Don't allow this function to run if the app is already busy
+    if (isBusyRef?.current) return;
+    
+    try {
+      if (isBusyRef) isBusyRef.current = true; // Engage the lock
+      
+      if (tools.shapeMode && isDrawingShapeRef.current && shapePointsRef.current.length >= 3) {
       // Draw closed polygon with current brush
-      const drawCtx = drawingCanvasRef.current?.getContext('2d');
+      const drawCtx = drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
       if (drawCtx && brushEngine) {
         drawCtx.save();
         
@@ -327,14 +393,14 @@ export function useDrawingHandlers({
           
           patternCanvas.width = scaledSize;
           patternCanvas.height = scaledSize;
-          const patternCtx = patternCanvas.getContext('2d');
+          const patternCtx = patternCanvas.getContext('2d', { willReadFrequently: true });
           
           if (patternCtx) {
             // Create temp canvas for the brush tip
             const tipCanvas = document.createElement('canvas');
             tipCanvas.width = brushWidth;
             tipCanvas.height = brushHeight;
-            const tipCtx = tipCanvas.getContext('2d');
+            const tipCtx = tipCanvas.getContext('2d', { willReadFrequently: true });
             
             if (tipCtx) {
               tipCtx.putImageData(brushTip.imageData, 0, 0);
@@ -366,17 +432,24 @@ export function useDrawingHandlers({
       shapePointsRef.current = [];
       isDrawingShapeRef.current = false;
       
-      // Finalize to layer
-      finalizeDrawing();
-    } else if (!tools.shapeMode) {
-      // Regular finalize
-      finalizeDrawing();
+      // Finalize to layer - but release lock first to avoid deadlock
+      if (isBusyRef) isBusyRef.current = false;
+      await finalizeDrawing();
+      return; // Exit early since finalizeDrawing handles its own cleanup
     } else if (tools.shapeMode && isDrawingShapeRef.current) {
       // Not enough points for a shape, clear
       shapePointsRef.current = [];
       isDrawingShapeRef.current = false;
     }
-  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing]);
+      
+      // Removed artificial delay - lock releases immediately for snappy UI
+      
+    } catch (error) {
+      console.error("Error during shape finalization:", error);
+    } finally {
+      if (isBusyRef) isBusyRef.current = false; // Always release the lock
+    }
+  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef]);
   
   return {
     drawingCanvasRef,
