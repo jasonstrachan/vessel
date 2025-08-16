@@ -2,6 +2,28 @@
 
 ## Recent Updates
 
+### Drawing Implementation with State Machine Pattern (2025-01-16)
+- **Implemented proper drawing functionality** following reducer pattern with side effects
+- **Architecture improvements**:
+  - State machine (useCanvasStateMachine) manages stroke data (arrays of points)
+  - Separate strokeCanvas for rendering strokes without affecting main canvas
+  - Clean separation between state management and rendering side effects
+- **Drawing workflow**:
+  1. MOUSE_DOWN transitions to DRAWING mode and initializes stroke array
+  2. MOUSE_MOVE adds points to current stroke array
+  3. useEffect watches stroke changes and renders to strokeCanvas
+  4. MOUSE_UP finalizes stroke, merges with active layer, and clears stroke data
+- **Technical details**:
+  - World coordinates used for stroke points (not screen coordinates)
+  - Stroke canvas composited onto main canvas during draw()
+  - Proper cleanup and state reset after each stroke
+  - Supports all brush settings (color, size, opacity, blend modes)
+- **Benefits**:
+  - Clean, predictable state machine for drawing modes
+  - Efficient rendering with temporary canvas
+  - Proper undo/redo support via saveCanvasState
+  - No direct DOM manipulation during event handlers
+
 ### Performance Optimization: Composite Canvas Caching (2025-01-15)
 - **Fixed major performance issue**: Composite canvas was being regenerated on every frame during panning
 - **Solution implemented**:

@@ -308,18 +308,14 @@ const DrawingCanvas = () => {
     
     // Only log and process if mode actually changed
     if (prevMode !== currentMode) {
-      console.log('Pan transition effect - prev:', prevMode, 'current:', currentMode);
-      
       // Handle panning state transitions only
       if (currentMode === 'PANNING' && prevMode !== 'PANNING') {
-        // Just entered panning mode
-        console.log('Starting pan');
+        // Just entered panning mode - use lastPosition which has screen coordinates
         if (stateMachine.state.lastPosition) {
           pan.startPan(stateMachine.state.lastPosition.x, stateMachine.state.lastPosition.y);
         }
       } else if (currentMode !== 'PANNING' && prevMode === 'PANNING') {
         // Just exited panning mode - keep the pan offset
-        console.log('Ending pan - offsets are preserved');
         pan.endPan();
       }
     }
@@ -327,6 +323,7 @@ const DrawingCanvas = () => {
     // Update the ref with the new state
     prevStateRef.current = stateMachine.state;
   }, [stateMachine.state.mode, pan]); // Only depend on mode changes
+  
   
   const toolStateMachine = useToolStateMachine({
     sampleColorAtPosition
@@ -536,16 +533,16 @@ const DrawingCanvas = () => {
     
     const mousePos = getMousePos(event);
     
-    // Dispatch to state machine
+    const scale = canvas?.zoom || 1;
+    const worldPos = pan.screenToWorld(mousePos.x, mousePos.y, scale);
+    
+    // Dispatch to state machine with SCREEN position for panning
     stateMachine.dispatch({ 
       type: 'MOUSE_DOWN', 
       button: event.button,
-      position: mousePos,
+      position: mousePos,  // Use screen coordinates, not world
       tool: tools.currentTool 
     });
-    
-    const scale = canvas?.zoom || 1;
-    const worldPos = pan.screenToWorld(mousePos.x, mousePos.y, scale);
     
     // --- PROPER FIX: Block clicks outside canvas bounds ---
     if (project) {
@@ -561,6 +558,18 @@ const DrawingCanvas = () => {
         stateMachine.state.mode === 'PANNING' || 
         event.button === 1 || 
         event.button === 2) {
+      return;
+    }
+    
+    // For simple drawing mode, use the existing drawing handlers
+    if (stateMachine.state.mode === 'IDLE' && 
+        (tools.currentTool === 'brush' || tools.currentTool === 'eraser') &&
+        !tools.shapeMode &&
+        tools.brushSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT &&
+        tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT) {
+      // Use the existing drawing system with brush engine
+      interaction.dispatch({ type: 'DRAWING_START' });
+      drawingHandlers.startDrawing(worldPos);
       return;
     }
     
@@ -720,7 +729,11 @@ const DrawingCanvas = () => {
       
       // Normal brush or shape mode
       interaction.dispatch({ type: 'DRAWING_START' });
-      drawingHandlers.startShapeDrawing(worldPos);
+      if (tools.shapeMode) {
+        drawingHandlers.startShapeDrawing(worldPos);
+      } else {
+        drawingHandlers.startDrawing(worldPos);
+      }
     }
   }, [getMousePos, interaction, tools.currentTool, toolStateMachine, canvas, 
       setSelectionBounds, drawingHandlers, floatingPaste, project, 
@@ -728,8 +741,10 @@ const DrawingCanvas = () => {
   
   const handleMouseMove = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
     const currentMousePos = getMousePos(event);
+    const scale = canvas?.zoom || 1;
+    const worldPos = pan.screenToWorld(currentMousePos.x, currentMousePos.y, scale);
     
-    // Dispatch to state machine
+    // Always dispatch to state machine first with screen coordinates
     stateMachine.dispatch({ 
       type: 'MOUSE_MOVE',
       position: currentMousePos 
@@ -746,9 +761,6 @@ const DrawingCanvas = () => {
       }
       return; // Don't process other mouse move logic while panning
     }
-    
-    const scale = canvas?.zoom || 1;
-    const worldPos = pan.screenToWorld(currentMousePos.x, currentMousePos.y, scale);
     
     // No clamping needed - line clipping in useDrawingHandlers handles edge cases properly
     
@@ -1052,7 +1064,11 @@ const DrawingCanvas = () => {
       }
       
       // Normal brush or shape mode
-      drawingHandlers.continueShapeDrawing(worldPos);
+      if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+        drawingHandlers.continueShapeDrawing(worldPos);
+      } else {
+        drawingHandlers.continueDrawing(worldPos);
+      }
       
       // Draw shape preview if in shape mode
       if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current && drawingHandlers.shapePointsRef.current.length > 0) {
@@ -1144,8 +1160,16 @@ const DrawingCanvas = () => {
     isMouseDownRef.current = false;
     
     const mousePos = getMousePos(event);
+    const scale = canvas?.zoom || 1;
+    const worldPos = pan.screenToWorld(mousePos.x, mousePos.y, scale);
     
     // Dispatch to state machine
+    stateMachine.dispatch({ 
+      type: 'MOUSE_UP',
+      position: mousePos 
+    });
+    
+    // For other modes, dispatch with screen position
     stateMachine.dispatch({ 
       type: 'MOUSE_UP',
       position: mousePos 
@@ -1233,10 +1257,15 @@ const DrawingCanvas = () => {
       
       // Normal brush or shape mode
       interaction.dispatch({ type: 'DRAWING_END' });
-      drawingHandlers.finalizeShapeDrawing();
+      if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+        drawingHandlers.finalizeShapeDrawing();
+      } else {
+        drawingHandlers.finalizeDrawing();
+      }
     }
   }, [interaction, getMousePos, setSelectionBounds, tools.currentTool, 
-      setCurrentTool, clearSelection, toolStateMachine, drawingHandlers, isDraggingFloatingPaste, project]);
+      setCurrentTool, clearSelection, toolStateMachine, drawingHandlers, isDraggingFloatingPaste, project,
+      stateMachine, layers, activeLayerId, updateLayer, saveCanvasState, tools, pan, canvas]);
   
   const handleMouseLeave = useCallback(() => {
     setShowBrushCursor(false);

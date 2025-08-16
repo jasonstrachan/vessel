@@ -24,6 +24,8 @@ export interface CanvasState {
   selectionEnd: { x: number; y: number } | null;
   shapeDefineStart: { x: number; y: number } | null;
   isBusy: boolean; // Lock for async operations
+  stroke: Array<{ x: number; y: number }>; // Current stroke being drawn
+  history: Array<Array<{ x: number; y: number }>>; // Completed strokes
 }
 
 // Initial state
@@ -38,6 +40,8 @@ const initialState: CanvasState = {
   selectionEnd: null,
   shapeDefineStart: null,
   isBusy: false,
+  stroke: [],
+  history: [],
 };
 
 // Action types
@@ -150,6 +154,7 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
             mode: 'DRAWING',
             drawingStartPosition: action.position,
             lastPosition: action.position,
+            stroke: [action.position], // Initialize stroke with starting point
           };
           
         case 'START_SELECTION':
@@ -182,17 +187,23 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
     case 'DRAWING':
       switch (action.type) {
         case 'MOUSE_MOVE':
-          return { ...state, lastPosition: action.position };
+          return { 
+            ...state, 
+            lastPosition: action.position,
+            stroke: [...state.stroke, action.position] // Add point to stroke
+          };
           
         case 'MOUSE_UP':
         case 'MOUSE_LEAVE':
         case 'END_INTERACTION':
-          // Transition to finalizing
+          // Save stroke to history and transition to finalizing
           return {
             ...state,
             mode: 'FINALIZING',
             isMouseDown: false,
             mouseButton: null,
+            history: state.stroke.length > 0 ? [...state.history, state.stroke] : state.history,
+            stroke: [], // Clear current stroke
           };
           
         case 'FINALIZE_START':
@@ -272,6 +283,10 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
             mouseButton: action.button,
             lastPosition: action.position
           };
+          
+        case 'MOUSE_MOVE':
+          // Track mouse position while waiting to pan
+          return { ...state, lastPosition: action.position };
           
         case 'MOUSE_UP':
           return { ...state, isMouseDown: false, mouseButton: null };
