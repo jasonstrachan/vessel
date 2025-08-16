@@ -427,9 +427,7 @@ export const rectangleGradientBrushPreset: BrushPreset = {
   createdAt: new Date(),
   modifiedAt: new Date(),
   preferredSettings: {
-    ditherEnabled: true,
-    ditherIntensity: 0.25,
-    colors: 2
+    ditherEnabled: true
   }
 };
 
@@ -475,9 +473,7 @@ export const polygonGradientBrushPreset: BrushPreset = {
   createdAt: new Date(),
   modifiedAt: new Date(),
   preferredSettings: {
-    ditherEnabled: true,
-    ditherIntensity: 0.25,
-    colors: 2
+    ditherEnabled: true
   }
 };
 

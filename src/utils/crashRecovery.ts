@@ -62,9 +62,7 @@ export class CrashRecoveryService {
           canvasWidth: recoveryData.project.width,
           canvasHeight: recoveryData.project.height,
           // Restore view state if available
-          zoom: recoveryData.project.viewState?.zoom || store.canvas.zoom,
-          panX: recoveryData.project.viewState?.panX || store.canvas.panX,
-          panY: recoveryData.project.viewState?.panY || store.canvas.panY
+          zoom: recoveryData.project.viewState?.zoom || store.canvas.zoom
         }
       });
 

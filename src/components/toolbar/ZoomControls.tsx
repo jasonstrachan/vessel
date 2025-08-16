@@ -6,7 +6,7 @@ import { calculateZoomIncrement } from '../../utils/zoomUtils';
 import Input from '../ui/Input';
 
 export default function ZoomControls() {
-  const { canvas, setZoom, setPan } = useAppStore();
+  const { canvas, setZoom } = useAppStore();
   const { zoom } = canvas;
 
   // Zoom at center of canvas since we don't have reliable cursor position from buttons
@@ -33,15 +33,11 @@ export default function ZoomControls() {
     
     
     // Calculate world coordinates of center point
-    const worldX = (canvasCenterX - canvas.panX) / canvas.zoom;
-    const worldY = (canvasCenterY - canvas.panY) / canvas.zoom;
+    const worldX = canvasCenterX / canvas.zoom;
+    const worldY = canvasCenterY / canvas.zoom;
     
-    // Calculate new pan to keep center point at center
-    const newPanX = canvasCenterX - worldX * newZoom;
-    const newPanY = canvasCenterY - worldY * newZoom;
-    
+    // Just set the zoom - panning is handled elsewhere
     setZoom(newZoom);
-    setPan(newPanX, newPanY);
   };
 
   const handleZoomIn = () => {

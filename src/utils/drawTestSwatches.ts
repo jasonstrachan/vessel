@@ -1,9 +1,16 @@
 // Test function to draw dither palette swatches on canvas
 // Run in console: window.drawTestSwatches()
 
+interface TinybrushStore {
+  getState: () => {
+    currentOffscreenCanvas?: HTMLCanvasElement;
+    captureCanvasToActiveLayer: (canvas: HTMLCanvasElement) => Promise<void>;
+  };
+}
+
 export const drawTestSwatches = async () => {
   // Get the store to access canvas through proper methods
-  const store = (window as Window & { __tinybrushStore?: unknown }).__tinybrushStore;
+  const store = (window as Window & { __tinybrushStore?: TinybrushStore }).__tinybrushStore;
   if (!store) {
     console.error('Store not found - click the button again in a moment');
     return;

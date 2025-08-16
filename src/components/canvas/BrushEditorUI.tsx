@@ -26,8 +26,8 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   const bounds = brushEditor.editingBounds;
   
   // Calculate the transformed position using the same logic as canvas drawing
-  const transformedX = bounds.x * canvas.zoom + canvas.panX;
-  const transformedY = bounds.y * canvas.zoom + canvas.panY;
+  const transformedX = bounds.x * canvas.zoom;
+  const transformedY = bounds.y * canvas.zoom;
   const transformedWidth = bounds.width * canvas.zoom;
   const transformedHeight = bounds.height * canvas.zoom;
 

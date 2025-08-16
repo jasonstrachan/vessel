@@ -1951,7 +1951,7 @@ export const useAppStore = create<AppState>()(
             timestamp: Date.now(),
             imageData,
             layers: layersCopy,  // Deep copy of all layers with cloned ImageData
-            activeLayerId: state.activeLayerId,  // Current active layer
+            activeLayerId: state.activeLayerId || state.layers[0]?.id || '',  // Current active layer or fallback
             actionType,
             description
           };

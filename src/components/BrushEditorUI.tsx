@@ -419,8 +419,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
         // Use the stored brush data directly (it's already ImageData)
         const imageData = existingBrush.imageData;
         
-        // Store both last saved and base pixels
-        setLastSavedBrush(imageData);
+        // Store base pixels
         setBasePixels(imageData);
         
         // Draw the brush on canvas
@@ -428,13 +427,11 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
       } else {
         // Start with empty canvas for new brush
         const emptyData = ctx.getImageData(0, 0, bounds.width, bounds.height);
-        setLastSavedBrush(emptyData);
         setBasePixels(emptyData);
       }
     } else {
       // Start with empty canvas for new brush
       const emptyData = ctx.getImageData(0, 0, bounds.width, bounds.height);
-      setLastSavedBrush(emptyData);
       setBasePixels(emptyData);
     }
   }, [brushEditor.status, brushEditor.editingBounds, brushEditor.editingBrushId, customBrushes, drawCheckerboard]);

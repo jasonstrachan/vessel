@@ -1,7 +1,7 @@
 // Project input/output utilities for TinyBrush
 // Handles serialization, deserialization, and file operations
 
-import type { Project, Layer, CustomBrush } from '../types';
+import type { Project, Layer, CustomBrush, BrushSettings } from '../types';
 
 // TinyBrush project file format version
 const PROJECT_VERSION = '1.0.0';
@@ -317,7 +317,7 @@ export async function deserializeProject(projectData: string): Promise<Project> 
     customBrushes,
     createdAt: new Date(tinyBrushProject.metadata.created),
     updatedAt: new Date(tinyBrushProject.metadata.modified),
-    brushSpecificSettings: serializedProject.brushSpecificSettings,
+    brushSpecificSettings: serializedProject.brushSpecificSettings as Record<string, Partial<BrushSettings>> | undefined,
     globalBrushSize: serializedProject.globalBrushSize
   };
 }

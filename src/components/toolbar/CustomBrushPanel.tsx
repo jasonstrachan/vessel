@@ -103,7 +103,8 @@ export const CustomBrushPanel = () => {
         imageData: tempBrush.imageData,
         brushId: tempBrush.id,
         width: tempBrush.width,
-        height: tempBrush.height
+        height: tempBrush.height,
+        isColorizable: false
       }
     };
     setBrushSettings(brushSettings);

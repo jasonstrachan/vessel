@@ -1,9 +1,11 @@
-import type { CanvasSnapshot } from '../types';
+import type { CanvasSnapshot, Layer } from '../types';
 
 export function captureCanvasSnapshot(
   canvas: HTMLCanvasElement, 
   actionType: CanvasSnapshot['actionType'], 
-  description: string
+  description: string,
+  layers: Layer[],
+  activeLayerId: string
 ): CanvasSnapshot {
   const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
   if (!ctx) {
@@ -16,6 +18,8 @@ export function captureCanvasSnapshot(
     id: `snapshot_${Date.now()}_${Math.random()}`,
     timestamp: Date.now(),
     imageData,
+    layers,
+    activeLayerId,
     actionType,
     description
   };

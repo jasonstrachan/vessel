@@ -279,16 +279,14 @@ const DrawingCanvas = () => {
   }, [pan.panState.offsetX, pan.panState.offsetY, canvas?.zoom]);
   
   const toolStateMachine = useToolStateMachine({
-    screenToWorld: pan.screenToWorld,
-    sampleColorAtPosition,
-    sampleColorsAlongLine,
+    sampleColorAtPosition
   });
   const drawingHandlers = useDrawingHandlers({
     project,
     screenToWorld: pan.screenToWorld,
     viewTransformRef,
     draw,
-    canvasRef,
+    canvasRef: canvasRef as React.RefObject<HTMLCanvasElement>,
   });
   
   // Handle blur to reset space key state when losing focus
@@ -432,7 +430,7 @@ const DrawingCanvas = () => {
         }
       }
     },
-    onCompletePolygon: () => {
+    onPolygonComplete: () => {
       if (toolStateMachine.completePolygonGradient()) {
         // Draw polygon
         drawingHandlers.initDrawingCanvas();
@@ -453,7 +451,7 @@ const DrawingCanvas = () => {
         toolStateMachine.resetPolygonGradient();
       }
     },
-    onCancelPolygon: () => {
+    onPolygonCancel: () => {
       toolStateMachine.resetPolygonGradient();
       interaction.dispatch({ type: 'DRAWING_END' });
     },
@@ -553,9 +551,9 @@ const DrawingCanvas = () => {
         if (fillColor.startsWith('#')) {
           // Handle hex color
           const hex = fillColor.slice(1);
-          r = parseInt(hex.substr(0, 2), 16);
-          g = parseInt(hex.substr(2, 2), 16);
-          b = parseInt(hex.substr(4, 2), 16);
+          r = parseInt(hex.substring(0, 2), 16);
+          g = parseInt(hex.substring(2, 4), 16);
+          b = parseInt(hex.substring(4, 6), 16);
         } else if (fillColor.startsWith('rgb')) {
           // Handle rgb/rgba color
           const matches = fillColor.match(/\d+/g);
@@ -577,7 +575,9 @@ const DrawingCanvas = () => {
         );
         
         // Update the layer with the filled image data
-        updateLayer(activeLayerId, { imageData: filledImageData });
+        if (activeLayerId) {
+          updateLayer(activeLayerId, { imageData: filledImageData });
+        }
         
         // Save state for undo
         const tempCanvas = document.createElement('canvas');
@@ -647,8 +647,7 @@ const DrawingCanvas = () => {
                   startColor: sampledColors[0] || tools.brushSettings.color,
                   endColor: sampledColors[sampledColors.length - 1] || tools.brushSettings.color,
                   colors: sampledColors,
-                  ditherEnabled: tools.brushSettings.ditherEnabled,
-                  ditherIntensity: tools.brushSettings.ditherIntensity
+                  ditherEnabled: tools.brushSettings.ditherEnabled
                 },
                 false
               );

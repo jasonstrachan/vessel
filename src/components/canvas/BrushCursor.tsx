@@ -49,11 +49,10 @@ const useCursorDataURL = (
 
     switch (brushShape) {
       case BrushShape.ROUND:
-      case BrushShape.PIXEL_ROUND:
         ctx.arc(center, center, radius, 0, Math.PI * 2);
         break;
       case BrushShape.SQUARE:
-      case BrushShape.PIXEL:
+      case BrushShape.PIXEL_ROUND:
         ctx.rect(center - radius, center - radius, screenSize - ctx.lineWidth, screenSize - ctx.lineWidth);
         break;
       case BrushShape.TRIANGLE:
