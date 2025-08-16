@@ -30,7 +30,7 @@ export default function Home() {
   // Create default project on initial load if no layers exist
   useEffect(() => {
     if (project && project.layers.length === 0) {
-      console.log('🎨 Creating default project with layer on load');
+      // console.log('🎨 Creating default project with layer on load');
       newProject(1920, 1080, 'Untitled');
     }
   }, []); // Run once on mount only

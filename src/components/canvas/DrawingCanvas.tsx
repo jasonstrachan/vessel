@@ -305,15 +305,15 @@ const DrawingCanvas = () => {
   // Comprehensive keyboard handling
   useComprehensiveKeyboard({
     onSpacePressed: () => {
-      console.log('[SPACE] Pressed - Current state:', {
-        isPanning: pan.panState.isPanning,
-        isDrawing: interaction.stateRef.current.isDrawing,
-        isSpacePressed: isSpacePressed.current
-      });
+      // console.log('[SPACE] Pressed - Current state:', {
+      //   isPanning: pan.panState.isPanning,
+      //   isDrawing: interaction.stateRef.current.isDrawing,
+      //   isSpacePressed: isSpacePressed.current
+      // });
       
       // If we're drawing, end it immediately to switch to pan mode
       if (interaction.stateRef.current.isDrawing) {
-        console.log('[SPACE] Ending drawing to switch to pan mode');
+        // console.log('[SPACE] Ending drawing to switch to pan mode');
         interaction.dispatch({ type: 'DRAWING_END' });
         // Don't wait for async finalize, just clear the drawing canvas
         drawingHandlers.clearDrawingCanvas();
@@ -321,26 +321,26 @@ const DrawingCanvas = () => {
       
       isSpacePressed.current = true;
       setCursorStyle('grab');
-      console.log('[SPACE] Activated pan mode');
+      // console.log('[SPACE] Activated pan mode');
     },
     onSpaceReleased: () => {
-      console.log('[SPACE] Released - Current state:', {
-        isPanning: pan.panState.isPanning,
-        isSpacePressed: isSpacePressed.current
-      });
+      // console.log('[SPACE] Released - Current state:', {
+      //   isPanning: pan.panState.isPanning,
+      //   isSpacePressed: isSpacePressed.current
+      // });
       
       isSpacePressed.current = false;
 
       // End panning if it's still active
       if (pan.panState.isPanning) {
-        console.log('[SPACE] Ending active pan');
+        // console.log('[SPACE] Ending active pan');
         pan.endPan();
       }
       
       // Restore cursor
       setCursorStyle(defaultCursorStyle);
       setShowBrushCursor(true);
-      console.log('[SPACE] Pan mode deactivated');
+      // console.log('[SPACE] Pan mode deactivated');
     },
     onCustomTool: () => {
       setCurrentTool('custom');
@@ -503,7 +503,7 @@ const DrawingCanvas = () => {
     if (project) {
       if (worldPos.x < 0 || worldPos.x > project.width || 
           worldPos.y < 0 || worldPos.y > project.height) {
-        console.log('Mouse down ignored: click was outside project bounds.', worldPos);
+        // console.log('Mouse down ignored: click was outside project bounds.', worldPos);
         return; // Don't start any action if click is out of bounds
       }
     }
@@ -511,7 +511,7 @@ const DrawingCanvas = () => {
     
     // Handle panning with space key or middle/right mouse button
     if (isSpacePressed.current || event.button === 1 || event.button === 2) {
-      console.log('[MOUSE DOWN] Starting pan - button:', event.button, 'space:', isSpacePressed.current);
+      // console.log('[MOUSE DOWN] Starting pan - button:', event.button, 'space:', isSpacePressed.current);
       setShowBrushCursor(false); // Hide brush cursor when panning
       setCursorStyle('grabbing');
       pan.startPan(mousePos.x, mousePos.y);
@@ -1098,7 +1098,7 @@ const DrawingCanvas = () => {
     
     // Handle panning
     if (pan.panState.isPanning) {
-      console.log('[MOUSE UP] Ending pan - space still pressed:', isSpacePressed.current);
+      // console.log('[MOUSE UP] Ending pan - space still pressed:', isSpacePressed.current);
       // If space is still held, stay in grab mode, otherwise restore tool cursor
       if (isSpacePressed.current) {
         setCursorStyle('grab');
@@ -1337,34 +1337,34 @@ const DrawingCanvas = () => {
   // Consolidated safety net for resetting interaction state
   useEffect(() => {
     const handleInteractionReset = () => {
-      console.log('[SAFETY] Interaction reset triggered - Current state:', {
-        isSpacePressed: isSpacePressed.current,
-        isPanning: pan.panState.isPanning
-      });
+      // console.log('[SAFETY] Interaction reset triggered - Current state:', {
+      //   isSpacePressed: isSpacePressed.current,
+      //   isPanning: pan.panState.isPanning
+      // });
       
       // Check if the space key state is stuck
       if (isSpacePressed.current) {
-        console.warn('[SAFETY] Space key was stuck! Resetting...');
+        // console.warn('[SAFETY] Space key was stuck! Resetting...');
         
         isSpacePressed.current = false;
         
         // If a pan action was in progress, terminate it
         if (pan.panState.isPanning) {
-          console.log('[SAFETY] Forcing pan.endPan()');
+          // console.log('[SAFETY] Forcing pan.endPan()');
           pan.endPan();
         }
         
         // Always restore the default cursor and show the brush
         setCursorStyle(defaultCursorStyle);
         setShowBrushCursor(true);
-        console.log('[SAFETY] Reset complete');
+        // console.log('[SAFETY] Reset complete');
       } else {
-        console.log('[SAFETY] No reset needed - space not pressed');
+        // console.log('[SAFETY] No reset needed - space not pressed');
       }
     };
 
     const handleVisibilityChange = () => {
-      console.log('[VISIBILITY] Tab visibility changed - hidden:', document.hidden);
+      // console.log('[VISIBILITY] Tab visibility changed - hidden:', document.hidden);
       // Reset state if the tab is hidden
       if (document.hidden) {
         handleInteractionReset();
