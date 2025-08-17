@@ -103,7 +103,6 @@ export interface CanvasState {
   displayMode: 'pixelated' | 'smooth';
   canvasWidth: number;
   canvasHeight: number;
-  needsDimensionUpdate?: boolean;
   selection: {
     active: boolean;
     bounds: Rectangle;
@@ -287,7 +286,7 @@ export interface HistoryState {
   isCapturing: boolean;
 }
 
-export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'new-document' | 'save' | 'load' | 'export-png' | 'custom' | 'options' | 'color-cycle';
+export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'new-document' | 'save' | 'load' | 'export-png' | 'custom' | 'options' | 'color-cycle' | 'rectangle' | 'ellipse' | 'line' | 'polygon';
 
 export type BlendMode = GlobalCompositeOperation;
 

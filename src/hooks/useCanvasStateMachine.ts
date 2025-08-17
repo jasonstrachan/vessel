@@ -12,9 +12,23 @@ export type CanvasMode =
   | 'SHAPE_DEFINING' // Defining shape parameters
   | 'BUSY';          // System is busy, block all interactions
 
+// Shape types
+export type ShapeType = 'freehand' | 'rectangle' | 'polygon' | 'ellipse' | 'line';
+
+export interface Shape {
+  type: ShapeType;
+  points?: Array<{ x: number; y: number }>; // For freehand and polygon
+  start?: { x: number; y: number }; // For rectangle, ellipse, line
+  end?: { x: number; y: number }; // For rectangle, ellipse, line
+  color?: string;
+  size?: number;
+  opacity?: number;
+}
+
 // Complete state shape
 export interface CanvasState {
   mode: CanvasMode;
+  currentTool: string; // Current tool from the app store
   isSpacePressed: boolean;
   isMouseDown: boolean;
   mouseButton: number | null; // 0=left, 1=middle, 2=right
@@ -24,13 +38,14 @@ export interface CanvasState {
   selectionEnd: { x: number; y: number } | null;
   shapeDefineStart: { x: number; y: number } | null;
   isBusy: boolean; // Lock for async operations
-  stroke: Array<{ x: number; y: number }>; // Current stroke being drawn
-  history: Array<Array<{ x: number; y: number }>>; // Completed strokes
+  activeShape: Shape | null; // Current shape being drawn
+  history: Shape[]; // Completed shapes
 }
 
 // Initial state
 const initialState: CanvasState = {
   mode: 'IDLE',
+  currentTool: 'brush',
   isSpacePressed: false,
   isMouseDown: false,
   mouseButton: null,
@@ -40,7 +55,7 @@ const initialState: CanvasState = {
   selectionEnd: null,
   shapeDefineStart: null,
   isBusy: false,
-  stroke: [],
+  activeShape: null,
   history: [],
 };
 
@@ -54,10 +69,13 @@ export type CanvasAction =
   | { type: 'SPACE_UP' }
   | { type: 'START_DRAWING'; position: { x: number; y: number } }
   | { type: 'START_SELECTION'; position: { x: number; y: number } }
-  | { type: 'START_SHAPE'; position: { x: number; y: number } }
+  | { type: 'START_SHAPE'; position: { x: number; y: number }; shapeType: ShapeType }
   | { type: 'START_PASTE_DRAG'; position: { x: number; y: number } }
   | { type: 'END_INTERACTION' }
   | { type: 'SET_BUSY'; busy: boolean }
+  | { type: 'SET_TOOL'; tool: string }
+  | { type: 'FINALIZE_SHAPE' }
+  | { type: 'ADD_POLYGON_POINT'; position: { x: number; y: number } }
   | { type: 'FINALIZE_START' }
   | { type: 'FINALIZE_COMPLETE' }
   | { type: 'RESET' }
@@ -149,12 +167,23 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
           };
           
         case 'START_DRAWING':
+          // Create initial shape based on current tool
+          let initialShape: Shape | null = null;
+          const tool = state.currentTool;
+          
+          if (tool === 'brush' || tool === 'eraser') {
+            initialShape = {
+              type: 'freehand',
+              points: [action.position]
+            };
+          }
+          
           return {
             ...state,
             mode: 'DRAWING',
             drawingStartPosition: action.position,
             lastPosition: action.position,
-            stroke: [action.position], // Initialize stroke with starting point
+            activeShape: initialShape,
           };
           
         case 'START_SELECTION':
@@ -166,11 +195,28 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
           };
           
         case 'START_SHAPE':
+          // Initialize shape based on type
+          let shape: Shape;
+          
+          if (action.shapeType === 'polygon') {
+            shape = {
+              type: 'polygon',
+              points: [action.position]
+            };
+          } else {
+            shape = {
+              type: action.shapeType,
+              start: action.position,
+              end: action.position
+            };
+          }
+          
           return {
             ...state,
             mode: 'SHAPE_DEFINING',
             shapeDefineStart: action.position,
             lastPosition: action.position,
+            activeShape: shape,
           };
           
         case 'START_PASTE_DRAG':
@@ -187,23 +233,38 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
     case 'DRAWING':
       switch (action.type) {
         case 'MOUSE_MOVE':
+          if (!state.activeShape) return state;
+          
+          // Update shape based on type
+          let updatedShape: Shape;
+          
+          if (state.activeShape.type === 'freehand' && state.activeShape.points) {
+            updatedShape = {
+              ...state.activeShape,
+              points: [...state.activeShape.points, action.position]
+            };
+          } else {
+            updatedShape = state.activeShape;
+          }
+          
           return { 
             ...state, 
             lastPosition: action.position,
-            stroke: [...state.stroke, action.position] // Add point to stroke
+            activeShape: updatedShape
           };
           
         case 'MOUSE_UP':
         case 'MOUSE_LEAVE':
         case 'END_INTERACTION':
-          // Save stroke to history and transition to finalizing
+          // Save shape to history and transition to finalizing
+          const shapesToAdd = state.activeShape ? [state.activeShape] : [];
           return {
             ...state,
             mode: 'FINALIZING',
             isMouseDown: false,
             mouseButton: null,
-            history: state.stroke.length > 0 ? [...state.history, state.stroke] : state.history,
-            stroke: [], // Clear current stroke
+            history: [...state.history, ...shapesToAdd],
+            activeShape: null,
           };
           
         case 'FINALIZE_START':
@@ -237,15 +298,88 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
     case 'SHAPE_DEFINING':
       switch (action.type) {
         case 'MOUSE_MOVE':
-          return { ...state, lastPosition: action.position };
+          // 👇 ADD THIS LOG
+          console.log('3. REDUCER: Received MOUSE_MOVE', {
+            currentStateMode: state.mode,
+            actionPosition: action.position,
+          });
+          
+          if (!state.activeShape) return state;
+          
+          // Update shape based on type
+          let updatedShape: Shape;
+          
+          if (state.activeShape.type === 'rectangle' || 
+              state.activeShape.type === 'ellipse' || 
+              state.activeShape.type === 'line') {
+            updatedShape = {
+              ...state.activeShape,
+              end: action.position
+            };
+          } else {
+            updatedShape = state.activeShape;
+          }
+          
+          const newState = { 
+            ...state, 
+            lastPosition: action.position,
+            activeShape: updatedShape
+          };
+          
+          // 👇 ADD THIS LOG
+          console.log('4. REDUCER: Updated state successfully', newState.activeShape);
+          
+          return newState;
+          
+        case 'ADD_POLYGON_POINT':
+          if (!state.activeShape || state.activeShape.type !== 'polygon') return state;
+          
+          return {
+            ...state,
+            activeShape: {
+              ...state.activeShape,
+              points: [...(state.activeShape.points || []), action.position]
+            }
+          };
           
         case 'MOUSE_UP':
+          // For polygon, mouse up doesn't finalize
+          if (state.activeShape?.type === 'polygon') {
+            return {
+              ...state,
+              isMouseDown: false,
+              mouseButton: null,
+            };
+          }
+          // For other shapes, finalize on mouse up
+          return {
+            ...state,
+            mode: 'FINALIZING',
+            isMouseDown: false,
+            mouseButton: null,
+            history: state.activeShape ? [...state.history, state.activeShape] : state.history,
+            activeShape: null,
+          };
+          
+        case 'FINALIZE_SHAPE':
+          // Finalize polygon or other shapes
+          return {
+            ...state,
+            mode: 'IDLE',      // Reset the mode directly to IDLE
+            isMouseDown: false,
+            mouseButton: null,
+            history: state.activeShape ? [...state.history, state.activeShape] : state.history,
+            activeShape: null,  // Clear the temporary shape data
+          };
+          
         case 'END_INTERACTION':
           return {
             ...state,
             mode: 'FINALIZING',
             isMouseDown: false,
             mouseButton: null,
+            history: state.activeShape ? [...state.history, state.activeShape] : state.history,
+            activeShape: null,
           };
           
         default:
@@ -333,7 +467,9 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
           return {
             ...initialState,
             mode: 'IDLE',
+            currentTool: state.currentTool, // Preserve current tool
             isSpacePressed: state.isSpacePressed, // Preserve space state
+            history: state.history, // Preserve history
           };
           
         default:
@@ -348,6 +484,13 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
     default:
       return state;
   }
+  
+  // Handle SET_TOOL action globally
+  if (action.type === 'SET_TOOL') {
+    return { ...state, currentTool: action.tool };
+  }
+  
+  return state;
 }
 
 // Custom hook
@@ -371,8 +514,20 @@ export function useCanvasStateMachine() {
     dispatch({ type: 'START_SELECTION', position });
   }, []);
   
-  const startShape = useCallback((position: { x: number; y: number }) => {
-    dispatch({ type: 'START_SHAPE', position });
+  const startShape = useCallback((position: { x: number; y: number }, shapeType: ShapeType) => {
+    dispatch({ type: 'START_SHAPE', position, shapeType });
+  }, []);
+  
+  const setTool = useCallback((tool: string) => {
+    dispatch({ type: 'SET_TOOL', tool });
+  }, []);
+  
+  const addPolygonPoint = useCallback((position: { x: number; y: number }) => {
+    dispatch({ type: 'ADD_POLYGON_POINT', position });
+  }, []);
+  
+  const finalizeShape = useCallback(() => {
+    dispatch({ type: 'FINALIZE_SHAPE' });
   }, []);
   
   const startPasteDrag = useCallback((position: { x: number; y: number }) => {
@@ -407,12 +562,16 @@ export function useCanvasStateMachine() {
     startPasteDrag,
     finalizeDrawing,
     finalizationComplete,
+    finalizeShape,
+    addPolygonPoint,
+    setTool,
     reset,
     forceIdle,
     // State checks
     canDraw: state.mode === 'IDLE' && !state.isSpacePressed && !state.isBusy,
     isDrawing: state.mode === 'DRAWING',
     isSelecting: state.mode === 'SELECTING',
+    isShapeDefining: state.mode === 'SHAPE_DEFINING',
     isFinalizing: state.mode === 'FINALIZING',
     isDraggingPaste: state.mode === 'DRAGGING_PASTE',
     isAwaitingPan: state.mode === 'AWAITING_PAN',

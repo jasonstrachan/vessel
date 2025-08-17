@@ -207,3 +207,23 @@ const newH = (h + brushEditor.hueShift + 360) % 360;
 - Different cycling modes (hue, saturation, lightness)
 - Preset patterns (rainbow, sunset, ocean, etc.)
 - Could be used for both brush drawing and fill operations
+
+### Time Capsule Brush
+**Concept:** Paint with words from history - select a date and the brush retrieves news headlines/articles from that specific day in time. As you paint, the brush applies sequential words from the retrieved text at the brush tip, literally painting the day's events in words one after another.
+
+**Implementation Details:**
+- Date picker interface to select any historical date
+- Fetches news articles/headlines from that specific date via news archives API
+- Extracts and queues text content sequentially
+- Each brush stroke applies the next word(s) in sequence at the cursor position
+- Words flow naturally following the brush movement direction
+- Font size/style adjustable based on brush size settings
+
+**Potential Features:**
+- Multiple source options (newspapers, magazines, historical documents)
+- Language selection for international news sources
+- Word density control (how many words per brush stroke)
+- Typography effects (fade in/out, size variation based on word importance)
+- Color coding by news category (politics, sports, culture, etc.)
+- Save/replay specific date's text stream
+- Mix multiple dates to create temporal collages

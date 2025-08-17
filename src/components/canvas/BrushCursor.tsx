@@ -1,7 +1,6 @@
 'use client';
 
 import React, { memo, useMemo, useRef, useEffect } from 'react';
-import Image from 'next/image';
 import { BrushShape } from '../../types';
 
 interface BrushCursorProps {
@@ -19,6 +18,9 @@ interface BrushCursorProps {
   visible: boolean;
 }
 
+// Cache for cursor data URLs to prevent recreation
+const cursorCache = new Map<string, string>();
+
 // Helper to generate a cached data URL for the cursor canvas
 const useCursorDataURL = (
   brushShape: BrushShape,
@@ -29,6 +31,11 @@ const useCursorDataURL = (
     
     // Only run in browser environment
     if (typeof document === 'undefined') return null;
+
+    // Check cache first
+    const cacheKey = `${brushShape}-${Math.ceil(screenSize)}`;
+    const cached = cursorCache.get(cacheKey);
+    if (cached) return cached;
 
     const canvas = document.createElement('canvas');
     const size = Math.ceil(screenSize); // No extra padding needed
@@ -53,19 +60,34 @@ const useCursorDataURL = (
         break;
       case BrushShape.SQUARE:
       case BrushShape.PIXEL_ROUND:
+      case BrushShape.RECTANGLE_GRADIENT:
         ctx.rect(center - radius, center - radius, screenSize - ctx.lineWidth, screenSize - ctx.lineWidth);
         break;
       case BrushShape.TRIANGLE:
-        ctx.moveTo(center, center - radius);
-        ctx.lineTo(center + radius, center + radius);
-        ctx.lineTo(center - radius, center + radius);
+      case BrushShape.POLYGON_GRADIENT:
+        // Draw a hexagon for polygon gradient
+        const sides = 6;
+        ctx.moveTo(center + radius, center);
+        for (let i = 1; i <= sides; i++) {
+          const angle = (i * 2 * Math.PI) / sides;
+          ctx.lineTo(center + radius * Math.cos(angle), center + radius * Math.sin(angle));
+        }
         ctx.closePath();
         break;
     }
     
     ctx.stroke();
     
-    return canvas.toDataURL();
+    const dataUrl = canvas.toDataURL();
+    
+    // Cache the result (limit cache size)
+    if (cursorCache.size > 50) {
+      const firstKey = cursorCache.keys().next().value;
+      cursorCache.delete(firstKey);
+    }
+    cursorCache.set(cacheKey, dataUrl);
+    
+    return dataUrl;
   }, [brushShape, screenSize]);
 };
 
@@ -130,16 +152,12 @@ const BrushCursor = memo(function BrushCursor({
         zIndex: 1000,
         mixBlendMode: 'difference',
         imageRendering: 'pixelated',
+        backgroundImage: cursorDataURL ? `url(${cursorDataURL})` : 'none',
+        backgroundSize: 'contain',
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'center',
       }}
-    >
-      <Image 
-        src={cursorDataURL || ''} 
-        alt="Brush Cursor" 
-        width={Math.ceil(screenSize)} 
-        height={Math.ceil(screenSize)} 
-        unoptimized 
-      />
-    </div>
+    />
   );
 });
 

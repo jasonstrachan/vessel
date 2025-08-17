@@ -143,8 +143,17 @@ export function useDrawingHandlers({
         { pressure: 1.0 },
         activeBrushComponents
       );
+      
+      // Trigger immediate redraw to show initial point
+      requestAnimationFrame(() => {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          draw(ctx, viewTransformRef.current);
+        }
+      });
     }
-  }, [initDrawingCanvas, brushEngine, project, activeBrushComponents]);
+  }, [initDrawingCanvas, brushEngine, project, activeBrushComponents, draw, viewTransformRef, canvasRef]);
   
   // Continue drawing with proper line clipping
   const continueDrawing = useCallback((worldPos: { x: number; y: number }) => {
