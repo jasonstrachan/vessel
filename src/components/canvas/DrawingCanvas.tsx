@@ -14,9 +14,12 @@ import BrushCursor from './BrushCursor';
 const DrawingCanvas = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null); 
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null); // Cache context for performance
   // const isSpacePressed = useRef(false); // Now handled by state machine
   const isBusyRef = useRef(false); // Lock to prevent concurrent operations
   const isMouseDownRef = useRef(false); // Track mouse button state
+  const tempPanOffsetRef = useRef({ x: 0, y: 0 }); // Temporary pan offset during panning
+  const drawAnimationFrameRef = useRef<number | null>(null); // RAF throttling for pan
   
   // Get essential store state - removed shallow comparison to avoid infinite loop
   const project = useAppStore((state) => state.project);
@@ -81,7 +84,7 @@ const DrawingCanvas = () => {
   const [needsRedraw, setNeedsRedraw] = useState(0);
   
   // Ref for draw function to use in resize observer
-  const drawRef = useRef<((ctx: CanvasRenderingContext2D, viewTransform: ViewTransform) => void) | null>(null);
+  const drawRef = useRef<((ctx: CanvasRenderingContext2D, viewTransform: { scale: number; offsetX: number; offsetY: number }) => void) | null>(null);
   
   // Get brush engine
   const brushEngine = useBrushEngine();
@@ -304,12 +307,15 @@ const DrawingCanvas = () => {
     offsetY: 0 
   });
   
-  // Update view transform when zoom or pan changes
+  // Update view transform when zoom or pan changes (but not during active panning)
   React.useEffect(() => {
-    viewTransformRef.current.offsetX = pan.panState.offsetX;
-    viewTransformRef.current.offsetY = pan.panState.offsetY;
+    // Skip updates during active panning to avoid conflicts
+    if (stateMachine.state.mode !== 'PANNING') {
+      viewTransformRef.current.offsetX = pan.panState.offsetX;
+      viewTransformRef.current.offsetY = pan.panState.offsetY;
+    }
     viewTransformRef.current.scale = canvas?.zoom || 1;
-  }, [canvas?.zoom, pan.panState.offsetX, pan.panState.offsetY]);
+  }, [canvas?.zoom, pan.panState.offsetX, pan.panState.offsetY, stateMachine.state.mode]);
 
   // Handle state machine transitions for panning (only transitions, not continuous updates)
   React.useEffect(() => {
@@ -323,9 +329,37 @@ const DrawingCanvas = () => {
         // Just entered panning mode - use lastPosition which has screen coordinates
         if (stateMachine.state.lastPosition) {
           pan.startPan(stateMachine.state.lastPosition.x, stateMachine.state.lastPosition.y);
+          // Reset temporary offset at start of pan
+          tempPanOffsetRef.current = { x: 0, y: 0 };
+          // Ensure view transform is synced with current pan state
+          viewTransformRef.current.offsetX = pan.panState.offsetX;
+          viewTransformRef.current.offsetY = pan.panState.offsetY;
         }
       } else if (currentMode !== 'PANNING' && prevMode === 'PANNING') {
-        // Just exited panning mode - keep the pan offset
+        // Just exited panning mode - commit the pan offset to the actual state
+        const finalOffsetX = pan.panStartOffsetRef.current.x + tempPanOffsetRef.current.x;
+        const finalOffsetY = pan.panStartOffsetRef.current.y + tempPanOffsetRef.current.y;
+        pan.setPan(finalOffsetX, finalOffsetY);
+        
+        // Clear any pending animation frame
+        if (drawAnimationFrameRef.current) {
+          cancelAnimationFrame(drawAnimationFrameRef.current);
+          drawAnimationFrameRef.current = null;
+        }
+        
+        tempPanOffsetRef.current = { x: 0, y: 0 };
+        
+        // Update view transform to final position
+        viewTransformRef.current.offsetX = finalOffsetX;
+        viewTransformRef.current.offsetY = finalOffsetY;
+        
+        // Trigger one final redraw with the committed position
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+        if (ctx && drawRef.current) {
+          drawRef.current(ctx, viewTransformRef.current);
+        }
+        
         pan.endPan();
       }
     }
@@ -786,13 +820,30 @@ const DrawingCanvas = () => {
     
     // Handle panning update if in PANNING mode
     if (stateMachine.state.mode === 'PANNING') {
-      pan.updatePan(currentMousePos.x, currentMousePos.y);
-      // Trigger redraw
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-      if (ctx) {
-        draw(ctx, viewTransformRef.current);
+      // Update pan state directly without React state updates
+      const deltaX = currentMousePos.x - pan.panStartRef.current.x;
+      const deltaY = currentMousePos.y - pan.panStartRef.current.y;
+      
+      // Update the view transform ref directly for immediate feedback
+      viewTransformRef.current.offsetX = pan.panStartOffsetRef.current.x + deltaX;
+      viewTransformRef.current.offsetY = pan.panStartOffsetRef.current.y + deltaY;
+      
+      // Store temp offset for later commit
+      tempPanOffsetRef.current = { x: deltaX, y: deltaY };
+      
+      // Use requestAnimationFrame to throttle redraws
+      if (!drawAnimationFrameRef.current) {
+        drawAnimationFrameRef.current = requestAnimationFrame(() => {
+          // Use cached context if available
+          const ctx = ctxRef.current || canvasRef.current?.getContext('2d', { willReadFrequently: true });
+          if (ctx) {
+            if (!ctxRef.current) ctxRef.current = ctx;
+            draw(ctx, viewTransformRef.current);
+          }
+          drawAnimationFrameRef.current = null;
+        });
       }
+      
       return; // Don't process other mouse move logic while panning
     }
     
@@ -1534,21 +1585,18 @@ const DrawingCanvas = () => {
   
   // Redraw whenever the view transform state or composite canvas changes
   useEffect(() => {
+    // Skip automatic redraws during active panning (handled by mousemove)
+    if (stateMachine.state.mode === 'PANNING') return;
+    
     const canvasElement = canvasRef.current;
     const ctx = canvasElement?.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
     
-    // Build the transform from the latest state that triggered this render
-    const transform = {
-      scale: canvas?.zoom || 1,  // canvas here is from store, not DOM element
-      offsetX: pan.panState.offsetX,
-      offsetY: pan.panState.offsetY
-    };
-    
-    draw(ctx, transform);
+    // Use the viewTransformRef which is the single source of truth
+    draw(ctx, viewTransformRef.current);
 
   // This now correctly depends on the sources of truth for a redraw
-  }, [canvas?.zoom, pan.panState.offsetX, pan.panState.offsetY, draw, needsRedraw]);
+  }, [canvas?.zoom, pan.panState.offsetX, pan.panState.offsetY, draw, needsRedraw, stateMachine.state.mode]);
   
   // Handle paste event
   useEffect(() => {

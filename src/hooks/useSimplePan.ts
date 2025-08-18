@@ -78,6 +78,8 @@ export function useSimplePan(options: SimplePanOptions = {}) {
   
   return {
     panState,
+    panStartRef,  // Expose the ref for CSS transform calculations
+    panStartOffsetRef,  // Expose for direct offset access during panning
     startPan,
     updatePan,
     setPan,
