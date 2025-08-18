@@ -171,14 +171,21 @@ const DrawingCanvas = () => {
       const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND;
       ctx.imageSmoothingEnabled = !isPixelBrush && scale < 3;
       
-      // Draw composite canvas
-      if (compositeCanvasRef.current) {
+      
+      // Check if we're actively erasing
+      const isActivelyErasing = tools.currentTool === 'eraser' && isDrawing && drawingCanvasRef && drawingCanvasHasContent;
+      
+      // Draw composite canvas ONLY if we're not actively erasing
+      if (compositeCanvasRef.current && !isActivelyErasing) {
         ctx.drawImage(compositeCanvasRef.current, 0, 0);
       }
       
       // Draw temporary drawing canvas
       if (!skipDrawingCanvas && drawingCanvasRef && 
           (isDrawing || drawingCanvasHasContent)) {
+        
+        // For eraser, the drawing canvas contains the entire modified layer
+        // For brush, it's just the new strokes to overlay
         ctx.drawImage(drawingCanvasRef, 0, 0);
       }
       
@@ -544,6 +551,7 @@ const DrawingCanvas = () => {
   
   // Mouse event handlers
   const handleMouseDown = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
+    
     // Track that mouse is down
     isMouseDownRef.current = true;
     
@@ -592,6 +600,7 @@ const DrawingCanvas = () => {
         !tools.shapeMode &&
         tools.brushSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT &&
         tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT) {
+      
       // Use the existing drawing system with brush engine
       interaction.dispatch({ type: 'DRAWING_START' });
       drawingHandlers.startDrawing(worldPos);
@@ -792,12 +801,15 @@ const DrawingCanvas = () => {
     // Update mouse position for cursor
     setMousePosition({ x: event.clientX, y: event.clientY });
     
-    // Show brush cursor unless we're in custom brush selection or dragging floating paste
-    if (!stateMachine.isAwaitingPan && !stateMachine.isPanning && tools.currentTool !== 'custom' && !isDraggingFloatingPaste) {
-      setShowBrushCursor(true);
-    } else if (tools.currentTool === 'custom' || isDraggingFloatingPaste) {
-      setShowBrushCursor(false);
-    }
+    // Show brush cursor logic:
+    // Hide cursor when: panning, custom tool, dragging paste, or actively erasing
+    const shouldHideCursor = stateMachine.isAwaitingPan || 
+                            stateMachine.isPanning || 
+                            tools.currentTool === 'custom' || 
+                            isDraggingFloatingPaste ||
+                            (tools.currentTool === 'eraser' && interaction.state.isDrawing);
+    
+    setShowBrushCursor(!shouldHideCursor);
     
     // Handle dragging floating paste
     if (isDraggingFloatingPaste && floatingPasteDragStart.current && floatingPasteOriginalPos.current) {
@@ -1092,6 +1104,7 @@ const DrawingCanvas = () => {
         return;
       }
       
+      
       // Normal brush or shape mode
       if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
         drawingHandlers.continueShapeDrawing(worldPos);
@@ -1099,13 +1112,19 @@ const DrawingCanvas = () => {
         drawingHandlers.continueDrawing(worldPos);
         
         // Manually trigger the redraw after updating the temporary canvas
-        requestAnimationFrame(() => {
-          const canvas = canvasRef.current;
-          const ctx = canvas?.getContext('2d');
+        // Use cached context for better performance
+        const canvas = canvasRef.current;
+        if (canvas) {
+          // Use the same context options as the main canvas for consistency
+          const ctx = canvas.getContext('2d', { 
+            willReadFrequently: true,
+            alpha: true,
+            desynchronized: true 
+          });
           if (ctx) {
             draw(ctx, viewTransformRef.current);
           }
-        });
+        }
       }
       
       // Draw shape preview if in shape mode
@@ -1306,19 +1325,21 @@ const DrawingCanvas = () => {
   const handleMouseLeave = useCallback(() => {
     setShowBrushCursor(false);
     
-    
-    // If the user is drawing, finalize the stroke when they leave the canvas
-    if (interaction.state.isDrawing) {
-      interaction.dispatch({ type: 'DRAWING_END' });
-      
-      // Check if we're in shape mode or regular drawing mode
-      if (drawingHandlers.isDrawingShapeRef && drawingHandlers.isDrawingShapeRef.current) {
-        drawingHandlers.finalizeShapeDrawing();
-      } else {
-        drawingHandlers.finalizeDrawing();
+    // ADD THIS CHECK: Only finalize if the mouse button is NOT pressed.
+    if (!isMouseDownRef.current) {
+      // If the user is drawing, finalize the stroke when they leave the canvas
+      if (interaction.state.isDrawing) {
+        interaction.dispatch({ type: 'DRAWING_END' });
+        
+        // Check if we're in shape mode or regular drawing mode
+        if (drawingHandlers.isDrawingShapeRef && drawingHandlers.isDrawingShapeRef.current) {
+          drawingHandlers.finalizeShapeDrawing();
+        } else {
+          drawingHandlers.finalizeDrawing();
+        }
       }
     }
-  }, [interaction, drawingHandlers]);
+  }, [interaction, drawingHandlers]); // isMouseDownRef is a ref, so it's not needed in deps
   
   // Effects
   
@@ -1658,6 +1679,7 @@ const DrawingCanvas = () => {
     
     return () => resizeObserver.disconnect();
   }, []); // Empty dependency array - run only once
+  
   
   return (
     <div

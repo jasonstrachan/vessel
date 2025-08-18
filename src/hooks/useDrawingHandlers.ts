@@ -106,7 +106,7 @@ export function useDrawingHandlers({
     p2: { x: number; y: number }
   ) => {
     const { tools } = useAppStore.getState();
-    const brushSize = tools.eraserSettings.size || 20;
+    const brushSize = tools.brushSettings.size || 20;  // Use brushSettings.size for consistency
     const opacity = tools.eraserSettings.opacity || 1;
 
     ctx.lineWidth = brushSize * 2; // Diameter to match circle-based approach
