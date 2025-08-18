@@ -140,7 +140,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     const y = (e.clientY - canvasRect.top) * (canvasRef.current.height / canvasRect.height);
     
     // Handle spacebar panning
-    if (spacePressed || currentTool === 'pan') {
+    if (spacePressed) {
       setIsPanning(true);
       setLastPanPoint({ x: e.clientX, y: e.clientY });
       return;
@@ -672,7 +672,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
               ref={canvasRef}
               style={{
                 ...canvasStyle,
-                cursor: isPanning ? 'grabbing' : currentTool === 'pan' ? 'grab' : 'crosshair'
+                cursor: isPanning ? 'grabbing' : spacePressed ? 'grab' : 'crosshair'
               }}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}

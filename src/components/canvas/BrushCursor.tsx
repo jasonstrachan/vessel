@@ -83,7 +83,9 @@ const useCursorDataURL = (
     // Cache the result (limit cache size)
     if (cursorCache.size > 50) {
       const firstKey = cursorCache.keys().next().value;
-      cursorCache.delete(firstKey);
+      if (firstKey !== undefined) {
+        cursorCache.delete(firstKey);
+      }
     }
     cursorCache.set(cacheKey, dataUrl);
     

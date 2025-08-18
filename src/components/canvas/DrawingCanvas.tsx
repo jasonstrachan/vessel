@@ -772,7 +772,7 @@ const DrawingCanvas = () => {
     setMousePosition({ x: event.clientX, y: event.clientY });
     
     // Show brush cursor unless we're in custom brush selection or dragging floating paste
-    if (stateMachine.state.mode !== 'AWAITING_PAN' && stateMachine.state.mode !== 'PANNING' && tools.currentTool !== 'custom' && !isDraggingFloatingPaste) {
+    if (!stateMachine.isAwaitingPan && !stateMachine.isPanning && tools.currentTool !== 'custom' && !isDraggingFloatingPaste) {
       setShowBrushCursor(true);
     } else if (tools.currentTool === 'custom' || isDraggingFloatingPaste) {
       setShowBrushCursor(false);
@@ -1168,8 +1168,6 @@ const DrawingCanvas = () => {
     isMouseDownRef.current = false;
     
     const mousePos = getMousePos(event);
-    const scale = canvas?.zoom || 1;
-    const worldPos = pan.screenToWorld(mousePos.x, mousePos.y, scale);
     
     // Dispatch to state machine
     stateMachine.dispatch({ 

@@ -461,17 +461,13 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
           return state;
       }
       
-    case 'BUSY':
-      // Already handled above
-      return state;
-      
     default:
       return state;
   }
   
   // Handle SET_TOOL action globally
   if (action.type === 'SET_TOOL') {
-    return { ...state, currentTool: action.tool };
+    return { ...state, currentTool: (action as { type: 'SET_TOOL'; tool: string }).tool };
   }
   
   return state;
