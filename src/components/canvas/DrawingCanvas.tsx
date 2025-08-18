@@ -80,6 +80,9 @@ const DrawingCanvas = () => {
   const compositeCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [needsRedraw, setNeedsRedraw] = useState(0);
   
+  // Ref for draw function to use in resize observer
+  const drawRef = useRef<((ctx: CanvasRenderingContext2D, viewTransform: ViewTransform) => void) | null>(null);
+  
   // Get brush engine
   const brushEngine = useBrushEngine();
   
@@ -139,8 +142,8 @@ const DrawingCanvas = () => {
     return colors;
   }, [sampleColorAtPosition]);
   
-  // Drawing function
-  const draw = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false) => {
+  // Drawing function - base implementation without hooks
+  const drawBase = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false, drawingCanvasRef?: HTMLCanvasElement | null, isDrawing?: boolean, drawingCanvasHasContent?: boolean, isSelecting?: boolean, selectionStartRef?: { x: number; y: number } | null) => {
     const { scale, offsetX, offsetY } = transform;
     
     // Clear canvas
@@ -174,9 +177,9 @@ const DrawingCanvas = () => {
       }
       
       // Draw temporary drawing canvas
-      if (!skipDrawingCanvas && drawingHandlers.drawingCanvasRef.current && 
-          (interaction.state.isDrawing || drawingHandlers.drawingCanvasHasContent.current)) {
-        ctx.drawImage(drawingHandlers.drawingCanvasRef.current, 0, 0);
+      if (!skipDrawingCanvas && drawingCanvasRef && 
+          (isDrawing || drawingCanvasHasContent)) {
+        ctx.drawImage(drawingCanvasRef, 0, 0);
       }
       
       ctx.restore();
@@ -232,12 +235,12 @@ const DrawingCanvas = () => {
       }
       
       // Draw selection
-      if ((selectionStart && selectionEnd) || (interaction.state.isSelecting && interaction.refs.selectionStart.current)) {
+      if ((selectionStart && selectionEnd) || (isSelecting && selectionStartRef)) {
         ctx.save();
         ctx.translate(offsetX, offsetY);
         ctx.scale(scale, scale);
         
-        const start = selectionStart || interaction.refs.selectionStart.current;
+        const start = selectionStart || selectionStartRef;
         const end = selectionEnd || { x: 0, y: 0 };
         
         if (start) {
@@ -332,10 +335,28 @@ const DrawingCanvas = () => {
     project,
     screenToWorld: pan.screenToWorld,
     viewTransformRef,
-    draw,
     canvasRef: canvasRef as React.RefObject<HTMLCanvasElement>,
     isBusyRef, // Pass the lock ref
   });
+  
+  // Wrapper draw function that uses current hook values
+  const draw = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false) => {
+    drawBase(
+      ctx, 
+      transform, 
+      skipDrawingCanvas,
+      drawingHandlers.drawingCanvasRef.current,
+      interaction.state.isDrawing,
+      drawingHandlers.drawingCanvasHasContent.current,
+      interaction.state.isSelecting,
+      interaction.refs.selectionStart.current
+    );
+  }, [drawBase, drawingHandlers, interaction]);
+  
+  // Update drawRef when draw changes
+  useEffect(() => {
+    drawRef.current = draw;
+  }, [draw]);
   
   // Handle blur to reset space key state when losing focus
   const handleBlur = useCallback((e: React.FocusEvent) => {
@@ -1076,6 +1097,15 @@ const DrawingCanvas = () => {
         drawingHandlers.continueShapeDrawing(worldPos);
       } else {
         drawingHandlers.continueDrawing(worldPos);
+        
+        // Manually trigger the redraw after updating the temporary canvas
+        requestAnimationFrame(() => {
+          const canvas = canvasRef.current;
+          const ctx = canvas?.getContext('2d');
+          if (ctx) {
+            draw(ctx, viewTransformRef.current);
+          }
+        });
       }
       
       // Draw shape preview if in shape mode
@@ -1585,35 +1615,49 @@ const DrawingCanvas = () => {
     };
   }, [project, layers, activeLayerId, saveCanvasState, draw]);
 
-  // Handle canvas resizing
+  // Handle canvas resizing - run only once on mount
   useEffect(() => {
     const canvas = canvasRef.current;
     const wrapper = wrapperRef.current;
     if (!canvas || !wrapper) return;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return;
     
-    const resizeObserver = new ResizeObserver(entries => {
-      window.requestAnimationFrame(() => {
-        const entry = entries[0];
-        if (!entry) return;
-        const { width, height } = entry.contentRect;
+    let lastWidth = 0;
+    let lastHeight = 0;
+    
+    const handleResize = () => {
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return;
+      
+      const { width, height } = wrapper.getBoundingClientRect();
+      
+      // Only update if dimensions actually changed
+      if (width !== lastWidth || height !== lastHeight) {
+        lastWidth = width;
+        lastHeight = height;
         canvas.width = width;
         canvas.height = height;
         setCanvasDimensions(width, height);
-        draw(ctx, viewTransformRef.current);
-      });
+        
+        // Get the latest draw function and viewTransform
+        const drawFunc = drawRef.current;
+        const viewTransform = viewTransformRef.current;
+        if (drawFunc) {
+          drawFunc(ctx, viewTransform);
+        }
+      }
+    };
+    
+    const resizeObserver = new ResizeObserver(() => {
+      window.requestAnimationFrame(handleResize);
     });
+    
     resizeObserver.observe(wrapper);
     
-    const { width, height } = wrapper.getBoundingClientRect();
-    canvas.width = width;
-    canvas.height = height;
-    setCanvasDimensions(width, height);
-    draw(ctx, viewTransformRef.current);
+    // Initial sizing
+    handleResize();
     
     return () => resizeObserver.disconnect();
-  }, [draw, setCanvasDimensions, viewTransformRef]);
+  }, []); // Empty dependency array - run only once
   
   return (
     <div

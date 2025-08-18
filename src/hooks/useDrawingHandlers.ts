@@ -6,7 +6,6 @@ interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
   screenToWorld: (x: number, y: number) => { x: number; y: number };
   viewTransformRef: React.MutableRefObject<{ scale: number; offsetX: number; offsetY: number }>;
-  draw: (ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }) => void;
   canvasRef: React.RefObject<HTMLCanvasElement>;
   isBusyRef?: React.MutableRefObject<boolean>;
 }
@@ -57,7 +56,6 @@ function clipLineSegment(
 export function useDrawingHandlers({
   project,
   viewTransformRef,
-  draw,
   canvasRef,
   isBusyRef,
 }: UseDrawingHandlersProps) {
@@ -164,15 +162,8 @@ export function useDrawingHandlers({
       }
     }
     
-    // Request a redraw to show the initial point
-    requestAnimationFrame(() => {
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext('2d', { alpha: true, desynchronized: true });
-      if (ctx) {
-        draw(ctx, viewTransformRef.current);
-      }
-    });
-  }, [initDrawingCanvas, brushEngine, project, activeBrushComponents, draw, viewTransformRef, canvasRef, drawEraserSegment]);
+    // Initial point drawn - parent component will handle redraw
+  }, [initDrawingCanvas, brushEngine, project, activeBrushComponents, canvasRef, drawEraserSegment]);
   
   const continueDrawing = useCallback((worldPos: { x: number; y: number }) => {
     const currentTool = useAppStore.getState().tools.currentTool;
@@ -209,21 +200,11 @@ export function useDrawingHandlers({
         }
       }
 
-      // Throttle rendering to the screen to once per frame
-      if (drawAnimationFrameRef.current === null) {
-        drawAnimationFrameRef.current = requestAnimationFrame(() => {
-          const canvas = canvasRef.current;
-          const ctx = canvas?.getContext('2d', { alpha: true, desynchronized: true });
-          if (ctx) {
-            draw(ctx, viewTransformRef.current);
-          }
-          drawAnimationFrameRef.current = null;
-        });
-      }
+      // Parent component will handle redraw
     }
     
     lastDrawPosRef.current = worldPos;
-  }, [brushEngine, project, activeBrushComponents, draw, viewTransformRef, canvasRef, drawEraserSegment]);
+  }, [brushEngine, project, activeBrushComponents, canvasRef, drawEraserSegment]);
   
   const finalizeDrawing = useCallback(async () => {
     if (isBusyRef?.current || !drawingCanvasRef.current || !drawingCanvasHasContent.current || !project) return;
@@ -271,20 +252,13 @@ export function useDrawingHandlers({
       drawingCtxRef.current?.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
       drawingCanvasHasContent.current = false;
       
-      // Final redraw of the updated state
-      requestAnimationFrame(() => {
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext('2d', { alpha: true, desynchronized: true });
-        if (ctx) {
-          draw(ctx, viewTransformRef.current);
-        }
-      });
+      // Parent component will handle final redraw
     } catch (error) {
       console.error("Error during finalization:", error);
     } finally {
       if (isBusyRef) isBusyRef.current = false;
     }
-  }, [project, captureCanvasToActiveLayer, saveCanvasState, draw, viewTransformRef, canvasRef, isBusyRef]);
+  }, [project, captureCanvasToActiveLayer, saveCanvasState, canvasRef, isBusyRef]);
   
   const clearDrawingCanvas = useCallback(() => {
     if (drawingCtxRef.current && drawingCanvasRef.current) {
