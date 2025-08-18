@@ -1908,7 +1908,7 @@ export const useBrushEngine = () => {
       rotation: activeSettings.rotationEnabled && input.direction !== undefined ? input.direction : 0,
       shape: activeSettings.brushShape || BrushShape.ROUND, // Use actual brush shape from settings
       risographIntensity: activeSettings.risographIntensity || 0,
-      blendMode: currentTool === 'eraser' ? 'destination-out' : (activeSettings.blendMode || 'source-over')
+      blendMode: activeSettings.blendMode || 'source-over' // Never use destination-out here
     };    
     
     // Add pattern if using a brush tip from mini canvas
@@ -2621,10 +2621,13 @@ export const useBrushEngine = () => {
     }
     
     // Apply rendering settings
-    // For eraser, we use a special approach: clear the pixels by drawing transparent
+    // CRITICAL FIX: For eraser, draw SOLID pixels that will be used with destination-out later
     if (tools.currentTool === 'eraser') {
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.globalAlpha = 1; // Full strength erasing
+      // Draw solid white pixels at full opacity - these will be used as the "eraser stamp"
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1; // Full opacity for the stamp
+      ctx.fillStyle = '#FFFFFF'; // White color for visibility
+      ctx.strokeStyle = '#FFFFFF';
     } else {
       ctx.globalCompositeOperation = settings.blendMode || 'source-over';
       ctx.globalAlpha = settings.opacity;
@@ -2904,8 +2907,16 @@ export const useBrushEngine = () => {
     // Disable antialiasing for clean edges
     ctx.imageSmoothingEnabled = false;
     // CRITICAL FIX: Eraser must always use full opacity to completely remove pixels
-    ctx.globalAlpha = currentTool === 'eraser' ? 1 : brushSettings.opacity;
-    ctx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : (brushSettings.blendMode || 'source-over');
+    // CRITICAL FIX: For eraser, draw solid white pixels
+    if (currentTool === 'eraser') {
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.strokeStyle = '#FFFFFF';
+    } else {
+      ctx.globalAlpha = brushSettings.opacity;
+      ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
+    }
     
     // Get the actual number of colors (default to 2 if not set)
     const numColors = brushSettings.colors || 2;
@@ -3229,8 +3240,16 @@ export const useBrushEngine = () => {
     // Disable anti-aliasing for pixel-perfect rendering
     ctx.imageSmoothingEnabled = false;
     // CRITICAL FIX: Eraser must always use full opacity to completely remove pixels
-    ctx.globalAlpha = currentTool === 'eraser' ? 1 : brushSettings.opacity;
-    ctx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : (brushSettings.blendMode || 'source-over');
+    // CRITICAL FIX: For eraser, draw solid white pixels
+    if (currentTool === 'eraser') {
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.strokeStyle = '#FFFFFF';
+    } else {
+      ctx.globalAlpha = brushSettings.opacity;
+      ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
+    }
     
     // Calculate polygon bounds for better gradient coverage
     const minX = Math.min(...vertices.map(v => v.x));
