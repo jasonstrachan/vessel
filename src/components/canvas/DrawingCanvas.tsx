@@ -81,6 +81,8 @@ const DrawingCanvas = () => {
   
   // Cached composite canvas
   const compositeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const compositeCanvasDirtyRef = useRef(true); // Track if composite needs update
+  const lastCompositeHashRef = useRef<string>(''); // Track last composite state
   const [needsRedraw, setNeedsRedraw] = useState(0);
   
   // Ref for draw function to use in resize observer
@@ -89,19 +91,12 @@ const DrawingCanvas = () => {
   // Get brush engine
   const brushEngine = useBrushEngine();
   
-  // Memoized layers hash - include more details to ensure changes are detected
+  // Memoized layers hash - only compute when layers actually change
   const layersHash = useMemo(() => {
     return layers.map(l => {
-      // Create a simple checksum of the imageData to detect content changes
-      let checksum = 0;
-      if (l.imageData?.data) {
-        // Sample the data at intervals for performance
-        const step = Math.max(1, Math.floor(l.imageData.data.length / 100));
-        for (let i = 0; i < l.imageData.data.length; i += step) {
-          checksum += l.imageData.data[i];
-        }
-      }
-      return `${l.id}_${l.visible}_${l.opacity}_${l.imageData?.data.length || 0}_${checksum}`;
+      // Use simpler hash: id, visibility, opacity, and data length
+      // Avoid expensive checksum calculation
+      return `${l.id}_${l.visible}_${l.opacity}_${l.imageData?.data?.length || 0}`;
     }).join('|');
   }, [layers]);
   
@@ -444,8 +439,11 @@ const DrawingCanvas = () => {
           setLayers(snapshot.layers);
           setActiveLayer(snapshot.activeLayerId);
           
+          // Mark composite as dirty for next redraw
+          compositeCanvasDirtyRef.current = true;
+          
           // Immediately regenerate composite canvas
-          if (compositeCanvasRef.current) {
+          if (compositeCanvasRef.current && project) {
             compositeLayersToCanvas(compositeCanvasRef.current);
             setCurrentOffscreenCanvas(compositeCanvasRef.current);
           }
@@ -464,9 +462,28 @@ const DrawingCanvas = () => {
         } else {
           const activeLayer = layers.find(l => l.id === activeLayerId);
           if (activeLayer && snapshot.imageData) {
+            // Mark composite as dirty BEFORE updating layer
+            compositeCanvasDirtyRef.current = true;
+            
             updateLayer(activeLayer.id, { imageData: snapshot.imageData });
+            
+            // Immediately regenerate composite canvas
+            if (compositeCanvasRef.current && project) {
+              compositeLayersToCanvas(compositeCanvasRef.current);
+              setCurrentOffscreenCanvas(compositeCanvasRef.current);
+            }
+            
             // Force a redraw by incrementing the redraw counter
             setNeedsRedraw(prev => prev + 1);
+            
+            // Also trigger immediate redraw
+            requestAnimationFrame(() => {
+              const canvas = canvasRef.current;
+              const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+              if (ctx) {
+                draw(ctx, viewTransformRef.current);
+              }
+            });
           }
         }
       }
@@ -479,8 +496,11 @@ const DrawingCanvas = () => {
           setLayers(snapshot.layers);
           setActiveLayer(snapshot.activeLayerId);
           
+          // Mark composite as dirty for next redraw
+          compositeCanvasDirtyRef.current = true;
+          
           // Immediately regenerate composite canvas
-          if (compositeCanvasRef.current) {
+          if (compositeCanvasRef.current && project) {
             compositeLayersToCanvas(compositeCanvasRef.current);
             setCurrentOffscreenCanvas(compositeCanvasRef.current);
           }
@@ -501,8 +521,11 @@ const DrawingCanvas = () => {
           if (activeLayer && snapshot.imageData) {
             updateLayer(activeLayer.id, { imageData: snapshot.imageData });
             
-            // Immediately regenerate composite canvas for imageData updates too
-            if (compositeCanvasRef.current) {
+            // Mark composite as dirty for imageData updates too
+            compositeCanvasDirtyRef.current = true;
+            
+            // Immediately regenerate composite canvas
+            if (compositeCanvasRef.current && project) {
               compositeLayersToCanvas(compositeCanvasRef.current);
               setCurrentOffscreenCanvas(compositeCanvasRef.current);
             }
@@ -538,7 +561,12 @@ const DrawingCanvas = () => {
             false
           );
           drawingHandlers.drawingCanvasHasContent.current = true;
-          drawingHandlers.finalizeDrawing();
+          // Mark composite as dirty BEFORE finalization
+          compositeCanvasDirtyRef.current = true;
+          drawingHandlers.finalizeDrawing().then(() => {
+            // Trigger redraw after finalization
+            setNeedsRedraw(prev => prev + 1);
+          });
         }
         toolStateMachine.resetPolygonGradient();
       }
@@ -1353,8 +1381,13 @@ const DrawingCanvas = () => {
             }
           }
           
+          // Mark composite as dirty BEFORE finalization
+          compositeCanvasDirtyRef.current = true;
           // Finalize the drawing
-          drawingHandlers.finalizeDrawing();
+          drawingHandlers.finalizeDrawing().then(() => {
+            // Trigger redraw after finalization
+            setNeedsRedraw(prev => prev + 1);
+          });
           toolStateMachine.resetPolygonGradient();
         }
         interaction.dispatch({ type: 'DRAWING_END' });
@@ -1363,10 +1396,18 @@ const DrawingCanvas = () => {
       
       // Normal brush or shape mode
       interaction.dispatch({ type: 'DRAWING_END' });
+      
+      // Mark composite as dirty BEFORE finalization to ensure it updates
+      compositeCanvasDirtyRef.current = true;
+      
       if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
         drawingHandlers.finalizeShapeDrawing();
+        setNeedsRedraw(prev => prev + 1);
       } else {
-        drawingHandlers.finalizeDrawing();
+        drawingHandlers.finalizeDrawing().then(() => {
+          // Trigger redraw after finalization completes
+          setNeedsRedraw(prev => prev + 1);
+        });
       }
     }
   }, [interaction, getMousePos, setSelectionBounds, tools.currentTool, 
@@ -1382,11 +1423,18 @@ const DrawingCanvas = () => {
       if (interaction.state.isDrawing) {
         interaction.dispatch({ type: 'DRAWING_END' });
         
+        // Mark composite as dirty BEFORE finalization
+        compositeCanvasDirtyRef.current = true;
+        
         // Check if we're in shape mode or regular drawing mode
         if (drawingHandlers.isDrawingShapeRef && drawingHandlers.isDrawingShapeRef.current) {
           drawingHandlers.finalizeShapeDrawing();
+          setNeedsRedraw(prev => prev + 1);
         } else {
-          drawingHandlers.finalizeDrawing();
+          drawingHandlers.finalizeDrawing().then(() => {
+            // Trigger redraw after finalization
+            setNeedsRedraw(prev => prev + 1);
+          });
         }
       }
     }
@@ -1406,6 +1454,11 @@ const DrawingCanvas = () => {
   useEffect(() => {
     if (!project || !compositeLayersToCanvas) return;
     
+    // Check if we actually need to update the composite
+    if (layersHash === lastCompositeHashRef.current && !compositeCanvasDirtyRef.current) {
+      return; // Skip if nothing changed
+    }
+    
     if (!compositeCanvasRef.current) {
       compositeCanvasRef.current = document.createElement('canvas');
     }
@@ -1422,6 +1475,11 @@ const DrawingCanvas = () => {
     
     compositeLayersToCanvas(compositeCanvasRef.current);
     setCurrentOffscreenCanvas(compositeCanvasRef.current);
+    
+    // Update tracking
+    lastCompositeHashRef.current = layersHash;
+    compositeCanvasDirtyRef.current = false;
+    
     setNeedsRedraw(prev => prev + 1);
   }, [layersHash, project, compositeLayersToCanvas, setCurrentOffscreenCanvas]);
   
