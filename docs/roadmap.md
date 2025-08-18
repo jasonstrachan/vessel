@@ -1,7 +1,7 @@
 # TinyBrush Roadmap
 
 ## Brushes
-
+what a
 
 #### Brush Spacing Jitter
 Dynamic randomization of brush stamp spacing for more organic, natural-looking strokes.
@@ -126,6 +126,18 @@ Inverted control mappings for experimental effects.
 - Configurable mapping curves
 - Visual feedback showing active mappings
 - Preset chaos modes
+
+## Shape Tools
+
+### Migrate Shape Tools to useCanvasStateMachine
+Convert polygon and rectangle tools from separate `useToolStateMachine` to the unified state machine.
+
+**Implementation:**
+- Extend `useCanvasStateMachine` with shape-specific states (SHAPE_DEFINING, SHAPE_PREVIEW)
+- Add shape actions: SHAPE_START, SHAPE_ADD_POINT, SHAPE_UPDATE, SHAPE_COMPLETE
+- Move polygon/rectangle logic from `useToolStateMachine` into canvas state machine reducer
+- Unify shape preview rendering with main drawing pipeline
+- Benefits: Single source of truth, better state consistency, easier debugging
 
 ## Input & Interaction
 

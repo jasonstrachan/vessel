@@ -1,4 +1,5 @@
 ---
+model: claude-opus-4-1
 name: debugger
 description: Expert debugger for complex TinyBrush issues including drawing bugs, performance problems, and integration failures. Use proactively when encountering any bugs, unexpected behavior, or system crashes.
 tools: Read, Edit, Bash, Grep, Glob, TodoWrite

@@ -247,9 +247,16 @@ export function useDrawingHandlers({
           
           tempCtx.putImageData(activeLayer.imageData, 0, 0);
           
+          // CRITICAL FIX: Apply correct composite operation for eraser
+          const isErasing = useAppStore.getState().tools.currentTool === 'eraser';
+          if (isErasing) {
+            tempCtx.globalCompositeOperation = 'destination-out';
+          }
           
           tempCtx.drawImage(drawingCanvasRef.current, 0, 0);
           
+          // Reset composite operation
+          tempCtx.globalCompositeOperation = 'source-over';
           
           await captureCanvasToActiveLayer(tempCanvas);
           

@@ -360,16 +360,20 @@ const DrawingCanvas = () => {
   useComprehensiveKeyboard({
     onSpacePressed: () => {
       // Dispatch to state machine
-      console.log('Space pressed - dispatching SPACE_DOWN');
       stateMachine.dispatch({ type: 'SPACE_DOWN' });
     },
     onSpaceReleased: () => {
       // Dispatch to state machine
-      console.log('Space released - dispatching SPACE_UP');
       stateMachine.dispatch({ type: 'SPACE_UP' });
     },
     onCustomTool: () => {
       setCurrentTool('custom');
+    },
+    onEraserPressed: () => {
+      // Eraser key pressed - tool switch handled in hook
+    },
+    onEraserReleased: () => {
+      // Eraser key released - tool restoration handled in hook
     },
     onUndo: () => {
       const snapshot = undo();

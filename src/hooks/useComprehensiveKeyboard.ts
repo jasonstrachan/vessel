@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '../stores/useAppStore';
-import { BrushShape } from '../types';
+import { BrushShape, Tool } from '../types';
 
 interface KeyboardState {
   isSpacePressed: boolean;
@@ -22,6 +22,8 @@ interface UseComprehensiveKeyboardProps {
   onPolygonCancel?: () => void;
   onEnterPressed?: () => void;
   onEscapePressed?: () => void;
+  onEraserPressed?: () => void;
+  onEraserReleased?: () => void;
   enabled?: boolean;
 }
 
@@ -37,6 +39,8 @@ export function useComprehensiveKeyboard({
   onPolygonCancel,
   onEnterPressed,
   onEscapePressed,
+  onEraserPressed,
+  onEraserReleased,
   enabled = true
 }: UseComprehensiveKeyboardProps) {
   // Track all modifier keys
@@ -50,6 +54,11 @@ export function useComprehensiveKeyboard({
 
   // Track which keys are currently pressed to prevent repeat events
   const pressedKeysRef = useRef<Set<string>>(new Set());
+  
+  // Track previous tool for temporary eraser mode
+  const previousToolRef = useRef<string | null>(null);
+  const isTemporaryEraserRef = useRef(false);
+  const eraserPressTimeRef = useRef<number>(0);
 
   const { 
     setCurrentTool, 
@@ -152,11 +161,25 @@ export function useComprehensiveKeyboard({
       }
     }
 
-    // Tool switching - E for eraser tool
+    // Tool switching - E for eraser tool (hold for temporary, tap for permanent)
     if (event.key === 'e' || event.key === 'E') {
       if (!event.ctrlKey && !event.metaKey) {
         event.preventDefault();
-        setCurrentTool('eraser');
+        
+        // Record press time
+        eraserPressTimeRef.current = Date.now();
+        
+        // Store current tool for potential temporary mode
+        if (tools.currentTool !== 'eraser') {
+          previousToolRef.current = tools.currentTool;
+          isTemporaryEraserRef.current = true;
+          setCurrentTool('eraser');
+        } else {
+          // Already in eraser mode, keep it
+          isTemporaryEraserRef.current = false;
+        }
+        
+        onEraserPressed?.();
         return;
       }
     }
@@ -235,8 +258,8 @@ export function useComprehensiveKeyboard({
     }
   }, [enabled, onSpacePressed, onUndo, onRedo, onCustomTool, 
       onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
-      onPolygonCancel, onEnterPressed, onEscapePressed, tools, 
-      polygonGradientState, setCurrentTool, setGlobalBrushSize]);
+      onPolygonCancel, onEnterPressed, onEscapePressed, onEraserPressed,
+      tools, polygonGradientState, setCurrentTool, setGlobalBrushSize]);
 
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
     if (!enabled) return;
@@ -257,7 +280,33 @@ export function useComprehensiveKeyboard({
       onSpaceReleased?.();
       return;
     }
-  }, [enabled, onSpaceReleased]);
+    
+    // Handle E key release (for temporary eraser mode)
+    if (event.key === 'e' || event.key === 'E') {
+      if (!event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        
+        // Calculate hold duration
+        const holdDuration = Date.now() - eraserPressTimeRef.current;
+        const isQuickTap = holdDuration < 200; // Tap if held less than 200ms
+        
+        // If it was temporary mode and a hold (not a tap), restore previous tool
+        if (isTemporaryEraserRef.current && previousToolRef.current && !isQuickTap) {
+          // Restore previous tool
+          setCurrentTool(previousToolRef.current as Tool);
+          previousToolRef.current = null;
+          isTemporaryEraserRef.current = false;
+        } else if (isTemporaryEraserRef.current && isQuickTap) {
+          // It was a tap - make eraser permanent
+          previousToolRef.current = null;
+          isTemporaryEraserRef.current = false;
+        }
+        
+        onEraserReleased?.();
+        return;
+      }
+    }
+  }, [enabled, onSpaceReleased, onEraserReleased, setCurrentTool]);
 
   // Handle blur to reset state when window loses focus
   const handleBlur = useCallback(() => {

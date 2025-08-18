@@ -1,4 +1,5 @@
 ---
+model: claude-opus-4-1
 name: ui
 description: Frontend UI/UX specialist for TinyBrush interface design, component architecture, and user experience optimization. Use proactively when working on UI components, layout improvements, responsive design, or user interaction flows.
 tools: Read, Edit, Write, Bash, Grep, Glob, TodoWrite, WebFetch

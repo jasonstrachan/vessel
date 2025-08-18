@@ -114,10 +114,8 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
 
   // Handle spacebar press/release globally
   if (action.type === 'SPACE_DOWN') {
-    console.log('State machine: SPACE_DOWN received, current mode:', state.mode);
     // Only transition to AWAITING_PAN if we're idle
     if (state.mode === 'IDLE') {
-      console.log('State machine: Transitioning to AWAITING_PAN');
       return { ...state, mode: 'AWAITING_PAN', isSpacePressed: true };
     } else if (state.mode === 'DRAWING') {
       // If drawing, mark space as pressed but stay in drawing mode
@@ -128,13 +126,11 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
   }
 
   if (action.type === 'SPACE_UP') {
-    console.log('State machine: SPACE_UP received, current mode:', state.mode);
     // Always clear the space flag
     const newState = { ...state, isSpacePressed: false };
     
     // If we were in AWAITING_PAN or PANNING mode, return to IDLE
     if (state.mode === 'AWAITING_PAN' || state.mode === 'PANNING') {
-      console.log('State machine: Transitioning from', state.mode, 'to IDLE');
       return { ...newState, mode: 'IDLE' };
     }
     
@@ -298,12 +294,6 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
     case 'SHAPE_DEFINING':
       switch (action.type) {
         case 'MOUSE_MOVE':
-          // 👇 ADD THIS LOG
-          console.log('3. REDUCER: Received MOUSE_MOVE', {
-            currentStateMode: state.mode,
-            actionPosition: action.position,
-          });
-          
           if (!state.activeShape) return state;
           
           // Update shape based on type
@@ -320,16 +310,11 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
             updatedShape = state.activeShape;
           }
           
-          const newState = { 
+          return { 
             ...state, 
             lastPosition: action.position,
             activeShape: updatedShape
           };
-          
-          // 👇 ADD THIS LOG
-          console.log('4. REDUCER: Updated state successfully', newState.activeShape);
-          
-          return newState;
           
         case 'ADD_POLYGON_POINT':
           if (!state.activeShape || state.activeShape.type !== 'polygon') return state;
@@ -409,7 +394,6 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
       switch (action.type) {
         case 'MOUSE_DOWN':
           // Start panning when mouse is pressed while awaiting pan
-          console.log('State machine: MOUSE_DOWN in AWAITING_PAN, transitioning to PANNING');
           return {
             ...state,
             mode: 'PANNING',

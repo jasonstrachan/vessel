@@ -1,4 +1,5 @@
 ---
+model: claude-opus-4-1
 name: react-perf
 description: Debugs React performance issues, unnecessary re-renders, and state management problems. Use proactively when experiencing UI lag, component performance issues, or when working with useAppStore.ts.
 tools: Read, Edit, Bash, Grep, Glob, TodoWrite

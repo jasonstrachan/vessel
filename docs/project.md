@@ -2,6 +2,51 @@
 
 ## Recent Updates
 
+### Custom Brush Shape Tiling Fix (2025-08-18)
+- **Fixed custom brush shape rendering**: Custom brush textures now properly tile inside shapes instead of filling with solid color
+- **Problem**: When using custom brush toggle with shapes (square, circle, triangle), the shape was filled with a single color instead of tiling the custom brush pattern
+- **Solution**:
+  - Modified drawShape function in useBrushEngine.ts to use Canvas pattern API
+  - Creates repeating pattern from custom brush texture using createPattern('repeat')
+  - Pattern is used as fillStyle when drawing the shape
+  - Preserves shape geometry while filling with tiled custom brush texture
+- **Technical details**:
+  - Works with all shape types: square, round, triangle
+  - Respects antialiasing settings for shape edges
+  - Falls back to direct pattern drawing for other brush shapes
+  - Maintains original fill style for proper color/opacity handling
+- **Benefits**:
+  - Custom brushes can now create textured shapes
+  - Enables stippling, hatching, and other texture effects within geometric shapes
+  - Consistent behavior across all brush shape modes
+
+### Canvas State Machine Architecture (2025-08-17)
+- **Implemented robust state machine** for managing all canvas interactions with proper state transitions
+- **Core states**:
+  - IDLE: Default state, ready for any interaction
+  - AWAITING_PAN: Spacebar held, shows "grab" cursor, ready to pan on mouse down
+  - PANNING: Actively panning the canvas with "grabbing" cursor
+  - DRAWING: Active drawing in progress
+  - SELECTING: Making a selection
+  - FINALIZING: Finalizing a drawing operation
+  - BUSY: System busy, all interactions blocked
+- **Key improvements**:
+  - Eliminates race conditions with single source of truth for interaction states
+  - Predictable behavior through clear state transitions
+  - Proper panning UX matching Figma's spacebar+drag interaction
+  - Easy debugging with logged state transitions
+  - Simple to extend with new states and transitions
+- **Integration approach**:
+  - useCanvasStateMachine hook manages all state transitions via reducer pattern
+  - Side effects (pan updates, drawing) handled in useEffect watching state changes
+  - Event handlers dispatch actions instead of directly manipulating state
+  - Cursor style derived from current state mode
+- **Benefits**:
+  - No more conflicting boolean flags (isSpacePressed, isBusy, isMouseDown)
+  - Proper handling of complex interactions (e.g., spacebar+click pans, not draws)
+  - Clean separation between state management and side effects
+  - Maintainable architecture for adding new interaction modes
+
 ### Tool-Aware State Machine for Shape Drawing (2025-08-16)
 - **Implemented tool-aware state machine** for handling different drawing tools (rectangle, ellipse, line, polygon)
 - **Architecture improvements**:

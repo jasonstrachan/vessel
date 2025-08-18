@@ -1413,7 +1413,7 @@ export const useBrushEngine = () => {
       targetCtx.translate(-drawX, -drawY);
     }
     
-    // Handle custom pattern rendering
+    // Handle custom pattern rendering - use pattern as fill for the shape
     if (pattern && pattern.width > 0 && pattern.height > 0) {
       
       // Use cached temporary canvas for pattern
@@ -1426,25 +1426,79 @@ export const useBrushEngine = () => {
           tempCtx.imageSmoothingEnabled = targetCtx.imageSmoothingEnabled;
           tempCtx.putImageData(pattern, 0, 0);
           
-          // Use pattern at original pixel size
-          const scaledWidth = pattern.width;
-          const scaledHeight = pattern.height;
+          // Create a pattern from the custom brush texture
+          const brushPattern = targetCtx.createPattern(tempCanvas, 'repeat');
           
-          // Calculate position based on alignment
-          let patternDrawX = drawX;
-          let patternDrawY = drawY;
-          
-          if (centerAlignment) {
-            patternDrawX = drawX - scaledWidth / 2;
-            patternDrawY = drawY - scaledHeight / 2;
+          if (brushPattern) {
+            // Save current fill style
+            const originalFillStyle = targetCtx.fillStyle;
+            
+            // Use pattern as fill style for the shape
+            targetCtx.fillStyle = brushPattern;
+            
+            // Now draw the shape with the pattern fill
+            switch (shape) {
+              case BrushShape.SQUARE:
+                if (antiAliasing) {
+                  targetCtx.fillRect(drawX - halfSize, drawY - halfSize, size, size);
+                } else {
+                  // Pixel-perfect square
+                  const offset = Math.floor(size / 2);
+                  targetCtx.fillRect(drawX - offset, drawY - offset, size, size);
+                }
+                break;
+                
+              case BrushShape.ROUND:
+                // Always use perfect circles for antialiased round brushes
+                targetCtx.beginPath();
+                targetCtx.arc(drawX, drawY, halfSize, 0, Math.PI * 2);
+                targetCtx.fill();
+                break;
+                
+              case BrushShape.TRIANGLE:
+                targetCtx.beginPath();
+                if (antiAliasing) {
+                  targetCtx.moveTo(drawX, drawY - halfSize);
+                  targetCtx.lineTo(drawX - halfSize, drawY + halfSize);
+                  targetCtx.lineTo(drawX + halfSize, drawY + halfSize);
+                } else {
+                  // Pixel-perfect triangle
+                  const height = Math.floor(size * 0.866); // sqrt(3)/2
+                  targetCtx.moveTo(drawX, drawY - Math.floor(height / 2));
+                  targetCtx.lineTo(drawX - Math.floor(size / 2), drawY + Math.floor(height / 2));
+                  targetCtx.lineTo(drawX + Math.floor(size / 2), drawY + Math.floor(height / 2));
+                }
+                targetCtx.closePath();
+                targetCtx.fill();
+                break;
+                
+              default:
+                // For other shapes or custom brush, draw the pattern directly
+                const scaledWidth = pattern.width;
+                const scaledHeight = pattern.height;
+                
+                let patternDrawX = drawX;
+                let patternDrawY = drawY;
+                
+                if (centerAlignment) {
+                  patternDrawX = drawX - scaledWidth / 2;
+                  patternDrawY = drawY - scaledHeight / 2;
+                }
+                
+                patternDrawX = Math.round(patternDrawX);
+                patternDrawY = Math.round(patternDrawY);
+                
+                // Restore original fill style to draw the pattern image
+                targetCtx.fillStyle = originalFillStyle;
+                targetCtx.drawImage(tempCanvas, patternDrawX, patternDrawY);
+                break;
+            }
+            
+            // Restore original fill style if we didn't use it above
+            if (shape !== BrushShape.PIXEL_ROUND && shape !== BrushShape.CUSTOM) {
+              targetCtx.fillStyle = originalFillStyle;
+            }
           }
-          
-          // Round coordinates to prevent sub-pixel positioning
-          patternDrawX = Math.round(patternDrawX);
-          patternDrawY = Math.round(patternDrawY);
-          
-          // Draw the pattern at original size
-          targetCtx.drawImage(tempCanvas, patternDrawX, patternDrawY);
         } catch {
         }
       }
