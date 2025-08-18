@@ -171,12 +171,10 @@ export function useComprehensiveKeyboard({
         
         // Store current tool for potential temporary mode
         if (tools.currentTool !== 'eraser') {
-          console.log(`%c[DEBUG] Switching from ${tools.currentTool} to ERASER`, 'color: purple; font-weight: bold;');
           previousToolRef.current = tools.currentTool;
           isTemporaryEraserRef.current = true;
           setCurrentTool('eraser');
         } else {
-          console.log('[DEBUG] Already in eraser mode');
           // Already in eraser mode, keep it
           isTemporaryEraserRef.current = false;
         }
@@ -294,13 +292,11 @@ export function useComprehensiveKeyboard({
         
         // If it was temporary mode and a hold (not a tap), restore previous tool
         if (isTemporaryEraserRef.current && previousToolRef.current && !isQuickTap) {
-          console.log(`%c[DEBUG] Restoring tool from ERASER to ${previousToolRef.current}`, 'color: purple; font-weight: bold;');
           // Restore previous tool
           setCurrentTool(previousToolRef.current as Tool);
           previousToolRef.current = null;
           isTemporaryEraserRef.current = false;
         } else if (isTemporaryEraserRef.current && isQuickTap) {
-          console.log('[DEBUG] Making eraser permanent (quick tap)');
           // It was a tap - make eraser permanent
           previousToolRef.current = null;
           isTemporaryEraserRef.current = false;

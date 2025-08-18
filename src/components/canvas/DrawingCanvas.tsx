@@ -835,7 +835,9 @@ const DrawingCanvas = () => {
           ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
           ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
           
-          ctx.globalAlpha = tools.brushSettings.opacity || 1;
+          ctx.globalAlpha = tools.currentTool === 'eraser' 
+            ? (tools.eraserSettings.opacity || 1)
+            : (tools.brushSettings.opacity || 1);
           ctx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
           
           // Sample colors for preview
@@ -949,7 +951,9 @@ const DrawingCanvas = () => {
                 ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
                 ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
                 
-                ctx.globalAlpha = tools.brushSettings.opacity || 1;
+                ctx.globalAlpha = tools.currentTool === 'eraser' 
+                  ? (tools.eraserSettings.opacity || 1)
+                  : (tools.brushSettings.opacity || 1);
                 ctx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
                 
                 // Sample colors for preview

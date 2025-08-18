@@ -165,3 +165,116 @@
   - Scores each of the 20 palette colors based on how well they match the sampled pixels
   - Selects the top N colors based on numColors slider setting
   - These selected colors are then used for the dithering process
+
+## Rendering Pipeline Architecture
+
+### Overview
+TinyBrush uses a **real-time compositing pipeline** with a multi-canvas architecture for optimal performance and flexibility. The system separates layer management, active drawing, and display rendering into distinct stages.
+
+### Three-Canvas Architecture
+
+1. **Composite Canvas** (Offscreen)
+   - Holds the merged result of all visible layers
+   - Created once and cached until layers change
+   - Respects layer visibility and opacity settings
+   - Updated via `compositeLayersToCanvas()` in useAppStore
+
+2. **Drawing Canvas** (Temporary)
+   - Used for active brush strokes before committing
+   - Allows real-time preview without modifying layers
+   - Cleared after each stroke is finalized
+   - Managed by `useDrawingHandlers` hook
+
+3. **Display Canvas** (Main)
+   - The visible canvas element in the UI
+   - Composites all elements in real-time
+   - Handles view transformations (pan, zoom)
+   - Renders UI overlays (selections, marching ants)
+
+### Rendering Flow
+
+The main draw function (`DrawingCanvas.tsx:143-264`) executes this pipeline:
+
+1. **Background Setup**
+   - Clear with dark background (#1a1a1a)
+   - Draw checkerboard pattern for transparency
+
+2. **Layer Compositing**
+   - Draw the cached composite canvas
+   - Only regenerated when layers change (via `layersHash` memoization)
+   - Uses `globalAlpha` for layer opacity blending
+
+3. **Active Drawing Overlay**
+   - If drawing is in progress, overlay the temporary drawing canvas
+   - Provides immediate visual feedback without layer modification
+
+4. **UI Elements**
+   - Floating paste selections with marching ants
+   - Selection rectangles with animated borders
+   - Canvas border outline
+
+### Performance Optimizations
+
+1. **Intelligent Caching**
+   - Composite canvas only regenerates when layers actually change
+   - Uses memoized `layersHash` to detect meaningful changes
+   - Samples layer data at intervals for efficient checksumming
+
+2. **Canvas Configuration**
+   - `willReadFrequently: true` for frequent pixel operations
+   - `imageSmoothingEnabled` toggled based on brush type and zoom level
+   - Pixel-perfect rendering for pixel art brushes
+
+3. **State Management**
+   - Canvas state machine prevents conflicting operations
+   - Atomic updates prevent partial renders
+   - RequestAnimationFrame for smooth animations
+
+4. **Memory Management**
+   - Reuses canvas elements instead of creating new ones
+   - Clears temporary canvases after use
+   - Efficient ImageData handling for large canvases
+
+### Layer Compositing Details
+
+The `compositeLayersToCanvas` function (useAppStore.ts:2256-2300):
+- Iterates through layers in order (bottom to top)
+- Applies layer opacity with `globalAlpha`
+- Respects layer visibility flags
+- Maintains proper blend modes per layer
+- Ensures canvas dimensions match project size
+
+### Real-time Feedback
+
+The system provides immediate visual feedback through:
+- Temporary drawing canvas for active strokes
+- Shape previews during definition
+- Gradient previews while adjusting
+- Cursor previews that respect zoom and brush settings
+- Marching ants animation at 60fps
+
+### Coordinate Systems
+
+The pipeline manages two coordinate spaces:
+- **World Space**: Canvas content coordinates (project dimensions)
+- **Screen Space**: Display coordinates (viewport with pan/zoom)
+- Transformation handled via `viewTransformRef` and `screenToWorld` functions
+- Proper clipping for strokes extending beyond canvas bounds
+
+### Brush Engine Integration
+
+The rendering pipeline seamlessly integrates with the brush engine:
+- Custom brushes use pattern API for tiling
+- Pixel brushes disable antialiasing
+- Pressure sensitivity affects opacity in real-time
+- Grid snapping modifies coordinates before rendering
+- Blend modes applied at composite stage
+
+### Future Considerations
+
+The current architecture supports potential enhancements:
+- WebGL acceleration for complex brushes
+- Multi-threaded compositing with Web Workers
+- Incremental rendering for very large canvases
+- Tile-based rendering for infinite canvas
+- GPU-accelerated filters and effects

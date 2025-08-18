@@ -2621,17 +2621,8 @@ export const useBrushEngine = () => {
     }
     
     // Apply rendering settings
-    // CRITICAL FIX: For eraser, draw SOLID pixels that will be used with destination-out later
-    if (tools.currentTool === 'eraser') {
-      // Draw solid white pixels at full opacity - these will be used as the "eraser stamp"
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = 1; // Full opacity for the stamp
-      ctx.fillStyle = '#FFFFFF'; // White color for visibility
-      ctx.strokeStyle = '#FFFFFF';
-    } else {
-      ctx.globalCompositeOperation = settings.blendMode || 'source-over';
-      ctx.globalAlpha = settings.opacity;
-    }
+    ctx.globalCompositeOperation = settings.blendMode || 'source-over';
+    ctx.globalAlpha = settings.opacity;
     ctx.lineWidth = settings.size;
     ctx.lineCap = settings.pixelAlignment ? 'butt' : 'round';
     ctx.lineJoin = settings.pixelAlignment ? 'miter' : 'round';
@@ -2907,16 +2898,8 @@ export const useBrushEngine = () => {
     // Disable antialiasing for clean edges
     ctx.imageSmoothingEnabled = false;
     // CRITICAL FIX: Eraser must always use full opacity to completely remove pixels
-    // CRITICAL FIX: For eraser, draw solid white pixels
-    if (currentTool === 'eraser') {
-      ctx.globalAlpha = 1;
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = '#FFFFFF';
-      ctx.strokeStyle = '#FFFFFF';
-    } else {
-      ctx.globalAlpha = brushSettings.opacity;
-      ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
-    }
+    ctx.globalAlpha = brushSettings.opacity;
+    ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
     
     // Get the actual number of colors (default to 2 if not set)
     const numColors = brushSettings.colors || 2;
@@ -3240,16 +3223,8 @@ export const useBrushEngine = () => {
     // Disable anti-aliasing for pixel-perfect rendering
     ctx.imageSmoothingEnabled = false;
     // CRITICAL FIX: Eraser must always use full opacity to completely remove pixels
-    // CRITICAL FIX: For eraser, draw solid white pixels
-    if (currentTool === 'eraser') {
-      ctx.globalAlpha = 1;
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = '#FFFFFF';
-      ctx.strokeStyle = '#FFFFFF';
-    } else {
-      ctx.globalAlpha = brushSettings.opacity;
-      ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
-    }
+    ctx.globalAlpha = brushSettings.opacity;
+    ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
     
     // Calculate polygon bounds for better gradient coverage
     const minX = Math.min(...vertices.map(v => v.x));

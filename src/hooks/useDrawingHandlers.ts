@@ -8,7 +8,7 @@ interface UseDrawingHandlersProps {
   viewTransformRef: React.MutableRefObject<{ scale: number; offsetX: number; offsetY: number }>;
   draw: (ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }) => void;
   canvasRef: React.RefObject<HTMLCanvasElement>;
-  isBusyRef?: React.MutableRefObject<boolean>; // Lock ref to prevent concurrent operations
+  isBusyRef?: React.MutableRefObject<boolean>;
 }
 
 /**
@@ -29,10 +29,10 @@ function clipLineSegment(
   const dy = y2 - y1;
 
   const checks = [
-    { p: -dx, q: x1 - xmin }, // Left
-    { p: dx, q: xmax - x1 },  // Right
-    { p: -dy, q: y1 - ymin }, // Top
-    { p: dy, q: ymax - y1 }   // Bottom
+    { p: -dx, q: x1 - xmin },
+    { p: dx, q: xmax - x1 },
+    { p: -dy, q: y1 - ymin },
+    { p: dy, q: ymax - y1 }
   ];
 
   for (const { p, q } of checks) {
@@ -62,7 +62,7 @@ export function useDrawingHandlers({
   isBusyRef,
 }: UseDrawingHandlersProps) {
   const brushEngine = useBrushEngine();
-  const { activeBrushComponents, captureCanvasToActiveLayer, saveCanvasState, tools } = useAppStore();
+  const { activeBrushComponents, captureCanvasToActiveLayer, saveCanvasState, tools, updateLayer } = useAppStore();
   
   const drawingCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingCanvasHasContent = useRef(false);
@@ -88,10 +88,9 @@ export function useDrawingHandlers({
   }, [project]);
   
   const startDrawing = useCallback((worldPos: { x: number; y: number }) => {
-    // DEBUG: Check which tool is active at the very start.
     const currentTool = useAppStore.getState().tools.currentTool;
-    console.log(`%c[DEBUG] Start Drawing -> Tool: ${currentTool}`, 'color: blue; font-weight: bold;');
-
+    
+    // Initialize drawing canvas for both brush and eraser
     initDrawingCanvas();
     
     if (drawingCanvasRef.current) {
@@ -102,31 +101,32 @@ export function useDrawingHandlers({
     }
     
     drawingCanvasHasContent.current = true;
+    lastDrawPosRef.current = worldPos;
     
     const drawCtx = drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
     if (drawCtx && brushEngine && project) {
-      lastDrawPosRef.current = worldPos;
-      
-      // FIX: Force the stamp to be drawn at 100% opacity.
-      drawCtx.globalAlpha = 1.0;
-      drawCtx.globalCompositeOperation = 'source-over';
-      
-      // DEBUG: Verify brush engine for eraser
-      console.log('[DEBUG] Brush components for eraser:', activeBrushComponents);
-      console.log('[DEBUG] Current tool at stroke time:', useAppStore.getState().tools.currentTool);
-      
-      brushEngine.renderBrushStroke(
-        drawCtx,
-        worldPos,
-        worldPos,
-        { pressure: 1.0 },
-        activeBrushComponents
-      );
-      
-      // DEBUG: Check the stamp content
-      const imageData = drawCtx.getImageData(0, 0, 10, 10);
-      const hasContent = imageData.data.some((val, i) => i % 4 === 3 && val > 0);
-      console.log('[DEBUG] Stamp has content after initial stroke:', hasContent);
+      if (currentTool === 'eraser') {
+        // For eraser, draw solid circles that will be composited later
+        const { tools } = useAppStore.getState();
+        const brushSize = tools.eraserSettings.size || 20;
+        drawCtx.globalAlpha = tools.eraserSettings.opacity || 1;
+        drawCtx.globalCompositeOperation = 'source-over';
+        drawCtx.fillStyle = '#000000';
+        drawCtx.beginPath();
+        drawCtx.arc(worldPos.x, worldPos.y, brushSize, 0, Math.PI * 2);
+        drawCtx.fill();
+      } else {
+        drawCtx.globalAlpha = 1.0;
+        drawCtx.globalCompositeOperation = 'source-over';
+        
+        brushEngine.renderBrushStroke(
+          drawCtx,
+          worldPos,
+          worldPos,
+          { pressure: 1.0 },
+          activeBrushComponents
+        );
+      }
       
       requestAnimationFrame(() => {
         const canvas = canvasRef.current;
@@ -136,11 +136,12 @@ export function useDrawingHandlers({
         }
       });
     }
-  }, [initDrawingCanvas, brushEngine, project, activeBrushComponents, draw, viewTransformRef, canvasRef]);
+  }, [initDrawingCanvas, brushEngine, project, activeBrushComponents, draw, viewTransformRef, canvasRef, updateLayer]);
   
   const continueDrawing = useCallback((worldPos: { x: number; y: number }) => {
+    const currentTool = useAppStore.getState().tools.currentTool;
+    
     const lastPoint = lastDrawPosRef.current;
-
     if (!lastPoint || !project) {
       lastDrawPosRef.current = worldPos;
       return;
@@ -152,66 +153,77 @@ export function useDrawingHandlers({
     if (clippedSegment) {
       const [clippedStart, clippedEnd] = clippedSegment;
       const drawCtx = drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
-
-      if (drawCtx && brushEngine) {
-        // FIX: Force the stamp to be drawn at 100% opacity.
-        drawCtx.globalAlpha = 1.0;
-        drawCtx.globalCompositeOperation = 'source-over';
-        
-        // DEBUG: Verify brush engine for eraser
-        console.log('[DEBUG] Brush components for eraser (continue):', activeBrushComponents);
-        console.log('[DEBUG] Current tool at continue stroke:', useAppStore.getState().tools.currentTool);
-        
-        brushEngine.renderBrushStroke(
-          drawCtx,
-          clippedStart,
-          clippedEnd,
-          { pressure: 1.0 },
-          activeBrushComponents
-        );
-        
-        // DEBUG: Check the stamp content
-        const imageData = drawCtx.getImageData(0, 0, 10, 10);
-        const hasContent = imageData.data.some((val, i) => i % 4 === 3 && val > 0);
-        console.log('[DEBUG] Stamp has content after continue stroke:', hasContent);
-
-        if (drawAnimationFrameRef.current) {
-          cancelAnimationFrame(drawAnimationFrameRef.current);
-        }
-        drawAnimationFrameRef.current = requestAnimationFrame(() => {
-          const canvas = canvasRef.current;
-          const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-          if (ctx) {
-            draw(ctx, viewTransformRef.current);
+      
+      if (drawCtx) {
+        if (currentTool === 'eraser') {
+          // For eraser, draw solid circles that will be composited later
+          const { tools } = useAppStore.getState();
+          const brushSize = tools.eraserSettings.size || 20;
+          drawCtx.globalAlpha = tools.eraserSettings.opacity || 1;
+          drawCtx.globalCompositeOperation = 'source-over';
+          drawCtx.fillStyle = '#000000';
+          
+          // Interpolate for smooth line
+          const dist = Math.hypot(
+            clippedEnd.x - clippedStart.x,
+            clippedEnd.y - clippedStart.y
+          );
+          const steps = Math.max(1, Math.ceil(dist / 2));
+          
+          for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const x = clippedStart.x + (clippedEnd.x - clippedStart.x) * t;
+            const y = clippedStart.y + (clippedEnd.y - clippedStart.y) * t;
+            
+            drawCtx.beginPath();
+            drawCtx.arc(x, y, brushSize, 0, Math.PI * 2);
+            drawCtx.fill();
           }
-          drawAnimationFrameRef.current = null;
-        });
+        } else if (brushEngine) {
+          // Normal brush drawing
+          drawCtx.globalAlpha = 1.0;
+          drawCtx.globalCompositeOperation = 'source-over';
+          
+          brushEngine.renderBrushStroke(
+            drawCtx,
+            clippedStart,
+            clippedEnd,
+            { pressure: 1.0 },
+            activeBrushComponents
+          );
+        }
       }
+
+      if (drawAnimationFrameRef.current) {
+        cancelAnimationFrame(drawAnimationFrameRef.current);
+      }
+      drawAnimationFrameRef.current = requestAnimationFrame(() => {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          draw(ctx, viewTransformRef.current);
+        }
+        drawAnimationFrameRef.current = null;
+      });
     }
+    
     lastDrawPosRef.current = worldPos;
-  }, [brushEngine, project, activeBrushComponents, draw, viewTransformRef, canvasRef]);
+  }, [brushEngine, project, activeBrushComponents, draw, viewTransformRef, canvasRef, updateLayer]);
   
   const finalizeDrawing = useCallback(async () => {
-    console.log('[DEBUG] Finalize drawing called.');
-    if (isBusyRef?.current || !drawingCanvasRef.current || !drawingCanvasHasContent.current) {
-        console.warn('[DEBUG] Finalize aborted.', { 
-          isBusy: isBusyRef?.current, 
-          hasCanvas: !!drawingCanvasRef.current, 
-          hasContent: drawingCanvasHasContent.current 
-        });
-        return;
-    }
+    const currentTool = useAppStore.getState().tools.currentTool;
+    
+    if (isBusyRef?.current || !drawingCanvasRef.current || !drawingCanvasHasContent.current) return;
     
     try {
       if (isBusyRef) isBusyRef.current = true;
-      
       lastDrawPosRef.current = null;
       
       if (project) {
         const currentState = useAppStore.getState();
         const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
         
-        if (activeLayer) {
+        if (activeLayer && drawingCanvasRef.current) {
           const tempCanvas = document.createElement('canvas');
           tempCanvas.width = project.width;
           tempCanvas.height = project.height;
@@ -222,59 +234,36 @@ export function useDrawingHandlers({
               tempCtx.putImageData(activeLayer.imageData, 0, 0);
             }
             
-            const { currentTool, brushSettings } = currentState.tools;
-            // DEBUG: Log the tool and the temporary "stamp" canvas right before compositing.
-            console.log(`%c[DEBUG] Finalizing stroke... Tool: ${currentTool}`, 'color: green; font-weight: bold;');
-            console.log('[DEBUG] Stamp canvas to be applied:', drawingCanvasRef.current);
-
-            if (currentTool === 'eraser') {
-              // DEBUG: This is the most important log for the eraser.
-              console.log('%c[DEBUG] Applying ERASER effect (destination-out)', 'color: red; font-weight: bold;');
-              tempCtx.globalCompositeOperation = 'destination-out';
-            } else if (brushSettings.blendMode) {
-              console.log(`[DEBUG] Applying BRUSH effect (${brushSettings.blendMode})`);
-              tempCtx.globalCompositeOperation = brushSettings.blendMode;
-            } else {
-              console.log('[DEBUG] Applying default BRUSH effect (source-over)');
-              tempCtx.globalCompositeOperation = 'source-over';
-            }
+            const activeSettings = currentTool === 'eraser' 
+              ? currentState.tools.eraserSettings 
+              : currentState.tools.brushSettings;
             
+            tempCtx.globalCompositeOperation = currentTool === 'eraser' 
+              ? 'destination-out' 
+              : (activeSettings.blendMode || 'source-over');
+            tempCtx.globalAlpha = activeSettings.opacity || 1;
             tempCtx.drawImage(drawingCanvasRef.current, 0, 0);
             
-            // DEBUG: Check the actual pixel data after composite
-            const testX = Math.floor(project.width / 2);
-            const testY = Math.floor(project.height / 2);
-            const testData = tempCtx.getImageData(testX - 5, testY - 5, 10, 10);
-            const nonTransparentPixels = Array.from(testData.data).filter((val, i) => i % 4 === 3 && val > 0).length;
-            console.log(`[DEBUG] Pixels after composite at (${testX}, ${testY}):`, {
-              nonTransparentPixels,
-              sampleAlpha: testData.data[3], // First pixel's alpha
-              tool: currentTool
-            });
-            
-            // DEBUG: Log the final canvas state before it's saved.
-            console.log('[DEBUG] Final composite result:', tempCanvas);
-
             await captureCanvasToActiveLayer(tempCanvas);
             saveCanvasState(tempCanvas, 'brush', 'Drawing stroke');
-            
-            requestAnimationFrame(() => {
-              if (drawingCanvasRef.current) {
-                const clearCtx = drawingCanvasRef.current.getContext('2d', { willReadFrequently: true });
-                if (clearCtx) {
-                  clearCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-                }
-              }
-              drawingCanvasHasContent.current = false;
-              
-              const canvas = canvasRef.current;
-              const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-              if (ctx) {
-                draw(ctx, viewTransformRef.current);
-              }
-            });
           }
         }
+        
+        if (drawingCanvasRef.current) {
+          const clearCtx = drawingCanvasRef.current.getContext('2d', { willReadFrequently: true });
+          if (clearCtx) {
+            clearCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+          }
+        }
+        drawingCanvasHasContent.current = false;
+        
+        requestAnimationFrame(() => {
+          const canvas = canvasRef.current;
+          const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+          if (ctx) {
+            draw(ctx, viewTransformRef.current);
+          }
+        });
       }
     } catch (error) {
       console.error("Error during finalization:", error);
@@ -331,8 +320,6 @@ export function useDrawingHandlers({
       if (isDrawingShapeRef.current && shapePointsRef.current.length >= 3) {
         const drawCtx = drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
         if (drawCtx && brushEngine) {
-          
-          // FIX: Use 100% opacity for the shape fill, ignoring the brush setting.
           drawCtx.globalAlpha = 1.0;
           drawCtx.globalCompositeOperation = 'source-over';
           drawCtx.fillStyle = tools.brushSettings.color;
