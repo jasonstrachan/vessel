@@ -14,11 +14,8 @@ import BrushCursor from './BrushCursor';
 const DrawingCanvas = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null); 
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const ctxRef = useRef<CanvasRenderingContext2D | null>(null); // Cache context for performance
-  // const isSpacePressed = useRef(false); // Now handled by state machine
   const isBusyRef = useRef(false); // Lock to prevent concurrent operations
   const isMouseDownRef = useRef(false); // Track mouse button state
-  const tempPanOffsetRef = useRef({ x: 0, y: 0 }); // Temporary pan offset during panning
   const drawAnimationFrameRef = useRef<number | null>(null); // RAF throttling for pan
   
   // Get essential store state - removed shallow comparison to avoid infinite loop
@@ -277,23 +274,16 @@ const DrawingCanvas = () => {
   const pan = useSimplePan({ scale: canvas?.zoom || 1 });
   const prevStateRef = useRef(stateMachine.state);
   
-  // Update cursor based on state machine mode
-  React.useEffect(() => {
-    switch (stateMachine.state.mode) {
-      case 'AWAITING_PAN':
-        setCursorStyle('grab');
-        break;
-      case 'PANNING':
-        setCursorStyle('grabbing');
-        break;
-      case 'DRAGGING_PASTE':
-        setCursorStyle('move');
-        break;
-      default:
-        setCursorStyle(defaultCursorStyle);
-        break;
-    }
-  }, [stateMachine.state.mode, defaultCursorStyle]);
+  // Simplified cursor state ref for space key
+  const isSpacePressedRef = useRef(false);
+  
+  // Refs for instant panning without re-renders
+  const panRef = useRef(pan);
+  panRef.current = pan;
+  const setCursorStyleRef = useRef(setCursorStyle);
+  setCursorStyleRef.current = setCursorStyle;
+  const setShowBrushCursorRef = useRef(setShowBrushCursor);
+  setShowBrushCursorRef.current = setShowBrushCursor;
   
   // View transform ref for zoom
   const viewTransformRef = useRef({ 
@@ -312,56 +302,7 @@ const DrawingCanvas = () => {
     viewTransformRef.current.scale = canvas?.zoom || 1;
   }, [canvas?.zoom, pan.panState.offsetX, pan.panState.offsetY, stateMachine.state.mode]);
 
-  // Handle state machine transitions for panning (only transitions, not continuous updates)
-  React.useEffect(() => {
-    const prevMode = prevStateRef.current.mode;
-    const currentMode = stateMachine.state.mode;
-    
-    // Only log and process if mode actually changed
-    if (prevMode !== currentMode) {
-      // Handle panning state transitions only
-      if (currentMode === 'PANNING' && prevMode !== 'PANNING') {
-        // Just entered panning mode - use lastPosition which has screen coordinates
-        if (stateMachine.state.lastPosition) {
-          pan.startPan(stateMachine.state.lastPosition.x, stateMachine.state.lastPosition.y);
-          // Reset temporary offset at start of pan
-          tempPanOffsetRef.current = { x: 0, y: 0 };
-          // Ensure view transform is synced with current pan state
-          viewTransformRef.current.offsetX = pan.panState.offsetX;
-          viewTransformRef.current.offsetY = pan.panState.offsetY;
-        }
-      } else if (currentMode !== 'PANNING' && prevMode === 'PANNING') {
-        // Just exited panning mode - commit the pan offset to the actual state
-        const finalOffsetX = pan.panStartOffsetRef.current.x + tempPanOffsetRef.current.x;
-        const finalOffsetY = pan.panStartOffsetRef.current.y + tempPanOffsetRef.current.y;
-        pan.setPan(finalOffsetX, finalOffsetY);
-        
-        // Clear any pending animation frame
-        if (drawAnimationFrameRef.current) {
-          cancelAnimationFrame(drawAnimationFrameRef.current);
-          drawAnimationFrameRef.current = null;
-        }
-        
-        tempPanOffsetRef.current = { x: 0, y: 0 };
-        
-        // Update view transform to final position
-        viewTransformRef.current.offsetX = finalOffsetX;
-        viewTransformRef.current.offsetY = finalOffsetY;
-        
-        // Trigger one final redraw with the committed position
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-        if (ctx && drawRef.current) {
-          drawRef.current(ctx, viewTransformRef.current);
-        }
-        
-        pan.endPan();
-      }
-    }
-    
-    // Update the ref with the new state
-    prevStateRef.current = stateMachine.state;
-  }, [stateMachine.state.mode, pan]); // Only depend on mode changes
+  // Removed old state machine panning logic - now handled directly in mouse events
   
   
   const toolStateMachine = useToolStateMachine({
@@ -407,21 +348,64 @@ const DrawingCanvas = () => {
     
     // If spacebar was stuck down, force a release
     if (stateMachine.state.isSpacePressed) {
-      // Space handling now in state machine
+      // Dispatch SPACE_UP to correctly transition the state machine
+      stateMachine.dispatch({ type: 'SPACE_UP' });
       setCursorStyle(defaultCursorStyle);
       setShowBrushCursor(true);
     }
   }, [defaultCursorStyle, setCursorStyle]);
 
-  // Comprehensive keyboard handling
-  useComprehensiveKeyboard({
+
+  // Direct DOM keyboard handling for instant panning response
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !isSpacePressedRef.current) {
+        e.preventDefault();
+        
+        // Block if drawing
+        if (interaction.stateRef.current.isDrawing) return;
+        
+        isSpacePressedRef.current = true;
+        setShowBrushCursorRef.current(false);
+        setCursorStyleRef.current('grab');
+        
+        // Start panning immediately if mouse is down
+        if (isMouseDownRef.current && mousePosition.x !== undefined && mousePosition.y !== undefined) {
+          panRef.current.startPan(mousePosition.x, mousePosition.y);
+          setCursorStyleRef.current('grabbing');
+        }
+      }
+    };
+    
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        isSpacePressedRef.current = false;
+        
+        if (panRef.current.panState.isPanning) {
+          panRef.current.endPan();
+        }
+        setCursorStyleRef.current(defaultCursorStyle);
+        setShowBrushCursorRef.current(true);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [defaultCursorStyle]); // Only defaultCursorStyle as it's a string constant
+
+  // Comprehensive keyboard handling (for other keys)
+  const keyboard = useComprehensiveKeyboard({
     onSpacePressed: () => {
-      // Dispatch to state machine
-      stateMachine.dispatch({ type: 'SPACE_DOWN' });
+      // Handled by direct DOM listener above
     },
     onSpaceReleased: () => {
-      // Dispatch to state machine
-      stateMachine.dispatch({ type: 'SPACE_UP' });
+      // Handled by direct DOM listener above
     },
     onCustomTool: () => {
       setCurrentTool('custom');
@@ -564,6 +548,8 @@ const DrawingCanvas = () => {
           // Mark composite as dirty BEFORE finalization
           compositeCanvasDirtyRef.current = true;
           drawingHandlers.finalizeDrawing().then(() => {
+            // Signal that finalization is complete
+            stateMachine.finalizationComplete();
             // Trigger redraw after finalization
             setNeedsRedraw(prev => prev + 1);
           });
@@ -628,10 +614,26 @@ const DrawingCanvas = () => {
     
     const mousePos = getMousePos(event);
     
+    // SIMPLIFIED PANNING: Just check if space is pressed
+    if (isSpacePressedRef.current) {
+      pan.startPan(mousePos.x, mousePos.y);
+      setCursorStyle('grabbing');
+      setShowBrushCursor(false);
+      return; // Skip everything else - we're panning
+    }
+    
+    // Middle or right click - skip
+    if (event.button === 1 || event.button === 2) {
+      return;
+    }
+    
     const scale = canvas?.zoom || 1;
     const worldPos = pan.screenToWorld(mousePos.x, mousePos.y, scale);
     
-    // Dispatch to state machine with SCREEN position for panning
+    // Check the state BEFORE dispatching - this is critical!
+    const currentMode = stateMachine.state.mode;
+    
+    // Dispatch to state machine with SCREEN position for normal interactions
     stateMachine.dispatch({ 
       type: 'MOUSE_DOWN', 
       button: event.button,
@@ -647,17 +649,9 @@ const DrawingCanvas = () => {
       }
     }
     
-    
-    // Do nothing if in pan mode or middle/right mouse button
-    if (stateMachine.state.mode === 'AWAITING_PAN' || 
-        stateMachine.state.mode === 'PANNING' || 
-        event.button === 1 || 
-        event.button === 2) {
-      return;
-    }
-    
     // For simple drawing mode, use the existing drawing handlers
-    if (stateMachine.state.mode === 'IDLE' && 
+    // Use the currentMode captured BEFORE dispatch!
+    if (currentMode === 'IDLE' && 
         (tools.currentTool === 'brush' || tools.currentTool === 'eraser') &&
         !tools.shapeMode &&
         tools.brushSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT &&
@@ -824,55 +818,54 @@ const DrawingCanvas = () => {
       }
       
       // Normal brush or shape mode
-      interaction.dispatch({ type: 'DRAWING_START' });
-      if (tools.shapeMode) {
-        drawingHandlers.startShapeDrawing(worldPos);
-      } else {
-        drawingHandlers.startDrawing(worldPos);
+      // BUT ONLY if we're not in pan mode!
+      if (currentMode === 'IDLE') {
+        interaction.dispatch({ type: 'DRAWING_START' });
+        if (tools.shapeMode) {
+          drawingHandlers.startShapeDrawing(worldPos);
+        } else {
+          drawingHandlers.startDrawing(worldPos);
+        }
       }
     }
   }, [getMousePos, interaction, tools.currentTool, toolStateMachine, canvas, 
       setSelectionBounds, drawingHandlers, floatingPaste, project, 
-      stateMachine.state.mode, stateMachine.dispatch, pan]);
+      stateMachine.state.mode, stateMachine.dispatch, pan, setCursorStyle]);
   
   const handleMouseMove = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
     const currentMousePos = getMousePos(event);
     const scale = canvas?.zoom || 1;
     const worldPos = pan.screenToWorld(currentMousePos.x, currentMousePos.y, scale);
     
-    // Always dispatch to state machine first with screen coordinates
-    stateMachine.dispatch({ 
-      type: 'MOUSE_MOVE',
-      position: currentMousePos 
-    });
+    // Only dispatch to state machine if not panning (to avoid unnecessary updates)
+    if (!pan.panState.isPanning) {
+      stateMachine.dispatch({ 
+        type: 'MOUSE_MOVE',
+        position: currentMousePos 
+      });
+    }
     
-    // Handle panning update if in PANNING mode
-    if (stateMachine.state.mode === 'PANNING') {
-      // Update pan state directly without React state updates
-      const deltaX = currentMousePos.x - pan.panStartRef.current.x;
-      const deltaY = currentMousePos.y - pan.panStartRef.current.y;
+    // SIMPLIFIED PANNING: Check if we're actively panning
+    if (pan.panState.isPanning) {
+      // Update pan position
+      pan.updatePan(currentMousePos.x, currentMousePos.y);
       
-      // Update the view transform ref directly for immediate feedback
-      viewTransformRef.current.offsetX = pan.panStartOffsetRef.current.x + deltaX;
-      viewTransformRef.current.offsetY = pan.panStartOffsetRef.current.y + deltaY;
+      // Update view transform for immediate feedback
+      viewTransformRef.current.offsetX = pan.panState.offsetX;
+      viewTransformRef.current.offsetY = pan.panState.offsetY;
       
-      // Store temp offset for later commit
-      tempPanOffsetRef.current = { x: deltaX, y: deltaY };
-      
-      // Use requestAnimationFrame to throttle redraws
+      // Throttle redraws with RAF
       if (!drawAnimationFrameRef.current) {
         drawAnimationFrameRef.current = requestAnimationFrame(() => {
-          // Use cached context if available
-          const ctx = ctxRef.current || canvasRef.current?.getContext('2d', { willReadFrequently: true });
+          const ctx = canvasRef.current?.getContext('2d', { willReadFrequently: true });
           if (ctx) {
-            if (!ctxRef.current) ctxRef.current = ctx;
             draw(ctx, viewTransformRef.current);
           }
           drawAnimationFrameRef.current = null;
         });
       }
       
-      return; // Don't process other mouse move logic while panning
+      return; // Skip other mouse move logic while panning
     }
     
     // No clamping needed - line clipping in useDrawingHandlers handles edge cases properly
@@ -1297,13 +1290,20 @@ const DrawingCanvas = () => {
     
     const mousePos = getMousePos(event);
     
-    // Dispatch to state machine
-    stateMachine.dispatch({ 
-      type: 'MOUSE_UP',
-      position: mousePos 
-    });
+    // SIMPLIFIED PANNING: End pan if we were panning
+    if (pan.panState.isPanning) {
+      pan.endPan();
+      // Restore cursor based on space state
+      if (isSpacePressedRef.current) {
+        setCursorStyle('grab');
+      } else {
+        setCursorStyle(defaultCursorStyle);
+        setShowBrushCursor(true);
+      }
+      return;
+    }
     
-    // For other modes, dispatch with screen position
+    // Dispatch to state machine (only once) for normal interactions
     stateMachine.dispatch({ 
       type: 'MOUSE_UP',
       position: mousePos 
@@ -1385,6 +1385,8 @@ const DrawingCanvas = () => {
           compositeCanvasDirtyRef.current = true;
           // Finalize the drawing
           drawingHandlers.finalizeDrawing().then(() => {
+            // Signal that finalization is complete
+            stateMachine.finalizationComplete();
             // Trigger redraw after finalization
             setNeedsRedraw(prev => prev + 1);
           });
@@ -1402,9 +1404,13 @@ const DrawingCanvas = () => {
       
       if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
         drawingHandlers.finalizeShapeDrawing();
+        // Signal that finalization is complete
+        stateMachine.finalizationComplete();
         setNeedsRedraw(prev => prev + 1);
       } else {
         drawingHandlers.finalizeDrawing().then(() => {
+          // Signal that finalization is complete
+          stateMachine.finalizationComplete();
           // Trigger redraw after finalization completes
           setNeedsRedraw(prev => prev + 1);
         });
@@ -1412,7 +1418,8 @@ const DrawingCanvas = () => {
     }
   }, [interaction, getMousePos, setSelectionBounds, tools.currentTool, 
       setCurrentTool, clearSelection, toolStateMachine, drawingHandlers, isDraggingFloatingPaste, project,
-      stateMachine, layers, activeLayerId, updateLayer, saveCanvasState, tools, pan, canvas]);
+      stateMachine, layers, activeLayerId, updateLayer, saveCanvasState, tools, pan, canvas,
+      setCursorStyle, defaultCursorStyle]);
   
   const handleMouseLeave = useCallback(() => {
     setShowBrushCursor(false);
@@ -1429,9 +1436,13 @@ const DrawingCanvas = () => {
         // Check if we're in shape mode or regular drawing mode
         if (drawingHandlers.isDrawingShapeRef && drawingHandlers.isDrawingShapeRef.current) {
           drawingHandlers.finalizeShapeDrawing();
+          // Signal that finalization is complete
+          stateMachine.finalizationComplete();
           setNeedsRedraw(prev => prev + 1);
         } else {
           drawingHandlers.finalizeDrawing().then(() => {
+            // Signal that finalization is complete
+            stateMachine.finalizationComplete();
             // Trigger redraw after finalization
             setNeedsRedraw(prev => prev + 1);
           });
@@ -1833,7 +1844,7 @@ const DrawingCanvas = () => {
           width: tools.brushSettings.currentBrushTip.width || 32,
           height: tools.brushSettings.currentBrushTip.height || 32
         } : null}
-        visible={showBrushCursor && stateMachine.state.mode !== 'AWAITING_PAN' && stateMachine.state.mode !== 'PANNING' && cursorStyle !== 'crosshair'}
+        visible={showBrushCursor && !pan.panState.isPanning && !isSpacePressedRef.current && cursorStyle !== 'crosshair'}
       />
     </div>
   );

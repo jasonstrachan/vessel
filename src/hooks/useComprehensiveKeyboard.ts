@@ -67,6 +67,26 @@ export function useComprehensiveKeyboard({
     setGlobalBrushSize 
   } = useAppStore();
 
+  // Use refs for stable callbacks to avoid re-registering event listeners
+  const onSpacePressedRef = useRef(onSpacePressed);
+  const onSpaceReleasedRef = useRef(onSpaceReleased);
+  const onCustomToolRef = useRef(onCustomTool);
+  const onEraserPressedRef = useRef(onEraserPressed);
+  const onEraserReleasedRef = useRef(onEraserReleased);
+  const onUndoRef = useRef(onUndo);
+  const onRedoRef = useRef(onRedo);
+  
+  // Update refs when callbacks change
+  useEffect(() => {
+    onSpacePressedRef.current = onSpacePressed;
+    onSpaceReleasedRef.current = onSpaceReleased;
+    onCustomToolRef.current = onCustomTool;
+    onEraserPressedRef.current = onEraserPressed;
+    onEraserReleasedRef.current = onEraserReleased;
+    onUndoRef.current = onUndo;
+    onRedoRef.current = onRedo;
+  }, [onSpacePressed, onSpaceReleased, onCustomTool, onEraserPressed, onEraserReleased, onUndo, onRedo]);
+
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
     if (!enabled) return;
 
@@ -80,7 +100,7 @@ export function useComprehensiveKeyboard({
     // Handle Undo (Ctrl/Cmd + Z) - must come before general key tracking
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.shiftKey) {
       event.preventDefault();
-      onUndo?.();
+      onUndoRef.current?.();
       return;
     }
 
@@ -90,22 +110,25 @@ export function useComprehensiveKeyboard({
       (event.key.toLowerCase() === 'y' && !event.shiftKey)
     )) {
       event.preventDefault();
-      if (onRedo) {
-        onRedo();
-      } else {
+      if (onRedoRef.current) {
+        onRedoRef.current();
       }
       return;
     }
 
     // Handle Space for panning (prevent repeat)
     if (event.code === 'Space') {
-      if (pressedKeysRef.current.has(event.code)) {
-        return;
-      }
-      pressedKeysRef.current.add(event.code);
       event.preventDefault();
-      keyboardStateRef.current.isSpacePressed = true;
-      onSpacePressed?.();
+      
+      // Only process if not already pressed
+      if (!keyboardStateRef.current.isSpacePressed) {
+        console.log('[KB] SPACE DOWN detected - calling onSpacePressed');
+        keyboardStateRef.current.isSpacePressed = true;
+        pressedKeysRef.current.add(event.code);
+        onSpacePressedRef.current?.();
+      } else {
+        console.log('[KB] SPACE DOWN ignored - already pressed');
+      }
       return;
     }
 
@@ -138,7 +161,7 @@ export function useComprehensiveKeyboard({
     if (event.key === 'c' || event.key === 'C') {
       if (!event.ctrlKey && !event.metaKey) {
         event.preventDefault();
-        onCustomTool?.();
+        onCustomToolRef.current?.();
         return;
       }
     }
@@ -179,7 +202,7 @@ export function useComprehensiveKeyboard({
           isTemporaryEraserRef.current = false;
         }
         
-        onEraserPressed?.();
+        onEraserPressedRef.current?.();
         return;
       }
     }
@@ -256,13 +279,13 @@ export function useComprehensiveKeyboard({
       onEscapePressed?.();
       return;
     }
-  }, [enabled, onSpacePressed, onUndo, onRedo, onCustomTool, 
-      onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
-      onPolygonCancel, onEnterPressed, onEscapePressed, onEraserPressed,
+  }, [enabled, onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
+      onPolygonCancel, onEnterPressed, onEscapePressed,
       tools, polygonGradientState, setCurrentTool, setGlobalBrushSize]);
 
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
     if (!enabled) return;
+
 
     // Update modifier states
     keyboardStateRef.current.isShiftPressed = event.shiftKey;
@@ -270,16 +293,24 @@ export function useComprehensiveKeyboard({
     keyboardStateRef.current.isAltPressed = event.altKey;
     keyboardStateRef.current.isMetaPressed = event.metaKey;
 
-    // Remove from pressed keys
-    pressedKeysRef.current.delete(event.code);
-
     // Handle Space release
     if (event.code === 'Space') {
       event.preventDefault();
-      keyboardStateRef.current.isSpacePressed = false;
-      onSpaceReleased?.();
+      
+      // Only process if space was actually pressed
+      if (keyboardStateRef.current.isSpacePressed) {
+        console.log('[KB] SPACE UP detected - calling onSpaceReleased');
+        keyboardStateRef.current.isSpacePressed = false;
+        pressedKeysRef.current.delete(event.code);
+        onSpaceReleasedRef.current?.();
+      } else {
+        console.log('[KB] SPACE UP ignored - space was not pressed');
+      }
       return;
     }
+    
+    // Remove from pressed keys for other keys
+    pressedKeysRef.current.delete(event.code);
     
     // Handle E key release (for temporary eraser mode)
     if (event.key === 'e' || event.key === 'E') {
@@ -302,36 +333,47 @@ export function useComprehensiveKeyboard({
           isTemporaryEraserRef.current = false;
         }
         
-        onEraserReleased?.();
+        onEraserReleasedRef.current?.();
         return;
       }
     }
-  }, [enabled, onSpaceReleased, onEraserReleased, setCurrentTool]);
+  }, [enabled, setCurrentTool]);
 
-  // Handle blur to reset state when window loses focus
+  // Handle window blur to reset state when window loses focus
   const handleBlur = useCallback(() => {
-    // Check the state before clearing it
-    const wasSpacePressed = keyboardStateRef.current.isSpacePressed;
-
-    // Reset all states when window loses focus
-    keyboardStateRef.current = {
-      isSpacePressed: false,
-      isShiftPressed: false,
-      isCtrlPressed: false,
-      isAltPressed: false,
-      isMetaPressed: false,
-    };
-    pressedKeysRef.current.clear();
-    
-    // Notify about space release if it was pressed
-    if (wasSpacePressed) {
-      onSpaceReleased?.();
+    // Reset keyboard state when window loses focus
+    if (!document.hasFocus()) {
+      console.log('[KB] Window blur - document lost focus');
+      // If space was pressed, release it
+      if (keyboardStateRef.current.isSpacePressed) {
+        console.log('[KB] Space was pressed during blur - forcing SPACE UP');
+        keyboardStateRef.current.isSpacePressed = false;
+        onSpaceReleasedRef.current?.();
+      }
+      
+      // Reset all states
+      keyboardStateRef.current = {
+        isSpacePressed: false,
+        isShiftPressed: false,
+        isCtrlPressed: false,
+        isAltPressed: false,
+        isMetaPressed: false,
+      };
+      pressedKeysRef.current.clear();
+    } else {
+      console.log('[KB] Window blur - but document still has focus, ignoring');
     }
-  }, [onSpaceReleased]);
+  }, []);
 
   useEffect(() => {
     if (!enabled) return;
 
+    // Remove any existing listeners first to prevent duplicates
+    window.removeEventListener('keydown', handleKeyDown);
+    window.removeEventListener('keyup', handleKeyUp);
+    window.removeEventListener('blur', handleBlur);
+    
+    // Add fresh listeners
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', handleBlur);

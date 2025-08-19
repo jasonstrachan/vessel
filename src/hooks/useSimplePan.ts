@@ -32,6 +32,7 @@ export function useSimplePan(options: SimplePanOptions = {}) {
   }, []);
   
   const updatePan = useCallback((currentX: number, currentY: number) => {
+    // Check the ref which is always current
     if (!isPanningRef.current) return;
     
     const deltaX = currentX - panStartRef.current.x;
@@ -42,7 +43,7 @@ export function useSimplePan(options: SimplePanOptions = {}) {
       offsetX: panStartOffsetRef.current.x + deltaX,
       offsetY: panStartOffsetRef.current.y + deltaY
     }));
-  }, []);
+  }, []); // Empty deps is OK since we're using refs which don't need to be dependencies
   
   const setPan = useCallback((offsetX: number, offsetY: number) => {
     setPanState(prev => ({ ...prev, offsetX, offsetY }));

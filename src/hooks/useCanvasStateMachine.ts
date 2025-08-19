@@ -104,6 +104,15 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
     }
   }
 
+  // Handle SET_TOOL action globally - can happen in any state
+  if (action.type === 'SET_TOOL') {
+    // Only update if the tool is actually changing to avoid unnecessary re-renders
+    if (state.currentTool !== action.tool) {
+      return { ...state, currentTool: action.tool };
+    }
+    return state;
+  }
+
   // Block all actions except space release when busy
   if (state.mode === 'BUSY') {
     if (action.type === 'SPACE_UP') {
@@ -114,28 +123,58 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
 
   // Handle spacebar press/release globally
   if (action.type === 'SPACE_DOWN') {
-    // Only transition to AWAITING_PAN if we're idle
-    if (state.mode === 'IDLE') {
-      return { ...state, mode: 'AWAITING_PAN', isSpacePressed: true };
-    } else if (state.mode === 'DRAWING') {
-      // If drawing, mark space as pressed but stay in drawing mode
-      // We'll finalize the drawing when space is released
+    console.log('[PAN] SPACE_DOWN - Current mode:', state.mode);
+    
+    // If we're currently drawing, we need to finalize first
+    if (state.mode === 'DRAWING') {
+      console.log('[PAN] Currently DRAWING - transitioning to FINALIZING with space flag');
+      return {
+        ...state,
+        mode: 'FINALIZING',
+        isSpacePressed: true,
+        isMouseDown: false,
+        mouseButton: null,
+        // Preserve drawing state for finalization
+      };
+    }
+    
+    // Only transition to AWAITING_PAN if not already there or panning
+    if (state.mode !== 'BUSY' && state.mode !== 'AWAITING_PAN' && state.mode !== 'PANNING') {
+      console.log('[PAN] Transitioning', state.mode, '→ AWAITING_PAN');
+      return { 
+        ...state, 
+        mode: 'AWAITING_PAN', 
+        isSpacePressed: true,
+        // Clear any drawing state
+        isMouseDown: false,
+        mouseButton: null,
+        lastPosition: null
+      };
+    }
+    // If already in AWAITING_PAN or PANNING, just ensure space flag is set
+    if (state.mode === 'AWAITING_PAN' || state.mode === 'PANNING') {
       return { ...state, isSpacePressed: true };
     }
     return state;
   }
 
   if (action.type === 'SPACE_UP') {
+    console.log('[PAN] SPACE_UP - Current mode:', state.mode);
     // Always clear the space flag
     const newState = { ...state, isSpacePressed: false };
     
     // If we were in AWAITING_PAN or PANNING mode, return to IDLE
     if (state.mode === 'AWAITING_PAN' || state.mode === 'PANNING') {
-      return { ...newState, mode: 'IDLE' };
+      console.log('[PAN] Transitioning', state.mode, '→ IDLE');
+      return { 
+        ...newState, 
+        mode: 'IDLE', 
+        isMouseDown: false, 
+        mouseButton: null,
+        lastPosition: null // Clear last position to prevent sticking
+      };
     }
     
-    // If we were drawing with space pressed, we might want to finalize
-    // But that should be handled by the component logic
     return newState;
   }
 
@@ -394,6 +433,7 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
       switch (action.type) {
         case 'MOUSE_DOWN':
           // Start panning when mouse is pressed while awaiting pan
+          console.log('[PAN] Transitioning AWAITING_PAN → PANNING');
           return {
             ...state,
             mode: 'PANNING',
@@ -421,6 +461,7 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
         case 'MOUSE_UP':
           // Go back to awaiting pan if space is still held
           if (state.isSpacePressed) {
+            console.log('[PAN] Mouse up while space held - Transitioning PANNING → AWAITING_PAN');
             return {
               ...state,
               mode: 'AWAITING_PAN',
@@ -429,6 +470,7 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
             };
           }
           // Otherwise go to idle
+          console.log('[PAN] Mouse up without space - Transitioning PANNING → IDLE');
           return {
             ...state,
             mode: 'IDLE',
@@ -447,13 +489,21 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
     case 'FINALIZING':
       switch (action.type) {
         case 'FINALIZE_COMPLETE':
-          // Reset to idle after finalization
+          // Surgical update: only clear drawing-related state, preserve everything else
+          // BUT if space is pressed, we should go to AWAITING_PAN instead of IDLE
+          const nextMode = state.isSpacePressed ? 'AWAITING_PAN' : 'IDLE';
           return {
-            ...initialState,
-            mode: 'IDLE',
-            currentTool: state.currentTool, // Preserve current tool
-            isSpacePressed: state.isSpacePressed, // Preserve space state
-            history: state.history, // Preserve history
+            ...state,
+            mode: nextMode,
+            isMouseDown: false,
+            mouseButton: null,
+            lastPosition: null,
+            drawingStartPosition: null,
+            selectionStart: null,
+            selectionEnd: null,
+            shapeDefineStart: null,
+            activeShape: null,
+            // Note: We preserve currentTool, isSpacePressed, history, and any other state
           };
           
         default:
@@ -464,13 +514,6 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
     default:
       return state;
   }
-  
-  // Handle SET_TOOL action globally
-  if (action.type === 'SET_TOOL') {
-    return { ...state, currentTool: (action as { type: 'SET_TOOL'; tool: string }).tool };
-  }
-  
-  return state;
 }
 
 // Custom hook
