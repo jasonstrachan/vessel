@@ -1683,7 +1683,13 @@ const DrawingCanvas = () => {
         
         const scrollSensitivity = 0.001;
         const zoomFactor = 1 - e.deltaY * scrollSensitivity;
-        const newScale = Math.max(0.1, Math.min(currentScale * zoomFactor, 32));
+        
+        // Limit max zoom to 10 (1000%) to prevent precision issues
+        const maxZoom = 10;
+        const newScale = Math.max(0.1, Math.min(currentScale * zoomFactor, maxZoom));
+        
+        // Only update if there's an actual change to prevent precision errors
+        if (Math.abs(newScale - currentScale) < 0.0001) return;
         
         const worldX = (mouseX - currentOffsetX) / currentScale;
         const worldY = (mouseY - currentOffsetY) / currentScale;

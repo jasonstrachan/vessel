@@ -139,7 +139,7 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
     }
     
     // Only transition to AWAITING_PAN if not already there or panning
-    if (state.mode !== 'BUSY' && state.mode !== 'AWAITING_PAN' && state.mode !== 'PANNING') {
+    if (state.mode !== 'AWAITING_PAN' && state.mode !== 'PANNING') {
       console.log('[PAN] Transitioning', state.mode, '→ AWAITING_PAN');
       return { 
         ...state, 
