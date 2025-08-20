@@ -798,11 +798,31 @@ const DrawingCanvas = () => {
               );
               
               drawingHandlers.drawingCanvasHasContent.current = true;
-              drawingHandlers.finalizeDrawing();
+              
+              // Mark composite as dirty BEFORE finalization
+              compositeCanvasDirtyRef.current = true;
+              
+              // Finalize the drawing
+              drawingHandlers.finalizeDrawing().then(() => {
+                // Signal that finalization is complete
+                stateMachine.finalizationComplete();
+                // Trigger redraw after finalization
+                setNeedsRedraw(prev => prev + 1);
+              });
+            }
+          }
+          
+          // Clear the overlay canvas
+          const overlayCanvas = overlayCanvasRef.current;
+          if (overlayCanvas) {
+            const overlayCtx = overlayCanvas.getContext('2d');
+            if (overlayCtx) {
+              overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
             }
           }
           
           toolStateMachine.resetRectangleGradient();
+          interaction.dispatch({ type: 'DRAWING_END' });
         } else if (result === true) {
           interaction.dispatch({ type: 'DRAWING_START', mode: 'definingLength' });
         }
@@ -832,10 +852,20 @@ const DrawingCanvas = () => {
       setSelectionBounds, drawingHandlers, floatingPaste, project, 
       stateMachine.state.mode, stateMachine.dispatch, pan, setCursorStyle]);
   
+  // Ref to track if we're in a drawing RAF loop
+  const drawingAnimationFrameRef = useRef<number | null>(null);
+  // Ref to track if we're in a preview RAF loop (for shapes and gradients)
+  const previewAnimationFrameRef = useRef<number | null>(null);
+  // Ref for overlay canvas used for previews
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  
   const handleMouseMove = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
     const currentMousePos = getMousePos(event);
     const scale = canvas?.zoom || 1;
     const worldPos = pan.screenToWorld(currentMousePos.x, currentMousePos.y, scale);
+    
+    // Always update cursor position immediately for responsive feel
+    setMousePosition({ x: event.clientX, y: event.clientY });
     
     // Only dispatch to state machine if not panning (to avoid unnecessary updates)
     if (!pan.panState.isPanning) {
@@ -870,9 +900,6 @@ const DrawingCanvas = () => {
     
     // No clamping needed - line clipping in useDrawingHandlers handles edge cases properly
     
-    // Update mouse position for cursor
-    setMousePosition({ x: event.clientX, y: event.clientY });
-    
     // Show brush cursor logic:
     // Hide cursor when: panning, custom tool, dragging paste, or actively erasing
     const shouldHideCursor = stateMachine.isAwaitingPan || 
@@ -904,81 +931,90 @@ const DrawingCanvas = () => {
     
     // Check for rectangle gradient width preview mode (special case - works without mouse down)
     if (toolStateMachine.isRectangleGradient && 
-        toolStateMachine.rectangleBrushState.drawingState === 'definingWidth') {
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-      if (ctx) {
-        draw(ctx, viewTransformRef.current);
-        
-        // Width definition preview - show full rectangle with gradient
-        const currentRectState = toolStateMachine.rectangleBrushState;
-        const startPos = currentRectState.startPos;
-        const endPos = currentRectState.endPos;
-        const dx = endPos.x - startPos.x;
-        const dy = endPos.y - startPos.y;
-        const length = Math.hypot(dx, dy);
-        
-        if (length > 0) {
-          const lineVecX = dx / length;
-          const lineVecY = dy / length;
-          const toMouseX = worldPos.x - startPos.x;
-          const toMouseY = worldPos.y - startPos.y;
-          const perpDist = Math.abs(-lineVecY * toMouseX + lineVecX * toMouseY);
-          const previewWidth = perpDist * 2;
-          
-          const perpX = -dy / length * (previewWidth / 2);
-          const perpY = dx / length * (previewWidth / 2);
-          
-          const corners = [
-            { x: startPos.x + perpX, y: startPos.y + perpY },
-            { x: startPos.x - perpX, y: startPos.y - perpY },
-            { x: endPos.x - perpX, y: endPos.y - perpY },
-            { x: endPos.x + perpX, y: endPos.y + perpY }
-          ];
-          
-          ctx.save();
-          ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
-          ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
-          
-          ctx.globalAlpha = tools.currentTool === 'eraser' 
-            ? (tools.eraserSettings.opacity || 1)
-            : (tools.brushSettings.opacity || 1);
-          ctx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
-          
-          // Sample colors for preview
-          const numColors = tools.brushSettings.colors || 2;
-          const sampledColors = sampleColorsAlongLine(
-            startPos.x,
-            startPos.y,
-            endPos.x,
-            endPos.y,
-            numColors
-          );
-          
-          // Create gradient for preview
-          const gradient = ctx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
-          
-          if (sampledColors.length > 0) {
-            sampledColors.forEach((color, index) => {
-              const position = sampledColors.length === 1 ? 0 : index / (sampledColors.length - 1);
-              gradient.addColorStop(position, color);
-            });
-          } else {
-            gradient.addColorStop(0, tools.brushSettings.color);
-            gradient.addColorStop(1, tools.brushSettings.color);
+        toolStateMachine.rectangleBrushState.drawingState === 'definingWidth' &&
+        !interaction.state.isDrawing) {  // Only preview when NOT actively drawing
+      
+      // Throttle rectangle gradient width preview with RAF
+      if (!previewAnimationFrameRef.current) {
+        previewAnimationFrameRef.current = requestAnimationFrame(() => {
+          const overlayCanvas = overlayCanvasRef.current;
+          const overlayCtx = overlayCanvas?.getContext('2d');
+          if (overlayCtx && overlayCanvas) {
+            // Clear only the overlay canvas
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            
+            // Width definition preview - show full rectangle with gradient
+            const currentRectState = toolStateMachine.rectangleBrushState;
+            const startPos = currentRectState.startPos;
+            const endPos = currentRectState.endPos;
+            const dx = endPos.x - startPos.x;
+            const dy = endPos.y - startPos.y;
+            const length = Math.hypot(dx, dy);
+            
+            if (length > 0) {
+              const lineVecX = dx / length;
+              const lineVecY = dy / length;
+              const toMouseX = worldPos.x - startPos.x;
+              const toMouseY = worldPos.y - startPos.y;
+              const perpDist = Math.abs(-lineVecY * toMouseX + lineVecX * toMouseY);
+              const previewWidth = perpDist * 2;
+              
+              const perpX = -dy / length * (previewWidth / 2);
+              const perpY = dx / length * (previewWidth / 2);
+              
+              const corners = [
+                { x: startPos.x + perpX, y: startPos.y + perpY },
+                { x: startPos.x - perpX, y: startPos.y - perpY },
+                { x: endPos.x - perpX, y: endPos.y - perpY },
+                { x: endPos.x + perpX, y: endPos.y + perpY }
+              ];
+              
+              overlayCtx.save();
+              overlayCtx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
+              overlayCtx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
+              
+              overlayCtx.globalAlpha = tools.currentTool === 'eraser' 
+                ? (tools.eraserSettings.opacity || 1)
+                : (tools.brushSettings.opacity || 1);
+              overlayCtx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
+              
+              // Sample colors for preview
+              const numColors = tools.brushSettings.colors || 2;
+              const sampledColors = sampleColorsAlongLine(
+                startPos.x,
+                startPos.y,
+                endPos.x,
+                endPos.y,
+                numColors
+              );
+              
+              // Create gradient for preview
+              const gradient = overlayCtx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
+              
+              if (sampledColors.length > 0) {
+                sampledColors.forEach((color, index) => {
+                  const position = sampledColors.length === 1 ? 0 : index / (sampledColors.length - 1);
+                  gradient.addColorStop(position, color);
+                });
+              } else {
+                gradient.addColorStop(0, tools.brushSettings.color);
+                gradient.addColorStop(1, tools.brushSettings.color);
+              }
+              
+              overlayCtx.fillStyle = gradient;
+              overlayCtx.beginPath();
+              overlayCtx.moveTo(corners[0].x, corners[0].y);
+              overlayCtx.lineTo(corners[1].x, corners[1].y);
+              overlayCtx.lineTo(corners[2].x, corners[2].y);
+              overlayCtx.lineTo(corners[3].x, corners[3].y);
+              overlayCtx.closePath();
+              overlayCtx.fill();
+              
+              overlayCtx.restore();
+            }
           }
-          
-          ctx.fillStyle = gradient;
-          ctx.beginPath();
-          ctx.moveTo(corners[0].x, corners[0].y);
-          ctx.lineTo(corners[1].x, corners[1].y);
-          ctx.lineTo(corners[2].x, corners[2].y);
-          ctx.lineTo(corners[3].x, corners[3].y);
-          ctx.closePath();
-          ctx.fill();
-          
-          ctx.restore();
-        }
+          previewAnimationFrameRef.current = null;
+        });
       }
       return;
     }
@@ -1003,99 +1039,105 @@ const DrawingCanvas = () => {
       if (toolStateMachine.isRectangleGradient) {
         const previewType = toolStateMachine.handleRectangleGradientMouseMove(worldPos);
         if (previewType) {
-          // Draw preview
-          const canvas = canvasRef.current;
-          const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-          if (ctx) {
-            draw(ctx, viewTransformRef.current);
-            
-            // Get current rectangle state
-            const currentRectState = toolStateMachine.rectangleBrushState;
-            
-            if (previewType === 'length') {
-              // Length definition preview - show thin line
-              ctx.save();
-              ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
-              ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
-              
-              ctx.strokeStyle = tools.brushSettings.color;
-              ctx.lineWidth = 2 / viewTransformRef.current.scale;
-              ctx.beginPath();
-              ctx.moveTo(currentRectState.startPos.x, currentRectState.startPos.y);
-              ctx.lineTo(currentRectState.endPos.x, currentRectState.endPos.y);
-              ctx.stroke();
-              
-              ctx.restore();
-            } else if (previewType === 'width') {
-              // Width definition preview - show full rectangle with gradient
-              const startPos = currentRectState.startPos;
-              const endPos = currentRectState.endPos;
-              const dx = endPos.x - startPos.x;
-              const dy = endPos.y - startPos.y;
-              const length = Math.hypot(dx, dy);
-              
-              if (length > 0) {
-                const lineVecX = dx / length;
-                const lineVecY = dy / length;
-                const toMouseX = worldPos.x - startPos.x;
-                const toMouseY = worldPos.y - startPos.y;
-                const perpDist = Math.abs(-lineVecY * toMouseX + lineVecX * toMouseY);
-                const previewWidth = perpDist * 2;
+          // Throttle rectangle gradient preview with RAF
+          if (!previewAnimationFrameRef.current) {
+            previewAnimationFrameRef.current = requestAnimationFrame(() => {
+              const overlayCanvas = overlayCanvasRef.current;
+              const overlayCtx = overlayCanvas?.getContext('2d');
+              if (overlayCtx && overlayCanvas) {
+                // Clear only the overlay canvas
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
                 
-                const perpX = -dy / length * (previewWidth / 2);
-                const perpY = dx / length * (previewWidth / 2);
+                // Get current rectangle state
+                const currentRectState = toolStateMachine.rectangleBrushState;
                 
-                const corners = [
-                  { x: startPos.x + perpX, y: startPos.y + perpY },
-                  { x: startPos.x - perpX, y: startPos.y - perpY },
-                  { x: endPos.x - perpX, y: endPos.y - perpY },
-                  { x: endPos.x + perpX, y: endPos.y + perpY }
-                ];
-                
-                ctx.save();
-                ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
-                ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
-                
-                ctx.globalAlpha = tools.currentTool === 'eraser' 
-                  ? (tools.eraserSettings.opacity || 1)
-                  : (tools.brushSettings.opacity || 1);
-                ctx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
-                
-                // Sample colors for preview
-                const numColors = tools.brushSettings.colors || 2;
-                const sampledColors = sampleColorsAlongLine(
-                  startPos.x,
-                  startPos.y,
-                  endPos.x,
-                  endPos.y,
-                  numColors
-                );
-                
-                // Create gradient for preview
-                const gradient = ctx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
-                
-                if (sampledColors.length > 0) {
-                  sampledColors.forEach((color, index) => {
-                    const position = sampledColors.length === 1 ? 0 : index / (sampledColors.length - 1);
-                    gradient.addColorStop(position, color);
-                  });
-                } else {
-                  gradient.addColorStop(0, tools.brushSettings.color);
-                  gradient.addColorStop(1, tools.brushSettings.color);
+                if (previewType === 'length') {
+                  // Length definition preview - show thin line using current mouse position
+                  overlayCtx.save();
+                  overlayCtx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
+                  overlayCtx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
+                  
+                  overlayCtx.strokeStyle = tools.brushSettings.color;
+                  overlayCtx.lineWidth = 2 / viewTransformRef.current.scale;
+                  overlayCtx.beginPath();
+                  overlayCtx.moveTo(currentRectState.startPos.x, currentRectState.startPos.y);
+                  overlayCtx.lineTo(worldPos.x, worldPos.y);  // Use current mouse position
+                  overlayCtx.stroke();
+                  
+                  overlayCtx.restore();
+                } else if (previewType === 'width') {
+                  // Width definition preview - show full rectangle with gradient
+                  const startPos = currentRectState.startPos;
+                  const endPos = currentRectState.endPos;
+                  const dx = endPos.x - startPos.x;
+                  const dy = endPos.y - startPos.y;
+                  const length = Math.hypot(dx, dy);
+                  
+                  if (length > 0) {
+                    const lineVecX = dx / length;
+                    const lineVecY = dy / length;
+                    const toMouseX = worldPos.x - startPos.x;
+                    const toMouseY = worldPos.y - startPos.y;
+                    const perpDist = Math.abs(-lineVecY * toMouseX + lineVecX * toMouseY);
+                    const previewWidth = perpDist * 2;
+                    
+                    const perpX = -dy / length * (previewWidth / 2);
+                    const perpY = dx / length * (previewWidth / 2);
+                    
+                    const corners = [
+                      { x: startPos.x + perpX, y: startPos.y + perpY },
+                      { x: startPos.x - perpX, y: startPos.y - perpY },
+                      { x: endPos.x - perpX, y: endPos.y - perpY },
+                      { x: endPos.x + perpX, y: endPos.y + perpY }
+                    ];
+                    
+                    overlayCtx.save();
+                    overlayCtx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
+                    overlayCtx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
+                    
+                    overlayCtx.globalAlpha = tools.currentTool === 'eraser' 
+                      ? (tools.eraserSettings.opacity || 1)
+                      : (tools.brushSettings.opacity || 1);
+                    overlayCtx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
+                    
+                    // Sample colors for preview
+                    const numColors = tools.brushSettings.colors || 2;
+                    const sampledColors = sampleColorsAlongLine(
+                      startPos.x,
+                      startPos.y,
+                      endPos.x,
+                      endPos.y,
+                      numColors
+                    );
+                    
+                    // Create gradient for preview
+                    const gradient = overlayCtx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
+                    
+                    if (sampledColors.length > 0) {
+                      sampledColors.forEach((color, index) => {
+                        const position = sampledColors.length === 1 ? 0 : index / (sampledColors.length - 1);
+                        gradient.addColorStop(position, color);
+                      });
+                    } else {
+                      gradient.addColorStop(0, tools.brushSettings.color);
+                      gradient.addColorStop(1, tools.brushSettings.color);
+                    }
+                    
+                    overlayCtx.fillStyle = gradient;
+                    overlayCtx.beginPath();
+                    overlayCtx.moveTo(corners[0].x, corners[0].y);
+                    overlayCtx.lineTo(corners[1].x, corners[1].y);
+                    overlayCtx.lineTo(corners[2].x, corners[2].y);
+                    overlayCtx.lineTo(corners[3].x, corners[3].y);
+                    overlayCtx.closePath();
+                    overlayCtx.fill();
+                    
+                    overlayCtx.restore();
+                  }
                 }
-                
-                ctx.fillStyle = gradient;
-                ctx.beginPath();
-                ctx.moveTo(corners[0].x, corners[0].y);
-                ctx.lineTo(corners[1].x, corners[1].y);
-                ctx.lineTo(corners[2].x, corners[2].y);
-                ctx.lineTo(corners[3].x, corners[3].y);
-                ctx.closePath();
-                ctx.fill();
-                
-                ctx.restore();
               }
-            }
+              previewAnimationFrameRef.current = null;
+            });
           }
         }
         return;
@@ -1104,73 +1146,79 @@ const DrawingCanvas = () => {
       // Polygon gradient
       if (toolStateMachine.isPolygonGradient) {
         if (toolStateMachine.handlePolygonGradientMouseMove(worldPos)) {
-          // Draw preview
-          const canvas = canvasRef.current;
-          const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-          const currentPolygonState = toolStateMachine.polygonGradientState;
-          
-          if (ctx && currentPolygonState.points.length > 0) {
-            draw(ctx, viewTransformRef.current);
-            
-            ctx.save();
-            ctx.imageSmoothingEnabled = false;
-            ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
-            ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
-            
-            // Build preview vertices including current mouse position
-            const previewVertices = [
-              ...currentPolygonState.points.map(p => ({ x: p.x, y: p.y })),
-              { x: worldPos.x, y: worldPos.y }
-            ];
-            
-            if (previewVertices.length >= 3) {
-              // Calculate bounds for gradient
-              const minX = Math.min(...previewVertices.map(v => v.x));
-              const minY = Math.min(...previewVertices.map(v => v.y));
-              const maxX = Math.max(...previewVertices.map(v => v.x));
-              const maxY = Math.max(...previewVertices.map(v => v.y));
-              const width = maxX - minX;
-              const height = maxY - minY;
+          // Throttle polygon gradient preview with RAF
+          if (!previewAnimationFrameRef.current) {
+            previewAnimationFrameRef.current = requestAnimationFrame(() => {
+              const overlayCanvas = overlayCanvasRef.current;
+              const overlayCtx = overlayCanvas?.getContext('2d');
+              const currentPolygonState = toolStateMachine.polygonGradientState;
               
-              // Choose gradient direction based on polygon shape
-              let gradient;
-              if (width > height) {
-                gradient = ctx.createLinearGradient(minX, (minY + maxY) / 2, maxX, (minY + maxY) / 2);
-              } else {
-                gradient = ctx.createLinearGradient((minX + maxX) / 2, minY, (minX + maxX) / 2, maxY);
+              if (overlayCtx && overlayCanvas && currentPolygonState.points.length > 0) {
+                // Clear only the overlay canvas
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                
+                overlayCtx.save();
+                overlayCtx.imageSmoothingEnabled = false;
+                overlayCtx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
+                overlayCtx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
+                
+                // Build preview vertices including current mouse position
+                const previewVertices = [
+                  ...currentPolygonState.points.map(p => ({ x: p.x, y: p.y })),
+                  { x: worldPos.x, y: worldPos.y }
+                ];
+                
+                if (previewVertices.length >= 3) {
+                  // Calculate bounds for gradient
+                  const minX = Math.min(...previewVertices.map(v => v.x));
+                  const minY = Math.min(...previewVertices.map(v => v.y));
+                  const maxX = Math.max(...previewVertices.map(v => v.x));
+                  const maxY = Math.max(...previewVertices.map(v => v.y));
+                  const width = maxX - minX;
+                  const height = maxY - minY;
+                  
+                  // Choose gradient direction based on polygon shape
+                  let gradient;
+                  if (width > height) {
+                    gradient = overlayCtx.createLinearGradient(minX, (minY + maxY) / 2, maxX, (minY + maxY) / 2);
+                  } else {
+                    gradient = overlayCtx.createLinearGradient((minX + maxX) / 2, minY, (minX + maxX) / 2, maxY);
+                  }
+                  
+                  // Build preview colors
+                  const previewColors = [
+                    ...currentPolygonState.points.map(p => p.color),
+                    sampleColorAtPosition(worldPos.x, worldPos.y)
+                  ];
+                  
+                  // Create gradient stops
+                  if (previewColors.length >= 3) {
+                    gradient.addColorStop(0, previewColors[0]);
+                    gradient.addColorStop(0.5, previewColors[Math.floor(previewColors.length / 2)]);
+                    gradient.addColorStop(1, previewColors[previewColors.length - 1]);
+                  } else if (previewColors.length === 2) {
+                    gradient.addColorStop(0, previewColors[0]);
+                    gradient.addColorStop(1, previewColors[1]);
+                  } else if (previewColors.length === 1) {
+                    gradient.addColorStop(0, previewColors[0]);
+                    gradient.addColorStop(1, previewColors[0]);
+                  }
+                  
+                  // Draw filled polygon preview
+                  overlayCtx.fillStyle = gradient;
+                  overlayCtx.beginPath();
+                  overlayCtx.moveTo(previewVertices[0].x, previewVertices[0].y);
+                  for (let i = 1; i < previewVertices.length; i++) {
+                    overlayCtx.lineTo(previewVertices[i].x, previewVertices[i].y);
+                  }
+                  overlayCtx.closePath();
+                  overlayCtx.fill();
+                }
+                
+                overlayCtx.restore();
               }
-              
-              // Build preview colors
-              const previewColors = [
-                ...currentPolygonState.points.map(p => p.color),
-                sampleColorAtPosition(worldPos.x, worldPos.y)
-              ];
-              
-              // Create gradient stops
-              if (previewColors.length >= 3) {
-                gradient.addColorStop(0, previewColors[0]);
-                gradient.addColorStop(0.5, previewColors[Math.floor(previewColors.length / 2)]);
-                gradient.addColorStop(1, previewColors[previewColors.length - 1]);
-              } else if (previewColors.length === 2) {
-                gradient.addColorStop(0, previewColors[0]);
-                gradient.addColorStop(1, previewColors[1]);
-              } else if (previewColors.length === 1) {
-                gradient.addColorStop(0, previewColors[0]);
-                gradient.addColorStop(1, previewColors[0]);
-              }
-              
-              // Draw filled polygon preview
-              ctx.fillStyle = gradient;
-              ctx.beginPath();
-              ctx.moveTo(previewVertices[0].x, previewVertices[0].y);
-              for (let i = 1; i < previewVertices.length; i++) {
-                ctx.lineTo(previewVertices[i].x, previewVertices[i].y);
-              }
-              ctx.closePath();
-              ctx.fill();
-            }
-            
-            ctx.restore();
+              previewAnimationFrameRef.current = null;
+            });
           }
         }
         return;
@@ -1181,112 +1229,146 @@ const DrawingCanvas = () => {
       if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
         drawingHandlers.continueShapeDrawing(worldPos);
       } else {
+        // Continue drawing immediately for responsive feel
         drawingHandlers.continueDrawing(worldPos);
         
-        // Manually trigger the redraw after updating the temporary canvas
-        // Use cached context for better performance
-        const canvas = canvasRef.current;
-        if (canvas) {
-          // Use the same context options as the main canvas for consistency
-          const ctx = canvas.getContext('2d', { 
-            willReadFrequently: true,
-            alpha: true,
-            desynchronized: true 
+        // Throttle the expensive redraw with RAF
+        if (!drawingAnimationFrameRef.current) {
+          drawingAnimationFrameRef.current = requestAnimationFrame(() => {
+            const canvas = canvasRef.current;
+            if (canvas) {
+              // Use the same context options as the main canvas for consistency
+              const ctx = canvas.getContext('2d', { 
+                willReadFrequently: true,
+                alpha: true,
+                desynchronized: true 
+              });
+              if (ctx) {
+                draw(ctx, viewTransformRef.current);
+              }
+            }
+            drawingAnimationFrameRef.current = null;
           });
-          if (ctx) {
-            draw(ctx, viewTransformRef.current);
-          }
         }
       }
       
       // Draw shape preview if in shape mode
       if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current && drawingHandlers.shapePointsRef.current.length > 0) {
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-        if (ctx) {
-          draw(ctx, viewTransformRef.current);
-          
-          // Draw preview of the shape
-          ctx.save();
-          ctx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
-          ctx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
-          
-          // Disable antialiasing for pixel brushes
-          const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND || 
-                              tools.brushSettings.brushShape === BrushShape.SQUARE ||
-                              !tools.brushSettings.antialiasing;
-          ctx.imageSmoothingEnabled = !isPixelBrush;
-          
-          // Set up preview style with actual brush settings
-          ctx.globalAlpha = tools.brushSettings.opacity; // Full opacity as requested
-          ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
-          
-          // Create the path
-          ctx.beginPath();
-          const points = drawingHandlers.shapePointsRef.current;
-          ctx.moveTo(points[0].x, points[0].y);
-          for (let i = 1; i < points.length; i++) {
-            ctx.lineTo(points[i].x, points[i].y);
-          }
-          // Connect to current mouse position
-          ctx.lineTo(worldPos.x, worldPos.y);
-          ctx.closePath();
-          
-          // Fill with color or pattern based on brush type
-          if (tools.brushSettings.brushShape === BrushShape.CUSTOM && 
-              tools.brushSettings.selectedCustomBrush && 
-              tools.brushSettings.currentBrushTip) {
-            // Create tiled pattern for custom brush
-            const patternCanvas = document.createElement('canvas');
-            const brushTip = tools.brushSettings.currentBrushTip;
-            const brushWidth = brushTip.width || 32;
-            const brushHeight = brushTip.height || 32;
-            const scaledSize = (tools.brushSettings.size / 100) * Math.max(brushWidth, brushHeight);
-            
-            patternCanvas.width = scaledSize;
-            patternCanvas.height = scaledSize;
-            const patternCtx = patternCanvas.getContext('2d', { willReadFrequently: true });
-            
-            if (patternCtx) {
-              // Create temp canvas for the brush tip
-              const tipCanvas = document.createElement('canvas');
-              tipCanvas.width = brushWidth;
-              tipCanvas.height = brushHeight;
-              const tipCtx = tipCanvas.getContext('2d', { willReadFrequently: true });
+        // Throttle shape preview with RAF
+        if (!previewAnimationFrameRef.current) {
+          previewAnimationFrameRef.current = requestAnimationFrame(() => {
+            const overlayCanvas = overlayCanvasRef.current;
+            const overlayCtx = overlayCanvas?.getContext('2d');
+            if (overlayCtx && overlayCanvas) {
+              // Clear only the overlay canvas
+              overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
               
-              if (tipCtx) {
-                tipCtx.putImageData(brushTip.imageData, 0, 0);
-                
-                // Scale and draw to pattern canvas
-                patternCtx.drawImage(tipCanvas, 0, 0, scaledSize, scaledSize);
-                
-                // Create pattern and fill
-                const pattern = ctx.createPattern(patternCanvas, 'repeat');
-                if (pattern) {
-                  ctx.fillStyle = pattern;
-                  ctx.fill();
-                }
+              // Draw preview of the shape
+              overlayCtx.save();
+              overlayCtx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
+              overlayCtx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
+              
+              // Disable antialiasing for pixel brushes
+              const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND || 
+                                  tools.brushSettings.brushShape === BrushShape.SQUARE ||
+                                  !tools.brushSettings.antialiasing;
+              overlayCtx.imageSmoothingEnabled = !isPixelBrush;
+              
+              // Set up preview style with actual brush settings
+              overlayCtx.globalAlpha = tools.brushSettings.opacity; // Full opacity as requested
+              overlayCtx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
+              
+              // Create the path
+              overlayCtx.beginPath();
+              const points = drawingHandlers.shapePointsRef.current;
+              overlayCtx.moveTo(points[0].x, points[0].y);
+              for (let i = 1; i < points.length; i++) {
+                overlayCtx.lineTo(points[i].x, points[i].y);
               }
+              // Connect to current mouse position
+              overlayCtx.lineTo(worldPos.x, worldPos.y);
+              overlayCtx.closePath();
+              
+              // Fill with color or pattern based on brush type
+              if (tools.brushSettings.brushShape === BrushShape.CUSTOM && 
+                  tools.brushSettings.selectedCustomBrush && 
+                  tools.brushSettings.currentBrushTip) {
+                // Create tiled pattern for custom brush
+                const patternCanvas = document.createElement('canvas');
+                const brushTip = tools.brushSettings.currentBrushTip;
+                const brushWidth = brushTip.width || 32;
+                const brushHeight = brushTip.height || 32;
+                const scaledSize = (tools.brushSettings.size / 100) * Math.max(brushWidth, brushHeight);
+                
+                patternCanvas.width = scaledSize;
+                patternCanvas.height = scaledSize;
+                const patternCtx = patternCanvas.getContext('2d', { willReadFrequently: true });
+                
+                if (patternCtx) {
+                  // Create temp canvas for the brush tip
+                  const tipCanvas = document.createElement('canvas');
+                  tipCanvas.width = brushWidth;
+                  tipCanvas.height = brushHeight;
+                  const tipCtx = tipCanvas.getContext('2d', { willReadFrequently: true });
+                  
+                  if (tipCtx) {
+                    tipCtx.putImageData(brushTip.imageData, 0, 0);
+                    
+                    // Scale and draw to pattern canvas
+                    patternCtx.drawImage(tipCanvas, 0, 0, scaledSize, scaledSize);
+                    
+                    // Create pattern and fill
+                    const pattern = overlayCtx.createPattern(patternCanvas, 'repeat');
+                    if (pattern) {
+                      overlayCtx.fillStyle = pattern;
+                      overlayCtx.fill();
+                    }
+                  }
+                }
+              } else {
+                // Fill with solid color for regular brushes
+                overlayCtx.fillStyle = tools.brushSettings.color;
+                overlayCtx.fill();
+              }
+              
+              // No outline - only fill as requested
+              
+              overlayCtx.restore();
             }
-          } else {
-            // Fill with solid color for regular brushes
-            ctx.fillStyle = tools.brushSettings.color;
-            ctx.fill();
-          }
-          
-          // No outline - only fill as requested
-          
-          ctx.restore();
+            previewAnimationFrameRef.current = null;
+          });
         }
       }
     }
   }, [getMousePos, interaction, toolStateMachine, setSelectionBounds, canvas, 
       draw, drawingHandlers, isDraggingFloatingPaste, floatingPaste, updateFloatingPastePosition, project, isBusyRef,
-      stateMachine.state.mode, stateMachine.dispatch, pan, viewTransformRef]);
+      stateMachine, pan, viewTransformRef, tools, setMousePosition, setShowBrushCursor, 
+      sampleColorsAlongLine, sampleColorAtPosition]);
   
   const handleMouseUp = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
     // Clear mouse down state
     isMouseDownRef.current = false;
+    
+    // Cancel any pending drawing animation frame
+    if (drawingAnimationFrameRef.current) {
+      cancelAnimationFrame(drawingAnimationFrameRef.current);
+      drawingAnimationFrameRef.current = null;
+    }
+    
+    // Cancel any pending preview animation frame
+    if (previewAnimationFrameRef.current) {
+      cancelAnimationFrame(previewAnimationFrameRef.current);
+      previewAnimationFrameRef.current = null;
+    }
+    
+    // Clear overlay canvas
+    const overlayCanvas = overlayCanvasRef.current;
+    if (overlayCanvas) {
+      const overlayCtx = overlayCanvas.getContext('2d');
+      if (overlayCtx) {
+        overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+      }
+    }
     
     const mousePos = getMousePos(event);
     
@@ -1350,9 +1432,24 @@ const DrawingCanvas = () => {
     if (interaction.state.isDrawing) {
       // Rectangle gradient
       if (toolStateMachine.isRectangleGradient) {
-        // Just handle the state transition - actual drawing is done in mouseDown when finalizing
-        toolStateMachine.handleRectangleGradientMouseUp();
-        // Don't end drawing state - stay active for width definition
+        // Handle the state transition
+        const shouldFinalize = toolStateMachine.handleRectangleGradientMouseUp();
+        
+        if (shouldFinalize) {
+          // Clear the overlay canvas since we're finalizing
+          const overlayCanvas = overlayCanvasRef.current;
+          if (overlayCanvas) {
+            const overlayCtx = overlayCanvas.getContext('2d');
+            if (overlayCtx) {
+              overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            }
+          }
+          
+          // Reset the tool state and end drawing
+          toolStateMachine.resetRectangleGradient();
+          interaction.dispatch({ type: 'DRAWING_END' });
+        }
+        // Don't end drawing state if we're still defining width
         return;
       }
       
@@ -1423,6 +1520,27 @@ const DrawingCanvas = () => {
   
   const handleMouseLeave = useCallback(() => {
     setShowBrushCursor(false);
+    
+    // Cancel any pending drawing animation frame
+    if (drawingAnimationFrameRef.current) {
+      cancelAnimationFrame(drawingAnimationFrameRef.current);
+      drawingAnimationFrameRef.current = null;
+    }
+    
+    // Cancel any pending preview animation frame
+    if (previewAnimationFrameRef.current) {
+      cancelAnimationFrame(previewAnimationFrameRef.current);
+      previewAnimationFrameRef.current = null;
+    }
+    
+    // Clear overlay canvas when leaving
+    const overlayCanvas = overlayCanvasRef.current;
+    if (overlayCanvas) {
+      const overlayCtx = overlayCanvas.getContext('2d');
+      if (overlayCtx) {
+        overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+      }
+    }
     
     // ADD THIS CHECK: Only finalize if the mouse button is NOT pressed.
     if (!isMouseDownRef.current) {
@@ -1774,6 +1892,14 @@ const DrawingCanvas = () => {
         lastHeight = height;
         canvas.width = width;
         canvas.height = height;
+        
+        // Also resize overlay canvas
+        const overlayCanvas = overlayCanvasRef.current;
+        if (overlayCanvas) {
+          overlayCanvas.width = width;
+          overlayCanvas.height = height;
+        }
+        
         setCanvasDimensions(width, height);
         
         // Get the latest draw function and viewTransform
@@ -1822,6 +1948,20 @@ const DrawingCanvas = () => {
           display: 'block', 
           width: '100%', 
           height: '100%',
+          imageRendering: (canvas?.zoom || 1) > 3 ? 'pixelated' : 'auto'
+        }}
+      />
+      
+      {/* Overlay canvas for previews - no interaction events */}
+      <canvas
+        ref={overlayCanvasRef}
+        style={{ 
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%', 
+          height: '100%',
+          pointerEvents: 'none',
           imageRendering: (canvas?.zoom || 1) > 3 ? 'pixelated' : 'auto'
         }}
       />

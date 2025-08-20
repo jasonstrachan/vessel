@@ -2,6 +2,29 @@
 
 ## Recent Updates
 
+### Preview Overlay Canvas Architecture (2025-08-20)
+- **Implemented separate overlay canvas** for shape and gradient previews to eliminate flickering
+- **Problem**: Rectangle and polygon gradient tools had severe flickering during preview because the entire canvas (all layers, frames) was being redrawn on every mouse move
+- **Solution**:
+  - Added dedicated overlay canvas that sits on top of the main canvas
+  - Preview rendering only clears and draws to the lightweight overlay
+  - Main artwork canvas remains untouched during preview operations
+  - Overlay is cleared on mouse up/leave when interaction completes
+- **Technical details**:
+  - overlayCanvasRef positioned absolutely over main canvas with pointer-events: none
+  - Overlay canvas is resized alongside main canvas in resize observer
+  - RAF throttling still applied to preview renders for smooth 60fps
+  - Preview calculations use live mouse position instead of stored state for responsiveness
+- **Performance optimizations**:
+  - Rectangle gradient mouse move updates throttled to >2px movements
+  - Temporary position stored in ref to avoid re-renders during dragging
+  - Final position applied on mouse up for accurate placement
+- **Benefits**:
+  - Completely eliminates preview flickering for all shape tools
+  - Dramatically improves performance (no full canvas redraws)
+  - Maintains smooth, professional preview experience
+  - Clean separation between preview layer and actual artwork
+
 ### Custom Brush Shape Tiling Fix (2025-08-18)
 - **Fixed custom brush shape rendering**: Custom brush textures now properly tile inside shapes instead of filling with solid color
 - **Problem**: When using custom brush toggle with shapes (square, circle, triangle), the shape was filled with a single color instead of tiling the custom brush pattern

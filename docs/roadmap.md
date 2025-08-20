@@ -1,7 +1,109 @@
 # TinyBrush Roadmap
 
 ## Brushes
-what a
+
+#### Sampler
+Dynamically samples canvas content for each new stroke.
+
+**Implementation:**
+- current brush size = sampled area
+- Capture on stroke start
+- All the default brush options
+- Reuse aleady build custom brush capture - temp brush cde, but do this on every new stroke
+
+### Datamosh Brush
+**Concept:** A glitch art brush that corrupts and "moshes" pixel data from the existing image, creating digital artifacts similar to video compression errors.
+
+**Implementation Details:**
+- Samples pixel data from the area under the brush
+- Applies datamoshing algorithms to corrupt/shift the data
+- Different mosh modes:
+  - Pixel displacement (shift pixels by random amounts)
+  - Color channel separation (RGB channels offset)
+  - Compression artifacts (simulate JPEG/MPEG errors)
+  - Temporal shifting (simulate frame bleeding)
+- Pressure controls intensity of corruption
+- Brush size determines affected area
+
+**Potential Features:**
+- Directional moshing (follow stroke direction)
+- Feedback loops (repeatedly mosh the same area for escalating effects)
+- Blend with original pixels for partial corruption
+- Preset glitch patterns (VHS, digital TV, corrupted file)
+- Animation support (animated glitch effects)
+
+### Data Erosion Brush
+**Concept:** A variation of the datamosh brush that progressively removes pixel data in interesting patterns, creating a digital decay effect.
+
+**Implementation Details:**
+- Iteratively removes pixel information with each stroke
+- Removal patterns:
+  - Alternating pixels (checkerboard erosion)
+  - Spiral patterns from center of brush
+  - Random pixel dropout with increasing probability
+  - Bit-depth reduction (progressively reduce color information)
+- Creates "holes" in the data that reveal background or transparency
+- Pattern can be time-based (erosion continues after stroke ends)
+
+**Potential Features:**
+- Erosion speed control (how fast pixels disappear)
+- Pattern selection (geometric, organic, random)
+- Selective erosion (only erode certain colors/brightness levels)
+- Restoration mode (bring back eroded pixels)
+- Erosion masks (protect certain areas from erosion)
+- Export erosion pattern as animated sequence
+
+#### Contour Map Polygon Brush
+Creates contour lines like what yuo see o a countour map.
+
+**Implementation:**
+- Generate contours based on the shape of the polygon
+- uses similar shape making as the polygon tool
+- only once the shape is complete does it calclate all the contours 
+- add heights markers for each contour going into the centre - heighest
+- make it all look hand drawn 
+
+#### Grain/Noise Slider
+Add texture to brush strokes for traditional media feel.
+
+**Implementation:**
+- Perlin noise generation for smooth grain
+- Intensity slider (0-100%)
+- Grain size parameter
+- Options: Uniform noise, Gaussian, Perlin
+- Blend mode selection for grain application
+- Performance: Generate noise textures on brush selection, not per-stamp
+
+#### Layered Paint Thickness
+Simulate paint buildup with multiple stroke passes.
+
+**Implementation:**
+- Virtual height map tracking paint thickness
+- Bump mapping or normal mapping for 3D effect
+- Color mixing based on paint layer interaction
+- Impasto effect with lighting simulation
+- Opacity increases with thickness
+- Performance: Use WebGL shaders if available
+
+#### Image Hose
+Spray images from a dynamic collection.
+
+**Implementation:**
+- Image source: Search API, local folder, predefined sets
+- Caching strategy for loaded images
+- Spray patterns: Random, sequential, pressure-based
+- Size/rotation variation
+- Blend mode per image
+- Performance: Preload and resize images, limit concurrent sprites
+#### Chaotic Brush System
+Unpredictable, generative brush behaviors.
+
+**Implementation:**
+- Strange attractors (Lorenz, Rössler)
+- Fractal generation (Julia sets, Mandelbrot)
+- Rule-based cellular automata
+- Particle systems with physics
+- Parameters: Chaos level, seed value, evolution rate
 
 #### Brush Spacing Jitter
 Dynamic randomization of brush stamp spacing for more organic, natural-looking strokes.
@@ -32,18 +134,7 @@ Randomize color within HSL ranges for each stamp.
 - Apply per stamp: `newColor = baseColor + random(-jitter, +jitter)`
 - Option to link to pressure/velocity
 - Presets for common effects (watercolor, spray paint)
-
-#### Grain/Noise Slider
-Add texture to brush strokes for traditional media feel.
-
-**Implementation:**
-- Perlin noise generation for smooth grain
-- Intensity slider (0-100%)
-- Grain size parameter
-- Options: Uniform noise, Gaussian, Perlin
-- Blend mode selection for grain application
-- Performance: Generate noise textures on brush selection, not per-stamp
-
+ 
 #### Dithering Brush (Pressure Sensitive)
 Applies dithering patterns with pressure controlling pattern density.
 
@@ -53,46 +144,6 @@ Applies dithering patterns with pressure controlling pattern density.
 - Real-time pattern generation based on underlying colors
 - Option to use current colors or force black/white
 - Performance: Pre-calculate dither matrices, cache patterns
-
-#### Contour Map Polygon Brush
-Creates topographic-style polygonal patterns.
-
-**Implementation:**
-- Generate contours based on the shape of the polygon
-- uses similar shape making as the polygon tool
-- only once the shape is complete does it calualyte all the contours 
-- add heights markers for each contour going into the centre - heighest
-
-#### Layered Paint Thickness
-Simulate paint buildup with multiple stroke passes.
-
-**Implementation:**
-- Virtual height map tracking paint thickness
-- Bump mapping or normal mapping for 3D effect
-- Color mixing based on paint layer interaction
-- Impasto effect with lighting simulation
-- Opacity increases with thickness
-- Performance: Use WebGL shaders if available
-
-#### Chaotic Brush System
-Unpredictable, generative brush behaviors.
-
-**Implementation:**
-- Strange attractors (Lorenz, Rössler)
-- Fractal generation (Julia sets, Mandelbrot)
-- Rule-based cellular automata
-- Particle systems with physics
-- Parameters: Chaos level, seed value, evolution rate
-
-#### Sampler Brush
-Dynamically samples canvas content for each stroke.
-
-**Implementation:**
-- Sample area = current brush size
-- Capture on stroke start
-- Clone sampled pixels with each stamp
-- Options: Blend mode, opacity, rotation
-- Performance: Limit sampling frequency to maintain speed
 
 #### Texturizer Brush
 Adds texture while respecting underlying pixels.
@@ -104,17 +155,6 @@ Adds texture while respecting underlying pixels.
 - Texture library: Paper, canvas, wood, stone
 - Pressure affects texture intensity
 - Smart edge detection to preserve details
-
-#### Image Hose
-Spray images from a dynamic collection.
-
-**Implementation:**
-- Image source: Search API, local folder, predefined sets
-- Caching strategy for loaded images
-- Spray patterns: Random, sequential, pressure-based
-- Size/rotation variation
-- Blend mode per image
-- Performance: Preload and resize images, limit concurrent sprites
 
 #### Haywire Brush
 Inverted control mappings for experimental effects.

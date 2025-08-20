@@ -21,24 +21,6 @@ import {
   PatternStyle
 } from '../utils/ditherAlgorithms';
 
-// Helper function for point-in-polygon test
-const pointInPolygon = (x: number, y: number, corners: Array<{x: number, y: number}>): boolean => {
-  let inside = false;
-  const n = corners.length;
-  
-  for (let i = 0, j = n - 1; i < n; j = i++) {
-    const xi = corners[i].x, yi = corners[i].y;
-    const xj = corners[j].x, yj = corners[j].y;
-    
-    const intersect = ((yi > y) !== (yj > y))
-        && (x <= (xj - xi) * (y - yi) / (yj - yi) + xi);
-    
-    if (intersect) inside = !inside;
-  }
-  
-  return inside;
-};
-
 // Combined dithering palette with browns, neutrals, and Apple II colors
 const DITHER_PALETTE: [number, number, number][] = [
   // Core neutrals (shared between both palettes)
@@ -3131,12 +3113,48 @@ export const useBrushEngine = () => {
           // Convert corners to local coordinates
           const localCorners = corners.map(c => ({ x: c.x - minX, y: c.y - minY }));
           
-          // Manually fill the rectangle with gamma-correct gradient
+          // First, render the gradient using Canvas API for proper edge handling
+          tempCtx.save();
+          tempCtx.imageSmoothingEnabled = false;
+          
+          // Create the gradient
+          const gradient = tempCtx.createLinearGradient(
+            startPos.x - minX, startPos.y - minY,
+            endPos.x - minX, endPos.y - minY
+          );
+          
           if (gradientLength > 0) {
+            // Add color stops for smooth gradient
+            gradient.addColorStop(0, `rgb(${startColorRGB[0]}, ${startColorRGB[1]}, ${startColorRGB[2]})`);
+            gradient.addColorStop(1, `rgb(${endColorRGB[0]}, ${endColorRGB[1]}, ${endColorRGB[2]})`);
+          } else {
+            // Solid color if no gradient
+            gradient.addColorStop(0, `rgb(${startColorRGB[0]}, ${startColorRGB[1]}, ${startColorRGB[2]})`);
+            gradient.addColorStop(1, `rgb(${startColorRGB[0]}, ${startColorRGB[1]}, ${startColorRGB[2]})`);
+          }
+          
+          // Draw the rectangle with proper edge handling
+          tempCtx.fillStyle = gradient;
+          tempCtx.beginPath();
+          tempCtx.moveTo(localCorners[0].x, localCorners[0].y);
+          for (let i = 1; i < localCorners.length; i++) {
+            tempCtx.lineTo(localCorners[i].x, localCorners[i].y);
+          }
+          tempCtx.closePath();
+          tempCtx.fill();
+          tempCtx.restore();
+          
+          // Now get the image data for dithering
+          const canvasImageData = tempCtx.getImageData(0, 0, boundWidth, boundHeight);
+          
+          // Manually apply gamma-correct gradient for better color accuracy during dithering
+          if (gradientLength > 0) {
+            const canvasData = canvasImageData.data;
             for (let y = 0; y < boundHeight; y++) {
               for (let x = 0; x < boundWidth; x++) {
-                // Check if point is inside the rectangle
-                if (pointInPolygon(x, y, localCorners)) {
+                const index = (y * boundWidth + x) * 4;
+                // Only process pixels that were filled by the canvas (alpha > 0)
+                if (canvasData[index + 3] > 0) {
                   const worldX = x + minX;
                   const worldY = y + minY;
                   
@@ -3151,31 +3169,17 @@ export const useBrushEngine = () => {
                   const t_b = l_startB + (l_endB - l_startB) * t;
                   
                   // Convert back to sRGB for display
-                  const r = linearToSrgb(t_r);
-                  const g = linearToSrgb(t_g);
-                  const b = linearToSrgb(t_b);
-                  
-                  const index = (y * boundWidth + x) * 4;
-                  data[index] = r;
-                  data[index + 1] = g;
-                  data[index + 2] = b;
-                  data[index + 3] = 255;
+                  canvasData[index] = linearToSrgb(t_r);
+                  canvasData[index + 1] = linearToSrgb(t_g);
+                  canvasData[index + 2] = linearToSrgb(t_b);
+                  // Keep alpha as-is from canvas rendering
                 }
               }
             }
+            gradientImageData.data.set(canvasData);
           } else {
-            // Solid fill if gradient has no length
-            for (let y = 0; y < boundHeight; y++) {
-              for (let x = 0; x < boundWidth; x++) {
-                if (pointInPolygon(x, y, localCorners)) {
-                  const index = (y * boundWidth + x) * 4;
-                  data[index] = startColorRGB[0];
-                  data[index + 1] = startColorRGB[1];
-                  data[index + 2] = startColorRGB[2];
-                  data[index + 3] = 255;
-                }
-              }
-            }
+            // For solid fill, just use what the canvas rendered
+            gradientImageData.data.set(canvasImageData.data);
           }
           
           // Apply dithering to the manually created gradient

@@ -122,12 +122,9 @@ export function useComprehensiveKeyboard({
       
       // Only process if not already pressed
       if (!keyboardStateRef.current.isSpacePressed) {
-        console.log('[KB] SPACE DOWN detected - calling onSpacePressed');
         keyboardStateRef.current.isSpacePressed = true;
         pressedKeysRef.current.add(event.code);
         onSpacePressedRef.current?.();
-      } else {
-        console.log('[KB] SPACE DOWN ignored - already pressed');
       }
       return;
     }
@@ -299,12 +296,9 @@ export function useComprehensiveKeyboard({
       
       // Only process if space was actually pressed
       if (keyboardStateRef.current.isSpacePressed) {
-        console.log('[KB] SPACE UP detected - calling onSpaceReleased');
         keyboardStateRef.current.isSpacePressed = false;
         pressedKeysRef.current.delete(event.code);
         onSpaceReleasedRef.current?.();
-      } else {
-        console.log('[KB] SPACE UP ignored - space was not pressed');
       }
       return;
     }
@@ -343,10 +337,8 @@ export function useComprehensiveKeyboard({
   const handleBlur = useCallback(() => {
     // Reset keyboard state when window loses focus
     if (!document.hasFocus()) {
-      console.log('[KB] Window blur - document lost focus');
       // If space was pressed, release it
       if (keyboardStateRef.current.isSpacePressed) {
-        console.log('[KB] Space was pressed during blur - forcing SPACE UP');
         keyboardStateRef.current.isSpacePressed = false;
         onSpaceReleasedRef.current?.();
       }
@@ -360,8 +352,6 @@ export function useComprehensiveKeyboard({
         isMetaPressed: false,
       };
       pressedKeysRef.current.clear();
-    } else {
-      console.log('[KB] Window blur - but document still has focus, ignoring');
     }
   }, []);
 

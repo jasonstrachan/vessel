@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushShape } from '../types';
 
@@ -38,15 +38,24 @@ export function useToolStateMachine({
     return true; // Proceed with drawing state
   }, [sampleColorAtPosition, setRectangleBrushState]);
   
+  // Ref to store the end position without triggering re-renders
+  const tempEndPosRef = useRef({ x: 0, y: 0 });
+  
   const handleRectangleGradientMouseMove = useCallback((worldPos: { x: number; y: number }) => {
     const currentState = useAppStore.getState().rectangleBrushState;
     
     if (currentState.drawingState === 'definingLength') {
-      // Update end position for length
-      setRectangleBrushState({
-        ...currentState,
-        endPos: { x: worldPos.x, y: worldPos.y }
-      });
+      // Store in ref to avoid re-renders - we'll update state on mouse up
+      tempEndPosRef.current = { x: worldPos.x, y: worldPos.y };
+      // Still update state but less frequently - only if moved significantly
+      const dx = worldPos.x - currentState.endPos.x;
+      const dy = worldPos.y - currentState.endPos.y;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+        setRectangleBrushState({
+          ...currentState,
+          endPos: { x: worldPos.x, y: worldPos.y }
+        });
+      }
       return 'length'; // Return preview type
     } else if (currentState.drawingState === 'definingWidth') {
       // Don't update state, just return for preview
@@ -60,9 +69,12 @@ export function useToolStateMachine({
     const currentState = useAppStore.getState().rectangleBrushState;
     
     if (currentState.drawingState === 'definingLength') {
-      // Transition to defining width
+      // Use the final position from the ref
+      const finalEndPos = tempEndPosRef.current;
+      // Transition to defining width with final position
       setRectangleBrushState({
         ...currentState,
+        endPos: finalEndPos,
         drawingState: 'definingWidth'
       });
       return false; // Don't finalize yet
