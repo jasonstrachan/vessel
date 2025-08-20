@@ -3075,9 +3075,6 @@ export const useBrushEngine = () => {
         const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
         
         if (tempCtx) {
-          // Create image data for manual pixel rendering
-          const gradientImageData = tempCtx.createImageData(boundWidth, boundHeight);
-          const data = gradientImageData.data;
           
           // Parse start and end colors
           let startColorRGB: [number, number, number];
@@ -3123,14 +3120,27 @@ export const useBrushEngine = () => {
             endPos.x - minX, endPos.y - minY
           );
           
-          if (gradientLength > 0) {
-            // Add color stops for smooth gradient
+          // Add all colors from the array as gradient stops
+          if (colors && colors.length > 0) {
+            const validColors = colors.filter(c => c !== undefined && c !== null);
+            if (validColors.length > 0) {
+              validColors.forEach((color: string, index: number) => {
+                const position = validColors.length === 1 ? 0 : index / (validColors.length - 1);
+                gradient.addColorStop(position, color);
+              });
+              // For single color, add the same color at position 1 to ensure solid fill
+              if (validColors.length === 1) {
+                gradient.addColorStop(1, validColors[0]);
+              }
+            } else {
+              // Fallback to start/end colors
+              gradient.addColorStop(0, `rgb(${startColorRGB[0]}, ${startColorRGB[1]}, ${startColorRGB[2]})`);
+              gradient.addColorStop(1, `rgb(${endColorRGB[0]}, ${endColorRGB[1]}, ${endColorRGB[2]})`);
+            }
+          } else {
+            // Use start and end colors if no colors array
             gradient.addColorStop(0, `rgb(${startColorRGB[0]}, ${startColorRGB[1]}, ${startColorRGB[2]})`);
             gradient.addColorStop(1, `rgb(${endColorRGB[0]}, ${endColorRGB[1]}, ${endColorRGB[2]})`);
-          } else {
-            // Solid color if no gradient
-            gradient.addColorStop(0, `rgb(${startColorRGB[0]}, ${startColorRGB[1]}, ${startColorRGB[2]})`);
-            gradient.addColorStop(1, `rgb(${startColorRGB[0]}, ${startColorRGB[1]}, ${startColorRGB[2]})`);
           }
           
           // Draw the rectangle with proper edge handling
@@ -3148,48 +3158,72 @@ export const useBrushEngine = () => {
           const canvasImageData = tempCtx.getImageData(0, 0, boundWidth, boundHeight);
           
           // Manually apply gamma-correct gradient for better color accuracy during dithering
-          if (gradientLength > 0) {
+          if (gradientLength > 0 && colors && colors.length > 1) {
             const canvasData = canvasImageData.data;
-            for (let y = 0; y < boundHeight; y++) {
-              for (let x = 0; x < boundWidth; x++) {
-                const index = (y * boundWidth + x) * 4;
-                // Only process pixels that were filled by the canvas (alpha > 0)
-                if (canvasData[index + 3] > 0) {
-                  const worldX = x + minX;
-                  const worldY = y + minY;
-                  
-                  // Project the current point onto the gradient vector to find its position (t)
-                  const pointVec = { x: worldX - startPos.x, y: worldY - startPos.y };
-                  const projection = (pointVec.x * gradientVector.x + pointVec.y * gradientVector.y) / (gradientLength * gradientLength);
-                  const t = Math.max(0, Math.min(1, projection));
-                  
-                  // Interpolate in linear space
-                  const t_r = l_startR + (l_endR - l_startR) * t;
-                  const t_g = l_startG + (l_endG - l_startG) * t;
-                  const t_b = l_startB + (l_endB - l_startB) * t;
-                  
-                  // Convert back to sRGB for display
-                  canvasData[index] = linearToSrgb(t_r);
-                  canvasData[index + 1] = linearToSrgb(t_g);
-                  canvasData[index + 2] = linearToSrgb(t_b);
-                  // Keep alpha as-is from canvas rendering
+            const validColors = colors.filter(c => c !== undefined && c !== null);
+            
+            if (validColors.length > 1) {
+              // Parse all colors for interpolation
+              const parsedColors = validColors.map(c => parseColor(c));
+              const linearColors = parsedColors.map(rgb => [
+                srgbToLinear(rgb[0]),
+                srgbToLinear(rgb[1]),
+                srgbToLinear(rgb[2])
+              ]);
+              
+              for (let y = 0; y < boundHeight; y++) {
+                for (let x = 0; x < boundWidth; x++) {
+                  const index = (y * boundWidth + x) * 4;
+                  // Only process pixels that were filled by the canvas (alpha > 0)
+                  if (canvasData[index + 3] > 0) {
+                    const worldX = x + minX;
+                    const worldY = y + minY;
+                    
+                    // Project the current point onto the gradient vector to find its position (t)
+                    const pointVec = { x: worldX - startPos.x, y: worldY - startPos.y };
+                    const projection = (pointVec.x * gradientVector.x + pointVec.y * gradientVector.y) / (gradientLength * gradientLength);
+                    const t = Math.max(0, Math.min(1, projection));
+                    
+                    // Find which two colors to interpolate between
+                    const scaledT = t * (validColors.length - 1);
+                    const colorIndex = Math.floor(scaledT);
+                    const localT = scaledT - colorIndex;
+                    
+                    let r, g, b;
+                    if (colorIndex >= validColors.length - 1) {
+                      // Use last color
+                      const lastColor = linearColors[linearColors.length - 1];
+                      r = lastColor[0];
+                      g = lastColor[1];
+                      b = lastColor[2];
+                    } else {
+                      // Interpolate between two colors
+                      const color1 = linearColors[colorIndex];
+                      const color2 = linearColors[colorIndex + 1];
+                      r = color1[0] + (color2[0] - color1[0]) * localT;
+                      g = color1[1] + (color2[1] - color1[1]) * localT;
+                      b = color1[2] + (color2[2] - color1[2]) * localT;
+                    }
+                    
+                    // Convert back to sRGB for display
+                    canvasData[index] = linearToSrgb(r);
+                    canvasData[index + 1] = linearToSrgb(g);
+                    canvasData[index + 2] = linearToSrgb(b);
+                    // Keep alpha as-is from canvas rendering
+                  }
                 }
               }
             }
-            gradientImageData.data.set(canvasData);
-          } else {
-            // For solid fill, just use what the canvas rendered
-            gradientImageData.data.set(canvasImageData.data);
           }
           
-          // Apply dithering to the manually created gradient
+          // Apply dithering to the gradient image data
           const fillResolution = brushSettings.fillResolution || 1;
           const algorithm = brushSettings.ditherAlgorithm || 'sierra-lite';
           const patternStyle = brushSettings.patternStyle || 'dots';
           
           const ditheredData = fillResolution > 1 
-            ? applyDitheringWithFillResolution(gradientImageData, numColors, fillResolution, algorithm, patternStyle)
-            : applyDithering(gradientImageData, numColors, algorithm, patternStyle);
+            ? applyDitheringWithFillResolution(canvasImageData, numColors, fillResolution, algorithm, patternStyle)
+            : applyDithering(canvasImageData, numColors, algorithm, patternStyle);
           
           // Draw the final result
           tempCtx.putImageData(ditheredData, 0, 0);
