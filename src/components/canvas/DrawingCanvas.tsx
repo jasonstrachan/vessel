@@ -150,16 +150,28 @@ const DrawingCanvas = () => {
       ctx.translate(offsetX, offsetY);
       ctx.scale(scale, scale);
       
-      // Draw checkerboard
+      // Draw checkerboard using simple fills (more efficient for panning)
       const checkerSize = 10;
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, project.width, project.height);
       ctx.fillStyle = '#e0e0e0';
       
-      for (let x = 0; x < project.width; x += checkerSize * 2) {
-        for (let y = 0; y < project.height; y += checkerSize * 2) {
-          ctx.fillRect(x, y, checkerSize, checkerSize);
-          ctx.fillRect(x + checkerSize, y + checkerSize, checkerSize, checkerSize);
+      // Only draw visible checkers - ensure we stay within canvas bounds
+      const startX = Math.floor(Math.max(0, -offsetX / scale) / (checkerSize * 2)) * (checkerSize * 2);
+      const startY = Math.floor(Math.max(0, -offsetY / scale) / (checkerSize * 2)) * (checkerSize * 2);
+      const endX = Math.min(project.width, Math.ceil((ctx.canvas.width - offsetX) / scale));
+      const endY = Math.min(project.height, Math.ceil((ctx.canvas.height - offsetY) / scale));
+      
+      for (let x = startX; x < endX; x += checkerSize * 2) {
+        for (let y = startY; y < endY; y += checkerSize * 2) {
+          // Clip checkers to canvas bounds
+          const w1 = Math.min(checkerSize, project.width - x);
+          const h1 = Math.min(checkerSize, project.height - y);
+          const w2 = Math.min(checkerSize, project.width - (x + checkerSize));
+          const h2 = Math.min(checkerSize, project.height - (y + checkerSize));
+          
+          if (w1 > 0 && h1 > 0) ctx.fillRect(x, y, w1, h1);
+          if (w2 > 0 && h2 > 0) ctx.fillRect(x + checkerSize, y + checkerSize, w2, h2);
         }
       }
       

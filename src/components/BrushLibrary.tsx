@@ -243,12 +243,12 @@ const BrushLibrary = () => {
         </div>
       </div>
       
-      <div className="flex-1 px-3 py-1 space-y-0 overflow-y-auto">
+      <div className="flex-1 py-1 space-y-0 overflow-y-auto">
         {allBrushes.map((preset) => (
           <div
             key={preset.id}
             onClick={() => handlePresetClick(preset)}
-            className={`flex items-center justify-between px-0 py-0 cursor-pointer transition-colors ${
+            className={`flex items-center justify-between px-3 py-0 cursor-pointer transition-colors ${
               isPresetActive(preset)
                 ? 'bg-[#505050]' 
                 : 'hover:bg-[#404040]'
@@ -284,32 +284,33 @@ const BrushLibrary = () => {
               )}
               <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>{preset.name}</span>
             </div>
-            <div className="flex items-center space-x-1">
-              <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
-                {preset.isCustomBrush ? '◆' : preset.isDefault ? '★' : '☆'}
-              </span>
-              {preset.isCustomBrush && (
+            {preset.isCustomBrush && (
+              <div className="flex items-center space-x-0.5">
                 <button
                   onClick={(e) => handleEditClick(e, preset)}
-                  className="px-2 py-0.5 text-xs text-[#D9D9D9] hover:text-green-400 transition-colors opacity-60 hover:opacity-100 border border-[#606060] hover:border-green-400 rounded"
+                  className="px-1.5 py-0 text-xs text-[#D9D9D9] hover:text-green-400 transition-colors opacity-60 hover:opacity-100 border border-[#606060] hover:border-green-400 rounded"
                   title={brushEditor.status === 'EDITING' && brushEditor.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save changes' : 'Edit brush'}
                 >
                   {brushEditor.status === 'EDITING' && brushEditor.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save' : 'Edit'}
                 </button>
-              )}
-              {!preset.isDefault && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeletePreset(preset.id);
-                  }}
-                  className="w-4 h-4 text-[#D9D9D9] hover:text-red-400 transition-colors opacity-60 hover:opacity-100"
-                  title={`Delete ${preset.name}`}
-                >
-                  ×
-                </button>
-              )}
-            </div>
+                <span className="text-[#D9D9D9] w-3 text-center" style={{ fontSize: '12px' }}>
+                  {preset.isDefault ? '★' : '☆'}
+                </span>
+                {!preset.isDefault && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeletePreset(preset.id);
+                    }}
+                    className="w-3 h-3 text-[#D9D9D9] hover:text-red-400 transition-colors opacity-60 hover:opacity-100 text-center flex items-center justify-center"
+                    title={`Delete ${preset.name}`}
+                    style={{ fontSize: '14px' }}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>

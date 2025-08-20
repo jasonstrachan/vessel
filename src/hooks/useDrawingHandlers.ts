@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { useBrushEngine } from './useBrushEngine';
+import { BrushShape } from '../types';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -307,7 +308,82 @@ export function useDrawingHandlers({
         if (drawCtx && brushEngine) {
           drawCtx.globalAlpha = 1.0;
           drawCtx.globalCompositeOperation = 'source-over';
-          drawCtx.fillStyle = tools.brushSettings.color;
+          
+          // Check if we're using a custom brush
+          const isCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM;
+          let customBrushImageData: ImageData | null = null;
+          let customBrushWidth = 0;
+          let customBrushHeight = 0;
+          let isColorizable = false;
+          
+          if (isCustomBrush) {
+            // Try to get custom brush from currentBrushTip first
+            if (tools.brushSettings.currentBrushTip) {
+              const brushTip = tools.brushSettings.currentBrushTip;
+              customBrushImageData = brushTip.imageData;
+              customBrushWidth = brushTip.width || brushTip.imageData.width;
+              customBrushHeight = brushTip.height || brushTip.imageData.height;
+              isColorizable = brushTip.isColorizable || tools.brushSettings.useSwatchColor;
+            } else if (tools.brushSettings.selectedCustomBrush) {
+              // Look for custom brush in project's custom brushes from the store
+              const currentState = useAppStore.getState();
+              const customBrush = currentState.project?.customBrushes?.find(b => b.id === tools.brushSettings.selectedCustomBrush);
+              if (customBrush) {
+                customBrushImageData = customBrush.imageData;
+                customBrushWidth = customBrush.width;
+                customBrushHeight = customBrush.height;
+                isColorizable = tools.brushSettings.useSwatchColor;
+              }
+            }
+          }
+          
+          if (isCustomBrush && customBrushImageData) {
+            // Calculate scaled size based on brush settings
+            const scaledSize = (tools.brushSettings.size / 100) * Math.max(customBrushWidth, customBrushHeight);
+            
+            // Create a pattern canvas at the scaled size
+            const patternCanvas = document.createElement('canvas');
+            patternCanvas.width = scaledSize;
+            patternCanvas.height = scaledSize;
+            const patternCtx = patternCanvas.getContext('2d');
+            
+            if (patternCtx) {
+              // Create temp canvas for the original brush tip
+              const tipCanvas = document.createElement('canvas');
+              tipCanvas.width = customBrushWidth;
+              tipCanvas.height = customBrushHeight;
+              const tipCtx = tipCanvas.getContext('2d');
+              
+              if (tipCtx) {
+                tipCtx.putImageData(customBrushImageData, 0, 0);
+                
+                // Apply color if the brush is colorizable
+                if (isColorizable) {
+                  tipCtx.globalCompositeOperation = 'source-atop';
+                  tipCtx.fillStyle = tools.brushSettings.color;
+                  tipCtx.fillRect(0, 0, tipCanvas.width, tipCanvas.height);
+                }
+                
+                // Scale and draw to pattern canvas
+                patternCtx.drawImage(tipCanvas, 0, 0, scaledSize, scaledSize);
+                
+                // Create pattern from the scaled brush
+                const pattern = drawCtx.createPattern(patternCanvas, 'repeat');
+                if (pattern) {
+                  drawCtx.fillStyle = pattern;
+                } else {
+                  drawCtx.fillStyle = tools.brushSettings.color;
+                }
+              } else {
+                drawCtx.fillStyle = tools.brushSettings.color;
+              }
+            } else {
+              drawCtx.fillStyle = tools.brushSettings.color;
+            }
+          } else {
+            // Use solid color for non-custom brushes or if custom brush not found
+            drawCtx.fillStyle = tools.brushSettings.color;
+          }
 
           drawCtx.beginPath();
           drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
@@ -335,7 +411,7 @@ export function useDrawingHandlers({
     } finally {
       if (isBusyRef) isBusyRef.current = false;
     }
-  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef]);
+  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef, project]);
   
   return {
     drawingCanvasRef,
