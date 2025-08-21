@@ -267,7 +267,9 @@ let patternTempCtx: CanvasRenderingContext2D | null = null;
 // Risograph texture cache
 let risographTexture: HTMLCanvasElement | null = null;
 
-// Removed unused riso texture canvas variables - now using GPU-accelerated patterns
+// Reusable texture canvas for riso operations
+let risoTextureCanvas: HTMLCanvasElement | null = null;
+let risoTextureCtx: CanvasRenderingContext2D | null = null;
 
 // --- OPTIMIZATION: Throttled and Interpolated Color Jitter ---
 // This object manages jitter state to avoid expensive calculations on every point.
@@ -962,81 +964,53 @@ const applyDitheringWithFillResolution = (
 };
 
 /**
- * Creates an authentic risograph halftone pattern with characteristic irregular dots.
- * Uses multiple layers and patterns to achieve the distinctive risograph look:
- * - Irregular dot placement (not perfect grid)
- * - Varied dot sizes
- * - Organic, slightly fuzzy edges
- * - Characteristic "screen angle" rotation
+ * Creates a realistic risograph halftone pattern with irregular dots.
+ * Mimics the characteristic organic, grainy texture of risograph printing.
+ * This is cached and reused for high performance.
  */
 const createRisographTexture = (): HTMLCanvasElement => {
   if (risographTexture) {
     return risographTexture;
   }
 
-  const size = 512; // Higher resolution for better quality
+  const size = 256; // Texture resolution for good detail/performance balance
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext('2d', { willReadFrequently: false }); // Don't need frequent reads
+  const ctx = canvas.getContext('2d', { colorSpace: 'srgb', willReadFrequently: true });
 
   if (!ctx) return canvas;
 
-  // Clear to white
-  ctx.fillStyle = 'white';
-  ctx.fillRect(0, 0, size, size);
-
-  // Create risograph-style halftone dots with irregular placement
-  const dotSpacing = 6; // Space between dots
-  const baseRadius = 2.5; // Base dot size
-  const angleOffset = 15 * Math.PI / 180; // 15 degree screen angle (characteristic of risograph)
-  
-  ctx.save();
-  ctx.translate(size / 2, size / 2);
-  ctx.rotate(angleOffset);
-  ctx.translate(-size / 2, -size / 2);
-  
-  // Draw irregular halftone dots
-  for (let y = -dotSpacing; y < size + dotSpacing; y += dotSpacing) {
-    for (let x = -dotSpacing; x < size + dotSpacing; x += dotSpacing) {
-      // Add organic irregularity to dot placement
-      const offsetX = (Math.random() - 0.5) * dotSpacing * 0.3;
-      const offsetY = (Math.random() - 0.5) * dotSpacing * 0.3;
-      
-      // Vary dot size organically
-      const radius = baseRadius * (0.5 + Math.random() * 1.0);
-      
-      // Create slightly irregular dots using multiple overlapping circles
-      ctx.fillStyle = `rgba(0, 0, 0, ${0.7 + Math.random() * 0.3})`;
-      ctx.beginPath();
-      ctx.arc(x + offsetX, y + offsetY, radius, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // Add slight "ink bleed" effect with smaller secondary dot
-      if (Math.random() > 0.6) {
-        ctx.fillStyle = `rgba(0, 0, 0, ${0.2 + Math.random() * 0.2})`;
-        ctx.beginPath();
-        ctx.arc(x + offsetX + (Math.random() - 0.5), y + offsetY + (Math.random() - 0.5), radius * 0.3, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-  }
-  
-  ctx.restore();
-  
-  // Add fine grain noise overlay for authentic texture
-  const imageData = ctx.getImageData(0, 0, size, size);
+  // Create fine-grain noise pattern for authentic dissolve effect
+  const imageData = ctx.createImageData(size, size);
   const data = imageData.data;
   
   for (let i = 0; i < data.length; i += 4) {
-    // Add subtle grain to existing pattern
-    const noise = (Math.random() - 0.5) * 20;
-    data[i] = Math.max(0, Math.min(255, data[i] + noise));
-    data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise));
-    data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise));
+    // Create very fine random noise
+    const value = Math.random() * 255;
+    data[i] = data[i + 1] = data[i + 2] = value;
+    data[i + 3] = 255;
   }
   
   ctx.putImageData(imageData, 0, 0);
+  
+  // Very slight blur to avoid aliasing while keeping fine detail
+  ctx.filter = 'blur(0.25px)';
+  ctx.drawImage(canvas, 0, 0);
+  ctx.filter = 'none';
+  
+  // High contrast adjustment for sharp dissolve effect
+  const finalData = ctx.getImageData(0, 0, size, size);
+  const final = finalData.data;
+  
+  for (let i = 0; i < final.length; i += 4) {
+    const value = final[i];
+    // Sharp threshold for clean dissolve
+    const adjusted = value > 128 ? 255 : 0;
+    final[i] = final[i + 1] = final[i + 2] = adjusted;
+  }
+  
+  ctx.putImageData(finalData, 0, 0);
 
   risographTexture = canvas;
   return risographTexture;
@@ -1605,47 +1579,80 @@ export const useBrushEngine = () => {
       targetCtx.globalCompositeOperation = currentCompositeOp;
     }
 
-    // --- APPLY RISOGRAPH EFFECT (OPTIMIZED) ---
+    // --- APPLY RISOGRAPH DISSOLVE ---
     if (isRisoActive && tempCanvas) {
-        const risoTexture = createRisographTexture();
+        // Throttle riso operations for performance during continuous drawing
+        const now = performance.now();
+        const settingsChanged = risoThrottleState.lastRisoSettings.intensity !== risographIntensity ||
+                               risoThrottleState.lastRisoSettings.size !== size ||
+                               Math.abs(risoThrottleState.lastRisoSettings.x - x) > 2 ||
+                               Math.abs(risoThrottleState.lastRisoSettings.y - y) > 2;
         
-        // Use GPU-accelerated compositing instead of pixel manipulation
-        const savedGlobalCompositeOperation = ctx.globalCompositeOperation;
-        const savedGlobalAlpha = ctx.globalAlpha;
+        // Adaptive throttling: use aggressive throttling during continuous strokes
+        risoThrottleState.continuousStrokeCount++;
+        const currentThrottleInterval = risoThrottleState.continuousStrokeCount > 10 
+            ? risoThrottleState.aggressiveThrottleInterval 
+            : risoThrottleState.throttleInterval;
         
-        // Draw the shape first
-        ctx.drawImage(tempCanvas, x - tempCanvas.width / 2, y - tempCanvas.height / 2);
-        
-        // Apply risograph texture using destination-in composite operation
-        // This is MUCH faster than per-pixel operations
-        ctx.globalCompositeOperation = 'destination-in';
-        
-        // Scale the effect based on intensity (0-100)
-        // Higher intensity = more texture effect
-        const effectStrength = risographIntensity / 100;
-        
-        // Create a pattern from the risograph texture for tiling
-        const pattern = ctx.createPattern(risoTexture, 'repeat');
-        if (pattern) {
-            ctx.fillStyle = pattern;
+        // Only process riso if enough time has passed or settings changed significantly
+        if (now - risoThrottleState.lastProcessTime > currentThrottleInterval || settingsChanged) {
+            const risoTexture = createRisographTexture();
+            // Adjust threshold calculation for more dramatic contrast at high values
+            // At 100% intensity, we want maximum effect (threshold = 0.2)
+            // At 0% intensity, no effect (threshold = 1.0)
+            const threshold = 1 - (risographIntensity / 100) * 0.8;
             
-            // Apply with variable opacity based on intensity
-            // Lower opacity = more of the original shape shows through
-            ctx.globalAlpha = 0.4 + (effectStrength * 0.6); // Range from 0.4 to 1.0
+            risoThrottleState.lastProcessTime = now;
+            risoThrottleState.lastRisoSettings = { intensity: risographIntensity, size, x, y };
+
+            const stampImageData = targetCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            const data = stampImageData.data;
+
+            // Use optimized reusable texture canvas
+            if (!risoTextureCanvas || risoTextureCanvas.width !== tempCanvas.width || risoTextureCanvas.height !== tempCanvas.height) {
+                risoTextureCanvas = document.createElement('canvas');
+                risoTextureCanvas.width = tempCanvas.width;
+                risoTextureCanvas.height = tempCanvas.height;
+                risoTextureCtx = risoTextureCanvas.getContext('2d', { willReadFrequently: true })!;
+            }
+            risoTextureCtx!.drawImage(risoTexture, 0, 0, tempCanvas.width, tempCanvas.height);
+            const textureData = risoTextureCtx!.getImageData(0, 0, tempCanvas.width, tempCanvas.height).data;
             
-            // Fill the shape area with the pattern
-            ctx.save();
-            ctx.translate(x - tempCanvas.width / 2, y - tempCanvas.height / 2);
-            ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-            ctx.restore();
+            // This loop simulates the "Dissolve" blend mode
+            for (let i = 0; i < data.length; i += 4) {
+                // If the pixel in the shape is visible...
+                if (data[i + 3] > 0) {
+                    // ...check the brightness of the corresponding noise pixel.
+                    const noiseBrightness = textureData[i] / 255;
+                    // If the noise brightness is below our slider threshold, "punch a hole"
+                    // in the shape by making the pixel fully transparent.
+                    if (noiseBrightness < threshold) {
+                        data[i + 3] = 0;
+                    }
+                }
+            }
+
+            // Put the modified, dissolved pixel data back onto the temp canvas
+            targetCtx.putImageData(stampImageData, 0, 0);
+            
+            // Draw the final, dissolved shape onto the main canvas
+            // CRITICAL FIX: Preserve the globalCompositeOperation when drawing back to main canvas
+            const savedGlobalCompositeOperation = ctx.globalCompositeOperation;
+            ctx.drawImage(tempCanvas, x - tempCanvas.width / 2, y - tempCanvas.height / 2);
+            // Restore the globalCompositeOperation in case drawImage affected it
+            ctx.globalCompositeOperation = savedGlobalCompositeOperation;
+
+            // Release only the temp canvas (texture canvas is reused globally)
+            canvasPool.release(tempCanvas);
+        } else {
+            // Skip expensive riso processing, just draw the shape directly
+            // CRITICAL FIX: Preserve the globalCompositeOperation when drawing back to main canvas
+            const savedGlobalCompositeOperation = ctx.globalCompositeOperation;
+            ctx.drawImage(tempCanvas, x - tempCanvas.width / 2, y - tempCanvas.height / 2);
+            // Restore the globalCompositeOperation in case drawImage affected it
+            ctx.globalCompositeOperation = savedGlobalCompositeOperation;
+            canvasPool.release(tempCanvas);
         }
-        
-        // Restore original composite operation and alpha
-        ctx.globalCompositeOperation = savedGlobalCompositeOperation;
-        ctx.globalAlpha = savedGlobalAlpha;
-        
-        // Release the temp canvas
-        canvasPool.release(tempCanvas);
     }
     // Note: We don't need ctx.restore() here because:
     // 1. For non-riso path, targetCtx === ctx and we already did targetCtx.restore()
@@ -2979,35 +2986,76 @@ export const useBrushEngine = () => {
     // Apply risograph effect if enabled (only if we drew something and no dithering will be applied)
     const risographIntensity = brushSettings.risographIntensity || 0;
     if (risographIntensity > 0 && !isPreview && !willApplyDithering) {
-      // Use GPU-accelerated risograph effect with pattern overlay
-      const risoTexture = createRisographTexture();
-      const pattern = ctx.createPattern(risoTexture, 'repeat');
+      // Get the bounds of the rectangle for effect
+      const minX = Math.floor(Math.min(...corners.map(c => c.x)));
+      const minY = Math.floor(Math.min(...corners.map(c => c.y)));
+      const maxX = Math.ceil(Math.max(...corners.map(c => c.x)));
+      const maxY = Math.ceil(Math.max(...corners.map(c => c.y)));
+      const boundWidth = maxX - minX;
+      const boundHeight = maxY - minY;
       
-      if (pattern) {
-        // Save current state
-        ctx.save();
+      if (boundWidth > 0 && boundHeight > 0) {
+        // Create a temporary canvas to test if points are inside the shape
+        const tempCanvas = canvasPool.acquire(boundWidth, boundHeight);
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
         
-        // Create clipping path for the rectangle
-        ctx.beginPath();
-        ctx.moveTo(corners[0].x, corners[0].y);
-        corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
-        ctx.closePath();
-        ctx.clip();
-        
-        // Apply risograph texture as overlay
-        ctx.globalCompositeOperation = 'multiply';
-        ctx.fillStyle = pattern;
-        ctx.globalAlpha = risographIntensity / 100 * 0.7; // Max 70% effect strength
-        
-        // Fill the clipped area with the pattern
-        const minX = Math.floor(Math.min(...corners.map(c => c.x)));
-        const minY = Math.floor(Math.min(...corners.map(c => c.y)));
-        const maxX = Math.ceil(Math.max(...corners.map(c => c.x)));
-        const maxY = Math.ceil(Math.max(...corners.map(c => c.y)));
-        ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
-        
-        // Restore state
-        ctx.restore();
+        if (tempCtx) {
+          // Draw the shape outline on temp canvas for point-in-path testing
+          tempCtx.beginPath();
+          tempCtx.moveTo(corners[0].x - minX, corners[0].y - minY);
+          corners.slice(1).forEach(corner => tempCtx.lineTo(corner.x - minX, corner.y - minY));
+          tempCtx.closePath();
+          
+          // Get the current gradient image data with bounds checking
+          const canvasWidth = ctx.canvas.width;
+          const canvasHeight = ctx.canvas.height;
+          const safeMinX = Math.max(0, minX);
+          const safeMinY = Math.max(0, minY);
+          const safeMaxX = Math.min(canvasWidth, minX + boundWidth);
+          const safeMaxY = Math.min(canvasHeight, minY + boundHeight);
+          const safeBoundWidth = safeMaxX - safeMinX;
+          const safeBoundHeight = safeMaxY - safeMinY;
+          
+          if (safeBoundWidth <= 0 || safeBoundHeight <= 0) {
+            canvasPool.release(tempCanvas);
+            return;
+          }
+          
+          const imageData = ctx.getImageData(safeMinX, safeMinY, safeBoundWidth, safeBoundHeight);
+          const data = imageData.data;
+          
+          // Create fine-grain dither pattern
+          const threshold = 1 - (risographIntensity / 100) * 0.8; // 0.2 to 1.0 range
+          
+          // Apply risograph dither effect pixel by pixel, but only inside the shape
+          for (let y = 0; y < boundHeight; y++) {
+            for (let x = 0; x < boundWidth; x++) {
+              // Check if this point is inside the rectangle shape
+              if (tempCtx.isPointInPath(x, y)) {
+                const index = (y * boundWidth + x) * 4;
+                
+                // Only process pixels that have content
+                if (data[index + 3] > 0) {
+                  // Create fine noise pattern for this pixel
+                  const noise = Math.random();
+                  
+                  // If noise is below threshold, darken the pixel
+                  if (noise < threshold) {
+                    data[index] = Math.floor(data[index] * 0.3);     // Red
+                    data[index + 1] = Math.floor(data[index + 1] * 0.3); // Green  
+                    data[index + 2] = Math.floor(data[index + 2] * 0.3); // Blue
+                  }
+                }
+              }
+            }
+          }
+          
+          // Put the modified image data back
+          ctx.putImageData(imageData, safeMinX, safeMinY);
+          
+          // Release the temporary canvas
+          canvasPool.release(tempCanvas);
+        }
       }
     }
 
@@ -3468,37 +3516,78 @@ export const useBrushEngine = () => {
     // Apply risograph effect if enabled
     const risographIntensity = brushSettings.risographIntensity || 0;
     if (risographIntensity > 0 && !isPreview) {
-      // Use GPU-accelerated risograph effect with pattern overlay
-      const risoTexture = createRisographTexture();
-      const pattern = ctx.createPattern(risoTexture, 'repeat');
+      // Get the bounds of the polygon for effect
+      const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
+      const minY = Math.floor(Math.min(...vertices.map(v => v.y)));
+      const maxX = Math.ceil(Math.max(...vertices.map(v => v.x)));
+      const maxY = Math.ceil(Math.max(...vertices.map(v => v.y)));
+      const boundWidth = maxX - minX;
+      const boundHeight = maxY - minY;
       
-      if (pattern) {
-        // Save current state
-        ctx.save();
+      if (boundWidth > 0 && boundHeight > 0) {
+        // Create a temporary canvas to test if points are inside the shape
+        const tempCanvas = canvasPool.acquire(boundWidth, boundHeight);
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
         
-        // Create clipping path for the polygon
-        ctx.beginPath();
-        ctx.moveTo(vertices[0].x, vertices[0].y);
-        for (let i = 1; i < vertices.length; i++) {
-          ctx.lineTo(vertices[i].x, vertices[i].y);
+        if (tempCtx) {
+          // Draw the polygon outline on temp canvas for point-in-path testing
+          tempCtx.beginPath();
+          tempCtx.moveTo(vertices[0].x - minX, vertices[0].y - minY);
+          for (let i = 1; i < vertices.length; i++) {
+            tempCtx.lineTo(vertices[i].x - minX, vertices[i].y - minY);
+          }
+          tempCtx.closePath();
+          
+          // Get the current gradient image data with bounds checking
+          const canvasWidth = ctx.canvas.width;
+          const canvasHeight = ctx.canvas.height;
+          const safeMinX = Math.max(0, minX);
+          const safeMinY = Math.max(0, minY);
+          const safeMaxX = Math.min(canvasWidth, minX + boundWidth);
+          const safeMaxY = Math.min(canvasHeight, minY + boundHeight);
+          const safeBoundWidth = safeMaxX - safeMinX;
+          const safeBoundHeight = safeMaxY - safeMinY;
+          
+          if (safeBoundWidth <= 0 || safeBoundHeight <= 0) {
+            canvasPool.release(tempCanvas);
+            return;
+          }
+          
+          const imageData = ctx.getImageData(safeMinX, safeMinY, safeBoundWidth, safeBoundHeight);
+          const data = imageData.data;
+          
+          // Create fine-grain dither pattern
+          const threshold = 1 - (risographIntensity / 100) * 0.8; // 0.2 to 1.0 range
+          
+          // Apply risograph dither effect pixel by pixel, but only inside the shape
+          for (let y = 0; y < boundHeight; y++) {
+            for (let x = 0; x < boundWidth; x++) {
+              // Check if this point is inside the polygon shape
+              if (tempCtx.isPointInPath(x, y)) {
+                const index = (y * boundWidth + x) * 4;
+                
+                // Only process pixels that have content
+                if (data[index + 3] > 0) {
+                  // Create fine noise pattern for this pixel
+                  const noise = Math.random();
+                  
+                  // If noise is below threshold, darken the pixel
+                  if (noise < threshold) {
+                    data[index] = Math.floor(data[index] * 0.3);     // Red
+                    data[index + 1] = Math.floor(data[index + 1] * 0.3); // Green  
+                    data[index + 2] = Math.floor(data[index + 2] * 0.3); // Blue
+                  }
+                }
+              }
+            }
+          }
+          
+          // Put the modified image data back
+          ctx.putImageData(imageData, safeMinX, safeMinY);
+          
+          // Release the temporary canvas
+          canvasPool.release(tempCanvas);
         }
-        ctx.closePath();
-        ctx.clip();
-        
-        // Apply risograph texture as overlay
-        ctx.globalCompositeOperation = 'multiply';
-        ctx.fillStyle = pattern;
-        ctx.globalAlpha = risographIntensity / 100 * 0.7; // Max 70% effect strength
-        
-        // Fill the clipped area with the pattern
-        const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
-        const minY = Math.floor(Math.min(...vertices.map(v => v.y)));
-        const maxX = Math.ceil(Math.max(...vertices.map(v => v.x)));
-        const maxY = Math.ceil(Math.max(...vertices.map(v => v.y)));
-        ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
-        
-        // Restore state
-        ctx.restore();
       }
     }
 
