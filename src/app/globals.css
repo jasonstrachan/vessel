@@ -11,6 +11,16 @@ canvas {
   display: block;
 }
 
+/* Ensure UI panels have default cursor */
+.toolbar, .controls-panel, .layer-panel, [role="toolbar"], [role="panel"] {
+  cursor: default !important;
+}
+
+/* Ensure interactive UI elements have pointer cursor */
+button, input, select, textarea, [role="button"], .clickable {
+  cursor: pointer !important;
+}
+
 /* Hide offscreen canvas */
 .truly-offscreen-canvas {
   position: absolute;

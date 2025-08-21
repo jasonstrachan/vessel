@@ -305,9 +305,15 @@ const BrushControls = () => {
           <CustomSwitch
             id="pressure-enabled"
             checked={activeSettings.pressureEnabled || false}
-            onChange={(checked) =>
-              setActiveSettings({ pressureEnabled: checked })
-            }
+            onChange={(checked) => {
+              console.log('[Pressure Toggle Debug]', {
+                previousState: activeSettings.pressureEnabled,
+                newState: checked,
+                minPressure: activeSettings.minPressure,
+                maxPressure: activeSettings.maxPressure
+              });
+              setActiveSettings({ pressureEnabled: checked });
+            }}
           />
           {(activeSettings.pressureEnabled || false) && (
             <>
@@ -315,11 +321,17 @@ const BrushControls = () => {
                 type="number"
                 variant="compact"
                 value={activeSettings.minPressure || 1}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const newMin = parseInt(e.target.value) || 1;
+                  console.log('[Min Pressure Input Debug]', {
+                    oldValue: activeSettings.minPressure,
+                    newValue: newMin,
+                    pressureEnabled: activeSettings.pressureEnabled
+                  });
                   setActiveSettings({
-                    minPressure: parseInt(e.target.value) || 1,
-                  })
-                }
+                    minPressure: newMin,
+                  });
+                }}
                 min="1"
                 max="1000"
                 className="w-8 bg-[#4a4a4a] border-none focus:outline-none h-5"
@@ -333,6 +345,11 @@ const BrushControls = () => {
                 value={activeSettings.maxPressure ?? 100}
                 onChange={(e) => {
                   const value = parseInt(e.target.value);
+                  console.log('[Max Pressure Input Debug]', {
+                    oldValue: activeSettings.maxPressure,
+                    newValue: value,
+                    pressureEnabled: activeSettings.pressureEnabled
+                  });
                   setActiveSettings({ maxPressure: value || undefined });
                 }}
                 min="1"

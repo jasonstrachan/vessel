@@ -122,7 +122,7 @@ export function useDrawingHandlers({
     ctx.stroke();
   }, []);
   
-  const startDrawing = useCallback((worldPos: { x: number; y: number }) => {
+  const startDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
     const currentState = useAppStore.getState();
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
@@ -156,13 +156,13 @@ export function useDrawingHandlers({
       // Check if this is a user brush
       if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
         userBrushEngine.setActiveBrush(currentBrushId);
-        userBrushEngine.startStroke(drawCtx, worldPos.x, worldPos.y, 1.0);
+        userBrushEngine.startStroke(drawCtx, worldPos.x, worldPos.y, pressure);
       } else if (brushEngine) {
         brushEngine.renderBrushStroke(
           drawCtx,
           worldPos,
           worldPos,
-          { pressure: 1.0 },
+          { pressure },
           activeBrushComponents
         );
       }
@@ -171,7 +171,7 @@ export function useDrawingHandlers({
     // Initial point drawn - parent component will handle redraw
   }, [initDrawingCanvas, brushEngine, userBrushEngine, project, activeBrushComponents, drawEraserSegment]);
 
-  const continueDrawing = useCallback((worldPos: { x: number; y: number }) => {
+  const continueDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
     const currentState = useAppStore.getState();
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
@@ -197,7 +197,7 @@ export function useDrawingHandlers({
       } else { // Brush tool
         // Check if this is a user brush
         if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
-          userBrushEngine.continueStroke(drawCtx, clippedEnd.x, clippedEnd.y, 1.0);
+          userBrushEngine.continueStroke(drawCtx, clippedEnd.x, clippedEnd.y, pressure);
         } else if (brushEngine) {
           drawCtx.globalAlpha = 1.0;
           drawCtx.globalCompositeOperation = 'source-over';
@@ -205,7 +205,7 @@ export function useDrawingHandlers({
             drawCtx,
             clippedStart,
             clippedEnd,
-            { pressure: 1.0 },
+            { pressure },
             activeBrushComponents
           );
         }
@@ -287,13 +287,13 @@ export function useDrawingHandlers({
     lastDrawPosRef.current = null;
   }, []);
   
-  const startShapeDrawing = useCallback((worldPos: { x: number; y: number }) => {
+  const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
     if (tools.shapeMode) {
       initDrawingCanvas();
       shapePointsRef.current = [worldPos];
       isDrawingShapeRef.current = true;
     } else {
-      startDrawing(worldPos);
+      startDrawing(worldPos, pressure);
     }
   }, [tools.shapeMode, initDrawingCanvas, startDrawing]);
   

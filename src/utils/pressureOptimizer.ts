@@ -50,20 +50,18 @@ class PressureOptimizer {
     settings: PressureSettings
   ): PressureResult {
     if (!settings.pressureEnabled) {
+      console.log('[Pressure Calc] Pressure disabled, returning base size:', baseSize);
       return {
         adjustedSize: baseSize,
         adjustedPressure: 1.0
       };
     }
 
-    // Convert min/max pressure percentages to actual pixel sizes
-    // minPressure and maxPressure from UI are percentages (1-1000)
-    // Convert to fraction of base brush size
-    const minPressurePercent = settings.minPressure || 1; // Default 1%
-    const maxPressurePercent = settings.maxPressure || 100; // Default 100% if not set
-    
-    const minSize = (minPressurePercent / 100) * baseSize;
-    const maxSize = (maxPressurePercent / 100) * baseSize;
+    // minPressure and maxPressure from UI are absolute pixel values (1-1000)
+    // These directly specify the brush size at min/max pressure
+    // If not provided, default to using the base brush size (no pressure variation)
+    const minSize = settings.minPressure !== undefined ? settings.minPressure : baseSize;
+    const maxSize = settings.maxPressure !== undefined ? settings.maxPressure : baseSize;
     
     const cacheKey = this.getCacheKey(
       baseSize,
@@ -84,15 +82,31 @@ class PressureOptimizer {
       this.cleanup();
     }
 
-    // Calculate pressure adjustment
-    const pressureThreshold = 0.05; // 5% deadzone
-    const adjustedPressure = Math.max(0, 
+    // Calculate pressure adjustment with small deadzone
+    const pressureThreshold = 0.01; // 1% deadzone for better responsiveness
+    const adjustedPressure = Math.max(0, Math.min(1,
       (settings.rawPressure - pressureThreshold) / (1.0 - pressureThreshold)
-    );
+    ));
     
     // Interpolate between minSize and maxSize based on pressure
-    const adjustedSize = minSize + (adjustedPressure * (maxSize - minSize));
-
+    // Ensure size is at least 1 pixel
+    const adjustedSize = Math.max(1, minSize + (adjustedPressure * (maxSize - minSize)));
+    
+    // Debug logging - only log occasionally to reduce spam
+    if (Math.random() < 0.05) { // Log 5% of calculations
+      console.log('[Pressure Calc Debug]', {
+        enabled: settings.pressureEnabled,
+        baseSize,
+        minPressure: settings.minPressure,
+        maxPressure: settings.maxPressure,
+        minSize,
+        maxSize,
+        rawPressure: settings.rawPressure,
+        adjustedPressure,
+        finalSize: adjustedSize,
+        calculation: `${minSize} + (${adjustedPressure} * (${maxSize} - ${minSize})) = ${adjustedSize}`
+      });
+    }
 
     const result: PressureResult = {
       adjustedSize,

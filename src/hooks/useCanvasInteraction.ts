@@ -9,7 +9,7 @@ export interface InteractionState {
 
 // Action types
 export type InteractionAction =
-  | { type: 'DRAWING_START'; mode?: 'drawing' | 'definingLength' }
+  | { type: 'DRAWING_START'; mode?: 'drawing' | 'definingLength'; pressure?: number }
   | { type: 'DRAWING_END' }
   | { type: 'DRAWING_MODE_CHANGE'; mode: InteractionState['drawingMode'] }
   | { type: 'SELECTION_START' }

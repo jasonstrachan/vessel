@@ -5,7 +5,7 @@ import { useAppStore } from '../stores/useAppStore';
 import { BrushComponent, ComponentType, BrushShape, CustomBrush, BrushSettings } from '../types';
 import { shouldApplyGridSnap, snapToGrid, getGridPositionsBetween, calculateGridDimensions, snapToRectangularGrid, getRectangularGridPositionsBetween } from '../utils/gridSnap';
 import { canvasPool } from '../utils/canvasPool';
-import { getRisographPattern, preloadRisographTexture } from '../utils/risographTexture';
+import { getRisographPattern, preloadRisographTexture, FastSoftBrush, UltraFastBrush } from '../utils/risographTexture';
 import { brushCache } from '../utils/brushCache';
 import { scaledBrushCache } from '../utils/scaledBrushCache';
 import { pressureOptimizer } from '../utils/pressureOptimizer';
@@ -932,15 +932,17 @@ const applyDitheringWithFillResolution = (
 
 
 // Base sizes for standard brushes (100% = these sizes in pixels)
-const BRUSH_BASE_SIZES = {
+const BRUSH_BASE_SIZES: Record<BrushShape, number> = {
   [BrushShape.PIXEL_ROUND]: 1,
   [BrushShape.ROUND]: 10,
   [BrushShape.SQUARE]: 10,
   [BrushShape.TRIANGLE]: 10,
   [BrushShape.CUSTOM]: 32, // Default for custom brushes
   [BrushShape.RECTANGLE_GRADIENT]: 10,
-  [BrushShape.POLYGON_GRADIENT]: 10
-} as const;
+  [BrushShape.POLYGON_GRADIENT]: 10,
+  [BrushShape.RISOGRAPH_SOFT]: 10, // Soft risograph brush
+  [BrushShape.RISOGRAPH_ULTRA]: 10 // Ultra-fast risograph brush
+};
 
 export interface StrokeInput {
   position: { x: number; y: number };
@@ -978,6 +980,9 @@ export const useBrushEngine = () => {
     
     return () => clearTimeout(timeoutId);
   }, []); // Run once on mount
+  
+  // Fast brush stamp cache for optimized rendering (like pixel brushes)
+  const brushStampCacheRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
   
   // Pixel queue state for perfect pixel drawing with distance-based spacing
   const pixelQueueRef = useRef({
@@ -1401,12 +1406,100 @@ export const useBrushEngine = () => {
           }
           break;
           
-        case BrushShape.ROUND:
-          // Always use perfect circles for antialiased round brushes
-          targetCtx.beginPath();
-          targetCtx.arc(drawX, drawY, halfSize, 0, Math.PI * 2);
-          targetCtx.fill();
+        case BrushShape.ROUND: {
+          // Optimized rendering using pre-cached circular stamps (like pixel brushes)
+          const brushSettings = tools.brushSettings;
+          const roundedSize = Math.round(size);
+          const useFastRender = roundedSize > 2 && !pattern;
+          
+          if (useFastRender && antiAliasing) {
+            // Soft brush with pre-rendered CIRCULAR stamps for performance
+            const cacheKey = `soft_circle_${roundedSize}`;
+            let stampCanvas = brushStampCacheRef.current.get(cacheKey);
+            
+            if (!stampCanvas) {
+              // Create a soft CIRCULAR brush stamp once and cache it
+              stampCanvas = document.createElement('canvas');
+              const padding = 4; // Extra pixels for soft edge
+              stampCanvas.width = roundedSize + padding;
+              stampCanvas.height = roundedSize + padding;
+              const stampCtx = stampCanvas.getContext('2d', { alpha: true });
+              
+              if (stampCtx) {
+                const center = stampCanvas.width / 2;
+                const radius = roundedSize / 2;
+                
+                // Create circular soft edge gradient (done once per size)
+                const gradient = stampCtx.createRadialGradient(
+                  center, center, radius * 0.3,
+                  center, center, radius
+                );
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+                gradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.8)');
+                gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                
+                // IMPORTANT: Draw a circle, not a rectangle!
+                stampCtx.beginPath();
+                stampCtx.arc(center, center, radius, 0, Math.PI * 2);
+                stampCtx.fillStyle = gradient;
+                stampCtx.fill();
+                
+                brushStampCacheRef.current.set(cacheKey, stampCanvas);
+              }
+            }
+            
+            // Draw the cached circular stamp with proper blending
+            if (stampCanvas) {
+              const stampOffset = stampCanvas.width / 2;
+              
+              // Use a temporary canvas to apply color to the stamp
+              const tempSize = stampCanvas.width;
+              const tempCanvas = canvasPool.acquire(tempSize, tempSize);
+              const tempCtx = tempCanvas.getContext('2d');
+              
+              if (tempCtx) {
+                // Clear and draw the white stamp
+                tempCtx.clearRect(0, 0, tempSize, tempSize);
+                tempCtx.drawImage(stampCanvas, 0, 0);
+                
+                // Apply color using source-in (preserves alpha)
+                tempCtx.globalCompositeOperation = 'source-in';
+                tempCtx.fillStyle = targetCtx.fillStyle;
+                tempCtx.fillRect(0, 0, tempSize, tempSize);
+                
+                // Draw the colored stamp to target
+                targetCtx.drawImage(tempCanvas, drawX - stampOffset, drawY - stampOffset);
+              }
+              
+              canvasPool.release(tempCanvas);
+            }
+          } else if (useFastRender && !antiAliasing) {
+            // Use pre-rendered pixel circle stamp for consistency
+            const stampCanvas = getPixelCircleStamp(Math.max(1, roundedSize));
+            const stampSize = stampCanvas.width;
+            const offsetX = Math.round(drawX - stampSize / 2);
+            const offsetY = Math.round(drawY - stampSize / 2);
+            
+            // Fast pixel-perfect circle using cached stamp
+            const tempCanvas = canvasPool.acquire(stampSize, stampSize);
+            const tempCtx = tempCanvas.getContext('2d');
+            if (tempCtx) {
+              tempCtx.clearRect(0, 0, stampSize, stampSize);
+              tempCtx.drawImage(stampCanvas, 0, 0);
+              tempCtx.globalCompositeOperation = 'source-in';
+              tempCtx.fillStyle = targetCtx.fillStyle;
+              tempCtx.fillRect(0, 0, stampSize, stampSize);
+              targetCtx.drawImage(tempCanvas, offsetX, offsetY);
+            }
+            canvasPool.release(tempCanvas);
+          } else {
+            // Fallback for complex cases (patterns, very small sizes)
+            targetCtx.beginPath();
+            targetCtx.arc(drawX, drawY, halfSize, 0, Math.PI * 2);
+            targetCtx.fill();
+          }
           break;
+        }
           
         case BrushShape.PIXEL_ROUND: {
           // Get the colorless pre-rendered stamp canvas
@@ -1811,6 +1904,11 @@ export const useBrushEngine = () => {
     // Mark stroke as inactive and trigger memory cleanup
     brushCache.markStrokeInactive();
     memoryManager.runCleanup();
+    
+    // Clear brush stamp cache if it's getting too large (keep memory usage low)
+    if (brushStampCacheRef.current.size > 50) {
+      brushStampCacheRef.current.clear();
+    }
     
     // Reset riso throttling state for new stroke
     // Removed - no longer tracking continuous strokes for riso throttling
@@ -2269,9 +2367,9 @@ export const useBrushEngine = () => {
       // Use cached calculations
       actualBrushSize = cached.actualSize;
     } else {
-      // Calculate actual brush size using unified percentage scaling
-      const baseSize = BRUSH_BASE_SIZES[tools.brushSettings.brushShape || BrushShape.ROUND];
-      const baseBrushSize = (tools.brushSettings.size / 100) * baseSize;
+      // For regular brushes, tools.brushSettings.size is already in pixels (1-500 from UI)
+      // No need to scale by base size
+      const baseBrushSize = tools.brushSettings.size;
       
       // Use optimized pressure calculation
       const pressureResult = pressureOptimizer.calculatePressureSize(baseBrushSize, {
@@ -2282,6 +2380,19 @@ export const useBrushEngine = () => {
       });
       
       actualBrushSize = pressureResult.adjustedSize;
+      
+      // Debug: Log the calculated brush size
+      if (tools.brushSettings.pressureEnabled) {
+        console.log('[Brush Engine Size Debug]', {
+          baseBrushSize,
+          actualBrushSize,
+          settingsSize: tools.brushSettings.size,
+          pressureEnabled: tools.brushSettings.pressureEnabled,
+          minPressure: tools.brushSettings.minPressure,
+          maxPressure: tools.brushSettings.maxPressure,
+          cursorPressure
+        });
+      }
       
       // Cache the calculated size
       brushCache.set(cacheKey, {
@@ -2360,6 +2471,20 @@ export const useBrushEngine = () => {
       settings = executeComponents(components, input);
     } catch {
       return; // Exit early to prevent further issues
+    }
+    
+    // Override the size with our pressure-calculated actualBrushSize
+    // This ensures the pressure calculation from pressureOptimizer is used
+    const originalSize = settings.size;
+    settings.size = actualBrushSize;
+    
+    // Debug: Log size override
+    if (tools.brushSettings.pressureEnabled && originalSize !== actualBrushSize) {
+      console.log('[Size Override Debug]', {
+        originalSize,
+        actualBrushSize,
+        pressureEnabled: tools.brushSettings.pressureEnabled
+      });
     }
     
     // Apply grid snapping after settings are calculated so we can use actual brush size
@@ -2550,10 +2675,13 @@ export const useBrushEngine = () => {
           // Check if we should draw this stamp (cursor-speed independent)
           if (shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
             // Calculate the position where we should place the next stamp
-            const remaining = queue.accumulatedDistance - settings.spacing;
-            const progress = (distance - remaining) / distance;
-            const x = queue.lastStrokePosition.x + (snappedTo.x - queue.lastStrokePosition.x) * progress;
-            const y = queue.lastStrokePosition.y + (snappedTo.y - queue.lastStrokePosition.y) * progress;
+            // Fix: Calculate progress based on how far we need to go back from current position
+            const stepBack = queue.accumulatedDistance - settings.spacing;
+            const progress = distance > 0 ? (distance - stepBack) / distance : 1;
+            // Clamp progress to valid range to handle edge cases
+            const clampedProgress = Math.max(0, Math.min(1, progress));
+            const x = queue.lastStrokePosition.x + (snappedTo.x - queue.lastStrokePosition.x) * clampedProgress;
+            const y = queue.lastStrokePosition.y + (snappedTo.y - queue.lastStrokePosition.y) * clampedProgress;
             
             drawCustomBrushStamp(ctx, x, y, customBrush, scaleFactor, settings.rotation, brushColor, shouldApplyColorTint, tools.brushSettings.pressureEnabled);
           }
@@ -2654,10 +2782,13 @@ export const useBrushEngine = () => {
           // Check if we should draw this stamp (cursor-speed independent)
           if (shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
             // Calculate the position where we should place the next shape
-            const remaining = queue.accumulatedDistance - settings.spacing;
-            const progress = (distance - remaining) / distance;
-            const x = queue.lastStrokePosition.x + (snappedTo.x - queue.lastStrokePosition.x) * progress;
-            const y = queue.lastStrokePosition.y + (snappedTo.y - queue.lastStrokePosition.y) * progress;
+            // Fix: Calculate progress based on how far we need to go back from current position
+            const stepBack = queue.accumulatedDistance - settings.spacing;
+            const progress = distance > 0 ? (distance - stepBack) / distance : 1;
+            // Clamp progress to valid range to handle edge cases
+            const clampedProgress = Math.max(0, Math.min(1, progress));
+            const x = queue.lastStrokePosition.x + (snappedTo.x - queue.lastStrokePosition.x) * clampedProgress;
+            const y = queue.lastStrokePosition.y + (snappedTo.y - queue.lastStrokePosition.y) * clampedProgress;
             
             const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;

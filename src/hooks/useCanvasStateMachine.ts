@@ -61,13 +61,13 @@ const initialState: CanvasState = {
 
 // Action types
 export type CanvasAction =
-  | { type: 'MOUSE_DOWN'; button: number; position: { x: number; y: number }; tool: string }
+  | { type: 'MOUSE_DOWN'; button: number; position: { x: number; y: number }; tool: string; pressure?: number }
   | { type: 'MOUSE_UP'; position: { x: number; y: number } }
-  | { type: 'MOUSE_MOVE'; position: { x: number; y: number } }
+  | { type: 'MOUSE_MOVE'; position: { x: number; y: number }; pressure?: number }
   | { type: 'MOUSE_LEAVE' }
   | { type: 'SPACE_DOWN' }
   | { type: 'SPACE_UP' }
-  | { type: 'START_DRAWING'; position: { x: number; y: number } }
+  | { type: 'START_DRAWING'; position: { x: number; y: number }; pressure?: number }
   | { type: 'START_SELECTION'; position: { x: number; y: number } }
   | { type: 'START_SHAPE'; position: { x: number; y: number }; shapeType: ShapeType }
   | { type: 'START_PASTE_DRAG'; position: { x: number; y: number } }

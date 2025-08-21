@@ -9,6 +9,7 @@ import { useComprehensiveKeyboard } from '../../hooks/useComprehensiveKeyboard';
 import { useDrawingHandlers } from '../../hooks/useDrawingHandlers';
 import { BrushShape } from '../../types';
 import { floodFill } from '../../utils/floodFill';
+import { detectWacomIssues, testWacomPressure } from '../../utils/detectWacom';
 import BrushCursor from './BrushCursor';
 
 const DrawingCanvas = () => {
@@ -619,26 +620,82 @@ const DrawingCanvas = () => {
     };
   }, []);
   
-  // Mouse event handlers
-  const handleMouseDown = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
+  // Pointer event handlers (supports pressure from stylus/tablets)
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     
-    // Track that mouse is down
+    // Track that pointer is down
     isMouseDownRef.current = true;
     
-    // If the app is busy, ignore this mouse click completely
+    // If the app is busy, ignore this pointer event completely
     if (isBusyRef.current) {
-      isMouseDownRef.current = false; // Clear ref in case mouseup is missed
+      isMouseDownRef.current = false; // Clear ref in case pointerup is missed
       return;
     }
     
     // Always prevent default to avoid browser drag behavior
     event.preventDefault();
     
-    const mousePos = getMousePos(event);
+    // Capture pointer for consistent events even when pointer moves outside canvas
+    (event.target as HTMLCanvasElement).setPointerCapture(event.pointerId);
+    
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const pointerPos = rect ? {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    } : { x: 0, y: 0 };
+    
+    // Store pressure value (0-1, with 0.5 as default for mice)
+    // For testing: Simulate pressure with mouse using Shift (low) and Ctrl (high)
+    let pressure = event.pressure || 0.5;
+    if (event.pointerType === 'mouse' && tools.brushSettings.pressureEnabled) {
+      if (event.shiftKey) {
+        pressure = 0.1; // Simulate low pressure with Shift
+      } else if (event.ctrlKey) {
+        pressure = 0.9; // Simulate high pressure with Ctrl
+      }
+    }
+    
+    // Test Wacom functionality
+    const wacomTest = testWacomPressure(event);
+    if (!wacomTest.isWorking && tools.brushSettings.pressureEnabled) {
+      console.warn('[WACOM ISSUE]', wacomTest.details);
+      const issues = detectWacomIssues();
+      if (issues.solutions.length > 0) {
+        console.log('[WACOM SOLUTIONS]:', issues.solutions.join('\n'));
+      }
+    }
+    
+    // Debug: Log pressure on pointer down
+    console.log('[PointerDown Debug]', {
+      rawPressure: event.pressure,
+      simulatedPressure: pressure,
+      pointerType: event.pointerType,
+      pointerId: event.pointerId,
+      isPrimary: event.isPrimary,
+      width: event.width,
+      height: event.height,
+      tiltX: event.tiltX,
+      tiltY: event.tiltY,
+      twist: event.twist,
+      tangentialPressure: event.tangentialPressure,
+      isPen: event.pointerType === 'pen',
+      isMouse: event.pointerType === 'mouse',
+      isTouch: event.pointerType === 'touch',
+      buttons: event.buttons,
+      pressureEnabled: tools.brushSettings.pressureEnabled,
+      minPressure: tools.brushSettings.minPressure,
+      maxPressure: tools.brushSettings.maxPressure,
+      brushSize: tools.brushSettings.size,
+      userAgent: navigator.userAgent,
+      platform: navigator.platform,
+      warning: event.pointerType === 'mouse' && event.pressure === 0.5
+        ? '⚠️ WACOM DETECTED AS MOUSE - Check drivers/browser settings!' 
+        : null
+    });
     
     // SIMPLIFIED PANNING: Just check if space is pressed
     if (isSpacePressedRef.current) {
-      pan.startPan(mousePos.x, mousePos.y);
+      pan.startPan(pointerPos.x, pointerPos.y);
       setCursorStyle('grabbing');
       setShowBrushCursor(false);
       return; // Skip everything else - we're panning
@@ -650,7 +707,7 @@ const DrawingCanvas = () => {
     }
     
     const scale = canvas?.zoom || 1;
-    const worldPos = pan.screenToWorld(mousePos.x, mousePos.y, scale);
+    const worldPos = pan.screenToWorld(pointerPos.x, pointerPos.y, scale);
     
     // Check the state BEFORE dispatching - this is critical!
     const currentMode = stateMachine.state.mode;
@@ -659,8 +716,9 @@ const DrawingCanvas = () => {
     stateMachine.dispatch({ 
       type: 'MOUSE_DOWN', 
       button: event.button,
-      position: mousePos,  // Use screen coordinates, not world
-      tool: tools.currentTool 
+      position: pointerPos,  // Use screen coordinates, not world
+      tool: tools.currentTool,
+      pressure
     });
     
     // --- PROPER FIX: Block clicks outside canvas bounds ---
@@ -680,8 +738,8 @@ const DrawingCanvas = () => {
         tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT) {
       
       // Use the existing drawing system with brush engine
-      interaction.dispatch({ type: 'DRAWING_START' });
-      drawingHandlers.startDrawing(worldPos);
+      interaction.dispatch({ type: 'DRAWING_START', pressure });
+      drawingHandlers.startDrawing(worldPos, pressure);
       return;
     }
     
@@ -875,11 +933,11 @@ const DrawingCanvas = () => {
       // Normal brush or shape mode
       // BUT ONLY if we're not in pan mode!
       if (currentMode === 'IDLE') {
-        interaction.dispatch({ type: 'DRAWING_START' });
+        interaction.dispatch({ type: 'DRAWING_START', pressure });
         if (tools.shapeMode) {
-          drawingHandlers.startShapeDrawing(worldPos);
+          drawingHandlers.startShapeDrawing(worldPos, pressure);
         } else {
-          drawingHandlers.startDrawing(worldPos);
+          drawingHandlers.startDrawing(worldPos, pressure);
         }
       }
     }
@@ -894,10 +952,60 @@ const DrawingCanvas = () => {
   // Ref for overlay canvas used for previews
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   
-  const handleMouseMove = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
-    const currentMousePos = getMousePos(event);
+  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const currentPointerPos = rect ? {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    } : { x: 0, y: 0 };
     const scale = canvas?.zoom || 1;
-    const worldPos = pan.screenToWorld(currentMousePos.x, currentMousePos.y, scale);
+    const worldPos = pan.screenToWorld(currentPointerPos.x, currentPointerPos.y, scale);
+    
+    // Store pressure value (0-1, with 0.5 as default for mice)
+    // For testing: Simulate pressure with mouse using Shift (low) and Ctrl (high)
+    let pressure = event.pressure || 0.5;
+    if (event.pointerType === 'mouse' && tools.brushSettings.pressureEnabled) {
+      if (event.shiftKey) {
+        pressure = 0.1; // Simulate low pressure with Shift
+      } else if (event.ctrlKey) {
+        pressure = 0.9; // Simulate high pressure with Ctrl
+      }
+    }
+    
+    // Debug: Log pressure periodically during movement
+    if (interaction.state.isDrawing && Math.random() < 0.1) { // Log 10% of events to avoid spam
+      console.log('[PointerMove Debug]', {
+        pressure: event.pressure,
+        pointerType: event.pointerType,
+        pressureEnabled: tools.brushSettings.pressureEnabled,
+        isDrawing: interaction.state.isDrawing
+      });
+    }
+    
+    // Process coalesced events for smoother drawing (if available)
+    // This gives us all the intermediate pointer positions between events
+    if (interaction.state.isDrawing && event.nativeEvent.getCoalescedEvents) {
+      const coalescedEvents = event.nativeEvent.getCoalescedEvents();
+      if (coalescedEvents.length > 1) {
+        // Process intermediate events (skip the last one as it's the current event)
+        for (let i = 0; i < coalescedEvents.length - 1; i++) {
+          const coalescedEvent = coalescedEvents[i];
+          const coalescedPos = rect ? {
+            x: coalescedEvent.clientX - rect.left,
+            y: coalescedEvent.clientY - rect.top,
+          } : { x: 0, y: 0 };
+          const coalescedWorldPos = pan.screenToWorld(coalescedPos.x, coalescedPos.y, scale);
+          const coalescedPressure = coalescedEvent.pressure || 0.5;
+          
+          // Draw with the intermediate position and pressure
+          if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+            drawingHandlers.continueShapeDrawing(coalescedWorldPos);
+          } else {
+            drawingHandlers.continueDrawing(coalescedWorldPos, coalescedPressure);
+          }
+        }
+      }
+    }
     
     // Always update cursor position immediately for responsive feel
     setMousePosition({ x: event.clientX, y: event.clientY });
@@ -906,14 +1014,15 @@ const DrawingCanvas = () => {
     if (!pan.panState.isPanning) {
       stateMachine.dispatch({ 
         type: 'MOUSE_MOVE',
-        position: currentMousePos 
+        position: currentPointerPos,
+        pressure
       });
     }
     
     // SIMPLIFIED PANNING: Check if we're actively panning
     if (pan.panState.isPanning) {
       // Update pan position
-      pan.updatePan(currentMousePos.x, currentMousePos.y);
+      pan.updatePan(currentPointerPos.x, currentPointerPos.y);
       
       // Update view transform for immediate feedback
       viewTransformRef.current.offsetX = pan.panState.offsetX;
@@ -1265,7 +1374,7 @@ const DrawingCanvas = () => {
         drawingHandlers.continueShapeDrawing(worldPos);
       } else {
         // Continue drawing immediately for responsive feel
-        drawingHandlers.continueDrawing(worldPos);
+        drawingHandlers.continueDrawing(worldPos, pressure);
         
         // Throttle the expensive redraw with RAF
         if (!drawingAnimationFrameRef.current) {
@@ -1380,9 +1489,12 @@ const DrawingCanvas = () => {
       stateMachine, pan, viewTransformRef, tools, setMousePosition, setShowBrushCursor, 
       sampleColorsAlongLine, sampleColorAtPosition]);
   
-  const handleMouseUp = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
-    // Clear mouse down state
+  const handlePointerUp = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    // Clear pointer down state
     isMouseDownRef.current = false;
+    
+    // Release pointer capture
+    (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
     
     // Cancel any pending drawing animation frame
     if (drawingAnimationFrameRef.current) {
@@ -1553,6 +1665,13 @@ const DrawingCanvas = () => {
       stateMachine, layers, activeLayerId, updateLayer, saveCanvasState, tools, pan, canvas,
       setCursorStyle, defaultCursorStyle]);
   
+  const handlePointerEnter = useCallback(() => {
+    // Show brush cursor when entering canvas
+    if (tools.currentTool === 'brush' || tools.currentTool === 'eraser') {
+      setShowBrushCursor(true);
+    }
+  }, [tools.currentTool]);
+
   const handleMouseLeave = useCallback(() => {
     setShowBrushCursor(false);
     
@@ -1984,17 +2103,25 @@ const DrawingCanvas = () => {
     >
       <canvas
         ref={canvasRef}
-        onMouseDown={handleMouseDown}
-        onMouseUp={handleMouseUp}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerMove={handlePointerMove}
+        onPointerEnter={handlePointerEnter}
+        onPointerLeave={handleMouseLeave}
+        onPointerCancel={(e) => {
+          // Handle pointer cancel (e.g., stylus moving out of range)
+          isMouseDownRef.current = false;
+          (e.target as HTMLCanvasElement).releasePointerCapture(e.pointerId);
+        }}
         onContextMenu={(e) => e.preventDefault()}
         tabIndex={-1}
         style={{ 
           display: 'block', 
           width: '100%', 
           height: '100%',
-          imageRendering: (canvas?.zoom || 1) > 3 ? 'pixelated' : 'auto'
+          imageRendering: (canvas?.zoom || 1) > 3 ? 'pixelated' : 'auto',
+          touchAction: 'none', // Prevent scrolling/zooming on touch devices
+          userSelect: 'none', // Prevent text selection
         }}
       />
       
@@ -2008,7 +2135,9 @@ const DrawingCanvas = () => {
           width: '100%', 
           height: '100%',
           pointerEvents: 'none',
-          imageRendering: (canvas?.zoom || 1) > 3 ? 'pixelated' : 'auto'
+          imageRendering: (canvas?.zoom || 1) > 3 ? 'pixelated' : 'auto',
+          touchAction: 'none', // Prevent scrolling/zooming on touch devices
+          userSelect: 'none', // Prevent text selection
         }}
       />
       

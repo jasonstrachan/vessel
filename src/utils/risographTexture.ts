@@ -206,7 +206,7 @@ export class FastSoftBrush {
    * Draw a single brush dot - FAST version
    * Just stamps the pre-made texture, no complex operations
    */
-  private drawDot(x: number, y: number) {
+  drawDot(x: number, y: number) {
     const stamp = createBrushStamp(this.brushSize, this.softness);
     
     this.ctx.save();
@@ -303,7 +303,7 @@ export class UltraFastBrush {
     this.lastY = y;
   }
 
-  private stamp(x: number, y: number) {
+  stamp(x: number, y: number) {
     this.ctx.save();
     this.ctx.globalAlpha = this.opacity;
     
