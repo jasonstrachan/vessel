@@ -799,18 +799,23 @@ export const useAppStore = create<AppState>()(
         }
         
         // Handle brush size restoration when switching between custom and regular brushes
+        let newGlobalBrushSize: number | undefined;
         if (newSettings.brushShape !== undefined) {
           const wasCustom = currentSettings.brushShape === BrushShape.CUSTOM;
           const isCustom = newSettings.brushShape === BrushShape.CUSTOM;
           
           if (!wasCustom && isCustom) {
-            // Switching TO custom brush: save current regular size
+            // Switching TO custom brush: save current regular size and use custom size
             newSettings.lastRegularBrushSize = currentSettings.size;
+            newSettings.size = state.customBrushesSize;
+            newGlobalBrushSize = state.customBrushesSize;
           } else if (wasCustom && !isCustom) {
-            // Switching FROM custom brush: restore last regular size
-            if (currentSettings.lastRegularBrushSize !== undefined) {
-              newSettings.size = currentSettings.lastRegularBrushSize;
-            }
+            // Switching FROM custom brush: restore last regular size or use default
+            const restoredSize = currentSettings.lastRegularBrushSize !== undefined 
+              ? currentSettings.lastRegularBrushSize 
+              : state.defaultBrushesSize;
+            newSettings.size = restoredSize;
+            newGlobalBrushSize = restoredSize;
             // Clear stale custom brush tip data when switching away from custom brushes
             newSettings.currentBrushTip = undefined;
             newSettings.selectedCustomBrush = null;
@@ -848,7 +853,9 @@ export const useAppStore = create<AppState>()(
           tools: {
             ...state.tools,
             brushSettings: newSettings
-          }
+          },
+          // Update globalBrushSize if we're switching brush types
+          ...(newGlobalBrushSize !== undefined ? { globalBrushSize: newGlobalBrushSize } : {})
         };
         
         
@@ -1512,9 +1519,9 @@ export const useAppStore = create<AppState>()(
 
         return {
           project: newProject,
-          // When creating a new custom brush, set all custom brushes to 100%
-          customBrushesSize: 100,
-          globalBrushSize: 100,
+          // Keep current custom brush size when adding a new brush
+          customBrushesSize: state.customBrushesSize,
+          globalBrushSize: state.customBrushesSize,
           tools: {
             ...state.tools,
             brushSettings: {
@@ -1594,9 +1601,9 @@ export const useAppStore = create<AppState>()(
           temporaryCustomBrush: null,
           // Update the project with the new custom brush
           project: updatedProject,
-          // When saving a new custom brush, set all custom brushes to 100%
-          customBrushesSize: 100,
-          globalBrushSize: 100,
+          // Keep current custom brush size when saving
+          customBrushesSize: state.customBrushesSize,
+          globalBrushSize: state.customBrushesSize,
           // Keep the same brush selected but reset transformations since they're now baked in
           tools: {
             ...state.tools,
@@ -1747,8 +1754,8 @@ export const useAppStore = create<AppState>()(
             ...state.tools,
             brushSettings: newBrushSettings
           },
-          customBrushesSize: 100,
-          globalBrushSize: 100
+          customBrushesSize: state.customBrushesSize,
+          globalBrushSize: state.customBrushesSize
         };
       }),
       saveBrushEdit: (canvas) => set((state) => {
@@ -1884,8 +1891,8 @@ export const useAppStore = create<AppState>()(
               } : undefined // Set the updated brush data immediately
             }
           },
-          customBrushesSize: 100, // Sync unified size to match individual brush size
-          globalBrushSize: 100 // Update slider display to show 100
+          customBrushesSize: state.customBrushesSize, // Keep current custom brush size
+          globalBrushSize: state.customBrushesSize // Keep slider in sync
           // REMOVED: layersNeedRecomposition: true - brush editing doesn't change layers
         };
       }),
