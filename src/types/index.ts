@@ -81,7 +81,9 @@ export enum BrushShape {
   TRIANGLE = 'triangle',
   CUSTOM = 'custom',
   RECTANGLE_GRADIENT = 'rectangle_gradient',
-  POLYGON_GRADIENT = 'polygon_gradient'
+  POLYGON_GRADIENT = 'polygon_gradient',
+  RISOGRAPH_SOFT = 'risograph_soft',
+  RISOGRAPH_ULTRA = 'risograph_ultra'
 }
 
 export interface CustomBrush {

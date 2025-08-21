@@ -267,7 +267,10 @@ let patternTempCtx: CanvasRenderingContext2D | null = null;
 
 // Risograph pattern caching is now handled in risographTexture.ts using WeakMap
 
-// Removed - no longer needed with GPU-based risograph approach
+// Cache for riso effect settings to avoid recalculation
+let cachedRisoAlpha = 0;
+let cachedRisoIntensity = -1;
+let cachedRisoIsPixel = false;
 
 // --- OPTIMIZATION: Throttled and Interpolated Color Jitter ---
 // This object manages jitter state to avoid expensive calculations on every point.
@@ -1483,23 +1486,29 @@ export const useBrushEngine = () => {
         const risoPattern = getRisographPattern(ctx);
         
         if (risoPattern) {
+            // Check if we need to recalculate cached values
+            const isPixelBrush = shape === BrushShape.PIXEL_ROUND || (shape === BrushShape.SQUARE && !antiAliasing);
+            
+            if (cachedRisoIntensity !== risographIntensity || cachedRisoIsPixel !== isPixelBrush) {
+                cachedRisoIntensity = risographIntensity;
+                cachedRisoIsPixel = isPixelBrush;
+                cachedRisoAlpha = isPixelBrush 
+                    ? (risographIntensity / 100) * 0.6
+                    : (risographIntensity / 100) * 0.35;
+            }
+            
             // Store original values (much faster than save/restore)
             const originalAlpha = ctx.globalAlpha;
             const originalComposite = ctx.globalCompositeOperation;
-            const originalSmoothing = ctx.imageSmoothingEnabled;
-            
-            // For pixel brushes, use different settings
-            const isPixelBrush = shape === BrushShape.PIXEL_ROUND || (shape === BrushShape.SQUARE && !antiAliasing);
+            const needsSmoothingRestore = isPixelBrush && ctx.imageSmoothingEnabled;
             
             // Apply riso without clipping (much faster)
-            if (isPixelBrush) {
+            if (needsSmoothingRestore) {
                 ctx.imageSmoothingEnabled = false;
             }
             
             ctx.globalCompositeOperation = 'multiply';
-            ctx.globalAlpha = isPixelBrush 
-                ? (risographIntensity / 100) * 0.6
-                : (risographIntensity / 100) * 0.35;
+            ctx.globalAlpha = cachedRisoAlpha;
             ctx.fillStyle = risoPattern;
             
             // Draw slightly larger to cover the shape
@@ -1509,8 +1518,8 @@ export const useBrushEngine = () => {
             // Restore only what we changed (faster than ctx.restore)
             ctx.globalAlpha = originalAlpha;
             ctx.globalCompositeOperation = originalComposite;
-            if (isPixelBrush) {
-                ctx.imageSmoothingEnabled = originalSmoothing;
+            if (needsSmoothingRestore) {
+                ctx.imageSmoothingEnabled = true;
             }
         }
     }
