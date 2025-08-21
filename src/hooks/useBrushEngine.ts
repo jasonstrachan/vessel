@@ -5,7 +5,7 @@ import { useAppStore } from '../stores/useAppStore';
 import { BrushComponent, ComponentType, BrushShape, CustomBrush, BrushSettings } from '../types';
 import { shouldApplyGridSnap, snapToGrid, getGridPositionsBetween, calculateGridDimensions, snapToRectangularGrid, getRectangularGridPositionsBetween } from '../utils/gridSnap';
 import { canvasPool } from '../utils/canvasPool';
-import { getRisographTexture, preloadRisographTexture } from '../utils/risographTexture';
+import { getRisographPattern, preloadRisographTexture } from '../utils/risographTexture';
 import { brushCache } from '../utils/brushCache';
 import { scaledBrushCache } from '../utils/scaledBrushCache';
 import { pressureOptimizer } from '../utils/pressureOptimizer';
@@ -265,13 +265,7 @@ let jitterCtx: CanvasRenderingContext2D | null = null;
 let patternTempCanvas: HTMLCanvasElement | null = null;
 let patternTempCtx: CanvasRenderingContext2D | null = null;
 
-// Cache for risograph patterns - use a single shared pattern
-let sharedRisographPattern: CanvasPattern | null = null;
-let sharedRisographPatternContext: CanvasRenderingContext2D | null = null;
-
-// Stable temp canvas for risograph to avoid context recreation
-let risographTempCanvas: HTMLCanvasElement | null = null;
-let risographTempCtx: CanvasRenderingContext2D | null = null;
+// Risograph pattern caching is now handled in risographTexture.ts using WeakMap
 
 // Removed - no longer needed with GPU-based risograph approach
 
@@ -372,33 +366,7 @@ const applyThrottledColorJitter = (baseColor: string, jitterAmount: number): str
   return `rgb(${Math.round(r_interp)}, ${Math.round(g_interp)}, ${Math.round(b_interp)})`;
 };
 
-/**
- * Creates a tileable, monochromatic noise texture for film grain effect.
- * This is cached and reused for performance. Used by gradient functions.
- */
-const createNoiseTexture = (): HTMLCanvasElement => {
-  const size = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
-
-  if (!ctx) return canvas;
-
-  const imageData = ctx.createImageData(size, size);
-  const data = imageData.data;
-
-  for (let i = 0; i < data.length; i += 4) {
-    const value = Math.random() * 255;
-    data[i] = value;
-    data[i + 1] = value;
-    data[i + 2] = value;
-    data[i + 3] = 255;
-  }
-
-  ctx.putImageData(imageData, 0, 0);
-  return canvas;
-};
+// Noise texture creation has been moved to risographTexture.ts for better performance
 
 // Converts a single sRGB color channel (0-255) to linear space (0-1)
 const srgbToLinear = (c: number): number => Math.pow(c / 255.0, 2.2);
@@ -1511,31 +1479,39 @@ export const useBrushEngine = () => {
 
     // Apply risograph effect per-stamp for real-time feedback
     if (risographIntensity > 0 && !pattern) {
-        // Get cached pattern for GPU acceleration
-        let risoPattern = sharedRisographPattern;
-        if (!risoPattern || sharedRisographPatternContext !== ctx) {
-            const risoTexture = getRisographTexture();
-            risoPattern = ctx.createPattern(risoTexture, 'repeat');
-            sharedRisographPattern = risoPattern;
-            sharedRisographPatternContext = ctx;
-        }
+        // Get cached pattern using improved caching
+        const risoPattern = getRisographPattern(ctx);
         
         if (risoPattern) {
-            ctx.save();
+            // Store original values (much faster than save/restore)
+            const originalAlpha = ctx.globalAlpha;
+            const originalComposite = ctx.globalCompositeOperation;
+            const originalSmoothing = ctx.imageSmoothingEnabled;
             
-            // Simple rect clip for all shapes - faster
-            const clipSize = size * 1.05;
-            ctx.rect(drawX - clipSize/2, drawY - clipSize/2, clipSize, clipSize);
-            ctx.clip();
+            // For pixel brushes, use different settings
+            const isPixelBrush = shape === BrushShape.PIXEL_ROUND || (shape === BrushShape.SQUARE && !antiAliasing);
             
-            // Single composite operation for performance
+            // Apply riso without clipping (much faster)
+            if (isPixelBrush) {
+                ctx.imageSmoothingEnabled = false;
+            }
+            
             ctx.globalCompositeOperation = 'multiply';
-            ctx.globalAlpha = (risographIntensity / 100) * 0.35;
+            ctx.globalAlpha = isPixelBrush 
+                ? (risographIntensity / 100) * 0.6
+                : (risographIntensity / 100) * 0.35;
             ctx.fillStyle = risoPattern;
-            ctx.fillRect(drawX - clipSize/2, drawY - clipSize/2, clipSize, clipSize);
             
-            ctx.restore();
-            ctx.globalCompositeOperation = currentCompositeOp;
+            // Draw slightly larger to cover the shape
+            const risoSize = size * 1.1;
+            ctx.fillRect(drawX - risoSize/2, drawY - risoSize/2, risoSize, risoSize);
+            
+            // Restore only what we changed (faster than ctx.restore)
+            ctx.globalAlpha = originalAlpha;
+            ctx.globalCompositeOperation = originalComposite;
+            if (isPixelBrush) {
+                ctx.imageSmoothingEnabled = originalSmoothing;
+            }
         }
     }
     // Note: We don't need ctx.restore() here because:
@@ -3012,17 +2988,7 @@ export const useBrushEngine = () => {
     const risographIntensity = brushSettings.risographIntensity || 0;
     if (risographIntensity > 0 && !isPreview) {
       // Use GPU-accelerated risograph effect with cached pattern
-      let pattern = null;
-      if (sharedRisographPatternContext === ctx && sharedRisographPattern) {
-        pattern = sharedRisographPattern;
-      } else {
-        const risoTexture = getRisographTexture();
-        pattern = ctx.createPattern(risoTexture, 'repeat');
-        if (pattern) {
-          sharedRisographPattern = pattern;
-          sharedRisographPatternContext = ctx;
-        }
-      }
+      const pattern = getRisographPattern(ctx);
       
       if (pattern) {
         // Save current state
@@ -3346,17 +3312,7 @@ export const useBrushEngine = () => {
     const risographIntensity = brushSettings.risographIntensity || 0;
     if (risographIntensity > 0 && !isPreview) {
       // Use GPU-accelerated risograph effect with cached pattern
-      let pattern = null;
-      if (sharedRisographPatternContext === ctx && sharedRisographPattern) {
-        pattern = sharedRisographPattern;
-      } else {
-        const risoTexture = getRisographTexture();
-        pattern = ctx.createPattern(risoTexture, 'repeat');
-        if (pattern) {
-          sharedRisographPattern = pattern;
-          sharedRisographPatternContext = ctx;
-        }
-      }
+      const pattern = getRisographPattern(ctx);
       
       if (pattern) {
         // Save current state

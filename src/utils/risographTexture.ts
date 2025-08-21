@@ -2,14 +2,14 @@
  * Shared risograph texture cache for consistent performance
  */
 let cachedRisographTexture: HTMLCanvasElement | null = null;
-let cachedPatternMap = new WeakMap<CanvasRenderingContext2D, CanvasPattern>();
+const cachedPatternMap = new WeakMap<CanvasRenderingContext2D, CanvasPattern>();
 
 /**
  * Creates an optimized risograph noise texture using GPU-accelerated operations.
  * Uses procedural generation with canvas operations instead of pixel manipulation
  * for better performance.
  */
-export const getRisographTexture = (): HTMLCanvasElement => {
+const getRisographTexture = (): HTMLCanvasElement => {
   if (cachedRisographTexture) {
     return cachedRisographTexture;
   }
@@ -41,12 +41,8 @@ export const getRisographTexture = (): HTMLCanvasElement => {
     }
   }
   
-  // Apply minimal blur using shadow instead of filter (faster)
-  ctx.save();
-  ctx.shadowBlur = 1;
-  ctx.shadowColor = 'rgba(0,0,0,0.5)';
-  ctx.drawImage(canvas, 0, 0);
-  ctx.restore();
+  // Skip blur for better performance and crisper pixels
+  // The noise pattern is already good enough without blur
 
   cachedRisographTexture = canvas;
   return cachedRisographTexture;
@@ -56,7 +52,10 @@ export const getRisographTexture = (): HTMLCanvasElement => {
  * Pre-create the texture to avoid lag on first use
  */
 export const preloadRisographTexture = (): void => {
-  getRisographTexture();
+  // Pre-generate the texture
+  if (!cachedRisographTexture) {
+    getRisographTexture();
+  }
 };
 
 /**
@@ -64,13 +63,13 @@ export const preloadRisographTexture = (): void => {
  * Uses WeakMap to cache patterns per context, avoiding recreation.
  */
 export const getRisographPattern = (ctx: CanvasRenderingContext2D): CanvasPattern | null => {
-  let pattern = cachedPatternMap.get(ctx);
-  if (pattern) {
-    return pattern;
+  const cachedPattern = cachedPatternMap.get(ctx);
+  if (cachedPattern) {
+    return cachedPattern;
   }
   
   const texture = getRisographTexture();
-  pattern = ctx.createPattern(texture, 'repeat');
+  const pattern = ctx.createPattern(texture, 'repeat');
   if (pattern) {
     cachedPatternMap.set(ctx, pattern);
   }
