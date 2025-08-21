@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { useBrushEngine } from './useBrushEngine';
+import { useUserBrushEngine } from './useUserBrushEngine';
 import { BrushShape } from '../types';
 
 interface UseDrawingHandlersProps {
@@ -56,19 +57,18 @@ function clipLineSegment(
 
 export function useDrawingHandlers({
   project,
-  viewTransformRef,
   canvasRef,
   isBusyRef,
 }: UseDrawingHandlersProps) {
   const brushEngine = useBrushEngine();
-  const { activeBrushComponents, captureCanvasToActiveLayer, saveCanvasState, tools, updateLayer } = useAppStore();
+  const userBrushEngine = useUserBrushEngine();
+  const { activeBrushComponents, captureCanvasToActiveLayer, saveCanvasState, tools } = useAppStore();
   
   const drawingCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingCtxRef = useRef<CanvasRenderingContext2D | null>(null);
   const drawingCanvasHasContent = useRef(false);
   const isCapturing = useRef(false);
   const lastDrawPosRef = useRef<{ x: number; y: number } | null>(null);
-  const drawAnimationFrameRef = useRef<number | null>(null);
   
   // OPTIMIZATION: The separate eraser mask canvas is no longer needed.
   // We will perform erasing directly on the drawingCanvas.
@@ -125,6 +125,7 @@ export function useDrawingHandlers({
   const startDrawing = useCallback((worldPos: { x: number; y: number }) => {
     const currentState = useAppStore.getState();
     const currentTool = currentState.tools.currentTool;
+    const currentBrushId = currentState.currentBrushPreset?.id;
     
     initDrawingCanvas();
     const drawCtx = drawingCtxRef.current;
@@ -152,7 +153,11 @@ export function useDrawingHandlers({
       drawCtx.globalAlpha = 1.0;
       drawCtx.globalCompositeOperation = 'source-over';
       
-      if (brushEngine) {
+      // Check if this is a user brush
+      if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
+        userBrushEngine.setActiveBrush(currentBrushId);
+        userBrushEngine.startStroke(drawCtx, worldPos.x, worldPos.y, 1.0);
+      } else if (brushEngine) {
         brushEngine.renderBrushStroke(
           drawCtx,
           worldPos,
@@ -164,10 +169,12 @@ export function useDrawingHandlers({
     }
     
     // Initial point drawn - parent component will handle redraw
-  }, [initDrawingCanvas, brushEngine, project, activeBrushComponents, canvasRef, drawEraserSegment]);
+  }, [initDrawingCanvas, brushEngine, userBrushEngine, project, activeBrushComponents, drawEraserSegment]);
   
   const continueDrawing = useCallback((worldPos: { x: number; y: number }) => {
-    const currentTool = useAppStore.getState().tools.currentTool;
+    const currentState = useAppStore.getState();
+    const currentTool = currentState.tools.currentTool;
+    const currentBrushId = currentState.currentBrushPreset?.id;
     const lastPoint = lastDrawPosRef.current;
     const drawCtx = drawingCtxRef.current;
 
@@ -188,7 +195,10 @@ export function useDrawingHandlers({
         // no clearing or image data manipulation happening here.
         drawEraserSegment(drawCtx, clippedStart, clippedEnd);
       } else { // Brush tool
-        if (brushEngine) {
+        // Check if this is a user brush
+        if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
+          userBrushEngine.continueStroke(drawCtx, clippedEnd.x, clippedEnd.y, 1.0);
+        } else if (brushEngine) {
           drawCtx.globalAlpha = 1.0;
           drawCtx.globalCompositeOperation = 'source-over';
           brushEngine.renderBrushStroke(
@@ -205,7 +215,7 @@ export function useDrawingHandlers({
     }
     
     lastDrawPosRef.current = worldPos;
-  }, [brushEngine, project, activeBrushComponents, canvasRef, drawEraserSegment]);
+  }, [brushEngine, userBrushEngine, project, activeBrushComponents, drawEraserSegment]);
   
   const finalizeDrawing = useCallback(async () => {
     if (isBusyRef?.current || !drawingCanvasRef.current || !drawingCanvasHasContent.current || !project) return;
@@ -217,6 +227,12 @@ export function useDrawingHandlers({
       const currentState = useAppStore.getState();
       const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
       const currentTool = currentState.tools.currentTool;
+      const currentBrushId = currentState.currentBrushPreset?.id;
+      
+      // End stroke for user brushes
+      if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
+        userBrushEngine.endStroke();
+      }
 
       if (activeLayer) {
         if (currentTool === 'eraser') {
@@ -259,7 +275,7 @@ export function useDrawingHandlers({
     } finally {
       if (isBusyRef) isBusyRef.current = false;
     }
-  }, [project, captureCanvasToActiveLayer, saveCanvasState, canvasRef, isBusyRef]);
+  }, [project, captureCanvasToActiveLayer, saveCanvasState, isBusyRef, userBrushEngine]);
   
   const clearDrawingCanvas = useCallback(() => {
     if (drawingCtxRef.current && drawingCanvasRef.current) {
@@ -320,6 +336,12 @@ export function useDrawingHandlers({
             // Try to get custom brush from currentBrushTip first
             if (tools.brushSettings.currentBrushTip) {
               const brushTip = tools.brushSettings.currentBrushTip;
+              console.log('[DEBUG useDrawingHandlers] Using currentBrushTip:', {
+                brushId: brushTip.brushId,
+                width: brushTip.width || brushTip.imageData.width,
+                height: brushTip.height || brushTip.imageData.height,
+                dataLength: brushTip.imageData.data.length
+              });
               customBrushImageData = brushTip.imageData;
               customBrushWidth = brushTip.width || brushTip.imageData.width;
               customBrushHeight = brushTip.height || brushTip.imageData.height;
@@ -327,12 +349,35 @@ export function useDrawingHandlers({
             } else if (tools.brushSettings.selectedCustomBrush) {
               // Look for custom brush in project's custom brushes from the store
               const currentState = useAppStore.getState();
-              const customBrush = currentState.project?.customBrushes?.find(b => b.id === tools.brushSettings.selectedCustomBrush);
-              if (customBrush) {
-                customBrushImageData = customBrush.imageData;
-                customBrushWidth = customBrush.width;
-                customBrushHeight = customBrush.height;
+              
+              // First check temporary brush
+              if (currentState.temporaryCustomBrush?.id === tools.brushSettings.selectedCustomBrush) {
+                const tempBrush = currentState.temporaryCustomBrush;
+                console.log('[DEBUG useDrawingHandlers] Using temporary brush:', {
+                  id: tempBrush.id,
+                  width: tempBrush.width,
+                  height: tempBrush.height,
+                  dataLength: tempBrush.imageData.data.length
+                });
+                customBrushImageData = tempBrush.imageData;
+                customBrushWidth = tempBrush.width;
+                customBrushHeight = tempBrush.height;
                 isColorizable = tools.brushSettings.useSwatchColor;
+              } else {
+                // Then check saved custom brushes
+                const customBrush = currentState.project?.customBrushes?.find(b => b.id === tools.brushSettings.selectedCustomBrush);
+                if (customBrush) {
+                  console.log('[DEBUG useDrawingHandlers] Using saved custom brush:', {
+                    id: customBrush.id,
+                    width: customBrush.width,
+                    height: customBrush.height,
+                    dataLength: customBrush.imageData.data.length
+                  });
+                  customBrushImageData = customBrush.imageData;
+                  customBrushWidth = customBrush.width;
+                  customBrushHeight = customBrush.height;
+                  isColorizable = tools.brushSettings.useSwatchColor;
+                }
               }
             }
           }
@@ -411,7 +456,7 @@ export function useDrawingHandlers({
     } finally {
       if (isBusyRef) isBusyRef.current = false;
     }
-  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef, project]);
+  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef]);
   
   return {
     drawingCanvasRef,

@@ -51,7 +51,7 @@ export function useKeyboardShortcuts({
       const currentSize = brushSettings.size;
       
       const adjustment = isCustomBrush ? 5 : 5;
-      const minSize = isCustomBrush ? 10 : 1;
+      const minSize = isCustomBrush ? 1 : 1;
       const newSize = Math.max(minSize, currentSize - adjustment);
       
       store.setGlobalBrushSize(newSize);

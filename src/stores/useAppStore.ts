@@ -431,6 +431,13 @@ export const useAppStore = create<AppState>()(
         const currentSettings = state.tools.brushSettings;
         const isCustomBrush = currentSettings.brushShape === BrushShape.CUSTOM;
         
+        console.log('[DEBUG setGlobalBrushSize]', {
+          size,
+          isCustomBrush,
+          currentBrushShape: currentSettings.brushShape,
+          currentSize: currentSettings.size
+        });
+        
         // Update the appropriate unified size based on brush type
         const newState: { globalBrushSize: number; customBrushesSize?: number; defaultBrushesSize?: number } = { globalBrushSize: size };
         
@@ -693,6 +700,26 @@ export const useAppStore = create<AppState>()(
         // Save current settings before switching
         get()._saveCurrentBrushSettings();
         
+        // Clear temporary brush and selection when switching to or re-selecting custom tool
+        if (tool === 'custom') {
+          // Clear these immediately before the state update
+          const currentState = get();
+          console.log('[DEBUG] Switching to custom tool, current state:', {
+            hasTemporaryBrush: !!currentState.temporaryCustomBrush,
+            temporaryBrushId: currentState.temporaryCustomBrush?.id,
+            hasSelection: !!(currentState.selectionStart || currentState.selectionEnd),
+            currentBrushTip: currentState.tools.brushSettings.currentBrushTip
+          });
+          if (currentState.temporaryCustomBrush) {
+            console.log('[DEBUG] Clearing temporary brush:', currentState.temporaryCustomBrush.id);
+            get().setTemporaryCustomBrush(null);
+          }
+          if (currentState.selectionStart || currentState.selectionEnd) {
+            console.log('[DEBUG] Clearing selection');
+            get().clearSelection();
+          }
+        }
+        
         set((state) => {
 
         const newBrushSettings = { ...state.tools.brushSettings };
@@ -704,14 +731,19 @@ export const useAppStore = create<AppState>()(
           newBrushSettings.selectedCustomBrush = null;
         }
         
-          return {
-            tools: {
-              ...state.tools,
-              previousTool: state.tools.currentTool,
-              currentTool: tool,
-              brushSettings: newBrushSettings
-            }
-          };
+        // Clear currentBrushTip when switching to custom tool
+        if (tool === 'custom') {
+          newBrushSettings.currentBrushTip = undefined;
+        }
+        
+        return {
+          tools: {
+            ...state.tools,
+            previousTool: state.tools.currentTool,
+            currentTool: tool,
+            brushSettings: newBrushSettings
+          }
+        };
         });
       },
       setBrushSettings: (settings) => set((state) => {
@@ -1160,9 +1192,8 @@ export const useAppStore = create<AppState>()(
         // Get appropriate size for this brush type using individual brush-specific sizing
         let appropriateSize;
         if (isNewPresetCustom) {
-          // Custom brushes ALWAYS use 100% size
-          // This ensures consistent behavior when switching to custom brushes
-          appropriateSize = 100;
+          // Custom brushes use the stored custom brush size
+          appropriateSize = state.customBrushesSize;
         } else {
           // Default brushes use saved size if available, otherwise shared size
           const savedSize = userOverrides.size;
@@ -1446,10 +1477,25 @@ export const useAppStore = create<AppState>()(
       
       // Custom Brush Management
       addCustomBrush: (brush) => set((state) => {
+        console.log('[STORE] Adding custom brush:', {
+          id: brush.id,
+          name: brush.name,
+          hasImageData: !!brush.imageData,
+          width: brush.width,
+          height: brush.height,
+          dataLength: brush.imageData?.data?.length
+        });
+        
         const newProject = state.project ? {
           ...state.project,
           customBrushes: [...state.project.customBrushes, brush]
         } : null;
+        
+        console.log('[STORE] Updated project:', {
+          hasProject: !!newProject,
+          customBrushCount: newProject?.customBrushes?.length,
+          brushIds: newProject?.customBrushes?.map(b => b.id)
+        });
 
         // IMPORTANT: Unconditionally set hueShift and saturationAdjust to neutral defaults
         // when a new custom brush is added and automatically selected.

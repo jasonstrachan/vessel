@@ -224,7 +224,7 @@ export function useComprehensiveKeyboard({
         const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
         const currentSize = brushSettings.size;
         const adjustment = 5;
-        const minSize = isCustomBrush ? 10 : 1;
+        const minSize = isCustomBrush ? 1 : 1;
         const newSize = Math.max(minSize, currentSize - adjustment);
         setGlobalBrushSize(newSize);
       }

@@ -13,6 +13,7 @@ import { DocumentModal } from '../components/modals/DocumentModal';
 import { SettingsModal } from '../components/modals/SettingsModal';
 import { useAppStore } from '../stores/useAppStore';
 import { autosaveService } from '../utils/autosave';
+// import TestPluginBrushes from '../components/TestPluginBrushes'; // TEST COMPONENT - Disabled due to render loop
 
 
 export default function Home() {
@@ -174,6 +175,9 @@ export default function Home() {
       
       {/* Brush Editor UI Modal */}
       <BrushEditorUI />
+      
+      {/* TEST: Plugin Brush Test Panel - Disabled due to render loop */}
+      {/* <TestPluginBrushes /> */}
       
     </main>
   );

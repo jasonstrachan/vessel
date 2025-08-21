@@ -2,6 +2,69 @@
 
 ## Recent Updates
 
+### Modular User Brush Plugin System (2025-08-20)
+- **Implemented plugin architecture** for user-created brushes without impacting default brush performance
+- **Architecture Components**:
+  - **BrushPlugin Interface** (`src/brushes/BrushPlugin.ts`)
+    - Defines contract: `draw()`, `initialize()`, `onActivate()`, `onDeactivate()`, `cleanup()`
+    - Optional `drawLine()` for optimized line rendering
+    - Performance hints for engine optimization
+    - Support for custom UI controls via `getControls()`
+  - **BrushRegistry** (`src/brushes/BrushRegistry.ts`)
+    - Singleton registry managing all user brushes
+    - Event system for tracking brush lifecycle
+    - Methods: `register()`, `unregister()`, `activate()`, `deactivate()`
+    - Built-in brush loading via static imports (avoids webpack warnings)
+  - **useUserBrushEngine Hook** (`src/hooks/useUserBrushEngine.ts`)
+    - Separate rendering pipeline for plugin brushes
+    - Handles stroke interpolation and pressure sensitivity
+    - Methods: `startStroke()`, `continueStroke()`, `endStroke()`, `drawStroke()`
+    - Completely isolated from default brush engine
+- **Integration Strategy**:
+  - **Dual-path architecture**: Default brushes use original `useBrushEngine`, plugins use `useUserBrushEngine`
+  - **Zero performance impact**: Default brushes bypass plugin system entirely
+  - **Smart routing** in `useDrawingHandlers`:
+    ```typescript
+    if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
+      userBrushEngine.startStroke(ctx, x, y, pressure);
+    } else {
+      brushEngine.renderBrushStroke(ctx, start, end, pressure);
+    }
+    ```
+  - **Shape utilities** extracted to `src/brushes/shapes/` but remain as fast functions
+- **Example Plugin Implementations**:
+  - **DitherBrushPlugin** (`src/brushes/plugins/DitherBrushPlugin.ts`)
+    - Multiple dithering algorithms: Floyd-Steinberg, Bayer matrix
+    - Pressure-sensitive dithering intensity
+    - Support for custom color palettes (Apple II, grayscale)
+    - Uses temporary canvas for dither processing
+  - **ParticleBrushPlugin** (`src/brushes/plugins/ParticleBrushPlugin.ts`)
+    - Scatter-based particle system
+    - Configurable particle density and scatter radius
+    - Pressure-modulated particle count
+    - Ideal for spray paint and texture effects
+- **Plugin Loading System**:
+  - Static imports for built-in plugins (avoids dynamic import warnings)
+  - `BUILTIN_BRUSH_PLUGINS` map for known brushes
+  - Future support for user-uploaded brush files
+  - Registry methods: `loadBuiltinBrush()`, `loadAllBuiltinBrushes()`
+- **API for Brush Developers**:
+  ```typescript
+  class MyBrush extends BaseBrushPlugin {
+    draw(context: BrushDrawContext): void {
+      // Custom drawing logic
+    }
+  }
+  ```
+- **Benefits**:
+  - **Extensibility**: Easy to create new brush types
+  - **Performance**: No regression for default brushes
+  - **Modularity**: Clean separation of concerns
+  - **Shareability**: Brushes can be packaged and distributed
+  - **Future-proof**: Ready for brush marketplace/gallery
+
+## Recent Updates
+
 ### Preview Overlay Canvas Architecture (2025-08-20)
 - **Implemented separate overlay canvas** for shape and gradient previews to eliminate flickering
 - **Problem**: Rectangle and polygon gradient tools had severe flickering during preview because the entire canvas (all layers, frames) was being redrawn on every mouse move

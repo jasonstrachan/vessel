@@ -60,6 +60,14 @@ const DrawingCanvas = () => {
     if (tools.currentTool === 'fill') {
       return 'crosshair';
     }
+    // Selection tool and custom selection use crosshair cursor
+    if (tools.currentTool === 'selection' || tools.currentTool === 'custom') {
+      return 'crosshair';
+    }
+    // Custom brush shape uses crosshair cursor
+    if (tools.brushSettings.brushShape === BrushShape.CUSTOM) {
+      return 'crosshair';
+    }
     // Gradient brushes use crosshair cursor
     const brushShape = tools.brushSettings.brushShape;
     if (brushShape === BrushShape.RECTANGLE_GRADIENT || brushShape === BrushShape.POLYGON_GRADIENT) {
