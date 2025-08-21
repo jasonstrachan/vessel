@@ -56,14 +56,20 @@ class PressureOptimizer {
       };
     }
 
-    // For pressure scaling, maxPressure should equal the base size at 100% pressure
-    // This ensures 100% pressure = 100% of original brush size
-    const maxPressure = settings.maxPressure && settings.maxPressure > 0 ? settings.maxPressure : baseSize;
+    // Convert min/max pressure percentages to actual pixel sizes
+    // minPressure and maxPressure from UI are percentages (1-1000)
+    // Convert to fraction of base brush size
+    const minPressurePercent = settings.minPressure || 1; // Default 1%
+    const maxPressurePercent = settings.maxPressure || 100; // Default 100% if not set
+    
+    const minSize = (minPressurePercent / 100) * baseSize;
+    const maxSize = (maxPressurePercent / 100) * baseSize;
+    
     const cacheKey = this.getCacheKey(
       baseSize,
       settings.rawPressure,
-      settings.minPressure,
-      maxPressure,
+      minSize,
+      maxSize,
       settings.pressureEnabled
     );
 
@@ -84,8 +90,9 @@ class PressureOptimizer {
       (settings.rawPressure - pressureThreshold) / (1.0 - pressureThreshold)
     );
     
-    const adjustedSize = settings.minPressure + 
-      (adjustedPressure * (maxPressure - settings.minPressure));
+    // Interpolate between minSize and maxSize based on pressure
+    const adjustedSize = minSize + (adjustedPressure * (maxSize - minSize));
+
 
     const result: PressureResult = {
       adjustedSize,
