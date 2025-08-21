@@ -27,6 +27,7 @@ const DrawingCanvas = () => {
   const selectionStart = useAppStore((state) => state.selectionStart);
   const selectionEnd = useAppStore((state) => state.selectionEnd);
   const floatingPaste = useAppStore((state) => state.floatingPaste);
+  const layersNeedRecomposition = useAppStore((state) => state.layersNeedRecomposition);
   
   // Get functions separately (they don't change)
   const {
@@ -47,6 +48,7 @@ const DrawingCanvas = () => {
     setLayers,
     setActiveLayer,
     updateLayer,
+    setLayersNeedRecomposition,
   } = useAppStore();
   
   // Mouse position for brush cursor
@@ -766,6 +768,19 @@ const DrawingCanvas = () => {
           setShowBrushCursor(false); // Hide brush cursor when making custom brush selection
         }
         return;
+      }
+      
+      // Clear selection when clicking outside of selected area (for any other tool)
+      if (selectionStart && selectionEnd) {
+        const minX = Math.min(selectionStart.x, selectionEnd.x);
+        const maxX = Math.max(selectionStart.x, selectionEnd.x);
+        const minY = Math.min(selectionStart.y, selectionEnd.y);
+        const maxY = Math.max(selectionStart.y, selectionEnd.y);
+        
+        // Check if click is outside selection bounds
+        if (worldPos.x < minX || worldPos.x > maxX || worldPos.y < minY || worldPos.y > maxY) {
+          clearSelection();
+        }
       }
       
       // Handle rectangle gradient
@@ -1604,7 +1619,7 @@ const DrawingCanvas = () => {
     if (!project || !compositeLayersToCanvas) return;
     
     // Check if we actually need to update the composite
-    if (layersHash === lastCompositeHashRef.current && !compositeCanvasDirtyRef.current) {
+    if (layersHash === lastCompositeHashRef.current && !compositeCanvasDirtyRef.current && !layersNeedRecomposition) {
       return; // Skip if nothing changed
     }
     
@@ -1629,8 +1644,13 @@ const DrawingCanvas = () => {
     lastCompositeHashRef.current = layersHash;
     compositeCanvasDirtyRef.current = false;
     
+    // Reset the recomposition flag if it was set
+    if (layersNeedRecomposition) {
+      setLayersNeedRecomposition(false);
+    }
+    
     setNeedsRedraw(prev => prev + 1);
-  }, [layersHash, project, compositeLayersToCanvas, setCurrentOffscreenCanvas]);
+  }, [layersHash, project, compositeLayersToCanvas, setCurrentOffscreenCanvas, layersNeedRecomposition, setLayersNeedRecomposition]);
   
   // Animate marching ants
   useEffect(() => {

@@ -64,7 +64,10 @@ export function useComprehensiveKeyboard({
     setCurrentTool, 
     tools, 
     polygonGradientState,
-    setGlobalBrushSize 
+    setGlobalBrushSize,
+    deleteSelectedPixels,
+    selectionStart,
+    selectionEnd
   } = useAppStore();
 
   // Use refs for stable callbacks to avoid re-registering event listeners
@@ -204,8 +207,8 @@ export function useComprehensiveKeyboard({
       }
     }
 
-    // Tool switching - S for selection tool
-    if (event.key === 's' || event.key === 'S') {
+    // Tool switching - M for selection tool (marquee)
+    if (event.key === 'm' || event.key === 'M') {
       if (!event.ctrlKey && !event.metaKey) {
         event.preventDefault();
         setCurrentTool('selection');
@@ -263,6 +266,13 @@ export function useComprehensiveKeyboard({
       }
     }
 
+    // Delete key for deleting selected pixels
+    if (event.key === 'Delete' && selectionStart && selectionEnd) {
+      event.preventDefault();
+      deleteSelectedPixels();
+      return;
+    }
+
     // Enter key general handling (for floating paste)
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -278,7 +288,8 @@ export function useComprehensiveKeyboard({
     }
   }, [enabled, onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
       onPolygonCancel, onEnterPressed, onEscapePressed,
-      tools, polygonGradientState, setCurrentTool, setGlobalBrushSize]);
+      tools, polygonGradientState, setCurrentTool, setGlobalBrushSize,
+      deleteSelectedPixels, selectionStart, selectionEnd]);
 
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
     if (!enabled) return;

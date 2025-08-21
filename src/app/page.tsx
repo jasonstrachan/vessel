@@ -13,6 +13,7 @@ import { DocumentModal } from '../components/modals/DocumentModal';
 import { SettingsModal } from '../components/modals/SettingsModal';
 import { useAppStore } from '../stores/useAppStore';
 import { autosaveService } from '../utils/autosave';
+import { preloadRisographTexture } from '../utils/risographTexture';
 // import TestPluginBrushes from '../components/TestPluginBrushes'; // TEST COMPONENT - Disabled due to render loop
 
 
@@ -34,6 +35,9 @@ export default function Home() {
       // console.log('🎨 Creating default project with layer on load');
       newProject(1920, 1080, 'Untitled');
     }
+    
+    // Preload risograph texture to avoid lag on first use
+    preloadRisographTexture();
   }, []); // Run once on mount only
 
   // Load settings from localStorage on initial mount only

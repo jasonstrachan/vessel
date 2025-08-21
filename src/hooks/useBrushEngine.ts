@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useRef, useMemo } from 'react';
+import { useCallback, useRef, useMemo, useEffect } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushComponent, ComponentType, BrushShape, CustomBrush, BrushSettings } from '../types';
 import { shouldApplyGridSnap, snapToGrid, getGridPositionsBetween, calculateGridDimensions, snapToRectangularGrid, getRectangularGridPositionsBetween } from '../utils/gridSnap';
 import { canvasPool } from '../utils/canvasPool';
+import { getRisographTexture, preloadRisographTexture } from '../utils/risographTexture';
 import { brushCache } from '../utils/brushCache';
 import { scaledBrushCache } from '../utils/scaledBrushCache';
 import { pressureOptimizer } from '../utils/pressureOptimizer';
@@ -264,12 +265,15 @@ let jitterCtx: CanvasRenderingContext2D | null = null;
 let patternTempCanvas: HTMLCanvasElement | null = null;
 let patternTempCtx: CanvasRenderingContext2D | null = null;
 
-// Risograph texture cache
-let risographTexture: HTMLCanvasElement | null = null;
+// Cache for risograph patterns - use a single shared pattern
+let sharedRisographPattern: CanvasPattern | null = null;
+let sharedRisographPatternContext: CanvasRenderingContext2D | null = null;
 
-// Reusable texture canvas for riso operations
-let risoTextureCanvas: HTMLCanvasElement | null = null;
-let risoTextureCtx: CanvasRenderingContext2D | null = null;
+// Stable temp canvas for risograph to avoid context recreation
+let risographTempCanvas: HTMLCanvasElement | null = null;
+let risographTempCtx: CanvasRenderingContext2D | null = null;
+
+// Removed - no longer needed with GPU-based risograph approach
 
 // --- OPTIMIZATION: Throttled and Interpolated Color Jitter ---
 // This object manages jitter state to avoid expensive calculations on every point.
@@ -282,16 +286,7 @@ const jitterState = {
   recalcFrequency: 8, 
 };
 
-// --- OPTIMIZATION: Riso Effect Throttling ---
-// Throttle riso operations to improve performance during continuous drawing
-const risoThrottleState = {
-  lastProcessTime: 0,
-  throttleInterval: 16, // ~60fps throttling for riso operations
-  aggressiveThrottleInterval: 33, // ~30fps for continuous strokes
-  lastRisoCanvas: null as HTMLCanvasElement | null,
-  lastRisoSettings: { intensity: 0, size: 0, x: 0, y: 0 },
-  continuousStrokeCount: 0,
-};
+// Removed - throttling no longer needed with GPU-based risograph approach
 
 const getJitterContext = (): CanvasRenderingContext2D => {
   if (!jitterCanvas || !jitterCtx) {
@@ -963,58 +958,6 @@ const applyDitheringWithFillResolution = (
   return new ImageData(data, width, height);
 };
 
-/**
- * Creates a realistic risograph halftone pattern with irregular dots.
- * Mimics the characteristic organic, grainy texture of risograph printing.
- * This is cached and reused for high performance.
- */
-const createRisographTexture = (): HTMLCanvasElement => {
-  if (risographTexture) {
-    return risographTexture;
-  }
-
-  const size = 256; // Texture resolution for good detail/performance balance
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d', { colorSpace: 'srgb', willReadFrequently: true });
-
-  if (!ctx) return canvas;
-
-  // Create fine-grain noise pattern for authentic dissolve effect
-  const imageData = ctx.createImageData(size, size);
-  const data = imageData.data;
-  
-  for (let i = 0; i < data.length; i += 4) {
-    // Create very fine random noise
-    const value = Math.random() * 255;
-    data[i] = data[i + 1] = data[i + 2] = value;
-    data[i + 3] = 255;
-  }
-  
-  ctx.putImageData(imageData, 0, 0);
-  
-  // Very slight blur to avoid aliasing while keeping fine detail
-  ctx.filter = 'blur(0.25px)';
-  ctx.drawImage(canvas, 0, 0);
-  ctx.filter = 'none';
-  
-  // High contrast adjustment for sharp dissolve effect
-  const finalData = ctx.getImageData(0, 0, size, size);
-  const final = finalData.data;
-  
-  for (let i = 0; i < final.length; i += 4) {
-    const value = final[i];
-    // Sharp threshold for clean dissolve
-    const adjusted = value > 128 ? 255 : 0;
-    final[i] = final[i + 1] = final[i + 2] = adjusted;
-  }
-  
-  ctx.putImageData(finalData, 0, 0);
-
-  risographTexture = canvas;
-  return risographTexture;
-};
 
 
 // Base sizes for standard brushes (100% = these sizes in pixels)
@@ -1055,6 +998,15 @@ export interface RenderSettings {
 export const useBrushEngine = () => {
   const { tools, activeBrushComponents, project, brushPresets, temporaryCustomBrush } = useAppStore();
   
+  // Pre-create risograph texture on first mount to avoid lag
+  useEffect(() => {
+    // Create the texture in idle time to avoid blocking
+    const timeoutId = setTimeout(() => {
+      preloadRisographTexture();
+    }, 100);
+    
+    return () => clearTimeout(timeoutId);
+  }, []); // Run once on mount
   
   // Pixel queue state for perfect pixel drawing with distance-based spacing
   const pixelQueueRef = useRef({
@@ -1309,19 +1261,12 @@ export const useBrushEngine = () => {
     const halfSize = size / 2;
     
     // --- RISOGRAPH EFFECT LOGIC ---
-    // If riso is active, we draw the shape to a temporary canvas first
-    // to manipulate its pixels before drawing to the main canvas.
-    const isRisoActive = risographIntensity > 0 && !pattern;
-    const targetCtx = isRisoActive ? canvasPool.acquire(Math.ceil(size) + 4, Math.ceil(size) + 4).getContext('2d')! : ctx;
-    const tempCanvas = isRisoActive ? targetCtx.canvas : null;
-
-    // Adjust coordinates to be local to the temp canvas if we're using one
-    // When using riso, maintain the relative position within the temp canvas bounds
-    const drawX = isRisoActive ? tempCanvas!.width / 2 : x;
-    const drawY = isRisoActive ? tempCanvas!.height / 2 : y;
+    // Draw directly to main canvas for performance
+    const targetCtx = ctx;
+    const drawX = x;
+    const drawY = y;
     
     if (!targetCtx) {
-      if (tempCanvas) canvasPool.release(tempCanvas);
       return;
     }
 
@@ -1342,7 +1287,6 @@ export const useBrushEngine = () => {
           
           // If transparency lock is enabled and pixel is fully transparent, skip drawing
           if (alpha === 0) {
-            if (tempCanvas) canvasPool.release(tempCanvas);
             return;
           }
         } catch {
@@ -1354,35 +1298,24 @@ export const useBrushEngine = () => {
     // Save the current composite operation before save() overwrites it
     const currentCompositeOp = ctx.globalCompositeOperation;
     
+    // Skip white background - will be handled by main canvas compositing
+    
     targetCtx.save();
 
-    if (isRisoActive) {
-      targetCtx.clearRect(0, 0, tempCanvas!.width, tempCanvas!.height);
-      targetCtx.fillStyle = ctx.fillStyle;
-      targetCtx.globalAlpha = ctx.globalAlpha;
-      // CRITICAL FIX: Also preserve globalCompositeOperation for riso path
-      targetCtx.globalCompositeOperation = currentCompositeOp;
-    } else {
-      // Preserve the globalCompositeOperation from the main context for eraser functionality
-      // IMPORTANT: We must set this AFTER save() since targetCtx === ctx when not riso
-      targetCtx.globalCompositeOperation = currentCompositeOp;
-    }
+    // Preserve the globalCompositeOperation from the main context
+    targetCtx.globalCompositeOperation = currentCompositeOp;
     
     // Special handling for pixel brushes - they should NEVER be smoothed
     if (shape === BrushShape.PIXEL_ROUND) {
       targetCtx.imageSmoothingEnabled = false;
       // Always round to pixel boundaries for pixel brushes
-      if (!isRisoActive) {
-        x = Math.round(x);
-        y = Math.round(y);
-      }
+      x = Math.round(x);
+      y = Math.round(y);
     } else if (!antiAliasing) {
       targetCtx.imageSmoothingEnabled = false;
       // Round to pixel boundaries for pixel-perfect drawing
-      if (!isRisoActive) {
-        x = Math.round(x);
-        y = Math.round(y);
-      }
+      x = Math.round(x);
+      y = Math.round(y);
     } else {
       // Ensure smoothing is enabled for antialiased drawing
       targetCtx.imageSmoothingEnabled = true;
@@ -1574,84 +1507,35 @@ export const useBrushEngine = () => {
     targetCtx.restore();
     
     // Restore the composite operation after restore() cleared it
-    if (!isRisoActive) {
-      // For non-riso path, we need to restore the composite operation since targetCtx === ctx
-      targetCtx.globalCompositeOperation = currentCompositeOp;
-    }
+    targetCtx.globalCompositeOperation = currentCompositeOp;
 
-    // --- APPLY RISOGRAPH DISSOLVE ---
-    if (isRisoActive && tempCanvas) {
-        // Throttle riso operations for performance during continuous drawing
-        const now = performance.now();
-        const settingsChanged = risoThrottleState.lastRisoSettings.intensity !== risographIntensity ||
-                               risoThrottleState.lastRisoSettings.size !== size ||
-                               Math.abs(risoThrottleState.lastRisoSettings.x - x) > 2 ||
-                               Math.abs(risoThrottleState.lastRisoSettings.y - y) > 2;
+    // Apply risograph effect per-stamp for real-time feedback
+    if (risographIntensity > 0 && !pattern) {
+        // Get cached pattern for GPU acceleration
+        let risoPattern = sharedRisographPattern;
+        if (!risoPattern || sharedRisographPatternContext !== ctx) {
+            const risoTexture = getRisographTexture();
+            risoPattern = ctx.createPattern(risoTexture, 'repeat');
+            sharedRisographPattern = risoPattern;
+            sharedRisographPatternContext = ctx;
+        }
         
-        // Adaptive throttling: use aggressive throttling during continuous strokes
-        risoThrottleState.continuousStrokeCount++;
-        const currentThrottleInterval = risoThrottleState.continuousStrokeCount > 10 
-            ? risoThrottleState.aggressiveThrottleInterval 
-            : risoThrottleState.throttleInterval;
-        
-        // Only process riso if enough time has passed or settings changed significantly
-        if (now - risoThrottleState.lastProcessTime > currentThrottleInterval || settingsChanged) {
-            const risoTexture = createRisographTexture();
-            // Adjust threshold calculation for more dramatic contrast at high values
-            // At 100% intensity, we want maximum effect (threshold = 0.2)
-            // At 0% intensity, no effect (threshold = 1.0)
-            const threshold = 1 - (risographIntensity / 100) * 0.8;
+        if (risoPattern) {
+            ctx.save();
             
-            risoThrottleState.lastProcessTime = now;
-            risoThrottleState.lastRisoSettings = { intensity: risographIntensity, size, x, y };
-
-            const stampImageData = targetCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-            const data = stampImageData.data;
-
-            // Use optimized reusable texture canvas
-            if (!risoTextureCanvas || risoTextureCanvas.width !== tempCanvas.width || risoTextureCanvas.height !== tempCanvas.height) {
-                risoTextureCanvas = document.createElement('canvas');
-                risoTextureCanvas.width = tempCanvas.width;
-                risoTextureCanvas.height = tempCanvas.height;
-                risoTextureCtx = risoTextureCanvas.getContext('2d', { willReadFrequently: true })!;
-            }
-            risoTextureCtx!.drawImage(risoTexture, 0, 0, tempCanvas.width, tempCanvas.height);
-            const textureData = risoTextureCtx!.getImageData(0, 0, tempCanvas.width, tempCanvas.height).data;
+            // Simple rect clip for all shapes - faster
+            const clipSize = size * 1.05;
+            ctx.rect(drawX - clipSize/2, drawY - clipSize/2, clipSize, clipSize);
+            ctx.clip();
             
-            // This loop simulates the "Dissolve" blend mode
-            for (let i = 0; i < data.length; i += 4) {
-                // If the pixel in the shape is visible...
-                if (data[i + 3] > 0) {
-                    // ...check the brightness of the corresponding noise pixel.
-                    const noiseBrightness = textureData[i] / 255;
-                    // If the noise brightness is below our slider threshold, "punch a hole"
-                    // in the shape by making the pixel fully transparent.
-                    if (noiseBrightness < threshold) {
-                        data[i + 3] = 0;
-                    }
-                }
-            }
-
-            // Put the modified, dissolved pixel data back onto the temp canvas
-            targetCtx.putImageData(stampImageData, 0, 0);
+            // Single composite operation for performance
+            ctx.globalCompositeOperation = 'multiply';
+            ctx.globalAlpha = (risographIntensity / 100) * 0.35;
+            ctx.fillStyle = risoPattern;
+            ctx.fillRect(drawX - clipSize/2, drawY - clipSize/2, clipSize, clipSize);
             
-            // Draw the final, dissolved shape onto the main canvas
-            // CRITICAL FIX: Preserve the globalCompositeOperation when drawing back to main canvas
-            const savedGlobalCompositeOperation = ctx.globalCompositeOperation;
-            ctx.drawImage(tempCanvas, x - tempCanvas.width / 2, y - tempCanvas.height / 2);
-            // Restore the globalCompositeOperation in case drawImage affected it
-            ctx.globalCompositeOperation = savedGlobalCompositeOperation;
-
-            // Release only the temp canvas (texture canvas is reused globally)
-            canvasPool.release(tempCanvas);
-        } else {
-            // Skip expensive riso processing, just draw the shape directly
-            // CRITICAL FIX: Preserve the globalCompositeOperation when drawing back to main canvas
-            const savedGlobalCompositeOperation = ctx.globalCompositeOperation;
-            ctx.drawImage(tempCanvas, x - tempCanvas.width / 2, y - tempCanvas.height / 2);
-            // Restore the globalCompositeOperation in case drawImage affected it
-            ctx.globalCompositeOperation = savedGlobalCompositeOperation;
-            canvasPool.release(tempCanvas);
+            ctx.restore();
+            ctx.globalCompositeOperation = currentCompositeOp;
         }
     }
     // Note: We don't need ctx.restore() here because:
@@ -1944,7 +1828,7 @@ export const useBrushEngine = () => {
     memoryManager.runCleanup();
     
     // Reset riso throttling state for new stroke
-    risoThrottleState.continuousStrokeCount = 0;
+    // Removed - no longer tracking continuous strokes for riso throttling
   }, []);
 
   // Helper function to determine if we should draw the current stamp (cursor-speed independent)
@@ -2211,25 +2095,8 @@ export const useBrushEngine = () => {
           
           ctx.imageSmoothingEnabled = false;
           ctx.drawImage(stampCanvas, centerX, centerY);
-
-          // 8. Apply film grain if enabled
-          const filmGrainIntensity = tools.brushSettings.risographIntensity || 0;
-          if (filmGrainIntensity > 0) {
-            const noiseCanvas = createNoiseTexture();
-            const noisePattern = ctx.createPattern(noiseCanvas, 'repeat');
-            if (noisePattern) {
-              const originalGCO = ctx.globalCompositeOperation;
-              const originalAlpha = ctx.globalAlpha;
-
-              ctx.globalCompositeOperation = 'source-atop';
-              ctx.globalAlpha = filmGrainIntensity / 100;
-              ctx.fillStyle = noisePattern;
-              ctx.fillRect(centerX, centerY, scaledWidth, scaledHeight);
-
-              ctx.globalCompositeOperation = originalGCO;
-              ctx.globalAlpha = originalAlpha;
-            }
-          }
+          
+          // Removed - risograph effect is now handled by drawShape function
         } finally {
           canvasPool.release(stampCanvas);
         }
@@ -2246,25 +2113,8 @@ export const useBrushEngine = () => {
         
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(scaledCanvas, centerX, centerY);
-
-        // Apply film grain if enabled
-        const filmGrainIntensity = tools.brushSettings.risographIntensity || 0;
-        if (filmGrainIntensity > 0) {
-          const noiseCanvas = createNoiseTexture();
-          const noisePattern = ctx.createPattern(noiseCanvas, 'repeat');
-          if (noisePattern) {
-            const originalGCO = ctx.globalCompositeOperation;
-            const originalAlpha = ctx.globalAlpha;
-
-            ctx.globalCompositeOperation = 'source-atop';
-            ctx.globalAlpha = filmGrainIntensity / 100;
-            ctx.fillStyle = noisePattern;
-            ctx.fillRect(centerX, centerY, scaledCanvas.width, scaledCanvas.height);
-
-            ctx.globalCompositeOperation = originalGCO;
-            ctx.globalAlpha = originalAlpha;
-          }
-        }
+        
+        // Removed - risograph effect is now handled by drawShape function
       }
     });
   }, [
@@ -2983,82 +2833,6 @@ export const useBrushEngine = () => {
       ctx.fill();
     }
     
-    // Apply risograph effect if enabled (only if we drew something and no dithering will be applied)
-    const risographIntensity = brushSettings.risographIntensity || 0;
-    if (risographIntensity > 0 && !isPreview && !willApplyDithering) {
-      // Get the bounds of the rectangle for effect
-      const minX = Math.floor(Math.min(...corners.map(c => c.x)));
-      const minY = Math.floor(Math.min(...corners.map(c => c.y)));
-      const maxX = Math.ceil(Math.max(...corners.map(c => c.x)));
-      const maxY = Math.ceil(Math.max(...corners.map(c => c.y)));
-      const boundWidth = maxX - minX;
-      const boundHeight = maxY - minY;
-      
-      if (boundWidth > 0 && boundHeight > 0) {
-        // Create a temporary canvas to test if points are inside the shape
-        const tempCanvas = canvasPool.acquire(boundWidth, boundHeight);
-        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-        
-        if (tempCtx) {
-          // Draw the shape outline on temp canvas for point-in-path testing
-          tempCtx.beginPath();
-          tempCtx.moveTo(corners[0].x - minX, corners[0].y - minY);
-          corners.slice(1).forEach(corner => tempCtx.lineTo(corner.x - minX, corner.y - minY));
-          tempCtx.closePath();
-          
-          // Get the current gradient image data with bounds checking
-          const canvasWidth = ctx.canvas.width;
-          const canvasHeight = ctx.canvas.height;
-          const safeMinX = Math.max(0, minX);
-          const safeMinY = Math.max(0, minY);
-          const safeMaxX = Math.min(canvasWidth, minX + boundWidth);
-          const safeMaxY = Math.min(canvasHeight, minY + boundHeight);
-          const safeBoundWidth = safeMaxX - safeMinX;
-          const safeBoundHeight = safeMaxY - safeMinY;
-          
-          if (safeBoundWidth <= 0 || safeBoundHeight <= 0) {
-            canvasPool.release(tempCanvas);
-            return;
-          }
-          
-          const imageData = ctx.getImageData(safeMinX, safeMinY, safeBoundWidth, safeBoundHeight);
-          const data = imageData.data;
-          
-          // Create fine-grain dither pattern
-          const threshold = 1 - (risographIntensity / 100) * 0.8; // 0.2 to 1.0 range
-          
-          // Apply risograph dither effect pixel by pixel, but only inside the shape
-          for (let y = 0; y < boundHeight; y++) {
-            for (let x = 0; x < boundWidth; x++) {
-              // Check if this point is inside the rectangle shape
-              if (tempCtx.isPointInPath(x, y)) {
-                const index = (y * boundWidth + x) * 4;
-                
-                // Only process pixels that have content
-                if (data[index + 3] > 0) {
-                  // Create fine noise pattern for this pixel
-                  const noise = Math.random();
-                  
-                  // If noise is below threshold, darken the pixel
-                  if (noise < threshold) {
-                    data[index] = Math.floor(data[index] * 0.3);     // Red
-                    data[index + 1] = Math.floor(data[index + 1] * 0.3); // Green  
-                    data[index + 2] = Math.floor(data[index + 2] * 0.3); // Blue
-                  }
-                }
-              }
-            }
-          }
-          
-          // Put the modified image data back
-          ctx.putImageData(imageData, safeMinX, safeMinY);
-          
-          // Release the temporary canvas
-          canvasPool.release(tempCanvas);
-        }
-      }
-    }
-
     // Apply dithering with manual gamma-correct gradient rendering
     if (brushSettings.ditherEnabled && numColors >= 2 && !isPreview) {
       // Get the bounds of the rectangle for dithering
@@ -3231,6 +3005,61 @@ export const useBrushEngine = () => {
           
           canvasPool.release(tempCanvas);
         }
+      }
+    }
+    
+    // Apply risograph effect if enabled (AFTER dithering so it's not overwritten)
+    const risographIntensity = brushSettings.risographIntensity || 0;
+    if (risographIntensity > 0 && !isPreview) {
+      // Use GPU-accelerated risograph effect with cached pattern
+      let pattern = null;
+      if (sharedRisographPatternContext === ctx && sharedRisographPattern) {
+        pattern = sharedRisographPattern;
+      } else {
+        const risoTexture = getRisographTexture();
+        pattern = ctx.createPattern(risoTexture, 'repeat');
+        if (pattern) {
+          sharedRisographPattern = pattern;
+          sharedRisographPatternContext = ctx;
+        }
+      }
+      
+      if (pattern) {
+        // Save current state
+        ctx.save();
+        
+        // Add misregistration offset
+        const effectStrength = risographIntensity / 100;
+        const misregX = (Math.random() - 0.5) * effectStrength * 2;
+        const misregY = (Math.random() - 0.5) * effectStrength * 2;
+        ctx.translate(misregX, misregY);
+        
+        // Create clipping path for the rectangle with slight roughness
+        ctx.beginPath();
+        ctx.moveTo(corners[0].x, corners[0].y);
+        corners.slice(1).forEach(corner => {
+          // Add slight roughness to edges
+          const roughX = corner.x + (Math.random() - 0.5) * effectStrength;
+          const roughY = corner.y + (Math.random() - 0.5) * effectStrength;
+          ctx.lineTo(roughX, roughY);
+        });
+        ctx.closePath();
+        ctx.clip();
+        
+        // Apply texture with multiply blend mode
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.fillStyle = pattern;
+        ctx.globalAlpha = risographIntensity / 100 * 0.35; // Slightly stronger effect
+        
+        // Fill the clipped area with the pattern
+        const minX = Math.floor(Math.min(...corners.map(c => c.x)));
+        const minY = Math.floor(Math.min(...corners.map(c => c.y)));
+        const maxX = Math.ceil(Math.max(...corners.map(c => c.x)));
+        const maxY = Math.ceil(Math.max(...corners.map(c => c.y)));
+        ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+        
+        // Restore state
+        ctx.restore();
       }
     }
     
@@ -3516,78 +3345,55 @@ export const useBrushEngine = () => {
     // Apply risograph effect if enabled
     const risographIntensity = brushSettings.risographIntensity || 0;
     if (risographIntensity > 0 && !isPreview) {
-      // Get the bounds of the polygon for effect
-      const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
-      const minY = Math.floor(Math.min(...vertices.map(v => v.y)));
-      const maxX = Math.ceil(Math.max(...vertices.map(v => v.x)));
-      const maxY = Math.ceil(Math.max(...vertices.map(v => v.y)));
-      const boundWidth = maxX - minX;
-      const boundHeight = maxY - minY;
-      
-      if (boundWidth > 0 && boundHeight > 0) {
-        // Create a temporary canvas to test if points are inside the shape
-        const tempCanvas = canvasPool.acquire(boundWidth, boundHeight);
-        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-        
-        if (tempCtx) {
-          // Draw the polygon outline on temp canvas for point-in-path testing
-          tempCtx.beginPath();
-          tempCtx.moveTo(vertices[0].x - minX, vertices[0].y - minY);
-          for (let i = 1; i < vertices.length; i++) {
-            tempCtx.lineTo(vertices[i].x - minX, vertices[i].y - minY);
-          }
-          tempCtx.closePath();
-          
-          // Get the current gradient image data with bounds checking
-          const canvasWidth = ctx.canvas.width;
-          const canvasHeight = ctx.canvas.height;
-          const safeMinX = Math.max(0, minX);
-          const safeMinY = Math.max(0, minY);
-          const safeMaxX = Math.min(canvasWidth, minX + boundWidth);
-          const safeMaxY = Math.min(canvasHeight, minY + boundHeight);
-          const safeBoundWidth = safeMaxX - safeMinX;
-          const safeBoundHeight = safeMaxY - safeMinY;
-          
-          if (safeBoundWidth <= 0 || safeBoundHeight <= 0) {
-            canvasPool.release(tempCanvas);
-            return;
-          }
-          
-          const imageData = ctx.getImageData(safeMinX, safeMinY, safeBoundWidth, safeBoundHeight);
-          const data = imageData.data;
-          
-          // Create fine-grain dither pattern
-          const threshold = 1 - (risographIntensity / 100) * 0.8; // 0.2 to 1.0 range
-          
-          // Apply risograph dither effect pixel by pixel, but only inside the shape
-          for (let y = 0; y < boundHeight; y++) {
-            for (let x = 0; x < boundWidth; x++) {
-              // Check if this point is inside the polygon shape
-              if (tempCtx.isPointInPath(x, y)) {
-                const index = (y * boundWidth + x) * 4;
-                
-                // Only process pixels that have content
-                if (data[index + 3] > 0) {
-                  // Create fine noise pattern for this pixel
-                  const noise = Math.random();
-                  
-                  // If noise is below threshold, darken the pixel
-                  if (noise < threshold) {
-                    data[index] = Math.floor(data[index] * 0.3);     // Red
-                    data[index + 1] = Math.floor(data[index + 1] * 0.3); // Green  
-                    data[index + 2] = Math.floor(data[index + 2] * 0.3); // Blue
-                  }
-                }
-              }
-            }
-          }
-          
-          // Put the modified image data back
-          ctx.putImageData(imageData, safeMinX, safeMinY);
-          
-          // Release the temporary canvas
-          canvasPool.release(tempCanvas);
+      // Use GPU-accelerated risograph effect with cached pattern
+      let pattern = null;
+      if (sharedRisographPatternContext === ctx && sharedRisographPattern) {
+        pattern = sharedRisographPattern;
+      } else {
+        const risoTexture = getRisographTexture();
+        pattern = ctx.createPattern(risoTexture, 'repeat');
+        if (pattern) {
+          sharedRisographPattern = pattern;
+          sharedRisographPatternContext = ctx;
         }
+      }
+      
+      if (pattern) {
+        // Save current state
+        ctx.save();
+        
+        // Add misregistration offset
+        const effectStrength = risographIntensity / 100;
+        const misregX = (Math.random() - 0.5) * effectStrength * 2;
+        const misregY = (Math.random() - 0.5) * effectStrength * 2;
+        ctx.translate(misregX, misregY);
+        
+        // Create clipping path for the polygon with slight roughness
+        ctx.beginPath();
+        ctx.moveTo(vertices[0].x, vertices[0].y);
+        for (let i = 1; i < vertices.length; i++) {
+          // Add slight roughness to edges
+          const roughX = vertices[i].x + (Math.random() - 0.5) * effectStrength;
+          const roughY = vertices[i].y + (Math.random() - 0.5) * effectStrength;
+          ctx.lineTo(roughX, roughY);
+        }
+        ctx.closePath();
+        ctx.clip();
+        
+        // Apply texture with multiply blend mode
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.fillStyle = pattern;
+        ctx.globalAlpha = risographIntensity / 100 * 0.35; // Slightly stronger effect
+        
+        // Fill the clipped area with the pattern
+        const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
+        const minY = Math.floor(Math.min(...vertices.map(v => v.y)));
+        const maxX = Math.ceil(Math.max(...vertices.map(v => v.x)));
+        const maxY = Math.ceil(Math.max(...vertices.map(v => v.y)));
+        ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+        
+        // Restore state
+        ctx.restore();
       }
     }
 

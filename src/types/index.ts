@@ -275,7 +275,7 @@ export interface CanvasSnapshot {
   imageData: ImageData;  // Keep for backward compatibility
   layers: Layer[];  // Full layers state
   activeLayerId: string;  // Active layer at time of snapshot
-  actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'paste';
+  actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'paste' | 'delete';
   description: string;
 }
 

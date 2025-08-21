@@ -32,6 +32,20 @@ Dynamically samples canvas content for each new stroke.
 - Preset glitch patterns (VHS, digital TV, corrupted file)
 - Animation support (animated glitch effects)
 
+## The Quantum Superposition Brush
+This brush exists in multiple probable states until "observed." As you paint, your strokes remain in superposition - flickering between different possible colors, textures, and positions based on quantum probability distributions. Only when you stop and "observe" (by clicking a collapse button or waiting a certain time) do the strokes resolve into their final state. You can adjust the probability waves, entangle different strokes so their collapses are correlated, or create "measurement zones" where everything collapses differently. The final painting emerges from probability clouds, and you could export alternate timeline versions showing different collapse outcomes.
+Each brush treats the digital canvas as a space where painting becomes entangled with systems, economies, uncertainties, and the hidden dynamics of our networked world.
+
+## The Consensus Reality Brush
+This brush only paints what it can "verify" exists across multiple online sources. Try to paint something fictional or counterfactual, and the brush resistance increases or the stroke becomes transparent. The more references the brush finds across different platforms (Wikipedia, news sites, social media, academic papers), the more solid and vibrant your stroke becomes. You could even have different "verification modes" - scientific consensus, popular belief, historical record - each creating different resistances and possibilities for what can be painted into existence.
+Each of these brushes treats the canvas not as a static surface but as a dynamic interface between human intention, algorithmic processing, and networked information systems.
+
+## The Semantic Web Brush
+Instead of painting with colors, this brush paints with live-scraped imagery from the internet based on what you write or draw. Sketch a rough circle and write "sunset" - it fills with real sunset images pulled from current web searches, blended algorithmically. The brush interprets your gestures semantically, using image recognition to understand what you're trying to draw, then replaces your strokes with relevant found imagery. Each painting becomes a collage of the internet's current visual culture around your concepts.
+
+### The Semantic Web Brush
+Instead of painting with colors, this brush paints with live-scraped imagery from the internet based on what you write or draw. Sketch a rough circle and write "sunset" - it fills with real sunset images pulled from current web searches, blended algorithmically. The brush interprets your gestures semantically, using image recognition to understand what you're trying to draw, then replaces your strokes with relevant found imagery. Each painting becomes a collage of the internet's current visual culture around your concepts.
+
 ### Data Erosion Brush
 **Concept:** A variation of the datamosh brush that progressively removes pixel data in interesting patterns, creating a digital decay effect.
 

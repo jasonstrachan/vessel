@@ -19,7 +19,7 @@ export function useKeyboardShortcuts({
   onCompletePolygon,
   onCancelPolygon,
 }: UseKeyboardShortcutsProps) {
-  const { setCurrentTool, tools, polygonGradientState } = useAppStore();
+  const { setCurrentTool, tools, polygonGradientState, deleteSelectedPixels, selectionStart, selectionEnd } = useAppStore();
   
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
     // Handle Undo (Ctrl+Z / Cmd+Z)
@@ -82,8 +82,14 @@ export function useKeyboardShortcuts({
         onCancelPolygon();
       }
     }
+    // Delete key for deleting selected pixels
+    else if (event.key === 'Delete' && selectionStart && selectionEnd) {
+      event.preventDefault();
+      deleteSelectedPixels();
+    }
   }, [setCurrentTool, tools.brushSettings.brushShape, polygonGradientState.points.length, 
-      onSpacePressed, onUndo, onRedo, onCompletePolygon, onCancelPolygon]);
+      onSpacePressed, onUndo, onRedo, onCompletePolygon, onCancelPolygon, 
+      deleteSelectedPixels, selectionStart, selectionEnd]);
   
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
     if (event.code === 'Space') {

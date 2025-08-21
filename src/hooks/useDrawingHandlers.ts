@@ -3,6 +3,7 @@ import { useAppStore } from '../stores/useAppStore';
 import { useBrushEngine } from './useBrushEngine';
 import { useUserBrushEngine } from './useUserBrushEngine';
 import { BrushShape } from '../types';
+import { getRisographTexture } from '../utils/risographTexture';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -171,6 +172,40 @@ export function useDrawingHandlers({
     // Initial point drawn - parent component will handle redraw
   }, [initDrawingCanvas, brushEngine, userBrushEngine, project, activeBrushComponents, drawEraserSegment]);
   
+  // Apply GPU-accelerated risograph effect to the drawing canvas
+  const applyRisographEffect = useCallback((canvas: HTMLCanvasElement, intensity: number) => {
+    if (intensity <= 0) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    // Get or create cached pattern
+    const risoTexture = getRisographTexture();
+    const pattern = ctx.createPattern(risoTexture, 'repeat');
+    if (!pattern) return;
+    
+    ctx.save();
+    
+    // Use source-atop to only apply where pixels exist (respects alpha)
+    ctx.globalCompositeOperation = 'source-atop';
+    ctx.globalAlpha = 1.0;
+    ctx.fillStyle = pattern;
+    
+    // Fill entire canvas - will only affect existing pixels due to source-atop
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Now darken with multiply
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = `rgba(255, 255, 255, ${1 - (intensity / 100) * 0.3})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    ctx.restore();
+  }, []);
+
+  // Cache risograph pattern for GPU acceleration
+  const risographPatternRef = useRef<CanvasPattern | null>(null);
+  const risographPatternCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+
   const continueDrawing = useCallback((worldPos: { x: number; y: number }) => {
     const currentState = useAppStore.getState();
     const currentTool = currentState.tools.currentTool;
@@ -209,6 +244,7 @@ export function useDrawingHandlers({
             activeBrushComponents
           );
         }
+        
       }
 
       // Parent component will handle redraw
@@ -241,7 +277,9 @@ export function useDrawingHandlers({
           await captureCanvasToActiveLayer(drawingCanvasRef.current);
           saveCanvasState(drawingCanvasRef.current, 'eraser', 'Erased stroke');
         } else { // Brush tool
-          // For the brush, we still need to composite it onto the original layer
+          const activeSettings = currentState.tools.brushSettings;
+          
+          // Now composite the drawing (with risograph already applied per-stamp) onto the layer
           const tempCanvas = document.createElement('canvas');
           tempCanvas.width = project.width;
           tempCanvas.height = project.height;
@@ -254,7 +292,6 @@ export function useDrawingHandlers({
             if (activeLayer.imageData) {
               tempCtx.putImageData(activeLayer.imageData, 0, 0);
             }
-            const activeSettings = currentState.tools.brushSettings;
             tempCtx.globalCompositeOperation = activeSettings.blendMode || 'source-over';
             tempCtx.globalAlpha = activeSettings.opacity || 1;
             tempCtx.drawImage(drawingCanvasRef.current, 0, 0);
@@ -275,7 +312,7 @@ export function useDrawingHandlers({
     } finally {
       if (isBusyRef) isBusyRef.current = false;
     }
-  }, [project, captureCanvasToActiveLayer, saveCanvasState, isBusyRef, userBrushEngine]);
+  }, [project, captureCanvasToActiveLayer, saveCanvasState, isBusyRef, userBrushEngine, tools.shapeMode]);
   
   const clearDrawingCanvas = useCallback(() => {
     if (drawingCtxRef.current && drawingCanvasRef.current) {

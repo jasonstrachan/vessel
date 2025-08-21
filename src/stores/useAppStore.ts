@@ -128,6 +128,7 @@ interface AppState {
   selectionEnd: { x: number; y: number } | null;
   setSelectionBounds: (start: { x: number; y: number } | null, end: { x: number; y: number } | null) => void;
   clearSelection: () => void;
+  deleteSelectedPixels: () => void;
   
   // Floating Paste State
   floatingPaste: {
@@ -606,6 +607,60 @@ export const useAppStore = create<AppState>()(
       selectionEnd: null,
       setSelectionBounds: (start, end) => set({ selectionStart: start, selectionEnd: end }),
       clearSelection: () => set({ selectionStart: null, selectionEnd: null }),
+      deleteSelectedPixels: () => {
+        const state = get();
+        const { selectionStart, selectionEnd, layers, activeLayerId, project } = state;
+        
+        if (!selectionStart || !selectionEnd || !project) return;
+        
+        const activeLayer = layers.find(l => l.id === activeLayerId);
+        if (!activeLayer || !activeLayer.imageData || !activeLayerId) return;
+        
+        // Calculate selection bounds
+        const x = Math.min(selectionStart.x, selectionEnd.x);
+        const y = Math.min(selectionStart.y, selectionEnd.y);
+        const width = Math.abs(selectionEnd.x - selectionStart.x);
+        const height = Math.abs(selectionEnd.y - selectionStart.y);
+        
+        if (width <= 0 || height <= 0) return;
+        
+        // Create a copy of the image data
+        const newImageData = new ImageData(
+          new Uint8ClampedArray(activeLayer.imageData.data),
+          activeLayer.imageData.width,
+          activeLayer.imageData.height
+        );
+        
+        // Clear pixels within selection bounds
+        for (let py = Math.max(0, Math.floor(y)); py < Math.min(newImageData.height, Math.ceil(y + height)); py++) {
+          for (let px = Math.max(0, Math.floor(x)); px < Math.min(newImageData.width, Math.ceil(x + width)); px++) {
+            const index = (py * newImageData.width + px) * 4;
+            newImageData.data[index] = 0;     // R
+            newImageData.data[index + 1] = 0; // G
+            newImageData.data[index + 2] = 0; // B
+            newImageData.data[index + 3] = 0; // A
+          }
+        }
+        
+        // Update the layer - this will trigger a state change
+        state.updateLayer(activeLayerId, { imageData: newImageData });
+        
+        // Trigger recomposition to update the canvas immediately
+        set({ layersNeedRecomposition: true });
+        
+        // Save state for undo
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = project.width;
+        tempCanvas.height = project.height;
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+        if (tempCtx) {
+          tempCtx.putImageData(newImageData, 0, 0);
+          state.saveCanvasState(tempCanvas, 'delete', 'Delete selected pixels');
+        }
+        
+        // Clear selection after deletion
+        state.clearSelection();
+      },
       
       // Floating Paste State
       floatingPaste: null,
