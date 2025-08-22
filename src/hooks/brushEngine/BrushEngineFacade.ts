@@ -22,6 +22,8 @@ export interface BrushEngineConfig {
   brushStampCache?: Map<string, HTMLCanvasElement>;
   createPixelCircleStamp?: (size: number) => HTMLCanvasElement | null;
   createPixelSquareStamp?: (size: number) => HTMLCanvasElement | null;
+  getRotationTempContext?: (width: number, height: number) => CanvasRenderingContext2D | null;
+  rotationTempCanvas?: HTMLCanvasElement | null;
   customBrushes?: CustomBrush[];
 }
 
@@ -75,7 +77,9 @@ export class BrushEngineFacade {
       patternTempCanvas: config.patternTempCanvas,
       brushStampCache: config.brushStampCache,
       createPixelCircleStamp: config.createPixelCircleStamp,
-      createPixelSquareStamp: config.createPixelSquareStamp
+      createPixelSquareStamp: config.createPixelSquareStamp,
+      getRotationTempContext: config.getRotationTempContext,
+      rotationTempCanvas: config.rotationTempCanvas
     };
 
     this.shapeDrawer = createShapeDrawer(shapeSettings, shapeDeps);
@@ -108,7 +112,9 @@ export class BrushEngineFacade {
         patternTempCanvas: this.config.patternTempCanvas,
         brushStampCache: this.config.brushStampCache,
         createPixelCircleStamp: this.config.createPixelCircleStamp,
-        createPixelSquareStamp: this.config.createPixelSquareStamp
+        createPixelSquareStamp: this.config.createPixelSquareStamp,
+        getRotationTempContext: this.config.getRotationTempContext,
+        rotationTempCanvas: this.config.rotationTempCanvas
       };
 
       this.shapeDrawer = createShapeDrawer(shapeSettings, shapeDeps);

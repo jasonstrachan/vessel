@@ -23,6 +23,8 @@ export interface ShapeDrawingDependencies {
   brushStampCache?: Map<string, HTMLCanvasElement>;
   createPixelCircleStamp?: (size: number) => HTMLCanvasElement | null;
   createPixelSquareStamp?: (size: number) => HTMLCanvasElement | null;
+  getRotationTempContext?: (width: number, height: number) => CanvasRenderingContext2D | null;
+  rotationTempCanvas?: HTMLCanvasElement | null;
 }
 
 /**
@@ -100,13 +102,13 @@ export const drawShape = (
   let rotatedPixelCanvas: HTMLCanvasElement | null = null;
   let rotatedPixelCtx: CanvasRenderingContext2D | null = null;
   
-  if (needsPixelRotationWorkaround) {
-    // Create temporary canvas for pixel-perfect pre-rendering
+  if (needsPixelRotationWorkaround && deps?.getRotationTempContext) {
+    // Use persistent temporary canvas for pixel-perfect pre-rendering
     const tempSize = Math.ceil(size) + 4; // Add padding for rotation
-    rotatedPixelCanvas = canvasPool.acquire(tempSize, tempSize);
-    rotatedPixelCtx = rotatedPixelCanvas.getContext('2d', { colorSpace: 'srgb' });
+    rotatedPixelCtx = deps.getRotationTempContext(tempSize, tempSize);
+    rotatedPixelCanvas = deps.rotationTempCanvas || null;
     
-    if (rotatedPixelCtx) {
+    if (rotatedPixelCtx && rotatedPixelCanvas) {
       rotatedPixelCtx.clearRect(0, 0, tempSize, tempSize);
       rotatedPixelCtx.imageSmoothingEnabled = false;
       rotatedPixelCtx.fillStyle = targetCtx.fillStyle;
@@ -425,8 +427,7 @@ export const drawShape = (
       y - tempSize / 2
     );
     
-    // Release temporary canvas back to pool
-    canvasPool.release(rotatedPixelCanvas);
+    // Don't release - using persistent canvas from deps
   }
   
   // Apply risograph texture if enabled

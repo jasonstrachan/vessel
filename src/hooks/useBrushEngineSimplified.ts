@@ -18,6 +18,7 @@ export const useBrushEngineSimplified = () => {
   // Cache for brush stamps
   const brushStampCacheRef = useRef(new Map<string, HTMLCanvasElement>());
   const patternTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   
   // Pattern temp context getter
   const getPatternTempContext = useCallback((width: number, height: number) => {
@@ -26,6 +27,21 @@ export const useBrushEngineSimplified = () => {
     }
     
     const canvas = patternTempCanvasRef.current;
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    
+    return canvas.getContext('2d');
+  }, []);
+
+  // Rotation temp context getter for pixel-perfect rotation
+  const getRotationTempContext = useCallback((width: number, height: number) => {
+    if (!rotationTempCanvasRef.current) {
+      rotationTempCanvasRef.current = document.createElement('canvas');
+    }
+    
+    const canvas = rotationTempCanvasRef.current;
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
@@ -168,11 +184,13 @@ export const useBrushEngineSimplified = () => {
       brushStampCache: brushStampCacheRef.current,
       createPixelCircleStamp,
       createPixelSquareStamp,
+      getRotationTempContext,
+      rotationTempCanvas: rotationTempCanvasRef.current,
       customBrushes: project?.customBrushes || []
     };
     
     return createBrushEngineFacade(config);
-  }, [project?.customBrushes, getPatternTempContext, createPixelCircleStamp, createPixelSquareStamp]); // Removed tools.brushSettings
+  }, [project?.customBrushes, getPatternTempContext, createPixelCircleStamp, createPixelSquareStamp, getRotationTempContext]);
 
   // Update engine config when settings change
   useEffect(() => {
