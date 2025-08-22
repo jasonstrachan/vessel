@@ -4,6 +4,7 @@ import { useAppStore } from '../stores/useAppStore';
 import { useBrushEngineAdapter } from './useBrushEngineAdapter';
 import { useUserBrushEngine } from './useUserBrushEngine';
 import { BrushShape } from '../types';
+import { getRisographPattern } from '../utils/risographTexture';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -451,6 +452,56 @@ export function useDrawingHandlers({
           }
           drawCtx.closePath();
           drawCtx.fill();
+          
+          // Apply risograph effect if enabled (matching monolithic implementation)
+          const risographIntensity = tools.brushSettings.risographIntensity || 0;
+          if (risographIntensity > 0) {
+            // Use GPU-accelerated risograph effect with cached pattern
+            const pattern = getRisographPattern(drawCtx);
+            
+            if (pattern) {
+              // Save current state
+              drawCtx.save();
+              
+              // Add misregistration offset
+              const effectStrength = risographIntensity / 100;
+              const misregX = (Math.random() - 0.5) * effectStrength * 2;
+              const misregY = (Math.random() - 0.5) * effectStrength * 2;
+              drawCtx.translate(misregX, misregY);
+              
+              // Create clipping path for the polygon (with optional roughness)
+              drawCtx.beginPath();
+              drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
+              for (let i = 1; i < shapePointsRef.current.length; i++) {
+                if (tools.brushSettings.risographOutline) {
+                  // Add slight roughness to edges only if outline is enabled
+                  const roughX = shapePointsRef.current[i].x + (Math.random() - 0.5) * effectStrength;
+                  const roughY = shapePointsRef.current[i].y + (Math.random() - 0.5) * effectStrength;
+                  drawCtx.lineTo(roughX, roughY);
+                } else {
+                  // Clean edges without roughness
+                  drawCtx.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
+                }
+              }
+              drawCtx.closePath();
+              drawCtx.clip();
+              
+              // Apply texture with appropriate alpha based on brush type
+              // Shape fills need stronger effect since they don't have overlapping stamps like strokes
+              // Use higher multiplier to match visual strength of strokes
+              const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND || 
+                (tools.brushSettings.brushShape === BrushShape.SQUARE && !tools.brushSettings.antialiasing);
+              const risoAlpha = isPixelBrush ? 0.8 : 0.5;
+              
+              drawCtx.globalCompositeOperation = 'multiply';
+              drawCtx.globalAlpha = effectStrength * risoAlpha;
+              drawCtx.fillStyle = pattern;
+              drawCtx.fillRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+              
+              // Restore state
+              drawCtx.restore();
+            }
+          }
           
           drawingCanvasHasContent.current = true;
         }

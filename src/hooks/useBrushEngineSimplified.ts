@@ -7,6 +7,8 @@ import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams } from './brushEngine/BrushEngineFacade';
 import type { CustomBrush } from '../types';
+import { getRisographPattern } from '../utils/risographTexture';
+import { applyDithering, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { canvasPool } from '../utils/canvasPool';
 
 /**
@@ -283,47 +285,369 @@ export const useBrushEngineSimplified = () => {
     startY: number,
     endX: number,
     endY: number,
-    startColor: string,
-    endColor: string
+    width: number,
+    colors: string[],
+    isPreview: boolean = false
   ) => {
-    const width = Math.abs(endX - startX);
-    const height = Math.abs(endY - startY);
-    const x = Math.min(startX, endX);
-    const y = Math.min(startY, endY);
+    // Calculate rectangle geometry (matching monolithic exactly)
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const length = Math.hypot(dx, dy);
+    
+    if (length === 0 || width === 0) return;
+    
+    // Calculate perpendicular vector for width
+    const perpX = -dy / length * (width / 2);
+    const perpY = dx / length * (width / 2);
+    
+    // Rectangle corners
+    const corners = [
+      { x: startX + perpX, y: startY + perpY },
+      { x: startX - perpX, y: startY - perpY },
+      { x: endX - perpX, y: endY - perpY },
+      { x: endX + perpX, y: endY + perpY }
+    ];
 
-    // Create gradient
-    const gradient = ctx.createLinearGradient(x, y, x + width, y + height);
-    gradient.addColorStop(0, startColor);
-    gradient.addColorStop(1, endColor);
+    // Save context state
+    ctx.save();
+    
+    // Always enable antialiasing for smooth rectangle edges
+    ctx.imageSmoothingEnabled = true;
+    
+    // Apply opacity and blend mode
+    ctx.globalAlpha = tools.brushSettings.opacity;
+    ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
 
-    // Draw rectangle
+    // Create gradient - use actual start/end positions to respect direction
+    const gradient = ctx.createLinearGradient(startX, startY, endX, endY);
+    
+    // Add all color stops (matching preview behavior exactly)
+    if (colors.length > 0) {
+      colors.forEach((color, index) => {
+        const position = colors.length === 1 ? 0 : index / (colors.length - 1);
+        gradient.addColorStop(position, color);
+      });
+    } else {
+      // Fallback to default color
+      const defaultColor = tools.brushSettings.color;
+      gradient.addColorStop(0, defaultColor);
+      gradient.addColorStop(1, defaultColor);
+    }
+
+    // First, always draw the clean rectangle with smooth edges
     ctx.fillStyle = gradient;
-    ctx.fillRect(x, y, width, height);
-  }, []);
+    ctx.beginPath();
+    ctx.moveTo(corners[0].x, corners[0].y);
+    corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
+    ctx.closePath();
+    ctx.fill();
+    
+    // Apply dithering if enabled, using clipping to preserve clean edges
+    if (tools.brushSettings.ditherEnabled && !isPreview) {
+      const minX = Math.floor(Math.min(...corners.map(c => c.x)));
+      const minY = Math.floor(Math.min(...corners.map(c => c.y)));
+      const maxX = Math.ceil(Math.max(...corners.map(c => c.x)));
+      const maxY = Math.ceil(Math.max(...corners.map(c => c.y)));
+      const boundWidth = maxX - minX;
+      const boundHeight = maxY - minY;
+      
+      if (boundWidth > 0 && boundHeight > 0) {
+        // Create temp canvas for dithering
+        const tempCanvas = canvasPool.acquire(boundWidth, boundHeight);
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+        
+        if (tempCtx) {
+          // Draw the gradient on temp canvas
+          const localCorners = corners.map(c => ({ x: c.x - minX, y: c.y - minY }));
+          
+          // Create gradient in local space
+          const localGradient = tempCtx.createLinearGradient(
+            startX - minX, startY - minY,
+            endX - minX, endY - minY
+          );
+          
+          // Add color stops
+          if (colors.length > 0) {
+            colors.forEach((color, index) => {
+              const position = colors.length === 1 ? 0 : index / (colors.length - 1);
+              localGradient.addColorStop(position, color);
+            });
+          } else {
+            const defaultColor = tools.brushSettings.color;
+            localGradient.addColorStop(0, defaultColor);
+            localGradient.addColorStop(1, defaultColor);
+          }
+          
+          // Draw rectangle on temp canvas
+          tempCtx.fillStyle = localGradient;
+          tempCtx.beginPath();
+          tempCtx.moveTo(localCorners[0].x, localCorners[0].y);
+          localCorners.slice(1).forEach(corner => tempCtx.lineTo(corner.x, corner.y));
+          tempCtx.closePath();
+          tempCtx.fill();
+          
+          // Get and dither the image data
+          const imageData = tempCtx.getImageData(0, 0, boundWidth, boundHeight);
+          
+          const numColors = tools.brushSettings.colors || 2;
+          const fillResolution = tools.brushSettings.fillResolution || 1;
+          const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
+          const patternStyle = tools.brushSettings.patternStyle || 'dots';
+          
+          const ditheredData = fillResolution > 1 
+            ? applyDitheringWithFillResolution(imageData, numColors, fillResolution, algorithm, patternStyle)
+            : applyDithering(imageData, numColors, algorithm);
+          
+          // Put dithered data back on temp canvas
+          tempCtx.putImageData(ditheredData, 0, 0);
+          
+          // Save state and set up clipping to preserve edges
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(corners[0].x, corners[0].y);
+          corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
+          ctx.closePath();
+          ctx.clip();
+          
+          // Draw the dithered image (drawImage respects clipping, putImageData doesn't)
+          ctx.drawImage(tempCanvas, minX, minY);
+          
+          // Restore state
+          ctx.restore();
+          
+          // Release temp canvas
+          canvasPool.release(tempCanvas);
+        }
+      }
+    }
+    
+    // Apply risograph effect if enabled (matching monolithic)
+    const risographIntensity = tools.brushSettings.risographIntensity || 0;
+    if (risographIntensity > 0 && !isPreview) {
+      const pattern = getRisographPattern(ctx);
+      
+      if (pattern) {
+        // Save current state
+        ctx.save();
+        
+        // Add misregistration offset
+        const effectStrength = risographIntensity / 100;
+        const misregX = (Math.random() - 0.5) * effectStrength * 2;
+        const misregY = (Math.random() - 0.5) * effectStrength * 2;
+        ctx.translate(misregX, misregY);
+        
+        // Create clipping path for the rotated rectangle
+        ctx.beginPath();
+        ctx.moveTo(corners[0].x, corners[0].y);
+        corners.slice(1).forEach(corner => {
+          if (tools.brushSettings.risographOutline) {
+            // Add slight roughness to edges if outline is enabled
+            const roughX = corner.x + (Math.random() - 0.5) * effectStrength;
+            const roughY = corner.y + (Math.random() - 0.5) * effectStrength;
+            ctx.lineTo(roughX, roughY);
+          } else {
+            // Clean edges without roughness
+            ctx.lineTo(corner.x, corner.y);
+          }
+        });
+        ctx.closePath();
+        ctx.clip();
+        
+        // Apply pattern with multiply blend mode
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.fillStyle = pattern;
+        ctx.globalAlpha = risographIntensity / 100 * 0.35;
+        
+        // Fill the clipped area with the pattern
+        const minX = Math.floor(Math.min(...corners.map(c => c.x)));
+        const minY = Math.floor(Math.min(...corners.map(c => c.y)));
+        const maxX = Math.ceil(Math.max(...corners.map(c => c.x)));
+        const maxY = Math.ceil(Math.max(...corners.map(c => c.y)));
+        ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+        
+        // Restore state
+        ctx.restore();
+      }
+    }
+    
+    // Restore context state
+    ctx.restore();
+  }, [tools.brushSettings.risographIntensity, tools.brushSettings.risographOutline, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.antialiasing, tools.brushSettings.opacity, tools.brushSettings.blendMode]);
 
   /**
    * Draw polygon with gradient
    */
   const drawPolygonGradient = useCallback((
     ctx: CanvasRenderingContext2D,
-    vertices: Array<{ x: number; y: number }>,
-    colors: string[]
+    polygonData: { vertices: Array<{ x: number; y: number }>, colors: string[] },
+    isPreview: boolean = false
   ) => {
-    if (!vertices || vertices.length < 3) return;
-
-    ctx.beginPath();
-    ctx.moveTo(vertices[0].x, vertices[0].y);
+    const { vertices, colors } = polygonData || {};
+    if (!vertices || !Array.isArray(vertices) || vertices.length < 3) return;
     
-    for (let i = 1; i < vertices.length; i++) {
-      ctx.lineTo(vertices[i].x, vertices[i].y);
+    // Validate all vertices are defined
+    const validVertices = vertices.filter(v => v && typeof v.x === 'number' && typeof v.y === 'number');
+    if (validVertices.length < 3) return;
+
+    // Calculate bounds for gradient
+    const minX = Math.floor(Math.min(...validVertices.map(v => v.x)));
+    const minY = Math.floor(Math.min(...validVertices.map(v => v.y)));
+    const maxX = Math.ceil(Math.max(...validVertices.map(v => v.x)));
+    const maxY = Math.ceil(Math.max(...validVertices.map(v => v.y)));
+    const boundWidth = maxX - minX;
+    const boundHeight = maxY - minY;
+    
+    // Create gradient from first to last vertex
+    const gradient = ctx.createLinearGradient(
+      validVertices[0].x, validVertices[0].y,
+      validVertices[validVertices.length - 1].x, validVertices[validVertices.length - 1].y
+    );
+    
+    // Add color stops
+    if (colors && colors.length > 0) {
+      colors.forEach((color, index) => {
+        const position = colors.length === 1 ? 0 : index / (colors.length - 1);
+        gradient.addColorStop(position, color);
+      });
+    } else {
+      const defaultColor = tools.brushSettings.color;
+      gradient.addColorStop(0, defaultColor);
+      gradient.addColorStop(1, defaultColor);
     }
     
-    ctx.closePath();
+    // Check if we'll be applying dithering
+    const willApplyDithering = tools.brushSettings.ditherEnabled && !isPreview;
+    
+    if (willApplyDithering && boundWidth > 0 && boundHeight > 0) {
+      // Create clean version on temporary canvas
+      const cleanCanvas = canvasPool.acquire(boundWidth, boundHeight);
+      const cleanCtx = cleanCanvas.getContext('2d', { willReadFrequently: true });
+      
+      if (cleanCtx) {
+        cleanCtx.imageSmoothingEnabled = true;
+        
+        // Convert vertices to local coordinates
+        const localVertices = validVertices.map(v => ({ x: v.x - minX, y: v.y - minY }));
+        
+        // Create gradient in local space
+        const localGradient = cleanCtx.createLinearGradient(
+          localVertices[0].x, localVertices[0].y,
+          localVertices[localVertices.length - 1].x, localVertices[localVertices.length - 1].y
+        );
+        
+        // Add color stops
+        if (colors && colors.length > 0) {
+          colors.forEach((color, index) => {
+            const position = colors.length === 1 ? 0 : index / (colors.length - 1);
+            localGradient.addColorStop(position, color);
+          });
+        } else {
+          const defaultColor = tools.brushSettings.color;
+          localGradient.addColorStop(0, defaultColor);
+          localGradient.addColorStop(1, defaultColor);
+        }
+        
+        // Draw clean polygon
+        cleanCtx.fillStyle = localGradient;
+        cleanCtx.beginPath();
+        cleanCtx.moveTo(localVertices[0].x, localVertices[0].y);
+        localVertices.slice(1).forEach(vertex => cleanCtx.lineTo(vertex.x, vertex.y));
+        cleanCtx.closePath();
+        cleanCtx.fill();
+        
+        // Get clean image data and apply dithering
+        const cleanImageData = cleanCtx.getImageData(0, 0, boundWidth, boundHeight);
+        const numColors = tools.brushSettings.colors || 2;
+        const fillResolution = tools.brushSettings.fillResolution || 1;
+        const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
+        const patternStyle = tools.brushSettings.patternStyle || 'dots';
+        
+        const ditheredData = fillResolution > 1 
+          ? applyDitheringWithFillResolution(cleanImageData, numColors, fillResolution, algorithm, patternStyle)
+          : applyDithering(cleanImageData, numColors, algorithm);
+        
+        // Create final composited result
+        const resultData = new ImageData(
+          new Uint8ClampedArray(ditheredData.data),
+          boundWidth,
+          boundHeight
+        );
+        
+        // Preserve antialiased edges by restoring pixels with partial alpha
+        for (let i = 0; i < resultData.data.length; i += 4) {
+          const cleanAlpha = cleanImageData.data[i + 3];
+          
+          // If original pixel was partially transparent (antialiased edge), restore it
+          if (cleanAlpha > 0 && cleanAlpha < 255) {
+            resultData.data[i] = cleanImageData.data[i];     // R
+            resultData.data[i + 1] = cleanImageData.data[i + 1]; // G
+            resultData.data[i + 2] = cleanImageData.data[i + 2]; // B
+            resultData.data[i + 3] = cleanImageData.data[i + 3]; // A
+          }
+        }
+        
+        // Put result back and draw to main canvas
+        cleanCtx.putImageData(resultData, 0, 0);
+        ctx.drawImage(cleanCanvas, minX, minY);
+        
+        // Release temp canvas
+        canvasPool.release(cleanCanvas);
+      }
+    } else {
+      // No dithering - draw directly with clean edges
+      ctx.beginPath();
+      ctx.moveTo(validVertices[0].x, validVertices[0].y);
+      
+      for (let i = 1; i < validVertices.length; i++) {
+        ctx.lineTo(validVertices[i].x, validVertices[i].y);
+      }
+      
+      ctx.closePath();
+      ctx.fillStyle = gradient;
+      ctx.fill();
+    }
 
-    // Simple fill with first color for now
-    ctx.fillStyle = colors[0] || '#000000';
-    ctx.fill();
-  }, []);
+    // Apply risograph effect if enabled (matching monolithic)
+    const risographIntensity = tools.brushSettings.risographIntensity || 0;
+    if (risographIntensity > 0 && !isPreview) {
+      const pattern = getRisographPattern(ctx);
+      
+      if (pattern) {
+        // Save current state
+        ctx.save();
+        
+        // Add misregistration offset
+        const effectStrength = risographIntensity / 100;
+        const misregX = (Math.random() - 0.5) * effectStrength * 2;
+        const misregY = (Math.random() - 0.5) * effectStrength * 2;
+        ctx.translate(misregX, misregY);
+        
+        // Create clipping path for the polygon
+        ctx.beginPath();
+        ctx.moveTo(validVertices[0].x, validVertices[0].y);
+        for (let i = 1; i < validVertices.length; i++) {
+          ctx.lineTo(validVertices[i].x, validVertices[i].y);
+        }
+        ctx.closePath();
+        ctx.clip();
+        
+        // Apply pattern with multiply blend mode
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.fillStyle = pattern;
+        ctx.globalAlpha = risographIntensity / 100 * 0.35;
+        
+        // Fill the clipped area with the pattern
+        const minX = Math.floor(Math.min(...validVertices.map(v => v.x)));
+        const minY = Math.floor(Math.min(...validVertices.map(v => v.y)));
+        const maxX = Math.ceil(Math.max(...validVertices.map(v => v.x)));
+        const maxY = Math.ceil(Math.max(...validVertices.map(v => v.y)));
+        ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+        
+        // Restore state
+        ctx.restore();
+      }
+    }
+  }, [tools.brushSettings.risographIntensity]);
 
   // Clean up resources
   useEffect(() => {

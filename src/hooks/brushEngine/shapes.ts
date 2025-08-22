@@ -5,6 +5,12 @@
 
 import { BrushShape, type BrushSettings } from '@/types';
 import { canvasPool } from '@/utils/canvasPool';
+import { getRisographPattern } from '@/utils/risographTexture';
+
+// Cache for riso effect settings to avoid recalculation
+let cachedRisoAlpha = 0;
+let cachedRisoIntensity = -1;
+let cachedRisoIsPixel = false;
 
 /**
  * Settings for drawing shapes
@@ -442,6 +448,7 @@ export const drawShape = (
 
 /**
  * Apply risograph texture effect to a drawn shape
+ * Matches the monolithic implementation's per-stamp risograph effect
  */
 export const applyRisographTexture = (
   ctx: CanvasRenderingContext2D,
@@ -450,29 +457,48 @@ export const applyRisographTexture = (
   size: number,
   intensity: number
 ) => {
-  // Simplified risograph effect - would need full implementation
-  // This is a placeholder for the actual risograph texture logic
-  const halfSize = size / 2;
-  const noiseSize = Math.max(1, Math.floor(size * 0.1));
-  
-  ctx.save();
-  ctx.globalAlpha = intensity * 0.3;
-  
-  // Add some noise dots
-  for (let i = 0; i < size; i += noiseSize * 2) {
-    for (let j = 0; j < size; j += noiseSize * 2) {
-      if (Math.random() > 0.5) {
-        ctx.fillRect(
-          x - halfSize + i + Math.random() * noiseSize,
-          y - halfSize + j + Math.random() * noiseSize,
-          noiseSize,
-          noiseSize
-        );
-      }
-    }
+  if (intensity <= 0) {
+    return;
   }
   
-  ctx.restore();
+  // Get cached risograph pattern
+  const risoPattern = getRisographPattern(ctx);
+  
+  if (!risoPattern) {
+    return;
+  }
+  
+  // Check if we need to recalculate cached alpha value
+  const isPixelBrush = !ctx.imageSmoothingEnabled;
+  
+  if (cachedRisoIntensity !== intensity || cachedRisoIsPixel !== isPixelBrush) {
+    cachedRisoIntensity = intensity;
+    cachedRisoIsPixel = isPixelBrush;
+    cachedRisoAlpha = isPixelBrush 
+      ? (intensity / 100) * 0.6
+      : (intensity / 100) * 0.35;
+  }
+  
+  // Store original values (much faster than save/restore)
+  const originalAlpha = ctx.globalAlpha;
+  const originalComposite = ctx.globalCompositeOperation;
+  const originalFillStyle = ctx.fillStyle;
+  
+  // Apply risograph effect
+  ctx.globalCompositeOperation = 'multiply';
+  // Combine the risograph alpha with the existing alpha (e.g., from brush opacity)
+  ctx.globalAlpha = originalAlpha * cachedRisoAlpha;
+  ctx.fillStyle = risoPattern;
+  
+  // Draw slightly larger to cover the shape (matching monolithic)
+  const risoSize = size * 1.1;
+  const halfSize = risoSize / 2;
+  ctx.fillRect(x - halfSize, y - halfSize, risoSize, risoSize);
+  
+  // Restore original values
+  ctx.globalAlpha = originalAlpha;
+  ctx.globalCompositeOperation = originalComposite;
+  ctx.fillStyle = originalFillStyle;
 };
 
 /**

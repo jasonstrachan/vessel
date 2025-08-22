@@ -838,28 +838,18 @@ const DrawingCanvas = () => {
               const perpDist = Math.abs(-lineVecY * toMouseX + lineVecX * toMouseY);
               const width = perpDist * 2;
               
-              // Sample colors along the rectangle length
-              const numColors = tools.brushSettings.colors || 2;
-              const sampledColors = sampleColorsAlongLine(
-                currentRectState.startPos.x,
-                currentRectState.startPos.y,
-                currentRectState.endPos.x,
-                currentRectState.endPos.y,
-                numColors
-              );
+              // Use brush color for gradient (not sampled from canvas)
+              const gradientColors = [tools.brushSettings.color];
               
               // Draw the rectangle gradient (this is final, not preview)
               brushEngine.drawRectangleGradient(
                 drawCtx,
-                {
-                  startPos: currentRectState.startPos,
-                  endPos: currentRectState.endPos,
-                  width: width,
-                  startColor: sampledColors[0] || tools.brushSettings.color,
-                  endColor: sampledColors[sampledColors.length - 1] || tools.brushSettings.color,
-                  colors: sampledColors,
-                  ditherEnabled: tools.brushSettings.ditherEnabled
-                },
+                currentRectState.startPos.x,
+                currentRectState.startPos.y,
+                currentRectState.endPos.x,
+                currentRectState.endPos.y,
+                width,  // Use the calculated width, not currentRectState.width
+                gradientColors,
                 false  // false = not preview, this is the final draw
               );
               
@@ -904,8 +894,8 @@ const DrawingCanvas = () => {
       }
       
       // Normal brush or shape mode
-      // BUT ONLY if we're not in pan mode!
-      if (currentMode === 'IDLE') {
+      // BUT ONLY if we're not in pan mode and NOT using gradient tools!
+      if (currentMode === 'IDLE' && !toolStateMachine.isRectangleGradient && !toolStateMachine.isPolygonGradient) {
         interaction.dispatch({ type: 'DRAWING_START', pressure });
         if (tools.shapeMode) {
           drawingHandlers.startShapeDrawing(worldPos, pressure);
@@ -947,7 +937,9 @@ const DrawingCanvas = () => {
     
     // Process coalesced events for smoother drawing (if available)
     // This gives us all the intermediate pointer positions between events
-    if (interaction.state.isDrawing && event.nativeEvent.getCoalescedEvents) {
+    // Skip for gradient tools as they don't need continuous drawing
+    if (interaction.state.isDrawing && event.nativeEvent.getCoalescedEvents && 
+        !toolStateMachine.isRectangleGradient && !toolStateMachine.isPolygonGradient) {
       const coalescedEvents = event.nativeEvent.getCoalescedEvents();
       if (coalescedEvents.length > 1) {
         // Process intermediate events (skip the last one as it's the current event)
@@ -1085,28 +1077,10 @@ const DrawingCanvas = () => {
                 : (tools.brushSettings.opacity || 1);
               overlayCtx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
               
-              // Sample colors for preview
-              const numColors = tools.brushSettings.colors || 2;
-              const sampledColors = sampleColorsAlongLine(
-                startPos.x,
-                startPos.y,
-                endPos.x,
-                endPos.y,
-                numColors
-              );
-              
-              // Create gradient for preview
+              // Create gradient for preview using brush color
               const gradient = overlayCtx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
-              
-              if (sampledColors.length > 0) {
-                sampledColors.forEach((color, index) => {
-                  const position = sampledColors.length === 1 ? 0 : index / (sampledColors.length - 1);
-                  gradient.addColorStop(position, color);
-                });
-              } else {
-                gradient.addColorStop(0, tools.brushSettings.color);
-                gradient.addColorStop(1, tools.brushSettings.color);
-              }
+              gradient.addColorStop(0, tools.brushSettings.color);
+              gradient.addColorStop(1, tools.brushSettings.color);
               
               overlayCtx.fillStyle = gradient;
               overlayCtx.beginPath();
@@ -1207,28 +1181,10 @@ const DrawingCanvas = () => {
                       : (tools.brushSettings.opacity || 1);
                     overlayCtx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
                     
-                    // Sample colors for preview
-                    const numColors = tools.brushSettings.colors || 2;
-                    const sampledColors = sampleColorsAlongLine(
-                      startPos.x,
-                      startPos.y,
-                      endPos.x,
-                      endPos.y,
-                      numColors
-                    );
-                    
-                    // Create gradient for preview
+                    // Create gradient for preview using brush color
                     const gradient = overlayCtx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
-                    
-                    if (sampledColors.length > 0) {
-                      sampledColors.forEach((color, index) => {
-                        const position = sampledColors.length === 1 ? 0 : index / (sampledColors.length - 1);
-                        gradient.addColorStop(position, color);
-                      });
-                    } else {
-                      gradient.addColorStop(0, tools.brushSettings.color);
-                      gradient.addColorStop(1, tools.brushSettings.color);
-                    }
+                    gradient.addColorStop(0, tools.brushSettings.color);
+                    gradient.addColorStop(1, tools.brushSettings.color);
                     
                     overlayCtx.fillStyle = gradient;
                     overlayCtx.beginPath();
@@ -1331,6 +1287,10 @@ const DrawingCanvas = () => {
         return;
       }
       
+      // Skip normal drawing for rectangle/polygon gradient tools
+      if (toolStateMachine.isRectangleGradient || toolStateMachine.isPolygonGradient) {
+        return;
+      }
       
       // Normal brush or shape mode
       if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {

@@ -31,6 +31,42 @@ const getFeatureFlag = (): boolean => {
 };
 
 /**
+ * Adapter that wraps the old engine to accept the new API calls
+ */
+const adaptOldEngine = (oldEngine: ReturnType<typeof useBrushEngine>) => {
+  const adapted = {
+    // Copy all existing functions
+    ...oldEngine,
+    
+    // Adapt drawRectangleGradient to accept new API format
+    drawRectangleGradient: (
+      ctx: CanvasRenderingContext2D,
+      startX: number,
+      startY: number, 
+      endX: number,
+      endY: number,
+      width: number,
+      colors: string[],
+      isPreview: boolean = false
+    ) => {
+      // Convert new API to old RectangleState format
+      const rectangleState = {
+        startPos: { x: startX, y: startY },
+        endPos: { x: endX, y: endY },
+        width: width,
+        startColor: colors[0] || '#000000',
+        endColor: colors[colors.length - 1] || '#000000', 
+        colors: colors
+      };
+      
+      return oldEngine.drawRectangleGradient(ctx, rectangleState, isPreview);
+    }
+  };
+  
+  return adapted;
+};
+
+/**
  * Adapter that wraps the simplified engine to match the old API
  */
 const adaptSimplifiedEngine = (simplified: ReturnType<typeof useBrushEngineSimplified>) => {
@@ -106,8 +142,8 @@ export const useBrushEngineAdapter = () => {
       // Return adapted new engine that matches old API
       return adaptSimplifiedEngine(newEngine);
     } else {
-      // Return old engine as-is
-      return oldEngine;
+      // Return old engine with adapter to handle new API calls
+      return adaptOldEngine(oldEngine);
     }
   }, [useModular, oldEngine, newEngine]);
 };

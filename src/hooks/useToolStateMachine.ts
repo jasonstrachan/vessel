@@ -26,17 +26,17 @@ export function useToolStateMachine({
       return 'finalize'; // Special return value to indicate we should finalize
     }
     
-    // Start defining length
-    const startColor = sampleColorAtPosition(worldPos.x, worldPos.y);
+    // Start defining length - use brush color, not sampled color
+    const brushColor = useAppStore.getState().tools.brushSettings.color;
     setRectangleBrushState({
       drawingState: 'definingLength',
       startPos: { x: worldPos.x, y: worldPos.y },
       endPos: { x: worldPos.x, y: worldPos.y },
-      startColor: startColor
+      startColor: brushColor
     });
     
     return true; // Proceed with drawing state
-  }, [sampleColorAtPosition, setRectangleBrushState]);
+  }, [setRectangleBrushState]);
   
   // Ref to store the end position without triggering re-renders
   const tempEndPosRef = useRef({ x: 0, y: 0 });
@@ -96,19 +96,19 @@ export function useToolStateMachine({
   
   // Polygon gradient state machine
   const handlePolygonGradientMouseDown = useCallback((worldPos: { x: number; y: number }) => {
-    const startColor = sampleColorAtPosition(worldPos.x, worldPos.y);
+    const brushColor = useAppStore.getState().tools.brushSettings.color;
     
     setPolygonGradientState({
       drawingState: 'drawing',
       points: [{
         x: worldPos.x,
         y: worldPos.y,
-        color: startColor
+        color: brushColor
       }]
     });
     
     return true; // Proceed with drawing state
-  }, [sampleColorAtPosition, setPolygonGradientState]);
+  }, [setPolygonGradientState]);
   
   const handlePolygonGradientMouseMove = useCallback((worldPos: { x: number; y: number }) => {
     const currentState = useAppStore.getState().polygonGradientState;
@@ -120,11 +120,11 @@ export function useToolStateMachine({
         const minSpacing = 5;
         
         if (distance >= minSpacing) {
-          const newColor = sampleColorAtPosition(worldPos.x, worldPos.y);
+          const brushColor = useAppStore.getState().tools.brushSettings.color;
           const newPoints = [...currentState.points, {
             x: worldPos.x,
             y: worldPos.y,
-            color: newColor
+            color: brushColor
           }];
           
           setPolygonGradientState({
@@ -137,7 +137,7 @@ export function useToolStateMachine({
     }
     
     return false;
-  }, [sampleColorAtPosition, setPolygonGradientState]);
+  }, [setPolygonGradientState]);
   
   const handlePolygonGradientMouseUp = useCallback(() => {
     const currentState = useAppStore.getState().polygonGradientState;

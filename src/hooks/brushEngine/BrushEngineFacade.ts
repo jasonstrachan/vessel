@@ -9,6 +9,7 @@ import { createShapeDrawer, type DrawShapeSettings, type ShapeDrawingDependencie
 import { createBrushUtilities } from './utilities';
 import { applyThrottledColorJitter } from './colorUtils';
 import { applyDithering, applySierraLiteDither } from './dithering';
+import { getGridPositionsBetween } from '@/utils/gridSnap';
 import type { PixelQueue, RenderSettings, StrokeInput } from './types';
 
 /**
@@ -171,7 +172,7 @@ export class BrushEngineFacade {
       spacing,
       rotation: brushSettings.rotationEnabled ? direction : 0,
       shape,
-      risographIntensity: 0, // Can be extended
+      risographIntensity: brushSettings.risographIntensity || 0,
       blendMode: ctx.globalCompositeOperation
     };
 
@@ -179,18 +180,76 @@ export class BrushEngineFacade {
     ctx.fillStyle = settings.color;
     ctx.globalAlpha = settings.opacity;
 
-    // Render based on brush type
-    // Pixel brushes should always use pixel-perfect rendering
-    if (isPixelBrush || isPixelSquare || !brushSettings.antialiasing) {
-      // Ensure pixel-perfect rendering
-      ctx.imageSmoothingEnabled = false;
-      // Pixel-perfect brush
-      this.renderPixelPerfectStroke(ctx, snappedFrom, snappedTo, settings);
+    // Check if grid snapping is enabled
+    const isGridSnapping = this.utilities.shouldApplyGridSnap();
+    
+    // When grid snapping is enabled, draw stamps at grid positions
+    if (isGridSnapping) {
+      // Use pressure-modified size for grid (matches monolithic implementation)
+      const gridSize = settings.size;
+      
+      // Get all grid positions between last and current position
+      // This matches the monolithic implementation
+      const lastX = this.pixelQueue.lastDrawnX || snappedFrom.x;
+      const lastY = this.pixelQueue.lastDrawnY || snappedFrom.y;
+      
+      const gridPositions = getGridPositionsBetween(
+        lastX,
+        lastY, 
+        snappedTo.x,
+        snappedTo.y,
+        gridSize
+      );
+      
+      // Set image smoothing based on brush type
+      if (isPixelBrush || isPixelSquare || !brushSettings.antialiasing) {
+        ctx.imageSmoothingEnabled = false;
+      } else {
+        ctx.imageSmoothingEnabled = true;
+      }
+      
+      // Draw at each grid position that hasn't been stamped
+      const stampedPositions = this.pixelQueue.stampedGridPositions || new Set<string>();
+      
+      for (const pos of gridPositions) {
+        const posKey = `${pos.x},${pos.y}`;
+        if (!stampedPositions.has(posKey)) {
+          // Check if we can draw at this position
+          if (this.canDrawAt(ctx, pos.x, pos.y)) {
+            this.shapeDrawer(
+              ctx,
+              pos.x,
+              pos.y,
+              settings.size,
+              settings.shape,
+              settings.antiAliasing,
+              settings.rotation,
+              settings.risographIntensity,
+              settings.pattern,
+              settings.centerAlignment
+            );
+          }
+          stampedPositions.add(posKey);
+        }
+      }
+      
+      // Update tracking
+      this.pixelQueue.stampedGridPositions = stampedPositions;
+      this.pixelQueue.lastDrawnX = snappedTo.x;
+      this.pixelQueue.lastDrawnY = snappedTo.y;
     } else {
-      // Ensure smooth rendering
-      ctx.imageSmoothingEnabled = true;
-      // Smooth brush - use stroke interpolation
-      this.renderSmoothStroke(ctx, snappedFrom, snappedTo, settings);
+      // Normal rendering with interpolation
+      if (isPixelBrush || isPixelSquare || !brushSettings.antialiasing) {
+        // Ensure pixel-perfect rendering
+        ctx.imageSmoothingEnabled = false;
+        // Pixel-perfect brush
+        this.renderPixelPerfectStroke(ctx, snappedFrom, snappedTo, settings);
+      } else {
+        // Ensure smooth rendering
+        ctx.imageSmoothingEnabled = true;
+        // Smooth brush - use stroke interpolation
+        this.renderSmoothStroke(ctx, snappedFrom, snappedTo, settings);
+      }
     }
   }
 
@@ -294,6 +353,19 @@ export class BrushEngineFacade {
       centerAlignment
     );
   }
+  
+  /**
+   * Shape drawer property for direct access
+   */
+  private get shapeDrawer() {
+    return this._shapeDrawer;
+  }
+  
+  private set shapeDrawer(value: any) {
+    this._shapeDrawer = value;
+  }
+  
+  private _shapeDrawer: any;
 
   /**
    * Apply dithering to an image
