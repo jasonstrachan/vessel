@@ -224,10 +224,9 @@ export function useComprehensiveKeyboard({
       } else {
         // Default implementation
         const { brushSettings } = tools;
-        const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
         const currentSize = brushSettings.size;
-        const adjustment = 5;
-        const minSize = isCustomBrush ? 1 : 1;
+        const adjustment = 1;
+        const minSize = 1;
         const newSize = Math.max(minSize, currentSize - adjustment);
         setGlobalBrushSize(newSize);
       }
@@ -241,10 +240,9 @@ export function useComprehensiveKeyboard({
       } else {
         // Default implementation
         const { brushSettings } = tools;
-        const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
         const currentSize = brushSettings.size;
-        const adjustment = 5;
-        const maxSize = isCustomBrush ? 200 : 500;
+        const adjustment = 1;
+        const maxSize = 500;
         const newSize = Math.min(maxSize, currentSize + adjustment);
         setGlobalBrushSize(newSize);
       }

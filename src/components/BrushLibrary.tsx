@@ -25,16 +25,6 @@ const BrushLibrary = () => {
   const customBrushPresets = React.useMemo(() => {
     if (!project?.customBrushes) return [];
     
-    console.log('[DEBUG BrushLibrary] Creating custom brush presets:', {
-      count: project.customBrushes.length,
-      brushes: project.customBrushes.map(b => ({
-        id: b.id,
-        name: b.name,
-        hasImageData: !!b.imageData,
-        width: b.width,
-        height: b.height
-      }))
-    });
     
     return project.customBrushes.map(customBrush => ({
       id: `custom_${customBrush.id}`,
@@ -169,13 +159,6 @@ const BrushLibrary = () => {
   };
   
   const handlePresetClick = (preset: BrushPreset) => {
-    console.log('[DEBUG BrushLibrary] Brush clicked:', {
-      id: preset.id,
-      name: preset.name,
-      isCustomBrush: preset.isCustomBrush,
-      hasCustomData: !!preset.customBrushData,
-      hasImageData: !!preset.customBrushData?.imageData
-    });
     
     // Always allow normal brush selection - editing mode doesn't prevent switching brushes
     setBrushPreset(preset, true); // preserveEditMode = true to keep editor open if active

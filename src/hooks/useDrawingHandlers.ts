@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
-import { useBrushEngine } from './useBrushEngine';
+// Using adapter for safe migration between implementations
+import { useBrushEngineAdapter } from './useBrushEngineAdapter';
 import { useUserBrushEngine } from './useUserBrushEngine';
 import { BrushShape } from '../types';
 
@@ -60,7 +61,7 @@ export function useDrawingHandlers({
   canvasRef,
   isBusyRef,
 }: UseDrawingHandlersProps) {
-  const brushEngine = useBrushEngine();
+  const brushEngine = useBrushEngineAdapter();
   const userBrushEngine = useUserBrushEngine();
   const { activeBrushComponents, captureCanvasToActiveLayer, saveCanvasState, tools } = useAppStore();
   
@@ -128,6 +129,11 @@ export function useDrawingHandlers({
     const currentBrushId = currentState.currentBrushPreset?.id;
     
     initDrawingCanvas();
+    
+    // Reset stroke for new drawing (modular engine)
+    if (brushEngine.resetStroke) {
+      brushEngine.resetStroke();
+    }
     const drawCtx = drawingCtxRef.current;
     if (!drawCtx || !drawingCanvasRef.current || !project) return;
       
@@ -225,6 +231,11 @@ export function useDrawingHandlers({
       if (isBusyRef) isBusyRef.current = true;
       lastDrawPosRef.current = null;
 
+      // Finalize the stroke (draw any waiting pixels) for modular engine
+      if (brushEngine.finalizeStroke && drawingCtxRef.current) {
+        brushEngine.finalizeStroke(drawingCtxRef.current);
+      }
+
       const currentState = useAppStore.getState();
       const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
       const currentTool = currentState.tools.currentTool;
@@ -257,8 +268,9 @@ export function useDrawingHandlers({
             if (activeLayer.imageData) {
               tempCtx.putImageData(activeLayer.imageData, 0, 0);
             }
-            tempCtx.globalCompositeOperation = activeSettings.blendMode || 'source-over';
-            tempCtx.globalAlpha = activeSettings.opacity || 1;
+            // Don't re-apply opacity and blend mode - they were already applied during drawing
+            tempCtx.globalCompositeOperation = 'source-over';
+            tempCtx.globalAlpha = 1;
             tempCtx.drawImage(drawingCanvasRef.current, 0, 0);
             
             await captureCanvasToActiveLayer(tempCanvas);
@@ -277,7 +289,7 @@ export function useDrawingHandlers({
     } finally {
       if (isBusyRef) isBusyRef.current = false;
     }
-  }, [project, captureCanvasToActiveLayer, saveCanvasState, isBusyRef, userBrushEngine, tools.shapeMode]);
+  }, [project, captureCanvasToActiveLayer, saveCanvasState, isBusyRef, userBrushEngine, brushEngine, tools.shapeMode]);
   
   const clearDrawingCanvas = useCallback(() => {
     if (drawingCtxRef.current && drawingCanvasRef.current) {

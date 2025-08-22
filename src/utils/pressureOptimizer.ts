@@ -50,7 +50,6 @@ class PressureOptimizer {
     settings: PressureSettings
   ): PressureResult {
     if (!settings.pressureEnabled) {
-      console.log('[Pressure Calc] Pressure disabled, returning base size:', baseSize);
       return {
         adjustedSize: baseSize,
         adjustedPressure: 1.0
@@ -92,21 +91,6 @@ class PressureOptimizer {
     // Ensure size is at least 1 pixel
     const adjustedSize = Math.max(1, minSize + (adjustedPressure * (maxSize - minSize)));
     
-    // Debug logging - only log occasionally to reduce spam
-    if (Math.random() < 0.05) { // Log 5% of calculations
-      console.log('[Pressure Calc Debug]', {
-        enabled: settings.pressureEnabled,
-        baseSize,
-        minPressure: settings.minPressure,
-        maxPressure: settings.maxPressure,
-        minSize,
-        maxSize,
-        rawPressure: settings.rawPressure,
-        adjustedPressure,
-        finalSize: adjustedSize,
-        calculation: `${minSize} + (${adjustedPressure} * (${maxSize} - ${minSize})) = ${adjustedSize}`
-      });
-    }
 
     const result: PressureResult = {
       adjustedSize,

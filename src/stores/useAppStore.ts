@@ -432,13 +432,6 @@ export const useAppStore = create<AppState>()(
         const currentSettings = state.tools.brushSettings;
         const isCustomBrush = currentSettings.brushShape === BrushShape.CUSTOM;
         
-        console.log('[DEBUG setGlobalBrushSize]', {
-          size,
-          isCustomBrush,
-          currentBrushShape: currentSettings.brushShape,
-          currentSize: currentSettings.size
-        });
-        
         // Update the appropriate unified size based on brush type
         const newState: { globalBrushSize: number; customBrushesSize?: number; defaultBrushesSize?: number } = { globalBrushSize: size };
         

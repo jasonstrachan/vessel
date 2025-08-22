@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
-import { useBrushEngine } from '../../hooks/useBrushEngine';
+// Using adapter for safe migration between implementations
+import { useBrushEngineAdapter } from '../../hooks/useBrushEngineAdapter';
 import { useCanvasInteraction } from '../../hooks/useCanvasInteraction';
 import { useCanvasStateMachine } from '../../hooks/useCanvasStateMachine';
 import { useSimplePan } from '../../hooks/useSimplePan';
@@ -96,8 +97,8 @@ const DrawingCanvas = () => {
   // Ref for draw function to use in resize observer
   const drawRef = useRef<((ctx: CanvasRenderingContext2D, viewTransform: { scale: number; offsetX: number; offsetY: number }) => void) | null>(null);
   
-  // Get brush engine
-  const brushEngine = useBrushEngine();
+  // Get brush engine (using adapter for migration)
+  const brushEngine = useBrushEngineAdapter();
   
   // Memoized layers hash - only compute when layers actually change
   const layersHash = useMemo(() => {
@@ -665,34 +666,6 @@ const DrawingCanvas = () => {
       }
     }
     
-    // Debug: Log pressure on pointer down
-    console.log('[PointerDown Debug]', {
-      rawPressure: event.pressure,
-      simulatedPressure: pressure,
-      pointerType: event.pointerType,
-      pointerId: event.pointerId,
-      isPrimary: event.isPrimary,
-      width: event.width,
-      height: event.height,
-      tiltX: event.tiltX,
-      tiltY: event.tiltY,
-      twist: event.twist,
-      tangentialPressure: event.tangentialPressure,
-      isPen: event.pointerType === 'pen',
-      isMouse: event.pointerType === 'mouse',
-      isTouch: event.pointerType === 'touch',
-      buttons: event.buttons,
-      pressureEnabled: tools.brushSettings.pressureEnabled,
-      minPressure: tools.brushSettings.minPressure,
-      maxPressure: tools.brushSettings.maxPressure,
-      brushSize: tools.brushSettings.size,
-      userAgent: navigator.userAgent,
-      platform: navigator.platform,
-      warning: event.pointerType === 'mouse' && event.pressure === 0.5
-        ? '⚠️ WACOM DETECTED AS MOUSE - Check drivers/browser settings!' 
-        : null
-    });
-    
     // SIMPLIFIED PANNING: Just check if space is pressed
     if (isSpacePressedRef.current) {
       pan.startPan(pointerPos.x, pointerPos.y);
@@ -970,16 +943,6 @@ const DrawingCanvas = () => {
       } else if (event.ctrlKey) {
         pressure = 0.9; // Simulate high pressure with Ctrl
       }
-    }
-    
-    // Debug: Log pressure periodically during movement
-    if (interaction.state.isDrawing && Math.random() < 0.1) { // Log 10% of events to avoid spam
-      console.log('[PointerMove Debug]', {
-        pressure: event.pressure,
-        pointerType: event.pointerType,
-        pressureEnabled: tools.brushSettings.pressureEnabled,
-        isDrawing: interaction.state.isDrawing
-      });
     }
     
     // Process coalesced events for smoother drawing (if available)

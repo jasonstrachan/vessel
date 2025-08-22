@@ -2,14 +2,14 @@
 
 ## Brushes
 
-#### Sampler
+#### Resampler
 Dynamically samples canvas content for each new stroke.
 
 **Implementation:**
 - current brush size = sampled area
-- Capture on stroke start
+- Capture on each new stroke start
 - All the default brush options
-- Reuse aleady build custom brush capture - temp brush cde, but do this on every new stroke
+- Reuse aleady build custom brush capture - temp brush code, but do this on every new stroke
 
 ### Datamosh Brush
 **Concept:** A glitch art brush that corrupts and "moshes" pixel data from the existing image, creating digital artifacts similar to video compression errors.

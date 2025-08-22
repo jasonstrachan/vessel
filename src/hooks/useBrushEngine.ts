@@ -22,189 +22,29 @@ import {
   PatternStyle
 } from '../utils/ditherAlgorithms';
 
-// Combined dithering palette with browns, neutrals, and Apple II colors
-const DITHER_PALETTE: [number, number, number][] = [
-  // Core neutrals (shared between both palettes)
-  [0, 0, 0],          // Black
-  [255, 255, 255],    // White
-  [128, 128, 128],    // Medium Grey
-  [192, 192, 192],    // Light Grey
-  [64, 64, 64],       // Dark Grey
-  
-  // Browns and earth tones
-  [139, 69, 19],      // Saddle Brown
-  [160, 82, 45],      // Sienna
-  [205, 133, 63],     // Peru
-  [210, 180, 140],    // Tan
-  [222, 184, 135],    // Burlywood
-  [245, 222, 179],    // Wheat
-  [255, 228, 196],    // Bisque
-  [101, 67, 33],      // Dark Brown
-  [92, 51, 23],       // Russet
-  [61, 43, 31],       // Dark Coffee
-  
-  // Warm neutrals
-  [188, 143, 143],    // Rosy Brown
-  [244, 164, 96],     // Sandy Brown
-  [255, 218, 185],    // Peach Puff
-  [250, 235, 215],    // Antique White
-  [245, 245, 220],    // Beige
-  
-  // Apple II vibrant colors (excluding duplicates)
-  [114, 38, 64],      // A2 Dark Red/Magenta
-  [64, 51, 127],      // A2 Dark Blue
-  [228, 52, 254],     // A2 Purple/Violet
-  [14, 89, 64],       // A2 Dark Green
-  [27, 154, 254],     // A2 Medium Blue
-  [191, 179, 255],    // A2 Light Blue
-  [64, 76, 0],        // A2 Brown (different from other browns)
-  [228, 101, 1],      // A2 Orange
-  [155, 161, 155],    // A2 Light Gray (slightly different)
-  [255, 129, 236],    // A2 Pink
-  [27, 203, 1],       // A2 Green
-  [191, 204, 128],    // A2 Yellow
-  [141, 217, 191],    // A2 Aqua
-];
+// Import extracted modules
+import * as ColorUtils from './brushEngine/colorUtils';
+import * as Constants from './brushEngine/constants';
+import * as Dithering from './brushEngine/dithering';
+import * as StrokeProcessor from './brushEngine/strokeProcessor';
+import type { PixelQueue, RectangleState, StrokeInput, RenderSettings } from './brushEngine/types';
+import { createShapeDrawer, type DrawShapeSettings, type ShapeDrawingDependencies } from './brushEngine/shapes';
 
-// Color names for logging
-const DITHER_COLOR_NAMES = [
-  'Black', 'White', 'Medium Grey', 'Light Grey', 'Dark Grey',
-  'Saddle Brown', 'Sienna', 'Peru', 'Tan', 'Burlywood', 'Wheat', 'Bisque',
-  'Dark Brown', 'Russet', 'Dark Coffee',
-  'Rosy Brown', 'Sandy Brown', 'Peach Puff', 'Antique White', 'Beige',
-  'A2 Magenta', 'A2 Dark Blue', 'A2 Purple', 'A2 Dark Green',
-  'A2 Medium Blue', 'A2 Light Blue', 'A2 Brown', 'A2 Orange',
-  'A2 Light Gray', 'A2 Pink', 'A2 Green', 'A2 Yellow', 'A2 Aqua'
-];
+// Use imported constants
+const DITHER_PALETTE = Constants.DITHER_PALETTE;
+const DITHER_COLOR_NAMES = Constants.DITHER_COLOR_NAMES;
+
 
 // Track which colors have been used (for debugging)
 const usedColorIndices = new Set<number>();
 
 // Test function code removed to eliminate unused variables
 
-// Smart palette selection that distributes colors across the spectrum
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const selectDiversePalette = (numColors: number): [number, number, number][] => {
-  if (numColors >= DITHER_PALETTE.length) {
-    return DITHER_PALETTE;
-  }
-  
-  // For very small palettes, strategically pick colors
-  if (numColors === 1) {
-    return [DITHER_PALETTE[0]]; // Just black
-  } else if (numColors === 2) {
-    return [DITHER_PALETTE[0], DITHER_PALETTE[1]]; // Black and white
-  } else if (numColors === 3) {
-    return [DITHER_PALETTE[0], DITHER_PALETTE[2], DITHER_PALETTE[1]]; // Black, medium grey, white
-  } else if (numColors === 4) {
-    return [
-      DITHER_PALETTE[0],  // Black
-      DITHER_PALETTE[4],  // Dark grey
-      DITHER_PALETTE[3],  // Light grey
-      DITHER_PALETTE[1]   // White
-    ];
-  }
-  
-  // For 5+ colors, include some browns/colors
-  const selectedColors: [number, number, number][] = [];
-  
-  // Always start with black and white
-  selectedColors.push(DITHER_PALETTE[0]); // Black
-  selectedColors.push(DITHER_PALETTE[1]); // White
-  
-  if (numColors > 2) {
-    // Add a middle grey
-    selectedColors.push(DITHER_PALETTE[2]); // Medium grey
-  }
-  
-  if (numColors > 3) {
-    // Start adding browns and colors
-    const colorIndices = [
-      6,  // Sienna (brown)
-      8,  // Peru (brown)
-      9,  // Tan (light brown)
-      11, // Wheat
-      3,  // Light grey
-      4,  // Dark grey
-      5,  // Saddle brown
-      7,  // Sienna
-      10, // Burlywood
-      12, // Bisque
-      13, // Dark brown
-      14, // Russet
-      15, // Dark coffee
-      16, // Rosy brown
-      17, // Sandy brown
-      18, // Peach puff
-      19, // Antique white
-    ];
-    
-    // Add colors from our priority list until we reach numColors
-    for (const idx of colorIndices) {
-      if (selectedColors.length >= numColors) break;
-      if (idx < DITHER_PALETTE.length) {
-        // Check if not already added
-        const color = DITHER_PALETTE[idx];
-        if (!selectedColors.some(c => c[0] === color[0] && c[1] === color[1] && c[2] === color[2])) {
-          selectedColors.push(color);
-        }
-      }
-    }
-  }
-  
-  // Fill any remaining slots
-  while (selectedColors.length < numColors && selectedColors.length < DITHER_PALETTE.length) {
-    // Find first color not yet selected
-    let added = false;
-    for (let i = 0; i < DITHER_PALETTE.length; i++) {
-      const color = DITHER_PALETTE[i];
-      if (!selectedColors.some(c => c[0] === color[0] && c[1] === color[1] && c[2] === color[2])) {
-        selectedColors.push(color);
-        added = true;
-        break;
-      }
-    }
-    if (!added) {
-      break;
-    }
-  }
-  
-  return selectedColors;
-};
+// Use selectDiversePalette from Dithering module
+const selectDiversePalette = Dithering.selectDiversePalette;
 
-// Shared function to find the two best colors for dithering a target color
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const findDitherColors = (targetR: number, targetG: number, targetB: number) => {
-  // Find the two closest colors in the palette to the target color
-  const colorDistances = DITHER_PALETTE.map(([r, g, b], index) => {
-    // Use weighted Euclidean distance for better perceptual accuracy
-    // Human eyes are more sensitive to green, then red, then blue
-    const dr = targetR - r;
-    const dg = targetG - g;
-    const db = targetB - b;
-    const distance = Math.sqrt(dr * dr * 0.3 + dg * dg * 0.59 + db * db * 0.11);
-    return { index, distance, color: [r, g, b] as [number, number, number], name: DITHER_COLOR_NAMES[index] };
-  });
-  
-  // Sort by distance and get the two closest colors
-  colorDistances.sort((a, b) => a.distance - b.distance);
-  const closest = colorDistances[0];
-  const secondClosest = colorDistances[1];
-  
-  // Track which colors are being used
-  usedColorIndices.add(closest.index);
-  usedColorIndices.add(secondClosest.index);
-  
-  // Calculate the mix ratio based on relative distances
-  const totalDist = closest.distance + secondClosest.distance;
-  const ratio = totalDist > 0 ? closest.distance / totalDist : 0.5;
-  
-  return {
-    baseColor: closest.color,
-    mixColor: secondClosest.color,
-    ratio: ratio
-  };
-};
+// Use findDitherColors from Dithering module
+const findDitherColors = Dithering.findDitherColors;
 
 // Authentic Apple II Hi-Res color palette (RGB values based on NTSC composite output)
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -228,35 +68,14 @@ const AUTHENTIC_APPLE_II_PALETTE: [number, number, number][] = [
 ];
 
 // Internal types for this hook
-interface PixelQueue {
-  initialized: boolean;
-  lastDrawnX: number;
-  lastDrawnY: number;
-  waitingPixelX: number;
-  waitingPixelY: number;
-  spacingCounter: number;
-  lastStrokePosition: { x: number; y: number };
-  accumulatedDistance: number;
-  stampedGridPositions: Set<string>;
-  dashStampCounter: number;
-}
-
-interface RectangleState {
-  startPos: { x: number; y: number };
-  endPos: { x: number; y: number };
-  width: number;
-  startColor?: string;
-  endColor?: string;
-  colors?: string[];
-  ditherEnabled?: boolean;
-  ditherIntensity?: number;
-  risographIntensity?: number;
-}
+// Types are now imported from brushEngine/types.ts
 
 // Cache for pre-rendered pixel circle stamps
 const pixelCircleStampCache = new Map<string, HTMLCanvasElement>();
 
-// Color jitter utility function
+// Use color utilities from extracted module  
+const { parseColor, srgbToLinear, linearToSrgb, snapColorToExtremes, getAverageColor } = ColorUtils;
+
 // Cache for color jitter canvas context (reused across all calls)
 let jitterCanvas: HTMLCanvasElement | null = null;
 let jitterCtx: CanvasRenderingContext2D | null = null;
@@ -273,15 +92,9 @@ let cachedRisoIntensity = -1;
 let cachedRisoIsPixel = false;
 
 // --- OPTIMIZATION: Throttled and Interpolated Color Jitter ---
-// This object manages jitter state to avoid expensive calculations on every point.
-const jitterState = {
-  lastJitterColor: [0, 0, 0],
-  nextJitterColor: [0, 0, 0],
-  counter: 0,
-  // Recalculate the target jitter color every N points.
-  // A value of 5-10 provides good randomization without high cost.
-  recalcFrequency: 8, 
-};
+// Use jitter state from ColorUtils
+const jitterState = ColorUtils.createJitterState();
+jitterState.recalcFrequency = 8; // Override default frequency
 
 // Removed - throttling no longer needed with GPU-based risograph approach
 
@@ -309,78 +122,20 @@ const getPatternTempContext = (width: number, height: number): CanvasRenderingCo
 };
 
 // Helper to parse color string to [r, g, b] array
-const parseColor = (color: string): [number, number, number] => {
-  if (!jitterCtx) jitterCtx = getJitterContext();
-  jitterCtx.fillStyle = '#000'; // Clear previous state
-  jitterCtx.fillStyle = color;
-  const computedColor = jitterCtx.fillStyle;
+// parseColor is now imported from ColorUtils
 
-  if (computedColor.startsWith('#')) {
-    const hex = computedColor.slice(1);
-    return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
-  }
-  if (computedColor.startsWith('rgb')) {
-    const matches = computedColor.match(/\d+/g);
-    if (!matches) return [0, 0, 0];
-    return [parseInt(matches[0]), parseInt(matches[1]), parseInt(matches[2])];
-  }
-  return [0, 0, 0];
-};
-
+// Use applyThrottledColorJitter from ColorUtils
 const applyThrottledColorJitter = (baseColor: string, jitterAmount: number): string => {
-  if (jitterAmount === 0) {
-    jitterState.counter = 0; // Reset counter when jitter is off
-    return baseColor;
-  }
-
-  // Every N points, calculate a new target jitter color
-  if (jitterState.counter % jitterState.recalcFrequency === 0) {
-    jitterState.lastJitterColor = jitterState.nextJitterColor;
-    
-    const [r, g, b] = parseColor(baseColor);
-    
-    // Simplified, faster RGB-based jitter. HSL is too slow for real-time.
-    const jitter = (jitterAmount / 100) * 128; // Scale jitter amount
-    const r_j = r + (Math.random() - 0.5) * jitter;
-    const g_j = g + (Math.random() - 0.5) * jitter;
-    const b_j = b + (Math.random() - 0.5) * jitter;
-
-    jitterState.nextJitterColor = [
-        Math.max(0, Math.min(255, r_j)),
-        Math.max(0, Math.min(255, g_j)),
-        Math.max(0, Math.min(255, b_j)),
-    ];
-
-    // If it's the very first point, use the target color immediately
-    if (jitterState.counter === 0) {
-        jitterState.lastJitterColor = jitterState.nextJitterColor;
-    }
-  }
-
-  // Interpolate between the last and next jitter color for smooth transitions
-  const progress = (jitterState.counter % jitterState.recalcFrequency) / jitterState.recalcFrequency;
-  
-  const r_interp = jitterState.lastJitterColor[0] + (jitterState.nextJitterColor[0] - jitterState.lastJitterColor[0]) * progress;
-  const g_interp = jitterState.lastJitterColor[1] + (jitterState.nextJitterColor[1] - jitterState.lastJitterColor[1]) * progress;
-  const b_interp = jitterState.lastJitterColor[2] + (jitterState.nextJitterColor[2] - jitterState.lastJitterColor[2]) * progress;
-  
-  jitterState.counter++;
-  
-  return `rgb(${Math.round(r_interp)}, ${Math.round(g_interp)}, ${Math.round(b_interp)})`;
+  return ColorUtils.applyThrottledColorJitter(baseColor, jitterAmount, jitterState);
 };
 
-// Noise texture creation has been moved to risographTexture.ts for better performance
+// srgbToLinear and linearToSrgb are now imported from ColorUtils
 
-// Converts a single sRGB color channel (0-255) to linear space (0-1)
-const srgbToLinear = (c: number): number => Math.pow(c / 255.0, 2.2);
+// Use applyDithering from Dithering module
+const applyDithering = Dithering.applyDithering;
 
-// Converts a linear color channel (0-1) back to sRGB (0-255)
-const linearToSrgb = (c: number): number => Math.round(Math.pow(c, 1.0 / 2.2) * 255.0);
-
-/**
- * Universal dithering function that routes to the appropriate algorithm
- */
-const applyDithering = (
+/* OLD FUNCTION TO BE REMOVED - COMMENTED OUT
+const OLD_applyDithering = (
   imageData: ImageData, 
   numColors: number, 
   algorithm?: string,
@@ -502,6 +257,7 @@ const applyDithering = (
       return applySierraLiteDither(imageData, numColors);
   }
 };
+*/
 
 /**
  * Applies Sierra Lite dithering to image data using a limited color palette
@@ -511,7 +267,11 @@ const applyDithering = (
  * Errors are distributed with weights: current pixel gets corrected,
  * right pixel gets 2/4 of error, bottom-left gets 1/4, bottom gets 1/4
  */
-const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageData => {
+// Use applySierraLiteDither from Dithering module
+const applySierraLiteDither = Dithering.applySierraLiteDither;
+
+/* OLD FUNCTION TO BE REMOVED - COMMENTED OUT
+const OLD_applySierraLiteDither = (imageData: ImageData, numColors: number): ImageData => {
   const data = new Uint8ClampedArray(imageData.data);
   const width = imageData.width;
   const height = imageData.height;
@@ -701,62 +461,19 @@ const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageDa
   
   return new ImageData(data, width, height);
 };
+*/
 
 /**
  * Snaps near-black and near-white colors to pure black/white for cleaner dithering.
  * This ensures that dark grays become pure black and light grays become pure white.
  */
-const snapColorToExtremes = (r: number, g: number, b: number, threshold: number = 20): [number, number, number] => {
-  // If all channels are below threshold, snap to black
-  if (r <= threshold && g <= threshold && b <= threshold) {
-    return [0, 0, 0];
-  }
-  // If all channels are above 255-threshold, snap to white
-  if (r >= 255 - threshold && g >= 255 - threshold && b >= 255 - threshold) {
-    return [255, 255, 255];
-  }
-  // Otherwise return the original color
-  return [r, g, b];
-};
+// snapColorToExtremes is now imported from ColorUtils
 
 /**
  * Calculates the average color from an array of colors.
  * Used for 1-color mode to create a flat solid fill.
  */
-const getAverageColor = (colors: string[]): string => {
-  if (colors.length === 0) return 'rgb(128, 128, 128)';
-  if (colors.length === 1) return colors[0];
-  
-  let totalR = 0, totalG = 0, totalB = 0;
-  let validCount = 0;
-  
-  colors.forEach(color => {
-    const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-    if (match) {
-      totalR += parseInt(match[1]);
-      totalG += parseInt(match[2]);
-      totalB += parseInt(match[3]);
-      validCount++;
-    } else {
-      // Fallback for hex colors
-      const hexMatch = color.match(/#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
-      if (hexMatch) {
-        totalR += parseInt(hexMatch[1], 16);
-        totalG += parseInt(hexMatch[2], 16);
-        totalB += parseInt(hexMatch[3], 16);
-        validCount++;
-      }
-    }
-  });
-  
-  if (validCount === 0) return 'rgb(128, 128, 128)';
-  
-  const avgR = Math.round(totalR / validCount);
-  const avgG = Math.round(totalG / validCount);
-  const avgB = Math.round(totalB / validCount);
-  
-  return `rgb(${avgR}, ${avgG}, ${avgB})`;
-};
+// getAverageColor is now imported from ColorUtils
 
 /**
  * Quantizes a set of colors to a limited palette.
@@ -821,7 +538,11 @@ const quantizeColorPalette = (colors: string[], targetColors: number): string[] 
  * Applies any dithering algorithm with customizable fill resolution.
  * Instead of dithering individual pixels, this works on blocks of pixels for a chunky effect.
  */
-const applyDitheringWithFillResolution = (
+// Use applyDitheringWithFillResolution from Dithering module
+const applyDitheringWithFillResolution = Dithering.applyDitheringWithFillResolution;
+
+/* OLD FUNCTION TO BE REMOVED - COMMENTED OUT
+const OLD_applyDitheringWithFillResolution = (
   imageData: ImageData, 
   numColors: number, 
   fillResolution: number,
@@ -928,8 +649,7 @@ const applyDitheringWithFillResolution = (
   
   return new ImageData(data, width, height);
 };
-
-
+*/
 
 // Base sizes for standard brushes (100% = these sizes in pixels)
 const BRUSH_BASE_SIZES: Record<BrushShape, number> = {
@@ -944,32 +664,26 @@ const BRUSH_BASE_SIZES: Record<BrushShape, number> = {
   [BrushShape.RISOGRAPH_ULTRA]: 10 // Ultra-fast risograph brush
 };
 
-export interface StrokeInput {
-  position: { x: number; y: number };
-  pressure: number;
-  velocity: number;
-  timestamp: number;
-  direction?: number; // Angle in radians from movement vector
-}
-
-export interface RenderSettings {
-  size: number;
-  opacity: number;
-  color: string;
-  antiAliasing: boolean;
-  pixelAlignment: boolean;
-  spacing: number;
-  rotation: number;
-  shape: BrushShape;
-  risographIntensity: number;
-  pattern?: ImageData;
-  centerAlignment?: boolean;
-  blendMode?: GlobalCompositeOperation;
-}
+// StrokeInput and RenderSettings are now imported from brushEngine/types.ts
+export type { StrokeInput, RenderSettings } from './brushEngine/types';
 
 
 export const useBrushEngine = () => {
   const { tools, activeBrushComponents, project, brushPresets, temporaryCustomBrush } = useAppStore();
+  
+  // Create stroke processor with dependencies
+  const strokeProcessor = useMemo(() => {
+    return StrokeProcessor.createStrokeProcessor({
+      applyThrottledColorJitter,
+      drawShape: (ctx, x, y, size, shape, filled, rotation, risographIntensity, pattern, centerAlignment) => {
+        // This will be defined later in the hook
+        drawShapeRef.current?.(ctx, x, y, size, shape, filled, rotation, risographIntensity, pattern, centerAlignment);
+      }
+    });
+  }, []);
+  
+  // Ref to hold drawShape function (to avoid circular dependency)
+  const drawShapeRef = useRef<typeof drawShape | null>(null);
   
   // Pre-create risograph texture on first mount to avoid lag
   useEffect(() => {
@@ -998,15 +712,12 @@ export const useBrushEngine = () => {
     // Dashed brush state
     dashStampCounter: 0,
     // Grid position tracking to prevent multiple stamps per grid cell
-    stampedGridPositions: new Set<string>()
+    stampedGridPositions: new Set<string>(),
+    // Track drawn pixels for pixel-perfect brushes
+    drawnPixels: new Set<string>()
   });
 
-  // Direction smoothing for rotation
-  const directionHistoryRef = useRef<number[]>([]);
-  const lastDirectionRef = useRef<number>(0);
-  
-  // Velocity smoothing for ink brush
-  const velocityHistoryRef = useRef<number[]>([]);
+  // Stroke state for ink brush
   const strokeStateRef = useRef<'idle' | 'starting' | 'drawing'>('idle');
   const strokeStartTimeRef = useRef<number>(0);
 
@@ -1021,107 +732,19 @@ export const useBrushEngine = () => {
   });
   // --- END FIX 1 ---
 
-  // Quantize brush size to prevent micro-variations when using grid snap + pressure
-  const quantizeBrushSize = useCallback((size: number, stepSize: number = 0.5): number => {
-    const invStepSize = 1 / stepSize; // Avoid division in hot path
-    return Math.round(size * invStepSize) / invStepSize;
-  }, []);
+  // Use quantizeBrushSize from stroke processor
+  const quantizeBrushSize = strokeProcessor.quantizeBrushSize;
   
-  // Calculate smoothed velocity for ink brush
+  // Use calculateSmoothedVelocity from stroke processor
   const calculateSmoothedVelocity = useCallback((rawVelocity: number): number => {
-    // Add to velocity history
-    velocityHistoryRef.current.push(rawVelocity);
-    
-    // Keep only last 5 samples for smoothing
-    if (velocityHistoryRef.current.length > 5) {
-      velocityHistoryRef.current.shift();
-    }
-    
-    // Calculate weighted average (more recent = higher weight)
-    const weights = [0.1, 0.15, 0.2, 0.25, 0.3];
-    let weightedSum = 0;
-    let weightSum = 0;
-    
-    for (let i = 0; i < velocityHistoryRef.current.length; i++) {
-      const weight = weights[i] || weights[weights.length - 1];
-      weightedSum += velocityHistoryRef.current[i] * weight;
-      weightSum += weight;
-    }
-    
-    return weightSum > 0 ? weightedSum / weightSum : rawVelocity;
-  }, []);
+    return strokeProcessor.calculateSmoothedVelocity(rawVelocity);
+  }, [strokeProcessor]);
 
-  // Calculate and smooth direction from movement vector
+  // Use calculateSmoothDirection from stroke processor
   const calculateSmoothDirection = useCallback((from: { x: number; y: number }, to: { x: number; y: number }): number => {
-    const deltaX = to.x - from.x;
-    const deltaY = to.y - from.y;
-    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-    
-    // Get current pressure to detect stylus vs mouse input
     const cursorPressure = useAppStore.getState().canvas.cursor.pressure ?? 1.0;
-    const isStylusInput = cursorPressure < 0.98; // Stylus typically has variable pressure
-    
-    // Adaptive smoothing based on input type
-    const minDistance = isStylusInput ? 1.5 : 3; // Stylus: more responsive, Mouse: more filtered
-    const historySize = isStylusInput ? 4 : 7; // Stylus: shorter history, Mouse: longer history
-    
-    // If movement is very small, keep last direction to avoid jitter
-    if (distance < minDistance) {
-      return lastDirectionRef.current;
-    }
-    
-    // Calculate direction angle (radians)
-    const direction = Math.atan2(deltaY, deltaX);
-    
-    // Add to history for smoothing
-    directionHistoryRef.current.push(direction);
-    
-    // Keep adaptive history size
-    if (directionHistoryRef.current.length > historySize) {
-      directionHistoryRef.current.shift();
-    }
-    
-    // Smooth direction using weighted average with adaptive weights
-    let smoothedDirection = direction;
-    if (directionHistoryRef.current.length > 1) {
-      // Adaptive weight distribution based on input type
-      const weights = isStylusInput 
-        ? [0.45, 0.30, 0.20, 0.05] // Stylus: more emphasis on recent directions
-        : [0.25, 0.20, 0.18, 0.15, 0.12, 0.07, 0.03]; // Mouse: gradual smoothing
-      
-      let weightSum = 0;
-      let sinSum = 0;
-      let cosSum = 0;
-      
-      // Use circular averaging to handle angle wraparound properly
-      for (let i = 0; i < directionHistoryRef.current.length; i++) {
-        const weight = weights[directionHistoryRef.current.length - 1 - i] || 0.02;
-        const angle = directionHistoryRef.current[i];
-        sinSum += Math.sin(angle) * weight;
-        cosSum += Math.cos(angle) * weight;
-        weightSum += weight;
-      }
-      
-      // Convert back to angle using atan2 for proper quadrant
-      smoothedDirection = Math.atan2(sinSum / weightSum, cosSum / weightSum);
-    }
-    
-    // Apply adaptive final smoothing
-    if (lastDirectionRef.current !== 0) {
-      let angleDiff = smoothedDirection - lastDirectionRef.current;
-      
-      // Normalize angle difference to [-PI, PI]
-      while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-      while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-      
-      // Adaptive smoothing factor: stylus more responsive, mouse smoother
-      const smoothingFactor = isStylusInput ? 0.35 : 0.15;
-      smoothedDirection = lastDirectionRef.current + angleDiff * smoothingFactor;
-    }
-    
-    lastDirectionRef.current = smoothedDirection;
-    return smoothedDirection;
-  }, []);
+    return strokeProcessor.calculateSmoothDirection(from, to, cursorPressure);
+  }, [strokeProcessor]);
 
   // Pixel-perfect circle patterns based on reference image
   const getPixelCircleStamp = useCallback((size: number): HTMLCanvasElement => {
@@ -1219,6 +842,21 @@ export const useBrushEngine = () => {
     return stampCanvas;
   }, []);
   
+  // Create shape drawer with injected dependencies
+  const shapeDrawerSettings = useMemo((): DrawShapeSettings => ({
+    get transparencyLockEnabled() {
+      return (window as Window & { transparencyLockEnabled?: boolean }).transparencyLockEnabled;
+    },
+    brushSettings: tools.brushSettings
+  }), [tools.brushSettings]);
+
+  const shapeDrawerDeps = useMemo((): ShapeDrawingDependencies => ({
+    getPatternTempContext,
+    patternTempCanvas,
+    brushStampCache: brushStampCacheRef.current,
+    createPixelCircleStamp: getPixelCircleStamp
+  }), [getPatternTempContext, patternTempCanvas, getPixelCircleStamp]);
+
   const drawShape = useCallback((
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -1707,6 +1345,11 @@ export const useBrushEngine = () => {
     }
   }, [calculateSmoothedVelocity]);
   
+  // Set drawShape ref for the factory
+  useEffect(() => {
+    drawShapeRef.current = drawShape;
+  }, [drawShape]);
+  
   const calculateOpacityModification = useCallback((
     component: BrushComponent,
     input: StrokeInput,
@@ -1890,14 +1533,14 @@ export const useBrushEngine = () => {
       // Reset dashed brush state
       dashStampCounter: 0,
       // Clear grid position tracking
-      stampedGridPositions: new Set<string>()
+      stampedGridPositions: new Set<string>(),
+      // Clear drawn pixels tracking
+      drawnPixels: new Set<string>()
     };
-    // Reset direction history for rotation
-    directionHistoryRef.current = [];
-    lastDirectionRef.current = 0;
+    // Reset stroke processor state
+    strokeProcessor.reset();
     
-    // Reset velocity and stroke state for ink brush
-    velocityHistoryRef.current = [];
+    // Reset stroke state for ink brush
     strokeStateRef.current = 'idle';
     strokeStartTimeRef.current = 0;
     
@@ -1979,6 +1622,7 @@ export const useBrushEngine = () => {
   }, []);
 
 
+  // Use factory-created drawPixelPerfectLine
   const drawPixelPerfectLine = useCallback((
     ctx: CanvasRenderingContext2D,
     x0: number,
@@ -1987,127 +1631,18 @@ export const useBrushEngine = () => {
     y1: number,
     settings: RenderSettings
   ) => {
-    // Bresenham's line algorithm for pixel-perfect lines with distance-based spacing
-    // Note: Color jitter will be applied per stamp, not per line
-    
-    const dx = Math.abs(x1 - x0);
-    const dy = Math.abs(y1 - y0);
-    const sx = x0 < x1 ? 1 : -1;
-    const sy = y0 < y1 ? 1 : -1;
-    let err = dx - dy;
-    
-    let x = x0;
-    let y = y0;
-    let lastX = x0;
-    let lastY = y0;
-    
-    // Use queue's accumulated distance for consistent spacing
-    const queue = pixelQueueRef.current;
-    
-    while (true) {
-      // Calculate distance from last position
-      const distance = Math.sqrt(Math.pow(x - lastX, 2) + Math.pow(y - lastY, 2));
-      queue.accumulatedDistance += distance;
-      
-      // Draw shape at position only if accumulated distance exceeds spacing
-      if (queue.accumulatedDistance >= settings.spacing) {
-        // Check if we should draw this stamp (cursor-speed independent)
-        const brushSettings = tools.brushSettings;
-        if (shouldDrawStamp(brushSettings, queue, settings.size)) {
-          // --- OPTIMIZATION: Use throttled jitter ---
-          const jitteredColor = applyThrottledColorJitter(settings.color, brushSettings.colorJitter || 0);
-          ctx.fillStyle = jitteredColor;
-          drawShape(ctx, x, y, settings.size, settings.shape, false, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
-        }
-        queue.accumulatedDistance -= settings.spacing;
-      }
-      
-      if (x === x1 && y === y1) break;
-      
-      lastX = x;
-      lastY = y;
-      
-      const e2 = 2 * err;
-      if (e2 > -dy) {
-        err -= dy;
-        x += sx;
-      }
-      if (e2 < dx) {
-        err += dx;
-        y += sy;
-      }
-    }
-  }, [drawShape, tools]);
+    strokeProcessor.drawPixelPerfectLine(ctx, x0, y0, x1, y1, settings, pixelQueueRef.current, tools.brushSettings);
+  }, [strokeProcessor, tools.brushSettings]);
 
+  // Use factory-created perfectPixels
   const perfectPixels = useCallback((
     ctx: CanvasRenderingContext2D,
     currentX: number,
     currentY: number,
     settings: RenderSettings
   ) => {
-    const queue = pixelQueueRef.current;
-    const roundedX = Math.round(currentX);
-    const roundedY = Math.round(currentY);
-    
-    // Note: Color jitter will be applied per stamp, not once per function call
-    
-    if (!queue.initialized) {
-      // First pixel - initialize queue with distance-based state
-      queue.lastDrawnX = roundedX;
-      queue.lastDrawnY = roundedY;
-      queue.waitingPixelX = roundedX;
-      queue.waitingPixelY = roundedY;
-      queue.initialized = true;
-      queue.spacingCounter = 0;
-      queue.lastStrokePosition = { x: roundedX, y: roundedY };
-      queue.accumulatedDistance = 0;
-      
-      // Draw the first shape (check dash state)
-      if (shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
-        // --- OPTIMIZATION: Use throttled jitter ---
-        const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
-        ctx.fillStyle = jitteredColor;
-        drawShape(ctx, roundedX, roundedY, settings.size, settings.shape, false, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
-      }
-      return;
-    }
-    
-    // Calculate distance from last stroke position to current position
-    const distance = Math.sqrt(
-      Math.pow(roundedX - queue.lastStrokePosition.x, 2) + 
-      Math.pow(roundedY - queue.lastStrokePosition.y, 2)
-    );
-    queue.accumulatedDistance += distance;
-    
-    // If current pixel not neighbor to lastDrawn, draw waiting pixel
-    if (Math.abs(roundedX - queue.lastDrawnX) > 1 || Math.abs(roundedY - queue.lastDrawnY) > 1) {
-      // Draw the waiting shape only if accumulated distance exceeds spacing
-      if (queue.accumulatedDistance >= settings.spacing) {
-        // Check if we should draw this stamp (cursor-speed independent)
-        if (shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
-          // --- OPTIMIZATION: Use throttled jitter ---
-          const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
-          ctx.fillStyle = jitteredColor;
-          drawShape(ctx, queue.waitingPixelX, queue.waitingPixelY, settings.size, settings.shape, false, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
-        }
-        queue.accumulatedDistance -= settings.spacing;
-        queue.lastStrokePosition = { x: queue.waitingPixelX, y: queue.waitingPixelY };
-      }
-      
-      // Update queue
-      queue.lastDrawnX = queue.waitingPixelX;
-      queue.lastDrawnY = queue.waitingPixelY;
-      queue.waitingPixelX = roundedX;
-      queue.waitingPixelY = roundedY;
-    } else {
-      // Update waiting pixel to current position
-      queue.waitingPixelX = roundedX;
-      queue.waitingPixelY = roundedY;
-    }
-    
-    // Update last stroke position for distance calculation
-    queue.lastStrokePosition = { x: roundedX, y: roundedY };
-  }, [drawShape]);
+    strokeProcessor.perfectPixels(ctx, currentX, currentY, settings, pixelQueueRef.current, tools.brushSettings);
+  }, [strokeProcessor, tools.brushSettings]);
 
   // Note: Previously used a reusable canvas, but this caused race conditions.
   // Now we create a new canvas for each stamp to ensure isolation and correctness.
@@ -2660,7 +2195,7 @@ export const useBrushEngine = () => {
         // Draw at each grid position that hasn't been stamped
         for (const pos of gridPositions) {
           const posKey = `${pos.x},${pos.y}`;
-          if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
+          if (!queue.stampedGridPositions.has(posKey) && strokeProcessor.shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
             drawCustomBrushStamp(ctx, pos.x, pos.y, customBrush, scaleFactor, settings.rotation, brushColor, shouldApplyColorTint, tools.brushSettings.pressureEnabled);
             queue.stampedGridPositions.add(posKey);
           }
@@ -2673,7 +2208,7 @@ export const useBrushEngine = () => {
         // Draw custom brush stamps along the path only when accumulated distance exceeds spacing
         while (queue.accumulatedDistance >= settings.spacing) {
           // Check if we should draw this stamp (cursor-speed independent)
-          if (shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
+          if (strokeProcessor.shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
             // Calculate the position where we should place the next stamp
             // Fix: Calculate progress based on how far we need to go back from current position
             const stepBack = queue.accumulatedDistance - settings.spacing;
@@ -2720,7 +2255,7 @@ export const useBrushEngine = () => {
         // Draw at each grid position that hasn't been stamped
         for (const pos of gridPositions) {
           const posKey = `${pos.x},${pos.y}`;
-          if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
+          if (!queue.stampedGridPositions.has(posKey) && strokeProcessor.shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
             const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
             drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, false, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
@@ -2765,7 +2300,7 @@ export const useBrushEngine = () => {
         // Draw at each grid position that hasn't been stamped
         for (const pos of gridPositions) {
           const posKey = `${pos.x},${pos.y}`;
-          if (!queue.stampedGridPositions.has(posKey) && shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
+          if (!queue.stampedGridPositions.has(posKey) && strokeProcessor.shouldDrawStamp(tools.brushSettings, queue, settings.size, isGridSnapping)) {
             const jitteredColor = applyThrottledColorJitter(settings.color, tools.brushSettings.colorJitter || 0);
             ctx.fillStyle = jitteredColor;
             drawShape(ctx, pos.x, pos.y, settings.size, settings.shape, true, settings.rotation, settings.risographIntensity, settings.pattern, settings.centerAlignment);
@@ -2780,7 +2315,7 @@ export const useBrushEngine = () => {
         // Draw shapes along the path only when accumulated distance exceeds spacing
         while (queue.accumulatedDistance >= settings.spacing) {
           // Check if we should draw this stamp (cursor-speed independent)
-          if (shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
+          if (strokeProcessor.shouldDrawStamp(tools.brushSettings, queue, settings.size, false)) {
             // Calculate the position where we should place the next shape
             // Fix: Calculate progress based on how far we need to go back from current position
             const stepBack = queue.accumulatedDistance - settings.spacing;
@@ -2811,7 +2346,7 @@ export const useBrushEngine = () => {
       // Performance data available in dev tools if needed
       void strokeDuration;
     }
-  }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp]);
+  }, [executeComponents, tools, activeBrushComponents, perfectPixels, drawPixelPerfectLine, drawShape, project, brushPresets, drawCustomBrushLine, drawCustomBrushStamp, strokeProcessor]);
   
   // Draw rectangle gradient brush
   const drawRectangleGradient = useCallback((ctx: CanvasRenderingContext2D, rectangleState: RectangleState, isPreview: boolean = false) => {
