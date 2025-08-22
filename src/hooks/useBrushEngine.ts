@@ -3125,6 +3125,7 @@ export const useBrushEngine = () => {
     }
     
     // Apply risograph effect if enabled (AFTER dithering so it's not overwritten)
+    // Only apply on final draw, never on preview
     const risographIntensity = brushSettings.risographIntensity || 0;
     if (risographIntensity > 0 && !isPreview) {
       // Use GPU-accelerated risograph effect with cached pattern
@@ -3140,14 +3141,19 @@ export const useBrushEngine = () => {
         const misregY = (Math.random() - 0.5) * effectStrength * 2;
         ctx.translate(misregX, misregY);
         
-        // Create clipping path for the rectangle with slight roughness
+        // Create clipping path for the rectangle (with optional roughness)
         ctx.beginPath();
         ctx.moveTo(corners[0].x, corners[0].y);
         corners.slice(1).forEach(corner => {
-          // Add slight roughness to edges
-          const roughX = corner.x + (Math.random() - 0.5) * effectStrength;
-          const roughY = corner.y + (Math.random() - 0.5) * effectStrength;
-          ctx.lineTo(roughX, roughY);
+          if (brushSettings.risographOutline) {
+            // Add slight roughness to edges only if outline is enabled
+            const roughX = corner.x + (Math.random() - 0.5) * effectStrength;
+            const roughY = corner.y + (Math.random() - 0.5) * effectStrength;
+            ctx.lineTo(roughX, roughY);
+          } else {
+            // Clean edges without roughness
+            ctx.lineTo(corner.x, corner.y);
+          }
         });
         ctx.closePath();
         ctx.clip();
@@ -3464,14 +3470,19 @@ export const useBrushEngine = () => {
         const misregY = (Math.random() - 0.5) * effectStrength * 2;
         ctx.translate(misregX, misregY);
         
-        // Create clipping path for the polygon with slight roughness
+        // Create clipping path for the polygon (with optional roughness)
         ctx.beginPath();
         ctx.moveTo(vertices[0].x, vertices[0].y);
         for (let i = 1; i < vertices.length; i++) {
-          // Add slight roughness to edges
-          const roughX = vertices[i].x + (Math.random() - 0.5) * effectStrength;
-          const roughY = vertices[i].y + (Math.random() - 0.5) * effectStrength;
-          ctx.lineTo(roughX, roughY);
+          if (brushSettings.risographOutline) {
+            // Add slight roughness to edges only if outline is enabled
+            const roughX = vertices[i].x + (Math.random() - 0.5) * effectStrength;
+            const roughY = vertices[i].y + (Math.random() - 0.5) * effectStrength;
+            ctx.lineTo(roughX, roughY);
+          } else {
+            // Clean edges without roughness
+            ctx.lineTo(vertices[i].x, vertices[i].y);
+          }
         }
         ctx.closePath();
         ctx.clip();

@@ -78,6 +78,24 @@ const BrushControls = () => {
               className="flex-1"
             />
           </div>
+          {/* Risograph Outline Toggle - only show when risograph is enabled */}
+          {(activeSettings.risographIntensity || 0) > 0 && (
+            <div className="flex items-center gap-2 mt-1">
+              <label
+                htmlFor="riso-outline-gradient"
+                className="text-[#D9D9D9] w-16 text-xs"
+              >
+                Edges
+              </label>
+              <CustomSwitch
+                id="riso-outline-gradient"
+                checked={activeSettings.risographOutline || false}
+                onChange={(checked) =>
+                  setActiveSettings({ risographOutline: checked })
+                }
+              />
+            </div>
+          )}
         </div>
 
         {/* Dither */}
@@ -272,6 +290,24 @@ const BrushControls = () => {
             className="flex-1"
           />
         </div>
+        {/* Risograph Outline Toggle - only show when risograph is enabled */}
+        {(activeSettings.risographIntensity || 0) > 0 && (
+          <div className="flex items-center gap-2 mt-1">
+            <label
+              htmlFor="riso-outline"
+              className="text-[#D9D9D9] w-16 text-xs"
+            >
+              Edges
+            </label>
+            <CustomSwitch
+              id="riso-outline"
+              checked={activeSettings.risographOutline || false}
+              onChange={(checked) =>
+                setActiveSettings({ risographOutline: checked })
+              }
+            />
+          </div>
+        )}
       </div>
 
       {/* Shape Mode - Draw closed polygon shapes */}

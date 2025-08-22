@@ -232,6 +232,7 @@ export interface BrushSettings {
   colorJitter: number; // 0 to 100 (0 = no jitter, 100 = full spectrum jitter)
   // Risograph texture effect settings
   risographIntensity: number; // 0 to 100 (0 = no effect, 100 = maximum dissolve effect)
+  risographOutline: boolean; // true = add rough outline effect, false = clean edges (default: false)
   // Dither effect for gradients using Sierra Lite algorithm
   ditherEnabled: boolean; // true = use Sierra Lite dithering with colors palette
   ditherAlgorithm?: 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern';

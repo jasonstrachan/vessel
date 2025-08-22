@@ -49,6 +49,7 @@ export const DEFAULT_DITHER_SETTINGS: DitherBrushSettings = {
   shapeEnabled: false,
   colorJitter: 0,
   risographIntensity: 0,
+  risographOutline: false,
   ditherEnabled: true,
   
   // Dithering-specific settings

@@ -72,8 +72,9 @@ Creates contour lines like what yuo see o a countour map.
 
 **Implementation:**
 - Generate contours based on the shape of the polygon
-- uses similar shape making as the polygon tool
-- only once the shape is complete does it calclate all the contours 
+- uses similar preview shape making as the polygon tool
+- only once the shape is complete does it calclate all the contours
+- slider for countour spacing 1-10 
 - add heights markers for each contour going into the centre - heighest
 - make it all look hand drawn 
 

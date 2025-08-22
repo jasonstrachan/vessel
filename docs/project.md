@@ -2,6 +2,38 @@
 
 ## Recent Updates
 
+### Wacom Stylus Pressure Sensitivity Support (2025-08-21)
+- **Implemented full pressure-sensitive drawing** for tablets and styluses
+- **Pointer Events API Integration**:
+  - Converted all mouse events to pointer events (`onPointerDown`, `onPointerMove`, `onPointerUp`)
+  - Added `onPointerCancel` for handling stylus out-of-range scenarios
+  - Pointer capture for consistent event tracking
+  - Pressure values correctly read from `event.pressure` (0-1 range)
+- **Pressure Sensitivity Features**:
+  - **Pressure toggle** in UI with customizable min/max pressure ranges (1-1000 pixels)
+  - **Pressure calculation** via `pressureOptimizer` utility with caching
+  - **Dynamic brush sizing** based on stylus pressure
+  - **Coalesced events** support for smoother drawing curves
+- **Touch & Stylus Best Practices**:
+  - Added `touch-action: none` CSS to prevent scrolling/zooming
+  - Added `user-select: none` to prevent text selection
+  - Implemented two-canvas optimization (temporary drawing canvas + main canvas)
+  - RequestAnimationFrame throttling for optimal performance
+- **Wacom-Specific Features**:
+  - **Automatic detection** of Wacom driver issues
+  - **Diagnostic utility** (`detectWacom.ts`) for troubleshooting
+  - Platform-specific solutions for Windows/Mac/Linux
+  - Fallback pressure simulation for mice (Shift=low, Ctrl=high pressure)
+- **Browser Compatibility**:
+  - Best support: Chrome, Edge (Chromium)
+  - Good support: Firefox (with proper config)
+  - Limited support: Safari
+- **Key Files Modified**:
+  - `src/components/canvas/DrawingCanvas.tsx` - Pointer events implementation
+  - `src/hooks/useDrawingHandlers.ts` - Pressure parameter propagation
+  - `src/utils/pressureOptimizer.ts` - Pressure calculation logic
+  - `src/utils/detectWacom.ts` - Wacom detection and diagnostics
+
 ### Modular User Brush Plugin System (2025-08-20)
 - **Implemented plugin architecture** for user-created brushes without impacting default brush performance
 - **Architecture Components**:

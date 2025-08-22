@@ -875,7 +875,7 @@ const DrawingCanvas = () => {
                 numColors
               );
               
-              // Draw the rectangle gradient
+              // Draw the rectangle gradient (this is final, not preview)
               brushEngine.drawRectangleGradient(
                 drawCtx,
                 {
@@ -887,7 +887,7 @@ const DrawingCanvas = () => {
                   colors: sampledColors,
                   ditherEnabled: tools.brushSettings.ditherEnabled
                 },
-                false
+                false  // false = not preview, this is the final draw
               );
               
               drawingHandlers.drawingCanvasHasContent.current = true;

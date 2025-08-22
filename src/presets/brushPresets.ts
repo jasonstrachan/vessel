@@ -24,6 +24,7 @@ export const pixelBrushSettings: BrushSettings = {
   saturationAdjust: 100,
   colorJitter: 0,
   risographIntensity: 0,
+  risographOutline: false,
   ditherEnabled: false
 };
 
@@ -52,6 +53,7 @@ export const defaultBrushSettings: BrushSettings = {
   saturationAdjust: 100,
   colorJitter: 0,
   risographIntensity: 0,
+  risographOutline: false, // Default: no rough outline effect
   ditherEnabled: false,
   fillResolution: 1,
   colors: 2 // Default to 2 colors for rectangle and polygon gradient brushes
