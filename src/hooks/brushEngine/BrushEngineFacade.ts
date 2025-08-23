@@ -373,9 +373,11 @@ export class BrushEngineFacade {
   applyDithering(
     imageData: ImageData,
     numColors: number,
-    algorithm?: string
+    algorithm?: string,
+    patternStyle?: string,
+    customPalette?: string[]
   ): ImageData {
-    return applyDithering(imageData, numColors, algorithm);
+    return applyDithering(imageData, numColors, algorithm, patternStyle, customPalette);
   }
 
   /**

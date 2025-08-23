@@ -271,9 +271,11 @@ export const useBrushEngineSimplified = () => {
   const applyDithering = useCallback((
     imageData: ImageData,
     numColors: number,
-    algorithm?: string
+    algorithm?: string,
+    patternStyle?: string,
+    customPalette?: string[]
   ) => {
-    return brushEngine.applyDithering(imageData, numColors, algorithm);
+    return brushEngine.applyDithering(imageData, numColors, algorithm, patternStyle, customPalette);
   }, [brushEngine]);
 
   /**
@@ -323,10 +325,17 @@ export const useBrushEngineSimplified = () => {
     
     // Add all color stops (matching preview behavior exactly)
     if (colors.length > 0) {
-      colors.forEach((color, index) => {
-        const position = colors.length === 1 ? 0 : index / (colors.length - 1);
-        gradient.addColorStop(position, color);
-      });
+      if (colors.length === 1) {
+        // For single color, add it at both start and end
+        gradient.addColorStop(0, colors[0]);
+        gradient.addColorStop(1, colors[0]);
+      } else {
+        // Multiple colors - distribute them evenly
+        colors.forEach((color, index) => {
+          const position = index / (colors.length - 1);
+          gradient.addColorStop(position, color);
+        });
+      }
     } else {
       // Fallback to default color
       const defaultColor = tools.brushSettings.color;
@@ -368,10 +377,17 @@ export const useBrushEngineSimplified = () => {
           
           // Add color stops
           if (colors.length > 0) {
-            colors.forEach((color, index) => {
-              const position = colors.length === 1 ? 0 : index / (colors.length - 1);
-              localGradient.addColorStop(position, color);
-            });
+            if (colors.length === 1) {
+              // For single color, add it at both start and end
+              localGradient.addColorStop(0, colors[0]);
+              localGradient.addColorStop(1, colors[0]);
+            } else {
+              // Multiple colors - distribute them evenly
+              colors.forEach((color, index) => {
+                const position = index / (colors.length - 1);
+                localGradient.addColorStop(position, color);
+              });
+            }
           } else {
             const defaultColor = tools.brushSettings.color;
             localGradient.addColorStop(0, defaultColor);
@@ -394,9 +410,11 @@ export const useBrushEngineSimplified = () => {
           const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
           const patternStyle = tools.brushSettings.patternStyle || 'dots';
           
+          // Pass the gradient colors to dithering
+          const paletteColors = colors.length > 0 ? colors : [tools.brushSettings.color];
           const ditheredData = fillResolution > 1 
-            ? applyDitheringWithFillResolution(imageData, numColors, fillResolution, algorithm, patternStyle)
-            : applyDithering(imageData, numColors, algorithm);
+            ? applyDitheringWithFillResolution(imageData, numColors, fillResolution, algorithm, patternStyle, paletteColors)
+            : applyDithering(imageData, numColors, algorithm, patternStyle, paletteColors);
           
           // Put dithered data back on temp canvas
           tempCtx.putImageData(ditheredData, 0, 0);
@@ -440,15 +458,7 @@ export const useBrushEngineSimplified = () => {
         ctx.beginPath();
         ctx.moveTo(corners[0].x, corners[0].y);
         corners.slice(1).forEach(corner => {
-          if (tools.brushSettings.risographOutline) {
-            // Add slight roughness to edges if outline is enabled
-            const roughX = corner.x + (Math.random() - 0.5) * effectStrength;
-            const roughY = corner.y + (Math.random() - 0.5) * effectStrength;
-            ctx.lineTo(roughX, roughY);
-          } else {
-            // Clean edges without roughness
-            ctx.lineTo(corner.x, corner.y);
-          }
+          ctx.lineTo(corner.x, corner.y);
         });
         ctx.closePath();
         ctx.clip();
@@ -472,10 +482,54 @@ export const useBrushEngineSimplified = () => {
     
     // Restore context state
     ctx.restore();
-  }, [tools.brushSettings.risographIntensity, tools.brushSettings.risographOutline, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.antialiasing, tools.brushSettings.opacity, tools.brushSettings.blendMode]);
+  }, [tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.antialiasing, tools.brushSettings.opacity, tools.brushSettings.blendMode]);
+
+  // Helper function to apply risograph effect
+  const applyRisographEffect = useCallback((
+    ctx: CanvasRenderingContext2D,
+    vertices: Array<{ x: number; y: number }>,
+    risographIntensity: number
+  ) => {
+    const pattern = getRisographPattern(ctx);
+    
+    if (pattern) {
+      // Save current state
+      ctx.save();
+      
+      // Add misregistration offset
+      const effectStrength = risographIntensity / 100;
+      const misregX = (Math.random() - 0.5) * effectStrength * 2;
+      const misregY = (Math.random() - 0.5) * effectStrength * 2;
+      ctx.translate(misregX, misregY);
+      
+      // Create clipping path for the polygon
+      ctx.beginPath();
+      ctx.moveTo(vertices[0].x, vertices[0].y);
+      for (let i = 1; i < vertices.length; i++) {
+        ctx.lineTo(vertices[i].x, vertices[i].y);
+      }
+      ctx.closePath();
+      ctx.clip();
+      
+      // Apply texture with multiply blend mode
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.fillStyle = pattern;
+      ctx.globalAlpha = risographIntensity / 100 * 0.35; // Slightly stronger effect
+      
+      // Fill the clipped area with the pattern
+      const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
+      const minY = Math.floor(Math.min(...vertices.map(v => v.y)));
+      const maxX = Math.ceil(Math.max(...vertices.map(v => v.x)));
+      const maxY = Math.ceil(Math.max(...vertices.map(v => v.y)));
+      ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+      
+      // Restore state
+      ctx.restore();
+    }
+  }, [tools.brushSettings.risographIntensity]);
 
   /**
-   * Draw polygon with gradient
+   * Draw polygon with gradient - FIXED VERSION
    */
   const drawPolygonGradient = useCallback((
     ctx: CanvasRenderingContext2D,
@@ -483,6 +537,17 @@ export const useBrushEngineSimplified = () => {
     isPreview: boolean = false
   ) => {
     const { vertices, colors } = polygonData || {};
+    
+    // Debug: Log input colors
+    console.log('Input colors to drawPolygonGradient:', colors);
+    console.log('Number of colors:', colors?.length);
+    if (colors && colors.length > 0) {
+      console.log('First 10 colors:', colors.slice(0, 10));
+      // Check for black/undefined values
+      const blackCount = colors.filter(c => c === '#000000' || c === 'rgb(0, 0, 0)' || !c).length;
+      console.log(`Black/undefined colors: ${blackCount} out of ${colors.length}`);
+    }
+    
     if (!vertices || !Array.isArray(vertices) || vertices.length < 3) return;
     
     // Validate all vertices are defined
@@ -497,157 +562,285 @@ export const useBrushEngineSimplified = () => {
     const boundWidth = maxX - minX;
     const boundHeight = maxY - minY;
     
-    // Create gradient from first to last vertex
-    const gradient = ctx.createLinearGradient(
-      validVertices[0].x, validVertices[0].y,
-      validVertices[validVertices.length - 1].x, validVertices[validVertices.length - 1].y
-    );
+    // Determine gradient direction based on polygon shape
+    let gradient: CanvasGradient;
+    if (boundWidth > boundHeight * 1.5) {
+      // Predominantly horizontal polygon - use horizontal gradient
+      gradient = ctx.createLinearGradient(minX, (minY + maxY) / 2, maxX, (minY + maxY) / 2);
+    } else if (boundHeight > boundWidth * 1.5) {
+      // Predominantly vertical polygon - use vertical gradient
+      gradient = ctx.createLinearGradient((minX + maxX) / 2, minY, (minX + maxX) / 2, maxY);
+    } else {
+      // Roughly square or diagonal - use diagonal gradient
+      gradient = ctx.createLinearGradient(minX, minY, maxX, maxY);
+    }
     
     // Add color stops
-    if (colors && colors.length > 0) {
-      colors.forEach((color, index) => {
-        const position = colors.length === 1 ? 0 : index / (colors.length - 1);
-        gradient.addColorStop(position, color);
-      });
-    } else {
-      const defaultColor = tools.brushSettings.color;
+    let validColors = colors?.filter(c => c !== undefined && c !== null && typeof c === 'string') || [];
+    
+    // TEMPORARY WORKAROUND: Use test colors if too many blacks
+    if (validColors.length > 0) {
+      const blackCount = validColors.filter(c => c === '#000000' || c === 'rgb(0, 0, 0)' || c === 'rgb(0,0,0)').length;
+      if (blackCount > validColors.length * 0.8) {
+        console.warn('Too many black colors detected, using test gradient instead');
+        validColors = ['#FF0000', '#FF7F00', '#FFFF00', '#00FF00', '#0000FF', '#4B0082', '#9400D3']; // Rainbow
+      }
+    }
+    
+    if (validColors.length === 0) {
+      // Fallback to current brush color
+      const defaultColor = tools.brushSettings.color || '#000000';
       gradient.addColorStop(0, defaultColor);
       gradient.addColorStop(1, defaultColor);
+    } else if (validColors.length === 1) {
+      // Single color - solid fill
+      gradient.addColorStop(0, validColors[0]);
+      gradient.addColorStop(1, validColors[0]);
+    } else if (validColors.length === 2) {
+      // Two colors - simple gradient
+      gradient.addColorStop(0, validColors[0]);
+      gradient.addColorStop(1, validColors[1]);
+    } else {
+      // Multiple colors - sample key colors for better distribution
+      const numStops = Math.min(8, validColors.length); // Limit to 8 stops
+      for (let i = 0; i < numStops; i++) {
+        const index = Math.floor((i / (numStops - 1)) * (validColors.length - 1));
+        const position = i / (numStops - 1);
+        gradient.addColorStop(position, validColors[index]);
+      }
     }
+    
+    // Save context state
+    ctx.save();
+    
+    // Apply opacity and blend mode
+    ctx.globalAlpha = tools.brushSettings.opacity;
+    ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
     
     // Check if we'll be applying dithering
     const willApplyDithering = tools.brushSettings.ditherEnabled && !isPreview;
     
     if (willApplyDithering && boundWidth > 0 && boundHeight > 0) {
-      // Create clean version on temporary canvas
-      const cleanCanvas = canvasPool.acquire(boundWidth, boundHeight);
-      const cleanCtx = cleanCanvas.getContext('2d', { willReadFrequently: true });
+      // Create temp canvas for dithering - add padding for antialiasing
+      const padding = 2;
+      const paddedWidth = boundWidth + padding * 2;
+      const paddedHeight = boundHeight + padding * 2;
+      const tempCanvas = canvasPool.acquire(paddedWidth, paddedHeight);
+      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
       
-      if (cleanCtx) {
-        cleanCtx.imageSmoothingEnabled = true;
+      if (tempCtx && tempCanvas.width > 0 && tempCanvas.height > 0) {
+        // Enable antialiasing for smooth edges on temp canvas
+        tempCtx.imageSmoothingEnabled = true;
         
-        // Convert vertices to local coordinates
-        const localVertices = validVertices.map(v => ({ x: v.x - minX, y: v.y - minY }));
+        // Convert vertices to local coordinates with padding
+        const localVertices = validVertices.map(v => ({ 
+          x: v.x - minX + padding, 
+          y: v.y - minY + padding 
+        }));
         
         // Create gradient in local space
-        const localGradient = cleanCtx.createLinearGradient(
-          localVertices[0].x, localVertices[0].y,
-          localVertices[localVertices.length - 1].x, localVertices[localVertices.length - 1].y
-        );
-        
-        // Add color stops
-        if (colors && colors.length > 0) {
-          colors.forEach((color, index) => {
-            const position = colors.length === 1 ? 0 : index / (colors.length - 1);
-            localGradient.addColorStop(position, color);
-          });
+        let localGradient;
+        if (boundWidth > boundHeight * 1.5) {
+          localGradient = tempCtx.createLinearGradient(
+            padding, paddedHeight / 2, 
+            paddedWidth - padding, paddedHeight / 2
+          );
+        } else if (boundHeight > boundWidth * 1.5) {
+          localGradient = tempCtx.createLinearGradient(
+            paddedWidth / 2, padding, 
+            paddedWidth / 2, paddedHeight - padding
+          );
         } else {
-          const defaultColor = tools.brushSettings.color;
-          localGradient.addColorStop(0, defaultColor);
-          localGradient.addColorStop(1, defaultColor);
+          localGradient = tempCtx.createLinearGradient(
+            padding, padding, 
+            paddedWidth - padding, paddedHeight - padding
+          );
         }
         
-        // Draw clean polygon
-        cleanCtx.fillStyle = localGradient;
-        cleanCtx.beginPath();
-        cleanCtx.moveTo(localVertices[0].x, localVertices[0].y);
-        localVertices.slice(1).forEach(vertex => cleanCtx.lineTo(vertex.x, vertex.y));
-        cleanCtx.closePath();
-        cleanCtx.fill();
+        // Add color stops (same as main gradient)
+        if (validColors.length === 0) {
+          const defaultColor = tools.brushSettings.color || '#000000';
+          localGradient.addColorStop(0, defaultColor);
+          localGradient.addColorStop(1, defaultColor);
+        } else if (validColors.length === 1) {
+          localGradient.addColorStop(0, validColors[0]);
+          localGradient.addColorStop(1, validColors[0]);
+        } else if (validColors.length === 2) {
+          localGradient.addColorStop(0, validColors[0]);
+          localGradient.addColorStop(1, validColors[1]);
+        } else {
+          const numStops = Math.min(8, validColors.length);
+          for (let i = 0; i < numStops; i++) {
+            const index = Math.floor((i / (numStops - 1)) * (validColors.length - 1));
+            const position = i / (numStops - 1);
+            localGradient.addColorStop(position, validColors[index]);
+          }
+        }
         
-        // Get clean image data and apply dithering
-        const cleanImageData = cleanCtx.getImageData(0, 0, boundWidth, boundHeight);
+        // Draw clean polygon with antialiasing
+        tempCtx.fillStyle = localGradient;
+        tempCtx.beginPath();
+        tempCtx.moveTo(localVertices[0].x, localVertices[0].y);
+        localVertices.slice(1).forEach(vertex => tempCtx.lineTo(vertex.x, vertex.y));
+        tempCtx.closePath();
+        tempCtx.fill();
+        
+        // Get clean image data for edge preservation
+        const cleanImageData = tempCtx.getImageData(0, 0, paddedWidth, paddedHeight);
+        
+        // Apply dithering
         const numColors = tools.brushSettings.colors || 2;
         const fillResolution = tools.brushSettings.fillResolution || 1;
         const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
         const patternStyle = tools.brushSettings.patternStyle || 'dots';
         
-        const ditheredData = fillResolution > 1 
-          ? applyDitheringWithFillResolution(cleanImageData, numColors, fillResolution, algorithm, patternStyle)
-          : applyDithering(cleanImageData, numColors, algorithm);
-        
-        // Create final composited result
-        const resultData = new ImageData(
-          new Uint8ClampedArray(ditheredData.data),
-          boundWidth,
-          boundHeight
+        // Apply dithering to a copy of the image data
+        const imageDataCopy = new ImageData(
+          new Uint8ClampedArray(cleanImageData.data),
+          paddedWidth,
+          paddedHeight
         );
         
-        // Preserve antialiased edges by restoring pixels with partial alpha
-        for (let i = 0; i < resultData.data.length; i += 4) {
+        // Debug: Check colors before dithering
+        console.log('Before dithering - sample pixels:', {
+          pixel1: {
+            r: cleanImageData.data[0],
+            g: cleanImageData.data[1], 
+            b: cleanImageData.data[2],
+            a: cleanImageData.data[3]
+          },
+          pixel100: {
+            r: cleanImageData.data[400],
+            g: cleanImageData.data[401], 
+            b: cleanImageData.data[402],
+            a: cleanImageData.data[403]
+          },
+          pixel500: {
+            r: cleanImageData.data[2000],
+            g: cleanImageData.data[2001], 
+            b: cleanImageData.data[2002],
+            a: cleanImageData.data[2003]
+          }
+        });
+        
+        // Pass the gradient colors directly to the dithering function
+        const ditheredData = fillResolution > 1 
+          ? applyDitheringWithFillResolution(imageDataCopy, numColors, fillResolution, algorithm, patternStyle, validColors)
+          : applyDithering(imageDataCopy, numColors, algorithm, patternStyle, validColors);
+        
+        // Debug: Check colors after dithering
+        console.log('After dithering - sample pixels:', {
+          pixel1: {
+            r: ditheredData.data[0],
+            g: ditheredData.data[1],
+            b: ditheredData.data[2],
+            a: ditheredData.data[3]
+          },
+          pixel100: {
+            r: ditheredData.data[400],
+            g: ditheredData.data[401],
+            b: ditheredData.data[402],
+            a: ditheredData.data[403]
+          },
+          pixel500: {
+            r: ditheredData.data[2000],
+            g: ditheredData.data[2001],
+            b: ditheredData.data[2002],
+            a: ditheredData.data[2003]
+          }
+        });
+        
+        // Preserve antialiased edges - enhanced edge detection
+        const edgeThreshold = 250; // Pixels with alpha below this are considered edges
+        for (let i = 0; i < ditheredData.data.length; i += 4) {
           const cleanAlpha = cleanImageData.data[i + 3];
           
-          // If original pixel was partially transparent (antialiased edge), restore it
-          if (cleanAlpha > 0 && cleanAlpha < 255) {
-            resultData.data[i] = cleanImageData.data[i];     // R
-            resultData.data[i + 1] = cleanImageData.data[i + 1]; // G
-            resultData.data[i + 2] = cleanImageData.data[i + 2]; // B
-            resultData.data[i + 3] = cleanImageData.data[i + 3]; // A
+          // Preserve edge pixels and semi-transparent pixels
+          if (cleanAlpha < edgeThreshold) {
+            // For edge pixels, use original clean rendering
+            ditheredData.data[i] = cleanImageData.data[i];     // R
+            ditheredData.data[i + 1] = cleanImageData.data[i + 1]; // G
+            ditheredData.data[i + 2] = cleanImageData.data[i + 2]; // B
+            ditheredData.data[i + 3] = cleanImageData.data[i + 3]; // A
+          } else if (fillResolution > 1) {
+            // For high fill resolution, check neighboring pixels for better edge detection
+            const x = (i / 4) % paddedWidth;
+            const y = Math.floor((i / 4) / paddedWidth);
+            let isNearEdge = false;
+            
+            // Check 3x3 neighborhood
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                const nx = x + dx;
+                const ny = y + dy;
+                if (nx >= 0 && nx < paddedWidth && ny >= 0 && ny < paddedHeight) {
+                  const nIdx = (ny * paddedWidth + nx) * 4 + 3;
+                  if (cleanImageData.data[nIdx] < edgeThreshold) {
+                    isNearEdge = true;
+                    break;
+                  }
+                }
+              }
+              if (isNearEdge) break;
+            }
+            
+            // Restore clean pixels near edges
+            if (isNearEdge) {
+              ditheredData.data[i] = cleanImageData.data[i];
+              ditheredData.data[i + 1] = cleanImageData.data[i + 1];
+              ditheredData.data[i + 2] = cleanImageData.data[i + 2];
+              ditheredData.data[i + 3] = cleanImageData.data[i + 3];
+            }
           }
         }
         
-        // Put result back and draw to main canvas
-        cleanCtx.putImageData(resultData, 0, 0);
-        ctx.drawImage(cleanCanvas, minX, minY);
+        // Put the final result on temp canvas
+        tempCtx.putImageData(ditheredData, 0, 0);
+        
+        // Draw to main canvas (opacity and blend mode already set)
+        ctx.drawImage(tempCanvas, minX - padding, minY - padding);
         
         // Release temp canvas
-        canvasPool.release(cleanCanvas);
-      }
-    } else {
-      // No dithering - draw directly with clean edges
-      ctx.beginPath();
-      ctx.moveTo(validVertices[0].x, validVertices[0].y);
-      
-      for (let i = 1; i < validVertices.length; i++) {
-        ctx.lineTo(validVertices[i].x, validVertices[i].y);
-      }
-      
-      ctx.closePath();
-      ctx.fillStyle = gradient;
-      ctx.fill();
-    }
-
-    // Apply risograph effect if enabled (matching monolithic)
-    const risographIntensity = tools.brushSettings.risographIntensity || 0;
-    if (risographIntensity > 0 && !isPreview) {
-      const pattern = getRisographPattern(ctx);
-      
-      if (pattern) {
-        // Save current state
-        ctx.save();
+        canvasPool.release(tempCanvas);
         
-        // Add misregistration offset
-        const effectStrength = risographIntensity / 100;
-        const misregX = (Math.random() - 0.5) * effectStrength * 2;
-        const misregY = (Math.random() - 0.5) * effectStrength * 2;
-        ctx.translate(misregX, misregY);
+        // Apply risograph effect if enabled
+        const risographIntensity = tools.brushSettings.risographIntensity || 0;
+        if (risographIntensity > 0 && !isPreview) {
+          applyRisographEffect(ctx, validVertices, risographIntensity);
+        }
+      } else {
+        // Fallback if temp canvas creation fails
+        canvasPool.release(tempCanvas);
         
-        // Create clipping path for the polygon
+        // Draw directly without dithering
+        ctx.imageSmoothingEnabled = true;
+        ctx.fillStyle = gradient;
         ctx.beginPath();
         ctx.moveTo(validVertices[0].x, validVertices[0].y);
-        for (let i = 1; i < validVertices.length; i++) {
-          ctx.lineTo(validVertices[i].x, validVertices[i].y);
-        }
+        validVertices.slice(1).forEach(vertex => ctx.lineTo(vertex.x, vertex.y));
         ctx.closePath();
-        ctx.clip();
-        
-        // Apply pattern with multiply blend mode
-        ctx.globalCompositeOperation = 'multiply';
-        ctx.fillStyle = pattern;
-        ctx.globalAlpha = risographIntensity / 100 * 0.35;
-        
-        // Fill the clipped area with the pattern
-        const minX = Math.floor(Math.min(...validVertices.map(v => v.x)));
-        const minY = Math.floor(Math.min(...validVertices.map(v => v.y)));
-        const maxX = Math.ceil(Math.max(...validVertices.map(v => v.x)));
-        const maxY = Math.ceil(Math.max(...validVertices.map(v => v.y)));
-        ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
-        
-        // Restore state
-        ctx.restore();
+        ctx.fill();
+      }
+    } else {
+      // No dithering - draw directly with antialiasing
+      ctx.imageSmoothingEnabled = true;
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.moveTo(validVertices[0].x, validVertices[0].y);
+      validVertices.slice(1).forEach(vertex => ctx.lineTo(vertex.x, vertex.y));
+      ctx.closePath();
+      ctx.fill();
+      
+      // Apply risograph effect if enabled
+      const risographIntensity = tools.brushSettings.risographIntensity || 0;
+      if (risographIntensity > 0 && !isPreview) {
+        applyRisographEffect(ctx, validVertices, risographIntensity);
       }
     }
-  }, [tools.brushSettings.risographIntensity]);
+    
+    // Restore context state
+    ctx.restore();
+  }, [tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.blendMode, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect]);
 
   // Clean up resources
   useEffect(() => {

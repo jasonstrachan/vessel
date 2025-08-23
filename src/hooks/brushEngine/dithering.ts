@@ -150,93 +150,125 @@ export const findDitherColors = (targetR: number, targetG: number, targetB: numb
 
 /**
  * Select a dynamic palette based on image content
+ * Extracts actual colors from the gradient instead of using predefined palette
  */
 const selectDynamicPalette = (
   imageData: ImageData, 
   numColors: number
 ): [number, number, number][] => {
-  if (numColors >= DITHER_PALETTE.length) return DITHER_PALETTE;
-
   const data = imageData.data;
-  const sampledColors: [number, number, number][] = [];
-  const sampleStep = Math.max(1, Math.floor(data.length / (4 * 1000)));
-
-  let darkestSample = { color: [255, 255, 255] as [number, number, number], luma: 255 };
-  let lightestSample = { color: [0, 0, 0] as [number, number, number], luma: 0 };
-
+  const colorMap = new Map<string, { color: [number, number, number], count: number }>();
+  
+  // Sample colors from the image
+  const sampleStep = Math.max(1, Math.floor(data.length / (4 * 10000))); // Sample more points
+  
   for (let i = 0; i < data.length; i += sampleStep * 4) {
-    if (data[i + 3] > 128) {
-      const r = data[i], g = data[i + 1], b = data[i + 2];
-      const color: [number, number, number] = [r, g, b];
-      sampledColors.push(color);
-
-      // Find the darkest and lightest sampled colors by luminance
-      const luma = 0.299 * r + 0.587 * g + 0.114 * b;
-      if (luma < darkestSample.luma) darkestSample = { color, luma };
-      if (luma > lightestSample.luma) lightestSample = { color, luma };
-    }
-  }
-
-  if (sampledColors.length === 0) return DITHER_PALETTE.slice(0, numColors);
-
-  // Helper to find the single closest palette color to a target
-  const findClosestPaletteColor = (target: [number, number, number]): [number, number, number] => {
-    let bestMatch: [number, number, number] = DITHER_PALETTE[0];
-    let minDistanceSq = Infinity;
-    DITHER_PALETTE.forEach(pColor => {
-      const distSq = (target[0] - pColor[0]) ** 2 + (target[1] - pColor[1]) ** 2 + (target[2] - pColor[2]) ** 2;
-      if (distSq < minDistanceSq) {
-        minDistanceSq = distSq;
-        bestMatch = pColor;
+    if (data[i + 3] > 128) { // Only consider opaque pixels
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      
+      // Quantize to reduce similar colors (group into buckets of 8)
+      const qr = Math.round(r / 8) * 8;
+      const qg = Math.round(g / 8) * 8;
+      const qb = Math.round(b / 8) * 8;
+      
+      const key = `${qr},${qg},${qb}`;
+      const existing = colorMap.get(key);
+      if (existing) {
+        existing.count++;
+      } else {
+        colorMap.set(key, { color: [qr, qg, qb], count: 1 });
       }
-    });
-    return bestMatch;
-  };
-
-  const selectedColors = new Set<string>();
-  const selectedColorsList: [number, number, number][] = [];
-
-  // Forcibly add the best matches for the gradient's endpoints
-  if (numColors >= 1) {
-    const darkest = findClosestPaletteColor(darkestSample.color);
-    const key = `${darkest[0]},${darkest[1]},${darkest[2]}`;
-    if (!selectedColors.has(key)) {
-      selectedColors.add(key);
-      selectedColorsList.push(darkest);
-    }
-  }
-  if (numColors >= 2) {
-    const lightest = findClosestPaletteColor(lightestSample.color);
-    const key = `${lightest[0]},${lightest[1]},${lightest[2]}`;
-    if (!selectedColors.has(key)) {
-      selectedColors.add(key);
-      selectedColorsList.push(lightest);
-    }
-  }
-
-  // Now, fill the rest of the palette using the scoring logic for best fit
-  if (numColors > selectedColorsList.length) {
-    const remainingPalette = DITHER_PALETTE.filter(pColor => {
-      const key = `${pColor[0]},${pColor[1]},${pColor[2]}`;
-      return !selectedColors.has(key);
-    });
-    
-    const colorScores = remainingPalette.map(pColor => {
-      let totalDistanceSq = 0;
-      sampledColors.forEach(sample => {
-        totalDistanceSq += (sample[0] - pColor[0]) ** 2 + (sample[1] - pColor[1]) ** 2 + (sample[2] - pColor[2]) ** 2;
-      });
-      return { color: pColor, score: -totalDistanceSq }; // Simple average distance scoring
-    });
-    colorScores.sort((a, b) => b.score - a.score);
-    
-    const needed = numColors - selectedColorsList.length;
-    for(let i = 0; i < needed && i < colorScores.length; i++) {
-      selectedColorsList.push(colorScores[i].color);
     }
   }
   
-  return selectedColorsList;
+  // If no colors found, fall back to default palette
+  if (colorMap.size === 0) {
+    console.log('No colors found in image, using default palette');
+    return DITHER_PALETTE.slice(0, numColors);
+  }
+  
+  // Sort colors by frequency and diversity
+  const colors = Array.from(colorMap.values());
+  colors.sort((a, b) => b.count - a.count);
+  
+  console.log('Colors found in image:', colors.slice(0, 10).map(c => ({
+    color: `rgb(${c.color[0]}, ${c.color[1]}, ${c.color[2]})`,
+    count: c.count
+  })));
+  
+  // Select colors based on both frequency and color diversity
+  const selectedColors: [number, number, number][] = [];
+  const usedColorKeys = new Set<string>();
+  
+  // K-means clustering to find representative colors
+  if (colors.length <= numColors) {
+    // If we have fewer unique colors than requested, use them all
+    colors.forEach(c => selectedColors.push(c.color));
+  } else {
+    // Use a simple color selection algorithm
+    // 1. Add the most frequent color
+    if (colors.length > 0 && numColors > 0) {
+      selectedColors.push(colors[0].color);
+      usedColorKeys.add(`${colors[0].color[0]},${colors[0].color[1]},${colors[0].color[2]}`);
+    }
+    
+    // 2. Add colors that are most different from already selected ones
+    while (selectedColors.length < numColors && colors.length > selectedColors.length) {
+      let bestCandidate = null;
+      let maxMinDistance = -1;
+      
+      for (const candidate of colors) {
+        const key = `${candidate.color[0]},${candidate.color[1]},${candidate.color[2]}`;
+        if (usedColorKeys.has(key)) continue;
+        
+        // Find minimum distance to already selected colors
+        let minDistance = Infinity;
+        for (const selected of selectedColors) {
+          const dr = candidate.color[0] - selected[0];
+          const dg = candidate.color[1] - selected[1];
+          const db = candidate.color[2] - selected[2];
+          const distance = Math.sqrt(dr * dr + dg * dg + db * db);
+          minDistance = Math.min(minDistance, distance);
+        }
+        
+        // Weight by both distance and frequency
+        const weightedScore = minDistance * Math.sqrt(candidate.count);
+        
+        if (weightedScore > maxMinDistance) {
+          maxMinDistance = weightedScore;
+          bestCandidate = candidate;
+        }
+      }
+      
+      if (bestCandidate) {
+        selectedColors.push(bestCandidate.color);
+        const key = `${bestCandidate.color[0]},${bestCandidate.color[1]},${bestCandidate.color[2]}`;
+        usedColorKeys.add(key);
+      } else {
+        break;
+      }
+    }
+  }
+  
+  // If we still don't have enough colors, add some from the default palette
+  if (selectedColors.length < numColors) {
+    const remaining = numColors - selectedColors.length;
+    const defaultColors = DITHER_PALETTE.slice(0, remaining);
+    defaultColors.forEach(c => {
+      const key = `${c[0]},${c[1]},${c[2]}`;
+      if (!usedColorKeys.has(key)) {
+        selectedColors.push(c);
+      }
+    });
+  }
+  
+  console.log('Final selected palette for dithering:', selectedColors.map(c => 
+    `rgb(${c[0]}, ${c[1]}, ${c[2]})`
+  ));
+  
+  return selectedColors;
 };
 
 /**
@@ -246,9 +278,34 @@ export const applyDithering = (
   imageData: ImageData, 
   numColors: number, 
   algorithm?: string,
-  patternStyle?: string
+  patternStyle?: string,
+  customPalette?: string[]  // Accept custom palette
 ): ImageData => {
-  const palette = selectDynamicPalette(imageData, numColors);
+  // Convert custom palette strings to RGB tuples, or use dynamic extraction
+  let palette: [number, number, number][];
+  
+  if (customPalette && customPalette.length > 0) {
+    console.log('Using custom palette:', customPalette);
+    palette = customPalette.map(color => {
+      // Parse hex or rgb color strings
+      if (color.startsWith('#')) {
+        const hex = color.slice(1);
+        const r = parseInt(hex.substr(0, 2), 16);
+        const g = parseInt(hex.substr(2, 2), 16);
+        const b = parseInt(hex.substr(4, 2), 16);
+        return [r, g, b] as [number, number, number];
+      } else if (color.startsWith('rgb')) {
+        const match = color.match(/\d+/g);
+        if (match && match.length >= 3) {
+          return [parseInt(match[0]), parseInt(match[1]), parseInt(match[2])] as [number, number, number];
+        }
+      }
+      // Fallback to black if parsing fails
+      return [0, 0, 0] as [number, number, number];
+    });
+  } else {
+    palette = selectDynamicPalette(imageData, numColors);
+  }
   
   // Create dither settings
   const ditherSettings: DitherSettings = {
@@ -274,19 +331,19 @@ export const applyDithering = (
       return applyPatternDither(imageData, ditherSettings);
     case 'sierra-lite':
     default:
-      return applySierraLiteDither(imageData, numColors);
+      return applySierraLiteDither(imageData, numColors, palette);
   }
 };
 
 /**
  * Apply Sierra Lite dithering algorithm
  */
-export const applySierraLiteDither = (imageData: ImageData, numColors: number): ImageData => {
+export const applySierraLiteDither = (imageData: ImageData, numColors: number, customPalette?: [number, number, number][]): ImageData => {
   const data = new Uint8ClampedArray(imageData.data);
   const width = imageData.width;
   const height = imageData.height;
   
-  const palette = selectDynamicPalette(imageData, numColors);
+  const palette = customPalette || selectDynamicPalette(imageData, numColors);
   
   // Find nearest palette color using linear color space for accurate comparison
   const findNearestColor = (r: number, g: number, b: number): [number, number, number] => {
@@ -395,7 +452,8 @@ export const applyDitheringWithFillResolution = (
   numColors: number, 
   fillResolution: number,
   algorithm?: string,
-  patternStyle?: string
+  patternStyle?: string,
+  customPalette?: string[]  // Accept custom palette
 ): ImageData => {
   // First scale down the image data
   const scaledWidth = Math.max(1, Math.floor(imageData.width / fillResolution));
@@ -420,7 +478,7 @@ export const applyDitheringWithFillResolution = (
   const blockImageData = blockCtx.getImageData(0, 0, scaledWidth, scaledHeight);
   
   // Apply dithering to the scaled-down image
-  const ditheredBlockImage = applyDithering(blockImageData, numColors, algorithm, patternStyle);
+  const ditheredBlockImage = applyDithering(blockImageData, numColors, algorithm, patternStyle, customPalette);
   
   // Scale back up to original resolution
   blockCtx.putImageData(ditheredBlockImage, 0, 0);

@@ -838,8 +838,15 @@ const DrawingCanvas = () => {
               const perpDist = Math.abs(-lineVecY * toMouseX + lineVecX * toMouseY);
               const width = perpDist * 2;
               
-              // Use brush color for gradient (not sampled from canvas)
-              const gradientColors = [tools.brushSettings.color];
+              // Sample colors along the rectangle length
+              const numColors = tools.brushSettings.colors || 2;
+              const sampledColors = sampleColorsAlongLine(
+                currentRectState.startPos.x,
+                currentRectState.startPos.y,
+                currentRectState.endPos.x,
+                currentRectState.endPos.y,
+                numColors
+              );
               
               // Draw the rectangle gradient (this is final, not preview)
               brushEngine.drawRectangleGradient(
@@ -849,7 +856,7 @@ const DrawingCanvas = () => {
                 currentRectState.endPos.x,
                 currentRectState.endPos.y,
                 width,  // Use the calculated width, not currentRectState.width
-                gradientColors,
+                sampledColors.length > 0 ? sampledColors : [tools.brushSettings.color],
                 false  // false = not preview, this is the final draw
               );
               
@@ -1077,10 +1084,28 @@ const DrawingCanvas = () => {
                 : (tools.brushSettings.opacity || 1);
               overlayCtx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
               
-              // Create gradient for preview using brush color
+              // Sample colors for preview
+              const numColors = tools.brushSettings.colors || 2;
+              const sampledColors = sampleColorsAlongLine(
+                startPos.x,
+                startPos.y,
+                endPos.x,
+                endPos.y,
+                numColors
+              );
+              
+              // Create gradient for preview
               const gradient = overlayCtx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
-              gradient.addColorStop(0, tools.brushSettings.color);
-              gradient.addColorStop(1, tools.brushSettings.color);
+              
+              if (sampledColors.length > 0) {
+                sampledColors.forEach((color, index) => {
+                  const position = sampledColors.length === 1 ? 0 : index / (sampledColors.length - 1);
+                  gradient.addColorStop(position, color);
+                });
+              } else {
+                gradient.addColorStop(0, tools.brushSettings.color);
+                gradient.addColorStop(1, tools.brushSettings.color);
+              }
               
               overlayCtx.fillStyle = gradient;
               overlayCtx.beginPath();
@@ -1181,10 +1206,28 @@ const DrawingCanvas = () => {
                       : (tools.brushSettings.opacity || 1);
                     overlayCtx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
                     
-                    // Create gradient for preview using brush color
+                    // Sample colors for preview
+                    const numColors = tools.brushSettings.colors || 2;
+                    const sampledColors = sampleColorsAlongLine(
+                      startPos.x,
+                      startPos.y,
+                      endPos.x,
+                      endPos.y,
+                      numColors
+                    );
+                    
+                    // Create gradient for preview
                     const gradient = overlayCtx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
-                    gradient.addColorStop(0, tools.brushSettings.color);
-                    gradient.addColorStop(1, tools.brushSettings.color);
+                    
+                    if (sampledColors.length > 0) {
+                      sampledColors.forEach((color, index) => {
+                        const position = sampledColors.length === 1 ? 0 : index / (sampledColors.length - 1);
+                        gradient.addColorStop(position, color);
+                      });
+                    } else {
+                      gradient.addColorStop(0, tools.brushSettings.color);
+                      gradient.addColorStop(1, tools.brushSettings.color);
+                    }
                     
                     overlayCtx.fillStyle = gradient;
                     overlayCtx.beginPath();
