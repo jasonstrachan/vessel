@@ -366,8 +366,8 @@ export const useBrushEngineSimplified = () => {
         const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
         
         if (tempCtx) {
-          // Draw the gradient on temp canvas
-          const localCorners = corners.map(c => ({ x: c.x - minX, y: c.y - minY }));
+          // Clear temp canvas
+          tempCtx.clearRect(0, 0, boundWidth, boundHeight);
           
           // Create gradient in local space
           const localGradient = tempCtx.createLinearGradient(
@@ -394,15 +394,11 @@ export const useBrushEngineSimplified = () => {
             localGradient.addColorStop(1, defaultColor);
           }
           
-          // Draw rectangle on temp canvas
+          // Fill the ENTIRE temp canvas with gradient (no shape clipping)
           tempCtx.fillStyle = localGradient;
-          tempCtx.beginPath();
-          tempCtx.moveTo(localCorners[0].x, localCorners[0].y);
-          localCorners.slice(1).forEach(corner => tempCtx.lineTo(corner.x, corner.y));
-          tempCtx.closePath();
-          tempCtx.fill();
+          tempCtx.fillRect(0, 0, boundWidth, boundHeight);
           
-          // Get and dither the image data
+          // Get and dither the full gradient
           const imageData = tempCtx.getImageData(0, 0, boundWidth, boundHeight);
           
           const numColors = tools.brushSettings.colors || 2;
@@ -419,15 +415,17 @@ export const useBrushEngineSimplified = () => {
           // Put dithered data back on temp canvas
           tempCtx.putImageData(ditheredData, 0, 0);
           
-          // Save state and set up clipping to preserve edges
+          // Save state and set up clipping with antialiasing for smooth edges
           ctx.save();
+          ctx.imageSmoothingEnabled = true; // Ensure antialiasing for clip path
           ctx.beginPath();
           ctx.moveTo(corners[0].x, corners[0].y);
           corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
           ctx.closePath();
           ctx.clip();
           
-          // Draw the dithered image (drawImage respects clipping, putImageData doesn't)
+          // Draw the dithered pattern (will be clipped to rectangle shape)
+          ctx.imageSmoothingEnabled = false; // Don't smooth the dither pattern itself
           ctx.drawImage(tempCanvas, minX, minY);
           
           // Restore state
@@ -678,17 +676,8 @@ export const useBrushEngineSimplified = () => {
       const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
       
       if (tempCtx && tempCanvas.width > 0 && tempCanvas.height > 0) {
-        // Clear the temp canvas to ensure it's fully transparent
+        // Clear the temp canvas
         tempCtx.clearRect(0, 0, paddedWidth, paddedHeight);
-        
-        // Enable antialiasing for smooth edges on temp canvas
-        tempCtx.imageSmoothingEnabled = true;
-        
-        // Convert vertices to local coordinates with padding
-        const localVertices = validVertices.map(v => ({ 
-          x: v.x - minX + padding, 
-          y: v.y - minY + padding 
-        }));
         
         // Create gradient in local space using the same two furthest points
         const localGradient = tempCtx.createLinearGradient(
@@ -751,16 +740,12 @@ export const useBrushEngineSimplified = () => {
           }
         }
         
-        // Draw clean polygon with antialiasing
+        // Fill the ENTIRE temp canvas with gradient (no clipping)
         tempCtx.fillStyle = localGradient;
-        tempCtx.beginPath();
-        tempCtx.moveTo(localVertices[0].x, localVertices[0].y);
-        localVertices.slice(1).forEach(vertex => tempCtx.lineTo(vertex.x, vertex.y));
-        tempCtx.closePath();
-        tempCtx.fill();
+        tempCtx.fillRect(0, 0, paddedWidth, paddedHeight);
         
-        // Get clean image data for edge preservation
-        const cleanImageData = tempCtx.getImageData(0, 0, paddedWidth, paddedHeight);
+        // Get the full gradient data
+        const gradientImageData = tempCtx.getImageData(0, 0, paddedWidth, paddedHeight);
         
         // Apply dithering
         const numColors = tools.brushSettings.colors || 2;
@@ -768,74 +753,25 @@ export const useBrushEngineSimplified = () => {
         const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
         const patternStyle = tools.brushSettings.patternStyle || 'dots';
         
-        // Apply dithering to a copy of the image data
-        const imageDataCopy = new ImageData(
-          new Uint8ClampedArray(cleanImageData.data),
-          paddedWidth,
-          paddedHeight
-        );
-        
-        // Debug: Check colors before dithering
-        console.log('Before dithering - sample pixels:', {
-          pixel1: {
-            r: cleanImageData.data[0],
-            g: cleanImageData.data[1], 
-            b: cleanImageData.data[2],
-            a: cleanImageData.data[3]
-          },
-          pixel100: {
-            r: cleanImageData.data[400],
-            g: cleanImageData.data[401], 
-            b: cleanImageData.data[402],
-            a: cleanImageData.data[403]
-          },
-          pixel500: {
-            r: cleanImageData.data[2000],
-            g: cleanImageData.data[2001], 
-            b: cleanImageData.data[2002],
-            a: cleanImageData.data[2003]
-          }
-        });
-        
         // Pass the gradient colors directly to the dithering function
         const ditheredData = fillResolution > 1 
-          ? applyDitheringWithFillResolution(imageDataCopy, numColors, fillResolution, algorithm, patternStyle, validColors)
-          : applyDithering(imageDataCopy, numColors, algorithm, patternStyle, validColors);
+          ? applyDitheringWithFillResolution(gradientImageData, numColors, fillResolution, algorithm, patternStyle, validColors)
+          : applyDithering(gradientImageData, numColors, algorithm, patternStyle, validColors);
         
-        // Debug: Check colors after dithering
-        console.log('After dithering - sample pixels:', {
-          pixel1: {
-            r: ditheredData.data[0],
-            g: ditheredData.data[1],
-            b: ditheredData.data[2],
-            a: ditheredData.data[3]
-          },
-          pixel100: {
-            r: ditheredData.data[400],
-            g: ditheredData.data[401],
-            b: ditheredData.data[402],
-            a: ditheredData.data[403]
-          },
-          pixel500: {
-            r: ditheredData.data[2000],
-            g: ditheredData.data[2001],
-            b: ditheredData.data[2002],
-            a: ditheredData.data[2003]
-          }
-        });
-        
-        // Put the final result on temp canvas
+        // Put the dithered result back
         tempCtx.putImageData(ditheredData, 0, 0);
         
-        // Set up clipping path to ensure dithering only appears inside the polygon
+        // Set up clipping path with antialiasing for smooth edges
         ctx.save();
+        ctx.imageSmoothingEnabled = true; // Ensure antialiasing is on
         ctx.beginPath();
         ctx.moveTo(validVertices[0].x, validVertices[0].y);
         validVertices.slice(1).forEach(vertex => ctx.lineTo(vertex.x, vertex.y));
         ctx.closePath();
         ctx.clip();
         
-        // Draw to main canvas (opacity and blend mode already set)
+        // Draw the dithered pattern (will be clipped to polygon shape)
+        ctx.imageSmoothingEnabled = false; // Don't smooth the dither pattern itself
         ctx.drawImage(tempCanvas, minX - padding, minY - padding);
         
         // Restore clipping
