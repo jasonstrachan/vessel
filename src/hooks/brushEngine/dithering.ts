@@ -149,6 +149,85 @@ export const findDitherColors = (targetR: number, targetG: number, targetB: numb
 };
 
 /**
+ * Quantize a set of colors down to a smaller palette
+ * Uses k-means-like clustering to find representative colors
+ */
+const quantizeColors = (
+  colors: [number, number, number][],
+  targetCount: number
+): [number, number, number][] => {
+  if (colors.length <= targetCount) return colors;
+  
+  // Remove duplicates first
+  const uniqueColors = new Map<string, [number, number, number]>();
+  colors.forEach(color => {
+    const key = `${color[0]},${color[1]},${color[2]}`;
+    if (!uniqueColors.has(key)) {
+      uniqueColors.set(key, color);
+    }
+  });
+  
+  const unique = Array.from(uniqueColors.values());
+  if (unique.length <= targetCount) return unique;
+  
+  // Select colors that represent the gradient well
+  const selected: [number, number, number][] = [];
+  
+  // Always include first and last colors (gradient endpoints)
+  if (unique.length > 0) {
+    selected.push(unique[0]);
+    if (targetCount > 1 && unique.length > 1) {
+      selected.push(unique[unique.length - 1]);
+    }
+  }
+  
+  // Fill in intermediate colors
+  if (targetCount > 2) {
+    // Sample evenly from the remaining colors
+    const step = Math.max(1, Math.floor((unique.length - 2) / (targetCount - 2)));
+    for (let i = 1; i < unique.length - 1 && selected.length < targetCount; i += step) {
+      selected.push(unique[i]);
+    }
+  }
+  
+  // If we still need more colors, add the most different ones
+  const remaining = unique.filter(c => !selected.some(s => 
+    s[0] === c[0] && s[1] === c[1] && s[2] === c[2]
+  ));
+  
+  while (selected.length < targetCount && remaining.length > 0) {
+    let maxMinDistance = -1;
+    let bestIndex = 0;
+    
+    for (let i = 0; i < remaining.length; i++) {
+      const candidate = remaining[i];
+      let minDistance = Infinity;
+      
+      // Find minimum distance to any selected color
+      for (const selectedColor of selected) {
+        const dr = candidate[0] - selectedColor[0];
+        const dg = candidate[1] - selectedColor[1];
+        const db = candidate[2] - selectedColor[2];
+        const distance = Math.sqrt(dr * dr + dg * dg + db * db);
+        minDistance = Math.min(minDistance, distance);
+      }
+      
+      // Track the candidate that's furthest from all selected colors
+      if (minDistance > maxMinDistance) {
+        maxMinDistance = minDistance;
+        bestIndex = i;
+      }
+    }
+    
+    // Add the best candidate
+    selected.push(remaining[bestIndex]);
+    remaining.splice(bestIndex, 1);
+  }
+  
+  return selected;
+};
+
+/**
  * Select a dynamic palette based on image content
  * Extracts actual colors from the gradient instead of using predefined palette
  */
@@ -286,7 +365,8 @@ export const applyDithering = (
   
   if (customPalette && customPalette.length > 0) {
     console.log('Using custom palette:', customPalette);
-    palette = customPalette.map(color => {
+    // Parse the custom palette colors
+    const parsedColors = customPalette.map(color => {
       // Parse hex or rgb color strings
       if (color.startsWith('#')) {
         const hex = color.slice(1);
@@ -303,6 +383,15 @@ export const applyDithering = (
       // Fallback to black if parsing fails
       return [0, 0, 0] as [number, number, number];
     });
+    
+    // Reduce palette to numColors using color quantization
+    if (parsedColors.length > numColors) {
+      palette = quantizeColors(parsedColors, numColors);
+    } else {
+      palette = parsedColors;
+    }
+    
+    console.log(`Reduced palette from ${customPalette.length} to ${palette.length} colors`);
   } else {
     palette = selectDynamicPalette(imageData, numColors);
   }

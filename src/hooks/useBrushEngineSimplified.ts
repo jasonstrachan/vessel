@@ -562,51 +562,100 @@ export const useBrushEngineSimplified = () => {
     const boundWidth = maxX - minX;
     const boundHeight = maxY - minY;
     
-    // Determine gradient direction based on polygon shape
-    let gradient: CanvasGradient;
-    if (boundWidth > boundHeight * 1.5) {
-      // Predominantly horizontal polygon - use horizontal gradient
-      gradient = ctx.createLinearGradient(minX, (minY + maxY) / 2, maxX, (minY + maxY) / 2);
-    } else if (boundHeight > boundWidth * 1.5) {
-      // Predominantly vertical polygon - use vertical gradient
-      gradient = ctx.createLinearGradient((minX + maxX) / 2, minY, (minX + maxX) / 2, maxY);
-    } else {
-      // Roughly square or diagonal - use diagonal gradient
-      gradient = ctx.createLinearGradient(minX, minY, maxX, maxY);
-    }
+    // Find the two furthest points in the polygon for gradient direction
+    let maxDistance = 0;
+    let point1 = validVertices[0];
+    let point2 = validVertices[1];
     
-    // Add color stops
-    let validColors = colors?.filter(c => c !== undefined && c !== null && typeof c === 'string') || [];
-    
-    // TEMPORARY WORKAROUND: Use test colors if too many blacks
-    if (validColors.length > 0) {
-      const blackCount = validColors.filter(c => c === '#000000' || c === 'rgb(0, 0, 0)' || c === 'rgb(0,0,0)').length;
-      if (blackCount > validColors.length * 0.8) {
-        console.warn('Too many black colors detected, using test gradient instead');
-        validColors = ['#FF0000', '#FF7F00', '#FFFF00', '#00FF00', '#0000FF', '#4B0082', '#9400D3']; // Rainbow
+    for (let i = 0; i < validVertices.length; i++) {
+      for (let j = i + 1; j < validVertices.length; j++) {
+        const dist = Math.sqrt(
+          Math.pow(validVertices[j].x - validVertices[i].x, 2) + 
+          Math.pow(validVertices[j].y - validVertices[i].y, 2)
+        );
+        if (dist > maxDistance) {
+          maxDistance = dist;
+          point1 = validVertices[i];
+          point2 = validVertices[j];
+        }
       }
     }
+    
+    console.log('Gradient calculation:', {
+      point1,
+      point2,
+      distance: maxDistance,
+      bounds: { minX, minY, maxX, maxY },
+      numVertices: validVertices.length
+    });
+    
+    // Create gradient between the two furthest points
+    const gradient = ctx.createLinearGradient(point1.x, point1.y, point2.x, point2.y);
+    
+    // Add color stops - using unique colors that progress across the shape
+    let validColors = colors?.filter(c => c !== undefined && c !== null && typeof c === 'string') || [];
     
     if (validColors.length === 0) {
       // Fallback to current brush color
       const defaultColor = tools.brushSettings.color || '#000000';
       gradient.addColorStop(0, defaultColor);
       gradient.addColorStop(1, defaultColor);
-    } else if (validColors.length === 1) {
-      // Single color - solid fill
-      gradient.addColorStop(0, validColors[0]);
-      gradient.addColorStop(1, validColors[0]);
-    } else if (validColors.length === 2) {
-      // Two colors - simple gradient
-      gradient.addColorStop(0, validColors[0]);
-      gradient.addColorStop(1, validColors[1]);
+    } else if (validColors.length === validVertices.length) {
+      // Project vertices onto gradient line to get their positions
+      const gradientVector = { x: point2.x - point1.x, y: point2.y - point1.y };
+      const gradientLength = Math.sqrt(gradientVector.x * gradientVector.x + gradientVector.y * gradientVector.y);
+      const gradientDir = { x: gradientVector.x / gradientLength, y: gradientVector.y / gradientLength };
+      
+      // Map each vertex to its position along the gradient
+      const colorPositions = validVertices.map((vertex, index) => {
+        const toVertex = { x: vertex.x - point1.x, y: vertex.y - point1.y };
+        const projectionDistance = toVertex.x * gradientDir.x + toVertex.y * gradientDir.y;
+        const position = Math.max(0, Math.min(1, projectionDistance / gradientLength));
+        return { position, color: validColors[index], index };
+      });
+      
+      // Sort by position along gradient
+      colorPositions.sort((a, b) => a.position - b.position);
+      
+      // Get unique colors while preserving order along gradient
+      const uniqueColorsMap = new Map();
+      const orderedUniqueColors = [];
+      
+      for (const item of colorPositions) {
+        if (!uniqueColorsMap.has(item.color)) {
+          uniqueColorsMap.set(item.color, item.position);
+          orderedUniqueColors.push({ color: item.color, position: item.position });
+        }
+      }
+      
+      // Get the number of colors to use from brush settings
+      const numColors = tools.brushSettings.colors || orderedUniqueColors.length;
+      
+      // Sample the unique colors evenly
+      if (orderedUniqueColors.length <= numColors) {
+        // Use all unique colors, distributed evenly
+        orderedUniqueColors.forEach((item, index) => {
+          const position = index / Math.max(1, orderedUniqueColors.length - 1);
+          gradient.addColorStop(position, item.color);
+        });
+      } else {
+        // Sample colors evenly from the unique set
+        for (let i = 0; i < numColors; i++) {
+          const sourceIndex = Math.floor((i / Math.max(1, numColors - 1)) * (orderedUniqueColors.length - 1));
+          const position = i / Math.max(1, numColors - 1);
+          gradient.addColorStop(position, orderedUniqueColors[sourceIndex].color);
+        }
+      }
+      
+      console.log(`Gradient with ${Math.min(numColors, orderedUniqueColors.length)} unique colors from ${orderedUniqueColors.length} available`);
     } else {
-      // Multiple colors - sample key colors for better distribution
-      const numStops = Math.min(8, validColors.length); // Limit to 8 stops
-      for (let i = 0; i < numStops; i++) {
-        const index = Math.floor((i / (numStops - 1)) * (validColors.length - 1));
-        const position = i / (numStops - 1);
-        gradient.addColorStop(position, validColors[index]);
+      // Fallback: use first and last colors
+      if (validColors.length === 1) {
+        gradient.addColorStop(0, validColors[0]);
+        gradient.addColorStop(1, validColors[0]);
+      } else {
+        gradient.addColorStop(0, validColors[0]);
+        gradient.addColorStop(1, validColors[validColors.length - 1]);
       }
     }
     
@@ -629,6 +678,9 @@ export const useBrushEngineSimplified = () => {
       const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
       
       if (tempCtx && tempCanvas.width > 0 && tempCanvas.height > 0) {
+        // Clear the temp canvas to ensure it's fully transparent
+        tempCtx.clearRect(0, 0, paddedWidth, paddedHeight);
+        
         // Enable antialiasing for smooth edges on temp canvas
         tempCtx.imageSmoothingEnabled = true;
         
@@ -638,42 +690,64 @@ export const useBrushEngineSimplified = () => {
           y: v.y - minY + padding 
         }));
         
-        // Create gradient in local space
-        let localGradient;
-        if (boundWidth > boundHeight * 1.5) {
-          localGradient = tempCtx.createLinearGradient(
-            padding, paddedHeight / 2, 
-            paddedWidth - padding, paddedHeight / 2
-          );
-        } else if (boundHeight > boundWidth * 1.5) {
-          localGradient = tempCtx.createLinearGradient(
-            paddedWidth / 2, padding, 
-            paddedWidth / 2, paddedHeight - padding
-          );
-        } else {
-          localGradient = tempCtx.createLinearGradient(
-            padding, padding, 
-            paddedWidth - padding, paddedHeight - padding
-          );
-        }
+        // Create gradient in local space using the same two furthest points
+        const localGradient = tempCtx.createLinearGradient(
+          point1.x - minX + padding, point1.y - minY + padding,
+          point2.x - minX + padding, point2.y - minY + padding
+        );
         
-        // Add color stops (same as main gradient)
+        // Add color stops (same as main gradient) - use ordered unique colors
         if (validColors.length === 0) {
           const defaultColor = tools.brushSettings.color || '#000000';
           localGradient.addColorStop(0, defaultColor);
           localGradient.addColorStop(1, defaultColor);
-        } else if (validColors.length === 1) {
-          localGradient.addColorStop(0, validColors[0]);
-          localGradient.addColorStop(1, validColors[0]);
-        } else if (validColors.length === 2) {
-          localGradient.addColorStop(0, validColors[0]);
-          localGradient.addColorStop(1, validColors[1]);
+        } else if (validColors.length === validVertices.length) {
+          // Recreate the same logic for consistency
+          const gradientVector = { x: point2.x - point1.x, y: point2.y - point1.y };
+          const gradientLength = Math.sqrt(gradientVector.x * gradientVector.x + gradientVector.y * gradientVector.y);
+          const gradientDir = { x: gradientVector.x / gradientLength, y: gradientVector.y / gradientLength };
+          
+          const colorPositions = validVertices.map((vertex, index) => {
+            const toVertex = { x: vertex.x - point1.x, y: vertex.y - point1.y };
+            const projectionDistance = toVertex.x * gradientDir.x + toVertex.y * gradientDir.y;
+            const position = Math.max(0, Math.min(1, projectionDistance / gradientLength));
+            return { position, color: validColors[index], index };
+          });
+          
+          colorPositions.sort((a, b) => a.position - b.position);
+          
+          const uniqueColorsMap = new Map();
+          const orderedUniqueColors = [];
+          
+          for (const item of colorPositions) {
+            if (!uniqueColorsMap.has(item.color)) {
+              uniqueColorsMap.set(item.color, item.position);
+              orderedUniqueColors.push({ color: item.color, position: item.position });
+            }
+          }
+          
+          const numColors = tools.brushSettings.colors || orderedUniqueColors.length;
+          
+          if (orderedUniqueColors.length <= numColors) {
+            orderedUniqueColors.forEach((item, index) => {
+              const position = index / Math.max(1, orderedUniqueColors.length - 1);
+              localGradient.addColorStop(position, item.color);
+            });
+          } else {
+            for (let i = 0; i < numColors; i++) {
+              const sourceIndex = Math.floor((i / Math.max(1, numColors - 1)) * (orderedUniqueColors.length - 1));
+              const position = i / Math.max(1, numColors - 1);
+              localGradient.addColorStop(position, orderedUniqueColors[sourceIndex].color);
+            }
+          }
         } else {
-          const numStops = Math.min(8, validColors.length);
-          for (let i = 0; i < numStops; i++) {
-            const index = Math.floor((i / (numStops - 1)) * (validColors.length - 1));
-            const position = i / (numStops - 1);
-            localGradient.addColorStop(position, validColors[index]);
+          // Fallback: use first and last colors
+          if (validColors.length === 1) {
+            localGradient.addColorStop(0, validColors[0]);
+            localGradient.addColorStop(1, validColors[0]);
+          } else {
+            localGradient.addColorStop(0, validColors[0]);
+            localGradient.addColorStop(1, validColors[validColors.length - 1]);
           }
         }
         
@@ -750,55 +824,22 @@ export const useBrushEngineSimplified = () => {
           }
         });
         
-        // Preserve antialiased edges - enhanced edge detection
-        const edgeThreshold = 250; // Pixels with alpha below this are considered edges
-        for (let i = 0; i < ditheredData.data.length; i += 4) {
-          const cleanAlpha = cleanImageData.data[i + 3];
-          
-          // Preserve edge pixels and semi-transparent pixels
-          if (cleanAlpha < edgeThreshold) {
-            // For edge pixels, use original clean rendering
-            ditheredData.data[i] = cleanImageData.data[i];     // R
-            ditheredData.data[i + 1] = cleanImageData.data[i + 1]; // G
-            ditheredData.data[i + 2] = cleanImageData.data[i + 2]; // B
-            ditheredData.data[i + 3] = cleanImageData.data[i + 3]; // A
-          } else if (fillResolution > 1) {
-            // For high fill resolution, check neighboring pixels for better edge detection
-            const x = (i / 4) % paddedWidth;
-            const y = Math.floor((i / 4) / paddedWidth);
-            let isNearEdge = false;
-            
-            // Check 3x3 neighborhood
-            for (let dy = -1; dy <= 1; dy++) {
-              for (let dx = -1; dx <= 1; dx++) {
-                const nx = x + dx;
-                const ny = y + dy;
-                if (nx >= 0 && nx < paddedWidth && ny >= 0 && ny < paddedHeight) {
-                  const nIdx = (ny * paddedWidth + nx) * 4 + 3;
-                  if (cleanImageData.data[nIdx] < edgeThreshold) {
-                    isNearEdge = true;
-                    break;
-                  }
-                }
-              }
-              if (isNearEdge) break;
-            }
-            
-            // Restore clean pixels near edges
-            if (isNearEdge) {
-              ditheredData.data[i] = cleanImageData.data[i];
-              ditheredData.data[i + 1] = cleanImageData.data[i + 1];
-              ditheredData.data[i + 2] = cleanImageData.data[i + 2];
-              ditheredData.data[i + 3] = cleanImageData.data[i + 3];
-            }
-          }
-        }
-        
         // Put the final result on temp canvas
         tempCtx.putImageData(ditheredData, 0, 0);
         
+        // Set up clipping path to ensure dithering only appears inside the polygon
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(validVertices[0].x, validVertices[0].y);
+        validVertices.slice(1).forEach(vertex => ctx.lineTo(vertex.x, vertex.y));
+        ctx.closePath();
+        ctx.clip();
+        
         // Draw to main canvas (opacity and blend mode already set)
         ctx.drawImage(tempCanvas, minX - padding, minY - padding);
+        
+        // Restore clipping
+        ctx.restore();
         
         // Release temp canvas
         canvasPool.release(tempCanvas);
