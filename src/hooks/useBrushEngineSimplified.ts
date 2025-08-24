@@ -7,6 +7,7 @@ import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams } from './brushEngine/BrushEngineFacade';
 import type { CustomBrush } from '../types';
+import { BrushShape } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { applyDithering, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { canvasPool } from '../utils/canvasPool';
@@ -291,6 +292,9 @@ export const useBrushEngineSimplified = () => {
     colors: string[],
     isPreview: boolean = false
   ) => {
+    // Check if we're using a pixel brush for crisp edges
+    const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND || 
+                         tools.brushSettings.antialiasing === false;
     // Calculate rectangle geometry (matching monolithic exactly)
     const dx = endX - startX;
     const dy = endY - startY;
@@ -313,8 +317,8 @@ export const useBrushEngineSimplified = () => {
     // Save context state
     ctx.save();
     
-    // Always enable antialiasing for smooth rectangle edges
-    ctx.imageSmoothingEnabled = true;
+    // Use pixel-perfect rendering for pixel brushes, antialiasing for others
+    ctx.imageSmoothingEnabled = !isPixelBrush;
     
     // Apply opacity and blend mode
     ctx.globalAlpha = tools.brushSettings.opacity;
@@ -415,9 +419,9 @@ export const useBrushEngineSimplified = () => {
           // Put dithered data back on temp canvas
           tempCtx.putImageData(ditheredData, 0, 0);
           
-          // Save state and set up clipping with antialiasing for smooth edges
+          // Save state and set up clipping
           ctx.save();
-          ctx.imageSmoothingEnabled = true; // Ensure antialiasing for clip path
+          ctx.imageSmoothingEnabled = !isPixelBrush; // Use pixel-perfect for pixel brushes
           ctx.beginPath();
           ctx.moveTo(corners[0].x, corners[0].y);
           corners.slice(1).forEach(corner => ctx.lineTo(corner.x, corner.y));
@@ -536,15 +540,19 @@ export const useBrushEngineSimplified = () => {
   ) => {
     const { vertices, colors } = polygonData || {};
     
+    // Check if we're using a pixel brush for crisp edges
+    const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND || 
+                         tools.brushSettings.antialiasing === false;
+    
     // Debug: Log input colors
-    console.log('Input colors to drawPolygonGradient:', colors);
-    console.log('Number of colors:', colors?.length);
-    if (colors && colors.length > 0) {
-      console.log('First 10 colors:', colors.slice(0, 10));
-      // Check for black/undefined values
-      const blackCount = colors.filter(c => c === '#000000' || c === 'rgb(0, 0, 0)' || !c).length;
-      console.log(`Black/undefined colors: ${blackCount} out of ${colors.length}`);
-    }
+    // console.log('Input colors to drawPolygonGradient:', colors);
+    // console.log('Number of colors:', colors?.length);
+    // if (colors && colors.length > 0) {
+    //   console.log('First 10 colors:', colors.slice(0, 10));
+    //   // Check for black/undefined values
+    //   const blackCount = colors.filter(c => c === '#000000' || c === 'rgb(0, 0, 0)' || !c).length;
+    //   console.log(`Black/undefined colors: ${blackCount} out of ${colors.length}`);
+    // }
     
     if (!vertices || !Array.isArray(vertices) || vertices.length < 3) return;
     
@@ -579,19 +587,19 @@ export const useBrushEngineSimplified = () => {
       }
     }
     
-    console.log('Gradient calculation:', {
-      point1,
-      point2,
-      distance: maxDistance,
-      bounds: { minX, minY, maxX, maxY },
-      numVertices: validVertices.length
-    });
+    // console.log('Gradient calculation:', {
+    //   point1,
+    //   point2,
+    //   distance: maxDistance,
+    //   bounds: { minX, minY, maxX, maxY },
+    //   numVertices: validVertices.length
+    // });
     
     // Create gradient between the two furthest points
     const gradient = ctx.createLinearGradient(point1.x, point1.y, point2.x, point2.y);
     
     // Add color stops - using unique colors that progress across the shape
-    let validColors = colors?.filter(c => c !== undefined && c !== null && typeof c === 'string') || [];
+    const validColors = colors?.filter(c => c !== undefined && c !== null && typeof c === 'string') || [];
     
     if (validColors.length === 0) {
       // Fallback to current brush color
@@ -645,7 +653,7 @@ export const useBrushEngineSimplified = () => {
         }
       }
       
-      console.log(`Gradient with ${Math.min(numColors, orderedUniqueColors.length)} unique colors from ${orderedUniqueColors.length} available`);
+      // console.log(`Gradient with ${Math.min(numColors, orderedUniqueColors.length)} unique colors from ${orderedUniqueColors.length} available`);
     } else {
       // Fallback: use first and last colors
       if (validColors.length === 1) {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { DitherBrushPlugin } from '../../brushes/plugins/DitherBrushPlugin';
 import { ParticleBrushPlugin } from '../../brushes/plugins/ParticleBrushPlugin';
 import { brushRegistry } from '../../brushes/BrushRegistry';
@@ -182,7 +183,7 @@ Brush Plugin System:
       </div>
       
       <div style={{ marginTop: '20px' }}>
-        <a href="/" style={{ color: '#4CAF50' }}>← Back to Main App</a>
+        <Link href="/" style={{ color: '#4CAF50' }}>← Back to Main App</Link>
       </div>
     </div>
   );

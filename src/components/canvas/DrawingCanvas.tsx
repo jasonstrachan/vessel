@@ -1,7 +1,6 @@
 import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
-// Using adapter for safe migration between implementations
-import { useBrushEngineAdapter } from '../../hooks/useBrushEngineAdapter';
+import { useBrushEngineSimplified } from '../../hooks/useBrushEngineSimplified';
 import { useCanvasInteraction } from '../../hooks/useCanvasInteraction';
 import { useCanvasStateMachine } from '../../hooks/useCanvasStateMachine';
 import { useSimplePan } from '../../hooks/useSimplePan';
@@ -98,7 +97,7 @@ const DrawingCanvas = () => {
   const drawRef = useRef<((ctx: CanvasRenderingContext2D, viewTransform: { scale: number; offsetX: number; offsetY: number }) => void) | null>(null);
   
   // Get brush engine (using adapter for migration)
-  const brushEngine = useBrushEngineAdapter();
+  const brushEngine = useBrushEngineSimplified();
   
   // Memoized layers hash - only compute when layers actually change
   const layersHash = useMemo(() => {
@@ -187,7 +186,8 @@ const DrawingCanvas = () => {
         }
       }
       
-      const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND;
+      const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
+        (tools.brushSettings.brushShape === BrushShape.SQUARE && !tools.brushSettings.antialiasing);
       ctx.imageSmoothingEnabled = !isPixelBrush && scale < 3;
       
       
@@ -1158,12 +1158,39 @@ const DrawingCanvas = () => {
                 const currentRectState = toolStateMachine.rectangleBrushState;
                 
                 if (previewType === 'length') {
-                  // Length definition preview - show thin line using current mouse position
+                  // Length definition preview - show line with sampled colors
                   overlayCtx.save();
                   overlayCtx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
                   overlayCtx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
                   
-                  overlayCtx.strokeStyle = tools.brushSettings.color;
+                  // Sample colors along the line
+                  const numColors = tools.brushSettings.colors || 2;
+                  const sampledColors = sampleColorsAlongLine(
+                    currentRectState.startPos.x,
+                    currentRectState.startPos.y,
+                    worldPos.x,
+                    worldPos.y,
+                    numColors
+                  );
+                  
+                  // Create gradient with sampled colors
+                  const gradient = overlayCtx.createLinearGradient(
+                    currentRectState.startPos.x,
+                    currentRectState.startPos.y,
+                    worldPos.x,
+                    worldPos.y
+                  );
+                  
+                  if (sampledColors.length === 1) {
+                    gradient.addColorStop(0, sampledColors[0]);
+                    gradient.addColorStop(1, sampledColors[0]);
+                  } else {
+                    sampledColors.forEach((color, i) => {
+                      gradient.addColorStop(i / (sampledColors.length - 1), color);
+                    });
+                  }
+                  
+                  overlayCtx.strokeStyle = gradient;
                   overlayCtx.lineWidth = 2 / viewTransformRef.current.scale;
                   overlayCtx.beginPath();
                   overlayCtx.moveTo(currentRectState.startPos.x, currentRectState.startPos.y);
@@ -1384,6 +1411,11 @@ const DrawingCanvas = () => {
                                   !tools.brushSettings.antialiasing;
               overlayCtx.imageSmoothingEnabled = !isPixelBrush;
               
+              // Set additional properties for pixel-perfect rendering
+              if (isPixelBrush && 'imageSmoothingQuality' in overlayCtx) {
+                (overlayCtx as any).imageSmoothingQuality = 'low';
+              }
+              
               // Set up preview style with actual brush settings
               overlayCtx.globalAlpha = tools.brushSettings.opacity; // Full opacity as requested
               overlayCtx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
@@ -1391,12 +1423,23 @@ const DrawingCanvas = () => {
               // Create the path
               overlayCtx.beginPath();
               const points = drawingHandlers.shapePointsRef.current;
-              overlayCtx.moveTo(points[0].x, points[0].y);
-              for (let i = 1; i < points.length; i++) {
-                overlayCtx.lineTo(points[i].x, points[i].y);
+              if (isPixelBrush) {
+                // For pixel brushes, snap coordinates to pixel boundaries
+                overlayCtx.moveTo(Math.round(points[0].x), Math.round(points[0].y));
+                for (let i = 1; i < points.length; i++) {
+                  overlayCtx.lineTo(Math.round(points[i].x), Math.round(points[i].y));
+                }
+                // Connect to current mouse position (also snapped)
+                overlayCtx.lineTo(Math.round(worldPos.x), Math.round(worldPos.y));
+              } else {
+                // Use original coordinates for smooth brushes
+                overlayCtx.moveTo(points[0].x, points[0].y);
+                for (let i = 1; i < points.length; i++) {
+                  overlayCtx.lineTo(points[i].x, points[i].y);
+                }
+                // Connect to current mouse position
+                overlayCtx.lineTo(worldPos.x, worldPos.y);
               }
-              // Connect to current mouse position
-              overlayCtx.lineTo(worldPos.x, worldPos.y);
               overlayCtx.closePath();
               
               // Fill with color or pattern based on brush type

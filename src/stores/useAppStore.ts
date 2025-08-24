@@ -2367,6 +2367,14 @@ export const useAppStore = create<AppState>()(
           return;
         }
         
+        // Check if we should use pixel-perfect rendering (based on current tool/brush)
+        const currentState = get();
+        const isPixelBrush = currentState.tools.brushSettings.brushShape === 'pixel_round' || 
+                             (currentState.tools.brushSettings.brushShape === 'square' && !currentState.tools.brushSettings.antialiasing);
+        
+        // Set image smoothing based on brush type
+        ctx.imageSmoothingEnabled = !isPixelBrush;
+        
         // Set canvas dimensions to match project size
         const expectedWidth = state.project.width;
         const expectedHeight = state.project.height;

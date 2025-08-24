@@ -1,7 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
-// Using adapter for safe migration between implementations
-import { useBrushEngineAdapter } from './useBrushEngineAdapter';
+import { useBrushEngineSimplified } from './useBrushEngineSimplified';
 import { useUserBrushEngine } from './useUserBrushEngine';
 import { BrushShape } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
@@ -62,9 +61,9 @@ export function useDrawingHandlers({
   canvasRef,
   isBusyRef,
 }: UseDrawingHandlersProps) {
-  const brushEngine = useBrushEngineAdapter();
+  const brushEngine = useBrushEngineSimplified();
   const userBrushEngine = useUserBrushEngine();
-  const { activeBrushComponents, captureCanvasToActiveLayer, saveCanvasState, tools } = useAppStore();
+  const { captureCanvasToActiveLayer, saveCanvasState, tools } = useAppStore();
   
   const drawingCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingCtxRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -165,18 +164,17 @@ export function useDrawingHandlers({
         userBrushEngine.setActiveBrush(currentBrushId);
         userBrushEngine.startStroke(drawCtx, worldPos.x, worldPos.y, pressure);
       } else if (brushEngine) {
-        brushEngine.renderBrushStroke(
+        brushEngine.drawBrush(
           drawCtx,
           worldPos,
           worldPos,
-          { pressure },
-          activeBrushComponents
+          { pressure }
         );
       }
     }
     
     // Initial point drawn - parent component will handle redraw
-  }, [initDrawingCanvas, brushEngine, userBrushEngine, project, activeBrushComponents, drawEraserSegment]);
+  }, [initDrawingCanvas, brushEngine, userBrushEngine, project, drawEraserSegment]);
 
   const continueDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
     const currentState = useAppStore.getState();
@@ -208,12 +206,11 @@ export function useDrawingHandlers({
         } else if (brushEngine) {
           drawCtx.globalAlpha = 1.0;
           drawCtx.globalCompositeOperation = 'source-over';
-          brushEngine.renderBrushStroke(
+          brushEngine.drawBrush(
             drawCtx,
             clippedStart,
             clippedEnd,
-            { pressure },
-            activeBrushComponents
+            { pressure }
           );
         }
         
@@ -223,7 +220,7 @@ export function useDrawingHandlers({
     }
     
     lastDrawPosRef.current = worldPos;
-  }, [brushEngine, userBrushEngine, project, activeBrushComponents, drawEraserSegment]);
+  }, [brushEngine, userBrushEngine, project, drawEraserSegment]);
   
   const finalizeDrawing = useCallback(async () => {
     if (isBusyRef?.current || !drawingCanvasRef.current || !drawingCanvasHasContent.current || !project) return;
@@ -340,6 +337,24 @@ export function useDrawingHandlers({
           drawCtx.globalAlpha = 1.0;
           drawCtx.globalCompositeOperation = 'source-over';
           
+          // Check if we're using a pixel brush - need crisp edges
+          const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND || 
+            (tools.brushSettings.brushShape === BrushShape.SQUARE && !tools.brushSettings.antialiasing);
+          
+          // Set ALL smoothing properties to ensure pixel-perfect shapes
+          if (isPixelBrush) {
+            drawCtx.imageSmoothingEnabled = false;
+            // Force pixel-perfect rendering by disabling all smoothing algorithms
+            if ('imageSmoothingQuality' in drawCtx) {
+              (drawCtx as any).imageSmoothingQuality = 'low';
+            }
+          } else {
+            drawCtx.imageSmoothingEnabled = true;
+            if ('imageSmoothingQuality' in drawCtx) {
+              (drawCtx as any).imageSmoothingQuality = 'high';
+            }
+          }
+          
           // Check if we're using a custom brush
           const isCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM;
           let customBrushImageData: ImageData | null = null;
@@ -446,9 +461,18 @@ export function useDrawingHandlers({
           }
 
           drawCtx.beginPath();
-          drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
-          for (let i = 1; i < shapePointsRef.current.length; i++) {
-            drawCtx.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
+          if (isPixelBrush) {
+            // For pixel brushes, snap all coordinates to integer pixels for crisp edges
+            drawCtx.moveTo(Math.round(shapePointsRef.current[0].x), Math.round(shapePointsRef.current[0].y));
+            for (let i = 1; i < shapePointsRef.current.length; i++) {
+              drawCtx.lineTo(Math.round(shapePointsRef.current[i].x), Math.round(shapePointsRef.current[i].y));
+            }
+          } else {
+            // Use original coordinates for smooth brushes
+            drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
+            for (let i = 1; i < shapePointsRef.current.length; i++) {
+              drawCtx.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
+            }
           }
           drawCtx.closePath();
           drawCtx.fill();
@@ -471,16 +495,33 @@ export function useDrawingHandlers({
               
               // Create clipping path for the polygon (with optional roughness)
               drawCtx.beginPath();
-              drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
-              for (let i = 1; i < shapePointsRef.current.length; i++) {
-                if (tools.brushSettings.risographOutline) {
-                  // Add slight roughness to edges only if outline is enabled
-                  const roughX = shapePointsRef.current[i].x + (Math.random() - 0.5) * effectStrength;
-                  const roughY = shapePointsRef.current[i].y + (Math.random() - 0.5) * effectStrength;
-                  drawCtx.lineTo(roughX, roughY);
-                } else {
-                  // Clean edges without roughness
-                  drawCtx.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
+              if (isPixelBrush) {
+                // For pixel brushes, use pixel-aligned coordinates
+                drawCtx.moveTo(Math.round(shapePointsRef.current[0].x), Math.round(shapePointsRef.current[0].y));
+                for (let i = 1; i < shapePointsRef.current.length; i++) {
+                  if (tools.brushSettings.risographOutline) {
+                    // Add slight roughness to edges only if outline is enabled
+                    const roughX = Math.round(shapePointsRef.current[i].x + (Math.random() - 0.5) * effectStrength);
+                    const roughY = Math.round(shapePointsRef.current[i].y + (Math.random() - 0.5) * effectStrength);
+                    drawCtx.lineTo(roughX, roughY);
+                  } else {
+                    // Clean edges without roughness, pixel-aligned
+                    drawCtx.lineTo(Math.round(shapePointsRef.current[i].x), Math.round(shapePointsRef.current[i].y));
+                  }
+                }
+              } else {
+                // For smooth brushes, use original coordinates
+                drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
+                for (let i = 1; i < shapePointsRef.current.length; i++) {
+                  if (tools.brushSettings.risographOutline) {
+                    // Add slight roughness to edges only if outline is enabled
+                    const roughX = shapePointsRef.current[i].x + (Math.random() - 0.5) * effectStrength;
+                    const roughY = shapePointsRef.current[i].y + (Math.random() - 0.5) * effectStrength;
+                    drawCtx.lineTo(roughX, roughY);
+                  } else {
+                    // Clean edges without roughness
+                    drawCtx.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
+                  }
                 }
               }
               drawCtx.closePath();
@@ -489,8 +530,6 @@ export function useDrawingHandlers({
               // Apply texture with appropriate alpha based on brush type
               // Shape fills need stronger effect since they don't have overlapping stamps like strokes
               // Use higher multiplier to match visual strength of strokes
-              const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND || 
-                (tools.brushSettings.brushShape === BrushShape.SQUARE && !tools.brushSettings.antialiasing);
               const risoAlpha = isPixelBrush ? 0.8 : 0.5;
               
               drawCtx.globalCompositeOperation = 'multiply';

@@ -14,8 +14,6 @@ import { SettingsModal } from '../components/modals/SettingsModal';
 import { useAppStore } from '../stores/useAppStore';
 import { autosaveService } from '../utils/autosave';
 import { preloadRisographTexture } from '../utils/risographTexture';
-import { BrushEngineToggle } from '../components/dev/BrushEngineToggle';
-import { BrushEngineTestPanel } from '../components/dev/BrushEngineTestPanel';
 // import TestPluginBrushes from '../components/TestPluginBrushes'; // TEST COMPONENT - Disabled due to render loop
 
 
@@ -185,13 +183,6 @@ export default function Home() {
       {/* TEST: Plugin Brush Test Panel - Disabled due to render loop */}
       {/* <TestPluginBrushes /> */}
       
-      {/* Development Testing Tools */}
-      {process.env.NODE_ENV === 'development' && (
-        <>
-          <BrushEngineToggle />
-          <BrushEngineTestPanel />
-        </>
-      )}
       
     </main>
   );

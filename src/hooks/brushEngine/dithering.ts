@@ -364,7 +364,7 @@ export const applyDithering = (
   let palette: [number, number, number][];
   
   if (customPalette && customPalette.length > 0) {
-    console.log('Using custom palette:', customPalette);
+    // console.log('Using custom palette:', customPalette);
     // Parse the custom palette colors
     const parsedColors = customPalette.map(color => {
       // Parse hex or rgb color strings
@@ -391,7 +391,7 @@ export const applyDithering = (
       palette = parsedColors;
     }
     
-    console.log(`Reduced palette from ${customPalette.length} to ${palette.length} colors`);
+    // console.log(`Reduced palette from ${customPalette.length} to ${palette.length} colors`);
   } else {
     palette = selectDynamicPalette(imageData, numColors);
   }

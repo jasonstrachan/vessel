@@ -171,7 +171,7 @@ export function TestPluginBrushes() {
       <div className="mt-3 p-2 bg-gray-800 rounded">
         <p className="text-xs text-gray-300">
           <strong>How to test:</strong><br/>
-          1. Click "Test" to draw with plugin brush<br/>
+          1. Click &quot;Test&quot; to draw with plugin brush<br/>
           2. Use main canvas with activated brush<br/>
           3. Check console for debug info<br/>
           4. Plugin brushes work alongside defaults!
