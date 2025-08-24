@@ -8,6 +8,10 @@ import { BrushShape } from '@/types';
 import type { BrushSettings } from '@/types';
 import type { PixelQueue, RenderSettings } from './types';
 
+// Performance: Pre-calculated constants
+const QUANTIZE_STEP_SIZE = 0.5;
+const INV_QUANTIZE_STEP = 1 / QUANTIZE_STEP_SIZE;
+
 /**
  * Dependencies for stroke processor
  */
@@ -30,9 +34,8 @@ export interface StrokeProcessorDependencies {
 /**
  * Quantize brush size to prevent micro-variations
  */
-export const quantizeBrushSize = (size: number, stepSize: number = 0.5): number => {
-  const invStepSize = 1 / stepSize; // Avoid division in hot path
-  return Math.round(size * invStepSize) / invStepSize;
+export const quantizeBrushSize = (size: number): number => {
+  return Math.round(size * INV_QUANTIZE_STEP) / INV_QUANTIZE_STEP;
 };
 
 /**
@@ -91,6 +94,7 @@ export const calculateSmoothDirection = (
   }
   
   // Calculate direction angle (radians)
+  // Note: atan2 returns angle from -PI to PI
   const direction = Math.atan2(deltaY, deltaX);
   
   // Add to history for smoothing
@@ -123,20 +127,43 @@ export const calculateSmoothDirection = (
     }
     
     // Convert back to angle using atan2 for proper quadrant
-    smoothedDirection = Math.atan2(sinSum / weightSum, cosSum / weightSum);
+    // Only update if we have valid sum values
+    if (weightSum > 0 && (Math.abs(sinSum) > 0.001 || Math.abs(cosSum) > 0.001)) {
+      smoothedDirection = Math.atan2(sinSum / weightSum, cosSum / weightSum);
+    }
   }
   
-  // Apply adaptive final smoothing
-  if (lastDirection !== 0) {
+  // Apply final smoothing only if we have a valid last direction
+  if (directionHistory.length > 1 && !isNaN(lastDirection)) {
+    // Calculate shortest angular distance between angles
     let angleDiff = smoothedDirection - lastDirection;
     
-    // Normalize angle difference to [-PI, PI]
+    // Normalize to [-PI, PI] for shortest rotation path
     while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
     while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
     
-    // Adaptive smoothing factor: stylus more responsive, mouse smoother
-    const smoothingFactor = isStylusInput ? 0.35 : 0.15;
-    smoothedDirection = lastDirection + angleDiff * smoothingFactor;
+    // Define thresholds
+    const minAngleThreshold = Math.PI / 180 * 1; // 1 degree minimum to prevent micro-jitter
+    const maxRotation = Math.PI / 12; // 15 degrees max per frame (significantly reduced)
+    
+    // Apply smoothing based on angle difference
+    if (Math.abs(angleDiff) < minAngleThreshold) {
+      // Too small - use previous direction to prevent jitter
+      smoothedDirection = lastDirection;
+    } else {
+      // Clamp the angle difference to maximum allowed
+      const clampedDiff = Math.max(-maxRotation, Math.min(maxRotation, angleDiff));
+      
+      // Apply smoothing factor - REDUCED to fix double rotation appearance
+      // The visual rotation appears doubled because the brush stamp itself might be asymmetric
+      // Halving the rotation response compensates for this
+      const smoothingFactor = isStylusInput ? 0.25 : 0.15; // Halved to fix double rotation
+      smoothedDirection = lastDirection + clampedDiff * smoothingFactor;
+      
+      // Normalize result to [-PI, PI]
+      while (smoothedDirection > Math.PI) smoothedDirection -= 2 * Math.PI;
+      while (smoothedDirection < -Math.PI) smoothedDirection += 2 * Math.PI;
+    }
   }
   
   return smoothedDirection;

@@ -64,6 +64,7 @@ export interface RenderSettings {
   pattern?: ImageData;
   centerAlignment?: boolean;
   blendMode?: GlobalCompositeOperation;
+  isColorizable?: boolean; // For custom brushes
 }
 
 /**

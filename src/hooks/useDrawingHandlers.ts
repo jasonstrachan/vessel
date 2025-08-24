@@ -71,11 +71,25 @@ export function useDrawingHandlers({
   const isCapturing = useRef(false);
   const lastDrawPosRef = useRef<{ x: number; y: number } | null>(null);
   
+  // Performance optimization: Throttling for stroke processing
+  const strokeBatchRef = useRef<Array<{ pos: { x: number; y: number }, pressure: number }>>([]);
+  const strokeBatchTimerRef = useRef<number | null>(null);
+  const lastProcessedTimeRef = useRef<number>(0);
+  const THROTTLE_MS = 8; // Process strokes at ~120fps max
+  
   // OPTIMIZATION: The separate eraser mask canvas is no longer needed.
   // We will perform erasing directly on the drawingCanvas.
   
   const shapePointsRef = useRef<Array<{ x: number; y: number }>>([]);
   const isDrawingShapeRef = useRef(false);
+  
+  // Store resampler brush data for the entire stroke
+  const resamplerBrushDataRef = useRef<{
+    imageData: ImageData;
+    width: number;
+    height: number;
+    isColorizable: boolean;
+  } | undefined>(undefined);
   
   const initDrawingCanvas = useCallback(() => {
     if (!project) return;
@@ -164,11 +178,93 @@ export function useDrawingHandlers({
         userBrushEngine.setActiveBrush(currentBrushId);
         userBrushEngine.startStroke(drawCtx, worldPos.x, worldPos.y, pressure);
       } else if (brushEngine) {
+        // Check if we're using a custom brush or resampler
+        let customBrushData = undefined;
+        
+        // Handle Resampler brush - capture once at stroke start
+        if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER && 
+            !currentState.tools.brushSettings.continuousSampling) {
+          // For Resampler brush, capture canvas content at current position
+          const brushSize = currentState.tools.brushSettings.size || 20;
+          const halfSize = brushSize / 2;
+          
+          // Get composite canvas to sample from
+          const compositeCanvas = currentState.currentOffscreenCanvas;
+          if (compositeCanvas) {
+            const sampleX = Math.max(0, Math.floor(worldPos.x - halfSize));
+            const sampleY = Math.max(0, Math.floor(worldPos.y - halfSize));
+            const sampleWidth = Math.min(brushSize, compositeCanvas.width - sampleX);
+            const sampleHeight = Math.min(brushSize, compositeCanvas.height - sampleY);
+            
+            if (sampleWidth > 0 && sampleHeight > 0) {
+              try {
+                // Create a canvas to capture the sampled area
+                const captureCanvas = document.createElement('canvas');
+                captureCanvas.width = sampleWidth;
+                captureCanvas.height = sampleHeight;
+                const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
+                
+                if (captureCtx) {
+                  captureCtx.drawImage(
+                    compositeCanvas,
+                    sampleX, sampleY, sampleWidth, sampleHeight,
+                    0, 0, sampleWidth, sampleHeight
+                  );
+                  
+                  const imageData = captureCtx.getImageData(0, 0, sampleWidth, sampleHeight);
+                  customBrushData = {
+                    imageData,
+                    width: sampleWidth,
+                    height: sampleHeight,
+                    isColorizable: false // Resampler uses sampled colors as-is
+                  };
+                  // Store for the entire stroke
+                  resamplerBrushDataRef.current = customBrushData;
+                }
+              } catch (e) {
+                console.warn('Failed to sample canvas for Resampler brush:', e);
+              }
+            }
+          }
+        } else if (currentState.tools.brushSettings.brushShape === BrushShape.CUSTOM) {
+          // Try to get custom brush from currentBrushTip first
+          if (currentState.tools.brushSettings.currentBrushTip) {
+            const brushTip = currentState.tools.brushSettings.currentBrushTip;
+            customBrushData = {
+              imageData: brushTip.imageData,
+              width: brushTip.width || brushTip.imageData.width,
+              height: brushTip.height || brushTip.imageData.height,
+              isColorizable: brushTip.isColorizable || currentState.tools.brushSettings.useSwatchColor
+            };
+          } else if (currentState.tools.brushSettings.selectedCustomBrush) {
+            // Look for custom brush in project's custom brushes
+            if (currentState.temporaryCustomBrush?.id === currentState.tools.brushSettings.selectedCustomBrush) {
+              const tempBrush = currentState.temporaryCustomBrush;
+              customBrushData = {
+                imageData: tempBrush.imageData,
+                width: tempBrush.width,
+                height: tempBrush.height,
+                isColorizable: currentState.tools.brushSettings.useSwatchColor
+              };
+            } else {
+              const customBrush = currentState.project?.customBrushes?.find(b => b.id === currentState.tools.brushSettings.selectedCustomBrush);
+              if (customBrush) {
+                customBrushData = {
+                  imageData: customBrush.imageData,
+                  width: customBrush.width,
+                  height: customBrush.height,
+                  isColorizable: currentState.tools.brushSettings.useSwatchColor
+                };
+              }
+            }
+          }
+        }
+        
         brushEngine.drawBrush(
           drawCtx,
           worldPos,
           worldPos,
-          { pressure }
+          { pressure, customBrushData }
         );
       }
     }
@@ -176,58 +272,151 @@ export function useDrawingHandlers({
     // Initial point drawn - parent component will handle redraw
   }, [initDrawingCanvas, brushEngine, userBrushEngine, project, drawEraserSegment]);
 
-  const continueDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
+  // Process batched stroke points
+  const processBatchedStrokes = useCallback(() => {
+    const batch = strokeBatchRef.current;
+    if (batch.length === 0) return;
+    
     const currentState = useAppStore.getState();
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
-    const lastPoint = lastDrawPosRef.current;
     const drawCtx = drawingCtxRef.current;
-
-    if (!lastPoint || !project || !drawCtx) {
-      lastDrawPosRef.current = worldPos;
+    
+    if (!drawCtx || !project) {
+      strokeBatchRef.current = [];
       return;
     }
-
+    
     const boundary = { x: 0, y: 0, width: project.width, height: project.height };
-    const clippedSegment = clipLineSegment(lastPoint, worldPos, boundary);
-
-    if (clippedSegment) {
-      const [clippedStart, clippedEnd] = clippedSegment;
+    
+    // Process all points in the batch
+    for (let i = 0; i < batch.length; i++) {
+      const { pos: worldPos, pressure } = batch[i];
+      const lastPoint = lastDrawPosRef.current;
       
-      if (currentTool === 'eraser') {
-        // OPTIMIZATION: The context is already set to 'destination-out'.
-        // We just draw the new line segment. This is extremely fast as there's
-        // no clearing or image data manipulation happening here.
-        drawEraserSegment(drawCtx, clippedStart, clippedEnd);
-      } else { // Brush tool
-        // Check if this is a user brush
-        if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
-          userBrushEngine.continueStroke(drawCtx, clippedEnd.x, clippedEnd.y, pressure);
-        } else if (brushEngine) {
-          drawCtx.globalAlpha = 1.0;
-          drawCtx.globalCompositeOperation = 'source-over';
-          brushEngine.drawBrush(
-            drawCtx,
-            clippedStart,
-            clippedEnd,
-            { pressure }
-          );
-        }
-        
+      if (!lastPoint) {
+        lastDrawPosRef.current = worldPos;
+        continue;
       }
-
-      // Parent component will handle redraw
+      
+      const clippedSegment = clipLineSegment(lastPoint, worldPos, boundary);
+      
+      if (clippedSegment) {
+        const [clippedStart, clippedEnd] = clippedSegment;
+        
+        if (currentTool === 'eraser') {
+          drawEraserSegment(drawCtx, clippedStart, clippedEnd);
+        } else {
+          if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
+            userBrushEngine.continueStroke(drawCtx, clippedEnd.x, clippedEnd.y, pressure);
+          } else if (brushEngine) {
+            drawCtx.globalAlpha = 1.0;
+            drawCtx.globalCompositeOperation = 'source-over';
+            
+            // Check if we're using a custom brush or resampler
+            let customBrushData = undefined;
+            
+            // Check for Resampler brush
+            if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER && 
+                !currentState.tools.brushSettings.continuousSampling &&
+                resamplerBrushDataRef.current) {
+              // Use the stored resampler data for the entire stroke
+              customBrushData = resamplerBrushDataRef.current;
+            } else if (currentState.tools.brushSettings.brushShape === BrushShape.CUSTOM) {
+              // Try to get custom brush from currentBrushTip first
+              if (currentState.tools.brushSettings.currentBrushTip) {
+                const brushTip = currentState.tools.brushSettings.currentBrushTip;
+                customBrushData = {
+                  imageData: brushTip.imageData,
+                  width: brushTip.width || brushTip.imageData.width,
+                  height: brushTip.height || brushTip.imageData.height,
+                  isColorizable: brushTip.isColorizable || currentState.tools.brushSettings.useSwatchColor
+                };
+              } else if (currentState.tools.brushSettings.selectedCustomBrush) {
+                // Look for custom brush in project's custom brushes
+                if (currentState.temporaryCustomBrush?.id === currentState.tools.brushSettings.selectedCustomBrush) {
+                  const tempBrush = currentState.temporaryCustomBrush;
+                  customBrushData = {
+                    imageData: tempBrush.imageData,
+                    width: tempBrush.width,
+                    height: tempBrush.height,
+                    isColorizable: currentState.tools.brushSettings.useSwatchColor
+                  };
+                } else {
+                  const customBrush = currentState.project?.customBrushes?.find(b => b.id === currentState.tools.brushSettings.selectedCustomBrush);
+                  if (customBrush) {
+                    customBrushData = {
+                      imageData: customBrush.imageData,
+                      width: customBrush.width,
+                      height: customBrush.height,
+                      isColorizable: currentState.tools.brushSettings.useSwatchColor
+                    };
+                  }
+                }
+              }
+            }
+            
+            brushEngine.drawBrush(
+              drawCtx,
+              clippedStart,
+              clippedEnd,
+              { pressure, customBrushData }
+            );
+          }
+        }
+      }
+      
+      lastDrawPosRef.current = worldPos;
     }
     
-    lastDrawPosRef.current = worldPos;
+    // Clear the batch
+    strokeBatchRef.current = [];
+    strokeBatchTimerRef.current = null;
   }, [brushEngine, userBrushEngine, project, drawEraserSegment]);
+
+  const continueDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
+    const now = performance.now();
+    
+    // Add to batch
+    strokeBatchRef.current.push({ pos: worldPos, pressure });
+    
+    // Check if we should process immediately (throttling)
+    if (now - lastProcessedTimeRef.current >= THROTTLE_MS) {
+      // Process immediately
+      processBatchedStrokes();
+      lastProcessedTimeRef.current = now;
+    } else {
+      // Schedule batch processing if not already scheduled
+      if (!strokeBatchTimerRef.current) {
+        strokeBatchTimerRef.current = window.requestAnimationFrame(() => {
+          processBatchedStrokes();
+          lastProcessedTimeRef.current = performance.now();
+        });
+      }
+    }
+  }, [processBatchedStrokes]);
   
   const finalizeDrawing = useCallback(async () => {
     if (isBusyRef?.current || !drawingCanvasRef.current || !drawingCanvasHasContent.current || !project) return;
     
     try {
       if (isBusyRef) isBusyRef.current = true;
+      
+      // Process any remaining batched strokes
+      if (strokeBatchRef.current.length > 0) {
+        processBatchedStrokes();
+      }
+      
+      // Cancel any pending batch timer
+      if (strokeBatchTimerRef.current) {
+        cancelAnimationFrame(strokeBatchTimerRef.current);
+        strokeBatchTimerRef.current = null;
+      }
+      
       lastDrawPosRef.current = null;
+      
+      // Clear resampler data after stroke ends
+      resamplerBrushDataRef.current = undefined;
 
       // Finalize the stroke (draw any waiting pixels) for modular engine
       if (brushEngine.finalizeStroke && drawingCtxRef.current) {
@@ -273,6 +462,11 @@ export function useDrawingHandlers({
             
             await captureCanvasToActiveLayer(tempCanvas);
             saveCanvasState(tempCanvas, 'brush', 'Drawing stroke');
+            
+            // Clean up temporary canvas to prevent memory leak
+            tempCanvas.width = 1;
+            tempCanvas.height = 1;
+            tempCtx.clearRect(0, 0, 1, 1);
           }
         }
       }
@@ -287,7 +481,7 @@ export function useDrawingHandlers({
     } finally {
       if (isBusyRef) isBusyRef.current = false;
     }
-  }, [project, captureCanvasToActiveLayer, saveCanvasState, isBusyRef, userBrushEngine, brushEngine, tools.shapeMode]);
+  }, [project, captureCanvasToActiveLayer, saveCanvasState, isBusyRef, userBrushEngine, brushEngine, tools.shapeMode, processBatchedStrokes]);
   
   const clearDrawingCanvas = useCallback(() => {
     if (drawingCtxRef.current && drawingCanvasRef.current) {
@@ -366,12 +560,6 @@ export function useDrawingHandlers({
             // Try to get custom brush from currentBrushTip first
             if (tools.brushSettings.currentBrushTip) {
               const brushTip = tools.brushSettings.currentBrushTip;
-              console.log('[DEBUG useDrawingHandlers] Using currentBrushTip:', {
-                brushId: brushTip.brushId,
-                width: brushTip.width || brushTip.imageData.width,
-                height: brushTip.height || brushTip.imageData.height,
-                dataLength: brushTip.imageData.data.length
-              });
               customBrushImageData = brushTip.imageData;
               customBrushWidth = brushTip.width || brushTip.imageData.width;
               customBrushHeight = brushTip.height || brushTip.imageData.height;
@@ -383,12 +571,6 @@ export function useDrawingHandlers({
               // First check temporary brush
               if (currentState.temporaryCustomBrush?.id === tools.brushSettings.selectedCustomBrush) {
                 const tempBrush = currentState.temporaryCustomBrush;
-                console.log('[DEBUG useDrawingHandlers] Using temporary brush:', {
-                  id: tempBrush.id,
-                  width: tempBrush.width,
-                  height: tempBrush.height,
-                  dataLength: tempBrush.imageData.data.length
-                });
                 customBrushImageData = tempBrush.imageData;
                 customBrushWidth = tempBrush.width;
                 customBrushHeight = tempBrush.height;
@@ -397,12 +579,6 @@ export function useDrawingHandlers({
                 // Then check saved custom brushes
                 const customBrush = currentState.project?.customBrushes?.find(b => b.id === tools.brushSettings.selectedCustomBrush);
                 if (customBrush) {
-                  console.log('[DEBUG useDrawingHandlers] Using saved custom brush:', {
-                    id: customBrush.id,
-                    width: customBrush.width,
-                    height: customBrush.height,
-                    dataLength: customBrush.imageData.data.length
-                  });
                   customBrushImageData = customBrush.imageData;
                   customBrushWidth = customBrush.width;
                   customBrushHeight = customBrush.height;
@@ -413,13 +589,15 @@ export function useDrawingHandlers({
           }
           
           if (isCustomBrush && customBrushImageData) {
-            // Calculate scaled size based on brush settings
-            const scaledSize = (tools.brushSettings.size / 100) * Math.max(customBrushWidth, customBrushHeight);
+            // Calculate scaled size based on brush settings, maintaining aspect ratio
+            const scale = tools.brushSettings.size / 100;
+            const scaledWidth = Math.round(customBrushWidth * scale);
+            const scaledHeight = Math.round(customBrushHeight * scale);
             
             // Create a pattern canvas at the scaled size
             const patternCanvas = document.createElement('canvas');
-            patternCanvas.width = scaledSize;
-            patternCanvas.height = scaledSize;
+            patternCanvas.width = scaledWidth;
+            patternCanvas.height = scaledHeight;
             const patternCtx = patternCanvas.getContext('2d');
             
             if (patternCtx) {
@@ -440,7 +618,7 @@ export function useDrawingHandlers({
                 }
                 
                 // Scale and draw to pattern canvas
-                patternCtx.drawImage(tipCanvas, 0, 0, scaledSize, scaledSize);
+                patternCtx.drawImage(tipCanvas, 0, 0, scaledWidth, scaledHeight);
                 
                 // Create pattern from the scaled brush
                 const pattern = drawCtx.createPattern(patternCanvas, 'repeat');
@@ -449,11 +627,25 @@ export function useDrawingHandlers({
                 } else {
                   drawCtx.fillStyle = tools.brushSettings.color;
                 }
+                
+                // Clean up tip canvas to prevent memory leak
+                tipCanvas.width = 1;
+                tipCanvas.height = 1;
+                tipCtx.clearRect(0, 0, 1, 1);
               } else {
                 drawCtx.fillStyle = tools.brushSettings.color;
               }
+              
+              // Clean up pattern canvas to prevent memory leak
+              patternCanvas.width = 1;
+              patternCanvas.height = 1;
+              patternCtx.clearRect(0, 0, 1, 1);
             } else {
               drawCtx.fillStyle = tools.brushSettings.color;
+              
+              // Clean up pattern canvas even if context failed
+              patternCanvas.width = 1;
+              patternCanvas.height = 1;
             }
           } else {
             // Use solid color for non-custom brushes or if custom brush not found

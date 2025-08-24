@@ -83,7 +83,8 @@ export enum BrushShape {
   RECTANGLE_GRADIENT = 'rectangle_gradient',
   POLYGON_GRADIENT = 'polygon_gradient',
   RISOGRAPH_SOFT = 'risograph_soft',
-  RISOGRAPH_ULTRA = 'risograph_ultra'
+  RISOGRAPH_ULTRA = 'risograph_ultra',
+  RESAMPLER = 'resampler'
 }
 
 export interface CustomBrush {
@@ -237,6 +238,8 @@ export interface BrushSettings {
   ditherEnabled: boolean; // true = use Sierra Lite dithering with colors palette
   ditherAlgorithm?: 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern';
   patternStyle?: 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal';
+  // Resampler brush settings
+  continuousSampling?: boolean; // true = sample continuously during stroke, false = sample once at stroke start
   // Current brush tip (edited in mini canvas) with brush identifier
   currentBrushTip?: {
     imageData: ImageData;

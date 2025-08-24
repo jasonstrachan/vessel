@@ -18,6 +18,7 @@ const DrawingCanvas = () => {
   const isBusyRef = useRef(false); // Lock to prevent concurrent operations
   const isMouseDownRef = useRef(false); // Track mouse button state
   const drawAnimationFrameRef = useRef<number | null>(null); // RAF throttling for pan
+  const pointerMoveThrottled = useRef<number>(0); // Throttle pointer move to 120fps
   
   // Get essential store state - removed shallow comparison to avoid infinite loop
   const project = useAppStore((state) => state.project);
@@ -69,6 +70,10 @@ const DrawingCanvas = () => {
     }
     // Custom brush shape uses crosshair cursor
     if (tools.brushSettings.brushShape === BrushShape.CUSTOM) {
+      return 'crosshair';
+    }
+    // Resampler brush uses crosshair cursor
+    if (tools.brushSettings.brushShape === BrushShape.RESAMPLER) {
       return 'crosshair';
     }
     // Gradient brushes use crosshair cursor
@@ -923,6 +928,11 @@ const DrawingCanvas = () => {
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   
   const handlePointerMove = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    // Throttle to 120fps max
+    const now = performance.now();
+    if (now - pointerMoveThrottled.current < 8) return;
+    pointerMoveThrottled.current = now;
+    
     const rect = canvasRef.current?.getBoundingClientRect();
     const currentPointerPos = rect ? {
       x: event.clientX - rect.left,

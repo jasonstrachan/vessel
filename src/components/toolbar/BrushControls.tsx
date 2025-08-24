@@ -33,6 +33,38 @@ const BrushControls = () => {
     currentTool === "eraser" ? setEraserSettings : setBrushSettings;
 
 
+  // Show special controls for Resampler brush
+  if (activeSettings.brushShape === BrushShape.RESAMPLER) {
+    return (
+      <div className="p-4">
+        {/* Continuous Sampling Toggle */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label 
+              htmlFor="continuous-sampling"
+              className="text-[#D9D9D9] flex-1" 
+              style={{ fontSize: "14px" }}
+            >
+              Continuous Sampling
+            </label>
+            <CustomSwitch
+              id="continuous-sampling"
+              checked={activeSettings.continuousSampling || false}
+              onChange={(checked) =>
+                setActiveSettings({ continuousSampling: checked })
+              }
+            />
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            {activeSettings.continuousSampling 
+              ? "Samples continuously during stroke" 
+              : "Samples once at stroke start"}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // Show Colors and Film Grain sliders for gradient brushes
   if (
     activeSettings.brushShape === BrushShape.RECTANGLE_GRADIENT ||
@@ -204,10 +236,14 @@ const BrushControls = () => {
           </label>
           <ProgressSlider
             value={globalBrushSize}
-            min={isCustomBrush ? 1 : 1}
+            min={isCustomBrush ? 5 : 1}
             max={isCustomBrush ? 500 : 500}
-            step={1}
-            onChange={(value) => setGlobalBrushSize(Math.max(1, value))}
+            step={isCustomBrush ? 5 : 1}
+            onChange={(value) => {
+              // For custom brushes, ensure we stay on 5% increments
+              const finalValue = isCustomBrush ? Math.round(value / 5) * 5 : value;
+              setGlobalBrushSize(Math.max(isCustomBrush ? 5 : 1, finalValue));
+            }}
             aria-label={`Brush Size (${sizeUnit})`}
             className="flex-1"
           />

@@ -6,24 +6,31 @@
 import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams } from './brushEngine/BrushEngineFacade';
-import type { CustomBrush } from '../types';
 import { BrushShape } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
-import { applyDithering, applyDitheringWithFillResolution } from './brushEngine/dithering';
+import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { canvasPool } from '../utils/canvasPool';
 
 /**
  * Simplified brush engine hook with facade pattern
  */
 export const useBrushEngineSimplified = () => {
-  const { tools, project, canvas } = useAppStore();
+  const { tools, project } = useAppStore();
   
   // Cache for brush stamps
   const brushStampCacheRef = useRef(new Map<string, HTMLCanvasElement>());
   const patternTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   
-  // Pattern temp context getter
+  // Performance: Cache expensive computations
+  const isPixelBrush = useMemo(() => 
+    tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
+    (tools.brushSettings.brushShape === BrushShape.SQUARE && 
+     !tools.brushSettings.antialiasing),
+    [tools.brushSettings.brushShape, tools.brushSettings.antialiasing]
+  );
+  
+  // Pattern temp context getter - also returns the canvas
   const getPatternTempContext = useCallback((width: number, height: number) => {
     if (!patternTempCanvasRef.current) {
       patternTempCanvasRef.current = document.createElement('canvas');
@@ -35,7 +42,12 @@ export const useBrushEngineSimplified = () => {
       canvas.height = height;
     }
     
-    return canvas.getContext('2d');
+    const ctx = canvas.getContext('2d');
+    // Store canvas on context for easy access
+    if (ctx) {
+      (ctx as any)._canvas = canvas;
+    }
+    return ctx;
   }, []);
 
   // Rotation temp context getter for pixel-perfect rotation
@@ -183,12 +195,10 @@ export const useBrushEngineSimplified = () => {
       brushSettings: tools.brushSettings,
       transparencyLockEnabled: typeof window !== 'undefined' ? (window as any).transparencyLockEnabled : false,
       getPatternTempContext,
-      patternTempCanvas: patternTempCanvasRef.current,
       brushStampCache: brushStampCacheRef.current,
       createPixelCircleStamp,
       createPixelSquareStamp,
       getRotationTempContext,
-      rotationTempCanvas: rotationTempCanvasRef.current,
       customBrushes: project?.customBrushes || []
     };
     
@@ -199,9 +209,12 @@ export const useBrushEngineSimplified = () => {
   useEffect(() => {
     brushEngine.updateConfig({
       brushSettings: tools.brushSettings,
-      transparencyLockEnabled: typeof window !== 'undefined' ? (window as any).transparencyLockEnabled : false
+      transparencyLockEnabled: typeof window !== 'undefined' ? (window as any).transparencyLockEnabled : false,
+      getPatternTempContext,
+      brushStampCache: brushStampCacheRef.current,
+      getRotationTempContext
     });
-  }, [brushEngine, tools.brushSettings]);
+  }, [brushEngine, tools.brushSettings, getPatternTempContext, getRotationTempContext]);
 
   /**
    * Main drawing function - simplified interface
@@ -210,7 +223,15 @@ export const useBrushEngineSimplified = () => {
     ctx: CanvasRenderingContext2D,
     from: { x: number; y: number },
     to: { x: number; y: number },
-    cursor: { pressure?: number } = {}
+    cursor: { 
+      pressure?: number;
+      customBrushData?: { 
+        imageData: ImageData; 
+        width: number; 
+        height: number; 
+        isColorizable?: boolean 
+      } 
+    } = {}
   ) => {
     // Calculate velocity
     const distance = Math.sqrt(
@@ -225,7 +246,8 @@ export const useBrushEngineSimplified = () => {
       to,
       pressure: cursor.pressure || 1.0,
       velocity,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      customBrushData: cursor.customBrushData
     };
 
     // Render the stroke
@@ -292,9 +314,7 @@ export const useBrushEngineSimplified = () => {
     colors: string[],
     isPreview: boolean = false
   ) => {
-    // Check if we're using a pixel brush for crisp edges
-    const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND || 
-                         tools.brushSettings.antialiasing === false;
+    // Use cached isPixelBrush value for crisp edges
     // Calculate rectangle geometry (matching monolithic exactly)
     const dx = endX - startX;
     const dy = endY - startY;
@@ -414,7 +434,7 @@ export const useBrushEngineSimplified = () => {
           const paletteColors = colors.length > 0 ? colors : [tools.brushSettings.color];
           const ditheredData = fillResolution > 1 
             ? applyDitheringWithFillResolution(imageData, numColors, fillResolution, algorithm, patternStyle, paletteColors)
-            : applyDithering(imageData, numColors, algorithm, patternStyle, paletteColors);
+            : applyDitheringImport(imageData, numColors, algorithm, patternStyle, paletteColors);
           
           // Put dithered data back on temp canvas
           tempCtx.putImageData(ditheredData, 0, 0);
@@ -484,7 +504,7 @@ export const useBrushEngineSimplified = () => {
     
     // Restore context state
     ctx.restore();
-  }, [tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.antialiasing, tools.brushSettings.opacity, tools.brushSettings.blendMode]);
+  }, [tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.antialiasing, tools.brushSettings.opacity, tools.brushSettings.blendMode, isPixelBrush]);
 
   // Helper function to apply risograph effect
   const applyRisographEffect = useCallback((
@@ -540,9 +560,7 @@ export const useBrushEngineSimplified = () => {
   ) => {
     const { vertices, colors } = polygonData || {};
     
-    // Check if we're using a pixel brush for crisp edges
-    const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND || 
-                         tools.brushSettings.antialiasing === false;
+    // Use cached isPixelBrush value for crisp edges
     
     // Debug: Log input colors
     // console.log('Input colors to drawPolygonGradient:', colors);
@@ -764,7 +782,7 @@ export const useBrushEngineSimplified = () => {
         // Pass the gradient colors directly to the dithering function
         const ditheredData = fillResolution > 1 
           ? applyDitheringWithFillResolution(gradientImageData, numColors, fillResolution, algorithm, patternStyle, validColors)
-          : applyDithering(gradientImageData, numColors, algorithm, patternStyle, validColors);
+          : applyDitheringImport(gradientImageData, numColors, algorithm, patternStyle, validColors);
         
         // Put the dithered result back
         tempCtx.putImageData(ditheredData, 0, 0);
@@ -825,7 +843,7 @@ export const useBrushEngineSimplified = () => {
     
     // Restore context state
     ctx.restore();
-  }, [tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.blendMode, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect]);
+  }, [tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.blendMode, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect, isPixelBrush]);
 
   // Clean up resources
   useEffect(() => {

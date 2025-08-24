@@ -479,6 +479,67 @@ export const polygonGradientBrushPreset: BrushPreset = {
   }
 };
 
+// Resampler Brush Components
+const resamplerBrushComponents: BrushComponent[] = [
+  {
+    id: 'resampler-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      pressureInfluence: 0.5
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'resampler-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'resampler-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.RESAMPLER
+    },
+    priority: 40,
+    enabled: true
+  },
+  {
+    id: 'resampler-antialiasing',
+    type: ComponentType.ANTI_ALIASING,
+    parameters: {
+      mode: 'antialiased'
+    },
+    priority: 30,
+    enabled: true
+  }
+];
+
+export const resamplerBrushPreset: BrushPreset = {
+  id: 'resampler-brush',
+  name: 'Resampler',
+  category: 'Special',
+  components: resamplerBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['resampler', 'sample', 'special'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    size: 20,
+    opacity: 1,
+    antialiasing: true,
+    spacing: 1,
+    pressureEnabled: true,
+    minPressure: 1,
+    maxPressure: 100
+  }
+};
+
 // Available brush presets
 export const brushPresets: BrushPreset[] = [
   pixelBrushPreset,
@@ -487,7 +548,8 @@ export const brushPresets: BrushPreset[] = [
   roundSquare6Preset,
   inkBrushPreset,
   rectangleGradientBrushPreset,
-  polygonGradientBrushPreset
+  polygonGradientBrushPreset,
+  resamplerBrushPreset
 ];
 
 // Helper functions
@@ -520,6 +582,12 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     settings.antialiasing = true;
   } else if (preset.id === 'ink-brush') {
     settings.size = 5; // 5px default for ink brush
+    settings.antialiasing = true;
+    settings.pressureEnabled = true;
+    settings.minPressure = 1;
+    settings.maxPressure = 100;
+  } else if (preset.id === 'resampler-brush') {
+    settings.size = 20; // 20px default for resampler brush
     settings.antialiasing = true;
     settings.pressureEnabled = true;
     settings.minPressure = 1;

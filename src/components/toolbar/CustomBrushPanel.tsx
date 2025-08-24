@@ -139,12 +139,11 @@ export const CustomBrushPanel = () => {
     brushCache.clear();
     scaledBrushCache.clear();
     
-    // Switch to using this temporary brush with the current custom brush size
-    const currentCustomSize = useAppStore.getState().customBrushesSize;
+    // Switch to using this temporary brush at 100% size
     const brushSettings = {
       brushShape: BrushShape.CUSTOM,
       selectedCustomBrush: tempBrush.id,
-      size: currentCustomSize, // Use the current custom brush size
+      size: 100, // Always set to 100% for new custom brushes
       currentBrushTip: {
         imageData: tempBrush.imageData,
         brushId: tempBrush.id,
@@ -155,8 +154,9 @@ export const CustomBrushPanel = () => {
     };
     setBrushSettings(brushSettings);
     
-    // Also update the global brush size to match
-    useAppStore.getState().setGlobalBrushSize(currentCustomSize);
+    // Also update the global brush size and custom brushes size to 100%
+    useAppStore.getState().setGlobalBrushSize(100);
+    useAppStore.setState({ customBrushesSize: 100 });
   }, [selectionStart, selectionEnd, project, currentOffscreenCanvas, setTemporaryCustomBrush, setBrushSettings]);
 
   // Create brush immediately when selection changes
@@ -223,12 +223,11 @@ export const CustomBrushPanel = () => {
       });
     }, 10);
     
-    // Update brush settings to use the new permanent brush with full data
-    const currentCustomSize = useAppStore.getState().customBrushesSize;
+    // Update brush settings to use the new permanent brush at 100% size
     setBrushSettings({
       brushShape: BrushShape.CUSTOM,
       selectedCustomBrush: permanentBrush.id,
-      size: currentCustomSize, // Keep the current custom brush size
+      size: 100, // Always set to 100% for saved custom brushes
       currentBrushTip: {
         imageData: permanentBrush.imageData,
         brushId: permanentBrush.id,
@@ -238,10 +237,14 @@ export const CustomBrushPanel = () => {
       }
     });
     
+    // Ensure size stays at 100%
+    useAppStore.getState().setGlobalBrushSize(100);
+    useAppStore.setState({ customBrushesSize: 100 });
+    
     console.log('[DEBUG] Brush settings updated with:', {
       brushId: permanentBrush.id,
       hasTipData: true,
-      size: currentCustomSize
+      size: 100
     });
     
     // Clear temporary brush and selection after a small delay

@@ -25,12 +25,10 @@ export interface DrawShapeSettings {
  */
 export interface ShapeDrawingDependencies {
   getPatternTempContext?: (width: number, height: number) => CanvasRenderingContext2D | null;
-  patternTempCanvas?: HTMLCanvasElement | null;
   brushStampCache?: Map<string, HTMLCanvasElement>;
   createPixelCircleStamp?: (size: number) => HTMLCanvasElement | null;
   createPixelSquareStamp?: (size: number) => HTMLCanvasElement | null;
   getRotationTempContext?: (width: number, height: number) => CanvasRenderingContext2D | null;
-  rotationTempCanvas?: HTMLCanvasElement | null;
 }
 
 /**
@@ -51,6 +49,7 @@ export const drawShape = (
   settings?: DrawShapeSettings,
   deps?: ShapeDrawingDependencies
 ) => {
+  
   // Canvas clipping automatically handles bounds restriction
   const halfSize = size / 2;
   
@@ -112,7 +111,7 @@ export const drawShape = (
     // Use persistent temporary canvas for pixel-perfect pre-rendering
     const tempSize = Math.ceil(size) + 4; // Add padding for rotation
     rotatedPixelCtx = deps.getRotationTempContext(tempSize, tempSize);
-    rotatedPixelCanvas = deps.rotationTempCanvas || null;
+    rotatedPixelCanvas = rotatedPixelCtx?.canvas || null;
     
     if (rotatedPixelCtx && rotatedPixelCanvas) {
       rotatedPixelCtx.clearRect(0, 0, tempSize, tempSize);
@@ -153,10 +152,183 @@ export const drawShape = (
     }
   }
   
-  // Handle custom pattern rendering
-  if (pattern && pattern.width > 0 && pattern.height > 0 && deps?.getPatternTempContext && deps?.patternTempCanvas) {
+  // Handle resampler brush - either use provided pattern or sample continuously
+  if (shape === BrushShape.RESAMPLER) {
+    // Check if we have a pattern (single capture mode)
+    if (pattern && pattern.width > 0 && pattern.height > 0 && deps?.getPatternTempContext) {
+      // Use the captured pattern like a custom brush
+      const tempCtx = deps.getPatternTempContext(pattern.width, pattern.height);
+      const tempCanvas = (tempCtx as any)?._canvas;
+      
+      if (tempCtx && tempCanvas) {
+        tempCtx.clearRect(0, 0, pattern.width, pattern.height);
+        tempCtx.putImageData(pattern, 0, 0);
+        
+        // Draw as a square stamp
+        const stampSize = size;
+        targetCtx.drawImage(
+          tempCanvas,
+          0, 0, pattern.width, pattern.height,
+          drawX - stampSize / 2,
+          drawY - stampSize / 2,
+          stampSize,
+          stampSize
+        );
+      }
+    } else if (settings?.brushSettings?.continuousSampling) {
+      // Continuous sampling mode - sample at each stamp position
+      const sampleSize = Math.ceil(size);
+      const halfSize = sampleSize / 2;
+      
+      // Get the bounds for sampling (square area)
+      const sampleX = Math.max(0, Math.floor(x - halfSize));
+      const sampleY = Math.max(0, Math.floor(y - halfSize));
+      const sampleWidth = Math.min(sampleSize, ctx.canvas.width - sampleX);
+      const sampleHeight = Math.min(sampleSize, ctx.canvas.height - sampleY);
+      
+      if (sampleWidth > 0 && sampleHeight > 0) {
+        try {
+          // Sample the canvas content directly
+          const sampledData = ctx.getImageData(sampleX, sampleY, sampleWidth, sampleHeight);
+          
+          // Create temporary canvas
+          if (deps?.getPatternTempContext) {
+            const tempCtx = deps.getPatternTempContext(sampleWidth, sampleHeight);
+            const tempCanvas = (tempCtx as any)?._canvas;
+            
+            if (tempCtx && tempCanvas) {
+              tempCtx.clearRect(0, 0, sampleWidth, sampleHeight);
+              tempCtx.putImageData(sampledData, 0, 0);
+              
+              // Draw the sampled content at the current position (square shape)
+              targetCtx.drawImage(
+                tempCanvas,
+                0, 0, sampleWidth, sampleHeight,
+                drawX - sampleWidth / 2,
+                drawY - sampleHeight / 2,
+                sampleWidth,
+                sampleHeight
+              );
+            }
+          } else {
+            // Direct putImageData fallback
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = sampleWidth;
+            tempCanvas.height = sampleHeight;
+            const tempCtx = tempCanvas.getContext('2d');
+            if (tempCtx) {
+              tempCtx.putImageData(sampledData, 0, 0);
+              targetCtx.drawImage(
+                tempCanvas,
+                0, 0, sampleWidth, sampleHeight,
+                drawX - sampleWidth / 2,
+                drawY - sampleHeight / 2,
+                sampleWidth,
+                sampleHeight
+              );
+            }
+          }
+        } catch (e) {
+          // If we can't sample, draw a square fallback
+          targetCtx.fillRect(drawX - halfSize, drawY - halfSize, sampleSize, sampleSize);
+        }
+      }
+    } else {
+      // No pattern and not continuous - just draw a square
+      const halfSize = size / 2;
+      targetCtx.fillRect(drawX - halfSize, drawY - halfSize, size, size);
+    }
+    
+    targetCtx.restore();
+    return;
+  }
+  
+  // Handle custom pattern rendering (for custom brushes)
+  if (pattern && pattern.width > 0 && pattern.height > 0 && shape === BrushShape.CUSTOM && deps?.getPatternTempContext) {
     const tempCtx = deps.getPatternTempContext(pattern.width, pattern.height);
-    const tempCanvas = deps.patternTempCanvas;
+    // Get the temp canvas from the context - it's stored as _canvas
+    const tempCanvas = (tempCtx as any)?._canvas;
+    
+    if (tempCtx) {
+      // Ensure we have a canvas to draw to
+      const canvasToUse = tempCanvas || (tempCtx as any)._canvas;
+      if (!canvasToUse) {
+        targetCtx.restore();
+        return;
+      }
+      
+      try {
+        // Configure temp canvas context to match main context
+        tempCtx.imageSmoothingEnabled = false; // Custom brushes should be crisp
+        tempCtx.clearRect(0, 0, pattern.width, pattern.height);
+        tempCtx.putImageData(pattern, 0, 0);
+        
+        // Apply color tint if the brush is colorizable (using the fillStyle color)
+        // For custom brushes, centerAlignment is repurposed to pass isColorizable flag
+        const isColorizable = centerAlignment || false;
+        if (isColorizable && targetCtx.fillStyle) {
+          tempCtx.globalCompositeOperation = 'source-atop';
+          tempCtx.fillStyle = targetCtx.fillStyle;
+          tempCtx.fillRect(0, 0, pattern.width, pattern.height);
+          tempCtx.globalCompositeOperation = 'source-over';
+        }
+        
+        // For custom brushes, the size parameter already represents the scaled size
+        // (it's been pre-calculated based on the brush size slider percentage)
+        // We need to maintain aspect ratio while scaling to this size
+        const aspectRatio = pattern.width / pattern.height;
+        let scaledWidth, scaledHeight;
+        
+        // The size parameter represents the max dimension size we want
+        const maxDimension = Math.max(pattern.width, pattern.height);
+        const scaleFactor = size / maxDimension;
+        
+        // Apply the scale factor to both dimensions to maintain aspect ratio
+        scaledWidth = pattern.width * scaleFactor;
+        scaledHeight = pattern.height * scaleFactor;
+        
+        // Apply rotation if specified
+        if (rotation !== 0) {
+          targetCtx.save();
+          targetCtx.translate(drawX, drawY);
+          targetCtx.rotate(rotation);
+          targetCtx.translate(-drawX, -drawY);
+        }
+        
+        // Draw the custom brush centered at the position
+        const centerX = drawX - scaledWidth / 2;
+        const centerY = drawY - scaledHeight / 2;
+        
+        // Ensure crisp custom brush rendering (no smoothing)
+        targetCtx.imageSmoothingEnabled = false;
+        
+        // Draw the custom brush image, scaling from source dimensions to target size
+        targetCtx.drawImage(
+          canvasToUse, 
+          0, 0, pattern.width, pattern.height,  // source rectangle 
+          centerX, centerY, scaledWidth, scaledHeight  // destination rectangle
+        );
+        
+        if (rotation !== 0) {
+          targetCtx.restore();
+        }
+        
+        // Important: Return early after drawing custom brush to avoid drawing default shape
+        targetCtx.restore();
+        return;
+      } catch (e) {
+        // Handle pattern errors silently
+      }
+    }
+    // Also return here if we attempted to draw a custom brush
+    if (shape === BrushShape.CUSTOM) {
+      targetCtx.restore();
+      return;
+    }
+  } else if (pattern && pattern.width > 0 && pattern.height > 0 && deps?.getPatternTempContext) {
+    // Handle non-custom brush patterns (textures, etc)
+    const tempCtx = deps.getPatternTempContext(pattern.width, pattern.height);
+    const tempCanvas = tempCtx?.canvas;
     
     if (tempCtx) {
       try {
@@ -164,8 +336,8 @@ export const drawShape = (
         tempCtx.imageSmoothingEnabled = targetCtx.imageSmoothingEnabled;
         tempCtx.putImageData(pattern, 0, 0);
         
-        // Create a pattern from the custom brush texture
-        const brushPattern = targetCtx.createPattern(tempCanvas, 'repeat');
+        // Create a pattern from the texture
+        const brushPattern = tempCanvas ? targetCtx.createPattern(tempCanvas, 'repeat') : null;
         
         if (brushPattern) {
           // Save current fill style
@@ -232,7 +404,9 @@ export const drawShape = (
               
               // Restore original fill style to draw the pattern image
               targetCtx.fillStyle = originalFillStyle;
-              targetCtx.drawImage(tempCanvas, patternDrawX, patternDrawY);
+              if (tempCanvas) {
+                targetCtx.drawImage(tempCanvas, patternDrawX, patternDrawY);
+              }
               break;
           }
           
@@ -245,6 +419,10 @@ export const drawShape = (
         // Handle pattern errors silently
       }
     }
+  } else if (shape === BrushShape.CUSTOM) {
+    // Custom brush without pattern - this shouldn't happen but handle gracefully
+    targetCtx.restore();
+    return;
   } else {
     // Original shape rendering
     // Choose which context to draw to based on pixel rotation workaround
@@ -272,7 +450,9 @@ export const drawShape = (
         
         if (useFastRender && antiAliasing && deps?.brushStampCache) {
           // Soft brush with pre-rendered CIRCULAR stamps for performance
-          const cacheKey = `soft_circle_${roundedSize}`;
+          // Include color in cache key to handle color changes
+          const currentColor = drawingCtx.fillStyle.toString();
+          const cacheKey = `soft_circle_${roundedSize}_${currentColor}`;
           let stampCanvas = deps.brushStampCache.get(cacheKey);
           
           if (!stampCanvas) {
@@ -289,18 +469,26 @@ export const drawShape = (
               stampSize / 2, stampSize / 2, roundedSize / 2
             );
             
-            // Use the current fill style color
-            const currentColor = ctx.fillStyle.toString();
+            // Parse the current color to extract RGB values
             const match = currentColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
             if (match) {
               const [, r, g, b] = match;
               gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 1)`);
               gradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, 0.8)`);
               gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+            } else if (currentColor.startsWith('#')) {
+              // Handle hex colors
+              const hex = currentColor.replace('#', '');
+              const r = parseInt(hex.substr(0, 2), 16);
+              const g = parseInt(hex.substr(2, 2), 16);
+              const b = parseInt(hex.substr(4, 2), 16);
+              gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 1)`);
+              gradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, 0.8)`);
+              gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
             } else {
-              // Fallback for non-rgba colors
-              gradient.addColorStop(0, 'rgba(0, 0, 0, 1)');
-              gradient.addColorStop(0.5, 'rgba(0, 0, 0, 0.8)');
+              // Fallback - use the color directly with alpha variations
+              gradient.addColorStop(0, currentColor);
+              gradient.addColorStop(0.5, currentColor);
               gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
             }
             
@@ -395,7 +583,9 @@ export const drawShape = (
               const offsetY = Math.round(drawY - stampSize / 2);
               
               // Draw the colored stamp to the drawing context (either target or temp)
-              drawingCtx.drawImage(tempCanvas, offsetX, offsetY);
+              if (tempCanvas) {
+                drawingCtx.drawImage(tempCanvas, offsetX, offsetY);
+              }
             }
             
             // Release canvas back to pool

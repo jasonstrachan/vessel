@@ -19,12 +19,10 @@ export interface BrushEngineConfig {
   brushSettings: BrushSettings;
   transparencyLockEnabled?: boolean;
   getPatternTempContext?: (width: number, height: number) => CanvasRenderingContext2D | null;
-  patternTempCanvas?: HTMLCanvasElement | null;
   brushStampCache?: Map<string, HTMLCanvasElement>;
   createPixelCircleStamp?: (size: number) => HTMLCanvasElement | null;
   createPixelSquareStamp?: (size: number) => HTMLCanvasElement | null;
   getRotationTempContext?: (width: number, height: number) => CanvasRenderingContext2D | null;
-  rotationTempCanvas?: HTMLCanvasElement | null;
   customBrushes?: CustomBrush[];
 }
 
@@ -37,6 +35,12 @@ export interface BrushStrokeParams {
   pressure: number;
   velocity: number;
   timestamp: number;
+  customBrushData?: {
+    imageData: ImageData;
+    width: number;
+    height: number;
+    isColorizable?: boolean;
+  };
 }
 
 /**
@@ -44,7 +48,7 @@ export interface BrushStrokeParams {
  */
 export class BrushEngineFacade {
   private strokeProcessor: ReturnType<typeof createStrokeProcessor>;
-  private shapeDrawer: ReturnType<typeof createShapeDrawer>;
+  private _shapeDrawer: ReturnType<typeof createShapeDrawer>;
   private utilities: ReturnType<typeof createBrushUtilities>;
   private pixelQueue: PixelQueue;
   private config: BrushEngineConfig;
@@ -75,15 +79,13 @@ export class BrushEngineFacade {
 
     const shapeDeps: ShapeDrawingDependencies = {
       getPatternTempContext: config.getPatternTempContext,
-      patternTempCanvas: config.patternTempCanvas,
       brushStampCache: config.brushStampCache,
       createPixelCircleStamp: config.createPixelCircleStamp,
       createPixelSquareStamp: config.createPixelSquareStamp,
-      getRotationTempContext: config.getRotationTempContext,
-      rotationTempCanvas: config.rotationTempCanvas
+      getRotationTempContext: config.getRotationTempContext
     };
 
-    this.shapeDrawer = createShapeDrawer(shapeSettings, shapeDeps);
+    this._shapeDrawer = createShapeDrawer(shapeSettings, shapeDeps);
 
     // Initialize utilities
     this.utilities = createBrushUtilities(() => config.brushSettings);
@@ -98,27 +100,26 @@ export class BrushEngineFacade {
   updateConfig(config: Partial<BrushEngineConfig>) {
     this.config = { ...this.config, ...config };
     
-    // Re-create modules with new config if needed
+    // Always re-create shape drawer to ensure deps are updated
+    const self = this;
+    const shapeSettings: DrawShapeSettings = {
+      get transparencyLockEnabled() {
+        return self.config.transparencyLockEnabled;
+      },
+      brushSettings: self.config.brushSettings
+    };
+
+    const shapeDeps: ShapeDrawingDependencies = {
+      getPatternTempContext: this.config.getPatternTempContext,
+      brushStampCache: this.config.brushStampCache,
+      createPixelCircleStamp: this.config.createPixelCircleStamp,
+      createPixelSquareStamp: this.config.createPixelSquareStamp,
+      getRotationTempContext: this.config.getRotationTempContext
+    };
+
+    this._shapeDrawer = createShapeDrawer(shapeSettings, shapeDeps);
+    
     if (config.brushSettings) {
-      const self = this;
-      const shapeSettings: DrawShapeSettings = {
-        get transparencyLockEnabled() {
-          return self.config.transparencyLockEnabled;
-        },
-        brushSettings: self.config.brushSettings
-      };
-
-      const shapeDeps: ShapeDrawingDependencies = {
-        getPatternTempContext: this.config.getPatternTempContext,
-        patternTempCanvas: this.config.patternTempCanvas,
-        brushStampCache: this.config.brushStampCache,
-        createPixelCircleStamp: this.config.createPixelCircleStamp,
-        createPixelSquareStamp: this.config.createPixelSquareStamp,
-        getRotationTempContext: this.config.getRotationTempContext,
-        rotationTempCanvas: this.config.rotationTempCanvas
-      };
-
-      this.shapeDrawer = createShapeDrawer(shapeSettings, shapeDeps);
       this.utilities = createBrushUtilities(() => this.config.brushSettings);
     }
   }
@@ -130,11 +131,17 @@ export class BrushEngineFacade {
     ctx: CanvasRenderingContext2D,
     params: BrushStrokeParams
   ): void {
-    const { from, to, pressure, velocity } = params;
+    const { from, to, pressure, velocity, customBrushData } = params;
     const { brushSettings } = this.config;
 
     // Calculate size with pressure
-    const baseSize = brushSettings.size;
+    // For custom brushes, scale based on the brush's max dimension
+    let baseSize = brushSettings.size;
+    if (customBrushData) {
+      // Custom brushes: size slider (1-100) represents percentage of max dimension
+      const maxDimension = Math.max(customBrushData.width, customBrushData.height);
+      baseSize = (brushSettings.size / 100) * maxDimension;
+    }
     const size = this.utilities.calculatePressureSize(baseSize, pressure);
 
     // Calculate opacity (already in 0-1 range)
@@ -158,11 +165,12 @@ export class BrushEngineFacade {
     const direction = this.strokeProcessor.calculateSmoothDirection(snappedFrom, snappedTo, pressure);
 
     // Determine if this is a pixel brush that should remain pixel-perfect
-    const shape = brushSettings.brushShape || BrushShape.ROUND;
+    // Override shape to CUSTOM if custom brush data is provided
+    const shape = customBrushData ? BrushShape.CUSTOM : (brushSettings.brushShape || BrushShape.ROUND);
     const isPixelBrush = shape === BrushShape.PIXEL_ROUND;
     const isPixelSquare = shape === BrushShape.SQUARE && !brushSettings.antialiasing;
     
-    // Create render settings
+    // Create render settings with custom brush pattern if provided
     const settings: RenderSettings = {
       size,
       opacity,
@@ -170,10 +178,14 @@ export class BrushEngineFacade {
       antiAliasing: brushSettings.antialiasing,
       pixelAlignment: !brushSettings.antialiasing,
       spacing,
-      rotation: brushSettings.rotationEnabled ? direction : 0,
+      // Apply half the direction angle to fix double rotation appearance
+      // The brush rotation should be subtle, not a full 1:1 with movement direction
+      rotation: brushSettings.rotationEnabled ? direction * 0.5 : 0,
       shape,
       risographIntensity: brushSettings.risographIntensity || 0,
-      blendMode: ctx.globalCompositeOperation
+      blendMode: ctx.globalCompositeOperation,
+      pattern: customBrushData?.imageData, // Pass custom brush data as pattern
+      isColorizable: customBrushData?.isColorizable // Pass colorizable flag for custom brushes
     };
 
     // Apply color for the stroke
@@ -262,11 +274,10 @@ export class BrushEngineFacade {
     to: { x: number; y: number },
     settings: RenderSettings
   ): void {
-    // Calculate distance
-    const distance = Math.sqrt(
-      Math.pow(to.x - from.x, 2) + 
-      Math.pow(to.y - from.y, 2)
-    );
+    // Calculate distance (optimized)
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
 
     // Determine number of interpolation steps
     const steps = Math.max(1, Math.ceil(distance / settings.spacing));
@@ -296,7 +307,7 @@ export class BrushEngineFacade {
             settings.rotation,
             settings.risographIntensity,
             settings.pattern,
-            settings.centerAlignment
+            settings.isColorizable // Pass isColorizable as centerAlignment for custom brushes
           );
         }
       }
@@ -364,8 +375,6 @@ export class BrushEngineFacade {
   private set shapeDrawer(value: any) {
     this._shapeDrawer = value;
   }
-  
-  private _shapeDrawer: any;
 
   /**
    * Apply dithering to an image
