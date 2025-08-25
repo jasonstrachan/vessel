@@ -536,7 +536,19 @@ export const resamplerBrushPreset: BrushPreset = {
     spacing: 1,
     pressureEnabled: true,
     minPressure: 1,
-    maxPressure: 100
+    maxPressure: 100,
+    rotationEnabled: false,
+    dashedEnabled: false,
+    dashLength: 10,
+    dashGap: 10,
+    gridSnapEnabled: false,
+    shapeEnabled: false,
+    colorJitter: 0,
+    risographIntensity: 0,
+    risographOutline: false,
+    ditherEnabled: false,
+    continuousSampling: false,
+    resampleInterval: 5
   }
 };
 

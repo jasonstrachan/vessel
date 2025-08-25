@@ -35,9 +35,13 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
         className="absolute top-0 left-0 h-[20px] bg-[#D9D9D9] z-1 pointer-events-none"
         style={{ width: `${percentage}%` }}
       />
-      {/* Value display */}
+      {/* Value display with mix-blend-mode for visibility on any background */}
       <div 
-        className="absolute top-0 left-0 h-[20px] flex items-center justify-center text-xs font-medium text-black z-20 pointer-events-none w-full"
+        className="absolute top-0 left-0 h-[20px] flex items-center justify-center text-xs font-medium z-20 pointer-events-none w-full"
+        style={{ 
+          color: 'white',
+          mixBlendMode: 'difference'
+        }}
       >
         {displayValue}
       </div>

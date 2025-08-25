@@ -55,11 +55,27 @@ const BrushControls = () => {
               }
             />
           </div>
-          <p className="text-xs text-gray-500 mt-1">
-            {activeSettings.continuousSampling 
-              ? "Samples continuously during stroke" 
-              : "Samples once at stroke start"}
-          </p>
+        </div>
+        
+        {/* Resample Interval Slider - always shown for resampler brush */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Interval
+            </label>
+            <ProgressSlider
+              value={activeSettings.resampleInterval || 5}
+              min={1}
+              max={10}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ resampleInterval: Math.round(value) })
+              }
+              aria-label="Resample Interval"
+              className="flex-1"
+              disabled={!activeSettings.continuousSampling}
+            />
+          </div>
         </div>
       </div>
     );

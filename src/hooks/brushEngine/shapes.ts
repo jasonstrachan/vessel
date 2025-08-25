@@ -155,82 +155,82 @@ export const drawShape = (
   // Handle resampler brush - either use provided pattern or sample continuously
   if (shape === BrushShape.RESAMPLER) {
     // Check if we have a pattern (single capture mode)
-    if (pattern && pattern.width > 0 && pattern.height > 0 && deps?.getPatternTempContext) {
-      // Use the captured pattern like a custom brush
-      const tempCtx = deps.getPatternTempContext(pattern.width, pattern.height);
-      const tempCanvas = (tempCtx as any)?._canvas;
-      
-      if (tempCtx && tempCanvas) {
-        tempCtx.clearRect(0, 0, pattern.width, pattern.height);
-        tempCtx.putImageData(pattern, 0, 0);
-        
-        // Draw as a square stamp
-        const stampSize = size;
-        targetCtx.drawImage(
-          tempCanvas,
-          0, 0, pattern.width, pattern.height,
-          drawX - stampSize / 2,
-          drawY - stampSize / 2,
-          stampSize,
-          stampSize
-        );
-      }
+    if (pattern && pattern.width > 0 && pattern.height > 0) {
+      // Resampler with captured pattern - treat EXACTLY like CUSTOM brush
+      // Just change the shape temporarily to reuse all the custom brush logic
+      shape = BrushShape.CUSTOM;
+      // Fall through to custom brush handling below which handles the pattern perfectly
     } else if (settings?.brushSettings?.continuousSampling) {
       // Continuous sampling mode - sample at each stamp position
       const sampleSize = Math.ceil(size);
       const halfSize = sampleSize / 2;
       
       // Get the bounds for sampling (square area)
+      const canvasWidth = ctx.canvas.width;
+      const canvasHeight = ctx.canvas.height;
       const sampleX = Math.max(0, Math.floor(x - halfSize));
       const sampleY = Math.max(0, Math.floor(y - halfSize));
-      const sampleWidth = Math.min(sampleSize, ctx.canvas.width - sampleX);
-      const sampleHeight = Math.min(sampleSize, ctx.canvas.height - sampleY);
+      const sampleWidth = Math.min(sampleSize, canvasWidth - sampleX);
+      const sampleHeight = Math.min(sampleSize, canvasHeight - sampleY);
       
       if (sampleWidth > 0 && sampleHeight > 0) {
         try {
-          // Sample the canvas content directly
+          // Sample the canvas content directly with optimized context
           const sampledData = ctx.getImageData(sampleX, sampleY, sampleWidth, sampleHeight);
           
-          // Create temporary canvas
+          // Create temporary canvas with proper configuration
           if (deps?.getPatternTempContext) {
             const tempCtx = deps.getPatternTempContext(sampleWidth, sampleHeight);
             const tempCanvas = (tempCtx as any)?._canvas;
             
             if (tempCtx && tempCanvas) {
+              // Configure for high-quality pixel-perfect operations
+              tempCtx.imageSmoothingEnabled = false;
               tempCtx.clearRect(0, 0, sampleWidth, sampleHeight);
               tempCtx.putImageData(sampledData, 0, 0);
               
               // Draw the sampled content at the current position (square shape)
+              // Ensure pixel-perfect positioning
+              targetCtx.imageSmoothingEnabled = false;
               targetCtx.drawImage(
                 tempCanvas,
                 0, 0, sampleWidth, sampleHeight,
-                drawX - sampleWidth / 2,
-                drawY - sampleHeight / 2,
+                Math.round(drawX - sampleWidth / 2),
+                Math.round(drawY - sampleHeight / 2),
                 sampleWidth,
                 sampleHeight
               );
             }
           } else {
-            // Direct putImageData fallback
+            // Direct putImageData fallback with improved quality
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = sampleWidth;
             tempCanvas.height = sampleHeight;
-            const tempCtx = tempCanvas.getContext('2d');
+            const tempCtx = tempCanvas.getContext('2d', {
+              willReadFrequently: true,
+              colorSpace: 'srgb',
+              alpha: true
+            });
             if (tempCtx) {
+              tempCtx.imageSmoothingEnabled = false;
               tempCtx.putImageData(sampledData, 0, 0);
+              
+              // Ensure target context is configured for pixel-perfect drawing
+              targetCtx.imageSmoothingEnabled = false;
               targetCtx.drawImage(
                 tempCanvas,
                 0, 0, sampleWidth, sampleHeight,
-                drawX - sampleWidth / 2,
-                drawY - sampleHeight / 2,
+                Math.round(drawX - sampleWidth / 2),
+                Math.round(drawY - sampleHeight / 2),
                 sampleWidth,
                 sampleHeight
               );
             }
           }
         } catch (e) {
+          console.warn('[Resampler] Continuous sampling failed:', e);
           // If we can't sample, draw a square fallback
-          targetCtx.fillRect(drawX - halfSize, drawY - halfSize, sampleSize, sampleSize);
+          targetCtx.fillRect(Math.round(drawX - halfSize), Math.round(drawY - halfSize), sampleSize, sampleSize);
         }
       }
     } else {
@@ -276,16 +276,25 @@ export const drawShape = (
         // For custom brushes, the size parameter already represents the scaled size
         // (it's been pre-calculated based on the brush size slider percentage)
         // We need to maintain aspect ratio while scaling to this size
-        const aspectRatio = pattern.width / pattern.height;
+        
+        // Check if this is a Resampler brush (it has isColorizable === false from Resampler)
+        // Resampler should draw at 1:1 scale since it was captured at the right size
+        const isResampler = !isColorizable && pattern.width === pattern.height && settings?.brushSettings?.brushShape === BrushShape.RESAMPLER;
+        
         let scaledWidth, scaledHeight;
-        
-        // The size parameter represents the max dimension size we want
-        const maxDimension = Math.max(pattern.width, pattern.height);
-        const scaleFactor = size / maxDimension;
-        
-        // Apply the scale factor to both dimensions to maintain aspect ratio
-        scaledWidth = pattern.width * scaleFactor;
-        scaledHeight = pattern.height * scaleFactor;
+        if (isResampler) {
+          // Resampler: draw at original captured size, no scaling
+          scaledWidth = pattern.width;
+          scaledHeight = pattern.height;
+          console.log('[DEBUG Resampler] Drawing at 1:1:', pattern.width + 'x' + pattern.height);
+        } else {
+          // Regular custom brush: apply scaling
+          const maxDimension = Math.max(pattern.width, pattern.height);
+          const scaleFactor = size / maxDimension;
+          scaledWidth = pattern.width * scaleFactor;
+          scaledHeight = pattern.height * scaleFactor;
+          console.log('[DEBUG Custom] Pattern:', pattern.width + 'x' + pattern.height, 'size param:', size, 'scaleFactor:', scaleFactor);
+        }
         
         // Apply rotation if specified
         if (rotation !== 0) {
@@ -316,7 +325,7 @@ export const drawShape = (
         // Important: Return early after drawing custom brush to avoid drawing default shape
         targetCtx.restore();
         return;
-      } catch (e) {
+      } catch {
         // Handle pattern errors silently
       }
     }

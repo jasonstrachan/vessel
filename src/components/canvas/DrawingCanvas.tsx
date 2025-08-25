@@ -72,10 +72,6 @@ const DrawingCanvas = () => {
     if (tools.brushSettings.brushShape === BrushShape.CUSTOM) {
       return 'crosshair';
     }
-    // Resampler brush uses crosshair cursor
-    if (tools.brushSettings.brushShape === BrushShape.RESAMPLER) {
-      return 'crosshair';
-    }
     // Gradient brushes use crosshair cursor
     const brushShape = tools.brushSettings.brushShape;
     if (brushShape === BrushShape.RECTANGLE_GRADIENT || brushShape === BrushShape.POLYGON_GRADIENT) {

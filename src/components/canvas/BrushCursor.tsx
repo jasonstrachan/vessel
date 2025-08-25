@@ -61,6 +61,7 @@ const useCursorDataURL = (
       case BrushShape.SQUARE:
       case BrushShape.PIXEL_ROUND:
       case BrushShape.RECTANGLE_GRADIENT:
+      case BrushShape.RESAMPLER:
         ctx.rect(center - radius, center - radius, screenSize - ctx.lineWidth, screenSize - ctx.lineWidth);
         break;
       case BrushShape.TRIANGLE:

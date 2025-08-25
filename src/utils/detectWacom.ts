@@ -91,7 +91,7 @@ export function detectWacomIssues(): {
   };
 }
 
-export function testWacomPressure(event: PointerEvent): {
+export function testWacomPressure(event: React.PointerEvent | PointerEvent): {
   isWorking: boolean;
   details: string;
 } {
@@ -115,10 +115,19 @@ export function testWacomPressure(event: PointerEvent): {
         details: '❌ Pen detected but pressure is max - driver issue'
       };
     }
-  } else if (pointerType === 'mouse' && pressure === 0.5) {
+  } else if (pointerType === 'mouse') {
+    // Mouse events typically have pressure 0.5 when no pressure is supported
+    // But Wacom pens incorrectly detected as mice might have varying pressure
+    if (pressure === 0.5 || pressure === 0 || pressure === 1) {
+      return {
+        isWorking: false,
+        details: `❌ Wacom pen detected as mouse (pressure: ${pressure}) - driver/browser issue`
+      };
+    }
+    // If mouse has variable pressure between 0 and 1, it might be a misdetected pen
     return {
       isWorking: false,
-      details: '❌ Wacom pen detected as mouse - driver/browser issue'
+      details: `⚠️ Unusual mouse pressure: ${pressure} - possible misdetected pen`
     };
   } else if (pointerType === 'touch') {
     return {

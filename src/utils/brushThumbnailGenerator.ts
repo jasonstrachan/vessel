@@ -77,6 +77,9 @@ export function generateBrushThumbnail(
     case BrushShape.POLYGON_GRADIENT:
       generatePolygonGradientThumbnail(ctx, opts);
       break;
+    case BrushShape.RESAMPLER:
+      generateResamplerThumbnail(ctx, opts);
+      break;
     case BrushShape.ROUND:
     default:
       generateRoundThumbnail(ctx, opts, isAntialiased);
@@ -182,6 +185,21 @@ function generateRectangleGradientThumbnail(
   ctx.globalAlpha = 1;
   ctx.fillStyle = opts.brushColor;
   ctx.fillRect(x, y, width, height);
+}
+
+function generateResamplerThumbnail(
+  ctx: CanvasRenderingContext2D, 
+  opts: Required<ThumbnailOptions>
+) {
+  // Draw a square icon for the resampler brush
+  const center = opts.size / 2;
+  const size = opts.size * 0.65;
+  const x = center - size / 2;
+  const y = center - size / 2;
+  
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = opts.brushColor;
+  ctx.fillRect(x, y, size, size);
 }
 
 function generatePolygonGradientThumbnail(

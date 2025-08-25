@@ -89,7 +89,11 @@ export function useDrawingHandlers({
     width: number;
     height: number;
     isColorizable: boolean;
+    isResampler?: boolean;
   } | undefined>(undefined);
+  
+  // Track stamp count for continuous resampling
+  const stampCounterRef = useRef<number>(0);
   
   const initDrawingCanvas = useCallback(() => {
     if (!project) return;
@@ -148,6 +152,9 @@ export function useDrawingHandlers({
     if (brushEngine.resetStroke) {
       brushEngine.resetStroke();
     }
+    
+    // Reset stamp counter for continuous sampling
+    stampCounterRef.current = 0;
     const drawCtx = drawingCtxRef.current;
     if (!drawCtx || !drawingCanvasRef.current || !project) return;
       
@@ -181,48 +188,67 @@ export function useDrawingHandlers({
         // Check if we're using a custom brush or resampler
         let customBrushData = undefined;
         
-        // Handle Resampler brush - capture once at stroke start
+        // Handle Resampler brush - capture once at stroke start (EXACTLY like CustomBrushPanel)
         if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER && 
             !currentState.tools.brushSettings.continuousSampling) {
-          // For Resampler brush, capture canvas content at current position
+          // Use the exact same approach as CustomBrushPanel for capturing
           const brushSize = currentState.tools.brushSettings.size || 20;
           const halfSize = brushSize / 2;
           
-          // Get composite canvas to sample from
+          console.log('[DEBUG Resampler] Brush size:', brushSize, 'halfSize:', halfSize, 'worldPos:', worldPos);
+          
           const compositeCanvas = currentState.currentOffscreenCanvas;
           if (compositeCanvas) {
-            const sampleX = Math.max(0, Math.floor(worldPos.x - halfSize));
-            const sampleY = Math.max(0, Math.floor(worldPos.y - halfSize));
-            const sampleWidth = Math.min(brushSize, compositeCanvas.width - sampleX);
-            const sampleHeight = Math.min(brushSize, compositeCanvas.height - sampleY);
+            // Calculate bounds exactly like CustomBrushPanel
+            const minX = Math.floor(worldPos.x - halfSize);
+            const minY = Math.floor(worldPos.y - halfSize);
+            const maxX = Math.floor(worldPos.x + halfSize);
+            const maxY = Math.floor(worldPos.y + halfSize);
             
-            if (sampleWidth > 0 && sampleHeight > 0) {
-              try {
-                // Create a canvas to capture the sampled area
-                const captureCanvas = document.createElement('canvas');
-                captureCanvas.width = sampleWidth;
-                captureCanvas.height = sampleHeight;
-                const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
-                
-                if (captureCtx) {
+            // Clamp to canvas bounds
+            const sampleX = Math.max(0, minX);
+            const sampleY = Math.max(0, minY);
+            const sampleEndX = Math.min(compositeCanvas.width, maxX);
+            const sampleEndY = Math.min(compositeCanvas.height, maxY);
+            const width = sampleEndX - sampleX;
+            const height = sampleEndY - sampleY;
+            
+            if (width > 0 && height > 0) {
+              // Create canvas to capture the selection - EXACTLY like CustomBrushPanel
+              const captureCanvas = document.createElement('canvas');
+              captureCanvas.width = width;
+              captureCanvas.height = height;
+              const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
+              
+              if (captureCtx) {
+                // Capture the selection area from the composite canvas
+                try {
                   captureCtx.drawImage(
                     compositeCanvas,
-                    sampleX, sampleY, sampleWidth, sampleHeight,
-                    0, 0, sampleWidth, sampleHeight
+                    sampleX, sampleY, width, height, // Source rectangle
+                    0, 0, width, height              // Destination rectangle
                   );
                   
-                  const imageData = captureCtx.getImageData(0, 0, sampleWidth, sampleHeight);
+                  // Get ImageData for the brush
+                  const imageData = captureCtx.getImageData(0, 0, width, height);
+                  
                   customBrushData = {
                     imageData,
-                    width: sampleWidth,
-                    height: sampleHeight,
+                    width,
+                    height,
                     isColorizable: false // Resampler uses sampled colors as-is
-                  };
+                  } as any; // Type assertion needed for isResampler flag
+                  
                   // Store for the entire stroke
                   resamplerBrushDataRef.current = customBrushData;
+                  
+                  // DON'T change brush size - keep it as is so the sample matches cursor size
+                  // The captured area is already the right size based on current brush size
+                  
+                  console.log('[DEBUG Resampler] Captured sample: bounds:', `${sampleX}, ${sampleY}, ${width}x${height}`, 'brush size was:', brushSize);
+                } catch (e) {
+                  console.warn('Failed to sample canvas for Resampler brush:', e);
                 }
-              } catch (e) {
-                console.warn('Failed to sample canvas for Resampler brush:', e);
               }
             }
           }
@@ -317,11 +343,82 @@ export function useDrawingHandlers({
             let customBrushData = undefined;
             
             // Check for Resampler brush
-            if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER && 
-                !currentState.tools.brushSettings.continuousSampling &&
-                resamplerBrushDataRef.current) {
-              // Use the stored resampler data for the entire stroke
-              customBrushData = resamplerBrushDataRef.current;
+            if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER) {
+              if (currentState.tools.brushSettings.continuousSampling) {
+                // Continuous sampling mode - check if we need to resample
+                stampCounterRef.current++;
+                const resampleInterval = currentState.tools.brushSettings.resampleInterval || 5;
+                
+                // Resample when counter reaches interval or if we don't have data yet
+                if (stampCounterRef.current >= resampleInterval || !resamplerBrushDataRef.current) {
+                  // Reset counter
+                  stampCounterRef.current = 0;
+                  
+                  // Capture new sample at current position
+                  const brushSize = currentState.tools.brushSettings.size || 20;
+                  const halfSize = brushSize / 2;
+                  const compositeCanvas = currentState.currentOffscreenCanvas;
+                  
+                  if (compositeCanvas) {
+                    // Use clippedEnd position for sampling
+                    const samplePos = clippedEnd;
+                    
+                    // Calculate bounds
+                    const minX = Math.floor(samplePos.x - halfSize);
+                    const minY = Math.floor(samplePos.y - halfSize);
+                    const maxX = Math.floor(samplePos.x + halfSize);
+                    const maxY = Math.floor(samplePos.y + halfSize);
+                    
+                    // Clamp to canvas bounds
+                    const sampleX = Math.max(0, minX);
+                    const sampleY = Math.max(0, minY);
+                    const sampleEndX = Math.min(compositeCanvas.width, maxX);
+                    const sampleEndY = Math.min(compositeCanvas.height, maxY);
+                    const width = sampleEndX - sampleX;
+                    const height = sampleEndY - sampleY;
+                    
+                    if (width > 0 && height > 0) {
+                      // Create canvas to capture the selection
+                      const captureCanvas = document.createElement('canvas');
+                      captureCanvas.width = width;
+                      captureCanvas.height = height;
+                      const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
+                      
+                      if (captureCtx) {
+                        // Capture the selection area from the composite canvas
+                        try {
+                          captureCtx.drawImage(
+                            compositeCanvas,
+                            sampleX, sampleY, width, height, // Source rectangle
+                            0, 0, width, height              // Destination rectangle
+                          );
+                          
+                          // Get ImageData for the brush
+                          const imageData = captureCtx.getImageData(0, 0, width, height);
+                          
+                          resamplerBrushDataRef.current = {
+                            imageData,
+                            width,
+                            height,
+                            isColorizable: false, // Resampler uses sampled colors as-is
+                            isResampler: true
+                          };
+                        } catch (e) {
+                          console.warn('Failed to sample canvas for continuous Resampler:', e);
+                        }
+                      }
+                    }
+                  }
+                }
+                
+                // Use the current resampler data
+                if (resamplerBrushDataRef.current) {
+                  customBrushData = resamplerBrushDataRef.current as any; // Type assertion for isResampler flag
+                }
+              } else if (resamplerBrushDataRef.current) {
+                // Single sample mode - use the stored resampler data for the entire stroke
+                customBrushData = resamplerBrushDataRef.current as any; // Type assertion for isResampler flag
+              }
             } else if (currentState.tools.brushSettings.brushShape === BrushShape.CUSTOM) {
               // Try to get custom brush from currentBrushTip first
               if (currentState.tools.brushSettings.currentBrushTip) {
@@ -415,8 +512,9 @@ export function useDrawingHandlers({
       
       lastDrawPosRef.current = null;
       
-      // Clear resampler data after stroke ends
+      // Clear resampler data and reset counter after stroke ends
       resamplerBrushDataRef.current = undefined;
+      stampCounterRef.current = 0;
 
       // Finalize the stroke (draw any waiting pixels) for modular engine
       if (brushEngine.finalizeStroke && drawingCtxRef.current) {
