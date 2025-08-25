@@ -72,9 +72,9 @@ const DrawingCanvas = () => {
     if (tools.brushSettings.brushShape === BrushShape.CUSTOM) {
       return 'crosshair';
     }
-    // Gradient brushes use crosshair cursor
+    // Gradient and contour brushes use crosshair cursor
     const brushShape = tools.brushSettings.brushShape;
-    if (brushShape === BrushShape.RECTANGLE_GRADIENT || brushShape === BrushShape.POLYGON_GRADIENT) {
+    if (brushShape === BrushShape.RECTANGLE_GRADIENT || brushShape === BrushShape.POLYGON_GRADIENT || brushShape === BrushShape.CONTOUR_POLYGON) {
       return 'crosshair';
     }
     return 'none';
@@ -561,14 +561,25 @@ const DrawingCanvas = () => {
         const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
         
         if (drawCtx && brushEngine) {
-          brushEngine.drawPolygonGradient(
-            drawCtx,
-            {
-              vertices: toolStateMachine.polygonGradientState.points.map(p => ({ x: p.x, y: p.y })),
-              colors: toolStateMachine.polygonGradientState.points.map(p => p.color)
-            },
-            false
-          );
+          // Check if it's a contour polygon or gradient polygon
+          if (toolStateMachine.isContourPolygon) {
+            brushEngine.drawContourPolygon(
+              drawCtx,
+              {
+                vertices: toolStateMachine.polygonGradientState.points.map(p => ({ x: p.x, y: p.y }))
+              },
+              false
+            );
+          } else {
+            brushEngine.drawPolygonGradient(
+              drawCtx,
+              {
+                vertices: toolStateMachine.polygonGradientState.points.map(p => ({ x: p.x, y: p.y })),
+                colors: toolStateMachine.polygonGradientState.points.map(p => p.color)
+              },
+              false
+            );
+          }
           drawingHandlers.drawingCanvasHasContent.current = true;
           // Mark composite as dirty BEFORE finalization
           compositeCanvasDirtyRef.current = true;
@@ -709,7 +720,8 @@ const DrawingCanvas = () => {
         (tools.currentTool === 'brush' || tools.currentTool === 'eraser') &&
         !tools.shapeMode &&
         tools.brushSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT &&
-        tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT) {
+        tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT &&
+        tools.brushSettings.brushShape !== BrushShape.CONTOUR_POLYGON) {
       
       // Use the existing drawing system with brush engine
       interaction.dispatch({ type: 'DRAWING_START', pressure });
@@ -893,8 +905,8 @@ const DrawingCanvas = () => {
         return;
       }
       
-      // Handle polygon gradient
-      if (toolStateMachine.isPolygonGradient) {
+      // Handle polygon gradient or contour polygon
+      if (toolStateMachine.isPolygonGradient || toolStateMachine.isContourPolygon) {
         if (toolStateMachine.handlePolygonGradientMouseDown(worldPos)) {
           interaction.dispatch({ type: 'DRAWING_START' });
         }
@@ -902,8 +914,8 @@ const DrawingCanvas = () => {
       }
       
       // Normal brush or shape mode
-      // BUT ONLY if we're not in pan mode and NOT using gradient tools!
-      if (currentMode === 'IDLE' && !toolStateMachine.isRectangleGradient && !toolStateMachine.isPolygonGradient) {
+      // BUT ONLY if we're not in pan mode and NOT using gradient/contour tools!
+      if (currentMode === 'IDLE' && !toolStateMachine.isRectangleGradient && !toolStateMachine.isPolygonGradient && !toolStateMachine.isContourPolygon) {
         interaction.dispatch({ type: 'DRAWING_START', pressure });
         if (tools.shapeMode) {
           drawingHandlers.startShapeDrawing(worldPos, pressure);
@@ -950,9 +962,9 @@ const DrawingCanvas = () => {
     
     // Process coalesced events for smoother drawing (if available)
     // This gives us all the intermediate pointer positions between events
-    // Skip for gradient tools as they don't need continuous drawing
+    // Skip for gradient/contour tools as they don't need continuous drawing
     if (interaction.state.isDrawing && event.nativeEvent.getCoalescedEvents && 
-        !toolStateMachine.isRectangleGradient && !toolStateMachine.isPolygonGradient) {
+        !toolStateMachine.isRectangleGradient && !toolStateMachine.isPolygonGradient && !toolStateMachine.isContourPolygon) {
       const coalescedEvents = event.nativeEvent.getCoalescedEvents();
       if (coalescedEvents.length > 1) {
         // Process intermediate events (skip the last one as it's the current event)
@@ -1282,8 +1294,8 @@ const DrawingCanvas = () => {
         return;
       }
       
-      // Polygon gradient
-      if (toolStateMachine.isPolygonGradient) {
+      // Polygon gradient or contour polygon
+      if (toolStateMachine.isPolygonGradient || toolStateMachine.isContourPolygon) {
         if (toolStateMachine.handlePolygonGradientMouseMove(worldPos)) {
           // Throttle polygon gradient preview with RAF
           if (!previewAnimationFrameRef.current) {
@@ -1308,43 +1320,51 @@ const DrawingCanvas = () => {
                 ];
                 
                 if (previewVertices.length >= 3) {
-                  // Calculate bounds for gradient
-                  const minX = Math.min(...previewVertices.map(v => v.x));
-                  const minY = Math.min(...previewVertices.map(v => v.y));
-                  const maxX = Math.max(...previewVertices.map(v => v.x));
-                  const maxY = Math.max(...previewVertices.map(v => v.y));
-                  const width = maxX - minX;
-                  const height = maxY - minY;
-                  
-                  // Choose gradient direction based on polygon shape
-                  let gradient;
-                  if (width > height) {
-                    gradient = overlayCtx.createLinearGradient(minX, (minY + maxY) / 2, maxX, (minY + maxY) / 2);
+                  // For contour polygon, use solid color; for gradient polygon, use gradient
+                  if (toolStateMachine.isContourPolygon) {
+                    // Use solid color for contour polygon preview
+                    overlayCtx.fillStyle = tools.brushSettings.color;
+                    overlayCtx.globalAlpha = 0.5; // Semi-transparent preview
                   } else {
-                    gradient = overlayCtx.createLinearGradient((minX + maxX) / 2, minY, (minX + maxX) / 2, maxY);
-                  }
-                  
-                  // Build preview colors
-                  const previewColors = [
-                    ...currentPolygonState.points.map(p => p.color),
-                    sampleColorAtPosition(worldPos.x, worldPos.y)
-                  ];
-                  
-                  // Create gradient stops
-                  if (previewColors.length >= 3) {
-                    gradient.addColorStop(0, previewColors[0]);
-                    gradient.addColorStop(0.5, previewColors[Math.floor(previewColors.length / 2)]);
-                    gradient.addColorStop(1, previewColors[previewColors.length - 1]);
-                  } else if (previewColors.length === 2) {
-                    gradient.addColorStop(0, previewColors[0]);
-                    gradient.addColorStop(1, previewColors[1]);
-                  } else if (previewColors.length === 1) {
-                    gradient.addColorStop(0, previewColors[0]);
-                    gradient.addColorStop(1, previewColors[0]);
+                    // Calculate bounds for gradient
+                    const minX = Math.min(...previewVertices.map(v => v.x));
+                    const minY = Math.min(...previewVertices.map(v => v.y));
+                    const maxX = Math.max(...previewVertices.map(v => v.x));
+                    const maxY = Math.max(...previewVertices.map(v => v.y));
+                    const width = maxX - minX;
+                    const height = maxY - minY;
+                    
+                    // Choose gradient direction based on polygon shape
+                    let gradient;
+                    if (width > height) {
+                      gradient = overlayCtx.createLinearGradient(minX, (minY + maxY) / 2, maxX, (minY + maxY) / 2);
+                    } else {
+                      gradient = overlayCtx.createLinearGradient((minX + maxX) / 2, minY, (minX + maxX) / 2, maxY);
+                    }
+                    
+                    // Build preview colors
+                    const previewColors = [
+                      ...currentPolygonState.points.map(p => p.color),
+                      sampleColorAtPosition(worldPos.x, worldPos.y)
+                    ];
+                    
+                    // Create gradient stops
+                    if (previewColors.length >= 3) {
+                      gradient.addColorStop(0, previewColors[0]);
+                      gradient.addColorStop(0.5, previewColors[Math.floor(previewColors.length / 2)]);
+                      gradient.addColorStop(1, previewColors[previewColors.length - 1]);
+                    } else if (previewColors.length === 2) {
+                      gradient.addColorStop(0, previewColors[0]);
+                      gradient.addColorStop(1, previewColors[1]);
+                    } else if (previewColors.length === 1) {
+                      gradient.addColorStop(0, previewColors[0]);
+                      gradient.addColorStop(1, previewColors[0]);
+                    }
+                    
+                    overlayCtx.fillStyle = gradient;
                   }
                   
                   // Draw filled polygon preview
-                  overlayCtx.fillStyle = gradient;
                   overlayCtx.beginPath();
                   overlayCtx.moveTo(previewVertices[0].x, previewVertices[0].y);
                   for (let i = 1; i < previewVertices.length; i++) {
@@ -1363,8 +1383,8 @@ const DrawingCanvas = () => {
         return;
       }
       
-      // Skip normal drawing for rectangle/polygon gradient tools
-      if (toolStateMachine.isRectangleGradient || toolStateMachine.isPolygonGradient) {
+      // Skip normal drawing for rectangle/polygon gradient/contour tools
+      if (toolStateMachine.isRectangleGradient || toolStateMachine.isPolygonGradient || toolStateMachine.isContourPolygon) {
         return;
       }
       
@@ -1615,8 +1635,8 @@ const DrawingCanvas = () => {
         return;
       }
       
-      // Polygon gradient
-      if (toolStateMachine.isPolygonGradient) {
+      // Polygon gradient or contour polygon
+      if (toolStateMachine.isPolygonGradient || toolStateMachine.isContourPolygon) {
         if (toolStateMachine.handlePolygonGradientMouseUp()) {
           // Finalize polygon - we have at least 3 points
           const currentPolygonState = toolStateMachine.polygonGradientState;
@@ -1626,15 +1646,25 @@ const DrawingCanvas = () => {
             const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
             
             if (drawCtx && brushEngine) {
-              // Draw the polygon gradient
-              brushEngine.drawPolygonGradient(
-                drawCtx,
-                {
-                  vertices: currentPolygonState.points.map(p => ({ x: p.x, y: p.y })),
-                  colors: currentPolygonState.points.map(p => p.color)
-                },
-                false // not preview
-              );
+              // Draw the polygon gradient or contour polygon
+              if (toolStateMachine.isContourPolygon) {
+                brushEngine.drawContourPolygon(
+                  drawCtx,
+                  {
+                    vertices: currentPolygonState.points.map(p => ({ x: p.x, y: p.y }))
+                  },
+                  false // not preview
+                );
+              } else {
+                brushEngine.drawPolygonGradient(
+                  drawCtx,
+                  {
+                    vertices: currentPolygonState.points.map(p => ({ x: p.x, y: p.y })),
+                    colors: currentPolygonState.points.map(p => p.color)
+                  },
+                  false // not preview
+                );
+              }
               
               drawingHandlers.drawingCanvasHasContent.current = true;
             }

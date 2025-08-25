@@ -842,6 +842,8 @@ export const useAppStore = create<AppState>()(
           if (settings.shapeEnabled !== undefined) settingsToSave.shapeEnabled = newSettings.shapeEnabled;
           if (settings.antialiasing !== undefined) settingsToSave.antialiasing = newSettings.antialiasing;
           if (settings.colors !== undefined) settingsToSave.colors = newSettings.colors;
+          if (settings.continuousSampling !== undefined) settingsToSave.continuousSampling = newSettings.continuousSampling;
+          if (settings.resampleInterval !== undefined) settingsToSave.resampleInterval = newSettings.resampleInterval;
           
           brushSettingsToSave = { brushId: currentBrushId, settings: settingsToSave };
         }

@@ -43,9 +43,6 @@ Each of these brushes treats the canvas not as a static surface but as a dynamic
 ## The Semantic Web Brush
 Instead of painting with colors, this brush paints with live-scraped imagery from the internet based on what you write or draw. Sketch a rough circle and write "sunset" - it fills with real sunset images pulled from current web searches, blended algorithmically. The brush interprets your gestures semantically, using image recognition to understand what you're trying to draw, then replaces your strokes with relevant found imagery. Each painting becomes a collage of the internet's current visual culture around your concepts.
 
-### The Semantic Web Brush
-Instead of painting with colors, this brush paints with live-scraped imagery from the internet based on what you write or draw. Sketch a rough circle and write "sunset" - it fills with real sunset images pulled from current web searches, blended algorithmically. The brush interprets your gestures semantically, using image recognition to understand what you're trying to draw, then replaces your strokes with relevant found imagery. Each painting becomes a collage of the internet's current visual culture around your concepts.
-
 ### Data Erosion Brush
 **Concept:** A variation of the datamosh brush that progressively removes pixel data in interesting patterns, creating a digital decay effect.
 
@@ -76,7 +73,7 @@ Creates contour lines like what yuo see o a countour map.
 - only once the shape is complete does it calclate all the contours
 - slider for countour spacing 1-10 
 - add heights markers for each contour going into the centre - heighest
-- make it all look hand drawn 
+- make lines pixelated crisp edges
 
 #### Grain/Noise Slider
 Add texture to brush strokes for traditional media feel.

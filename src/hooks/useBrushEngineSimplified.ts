@@ -845,6 +845,116 @@ export const useBrushEngineSimplified = () => {
     ctx.restore();
   }, [tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.blendMode, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect, isPixelBrush]);
 
+  /**
+   * Draw contour polygon - creates contour lines like a topographic map
+   */
+  const drawContourPolygon = useCallback((
+    ctx: CanvasRenderingContext2D,
+    polygonData: { vertices: Array<{ x: number; y: number }> },
+    isPreview: boolean = false
+  ) => {
+    const { vertices } = polygonData || {};
+    
+    if (!vertices || !Array.isArray(vertices) || vertices.length < 3) return;
+    
+    // Validate all vertices are defined
+    const validVertices = vertices.filter(v => v && typeof v.x === 'number' && typeof v.y === 'number');
+    if (validVertices.length < 3) return;
+
+    // Save context state
+    ctx.save();
+    
+    // Use pixelated rendering for crisp edges
+    ctx.imageSmoothingEnabled = false;
+    
+    // Apply opacity and blend mode
+    ctx.globalAlpha = tools.brushSettings.opacity;
+    ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
+    
+    // Get contour spacing from settings
+    const contourSpacing = tools.brushSettings.contourSpacing || 5;
+    
+    // Find polygon bounds for random center placement
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    validVertices.forEach(v => {
+      minX = Math.min(minX, v.x);
+      minY = Math.min(minY, v.y);
+      maxX = Math.max(maxX, v.x);
+      maxY = Math.max(maxY, v.y);
+    });
+    
+    // Place center at a random position within sensible bounds (inner 60% of polygon)
+    const innerMargin = 0.2; // 20% margin from edges
+    const innerMinX = minX + (maxX - minX) * innerMargin;
+    const innerMaxX = maxX - (maxX - minX) * innerMargin;
+    const innerMinY = minY + (maxY - minY) * innerMargin;
+    const innerMaxY = maxY - (maxY - minY) * innerMargin;
+    
+    const centroidX = innerMinX + Math.random() * (innerMaxX - innerMinX);
+    const centroidY = innerMinY + Math.random() * (innerMaxY - innerMinY);
+    
+    // Calculate max distance from centroid to vertices (for number of contours)
+    let maxDistance = 0;
+    validVertices.forEach(v => {
+      const dist = Math.sqrt(Math.pow(v.x - centroidX, 2) + Math.pow(v.y - centroidY, 2));
+      maxDistance = Math.max(maxDistance, dist);
+    });
+    
+    // Calculate number of contour lines based on spacing
+    const numContours = Math.floor(maxDistance / (contourSpacing * 3));
+    
+    // Draw contour lines from outside to inside
+    ctx.strokeStyle = tools.brushSettings.color;
+    ctx.lineWidth = 1;
+    ctx.font = '10px monospace';
+    ctx.fillStyle = tools.brushSettings.color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    for (let i = 0; i <= numContours; i++) {
+      const scale = 1 - (i / (numContours + 1));
+      
+      if (scale <= 0) continue;
+      
+      // Calculate scaled vertices
+      const scaledVertices = validVertices.map(v => ({
+        x: centroidX + (v.x - centroidX) * scale,
+        y: centroidY + (v.y - centroidY) * scale
+      }));
+      
+      // Draw contour line
+      ctx.beginPath();
+      ctx.moveTo(scaledVertices[0].x, scaledVertices[0].y);
+      scaledVertices.slice(1).forEach(v => ctx.lineTo(v.x, v.y));
+      ctx.closePath();
+      ctx.stroke();
+      
+      // Add height marker (elevation number) at the midpoint of the first edge
+      if (i > 0 && scaledVertices.length >= 2) {
+        const midX = (scaledVertices[0].x + scaledVertices[1].x) / 2;
+        const midY = (scaledVertices[0].y + scaledVertices[1].y) / 2;
+        const elevation = i * 10; // Each contour represents 10 units of elevation
+        ctx.fillText(elevation.toString(), midX, midY);
+      }
+    }
+    
+    // Draw the outermost polygon outline
+    ctx.beginPath();
+    ctx.moveTo(validVertices[0].x, validVertices[0].y);
+    validVertices.slice(1).forEach(v => ctx.lineTo(v.x, v.y));
+    ctx.closePath();
+    ctx.stroke();
+    
+    // Apply risograph effect if enabled
+    const risographIntensity = tools.brushSettings.risographIntensity || 0;
+    if (risographIntensity > 0 && !isPreview) {
+      applyRisographEffect(ctx, validVertices, risographIntensity);
+    }
+    
+    // Restore context state
+    ctx.restore();
+  }, [tools.brushSettings.contourSpacing, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.blendMode, tools.brushSettings.color, applyRisographEffect]);
+
   // Clean up resources
   useEffect(() => {
     return () => {
@@ -864,6 +974,7 @@ export const useBrushEngineSimplified = () => {
     // Shape drawing
     drawRectangleGradient,
     drawPolygonGradient,
+    drawContourPolygon,
     
     // Effects
     applyDithering,
@@ -881,6 +992,7 @@ export const useBrushEngineSimplified = () => {
     resetStroke,
     drawRectangleGradient,
     drawPolygonGradient,
+    drawContourPolygon,
     applyDithering,
     brushEngine
   ]);

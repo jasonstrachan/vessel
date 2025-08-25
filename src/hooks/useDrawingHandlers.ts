@@ -195,7 +195,6 @@ export function useDrawingHandlers({
           const brushSize = currentState.tools.brushSettings.size || 20;
           const halfSize = brushSize / 2;
           
-          console.log('[DEBUG Resampler] Brush size:', brushSize, 'halfSize:', halfSize, 'worldPos:', worldPos);
           
           const compositeCanvas = currentState.currentOffscreenCanvas;
           if (compositeCanvas) {
@@ -236,8 +235,9 @@ export function useDrawingHandlers({
                     imageData,
                     width,
                     height,
-                    isColorizable: false // Resampler uses sampled colors as-is
-                  } as any; // Type assertion needed for isResampler flag
+                    isColorizable: false, // Resampler uses sampled colors as-is
+                    isResampler: true // Flag to identify resampler brush data
+                  } as any;
                   
                   // Store for the entire stroke
                   resamplerBrushDataRef.current = customBrushData;
@@ -245,7 +245,6 @@ export function useDrawingHandlers({
                   // DON'T change brush size - keep it as is so the sample matches cursor size
                   // The captured area is already the right size based on current brush size
                   
-                  console.log('[DEBUG Resampler] Captured sample: bounds:', `${sampleX}, ${sampleY}, ${width}x${height}`, 'brush size was:', brushSize);
                 } catch (e) {
                   console.warn('Failed to sample canvas for Resampler brush:', e);
                 }
@@ -401,8 +400,8 @@ export function useDrawingHandlers({
                             width,
                             height,
                             isColorizable: false, // Resampler uses sampled colors as-is
-                            isResampler: true
-                          };
+                            isResampler: true // Flag to identify resampler brush data
+                          } as any;
                         } catch (e) {
                           console.warn('Failed to sample canvas for continuous Resampler:', e);
                         }

@@ -7,7 +7,6 @@ import { brushCache } from '@/utils/brushCache';
 import { scaledBrushCache } from '@/utils/scaledBrushCache';
 
 export const CustomBrushPanel = () => {
-  console.log('[DEBUG CustomBrushPanel] Component rendering');
   
   const { 
     project, 
@@ -24,7 +23,6 @@ export const CustomBrushPanel = () => {
   // Clear temporary brush when there's no selection (i.e., when custom tool is deactivated)
   useEffect(() => {
     if (!selectionStart && !selectionEnd) {
-      console.log('[DEBUG CustomBrushPanel] No selection - ready for new brush');
     }
   }, [selectionStart, selectionEnd]);
 
@@ -48,14 +46,6 @@ export const CustomBrushPanel = () => {
     }
     
     // Always create a new brush for each selection - don't skip
-    console.log('[DEBUG CustomBrushPanel] Creating brush for selection:', {
-      bounds: `${minX},${minY}-${maxX},${maxY}`,
-      hasCanvas: !!currentOffscreenCanvas,
-      width,
-      height
-    });
-    
-    console.log('[DEBUG CustomBrushPanel] Selection bounds:', { minX, minY, maxX, maxY, width, height });
     
     // Always create a new brush when there's a valid selection
     // The previous optimization was preventing new brush creation when
@@ -119,18 +109,6 @@ export const CustomBrushPanel = () => {
       createdAt: Date.now()
     };
     
-    // Verify ImageData integrity
-    const hasNonZeroPixels = Array.from(imageData.data).some((v, i) => i % 4 === 3 && v > 0);
-    console.log('[DEBUG CustomBrushPanel] Created temp brush:', {
-      id: tempBrush.id,
-      width: tempBrush.width,
-      height: tempBrush.height,
-      imageDataSize: imageData.data.length,
-      thumbnailLength: tempBrush.thumbnail.length,
-      hasImageData: !!tempBrush.imageData,
-      dataLength: tempBrush.imageData.data.length,
-      hasNonZeroAlpha: hasNonZeroPixels
-    });
     
     // Set as temporary brush and switch to it
     setTemporaryCustomBrush(tempBrush);
@@ -161,30 +139,14 @@ export const CustomBrushPanel = () => {
 
   // Create brush immediately when selection changes
   useEffect(() => {
-    console.log('[DEBUG CustomBrushPanel] Selection changed:', {
-      hasSelectionStart: !!selectionStart,
-      hasSelectionEnd: !!selectionEnd,
-      selectionStart,
-      selectionEnd,
-      hasProject: !!project,
-      hasCanvas: !!currentOffscreenCanvas
-    });
-    
     // Create brush immediately if we have a valid selection
     if (selectionStart && selectionEnd && project && currentOffscreenCanvas) {
-      console.log('[DEBUG CustomBrushPanel] Creating brush immediately');
       createBrushFromSelection();
     }
   }, [selectionStart, selectionEnd, project, currentOffscreenCanvas, createBrushFromSelection]);
 
   const handleSaveCustomBrush = () => {
     if (!temporaryCustomBrush) return;
-    
-    console.log('[DEBUG] Starting save, temp brush:', {
-      id: temporaryCustomBrush.id,
-      hasImageData: !!temporaryCustomBrush.imageData,
-      dataLength: temporaryCustomBrush.imageData?.data?.length
-    });
     
     // Deep clone the ImageData to avoid reference issues
     const clonedImageData = new ImageData(
@@ -201,27 +163,10 @@ export const CustomBrushPanel = () => {
       imageData: clonedImageData
     };
     
-    console.log('[DEBUG] Permanent brush created:', {
-      id: permanentBrush.id,
-      hasImageData: !!permanentBrush.imageData,
-      width: permanentBrush.width,
-      height: permanentBrush.height,
-      dataIntact: permanentBrush.imageData.data.length === temporaryCustomBrush.imageData.data.length
-    });
     
     // Add the brush to the project
     addCustomBrush(permanentBrush);
     
-    // Verify brush was saved
-    setTimeout(() => {
-      const state = useAppStore.getState();
-      const savedBrush = state.project?.customBrushes?.find(b => b.id === permanentBrush.id);
-      console.log('[DEBUG] Brush verification:', {
-        wasSaved: !!savedBrush,
-        hasImageData: !!savedBrush?.imageData,
-        brushCount: state.project?.customBrushes?.length
-      });
-    }, 10);
     
     // Update brush settings to use the new permanent brush at 100% size
     setBrushSettings({
@@ -241,17 +186,11 @@ export const CustomBrushPanel = () => {
     useAppStore.getState().setGlobalBrushSize(100);
     useAppStore.setState({ customBrushesSize: 100 });
     
-    console.log('[DEBUG] Brush settings updated with:', {
-      brushId: permanentBrush.id,
-      hasTipData: true,
-      size: 100
-    });
     
     // Clear temporary brush and selection after a small delay
     setTimeout(() => {
       setTemporaryCustomBrush(null);
       clearSelection();
-      console.log('[DEBUG] Cleanup completed');
     }, 50);
   };
 

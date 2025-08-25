@@ -42,10 +42,10 @@ const BrushControls = () => {
           <div className="flex items-center gap-2">
             <label 
               htmlFor="continuous-sampling"
-              className="text-[#D9D9D9] flex-1" 
+              className="text-[#D9D9D9] w-16" 
               style={{ fontSize: "14px" }}
             >
-              Continuous Sampling
+              Continuous
             </label>
             <CustomSwitch
               id="continuous-sampling"
@@ -74,6 +74,334 @@ const BrushControls = () => {
               aria-label="Resample Interval"
               className="flex-1"
               disabled={!activeSettings.continuousSampling}
+            />
+          </div>
+        </div>
+
+        {/* Size */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Size {sizeUnit}
+            </label>
+            <ProgressSlider
+              value={globalBrushSize}
+              min={isCustomBrush ? 5 : 1}
+              max={isCustomBrush ? 500 : 500}
+              step={isCustomBrush ? 5 : 1}
+              onChange={(value) => {
+                // For custom brushes, ensure we stay on 5% increments
+                const finalValue = isCustomBrush ? Math.round(value / 5) * 5 : value;
+                setGlobalBrushSize(Math.max(isCustomBrush ? 5 : 1, finalValue));
+              }}
+              aria-label={`Brush Size (${sizeUnit})`}
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Opacity */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Opacity
+            </label>
+            <ProgressSlider
+              value={activeSettings.opacity}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) => setActiveSettings({ opacity: value })}
+              aria-label="Opacity"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Spacing */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Spacing
+            </label>
+            <ProgressSlider
+              value={activeSettings.spacing}
+              min={1}
+              max={400}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
+              }
+              aria-label="Spacing"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Col Jit */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Col Jit
+            </label>
+            <ProgressSlider
+              value={activeSettings.colorJitter || 0}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ colorJitter: Math.round(value) })
+              }
+              aria-label="Color Jitter"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Riso */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Riso
+            </label>
+            <ProgressSlider
+              value={activeSettings.risographIntensity || 0}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ risographIntensity: Math.round(value) })
+              }
+              aria-label="Risograph Intensity"
+              className="flex-1"
+            />
+          </div>
+          {/* Risograph Outline Toggle - only show when risograph is enabled */}
+          {(activeSettings.risographIntensity || 0) > 0 && (
+            <div className="flex items-center gap-2 mt-1">
+              <label
+                htmlFor="riso-outline-resampler"
+                className="text-[#D9D9D9] w-16 text-xs"
+              >
+                Edges
+              </label>
+              <CustomSwitch
+                id="riso-outline-resampler"
+                checked={activeSettings.risographOutline || false}
+                onChange={(checked) =>
+                  setActiveSettings({ risographOutline: checked })
+                }
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Shape Mode - Draw closed polygon shapes */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="shape-mode-resampler"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Shape
+            </label>
+            <CustomSwitch
+              id="shape-mode-resampler"
+              checked={shapeMode || false}
+              onChange={(checked) => setShapeMode(checked)}
+            />
+          </div>
+        </div>
+
+        {/* Pressure */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="pressure-enabled-resampler"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Pressure
+            </label>
+            <CustomSwitch
+              id="pressure-enabled-resampler"
+              checked={activeSettings.pressureEnabled || false}
+              onChange={(checked) => {
+                console.log('[Pressure Toggle Debug]', {
+                  previousState: activeSettings.pressureEnabled,
+                  newState: checked,
+                  minPressure: activeSettings.minPressure,
+                  maxPressure: activeSettings.maxPressure
+                });
+                setActiveSettings({ pressureEnabled: checked });
+              }}
+            />
+            {(activeSettings.pressureEnabled || false) && (
+              <>
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={activeSettings.minPressure || 1}
+                  onChange={(e) => {
+                    const newMin = parseInt(e.target.value) || 1;
+                    console.log('[Min Pressure Input Debug]', {
+                      oldValue: activeSettings.minPressure,
+                      newValue: newMin,
+                      pressureEnabled: activeSettings.pressureEnabled
+                    });
+                    setActiveSettings({
+                      minPressure: newMin,
+                    });
+                  }}
+                  min="1"
+                  max="1000"
+                  className="w-8 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
+                  -
+                </span>
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={activeSettings.maxPressure ?? 100}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value);
+                    console.log('[Max Pressure Input Debug]', {
+                      oldValue: activeSettings.maxPressure,
+                      newValue: value,
+                      pressureEnabled: activeSettings.pressureEnabled
+                    });
+                    setActiveSettings({ maxPressure: value || undefined });
+                  }}
+                  min="1"
+                  max="1000"
+                  className="w-8 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                />
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Rotation */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="rotation-enabled-resampler"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Rotation
+            </label>
+            <CustomSwitch
+              id="rotation-enabled-resampler"
+              checked={activeSettings.rotationEnabled || false}
+              onChange={(checked) =>
+                setActiveSettings({ rotationEnabled: checked })
+              }
+            />
+          </div>
+        </div>
+
+        {/* Dashed */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="dashed-enabled-resampler"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Dashed
+            </label>
+            <CustomSwitch
+              id="dashed-enabled-resampler"
+              checked={activeSettings.dashedEnabled || false}
+              onChange={(checked) =>
+                setActiveSettings({ dashedEnabled: checked })
+              }
+            />
+            {(activeSettings.dashedEnabled || false) && (
+              <>
+                <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                  L
+                </span>
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={activeSettings.dashLength || 3}
+                  onChange={(e) =>
+                    setActiveSettings({
+                      dashLength: parseInt(e.target.value) || 3,
+                    })
+                  }
+                  min="1"
+                  max="20"
+                  className="w-7 bg-[#4a4a4a] border-none focus:outline-none px-0 h-5"
+                  title="Length multiplier (×brush size)"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                  G
+                </span>
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={activeSettings.dashGap || 2}
+                  onChange={(e) =>
+                    setActiveSettings({ dashGap: parseInt(e.target.value) || 2 })
+                  }
+                  min="1"
+                  max="20"
+                  className="w-7 bg-[#4a4a4a] border-none focus:outline-none px-0 h-5"
+                  title="Gap multiplier (×brush size)"
+                />
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Grid Snap */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="grid-snap-enabled-resampler"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Grid Snap
+            </label>
+            <CustomSwitch
+              id="grid-snap-enabled-resampler"
+              checked={activeSettings.gridSnapEnabled || false}
+              onChange={(checked) =>
+                setActiveSettings({ gridSnapEnabled: checked })
+              }
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show Contour Spacing slider for contour polygon brush
+  if (activeSettings.brushShape === BrushShape.CONTOUR_POLYGON) {
+    return (
+      <div className="p-4">
+        {/* Contour Spacing */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Spacing
+            </label>
+            <ProgressSlider
+              value={activeSettings.contourSpacing || 5}
+              min={1}
+              max={10}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ contourSpacing: Math.round(value) })
+              }
+              aria-label="Contour Spacing"
+              className="flex-1"
             />
           </div>
         </div>

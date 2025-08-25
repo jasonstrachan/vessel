@@ -70,9 +70,10 @@ export function useKeyboardShortcuts({
       
       store.setGlobalBrushSize(newSize);
     }
-    // Enter/Escape for polygon gradient
+    // Enter/Escape for polygon gradient or contour polygon
     else if ((event.key === 'Enter' || event.key === 'Escape') && 
-             tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT && 
+             (tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT || 
+              tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON) && 
              polygonGradientState.points.length >= 3) {
       event.preventDefault();
       

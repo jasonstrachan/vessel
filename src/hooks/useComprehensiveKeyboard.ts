@@ -249,8 +249,9 @@ export function useComprehensiveKeyboard({
       return;
     }
 
-    // Polygon gradient completion
-    if (tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT && 
+    // Polygon gradient or contour polygon completion
+    if ((tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT || 
+         tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON) && 
         polygonGradientState.points.length >= 3) {
       if (event.key === 'Enter') {
         event.preventDefault();

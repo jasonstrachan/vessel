@@ -82,6 +82,7 @@ export enum BrushShape {
   CUSTOM = 'custom',
   RECTANGLE_GRADIENT = 'rectangle_gradient',
   POLYGON_GRADIENT = 'polygon_gradient',
+  CONTOUR_POLYGON = 'contour_polygon',
   RISOGRAPH_SOFT = 'risograph_soft',
   RISOGRAPH_ULTRA = 'risograph_ultra',
   RESAMPLER = 'resampler'
@@ -253,6 +254,8 @@ export interface BrushSettings {
   colors?: number; // 1-10 for gradient brushes
   // Fill resolution for dither block size (1-32 pixels per block)
   fillResolution?: number; // 1-32 for dithering block size
+  // Contour polygon settings
+  contourSpacing?: number; // 1-10 (spacing between contour lines)
 }
 
 export interface ComponentParams {

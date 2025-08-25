@@ -277,23 +277,24 @@ export const drawShape = (
         // (it's been pre-calculated based on the brush size slider percentage)
         // We need to maintain aspect ratio while scaling to this size
         
-        // Check if this is a Resampler brush (it has isColorizable === false from Resampler)
+        // Check if this is a Resampler brush - it has the isResampler flag set
         // Resampler should draw at 1:1 scale since it was captured at the right size
-        const isResampler = !isColorizable && pattern.width === pattern.height && settings?.brushSettings?.brushShape === BrushShape.RESAMPLER;
+        const isResampler = (pattern as any).isResampler || (!isColorizable && settings?.brushSettings?.brushShape === BrushShape.RESAMPLER);
         
         let scaledWidth, scaledHeight;
         if (isResampler) {
-          // Resampler: draw at original captured size, no scaling
-          scaledWidth = pattern.width;
-          scaledHeight = pattern.height;
-          console.log('[DEBUG Resampler] Drawing at 1:1:', pattern.width + 'x' + pattern.height);
+          // Resampler: apply pressure-based scaling if pressure is enabled
+          // The 'size' parameter already includes pressure modulation from the brush engine
+          const maxDimension = Math.max(pattern.width, pattern.height);
+          const scaleFactor = size / maxDimension;
+          scaledWidth = pattern.width * scaleFactor;
+          scaledHeight = pattern.height * scaleFactor;
         } else {
           // Regular custom brush: apply scaling
           const maxDimension = Math.max(pattern.width, pattern.height);
           const scaleFactor = size / maxDimension;
           scaledWidth = pattern.width * scaleFactor;
           scaledHeight = pattern.height * scaleFactor;
-          console.log('[DEBUG Custom] Pattern:', pattern.width + 'x' + pattern.height, 'size param:', size, 'scaleFactor:', scaleFactor);
         }
         
         // Apply rotation if specified

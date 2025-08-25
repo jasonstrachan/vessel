@@ -56,7 +56,8 @@ export const defaultBrushSettings: BrushSettings = {
   risographOutline: false, // Default: no rough outline effect
   ditherEnabled: false,
   fillResolution: 1,
-  colors: 2 // Default to 2 colors for rectangle and polygon gradient brushes
+  colors: 2, // Default to 2 colors for rectangle and polygon gradient brushes
+  contourSpacing: 5 // Default contour spacing (1-10)
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect
@@ -479,6 +480,34 @@ export const polygonGradientBrushPreset: BrushPreset = {
   }
 };
 
+// Contour Polygon Brush Components
+const contourPolygonBrushComponents: BrushComponent[] = [
+  {
+    id: 'contour-polygon-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.CONTOUR_POLYGON
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+export const contourPolygonBrushPreset: BrushPreset = {
+  id: 'contour-polygon-brush',
+  name: 'Contour Map',
+  category: 'Special',
+  components: contourPolygonBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['contour', 'polygon', 'special', 'topographic'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    contourSpacing: 5
+  }
+};
+
 // Resampler Brush Components
 const resamplerBrushComponents: BrushComponent[] = [
   {
@@ -537,18 +566,18 @@ export const resamplerBrushPreset: BrushPreset = {
     pressureEnabled: true,
     minPressure: 1,
     maxPressure: 100,
-    rotationEnabled: false,
+    rotationEnabled: true,
     dashedEnabled: false,
     dashLength: 10,
     dashGap: 10,
+    continuousSampling: true,
+    resampleInterval: 1,
     gridSnapEnabled: false,
     shapeEnabled: false,
     colorJitter: 0,
     risographIntensity: 0,
     risographOutline: false,
-    ditherEnabled: false,
-    continuousSampling: false,
-    resampleInterval: 5
+    ditherEnabled: false
   }
 };
 
@@ -561,6 +590,7 @@ export const brushPresets: BrushPreset[] = [
   inkBrushPreset,
   rectangleGradientBrushPreset,
   polygonGradientBrushPreset,
+  contourPolygonBrushPreset,
   resamplerBrushPreset
 ];
 
@@ -604,6 +634,10 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     settings.pressureEnabled = true;
     settings.minPressure = 1;
     settings.maxPressure = 100;
+  } else if (preset.id === 'contour-polygon-brush') {
+    settings.size = 10; // 10px default for contour polygon brush
+    settings.antialiasing = false; // Crisp pixelated edges for contours
+    settings.contourSpacing = 5; // Default contour spacing
   } else if (preset.category === 'Custom') {
     // Handle custom brush presets - apply sensible defaults
     settings.antialiasing = true;
