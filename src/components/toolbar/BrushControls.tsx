@@ -545,7 +545,7 @@ const BrushControls = () => {
               Variance
             </label>
             <ProgressSlider
-              value={activeSettings.contourVariance ?? 8}
+              value={activeSettings.contourVariance ?? 5}
               min={0}
               max={10}
               step={1}

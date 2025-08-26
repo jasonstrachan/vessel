@@ -57,7 +57,9 @@ export const defaultBrushSettings: BrushSettings = {
   ditherEnabled: false,
   fillResolution: 1,
   colors: 2, // Default to 2 colors for rectangle and polygon gradient brushes
-  contourSpacing: 5 // Default contour spacing (1-10)
+  contourSpacing: 4, // Default contour spacing (1-10)
+  contourVariance: 5, // Default contour variance (0-10, medium variance)
+  contourSmoothness: 0.5 // Default contour smoothness (0-5, low smoothness)
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect
@@ -564,7 +566,9 @@ export const contourPolygonBrushPreset: BrushPreset = {
   createdAt: new Date(),
   modifiedAt: new Date(),
   preferredSettings: {
-    contourSpacing: 5
+    contourSpacing: 4,
+    contourVariance: 5,
+    contourSmoothness: 0.5
   }
 };
 
@@ -698,7 +702,9 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
   } else if (preset.id === 'contour-polygon-brush') {
     settings.size = 10; // 10px default for contour polygon brush
     settings.antialiasing = false; // Crisp pixelated edges for contours
-    settings.contourSpacing = 5; // Default contour spacing
+    settings.contourSpacing = 4; // Default contour spacing
+    settings.contourVariance = 5; // Default medium variance for balanced organic look
+    settings.contourSmoothness = 0.5; // Default low smoothness for sharp details
   } else if (preset.category === 'Custom') {
     // Handle custom brush presets - apply sensible defaults
     settings.antialiasing = true;

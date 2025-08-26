@@ -1,6 +1,6 @@
 /**
- * Color Cycle Brush - GPU-accelerated color cycling for web paint application
- * Implements a single cohesive module with WebGL rendering
+ * Color Cycle Brush - GPU-accelerated color cycling with multi-layer support
+ * Each gradient change creates a new layer, allowing old strokes to keep their gradients
  */
 
 export class ColorCycleBrush {
@@ -15,13 +15,18 @@ export class ColorCycleBrush {
   private frameInterval: number;
   private lastFrameTime: number;
   
-  // Gradient
-  private gradientStops: Array<{ position: number; color: string }>;
+  // Multi-layer architecture
+  private layers: Array<{
+    indexTexture: WebGLTexture;
+    paletteTexture: WebGLTexture;
+    paintBuffer: Uint8Array;
+    gradientStops: Array<{ position: number; color: string }>;
+    hasContent: boolean;
+  }> = [];
+  private currentLayerIndex: number = -1;
   
   // WebGL state
   private program: WebGLProgram | null = null;
-  private indexTexture: WebGLTexture | null = null;
-  private paletteTexture: WebGLTexture | null = null;
   private uniformLocations: {
     indexTexture?: WebGLUniformLocation | null;
     paletteTexture?: WebGLUniformLocation | null;
@@ -29,10 +34,9 @@ export class ColorCycleBrush {
     forceOpacity?: WebGLUniformLocation | null;
   } = {};
   
-  // Paint buffer - stores index values for each pixel
+  // Canvas dimensions
   private width: number;
   private height: number;
-  private paintBuffer: Uint8Array;
   
   // PERFORMANCE: Batch texture updates
   private needsTextureUpdate: boolean = false;
@@ -64,16 +68,14 @@ export class ColorCycleBrush {
     this.frameInterval = 1000 / this.fps;
     this.lastFrameTime = 0;
     
-    // Default gradient
-    this.gradientStops = this.defaultGradient();
-    
-    // Paint buffer
+    // Canvas dimensions
     this.width = canvas.width;
     this.height = canvas.height;
-    this.paintBuffer = new Uint8Array(this.width * this.height * 4);
-    this.paintBuffer.fill(0); // Explicitly clear to ensure no painted areas
     
     this.init();
+    
+    // Create first layer with default gradient
+    this.addNewLayer(this.defaultGradient());
   }
   
   private initWebGL(canvas: HTMLCanvasElement): WebGLRenderingContext {
@@ -109,12 +111,6 @@ export class ColorCycleBrush {
   private init() {
     const gl = this.gl;
     
-    // Verify buffer is clear
-    const hasContent = this.paintBuffer.some(v => v !== 0);
-    if (hasContent) {
-      console.warn('[ColorCycleBrush] Paint buffer not empty on init!');
-    }
-    
     // Create shader program
     const vertexShader = `
       attribute vec2 a_position;
@@ -144,16 +140,13 @@ export class ColorCycleBrush {
         
         // Only render where we've painted (alpha > 0)
         if (storedAlpha < 0.01) {
-          gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);  // Fully transparent
-          return;
+          discard; // More efficient than setting transparent color
         }
         
         float palettePos = mod(index + u_cycleOffset, 1.0);
         vec4 color = texture2D(u_paletteTexture, vec2(palettePos, 0.5));
         
-        // Always use full opacity since we paint at full opacity
-        // The opacity slider is applied at the canvas compositing level
-        gl_FragColor = vec4(color.rgb, 1.0);  // Always full opacity
+        gl_FragColor = vec4(color.rgb, 1.0);
       }
     `;
     
@@ -183,10 +176,7 @@ export class ColorCycleBrush {
     gl.enableVertexAttribArray(positionLocation);
     gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
     
-    // Create textures
-    this.createTextures();
-    
-    // Start animation loop (playing by default)
+    // Start animation loop
     this.isAnimating = true;
     this.isPaused = false;
     this.lastFrameTime = performance.now();
@@ -230,37 +220,33 @@ export class ColorCycleBrush {
     return program;
   }
   
-  private createTextures() {
+  private addNewLayer(gradientStops: Array<{ position: number; color: string }>) {
     const gl = this.gl;
     
-    // Ensure paint buffer is clear
-    this.paintBuffer.fill(0);
+    console.log('[ColorCycleBrush] Adding new layer with gradient:', gradientStops);
     
-    // Index texture (stores where each pixel starts in the gradient)
-    this.indexTexture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.indexTexture);
+    // Create new paint buffer for this layer
+    const paintBuffer = new Uint8Array(this.width * this.height * 4);
+    paintBuffer.fill(0);
+    
+    // Create index texture for this layer
+    const indexTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, indexTexture);
     gl.texImage2D(
       gl.TEXTURE_2D, 0, gl.RGBA,
       this.width, this.height, 0,
       gl.RGBA, gl.UNSIGNED_BYTE,
-      this.paintBuffer
+      paintBuffer
     );
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     
-    // Palette texture (the gradient colors)
-    this.paletteTexture = gl.createTexture();
-    this.updatePaletteTexture();
-  }
-  
-  private updatePaletteTexture() {
-    const gl = this.gl;
-    const gradientData = this.generateGradientData();
-    console.log('[ColorCycleBrush] updatePaletteTexture - gradientData sample:', gradientData.slice(0, 16));
-    
-    gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
+    // Create palette texture for this layer
+    const paletteTexture = gl.createTexture();
+    const gradientData = this.generateGradientData(gradientStops);
+    gl.bindTexture(gl.TEXTURE_2D, paletteTexture);
     gl.texImage2D(
       gl.TEXTURE_2D, 0, gl.RGBA,
       256, 1, 0,
@@ -271,15 +257,27 @@ export class ColorCycleBrush {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    console.log('[ColorCycleBrush] updatePaletteTexture - texture updated');
+    
+    // Add layer to array
+    this.layers.push({
+      indexTexture: indexTexture!,
+      paletteTexture: paletteTexture!,
+      paintBuffer,
+      gradientStops,
+      hasContent: false
+    });
+    
+    this.currentLayerIndex = this.layers.length - 1;
+    console.log(`[ColorCycleBrush] Now have ${this.layers.length} layers, current index: ${this.currentLayerIndex}`);
   }
   
-  private generateGradientData(): Uint8Array {
+  
+  private generateGradientData(gradientStops: Array<{ position: number; color: string }>): Uint8Array {
     const data = new Uint8Array(256 * 4);
     
     for (let i = 0; i < 256; i++) {
       const position = i / 255;
-      const color = this.interpolateGradient(position);
+      const color = this.interpolateGradient(position, gradientStops);
       data[i * 4] = color.r;
       data[i * 4 + 1] = color.g;
       data[i * 4 + 2] = color.b;
@@ -289,16 +287,16 @@ export class ColorCycleBrush {
     return data;
   }
   
-  private interpolateGradient(position: number): { r: number; g: number; b: number } {
+  private interpolateGradient(position: number, gradientStops: Array<{ position: number; color: string }>): { r: number; g: number; b: number } {
     // Find surrounding stops
-    let before = this.gradientStops[0];
-    let after = this.gradientStops[this.gradientStops.length - 1];
+    let before = gradientStops[0];
+    let after = gradientStops[gradientStops.length - 1];
     
-    for (let i = 0; i < this.gradientStops.length - 1; i++) {
-      if (position >= this.gradientStops[i].position && 
-          position <= this.gradientStops[i + 1].position) {
-        before = this.gradientStops[i];
-        after = this.gradientStops[i + 1];
+    for (let i = 0; i < gradientStops.length - 1; i++) {
+      if (position >= gradientStops[i].position && 
+          position <= gradientStops[i + 1].position) {
+        before = gradientStops[i];
+        after = gradientStops[i + 1];
         break;
       }
     }
@@ -326,6 +324,12 @@ export class ColorCycleBrush {
   
   // Painting methods
   paint(x: number, y: number) {
+    if (this.currentLayerIndex < 0) {
+      console.warn('[ColorCycleBrush] No layer available for painting');
+      return;
+    }
+    
+    const currentLayer = this.layers[this.currentLayerIndex];
     const halfSize = Math.floor(this.brushSize / 2);
     
     // Calculate distance traveled for gradient position
@@ -340,44 +344,40 @@ export class ColorCycleBrush {
     }
     
     // Use stroke length to determine position in gradient
-    // Invert the value so colors flow in the direction of drawing
-    // Normalize to 0-1 range, cycling every 200 pixels
     const gradientCycleLength = 200;
     const indexValue = 1.0 - ((this.strokeLength / gradientCycleLength) % 1.0);
     
-    // Paint SQUARE stamp to buffer - much faster than circle
+    // Paint SQUARE stamp to buffer
     const minX = Math.max(0, Math.floor(x - halfSize));
     const maxX = Math.min(this.width - 1, Math.floor(x + halfSize));
     const minY = Math.max(0, Math.floor(y - halfSize));
     const maxY = Math.min(this.height - 1, Math.floor(y + halfSize));
     
-    // ALWAYS use full opacity - ignore pressure completely
     const opacity = 255; // Full opacity always
     const indexByte = Math.floor(indexValue * 255);
     
-    // Direct pixel manipulation for square - no distance calculations needed
+    // Paint to current layer's buffer
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
         const idx = (py * this.width + px) * 4;
-        
-        // Paint all pixels with full opacity
-        // Store index value in red channel
-        this.paintBuffer[idx] = indexByte;
-        this.paintBuffer[idx + 1] = 0;
-        this.paintBuffer[idx + 2] = 0;
-        this.paintBuffer[idx + 3] = opacity; // Always 255 (full opacity)
+        currentLayer.paintBuffer[idx] = indexByte;
+        currentLayer.paintBuffer[idx + 1] = 0;
+        currentLayer.paintBuffer[idx + 2] = 0;
+        currentLayer.paintBuffer[idx + 3] = opacity;
       }
     }
     
-    // Update last point for next paint call
+    // Mark layer as having content
+    currentLayer.hasContent = true;
+    
+    // Update last point
     this.lastPoint = { x, y };
     
-    // PERFORMANCE: Use batched texture updates during active painting
-    // Immediate update during finalization, batched during painting
+    // Update texture
     if (this.isDrawing) {
-      this.batchedUpdateIndexTexture();
+      this.batchedUpdateIndexTexture(this.currentLayerIndex);
     } else {
-      this.updateIndexTexture();
+      this.updateIndexTexture(this.currentLayerIndex);
     }
   }
   
@@ -393,21 +393,30 @@ export class ColorCycleBrush {
   endStroke() {
     this.lastPoint = null;
     this.isDrawing = false;
+    
+    // Force update current layer's texture
+    if (this.currentLayerIndex >= 0) {
+      this.updateIndexTexture(this.currentLayerIndex);
+    }
   }
   
-  private updateIndexTexture() {
+  private updateIndexTexture(layerIndex: number) {
+    if (layerIndex < 0 || layerIndex >= this.layers.length) return;
+    
+    const layer = this.layers[layerIndex];
     const gl = this.gl;
-    gl.bindTexture(gl.TEXTURE_2D, this.indexTexture);
+    
+    gl.bindTexture(gl.TEXTURE_2D, layer.indexTexture);
     gl.texSubImage2D(
       gl.TEXTURE_2D, 0, 0, 0,
       this.width, this.height,
       gl.RGBA, gl.UNSIGNED_BYTE,
-      this.paintBuffer
+      layer.paintBuffer
     );
   }
 
   // PERFORMANCE: Batched texture update - reduces WebGL calls during painting
-  private batchedUpdateIndexTexture() {
+  private batchedUpdateIndexTexture(layerIndex: number) {
     this.needsTextureUpdate = true;
     
     // Clear existing timer
@@ -418,7 +427,7 @@ export class ColorCycleBrush {
     // Batch updates: wait 4ms before actually updating texture
     this.updateBatchTimer = window.setTimeout(() => {
       if (this.needsTextureUpdate) {
-        this.updateIndexTexture();
+        this.updateIndexTexture(layerIndex);
         this.needsTextureUpdate = false;
       }
       this.updateBatchTimer = null;
@@ -446,12 +455,22 @@ export class ColorCycleBrush {
   }
   
   pauseAnimation() {
+    console.log('[ColorCycleBrush] Pausing animation');
     this.isPaused = true;
   }
   
   resumeAnimation() {
+    console.log('[ColorCycleBrush] Resuming animation');
     this.isPaused = false;
     this.lastFrameTime = performance.now();
+  }
+  
+  togglePlayPause() {
+    if (this.isPaused) {
+      this.resumeAnimation();
+    } else {
+      this.pauseAnimation();
+    }
   }
   
   isPlaying(): boolean {
@@ -494,24 +513,16 @@ export class ColorCycleBrush {
     
     gl.useProgram(this.program);
     
-    // Enable alpha blending with premultiplied alpha
+    // Enable alpha blending
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     
-    // Bind textures
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.indexTexture);
-    if (this.uniformLocations.indexTexture) {
-      gl.uniform1i(this.uniformLocations.indexTexture, 0);
-    }
+    // Clear canvas
+    gl.viewport(0, 0, this.width, this.height);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
     
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
-    if (this.uniformLocations.paletteTexture) {
-      gl.uniform1i(this.uniformLocations.paletteTexture, 1);
-    }
-    
-    // Set uniforms
+    // Set common uniforms
     if (this.uniformLocations.cycleOffset) {
       gl.uniform1f(this.uniformLocations.cycleOffset, this.cycleOffset);
     }
@@ -519,28 +530,87 @@ export class ColorCycleBrush {
       gl.uniform1f(this.uniformLocations.forceOpacity, forceFullOpacity ? 1.0 : 0.0);
     }
     
-    // Clear to transparent and draw
-    gl.viewport(0, 0, this.width, this.height);
-    gl.clearColor(0, 0, 0, 0);  // Clear to transparent
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-    
-    // Check for WebGL errors
-    const error = gl.getError();
-    if (error !== gl.NO_ERROR) {
-      console.warn(`ColorCycleBrush WebGL error: ${error}`);
+    // Render each layer
+    for (let i = 0; i < this.layers.length; i++) {
+      const layer = this.layers[i];
+      
+      // Skip empty layers
+      if (!layer.hasContent) continue;
+      
+      // Bind this layer's textures
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, layer.indexTexture);
+      if (this.uniformLocations.indexTexture) {
+        gl.uniform1i(this.uniformLocations.indexTexture, 0);
+      }
+      
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, layer.paletteTexture);
+      if (this.uniformLocations.paletteTexture) {
+        gl.uniform1i(this.uniformLocations.paletteTexture, 1);
+      }
+      
+      // Draw this layer
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
+  }
+  
+  // Helper to check if two gradients are the same
+  private gradientsMatch(stops1: Array<{ position: number; color: string }>, 
+                         stops2: Array<{ position: number; color: string }>): boolean {
+    if (stops1.length !== stops2.length) return false;
+    
+    for (let i = 0; i < stops1.length; i++) {
+      if (stops1[i].position !== stops2[i].position || 
+          stops1[i].color !== stops2[i].color) {
+        return false;
+      }
+    }
+    
+    return true;
   }
   
   // Public API
   setGradient(stops: Array<{ position: number; color: string }>) {
-    console.log('[ColorCycleBrush] setGradient called with stops:', stops);
-    console.log('[ColorCycleBrush] Current gradient stops before update:', this.gradientStops);
-    this.gradientStops = stops;
-    this.updatePaletteTexture();
-    console.log('[ColorCycleBrush] Gradient stops updated to:', this.gradientStops);
-    console.log('[ColorCycleBrush] Palette texture updated - affects all strokes (color cycle behavior)');
+    console.log('[ColorCycleBrush] Setting new gradient:', stops);
+    
+    // First, check if we already have a layer with this exact gradient
+    for (let i = 0; i < this.layers.length; i++) {
+      if (this.gradientsMatch(this.layers[i].gradientStops, stops)) {
+        console.log(`[ColorCycleBrush] Found existing layer ${i} with matching gradient, switching to it`);
+        this.currentLayerIndex = i;
+        return; // Use existing layer
+      }
+    }
+    
+    // No matching layer found, need to create or update
+    if (this.currentLayerIndex >= 0) {
+      const currentLayer = this.layers[this.currentLayerIndex];
+      
+      // Only create new layer if current one has content
+      if (currentLayer.hasContent) {
+        console.log('[ColorCycleBrush] Current layer has content, creating new layer');
+        this.addNewLayer(stops);
+      } else {
+        // Update current empty layer's gradient
+        console.log('[ColorCycleBrush] Current layer is empty, updating its gradient');
+        const gl = this.gl;
+        const gradientData = this.generateGradientData(stops);
+        
+        gl.bindTexture(gl.TEXTURE_2D, currentLayer.paletteTexture);
+        gl.texImage2D(
+          gl.TEXTURE_2D, 0, gl.RGBA,
+          256, 1, 0,
+          gl.RGBA, gl.UNSIGNED_BYTE,
+          gradientData
+        );
+        
+        currentLayer.gradientStops = stops;
+      }
+    } else {
+      // No layers exist, create first one
+      this.addNewLayer(stops);
+    }
   }
   
   setBrushSize(size: number) {
@@ -557,8 +627,15 @@ export class ColorCycleBrush {
   }
   
   clear() {
-    this.paintBuffer.fill(0);
-    this.updateIndexTexture();
+    console.log('[ColorCycleBrush] Clearing all layers');
+    
+    // Clear all layers
+    for (const layer of this.layers) {
+      layer.paintBuffer.fill(0);
+      layer.hasContent = false;
+      this.updateIndexTextureForLayer(layer);
+    }
+    
     // Reset stroke tracking
     this.strokeCounter = 0;
     this.strokeLength = 0;
@@ -566,31 +643,68 @@ export class ColorCycleBrush {
     this.isDrawing = false;
   }
   
+  private updateIndexTextureForLayer(layer: any) {
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, layer.indexTexture);
+    gl.texSubImage2D(
+      gl.TEXTURE_2D, 0, 0, 0,
+      this.width, this.height,
+      gl.RGBA, gl.UNSIGNED_BYTE,
+      layer.paintBuffer
+    );
+  }
+  
   resize(width: number, height: number) {
     this.width = width;
     this.height = height;
-    this.paintBuffer = new Uint8Array(width * height * 4);
-    this.createTextures();
+    
+    // Recreate all layer buffers and textures with new size
+    const gl = this.gl;
+    
+    for (const layer of this.layers) {
+      // Create new buffer
+      const newBuffer = new Uint8Array(width * height * 4);
+      
+      // Copy old data (what fits)
+      // This is simplified - you might want more sophisticated resizing
+      const copyWidth = Math.min(this.width, width);
+      const copyHeight = Math.min(this.height, height);
+      
+      for (let y = 0; y < copyHeight; y++) {
+        for (let x = 0; x < copyWidth; x++) {
+          const oldIdx = (y * this.width + x) * 4;
+          const newIdx = (y * width + x) * 4;
+          newBuffer[newIdx] = layer.paintBuffer[oldIdx];
+          newBuffer[newIdx + 1] = layer.paintBuffer[oldIdx + 1];
+          newBuffer[newIdx + 2] = layer.paintBuffer[oldIdx + 2];
+          newBuffer[newIdx + 3] = layer.paintBuffer[oldIdx + 3];
+        }
+      }
+      
+      layer.paintBuffer = newBuffer;
+      
+      // Recreate texture with new size
+      gl.bindTexture(gl.TEXTURE_2D, layer.indexTexture);
+      gl.texImage2D(
+        gl.TEXTURE_2D, 0, gl.RGBA,
+        width, height, 0,
+        gl.RGBA, gl.UNSIGNED_BYTE,
+        layer.paintBuffer
+      );
+    }
   }
   
   getCanvas(): HTMLCanvasElement {
     return this.canvas;
   }
   
-  // PERFORMANCE: Check if brush has any painted content
   hasContent(): boolean {
-    // Quick check: if we've never drawn anything, buffer should be mostly empty
-    // Check a few key bytes instead of scanning entire buffer
-    for (let i = 3; i < this.paintBuffer.length; i += 4) { // Check alpha channel every 4 bytes
-      if (this.paintBuffer[i] > 0) return true;
-    }
-    return false;
+    return this.layers.some(layer => layer.hasContent);
   }
 
   destroy() {
     this.stopAnimation();
     
-    // Clean up batch timer
     if (this.updateBatchTimer) {
       clearTimeout(this.updateBatchTimer);
       this.updateBatchTimer = null;
@@ -598,9 +712,14 @@ export class ColorCycleBrush {
     
     const gl = this.gl;
     
-    // Clean up WebGL resources
-    if (this.indexTexture) gl.deleteTexture(this.indexTexture);
-    if (this.paletteTexture) gl.deleteTexture(this.paletteTexture);
+    // Clean up all layers
+    for (const layer of this.layers) {
+      if (layer.indexTexture) gl.deleteTexture(layer.indexTexture);
+      if (layer.paletteTexture) gl.deleteTexture(layer.paletteTexture);
+    }
+    
     if (this.program) gl.deleteProgram(this.program);
+    
+    this.layers = [];
   }
 }

@@ -1210,8 +1210,8 @@ export const useBrushEngineSimplified = () => {
     // Save context state
     ctx.save();
     
-    // Use antialiased rendering for smoother lines
-    ctx.imageSmoothingEnabled = true;
+    // Use pixel-perfect rendering for crisp hard edges
+    ctx.imageSmoothingEnabled = false;
     
     // Apply opacity and blend mode
     ctx.globalAlpha = tools.brushSettings.opacity;
@@ -1220,8 +1220,8 @@ export const useBrushEngineSimplified = () => {
     // Base contour spacing - properly use the slider value
     const spacing = (tools.brushSettings.contourSpacing || 5) * 2; // Scale for better visibility
     const smoothness = tools.brushSettings.contourSmoothness ?? 2.5; // Use smoothness from settings
-    // Use contourVariance from brush settings if available, otherwise default to high variance
-    const variancePercent = (tools.brushSettings.contourVariance ?? 8) / 10; // Convert 0-10 to 0-1
+    // Use contourVariance from brush settings if available, otherwise default to medium variance
+    const variancePercent = (tools.brushSettings.contourVariance ?? 5) / 10; // Convert 0-10 to 0-1
     
     // Setup drawing style
     ctx.strokeStyle = tools.brushSettings.color;
@@ -1292,27 +1292,16 @@ export const useBrushEngineSimplified = () => {
         
         ctx.beginPath();
         if (smoothed.length > 3) {
-          ctx.moveTo(smoothed[0].x, smoothed[0].y);
+          // Round coordinates for pixel-perfect lines
+          ctx.moveTo(Math.round(smoothed[0].x), Math.round(smoothed[0].y));
           
-          // Use Catmull-Rom splines for ultra-smooth curves with proper loop closure
-          for (let i = 0; i < smoothed.length; i++) {
-            const p0 = smoothed[(i - 1 + smoothed.length) % smoothed.length];
-            const p1 = smoothed[i];
-            const p2 = smoothed[(i + 1) % smoothed.length];
-            const p3 = smoothed[(i + 2) % smoothed.length];
-            
-            // Reduced tension for smoother curves
-            const tension = 0.2;
-            const cp1x = p1.x + (p2.x - p0.x) * tension;
-            const cp1y = p1.y + (p2.y - p0.y) * tension;
-            const cp2x = p2.x - (p3.x - p1.x) * tension;
-            const cp2y = p2.y - (p3.y - p1.y) * tension;
-            
-            ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+          // Use simple line segments for crisp hard edges
+          for (let i = 1; i < smoothed.length; i++) {
+            ctx.lineTo(Math.round(smoothed[i].x), Math.round(smoothed[i].y));
           }
           
           // Ensure the path is properly closed by drawing back to start
-          ctx.lineTo(smoothed[0].x, smoothed[0].y);
+          ctx.lineTo(Math.round(smoothed[0].x), Math.round(smoothed[0].y));
           ctx.stroke();
         }
         
