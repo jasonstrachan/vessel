@@ -5,7 +5,6 @@ import LeftToolbar from '../components/LeftToolbar';
 import BrushLibrary from '../components/BrushLibrary';
 import ControlsPanel from '../components/ControlsPanel';
 import ColorPickerPanel from '../components/panels/ColorPickerPanel';
-import ColorCyclePanel from '../components/panels/ColorCyclePanel';
 import DrawingCanvas from '../components/canvas/DrawingCanvas';
 import BrushEditorUI from '../components/BrushEditorUI';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
@@ -140,29 +139,19 @@ export default function Home() {
       {/* Separator */}
       {/* <div className="w-[2px] bg-[#424242] h-screen flex-shrink-0" /> */}
       
-      {/* RHC2 - ColorPickerPanel + BrushLibrary + ControlsPanel OR ColorCyclePanel */}
+      {/* RHC2 - ColorPickerPanel + BrushLibrary + ControlsPanel */}
       <div className="flex flex-col h-screen flex-shrink-0" style={{ width: '240px', minWidth: '240px', maxWidth: '240px' }}>
-        {currentTool === 'color-cycle' ? (
-          // Show Color Cycle Panel when color-cycle tool is active
-          <div className="flex-1 overflow-y-auto">
-            <ColorCyclePanel />
-          </div>
-        ) : (
-          // Show normal panels for other tools
-          <>
-            <div className="flex-shrink-0">
-              <ColorPickerPanel />
-            </div>
-            <div className="flex-[2] min-h-0 overflow-y-auto">
-              <BrushLibrary />
-            </div>
-            {/* Separator */}
-            <div className="h-[2px] bg-[#424242] w-full flex-shrink-0" />
-            <div className="flex-[3] min-h-0 overflow-y-auto">
-              <ControlsPanel />
-            </div>
-          </>
-        )}
+        <div className="flex-shrink-0">
+          <ColorPickerPanel />
+        </div>
+        <div className="flex-[2] min-h-0 overflow-y-auto">
+          <BrushLibrary />
+        </div>
+        {/* Separator */}
+        <div className="h-[2px] bg-[#424242] w-full flex-shrink-0" />
+        <div className="flex-[3] min-h-0 overflow-y-auto">
+          <ControlsPanel />
+        </div>
       </div>
       
       {/* Document Modal */}

@@ -3,7 +3,6 @@
  * Run with: npm test -- performance.benchmark.ts
  */
 
-import { useBrushEngine } from '../../useBrushEngine';
 import { useBrushEngineSimplified } from '../../useBrushEngineSimplified';
 import { createBrushEngineFacade } from '../BrushEngineFacade';
 import type { BrushSettings } from '@/types';
@@ -51,7 +50,11 @@ const mockBrushSettings: BrushSettings = {
   dashGap: 2,
   gridSnapEnabled: false,
   shapeEnabled: false,
-  useSwatchColor: false
+  useSwatchColor: false,
+  colorJitter: 0,
+  risographIntensity: 0,
+  risographOutline: false,
+  ditherEnabled: false
 };
 
 describe('Performance Benchmarks', () => {
@@ -86,24 +89,14 @@ describe('Performance Benchmarks', () => {
     const to = { x: 200, y: 200 };
     const cursor = { pressure: 0.8 };
     
-    // Test old implementation
-    const oldEngine = useBrushEngine();
-    const oldResult = runBenchmark('Old Engine - Stroke', () => {
-      oldEngine.drawBrush(ctx, from, to, cursor);
+    // Test the current implementation
+    const engine = useBrushEngineSimplified();
+    const result = runBenchmark('Brush Engine - Stroke', () => {
+      engine.drawBrush(ctx, from, to, cursor);
     }, 100);
     
-    // Test new implementation
-    const newEngine = useBrushEngineSimplified();
-    const newResult = runBenchmark('New Engine - Stroke', () => {
-      newEngine.drawBrush(ctx, from, to, cursor);
-    }, 100);
-    
-    // Calculate difference
-    const difference = ((newResult.perIteration - oldResult.perIteration) / oldResult.perIteration) * 100;
-    console.log(`Performance difference: ${difference.toFixed(2)}%`);
-    
-    // New implementation should not be more than 10% slower
-    expect(difference).toBeLessThan(10);
+    // Should complete quickly
+    expect(result.perIteration).toBeLessThan(5); // Under 5ms per stroke
   });
 
   test('Color utilities performance', () => {
@@ -174,32 +167,19 @@ describe('Performance Benchmarks', () => {
         return 0;
       };
       
-      // Measure old engine memory
-      const beforeOld = getMemoryUsage();
-      const oldEngines = [];
+      // Measure engine memory
+      const before = getMemoryUsage();
+      const engines = [];
       for (let i = 0; i < 10; i++) {
-        oldEngines.push(useBrushEngine());
+        engines.push(useBrushEngineSimplified());
       }
-      const afterOld = getMemoryUsage();
-      const oldMemory = afterOld - beforeOld;
+      const after = getMemoryUsage();
+      const memory = after - before;
       
-      (global as any).gc();
+      console.log(`Engine memory: ${(memory / 1024 / 1024).toFixed(2)}MB`);
       
-      // Measure new engine memory
-      const beforeNew = getMemoryUsage();
-      const newEngines = [];
-      for (let i = 0; i < 10; i++) {
-        newEngines.push(useBrushEngineSimplified());
-      }
-      const afterNew = getMemoryUsage();
-      const newMemory = afterNew - beforeNew;
-      
-      console.log(`Old engine memory: ${(oldMemory / 1024 / 1024).toFixed(2)}MB`);
-      console.log(`New engine memory: ${(newMemory / 1024 / 1024).toFixed(2)}MB`);
-      console.log(`Memory difference: ${((newMemory - oldMemory) / 1024 / 1024).toFixed(2)}MB`);
-      
-      // New engine should use less or similar memory
-      expect(newMemory).toBeLessThanOrEqual(oldMemory * 1.1); // Allow 10% variance
+      // Should use reasonable memory
+      expect(memory).toBeLessThan(50 * 1024 * 1024); // Under 50MB for 10 instances
     } else {
       console.log('Memory test skipped - run with --expose-gc flag');
     }

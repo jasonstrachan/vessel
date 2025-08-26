@@ -95,6 +95,13 @@ export function useDrawingHandlers({
   // Track stamp count for continuous resampling
   const stampCounterRef = useRef<number>(0);
   
+  // Animation frame for color cycle rendering
+  const colorCycleAnimationRef = useRef<number | null>(null);
+  
+  // Track distance for color cycle stamp spacing
+  const colorCycleDistanceRef = useRef<number>(0);
+  const colorCycleLastPosRef = useRef<{ x: number; y: number } | null>(null);
+  
   const initDrawingCanvas = useCallback(() => {
     if (!project) return;
 
@@ -153,6 +160,39 @@ export function useDrawingHandlers({
       brushEngine.resetStroke();
     }
     
+    // Reset color cycle brush for new stroke and start animation
+    if (currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
+      brushEngine.resetColorCycle();
+      
+      // Reset distance tracking for consistent spacing
+      colorCycleDistanceRef.current = 0;
+      colorCycleLastPosRef.current = null;
+      
+      // Start animation loop for rendering color cycle (throttled for performance)
+      let lastRenderTime = 0;
+      const targetFPS = 24; // Reduced to 24 FPS - smoother performance with minimal visual impact
+      const frameInterval = 1000 / targetFPS;
+      
+      const animateColorCycle = (timestamp: number) => {
+        if (timestamp - lastRenderTime >= frameInterval) {
+          if (drawingCtxRef.current && drawingCanvasRef.current) {
+            // Clear the drawing canvas
+            drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+            // Render all color cycle strokes
+            brushEngine.renderColorCycle(drawingCtxRef.current);
+          }
+          lastRenderTime = timestamp;
+        }
+        colorCycleAnimationRef.current = requestAnimationFrame(animateColorCycle);
+      };
+      
+      // Start the animation
+      if (colorCycleAnimationRef.current) {
+        cancelAnimationFrame(colorCycleAnimationRef.current);
+      }
+      colorCycleAnimationRef.current = requestAnimationFrame(animateColorCycle);
+    }
+    
     // Reset stamp counter for continuous sampling
     stampCounterRef.current = 0;
     const drawCtx = drawingCtxRef.current;
@@ -188,8 +228,12 @@ export function useDrawingHandlers({
         // Check if we're using a custom brush or resampler
         let customBrushData = undefined;
         
-        // Handle Resampler brush - capture once at stroke start (EXACTLY like CustomBrushPanel)
-        if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER && 
+        // Handle Color Cycle brush - only paints to WebGL buffer
+        if (currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
+          brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure);
+          colorCycleLastPosRef.current = worldPos;
+          // Rendering happens in the animation loop, not here
+        } else if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER && 
             !currentState.tools.brushSettings.continuousSampling) {
           // Use the exact same approach as CustomBrushPanel for capturing
           const brushSize = currentState.tools.brushSettings.size || 20;
@@ -341,8 +385,31 @@ export function useDrawingHandlers({
             // Check if we're using a custom brush or resampler
             let customBrushData = undefined;
             
-            // Check for Resampler brush
-            if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER) {
+            // Check for Color Cycle brush with consistent spacing
+            if (currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
+              // Calculate spacing based on brush size (25% of size for dense coverage)
+              const spacing = (currentState.tools.brushSettings.size || 20) * 0.25;
+              
+              if (colorCycleLastPosRef.current) {
+                const dx = clippedEnd.x - colorCycleLastPosRef.current.x;
+                const dy = clippedEnd.y - colorCycleLastPosRef.current.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                colorCycleDistanceRef.current += distance;
+                
+                // Draw stamps at consistent intervals
+                while (colorCycleDistanceRef.current >= spacing) {
+                  const t = 1 - (colorCycleDistanceRef.current - spacing) / distance;
+                  const stampX = colorCycleLastPosRef.current.x + dx * t;
+                  const stampY = colorCycleLastPosRef.current.y + dy * t;
+                  
+                  brushEngine.drawColorCycle(drawCtx, stampX, stampY);
+                  colorCycleDistanceRef.current -= spacing;
+                }
+              }
+              
+              colorCycleLastPosRef.current = clippedEnd;
+            } else if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER) {
               if (currentState.tools.brushSettings.continuousSampling) {
                 // Continuous sampling mode - check if we need to resample
                 stampCounterRef.current++;
@@ -538,6 +605,22 @@ export function useDrawingHandlers({
           saveCanvasState(drawingCanvasRef.current, 'eraser', 'Erased stroke');
         } else { // Brush tool
           const activeSettings = currentState.tools.brushSettings;
+          
+          // For color cycle brush, stop the animation and do final render
+          if (activeSettings.brushShape === BrushShape.COLOR_CYCLE && drawingCtxRef.current) {
+            // Stop animation loop
+            if (colorCycleAnimationRef.current) {
+              cancelAnimationFrame(colorCycleAnimationRef.current);
+              colorCycleAnimationRef.current = null;
+            }
+            
+            // End stroke and do final render
+            brushEngine.endColorCycleStroke();
+            
+            // Clear and do one final render at FULL OPACITY
+            drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+            brushEngine.renderColorCycle(drawingCtxRef.current, false); // false = don't apply opacity
+          }
           
           // Now composite the drawing (with risograph already applied per-stamp) onto the layer
           const tempCanvas = document.createElement('canvas');

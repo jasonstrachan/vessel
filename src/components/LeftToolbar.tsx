@@ -19,13 +19,6 @@ const LeftToolbar = () => {
       { id: 'eraser' as Tool, icon: null, label: 'Eraser' },
       { id: 'eyedropper' as Tool, icon: null, label: 'Eyedropper' },
       { id: 'fill' as Tool, icon: null, label: 'Fill' },
-      { id: 'color-cycle' as Tool, icon: null, label: 'Color Cycle' },
-    ],
-    [
-      { id: 'rectangle' as Tool, icon: null, label: 'Rectangle' },
-      { id: 'ellipse' as Tool, icon: null, label: 'Ellipse' },
-      { id: 'line' as Tool, icon: null, label: 'Line' },
-      { id: 'polygon' as Tool, icon: null, label: 'Polygon' },
     ],
     [
       { id: 'save' as Tool, icon: null, label: 'Save File' },
@@ -130,17 +123,6 @@ const LeftToolbar = () => {
               <rect x="19.4903" y="10.097" width="2.34517" height="2.34517" transform="rotate(45 19.4903 10.097)" fill="currentColor" fillOpacity="0.8"/>
               <rect x="19.4903" y="13.4137" width="2.34517" height="2.34517" transform="rotate(45 19.4903 13.4137)" fill="currentColor" fillOpacity="0.8"/>
             </svg>
-          ) : tool.id === 'color-cycle' ? (
-            <svg width="28" height="28" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10" stroke="currentColor" strokeWidth="2" fill="none" opacity="0.8"/>
-              <path d="M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10" stroke="currentColor" strokeWidth="2" fill="none" opacity="0.8"/>
-              <polygon points="15,8 17,10 15,12" fill="currentColor" fillOpacity="0.8"/>
-              <polygon points="5,12 3,10 5,8" fill="currentColor" fillOpacity="0.8"/>
-              <circle cx="10" cy="6" r="1.5" fill="currentColor" fillOpacity="0.8"/>
-              <circle cx="14" cy="10" r="1.5" fill="currentColor" fillOpacity="0.8"/>
-              <circle cx="10" cy="14" r="1.5" fill="currentColor" fillOpacity="0.8"/>
-              <circle cx="6" cy="10" r="1.5" fill="currentColor" fillOpacity="0.8"/>
-            </svg>
           ) : tool.id === 'save' ? (
             <svg width="32" height="28" viewBox="0 0 22 19" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path fillRule="evenodd" clipRule="evenodd" d="M4.78316 2.14697H8.31316V6.43689H13.6911V2.14697H17.2168V6.43689V15.5786H13.6911H8.31316H4.78316V6.43689V2.14697Z" fill="currentColor" fillOpacity="0.8"/>
@@ -160,22 +142,6 @@ const LeftToolbar = () => {
             <svg width="24" height="24" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M9 0.5L11.225 2.725L14.125 2.375L14.5 5.275L17.125 6.775L16.275 9.675L17.125 12.575L14.5 14.075L14.125 16.975L11.225 16.625L9 18.85L6.775 16.625L3.875 16.975L3.5 14.075L0.875 12.575L1.725 9.675L0.875 6.775L3.5 5.275L3.875 2.375L6.775 2.725L9 0.5Z" fill="currentColor" fillOpacity="0.8"/>
               <circle cx="9" cy="9.675" r="3.5" fill="#31313A"/>
-            </svg>
-          ) : tool.id === 'rectangle' ? (
-            <svg width="24" height="24" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="3" y="5" width="12" height="8" stroke="currentColor" strokeWidth="2" fill="none" opacity="0.8"/>
-            </svg>
-          ) : tool.id === 'ellipse' ? (
-            <svg width="24" height="24" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <ellipse cx="9" cy="9" rx="6" ry="4" stroke="currentColor" strokeWidth="2" fill="none" opacity="0.8"/>
-            </svg>
-          ) : tool.id === 'line' ? (
-            <svg width="24" height="24" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <line x1="3" y1="15" x2="15" y2="3" stroke="currentColor" strokeWidth="2" opacity="0.8"/>
-            </svg>
-          ) : tool.id === 'polygon' ? (
-            <svg width="24" height="24" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <polygon points="9,2 15,6 15,12 9,16 3,12 3,6" stroke="currentColor" strokeWidth="2" fill="none" opacity="0.8"/>
             </svg>
           ) : (
             tool.icon

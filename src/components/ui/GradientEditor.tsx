@@ -1,0 +1,329 @@
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useAppStore } from '../../stores/useAppStore';
+
+interface GradientStop {
+  position: number;
+  color: string;
+  opacity?: number;
+}
+
+interface GradientEditorProps {
+  stops: GradientStop[];
+  onChange: (stops: GradientStop[]) => void;
+  className?: string;
+}
+
+const presetGradients = {
+  rainbow: [
+    { position: 0.0, color: '#ff0000', opacity: 1 },
+    { position: 0.17, color: '#ff7f00', opacity: 1 },
+    { position: 0.33, color: '#ffff00', opacity: 1 },
+    { position: 0.5, color: '#00ff00', opacity: 1 },
+    { position: 0.67, color: '#0000ff', opacity: 1 },
+    { position: 0.83, color: '#4b0082', opacity: 1 },
+    { position: 1.0, color: '#9400d3', opacity: 1 }
+  ],
+  fire: [
+    { position: 0.0, color: '#ff0000', opacity: 1 },
+    { position: 0.33, color: '#ff7f00', opacity: 1 },
+    { position: 0.67, color: '#ffff00', opacity: 1 },
+    { position: 1.0, color: '#ff0000', opacity: 1 }
+  ],
+  ocean: [
+    { position: 0.0, color: '#001f3f', opacity: 1 },
+    { position: 0.5, color: '#0074d9', opacity: 1 },
+    { position: 1.0, color: '#001f3f', opacity: 1 }
+  ],
+  sunset: [
+    { position: 0.0, color: '#ff6b6b', opacity: 1 },
+    { position: 0.33, color: '#ffa500', opacity: 1 },
+    { position: 0.67, color: '#ffd700', opacity: 1 },
+    { position: 1.0, color: '#4b0082', opacity: 1 }
+  ],
+  mint: [
+    { position: 0.0, color: '#00ff88', opacity: 1 },
+    { position: 0.5, color: '#00ffff', opacity: 1 },
+    { position: 1.0, color: '#0088ff', opacity: 1 }
+  ]
+};
+
+
+export const GradientEditor: React.FC<GradientEditorProps> = ({ 
+  stops: initialStops, 
+  onChange,
+  className = '' 
+}) => {
+  // Ensure all stops have opacity
+  const normalizeStops = (stops: GradientStop[]) => 
+    stops.map(s => ({ ...s, opacity: s.opacity ?? 1 }));
+  
+  const [stops, setStops] = useState<GradientStop[]>(normalizeStops(initialStops));
+  const [selectedStop, setSelectedStop] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const colorInputRef = useRef<HTMLInputElement>(null);
+
+  // Update internal state when props change
+  useEffect(() => {
+    setStops(normalizeStops(initialStops));
+  }, [initialStops]);
+
+  // Generate CSS gradient string with opacity
+  const gradientString = stops
+    .map(s => {
+      const opacity = s.opacity ?? 1;
+      const hex = s.color;
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return `rgba(${r}, ${g}, ${b}, ${opacity}) ${s.position * 100}%`;
+    })
+    .join(', ');
+
+  const handleStopClick = useCallback((index: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedStop(index);
+    
+    // Directly trigger the native color picker
+    if (colorInputRef.current) {
+      colorInputRef.current.value = stops[index].color;
+      colorInputRef.current.click();
+    }
+  }, [stops]);
+
+  const handleColorChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (selectedStop === null) return;
+    
+    const newStops = [...stops];
+    newStops[selectedStop].color = e.target.value;
+    setStops(newStops);
+    onChange(newStops);
+  }, [selectedStop, stops, onChange]);
+
+  const handleStopMouseDown = useCallback((index: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    setSelectedStop(index);
+    setIsDragging(true);
+  }, []);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging || selectedStop === null || !containerRef.current) return;
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const position = Math.max(0, Math.min(1, x / rect.width));
+
+    const newStops = [...stops];
+    newStops[selectedStop].position = position;
+    
+    // Keep stops sorted by position
+    newStops.sort((a, b) => a.position - b.position);
+    const newIndex = newStops.findIndex((s, i) => 
+      s.position === stops[selectedStop].position && 
+      s.color === stops[selectedStop].color
+    );
+    
+    setSelectedStop(newIndex);
+    setStops(newStops);
+    onChange(newStops);
+  }, [isDragging, selectedStop, stops, onChange]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // Add global mouse event listeners for dragging
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, handleMouseMove, handleMouseUp]);
+
+  const handleAddStop = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!containerRef.current) return;
+    
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const position = Math.max(0, Math.min(1, x / rect.width));
+    
+    // Interpolate color at this position
+    const color = interpolateColor(position, stops);
+    
+    const newStops = [...stops, { position, color, opacity: 1 }];
+    newStops.sort((a, b) => a.position - b.position);
+    setStops(newStops);
+    onChange(newStops);
+  }, [stops, onChange]);
+
+  const handleDeleteStop = useCallback((index: number) => {
+    if (stops.length <= 2) return; // Keep at least 2 stops
+    
+    const newStops = stops.filter((_, i) => i !== index);
+    setStops(newStops);
+    onChange(newStops);
+    setSelectedStop(null);
+  }, [stops, onChange]);
+
+  const handlePresetChange = useCallback((preset: keyof typeof presetGradients) => {
+    const newStops = [...presetGradients[preset]];
+    console.log('[GradientEditor] handlePresetChange - preset:', preset);
+    console.log('[GradientEditor] handlePresetChange - newStops:', newStops);
+    setStops(newStops);
+    onChange(newStops);
+    console.log('[GradientEditor] handlePresetChange - onChange called');
+  }, [onChange]);
+
+  return (
+    <div className={`gradient-editor relative ${className}`} ref={containerRef}>
+      {/* Preset selector */}
+      <div className="mb-2">
+        <label className="text-[#D9D9D9] text-xs block mb-1">Presets</label>
+        <select 
+          className="w-full bg-gray-800 text-gray-300 text-xs px-2 py-1 rounded border border-gray-700"
+          onChange={(e) => handlePresetChange(e.target.value as keyof typeof presetGradients)}
+          defaultValue=""
+        >
+          <option value="" disabled>Select preset...</option>
+          <option value="rainbow">Rainbow</option>
+          <option value="fire">Fire</option>
+          <option value="ocean">Ocean</option>
+          <option value="sunset">Sunset</option>
+          <option value="mint">Mint</option>
+        </select>
+      </div>
+
+      {/* Gradient preview bar with checkerboard background for transparency */}
+      <div className="relative mb-2">
+        {/* Checkerboard background */}
+        <div 
+          className="absolute inset-0 rounded border border-gray-700"
+          style={{
+            backgroundImage: `repeating-conic-gradient(#606060 0% 25%, #404040 0% 50%)`,
+            backgroundSize: '16px 16px',
+          }}
+        />
+        {/* Gradient overlay */}
+        <div 
+          className="relative h-8 rounded border border-gray-700 cursor-pointer"
+          style={{ 
+            background: `linear-gradient(90deg, ${gradientString})` 
+          }}
+          onClick={handleAddStop}
+        >
+          {/* Gradient stops */}
+          {stops.map((stop, index) => (
+            <div
+              key={index}
+              className={`absolute top-0 w-4 h-full transform -translate-x-1/2 cursor-move ${
+                selectedStop === index ? 'z-20' : 'z-10'
+              }`}
+              style={{ left: `${stop.position * 100}%` }}
+              onMouseDown={(e) => handleStopMouseDown(index, e)}
+              onClick={(e) => handleStopClick(index, e)}
+            >
+              {/* Stop handle - square shape */}
+              <div 
+                className={`w-4 h-4 border-2 ${
+                  selectedStop === index ? 'border-white' : 'border-gray-400'
+                } shadow-lg`}
+                style={{ 
+                  backgroundColor: stop.color,
+                  opacity: stop.opacity ?? 1
+                }}
+              />
+              {/* Position indicator */}
+              <div 
+                className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[6px] absolute top-4 left-1/2 transform -translate-x-1/2"
+                style={{ 
+                  borderBottomColor: stop.color,
+                  opacity: stop.opacity ?? 1
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Color input positioned near the gradient */}
+      <input
+        ref={colorInputRef}
+        type="color"
+        onChange={handleColorChange}
+        className="absolute"
+        style={{
+          left: '50%',
+          top: '50%',
+          transform: 'translate(-50%, -50%)',
+          opacity: 0,
+          pointerEvents: 'none'
+        }}
+      />
+
+      {/* Controls */}
+      <div className="flex justify-between text-xs text-gray-400">
+        <span>Click gradient to add stop</span>
+        {selectedStop !== null && stops.length > 2 && (
+          <button
+            className="text-red-400 hover:text-red-300"
+            onClick={() => handleDeleteStop(selectedStop)}
+          >
+            Delete stop
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Helper function to interpolate color at a position
+function interpolateColor(position: number, stops: GradientStop[]): string {
+  // Find surrounding stops
+  let before = stops[0];
+  let after = stops[stops.length - 1];
+  
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (position >= stops[i].position && position <= stops[i + 1].position) {
+      before = stops[i];
+      after = stops[i + 1];
+      break;
+    }
+  }
+  
+  // Calculate interpolation factor
+  const range = after.position - before.position;
+  const t = range > 0 ? (position - before.position) / range : 0;
+  
+  // Parse colors
+  const beforeRGB = hexToRgb(before.color);
+  const afterRGB = hexToRgb(after.color);
+  
+  // Interpolate
+  const r = Math.round(beforeRGB.r + (afterRGB.r - beforeRGB.r) * t);
+  const g = Math.round(beforeRGB.g + (afterRGB.g - beforeRGB.g) * t);
+  const b = Math.round(beforeRGB.b + (afterRGB.b - beforeRGB.b) * t);
+  
+  return rgbToHex(r, g, b);
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16)
+  } : { r: 0, g: 0, b: 0 };
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return '#' + [r, g, b].map(x => {
+    const hex = x.toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  }).join('');
+}
+
+export default GradientEditor;

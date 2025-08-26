@@ -35,7 +35,11 @@ describe('Brush Utilities', () => {
     dashGap: 2,
     gridSnapEnabled: false,
     shapeEnabled: false,
-    useSwatchColor: false
+    useSwatchColor: false,
+    colorJitter: 0,
+    risographIntensity: 0,
+    risographOutline: false,
+    ditherEnabled: false
   };
 
   describe('calculateGridSpacing', () => {

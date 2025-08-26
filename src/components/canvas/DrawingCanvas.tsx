@@ -77,6 +77,7 @@ const DrawingCanvas = () => {
     if (brushShape === BrushShape.RECTANGLE_GRADIENT || brushShape === BrushShape.POLYGON_GRADIENT || brushShape === BrushShape.CONTOUR_POLYGON) {
       return 'crosshair';
     }
+    // Color cycle uses standard brush cursor to show size
     return 'none';
   }, [tools.currentTool, tools.brushSettings.brushShape]);
   

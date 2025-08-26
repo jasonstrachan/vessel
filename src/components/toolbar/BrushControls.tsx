@@ -10,6 +10,8 @@ import Input from "../ui/Input";
 import CustomSwitch from "../ui/CustomSwitch";
 import ProgressSlider from "../ui/ProgressSlider";
 import { drawTestSwatches } from "../../utils/drawTestSwatches";
+import { GradientEditor } from "../ui/GradientEditor";
+import { useBrushEngineSimplified } from "../../hooks/useBrushEngineSimplified";
 const BrushControls = () => {
   // Use individual selectors to avoid unstable object references
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
@@ -21,7 +23,10 @@ const BrushControls = () => {
   const globalBrushSize = useAppStore(state => state.globalBrushSize);
   const shapeMode = useAppStore(state => state.tools.shapeMode);
   const setShapeMode = useAppStore(state => state.setShapeMode);
-
+  
+  // Get brush engine for color cycle updates
+  const brushEngine = useBrushEngineSimplified();
+  
   // Determine if current brush is custom (uses percentage) or default (uses pixels)
   const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
   const sizeUnit = isCustomBrush ? '%' : 'px';
@@ -31,7 +36,134 @@ const BrushControls = () => {
     currentTool === "eraser" ? eraserSettings : brushSettings;
   const setActiveSettings =
     currentTool === "eraser" ? setEraserSettings : setBrushSettings;
+  
+  // Get animation state directly from brush engine (no local state)
+  const isColorCycleAnimating = activeSettings.brushShape === BrushShape.COLOR_CYCLE 
+    ? brushEngine.isColorCycleAnimating() 
+    : false;
 
+
+  // Show special controls for Color Cycle brush
+  if (activeSettings.brushShape === BrushShape.COLOR_CYCLE) {
+    return (
+      <div className="p-4">
+        {/* Play/Pause Button */}
+        <div className="mb-4">
+          <button
+            onClick={() => {
+              brushEngine.toggleColorCycleAnimation();
+              // Force re-render by updating a state that doesn't matter for the logic
+              // but triggers React to re-evaluate isColorCycleAnimating
+              setActiveSettings({});
+            }}
+            className="w-full py-2 px-4 bg-[#333] hover:bg-[#444] text-[#D9D9D9] rounded transition-colors"
+            style={{ fontSize: "14px" }}
+          >
+            {isColorCycleAnimating ? '⏸ Pause Animation' : '▶ Play Animation'}
+          </button>
+        </div>
+        
+        {/* Animation Speed */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Speed
+            </label>
+            <ProgressSlider
+              value={activeSettings.colorCycleSpeed || 1.0}
+              min={0.1}
+              max={5.0}
+              step={0.1}
+              onChange={(value) =>
+                setActiveSettings({ colorCycleSpeed: value })
+              }
+              aria-label="Animation Speed"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* FPS Control */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              FPS
+            </label>
+            <ProgressSlider
+              value={activeSettings.colorCycleFPS || 30}
+              min={15}
+              max={60}
+              step={5}
+              onChange={(value) =>
+                setActiveSettings({ colorCycleFPS: Math.round(value) })
+              }
+              aria-label="Frames Per Second"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Size */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Size px
+            </label>
+            <ProgressSlider
+              value={globalBrushSize}
+              min={1}
+              max={500}
+              step={1}
+              onChange={(value) => {
+                setGlobalBrushSize(Math.max(1, value));
+              }}
+              aria-label="Brush Size (px)"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Opacity */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Opacity
+            </label>
+            <ProgressSlider
+              value={activeSettings.opacity * 100}
+              min={1}
+              max={100}
+              onChange={(value) =>
+                setActiveSettings({ opacity: value / 100 })
+              }
+              aria-label="Opacity"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Gradient Editor */}
+        <div className="mt-4">
+          <label className="text-[#D9D9D9] text-xs block mb-2">Gradient</label>
+          <GradientEditor
+            stops={activeSettings.colorCycleGradient || [
+              { position: 0.0, color: '#ff0000' },
+              { position: 0.17, color: '#ff7f00' },
+              { position: 0.33, color: '#ffff00' },
+              { position: 0.5, color: '#00ff00' },
+              { position: 0.67, color: '#0000ff' },
+              { position: 0.83, color: '#4b0082' },
+              { position: 1.0, color: '#9400d3' }
+            ]}
+            onChange={(stops) => {
+              setActiveSettings({ colorCycleGradient: stops });
+              brushEngine.updateColorCycleGradient(stops);
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
 
   // Show special controls for Resampler brush
   if (activeSettings.brushShape === BrushShape.RESAMPLER) {
@@ -401,6 +533,46 @@ const BrushControls = () => {
                 setActiveSettings({ contourSpacing: Math.round(value) })
               }
               aria-label="Contour Spacing"
+              className="flex-1"
+            />
+          </div>
+        </div>
+        
+        {/* Contour Variance */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Variance
+            </label>
+            <ProgressSlider
+              value={activeSettings.contourVariance ?? 8}
+              min={0}
+              max={10}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ contourVariance: Math.round(value) })
+              }
+              aria-label="Contour Variance"
+              className="flex-1"
+            />
+          </div>
+        </div>
+        
+        {/* Contour Smoothness */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Smooth
+            </label>
+            <ProgressSlider
+              value={activeSettings.contourSmoothness ?? 2.5}
+              min={0}
+              max={5}
+              step={0.5}
+              onChange={(value) =>
+                setActiveSettings({ contourSmoothness: value })
+              }
+              aria-label="Contour Smoothness"
               className="flex-1"
             />
           </div>

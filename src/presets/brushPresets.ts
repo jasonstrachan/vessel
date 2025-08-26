@@ -386,6 +386,66 @@ export const inkBrushPreset: BrushPreset = {
   }
 };
 
+// Color Cycle Brush Components
+export const colorCycleBrushComponents: BrushComponent[] = [
+  {
+    id: 'color-cycle-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      minSize: 1,
+      maxSize: 500,
+      pressureInfluence: 0
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'color-cycle-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0.5
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'color-cycle-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.COLOR_CYCLE
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+export const colorCycleBrushPreset: BrushPreset = {
+  id: 'color-cycle-brush',
+  name: 'Color Cycle',
+  category: 'Special',
+  components: colorCycleBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['color', 'cycle', 'animated', 'special'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    size: 20,
+    opacity: 1,
+    colorCycleSpeed: 1.0,
+    colorCycleFPS: 30,
+    colorCycleGradient: [
+      { position: 0.0, color: '#ff0000' },
+      { position: 0.17, color: '#ff7f00' },
+      { position: 0.33, color: '#ffff00' },
+      { position: 0.5, color: '#00ff00' },
+      { position: 0.67, color: '#0000ff' },
+      { position: 0.83, color: '#4b0082' },
+      { position: 1.0, color: '#9400d3' }
+    ]
+  }
+};
+
 // Rectangle Gradient Brush Components
 export const rectangleGradientBrushComponents: BrushComponent[] = [
   {
@@ -588,6 +648,7 @@ export const brushPresets: BrushPreset[] = [
   roundPixel4Preset,
   roundSquare6Preset,
   inkBrushPreset,
+  colorCycleBrushPreset,
   rectangleGradientBrushPreset,
   polygonGradientBrushPreset,
   contourPolygonBrushPreset,

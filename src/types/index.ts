@@ -85,7 +85,8 @@ export enum BrushShape {
   CONTOUR_POLYGON = 'contour_polygon',
   RISOGRAPH_SOFT = 'risograph_soft',
   RISOGRAPH_ULTRA = 'risograph_ultra',
-  RESAMPLER = 'resampler'
+  RESAMPLER = 'resampler',
+  COLOR_CYCLE = 'color_cycle'
 }
 
 export interface CustomBrush {
@@ -256,6 +257,13 @@ export interface BrushSettings {
   fillResolution?: number; // 1-32 for dithering block size
   // Contour polygon settings
   contourSpacing?: number; // 1-10 (spacing between contour lines)
+  contourVariance?: number; // 0-10 (variance in spacing, 0=uniform, 10=high variance)
+  contourSmoothness?: number; // 0-5 (smoothness of contour lines, 0=sharp, 5=very smooth)
+  
+  // Color cycle brush settings
+  colorCycleSpeed?: number; // 0.1-5.0 (animation speed)
+  colorCycleGradient?: Array<{ position: number; color: string }>; // Gradient stops
+  colorCycleFPS?: number; // 15-60 (frames per second for animation)
 }
 
 export interface ComponentParams {
@@ -296,7 +304,7 @@ export interface HistoryState {
   isCapturing: boolean;
 }
 
-export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'new-document' | 'save' | 'load' | 'export-png' | 'custom' | 'options' | 'color-cycle' | 'rectangle' | 'ellipse' | 'line' | 'polygon';
+export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'new-document' | 'save' | 'load' | 'export-png' | 'custom' | 'options';
 
 export type BlendMode = GlobalCompositeOperation;
 
@@ -361,17 +369,4 @@ export interface PolygonGradientState {
   drawingState: 'idle' | 'drawing' | 'completed';
   points: PolygonGradientPoint[];
   previewPath?: Path2D;
-}
-
-export interface ColorCycleState {
-  isActive: boolean;
-  isPlaying: boolean;
-  selectedColors: string[];
-  selectedColorsRGB: { r: number; g: number; b: number }[];
-  fps: number;
-  selectedLayers: string[];
-  currentColorIndex: number;
-  colorMap: Map<string, string>;
-  layerColorIndexMaps: Map<string, Map<string, number>>;
-  originalLayerImageData: Map<string, ImageData>; // Store original state before color cycling
 }
