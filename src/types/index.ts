@@ -31,6 +31,18 @@ export interface Layer {
   order: number;
   imageData: ImageData | null;
   framebuffer: OffscreenCanvas;
+  
+  // Layer type system for supporting different rendering modes
+  layerType?: 'normal' | 'color-cycle';
+  
+  // Color cycle specific data (only present for CC layers)
+  colorCycleData?: {
+    gradient: Array<{ position: number; color: string }>;
+    colorCycleBrush?: any; // Will be ColorCycleBrush instance
+    isAnimating: boolean;
+    // Store the canvas element for this CC layer
+    canvas?: HTMLCanvasElement;
+  };
 }
 
 export interface BrushPreset {

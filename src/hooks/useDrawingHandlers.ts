@@ -65,7 +65,10 @@ export function useDrawingHandlers({
 }: UseDrawingHandlersProps) {
   const brushEngine = useBrushEngineSimplified();
   const userBrushEngine = useUserBrushEngine();
-  const { captureCanvasToActiveLayer, saveCanvasState, tools } = useAppStore();
+  const { captureCanvasToActiveLayer, saveCanvasState, tools, layers, activeLayerId } = useAppStore();
+  
+  // Feedback message state
+  const feedbackMessageRef = useRef<((message: string) => void) | null>(null);
   
   const drawingCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingCtxRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -160,6 +163,79 @@ export function useDrawingHandlers({
     const currentState = useAppStore.getState();
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
+    
+    // Layer type handling and validation
+    const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+    if (activeLayer) {
+      const isColorCycleBrush = currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE;
+      
+      // If layer has no type yet, convert it based on first stroke
+      if (!activeLayer.layerType) {
+        if (isColorCycleBrush) {
+          // Convert to CC layer with current gradient
+          const gradient = currentState.tools.brushSettings.colorCycleGradient || [
+            { position: 0.0, color: '#ff0000' },
+            { position: 0.17, color: '#ff7f00' },
+            { position: 0.33, color: '#ffff00' },
+            { position: 0.5, color: '#00ff00' },
+            { position: 0.67, color: '#0000ff' },
+            { position: 0.83, color: '#4b0082' },
+            { position: 1.0, color: '#9400d3' }
+          ];
+          
+          // Update layer to be CC type
+          currentState.updateLayer(activeLayer.id, {
+            layerType: 'color-cycle',
+            colorCycleData: {
+              gradient: gradient,
+              isAnimating: true
+            }
+          });
+        } else {
+          // Convert to normal layer
+          currentState.updateLayer(activeLayer.id, {
+            layerType: 'normal'
+          });
+        }
+      } else {
+        // Layer already has a type, validate compatibility
+        const isColorCycleLayer = activeLayer.layerType === 'color-cycle';
+        
+        // Check for incompatible combinations
+        if (isColorCycleBrush && !isColorCycleLayer) {
+          // CC brush on normal layer
+          if (feedbackMessageRef.current) {
+            feedbackMessageRef.current("This layer is for normal brushes only");
+          }
+          return; // Block drawing
+        }
+        
+        if (!isColorCycleBrush && isColorCycleLayer && currentTool !== 'eraser') {
+          // Normal brush on CC layer (allow eraser on any layer)
+          if (feedbackMessageRef.current) {
+            feedbackMessageRef.current("This layer is for color cycle brushes only");
+          }
+          return; // Block drawing
+        }
+        
+        // Check gradient compatibility for CC layers
+        if (isColorCycleBrush && isColorCycleLayer) {
+          const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
+          const layerGradient = activeLayer.colorCycleData?.gradient;
+          
+          if (brushGradient && layerGradient) {
+            // Compare gradients
+            const gradientsMatch = JSON.stringify(brushGradient) === JSON.stringify(layerGradient);
+            if (!gradientsMatch) {
+              if (feedbackMessageRef.current) {
+                feedbackMessageRef.current("This layer uses a different gradient");
+              }
+              return; // Block drawing
+            }
+          }
+        }
+      }
+    }
     
     initDrawingCanvas();
     
@@ -687,6 +763,7 @@ export function useDrawingHandlers({
             await captureCanvasToActiveLayer(tempCanvas);
             saveCanvasState(tempCanvas, 'brush', 'Drawing stroke');
             
+            
             // Clean up temporary canvas to prevent memory leak
             tempCanvas.width = 1;
             tempCanvas.height = 1;
@@ -958,6 +1035,26 @@ export function useDrawingHandlers({
             }
           }
           
+          // For color cycle brush, we need to fill the shape and render it
+          if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && drawCtx) {
+            // Don't stop the animation - let it continue if it's playing
+            // We'll just add the shape to the color cycle layers
+            
+            // Reset and fill the shape with color cycle gradient
+            brushEngine.resetColorCycle();
+            
+            // Fill the shape with gradient
+            if (shapePointsRef.current.length >= 3) {
+              brushEngine.fillColorCycleShape(shapePointsRef.current);
+            }
+            
+            // Clear and do one final render at FULL OPACITY
+            if (drawingCanvasRef.current) {
+              drawCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+              brushEngine.renderColorCycle(drawCtx, false); // false = don't apply opacity
+            }
+          }
+          
           drawingCanvasHasContent.current = true;
         }
         
@@ -1040,6 +1137,9 @@ export function useDrawingHandlers({
           
           // Mark that we have content to ensure it gets composited
           drawingCanvasHasContent.current = true;
+          
+          // Trigger main canvas redraw to composite the updated drawing canvas
+          window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
         }
         lastRenderTime = timestamp;
       }
@@ -1070,6 +1170,11 @@ export function useDrawingHandlers({
     }
   }, [brushEngine]);
   
+  // Setter for feedback message callback
+  const setFeedbackCallback = useCallback((callback: (message: string) => void) => {
+    feedbackMessageRef.current = callback;
+  }, []);
+  
   return {
     drawingCanvasRef,
     drawingCanvasHasContent,
@@ -1086,5 +1191,6 @@ export function useDrawingHandlers({
     isDrawingShapeRef,
     startContinuousColorCycleAnimation,
     stopContinuousColorCycleAnimation,
+    setFeedbackCallback
   };
 }

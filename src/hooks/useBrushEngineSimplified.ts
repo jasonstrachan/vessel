@@ -567,13 +567,9 @@ export const useBrushEngineSimplified = () => {
     // Use cached isPixelBrush value for crisp edges
     
     // Debug: Log input colors
-    // console.log('Input colors to drawPolygonGradient:', colors);
-    // console.log('Number of colors:', colors?.length);
     // if (colors && colors.length > 0) {
-    //   console.log('First 10 colors:', colors.slice(0, 10));
     //   // Check for black/undefined values
     //   const blackCount = colors.filter(c => c === '#000000' || c === 'rgb(0, 0, 0)' || !c).length;
-    //   console.log(`Black/undefined colors: ${blackCount} out of ${colors.length}`);
     // }
     
     if (!vertices || !Array.isArray(vertices) || vertices.length < 3) return;
@@ -609,7 +605,6 @@ export const useBrushEngineSimplified = () => {
       }
     }
     
-    // console.log('Gradient calculation:', {
     //   point1,
     //   point2,
     //   distance: maxDistance,
@@ -675,7 +670,6 @@ export const useBrushEngineSimplified = () => {
         }
       }
       
-      // console.log(`Gradient with ${Math.min(numColors, orderedUniqueColors.length)} unique colors from ${orderedUniqueColors.length} available`);
     } else {
       // Fallback: use first and last colors
       if (validColors.length === 1) {
@@ -1456,7 +1450,6 @@ export const useBrushEngineSimplified = () => {
    */
   const initializeColorCycleBrush = useCallback(() => {
     if (!colorCycleBrushRef.current) {
-      console.log('[ColorCycle] Brush does not exist, creating NEW instance');
       // OPTIMIZED: Use actual canvas dimensions for initial brush
       const targetWidth = project?.width || 1024;
       const targetHeight = project?.height || 1024;
@@ -1497,12 +1490,7 @@ export const useBrushEngineSimplified = () => {
         { position: 0.83, color: '#4b0082' },
         { position: 1.0, color: '#9400d3' }
       ];
-      console.log('[ColorCycle] Creating brush instance ONCE with gradient:', gradientToUse);
       colorCycleBrushRef.current.setGradient(gradientToUse);
-      
-      // Start animation immediately after creating the brush
-      colorCycleBrushRef.current.resumeAnimation();
-      console.log('[ColorCycle] Started animation after brush creation');
       
       return colorCycleBrushRef.current;
     } else {
@@ -1517,9 +1505,7 @@ export const useBrushEngineSimplified = () => {
       // UPDATE THE GRADIENT HERE TOO
       if (tools.brushSettings.colorCycleGradient) {
         colorCycleBrushRef.current.setGradient(tools.brushSettings.colorCycleGradient);
-        console.log('[useBrushEngineSimplified] Updated existing brush with gradient:', tools.brushSettings.colorCycleGradient);
       }
-      console.log('[useBrushEngineSimplified] Brush already exists, updated all settings');
       return colorCycleBrushRef.current;
     }
   }, [tools.brushSettings.size, tools.brushSettings.colorCycleFPS, tools.brushSettings.colorCycleSpeed, tools.brushSettings.colorCycleGradient, project?.width, project?.height]);
@@ -1611,7 +1597,6 @@ export const useBrushEngineSimplified = () => {
     if (brush) {
       // Just start a new stroke with the existing brush
       brush.startStroke();
-      console.log('[ColorCycle] Started new stroke with existing persistent brush');
     }
   }, [initializeColorCycleBrush]);
   
@@ -1623,6 +1608,51 @@ export const useBrushEngineSimplified = () => {
       colorCycleBrushRef.current.endStroke();
     }
   }, []);
+  
+  /**
+   * Fill a shape with color cycle gradient from edges to center
+   */
+  const fillColorCycleShape = useCallback((vertices: Array<{ x: number; y: number }>) => {
+    // Initialize brush if needed
+    const brush = initializeColorCycleBrush();
+    
+    if (brush) {
+      // Start a stroke to ensure proper layer setup
+      brush.startStroke();
+      
+      // Ensure we have a layer by setting the gradient if needed
+      if ((brush as any).currentLayerIndex < 0) {
+        // Set the gradient to create a layer
+        const currentGradient = tools.brushSettings.colorGradient || [
+          { position: 0, color: '#ff0000' },
+          { position: 0.5, color: '#00ff00' },
+          { position: 1, color: '#0000ff' }
+        ];
+        brush.setGradient(currentGradient);
+      }
+      
+      // Convert canvas coordinates to WebGL canvas coordinates
+      const webglCanvas = (brush as any).webglCanvas;
+      
+      const scaleX = webglCanvas.width / (project?.width || 1920);
+      const scaleY = webglCanvas.height / (project?.height || 1080);
+      
+      // Scale vertices to WebGL canvas space
+      const scaledVertices = vertices.map(v => ({
+        x: v.x * scaleX,
+        y: v.y * scaleY
+      }));
+      
+      // Fill the shape
+      brush.fillShape(scaledVertices);
+      
+      // End the stroke to ensure texture is updated
+      brush.endStroke();
+      
+      // Force a render to ensure the shape is visible
+      brush.render(true);
+    }
+  }, [initializeColorCycleBrush, project?.width, project?.height, tools.brushSettings.colorGradient]);
 
   // Color cycle functions removed - now defined inline in return object to avoid stale closures
   
@@ -1676,16 +1706,14 @@ export const useBrushEngineSimplified = () => {
     renderColorCycle,
     resetColorCycle,
     endColorCycleStroke,
+    fillColorCycleShape,
     
     // These need fresh ref access, define inline:
     updateColorCycleGradient: (stops: Array<{ position: number; color: string }>) => {
-      console.log('[useBrushEngineSimplified] updateColorCycleGradient called with:', stops);
       
       if (colorCycleBrushRef.current) {
-        console.log('[useBrushEngineSimplified] Updating existing brush gradient');
         colorCycleBrushRef.current.setGradient(stops);
       } else {
-        console.log('[useBrushEngineSimplified] No brush exists, skipping gradient update');
       }
     },
     
@@ -1721,7 +1749,6 @@ export const useBrushEngineSimplified = () => {
     clearColorCycleStrokes: () => {
       if (colorCycleBrushRef.current) {
         colorCycleBrushRef.current.clear();
-        console.log('[ColorCycle] Cleared brush content');
       }
     },
     

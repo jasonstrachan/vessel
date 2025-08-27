@@ -22,6 +22,22 @@ button, input, select, textarea, [role="button"], .clickable {
   cursor: pointer !important;
 }
 
+/* Remove focus outlines from buttons and selects */
+button:focus,
+select:focus {
+  outline: none !important;
+}
+
+/* Override default blue selection in dropdowns */
+select option:checked,
+select option:hover,
+select option:focus,
+select option:active {
+  background-color: #555 !important;
+  color: #D9D9D9 !important;
+  box-shadow: none !important;
+}
+
 /* Hide offscreen canvas */
 .truly-offscreen-canvas {
   position: absolute;

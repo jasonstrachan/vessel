@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { useAppStore } from '../../stores/useAppStore';
+import Dropdown from './Dropdown';
 
 interface GradientStop {
   position: number;
@@ -171,36 +171,33 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
 
   const handlePresetChange = useCallback((preset: keyof typeof presetGradients) => {
     const newStops = [...presetGradients[preset]];
-    console.log('[GradientEditor] handlePresetChange - preset:', preset);
-    console.log('[GradientEditor] handlePresetChange - newStops:', newStops);
     setStops(newStops);
     onChange(newStops);
-    console.log('[GradientEditor] handlePresetChange - onChange called');
   }, [onChange]);
 
   return (
     <div className={`gradient-editor relative ${className}`} ref={containerRef}>
       {/* Preset selector */}
       <div className="mb-2">
-        <select 
-          className="w-full bg-gray-800 text-gray-300 text-xs px-2 py-1 rounded border border-gray-700"
-          onChange={(e) => handlePresetChange(e.target.value as keyof typeof presetGradients)}
-          defaultValue=""
-        >
-          <option value="" disabled>Select preset...</option>
-          <option value="rainbow">Rainbow</option>
-          <option value="fire">Fire</option>
-          <option value="ocean">Ocean</option>
-          <option value="sunset">Sunset</option>
-          <option value="mint">Mint</option>
-        </select>
+        <Dropdown
+          value=""
+          options={[
+            { value: 'rainbow', label: 'Rainbow' },
+            { value: 'fire', label: 'Fire' },
+            { value: 'ocean', label: 'Ocean' },
+            { value: 'sunset', label: 'Sunset' },
+            { value: 'mint', label: 'Mint' }
+          ]}
+          onChange={(value) => handlePresetChange(value as keyof typeof presetGradients)}
+          placeholder="Select preset..."
+        />
       </div>
 
       {/* Gradient preview bar with checkerboard background for transparency */}
       <div className="relative mb-2">
         {/* Checkerboard background */}
         <div 
-          className="absolute inset-0 rounded border border-gray-700"
+          className="absolute inset-0 border border-[#5a5a5a]"
           style={{
             backgroundImage: `repeating-conic-gradient(#606060 0% 25%, #404040 0% 50%)`,
             backgroundSize: '16px 16px',
@@ -208,7 +205,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         />
         {/* Gradient overlay */}
         <div 
-          className="relative h-8 rounded border border-gray-700 cursor-pointer"
+          className="relative h-8 border border-[#5a5a5a] cursor-pointer"
           style={{ 
             background: `linear-gradient(90deg, ${gradientString})` 
           }}
@@ -228,18 +225,10 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
               {/* Stop handle - square shape */}
               <div 
                 className={`w-4 h-4 border-2 ${
-                  selectedStop === index ? 'border-white' : 'border-gray-400'
+                  selectedStop === index ? 'border-white' : 'border-[#888]'
                 } shadow-lg`}
                 style={{ 
                   backgroundColor: stop.color,
-                  opacity: stop.opacity ?? 1
-                }}
-              />
-              {/* Position indicator */}
-              <div 
-                className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[6px] absolute top-4 left-1/2 transform -translate-x-1/2"
-                style={{ 
-                  borderBottomColor: stop.color,
                   opacity: stop.opacity ?? 1
                 }}
               />
@@ -248,27 +237,30 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         </div>
       </div>
 
-      {/* Color input positioned near the gradient */}
+      {/* Color input positioned well above the gradient */}
       <input
         ref={colorInputRef}
         type="color"
         onChange={handleColorChange}
         className="absolute"
         style={{
-          left: '50%',
-          top: '50%',
-          transform: 'translate(-50%, -50%)',
+          left: '0',
+          top: '-230px', // Moved down 20px, aligned with gradient
+          transform: 'none',
           opacity: 0,
-          pointerEvents: 'none'
+          pointerEvents: 'none',
+          zIndex: 200, // Higher z-index to appear above BrushEditorUI modal (z-index: 100)
+          width: '1px',
+          height: '1px'
         }}
       />
 
       {/* Controls */}
-      <div className="flex justify-between text-xs text-gray-400">
+      <div className="flex justify-between text-xs text-[#888]">
         <span>Click gradient to add stop</span>
         {selectedStop !== null && stops.length > 2 && (
           <button
-            className="text-red-400 hover:text-red-300"
+            className="text-[#ff6b6b] hover:text-[#ff8888]"
             onClick={() => handleDeleteStop(selectedStop)}
           >
             Delete stop

@@ -13,7 +13,11 @@ import { detectWacomIssues, testWacomPressure } from '../../utils/detectWacom';
 import BrushCursor from './BrushCursor';
 import { setColorCycleAnimationHandlers, getColorCycleAnimationState } from '../toolbar/BrushControls';
 
-const DrawingCanvas = () => {
+interface DrawingCanvasProps {
+  showFeedback?: (message: string) => void;
+}
+
+const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null); 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const isBusyRef = useRef(false); // Lock to prevent concurrent operations
@@ -202,7 +206,7 @@ const DrawingCanvas = () => {
         ctx.drawImage(compositeCanvasRef.current, 0, 0);
       }
       
-      // Draw temporary drawing canvas
+      // Draw temporary drawing canvas  
       if (!skipDrawingCanvas && drawingCanvasRef && 
           (isDrawing || drawingCanvasHasContent)) {
         
@@ -211,11 +215,8 @@ const DrawingCanvas = () => {
         ctx.drawImage(drawingCanvasRef, 0, 0);
       }
       
-      // Draw color cycle animation if active
-      if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && 
-          brushEngine.isColorCycleAnimating()) {
-        brushEngine.renderColorCycle(ctx, true);
-      }
+      // Note: Color cycle animation is now rendered to the drawing canvas
+      // in useDrawingHandlers, so it gets composited in the correct layer order
       
       ctx.restore();
       
@@ -305,7 +306,7 @@ const DrawingCanvas = () => {
   const interaction = useCanvasInteraction();
   const stateMachine = useCanvasStateMachine();
   const pan = useSimplePan({ scale: canvas?.zoom || 1 });
-  const prevStateRef = useRef(stateMachine.state);
+  // const prevStateRef = useRef(stateMachine.state);
   
   // Simplified cursor state ref for space key
   const isSpacePressedRef = useRef(false);
@@ -350,7 +351,14 @@ const DrawingCanvas = () => {
   });
   
   // Extract the color cycle animation functions for use by BrushControls
-  const { startContinuousColorCycleAnimation, stopContinuousColorCycleAnimation } = drawingHandlers;
+  const { startContinuousColorCycleAnimation, stopContinuousColorCycleAnimation, setFeedbackCallback } = drawingHandlers;
+  
+  // Connect feedback callback
+  useEffect(() => {
+    if (showFeedback && setFeedbackCallback) {
+      setFeedbackCallback(showFeedback);
+    }
+  }, [showFeedback, setFeedbackCallback]);
   
   // Animation frame for continuous color cycle rendering
   const colorCycleRenderLoopRef = useRef<number | null>(null);
@@ -653,8 +661,22 @@ const DrawingCanvas = () => {
         const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
         
         if (drawCtx && brushEngine) {
-          // Check if it's a contour polygon or gradient polygon
-          if (toolStateMachine.isContourPolygon) {
+          // Check if we're using color cycle brush in shape mode
+          if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && tools.shapeMode) {
+            // Reset color cycle for new shape
+            brushEngine.resetColorCycle();
+            
+            // Fill shape with color cycle gradient from edges to center
+            const points = toolStateMachine.polygonGradientState.points.map(p => ({ x: p.x, y: p.y }));
+            brushEngine.fillColorCycleShape(points);
+            
+            // Clear the drawing canvas before rendering
+            drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+            
+            // Render the color cycle immediately at full opacity
+            brushEngine.renderColorCycle(drawCtx, false);
+          } else if (toolStateMachine.isContourPolygon) {
+            // Check if it's a contour polygon
             brushEngine.drawContourPolygon(
               drawCtx,
               {
@@ -663,6 +685,7 @@ const DrawingCanvas = () => {
               false
             );
           } else {
+            // Standard polygon gradient
             brushEngine.drawPolygonGradient(
               drawCtx,
               {
@@ -2248,11 +2271,8 @@ const DrawingCanvas = () => {
   // Listen for color cycle animation frame updates
   useEffect(() => {
     const handleColorCycleFrame = () => {
-      // Only update if we're in color cycle mode
-      if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
-        // Trigger a full redraw which will include the color cycle animation
-        setNeedsRedraw(prev => prev + 1);
-      }
+      // Trigger a redraw to composite the updated drawing canvas
+      setNeedsRedraw(prev => prev + 1);
     };
     
     window.addEventListener('colorCycleFrameReady', handleColorCycleFrame);
@@ -2260,7 +2280,7 @@ const DrawingCanvas = () => {
     return () => {
       window.removeEventListener('colorCycleFrameReady', handleColorCycleFrame);
     };
-  }, [tools.brushSettings.brushShape, brushEngine]);
+  }, []);
   
   
   return (

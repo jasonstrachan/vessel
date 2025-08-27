@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import LeftToolbar from '../components/LeftToolbar';
 import BrushLibrary from '../components/BrushLibrary';
 import ControlsPanel from '../components/ControlsPanel';
 import ColorPickerPanel from '../components/panels/ColorPickerPanel';
 import DrawingCanvas from '../components/canvas/DrawingCanvas';
 import BrushEditorUI from '../components/BrushEditorUI';
+import MinimalLayerList from '../components/MinimalLayerList';
+import FeedbackStrip from '../components/FeedbackStrip';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
 import { DocumentModal } from '../components/modals/DocumentModal';
 import { SettingsModal } from '../components/modals/SettingsModal';
@@ -24,9 +26,16 @@ export default function Home() {
   const toggleModal = useAppStore(state => state.toggleModal);
   const ui = useAppStore(state => state.ui);
   const autosave = useAppStore(state => state.autosave);
-  const currentTool = useAppStore(state => state.tools.currentTool);
+  // const currentTool = useAppStore(state => state.tools.currentTool);
   const project = useAppStore(state => state.project);
   const newProject = useAppStore(state => state.newProject);
+  
+  // Feedback strip state
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  
+  const showFeedback = useCallback((message: string) => {
+    setFeedbackMessage(message);
+  }, []);
 
   // Create default project on initial load if no layers exist
   useEffect(() => {
@@ -127,7 +136,14 @@ export default function Home() {
           position: 'relative'
         }}
       >
-        <DrawingCanvas />
+        <DrawingCanvas showFeedback={showFeedback} />
+        <MinimalLayerList />
+        {feedbackMessage && (
+          <FeedbackStrip 
+            message={feedbackMessage} 
+            onClose={() => setFeedbackMessage(null)} 
+          />
+        )}
       </div>
       
       {/* Separator */}

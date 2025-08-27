@@ -9,6 +9,7 @@ import { BrushShape } from "../../types";
 import Input from "../ui/Input";
 import CustomSwitch from "../ui/CustomSwitch";
 import ProgressSlider from "../ui/ProgressSlider";
+import Dropdown from "../ui/Dropdown";
 import { drawTestSwatches } from "../../utils/drawTestSwatches";
 import { GradientEditor } from "../ui/GradientEditor";
 
@@ -96,14 +97,14 @@ const BrushControls = () => {
                 }
               }
             }}
-            className="w-full py-2 px-4 bg-[#333] hover:bg-[#444] text-[#D9D9D9] rounded transition-colors"
-            style={{ fontSize: "14px" }}
+            className="w-full h-8 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none"
           >
-            {isAnimating ? '⏸ Pause Animation' : '▶ Play Animation'}
+            <span className="text-[10px]">{isAnimating ? '⏸' : '▶'}</span>
+            <span className="ml-1">{isAnimating ? 'Pause' : 'Play'}</span>
           </button>
         </div>
         
-        {/* Gradient Editor - moved below play/pause button */}
+        {/* Gradient Editor - positioned first to avoid overlap */}
         <div className="mb-4">
           <GradientEditor
             stops={activeSettings.colorCycleGradient || [
@@ -224,25 +225,6 @@ const BrushControls = () => {
           </div>
         </div>
 
-        {/* Flow */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              Flow
-            </label>
-            <ProgressSlider
-              value={activeSettings.flow || 1}
-              min={0}
-              max={1}
-              step={0.01}
-              onChange={(value) =>
-                setActiveSettings({ flow: value })
-              }
-              aria-label="Flow"
-              className="flex-1"
-            />
-          </div>
-        </div>
 
         {/* Color Jitter */}
         <div className="mb-2">
@@ -260,6 +242,24 @@ const BrushControls = () => {
               }
               aria-label="Color Jitter"
               className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Shape Mode - Draw closed polygon shapes with gradient fill */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="shape-mode-color-cycle"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Shape
+            </label>
+            <CustomSwitch
+              id="shape-mode-color-cycle"
+              checked={shapeMode || false}
+              onChange={(checked) => setShapeMode(checked)}
             />
           </div>
         </div>
@@ -412,24 +412,6 @@ const BrushControls = () => {
             />
           </div>
         </div>
-
-        {/* Shape Mode - Draw closed polygon shapes */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="shape-mode-color-cycle"
-              className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
-            >
-              Shape
-            </label>
-            <CustomSwitch
-              id="shape-mode-color-cycle"
-              checked={shapeMode || false}
-              onChange={(checked) => setShapeMode(checked)}
-            />
-          </div>
-        </div>
       </div>
     );
   }
@@ -538,25 +520,6 @@ const BrushControls = () => {
           </div>
         </div>
 
-        {/* Col Jit */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              Col Jit
-            </label>
-            <ProgressSlider
-              value={activeSettings.colorJitter || 0}
-              min={0}
-              max={100}
-              step={1}
-              onChange={(value) =>
-                setActiveSettings({ colorJitter: Math.round(value) })
-              }
-              aria-label="Color Jitter"
-              className="flex-1"
-            />
-          </div>
-        </div>
 
         {/* Riso */}
         <div className="mb-2">
@@ -954,42 +917,38 @@ const BrushControls = () => {
             <>
               <div className="flex items-center gap-2 mt-2">
                 <div className="w-16" /> {/* Empty space to align with label column */}
-                <select
+                <Dropdown
                   value={activeSettings.ditherAlgorithm || 'sierra-lite'}
-                  onChange={(e) => {
-                    setActiveSettings({ ditherAlgorithm: e.target.value as 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern' });
-                    e.currentTarget.blur();
-                  }}
-                  className="flex-1 bg-[#4a4a4a] text-[#D9D9D9] border border-[#5a5a5a] rounded px-2 py-1 text-xs focus:outline-none focus:border-[#6a6a6a]"
-                >
-                  <option value="sierra-lite">Sierra Lite</option>
-                  <option value="floyd-steinberg">Floyd-Steinberg</option>
-                  <option value="bayer">Bayer Matrix</option>
-                  <option value="atkinson">Atkinson</option>
-                  <option value="blue-noise">Blue Noise</option>
-                  <option value="pattern">Pattern</option>
-                </select>
+                  options={[
+                    { value: 'sierra-lite', label: 'Sierra Lite' },
+                    { value: 'floyd-steinberg', label: 'Floyd-Steinberg' },
+                    { value: 'bayer', label: 'Bayer Matrix' },
+                    { value: 'atkinson', label: 'Atkinson' },
+                    { value: 'blue-noise', label: 'Blue Noise' },
+                    { value: 'pattern', label: 'Pattern' }
+                  ]}
+                  onChange={(value) => setActiveSettings({ ditherAlgorithm: value as 'floyd-steinberg' | 'bayer' | 'sierra-lite' | 'atkinson' | 'blue-noise' | 'pattern' })}
+                  className="flex-1"
+                />
               </div>
               
               {/* Pattern Style Dropdown - only show when Pattern algorithm is selected */}
               {activeSettings.ditherAlgorithm === 'pattern' && (
                 <div className="flex items-center gap-2 mt-2">
                   <div className="w-16" /> {/* Empty space to align with label column */}
-                  <select
+                  <Dropdown
                     value={activeSettings.patternStyle || 'dots'}
-                    onChange={(e) => {
-                      setActiveSettings({ patternStyle: e.target.value as 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal' });
-                      e.currentTarget.blur();
-                    }}
-                    className="flex-1 bg-[#4a4a4a] text-[#D9D9D9] border border-[#5a5a5a] rounded px-2 py-1 text-xs focus:outline-none focus:border-[#6a6a6a]"
-                  >
-                    <option value="dots">Dots</option>
-                    <option value="lines">Diagonal Lines</option>
-                    <option value="vertical-lines">Vertical Lines</option>
-                    <option value="horizontal-lines">Horizontal Lines</option>
-                    <option value="crosshatch">Crosshatch</option>
-                    <option value="diagonal">Diamond</option>
-                  </select>
+                    options={[
+                      { value: 'dots', label: 'Dots' },
+                      { value: 'lines', label: 'Diagonal Lines' },
+                      { value: 'vertical-lines', label: 'Vertical Lines' },
+                      { value: 'horizontal-lines', label: 'Horizontal Lines' },
+                      { value: 'crosshatch', label: 'Crosshatch' },
+                      { value: 'diagonal', label: 'Diamond' }
+                    ]}
+                    onChange={(value) => setActiveSettings({ patternStyle: value as 'dots' | 'lines' | 'vertical-lines' | 'horizontal-lines' | 'crosshatch' | 'diagonal' })}
+                    className="flex-1"
+                  />
                 </div>
               )}
             </>
@@ -1072,25 +1031,6 @@ const BrushControls = () => {
         </div>
       </div>
 
-      {/* Col Jit */}
-      <div className="mb-2">
-        <div className="flex items-center gap-2">
-          <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-            Col Jit
-          </label>
-          <ProgressSlider
-            value={activeSettings.colorJitter || 0}
-            min={0}
-            max={100}
-            step={1}
-            onChange={(value) =>
-              setActiveSettings({ colorJitter: Math.round(value) })
-            }
-            aria-label="Color Jitter"
-            className="flex-1"
-          />
-        </div>
-      </div>
 
       {/* Riso */}
       <div className="mb-2">

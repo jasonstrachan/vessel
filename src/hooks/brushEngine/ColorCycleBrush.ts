@@ -94,11 +94,11 @@ export class ColorCycleBrush {
     const gl = canvas.getContext('webgl', {
       alpha: true,  // Enable alpha for transparency
       preserveDrawingBuffer: true,
-      premultipliedAlpha: true  // Changed to true for proper blending
+      premultipliedAlpha: false  // Use unpremultiplied alpha for correct blending
     }) || canvas.getContext('experimental-webgl', {
       alpha: true,  // Enable alpha for transparency
       preserveDrawingBuffer: true,
-      premultipliedAlpha: true  // Changed to true for proper blending
+      premultipliedAlpha: false  // Use unpremultiplied alpha for correct blending
     });
     
     if (!gl) {
@@ -235,7 +235,6 @@ export class ColorCycleBrush {
   private addNewLayer(gradientStops: Array<{ position: number; color: string }>) {
     const gl = this.gl;
     
-    console.log('[ColorCycleBrush] Adding new layer with gradient:', gradientStops);
     
     // Create new paint buffer for this layer
     const paintBuffer = new Uint8Array(this.width * this.height * 4);
@@ -280,7 +279,6 @@ export class ColorCycleBrush {
     });
     
     this.currentLayerIndex = this.layers.length - 1;
-    console.log(`[ColorCycleBrush] Now have ${this.layers.length} layers, current index: ${this.currentLayerIndex}`);
   }
   
   
@@ -334,14 +332,140 @@ export class ColorCycleBrush {
     } : { r: 0, g: 0, b: 0 };
   }
   
-  // Painting methods
-  paint(x: number, y: number) {
+  // Fill a shape with gradient from edges to center
+  fillShape(vertices: Array<{ x: number; y: number }>) {
     if (this.currentLayerIndex < 0) {
-      console.warn('[ColorCycleBrush] No layer available for painting');
+      console.warn('[ColorCycleBrush] No layer available for filling shape');
+      return;
+    }
+    
+    if (!vertices || vertices.length < 3) {
+      console.warn('[ColorCycleBrush] Need at least 3 vertices to fill a shape');
       return;
     }
     
     const currentLayer = this.layers[this.currentLayerIndex];
+    
+    // Calculate shape bounds
+    let minX = this.width, minY = this.height, maxX = 0, maxY = 0;
+    vertices.forEach(v => {
+      minX = Math.min(minX, v.x);
+      minY = Math.min(minY, v.y);
+      maxX = Math.max(maxX, v.x);
+      maxY = Math.max(maxY, v.y);
+    });
+    
+    // Calculate shape center
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    
+    // Calculate max distance from center to any vertex (for normalization)
+    let maxDistance = 0;
+    vertices.forEach(v => {
+      const dist = Math.sqrt((v.x - centerX) ** 2 + (v.y - centerY) ** 2);
+      maxDistance = Math.max(maxDistance, dist);
+    });
+    
+    // Scan the bounding box and fill pixels inside the polygon
+    for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) {
+      for (let x = Math.floor(minX); x <= Math.ceil(maxX); x++) {
+        if (x < 0 || x >= this.width || y < 0 || y >= this.height) continue;
+        
+        // Check if point is inside polygon using ray casting
+        if (this.isPointInPolygon(x, y, vertices)) {
+          // Calculate distance from edge (use distance to nearest edge)
+          const edgeDistance = this.distanceToPolygonEdge(x, y, vertices);
+          
+          // Normalize to 0-1 range (0 = edge, 1 = center)
+          const normalizedDistance = Math.min(1.0, edgeDistance / (maxDistance * 0.5));
+          
+          // Invert so gradient goes from edge (0) to center (1)
+          const gradientPosition = 1.0 - normalizedDistance;
+          
+          // Convert to byte value for texture
+          const indexByte = Math.floor(gradientPosition * 255);
+          
+          // Paint pixel
+          const idx = (y * this.width + x) * 4;
+          currentLayer.paintBuffer[idx] = indexByte;
+          currentLayer.paintBuffer[idx + 1] = 0;
+          currentLayer.paintBuffer[idx + 2] = 0;
+          currentLayer.paintBuffer[idx + 3] = 255; // Full opacity
+        }
+      }
+    }
+    
+    // Mark layer as having content and update texture
+    currentLayer.hasContent = true;
+    this.updateIndexTexture(this.currentLayerIndex);
+  }
+  
+  // Helper: Check if point is inside polygon
+  private isPointInPolygon(x: number, y: number, vertices: Array<{ x: number; y: number }>): boolean {
+    let inside = false;
+    const n = vertices.length;
+    
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const xi = vertices[i].x, yi = vertices[i].y;
+      const xj = vertices[j].x, yj = vertices[j].y;
+      
+      if (((yi > y) !== (yj > y)) &&
+          (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+        inside = !inside;
+      }
+    }
+    
+    return inside;
+  }
+  
+  // Helper: Calculate distance from point to polygon edge
+  private distanceToPolygonEdge(x: number, y: number, vertices: Array<{ x: number; y: number }>): number {
+    let minDistance = Infinity;
+    const n = vertices.length;
+    
+    // Check distance to each edge
+    for (let i = 0; i < n; i++) {
+      const v1 = vertices[i];
+      const v2 = vertices[(i + 1) % n];
+      
+      // Calculate distance to line segment
+      const dx = v2.x - v1.x;
+      const dy = v2.y - v1.y;
+      const lenSq = dx * dx + dy * dy;
+      
+      let t = 0;
+      if (lenSq > 0) {
+        t = Math.max(0, Math.min(1, ((x - v1.x) * dx + (y - v1.y) * dy) / lenSq));
+      }
+      
+      const projX = v1.x + t * dx;
+      const projY = v1.y + t * dy;
+      const dist = Math.sqrt((x - projX) ** 2 + (y - projY) ** 2);
+      
+      minDistance = Math.min(minDistance, dist);
+    }
+    
+    return minDistance;
+  }
+  
+  // Painting methods
+  paint(x: number, y: number) {
+    if (this.currentLayerIndex < 0 || this.currentLayerIndex >= this.layers.length) {
+      console.warn('[ColorCycleBrush] Invalid layer index, reinitializing');
+      // Safety: create a default layer if we somehow have no valid layer
+      if (this.layers.length === 0) {
+        this.addNewLayer(this.defaultGradient());
+      } else {
+        this.currentLayerIndex = this.layers.length - 1;
+      }
+    }
+    
+    const currentLayer = this.layers[this.currentLayerIndex];
+    if (!currentLayer) {
+      console.error('[ColorCycleBrush] Layer is null, cannot paint');
+      return;
+    }
+    
     const halfSize = Math.floor(this.brushSize / 2);
     
     // Calculate distance traveled for gradient position
@@ -479,11 +603,6 @@ export class ColorCycleBrush {
       this.isAnimating = true;
       this.animate();
     }
-    
-    // If no content exists, create some demo content for animation preview
-    if (!this.hasContent()) {
-      this.createDemoContent();
-    }
   }
   
   private createDemoContent() {
@@ -542,11 +661,9 @@ export class ColorCycleBrush {
       const deltaTime = currentTime - this.lastFrameTime;
       
       if (deltaTime >= this.frameInterval) {
-        const oldOffset = this.cycleOffset;
         this.cycleOffset += (deltaTime / 1000) * this.cycleSpeed * 0.2;
         this.cycleOffset = this.cycleOffset % 1.0;
         this.lastFrameTime = currentTime - (deltaTime % this.frameInterval);
-        console.log('[ColorCycle] Animation updated, offset:', oldOffset, '->', this.cycleOffset);
         
         // CRITICAL: Also render when manually updating animation
         this.render();
@@ -561,7 +678,6 @@ export class ColorCycleBrush {
     const deltaTime = currentTime - this.lastFrameTime;
     
     // Only log occasionally for debugging
-    // console.log('[ColorCycle] animate loop', { isPaused: this.isPaused, isDrawing: this.isDrawing });
     
     // Limit frame rate
     if (deltaTime >= this.frameInterval) {
@@ -578,8 +694,9 @@ export class ColorCycleBrush {
       if (this.isDrawing || !this.isPaused) {
         this.render();
         
-        // Notify main canvas to update (only during animation, not while drawing)
-        if (!this.isDrawing && !this.isPaused && this.onFrameRendered) {
+        // CRITICAL FIX: Notify main canvas to update when animating (both drawing and playing)
+        // This ensures the animation is visible
+        if (!this.isPaused && this.onFrameRendered) {
           this.onFrameRendered();
         }
       }
@@ -599,11 +716,17 @@ export class ColorCycleBrush {
       return;
     }
     
+    // Safety check: ensure we have at least one layer
+    if (this.layers.length === 0) {
+      // Create a default layer if none exists
+      this.addNewLayer(this.defaultGradient());
+    }
+    
     gl.useProgram(this.program);
     
-    // Enable alpha blending with premultiplied alpha for proper layer compositing
+    // Use standard source-over blending to maintain layer order
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     
     // Clear canvas
     gl.viewport(0, 0, this.width, this.height);
@@ -685,12 +808,10 @@ export class ColorCycleBrush {
   
   // Public API
   setGradient(stops: Array<{ position: number; color: string }>) {
-    console.log('[ColorCycleBrush] Setting new gradient:', stops);
     
     // First, check if we already have a layer with this exact gradient
     for (let i = 0; i < this.layers.length; i++) {
       if (this.gradientsMatch(this.layers[i].gradientStops, stops)) {
-        console.log(`[ColorCycleBrush] Found existing layer ${i} with matching gradient, switching to it`);
         this.currentLayerIndex = i;
         return; // Use existing layer
       }
@@ -702,11 +823,9 @@ export class ColorCycleBrush {
       
       // Only create new layer if current one has content
       if (currentLayer.hasContent) {
-        console.log('[ColorCycleBrush] Current layer has content, creating new layer');
         this.addNewLayer(stops);
       } else {
         // Update current empty layer's gradient
-        console.log('[ColorCycleBrush] Current layer is empty, updating its gradient');
         const gl = this.gl;
         const gradientData = this.generateGradientData(stops);
         
@@ -740,7 +859,6 @@ export class ColorCycleBrush {
   }
   
   clear() {
-    console.log('[ColorCycleBrush] Clearing all layers');
     
     // Clear all layers
     for (const layer of this.layers) {

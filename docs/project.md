@@ -1,5 +1,32 @@
 # TinyBrush Consolidated Documentation
 
+## Table of Contents
+
+- [Recent Updates](#recent-updates)
+  - [Wacom Stylus Pressure Sensitivity Support](#wacom-stylus-pressure-sensitivity-support-2025-08-21)
+  - [Color Cycle Brush System](#color-cycle-brush-system-2025-08-27)
+  - [Modular User Brush Plugin System](#modular-user-brush-plugin-system-2025-08-20)
+  - [Preview Overlay Canvas Architecture](#preview-overlay-canvas-architecture-2025-08-20)
+  - [Custom Brush Shape Tiling Fix](#custom-brush-shape-tiling-fix-2025-08-18)
+  - [Canvas State Machine Architecture](#canvas-state-machine-architecture-2025-08-17)
+  - [Tool-Aware State Machine for Shape Drawing](#tool-aware-state-machine-for-shape-drawing-2025-08-16)
+  - [Drawing Implementation with State Machine Pattern](#drawing-implementation-with-state-machine-pattern-2025-01-16)
+  - [Performance Optimization: Composite Canvas Caching](#performance-optimization-composite-canvas-caching-2025-01-15)
+  - [Custom Brush Integration with New Rendering Pipeline](#custom-brush-integration-with-new-rendering-pipeline-2025-01-14)
+  - [Dynamic Canvas Size](#dynamic-canvas-size-2025-01-13)
+  - [Enhanced Dithering Algorithms](#enhanced-dithering-algorithms-2025-01-12)
+  - [Dithering Palette Fix](#dithering-palette-fix-2025-01-08)
+- [Rendering Pipeline Architecture](#rendering-pipeline-architecture)
+  - [Overview](#overview)
+  - [Three-Canvas Architecture](#three-canvas-architecture)
+  - [Rendering Flow](#rendering-flow)
+  - [Performance Optimizations](#performance-optimizations)
+  - [Layer Compositing Details](#layer-compositing-details)
+  - [Real-time Feedback](#real-time-feedback)
+  - [Coordinate Systems](#coordinate-systems)
+  - [Brush Engine Integration](#brush-engine-integration)
+  - [Future Considerations](#future-considerations)
+
 ## Recent Updates
 
 ### Wacom Stylus Pressure Sensitivity Support (2025-08-21)
@@ -102,6 +129,12 @@
   - Scalable to large canvas sizes
   - Frame-perfect synchronization
   - Clean separation of rendering and logic
+- **Shape Mode Support** (2025-08-27):
+  - Color cycle brush now fully supports polygon shape drawing
+  - Shapes filled with gradient from edges to center using `fillShape()` method
+  - Animation continues playing while drawing shapes (doesn't interrupt playback)
+  - Proper coordinate scaling between canvas and WebGL spaces
+  - Key implementation in `finalizeShapeDrawing()` and `fillColorCycleShape()`
 
 ### Modular User Brush Plugin System (2025-08-20)
 - **Implemented plugin architecture** for user-created brushes without impacting default brush performance
@@ -163,8 +196,6 @@
   - **Modularity**: Clean separation of concerns
   - **Shareability**: Brushes can be packaged and distributed
   - **Future-proof**: Ready for brush marketplace/gallery
-
-## Recent Updates
 
 ### Preview Overlay Canvas Architecture (2025-08-20)
 - **Implemented separate overlay canvas** for shape and gradient previews to eliminate flickering

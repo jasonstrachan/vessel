@@ -204,7 +204,7 @@ interface AppState {
   layers: Layer[];
   activeLayerId: string | null;
   currentLayer: number;
-  addLayer: (layer: Omit<Layer, 'id' | 'order'>) => void;
+  addLayer: (layer: Omit<Layer, 'id' | 'order'>) => string;
   removeLayer: (id: string) => void;
   updateLayer: (id: string, updates: Partial<Layer>) => void;
   setActiveLayer: (id: string) => void;
@@ -761,11 +761,8 @@ export const useAppStore = create<AppState>()(
         });
       },
       setBrushSettings: (settings) => set((state) => {
-        console.log('[useAppStore] setBrushSettings called with:', settings);
         const currentSettings = state.tools.brushSettings;
         const newSettings = { ...currentSettings, ...settings };
-        console.log('[useAppStore] Current settings before update:', currentSettings);
-        console.log('[useAppStore] New settings after merge:', newSettings);
         
         // If size is being changed, update global size
         if (settings.size !== undefined) {
@@ -1205,24 +1202,29 @@ export const useAppStore = create<AppState>()(
       layers: [],
       activeLayerId: null,
       currentLayer: 0,
-      addLayer: (layer) => set((state) => {
+      addLayer: (layer) => {
         // Adding new layer
+        const newLayerId = `layer-${Date.now()}-${Math.random()}`;
         
-        const newLayer: Layer = {
-          ...layer,
-          id: `layer-${Date.now()}-${Math.random()}`,
-          order: state.layers.length
-        };
-        const updatedLayers = [...state.layers, newLayer];
+        set((state) => {
+          const newLayer: Layer = {
+            ...layer,
+            id: newLayerId,
+            order: state.layers.length
+          };
+          const updatedLayers = [...state.layers, newLayer];
+          
+          return {
+            layers: updatedLayers,
+            project: state.project ? {
+              ...state.project,
+              layers: updatedLayers
+            } : null
+          };
+        });
         
-        return {
-          layers: updatedLayers,
-          project: state.project ? {
-            ...state.project,
-            layers: updatedLayers
-          } : null
-        };
-      }),
+        return newLayerId;
+      },
       removeLayer: (id) => set((state) => {
         const updatedLayers = state.layers.filter(l => l.id !== id);
         const newActiveLayerId = state.activeLayerId === id ? 
