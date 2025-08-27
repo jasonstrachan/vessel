@@ -182,7 +182,6 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     <div className={`gradient-editor relative ${className}`} ref={containerRef}>
       {/* Preset selector */}
       <div className="mb-2">
-        <label className="text-[#D9D9D9] text-xs block mb-1">Presets</label>
         <select 
           className="w-full bg-gray-800 text-gray-300 text-xs px-2 py-1 rounded border border-gray-700"
           onChange={(e) => handlePresetChange(e.target.value as keyof typeof presetGradients)}

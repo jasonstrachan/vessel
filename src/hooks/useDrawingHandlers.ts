@@ -4,6 +4,8 @@ import { useBrushEngineSimplified } from './useBrushEngineSimplified';
 import { useUserBrushEngine } from './useUserBrushEngine';
 import { BrushShape } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
+import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '../hooks/brushEngine/utilities';
+import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -102,6 +104,12 @@ export function useDrawingHandlers({
   const colorCycleDistanceRef = useRef<number>(0);
   const colorCycleLastPosRef = useRef<{ x: number; y: number } | null>(null);
   
+  // Pixel queue for color cycle dashed pattern support
+  const colorCyclePixelQueue = useRef(createPixelQueue());
+  
+  // Continuous animation for color cycle when play button is pressed
+  const continuousColorCycleAnimationRef = useRef<number | null>(null);
+  
   const initDrawingCanvas = useCallback(() => {
     if (!project) return;
 
@@ -162,35 +170,41 @@ export function useDrawingHandlers({
     
     // Reset color cycle brush for new stroke and start animation
     if (currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
+      // Don't set up callback here - let startContinuousColorCycleAnimation handle it
       brushEngine.resetColorCycle();
       
       // Reset distance tracking for consistent spacing
       colorCycleDistanceRef.current = 0;
       colorCycleLastPosRef.current = null;
       
-      // Start animation loop for rendering color cycle (throttled for performance)
+      // Reset pixel queue for dashed pattern support
+      colorCyclePixelQueue.current = createPixelQueue();
+      
+      // Start animation loop for rendering color cycle during drawing
+      // This will continuously update the animation while drawing
       let lastRenderTime = 0;
-      const targetFPS = 24; // Reduced to 24 FPS - smoother performance with minimal visual impact
+      const targetFPS = 24;
       const frameInterval = 1000 / targetFPS;
       
-      const animateColorCycle = (timestamp: number) => {
+      const animateWhileDrawing = (timestamp: number) => {
+        // Only animate if we're still in color cycle mode
+        if (!colorCycleAnimationRef.current) return;
+        
         if (timestamp - lastRenderTime >= frameInterval) {
           if (drawingCtxRef.current && drawingCanvasRef.current) {
-            // Clear the drawing canvas
+            // Clear and render the animated color cycle
             drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-            // Render all color cycle strokes
-            brushEngine.renderColorCycle(drawingCtxRef.current);
+            brushEngine.renderColorCycle(drawingCtxRef.current, true); // true = apply opacity
+            drawingCanvasHasContent.current = true;
           }
           lastRenderTime = timestamp;
         }
-        colorCycleAnimationRef.current = requestAnimationFrame(animateColorCycle);
+        
+        colorCycleAnimationRef.current = requestAnimationFrame(animateWhileDrawing);
       };
       
       // Start the animation
-      if (colorCycleAnimationRef.current) {
-        cancelAnimationFrame(colorCycleAnimationRef.current);
-      }
-      colorCycleAnimationRef.current = requestAnimationFrame(animateColorCycle);
+      colorCycleAnimationRef.current = requestAnimationFrame(animateWhileDrawing);
     }
     
     // Reset stamp counter for continuous sampling
@@ -385,10 +399,11 @@ export function useDrawingHandlers({
             // Check if we're using a custom brush or resampler
             let customBrushData = undefined;
             
-            // Check for Color Cycle brush with consistent spacing
+            // Check for Color Cycle brush with stroke processor features
             if (currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
-              // Calculate spacing based on brush size (25% of size for dense coverage)
-              const spacing = (currentState.tools.brushSettings.size || 20) * 0.25;
+              // Use the spacing setting from brush controls, defaulting to 25% of size
+              const spacingPercent = (currentState.tools.brushSettings.spacing || 25) / 100;
+              const spacing = (currentState.tools.brushSettings.size || 20) * spacingPercent;
               
               if (colorCycleLastPosRef.current) {
                 const dx = clippedEnd.x - colorCycleLastPosRef.current.x;
@@ -397,13 +412,38 @@ export function useDrawingHandlers({
                 
                 colorCycleDistanceRef.current += distance;
                 
-                // Draw stamps at consistent intervals
+                // Calculate rotation if enabled
+                const rotation = currentState.tools.brushSettings.rotationEnabled 
+                  ? Math.atan2(dy, dx) 
+                  : 0;
+                
+                // Draw stamps at consistent intervals with stroke processor features
                 while (colorCycleDistanceRef.current >= spacing) {
                   const t = 1 - (colorCycleDistanceRef.current - spacing) / distance;
-                  const stampX = colorCycleLastPosRef.current.x + dx * t;
-                  const stampY = colorCycleLastPosRef.current.y + dy * t;
+                  let stampX = colorCycleLastPosRef.current.x + dx * t;
+                  let stampY = colorCycleLastPosRef.current.y + dy * t;
                   
-                  brushEngine.drawColorCycle(drawCtx, stampX, stampY);
+                  // Apply grid snapping if enabled
+                  if (shouldApplyGridSnapPure(currentState.tools.brushSettings)) {
+                    const gridSpacing = calculateGridSpacing(currentState.tools.brushSettings);
+                    const snapped = snapToGridPure(stampX, stampY, gridSpacing);
+                    stampX = snapped.x;
+                    stampY = snapped.y;
+                  }
+                  
+                  // Check dashed pattern before drawing
+                  if (shouldDrawStamp(currentState.tools.brushSettings, colorCyclePixelQueue.current, currentState.tools.brushSettings.size)) {
+                    // TODO: Rotation support requires ColorCycleBrush.ts modification to accept rotation parameter
+                    // and update the WebGL shader to apply rotation transformation to stamps
+                    // For now, we calculate rotation but don't apply it
+                    if (currentState.tools.brushSettings.rotationEnabled && rotation !== 0) {
+                      // Future: brushEngine.drawColorCycle(drawCtx, stampX, stampY, pressure, rotation);
+                      brushEngine.drawColorCycle(drawCtx, stampX, stampY, pressure);
+                    } else {
+                      brushEngine.drawColorCycle(drawCtx, stampX, stampY, pressure);
+                    }
+                  }
+                  
                   colorCycleDistanceRef.current -= spacing;
                 }
               }
@@ -934,6 +974,98 @@ export function useDrawingHandlers({
     }
   }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef]);
   
+  // Start continuous color cycle animation (for when play button is pressed)
+  const startContinuousColorCycleAnimation = useCallback(() => {
+    
+    // Stop any existing continuous animation
+    if (continuousColorCycleAnimationRef.current) {
+      cancelAnimationFrame(continuousColorCycleAnimationRef.current);
+      continuousColorCycleAnimationRef.current = null;
+    }
+    
+    // Initialize drawing canvas if needed
+    if (!drawingCanvasRef.current || !drawingCtxRef.current) {
+      console.log('[DrawingHandlers] Initializing drawing canvas for color cycle');
+      initDrawingCanvas();
+    }
+    
+    // Check again after initialization
+    if (!drawingCtxRef.current || !drawingCanvasRef.current) {
+      console.error('[DrawingHandlers] Failed to initialize drawing canvas');
+      return;
+    }
+    
+    // Ensure color cycle brush exists and is not in drawing mode
+    brushEngine.ensureColorCycleBrush();
+    
+    // Resume the color cycle brush animation (don't toggle, just ensure it's playing)
+    if (!brushEngine.isColorCycleAnimating()) {
+      brushEngine.toggleColorCycleAnimation();
+    }
+    
+    // Mark that the drawing canvas has content so it gets rendered
+    drawingCanvasHasContent.current = true;
+    
+    let lastRenderTime = 0;
+    const targetFPS = 30; // Increased for smoother animation
+    const frameInterval = 1000 / targetFPS;
+    
+    // Store the animation state on the ref so stop can access it
+    (continuousColorCycleAnimationRef as any).isAnimating = true;
+    
+    const animateContinuousColorCycle = (timestamp: number) => {
+      // IMMEDIATELY schedule the next frame to ensure continuity
+      if ((continuousColorCycleAnimationRef as any).isAnimating) {
+        continuousColorCycleAnimationRef.current = requestAnimationFrame(animateContinuousColorCycle);
+      } else {
+        continuousColorCycleAnimationRef.current = null;
+        return;
+      }
+      
+      // Then do the rendering work
+      if (timestamp - lastRenderTime >= frameInterval) {
+        if (drawingCtxRef.current && drawingCanvasRef.current) {
+          // Update the color cycle animation state manually
+          // This ensures the animation progresses even without mouse events
+          brushEngine.updateColorCycleAnimation?.();
+          
+          // Clear the drawing canvas
+          drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+          // Render all color cycle strokes with preview opacity
+          brushEngine.renderColorCycle(drawingCtxRef.current, true); // true = apply opacity for preview
+          
+          // Mark that we have content to ensure it gets composited
+          drawingCanvasHasContent.current = true;
+        }
+        lastRenderTime = timestamp;
+      }
+    };
+    
+    // Start the animation
+    continuousColorCycleAnimationRef.current = requestAnimationFrame(animateContinuousColorCycle);
+  }, [brushEngine, initDrawingCanvas]);
+  
+  // Stop continuous color cycle animation
+  const stopContinuousColorCycleAnimation = useCallback(() => {
+    // Set the flag to stop animation
+    if (continuousColorCycleAnimationRef.current) {
+      (continuousColorCycleAnimationRef as any).isAnimating = false;
+      cancelAnimationFrame(continuousColorCycleAnimationRef.current);
+      continuousColorCycleAnimationRef.current = null;
+    }
+    
+    // Pause the brush animation (don't toggle, just ensure it's paused)
+    if (brushEngine.isColorCycleAnimating()) {
+      brushEngine.toggleColorCycleAnimation();
+    }
+    
+    // Clear the drawing canvas when animation stops
+    if (drawingCtxRef.current && drawingCanvasRef.current) {
+      drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+      drawingCanvasHasContent.current = false;
+    }
+  }, [brushEngine]);
+  
   return {
     drawingCanvasRef,
     drawingCanvasHasContent,
@@ -948,5 +1080,7 @@ export function useDrawingHandlers({
     finalizeShapeDrawing,
     shapePointsRef,
     isDrawingShapeRef,
+    startContinuousColorCycleAnimation,
+    stopContinuousColorCycleAnimation,
   };
 }

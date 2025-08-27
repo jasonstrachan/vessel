@@ -23,9 +23,8 @@ export const useBrushEngineSimplified = () => {
   const patternTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   
-  // Color cycle brush instances - one per stroke to maintain independent gradients
+  // Color cycle brush - single persistent instance with multi-layer support
   const colorCycleBrushRef = useRef<ColorCycleBrush | null>(null);
-  const colorCycleStrokesRef = useRef<Map<string, { brush: ColorCycleBrush; canvas: HTMLCanvasElement }>>(new Map());
   
   // Performance: Cache expensive computations
   const isPixelBrush = useMemo(() => 
@@ -1212,6 +1211,8 @@ export const useBrushEngineSimplified = () => {
     
     // Use pixel-perfect rendering for crisp hard edges
     ctx.imageSmoothingEnabled = false;
+    ctx.lineJoin = 'miter';  // Use miter join for sharp corners
+    ctx.lineCap = 'butt';    // Use butt cap for clean ends
     
     // Apply opacity and blend mode
     ctx.globalAlpha = tools.brushSettings.opacity;
@@ -1219,7 +1220,7 @@ export const useBrushEngineSimplified = () => {
     
     // Base contour spacing - properly use the slider value
     const spacing = (tools.brushSettings.contourSpacing || 5) * 2; // Scale for better visibility
-    const smoothness = tools.brushSettings.contourSmoothness ?? 2.5; // Use smoothness from settings
+    // Smoothness is available from settings but not used in this implementation yet
     // Use contourVariance from brush settings if available, otherwise default to medium variance
     const variancePercent = (tools.brushSettings.contourVariance ?? 5) / 10; // Convert 0-10 to 0-1
     
@@ -1287,32 +1288,43 @@ export const useBrushEngineSimplified = () => {
       ctx.strokeStyle = tools.brushSettings.color;
       ctx.lineWidth = 1; // All lines same width
       
+      // Critical: Ensure pixel-perfect rendering for each contour level
+      ctx.imageSmoothingEnabled = false;
+      
       loops.forEach(loop => {
-        const smoothed = gaussianSmooth(loop, smoothness, 4);
+        // NO SMOOTHING - use raw contour points for pixel-perfect hard edges
+        const processedLoop = loop;  // Raw contour points only
         
         ctx.beginPath();
-        if (smoothed.length > 3) {
-          // Round coordinates for pixel-perfect lines
-          ctx.moveTo(Math.round(smoothed[0].x), Math.round(smoothed[0].y));
+        if (processedLoop.length > 3) {
+          // Absolutely ensure pixel-perfect rendering before stroking
+          ctx.imageSmoothingEnabled = false;
           
-          // Use simple line segments for crisp hard edges
-          for (let i = 1; i < smoothed.length; i++) {
-            ctx.lineTo(Math.round(smoothed[i].x), Math.round(smoothed[i].y));
+          // Snap to pixel grid for ultra-crisp lines
+          const snapToPixel = (val: number) => Math.floor(val) + 0.5; // Centers line on pixel
+          
+          ctx.moveTo(snapToPixel(processedLoop[0].x), snapToPixel(processedLoop[0].y));
+          
+          // Use simple line segments with pixel snapping
+          for (let i = 1; i < processedLoop.length; i++) {
+            ctx.lineTo(snapToPixel(processedLoop[i].x), snapToPixel(processedLoop[i].y));
           }
           
-          // Ensure the path is properly closed by drawing back to start
-          ctx.lineTo(Math.round(smoothed[0].x), Math.round(smoothed[0].y));
+          // Ensure the path is properly closed
+          ctx.lineTo(snapToPixel(processedLoop[0].x), snapToPixel(processedLoop[0].y));
           ctx.stroke();
         }
         
         // Add elevation labels on major contours
-        if (isMajor && smoothed.length > 20) {
-          const idx = Math.floor(smoothed.length / 2);
-          const point = smoothed[idx];
+        if (isMajor && processedLoop.length > 20) {
+          const idx = Math.floor(processedLoop.length / 2);
+          const point = processedLoop[idx];
           const elevation = 100 + level * 50;
           const text = elevation.toString();
           
           ctx.save();
+          // Ensure pixel-perfect rendering is maintained
+          ctx.imageSmoothingEnabled = false;
           ctx.font = '9px monospace';
           
           // Measure text to make box as small as possible
@@ -1320,13 +1332,18 @@ export const useBrushEngineSimplified = () => {
           const textWidth = metrics.width;
           const padding = 2; // Minimal padding
           
+          // Snap text position to pixel grid
+          const snapToPixel = (val: number) => Math.floor(val) + 0.5;
+          const textX = snapToPixel(point.x);
+          const textY = snapToPixel(point.y);
+          
           // Clear out the area for cutout effect
           ctx.globalCompositeOperation = 'destination-out';
           ctx.fillStyle = 'rgba(0, 0, 0, 1)';
           ctx.fillRect(
-            point.x - textWidth / 2 - padding,
-            point.y - 5,
-            textWidth + padding * 2,
+            Math.floor(textX - textWidth / 2 - padding),
+            Math.floor(textY - 5),
+            Math.ceil(textWidth + padding * 2),
             10
           );
           
@@ -1335,7 +1352,7 @@ export const useBrushEngineSimplified = () => {
           ctx.fillStyle = tools.brushSettings.color;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(text, point.x, point.y);
+          ctx.fillText(text, textX, textY);
           ctx.restore();
         }
       });
@@ -1376,15 +1393,22 @@ export const useBrushEngineSimplified = () => {
     // Draw peak marker - only 10% chance
     if (Math.random() < 0.1) {
       ctx.save();
+      // Ensure pixel-perfect rendering is maintained
+      ctx.imageSmoothingEnabled = false;
       
-      // Draw triangle marker
+      // Draw triangle marker with pixel snapping
       ctx.strokeStyle = tools.brushSettings.color;
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1;  // Use exactly 1 pixel width
+      
+      // Snap peak position to pixel grid
+      const snapToPixel = (val: number) => Math.floor(val) + 0.5;
+      const snappedPeakX = snapToPixel(actualPeakX);
+      const snappedPeakY = snapToPixel(actualPeakY);
       
       ctx.beginPath();
-      ctx.moveTo(actualPeakX, actualPeakY - 6);
-      ctx.lineTo(actualPeakX - 4, actualPeakY + 3);
-      ctx.lineTo(actualPeakX + 4, actualPeakY + 3);
+      ctx.moveTo(snappedPeakX, snappedPeakY - 6);
+      ctx.lineTo(snappedPeakX - 4, snappedPeakY + 3);
+      ctx.lineTo(snappedPeakX + 4, snappedPeakY + 3);
       ctx.closePath();
       ctx.stroke();
       
@@ -1401,9 +1425,9 @@ export const useBrushEngineSimplified = () => {
       ctx.globalCompositeOperation = 'destination-out';
       ctx.fillStyle = 'rgba(0, 0, 0, 1)';
       ctx.fillRect(
-        actualPeakX - textWidth / 2 - padding,
-        actualPeakY + 10,
-        textWidth + padding * 2,
+        Math.floor(snappedPeakX - textWidth / 2 - padding),
+        Math.floor(snappedPeakY + 10),
+        Math.ceil(textWidth + padding * 2),
         10
       );
       
@@ -1412,7 +1436,7 @@ export const useBrushEngineSimplified = () => {
       ctx.fillStyle = tools.brushSettings.color;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(peakText, actualPeakX, actualPeakY + 15);
+      ctx.fillText(peakText, snappedPeakX, snapToPixel(snappedPeakY + 15));
       
       ctx.restore();
     }
@@ -1432,6 +1456,7 @@ export const useBrushEngineSimplified = () => {
    */
   const initializeColorCycleBrush = useCallback(() => {
     if (!colorCycleBrushRef.current) {
+      console.log('[ColorCycle] Brush does not exist, creating NEW instance');
       // OPTIMIZED: Use actual canvas dimensions for initial brush
       const targetWidth = project?.width || 1024;
       const targetHeight = project?.height || 1024;
@@ -1448,6 +1473,12 @@ export const useBrushEngineSimplified = () => {
         fps: tools.brushSettings.colorCycleFPS || 30
       });
       
+      // Set up frame callback to notify main canvas of animation updates
+      colorCycleBrushRef.current.setOnFrameRendered(() => {
+        // Dispatch event for main canvas to update
+        window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
+      });
+      
       // Store canvas reference
       (colorCycleBrushRef.current as any).webglCanvas = webglCanvas;
       
@@ -1455,7 +1486,9 @@ export const useBrushEngineSimplified = () => {
       colorCycleBrushRef.current.setSpeed(tools.brushSettings.colorCycleSpeed || 1.0);
       
       // Apply initial gradient if set, or use default rainbow
-      const gradientToUse = tools.brushSettings.colorCycleGradient || [
+      // We read the gradient value directly here during creation, but don't add it as a dependency
+      const currentGradient = tools.brushSettings.colorCycleGradient;
+      const gradientToUse = currentGradient || [
         { position: 0.0, color: '#ff0000' },
         { position: 0.17, color: '#ff7f00' },
         { position: 0.33, color: '#ffff00' },
@@ -1464,10 +1497,16 @@ export const useBrushEngineSimplified = () => {
         { position: 0.83, color: '#4b0082' },
         { position: 1.0, color: '#9400d3' }
       ];
-      console.log('[useBrushEngineSimplified] Applying gradient during brush creation:', gradientToUse);
+      console.log('[ColorCycle] Creating brush instance ONCE with gradient:', gradientToUse);
       colorCycleBrushRef.current.setGradient(gradientToUse);
+      
+      // Start animation immediately after creating the brush
+      colorCycleBrushRef.current.resumeAnimation();
+      console.log('[ColorCycle] Started animation after brush creation');
+      
+      return colorCycleBrushRef.current;
     } else {
-      // Update settings
+      // Update all settings including gradient
       colorCycleBrushRef.current.setBrushSize(tools.brushSettings.size);
       if (tools.brushSettings.colorCycleFPS) {
         colorCycleBrushRef.current.setFPS(tools.brushSettings.colorCycleFPS);
@@ -1475,21 +1514,14 @@ export const useBrushEngineSimplified = () => {
       if (tools.brushSettings.colorCycleSpeed) {
         colorCycleBrushRef.current.setSpeed(tools.brushSettings.colorCycleSpeed);
       }
-      // Update gradient - always set it to ensure it's current
-      const gradientToUse = tools.brushSettings.colorCycleGradient || [
-        { position: 0.0, color: '#ff0000' },
-        { position: 0.17, color: '#ff7f00' },
-        { position: 0.33, color: '#ffff00' },
-        { position: 0.5, color: '#00ff00' },
-        { position: 0.67, color: '#0000ff' },
-        { position: 0.83, color: '#4b0082' },
-        { position: 1.0, color: '#9400d3' }
-      ];
-      console.log('[useBrushEngineSimplified] Updating existing brush gradient:', gradientToUse);
-      colorCycleBrushRef.current.setGradient(gradientToUse);
+      // UPDATE THE GRADIENT HERE TOO
+      if (tools.brushSettings.colorCycleGradient) {
+        colorCycleBrushRef.current.setGradient(tools.brushSettings.colorCycleGradient);
+        console.log('[useBrushEngineSimplified] Updated existing brush with gradient:', tools.brushSettings.colorCycleGradient);
+      }
+      console.log('[useBrushEngineSimplified] Brush already exists, updated all settings');
+      return colorCycleBrushRef.current;
     }
-    
-    return colorCycleBrushRef.current;
   }, [tools.brushSettings.size, tools.brushSettings.colorCycleFPS, tools.brushSettings.colorCycleSpeed, tools.brushSettings.colorCycleGradient, project?.width, project?.height]);
   
   /**
@@ -1499,7 +1531,7 @@ export const useBrushEngineSimplified = () => {
     ctx: CanvasRenderingContext2D,
     x: number,
     y: number,
-    pressure: number = 1.0
+    _pressure: number = 1.0
   ) => {
     // Ensure we have a current brush from resetColorCycle
     if (!colorCycleBrushRef.current) {
@@ -1550,23 +1582,12 @@ export const useBrushEngineSimplified = () => {
         }
       }
     } else {
-      // OPTIMIZED: Batch render operations for better performance
-      const strokeCount = colorCycleStrokesRef.current.size;
-      if (strokeCount > 0) {
-        // Batch previous strokes rendering
-        colorCycleStrokesRef.current.forEach(({ brush, canvas }) => {
-          // Only render if brush has content
-          if ((brush as any).hasContent()) {
-            brush.render(false);
-            ctx.globalAlpha = 1.0;
-            ctx.drawImage(canvas, 0, 0, ctx.canvas.width, ctx.canvas.height);
-          }
-        });
-      }
-      
-      // Current active stroke: Apply brush opacity setting
+      // Composite the already-rendered WebGL canvas (animation loop handles rendering)
       if (colorCycleBrushRef.current) {
-        colorCycleBrushRef.current.render(false);
+        // ALWAYS call render() to ensure we have the latest frame
+        // This ensures consistency whether called during drawing or animation
+        colorCycleBrushRef.current.render();
+        
         const webglCanvas = (colorCycleBrushRef.current as any).webglCanvas;
         if (webglCanvas) {
           ctx.globalAlpha = tools.brushSettings.opacity;
@@ -1581,74 +1602,18 @@ export const useBrushEngineSimplified = () => {
   }, [tools.brushSettings.blendMode, tools.brushSettings.opacity]);
   
   /**
-   * Reset Color Cycle - starts a new stroke with its own gradient
+   * Reset Color Cycle - starts a new stroke with the existing brush
    */
   const resetColorCycle = useCallback(() => {
-    // Create a new stroke with current gradient
-    const strokeId = `stroke_${Date.now()}_${Math.random()}`;
+    // Reuse existing brush or create if needed
+    const brush = initializeColorCycleBrush();
     
-    // OPTIMIZED: Use actual canvas dimensions instead of fixed 2048x2048
-    // This saves massive amounts of VRAM (16MB -> 1-4MB per stroke)
-    const targetWidth = project?.width || 1024;
-    const targetHeight = project?.height || 1024;
-    
-    // Create a separate canvas for this stroke with optimal size
-    const webglCanvas = document.createElement('canvas');
-    webglCanvas.width = targetWidth;
-    webglCanvas.height = targetHeight;
-    webglCanvas.className = 'truly-offscreen-canvas';
-    webglCanvas.style.position = 'absolute';
-    webglCanvas.style.left = '-9999px';
-    document.body.appendChild(webglCanvas);
-    
-    // Create a new brush instance with current gradient
-    const strokeBrush = new ColorCycleBrush(webglCanvas, {
-      brushSize: tools.brushSettings.size || 20,
-      fps: tools.brushSettings.colorCycleFPS || 30
-    });
-    
-    // Apply current settings and gradient
-    strokeBrush.setSpeed(tools.brushSettings.colorCycleSpeed || 1.0);
-    const gradientToUse = tools.brushSettings.colorCycleGradient || [
-      { position: 0.0, color: '#ff0000' },
-      { position: 0.17, color: '#ff7f00' },
-      { position: 0.33, color: '#ffff00' },
-      { position: 0.5, color: '#00ff00' },
-      { position: 0.67, color: '#0000ff' },
-      { position: 0.83, color: '#4b0082' },
-      { position: 1.0, color: '#9400d3' }
-    ];
-    strokeBrush.setGradient(gradientToUse);
-    strokeBrush.startStroke();
-    
-    // OPTIMIZED: More aggressive stroke cleanup for better performance
-    // Reduced from 20 to 8 strokes maximum - saves ~50MB VRAM
-    const MAX_STROKES = 8;
-    
-    // Store the stroke 
-    colorCycleStrokesRef.current.set(strokeId, { brush: strokeBrush, canvas: webglCanvas });
-    
-    // Aggressive cleanup: Remove multiple old strokes if over limit
-    while (colorCycleStrokesRef.current.size > MAX_STROKES) {
-      const oldestKey = colorCycleStrokesRef.current.keys().next().value;
-      if (oldestKey) {
-        const oldest = colorCycleStrokesRef.current.get(oldestKey);
-        if (oldest) {
-          // Immediately stop any animation to prevent WebGL errors
-          oldest.brush.stopAnimation();
-          oldest.brush.destroy();
-          oldest.canvas.remove();
-          colorCycleStrokesRef.current.delete(oldestKey);
-        }
-      }
+    if (brush) {
+      // Just start a new stroke with the existing brush
+      brush.startStroke();
+      console.log('[ColorCycle] Started new stroke with existing persistent brush');
     }
-    
-    // Set as current brush
-    colorCycleBrushRef.current = strokeBrush;
-    (colorCycleBrushRef.current as any).webglCanvas = webglCanvas;
-    
-    console.log(`[ColorCycle] Started new stroke ${strokeId} with gradient:`, gradientToUse[0]?.color, 'to', gradientToUse[gradientToUse.length - 1]?.color);
-  }, [tools.brushSettings.size, tools.brushSettings.colorCycleFPS, tools.brushSettings.colorCycleSpeed, tools.brushSettings.colorCycleGradient, project?.width, project?.height]);
+  }, [initializeColorCycleBrush]);
   
   /**
    * End color cycle stroke
@@ -1659,89 +1624,21 @@ export const useBrushEngineSimplified = () => {
     }
   }, []);
 
-  /**
-   * Update color cycle gradient
-   */
-  const updateColorCycleGradient = useCallback((stops: Array<{ position: number; color: string }>) => {
-    console.log('[useBrushEngineSimplified] updateColorCycleGradient called with:', stops);
-    console.log('[useBrushEngineSimplified] colorCycleBrushRef.current exists:', !!colorCycleBrushRef.current);
-    
-    // Initialize the brush if it doesn't exist
-    if (!colorCycleBrushRef.current) {
-      console.log('[useBrushEngineSimplified] Brush not initialized, initializing now...');
-      initializeColorCycleBrush();
-    }
-    
-    if (colorCycleBrushRef.current) {
-      console.log('[useBrushEngineSimplified] Calling colorCycleBrushRef.current.setGradient');
-      colorCycleBrushRef.current.setGradient(stops);
-      console.log('[useBrushEngineSimplified] setGradient call completed');
-    } else {
-      console.warn('[useBrushEngineSimplified] colorCycleBrushRef.current is still null after initialization attempt');
-    }
-  }, [initializeColorCycleBrush]);
-
-  /**
-   * Update color cycle speed
-   */
-  const updateColorCycleSpeed = useCallback((speed: number) => {
-    if (colorCycleBrushRef.current) {
-      colorCycleBrushRef.current.setSpeed(speed);
-    }
-  }, []);
+  // Color cycle functions removed - now defined inline in return object to avoid stale closures
   
-  /**
-   * Toggle color cycle animation play/pause
-   */
-  const toggleColorCycleAnimation = useCallback(() => {
-    // Ensure brush is initialized before toggling
-    if (!colorCycleBrushRef.current) {
-      initializeColorCycleBrush();
+  // Update color cycle speed when it changes
+  useEffect(() => {
+    if (colorCycleBrushRef.current && tools.brushSettings.colorCycleSpeed) {
+      colorCycleBrushRef.current.setSpeed(tools.brushSettings.colorCycleSpeed);
     }
-    
-    if (colorCycleBrushRef.current) {
-      if (colorCycleBrushRef.current.isPlaying()) {
-        colorCycleBrushRef.current.pauseAnimation();
-      } else {
-        colorCycleBrushRef.current.resumeAnimation();
-      }
-    } else {
-      console.warn('[ColorCycle] Failed to initialize brush for toggle');
-    }
-  }, [initializeColorCycleBrush]);
+  }, [tools.brushSettings.colorCycleSpeed]);
   
-  /**
-   * Get color cycle animation state
-   */
-  const isColorCycleAnimating = useCallback(() => {
-    // If no brush exists, assume it's not playing
-    if (!colorCycleBrushRef.current) {
-      return false;
+  // Update color cycle FPS when it changes
+  useEffect(() => {
+    if (colorCycleBrushRef.current && tools.brushSettings.colorCycleFPS) {
+      colorCycleBrushRef.current.setFPS(tools.brushSettings.colorCycleFPS);
     }
-    return colorCycleBrushRef.current.isPlaying();
-  }, []);
-  
-  /**
-   * Clear all color cycle strokes
-   */
-  const clearColorCycleStrokes = useCallback(() => {
-    // Destroy all stroke brushes and remove canvases
-    colorCycleStrokesRef.current.forEach(({ brush, canvas }) => {
-      brush.destroy();
-      canvas.remove();
-    });
-    colorCycleStrokesRef.current.clear();
-    
-    // Clear current brush if exists
-    if (colorCycleBrushRef.current) {
-      const webglCanvas = (colorCycleBrushRef.current as any).webglCanvas;
-      if (webglCanvas) {
-        colorCycleBrushRef.current.clear();
-      }
-    }
-    
-    console.log('[ColorCycle] Cleared all strokes');
-  }, []);
+  }, [tools.brushSettings.colorCycleFPS]);
 
   // Clean up resources
   useEffect(() => {
@@ -1749,23 +1646,20 @@ export const useBrushEngineSimplified = () => {
       // Clear brush stamp cache on unmount
       brushStampCacheRef.current.clear();
       
-      // Clean up all color cycle strokes
-      colorCycleStrokesRef.current.forEach(({ brush, canvas }) => {
-        brush.destroy();
-        canvas.remove();
-      });
-      colorCycleStrokesRef.current.clear();
-      
       // Clean up current color cycle brush
       if (colorCycleBrushRef.current) {
+        const webglCanvas = (colorCycleBrushRef.current as any).webglCanvas;
         colorCycleBrushRef.current.destroy();
+        if (webglCanvas) {
+          webglCanvas.remove();
+        }
         colorCycleBrushRef.current = null;
       }
     };
   }, []);
 
-  // Return simplified API
-  return useMemo(() => ({
+  // Return simplified API - NO useMemo to avoid stale closures
+  return {
     // Core drawing functions
     drawBrush,
     drawStamp,
@@ -1782,11 +1676,65 @@ export const useBrushEngineSimplified = () => {
     renderColorCycle,
     resetColorCycle,
     endColorCycleStroke,
-    updateColorCycleGradient,
-    updateColorCycleSpeed,
-    toggleColorCycleAnimation,
-    isColorCycleAnimating,
-    clearColorCycleStrokes,
+    
+    // These need fresh ref access, define inline:
+    updateColorCycleGradient: (stops: Array<{ position: number; color: string }>) => {
+      console.log('[useBrushEngineSimplified] updateColorCycleGradient called with:', stops);
+      
+      if (colorCycleBrushRef.current) {
+        console.log('[useBrushEngineSimplified] Updating existing brush gradient');
+        colorCycleBrushRef.current.setGradient(stops);
+      } else {
+        console.log('[useBrushEngineSimplified] No brush exists, skipping gradient update');
+      }
+    },
+    
+    updateColorCycleSpeed: (speed: number) => {
+      if (colorCycleBrushRef.current) {
+        colorCycleBrushRef.current.setSpeed(speed);
+      }
+    },
+    
+    toggleColorCycleAnimation: () => {
+      if (!colorCycleBrushRef.current) {
+        const brush = initializeColorCycleBrush();
+        if (brush) {
+          brush.resumeAnimation();
+        }
+      } else {
+        colorCycleBrushRef.current.togglePlayPause();
+      }
+    },
+    
+    updateColorCycleAnimation: () => {
+      // Manually update animation state for external render loops
+      if (colorCycleBrushRef.current) {
+        colorCycleBrushRef.current.updateAnimation();
+      }
+    },
+    
+    isColorCycleAnimating: () => {
+      if (!colorCycleBrushRef.current) return false;
+      return colorCycleBrushRef.current.isPlaying();
+    },
+    
+    clearColorCycleStrokes: () => {
+      if (colorCycleBrushRef.current) {
+        colorCycleBrushRef.current.clear();
+        console.log('[ColorCycle] Cleared brush content');
+      }
+    },
+    
+    ensureColorCycleBrush: () => {
+      // Ensure brush exists without starting a stroke
+      if (!colorCycleBrushRef.current) {
+        initializeColorCycleBrush();
+      }
+      // Make sure it's not in drawing mode for animation
+      if (colorCycleBrushRef.current) {
+        colorCycleBrushRef.current.endStroke();
+      }
+    },
     
     // Effects
     applyDithering,
@@ -1797,26 +1745,7 @@ export const useBrushEngineSimplified = () => {
     
     // Direct access to engine for advanced use
     engine: brushEngine
-  }), [
-    drawBrush,
-    drawStamp,
-    finalizeStroke,
-    resetStroke,
-    drawRectangleGradient,
-    drawPolygonGradient,
-    drawContourPolygon,
-    drawColorCycle,
-    renderColorCycle,
-    resetColorCycle,
-    endColorCycleStroke,
-    updateColorCycleGradient,
-    updateColorCycleSpeed,
-    toggleColorCycleAnimation,
-    isColorCycleAnimating,
-    clearColorCycleStrokes,
-    applyDithering,
-    brushEngine
-  ]);
+  };
 };
 
 // Export type for the hook return value

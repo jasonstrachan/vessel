@@ -11,6 +11,7 @@ import { BrushShape } from '../../types';
 import { floodFill } from '../../utils/floodFill';
 import { detectWacomIssues, testWacomPressure } from '../../utils/detectWacom';
 import BrushCursor from './BrushCursor';
+import { setColorCycleAnimationHandlers } from '../toolbar/BrushControls';
 
 const DrawingCanvas = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null); 
@@ -210,6 +211,12 @@ const DrawingCanvas = () => {
         ctx.drawImage(drawingCanvasRef, 0, 0);
       }
       
+      // Draw color cycle animation if active
+      if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && 
+          brushEngine.isColorCycleAnimating()) {
+        brushEngine.renderColorCycle(ctx, true);
+      }
+      
       ctx.restore();
       
       // Draw border
@@ -341,6 +348,90 @@ const DrawingCanvas = () => {
     canvasRef: canvasRef as React.RefObject<HTMLCanvasElement>,
     isBusyRef, // Pass the lock ref
   });
+  
+  // Extract the color cycle animation functions for use by BrushControls
+  const { startContinuousColorCycleAnimation, stopContinuousColorCycleAnimation } = drawingHandlers;
+  
+  // Animation frame for continuous color cycle rendering
+  const colorCycleRenderLoopRef = useRef<number | null>(null);
+  
+  // Track if we're actively animating
+  const isAnimatingRef = useRef(false);
+  
+  // Wrapped animation start/stop - only handle the main canvas compositing
+  const wrappedStartAnimation = useCallback(() => {
+    // Start the drawing handlers animation (this manages the color cycle rendering)
+    startContinuousColorCycleAnimation();
+    isAnimatingRef.current = true;
+    
+    // Create a lightweight loop that ONLY triggers main canvas compositing
+    // The drawing handlers already update the drawing canvas at 24fps
+    let lastCompositeTime = 0;
+    const targetFPS = 24;
+    const frameInterval = 1000 / targetFPS;
+    
+    const compositeLoop = (timestamp: number) => {
+      // Check if we should stop
+      if (!isAnimatingRef.current || !colorCycleRenderLoopRef.current) {
+        colorCycleRenderLoopRef.current = null;
+        return;
+      }
+      
+      // Frame rate limiting for compositing
+      if (timestamp - lastCompositeTime >= frameInterval) {
+        // Just trigger a composite update, don't call draw directly
+        // This prevents interference with other render operations
+        setNeedsRedraw(prev => prev + 1);
+        lastCompositeTime = timestamp;
+      }
+      
+      // Keep the loop going
+      colorCycleRenderLoopRef.current = requestAnimationFrame(compositeLoop);
+    };
+    
+    // Cancel any existing loop and start fresh
+    if (colorCycleRenderLoopRef.current) {
+      cancelAnimationFrame(colorCycleRenderLoopRef.current);
+    }
+    
+    // Start the composite loop
+    colorCycleRenderLoopRef.current = requestAnimationFrame(compositeLoop);
+  }, [startContinuousColorCycleAnimation]);
+  
+  const wrappedStopAnimation = useCallback(() => {
+    stopContinuousColorCycleAnimation();
+    isAnimatingRef.current = false;
+    
+    // Stop the render loop
+    if (colorCycleRenderLoopRef.current) {
+      cancelAnimationFrame(colorCycleRenderLoopRef.current);
+      colorCycleRenderLoopRef.current = null;
+    }
+    
+    // Do one final redraw to clear the drawing canvas
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+    if (ctx && drawRef.current) {
+      drawRef.current(ctx, viewTransformRef.current);
+    }
+  }, [stopContinuousColorCycleAnimation]);
+  
+  // Set up the animation handlers for BrushControls
+  useEffect(() => {
+    setColorCycleAnimationHandlers({
+      startContinuousColorCycleAnimation: wrappedStartAnimation,
+      stopContinuousColorCycleAnimation: wrappedStopAnimation,
+      updateColorCycleGradient: brushEngine.updateColorCycleGradient,
+    });
+    
+    // Cleanup on unmount
+    return () => {
+      setColorCycleAnimationHandlers(null);
+      if (colorCycleRenderLoopRef.current) {
+        cancelAnimationFrame(colorCycleRenderLoopRef.current);
+      }
+    };
+  }, [wrappedStartAnimation, wrappedStopAnimation, brushEngine.updateColorCycleGradient]);
   
   // Wrapper draw function that uses current hook values
   const draw = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false) => {
@@ -2133,6 +2224,23 @@ const DrawingCanvas = () => {
     
     return () => resizeObserver.disconnect();
   }, []); // Empty dependency array - run only once
+  
+  // Listen for color cycle animation frame updates
+  useEffect(() => {
+    const handleColorCycleFrame = () => {
+      // Only update if we're in color cycle mode
+      if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
+        // Trigger a full redraw which will include the color cycle animation
+        setNeedsRedraw(prev => prev + 1);
+      }
+    };
+    
+    window.addEventListener('colorCycleFrameReady', handleColorCycleFrame);
+    
+    return () => {
+      window.removeEventListener('colorCycleFrameReady', handleColorCycleFrame);
+    };
+  }, [tools.brushSettings.brushShape, brushEngine]);
   
   
   return (

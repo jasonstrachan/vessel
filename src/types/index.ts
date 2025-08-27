@@ -224,6 +224,8 @@ export interface BrushSettings {
   // Custom brush color mode
   useSwatchColor: boolean; // true: use swatch color, false: use brush tip colors
   dashGap: number;
+  // Flow controls paint buildup (0-1, where 1 is full flow)
+  flow?: number;
   // Grid snap settings
   gridSnapEnabled: boolean;
   // Shape brush settings

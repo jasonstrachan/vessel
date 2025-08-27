@@ -52,6 +52,9 @@ export class ColorCycleBrush {
   private strokeLength: number = 0;
   private lastPoint: { x: number; y: number } | null = null;
   private isDrawing: boolean = false;
+  
+  // Frame callback for main canvas updates
+  private onFrameRendered?: () => void;
 
   constructor(canvas: HTMLCanvasElement, options: {
     brushSize?: number;
@@ -76,6 +79,15 @@ export class ColorCycleBrush {
     
     // Create first layer with default gradient
     this.addNewLayer(this.defaultGradient());
+    
+    // Start animation loop
+    this.isAnimating = true;
+    this.isPaused = false;
+  }
+  
+  // Set callback for frame updates
+  setOnFrameRendered(callback: () => void) {
+    this.onFrameRendered = callback;
   }
   
   private initWebGL(canvas: HTMLCanvasElement): WebGLRenderingContext {
@@ -455,14 +467,60 @@ export class ColorCycleBrush {
   }
   
   pauseAnimation() {
-    console.log('[ColorCycleBrush] Pausing animation');
     this.isPaused = true;
   }
   
   resumeAnimation() {
-    console.log('[ColorCycleBrush] Resuming animation');
     this.isPaused = false;
     this.lastFrameTime = performance.now();
+    
+    // Ensure animation loop is running
+    if (!this.animationId) {
+      this.isAnimating = true;
+      this.animate();
+    }
+    
+    // If no content exists, create some demo content for animation preview
+    if (!this.hasContent()) {
+      this.createDemoContent();
+    }
+  }
+  
+  private createDemoContent() {
+    if (this.currentLayerIndex < 0) return;
+    
+    const currentLayer = this.layers[this.currentLayerIndex];
+    const centerX = Math.floor(this.width / 2);
+    const centerY = Math.floor(this.height / 2);
+    const radius = Math.min(this.width, this.height) / 8;
+    
+    // Create a simple circle pattern with gradient index values
+    for (let y = -radius; y <= radius; y++) {
+      for (let x = -radius; x <= radius; x++) {
+        const distance = Math.sqrt(x * x + y * y);
+        if (distance <= radius) {
+          const pixelX = centerX + x;
+          const pixelY = centerY + y;
+          
+          if (pixelX >= 0 && pixelX < this.width && pixelY >= 0 && pixelY < this.height) {
+            const idx = (pixelY * this.width + pixelX) * 4;
+            
+            // Create a radial gradient index value
+            const gradientIndex = distance / radius;
+            const indexByte = Math.floor(gradientIndex * 255);
+            
+            currentLayer.paintBuffer[idx] = indexByte;
+            currentLayer.paintBuffer[idx + 1] = 0;
+            currentLayer.paintBuffer[idx + 2] = 0;
+            currentLayer.paintBuffer[idx + 3] = 255; // Full opacity
+          }
+        }
+      }
+    }
+    
+    // Mark layer as having content and update texture
+    currentLayer.hasContent = true;
+    this.updateIndexTexture(this.currentLayerIndex);
   }
   
   togglePlayPause() {
@@ -477,11 +535,33 @@ export class ColorCycleBrush {
     return this.isAnimating && !this.isPaused;
   }
   
+  // Manual update method for external render loops
+  updateAnimation() {
+    if (!this.isPaused && !this.isDrawing) {
+      const currentTime = performance.now();
+      const deltaTime = currentTime - this.lastFrameTime;
+      
+      if (deltaTime >= this.frameInterval) {
+        const oldOffset = this.cycleOffset;
+        this.cycleOffset += (deltaTime / 1000) * this.cycleSpeed * 0.2;
+        this.cycleOffset = this.cycleOffset % 1.0;
+        this.lastFrameTime = currentTime - (deltaTime % this.frameInterval);
+        console.log('[ColorCycle] Animation updated, offset:', oldOffset, '->', this.cycleOffset);
+        
+        // CRITICAL: Also render when manually updating animation
+        this.render();
+      }
+    }
+  }
+  
   private animate() {
     if (!this.isAnimating) return;
     
     const currentTime = performance.now();
     const deltaTime = currentTime - this.lastFrameTime;
+    
+    // Only log occasionally for debugging
+    // console.log('[ColorCycle] animate loop', { isPaused: this.isPaused, isDrawing: this.isDrawing });
     
     // Limit frame rate
     if (deltaTime >= this.frameInterval) {
@@ -493,13 +573,21 @@ export class ColorCycleBrush {
         this.cycleOffset = this.cycleOffset % 1.0;
       }
       
-      // Always render to show current state
-      this.render();
+      // Render when drawing OR when playing (not paused)
+      // This ensures animations play even when cursor is not moving
+      if (this.isDrawing || !this.isPaused) {
+        this.render();
+        
+        // Notify main canvas to update (only during animation, not while drawing)
+        if (!this.isDrawing && !this.isPaused && this.onFrameRendered) {
+          this.onFrameRendered();
+        }
+      }
       
       this.lastFrameTime = currentTime - (deltaTime % this.frameInterval);
     }
     
-    // Continue animation loop even when paused (to keep rendering)
+    // CRITICAL: Continue animation loop to keep updating cycle offset
     this.animationId = requestAnimationFrame(() => this.animate());
   }
   
@@ -513,9 +601,9 @@ export class ColorCycleBrush {
     
     gl.useProgram(this.program);
     
-    // Enable alpha blending
+    // Enable alpha blending with premultiplied alpha for proper layer compositing
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     
     // Clear canvas
     gl.viewport(0, 0, this.width, this.height);
@@ -530,12 +618,33 @@ export class ColorCycleBrush {
       gl.uniform1f(this.uniformLocations.forceOpacity, forceFullOpacity ? 1.0 : 0.0);
     }
     
+    // Debug: Count how many layers we're rendering
+    let layersRendered = 0;
+    
     // Render each layer
     for (let i = 0; i < this.layers.length; i++) {
       const layer = this.layers[i];
       
       // Skip empty layers
-      if (!layer.hasContent) continue;
+      if (!layer.hasContent) {
+        continue;
+      }
+      
+      // Debug: Check if layer actually has painted pixels
+      let hasPixels = false;
+      for (let j = 3; j < layer.paintBuffer.length; j += 4) {
+        if (layer.paintBuffer[j] > 0) {
+          hasPixels = true;
+          break;
+        }
+      }
+      
+      if (!hasPixels) {
+        console.warn(`Layer ${i} marked as hasContent but has no pixels!`);
+        continue;
+      }
+      
+      layersRendered++;
       
       // Bind this layer's textures
       gl.activeTexture(gl.TEXTURE0);
@@ -553,6 +662,10 @@ export class ColorCycleBrush {
       // Draw this layer
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
+    
+    // Force a readback to ensure WebGL flushes
+    const pixel = new Uint8Array(4);
+    gl.readPixels(this.width / 2, this.height / 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
   }
   
   // Helper to check if two gradients are the same

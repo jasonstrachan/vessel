@@ -11,7 +11,21 @@ import CustomSwitch from "../ui/CustomSwitch";
 import ProgressSlider from "../ui/ProgressSlider";
 import { drawTestSwatches } from "../../utils/drawTestSwatches";
 import { GradientEditor } from "../ui/GradientEditor";
-import { useBrushEngineSimplified } from "../../hooks/useBrushEngineSimplified";
+
+// Get access to drawing handlers via a context or ref - we'll need to create this
+interface ColorCycleAnimationContext {
+  startContinuousColorCycleAnimation: () => void;
+  stopContinuousColorCycleAnimation: () => void;
+  updateColorCycleGradient?: (stops: Array<{ position: number; color: string }>) => void;
+}
+
+// For now, we'll store this globally - a proper solution would use React context
+let colorCycleAnimationHandlers: ColorCycleAnimationContext | null = null;
+
+export const setColorCycleAnimationHandlers = (handlers: ColorCycleAnimationContext | null) => {
+  colorCycleAnimationHandlers = handlers;
+};
+
 const BrushControls = () => {
   // Use individual selectors to avoid unstable object references
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
@@ -24,9 +38,6 @@ const BrushControls = () => {
   const shapeMode = useAppStore(state => state.tools.shapeMode);
   const setShapeMode = useAppStore(state => state.setShapeMode);
   
-  // Get brush engine for color cycle updates
-  const brushEngine = useBrushEngineSimplified();
-  
   // Determine if current brush is custom (uses percentage) or default (uses pixels)
   const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
   const sizeUnit = isCustomBrush ? '%' : 'px';
@@ -37,10 +48,19 @@ const BrushControls = () => {
   const setActiveSettings =
     currentTool === "eraser" ? setEraserSettings : setBrushSettings;
   
-  // Get animation state directly from brush engine (no local state)
-  const isColorCycleAnimating = activeSettings.brushShape === BrushShape.COLOR_CYCLE 
-    ? brushEngine.isColorCycleAnimating() 
-    : false;
+  // Use state to track animation status for proper re-renders
+  const [isAnimating, setIsAnimating] = React.useState(false);
+  
+  // Stop animation when switching away from color cycle brush
+  React.useEffect(() => {
+    if (activeSettings.brushShape !== BrushShape.COLOR_CYCLE) {
+      // Stop continuous animation when not using color cycle brush
+      if (colorCycleAnimationHandlers) {
+        colorCycleAnimationHandlers.stopContinuousColorCycleAnimation();
+      }
+      setIsAnimating(false);
+    }
+  }, [activeSettings.brushShape]);
 
 
   // Show special controls for Color Cycle brush
@@ -51,16 +71,46 @@ const BrushControls = () => {
         <div className="mb-4">
           <button
             onClick={() => {
-              brushEngine.toggleColorCycleAnimation();
-              // Force re-render by updating a state that doesn't matter for the logic
-              // but triggers React to re-evaluate isColorCycleAnimating
-              setActiveSettings({});
+              // Toggle animation state
+              const newIsAnimating = !isAnimating;
+              setIsAnimating(newIsAnimating);
+              
+              // Start or stop the continuous animation loop based on play state
+              if (colorCycleAnimationHandlers) {
+                if (newIsAnimating) {
+                  colorCycleAnimationHandlers.startContinuousColorCycleAnimation();
+                } else {
+                  colorCycleAnimationHandlers.stopContinuousColorCycleAnimation();
+                }
+              }
             }}
             className="w-full py-2 px-4 bg-[#333] hover:bg-[#444] text-[#D9D9D9] rounded transition-colors"
             style={{ fontSize: "14px" }}
           >
-            {isColorCycleAnimating ? '⏸ Pause Animation' : '▶ Play Animation'}
+            {isAnimating ? '⏸ Pause Animation' : '▶ Play Animation'}
           </button>
+        </div>
+        
+        {/* Gradient Editor - moved below play/pause button */}
+        <div className="mb-4">
+          <GradientEditor
+            stops={activeSettings.colorCycleGradient || [
+              { position: 0.0, color: '#ff0000' },
+              { position: 0.17, color: '#ff7f00' },
+              { position: 0.33, color: '#ffff00' },
+              { position: 0.5, color: '#00ff00' },
+              { position: 0.67, color: '#0000ff' },
+              { position: 0.83, color: '#4b0082' },
+              { position: 1.0, color: '#9400d3' }
+            ]}
+            onChange={(stops) => {
+              setActiveSettings({ colorCycleGradient: stops });
+              // Use the shared handler from DrawingCanvas if available
+              if (colorCycleAnimationHandlers?.updateColorCycleGradient) {
+                colorCycleAnimationHandlers.updateColorCycleGradient(stops);
+              }
+            }}
+          />
         </div>
         
         {/* Animation Speed */}
@@ -141,25 +191,232 @@ const BrushControls = () => {
             />
           </div>
         </div>
+        
+        {/* Spacing */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Spacing
+            </label>
+            <ProgressSlider
+              value={activeSettings.spacing || 25}
+              min={1}
+              max={400}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
+              }
+              aria-label="Spacing"
+              className="flex-1"
+            />
+          </div>
+        </div>
 
-        {/* Gradient Editor */}
-        <div className="mt-4">
-          <label className="text-[#D9D9D9] text-xs block mb-2">Gradient</label>
-          <GradientEditor
-            stops={activeSettings.colorCycleGradient || [
-              { position: 0.0, color: '#ff0000' },
-              { position: 0.17, color: '#ff7f00' },
-              { position: 0.33, color: '#ffff00' },
-              { position: 0.5, color: '#00ff00' },
-              { position: 0.67, color: '#0000ff' },
-              { position: 0.83, color: '#4b0082' },
-              { position: 1.0, color: '#9400d3' }
-            ]}
-            onChange={(stops) => {
-              setActiveSettings({ colorCycleGradient: stops });
-              brushEngine.updateColorCycleGradient(stops);
-            }}
-          />
+        {/* Flow */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Flow
+            </label>
+            <ProgressSlider
+              value={activeSettings.flow || 1}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) =>
+                setActiveSettings({ flow: value })
+              }
+              aria-label="Flow"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Color Jitter */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Col Jit
+            </label>
+            <ProgressSlider
+              value={activeSettings.colorJitter || 0}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ colorJitter: Math.round(value) })
+              }
+              aria-label="Color Jitter"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Pressure */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="pressure-enabled-color-cycle"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Pressure
+            </label>
+            <CustomSwitch
+              id="pressure-enabled-color-cycle"
+              checked={activeSettings.pressureEnabled || false}
+              onChange={(checked) => {
+                setActiveSettings({ pressureEnabled: checked });
+              }}
+            />
+            {(activeSettings.pressureEnabled || false) && (
+              <>
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={activeSettings.minPressure || 1}
+                  onChange={(e) => {
+                    const newMin = parseInt(e.target.value) || 1;
+                    setActiveSettings({
+                      minPressure: newMin,
+                    });
+                  }}
+                  min="1"
+                  max="1000"
+                  className="w-8 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
+                  -
+                </span>
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={activeSettings.maxPressure ?? 100}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value);
+                    setActiveSettings({ maxPressure: value || undefined });
+                  }}
+                  min="1"
+                  max="1000"
+                  className="w-8 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                />
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Rotation */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="rotation-enabled-color-cycle"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Rotation
+            </label>
+            <CustomSwitch
+              id="rotation-enabled-color-cycle"
+              checked={activeSettings.rotationEnabled || false}
+              onChange={(checked) =>
+                setActiveSettings({ rotationEnabled: checked })
+              }
+            />
+          </div>
+        </div>
+
+        {/* Dashed */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="dashed-enabled-color-cycle"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Dashed
+            </label>
+            <CustomSwitch
+              id="dashed-enabled-color-cycle"
+              checked={activeSettings.dashedEnabled || false}
+              onChange={(checked) =>
+                setActiveSettings({ dashedEnabled: checked })
+              }
+            />
+            {(activeSettings.dashedEnabled || false) && (
+              <>
+                <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                  L
+                </span>
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={activeSettings.dashLength || 3}
+                  onChange={(e) =>
+                    setActiveSettings({
+                      dashLength: parseInt(e.target.value) || 3,
+                    })
+                  }
+                  min="1"
+                  max="20"
+                  className="w-7 bg-[#4a4a4a] border-none focus:outline-none px-0 h-5"
+                  title="Length multiplier (×brush size)"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                  G
+                </span>
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={activeSettings.dashGap || 2}
+                  onChange={(e) =>
+                    setActiveSettings({ dashGap: parseInt(e.target.value) || 2 })
+                  }
+                  min="1"
+                  max="20"
+                  className="w-7 bg-[#4a4a4a] border-none focus:outline-none px-0 h-5"
+                  title="Gap multiplier (×brush size)"
+                />
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Grid Snap */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="grid-snap-enabled-color-cycle"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Grid Snap
+            </label>
+            <CustomSwitch
+              id="grid-snap-enabled-color-cycle"
+              checked={activeSettings.gridSnapEnabled || false}
+              onChange={(checked) =>
+                setActiveSettings({ gridSnapEnabled: checked })
+              }
+            />
+          </div>
+        </div>
+
+        {/* Shape Mode - Draw closed polygon shapes */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="shape-mode-color-cycle"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Shape
+            </label>
+            <CustomSwitch
+              id="shape-mode-color-cycle"
+              checked={shapeMode || false}
+              onChange={(checked) => setShapeMode(checked)}
+            />
+          </div>
         </div>
       </div>
     );
@@ -205,7 +462,6 @@ const BrushControls = () => {
               }
               aria-label="Resample Interval"
               className="flex-1"
-              disabled={!activeSettings.continuousSampling}
             />
           </div>
         </div>
