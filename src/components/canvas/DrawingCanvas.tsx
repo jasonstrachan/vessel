@@ -11,7 +11,7 @@ import { BrushShape } from '../../types';
 import { floodFill } from '../../utils/floodFill';
 import { detectWacomIssues, testWacomPressure } from '../../utils/detectWacom';
 import BrushCursor from './BrushCursor';
-import { setColorCycleAnimationHandlers } from '../toolbar/BrushControls';
+import { setColorCycleAnimationHandlers, getColorCycleAnimationState } from '../toolbar/BrushControls';
 
 const DrawingCanvas = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null); 
@@ -680,6 +680,11 @@ const DrawingCanvas = () => {
             stateMachine.finalizationComplete();
             // Trigger redraw after finalization
             setNeedsRedraw(prev => prev + 1);
+            
+            // Restart color cycle animation if it should be playing
+            if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && getColorCycleAnimationState()) {
+              wrappedStartAnimation();
+            }
           });
         }
         toolStateMachine.resetPolygonGradient();
@@ -1770,6 +1775,11 @@ const DrawingCanvas = () => {
             stateMachine.finalizationComplete();
             // Trigger redraw after finalization
             setNeedsRedraw(prev => prev + 1);
+            
+            // Restart color cycle animation if it should be playing
+            if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && getColorCycleAnimationState()) {
+              wrappedStartAnimation();
+            }
           });
           toolStateMachine.resetPolygonGradient();
         }
@@ -1794,6 +1804,11 @@ const DrawingCanvas = () => {
           stateMachine.finalizationComplete();
           // Trigger redraw after finalization completes
           setNeedsRedraw(prev => prev + 1);
+          
+          // Restart color cycle animation if it should be playing
+          if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && getColorCycleAnimationState()) {
+            wrappedStartAnimation();
+          }
         });
       }
     }
@@ -1854,6 +1869,11 @@ const DrawingCanvas = () => {
             stateMachine.finalizationComplete();
             // Trigger redraw after finalization
             setNeedsRedraw(prev => prev + 1);
+            
+            // Restart color cycle animation if it should be playing
+            if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && getColorCycleAnimationState()) {
+              wrappedStartAnimation();
+            }
           });
         }
       }

@@ -660,6 +660,10 @@ export function useDrawingHandlers({
             // Clear and do one final render at FULL OPACITY
             drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
             brushEngine.renderColorCycle(drawingCtxRef.current, false); // false = don't apply opacity
+            
+            // IMPORTANT: Check if we should continue animating after stroke ends
+            // The animation should continue if the play button is active
+            // We'll rely on the DrawingCanvas to restart it based on UI state
           }
           
           // Now composite the drawing (with risograph already applied per-stamp) onto the layer
@@ -1045,7 +1049,7 @@ export function useDrawingHandlers({
     continuousColorCycleAnimationRef.current = requestAnimationFrame(animateContinuousColorCycle);
   }, [brushEngine, initDrawingCanvas]);
   
-  // Stop continuous color cycle animation
+  // Stop continuous color cycle animation AND pause it
   const stopContinuousColorCycleAnimation = useCallback(() => {
     // Set the flag to stop animation
     if (continuousColorCycleAnimationRef.current) {

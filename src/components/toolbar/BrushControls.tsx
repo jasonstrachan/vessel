@@ -21,9 +21,15 @@ interface ColorCycleAnimationContext {
 
 // For now, we'll store this globally - a proper solution would use React context
 let colorCycleAnimationHandlers: ColorCycleAnimationContext | null = null;
+let globalIsAnimating = true; // Track global animation state (default to playing)
 
 export const setColorCycleAnimationHandlers = (handlers: ColorCycleAnimationContext | null) => {
   colorCycleAnimationHandlers = handlers;
+};
+
+export const getColorCycleAnimationState = () => globalIsAnimating;
+export const setColorCycleAnimationState = (isAnimating: boolean) => {
+  globalIsAnimating = isAnimating;
 };
 
 const BrushControls = () => {
@@ -49,18 +55,23 @@ const BrushControls = () => {
     currentTool === "eraser" ? setEraserSettings : setBrushSettings;
   
   // Use state to track animation status for proper re-renders
-  const [isAnimating, setIsAnimating] = React.useState(false);
+  const [isAnimating, setIsAnimating] = React.useState(true); // Default to playing
   
-  // Stop animation when switching away from color cycle brush
+  // Handle animation when switching brush types
   React.useEffect(() => {
-    if (activeSettings.brushShape !== BrushShape.COLOR_CYCLE) {
+    if (activeSettings.brushShape === BrushShape.COLOR_CYCLE) {
+      // Start animation when switching to color cycle brush (if play is active)
+      if (isAnimating && colorCycleAnimationHandlers) {
+        colorCycleAnimationHandlers.startContinuousColorCycleAnimation();
+      }
+    } else {
       // Stop continuous animation when not using color cycle brush
       if (colorCycleAnimationHandlers) {
         colorCycleAnimationHandlers.stopContinuousColorCycleAnimation();
       }
-      setIsAnimating(false);
+      setIsAnimating(true); // Reset to playing state for next time
     }
-  }, [activeSettings.brushShape]);
+  }, [activeSettings.brushShape, isAnimating]);
 
 
   // Show special controls for Color Cycle brush
@@ -74,6 +85,7 @@ const BrushControls = () => {
               // Toggle animation state
               const newIsAnimating = !isAnimating;
               setIsAnimating(newIsAnimating);
+              setColorCycleAnimationState(newIsAnimating); // Update global state
               
               // Start or stop the continuous animation loop based on play state
               if (colorCycleAnimationHandlers) {
