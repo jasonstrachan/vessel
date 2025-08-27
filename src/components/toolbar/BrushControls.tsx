@@ -59,19 +59,27 @@ const BrushControls = () => {
   const [isAnimating, setIsAnimating] = React.useState(true); // Default to playing
   
   // Handle animation when switching brush types
+  const previousBrushShape = React.useRef(activeSettings.brushShape);
+  
   React.useEffect(() => {
-    if (activeSettings.brushShape === BrushShape.COLOR_CYCLE) {
+    const wasColorCycle = previousBrushShape.current === BrushShape.COLOR_CYCLE;
+    const isColorCycle = activeSettings.brushShape === BrushShape.COLOR_CYCLE;
+    
+    if (isColorCycle) {
       // Start animation when switching to color cycle brush (if play is active)
       if (isAnimating && colorCycleAnimationHandlers) {
         colorCycleAnimationHandlers.startContinuousColorCycleAnimation();
       }
     } else {
-      // Stop continuous animation when not using color cycle brush
-      if (colorCycleAnimationHandlers) {
+      // When switching AWAY from color cycle, ensure content is preserved
+      if (wasColorCycle && colorCycleAnimationHandlers) {
+        // Stop the animation but keep the content visible
         colorCycleAnimationHandlers.stopContinuousColorCycleAnimation();
       }
       setIsAnimating(true); // Reset to playing state for next time
     }
+    
+    previousBrushShape.current = activeSettings.brushShape;
   }, [activeSettings.brushShape, isAnimating]);
 
 

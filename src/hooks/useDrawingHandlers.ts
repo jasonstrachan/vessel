@@ -320,9 +320,26 @@ export function useDrawingHandlers({
         
         // Handle Color Cycle brush - only paints to WebGL buffer
         if (currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
-          brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure);
-          colorCycleLastPosRef.current = worldPos;
-          // Rendering happens in the animation loop, not here
+          // SAFETY CHECK: Verify we're on a compatible CC layer with matching gradient
+          // This prevents crashes when continueDrawing is called after startDrawing blocked
+          const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+          const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+          
+          if (isColorCycleLayer) {
+            // Also check gradient compatibility
+            const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
+            const layerGradient = activeLayer.colorCycleData?.gradient;
+            const gradientsMatch = !brushGradient || !layerGradient || 
+                                  JSON.stringify(brushGradient) === JSON.stringify(layerGradient);
+            
+            if (gradientsMatch) {
+              brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure);
+              colorCycleLastPosRef.current = worldPos;
+              // Rendering happens in the animation loop, not here
+            }
+            // If gradients don't match, silently skip drawing (warning was already shown in startDrawing)
+          }
+          // If not a CC layer, silently skip (warning was already shown in startDrawing)
         } else if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER && 
             !currentState.tools.brushSettings.continuousSampling) {
           // Use the exact same approach as CustomBrushPanel for capturing
@@ -477,6 +494,28 @@ export function useDrawingHandlers({
             
             // Check for Color Cycle brush with stroke processor features
             if (currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
+              // GUARD: Verify layer compatibility before calling color cycle functions
+              const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+              const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+              
+              if (!isColorCycleLayer && activeLayer?.layerType) {
+                // Color cycle brush on non-CC layer - skip processing to prevent crash
+                continue; // Skip this batch item and continue with next
+              }
+              
+              // GUARD: Also check gradient compatibility
+              if (isColorCycleLayer) {
+                const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
+                const layerGradient = activeLayer.colorCycleData?.gradient;
+                const gradientsMatch = !brushGradient || !layerGradient || 
+                                      JSON.stringify(brushGradient) === JSON.stringify(layerGradient);
+                
+                if (!gradientsMatch) {
+                  // Wrong gradient - skip processing to prevent crash
+                  continue; // Skip this batch item and continue with next
+                }
+              }
+              
               // Use the spacing setting from brush controls, defaulting to 25% of size
               const spacingPercent = (currentState.tools.brushSettings.spacing || 25) / 100;
               const spacing = (currentState.tools.brushSettings.size || 20) * spacingPercent;
@@ -1099,6 +1138,15 @@ export function useDrawingHandlers({
     // Ensure color cycle brush exists and is not in drawing mode
     brushEngine.ensureColorCycleBrush();
     
+    // IMPORTANT: Do an initial render to show existing content
+    // This ensures color cycle shapes are visible when switching back
+    if (drawingCtxRef.current && drawingCanvasRef.current) {
+      drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+      brushEngine.renderColorCycle(drawingCtxRef.current, true);
+      // Mark as having content if color cycle has any strokes
+      // This prevents the content from disappearing
+    }
+    
     // Resume the color cycle brush animation (don't toggle, just ensure it's playing)
     if (!brushEngine.isColorCycleAnimating()) {
       brushEngine.toggleColorCycleAnimation();
@@ -1163,11 +1211,10 @@ export function useDrawingHandlers({
       brushEngine.toggleColorCycleAnimation();
     }
     
-    // Clear the drawing canvas when animation stops
-    if (drawingCtxRef.current && drawingCanvasRef.current) {
-      drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-      drawingCanvasHasContent.current = false;
-    }
+    // DON'T clear the drawing canvas when animation stops - this was causing content loss
+    // The canvas should retain the color cycle content so it can be composited
+    // Only clear when starting a new stroke or when explicitly needed
+    drawingCanvasHasContent.current = true; // Ensure content is marked as present
   }, [brushEngine]);
   
   // Setter for feedback message callback

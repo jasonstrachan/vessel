@@ -134,7 +134,7 @@ const MinimalLayerList = () => {
   
   
   return (
-    <div className="absolute right-0 top-0 h-full w-20 bg-[#2C2C2C] border-l border-r border-[#424242] z-30 flex flex-col">
+    <div className="absolute right-0 top-0 h-full w-[130px] bg-[#2C2C2C] border-l border-r border-[#424242] z-30 flex flex-col">
       {/* Add Layer Button at the top */}
       <div className="border-b border-[#424242] bg-[#2C2C2C]">
         <button
@@ -153,7 +153,7 @@ const MinimalLayerList = () => {
             key={layer.id}
             className={`
               relative group cursor-move select-none
-              ${activeLayerId === layer.id ? 'bg-[#383838]' : 'hover:bg-[#353535]'}
+              ${activeLayerId === layer.id ? 'bg-[#4A4A4A]' : 'hover:bg-[#353535]'}
               ${dragOverLayerId === layer.id ? 'border-t-2 border-blue-400' : ''}
               transition-all duration-150
             `}

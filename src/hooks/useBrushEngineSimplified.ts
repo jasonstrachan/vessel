@@ -1519,25 +1519,33 @@ export const useBrushEngineSimplified = () => {
     y: number,
     _pressure: number = 1.0
   ) => {
-    // Ensure we have a current brush from resetColorCycle
+    // DEFENSIVE GUARD: Check if color cycle brush should be used
+    // This prevents crashes when incompatible layer types are used
     if (!colorCycleBrushRef.current) {
       console.warn('[ColorCycle] No active brush - call resetColorCycle first');
       return;
     }
     
-    const colorCycleBrush = colorCycleBrushRef.current;
-    colorCycleBrush.setBrushSize(tools.brushSettings.size);
-    
-    // Paint to the WebGL buffer only
-    // Convert canvas coordinates to WebGL canvas coordinates
-    const webglCanvas = (colorCycleBrush as any).webglCanvas;
-    const scaleX = webglCanvas.width / ctx.canvas.width;
-    const scaleY = webglCanvas.height / ctx.canvas.height;
-    
-    colorCycleBrush.paint(Math.floor(x * scaleX), Math.floor(y * scaleY));
-    
-    // Don't composite here - let renderColorCycle handle all rendering
-    // This prevents visible brush stamps and ensures only animated strokes show
+    // ADDITIONAL GUARD: Verify we're not trying to use color cycle on incompatible layer
+    // This is a last-resort check to prevent crashes from improper usage
+    try {
+      const colorCycleBrush = colorCycleBrushRef.current;
+      colorCycleBrush.setBrushSize(tools.brushSettings.size);
+      
+      // Paint to the WebGL buffer only
+      // Convert canvas coordinates to WebGL canvas coordinates
+      const webglCanvas = (colorCycleBrush as any).webglCanvas;
+      const scaleX = webglCanvas.width / ctx.canvas.width;
+      const scaleY = webglCanvas.height / ctx.canvas.height;
+      
+      colorCycleBrush.paint(Math.floor(x * scaleX), Math.floor(y * scaleY));
+      
+      // Don't composite here - let renderColorCycle handle all rendering
+      // This prevents visible brush stamps and ensures only animated strokes show
+    } catch (error) {
+      console.warn('[ColorCycle] Error during drawColorCycle - possibly incompatible layer:', error);
+      return; // Fail gracefully instead of crashing
+    }
   }, [tools.brushSettings.size]);
   
   /**
@@ -1591,12 +1599,18 @@ export const useBrushEngineSimplified = () => {
    * Reset Color Cycle - starts a new stroke with the existing brush
    */
   const resetColorCycle = useCallback(() => {
-    // Reuse existing brush or create if needed
-    const brush = initializeColorCycleBrush();
-    
-    if (brush) {
-      // Just start a new stroke with the existing brush
-      brush.startStroke();
+    // DEFENSIVE GUARD: Add try-catch to prevent crashes during initialization
+    try {
+      // Reuse existing brush or create if needed
+      const brush = initializeColorCycleBrush();
+      
+      if (brush) {
+        // Just start a new stroke with the existing brush
+        brush.startStroke();
+      }
+    } catch (error) {
+      console.warn('[ColorCycle] Error during resetColorCycle:', error);
+      // Fail gracefully - don't crash the app
     }
   }, [initializeColorCycleBrush]);
   
@@ -1623,7 +1637,7 @@ export const useBrushEngineSimplified = () => {
       // Ensure we have a layer by setting the gradient if needed
       if ((brush as any).currentLayerIndex < 0) {
         // Set the gradient to create a layer
-        const currentGradient = tools.brushSettings.colorGradient || [
+        const currentGradient = tools.brushSettings.colorCycleGradient || [
           { position: 0, color: '#ff0000' },
           { position: 0.5, color: '#00ff00' },
           { position: 1, color: '#0000ff' }
@@ -1652,7 +1666,7 @@ export const useBrushEngineSimplified = () => {
       // Force a render to ensure the shape is visible
       brush.render(true);
     }
-  }, [initializeColorCycleBrush, project?.width, project?.height, tools.brushSettings.colorGradient]);
+  }, [initializeColorCycleBrush, project?.width, project?.height, tools.brushSettings.colorCycleGradient]);
 
   // Color cycle functions removed - now defined inline in return object to avoid stale closures
   

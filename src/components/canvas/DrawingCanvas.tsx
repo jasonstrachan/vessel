@@ -1821,6 +1821,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         // Signal that finalization is complete
         stateMachine.finalizationComplete();
         setNeedsRedraw(prev => prev + 1);
+        
+        // Restart color cycle animation if it should be playing (same as regular drawing)
+        if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && getColorCycleAnimationState()) {
+          wrappedStartAnimation();
+        }
       } else {
         drawingHandlers.finalizeDrawing().then(() => {
           // Signal that finalization is complete
@@ -1886,6 +1891,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           // Signal that finalization is complete
           stateMachine.finalizationComplete();
           setNeedsRedraw(prev => prev + 1);
+          
+          // Restart color cycle animation if it should be playing (same as regular drawing)
+          if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && getColorCycleAnimationState()) {
+            wrappedStartAnimation();
+          }
         } else {
           drawingHandlers.finalizeDrawing().then(() => {
             // Signal that finalization is complete

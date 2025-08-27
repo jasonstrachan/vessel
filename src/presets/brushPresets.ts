@@ -434,7 +434,7 @@ export const colorCycleBrushPreset: BrushPreset = {
   preferredSettings: {
     size: 20,
     opacity: 1,
-    colorCycleSpeed: 0.4,
+    colorCycleSpeed: 1.0,
     colorCycleFPS: 30,
     colorCycleGradient: [
       { position: 0.0, color: '#ff0000' },
