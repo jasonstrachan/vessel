@@ -186,6 +186,9 @@ export function useDrawingHandlers({
             { position: 1.0, color: '#9400d3' }
           ];
           
+          // PRESERVE EXISTING CONTENT: Store current imageData before conversion
+          const existingImageData = activeLayer.imageData;
+          
           // Update layer to be CC type
           currentState.updateLayer(activeLayer.id, {
             layerType: 'color-cycle',
@@ -198,13 +201,77 @@ export function useDrawingHandlers({
           // Initialize the WebGL Color Cycle brush for this layer
           currentState.initColorCycleForLayer(activeLayer.id, project.width, project.height);
           
+          // PRESERVE CONTENT: If there was existing content, restore it after conversion
+          if (existingImageData) {
+            // The layer still has its imageData, it's preserved in the updateLayer
+            // We just need to ensure the framebuffer is updated
+            const updatedLayer = useAppStore.getState().layers.find(l => l.id === activeLayer?.id);
+            if (updatedLayer?.framebuffer) {
+              const fbCtx = updatedLayer.framebuffer.getContext('2d');
+              if (fbCtx) {
+                fbCtx.putImageData(existingImageData, 0, 0);
+              }
+            }
+          }
+          
           // Refresh the active layer reference after update
           activeLayer = useAppStore.getState().layers.find(l => l.id === currentState.activeLayerId);
         } else {
-          // Convert to normal layer
-          currentState.updateLayer(activeLayer.id, {
-            layerType: 'normal'
-          });
+          // PRESERVE EXISTING CONTENT: Store current imageData before conversion
+          const existingImageData = activeLayer.imageData;
+          
+          // If converting from color-cycle, capture the current CC canvas content
+          if (activeLayer.layerType === 'color-cycle' && activeLayer.colorCycleData?.canvas) {
+            const ccCanvas = activeLayer.colorCycleData.canvas;
+            const tempCtx = document.createElement('canvas').getContext('2d');
+            if (tempCtx && ccCanvas) {
+              tempCtx.canvas.width = ccCanvas.width;
+              tempCtx.canvas.height = ccCanvas.height;
+              
+              // Render the final state of the color cycle
+              if (activeLayer.colorCycleData.colorCycleBrush) {
+                activeLayer.colorCycleData.colorCycleBrush.renderDirectToCanvas(tempCtx.canvas, activeLayer.id);
+              } else {
+                tempCtx.drawImage(ccCanvas, 0, 0);
+              }
+              
+              const ccImageData = tempCtx.getImageData(0, 0, ccCanvas.width, ccCanvas.height);
+              
+              // Clean up the color cycle resources BEFORE converting
+              if (activeLayer.colorCycleData.colorCycleBrush) {
+                activeLayer.colorCycleData.colorCycleBrush.destroy();
+              }
+              
+              // Convert to normal layer
+              currentState.updateLayer(activeLayer.id, {
+                layerType: 'normal',
+                imageData: ccImageData // Preserve the CC content
+              });
+            } else {
+              // Fallback: just convert with existing imageData
+              currentState.updateLayer(activeLayer.id, {
+                layerType: 'normal'
+              });
+            }
+          } else {
+            // Convert to normal layer
+            currentState.updateLayer(activeLayer.id, {
+              layerType: 'normal'
+            });
+          }
+          
+          // PRESERVE CONTENT: If there was existing content, ensure it's preserved
+          if (existingImageData) {
+            const updatedLayer = useAppStore.getState().layers.find(l => l.id === activeLayer?.id);
+            if (updatedLayer?.framebuffer && !updatedLayer.imageData) {
+              // Only restore if we don't already have imageData from CC conversion
+              const fbCtx = updatedLayer.framebuffer.getContext('2d');
+              if (fbCtx) {
+                fbCtx.putImageData(existingImageData, 0, 0);
+                currentState.updateLayer(activeLayer.id, { imageData: existingImageData });
+              }
+            }
+          }
           
           // Refresh the active layer reference after update
           activeLayer = useAppStore.getState().layers.find(l => l.id === currentState.activeLayerId);

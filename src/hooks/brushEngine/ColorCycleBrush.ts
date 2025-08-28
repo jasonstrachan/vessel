@@ -97,9 +97,9 @@ export class ColorCycleBrush {
     // Create first layer with default gradient
     this.addNewLayer(this.defaultGradient());
     
-    // Start animation loop
-    this.isAnimating = true;
-    this.isPaused = false;
+    // Initialize animation state but don't start internal loop
+    this.isAnimating = false;
+    this.isPaused = true;
   }
   
   // Set callback for frame updates
@@ -205,11 +205,8 @@ export class ColorCycleBrush {
     gl.enableVertexAttribArray(positionLocation);
     gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
     
-    // Start animation loop
-    this.isAnimating = true;
-    this.isPaused = false;
+    // Don't start internal animation loop - will be driven externally
     this.lastFrameTime = performance.now();
-    this.animate();
   }
   
   private createProgram(vertexSource: string, fragmentSource: string): WebGLProgram {
@@ -661,18 +658,15 @@ export class ColorCycleBrush {
     if (layerId && this.layerStrokes.has(layerId)) {
       // For layer-specific rendering, update texture with the layer's paint buffer
       const layerData = this.layerStrokes.get(layerId)!;
-      if (this.isDrawing) {
-        this.batchedUpdateIndexTextureWithData(this.currentLayerIndex, layerData.paintBuffer);
-      } else {
-        this.updateIndexTextureWithData(this.currentLayerIndex, layerData.paintBuffer);
-      }
+      // Always update texture immediately when painting to prevent content disappearing
+      this.updateIndexTextureWithData(this.currentLayerIndex, layerData.paintBuffer);
+      // Also render immediately to show the stroke
+      this.render();
     } else {
       // Standard texture update for non-layer-specific mode
-      if (this.isDrawing) {
-        this.batchedUpdateIndexTexture(this.currentLayerIndex);
-      } else {
-        this.updateIndexTexture(this.currentLayerIndex);
-      }
+      this.updateIndexTexture(this.currentLayerIndex);
+      // Render immediately to show the stroke
+      this.render();
     }
   }
   
@@ -711,6 +705,9 @@ export class ColorCycleBrush {
       this.strokeLength = 0;
     }
     this.isDrawing = true;
+    // Ensure animation continues during drawing
+    this.isAnimating = true;
+    this.isPaused = false;
   }
   
   // End stroke (call when lifting pen/mouse)
@@ -729,6 +726,8 @@ export class ColorCycleBrush {
     // Force update current layer's texture
     if (this.currentLayerIndex >= 0) {
       this.updateIndexTexture(this.currentLayerIndex);
+      // Do a final render to ensure content is visible
+      this.render();
     }
   }
   
@@ -884,9 +883,22 @@ export class ColorCycleBrush {
     }
   }
   
+  // Force play state regardless of current state
+  forcePlay() {
+    this.isAnimating = true;
+    this.isPaused = false;
+    this.lastFrameTime = performance.now();
+  }
+  
+  // Force pause state regardless of current state  
+  forcePause() {
+    this.isPaused = true;
+  }
+  
   // Manual update method for external render loops
   updateAnimation() {
-    if (!this.isPaused && !this.isDrawing) {
+    // Only update animation if playing and not currently drawing
+    if (this.isAnimating && !this.isPaused && !this.isDrawing) {
       const currentTime = performance.now();
       const deltaTime = currentTime - this.lastFrameTime;
       
@@ -895,49 +907,29 @@ export class ColorCycleBrush {
         this.cycleOffset = this.cycleOffset % 1.0;
         this.lastFrameTime = currentTime - (deltaTime % this.frameInterval);
         
-        // CRITICAL: Also render when manually updating animation
+        // Render the animated frame
         this.render();
+        
+        // Notify listeners for canvas updates
+        if (this.onFrameRendered) {
+          this.onFrameRendered();
+        }
+      }
+    } else if (this.isDrawing) {
+      // While drawing, just update the cycle offset but don't render
+      // The painting methods will handle rendering
+      const currentTime = performance.now();
+      const deltaTime = currentTime - this.lastFrameTime;
+      
+      if (deltaTime >= this.frameInterval) {
+        this.cycleOffset += (deltaTime / 1000) * this.cycleSpeed * 0.2;
+        this.cycleOffset = this.cycleOffset % 1.0;
+        this.lastFrameTime = currentTime - (deltaTime % this.frameInterval);
       }
     }
   }
   
-  private animate() {
-    // Guard against multiple loops or stopped state
-    if (!this.isAnimating) {
-      this.animationId = null;
-      return;
-    }
-    
-    const currentTime = performance.now();
-    const deltaTime = currentTime - this.lastFrameTime;
-    
-    // Throttle to target frame rate
-    if (deltaTime >= this.frameInterval) {
-      // Only update when actively animating (not paused or drawing)
-      if (this.isDrawing || !this.isPaused) {
-        // Update cycle offset
-        this.cycleOffset += (deltaTime / 1000) * this.cycleSpeed * 0.2;
-        this.cycleOffset = this.cycleOffset % 1.0;
-        
-        // Render the current frame
-        this.render();
-        
-        // Notify listeners for canvas updates (only when playing, not when drawing)
-        if (!this.isPaused && !this.isDrawing && this.onFrameRendered) {
-          this.onFrameRendered();
-        }
-      }
-      
-      this.lastFrameTime = currentTime - (deltaTime % this.frameInterval);
-    }
-    
-    // Continue loop only if still animating
-    if (this.isAnimating) {
-      this.animationId = requestAnimationFrame(() => this.animate());
-    } else {
-      this.animationId = null;
-    }
-  }
+  // Removed internal animate loop - all animation is driven externally through updateAnimation()
   
   // Serialize current state for undo/redo
   createSnapshot(layerId: string): ArrayBuffer {
