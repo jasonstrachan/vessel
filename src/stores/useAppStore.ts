@@ -38,7 +38,8 @@ import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSetting
 import { 
   saveProjectToFile, 
   loadProjectFromFile, 
-  exportProjectAsPNG
+  exportProjectAsPNG,
+  restoreColorCycleBrushes
 } from '../utils/projectIO';
 // import { memoryManager } from '../utils/memoryCleanup';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
@@ -210,6 +211,11 @@ interface AppState {
   setActiveLayer: (id: string) => void;
   setLayers: (layers: Layer[]) => void;
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
+  
+  // Color Cycle Layer Management
+  initColorCycleForLayer: (layerId: string, width: number, height: number) => void;
+  cleanupColorCycleForLayer: (layerId: string) => void;
+  getLayerColorCycleBrush: (layerId: string) => any;
   
   // Custom Brush Management
   addCustomBrush: (brush: CustomBrush) => void;
@@ -1226,6 +1232,14 @@ export const useAppStore = create<AppState>()(
         return newLayerId;
       },
       removeLayer: (id) => set((state) => {
+        // Find the layer to be removed
+        const layerToRemove = state.layers.find(l => l.id === id);
+        
+        // Cleanup ColorCycleBrush resources if present
+        if (layerToRemove?.colorCycleData?.colorCycleBrush) {
+          layerToRemove.colorCycleData.colorCycleBrush.destroy();
+        }
+        
         const updatedLayers = state.layers.filter(l => l.id !== id);
         const newActiveLayerId = state.activeLayerId === id ? 
           updatedLayers.find(l => l.id !== id)?.id || null : 
@@ -1261,9 +1275,34 @@ export const useAppStore = create<AppState>()(
           } : null
         };
       }),
-      setActiveLayer: (id) => {
-        set({ activeLayerId: id });
-      },
+      setActiveLayer: (id) => set((state) => {
+        const layer = state.layers.find(l => l.id === id);
+        
+        // If switching to a color-cycle layer, update the brush gradient to match and sync WebGL
+        if (layer?.layerType === 'color-cycle' && layer.colorCycleData?.gradient) {
+          // Update the brush gradient in the WebGL brush immediately
+          const colorCycleBrush = layer.colorCycleData?.colorCycleBrush;
+          if (colorCycleBrush) {
+            // Set the active layer in the brush first
+            colorCycleBrush.setActiveLayer(id);
+            // Then sync the gradient
+            colorCycleBrush.setGradient(layer.colorCycleData.gradient, id);
+          }
+          
+          return {
+            activeLayerId: id,
+            tools: {
+              ...state.tools,
+              brushSettings: {
+                ...state.tools.brushSettings,
+                colorCycleGradient: layer.colorCycleData.gradient
+              }
+            }
+          };
+        }
+        
+        return { activeLayerId: id };
+      }),
       setLayers: (layers) => {
         set({ layers });
       },
@@ -1289,6 +1328,99 @@ export const useAppStore = create<AppState>()(
           } : null
         };
       }),
+      
+      // Color Cycle Layer Management
+      initColorCycleForLayer: (layerId, width, height) => set((state) => {
+        // Dynamic import to avoid circular dependencies
+        const { ColorCycleBrush } = (() => {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          return require('../hooks/brushEngine/ColorCycleBrush');
+        })();
+        
+        const layer = state.layers.find(l => l.id === layerId);
+        if (!layer) return state;
+        
+        // Create a canvas element for this layer's color cycle
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        
+        // Initialize ColorCycleBrush for this layer
+        const colorCycleBrush = new ColorCycleBrush(canvas, {
+          brushSize: state.tools.brushSettings.size || 20,
+          fps: 30
+        });
+        
+        // Set the layer ID in the brush
+        colorCycleBrush.setLayerId(layerId);
+        
+        // Use the current brush gradient if available, otherwise use existing or default
+        const currentBrushGradient = state.tools.brushSettings.colorCycleGradient;
+        const gradient = currentBrushGradient || layer?.colorCycleData?.gradient || [
+          { position: 0.0, color: '#ff0000' },
+          { position: 0.17, color: '#ff7f00' },
+          { position: 0.33, color: '#ffff00' },
+          { position: 0.5, color: '#00ff00' },
+          { position: 0.67, color: '#0000ff' },
+          { position: 0.83, color: '#4b0082' },
+          { position: 1.0, color: '#9400d3' }
+        ];
+        
+        const updatedLayers = state.layers.map(l => 
+          l.id === layerId 
+            ? {
+                ...l,
+                layerType: 'color-cycle' as const,
+                colorCycleData: {
+                  gradient,
+                  colorCycleBrush,
+                  isAnimating: true,
+                  canvas
+                }
+              }
+            : l
+        );
+        
+        return {
+          layers: updatedLayers,
+          project: state.project ? {
+            ...state.project,
+            layers: updatedLayers
+          } : null
+        };
+      }),
+      
+      cleanupColorCycleForLayer: (layerId) => set((state) => {
+        const layer = state.layers.find(l => l.id === layerId);
+        if (!layer || !layer.colorCycleData?.colorCycleBrush) return state;
+        
+        // Cleanup WebGL resources
+        layer.colorCycleData.colorCycleBrush.destroy();
+        
+        const updatedLayers = state.layers.map(l => 
+          l.id === layerId 
+            ? {
+                ...l,
+                layerType: 'normal' as const,
+                colorCycleData: undefined
+              }
+            : l
+        );
+        
+        return {
+          layers: updatedLayers,
+          project: state.project ? {
+            ...state.project,
+            layers: updatedLayers
+          } : null
+        };
+      }),
+      
+      getLayerColorCycleBrush: (layerId) => {
+        const state = get();
+        const layer = state.layers.find(l => l.id === layerId);
+        return layer?.colorCycleData?.colorCycleBrush;
+      },
       
       // Custom Brush Management
       addCustomBrush: (brush) => set((state) => {
@@ -1794,6 +1926,35 @@ export const useAppStore = create<AppState>()(
             ) : layer.imageData
           }));
           
+          // Capture color cycle state if available
+          let colorCycleState: CanvasSnapshot['colorCycleState'] = undefined;
+          const activeLayer = state.layers.find(l => l.id === state.activeLayerId);
+          
+          if (activeLayer?.colorCycleData?.colorCycleBrush) {
+            const brush = activeLayer.colorCycleData.colorCycleBrush;
+            const fullState = brush.getFullState();
+            
+            colorCycleState = {
+              layerId: activeLayer.id,
+              strokeData: new ArrayBuffer(0), // Not used, using layerStrokes instead
+              gradients: fullState.gradients.map((g, i) => ({
+                layerIndex: i,
+                gradientStops: g.gradientStops,
+                hasContent: true
+              })),
+              animationState: fullState.animationState,
+              layerStrokes: Array.from(fullState.layerSnapshots.entries()).map(([id, buffer]) => ({
+                layerId: id,
+                paintBuffer: buffer,
+                hasContent: buffer.byteLength > 0,
+                strokeCounter: 0,
+                strokeLength: 0,
+                gradientLayerIndices: [],
+                currentGradientIndex: 0
+              }))
+            };
+          }
+          
           const snapshot: CanvasSnapshot = {
             id: `snapshot_${Date.now()}_${Math.random()}`,
             timestamp: Date.now(),
@@ -1801,7 +1962,8 @@ export const useAppStore = create<AppState>()(
             layers: layersCopy,  // Deep copy of all layers with cloned ImageData
             activeLayerId: state.activeLayerId || state.layers[0]?.id || '',  // Current active layer or fallback
             actionType,
-            description
+            description,
+            colorCycleState
           };
           
           const newUndoStack = [...state.history.undoStack, snapshot];
@@ -1998,6 +2160,9 @@ export const useAppStore = create<AppState>()(
           // Restore canvas dimensions to match the loaded project
           state.setCanvasDimensions(loadedProject.width, loadedProject.height);
           
+          // Restore color cycle brushes for CC layers
+          await restoreColorCycleBrushes(loadedProject.layers);
+          
           // Update current brush size to match global
           const currentState = get();
           if (currentState.tools && currentState.globalBrushSize) {
@@ -2158,7 +2323,23 @@ export const useAppStore = create<AppState>()(
         const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
         
         for (const layer of sortedLayers) {
-          if (!layer.visible || !layer.imageData) {
+          if (!layer.visible) {
+            continue;
+          }
+          
+          // Phase 3: Handle color cycle layers directly
+          if (layer.layerType === 'color-cycle' && layer.colorCycleData?.canvas) {
+            // Set composite operation and opacity
+            ctx.globalCompositeOperation = layer.blendMode;
+            ctx.globalAlpha = layer.opacity;
+            
+            // Draw the color cycle canvas directly
+            ctx.drawImage(layer.colorCycleData.canvas, 0, 0);
+            continue;
+          }
+          
+          // Handle normal layers with ImageData
+          if (!layer.imageData) {
             continue;
           }
           

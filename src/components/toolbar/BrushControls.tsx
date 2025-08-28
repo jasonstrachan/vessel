@@ -126,6 +126,19 @@ const BrushControls = () => {
             ]}
             onChange={(stops) => {
               setActiveSettings({ colorCycleGradient: stops });
+              
+              // Update the active layer's gradient if it's a color-cycle layer
+              const state = useAppStore.getState();
+              const activeLayer = state.layers.find(l => l.id === state.activeLayerId);
+              if (activeLayer?.layerType === 'color-cycle' && state.activeLayerId) {
+                state.updateLayer(state.activeLayerId, {
+                  colorCycleData: {
+                    ...activeLayer.colorCycleData,
+                    gradient: stops
+                  }
+                });
+              }
+              
               // Use the shared handler from DrawingCanvas if available
               if (colorCycleAnimationHandlers?.updateColorCycleGradient) {
                 colorCycleAnimationHandlers.updateColorCycleGradient(stops);

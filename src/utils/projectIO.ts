@@ -37,6 +37,16 @@ interface SerializedLayer {
   locked: boolean;
   order: number;
   imageDataUrl: string; // Base64 encoded ImageData
+  layerType?: 'normal' | 'color-cycle';
+  colorCycleData?: {
+    gradient: Array<{ position: number; color: string }>;
+    isAnimating: boolean;
+    webGLState?: {
+      gradients: Array<{ gradientStops: Array<{ position: number; color: string }> }>;
+      animationState: { cycleOffset: number; speed: number; fps: number; isPaused: boolean };
+      layerSnapshots: Array<{ layerId: string; data: string }>; // Base64 encoded ArrayBuffer
+    };
+  };
 }
 
 interface SerializedCustomBrush {
@@ -113,6 +123,26 @@ function dataUrlToImageData(dataUrl: string): Promise<ImageData> {
   });
 }
 
+// Helper to convert ArrayBuffer to base64
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+// Helper to convert base64 to ArrayBuffer
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
 // Serialize a layer for saving
 function serializeLayer(layer: Layer): SerializedLayer {
   
@@ -125,7 +155,7 @@ function serializeLayer(layer: Layer): SerializedLayer {
   } else {
   }
   
-  return {
+  const serialized: SerializedLayer = {
     id: layer.id,
     name: layer.name,
     visible: layer.visible,
@@ -133,8 +163,34 @@ function serializeLayer(layer: Layer): SerializedLayer {
     blendMode: layer.blendMode,
     locked: layer.locked,
     order: layer.order,
-    imageDataUrl
+    imageDataUrl,
+    layerType: layer.layerType
   };
+  
+  // Serialize color cycle data if present
+  if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
+    serialized.colorCycleData = {
+      gradient: layer.colorCycleData.gradient,
+      isAnimating: layer.colorCycleData.isAnimating
+    };
+    
+    // If color cycle brush exists, serialize its WebGL state
+    if (layer.colorCycleData.colorCycleBrush) {
+      const brush = layer.colorCycleData.colorCycleBrush;
+      const fullState = brush.getFullState();
+      
+      serialized.colorCycleData.webGLState = {
+        gradients: fullState.gradients,
+        animationState: fullState.animationState,
+        layerSnapshots: Array.from(fullState.layerSnapshots.entries()).map(([layerId, buffer]) => ({
+          layerId,
+          data: arrayBufferToBase64(buffer)
+        }))
+      };
+    }
+  }
+  
+  return serialized;
 }
 
 // Deserialize a layer from saved data
@@ -152,7 +208,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
   // Create framebuffer with project dimensions
   const framebuffer = new OffscreenCanvas(projectWidth, projectHeight);
   
-  return {
+  const layer: Layer = {
     id: serializedLayer.id,
     name: serializedLayer.name,
     visible: serializedLayer.visible,
@@ -161,8 +217,31 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
     locked: serializedLayer.locked,
     order: serializedLayer.order,
     imageData,
-    framebuffer
+    framebuffer,
+    layerType: serializedLayer.layerType
   };
+  
+  // Restore color cycle data if present
+  if (serializedLayer.layerType === 'color-cycle' && serializedLayer.colorCycleData) {
+    // Create canvas for color cycle rendering
+    const colorCycleCanvas = document.createElement('canvas');
+    colorCycleCanvas.width = projectWidth;
+    colorCycleCanvas.height = projectHeight;
+    
+    layer.colorCycleData = {
+      gradient: serializedLayer.colorCycleData.gradient,
+      isAnimating: serializedLayer.colorCycleData.isAnimating,
+      canvas: colorCycleCanvas
+      // Note: colorCycleBrush will be restored later when the layer is added to the project
+    };
+    
+    // Store WebGL state for later restoration
+    if (serializedLayer.colorCycleData.webGLState) {
+      (layer as any).__savedWebGLState = serializedLayer.colorCycleData.webGLState;
+    }
+  }
+  
+  return layer;
 }
 
 // Serialize a custom brush for saving
@@ -414,6 +493,51 @@ export async function loadProjectFromFile(): Promise<Project> {
     
     input.click();
   });
+}
+
+// Restore color cycle brushes after project load
+export async function restoreColorCycleBrushes(layers: Layer[]): Promise<void> {
+  // Import ColorCycleBrush dynamically to avoid circular dependencies
+  const { ColorCycleBrush } = await import('../hooks/brushEngine/ColorCycleBrush');
+  
+  for (const layer of layers) {
+    if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
+      // Check if we have saved WebGL state
+      const savedState = (layer as any).__savedWebGLState;
+      if (savedState) {
+        // Create new color cycle brush
+        const colorCycleBrush = new ColorCycleBrush(layer.colorCycleData.canvas!);
+        
+        // Restore the WebGL state
+        const layerSnapshots = new Map<string, ArrayBuffer>();
+        for (const snapshot of savedState.layerSnapshots) {
+          layerSnapshots.set(snapshot.layerId, base64ToArrayBuffer(snapshot.data));
+        }
+        
+        colorCycleBrush.restoreFullState({
+          gradients: savedState.gradients,
+          animationState: savedState.animationState,
+          layerSnapshots
+        });
+        
+        // Attach the brush to the layer
+        layer.colorCycleData.colorCycleBrush = colorCycleBrush;
+        
+        // Clean up the temporary saved state
+        delete (layer as any).__savedWebGLState;
+        
+        // Start animation if it was animating
+        if (layer.colorCycleData.isAnimating) {
+          colorCycleBrush.setPlaying(!savedState.animationState.isPaused);
+        }
+      } else {
+        // No saved state, create a new brush with the gradient
+        const colorCycleBrush = new ColorCycleBrush(layer.colorCycleData.canvas!);
+        colorCycleBrush.setGradient(layer.colorCycleData.gradient);
+        layer.colorCycleData.colorCycleBrush = colorCycleBrush;
+      }
+    }
+  }
 }
 
 // Export project as PNG

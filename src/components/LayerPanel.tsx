@@ -33,7 +33,8 @@ const LayerPanel = () => {
       blendMode: 'source-over',
       locked: false,
       imageData: null,
-      framebuffer: project ? new OffscreenCanvas(project.width, project.height) : new OffscreenCanvas(DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT)
+      framebuffer: project ? new OffscreenCanvas(project.width, project.height) : new OffscreenCanvas(DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT),
+      layerType: 'normal' // Explicitly set as normal
     };
     addLayer(newLayer);
   };

@@ -60,7 +60,7 @@ const MinimalLayerList = () => {
       framebuffer: project 
         ? new OffscreenCanvas(project.width, project.height) 
         : new OffscreenCanvas(1920, 1080),
-      // Don't set layerType - it will be determined by first stroke
+      layerType: 'normal' // Explicitly set as normal, will be converted to color-cycle if needed on first CC brush stroke
     };
     const newLayerId = addLayer(newLayer);
     // Auto-select the new layer

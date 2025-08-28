@@ -164,8 +164,11 @@ export function useDrawingHandlers({
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
     
+    // Early return if no project
+    if (!project) return;
+    
     // Layer type handling and validation
-    const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+    let activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
     if (activeLayer) {
       const isColorCycleBrush = currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE;
       
@@ -191,11 +194,20 @@ export function useDrawingHandlers({
               isAnimating: true
             }
           });
+          
+          // Initialize the WebGL Color Cycle brush for this layer
+          currentState.initColorCycleForLayer(activeLayer.id, project.width, project.height);
+          
+          // Refresh the active layer reference after update
+          activeLayer = useAppStore.getState().layers.find(l => l.id === currentState.activeLayerId);
         } else {
           // Convert to normal layer
           currentState.updateLayer(activeLayer.id, {
             layerType: 'normal'
           });
+          
+          // Refresh the active layer reference after update
+          activeLayer = useAppStore.getState().layers.find(l => l.id === currentState.activeLayerId);
         }
       } else {
         // Layer already has a type, validate compatibility
@@ -205,7 +217,7 @@ export function useDrawingHandlers({
         if (isColorCycleBrush && !isColorCycleLayer) {
           // CC brush on normal layer
           if (feedbackMessageRef.current) {
-            feedbackMessageRef.current("This layer is for normal brushes only");
+            feedbackMessageRef.current("Can't use Color Cycle brush on a normal layer. Create a new layer.");
           }
           return; // Block drawing
         }
@@ -213,13 +225,19 @@ export function useDrawingHandlers({
         if (!isColorCycleBrush && isColorCycleLayer && currentTool !== 'eraser') {
           // Normal brush on CC layer (allow eraser on any layer)
           if (feedbackMessageRef.current) {
-            feedbackMessageRef.current("This layer is for color cycle brushes only");
+            feedbackMessageRef.current("Can't use regular brushes on a Color Cycle layer. Switch layers.");
           }
           return; // Block drawing
         }
         
         // Check gradient compatibility for CC layers
         if (isColorCycleBrush && isColorCycleLayer) {
+          // Ensure the CC layer has WebGL brush initialized
+          if (!activeLayer.colorCycleData?.colorCycleBrush) {
+            // Initialize it now if needed
+            currentState.initColorCycleForLayer(activeLayer.id, project.width, project.height);
+          }
+          
           const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
           const layerGradient = activeLayer.colorCycleData?.gradient;
           
@@ -268,9 +286,35 @@ export function useDrawingHandlers({
         
         if (timestamp - lastRenderTime >= frameInterval) {
           if (drawingCtxRef.current && drawingCanvasRef.current) {
-            // Clear and render the animated color cycle
+            // Clear once for all layers
             drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-            brushEngine.renderColorCycle(drawingCtxRef.current, true); // true = apply opacity
+            
+            // Inline render for color cycle layers to avoid closure issues
+            const currentState = useAppStore.getState();
+            let hasRendered = false;
+            
+            // Check active layer for color cycle
+            const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+            if (activeLayer?.visible && activeLayer.layerType === 'color-cycle' && 
+                activeLayer.colorCycleData?.colorCycleBrush && activeLayer.colorCycleData?.canvas) {
+              
+              const colorCycleBrush = activeLayer.colorCycleData.colorCycleBrush;
+              
+              // Update and render
+              colorCycleBrush.updateAnimation();
+              colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayer.id);
+              
+              // Draw to drawing canvas
+              drawingCtxRef.current.globalAlpha = tools.brushSettings.opacity || 1;
+              drawingCtxRef.current.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
+              drawingCtxRef.current.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
+              hasRendered = true;
+            }
+            
+            // If no color cycle layer was found, fallback to legacy
+            if (!hasRendered) {
+              brushEngine.renderColorCycle(drawingCtxRef.current, true);
+            }
             drawingCanvasHasContent.current = true;
           }
           lastRenderTime = timestamp;
@@ -772,9 +816,23 @@ export function useDrawingHandlers({
             // End stroke and do final render
             brushEngine.endColorCycleStroke();
             
-            // Clear and do one final render at FULL OPACITY
-            drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-            brushEngine.renderColorCycle(drawingCtxRef.current, false); // false = don't apply opacity
+            // Phase 3: Direct rendering approach
+            const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+            const colorCycleBrush = activeLayer?.colorCycleData?.colorCycleBrush;
+            
+            if (colorCycleBrush && activeLayer?.colorCycleData?.canvas) {
+              // Final render directly to layer canvas at full opacity
+              colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayer.id);
+              
+              // Copy to drawing canvas for final composite
+              drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+              drawingCtxRef.current.globalAlpha = 1.0; // Full opacity for final
+              drawingCtxRef.current.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
+            } else {
+              // Fallback: Clear and do one final render at FULL OPACITY
+              drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+              brushEngine.renderColorCycle(drawingCtxRef.current, false); // false = don't apply opacity
+            }
             
             // IMPORTANT: Check if we should continue animating after stroke ends
             // The animation should continue if the play button is active
@@ -1087,6 +1145,20 @@ export function useDrawingHandlers({
               brushEngine.fillColorCycleShape(shapePointsRef.current);
             }
             
+            // CRITICAL FIX: Force immediate texture update and render after filling shape
+            const currentState = useAppStore.getState();
+            const activeLayer = currentState.project?.layers?.[currentState.project.activeLayerIndex];
+            const activeLayerId = activeLayer?.id;
+            if (activeLayerId) {
+              brushEngine.updateColorCycleTexture(activeLayerId);
+              
+              // Force the color cycle brush to render its content immediately
+              const colorCycleBrush = currentState.getLayerColorCycleBrush(activeLayerId);
+              if (colorCycleBrush) {
+                colorCycleBrush.render(true); // Force full render
+              }
+            }
+            
             // Clear and do one final render at FULL OPACITY
             if (drawingCanvasRef.current) {
               drawCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
@@ -1114,6 +1186,43 @@ export function useDrawingHandlers({
     }
   }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef]);
   
+  // Helper function to render all visible color cycle layers
+  const renderAllColorCycleLayers = useCallback((targetCtx: CanvasRenderingContext2D, onlyActiveLayer: boolean = false) => {
+    const currentState = useAppStore.getState();
+    let hasRendered = false;
+    
+    // Iterate through all layers and render color cycles
+    currentState.layers.forEach(layer => {
+      // Skip if we only want active layer and this isn't it
+      if (onlyActiveLayer && layer.id !== currentState.activeLayerId) {
+        return;
+      }
+      
+      // Check if layer has color cycle and is visible
+      if (layer.visible && layer.layerType === 'color-cycle' && 
+          layer.colorCycleData?.colorCycleBrush && layer.colorCycleData?.canvas) {
+        
+        const colorCycleBrush = layer.colorCycleData.colorCycleBrush;
+        
+        // Update animation for this layer's brush
+        colorCycleBrush.updateAnimation();
+        
+        // Render directly to this layer's canvas
+        colorCycleBrush.renderDirectToCanvas(layer.colorCycleData.canvas, layer.id);
+        
+        // Composite this layer onto the target canvas
+        if (layer.id === currentState.activeLayerId || !onlyActiveLayer) {
+          targetCtx.globalAlpha = layer.opacity;
+          targetCtx.globalCompositeOperation = layer.blendMode || 'source-over';
+          targetCtx.drawImage(layer.colorCycleData.canvas, 0, 0);
+          hasRendered = true;
+        }
+      }
+    });
+    
+    return hasRendered;
+  }, []);
+
   // Start continuous color cycle animation (for when play button is pressed)
   const startContinuousColorCycleAnimation = useCallback(() => {
     
@@ -1141,8 +1250,24 @@ export function useDrawingHandlers({
     // IMPORTANT: Do an initial render to show existing content
     // This ensures color cycle shapes are visible when switching back
     if (drawingCtxRef.current && drawingCanvasRef.current) {
-      drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-      brushEngine.renderColorCycle(drawingCtxRef.current, true);
+      // Phase 3: Direct rendering approach for initial content
+      const currentState = useAppStore.getState();
+      const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+      const colorCycleBrush = activeLayer?.colorCycleData?.colorCycleBrush;
+      
+      if (colorCycleBrush && activeLayer?.colorCycleData?.canvas) {
+        // Render to layer canvas first
+        colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayer.id);
+        
+        // Copy to drawing canvas for display
+        drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+        drawingCtxRef.current.globalAlpha = currentState.tools.brushSettings.opacity || 1;
+        drawingCtxRef.current.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
+      } else {
+        // Fallback: Legacy rendering
+        drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+        brushEngine.renderColorCycle(drawingCtxRef.current, true);
+      }
       // Mark as having content if color cycle has any strokes
       // This prevents the content from disappearing
     }
@@ -1174,17 +1299,22 @@ export function useDrawingHandlers({
       // Then do the rendering work
       if (timestamp - lastRenderTime >= frameInterval) {
         if (drawingCtxRef.current && drawingCanvasRef.current) {
-          // Update the color cycle animation state manually
-          // This ensures the animation progresses even without mouse events
-          brushEngine.updateColorCycleAnimation?.();
-          
-          // Clear the drawing canvas
+          // Clear drawing canvas once
           drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-          // Render all color cycle strokes with preview opacity
-          brushEngine.renderColorCycle(drawingCtxRef.current, true); // true = apply opacity for preview
           
-          // Mark that we have content to ensure it gets composited
-          drawingCanvasHasContent.current = true;
+          // Use the helper to render all color cycle layers
+          // During continuous animation, only show active layer
+          const hasColorCycleContent = renderAllColorCycleLayers(drawingCtxRef.current, true);
+          
+          // If no color cycle layers were rendered, try legacy fallback
+          if (!hasColorCycleContent) {
+            // Fallback: Legacy rendering for compatibility
+            brushEngine.updateColorCycleAnimation?.();
+            brushEngine.renderColorCycle(drawingCtxRef.current, true);
+            drawingCanvasHasContent.current = true;
+          } else {
+            drawingCanvasHasContent.current = true;
+          }
           
           // Trigger main canvas redraw to composite the updated drawing canvas
           window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
@@ -1195,7 +1325,7 @@ export function useDrawingHandlers({
     
     // Start the animation
     continuousColorCycleAnimationRef.current = requestAnimationFrame(animateContinuousColorCycle);
-  }, [brushEngine, initDrawingCanvas]);
+  }, [brushEngine, initDrawingCanvas, renderAllColorCycleLayers]);
   
   // Stop continuous color cycle animation AND pause it
   const stopContinuousColorCycleAnimation = useCallback(() => {

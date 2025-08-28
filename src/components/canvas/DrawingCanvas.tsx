@@ -366,34 +366,36 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   // Track if we're actively animating
   const isAnimatingRef = useRef(false);
   
-  // Wrapped animation start/stop - only handle the main canvas compositing
+  // Simplified animation control - delegate to drawing handlers
   const wrappedStartAnimation = useCallback(() => {
-    // Start the drawing handlers animation (this manages the color cycle rendering)
+    // Only start if not already animating
+    if (isAnimatingRef.current) return;
+    
+    // Start the color cycle animation in drawing handlers
     startContinuousColorCycleAnimation();
     isAnimatingRef.current = true;
     
-    // Create a lightweight loop that ONLY triggers main canvas compositing
-    // The drawing handlers already update the drawing canvas at 24fps
-    let lastCompositeTime = 0;
+    // Single, efficient composite loop at target FPS
+    let lastTime = 0;
     const targetFPS = 24;
     const frameInterval = 1000 / targetFPS;
     
     const compositeLoop = (timestamp: number) => {
       // Check if we should stop
-      if (!isAnimatingRef.current || !colorCycleRenderLoopRef.current) {
+      if (!isAnimatingRef.current) {
         colorCycleRenderLoopRef.current = null;
         return;
       }
       
-      // Frame rate limiting for compositing
-      if (timestamp - lastCompositeTime >= frameInterval) {
-        // Just trigger a composite update, don't call draw directly
-        // This prevents interference with other render operations
+      // Throttle to target FPS
+      const elapsed = timestamp - lastTime;
+      if (elapsed >= frameInterval) {
+        // Trigger a single redraw per frame
         setNeedsRedraw(prev => prev + 1);
-        lastCompositeTime = timestamp;
+        lastTime = timestamp - (elapsed % frameInterval);
       }
       
-      // Keep the loop going
+      // Continue loop
       colorCycleRenderLoopRef.current = requestAnimationFrame(compositeLoop);
     };
     
@@ -407,16 +409,19 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   }, [startContinuousColorCycleAnimation]);
   
   const wrappedStopAnimation = useCallback(() => {
-    stopContinuousColorCycleAnimation();
+    // Stop animation state first to break loops
     isAnimatingRef.current = false;
     
-    // Stop the render loop
+    // Cancel any pending animation frame immediately
     if (colorCycleRenderLoopRef.current) {
       cancelAnimationFrame(colorCycleRenderLoopRef.current);
       colorCycleRenderLoopRef.current = null;
     }
     
-    // Do one final redraw to clear the drawing canvas
+    // Stop the color cycle animation
+    stopContinuousColorCycleAnimation();
+    
+    // Do one final redraw to ensure clean state
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d', { willReadFrequently: true });
     if (ctx && drawRef.current) {
@@ -544,6 +549,34 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     onUndo: () => {
       const snapshot = undo();
       if (snapshot) {
+        // Restore color cycle state if present
+        if (snapshot.colorCycleState) {
+          const { layerId } = snapshot.colorCycleState;
+          const activeLayer = layers.find(l => l.id === layerId);
+          
+          if (activeLayer?.colorCycleData?.colorCycleBrush) {
+            // Restore WebGL state from snapshot
+            activeLayer.colorCycleData.colorCycleBrush.restoreFullState({
+              gradients: snapshot.colorCycleState.gradients.map(g => ({
+                gradientStops: g.gradientStops
+              })),
+              animationState: snapshot.colorCycleState.animationState,
+              layerSnapshots: new Map(snapshot.colorCycleState.layerStrokes.map(ls => [
+                ls.layerId,
+                ls.paintBuffer
+              ]))
+            });
+            
+            // Re-render color cycle to canvas
+            if (activeLayer.colorCycleData.canvas) {
+              activeLayer.colorCycleData.colorCycleBrush.renderDirectToCanvas(
+                activeLayer.colorCycleData.canvas, 
+                activeLayer.id
+              );
+            }
+          }
+        }
+        
         if (snapshot.layers && snapshot.activeLayerId) {
           setLayers(snapshot.layers);
           setActiveLayer(snapshot.activeLayerId);
@@ -600,6 +633,33 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     onRedo: () => {
       const snapshot = redo();
       if (snapshot) {
+        // Restore color cycle state if present
+        if (snapshot.colorCycleState) {
+          const { layerId } = snapshot.colorCycleState;
+          const activeLayer = layers.find(l => l.id === layerId);
+          
+          if (activeLayer?.colorCycleData?.colorCycleBrush) {
+            // Restore WebGL state from snapshot
+            activeLayer.colorCycleData.colorCycleBrush.restoreFullState({
+              gradients: snapshot.colorCycleState.gradients.map(g => ({
+                gradientStops: g.gradientStops
+              })),
+              animationState: snapshot.colorCycleState.animationState,
+              layerSnapshots: new Map(snapshot.colorCycleState.layerStrokes.map(ls => [
+                ls.layerId,
+                ls.paintBuffer
+              ]))
+            });
+            
+            // Re-render color cycle to canvas
+            if (activeLayer.colorCycleData.canvas) {
+              activeLayer.colorCycleData.colorCycleBrush.renderDirectToCanvas(
+                activeLayer.colorCycleData.canvas, 
+                activeLayer.id
+              );
+            }
+          }
+        }
         
         if (snapshot.layers && snapshot.activeLayerId) {
           setLayers(snapshot.layers);

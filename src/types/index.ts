@@ -38,7 +38,7 @@ export interface Layer {
   // Color cycle specific data (only present for CC layers)
   colorCycleData?: {
     gradient: Array<{ position: number; color: string }>;
-    colorCycleBrush?: any; // Will be ColorCycleBrush instance
+    colorCycleBrush?: import('../hooks/brushEngine/ColorCycleBrush').ColorCycleBrush;
     isAnimating: boolean;
     // Store the canvas element for this CC layer
     canvas?: HTMLCanvasElement;
@@ -309,6 +309,33 @@ export interface CanvasSnapshot {
   activeLayerId: string;  // Active layer at time of snapshot
   actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'paste' | 'delete';
   description: string;
+  colorCycleState?: ColorCycleSnapshot; // Optional color cycle state
+}
+
+// Color Cycle Brush specific snapshot data
+export interface ColorCycleSnapshot {
+  layerId: string;
+  strokeData: ArrayBuffer; // Serialized WebGL paint buffer
+  gradients: Array<{
+    layerIndex: number;
+    gradientStops: Array<{ position: number; color: string }>;
+    hasContent: boolean;
+  }>;
+  animationState: {
+    cycleOffset: number;
+    speed: number;
+    fps: number;
+    isPaused: boolean;
+  };
+  layerStrokes: Array<{
+    layerId: string;
+    paintBuffer: ArrayBuffer;
+    hasContent: boolean;
+    strokeCounter: number;
+    strokeLength: number;
+    gradientLayerIndices: number[];
+    currentGradientIndex: number;
+  }>;
 }
 
 export interface HistoryState {

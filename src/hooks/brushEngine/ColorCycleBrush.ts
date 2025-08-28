@@ -3,6 +3,8 @@
  * Each gradient change creates a new layer, allowing old strokes to keep their gradients
  */
 
+import { colorCycleStorage, DeltaCompressor } from '../../utils/colorCycleStorage';
+
 export class ColorCycleBrush {
   private canvas: HTMLCanvasElement;
   private gl: WebGLRenderingContext;
@@ -15,8 +17,9 @@ export class ColorCycleBrush {
   private frameInterval: number;
   private lastFrameTime: number;
   
-  // Multi-layer architecture
+  // Multi-layer architecture with layer ID tracking
   private layers: Array<{
+    layerId?: string; // ID of the app layer this WebGL layer corresponds to
     indexTexture: WebGLTexture;
     paletteTexture: WebGLTexture;
     paintBuffer: Uint8Array;
@@ -24,6 +27,20 @@ export class ColorCycleBrush {
     hasContent: boolean;
   }> = [];
   private currentLayerIndex: number = -1;
+  
+  // Layer ID mapping for quick lookups
+  private layerIdToIndex: Map<string, number> = new Map();
+  
+  // Layer-specific stroke tracking
+  private layerStrokes: Map<string, {
+    paintBuffer: Uint8Array;
+    hasContent: boolean;
+    strokeCounter: number;
+    strokeLength: number;
+    lastPoint: { x: number; y: number } | null;
+    gradientLayerIndices: number[]; // Track which gradient layers are used by this canvas layer
+    currentGradientIndex: number; // Current gradient layer being painted to
+  }> = new Map();
   
   // WebGL state
   private program: WebGLProgram | null = null;
@@ -232,7 +249,7 @@ export class ColorCycleBrush {
     return program;
   }
   
-  private addNewLayer(gradientStops: Array<{ position: number; color: string }>) {
+  private addNewLayer(gradientStops: Array<{ position: number; color: string }>, layerId?: string) {
     const gl = this.gl;
     
     
@@ -269,8 +286,10 @@ export class ColorCycleBrush {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     
-    // Add layer to array
+    // Add layer to array with optional layer ID
+    const newLayerIndex = this.layers.length;
     this.layers.push({
+      layerId,
       indexTexture: indexTexture!,
       paletteTexture: paletteTexture!,
       paintBuffer,
@@ -278,7 +297,12 @@ export class ColorCycleBrush {
       hasContent: false
     });
     
-    this.currentLayerIndex = this.layers.length - 1;
+    // Update layer ID mapping if provided
+    if (layerId) {
+      this.layerIdToIndex.set(layerId, newLayerIndex);
+    }
+    
+    this.currentLayerIndex = newLayerIndex;
   }
   
   
@@ -333,7 +357,34 @@ export class ColorCycleBrush {
   }
   
   // Fill a shape with gradient from edges to center
-  fillShape(vertices: Array<{ x: number; y: number }>) {
+  fillShape(vertices: Array<{ x: number; y: number }>, layerId?: string) {
+    // If layer ID provided, ensure we're working with correct layer
+    if (layerId) {
+      this.setActiveLayer(layerId);
+      
+      // Initialize layer-specific stroke data if needed
+      if (!this.layerStrokes.has(layerId)) {
+        const currentGradient = this.currentLayerIndex >= 0 
+          ? this.layers[this.currentLayerIndex].gradientStops 
+          : this.defaultGradient();
+        
+        this.addNewLayer(currentGradient, `${layerId}_gradient_0`);
+        const newGradientIndex = this.layers.length - 1;
+        
+        this.layerStrokes.set(layerId, {
+          paintBuffer: new Uint8Array(this.width * this.height * 4),
+          hasContent: false,
+          strokeCounter: 0,
+          strokeLength: 0,
+          lastPoint: null,
+          gradientLayerIndices: [newGradientIndex],
+          currentGradientIndex: newGradientIndex
+        });
+        
+        this.currentLayerIndex = newGradientIndex;
+      }
+    }
+    
     if (this.currentLayerIndex < 0) {
       console.warn('[ColorCycleBrush] No layer available for filling shape');
       return;
@@ -345,6 +396,11 @@ export class ColorCycleBrush {
     }
     
     const currentLayer = this.layers[this.currentLayerIndex];
+    
+    // Get the appropriate paint buffer (layer-specific or general)
+    const targetBuffer = layerId && this.layerStrokes.has(layerId) 
+      ? this.layerStrokes.get(layerId)!.paintBuffer
+      : currentLayer.paintBuffer;
     
     // Calculate shape bounds
     let minX = this.width, minY = this.height, maxX = 0, maxY = 0;
@@ -385,19 +441,33 @@ export class ColorCycleBrush {
           // Convert to byte value for texture
           const indexByte = Math.floor(gradientPosition * 255);
           
-          // Paint pixel
+          // Paint pixel to appropriate buffer
           const idx = (y * this.width + x) * 4;
-          currentLayer.paintBuffer[idx] = indexByte;
-          currentLayer.paintBuffer[idx + 1] = 0;
-          currentLayer.paintBuffer[idx + 2] = 0;
-          currentLayer.paintBuffer[idx + 3] = 255; // Full opacity
+          targetBuffer[idx] = indexByte;
+          targetBuffer[idx + 1] = 0;
+          targetBuffer[idx + 2] = 0;
+          targetBuffer[idx + 3] = 255; // Full opacity
         }
       }
     }
     
-    // Mark layer as having content and update texture
-    currentLayer.hasContent = true;
-    this.updateIndexTexture(this.currentLayerIndex);
+    // Update state based on whether we're using layer-specific tracking
+    if (layerId && this.layerStrokes.has(layerId)) {
+      const strokeData = this.layerStrokes.get(layerId)!;
+      strokeData.hasContent = true;
+      currentLayer.hasContent = true;
+      
+      // CRITICAL: Copy layer-specific buffer to the WebGL layer's paint buffer
+      currentLayer.paintBuffer = new Uint8Array(targetBuffer);
+      
+      // Force immediate texture update
+      this.updateIndexTexture(this.currentLayerIndex);
+    } else {
+      // Mark layer as having content and update texture
+      currentLayer.hasContent = true;
+      currentLayer.paintBuffer = targetBuffer;
+      this.updateIndexTexture(this.currentLayerIndex);
+    }
   }
   
   // Helper: Check if point is inside polygon
@@ -448,8 +518,59 @@ export class ColorCycleBrush {
     return minDistance;
   }
   
-  // Painting methods
-  paint(x: number, y: number) {
+  // Get or create a layer for the given app layer ID
+  private getOrCreateLayerForId(layerId: string): number {
+    // Check if we already have a layer for this ID
+    if (this.layerIdToIndex.has(layerId)) {
+      return this.layerIdToIndex.get(layerId)!;
+    }
+    
+    // Create a new layer for this ID with current gradient settings
+    const currentGradient = this.currentLayerIndex >= 0 
+      ? this.layers[this.currentLayerIndex].gradientStops 
+      : this.defaultGradient();
+    
+    this.addNewLayer(currentGradient, layerId);
+    return this.currentLayerIndex;
+  }
+  
+  // Set the active layer by app layer ID
+  setActiveLayer(layerId: string) {
+    this.currentLayerIndex = this.getOrCreateLayerForId(layerId);
+  }
+  
+  // Painting methods with optional layer ID support
+  paint(x: number, y: number, layerId?: string) {
+    // If layer ID provided, ensure we're painting to the correct layer
+    if (layerId) {
+      // Get or create layer-specific stroke data
+      if (!this.layerStrokes.has(layerId)) {
+        // Create a new gradient layer for this canvas layer
+        const currentGradient = this.currentLayerIndex >= 0 
+          ? this.layers[this.currentLayerIndex].gradientStops 
+          : this.defaultGradient();
+        
+        this.addNewLayer(currentGradient, `${layerId}_gradient_0`);
+        const newGradientIndex = this.layers.length - 1;
+        
+        this.layerStrokes.set(layerId, {
+          paintBuffer: new Uint8Array(this.width * this.height * 4),
+          hasContent: false,
+          strokeCounter: 0,
+          strokeLength: 0,
+          lastPoint: null,
+          gradientLayerIndices: [newGradientIndex],
+          currentGradientIndex: newGradientIndex
+        });
+        
+        this.currentLayerIndex = newGradientIndex;
+      } else {
+        // Use existing gradient layer for this canvas layer
+        const strokeData = this.layerStrokes.get(layerId)!;
+        this.currentLayerIndex = strokeData.currentGradientIndex;
+      }
+    }
+    
     if (this.currentLayerIndex < 0 || this.currentLayerIndex >= this.layers.length) {
       console.warn('[ColorCycleBrush] Invalid layer index, reinitializing');
       // Safety: create a default layer if we somehow have no valid layer
@@ -466,22 +587,33 @@ export class ColorCycleBrush {
       return;
     }
     
+    // Get layer-specific stroke data
+    const strokeData = layerId ? this.layerStrokes.get(layerId)! : {
+      paintBuffer: currentLayer.paintBuffer,
+      hasContent: currentLayer.hasContent,
+      strokeCounter: this.strokeCounter,
+      strokeLength: this.strokeLength,
+      lastPoint: this.lastPoint,
+      gradientLayerIndices: [this.currentLayerIndex],
+      currentGradientIndex: this.currentLayerIndex
+    };
+    
     const halfSize = Math.floor(this.brushSize / 2);
     
     // Calculate distance traveled for gradient position
-    if (this.lastPoint) {
-      const dx = x - this.lastPoint.x;
-      const dy = y - this.lastPoint.y;
-      this.strokeLength += Math.sqrt(dx * dx + dy * dy);
+    if (strokeData.lastPoint) {
+      const dx = x - strokeData.lastPoint.x;
+      const dy = y - strokeData.lastPoint.y;
+      strokeData.strokeLength += Math.sqrt(dx * dx + dy * dy);
     } else {
       // Start of new stroke
-      this.strokeCounter = 0;
-      this.strokeLength = 0;
+      strokeData.strokeCounter = 0;
+      strokeData.strokeLength = 0;
     }
     
     // Use stroke length to determine position in gradient
     const gradientCycleLength = 200;
-    const indexValue = 1.0 - ((this.strokeLength / gradientCycleLength) % 1.0);
+    const indexValue = 1.0 - ((strokeData.strokeLength / gradientCycleLength) % 1.0);
     
     // Paint SQUARE stamp to buffer
     const minX = Math.max(0, Math.floor(x - halfSize));
@@ -492,42 +624,106 @@ export class ColorCycleBrush {
     const opacity = 255; // Full opacity always
     const indexByte = Math.floor(indexValue * 255);
     
-    // Paint to current layer's buffer
+    // Paint to layer-specific buffer if layerId provided, otherwise to current layer
+    const targetBuffer = layerId ? strokeData.paintBuffer : currentLayer.paintBuffer;
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
         const idx = (py * this.width + px) * 4;
-        currentLayer.paintBuffer[idx] = indexByte;
-        currentLayer.paintBuffer[idx + 1] = 0;
-        currentLayer.paintBuffer[idx + 2] = 0;
-        currentLayer.paintBuffer[idx + 3] = opacity;
+        targetBuffer[idx] = indexByte;
+        targetBuffer[idx + 1] = 0;
+        targetBuffer[idx + 2] = 0;
+        targetBuffer[idx + 3] = opacity;
       }
     }
     
-    // Mark layer as having content
-    currentLayer.hasContent = true;
+    // Mark as having content
+    strokeData.hasContent = true;
+    strokeData.lastPoint = { x, y };
     
-    // Update last point
-    this.lastPoint = { x, y };
-    
-    // Update texture
-    if (this.isDrawing) {
-      this.batchedUpdateIndexTexture(this.currentLayerIndex);
+    // Update stroke tracking based on whether we're using layer-specific tracking
+    if (layerId) {
+      // Update the layer strokes map
+      this.layerStrokes.set(layerId, strokeData);
+      
+      // CRITICAL FIX: Don't overwrite currentLayer.paintBuffer when using layer-specific tracking
+      // Instead, only update the texture with layer-specific data during rendering
+      currentLayer.hasContent = strokeData.hasContent;
     } else {
-      this.updateIndexTexture(this.currentLayerIndex);
+      // Update global stroke tracking
+      currentLayer.hasContent = true;
+      currentLayer.paintBuffer = targetBuffer; // Only update WebGL buffer for non-layer-specific mode
+      this.lastPoint = { x, y };
+      this.strokeCounter = strokeData.strokeCounter;
+      this.strokeLength = strokeData.strokeLength;
+    }
+    
+    // Update texture - use layer-specific data if available
+    if (layerId && this.layerStrokes.has(layerId)) {
+      // For layer-specific rendering, update texture with the layer's paint buffer
+      const layerData = this.layerStrokes.get(layerId)!;
+      if (this.isDrawing) {
+        this.batchedUpdateIndexTextureWithData(this.currentLayerIndex, layerData.paintBuffer);
+      } else {
+        this.updateIndexTextureWithData(this.currentLayerIndex, layerData.paintBuffer);
+      }
+    } else {
+      // Standard texture update for non-layer-specific mode
+      if (this.isDrawing) {
+        this.batchedUpdateIndexTexture(this.currentLayerIndex);
+      } else {
+        this.updateIndexTexture(this.currentLayerIndex);
+      }
     }
   }
   
   // Reset stroke tracking (call when starting new stroke)
-  startStroke() {
-    this.lastPoint = null;
-    this.strokeCounter = 0;
-    this.strokeLength = 0;
+  startStroke(layerId?: string) {
+    if (layerId) {
+      // Reset layer-specific stroke tracking
+      const strokeData = this.layerStrokes.get(layerId);
+      if (strokeData) {
+        strokeData.lastPoint = null;
+        strokeData.strokeCounter = 0;
+        strokeData.strokeLength = 0;
+      } else {
+        // Initialize stroke data if it doesn't exist
+        const currentGradient = this.currentLayerIndex >= 0 
+          ? this.layers[this.currentLayerIndex].gradientStops 
+          : this.defaultGradient();
+        
+        this.addNewLayer(currentGradient, `${layerId}_gradient_0`);
+        const newGradientIndex = this.layers.length - 1;
+        
+        this.layerStrokes.set(layerId, {
+          paintBuffer: new Uint8Array(this.width * this.height * 4),
+          hasContent: false,
+          strokeCounter: 0,
+          strokeLength: 0,
+          lastPoint: null,
+          gradientLayerIndices: [newGradientIndex],
+          currentGradientIndex: newGradientIndex
+        });
+      }
+    } else {
+      // Reset global stroke tracking
+      this.lastPoint = null;
+      this.strokeCounter = 0;
+      this.strokeLength = 0;
+    }
     this.isDrawing = true;
   }
   
   // End stroke (call when lifting pen/mouse)
-  endStroke() {
-    this.lastPoint = null;
+  endStroke(layerId?: string) {
+    if (layerId) {
+      // Reset layer-specific last point
+      const strokeData = this.layerStrokes.get(layerId);
+      if (strokeData) {
+        strokeData.lastPoint = null;
+      }
+    } else {
+      this.lastPoint = null;
+    }
     this.isDrawing = false;
     
     // Force update current layer's texture
@@ -550,6 +746,22 @@ export class ColorCycleBrush {
       layer.paintBuffer
     );
   }
+  
+  // Update texture with specific data buffer (for layer-specific rendering)
+  private updateIndexTextureWithData(layerIndex: number, paintBuffer: Uint8Array) {
+    if (layerIndex < 0 || layerIndex >= this.layers.length) return;
+    
+    const layer = this.layers[layerIndex];
+    const gl = this.gl;
+    
+    gl.bindTexture(gl.TEXTURE_2D, layer.indexTexture);
+    gl.texSubImage2D(
+      gl.TEXTURE_2D, 0, 0, 0,
+      this.width, this.height,
+      gl.RGBA, gl.UNSIGNED_BYTE,
+      paintBuffer
+    );
+  }
 
   // PERFORMANCE: Batched texture update - reduces WebGL calls during painting
   private batchedUpdateIndexTexture(layerIndex: number) {
@@ -570,24 +782,39 @@ export class ColorCycleBrush {
     }, 4);
   }
   
+  // Batched texture update with specific data buffer
+  private batchedUpdateIndexTextureWithData(layerIndex: number, paintBuffer: Uint8Array) {
+    this.needsTextureUpdate = true;
+    
+    // Clear existing timer
+    if (this.updateBatchTimer) {
+      clearTimeout(this.updateBatchTimer);
+    }
+    
+    // Batch updates: wait 4ms before actually updating texture
+    this.updateBatchTimer = window.setTimeout(() => {
+      if (this.needsTextureUpdate) {
+        this.updateIndexTextureWithData(layerIndex, paintBuffer);
+        this.needsTextureUpdate = false;
+      }
+      this.updateBatchTimer = null;
+    }, 4);
+  }
+  
   // Animation
   startAnimation() {
     if (this.isAnimating && !this.isPaused) return;
     this.isAnimating = true;
     this.isPaused = false;
     this.lastFrameTime = performance.now();
-    if (!this.animationId) {
-      this.animate();
-    }
+    // Don't start the internal animation loop - rely on external render loop
+    // This prevents multiple animation loops from running simultaneously
   }
   
   stopAnimation() {
     this.isAnimating = false;
     this.isPaused = false;
-    if (this.animationId) {
-      cancelAnimationFrame(this.animationId);
-      this.animationId = null;
-    }
+    // No need to cancel animation frame since we're not using internal loop
   }
   
   pauseAnimation() {
@@ -597,12 +824,7 @@ export class ColorCycleBrush {
   resumeAnimation() {
     this.isPaused = false;
     this.lastFrameTime = performance.now();
-    
-    // Ensure animation loop is running
-    if (!this.animationId) {
-      this.isAnimating = true;
-      this.animate();
-    }
+    // Don't start internal loop - rely on external render loop
   }
   
   private createDemoContent() {
@@ -643,7 +865,7 @@ export class ColorCycleBrush {
   }
   
   togglePlayPause() {
-    if (this.isPaused) {
+    if (this.isPaused || !this.isAnimating) {
       this.resumeAnimation();
     } else {
       this.pauseAnimation();
@@ -652,6 +874,14 @@ export class ColorCycleBrush {
   
   isPlaying(): boolean {
     return this.isAnimating && !this.isPaused;
+  }
+  
+  setPlaying(play: boolean) {
+    if (play) {
+      this.resumeAnimation();
+    } else {
+      this.pauseAnimation();
+    }
   }
   
   // Manual update method for external render loops
@@ -672,31 +902,28 @@ export class ColorCycleBrush {
   }
   
   private animate() {
-    if (!this.isAnimating) return;
+    // Guard against multiple loops or stopped state
+    if (!this.isAnimating) {
+      this.animationId = null;
+      return;
+    }
     
     const currentTime = performance.now();
     const deltaTime = currentTime - this.lastFrameTime;
     
-    // Only log occasionally for debugging
-    
-    // Limit frame rate
+    // Throttle to target frame rate
     if (deltaTime >= this.frameInterval) {
-      // Update cycle offset when:
-      // 1. Drawing (always animates while drawing)
-      // 2. OR when not paused (play button is active)
+      // Only update when actively animating (not paused or drawing)
       if (this.isDrawing || !this.isPaused) {
+        // Update cycle offset
         this.cycleOffset += (deltaTime / 1000) * this.cycleSpeed * 0.2;
         this.cycleOffset = this.cycleOffset % 1.0;
-      }
-      
-      // Render when drawing OR when playing (not paused)
-      // This ensures animations play even when cursor is not moving
-      if (this.isDrawing || !this.isPaused) {
+        
+        // Render the current frame
         this.render();
         
-        // CRITICAL FIX: Notify main canvas to update when animating (both drawing and playing)
-        // This ensures the animation is visible
-        if (!this.isPaused && this.onFrameRendered) {
+        // Notify listeners for canvas updates (only when playing, not when drawing)
+        if (!this.isPaused && !this.isDrawing && this.onFrameRendered) {
           this.onFrameRendered();
         }
       }
@@ -704,8 +931,461 @@ export class ColorCycleBrush {
       this.lastFrameTime = currentTime - (deltaTime % this.frameInterval);
     }
     
-    // CRITICAL: Continue animation loop to keep updating cycle offset
-    this.animationId = requestAnimationFrame(() => this.animate());
+    // Continue loop only if still animating
+    if (this.isAnimating) {
+      this.animationId = requestAnimationFrame(() => this.animate());
+    } else {
+      this.animationId = null;
+    }
+  }
+  
+  // Serialize current state for undo/redo
+  createSnapshot(layerId: string): ArrayBuffer {
+    const layerStroke = this.layerStrokes.get(layerId);
+    if (!layerStroke) {
+      // Return empty buffer if no strokes for this layer
+      return new ArrayBuffer(0);
+    }
+    
+    // Create typed array view of the paint buffer
+    const paintData = new Uint8Array(layerStroke.paintBuffer);
+    
+    // Calculate total size needed
+    const metadataSize = 32; // Fixed size for metadata
+    const totalSize = metadataSize + paintData.byteLength;
+    
+    // Create output buffer
+    const buffer = new ArrayBuffer(totalSize);
+    const view = new DataView(buffer);
+    
+    // Write metadata
+    let offset = 0;
+    view.setUint32(offset, layerStroke.strokeCounter, true); offset += 4;
+    view.setFloat32(offset, layerStroke.strokeLength, true); offset += 4;
+    view.setUint32(offset, layerStroke.gradientLayerIndices.length, true); offset += 4;
+    view.setUint32(offset, layerStroke.currentGradientIndex, true); offset += 4;
+    view.setUint8(offset, layerStroke.hasContent ? 1 : 0); offset += 1;
+    
+    // Pad to align with paint data
+    offset = metadataSize;
+    
+    // Copy paint data
+    const outputArray = new Uint8Array(buffer, offset);
+    outputArray.set(paintData);
+    
+    return buffer;
+  }
+  
+  // Create optimized snapshot using delta compression
+  createOptimizedSnapshot(layerId: string, previousSnapshot?: ArrayBuffer): ArrayBuffer {
+    const layerStroke = this.layerStrokes.get(layerId);
+    if (!layerStroke) {
+      return new ArrayBuffer(0);
+    }
+    
+    const currentData = new Uint8Array(layerStroke.paintBuffer);
+    
+    // If we have a previous snapshot, create delta
+    if (previousSnapshot && previousSnapshot.byteLength > 32) {
+      // Extract previous paint data (skip metadata)
+      const prevData = new Uint8Array(previousSnapshot, 32);
+      
+      if (prevData.length === currentData.length) {
+        // Create delta compression
+        const delta = DeltaCompressor.createDelta(prevData, currentData);
+        
+        // Create buffer with metadata + delta
+        const metadataSize = 33; // Extra byte for delta flag
+        const buffer = new ArrayBuffer(metadataSize + delta.byteLength);
+        const view = new DataView(buffer);
+        
+        // Write metadata
+        let offset = 0;
+        view.setUint32(offset, layerStroke.strokeCounter, true); offset += 4;
+        view.setFloat32(offset, layerStroke.strokeLength, true); offset += 4;
+        view.setUint32(offset, layerStroke.gradientLayerIndices.length, true); offset += 4;
+        view.setUint32(offset, layerStroke.currentGradientIndex, true); offset += 4;
+        view.setUint8(offset, layerStroke.hasContent ? 1 : 0); offset += 1;
+        view.setUint8(offset, 1); offset += 1; // Delta flag = true
+        
+        // Pad to metadata size
+        offset = metadataSize;
+        
+        // Copy delta data
+        new Uint8Array(buffer, offset).set(new Uint8Array(delta));
+        
+        return buffer;
+      }
+    }
+    
+    // Fall back to full snapshot
+    return this.createSnapshot(layerId);
+  }
+  
+  // Restore state from snapshot
+  restoreSnapshot(layerId: string, snapshot: ArrayBuffer, baseSnapshot?: ArrayBuffer): void {
+    if (snapshot.byteLength === 0) {
+      // Clear layer if empty snapshot
+      this.layerStrokes.delete(layerId);
+      return;
+    }
+    
+    const view = new DataView(snapshot);
+    let metadataSize = 32;
+    let isDelta = false;
+    
+    // Check if we have the delta flag (newer format)
+    if (snapshot.byteLength > 32 && view.getUint8(32) === 1) {
+      metadataSize = 33;
+      isDelta = true;
+    }
+    
+    // Read metadata
+    let offset = 0;
+    const strokeCounter = view.getUint32(offset, true); offset += 4;
+    const strokeLength = view.getFloat32(offset, true); offset += 4;
+    const gradientLayerIndicesLength = view.getUint32(offset, true); offset += 4;
+    const currentGradientIndex = view.getUint32(offset, true); offset += 4;
+    const hasContent = view.getUint8(offset) === 1; offset += 1;
+    
+    let paintBuffer: Uint8Array;
+    
+    if (isDelta && baseSnapshot && baseSnapshot.byteLength > 32) {
+      // Apply delta to base snapshot
+      const baseData = new Uint8Array(baseSnapshot, 32);
+      const deltaData = snapshot.slice(metadataSize);
+      paintBuffer = DeltaCompressor.applyDelta(baseData, deltaData);
+    } else {
+      // Extract paint data normally
+      const paintData = new Uint8Array(snapshot, metadataSize);
+      paintBuffer = new Uint8Array(this.width * this.height);
+      if (paintData.length > 0) {
+        paintBuffer.set(paintData.slice(0, Math.min(paintData.length, paintBuffer.length)));
+      }
+    }
+    
+    // Restore layer stroke data
+    this.layerStrokes.set(layerId, {
+      paintBuffer,
+      hasContent,
+      strokeCounter,
+      strokeLength,
+      lastPoint: null,
+      gradientLayerIndices: Array(gradientLayerIndicesLength).fill(0).map((_, i) => i),
+      currentGradientIndex
+    });
+    
+    // Update texture if this is the current layer
+    if (this.currentLayerIndex >= 0) {
+      const layer = this.layers[this.currentLayerIndex];
+      if (layer.layerId === layerId) {
+        this.gl.bindTexture(this.gl.TEXTURE_2D, layer.indexTexture);
+        this.gl.texImage2D(
+          this.gl.TEXTURE_2D, 0, this.gl.LUMINANCE,
+          this.width, this.height, 0,
+          this.gl.LUMINANCE, this.gl.UNSIGNED_BYTE,
+          paintBuffer
+        );
+      }
+    }
+  }
+  
+  // Get full state for serialization
+  getFullState(): {
+    gradients: Array<{ gradientStops: Array<{ position: number; color: string }> }>;
+    animationState: { cycleOffset: number; speed: number; fps: number; isPaused: boolean };
+    layerSnapshots: Map<string, ArrayBuffer>;
+  } {
+    const layerSnapshots = new Map<string, ArrayBuffer>();
+    
+    // Create snapshots for all layers
+    for (const [layerId] of this.layerStrokes) {
+      layerSnapshots.set(layerId, this.createSnapshot(layerId));
+    }
+    
+    return {
+      gradients: this.layers.map(layer => ({
+        gradientStops: layer.gradientStops
+      })),
+      animationState: {
+        cycleOffset: this.cycleOffset,
+        speed: this.cycleSpeed,
+        fps: this.fps,
+        isPaused: this.isPaused
+      },
+      layerSnapshots
+    };
+  }
+  
+  // Restore full state
+  restoreFullState(state: {
+    gradients: Array<{ gradientStops: Array<{ position: number; color: string }> }>;
+    animationState: { cycleOffset: number; speed: number; fps: number; isPaused: boolean };
+    layerSnapshots: Map<string, ArrayBuffer>;
+  }): void {
+    // Clear existing layers
+    this.layers = [];
+    this.layerStrokes.clear();
+    this.layerIdToIndex.clear();
+    this.currentLayerIndex = -1;
+    
+    // Restore gradients
+    state.gradients.forEach(gradientData => {
+      this.addNewLayer(gradientData.gradientStops);
+    });
+    
+    // Restore animation state
+    this.cycleOffset = state.animationState.cycleOffset;
+    this.cycleSpeed = state.animationState.speed;
+    this.fps = state.animationState.fps;
+    this.isPaused = state.animationState.isPaused;
+    this.frameInterval = 1000 / this.fps;
+    
+    // Restore layer snapshots
+    for (const [layerId, snapshot] of state.layerSnapshots) {
+      this.restoreSnapshot(layerId, snapshot);
+    }
+    
+    // Re-render
+    this.render();
+  }
+  
+  // Render only strokes for a specific layer to a target canvas
+  renderForLayer(layerId: string, targetCanvas: HTMLCanvasElement): void {
+    const layerStroke = this.layerStrokes.get(layerId);
+    if (!layerStroke || !layerStroke.hasContent) {
+      // No strokes for this layer, clear the target canvas
+      const ctx = targetCanvas.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      }
+      return;
+    }
+    
+    // Ensure the WebGL canvas matches the target dimensions
+    if (this.canvas.width !== targetCanvas.width || this.canvas.height !== targetCanvas.height) {
+      this.resize(targetCanvas.width, targetCanvas.height);
+    }
+    
+    // Clear the WebGL canvas
+    const gl = this.gl;
+    gl.viewport(0, 0, this.width, this.height);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    
+    // Render all gradient layers associated with this canvas layer
+    for (const gradientIndex of layerStroke.gradientLayerIndices) {
+      const gradientLayer = this.layers[gradientIndex];
+      if (gradientLayer && gradientLayer.hasContent) {
+        // Update the gradient layer's paint buffer with the combined stroke data
+        // This ensures all strokes for this canvas layer are rendered
+        gradientLayer.paintBuffer = new Uint8Array(layerStroke.paintBuffer);
+        this.updateIndexTexture(gradientIndex);
+        
+        // Render this gradient layer (will composite on top of previous)
+        this.renderSingleLayerAdditive(gradientIndex);
+      }
+    }
+    
+    // Copy the WebGL canvas to the target canvas
+    const ctx = targetCanvas.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      ctx.drawImage(this.canvas, 0, 0);
+    }
+  }
+  
+  /**
+   * Direct render to a target canvas - new method for Phase 3
+   * Renders the animated color cycle directly onto the provided canvas
+   * without using intermediate drawing canvas
+   */
+  renderDirectToCanvas(targetCanvas: HTMLCanvasElement, layerId?: string): void {
+    // If a specific layer ID is provided, render only that layer's strokes
+    if (layerId) {
+      this.renderForLayer(layerId, targetCanvas);
+      return;
+    }
+    
+    // Otherwise, render all layers
+    // Ensure WebGL canvas matches target dimensions
+    if (this.canvas.width !== targetCanvas.width || this.canvas.height !== targetCanvas.height) {
+      this.resize(targetCanvas.width, targetCanvas.height);
+    }
+    
+    // Render to internal WebGL canvas
+    this.render();
+    
+    // Copy result directly to target canvas
+    const ctx = targetCanvas.getContext('2d');
+    if (ctx) {
+      // Don't clear - composite on top of existing content
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1.0;
+      ctx.drawImage(this.canvas, 0, 0);
+    }
+  }
+  
+  // Render a layer additively (without clearing)
+  private renderSingleLayerAdditive(layerIndex: number): void {
+    const gl = this.gl;
+    
+    if (!this.program || layerIndex < 0 || layerIndex >= this.layers.length) {
+      return;
+    }
+    
+    const layer = this.layers[layerIndex];
+    if (!layer.hasContent) {
+      return;
+    }
+    
+    gl.useProgram(this.program);
+    
+    // Use additive blending to composite multiple gradient layers
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    
+    // Set uniforms
+    if (this.uniformLocations.cycleOffset) {
+      gl.uniform1f(this.uniformLocations.cycleOffset, this.cycleOffset);
+    }
+    if (this.uniformLocations.forceOpacity) {
+      gl.uniform1f(this.uniformLocations.forceOpacity, 0.0);
+    }
+    
+    // Bind layer's textures
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, layer.indexTexture);
+    if (this.uniformLocations.indexTexture) {
+      gl.uniform1i(this.uniformLocations.indexTexture, 0);
+    }
+    
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, layer.paletteTexture);
+    if (this.uniformLocations.paletteTexture) {
+      gl.uniform1i(this.uniformLocations.paletteTexture, 1);
+    }
+    
+    // Draw this layer
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+  
+  // Render a specific layer by ID, or all layers if no ID provided
+  renderLayer(layerId?: string): void {
+    if (!layerId) {
+      this.render();
+      return;
+    }
+    
+    const layerIndex = this.layerIdToIndex.get(layerId);
+    if (layerIndex === undefined) {
+      console.warn(`[ColorCycleBrush] Layer ${layerId} not found`);
+      return;
+    }
+    
+    this.renderLayerByIndex(layerIndex);
+  }
+  
+  // New method to render a single layer in isolation
+  private renderSingleLayer(layerIndex: number): void {
+    const gl = this.gl;
+    
+    if (!this.program || layerIndex < 0 || layerIndex >= this.layers.length) {
+      return;
+    }
+    
+    const layer = this.layers[layerIndex];
+    if (!layer.hasContent) {
+      // Clear the canvas if no content
+      gl.viewport(0, 0, this.width, this.height);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      return;
+    }
+    
+    gl.useProgram(this.program);
+    
+    // Use standard source-over blending
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    
+    // Clear canvas for this layer
+    gl.viewport(0, 0, this.width, this.height);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    
+    // Set uniforms
+    if (this.uniformLocations.cycleOffset) {
+      gl.uniform1f(this.uniformLocations.cycleOffset, this.cycleOffset);
+    }
+    if (this.uniformLocations.forceOpacity) {
+      gl.uniform1f(this.uniformLocations.forceOpacity, 0.0);
+    }
+    
+    // Bind layer's textures
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, layer.indexTexture);
+    if (this.uniformLocations.indexTexture) {
+      gl.uniform1i(this.uniformLocations.indexTexture, 0);
+    }
+    
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, layer.paletteTexture);
+    if (this.uniformLocations.paletteTexture) {
+      gl.uniform1i(this.uniformLocations.paletteTexture, 1);
+    }
+    
+    // Draw this layer
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+  
+  // Render a specific layer by its internal index
+  private renderLayerByIndex(layerIndex: number): void {
+    const gl = this.gl;
+    
+    if (!this.program || layerIndex < 0 || layerIndex >= this.layers.length) {
+      return;
+    }
+    
+    const layer = this.layers[layerIndex];
+    if (!layer.hasContent) {
+      return;
+    }
+    
+    gl.useProgram(this.program);
+    
+    // Use standard source-over blending
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    
+    // Clear canvas for this layer
+    gl.viewport(0, 0, this.width, this.height);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    
+    // Set uniforms
+    if (this.uniformLocations.cycleOffset) {
+      gl.uniform1f(this.uniformLocations.cycleOffset, this.cycleOffset);
+    }
+    if (this.uniformLocations.forceOpacity) {
+      gl.uniform1f(this.uniformLocations.forceOpacity, 0.0);
+    }
+    
+    // Bind layer's textures
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, layer.indexTexture);
+    if (this.uniformLocations.indexTexture) {
+      gl.uniform1i(this.uniformLocations.indexTexture, 0);
+    }
+    
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, layer.paletteTexture);
+    if (this.uniformLocations.paletteTexture) {
+      gl.uniform1i(this.uniformLocations.paletteTexture, 1);
+    }
+    
+    // Draw this layer
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
   
   render(forceFullOpacity: boolean = false) {
@@ -807,8 +1487,41 @@ export class ColorCycleBrush {
   }
   
   // Public API
-  setGradient(stops: Array<{ position: number; color: string }>) {
+  setGradient(stops: Array<{ position: number; color: string }>, layerId?: string) {
+    // If a layer ID is provided, create a new gradient layer for that canvas layer
+    if (layerId) {
+      const strokeData = this.layerStrokes.get(layerId);
+      if (strokeData) {
+        // Check if current gradient layer for this canvas layer already has this gradient
+        const currentGradientLayer = this.layers[strokeData.currentGradientIndex];
+        if (currentGradientLayer && this.gradientsMatch(currentGradientLayer.gradientStops, stops)) {
+          return; // Already using this gradient
+        }
+        
+        // Check if any existing gradient layer for this canvas layer has this gradient
+        for (const gradientIndex of strokeData.gradientLayerIndices) {
+          const layer = this.layers[gradientIndex];
+          if (layer && this.gradientsMatch(layer.gradientStops, stops)) {
+            strokeData.currentGradientIndex = gradientIndex;
+            this.currentLayerIndex = gradientIndex;
+            return;
+          }
+        }
+        
+        // Need to create a new gradient layer for this canvas layer
+        const gradientLayerId = `${layerId}_gradient_${strokeData.gradientLayerIndices.length}`;
+        this.addNewLayer(stops, gradientLayerId);
+        const newGradientIndex = this.layers.length - 1;
+        
+        strokeData.gradientLayerIndices.push(newGradientIndex);
+        strokeData.currentGradientIndex = newGradientIndex;
+        this.currentLayerIndex = newGradientIndex;
+        
+        return;
+      }
+    }
     
+    // Original behavior for non-layer-specific gradient changes
     // First, check if we already have a layer with this exact gradient
     for (let i = 0; i < this.layers.length; i++) {
       if (this.gradientsMatch(this.layers[i].gradientStops, stops)) {
@@ -858,7 +1571,50 @@ export class ColorCycleBrush {
     this.frameInterval = 1000 / fps;
   }
   
+  // Clear a specific layer by ID, or all layers if no ID provided
+  clearLayer(layerId?: string) {
+    if (!layerId) {
+      this.clear();
+      return;
+    }
+    
+    // Clear layer-specific stroke data
+    const strokeData = this.layerStrokes.get(layerId);
+    if (strokeData) {
+      strokeData.paintBuffer.fill(0);
+      strokeData.hasContent = false;
+      strokeData.strokeCounter = 0;
+      strokeData.strokeLength = 0;
+      strokeData.lastPoint = null;
+      
+      // Clear all gradient layers associated with this canvas layer
+      for (const gradientIndex of strokeData.gradientLayerIndices) {
+        const layer = this.layers[gradientIndex];
+        if (layer) {
+          layer.paintBuffer.fill(0);
+          layer.hasContent = false;
+          this.updateIndexTextureForLayer(layer);
+        }
+      }
+    }
+    
+    const layerIndex = this.layerIdToIndex.get(layerId);
+    if (layerIndex === undefined) {
+      return;
+    }
+    
+    const layer = this.layers[layerIndex];
+    if (layer) {
+      layer.paintBuffer.fill(0);
+      layer.hasContent = false;
+      this.updateIndexTextureForLayer(layer);
+    }
+  }
+  
   clear() {
+    
+    // Clear all layer-specific stroke data
+    this.layerStrokes.clear();
     
     // Clear all layers
     for (const layer of this.layers) {
@@ -874,6 +1630,22 @@ export class ColorCycleBrush {
     this.isDrawing = false;
   }
   
+  // Get list of layer IDs that have content
+  getLayersWithContent(): string[] {
+    return this.layers
+      .filter(layer => layer.hasContent && layer.layerId)
+      .map(layer => layer.layerId!);
+  }
+  
+  // Check if a specific layer has content
+  layerHasContent(layerId: string): boolean {
+    const layerIndex = this.layerIdToIndex.get(layerId);
+    if (layerIndex === undefined) {
+      return false;
+    }
+    return this.layers[layerIndex]?.hasContent || false;
+  }
+  
   private updateIndexTextureForLayer(layer: any) {
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, layer.indexTexture);
@@ -886,8 +1658,32 @@ export class ColorCycleBrush {
   }
   
   resize(width: number, height: number) {
+    const oldWidth = this.width;
+    const oldHeight = this.height;
     this.width = width;
     this.height = height;
+    
+    // Resize all layer-specific stroke buffers
+    for (const [layerId, strokeData] of this.layerStrokes.entries()) {
+      const newBuffer = new Uint8Array(width * height * 4);
+      
+      // Copy old data (what fits)
+      const copyWidth = Math.min(oldWidth, width);
+      const copyHeight = Math.min(oldHeight, height);
+      
+      for (let y = 0; y < copyHeight; y++) {
+        for (let x = 0; x < copyWidth; x++) {
+          const oldIdx = (y * oldWidth + x) * 4;
+          const newIdx = (y * width + x) * 4;
+          newBuffer[newIdx] = strokeData.paintBuffer[oldIdx];
+          newBuffer[newIdx + 1] = strokeData.paintBuffer[oldIdx + 1];
+          newBuffer[newIdx + 2] = strokeData.paintBuffer[oldIdx + 2];
+          newBuffer[newIdx + 3] = strokeData.paintBuffer[oldIdx + 3];
+        }
+      }
+      
+      strokeData.paintBuffer = newBuffer;
+    }
     
     // Recreate all layer buffers and textures with new size
     const gl = this.gl;
@@ -897,13 +1693,12 @@ export class ColorCycleBrush {
       const newBuffer = new Uint8Array(width * height * 4);
       
       // Copy old data (what fits)
-      // This is simplified - you might want more sophisticated resizing
-      const copyWidth = Math.min(this.width, width);
-      const copyHeight = Math.min(this.height, height);
+      const copyWidth = Math.min(oldWidth, width);
+      const copyHeight = Math.min(oldHeight, height);
       
       for (let y = 0; y < copyHeight; y++) {
         for (let x = 0; x < copyWidth; x++) {
-          const oldIdx = (y * this.width + x) * 4;
+          const oldIdx = (y * oldWidth + x) * 4;
           const newIdx = (y * width + x) * 4;
           newBuffer[newIdx] = layer.paintBuffer[oldIdx];
           newBuffer[newIdx + 1] = layer.paintBuffer[oldIdx + 1];
@@ -933,6 +1728,14 @@ export class ColorCycleBrush {
     return this.layers.some(layer => layer.hasContent);
   }
 
+  setLayerId(layerId: string) {
+    // Set the layer ID for the current gradient layer
+    if (this.currentLayerIndex >= 0 && this.currentLayerIndex < this.layers.length) {
+      this.layers[this.currentLayerIndex].layerId = layerId;
+      this.layerIdToIndex.set(layerId, this.currentLayerIndex);
+    }
+  }
+
   destroy() {
     this.stopAnimation();
     
@@ -952,5 +1755,40 @@ export class ColorCycleBrush {
     if (this.program) gl.deleteProgram(this.program);
     
     this.layers = [];
+  }
+  
+  // Get memory usage statistics
+  getMemoryStats(): {
+    layerCount: number;
+    totalPaintBufferSize: number;
+    textureMemory: number;
+    estimatedTotalMemory: number;
+  } {
+    let totalPaintBufferSize = 0;
+    
+    // Calculate paint buffer sizes
+    for (const stroke of this.layerStrokes.values()) {
+      totalPaintBufferSize += stroke.paintBuffer.byteLength;
+    }
+    
+    // Also count layer paint buffers
+    for (const layer of this.layers) {
+      totalPaintBufferSize += layer.paintBuffer.byteLength;
+    }
+    
+    // Estimate texture memory (width * height * bytes per pixel * number of textures)
+    const bytesPerPixel = 1; // LUMINANCE format for index texture
+    const paletteBytes = 256 * 4; // 256 colors * RGBA
+    const textureSize = this.width * this.height * bytesPerPixel + paletteBytes;
+    const textureMemory = this.layers.length * textureSize;
+    
+    const estimatedTotalMemory = totalPaintBufferSize + textureMemory;
+    
+    return {
+      layerCount: this.layers.length,
+      totalPaintBufferSize,
+      textureMemory,
+      estimatedTotalMemory
+    };
   }
 }
