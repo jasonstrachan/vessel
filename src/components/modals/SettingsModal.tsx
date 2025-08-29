@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { XIcon } from '../icons/XIcon';
 import { Switch } from '../retroui/Switch';
+import { FeatureFlagToggle } from '../ui/FeatureFlagToggle';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -157,6 +158,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-[#555]"></div>
+
+          {/* Implementation Settings */}
+          <div>
+            <h3 className="text-[#D9D9D9] text-base font-medium mb-3">Implementation</h3>
+            <FeatureFlagToggle className="mb-4" />
           </div>
 
           {/* Divider */}

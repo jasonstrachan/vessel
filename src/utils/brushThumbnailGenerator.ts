@@ -80,6 +80,9 @@ export function generateBrushThumbnail(
     case BrushShape.RESAMPLER:
       generateResamplerThumbnail(ctx, opts);
       break;
+    case BrushShape.COLOR_CYCLE:
+      generateColorCycleThumbnail(ctx, opts);
+      break;
     case BrushShape.ROUND:
     default:
       generateRoundThumbnail(ctx, opts, isAntialiased);
@@ -228,4 +231,19 @@ function generatePolygonGradientThumbnail(
   }
   ctx.closePath();
   ctx.fill();
+}
+
+function generateColorCycleThumbnail(
+  ctx: CanvasRenderingContext2D, 
+  opts: Required<ThumbnailOptions>
+) {
+  // Color cycle brush uses square shape
+  const center = opts.size / 2;
+  const size = opts.size * 0.7;
+  const x = center - size / 2;
+  const y = center - size / 2;
+  
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = opts.brushColor;
+  ctx.fillRect(x, y, size, size);
 }

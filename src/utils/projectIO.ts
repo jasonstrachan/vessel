@@ -497,8 +497,8 @@ export async function loadProjectFromFile(): Promise<Project> {
 
 // Restore color cycle brushes after project load
 export async function restoreColorCycleBrushes(layers: Layer[]): Promise<void> {
-  // Import ColorCycleBrush dynamically to avoid circular dependencies
-  const { ColorCycleBrush } = await import('../hooks/brushEngine/ColorCycleBrush');
+  // Import ColorCycleBrush factory dynamically to avoid circular dependencies
+  const { createColorCycleBrush } = await import('../hooks/brushEngine/ColorCycleBrushMigration');
   
   for (const layer of layers) {
     if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
@@ -506,7 +506,7 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<void> {
       const savedState = (layer as any).__savedWebGLState;
       if (savedState) {
         // Create new color cycle brush
-        const colorCycleBrush = new ColorCycleBrush(layer.colorCycleData.canvas!);
+        const colorCycleBrush = createColorCycleBrush(layer.colorCycleData.canvas!);
         
         // Restore the WebGL state
         const layerSnapshots = new Map<string, ArrayBuffer>();
@@ -532,7 +532,7 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<void> {
         }
       } else {
         // No saved state, create a new brush with the gradient
-        const colorCycleBrush = new ColorCycleBrush(layer.colorCycleData.canvas!);
+        const colorCycleBrush = createColorCycleBrush(layer.colorCycleData.canvas!);
         colorCycleBrush.setGradient(layer.colorCycleData.gradient);
         layer.colorCycleData.colorCycleBrush = colorCycleBrush;
       }

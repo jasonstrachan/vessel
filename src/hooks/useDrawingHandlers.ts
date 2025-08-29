@@ -170,6 +170,10 @@ export function useDrawingHandlers({
     // Layer type handling and validation
     let activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
     if (activeLayer) {
+      // Prevent drawing on hidden layers - show cursor but don't draw
+      if (!activeLayer.visible) {
+        return; // Exit silently, cursor will still show
+      }
       const isColorCycleBrush = currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE;
       
       // If layer has no type yet, convert it based on first stroke
@@ -198,7 +202,7 @@ export function useDrawingHandlers({
             }
           });
           
-          // Initialize the WebGL Color Cycle brush for this layer
+          // Initialize the Canvas2D Color Cycle brush for this layer
           currentState.initColorCycleForLayer(activeLayer.id, project.width, project.height);
           
           // PRESERVE CONTENT: If there was existing content, restore it after conversion
@@ -299,7 +303,7 @@ export function useDrawingHandlers({
         
         // Check gradient compatibility for CC layers
         if (isColorCycleBrush && isColorCycleLayer) {
-          // Ensure the CC layer has WebGL brush initialized
+          // Ensure the CC layer has Canvas2D brush initialized
           if (!activeLayer.colorCycleData?.colorCycleBrush) {
             // Initialize it now if needed
             currentState.initColorCycleForLayer(activeLayer.id, project.width, project.height);
@@ -429,7 +433,7 @@ export function useDrawingHandlers({
         // Check if we're using a custom brush or resampler
         let customBrushData = undefined;
         
-        // Handle Color Cycle brush - only paints to WebGL buffer
+        // Handle Color Cycle brush - only paints to Canvas2D buffer
         if (currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
           // SAFETY CHECK: Verify we're on a compatible CC layer with matching gradient
           // This prevents crashes when continueDrawing is called after startDrawing blocked
@@ -659,8 +663,8 @@ export function useDrawingHandlers({
                   
                   // Check dashed pattern before drawing
                   if (shouldDrawStamp(currentState.tools.brushSettings, colorCyclePixelQueue.current, currentState.tools.brushSettings.size)) {
-                    // TODO: Rotation support requires ColorCycleBrush.ts modification to accept rotation parameter
-                    // and update the WebGL shader to apply rotation transformation to stamps
+                    // TODO: Rotation support requires ColorCycleBrush modification to accept rotation parameter
+                    // and update the Canvas2D rendering to apply rotation transformation to stamps
                     // For now, we calculate rotation but don't apply it
                     if (currentState.tools.brushSettings.rotationEnabled && rotation !== 0) {
                       // Future: brushEngine.drawColorCycle(drawCtx, stampX, stampY, pressure, rotation);
@@ -804,6 +808,13 @@ export function useDrawingHandlers({
   }, [brushEngine, userBrushEngine, project, drawEraserSegment]);
 
   const continueDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
+    // Check if layer is still visible before continuing drawing
+    const currentState = useAppStore.getState();
+    const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+    if (activeLayer && !activeLayer.visible) {
+      return; // Exit silently if layer became hidden mid-stroke
+    }
+    
     const now = performance.now();
     
     // Add to batch
@@ -967,6 +978,13 @@ export function useDrawingHandlers({
   }, [tools.shapeMode, initDrawingCanvas, startDrawing]);
   
   const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }) => {
+    // Check if layer is still visible before continuing shape drawing
+    const currentState = useAppStore.getState();
+    const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+    if (activeLayer && !activeLayer.visible) {
+      return; // Exit silently if layer became hidden mid-stroke
+    }
+    
     if (tools.shapeMode && isDrawingShapeRef.current) {
       const lastPoint = shapePointsRef.current[shapePointsRef.current.length - 1];
       if (lastPoint) {
@@ -1214,7 +1232,7 @@ export function useDrawingHandlers({
             
             // CRITICAL FIX: Force immediate texture update and render after filling shape
             const currentState = useAppStore.getState();
-            const activeLayer = currentState.project?.layers?.[currentState.project.activeLayerIndex];
+            const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
             const activeLayerId = activeLayer?.id;
             if (activeLayerId) {
               brushEngine.updateColorCycleTexture(activeLayerId);

@@ -12,6 +12,7 @@ import { floodFill } from '../../utils/floodFill';
 import { detectWacomIssues, testWacomPressure } from '../../utils/detectWacom';
 import BrushCursor from './BrushCursor';
 import { setColorCycleAnimationHandlers, getColorCycleAnimationState } from '../toolbar/BrushControls';
+import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
 
 interface DrawingCanvasProps {
   showFeedback?: (message: string) => void;
@@ -360,63 +361,37 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     }
   }, [showFeedback, setFeedbackCallback]);
   
-  // Animation frame for continuous color cycle rendering
-  const colorCycleRenderLoopRef = useRef<number | null>(null);
+  // Simplified color cycle animation manager
+  const colorCycleManagerRef = useRef<SimplifiedColorCycleManager | null>(null);
   
-  // Track if we're actively animating
-  const isAnimatingRef = useRef(false);
-  
-  // Simplified animation control - delegate to drawing handlers
-  const wrappedStartAnimation = useCallback(() => {
-    // Only start if not already animating
-    if (isAnimatingRef.current) return;
+  // Initialize color cycle manager
+  useEffect(() => {
+    colorCycleManagerRef.current = new SimplifiedColorCycleManager({
+      targetFPS: 24,
+      onFrame: () => {
+        // Trigger a redraw on each animation frame
+        setNeedsRedraw(prev => prev + 1);
+      }
+    });
     
+    return () => {
+      colorCycleManagerRef.current?.destroy();
+      colorCycleManagerRef.current = null;
+    };
+  }, []);
+  
+  // Simplified animation control functions
+  const wrappedStartAnimation = useCallback(() => {
     // Start the color cycle animation in drawing handlers
     startContinuousColorCycleAnimation();
-    isAnimatingRef.current = true;
     
-    // Single, efficient composite loop at target FPS
-    let lastTime = 0;
-    const targetFPS = 24;
-    const frameInterval = 1000 / targetFPS;
-    
-    const compositeLoop = (timestamp: number) => {
-      // Check if we should stop
-      if (!isAnimatingRef.current) {
-        colorCycleRenderLoopRef.current = null;
-        return;
-      }
-      
-      // Throttle to target FPS
-      const elapsed = timestamp - lastTime;
-      if (elapsed >= frameInterval) {
-        // Trigger a single redraw per frame
-        setNeedsRedraw(prev => prev + 1);
-        lastTime = timestamp - (elapsed % frameInterval);
-      }
-      
-      // Continue loop
-      colorCycleRenderLoopRef.current = requestAnimationFrame(compositeLoop);
-    };
-    
-    // Cancel any existing loop and start fresh
-    if (colorCycleRenderLoopRef.current) {
-      cancelAnimationFrame(colorCycleRenderLoopRef.current);
-    }
-    
-    // Start the composite loop
-    colorCycleRenderLoopRef.current = requestAnimationFrame(compositeLoop);
+    // Start the animation manager
+    colorCycleManagerRef.current?.start();
   }, [startContinuousColorCycleAnimation]);
   
   const wrappedStopAnimation = useCallback(() => {
-    // Stop animation state first to break loops
-    isAnimatingRef.current = false;
-    
-    // Cancel any pending animation frame immediately
-    if (colorCycleRenderLoopRef.current) {
-      cancelAnimationFrame(colorCycleRenderLoopRef.current);
-      colorCycleRenderLoopRef.current = null;
-    }
+    // Stop the animation manager
+    colorCycleManagerRef.current?.stop();
     
     // Stop the color cycle animation
     stopContinuousColorCycleAnimation();
@@ -435,16 +410,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       startContinuousColorCycleAnimation: wrappedStartAnimation,
       stopContinuousColorCycleAnimation: wrappedStopAnimation,
       updateColorCycleGradient: brushEngine.updateColorCycleGradient,
+      setFlowDirection: brushEngine.setColorCycleFlowDirection,
     });
     
     // Cleanup on unmount
     return () => {
       setColorCycleAnimationHandlers(null);
-      if (colorCycleRenderLoopRef.current) {
-        cancelAnimationFrame(colorCycleRenderLoopRef.current);
-      }
+      colorCycleManagerRef.current?.stop();
     };
-  }, [wrappedStartAnimation, wrappedStopAnimation, brushEngine.updateColorCycleGradient]);
+  }, [wrappedStartAnimation, wrappedStopAnimation, brushEngine.updateColorCycleGradient, brushEngine.setColorCycleFlowDirection]);
   
   // Wrapper draw function that uses current hook values
   const draw = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false) => {
@@ -464,6 +438,21 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   useEffect(() => {
     drawRef.current = draw;
   }, [draw]);
+  
+  // Listen for color cycle animation frame updates
+  useEffect(() => {
+    const handleColorCycleFrame = () => {
+      // Trigger a redraw when color cycle animation updates
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+      if (ctx && drawRef.current && viewTransformRef.current) {
+        drawRef.current(ctx, viewTransformRef.current);
+      }
+    };
+    
+    window.addEventListener('colorCycleFrameReady', handleColorCycleFrame);
+    return () => window.removeEventListener('colorCycleFrameReady', handleColorCycleFrame);
+  }, []);
   
   // Handle blur to reset space key state when losing focus
   const handleBlur = useCallback((e: React.FocusEvent) => {
@@ -555,7 +544,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           const activeLayer = layers.find(l => l.id === layerId);
           
           if (activeLayer?.colorCycleData?.colorCycleBrush) {
-            // Restore WebGL state from snapshot
+            // Restore Canvas2D state from snapshot
             activeLayer.colorCycleData.colorCycleBrush.restoreFullState({
               gradients: snapshot.colorCycleState.gradients.map(g => ({
                 gradientStops: g.gradientStops
@@ -639,7 +628,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           const activeLayer = layers.find(l => l.id === layerId);
           
           if (activeLayer?.colorCycleData?.colorCycleBrush) {
-            // Restore WebGL state from snapshot
+            // Restore Canvas2D state from snapshot
             activeLayer.colorCycleData.colorCycleBrush.restoreFullState({
               gradients: snapshot.colorCycleState.gradients.map(g => ({
                 gradientStops: g.gradientStops
@@ -2338,19 +2327,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     return () => resizeObserver.disconnect();
   }, []); // Empty dependency array - run only once
   
-  // Listen for color cycle animation frame updates
-  useEffect(() => {
-    const handleColorCycleFrame = () => {
-      // Trigger a redraw to composite the updated drawing canvas
-      setNeedsRedraw(prev => prev + 1);
-    };
-    
-    window.addEventListener('colorCycleFrameReady', handleColorCycleFrame);
-    
-    return () => {
-      window.removeEventListener('colorCycleFrameReady', handleColorCycleFrame);
-    };
-  }, []);
+  // Color cycle animation frames are now handled by SimplifiedColorCycleManager
+  // No need for separate event listeners
   
   
   return (

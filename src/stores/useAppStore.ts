@@ -1332,9 +1332,9 @@ export const useAppStore = create<AppState>()(
       // Color Cycle Layer Management
       initColorCycleForLayer: (layerId, width, height) => set((state) => {
         // Dynamic import to avoid circular dependencies
-        const { ColorCycleBrush } = (() => {
+        const { createColorCycleBrush } = (() => {
           // eslint-disable-next-line @typescript-eslint/no-require-imports
-          return require('../hooks/brushEngine/ColorCycleBrush');
+          return require('../hooks/brushEngine/ColorCycleBrushMigration');
         })();
         
         const layer = state.layers.find(l => l.id === layerId);
@@ -1345,8 +1345,8 @@ export const useAppStore = create<AppState>()(
         canvas.width = width;
         canvas.height = height;
         
-        // Initialize ColorCycleBrush for this layer
-        const colorCycleBrush = new ColorCycleBrush(canvas, {
+        // Initialize ColorCycleBrush for this layer using migration wrapper
+        const colorCycleBrush = createColorCycleBrush(canvas, {
           brushSize: state.tools.brushSettings.size || 20,
           fps: 30
         });
@@ -1917,7 +1917,7 @@ export const useAppStore = create<AppState>()(
           
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           // Deep copy layers to preserve their individual ImageData
-          const layersCopy = state.layers.map(layer => ({
+          const layersCopy = (state.layers || []).map(layer => ({
             ...layer,
             imageData: layer.imageData ? new ImageData(
               new Uint8ClampedArray(layer.imageData.data),
@@ -1928,7 +1928,7 @@ export const useAppStore = create<AppState>()(
           
           // Capture color cycle state if available
           let colorCycleState: CanvasSnapshot['colorCycleState'] = undefined;
-          const activeLayer = state.layers.find(l => l.id === state.activeLayerId);
+          const activeLayer = (state.layers || []).find(l => l.id === state.activeLayerId);
           
           if (activeLayer?.colorCycleData?.colorCycleBrush) {
             const brush = activeLayer.colorCycleData.colorCycleBrush;
@@ -1937,13 +1937,13 @@ export const useAppStore = create<AppState>()(
             colorCycleState = {
               layerId: activeLayer.id,
               strokeData: new ArrayBuffer(0), // Not used, using layerStrokes instead
-              gradients: fullState.gradients.map((g, i) => ({
+              gradients: (fullState.gradients || []).map((g, i) => ({
                 layerIndex: i,
                 gradientStops: g.gradientStops,
                 hasContent: true
               })),
               animationState: fullState.animationState,
-              layerStrokes: Array.from(fullState.layerSnapshots.entries()).map(([id, buffer]) => ({
+              layerStrokes: Array.from(fullState.layerSnapshots?.entries() || []).map(([id, buffer]) => ({
                 layerId: id,
                 paintBuffer: buffer,
                 hasContent: buffer.byteLength > 0,

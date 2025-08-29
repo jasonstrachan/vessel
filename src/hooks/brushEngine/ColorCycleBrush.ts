@@ -77,6 +77,7 @@ export class ColorCycleBrush {
     brushSize?: number;
     fps?: number;
   } = {}) {
+    console.log('⚡ [ColorCycle] Creating WebGL implementation - ORIGINAL');
     this.canvas = canvas;
     this.gl = this.initWebGL(canvas);
     

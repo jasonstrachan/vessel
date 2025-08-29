@@ -10,7 +10,9 @@ import { BrushShape } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { canvasPool } from '../utils/canvasPool';
-import { ColorCycleBrush } from './brushEngine/ColorCycleBrush';
+// Use migration wrapper to switch between WebGL and Canvas2D implementations
+import { createColorCycleBrush, type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
+import { featureFlags } from '../config/featureFlags';
 
 /**
  * Simplified brush engine hook with facade pattern
@@ -24,7 +26,7 @@ export const useBrushEngineSimplified = () => {
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   
   // Get color cycle brush from active layer instead of single instance
-  const getActiveLayerColorCycleBrush = useCallback((): ColorCycleBrush | null => {
+  const getActiveLayerColorCycleBrush = useCallback((): ColorCycleBrushImplementation | null => {
     if (!activeLayerId) return null;
     return useAppStore.getState().getLayerColorCycleBrush(activeLayerId);
   }, [activeLayerId]);
@@ -1516,7 +1518,7 @@ export const useBrushEngineSimplified = () => {
   }, [tools.brushSettings.size, tools.brushSettings.colorCycleFPS, tools.brushSettings.colorCycleSpeed, tools.brushSettings.colorCycleGradient, project?.width, project?.height, activeLayerId, getActiveLayerColorCycleBrush]);
   
   /**
-   * Draw with Color Cycle Brush - only paints to WebGL buffer, no immediate rendering
+   * Draw with Color Cycle Brush - only paints to Canvas2D buffer, no immediate rendering
    */
   const drawColorCycle = useCallback((
     ctx: CanvasRenderingContext2D,
@@ -1533,11 +1535,11 @@ export const useBrushEngineSimplified = () => {
     }
     colorCycleBrush.setBrushSize(tools.brushSettings.size);
     
-    // Paint to the WebGL buffer only
-    // Convert canvas coordinates to WebGL canvas coordinates
-    const webglCanvas = (colorCycleBrush as any).getCanvas();
-    const scaleX = webglCanvas.width / ctx.canvas.width;
-    const scaleY = webglCanvas.height / ctx.canvas.height;
+    // Paint to the Canvas2D buffer only
+    // Convert canvas coordinates to internal canvas coordinates
+    const internalCanvas = (colorCycleBrush as any).getCanvas();
+    const scaleX = internalCanvas.width / ctx.canvas.width;
+    const scaleY = internalCanvas.height / ctx.canvas.height;
     
     // Pass the active layer ID to ensure proper stroke tracking
     colorCycleBrush.paint(Math.floor(x * scaleX), Math.floor(y * scaleY), activeLayerId || undefined);
@@ -1572,15 +1574,15 @@ export const useBrushEngineSimplified = () => {
       // Ensure we have the latest frame (single update call)
       colorCycleBrush.render(!applyOpacity); // Full opacity when finalizing
       
-      // Get the WebGL canvas
-      const webglCanvas = (colorCycleBrush as any).webglCanvas || colorCycleBrush.getCanvas();
-      if (!webglCanvas) return;
+      // Get the internal canvas
+      const internalCanvas = colorCycleBrush.getCanvas();
+      if (!internalCanvas) return;
       
       // Apply appropriate opacity
       ctx.globalAlpha = applyOpacity ? tools.brushSettings.opacity : 1.0;
       
-      // Composite the WebGL canvas
-      ctx.drawImage(webglCanvas, 0, 0, ctx.canvas.width, ctx.canvas.height);
+      // Composite the internal canvas
+      ctx.drawImage(internalCanvas, 0, 0, ctx.canvas.width, ctx.canvas.height);
       
     } finally {
       // Always restore state
@@ -1640,13 +1642,13 @@ export const useBrushEngineSimplified = () => {
         brush.setGradient(currentGradient, activeLayerId);
       }
       
-      // Convert canvas coordinates to WebGL canvas coordinates
-      const webglCanvas = (brush as any).webglCanvas;
+      // Convert canvas coordinates to internal canvas coordinates
+      const internalCanvas = brush.getCanvas();
       
-      const scaleX = webglCanvas.width / (project?.width || 1920);
-      const scaleY = webglCanvas.height / (project?.height || 1080);
+      const scaleX = internalCanvas.width / (project?.width || 1920);
+      const scaleY = internalCanvas.height / (project?.height || 1080);
       
-      // Scale vertices to WebGL canvas space
+      // Scale vertices to internal canvas space
       const scaledVertices = vertices.map(v => ({
         x: v.x * scaleX,
         y: v.y * scaleY
@@ -1742,6 +1744,13 @@ export const useBrushEngineSimplified = () => {
       const colorCycleBrush = getActiveLayerColorCycleBrush();
       if (colorCycleBrush) {
         colorCycleBrush.setSpeed(speed);
+      }
+    },
+    
+    setColorCycleFlowDirection: (direction: 'forward' | 'backward') => {
+      const colorCycleBrush = getActiveLayerColorCycleBrush();
+      if (colorCycleBrush) {
+        colorCycleBrush.setFlowDirection(direction);
       }
     },
     

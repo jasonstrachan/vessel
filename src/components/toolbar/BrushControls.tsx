@@ -18,6 +18,7 @@ interface ColorCycleAnimationContext {
   startContinuousColorCycleAnimation: () => void;
   stopContinuousColorCycleAnimation: () => void;
   updateColorCycleGradient?: (stops: Array<{ position: number; color: string }>) => void;
+  setFlowDirection?: (direction: 'forward' | 'backward') => void;
 }
 
 // For now, we'll store this globally - a proper solution would use React context
@@ -134,7 +135,8 @@ const BrushControls = () => {
                 state.updateLayer(state.activeLayerId, {
                   colorCycleData: {
                     ...activeLayer.colorCycleData,
-                    gradient: stops
+                    gradient: stops,
+                    isAnimating: activeLayer.colorCycleData?.isAnimating || false
                   }
                 });
               }
@@ -183,6 +185,25 @@ const BrushControls = () => {
               }
               aria-label="Frames Per Second"
               className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Flow Direction Toggle */}
+        <div className="mb-2">
+          <div className="flex items-center justify-between">
+            <label className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
+              Flow
+            </label>
+            <CustomSwitch
+              checked={activeSettings.colorCycleFlowForward !== false}
+              onChange={(checked) => {
+                setActiveSettings({ colorCycleFlowForward: checked });
+                // Set flow direction based on toggle state
+                if (colorCycleAnimationHandlers?.setFlowDirection) {
+                  colorCycleAnimationHandlers.setFlowDirection(checked ? 'forward' : 'backward');
+                }
+              }}
             />
           </div>
         </div>

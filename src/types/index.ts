@@ -38,7 +38,7 @@ export interface Layer {
   // Color cycle specific data (only present for CC layers)
   colorCycleData?: {
     gradient: Array<{ position: number; color: string }>;
-    colorCycleBrush?: import('../hooks/brushEngine/ColorCycleBrush').ColorCycleBrush;
+    colorCycleBrush?: import('../hooks/brushEngine/ColorCycleBrushCanvas2D').ColorCycleBrushCanvas2D;
     isAnimating: boolean;
     // Store the canvas element for this CC layer
     canvas?: HTMLCanvasElement;
