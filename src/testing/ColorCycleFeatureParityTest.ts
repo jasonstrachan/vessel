@@ -1,10 +1,11 @@
 /**
- * ColorCycleFeatureParityTest - Comprehensive testing suite for WebGL vs Canvas2D implementations
- * Tests all features to ensure complete parity between implementations
+ * ColorCycleFeatureParityTest - Testing suite for Canvas2D implementation
+ * WebGL implementation has been removed - using Canvas2D only
  */
 
-import { ColorCycleBrush } from '../hooks/brushEngine/ColorCycleBrush';
+// ColorCycleBrush WebGL implementation removed - using Canvas2D only
 import { ColorCycleBrushCanvas2D } from '../hooks/brushEngine/ColorCycleBrushCanvas2D';
+import { ColorCycleBrushCanvas2D as ColorCycleBrush } from '../hooks/brushEngine/ColorCycleBrushCanvas2D'; // Alias for compatibility
 import { GradientStop } from '../lib/GradientPalette';
 
 export interface TestResult {

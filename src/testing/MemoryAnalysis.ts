@@ -1,10 +1,12 @@
 /**
  * Memory Usage Analysis Tool
- * Comprehensive memory profiling for Canvas2D vs WebGL implementations
+ * Memory profiling for Canvas2D implementation
+ * WebGL implementation has been removed
  */
 
 import { ColorCycleBrushCanvas2D } from '../hooks/brushEngine/ColorCycleBrushCanvas2D';
-import { ColorCycleBrush } from '../hooks/brushEngine/ColorCycleBrush';
+// ColorCycleBrush WebGL implementation removed - using Canvas2D only
+import { ColorCycleBrushCanvas2D as ColorCycleBrush } from '../hooks/brushEngine/ColorCycleBrushCanvas2D';
 import { GradientStop } from '../lib/GradientPalette';
 
 interface MemoryMetrics {
