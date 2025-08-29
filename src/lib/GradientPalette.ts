@@ -30,8 +30,11 @@ export class GradientPalette {
       { position: 1, color: '#ffffff' }
     ];
     
-    if (stops) {
+    if (stops && stops.length > 0) {
       this.updateFromGradient(stops);
+    } else {
+      // Initialize with default gradient if no stops provided
+      this.updateFromGradient(this.gradientStops);
     }
   }
   
@@ -205,14 +208,26 @@ export class GradientPalette {
    * Get color at specific index
    */
   getColor(index: number): RGBA {
+    // Ensure colors array exists
+    if (!this.colors || this.colors.length === 0) {
+      console.warn('[GradientPalette] Colors array not initialized');
+      return { r: 0, g: 0, b: 0, a: 0 };
+    }
+    
     index = Math.max(0, Math.min(this.paletteSize - 1, index));
     const idx = index * 4;
     
+    // Bounds check
+    if (idx + 3 >= this.colors.length) {
+      console.warn('[GradientPalette] Index out of bounds:', index, idx);
+      return { r: 0, g: 0, b: 0, a: 0 };
+    }
+    
     return {
-      r: this.colors[idx],
-      g: this.colors[idx + 1],
-      b: this.colors[idx + 2],
-      a: this.colors[idx + 3]
+      r: this.colors[idx] || 0,
+      g: this.colors[idx + 1] || 0,
+      b: this.colors[idx + 2] || 0,
+      a: this.colors[idx + 3] || 255
     };
   }
   
@@ -221,7 +236,12 @@ export class GradientPalette {
    */
   getColorString(index: number): string {
     const color = this.getColor(index);
-    return `rgba(${color.r},${color.g},${color.b},${color.a / 255})`;
+    // Ensure valid values
+    const r = Math.max(0, Math.min(255, color.r || 0));
+    const g = Math.max(0, Math.min(255, color.g || 0));
+    const b = Math.max(0, Math.min(255, color.b || 0));
+    const a = Math.max(0, Math.min(255, color.a || 255)) / 255;
+    return `rgba(${r},${g},${b},${a})`;
   }
   
   /**

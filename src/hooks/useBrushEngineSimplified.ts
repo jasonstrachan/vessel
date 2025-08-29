@@ -1456,30 +1456,45 @@ export const useBrushEngineSimplified = () => {
   const initializeColorCycleBrush = useCallback(() => {
     if (!activeLayerId) return null;
     
-    // Check if layer already has a color cycle brush
-    let colorCycleBrush = getActiveLayerColorCycleBrush();
-    
-    if (!colorCycleBrush) {
-      // Initialize color cycle for the active layer
-      const targetWidth = project?.width || 1024;
-      const targetHeight = project?.height || 1024;
+    try {
+      // Check if layer already has a color cycle brush
+      let colorCycleBrush = getActiveLayerColorCycleBrush();
       
-      // Initialize color cycle for this layer in the store
-      useAppStore.getState().initColorCycleForLayer(activeLayerId, targetWidth, targetHeight);
-      colorCycleBrush = getActiveLayerColorCycleBrush();
+      if (!colorCycleBrush) {
+        // Initialize color cycle for the active layer
+        const targetWidth = Math.max(project?.width || 1024, 1);
+        const targetHeight = Math.max(project?.height || 1024, 1);
+        
+        // Initialize color cycle for this layer in the store
+        useAppStore.getState().initColorCycleForLayer(activeLayerId, targetWidth, targetHeight);
+        colorCycleBrush = getActiveLayerColorCycleBrush();
+        
+        if (!colorCycleBrush) {
+          console.error('[ColorCycle] Failed to initialize brush for layer:', activeLayerId);
+          return null;
+        }
+        
+        // Set up frame callback for new brush
+        colorCycleBrush.setOnFrameRendered(() => {
+          // Dispatch event for main canvas to update
+          window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
+        });
+      } else {
+        // IMPORTANT: Reset the brush state when switching back to an existing CC layer
+        // This ensures clean state after layer switches
+        colorCycleBrush.endStroke(activeLayerId);
+      }
       
-      if (!colorCycleBrush) return null;
+      // Apply settings (for both new and existing brushes)
+      colorCycleBrush.setBrushSize(tools.brushSettings.size || 20);
+      if (tools.brushSettings.colorCycleFPS) {
+        colorCycleBrush.setFPS(tools.brushSettings.colorCycleFPS);
+      }
+      if (tools.brushSettings.colorCycleSpeed) {
+        colorCycleBrush.setSpeed(tools.brushSettings.colorCycleSpeed);
+      }
       
-      // Set up frame callback to notify main canvas of animation updates
-      colorCycleBrush.setOnFrameRendered(() => {
-        // Dispatch event for main canvas to update
-        window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
-      });
-      
-      // Apply initial settings
-      colorCycleBrush.setSpeed(tools.brushSettings.colorCycleSpeed || 1.0);
-      
-      // Apply initial gradient - prioritize layer's stored gradient over brush settings
+      // Apply gradient - prioritize layer's stored gradient over brush settings
       const activeLayer = useAppStore.getState().layers.find(l => l.id === activeLayerId);
       const layerGradient = activeLayer?.colorCycleData?.gradient;
       const brushGradient = tools.brushSettings.colorCycleGradient;
@@ -1495,25 +1510,14 @@ export const useBrushEngineSimplified = () => {
       
       // Use layer gradient first, then brush gradient, then default
       const gradientToUse = layerGradient || brushGradient || defaultGradient;
-      colorCycleBrush.setGradient(gradientToUse, activeLayerId);
-      
-      return colorCycleBrush;
-    } else {
-      // Update all settings including gradient
-      colorCycleBrush.setBrushSize(tools.brushSettings.size);
-      if (tools.brushSettings.colorCycleFPS) {
-        colorCycleBrush.setFPS(tools.brushSettings.colorCycleFPS);
-      }
-      if (tools.brushSettings.colorCycleSpeed) {
-        colorCycleBrush.setSpeed(tools.brushSettings.colorCycleSpeed);
-      }
-      // UPDATE THE GRADIENT - prioritize layer gradient over brush gradient
-      const activeLayer = useAppStore.getState().layers.find(l => l.id === activeLayerId);
-      const gradientToUse = activeLayer?.colorCycleData?.gradient || tools.brushSettings.colorCycleGradient;
       if (gradientToUse) {
         colorCycleBrush.setGradient(gradientToUse, activeLayerId);
       }
+      
       return colorCycleBrush;
+    } catch (error) {
+      console.error('[ColorCycle] Error initializing brush:', error);
+      return null;
     }
   }, [tools.brushSettings.size, tools.brushSettings.colorCycleFPS, tools.brushSettings.colorCycleSpeed, tools.brushSettings.colorCycleGradient, project?.width, project?.height, activeLayerId, getActiveLayerColorCycleBrush]);
   
@@ -1526,23 +1530,43 @@ export const useBrushEngineSimplified = () => {
     y: number,
     _pressure: number = 1.0
   ) => {
-    // DEFENSIVE GUARD: Check if color cycle brush should be used
-    // This prevents crashes when incompatible layer types are used
-    const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (!colorCycleBrush) {
-      console.warn('[ColorCycle] No active brush - initialize color cycle for layer first');
-      return;
+    try {
+      // DEFENSIVE GUARD: Check if color cycle brush should be used
+      // This prevents crashes when incompatible layer types are used
+      const colorCycleBrush = getActiveLayerColorCycleBrush();
+      if (!colorCycleBrush) {
+        console.warn('[ColorCycle] No active brush - initialize color cycle for layer first');
+        return;
+      }
+      
+      // Safe brush size setting
+      if (tools.brushSettings.size > 0) {
+        colorCycleBrush.setBrushSize(tools.brushSettings.size);
+      }
+      
+      // Paint to the Canvas2D buffer only
+      // Convert canvas coordinates to internal canvas coordinates
+      const internalCanvas = (colorCycleBrush as any).getCanvas();
+      if (!internalCanvas || !internalCanvas.width || !internalCanvas.height) {
+        console.error('[ColorCycle] Invalid internal canvas');
+        return;
+      }
+      
+      const scaleX = internalCanvas.width / (ctx.canvas.width || 1);
+      const scaleY = internalCanvas.height / (ctx.canvas.height || 1);
+      
+      // Pass the active layer ID to ensure proper stroke tracking
+      const paintX = Math.floor(x * scaleX);
+      const paintY = Math.floor(y * scaleY);
+      
+      // Bounds check
+      if (paintX >= 0 && paintX < internalCanvas.width && 
+          paintY >= 0 && paintY < internalCanvas.height) {
+        colorCycleBrush.paint(paintX, paintY, activeLayerId || undefined);
+      }
+    } catch (error) {
+      console.error('[ColorCycle] Error in drawColorCycle:', error);
     }
-    colorCycleBrush.setBrushSize(tools.brushSettings.size);
-    
-    // Paint to the Canvas2D buffer only
-    // Convert canvas coordinates to internal canvas coordinates
-    const internalCanvas = (colorCycleBrush as any).getCanvas();
-    const scaleX = internalCanvas.width / ctx.canvas.width;
-    const scaleY = internalCanvas.height / ctx.canvas.height;
-    
-    // Pass the active layer ID to ensure proper stroke tracking
-    colorCycleBrush.paint(Math.floor(x * scaleX), Math.floor(y * scaleY), activeLayerId || undefined);
     
     // Don't composite here - let renderColorCycle handle all rendering
     // This prevents visible brush stamps and ensures only animated strokes show
@@ -1689,12 +1713,12 @@ export const useBrushEngineSimplified = () => {
       // Clear brush stamp cache on unmount
       brushStampCacheRef.current.clear();
       
-      // Clean up color cycle brush for active layer
-      if (activeLayerId) {
-        useAppStore.getState().cleanupColorCycleForLayer(activeLayerId);
-      }
+      // DON'T cleanup color cycle brush when switching layers!
+      // This was causing the crash - the brush was being destroyed
+      // but the layer still thought it had a CC brush.
+      // CC brushes should persist with their layers.
     };
-  }, [activeLayerId]);
+  }, []); // Empty dependency array - only cleanup on unmount
 
   // Return simplified API - NO useMemo to avoid stale closures
   return {

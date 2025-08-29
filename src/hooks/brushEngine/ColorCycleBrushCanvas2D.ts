@@ -19,10 +19,7 @@ export class ColorCycleBrushCanvas2D {
   // Core settings (match original API)
   private brushSize: number;
   private cycleSpeed: number;
-  private cycleOffset: number;
   private fps: number;
-  private frameInterval: number;
-  private lastFrameTime: number;
   
   // Canvas dimensions
   private width: number;
@@ -30,8 +27,10 @@ export class ColorCycleBrushCanvas2D {
   
   // Animation state
   private isAnimating: boolean = false;
-  private animationId: number | null = null;
   private isPaused: boolean = false;
+  
+  // Track animation callbacks to prevent memory leaks
+  private animatorCallbacks: Map<string, () => void> = new Map();
   
   // Stroke tracking
   private strokeCounter: number = 0;
@@ -43,6 +42,10 @@ export class ColorCycleBrushCanvas2D {
   private stampCounter: number = 0;
   private totalGradientSteps: number = 256; // Total colors in gradient
   private resetStampOnNewStroke: boolean = false; // Set to true to reset colors per stroke
+  
+  // Batched rendering
+  private renderScheduled: boolean = false;
+  private dirtyLayers: Set<string> = new Set();
   
   // Frame callback
   private onFrameRendered?: () => void;
@@ -63,7 +66,16 @@ export class ColorCycleBrushCanvas2D {
     brushSize?: number;
     fps?: number;
   } = {}) {
-    console.log('🎨 [ColorCycle] Creating Canvas2D implementation - NEW UNIFIED 2D PIPELINE');
+    
+    // Validate canvas
+    if (!canvas) {
+      throw new Error('Canvas element is required');
+    }
+    
+    if (!canvas.width || !canvas.height) {
+      throw new Error('Canvas must have valid dimensions');
+    }
+    
     // Use provided canvas as the "WebGL" canvas for compatibility
     this.webglCanvas = canvas;
     this.width = canvas.width;
@@ -89,31 +101,93 @@ export class ColorCycleBrushCanvas2D {
     // Core settings
     this.brushSize = options.brushSize || 20;
     this.cycleSpeed = 1.0;
-    this.cycleOffset = 0.0;
     this.fps = options.fps || 30;
-    this.frameInterval = 1000 / this.fps;
-    this.lastFrameTime = 0;
   }
   
   /**
    * Get or create animator for a layer
    */
   private getAnimator(layerId: string): ColorCycleAnimator {
+    // Add validation
+    if (!layerId) {
+      throw new Error('Layer ID is required');
+    }
+    
     if (!this.animators.has(layerId)) {
+      console.log(`[PERF] Creating animator for layer ${layerId}`);
+      const startTime = performance.now();
+      
+      // PERFORMANCE FIX: Lazy initialization with smaller initial size
+      const strokeData = this.layerStrokes.get(layerId);
+      const useReducedSize = !strokeData?.hasContent;
+      const initWidth = useReducedSize ? 256 : this.width;
+      const initHeight = useReducedSize ? 256 : this.height;
+      
+      console.log(`[PERF] Canvas dimensions: ${initWidth}x${initHeight} (full: ${this.width}x${this.height})`);
+      console.log(`[PERF] Estimated memory usage:`, {
+        indexBuffer: (initWidth * initHeight) / 1024 / 1024 + ' MB',
+        strokeOrder: (initWidth * initHeight * 2) / 1024 / 1024 + ' MB',
+        imageData: (initWidth * initHeight * 4) / 1024 / 1024 + ' MB',
+        total: ((initWidth * initHeight * 7) / 1024 / 1024) + ' MB'
+      });
+      
+      // Measure ColorCycleAnimator creation
+      console.time('ColorCycleAnimator constructor');
       const animator = new ColorCycleAnimator({
-        width: this.width,
-        height: this.height,
+        width: initWidth,
+        height: initHeight,
         fps: this.fps,
         speed: this.cycleSpeed,
-        autoStart: false
+        autoStart: false,
+        lazyInit: true  // Add flag to defer heavy initialization
       });
+      console.timeEnd('ColorCycleAnimator constructor');
+      
+      // Defer full initialization until first paint
+      (animator as any)._deferredSize = { width: this.width, height: this.height };
       
       this.animators.set(layerId, animator);
       
-      // Setup layer stroke tracking
+      // Measure callback setup
+      console.time('Callback setup');
+      if (this.isAnimating) {
+        // Use requestIdleCallback to defer non-critical setup
+        if (typeof requestIdleCallback !== 'undefined') {
+          requestIdleCallback(() => {
+            if (!this.animatorCallbacks.has(layerId)) {
+              animator.start();
+              const callback = () => {
+                if (!this.isPaused) {
+                  this.render(false);
+                }
+              };
+              this.animatorCallbacks.set(layerId, callback);
+              animator.onFrame(callback);
+            }
+          });
+        } else {
+          // Fallback for browsers without requestIdleCallback
+          setTimeout(() => {
+            if (!this.animatorCallbacks.has(layerId)) {
+              animator.start();
+              const callback = () => {
+                if (!this.isPaused) {
+                  this.render(false);
+                }
+              };
+              this.animatorCallbacks.set(layerId, callback);
+              animator.onFrame(callback);
+            }
+          }, 0);
+        }
+      }
+      console.timeEnd('Callback setup');
+      
+      // Measure stroke data setup
+      console.time('Stroke data setup');
       if (!this.layerStrokes.has(layerId)) {
         this.layerStrokes.set(layerId, {
-          paintBuffer: new Uint8Array(this.width * this.height),
+          paintBuffer: new Uint8Array(0), // Start with empty buffer
           hasContent: false,
           strokeCounter: 0,
           strokeLength: 0,
@@ -123,36 +197,74 @@ export class ColorCycleBrushCanvas2D {
           stampCounter: 0
         });
       }
+      console.timeEnd('Stroke data setup');
+      
+      const totalTime = performance.now() - startTime;
+      console.log(`[PERF] Total time for getAnimator: ${totalTime.toFixed(2)}ms`);
+      
+      if (totalTime > 1000) {
+        console.error(`[PERF] CRITICAL: Animator creation took ${totalTime.toFixed(2)}ms!`);
+      }
     }
     
-    return this.animators.get(layerId)!;
+    const animator = this.animators.get(layerId);
+    if (!animator) {
+      throw new Error(`Failed to get or create animator for layer: ${layerId}`);
+    }
+    
+    // Resize on first actual use if needed
+    const strokeData = this.layerStrokes.get(layerId);
+    if ((animator as any)._deferredSize && strokeData?.hasContent) {
+      const { width, height } = (animator as any)._deferredSize;
+      animator.resize(width, height);
+      delete (animator as any)._deferredSize;
+      
+      // Also resize paint buffer
+      strokeData.paintBuffer = new Uint8Array(width * height);
+    }
+    
+    return animator;
   }
   
   /**
    * Paint at position (API compatible)
    */
   paint(x: number, y: number, layerId?: string) {
+    const perfStart = performance.now();
+    
+    // Validate coordinates
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      console.warn(`Invalid paint coordinates: x=${x}, y=${y}`);
+      return;
+    }
+    
     const id = layerId || this.activeLayerId || 'default';
+    
+    // Track stroke data and mark as having content BEFORE getting animator
+    const strokeData = this.layerStrokes.get(id);
+    if (strokeData) {
+      // Mark as having content before getting animator so resize happens if needed
+      if (!strokeData.hasContent) {
+        strokeData.hasContent = true;
+        // Allocate full-size paint buffer on first paint
+        if (strokeData.paintBuffer.length === 0) {
+          strokeData.paintBuffer = new Uint8Array(this.width * this.height);
+        }
+      }
+    }
+    
     const animator = this.getAnimator(id);
     
-    // Track stroke data
-    const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
       // Calculate color index based on stamp position in gradient
       // Each stamp gets the next color in the gradient sequence
       // Color indices are 0-255 for the gradient positions
       const colorIndex = strokeData.stampCounter % this.totalGradientSteps;
       
-      // Debug: Log stamp progression
-      if (strokeData.stampCounter < 5 || strokeData.stampCounter % 20 === 0) {
-        console.log(`🎨 Stamp #${strokeData.stampCounter}: colorIndex=${colorIndex} (gradient position)`);
-      }
-      
       // Paint with specific color index (0-255 representing gradient positions)
       animator.paintSquare(x, y, this.brushSize, colorIndex);
       
       // Update tracking
-      strokeData.hasContent = true;
       strokeData.strokeLength++;
       strokeData.lastPoint = { x, y };
       strokeData.stampCounter++;
@@ -161,9 +273,37 @@ export class ColorCycleBrushCanvas2D {
       animator.paintSquare(x, y, this.brushSize);
     }
     
-    // Mark as needing update
-    if (!this.isAnimating) {
-      this.render(false);
+    // Mark layer as dirty for batched rendering
+    this.dirtyLayers.add(id);
+    
+    // Schedule batched render if not animating
+    if (!this.isAnimating && !this.renderScheduled) {
+      this.renderScheduled = true;
+      requestAnimationFrame(() => {
+        this.renderScheduled = false;
+        
+        // Render all dirty layers
+        if (this.dirtyLayers.size > 0) {
+          // Force render on all dirty animators
+          this.dirtyLayers.forEach(layerId => {
+            const animator = this.animators.get(layerId);
+            if (animator) {
+              animator.forceRender();
+            }
+          });
+          
+          // Clear dirty set
+          this.dirtyLayers.clear();
+          
+          // Composite all layers
+          this.render(false);
+        }
+      });
+    }
+    
+    const totalTime = performance.now() - perfStart;
+    if (totalTime > 10) {
+      console.warn(`⚠️ [PERF] Paint took ${totalTime.toFixed(1)}ms at (${x},${y})`);
     }
   }
   
@@ -190,7 +330,6 @@ export class ColorCycleBrushCanvas2D {
    */
   setResetStampOnNewStroke(reset: boolean) {
     this.resetStampOnNewStroke = reset;
-    console.log(`🎨 Stamp reset on new stroke: ${reset ? 'enabled' : 'disabled (continuous progression)'}`);
   }
   
   /**
@@ -203,6 +342,7 @@ export class ColorCycleBrushCanvas2D {
     this.strokeCounter++;
     this.strokeLength = 0;
     this.lastPoint = null;
+    
     
     const animator = this.getAnimator(id);
     animator.startStroke();
@@ -217,9 +357,7 @@ export class ColorCycleBrushCanvas2D {
       // For continuous color progression across strokes, keep it accumulating
       if (this.resetStampOnNewStroke) {
         strokeData.stampCounter = 0;
-        console.log('🎨 Resetting color progression for new stroke');
       } else {
-        console.log(`🎨 Continuing color progression from stamp #${strokeData.stampCounter}`);
       }
     }
   }
@@ -233,6 +371,7 @@ export class ColorCycleBrushCanvas2D {
     
     const animator = this.getAnimator(id);
     animator.endStroke();
+    animator.forceRender(); // Force render on stroke end
     
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
@@ -247,11 +386,19 @@ export class ColorCycleBrushCanvas2D {
    * Fill shape (API compatible)
    */
   fillShape(vertices: Array<{ x: number; y: number }>, layerId?: string) {
+    // Validate input
+    if (!vertices || !Array.isArray(vertices)) {
+      console.warn('Invalid vertices provided to fillShape');
+      return;
+    }
+    
+    if (vertices.length < 3) {
+      console.warn('fillShape requires at least 3 vertices');
+      return;
+    }
+    
     const id = layerId || this.activeLayerId || 'default';
     const animator = this.getAnimator(id);
-    
-    // Simple polygon fill using scan-line algorithm
-    if (vertices.length < 3) return;
     
     // Find bounds
     let minX = vertices[0].x;
@@ -342,12 +489,26 @@ export class ColorCycleBrushCanvas2D {
    * Render directly to canvas (API compatible)
    */
   renderDirectToCanvas(targetCanvas: HTMLCanvasElement, layerId: string) {
+    if (!targetCanvas) {
+      console.warn('Target canvas is required for renderDirectToCanvas');
+      return;
+    }
+    
+    if (!layerId) {
+      console.warn('Layer ID is required for renderDirectToCanvas');
+      return;
+    }
+    
     const animator = this.animators.get(layerId);
     if (animator) {
       const ctx = targetCanvas.getContext('2d');
       if (ctx) {
         animator.drawTo(ctx);
+      } else {
+        console.warn('Failed to get 2D context from target canvas');
       }
+    } else {
+      console.warn(`No animator found for layer: ${layerId}`);
     }
   }
   
@@ -355,23 +516,44 @@ export class ColorCycleBrushCanvas2D {
    * Start animation (API compatible)
    */
   startAnimation() {
-    console.log('🎬 [ColorCycle] startAnimation called, isAnimating:', this.isAnimating, 'animators:', this.animators.size);
     if (this.isAnimating) {
       return;
+    }
+    
+    // Flush any pending renders before starting animation
+    if (this.renderScheduled) {
+      this.renderScheduled = false;
+      
+      // Render all dirty layers
+      if (this.dirtyLayers.size > 0) {
+        this.dirtyLayers.forEach(layerId => {
+          const animator = this.animators.get(layerId);
+          if (animator) {
+            animator.forceRender();
+          }
+        });
+        this.dirtyLayers.clear();
+        this.render(false);
+      }
     }
     
     this.isAnimating = true;
     this.isPaused = false;
     
-    // Start all animators
+    // Start all animators and register callbacks only if not already registered
     this.animators.forEach((animator, layerId) => {
-      console.log(`🎨 [ColorCycle] Starting animator for layer: ${layerId}`);
       animator.start();
-      animator.onFrame(() => {
-        if (!this.isPaused) {
-          this.render(false);
-        }
-      });
+      
+      // Only add callback if we haven't already for this layer
+      if (!this.animatorCallbacks.has(layerId)) {
+        const callback = () => {
+          if (!this.isPaused) {
+            this.render(false);
+          }
+        };
+        this.animatorCallbacks.set(layerId, callback);
+        animator.onFrame(callback);
+      }
     });
   }
   
@@ -381,13 +563,34 @@ export class ColorCycleBrushCanvas2D {
   stopAnimation() {
     this.isAnimating = false;
     
-    // Stop all animators
-    this.animators.forEach(animator => animator.stop());
-    
-    if (this.animationId !== null) {
-      cancelAnimationFrame(this.animationId);
-      this.animationId = null;
+    // Flush any pending renders when stopping animation
+    if (this.renderScheduled) {
+      this.renderScheduled = false;
+      
+      // Render all dirty layers
+      if (this.dirtyLayers.size > 0) {
+        this.dirtyLayers.forEach(layerId => {
+          const animator = this.animators.get(layerId);
+          if (animator) {
+            animator.forceRender();
+          }
+        });
+        this.dirtyLayers.clear();
+        this.render(false);
+      }
     }
+    
+    // Stop all animators and clean up callbacks
+    this.animators.forEach((animator, layerId) => {
+      animator.stop();
+      
+      // Remove callback if it exists
+      const callback = this.animatorCallbacks.get(layerId);
+      if (callback) {
+        animator.offFrame(callback);
+        this.animatorCallbacks.delete(layerId);
+      }
+    });
   }
   
   /**
@@ -439,6 +642,10 @@ export class ColorCycleBrushCanvas2D {
    * Set animation speed (API compatible)
    */
   setSpeed(speed: number) {
+    if (!Number.isFinite(speed) || speed < 0) {
+      console.warn(`Invalid animation speed: ${speed}`);
+      return;
+    }
     this.cycleSpeed = speed;
     this.animators.forEach(animator => animator.setSpeed(speed));
   }
@@ -447,8 +654,11 @@ export class ColorCycleBrushCanvas2D {
    * Set FPS (API compatible)
    */
   setFPS(fps: number) {
+    if (!Number.isFinite(fps) || fps <= 0 || fps > 120) {
+      console.warn(`Invalid FPS value: ${fps}. Expected value between 1 and 120`);
+      return;
+    }
     this.fps = fps;
-    this.frameInterval = 1000 / fps;
     this.animators.forEach(animator => animator.setFPS(fps));
   }
   
@@ -456,6 +666,10 @@ export class ColorCycleBrushCanvas2D {
    * Set brush size (API compatible)
    */
   setBrushSize(size: number) {
+    if (!Number.isFinite(size) || size <= 0) {
+      console.warn(`Invalid brush size: ${size}`);
+      return;
+    }
     this.brushSize = size;
   }
   
@@ -474,49 +688,106 @@ export class ColorCycleBrushCanvas2D {
   }
   
   /**
-   * Set layer ID (API compatible)
-   */
-  setLayerId(layerId: string) {
-    this.activeLayerId = layerId;
-  }
-  
-  /**
-   * Set active layer (API compatible)
+   * Set active layer ID
    */
   setActiveLayer(layerId: string) {
     this.activeLayerId = layerId;
   }
   
   /**
-   * Set playing state (API compatible)
+   * @deprecated Use startAnimation() or stopAnimation() directly
+   * Set playing state - wrapper for backward compatibility
    */
   setPlaying(playing: boolean) {
-    if (playing) {
-      this.startAnimation();
-    } else {
-      this.stopAnimation();
-    }
+    playing ? this.startAnimation() : this.stopAnimation();
   }
   
   /**
-   * Get canvas (API compatible)
+   * Layer isolation methods for multi-layer support
+   */
+  private layerId: string | null = null;
+  private isolated: boolean = false;
+  
+  /**
+   * Set the layer ID this brush instance belongs to
+   * Note: This overrides the deprecated setLayerId above
+   */
+  setLayerId(layerId: string): void {
+    this.layerId = layerId;
+    // Also call setActiveLayer for compatibility
+    this.setActiveLayer(layerId);
+    console.log(`🏷️ [ColorCycle] Set layer ID: ${layerId.substring(0, 8)}...`);
+  }
+  
+  /**
+   * Get the layer ID this brush instance belongs to
+   */
+  getLayerId(): string | null {
+    return this.layerId;
+  }
+  
+  /**
+   * Mark this brush as isolated (no shared resources)
+   */
+  setIsolated(isolated: boolean): void {
+    this.isolated = isolated;
+  }
+  
+  /**
+   * Get canvas for validation
    */
   getCanvas(): HTMLCanvasElement {
     return this.webglCanvas;
   }
   
   /**
-   * Cleanup (API compatible)
+   * Check if WebGL context is lost (always false for Canvas2D)
+   */
+  isContextLost(): boolean {
+    return false; // Canvas2D doesn't lose context
+  }
+  
+  /**
+   * Check if buffers are valid
+   */
+  hasValidBuffers(): boolean {
+    // Check if we have valid layer data for the active layer
+    if (this.activeLayerId) {
+      const layerData = this.layerStrokes.get(this.activeLayerId);
+      return layerData !== undefined && layerData.paintBuffer !== undefined;
+    }
+    return true; // No active layer is also valid
+  }
+  
+  /**
+   * Cleanup resources and stop animations
    */
   cleanup() {
+    // Cancel any pending renders
+    this.renderScheduled = false;
+    this.dirtyLayers.clear();
+    
     this.stopAnimation();
-    this.animators.forEach(animator => animator.stop());
+    
+    // Clean up all callbacks and animators
+    this.animators.forEach((animator, layerId) => {
+      const callback = this.animatorCallbacks.get(layerId);
+      if (callback) {
+        animator.offFrame(callback);
+      }
+      animator.stop();
+      // Properly clean up animator resources and return canvas to pool
+      animator.cleanup();
+    });
+    
+    this.animatorCallbacks.clear();
     this.animators.clear();
     this.layerStrokes.clear();
   }
   
   /**
-   * Destroy (API compatible - alias for cleanup)
+   * @deprecated Use cleanup() instead
+   * Alias for cleanup() to maintain API compatibility
    */
   destroy() {
     this.cleanup();
@@ -566,7 +837,8 @@ export class ColorCycleBrushCanvas2D {
           strokeLength: 0,
           lastPoint: null,
           gradientLayerIndices: [],
-          currentGradientIndex: 0
+          currentGradientIndex: 0,
+          stampCounter: 0
         });
       });
     }
@@ -623,7 +895,8 @@ export class ColorCycleBrushCanvas2D {
           strokeLength: 0,
           lastPoint: null,
           gradientLayerIndices: [],
-          currentGradientIndex: 0
+          currentGradientIndex: 0,
+          stampCounter: 0
         });
       });
     }

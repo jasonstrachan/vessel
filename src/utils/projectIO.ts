@@ -39,8 +39,8 @@ interface SerializedLayer {
   imageDataUrl: string; // Base64 encoded ImageData
   layerType?: 'normal' | 'color-cycle';
   colorCycleData?: {
-    gradient: Array<{ position: number; color: string }>;
-    isAnimating: boolean;
+    gradient?: Array<{ position: number; color: string }>;
+    isAnimating?: boolean;
     webGLState?: {
       gradients: Array<{ gradientStops: Array<{ position: number; color: string }> }>;
       animationState: { cycleOffset: number; speed: number; fps: number; isPaused: boolean };
@@ -171,7 +171,7 @@ function serializeLayer(layer: Layer): SerializedLayer {
   if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
     serialized.colorCycleData = {
       gradient: layer.colorCycleData.gradient,
-      isAnimating: layer.colorCycleData.isAnimating
+      isAnimating: layer.colorCycleData.isAnimating || false
     };
     
     // If color cycle brush exists, serialize its WebGL state
@@ -179,14 +179,22 @@ function serializeLayer(layer: Layer): SerializedLayer {
       const brush = layer.colorCycleData.colorCycleBrush;
       const fullState = brush.getFullState();
       
-      serialized.colorCycleData.webGLState = {
-        gradients: fullState.gradients,
-        animationState: fullState.animationState,
-        layerSnapshots: Array.from(fullState.layerSnapshots.entries()).map(([layerId, buffer]) => ({
-          layerId,
-          data: arrayBufferToBase64(buffer)
-        }))
-      };
+      // Canvas2D version has different structure
+      if (serialized.colorCycleData) {
+        serialized.colorCycleData.webGLState = {
+          gradients: [],
+          animationState: {
+            cycleOffset: 0,
+            speed: fullState.cycleSpeed || 1,
+            fps: fullState.fps || 30,
+            isPaused: false
+          },
+          layerSnapshots: (fullState.layers || []).map((layer: any) => ({
+            layerId: layer.layerId,
+            data: '' // Canvas2D doesn't expose raw buffer
+          }))
+        };
+      }
     }
   }
   
@@ -218,7 +226,10 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
     order: serializedLayer.order,
     imageData,
     framebuffer,
-    layerType: serializedLayer.layerType
+    layerType: serializedLayer.layerType || (
+      console.warn('🟡 Layer missing layerType during load, defaulting to normal:', serializedLayer.id?.substring(0, 20)),
+      'normal' as const
+    )
   };
   
   // Restore color cycle data if present
@@ -322,7 +333,9 @@ function generateProjectThumbnail(project: Project, layers: Layer[], maxSize: nu
 
 // Serialize a project for saving
 export async function serializeProject(project: Project, layers?: Layer[]): Promise<string> {
-  const serializedLayers = project.layers.map(serializeLayer);
+  // Use the passed layers parameter, falling back to project.layers if not provided
+  const layersToSerialize = layers || project.layers || [];
+  const serializedLayers = layersToSerialize.map(serializeLayer);
   const serializedCustomBrushes = project.customBrushes.map(serializeCustomBrush);
   
   let thumbnail = '';
@@ -496,7 +509,7 @@ export async function loadProjectFromFile(): Promise<Project> {
 }
 
 // Restore color cycle brushes after project load
-export async function restoreColorCycleBrushes(layers: Layer[]): Promise<void> {
+export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]> {
   // Import ColorCycleBrush factory dynamically to avoid circular dependencies
   const { createColorCycleBrush } = await import('../hooks/brushEngine/ColorCycleBrushMigration');
   
@@ -533,11 +546,16 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<void> {
       } else {
         // No saved state, create a new brush with the gradient
         const colorCycleBrush = createColorCycleBrush(layer.colorCycleData.canvas!);
-        colorCycleBrush.setGradient(layer.colorCycleData.gradient);
+        if (layer.colorCycleData.gradient) {
+          colorCycleBrush.setGradient(layer.colorCycleData.gradient);
+        }
         layer.colorCycleData.colorCycleBrush = colorCycleBrush;
       }
     }
   }
+  
+  // Return the modified layers
+  return layers;
 }
 
 // Export project as PNG

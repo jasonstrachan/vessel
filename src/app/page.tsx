@@ -39,9 +39,17 @@ export default function Home() {
 
   // Create default project on initial load if no layers exist
   useEffect(() => {
-    if (project && project.layers.length === 0) {
-      // console.log('🎨 Creating default project with layer on load');
+    const store = useAppStore.getState();
+    // Check top-level layers, not project.layers
+    if (store.layers.length === 0) {
+      console.log('🚀 Creating new project - no layers exist');
       newProject(1920, 1080, 'Untitled');
+    } else {
+      console.log('🚀 Skipping new project - layers already exist:', store.layers.length);
+      // Log existing layer state
+      store.layers.forEach(layer => {
+        console.log('  - Layer:', layer.id, 'Type:', layer.layerType, 'HasColorCycleData:', !!layer.colorCycleData);
+      });
     }
     
     // Preload risograph texture to avoid lag on first use

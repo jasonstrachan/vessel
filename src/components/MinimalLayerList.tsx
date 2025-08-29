@@ -1,55 +1,192 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback, memo } from 'react';
 import { useAppStore } from '../stores/useAppStore';
-import { Layer } from '../types';
+import { Layer, BrushShape } from '../types';
 import { Eye, EyeOff, Plus } from 'lucide-react';
 
+// Memoized layer item component to prevent unnecessary re-renders
+const LayerItem = memo<{
+  layer: Layer;
+  isActive: boolean;
+  isDragOver: boolean;
+  onToggleVisibility: (e: React.MouseEvent, layerId: string) => void;
+  onClick: (layerId: string) => void;
+  onDragStart: (e: React.DragEvent, layerId: string) => void;
+  onDragEnd: (e: React.DragEvent) => void;
+  onDragOver: (e: React.DragEvent, layerId: string) => void;
+  onDragLeave: () => void;
+  onDrop: (e: React.DragEvent, layerId: string) => void;
+  generateGradientCSS: (gradient: Array<{ position: number; color: string }> | undefined) => string;
+}>(({
+  layer,
+  isActive,
+  isDragOver,
+  onToggleVisibility,
+  onClick,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  generateGradientCSS
+}) => {
+  return (
+    <div
+      className={`
+        relative group cursor-move select-none
+        ${isActive ? 'bg-[#4A4A4A]' : 'hover:bg-[#353535]'}
+        ${isDragOver ? 'border-t-2 border-blue-400' : ''}
+        transition-all duration-150
+      `}
+      draggable
+      onClick={() => onClick(layer.id)}
+      onDragStart={(e) => onDragStart(e, layer.id)}
+      onDragEnd={onDragEnd}
+      onDragOver={(e) => onDragOver(e, layer.id)}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => onDrop(e, layer.id)}
+    >
+      <div className="flex items-center h-7 px-2">
+        {/* Visibility Toggle */}
+        <button
+          onClick={(e) => onToggleVisibility(e, layer.id)}
+          className={`
+            w-4 h-4 mr-2 flex items-center justify-center
+            ${layer.visible ? 'text-[#D9D9D9]' : 'text-[#666]'}
+            hover:text-white
+          `}
+        >
+          {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+        </button>
+        
+        {/* Simplified gradient check */}
+        {(() => {
+          return layer.layerType === 'color-cycle' && layer.colorCycleData?.gradient ? (
+            <div 
+              className="flex-1 h-4 rounded mr-1"
+              style={{
+                backgroundColor: '#444', // Fallback color
+                background: generateGradientCSS(layer.colorCycleData.gradient),
+                minWidth: '30px',
+                opacity: layer.visible ? 1 : 0.5,
+                border: '1px solid red' // Debug border to see if div is rendering
+              }}
+              title={layer.name}
+            />
+          ) : (
+            <span className="text-[#D9D9D9] text-xs flex-1 truncate">
+              {layer.name}
+            </span>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison function - only re-render if relevant props change
+  const shouldSkipRender = (
+    prevProps.layer.id === nextProps.layer.id &&
+    prevProps.layer.name === nextProps.layer.name &&
+    prevProps.layer.visible === nextProps.layer.visible &&
+    prevProps.layer.layerType === nextProps.layer.layerType &&
+    prevProps.isActive === nextProps.isActive &&
+    prevProps.isDragOver === nextProps.isDragOver &&
+    // Deep check for color cycle data
+    JSON.stringify(prevProps.layer.colorCycleData?.gradient) === JSON.stringify(nextProps.layer.colorCycleData?.gradient)
+  );
+  
+  
+  return shouldSkipRender;
+});
+
+LayerItem.displayName = 'LayerItem';
+
 const MinimalLayerList = () => {
-  const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null);
   const [dragOverLayerId, setDragOverLayerId] = useState<string | null>(null);
   
   // Store subscriptions
   const layers = useAppStore(state => state.layers);
+  
   const activeLayerId = useAppStore(state => state.activeLayerId);
   const project = useAppStore(state => state.project);
-  // const currentBrush = useAppStore(state => state.tools.brushSettings.brushShape);
-  const colorCycleGradient = useAppStore(state => state.tools.brushSettings.colorCycleGradient);
   
   // Actions
   const addLayer = useAppStore(state => state.addLayer);
-  // const removeLayer = useAppStore(state => state.removeLayer);
   const updateLayer = useAppStore(state => state.updateLayer);
   const setActiveLayer = useAppStore(state => state.setActiveLayer);
   const reorderLayers = useAppStore(state => state.reorderLayers);
   
   // Generate gradient CSS for preview
-  const generateGradientCSS = (gradient: Array<{ position: number; color: string }>) => {
+  // Memoize gradient CSS generation to prevent recalculation on every render
+  const generateGradientCSS = useCallback((gradient: Array<{ position: number; color: string }> | undefined) => {
+    if (!gradient || gradient.length === 0) {
+      return 'linear-gradient(90deg, #888 0%, #888 100%)';
+    }
     const stops = gradient
       .map(stop => `${stop.color} ${stop.position * 100}%`)
       .join(', ');
-    return `linear-gradient(90deg, ${stops})`;
+    const css = `linear-gradient(90deg, ${stops})`;
+    return css;
+  }, []);
+  
+  const handleAddCCLayer = () => {
+    
+    // Get current gradient from brush settings or use default rainbow
+    const currentGradient = useAppStore.getState().tools.brushSettings.colorCycleGradient || [
+      { position: 0.0, color: '#ff0000' },
+      { position: 0.17, color: '#ff7f00' },
+      { position: 0.33, color: '#ffff00' },
+      { position: 0.5, color: '#00ff00' },
+      { position: 0.67, color: '#0000ff' },
+      { position: 0.83, color: '#4b0082' },
+      { position: 1.0, color: '#9400d3' }
+    ];
+    
+    // Create a color-cycle layer
+    const newLayer: Omit<Layer, 'id' | 'order'> = {
+      name: `CC Layer ${layers.filter(l => l.layerType === 'color-cycle').length + 1}`,
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      imageData: null,
+      framebuffer: project 
+        ? new OffscreenCanvas(project.width, project.height) 
+        : new OffscreenCanvas(1920, 1080),
+      layerType: 'color-cycle', // Color-cycle layer - cannot be converted to normal
+      colorCycleData: {
+        gradient: currentGradient,
+        isAnimating: true
+      }
+    };
+    
+    
+    const newLayerId = addLayer(newLayer);
+    
+    
+    // Auto-select the new layer
+    if (newLayerId) {
+      
+      // Initialize the color cycle brush for this layer BEFORE setting active
+      const state = useAppStore.getState();
+      if (state.project) {
+        state.initColorCycleForLayer(newLayerId, state.project.width, state.project.height);
+      }
+      
+      // Set as active layer (this will also sync the gradient to brush settings)
+      setActiveLayer(newLayerId);
+      
+      // IMPORTANT: Switch to CC brush mode when creating a CC layer
+      // This ensures users can immediately draw on the new CC layer
+      const updatedState = useAppStore.getState();
+      updatedState.setBrushSettings({ brushShape: BrushShape.COLOR_CYCLE });
+    }
   };
   
-  // Generate a name for CC layers based on gradient
-  const generateGradientName = (gradient: Array<{ position: number; color: string }>) => {
-    // Check for common gradient patterns
-    const colors = gradient.map(g => g.color.toLowerCase());
-    if (colors.includes('#ff0000') && colors.includes('#00ff00') && colors.includes('#0000ff')) {
-      return 'Rainbow';
-    }
-    if (colors.includes('#ff0000') && colors.includes('#ff7f00') && colors.includes('#ffff00')) {
-      return 'Fire';
-    }
-    if (colors.includes('#0000ff') && colors.includes('#00ffff') && colors.includes('#ffffff')) {
-      return 'Ocean';
-    }
-    // Default to first and last colors
-    return 'Gradient';
-  };
-  
-  const handleAddLayer = () => {
-    // Create a generic layer that will become typed on first stroke
+  const handleAddRegularLayer = () => {
+    
+    // Create a regular layer
     const newLayer: Omit<Layer, 'id' | 'order'> = {
       name: `Layer ${layers.length + 1}`,
       visible: true,
@@ -60,12 +197,23 @@ const MinimalLayerList = () => {
       framebuffer: project 
         ? new OffscreenCanvas(project.width, project.height) 
         : new OffscreenCanvas(1920, 1080),
-      layerType: 'normal' // Explicitly set as normal, will be converted to color-cycle if needed on first CC brush stroke
+      layerType: 'normal' // Regular layer - cannot be converted to CC
     };
+    
+    
     const newLayerId = addLayer(newLayer);
+    
+    
     // Auto-select the new layer
     if (newLayerId) {
       setActiveLayer(newLayerId);
+      
+      // IMPORTANT: If CC brush is selected, switch to a regular brush
+      // This ensures users can immediately draw on the new regular layer
+      const state = useAppStore.getState();
+      if (state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
+        state.setBrushSettings({ brushShape: BrushShape.ROUND });
+      }
     }
   };
   
@@ -79,7 +227,6 @@ const MinimalLayerList = () => {
   
   // Handle drag start
   const handleDragStart = (e: React.DragEvent, layerId: string) => {
-    setDraggedLayerId(layerId);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', layerId);
     
@@ -94,7 +241,6 @@ const MinimalLayerList = () => {
     if (e.currentTarget instanceof HTMLElement) {
       e.currentTarget.style.opacity = '1';
     }
-    setDraggedLayerId(null);
     setDragOverLayerId(null);
   };
   
@@ -124,7 +270,6 @@ const MinimalLayerList = () => {
       }
     }
     
-    setDraggedLayerId(null);
     setDragOverLayerId(null);
   };
   
@@ -135,69 +280,92 @@ const MinimalLayerList = () => {
   
   return (
     <div className="absolute right-0 top-0 h-full w-[130px] bg-[#2C2C2C] border-l border-r border-[#424242] z-30 flex flex-col">
-      {/* Add Layer Button at the top */}
-      <div className="border-b border-[#424242] bg-[#2C2C2C]">
+      {/* Add Layer Buttons at the top */}
+      <div className="border-b border-[#424242] bg-[#2C2C2C] flex">
         <button
-          onClick={handleAddLayer}
-          className="w-full flex items-center justify-center py-1 hover:bg-[#353535] transition-colors"
-          title="Add Layer"
+          onClick={handleAddRegularLayer}
+          className="flex-1 flex items-center justify-center py-1 hover:bg-[#353535] transition-colors border-r border-[#424242]"
+          title="Add Regular Layer"
         >
           <Plus size={14} className="text-[#D9D9D9]" />
+          <span className="ml-1 text-[10px] text-[#D9D9D9]">Regular</span>
+        </button>
+        <button
+          onClick={handleAddCCLayer}
+          className="flex-1 flex items-center justify-center py-1 hover:bg-[#353535] transition-colors"
+          title="Add Color Cycle Layer"
+        >
+          <Plus size={14} className="text-[#D9D9D9]" />
+          <span className="ml-1 text-[10px] text-[#D9D9D9]">CC</span>
         </button>
       </div>
       
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto" key={`${layers.length}-${layers.map(l => `${l.id}-${l.layerType}-${!!l.colorCycleData}`).join(',')}`}>
         <div className="py-1">
-          {layers.slice().reverse().map((layer) => (
-            <div
-            key={layer.id}
-            className={`
-              relative group cursor-move select-none
-              ${activeLayerId === layer.id ? 'bg-[#4A4A4A]' : 'hover:bg-[#353535]'}
-              ${dragOverLayerId === layer.id ? 'border-t-2 border-blue-400' : ''}
-              transition-all duration-150
-            `}
-            draggable
-            onClick={() => handleLayerClick(layer.id)}
-            onDragStart={(e) => handleDragStart(e, layer.id)}
-            onDragEnd={handleDragEnd}
-            onDragOver={(e) => handleDragOver(e, layer.id)}
-            onDragLeave={handleDragLeave}
-            onDrop={(e) => handleDrop(e, layer.id)}
-          >
-            <div className="flex items-center h-7 px-2">
-              {/* Visibility Toggle */}
-              <button
-                onClick={(e) => handleToggleVisibility(e, layer.id)}
+          {layers.slice().reverse().map((layer) => {
+            
+            return (
+              <div
+                key={layer.id}
                 className={`
-                  w-4 h-4 mr-2 flex items-center justify-center
-                  ${layer.visible ? 'text-[#D9D9D9]' : 'text-[#666]'}
-                  hover:text-white
+                  relative group cursor-move select-none
+                  ${activeLayerId === layer.id ? 'bg-[#4A4A4A]' : 'hover:bg-[#353535]'}
+                  ${dragOverLayerId === layer.id ? 'border-t-2 border-blue-400' : ''}
+                  transition-all duration-150
                 `}
+                draggable
+                onClick={() => handleLayerClick(layer.id)}
+                onDragStart={(e) => handleDragStart(e, layer.id)}
+                onDragEnd={handleDragEnd}
+                onDragOver={(e) => handleDragOver(e, layer.id)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, layer.id)}
               >
-                {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
-              </button>
-              
-              {/* Gradient Preview for CC Layers */}
-              {layer.layerType === 'color-cycle' && layer.colorCycleData && (
-                <div 
-                  className="flex-1 h-4 rounded mr-1"
-                  style={{
-                    background: generateGradientCSS(layer.colorCycleData.gradient),
-                    minWidth: '30px'
-                  }}
-                />
-              )}
-              
-              {/* Layer Name */}
-              {(!layer.layerType || layer.layerType === 'normal') && (
-                <span className="text-[#D9D9D9] text-xs flex-1 truncate">
-                  {layer.name}
-                </span>
-              )}
-            </div>
-          </div>
-          ))}
+                <div className="flex items-center h-7 px-2">
+                  {/* Visibility Toggle */}
+                  <button
+                    onClick={(e) => handleToggleVisibility(e, layer.id)}
+                    className={`
+                      w-4 h-4 mr-2 flex items-center justify-center
+                      ${layer.visible ? 'text-[#D9D9D9]' : 'text-[#666]'}
+                      hover:text-white
+                    `}
+                  >
+                    {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+                  </button>
+                  
+                  {/* Gradient display */}
+                  {(() => {
+                    const shouldShowGradient = layer.layerType === 'color-cycle' && 
+                                               layer.colorCycleData && 
+                                               layer.colorCycleData.gradient && 
+                                               layer.colorCycleData.gradient.length > 0;
+                    
+                    if (shouldShowGradient) {
+                      return (
+                        <div 
+                          className="flex-1 h-4 rounded mr-1" 
+                          style={{
+                            background: generateGradientCSS(layer.colorCycleData?.gradient),
+                            minWidth: '30px',
+                            opacity: layer.visible ? 1 : 0.5,
+                            border: '2px solid green' // Debug: green border to confirm it's rendering
+                          }}
+                          title={`${layer.name} - ${layer.colorCycleData?.gradient?.length || 0} stops`}
+                        />
+                      );
+                    } else {
+                      return (
+                        <span className="text-[#D9D9D9] text-xs flex-1 truncate">
+                          {layer.name}
+                        </span>
+                      );
+                    }
+                  })()}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

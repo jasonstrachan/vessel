@@ -33,13 +33,13 @@ export interface Layer {
   framebuffer: OffscreenCanvas;
   
   // Layer type system for supporting different rendering modes
-  layerType?: 'normal' | 'color-cycle';
+  layerType: 'normal' | 'color-cycle'; // REQUIRED - not optional
   
   // Color cycle specific data (only present for CC layers)
   colorCycleData?: {
-    gradient: Array<{ position: number; color: string }>;
+    gradient?: Array<{ position: number; color: string }>;
     colorCycleBrush?: import('../hooks/brushEngine/ColorCycleBrushCanvas2D').ColorCycleBrushCanvas2D;
-    isAnimating: boolean;
+    isAnimating?: boolean;
     // Store the canvas element for this CC layer
     canvas?: HTMLCanvasElement;
   };

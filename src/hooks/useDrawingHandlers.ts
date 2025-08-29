@@ -6,6 +6,7 @@ import { BrushShape } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '../hooks/brushEngine/utilities';
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
+import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -164,11 +165,12 @@ export function useDrawingHandlers({
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
     
+    
     // Early return if no project
     if (!project) return;
     
     // Layer type handling and validation
-    let activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+    const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
     if (activeLayer) {
       // Prevent drawing on hidden layers - show cursor but don't draw
       if (!activeLayer.visible) {
@@ -176,113 +178,12 @@ export function useDrawingHandlers({
       }
       const isColorCycleBrush = currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE;
       
-      // If layer has no type yet, convert it based on first stroke
-      if (!activeLayer.layerType) {
-        if (isColorCycleBrush) {
-          // Convert to CC layer with current gradient
-          const gradient = currentState.tools.brushSettings.colorCycleGradient || [
-            { position: 0.0, color: '#ff0000' },
-            { position: 0.17, color: '#ff7f00' },
-            { position: 0.33, color: '#ffff00' },
-            { position: 0.5, color: '#00ff00' },
-            { position: 0.67, color: '#0000ff' },
-            { position: 0.83, color: '#4b0082' },
-            { position: 1.0, color: '#9400d3' }
-          ];
-          
-          // PRESERVE EXISTING CONTENT: Store current imageData before conversion
-          const existingImageData = activeLayer.imageData;
-          
-          // Update layer to be CC type
-          currentState.updateLayer(activeLayer.id, {
-            layerType: 'color-cycle',
-            colorCycleData: {
-              gradient: gradient,
-              isAnimating: true
-            }
-          });
-          
-          // Initialize the Canvas2D Color Cycle brush for this layer
-          currentState.initColorCycleForLayer(activeLayer.id, project.width, project.height);
-          
-          // PRESERVE CONTENT: If there was existing content, restore it after conversion
-          if (existingImageData) {
-            // The layer still has its imageData, it's preserved in the updateLayer
-            // We just need to ensure the framebuffer is updated
-            const updatedLayer = useAppStore.getState().layers.find(l => l.id === activeLayer?.id);
-            if (updatedLayer?.framebuffer) {
-              const fbCtx = updatedLayer.framebuffer.getContext('2d');
-              if (fbCtx) {
-                fbCtx.putImageData(existingImageData, 0, 0);
-              }
-            }
-          }
-          
-          // Refresh the active layer reference after update
-          activeLayer = useAppStore.getState().layers.find(l => l.id === currentState.activeLayerId);
-        } else {
-          // PRESERVE EXISTING CONTENT: Store current imageData before conversion
-          const existingImageData = activeLayer.imageData;
-          
-          // If converting from color-cycle, capture the current CC canvas content
-          if (activeLayer.layerType === 'color-cycle' && activeLayer.colorCycleData?.canvas) {
-            const ccCanvas = activeLayer.colorCycleData.canvas;
-            const tempCtx = document.createElement('canvas').getContext('2d');
-            if (tempCtx && ccCanvas) {
-              tempCtx.canvas.width = ccCanvas.width;
-              tempCtx.canvas.height = ccCanvas.height;
-              
-              // Render the final state of the color cycle
-              if (activeLayer.colorCycleData.colorCycleBrush) {
-                activeLayer.colorCycleData.colorCycleBrush.renderDirectToCanvas(tempCtx.canvas, activeLayer.id);
-              } else {
-                tempCtx.drawImage(ccCanvas, 0, 0);
-              }
-              
-              const ccImageData = tempCtx.getImageData(0, 0, ccCanvas.width, ccCanvas.height);
-              
-              // Clean up the color cycle resources BEFORE converting
-              if (activeLayer.colorCycleData.colorCycleBrush) {
-                activeLayer.colorCycleData.colorCycleBrush.destroy();
-              }
-              
-              // Convert to normal layer
-              currentState.updateLayer(activeLayer.id, {
-                layerType: 'normal',
-                imageData: ccImageData // Preserve the CC content
-              });
-            } else {
-              // Fallback: just convert with existing imageData
-              currentState.updateLayer(activeLayer.id, {
-                layerType: 'normal'
-              });
-            }
-          } else {
-            // Convert to normal layer
-            currentState.updateLayer(activeLayer.id, {
-              layerType: 'normal'
-            });
-          }
-          
-          // PRESERVE CONTENT: If there was existing content, ensure it's preserved
-          if (existingImageData) {
-            const updatedLayer = useAppStore.getState().layers.find(l => l.id === activeLayer?.id);
-            if (updatedLayer?.framebuffer && !updatedLayer.imageData) {
-              // Only restore if we don't already have imageData from CC conversion
-              const fbCtx = updatedLayer.framebuffer.getContext('2d');
-              if (fbCtx) {
-                fbCtx.putImageData(existingImageData, 0, 0);
-                currentState.updateLayer(activeLayer.id, { imageData: existingImageData });
-              }
-            }
-          }
-          
-          // Refresh the active layer reference after update
-          activeLayer = useAppStore.getState().layers.find(l => l.id === currentState.activeLayerId);
-        }
-      } else {
-        // Layer already has a type, validate compatibility
+      // IMPORTANT: Layers can NEVER be converted from one type to another.
+      // You simply can't draw on the wrong layer with a CC brush and vice versa.
+      {
+        // Validate layer/brush compatibility - STRICT ENFORCEMENT
         const isColorCycleLayer = activeLayer.layerType === 'color-cycle';
+        
         
         // Check for incompatible combinations
         if (isColorCycleBrush && !isColorCycleLayer) {
@@ -304,7 +205,8 @@ export function useDrawingHandlers({
         // Check gradient compatibility for CC layers
         if (isColorCycleBrush && isColorCycleLayer) {
           // Ensure the CC layer has Canvas2D brush initialized
-          if (!activeLayer.colorCycleData?.colorCycleBrush) {
+          const colorCycleBrushManager = getColorCycleBrushManager();
+          if (!colorCycleBrushManager.getBrush(activeLayer.id)) {
             // Initialize it now if needed
             currentState.initColorCycleForLayer(activeLayer.id, project.width, project.height);
           }
@@ -312,6 +214,9 @@ export function useDrawingHandlers({
           const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
           const layerGradient = activeLayer.colorCycleData?.gradient;
           
+          
+          // Only check gradient compatibility if both exist
+          // If brush has no gradient, allow it to use the layer's gradient
           if (brushGradient && layerGradient) {
             // Compare gradients
             const gradientsMatch = JSON.stringify(brushGradient) === JSON.stringify(layerGradient);
@@ -367,9 +272,11 @@ export function useDrawingHandlers({
             // Check active layer for color cycle
             const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
             if (activeLayer?.visible && activeLayer.layerType === 'color-cycle' && 
-                activeLayer.colorCycleData?.colorCycleBrush && activeLayer.colorCycleData?.canvas) {
+                activeLayer.colorCycleData?.canvas) {
               
-              const colorCycleBrush = activeLayer.colorCycleData.colorCycleBrush;
+              const colorCycleBrushManager = getColorCycleBrushManager();
+              const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayer.id);
+              if (!colorCycleBrush) return;
               
               // Update and render
               colorCycleBrush.updateAnimation();
@@ -896,7 +803,8 @@ export function useDrawingHandlers({
             
             // Phase 3: Direct rendering approach
             const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
-            const colorCycleBrush = activeLayer?.colorCycleData?.colorCycleBrush;
+            const colorCycleBrushManager = getColorCycleBrushManager();
+            const colorCycleBrush = activeLayer ? colorCycleBrushManager.getBrush(activeLayer.id) : undefined;
             
             if (colorCycleBrush && activeLayer?.colorCycleData?.canvas) {
               // Final render directly to layer canvas at full opacity
@@ -947,8 +855,11 @@ export function useDrawingHandlers({
         }
       }
       
-      // Cleanup
-      drawingCtxRef.current?.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+      // Clear the drawing canvas immediately after finalizing to prevent stale content
+      // from appearing/disappearing when brush settings change
+      if (drawingCtxRef.current && drawingCanvasRef.current) {
+        drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+      }
       drawingCanvasHasContent.current = false;
       
       // Parent component will handle final redraw
@@ -1238,7 +1149,8 @@ export function useDrawingHandlers({
               brushEngine.updateColorCycleTexture(activeLayerId);
               
               // Force the color cycle brush to render its content immediately
-              const colorCycleBrush = currentState.getLayerColorCycleBrush(activeLayerId);
+              const colorCycleBrushManager = getColorCycleBrushManager();
+              const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayerId);
               if (colorCycleBrush) {
                 colorCycleBrush.render(true); // Force full render
               }
@@ -1285,9 +1197,11 @@ export function useDrawingHandlers({
       
       // Check if layer has color cycle and is visible
       if (layer.visible && layer.layerType === 'color-cycle' && 
-          layer.colorCycleData?.colorCycleBrush && layer.colorCycleData?.canvas) {
+          layer.colorCycleData?.canvas) {
         
-        const colorCycleBrush = layer.colorCycleData.colorCycleBrush;
+        const colorCycleBrushManager = getColorCycleBrushManager();
+        const colorCycleBrush = colorCycleBrushManager.getBrush(layer.id);
+        if (!colorCycleBrush) return;
         
         // Update animation for this layer's brush
         colorCycleBrush.updateAnimation();
@@ -1338,7 +1252,8 @@ export function useDrawingHandlers({
       // Phase 3: Direct rendering approach for initial content
       const currentState = useAppStore.getState();
       const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
-      const colorCycleBrush = activeLayer?.colorCycleData?.colorCycleBrush;
+      const colorCycleBrushManager = getColorCycleBrushManager();
+      const colorCycleBrush = activeLayer ? colorCycleBrushManager.getBrush(activeLayer.id) : undefined;
       
       if (colorCycleBrush && activeLayer?.colorCycleData?.canvas) {
         // Render to layer canvas first

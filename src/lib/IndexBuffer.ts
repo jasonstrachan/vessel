@@ -13,6 +13,10 @@ export class IndexBuffer {
   // Cache for converted RGBA values
   private rgbaCache: Map<number, [number, number, number, number]> = new Map();
   
+  // Shared canvas for color parsing (performance optimization)
+  private static colorParseCanvas: HTMLCanvasElement | null = null;
+  private static colorParseCtx: CanvasRenderingContext2D | null = null;
+  
   constructor(width: number, height: number) {
     this.width = width;
     this.height = height;
@@ -34,10 +38,9 @@ export class IndexBuffer {
     this.rgbaCache.clear();
     this.rgbaCache.set(0, [0, 0, 0, 0]);
     
-    // Pre-compute RGBA values for all palette colors
-    for (let i = 1; i < this.palette.length; i++) {
-      this.parseColorToRGBA(this.palette[i], i);
-    }
+    // Don't pre-compute all colors - parse them lazily when needed
+    // This avoids parsing 256 colors when gradient changes
+    // Colors will be parsed on-demand during rendering
     
     this.isDirty = true;
   }
@@ -50,12 +53,15 @@ export class IndexBuffer {
       return this.rgbaCache.get(index)!;
     }
     
-    // Create a small canvas to parse the color
-    const canvas = document.createElement('canvas');
-    canvas.width = 1;
-    canvas.height = 1;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    // Use shared canvas for performance (avoid creating 256 canvases!)
+    if (!IndexBuffer.colorParseCanvas) {
+      IndexBuffer.colorParseCanvas = document.createElement('canvas');
+      IndexBuffer.colorParseCanvas.width = 1;
+      IndexBuffer.colorParseCanvas.height = 1;
+      IndexBuffer.colorParseCtx = IndexBuffer.colorParseCanvas.getContext('2d', { willReadFrequently: true });
+    }
     
+    const ctx = IndexBuffer.colorParseCtx;
     if (!ctx) {
       const rgba: [number, number, number, number] = [0, 0, 0, 255];
       this.rgbaCache.set(index, rgba);
@@ -75,6 +81,12 @@ export class IndexBuffer {
    * Get color index from palette (adds if not found)
    */
   private getColorIndex(color: string): number {
+    // Validate color input
+    if (!color || typeof color !== 'string') {
+      console.warn('[IndexBuffer] Invalid color:', color);
+      return 0; // Return transparent index
+    }
+    
     // Check if color already exists
     const existingIndex = this.palette.indexOf(color);
     if (existingIndex !== -1) {
@@ -84,7 +96,7 @@ export class IndexBuffer {
     // Add new color to palette
     const newIndex = this.palette.length;
     this.palette.push(color);
-    this.parseColorToRGBA(color, newIndex);
+    // Don't parse color here - let it be parsed lazily during rendering
     
     return newIndex;
   }
@@ -262,7 +274,15 @@ export class IndexBuffer {
     // Convert indices to RGBA
     for (let i = 0; i < this.data.length; i++) {
       const colorIndex = this.data[i];
-      const rgba = this.rgbaCache.get(colorIndex) || [0, 0, 0, 0];
+      
+      // Lazy parse color if not in cache
+      let rgba = this.rgbaCache.get(colorIndex);
+      if (!rgba && colorIndex < this.palette.length) {
+        rgba = this.parseColorToRGBA(this.palette[colorIndex], colorIndex);
+      }
+      if (!rgba) {
+        rgba = [0, 0, 0, 0];
+      }
       
       const pixelIndex = i * 4;
       pixels[pixelIndex] = rgba[0];
@@ -368,6 +388,14 @@ export class IndexBuffer {
     this.width = newWidth;
     this.height = newHeight;
     this.isDirty = true;
+  }
+  
+  /**
+   * Get direct access to the internal data buffer (no copy)
+   * Use with caution - modifying this directly will affect the buffer
+   */
+  getDirectData(): Uint8Array {
+    return this.data;
   }
   
   /**

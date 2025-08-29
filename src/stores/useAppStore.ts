@@ -9,6 +9,80 @@ let saveCanvasStateTimer: NodeJS.Timeout | null = null;
 let lastSaveTimestamp = 0;
 const MIN_SAVE_INTERVAL = 100; // Minimum 0.1 second between saves
 
+// Detailed layer tracking for debugging
+const trackLayerChanges = (_location: string, _layers: any[]) => {
+  // Debug tracking disabled
+};
+
+// Helper to preserve colorCycleData when spreading layers
+const preserveColorCycleData = (layer: Layer): Layer => {
+  if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
+    // Ensure we preserve the colorCycleData reference
+    return {
+      ...layer,
+      layerType: 'color-cycle',  // EXPLICITLY preserve layerType
+      colorCycleData: layer.colorCycleData
+    };
+  }
+  return layer;
+};
+
+// Global watcher to detect unexpected layer mutations
+if (typeof window !== 'undefined') {
+  (window as any).__checkLayerIntegrity = () => {
+    const state = useAppStore.getState();
+    const issues: string[] = [];
+    
+    state.layers.forEach(layer => {
+      if (layer.layerType === 'color-cycle' && !layer.colorCycleData) {
+        issues.push(`Layer ${layer.id} is color-cycle but missing colorCycleData`);
+      }
+      if (!layer.layerType && layer.colorCycleData) {
+        issues.push(`Layer ${layer.id} has colorCycleData but no layerType`);
+      }
+      if (layer.layerType === 'normal' && layer.colorCycleData) {
+        issues.push(`Layer ${layer.id} is normal but has colorCycleData`);
+      }
+    });
+    
+    if (issues.length > 0) {
+      console.error('🔴 LAYER INTEGRITY ISSUES:', issues);
+      console.trace('Stack trace for integrity check');
+    }
+    return issues;
+  };
+}
+
+// Import ColorCycleBrush manager
+import { getColorCycleBrushManager, setLayerIdGetter } from './colorCycleBrushManager';
+
+// Get global manager instance
+const colorCycleBrushManager = getColorCycleBrushManager();
+
+// Setup layer ID getter for orphan cleanup
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    setLayerIdGetter(() => {
+      const state = useAppStore.getState();
+      return new Set(state.layers.map(l => l.id));
+    });
+  }, 0);
+}
+
+// Helper to store brush instance separately (now delegates to manager)
+const storeColorCycleBrush = (layerId: string, brush: any) => {
+  colorCycleBrushManager.updateBrush(layerId, brush);
+};
+
+// Helper to retrieve brush instance (now delegates to manager)
+const getColorCycleBrush = (layerId: string) => {
+  return colorCycleBrushManager.getBrush(layerId);
+};
+
+// Helper to clean up brush instance (now delegates to manager)
+const deleteColorCycleBrush = (layerId: string) => {
+  colorCycleBrushManager.deleteBrush(layerId);
+};
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
@@ -365,9 +439,28 @@ const defaultPolygonGradientState: PolygonGradientState = {
   previewPath: undefined
 };
 
+// Wrap set to trace ALL state updates
+const tracedSet = (setter: any, get: any) => {
+  const result = setter(get());
+  if (result && 'layers' in result) {
+    console.log('🔍 SET CALLED WITH LAYERS:', {
+      caller: new Error().stack?.split('\n')[3]?.trim(),
+      layersCount: result.layers?.length,
+      layers: result.layers?.map((l: any) => ({
+        id: l.id?.substring(0, 20),
+        type: l.layerType,
+        hasCC: !!l.colorCycleData
+      }))
+    });
+  }
+  return result;
+};
+
 export const useAppStore = create<AppState>()(
-  devtools(
+  // TEMPORARILY DISABLE DEVTOOLS TO SEE IF IT'S THE CAUSE
+  // devtools(
     (set, get) => {
+      
       // Expose store globally for debugging and test utilities
       if (typeof window !== 'undefined') {
         setTimeout(() => {
@@ -538,7 +631,10 @@ export const useAppStore = create<AppState>()(
             return {
               ...layer,
               imageData: newImageData,
-              framebuffer: newFramebuffer
+              framebuffer: newFramebuffer,
+              // CRITICAL: Preserve layerType and colorCycleData
+              layerType: layer.layerType,
+              colorCycleData: layer.colorCycleData
             };
           }
           
@@ -1204,28 +1300,109 @@ export const useAppStore = create<AppState>()(
         }
       })),
       
-      // Layer Management
+      // Layer Management - Start empty for SSR compatibility
       layers: [],
       activeLayerId: null,
       currentLayer: 0,
       addLayer: (layer) => {
-        // Adding new layer
         const newLayerId = `layer-${Date.now()}-${Math.random()}`;
         
+        console.log('🔵 ADD LAYER DEBUG:', {
+          newLayerId: newLayerId.substring(0, 20),
+          layerType: layer.layerType,
+          hasColorCycleData: !!layer.colorCycleData,
+          existingLayers: get().layers.map(l => ({
+            id: l.id.substring(0, 20),
+            type: l.layerType,
+            hasCC: !!l.colorCycleData
+          }))
+        });
+        
         set((state) => {
-          const newLayer: Layer = {
+          // CRITICAL CHECK: Verify existing layers are not mutated
+          const existingLayersSnapshot = state.layers.map(l => ({
+            id: l.id,
+            type: l.layerType,
+            hasCC: !!l.colorCycleData
+          }));
+          
+          const newLayer = {
             ...layer,
             id: newLayerId,
-            order: state.layers.length
+            order: state.layers.length,
+            // CRITICAL: Preserve layerType EXACTLY - DO NOT convert CC layers to normal!
+            layerType: layer.layerType || (
+              console.error('🚨🚨🚨 CRITICAL: Layer missing layerType!', {
+                layerId: newLayerId?.substring(0, 20),
+                hasColorCycleData: !!layer.colorCycleData,
+                fallbackToNormal: true
+              }),
+              'normal'
+            )
           };
+          
+          // Create new array preserving exact layer objects
+          // DO NOT recreate existing layers - just add the new one
           const updatedLayers = [...state.layers, newLayer];
           
+          // Initialize ColorCycleBrush for color-cycle layers
+          if (newLayer.layerType === 'color-cycle' && state.project) {
+            const width = state.project.width || 1024;
+            const height = state.project.height || 1024;
+            const gradient = newLayer.colorCycleData?.gradient;
+            
+            // Use enhanced manager method for initialization
+            // Note: gradient is in { position, color }[] format, but initColorCycleForLayer expects Uint8Array
+            // Pass undefined to use default gradient
+            const success = colorCycleBrushManager.initColorCycleForLayer(
+              newLayerId, 
+              width, 
+              height, 
+              undefined
+            );
+            
+            if (!success) {
+              console.error('Failed to initialize ColorCycleBrush for new layer:', newLayerId);
+            } else {
+              // Pre-create the animator to avoid lag on first paint
+              const brush = colorCycleBrushManager.getBrush(newLayerId);
+              if (brush && 'setSpeed' in brush && typeof brush.setSpeed === 'function') {
+                // Call setSpeed to trigger animator creation internally
+                // This ensures the animator is ready before first paint
+                brush.setSpeed(1.0);
+                console.log('✅ Pre-created animator for layer:', newLayerId.substring(0, 20));
+              }
+            }
+          }
+          
+          // VERIFY: Check if any existing layer lost its type
+          updatedLayers.forEach((updatedLayer, idx) => {
+            if (idx < state.layers.length) { // Existing layer
+              const original = existingLayersSnapshot[idx];
+              if (original.type !== updatedLayer.layerType) {
+                console.error('🔴🔴🔴 LAYER TYPE MUTATION IN ADD_LAYER:', {
+                  layerId: original.id.substring(0, 20),
+                  originalType: original.type,
+                  newType: updatedLayer.layerType,
+                  wasCC: original.hasCC,
+                  isCC: !!updatedLayer.colorCycleData
+                });
+              }
+            }
+          });
+          
+          console.log('🔵 ADD LAYER RESULT:', {
+            totalLayers: updatedLayers.length,
+            layers: updatedLayers.map(l => ({
+              id: l.id.substring(0, 20),
+              type: l.layerType,
+              hasCC: !!l.colorCycleData,
+              hasGradient: !!l.colorCycleData?.gradient
+            }))
+          });
+          
           return {
-            layers: updatedLayers,
-            project: state.project ? {
-              ...state.project,
-              layers: updatedLayers
-            } : null
+            layers: updatedLayers
           };
         });
         
@@ -1235,75 +1412,314 @@ export const useAppStore = create<AppState>()(
         // Find the layer to be removed
         const layerToRemove = state.layers.find(l => l.id === id);
         
-        // Cleanup ColorCycleBrush resources if present
-        if (layerToRemove?.colorCycleData?.colorCycleBrush) {
-          layerToRemove.colorCycleData.colorCycleBrush.destroy();
-        }
+        // Use enhanced manager method for cleanup
+        colorCycleBrushManager.removeColorCycleBrush(id);
         
         const updatedLayers = state.layers.filter(l => l.id !== id);
         const newActiveLayerId = state.activeLayerId === id ? 
           updatedLayers.find(l => l.id !== id)?.id || null : 
           state.activeLayerId;
         
+        trackLayerChanges('removeLayer RETURN', updatedLayers);
         return {
           layers: updatedLayers,
-          activeLayerId: newActiveLayerId,
-          project: state.project ? {
-            ...state.project,
-            layers: updatedLayers
-          } : null
+          activeLayerId: newActiveLayerId
+          // Remove the project update entirely - only update top-level layers
         };
       }),
       updateLayer: (id, updates) => set((state) => {
+        const originalLayer = state.layers.find(l => l.id === id);
         
-        const updatedLayers = state.layers.map(layer =>
-          layer.id === id ? { ...layer, ...updates } : layer
-        );
+        // CRITICAL: Detect when a color-cycle layer is being changed to normal
+        if (originalLayer?.layerType === 'color-cycle' && 
+            updates.layerType === 'normal') {
+          console.error('🔴🔴🔴 LAYER TYPE CORRUPTION DETECTED');
+          console.error('Stack trace:', new Error().stack);
+          console.error('Layer being corrupted:', id);
+          console.error('Update that caused it:', updates);
+          debugger; // This will pause execution in DevTools
+        }
         
+        // Also detect when colorCycleData is being cleared
+        if (originalLayer?.colorCycleData && 
+            'colorCycleData' in updates && 
+            !updates.colorCycleData) {
+          console.error('🔴🔴🔴 COLOR CYCLE DATA BEING CLEARED');
+          console.error('Stack trace:', new Error().stack);
+          console.error('Layer:', id);
+          debugger;
+        }
+        
+        
+        // DEBUG: Log any layerType changes from color-cycle
+        if (originalLayer && originalLayer.layerType === 'color-cycle' && 
+            ('layerType' in updates && updates.layerType !== 'color-cycle')) {
+          console.error('🔴 CRITICAL WARNING: Changing color-cycle layer to:', updates.layerType, 'for layer:', id.substring(0, 20));
+          console.trace('Stack trace for layer type change');
+        }
+        
+        const updatedLayers = state.layers.map(layer => {
+          if (layer.id === id) {
+            // Start with a shallow copy
+            let updatedLayer = { ...layer };
+            
+            // Special handling for colorCycleData updates
+            if ('colorCycleData' in updates) {
+              if (updates.colorCycleData) {
+                // Merging colorCycleData
+                updatedLayer.colorCycleData = {
+                  ...layer.colorCycleData,
+                  ...updates.colorCycleData
+                };
+                // Ensure layerType is set to color-cycle
+                updatedLayer.layerType = 'color-cycle';
+              } else {
+                // FORBIDDEN: CC layers cannot be converted to normal layers!
+                console.error('🚨🚨🚨 BLOCKED: Attempted to convert CC layer to normal!', {
+                  layerId: layer.id?.substring(0, 20),
+                  originalType: layer.layerType,
+                  attemptedConversion: 'CC -> Normal - BLOCKED!'
+                });
+                // DO NOT delete colorCycleData or change layerType - preserve CC layer!
+                // Keep the layer as-is to prevent conversion
+              }
+            }
+            
+            // Apply all other updates except colorCycleData
+            const { colorCycleData, ...otherUpdates } = updates;
+            Object.assign(updatedLayer, otherUpdates);
+            
+            // Protect against accidentally clearing layerType or colorCycleData
+            // If the layer was color-cycle and we're not explicitly changing it
+            if (layer.layerType === 'color-cycle' && 
+                !('layerType' in updates) && 
+                !('colorCycleData' in updates)) {
+              // Ensure we preserve the color-cycle nature
+              updatedLayer.layerType = 'color-cycle';
+              updatedLayer.colorCycleData = layer.colorCycleData;
+            }
+            
+            // FORBIDDEN: Never allow conversion from CC to normal!
+            if (updates.layerType === 'normal' && layer.layerType === 'color-cycle') {
+              console.error('🚨🚨🚨 BLOCKED: Direct conversion CC -> Normal!', {
+                layerId: layer.id?.substring(0, 20),
+                originalType: layer.layerType,
+                attemptedType: updates.layerType,
+                hasColorCycleData: !!layer.colorCycleData
+              });
+              // REVERT the layerType change - keep it as color-cycle
+              updatedLayer.layerType = 'color-cycle';
+              // DO NOT delete colorCycleData!
+            } else if (updates.layerType === 'normal' && layer.layerType === 'normal') {
+              // Safe: normal -> normal, can clear colorCycleData if any exists
+              delete updatedLayer.colorCycleData;
+            }
+            
+            return updatedLayer;
+          }
+          return layer;
+        });
+      
         // Check if visual properties changed that require recomposition
-        const needsRecomposition = 'visible' in updates || 'opacity' in updates || 'blendMode' in updates;
+        const needsRecomposition = 'visible' in updates || 'opacity' in updates || 'blendMode' in updates || 
+                                   'colorCycleData' in updates || 'layerType' in updates;
         if (needsRecomposition) {
           // Visual property changed - triggering recomposition
         }
         
+        // FINAL VERIFICATION: Check for unexpected CC -> Normal conversions
+        const updatedLayer = updatedLayers.find(l => l.id === id);
+        if (originalLayer?.layerType === 'color-cycle' && updatedLayer?.layerType === 'normal') {
+          console.error('🚨🚨🚨 LAYER CONVERSION DETECTED DESPITE PROTECTIONS!', {
+            layerId: id.substring(0, 20),
+            originalType: originalLayer.layerType,
+            finalType: updatedLayer.layerType,
+            hadColorCycleData: !!originalLayer.colorCycleData,
+            hasColorCycleData: !!updatedLayer.colorCycleData,
+            stackTrace: new Error().stack
+          });
+        }
+        
+        trackLayerChanges('updateLayer RETURN', updatedLayers);
+        
+        
         return {
           layers: updatedLayers,
-          layersNeedRecomposition: needsRecomposition || state.layersNeedRecomposition,
-          project: state.project ? {
-            ...state.project,
-            layers: updatedLayers
-          } : null
+          layersNeedRecomposition: needsRecomposition || state.layersNeedRecomposition
+          // Remove the project update entirely - only update top-level layers
         };
       }),
       setActiveLayer: (id) => set((state) => {
         const layer = state.layers.find(l => l.id === id);
         
-        // If switching to a color-cycle layer, update the brush gradient to match and sync WebGL
-        if (layer?.layerType === 'color-cycle' && layer.colorCycleData?.gradient) {
-          // Update the brush gradient in the WebGL brush immediately
-          const colorCycleBrush = layer.colorCycleData?.colorCycleBrush;
-          if (colorCycleBrush) {
-            // Set the active layer in the brush first
-            colorCycleBrush.setActiveLayer(id);
-            // Then sync the gradient
-            colorCycleBrush.setGradient(layer.colorCycleData.gradient, id);
+        console.log('🟢 SET ACTIVE LAYER DEBUG:', {
+          newActiveId: id?.substring(0, 20),
+          oldActiveId: state.activeLayerId?.substring(0, 20),
+          targetLayerType: layer?.layerType,
+          targetHasCC: !!layer?.colorCycleData,
+          allLayersBefore: state.layers.map(l => ({
+            id: l.id.substring(0, 20),
+            type: l.layerType,
+            hasCC: !!l.colorCycleData,
+            hasGradient: !!l.colorCycleData?.gradient
+          }))
+        });
+        
+        // When switching away from a color-cycle layer, mark it as inactive
+        const currentActiveLayer = state.layers.find(l => l.id === state.activeLayerId);
+        if (currentActiveLayer?.layerType === 'color-cycle' && currentActiveLayer.id !== id) {
+          console.log('🟠 SWITCHING AWAY FROM CC LAYER:', {
+            fromLayerId: currentActiveLayer.id.substring(0, 20),
+            toLayerId: id?.substring(0, 20)
+          });
+          
+          // Mark the old layer's brush as inactive
+          colorCycleBrushManager.setActiveState(state.activeLayerId!, false);
+          
+          // End any active strokes
+          const oldBrush = colorCycleBrushManager.getLayerColorCycleBrush(state.activeLayerId!);
+          if (oldBrush && 'endStroke' in oldBrush && typeof oldBrush.endStroke === 'function') {
+            oldBrush.endStroke(state.activeLayerId!);
+          }
+        }
+        
+        // If switching to a color-cycle layer, validate and reinitialize if needed
+        if (layer?.layerType === 'color-cycle') {
+          console.log('🟣 SWITCHING TO CC LAYER:', {
+            layerId: id.substring(0, 20),
+            hasGradient: !!layer.colorCycleData?.gradient,
+            gradientLength: layer.colorCycleData?.gradient?.length
+          });
+          
+          // Validate and reinitialize if needed
+          if (!colorCycleBrushManager.validateColorCycleBrush(id)) {
+            console.warn('⚠️ CC brush validation failed, reinitializing...');
+            const width = state.project?.width || 1024;
+            const height = state.project?.height || 1024;
+            // Note: gradient is in { position, color }[] format, but initColorCycleForLayer expects Uint8Array
+            colorCycleBrushManager.initColorCycleForLayer(
+              id, 
+              width, 
+              height, 
+              undefined
+            );
           }
           
-          return {
+          // Mark as active
+          colorCycleBrushManager.setActiveState(id, true);
+          
+          // Update the brush gradient to match layer
+          const colorCycleBrush = colorCycleBrushManager.getLayerColorCycleBrush(id);
+          if (colorCycleBrush && layer.colorCycleData?.gradient) {
+            // Set the active layer in the brush first
+            if ('setActiveLayer' in colorCycleBrush && typeof colorCycleBrush.setActiveLayer === 'function') {
+              colorCycleBrush.setActiveLayer(id);
+            }
+            // Then sync the gradient
+            if ('setGradient' in colorCycleBrush && typeof colorCycleBrush.setGradient === 'function') {
+              colorCycleBrush.setGradient(layer.colorCycleData.gradient, id);
+            }
+            console.log('🟣 SET ACTIVE LAYER IN CC BRUSH:', id.substring(0, 20));
+          }
+          
+          const result = {
             activeLayerId: id,
             tools: {
               ...state.tools,
               brushSettings: {
                 ...state.tools.brushSettings,
-                colorCycleGradient: layer.colorCycleData.gradient
+                colorCycleGradient: layer.colorCycleData?.gradient || []
               }
             }
           };
+          
+          console.log('🟢 SET ACTIVE LAYER RESULT (CC):', {
+            activeLayerId: result.activeLayerId.substring(0, 20),
+            gradientSet: !!result.tools.brushSettings.colorCycleGradient,
+            allLayersAfter: state.layers.map(l => ({
+              id: l.id.substring(0, 20),
+              type: l.layerType,
+              hasCC: !!l.colorCycleData
+            }))
+          });
+          
+          return result;
         }
         
-        return { activeLayerId: id };
+        const result = { 
+          activeLayerId: id
+          // DO NOT return layers unless we're actually changing them
+        };
+        
+        console.log('🟢 SET ACTIVE LAYER RESULT (NORMAL):', {
+          activeLayerId: id?.substring(0, 20),
+          allLayersAfter: state.layers.map(l => ({
+            id: l.id.substring(0, 20),
+            type: l.layerType,
+            hasCC: !!l.colorCycleData
+          })),
+          returnedLayers: 'layers' in result
+        });
+        
+        // Debug checks removed - the race condition has been fixed
+        
+        return result;
       }),
       setLayers: (layers) => {
+        const state = get();
+        
+        // Check each layer for corruption
+        state.layers.forEach(oldLayer => {
+          const newLayer = layers.find(l => l.id === oldLayer.id);
+          if (oldLayer.layerType === 'color-cycle' && 
+              newLayer?.layerType !== 'color-cycle') {
+            console.error('🔴🔴🔴 setLayers CORRUPTING LAYER TYPE');
+            console.error('Stack trace:', new Error().stack);
+            console.error('Layer ID:', oldLayer.id);
+            console.error('Old type:', oldLayer.layerType);
+            console.error('New type:', newLayer?.layerType);
+            debugger;
+          }
+        });
+        
+        // DEBUG: Check if any color-cycle layers are losing their type
+        const oldCCLayers = state.layers.filter(l => l.layerType === 'color-cycle');
+        const newCCLayers = layers.filter(l => l.layerType === 'color-cycle');
+        
+        // CRITICAL: Log the full stack trace to find who's calling setLayers
+        const stack = new Error().stack;
+        console.error('🔴🔴🔴 SETLAYERS CALLED - FULL STACK:');
+        console.error(stack);
+        console.error('🔴🔴🔴 SETLAYERS DATA:', {
+          oldLayers: state.layers.map(l => ({
+            id: l.id.substring(0, 20),
+            type: l.layerType,
+            hasCC: !!l.colorCycleData
+          })),
+          newLayers: layers.map(l => ({
+            id: l.id.substring(0, 20),
+            type: l.layerType,
+            hasCC: !!l.colorCycleData
+          }))
+        });
+        
+        if (oldCCLayers.length > newCCLayers.length) {
+          console.error('🔴 CRITICAL: setLayers is removing color-cycle layers!');
+          console.error('Old CC layers:', oldCCLayers.map(l => ({ id: l.id, type: l.layerType })));
+          console.error('New CC layers:', newCCLayers.map(l => ({ id: l.id, type: l.layerType })));
+          console.trace('Stack trace for setLayers');
+        }
+        
+        // Also check if any CC layers are losing their type
+        oldCCLayers.forEach(oldLayer => {
+          const newLayer = layers.find(l => l.id === oldLayer.id);
+          if (newLayer && newLayer.layerType !== 'color-cycle') {
+            console.error('🔴 CRITICAL: setLayers changing layer', oldLayer.id, 'from color-cycle to', newLayer.layerType);
+            console.trace('Stack trace for layer type loss in setLayers');
+          }
+        });
+        
+        trackLayerChanges('setLayers CALLED', layers);
         set({ layers });
       },
       reorderLayers: (sourceIndex, destinationIndex) => set((state) => {
@@ -1321,50 +1737,87 @@ export const useAppStore = create<AppState>()(
         
         return {
           layers: updatedLayers,
-          layersNeedRecomposition: true,
-          project: state.project ? {
-            ...state.project,
-            layers: updatedLayers
-          } : null
+          layersNeedRecomposition: true
+          // Remove the project update entirely - only update top-level layers
         };
       }),
       
       // Color Cycle Layer Management
       initColorCycleForLayer: (layerId, width, height) => set((state) => {
-        // Dynamic import to avoid circular dependencies
-        const { createColorCycleBrush } = (() => {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          return require('../hooks/brushEngine/ColorCycleBrushMigration');
-        })();
-        
-        const layer = state.layers.find(l => l.id === layerId);
-        if (!layer) return state;
-        
-        // Create a canvas element for this layer's color cycle
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        
-        // Initialize ColorCycleBrush for this layer using migration wrapper
-        const colorCycleBrush = createColorCycleBrush(canvas, {
-          brushSize: state.tools.brushSettings.size || 20,
-          fps: 30
-        });
-        
-        // Set the layer ID in the brush
-        colorCycleBrush.setLayerId(layerId);
-        
-        // Use the current brush gradient if available, otherwise use existing or default
-        const currentBrushGradient = state.tools.brushSettings.colorCycleGradient;
-        const gradient = currentBrushGradient || layer?.colorCycleData?.gradient || [
-          { position: 0.0, color: '#ff0000' },
-          { position: 0.17, color: '#ff7f00' },
-          { position: 0.33, color: '#ffff00' },
-          { position: 0.5, color: '#00ff00' },
-          { position: 0.67, color: '#0000ff' },
-          { position: 0.83, color: '#4b0082' },
-          { position: 1.0, color: '#9400d3' }
-        ];
+        try {
+          const layer = state.layers.find(l => l.id === layerId);
+          if (!layer) {
+            console.error('[Store] Layer not found:', layerId);
+            return {};
+          }
+          
+          // GUARD: Don't re-initialize if already initialized
+          const existingBrush = colorCycleBrushManager.getBrush(layerId);
+          if (existingBrush) {
+            console.log('Color cycle already initialized for layer:', layerId);
+            return {}; // Already initialized, don't recreate
+          }
+          
+          // Validate dimensions
+          const safeWidth = Math.max(width || 1024, 1);
+          const safeHeight = Math.max(height || 1024, 1);
+          
+          // Create a canvas element for this layer's color cycle
+          // Use the current brush gradient if available
+          const currentBrushGradient = state.tools.brushSettings.colorCycleGradient;
+          const gradient = currentBrushGradient || layer?.colorCycleData?.gradient || [
+            { position: 0.0, color: '#ff0000' },
+            { position: 0.17, color: '#ff7f00' },
+            { position: 0.33, color: '#ffff00' },
+            { position: 0.5, color: '#00ff00' },
+            { position: 0.67, color: '#0000ff' },
+            { position: 0.83, color: '#4b0082' },
+            { position: 1.0, color: '#9400d3' }
+          ];
+          
+          // Convert gradient to Uint8Array for brush creation
+          const gradientArray = new Uint8Array(256 * 3);
+          // Simple gradient interpolation (can be improved)
+          for (let i = 0; i < 256; i++) {
+            const t = i / 255;
+            // Find gradient stops
+            let color = { r: 255, g: 0, b: 0 }; // Default red
+            for (let j = 0; j < gradient.length - 1; j++) {
+              if (t >= gradient[j].position && t <= gradient[j + 1].position) {
+                // Interpolate between colors
+                const t0 = gradient[j].position;
+                const t1 = gradient[j + 1].position;
+                const localT = (t - t0) / (t1 - t0);
+                
+                const c0 = parseInt(gradient[j].color.substring(1), 16);
+                const c1 = parseInt(gradient[j + 1].color.substring(1), 16);
+                
+                const r0 = (c0 >> 16) & 0xff;
+                const g0 = (c0 >> 8) & 0xff;
+                const b0 = c0 & 0xff;
+                
+                const r1 = (c1 >> 16) & 0xff;
+                const g1 = (c1 >> 8) & 0xff;
+                const b1 = c1 & 0xff;
+                
+                color.r = Math.round(r0 + (r1 - r0) * localT);
+                color.g = Math.round(g0 + (g1 - g0) * localT);
+                color.b = Math.round(b0 + (b1 - b0) * localT);
+                break;
+              }
+            }
+            gradientArray[i * 3] = color.r;
+            gradientArray[i * 3 + 1] = color.g;
+            gradientArray[i * 3 + 2] = color.b;
+          }
+          
+          // Create brush through manager
+          const colorCycleBrush = colorCycleBrushManager.createBrush(layerId, safeWidth, safeHeight, gradientArray);
+          
+          if (!colorCycleBrush) {
+            console.error('[Store] Failed to create color cycle brush');
+            return {};
+          }
         
         const updatedLayers = state.layers.map(l => 
           l.id === layerId 
@@ -1372,54 +1825,56 @@ export const useAppStore = create<AppState>()(
                 ...l,
                 layerType: 'color-cycle' as const,
                 colorCycleData: {
-                  gradient,
+                  gradient: gradient || [],
                   colorCycleBrush,
                   isAnimating: true,
-                  canvas
+                  canvas: colorCycleBrush.getCanvas ? colorCycleBrush.getCanvas() : undefined
+                }
+              }
+            : l
+        );
+        
+        trackLayerChanges('initColorCycleForLayer RETURN', updatedLayers);
+        return {
+          layers: updatedLayers
+          // Remove the project update entirely - only update top-level layers
+        };
+        } catch (error) {
+          console.error('[Store] Error initializing color cycle:', error);
+          return {}; // Return empty partial state on error
+        }
+      }),
+      
+      cleanupColorCycleForLayer: (layerId) => set((state) => {
+        const layer = state.layers.find(l => l.id === layerId);
+        if (!layer || !layer.colorCycleData) return state;
+        
+        // Cleanup through manager
+        colorCycleBrushManager.deleteBrush(layerId);
+        
+        // CRITICAL FIX: Don't change the layer type when cleaning up!
+        // We're just disposing Canvas2D resources, not converting the layer
+        const updatedLayers = state.layers.map(l => 
+          l.id === layerId 
+            ? {
+                ...l,
+                // Keep the layer type as is - don't change it!
+                colorCycleData: {
+                  ...l.colorCycleData,
+                  colorCycleBrush: undefined // Just clear the brush instance
                 }
               }
             : l
         );
         
         return {
-          layers: updatedLayers,
-          project: state.project ? {
-            ...state.project,
-            layers: updatedLayers
-          } : null
-        };
-      }),
-      
-      cleanupColorCycleForLayer: (layerId) => set((state) => {
-        const layer = state.layers.find(l => l.id === layerId);
-        if (!layer || !layer.colorCycleData?.colorCycleBrush) return state;
-        
-        // Cleanup WebGL resources
-        layer.colorCycleData.colorCycleBrush.destroy();
-        
-        const updatedLayers = state.layers.map(l => 
-          l.id === layerId 
-            ? {
-                ...l,
-                layerType: 'normal' as const,
-                colorCycleData: undefined
-              }
-            : l
-        );
-        
-        return {
-          layers: updatedLayers,
-          project: state.project ? {
-            ...state.project,
-            layers: updatedLayers
-          } : null
+          layers: updatedLayers
         };
       }),
       
       getLayerColorCycleBrush: (layerId) => {
-        const state = get();
-        const layer = state.layers.find(l => l.id === layerId);
-        return layer?.colorCycleData?.colorCycleBrush;
+        // Get from manager
+        return colorCycleBrushManager.getBrush(layerId);
       },
       
       // Custom Brush Management
@@ -1916,15 +2371,41 @@ export const useAppStore = create<AppState>()(
           if (!ctx) return;
           
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          // Deep copy layers to preserve their individual ImageData
-          const layersCopy = (state.layers || []).map(layer => ({
-            ...layer,
-            imageData: layer.imageData ? new ImageData(
-              new Uint8ClampedArray(layer.imageData.data),
-              layer.imageData.width,
-              layer.imageData.height
-            ) : layer.imageData
-          }));
+          // Deep copy layers to preserve their individual ImageData and colorCycleData
+          const layersCopy = (state.layers || []).map(layer => {
+            const layerCopy: any = {
+              ...layer,
+              imageData: layer.imageData ? new ImageData(
+                new Uint8ClampedArray(layer.imageData.data),
+                layer.imageData.width,
+                layer.imageData.height
+              ) : layer.imageData
+            };
+            
+            // Deep copy colorCycleData if present
+            if (layer.colorCycleData) {
+              layerCopy.colorCycleData = {
+                ...layer.colorCycleData,
+                // Store gradient (simple data that can be cloned)
+                gradient: layer.colorCycleData.gradient ? [...layer.colorCycleData.gradient] : undefined,
+                // Canvas needs to be captured as ImageData for restoration
+                canvasImageData: layer.colorCycleData.canvas ? (() => {
+                  const ccCtx = layer.colorCycleData.canvas.getContext('2d');
+                  if (ccCtx) {
+                    return ccCtx.getImageData(0, 0, layer.colorCycleData.canvas.width, layer.colorCycleData.canvas.height);
+                  }
+                  return undefined;
+                })() : undefined,
+                // Store canvas dimensions for recreation
+                canvasWidth: layer.colorCycleData.canvas?.width,
+                canvasHeight: layer.colorCycleData.canvas?.height,
+                // Don't store the actual canvas or colorCycleBrush references
+                // They will be recreated on restore
+              };
+            }
+            
+            return layerCopy;
+          });
           
           // Capture color cycle state if available
           let colorCycleState: CanvasSnapshot['colorCycleState'] = undefined;
@@ -1937,17 +2418,18 @@ export const useAppStore = create<AppState>()(
             colorCycleState = {
               layerId: activeLayer.id,
               strokeData: new ArrayBuffer(0), // Not used, using layerStrokes instead
-              gradients: (fullState.gradients || []).map((g, i) => ({
-                layerIndex: i,
-                gradientStops: g.gradientStops,
-                hasContent: true
-              })),
-              animationState: fullState.animationState,
-              layerStrokes: Array.from(fullState.layerSnapshots?.entries() || []).map(([id, buffer]) => ({
-                layerId: id,
-                paintBuffer: buffer,
-                hasContent: buffer.byteLength > 0,
-                strokeCounter: 0,
+              gradients: [], // Canvas2D version doesn't have gradients in the same format
+              animationState: { // Provide default animation state
+                cycleOffset: 0,
+                speed: 1,
+                fps: 30,
+                isPaused: false
+              },
+              layerStrokes: (fullState.layers || []).map((layer: any) => ({
+                layerId: layer.layerId,
+                paintBuffer: new ArrayBuffer(0), // Canvas2D version doesn't expose buffer directly
+                hasContent: layer.strokeData?.hasContent || false,
+                strokeCounter: layer.strokeData?.strokeCounter || 0,
                 strokeLength: 0,
                 gradientLayerIndices: [],
                 currentGradientIndex: 0
@@ -2140,10 +2622,22 @@ export const useAppStore = create<AppState>()(
         try {
           const loadedProject = await loadProjectFromFile();
           
-          // Update the store with the loaded project
+          // Restore color cycle brushes for CC layers BEFORE setting them in store
+          // This ensures the layers have their colorCycleData properly populated
+          const layersWithRestoredColorCycles = await restoreColorCycleBrushes(loadedProject.layers);
+          
+          // VERIFICATION: Log layer states before setting
+          const finalLayers = layersWithRestoredColorCycles || loadedProject.layers;
+          console.log('🔵 LOAD PROJECT - Final layers being set:', finalLayers.map(l => ({
+            id: l.id?.substring(0, 20),
+            type: l.layerType,
+            hasColorCycleData: !!l.colorCycleData
+          })));
+          
+          // Update the store with the loaded project and restored layers
           set({
             project: loadedProject,
-            layers: loadedProject.layers,
+            layers: finalLayers,
             activeLayerId: loadedProject.layers[0]?.id || null,
             layersNeedRecomposition: true,
             // Restore view state if available
@@ -2159,9 +2653,6 @@ export const useAppStore = create<AppState>()(
           
           // Restore canvas dimensions to match the loaded project
           state.setCanvasDimensions(loadedProject.width, loadedProject.height);
-          
-          // Restore color cycle brushes for CC layers
-          await restoreColorCycleBrushes(loadedProject.layers);
           
           // Update current brush size to match global
           const currentState = get();
@@ -2237,6 +2728,10 @@ export const useAppStore = create<AppState>()(
       newProject: (width: number, height: number, name = 'Untitled') => {
         // Create a default layer with empty image data
         const defaultLayerId = `layer-${Date.now()}-${Math.random()}`;
+        
+        // Create framebuffer as HTMLCanvasElement
+        const framebuffer = new OffscreenCanvas(width, height);
+        
         const defaultLayer: Layer = {
           id: defaultLayerId,
           name: 'Layer 1',
@@ -2246,7 +2741,8 @@ export const useAppStore = create<AppState>()(
           order: 0,
           locked: false,
           imageData: new ImageData(width, height),
-          framebuffer: new OffscreenCanvas(width, height)
+          framebuffer,
+          layerType: 'normal' // REQUIRED field
         };
         
         const newProject: Project = {
@@ -2254,7 +2750,7 @@ export const useAppStore = create<AppState>()(
           name,
           width,
           height,
-          layers: [defaultLayer],
+          layers: [], // Keep empty - we'll use top-level layers instead
           backgroundColor: 'transparent',
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -2264,7 +2760,7 @@ export const useAppStore = create<AppState>()(
         
         set({
           project: newProject,
-          layers: [defaultLayer],
+          layers: [defaultLayer], // Only set top-level layers
           activeLayerId: defaultLayerId,
           canvas: {
             ...get().canvas,
@@ -2419,10 +2915,14 @@ export const useAppStore = create<AppState>()(
           const activeLayerId = state.activeLayerId || state.layers[0]?.id;
           
           if (activeLayerId) {
-            // Update the layer with the captured ImageData AND framebuffer using direct set
+            // Update the layer AND immediately trigger recomposition in one atomic update
             set((currentState) => {
+              // CRITICAL FIX: Use the activeLayerId parameter, not the one from state
+              // This ensures we're updating the correct layer even if activeLayerId changed
+              const targetLayerId = activeLayerId;
+              
               const updatedLayers = currentState.layers.map(layer => {
-                if (layer.id === activeLayerId) {
+                if (layer.id === targetLayerId) {
                   // Update both imageData and framebuffer to stay in sync
                   const framebufferCtx = layer.framebuffer.getContext('2d', { willReadFrequently: true });
                   if (framebufferCtx) {
@@ -2430,21 +2930,26 @@ export const useAppStore = create<AppState>()(
                     framebufferCtx.clearRect(0, 0, layer.framebuffer.width, layer.framebuffer.height);
                     framebufferCtx.putImageData(imageData, 0, 0);
                   }
-                  return { ...layer, imageData };
+                  // CRITICAL: Preserve ALL layer properties including layerType and colorCycleData
+                  // Use spread operator first to preserve everything, then override only imageData
+                  return { 
+                    ...layer, 
+                    imageData
+                    // Don't explicitly set layerType and colorCycleData - they're already in ...layer
+                  };
                 }
                 return layer;
               });
+              
+              // CRITICAL: Set both layers AND recomposition flag in the same update
               return {
                 layers: updatedLayers,
-                project: currentState.project ? {
-                  ...currentState.project,
-                  layers: updatedLayers
-                } : null
+                layersNeedRecomposition: true
               };
             });
             
-            // Wait for the next tick to ensure store update is complete
-            await new Promise(resolve => setTimeout(resolve, 0));
+            // Remove the setTimeout - it can cause race conditions with layer switching
+            // The state update is synchronous, we don't need to wait
             
           }
         } catch (error) {
@@ -2497,19 +3002,19 @@ export const useAppStore = create<AppState>()(
           // Update the specific layer with the captured ImageData
           set((currentState) => {
             const updatedLayers = currentState.layers.map(layer =>
-              layer.id === targetLayerId ? { ...layer, imageData } : layer
+              layer.id === targetLayerId ? { 
+                ...layer, 
+                imageData
+                // Don't explicitly set layerType and colorCycleData - they're already in ...layer
+              } : layer
             );
             return {
               layers: updatedLayers,
-              project: currentState.project ? {
-                ...currentState.project,
-                layers: updatedLayers
-              } : null
+              layersNeedRecomposition: true
             };
           });
           
-          // Wait for the next tick to ensure store update is complete
-          await new Promise(resolve => setTimeout(resolve, 0));
+          // Remove the setTimeout - it can cause race conditions with layer switching
           
         } catch (error) {
           console.error('Capture to specific layer failed with error:', error);
@@ -2568,7 +3073,17 @@ export const useAppStore = create<AppState>()(
         return { brushSpecificSettings: remaining };
       })
     };
-    },
-    { name: 'tinybrush-store' }
-  )
+    }
+  // ),
+  // { name: 'tinybrush-store' }
 );
+
+// Corruption detector removed - bug is fixed
+
+// Subscribe to track all layer changes
+useAppStore.subscribe((state) => {
+  trackLayerChanges('STORE SUBSCRIPTION', state.layers);
+  
+  // Note: Zustand v4 doesn't provide previous state in subscribe
+  // Would need to track manually if we need to compare
+});

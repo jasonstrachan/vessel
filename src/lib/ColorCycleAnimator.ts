@@ -6,6 +6,7 @@
 import { IndexBuffer } from './IndexBuffer';
 import { GradientPalette, GradientStop } from './GradientPalette';
 import { AnimationController } from './AnimationController';
+import { canvasPool } from '../utils/canvasPool';
 
 export interface ColorCycleAnimatorConfig {
   width: number;
@@ -14,6 +15,7 @@ export interface ColorCycleAnimatorConfig {
   fps?: number;
   speed?: number;
   autoStart?: boolean;
+  lazyInit?: boolean; // Support deferred heavy initialization
 }
 
 export class ColorCycleAnimator {
@@ -35,43 +37,93 @@ export class ColorCycleAnimator {
   private onFrameCallbacks: Set<(imageData: ImageData) => void> = new Set();
   
   constructor(config: ColorCycleAnimatorConfig) {
-    // Initialize buffers
-    this.indexBuffer = new IndexBuffer(config.width, config.height);
-    this.gradientPalette = config.gradientStops 
-      ? new GradientPalette(config.gradientStops)
-      : GradientPalette.createRainbow();
-    
-    // Create canvas for rendering
-    this.canvas = document.createElement('canvas');
-    this.canvas.width = config.width;
-    this.canvas.height = config.height;
-    
-    const ctx = this.canvas.getContext('2d', {
-      willReadFrequently: true,
-      alpha: true
-    });
-    
-    if (!ctx) {
-      throw new Error('Failed to create canvas context');
+    // If lazy init, defer heavy initialization
+    if (config.lazyInit) {
+      console.time('[ColorCycleAnimator] IndexBuffer creation (lazy)');
+      // Create minimal buffers first
+      this.indexBuffer = new IndexBuffer(config.width, config.height);
+      console.timeEnd('[ColorCycleAnimator] IndexBuffer creation (lazy)');
+      
+      console.time('[ColorCycleAnimator] GradientPalette creation');
+      this.gradientPalette = config.gradientStops 
+        ? new GradientPalette(config.gradientStops)
+        : GradientPalette.createRainbow();
+      console.timeEnd('[ColorCycleAnimator] GradientPalette creation');
+      
+      console.time('[ColorCycleAnimator] Canvas creation (pooled)');
+      // Use canvas pool for better performance
+      this.canvas = canvasPool.acquire(config.width, config.height);
+      console.timeEnd('[ColorCycleAnimator] Canvas creation (pooled)');
+      
+      console.time('[ColorCycleAnimator] Context creation');
+      const ctx = this.canvas.getContext('2d', {
+        willReadFrequently: false, // Changed to false for lazy init
+        alpha: true
+      });
+      console.timeEnd('[ColorCycleAnimator] Context creation');
+      
+      if (!ctx) {
+        throw new Error('Failed to create canvas context');
+      }
+      
+      this.ctx = ctx;
+      this.ctx.imageSmoothingEnabled = false;
+      
+      // Defer image data creation until first use
+      this.imageData = null as any; // Will be created on first paint
+      
+      // Use smaller stroke order buffer initially
+      this.strokeOrder = new Uint16Array(0); // Start empty
+      
+      console.time('[ColorCycleAnimator] AnimationController creation');
+      // Initialize animation controller with lazy settings
+      this.animationController = new AnimationController({
+        fps: config.fps || 30,
+        speed: config.speed || 1.0,
+        autoStart: false, // Never auto-start in lazy mode
+        onFrame: this.handleAnimationFrame.bind(this)
+      });
+      console.timeEnd('[ColorCycleAnimator] AnimationController creation');
+      
+      // Defer palette update
+      requestAnimationFrame(() => this.updateIndexBufferPalette());
+    } else {
+      // Normal initialization path
+      this.indexBuffer = new IndexBuffer(config.width, config.height);
+      this.gradientPalette = config.gradientStops 
+        ? new GradientPalette(config.gradientStops)
+        : GradientPalette.createRainbow();
+      
+      // Use canvas pool for better performance
+      this.canvas = canvasPool.acquire(config.width, config.height);
+      
+      const ctx = this.canvas.getContext('2d', {
+        willReadFrequently: true,
+        alpha: true
+      });
+      
+      if (!ctx) {
+        throw new Error('Failed to create canvas context');
+      }
+      
+      this.ctx = ctx;
+      this.ctx.imageSmoothingEnabled = false;
+      this.imageData = ctx.createImageData(config.width, config.height);
+      
+      // Initialize stroke order buffer
+      this.strokeOrder = new Uint16Array(config.width * config.height);
+      
+      // Initialize animation controller
+      this.animationController = new AnimationController({
+        fps: config.fps || 30,
+        speed: config.speed || 1.0,
+        autoStart: config.autoStart || false,
+        onFrame: this.handleAnimationFrame.bind(this)
+      });
+      
+      // Update IndexBuffer palette
+      this.updateIndexBufferPalette();
     }
-    
-    this.ctx = ctx;
-    this.ctx.imageSmoothingEnabled = false;
-    this.imageData = ctx.createImageData(config.width, config.height);
-    
-    // Initialize stroke order buffer
-    this.strokeOrder = new Uint16Array(config.width * config.height);
-    
-    // Initialize animation controller
-    this.animationController = new AnimationController({
-      fps: config.fps || 30,
-      speed: config.speed || 1.0,
-      autoStart: config.autoStart || false,
-      onFrame: this.handleAnimationFrame.bind(this)
-    });
-    
-    // Update IndexBuffer palette
-    this.updateIndexBufferPalette();
   }
   
   /**
@@ -102,54 +154,87 @@ export class ColorCycleAnimator {
    * Render a single frame with directional flow
    */
   private renderFrame(offset: number = 0) {
-    // Get index data
-    const indexData = this.indexBuffer.serialize().data;
-    const pixels = this.imageData.data;
+    const perfStart = performance.now();
     
-    // Apply palette with directional flow based on stroke order
-    for (let i = 0; i < indexData.length; i++) {
-      const colorIndex = indexData[i];
-      
-      // Skip transparent pixels
-      if (colorIndex === 0) {
-        const pixelIndex = i * 4;
-        pixels[pixelIndex] = 0;
-        pixels[pixelIndex + 1] = 0;
-        pixels[pixelIndex + 2] = 0;
-        pixels[pixelIndex + 3] = 0;
-        continue;
+    try {
+      // Ensure imageData is created (for lazy init)
+      if (!this.imageData) {
+        const imgStart = performance.now();
+        this.imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
+        console.log(`[PERF] createImageData took ${(performance.now() - imgStart).toFixed(1)}ms for ${this.canvas.width}x${this.canvas.height}`);
       }
       
-      // NEW: Use color index directly for stamp-based gradient progression
-      // The color index already represents the position in the gradient
-      // No need for animation offset or flow offset - each stamp has its assigned color
-      const paletteIndex = (colorIndex - 1) % 256;
+      // Get index data directly (no copy)
+      const indexData = this.indexBuffer.getDirectData();
       
-      // Optional: Add animation cycling effect on top of base colors
-      // This will cycle the entire gradient while preserving relative positions
-      if (offset > 0) {
-        const animatedIndex = Math.floor((paletteIndex + offset * 256) % 256);
-        const color = this.gradientPalette.getColor(animatedIndex);
-        const pixelIdx = i * 4;
-        
-        pixels[pixelIdx] = color.r;
-        pixels[pixelIdx + 1] = color.g;
-        pixels[pixelIdx + 2] = color.b;
-        pixels[pixelIdx + 3] = color.a;
-      } else {
-        // No animation - use static colors
-        const color = this.gradientPalette.getColor(paletteIndex);
-        const pixelIdx = i * 4;
-        
-        pixels[pixelIdx] = color.r;
-        pixels[pixelIdx + 1] = color.g;
-        pixels[pixelIdx + 2] = color.b;
-        pixels[pixelIdx + 3] = color.a;
+      if (!indexData) {
+        console.error('[ColorCycleAnimator] IndexBuffer data is invalid');
+        return;
       }
-    }
+      const pixels = this.imageData.data;
+      
+      if (!pixels) {
+        console.error('[ColorCycleAnimator] ImageData pixels is null');
+        return;
+      }
+      
+      const loopStart = performance.now();
+      
+      // Apply palette with directional flow based on stroke order
+      for (let i = 0; i < indexData.length; i++) {
+        const colorIndex = indexData[i];
+        
+        // Skip transparent pixels
+        if (colorIndex === 0) {
+          const pixelIndex = i * 4;
+          pixels[pixelIndex] = 0;
+          pixels[pixelIndex + 1] = 0;
+          pixels[pixelIndex + 2] = 0;
+          pixels[pixelIndex + 3] = 0;
+          continue;
+        }
+        
+        // NEW: Use color index directly for stamp-based gradient progression
+        // The color index already represents the position in the gradient
+        // No need for animation offset or flow offset - each stamp has its assigned color
+        const paletteIndex = (colorIndex - 1) % 256;
+        
+        // Optional: Add animation cycling effect on top of base colors
+        // This will cycle the entire gradient while preserving relative positions
+        if (offset > 0) {
+          const animatedIndex = Math.floor((paletteIndex + offset * 256) % 256);
+          const color = this.gradientPalette.getColor(animatedIndex);
+          const pixelIdx = i * 4;
+          
+          pixels[pixelIdx] = color.r;
+          pixels[pixelIdx + 1] = color.g;
+          pixels[pixelIdx + 2] = color.b;
+          pixels[pixelIdx + 3] = color.a;
+        } else {
+          // No animation - use static colors
+          const color = this.gradientPalette.getColor(paletteIndex);
+          const pixelIdx = i * 4;
+          
+          pixels[pixelIdx] = color.r;
+          pixels[pixelIdx + 1] = color.g;
+          pixels[pixelIdx + 2] = color.b;
+          pixels[pixelIdx + 3] = color.a;
+        }
+      }
+    
+    const loopTime = performance.now() - loopStart;
     
     // Put image data to canvas
+    const putStart = performance.now();
     this.ctx.putImageData(this.imageData, 0, 0);
+    const putTime = performance.now() - putStart;
+    
+    const totalTime = performance.now() - perfStart;
+    
+    } catch (error) {
+      console.error('[ColorCycleAnimator] Error in renderFrame:', error);
+      console.error('[ColorCycleAnimator] Stack:', (error as Error).stack);
+    }
   }
   
   /**
@@ -175,23 +260,19 @@ export class ColorCycleAnimator {
    * Paint square brush with stamp-based color progression
    */
   paintSquare(x: number, y: number, brushSize: number, colorIndex?: number) {
-    // Use provided color index or auto-increment
-    const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
-    const color = this.gradientPalette.getColorString(index);
-    
-    // Debug: Log color assignment for first few stamps
-    if (colorIndex !== undefined && (colorIndex < 5 || colorIndex % 50 === 0)) {
-      console.log(`  → Using gradient position ${index}: ${color}`);
-    }
-    
-    // Paint to index buffer with the specific color index
-    this.indexBuffer.paintSquare(x, y, brushSize, color);
-    
-    // No longer tracking stroke order since we're using direct color indices
-    // Each stamp has its own color position in the gradient
-    
-    if (!this.animationController.isPlaying()) {
-      this.renderFrame();
+    try {
+      // Use provided color index or auto-increment
+      const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
+      
+      const color = this.gradientPalette.getColorString(index);
+      
+      // Paint to index buffer with the specific color index - NO RENDERING
+      this.indexBuffer.paintSquare(x, y, brushSize, color);
+      
+      // REMOVED per-stamp rendering - caller handles batched rendering
+      
+    } catch (error) {
+      console.error('[ColorCycleAnimator] Error in paintSquare:', error);
     }
   }
   
@@ -204,9 +285,7 @@ export class ColorCycleAnimator {
     
     this.indexBuffer.paintLine(x0, y0, x1, y1, brushSize, color);
     
-    if (!this.animationController.isPlaying()) {
-      this.renderFrame();
-    }
+    // REMOVED per-stamp rendering - caller handles batched rendering
   }
   
   /**
@@ -245,6 +324,13 @@ export class ColorCycleAnimator {
    */
   endStroke() {
     // Stroke index continues to accumulate
+  }
+  
+  /**
+   * Force render the current frame (used for immediate updates)
+   */
+  forceRender() {
+    this.renderFrame(this.animationController.getOffset());
   }
   
   /**
@@ -423,14 +509,63 @@ export class ColorCycleAnimator {
    * Resize
    */
   resize(width: number, height: number) {
+    // Skip if dimensions haven't changed
+    if (this.canvas.width === width && this.canvas.height === height) {
+      return;
+    }
+    
+    // Preserve existing data if possible
+    const oldWidth = this.canvas.width;
+    const oldHeight = this.canvas.height;
+    const needsDataPreservation = oldWidth > 0 && oldHeight > 0 && this.imageData;
+    
+    // Save current image data if needed
+    let savedImageData: ImageData | null = null;
+    if (needsDataPreservation && this.imageData) {
+      savedImageData = this.ctx.getImageData(0, 0, Math.min(oldWidth, width), Math.min(oldHeight, height));
+    }
+    
+    // Resize index buffer
     this.indexBuffer.resize(width, height);
-    this.canvas.width = width;
-    this.canvas.height = height;
+    
+    // Get a new canvas from pool with proper dimensions
+    const oldCanvas = this.canvas;
+    this.canvas = canvasPool.acquire(width, height);
+    
+    // Get new context
+    const ctx = this.canvas.getContext('2d', {
+      willReadFrequently: !!(this.imageData), // Only if we were already using image data
+      alpha: true
+    });
+    
+    if (!ctx) {
+      throw new Error('Failed to get context after resize');
+    }
+    
+    this.ctx = ctx;
+    this.ctx.imageSmoothingEnabled = false;
+    
+    // Create new image data
     this.imageData = this.ctx.createImageData(width, height);
-    // Resize stroke order buffer
-    this.strokeOrder = new Uint16Array(width * height);
-    this.currentStrokeIndex = 1;
-    this.maxStrokeIndex = 0;
+    
+    // Resize stroke order buffer only if dimensions actually changed
+    if (width * height !== this.strokeOrder.length) {
+      this.strokeOrder = new Uint16Array(width * height);
+      // Don't reset indices if we're just resizing
+      if (!needsDataPreservation) {
+        this.currentStrokeIndex = 1;
+        this.maxStrokeIndex = 0;
+      }
+    }
+    
+    // Restore saved data if available
+    if (savedImageData) {
+      this.ctx.putImageData(savedImageData, 0, 0);
+    }
+    
+    // Return old canvas to pool
+    canvasPool.release(oldCanvas);
+    
     this.renderFrame();
   }
   
@@ -561,5 +696,28 @@ export class ColorCycleAnimator {
     if (!this.animationController.isPlaying()) {
       this.renderFrame();
     }
+  }
+  
+  /**
+   * Clean up resources and return canvas to pool
+   */
+  cleanup() {
+    // Stop animation
+    this.animationController.stop();
+    
+    // Clear callbacks
+    this.onFrameCallbacks.clear();
+    
+    // Return canvas to pool
+    if (this.canvas) {
+      canvasPool.release(this.canvas);
+    }
+  }
+  
+  /**
+   * Alias for cleanup to maintain API compatibility
+   */
+  destroy() {
+    this.cleanup();
   }
 }

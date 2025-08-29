@@ -134,8 +134,9 @@ export class ColorCycleBrushSimple {
     
     // Limit frame rate
     if (deltaTime >= this.frameInterval) {
-      // Update cycle offset
-      this.cycleOffset += (deltaTime / 1000) * this.cycleSpeed * 0.2;
+      // Update cycle offset with more granular control
+      // Scale down the speed for finer control (0.1 instead of 0.2)
+      this.cycleOffset += (deltaTime / 1000) * this.cycleSpeed * 0.1;
       this.cycleOffset = this.cycleOffset % 1.0;
       
       this.lastFrameTime = currentTime - (deltaTime % this.frameInterval);
@@ -172,7 +173,8 @@ export class ColorCycleBrushSimple {
   }
   
   setSpeed(speed: number) {
-    this.cycleSpeed = speed;
+    // Cap speed to maximum of 1.0
+    this.cycleSpeed = Math.min(1.0, Math.max(0, speed));
   }
   
   setFPS(fps: number) {

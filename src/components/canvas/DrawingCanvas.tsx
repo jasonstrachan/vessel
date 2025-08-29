@@ -164,7 +164,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     ctx.fillStyle = '#1a1a1a';
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     
-    if (project && project.layers.length > 0) {
+    if (project && layers.length > 0) {
       ctx.save();
       ctx.translate(offsetX, offsetY);
       ctx.scale(scale, scale);
@@ -301,7 +301,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         ctx.restore();
       }
     }
-  }, [project, tools.brushSettings.brushShape, selectionStart, selectionEnd, marchingAntsOffset, floatingPaste]);
+  }, [project, layers, tools.brushSettings.brushShape, selectionStart, selectionEnd, marchingAntsOffset, floatingPaste]);
   
   // Use custom hooks
   const interaction = useCanvasInteraction();
@@ -434,9 +434,18 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     );
   }, [drawBase, drawingHandlers, interaction]);
   
-  // Update drawRef when draw changes
+  // Update drawRef when draw changes and trigger initial draw
   useEffect(() => {
     drawRef.current = draw;
+    
+    // Trigger initial draw when draw function is ready
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (ctx && viewTransformRef.current) {
+        draw(ctx, viewTransformRef.current);
+      }
+    }
   }, [draw]);
   
   // Listen for color cycle animation frame updates
@@ -567,8 +576,48 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         }
         
         if (snapshot.layers && snapshot.activeLayerId) {
-          setLayers(snapshot.layers);
+          // Reconstruct colorCycleData for any color-cycle layers
+          const restoredLayers = snapshot.layers.map((layer: any) => {
+            if (layer.colorCycleData && layer.colorCycleData.canvasImageData) {
+              // Recreate the canvas for color cycle
+              const canvas = document.createElement('canvas');
+              canvas.width = layer.colorCycleData.canvasWidth || 1920;
+              canvas.height = layer.colorCycleData.canvasHeight || 1080;
+              
+              // Restore the canvas content
+              const ctx = canvas.getContext('2d');
+              if (ctx && layer.colorCycleData.canvasImageData) {
+                ctx.putImageData(layer.colorCycleData.canvasImageData, 0, 0);
+              }
+              
+              // Recreate colorCycleData with the restored canvas
+              return {
+                ...layer,
+                colorCycleData: {
+                  gradient: layer.colorCycleData.gradient,
+                  isAnimating: layer.colorCycleData.isAnimating,
+                  canvas,
+                  // colorCycleBrush will be recreated if needed
+                  colorCycleBrush: undefined
+                }
+              };
+            }
+            return layer;
+          });
+          
+          setLayers(restoredLayers);
           setActiveLayer(snapshot.activeLayerId);
+          
+          // Reinitialize color cycle brushes for restored layers
+          restoredLayers.forEach((layer: any) => {
+            if (layer.layerType === 'color-cycle' && layer.colorCycleData && !layer.colorCycleData.colorCycleBrush) {
+              // Call initColorCycleForLayer to recreate the brush
+              const { initColorCycleForLayer } = useAppStore.getState();
+              if (layer.colorCycleData.canvas) {
+                initColorCycleForLayer(layer.id, layer.colorCycleData.canvas.width, layer.colorCycleData.canvas.height);
+              }
+            }
+          });
           
           // Mark composite as dirty for next redraw
           compositeCanvasDirtyRef.current = true;
@@ -651,8 +700,48 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         }
         
         if (snapshot.layers && snapshot.activeLayerId) {
-          setLayers(snapshot.layers);
+          // Reconstruct colorCycleData for any color-cycle layers
+          const restoredLayers = snapshot.layers.map((layer: any) => {
+            if (layer.colorCycleData && layer.colorCycleData.canvasImageData) {
+              // Recreate the canvas for color cycle
+              const canvas = document.createElement('canvas');
+              canvas.width = layer.colorCycleData.canvasWidth || 1920;
+              canvas.height = layer.colorCycleData.canvasHeight || 1080;
+              
+              // Restore the canvas content
+              const ctx = canvas.getContext('2d');
+              if (ctx && layer.colorCycleData.canvasImageData) {
+                ctx.putImageData(layer.colorCycleData.canvasImageData, 0, 0);
+              }
+              
+              // Recreate colorCycleData with the restored canvas
+              return {
+                ...layer,
+                colorCycleData: {
+                  gradient: layer.colorCycleData.gradient,
+                  isAnimating: layer.colorCycleData.isAnimating,
+                  canvas,
+                  // colorCycleBrush will be recreated if needed
+                  colorCycleBrush: undefined
+                }
+              };
+            }
+            return layer;
+          });
+          
+          setLayers(restoredLayers);
           setActiveLayer(snapshot.activeLayerId);
+          
+          // Reinitialize color cycle brushes for restored layers
+          restoredLayers.forEach((layer: any) => {
+            if (layer.layerType === 'color-cycle' && layer.colorCycleData && !layer.colorCycleData.colorCycleBrush) {
+              // Call initColorCycleForLayer to recreate the brush
+              const { initColorCycleForLayer } = useAppStore.getState();
+              if (layer.colorCycleData.canvas) {
+                initColorCycleForLayer(layer.id, layer.colorCycleData.canvas.width, layer.colorCycleData.canvas.height);
+              }
+            }
+          });
           
           // Mark composite as dirty for next redraw
           compositeCanvasDirtyRef.current = true;
@@ -750,6 +839,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           drawingHandlers.finalizeDrawing().then(() => {
             // Signal that finalization is complete
             stateMachine.finalizationComplete();
+            
+            // Force immediate composite regeneration after layer update
+            if (compositeCanvasRef.current && project) {
+              compositeLayersToCanvas(compositeCanvasRef.current);
+              setCurrentOffscreenCanvas(compositeCanvasRef.current);
+              compositeCanvasDirtyRef.current = false;
+            }
+            
             // Trigger redraw after finalization
             setNeedsRedraw(prev => prev + 1);
             
@@ -1051,6 +1148,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
               drawingHandlers.finalizeDrawing().then(() => {
                 // Signal that finalization is complete
                 stateMachine.finalizationComplete();
+                
+                // Force immediate composite regeneration after layer update
+                if (compositeCanvasRef.current && project) {
+                  compositeLayersToCanvas(compositeCanvasRef.current);
+                  setCurrentOffscreenCanvas(compositeCanvasRef.current);
+                  compositeCanvasDirtyRef.current = false;
+                }
+                
                 // Trigger redraw after finalization
                 setNeedsRedraw(prev => prev + 1);
               });
@@ -1845,6 +1950,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           drawingHandlers.finalizeDrawing().then(() => {
             // Signal that finalization is complete
             stateMachine.finalizationComplete();
+            
+            // Force immediate composite regeneration after layer update
+            if (compositeCanvasRef.current && project) {
+              compositeLayersToCanvas(compositeCanvasRef.current);
+              setCurrentOffscreenCanvas(compositeCanvasRef.current);
+              compositeCanvasDirtyRef.current = false;
+            }
+            
             // Trigger redraw after finalization
             setNeedsRedraw(prev => prev + 1);
             
@@ -1869,6 +1982,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         drawingHandlers.finalizeShapeDrawing();
         // Signal that finalization is complete
         stateMachine.finalizationComplete();
+        
+        // Force immediate composite regeneration after layer update
+        if (compositeCanvasRef.current && project) {
+          compositeLayersToCanvas(compositeCanvasRef.current);
+          setCurrentOffscreenCanvas(compositeCanvasRef.current);
+          compositeCanvasDirtyRef.current = false;
+        }
+        
         setNeedsRedraw(prev => prev + 1);
         
         // Restart color cycle animation if it should be playing (same as regular drawing)
@@ -1879,8 +2000,28 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         drawingHandlers.finalizeDrawing().then(() => {
           // Signal that finalization is complete
           stateMachine.finalizationComplete();
-          // Trigger redraw after finalization completes
-          setNeedsRedraw(prev => prev + 1);
+          
+          // Use requestAnimationFrame to ensure the layer update has propagated
+          requestAnimationFrame(() => {
+            // Get fresh state from the store to avoid stale closures
+            const currentState = useAppStore.getState();
+            const currentProject = currentState.project;
+            const currentCompositeLayersToCanvas = currentState.compositeLayersToCanvas;
+            
+            // Force immediate composite regeneration after layer update
+            if (compositeCanvasRef.current && currentProject) {
+              currentCompositeLayersToCanvas(compositeCanvasRef.current);
+              currentState.setCurrentOffscreenCanvas(compositeCanvasRef.current);
+              compositeCanvasDirtyRef.current = false;
+              
+              // Force immediate redraw
+              const canvas = canvasRef.current;
+              const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+              if (ctx) {
+                draw(ctx, viewTransformRef.current);
+              }
+            }
+          });
           
           // Restart color cycle animation if it should be playing
           if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && getColorCycleAnimationState()) {
@@ -1939,6 +2080,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           drawingHandlers.finalizeShapeDrawing();
           // Signal that finalization is complete
           stateMachine.finalizationComplete();
+          
+          // Force immediate composite regeneration after layer update
+          if (compositeCanvasRef.current && project) {
+            compositeLayersToCanvas(compositeCanvasRef.current);
+            setCurrentOffscreenCanvas(compositeCanvasRef.current);
+            compositeCanvasDirtyRef.current = false;
+          }
+          
           setNeedsRedraw(prev => prev + 1);
           
           // Restart color cycle animation if it should be playing (same as regular drawing)
@@ -1949,8 +2098,28 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           drawingHandlers.finalizeDrawing().then(() => {
             // Signal that finalization is complete
             stateMachine.finalizationComplete();
-            // Trigger redraw after finalization
-            setNeedsRedraw(prev => prev + 1);
+            
+            // Use requestAnimationFrame to ensure the layer update has propagated
+            requestAnimationFrame(() => {
+              // Get fresh state from the store to avoid stale closures
+              const currentState = useAppStore.getState();
+              const currentProject = currentState.project;
+              const currentCompositeLayersToCanvas = currentState.compositeLayersToCanvas;
+              
+              // Force immediate composite regeneration after layer update
+              if (compositeCanvasRef.current && currentProject) {
+                currentCompositeLayersToCanvas(compositeCanvasRef.current);
+                currentState.setCurrentOffscreenCanvas(compositeCanvasRef.current);
+                compositeCanvasDirtyRef.current = false;
+                
+                // Force immediate redraw
+                const canvas = canvasRef.current;
+                const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+                if (ctx) {
+                  draw(ctx, viewTransformRef.current);
+                }
+              }
+            });
             
             // Restart color cycle animation if it should be playing
             if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && getColorCycleAnimationState()) {
@@ -2008,6 +2177,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     }
     
     setNeedsRedraw(prev => prev + 1);
+    
+    // Also trigger immediate redraw
+    const canvas = canvasRef.current;
+    if (canvas && drawRef.current && viewTransformRef.current) {
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        drawRef.current(ctx, viewTransformRef.current);
+      }
+    }
   }, [layersHash, project, compositeLayersToCanvas, setCurrentOffscreenCanvas, layersNeedRecomposition, setLayersNeedRecomposition]);
   
   // Animate marching ants
