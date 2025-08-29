@@ -191,12 +191,12 @@ const BrushControls = () => {
 
         {/* Flow Direction Toggle */}
         <div className="mb-2">
-          <div className="flex items-center justify-between">
-            <label className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Flow
             </label>
             <CustomSwitch
-              checked={activeSettings.colorCycleFlowForward !== false}
+              checked={activeSettings.colorCycleFlowForward === true}
               onChange={(checked) => {
                 setActiveSettings({ colorCycleFlowForward: checked });
                 // Set flow direction based on toggle state

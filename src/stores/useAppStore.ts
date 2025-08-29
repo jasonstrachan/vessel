@@ -373,6 +373,8 @@ const defaultCanvasState: CanvasState = {
 const defaultToolState: ToolState = {
   currentTool: 'brush',
   previousTool: 'brush',
+  lastRegularTool: 'brush',
+  lastRegularBrushShape: BrushShape.ROUND,
   brushSettings: defaultBrushSettingsForStore,
   eraserSettings: { ...defaultBrushSettingsForStore, blendMode: 'destination-out', color: 'rgba(255, 255, 255, 0.1)' },
   fillSettings: {
@@ -840,6 +842,17 @@ export const useAppStore = create<AppState>()(
 
         const newBrushSettings = { ...state.tools.brushSettings };
         
+        // Track last regular tool and brush shape when switching from regular brush
+        let lastRegularTool = state.tools.lastRegularTool;
+        let lastRegularBrushShape = state.tools.lastRegularBrushShape;
+        
+        if ((state.tools.currentTool === 'brush' || state.tools.currentTool === 'eraser') && 
+            tool !== 'brush' && tool !== 'eraser') {
+          // Switching away from regular brush/eraser - save current settings
+          lastRegularTool = state.tools.currentTool;
+          lastRegularBrushShape = state.tools.brushSettings.brushShape;
+        }
+        
         // Reset custom brush state when switching to incompatible tools
         // Preserve custom brush when switching from 'custom' to 'brush' tool
         if (state.tools.currentTool === 'custom' && tool !== 'custom' && tool !== 'brush') {
@@ -857,6 +870,8 @@ export const useAppStore = create<AppState>()(
             ...state.tools,
             previousTool: state.tools.currentTool,
             currentTool: tool,
+            lastRegularTool: lastRegularTool,
+            lastRegularBrushShape: lastRegularBrushShape,
             brushSettings: newBrushSettings
           }
         };
@@ -1622,10 +1637,21 @@ export const useAppStore = create<AppState>()(
             console.log('🟣 SET ACTIVE LAYER IN CC BRUSH:', id.substring(0, 20));
           }
           
+          // Save current brush settings if we're on a regular brush
+          let savedRegularBrush = state.tools.currentTool;
+          let savedBrushShape = state.tools.brushSettings.brushShape;
+          if (state.tools.currentTool === 'brush' || state.tools.currentTool === 'eraser') {
+            savedRegularBrush = state.tools.currentTool;
+            savedBrushShape = state.tools.brushSettings.brushShape;
+          }
+          
           const result = {
             activeLayerId: id,
             tools: {
               ...state.tools,
+              currentTool: 'brush' as Tool, // Keep brush tool for color cycle layers
+              lastRegularTool: savedRegularBrush, // Track the last regular tool
+              lastRegularBrushShape: savedBrushShape, // Track the last brush shape
               brushSettings: {
                 ...state.tools.brushSettings,
                 colorCycleGradient: layer.colorCycleData?.gradient || []
@@ -1646,8 +1672,29 @@ export const useAppStore = create<AppState>()(
           return result;
         }
         
+        // When switching to a regular layer from color cycle, restore last regular tool
+        let toolUpdate = {};
+        const wasOnColorCycle = currentActiveLayer?.layerType === 'color-cycle';
+        if (wasOnColorCycle && layer && layer.layerType !== 'color-cycle') {
+          // Restore the last regular tool and brush shape
+          const lastTool = (state.tools as any).lastRegularTool || 'brush';
+          const lastShape = (state.tools as any).lastRegularBrushShape || state.tools.brushSettings.brushShape;
+          
+          toolUpdate = {
+            tools: {
+              ...state.tools,
+              currentTool: lastTool,
+              brushSettings: {
+                ...state.tools.brushSettings,
+                brushShape: lastShape
+              }
+            }
+          };
+        }
+        
         const result = { 
-          activeLayerId: id
+          activeLayerId: id,
+          ...toolUpdate
           // DO NOT return layers unless we're actually changing them
         };
         

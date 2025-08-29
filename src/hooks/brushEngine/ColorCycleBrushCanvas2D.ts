@@ -100,7 +100,7 @@ export class ColorCycleBrushCanvas2D {
     
     // Core settings
     this.brushSize = options.brushSize || 20;
-    this.cycleSpeed = 1.0;
+    this.cycleSpeed = 0.4;
     this.fps = options.fps || 30;
   }
   
@@ -823,7 +823,7 @@ export class ColorCycleBrushCanvas2D {
     this.layerStrokes.clear();
     
     // Restore settings
-    this.cycleSpeed = state.cycleSpeed || 1.0;
+    this.cycleSpeed = state.cycleSpeed || 0.4;
     this.fps = state.fps || 30;
     this.brushSize = state.brushSize || 20;
     

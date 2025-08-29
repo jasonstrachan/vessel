@@ -593,6 +593,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
               // Recreate colorCycleData with the restored canvas
               return {
                 ...layer,
+                layerType: layer.layerType, // Explicitly preserve layerType
                 colorCycleData: {
                   gradient: layer.colorCycleData.gradient,
                   isAnimating: layer.colorCycleData.isAnimating,
@@ -717,6 +718,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
               // Recreate colorCycleData with the restored canvas
               return {
                 ...layer,
+                layerType: layer.layerType, // Explicitly preserve layerType
                 colorCycleData: {
                   gradient: layer.colorCycleData.gradient,
                   isAnimating: layer.colorCycleData.isAnimating,

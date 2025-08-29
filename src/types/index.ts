@@ -135,6 +135,8 @@ export interface CanvasState {
 export interface ToolState {
   currentTool: Tool;
   previousTool: Tool;
+  lastRegularTool?: Tool; // Track last regular brush/eraser tool
+  lastRegularBrushShape?: BrushShape; // Track last regular brush shape
   brushSettings: BrushSettings;
   eraserSettings: BrushSettings;
   fillSettings: {
@@ -273,6 +275,8 @@ export interface BrushSettings {
   contourSpacing?: number; // 1-10 (spacing between contour lines)
   contourVariance?: number; // 0-10 (variance in spacing, 0=uniform, 10=high variance)
   contourSmoothness?: number; // 0-5 (smoothness of contour lines, 0=sharp, 5=very smooth)
+  // Color cycle flow direction
+  colorCycleFlowForward?: boolean; // true = forward flow, false = backward flow
   
   // Color cycle brush settings
   colorCycleSpeed?: number; // 0.1-5.0 (animation speed)

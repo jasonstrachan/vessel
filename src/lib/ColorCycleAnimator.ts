@@ -31,7 +31,7 @@ export class ColorCycleAnimator {
   private strokeOrder: Uint16Array; // Store order each pixel was painted (0 = not painted)
   private currentStrokeIndex: number = 1;
   private maxStrokeIndex: number = 0;
-  private flowDirection: 'forward' | 'backward' = 'forward'; // Flow direction toggle
+  private flowDirection: 'forward' | 'backward' = 'backward'; // Flow direction toggle (default: backward)
   
   // Callbacks
   private onFrameCallbacks: Set<(imageData: ImageData) => void> = new Set();
@@ -79,7 +79,7 @@ export class ColorCycleAnimator {
       // Initialize animation controller with lazy settings
       this.animationController = new AnimationController({
         fps: config.fps || 30,
-        speed: config.speed || 1.0,
+        speed: config.speed || 0.4,
         autoStart: false, // Never auto-start in lazy mode
         onFrame: this.handleAnimationFrame.bind(this)
       });
@@ -116,7 +116,7 @@ export class ColorCycleAnimator {
       // Initialize animation controller
       this.animationController = new AnimationController({
         fps: config.fps || 30,
-        speed: config.speed || 1.0,
+        speed: config.speed || 0.4,
         autoStart: config.autoStart || false,
         onFrame: this.handleAnimationFrame.bind(this)
       });
@@ -199,27 +199,28 @@ export class ColorCycleAnimator {
         // No need for animation offset or flow offset - each stamp has its assigned color
         const paletteIndex = (colorIndex - 1) % 256;
         
-        // Optional: Add animation cycling effect on top of base colors
-        // This will cycle the entire gradient while preserving relative positions
+        // Apply animation with flow direction
+        let finalIndex = paletteIndex;
+        
         if (offset > 0) {
-          const animatedIndex = Math.floor((paletteIndex + offset * 256) % 256);
-          const color = this.gradientPalette.getColor(animatedIndex);
-          const pixelIdx = i * 4;
-          
-          pixels[pixelIdx] = color.r;
-          pixels[pixelIdx + 1] = color.g;
-          pixels[pixelIdx + 2] = color.b;
-          pixels[pixelIdx + 3] = color.a;
-        } else {
-          // No animation - use static colors
-          const color = this.gradientPalette.getColor(paletteIndex);
-          const pixelIdx = i * 4;
-          
-          pixels[pixelIdx] = color.r;
-          pixels[pixelIdx + 1] = color.g;
-          pixels[pixelIdx + 2] = color.b;
-          pixels[pixelIdx + 3] = color.a;
+          // Apply flow direction to animation
+          if (this.flowDirection === 'backward') {
+            // Reverse the animation direction - subtract offset and ensure positive
+            const backwardOffset = offset * 256;
+            finalIndex = Math.floor((paletteIndex - backwardOffset + 256 * 100) % 256);
+          } else {
+            // Forward animation (default)
+            finalIndex = Math.floor((paletteIndex + offset * 256) % 256);
+          }
         }
+        
+        const color = this.gradientPalette.getColor(finalIndex);
+        const pixelIdx = i * 4;
+        
+        pixels[pixelIdx] = color.r;
+        pixels[pixelIdx + 1] = color.g;
+        pixels[pixelIdx + 2] = color.b;
+        pixels[pixelIdx + 3] = color.a;
       }
     
     const loopTime = performance.now() - loopStart;
@@ -576,7 +577,7 @@ export class ColorCycleAnimator {
     console.log('🎨 [ColorCycleAnimator] Setting flow direction to:', direction);
     this.flowDirection = direction;
     // Always re-render to show the change immediately
-    this.renderFrame(this.animationController.getOffset());
+    this.forceRender();
   }
   
   /**
@@ -592,7 +593,7 @@ export class ColorCycleAnimator {
   toggleFlowDirection() {
     this.flowDirection = this.flowDirection === 'forward' ? 'backward' : 'forward';
     if (!this.animationController.isPlaying()) {
-      this.renderFrame();
+      this.forceRender();
     }
   }
   
