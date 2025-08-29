@@ -2872,6 +2872,18 @@ export const useAppStore = create<AppState>()(
           
           // Phase 3: Handle color cycle layers directly
           if (layer.layerType === 'color-cycle' && layer.colorCycleData?.canvas) {
+            // Update animation for this layer if it exists
+            const colorCycleBrushManager = getColorCycleBrushManager();
+            if (colorCycleBrushManager) {
+              const colorCycleBrush = colorCycleBrushManager.getBrush(layer.id);
+              if (colorCycleBrush) {
+                // Update animation frame for this layer
+                colorCycleBrush.updateAnimation();
+                // Render directly to layer's canvas
+                colorCycleBrush.renderDirectToCanvas(layer.colorCycleData.canvas, layer.id);
+              }
+            }
+            
             // Set composite operation and opacity
             ctx.globalCompositeOperation = layer.blendMode;
             ctx.globalAlpha = layer.opacity;

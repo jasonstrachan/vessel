@@ -211,9 +211,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       if (!skipDrawingCanvas && drawingCanvasRef && 
           (isDrawing || drawingCanvasHasContent)) {
         
-        // For eraser, the drawing canvas contains the entire modified layer
-        // For brush, it's just the new strokes to overlay
-        ctx.drawImage(drawingCanvasRef, 0, 0);
+        // Skip drawing canvas overlay during color cycle animation to prevent 
+        // CC layers from appearing on top - they're now animated in compositeLayersToCanvas
+        const isColorCycleAnimating = colorCycleManagerRef.current?.isPlaying() || false;
+        
+        if (!isColorCycleAnimating) {
+          // For eraser, the drawing canvas contains the entire modified layer
+          // For brush, it's just the new strokes to overlay
+          ctx.drawImage(drawingCanvasRef, 0, 0);
+        }
       }
       
       // Note: Color cycle animation is now rendered to the drawing canvas

@@ -1303,8 +1303,8 @@ export function useDrawingHandlers({
           drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
           
           // Use the helper to render all color cycle layers
-          // During continuous animation, only show active layer
-          const hasColorCycleContent = renderAllColorCycleLayers(drawingCtxRef.current, true);
+          // During continuous animation, show all color cycle layers
+          const hasColorCycleContent = renderAllColorCycleLayers(drawingCtxRef.current, false);
           
           // If no color cycle layers were rendered, try legacy fallback
           if (!hasColorCycleContent) {
