@@ -855,12 +855,19 @@ export function useDrawingHandlers({
         }
       }
       
-      // Clear the drawing canvas immediately after finalizing to prevent stale content
-      // from appearing/disappearing when brush settings change
-      if (drawingCtxRef.current && drawingCanvasRef.current) {
-        drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+      // FIXED: Don't clear drawing canvas for CC shapes to prevent them from disappearing
+      // Only clear for non-CC layers to prevent stale content issues
+      const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+      const isColorCycleBrush = currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE;
+      
+      if (!isColorCycleLayer || !isColorCycleBrush) {
+        // Clear the drawing canvas immediately after finalizing to prevent stale content
+        // from appearing/disappearing when brush settings change
+        if (drawingCtxRef.current && drawingCanvasRef.current) {
+          drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+        }
+        drawingCanvasHasContent.current = false;
       }
-      drawingCanvasHasContent.current = false;
       
       // Parent component will handle final redraw
     } catch (error) {
@@ -1046,7 +1053,14 @@ export function useDrawingHandlers({
             drawCtx.fillStyle = tools.brushSettings.color;
           }
 
-          drawCtx.beginPath();
+          // Check if we're on a color cycle layer - if so, skip regular shape drawing
+          const currentState = useAppStore.getState();
+          const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+          const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+          
+          if (!isColorCycleLayer) {
+            // Only draw regular shapes if NOT on a color cycle layer
+            drawCtx.beginPath();
           if (isPixelBrush) {
             // For pixel brushes, snap all coordinates to integer pixels for crisp edges
             drawCtx.moveTo(Math.round(shapePointsRef.current[0].x), Math.round(shapePointsRef.current[0].y));
@@ -1127,9 +1141,12 @@ export function useDrawingHandlers({
               drawCtx.restore();
             }
           }
+          } // End of !isColorCycleLayer block
           
-          // For color cycle brush, we need to fill the shape and render it
-          if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && drawCtx) {
+          // Don't need to check again - we already have isColorCycleLayer from above
+          
+          // For color cycle layer, we need to fill the shape and render it
+          if (isColorCycleLayer && drawCtx) {
             // Don't stop the animation - let it continue if it's playing
             // We'll just add the shape to the color cycle layers
             
@@ -1142,8 +1159,6 @@ export function useDrawingHandlers({
             }
             
             // CRITICAL FIX: Force immediate texture update and render after filling shape
-            const currentState = useAppStore.getState();
-            const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
             const activeLayerId = activeLayer?.id;
             if (activeLayerId) {
               brushEngine.updateColorCycleTexture(activeLayerId);
@@ -1161,6 +1176,8 @@ export function useDrawingHandlers({
               drawCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
               brushEngine.renderColorCycle(drawCtx, false); // false = don't apply opacity
             }
+            
+            drawingCanvasHasContent.current = true;
           }
           
           drawingCanvasHasContent.current = true;
@@ -1168,6 +1185,23 @@ export function useDrawingHandlers({
         
         shapePointsRef.current = [];
         isDrawingShapeRef.current = false;
+        
+        // FIXED: For CC shapes on CC layers, handle finalization directly without calling finalizeDrawing
+        // which would clear the drawing canvas and make the shape disappear
+        const currentState = useAppStore.getState();
+        const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+        const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+        
+        if (isColorCycleLayer && drawingCanvasHasContent.current) {
+          // Capture CC shape to layer directly
+          if (activeLayer && drawingCanvasRef.current) {
+            await captureCanvasToActiveLayer(drawingCanvasRef.current);
+            saveCanvasState(drawingCanvasRef.current, 'brush', 'CC Shape');
+          }
+          
+          if (isBusyRef) isBusyRef.current = false;
+          return;
+        }
         
         if (isBusyRef) isBusyRef.current = false;
         await finalizeDrawing();

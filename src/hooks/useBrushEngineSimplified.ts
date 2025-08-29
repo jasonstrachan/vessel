@@ -1744,14 +1744,9 @@ export const useBrushEngineSimplified = () => {
     updateColorCycleTexture: (layerId: string) => {
       const colorCycleBrush = getActiveLayerColorCycleBrush();
       if (colorCycleBrush) {
-        // Access internal method to update texture immediately
-        const brush = colorCycleBrush as any;
-        if (brush.layerStrokes && brush.layerStrokes.has(layerId)) {
-          const strokeData = brush.layerStrokes.get(layerId);
-          if (strokeData && strokeData.currentGradientIndex >= 0) {
-            // Force update the texture with the stroke data
-            brush.updateIndexTextureWithData(strokeData.currentGradientIndex, strokeData.paintBuffer);
-          }
+        // Force a render to update the texture
+        if (typeof colorCycleBrush.render === 'function') {
+          colorCycleBrush.render(true); // Force full render
         }
       }
     },

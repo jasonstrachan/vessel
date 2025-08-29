@@ -807,8 +807,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
         
         if (drawCtx && brushEngine) {
-          // Check if we're using color cycle brush in shape mode
-          if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && tools.shapeMode) {
+          // Check if we're on a color cycle layer in shape mode
+          const activeLayer = layers.find(l => l.id === activeLayerId);
+          const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+          
+          if (isColorCycleLayer && tools.shapeMode) {
             // Reset color cycle for new shape
             brushEngine.resetColorCycle();
             
