@@ -285,6 +285,9 @@ export interface BrushSettings {
   colorCycleSpeed?: number; // 0.1-5.0 (animation speed)
   colorCycleGradient?: Array<{ position: number; color: string }>; // Gradient stops
   colorCycleFPS?: number; // 15-60 (frames per second for animation)
+  
+  // Gradient bands/steps for both strokes and fills
+  gradientBands?: number; // 2-50 (number of color steps in gradients)
 }
 
 export interface ComponentParams {

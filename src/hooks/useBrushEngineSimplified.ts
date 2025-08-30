@@ -408,14 +408,38 @@ export const useBrushEngineSimplified = () => {
             endX - minX, endY - minY
           );
           
-          // Add color stops
+          // Add color stops with banding effect if gradientBands is set
           if (colors.length > 0) {
             if (colors.length === 1) {
               // For single color, add it at both start and end
               localGradient.addColorStop(0, colors[0]);
               localGradient.addColorStop(1, colors[0]);
+            } else if (tools.brushSettings.gradientBands && tools.brushSettings.gradientBands > 0) {
+              // Create stepped gradient for visible bands
+              const bandCount = Math.min(tools.brushSettings.gradientBands, colors.length);
+              for (let i = 0; i < bandCount; i++) {
+                const colorIndex = Math.floor((i / Math.max(1, bandCount - 1)) * (colors.length - 1));
+                const color = colors[colorIndex];
+                
+                const startPos = i / bandCount;
+                const endPos = (i + 1) / bandCount;
+                
+                // Add color at start of band
+                if (i === 0) {
+                  localGradient.addColorStop(0, color);
+                } else {
+                  localGradient.addColorStop(startPos, color);
+                }
+                
+                // Add color at end of band (creates hard edge)
+                if (i === bandCount - 1) {
+                  localGradient.addColorStop(1, color);
+                } else {
+                  localGradient.addColorStop(endPos - 0.001, color);
+                }
+              }
             } else {
-              // Multiple colors - distribute them evenly
+              // Multiple colors - distribute them evenly (smooth gradient)
               colors.forEach((color, index) => {
                 const position = index / (colors.length - 1);
                 localGradient.addColorStop(position, color);
@@ -434,7 +458,7 @@ export const useBrushEngineSimplified = () => {
           // Get and dither the full gradient
           const imageData = tempCtx.getImageData(0, 0, boundWidth, boundHeight);
           
-          const numColors = tools.brushSettings.colors || 2;
+          const numColors = tools.brushSettings.gradientBands || tools.brushSettings.colors || 2;
           const fillResolution = tools.brushSettings.fillResolution || 1;
           const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
           const patternStyle = tools.brushSettings.patternStyle || 'dots';
@@ -513,7 +537,7 @@ export const useBrushEngineSimplified = () => {
     
     // Restore context state
     ctx.restore();
-  }, [tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.antialiasing, tools.brushSettings.opacity, tools.brushSettings.blendMode, isPixelBrush]);
+  }, [tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.antialiasing, tools.brushSettings.opacity, tools.brushSettings.blendMode, isPixelBrush]);
 
   // Helper function to apply risograph effect
   const applyRisographEffect = useCallback((
@@ -657,21 +681,49 @@ export const useBrushEngineSimplified = () => {
       }
       
       // Get the number of colors to use from brush settings
-      const numColors = tools.brushSettings.colors || orderedUniqueColors.length;
+      // Use gradientBands if available, otherwise fall back to colors setting
+      const numColors = tools.brushSettings.gradientBands || tools.brushSettings.colors || orderedUniqueColors.length;
       
-      // Sample the unique colors evenly
-      if (orderedUniqueColors.length <= numColors) {
-        // Use all unique colors, distributed evenly
-        orderedUniqueColors.forEach((item, index) => {
-          const position = index / Math.max(1, orderedUniqueColors.length - 1);
-          gradient.addColorStop(position, item.color);
-        });
+      // Create stepped gradient for visible bands effect
+      if (tools.brushSettings.gradientBands && tools.brushSettings.gradientBands > 0) {
+        // Create hard-edged bands by duplicating color stops
+        const bandCount = Math.min(numColors, orderedUniqueColors.length);
+        for (let i = 0; i < bandCount; i++) {
+          const sourceIndex = Math.floor((i / Math.max(1, bandCount - 1)) * (orderedUniqueColors.length - 1));
+          const color = orderedUniqueColors[sourceIndex].color;
+          
+          const startPos = i / bandCount;
+          const endPos = (i + 1) / bandCount;
+          
+          // Add color at start of band
+          if (i === 0) {
+            gradient.addColorStop(0, color);
+          } else {
+            gradient.addColorStop(startPos, color);
+          }
+          
+          // Add color at end of band (creates hard edge)
+          if (i === bandCount - 1) {
+            gradient.addColorStop(1, color);
+          } else {
+            gradient.addColorStop(endPos - 0.001, color);
+          }
+        }
       } else {
-        // Sample colors evenly from the unique set
-        for (let i = 0; i < numColors; i++) {
-          const sourceIndex = Math.floor((i / Math.max(1, numColors - 1)) * (orderedUniqueColors.length - 1));
-          const position = i / Math.max(1, numColors - 1);
-          gradient.addColorStop(position, orderedUniqueColors[sourceIndex].color);
+        // Original smooth gradient code
+        if (orderedUniqueColors.length <= numColors) {
+          // Use all unique colors, distributed evenly
+          orderedUniqueColors.forEach((item, index) => {
+            const position = index / Math.max(1, orderedUniqueColors.length - 1);
+            gradient.addColorStop(position, item.color);
+          });
+        } else {
+          // Sample colors evenly from the unique set
+          for (let i = 0; i < numColors; i++) {
+            const sourceIndex = Math.floor((i / Math.max(1, numColors - 1)) * (orderedUniqueColors.length - 1));
+            const position = i / Math.max(1, numColors - 1);
+            gradient.addColorStop(position, orderedUniqueColors[sourceIndex].color);
+          }
         }
       }
       
@@ -744,7 +796,7 @@ export const useBrushEngineSimplified = () => {
             }
           }
           
-          const numColors = tools.brushSettings.colors || orderedUniqueColors.length;
+          const numColors = tools.brushSettings.gradientBands || tools.brushSettings.colors || orderedUniqueColors.length;
           
           if (orderedUniqueColors.length <= numColors) {
             orderedUniqueColors.forEach((item, index) => {
@@ -777,7 +829,7 @@ export const useBrushEngineSimplified = () => {
         const gradientImageData = tempCtx.getImageData(0, 0, paddedWidth, paddedHeight);
         
         // Apply dithering
-        const numColors = tools.brushSettings.colors || 2;
+        const numColors = tools.brushSettings.gradientBands || tools.brushSettings.colors || 2;
         const fillResolution = tools.brushSettings.fillResolution || 1;
         const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
         const patternStyle = tools.brushSettings.patternStyle || 'dots';
@@ -846,7 +898,7 @@ export const useBrushEngineSimplified = () => {
     
     // Restore context state
     ctx.restore();
-  }, [tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.blendMode, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect, isPixelBrush]);
+  }, [tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.blendMode, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect, isPixelBrush]);
 
 
   /**
@@ -1456,6 +1508,17 @@ export const useBrushEngineSimplified = () => {
   const initializeColorCycleBrush = useCallback(() => {
     if (!activeLayerId) return null;
     
+    // CRITICAL: Check if the active layer is a color-cycle layer
+    const state = useAppStore.getState();
+    const activeLayer = state.layers.find(l => l.id === activeLayerId);
+    if (!activeLayer || activeLayer.layerType !== 'color-cycle') {
+      console.warn('[ColorCycle] Cannot initialize CC brush for non-CC layer:', {
+        layerId: activeLayerId.substring(0, 20),
+        layerType: activeLayer?.layerType
+      });
+      return null;
+    }
+    
     try {
       // Check if layer already has a color cycle brush
       let colorCycleBrush = getActiveLayerColorCycleBrush();
@@ -1492,6 +1555,9 @@ export const useBrushEngineSimplified = () => {
       }
       if (tools.brushSettings.colorCycleSpeed) {
         colorCycleBrush.setSpeed(tools.brushSettings.colorCycleSpeed);
+      }
+      if (tools.brushSettings.gradientBands) {
+        colorCycleBrush.setGradientBands(tools.brushSettings.gradientBands);
       }
       
       // Apply gradient - prioritize layer's stored gradient over brush settings
@@ -1698,6 +1764,14 @@ export const useBrushEngineSimplified = () => {
       colorCycleBrush.setFPS(tools.brushSettings.colorCycleFPS);
     }
   }, [tools.brushSettings.colorCycleFPS, getActiveLayerColorCycleBrush]);
+  
+  // Update gradient bands when it changes
+  useEffect(() => {
+    const colorCycleBrush = getActiveLayerColorCycleBrush();
+    if (colorCycleBrush && tools.brushSettings.gradientBands) {
+      colorCycleBrush.setGradientBands(tools.brushSettings.gradientBands);
+    }
+  }, [tools.brushSettings.gradientBands, getActiveLayerColorCycleBrush]);
 
   // Clean up resources
   useEffect(() => {
@@ -1800,6 +1874,14 @@ export const useBrushEngineSimplified = () => {
     },
     
     ensureColorCycleBrush: () => {
+      // CRITICAL: Only ensure brush for color-cycle layers
+      const state = useAppStore.getState();
+      const activeLayer = state.layers.find(l => l.id === activeLayerId);
+      if (!activeLayer || activeLayer.layerType !== 'color-cycle') {
+        // Silently skip for non-CC layers
+        return;
+      }
+      
       // Ensure brush exists without starting a stroke
       let colorCycleBrush = getActiveLayerColorCycleBrush();
       if (!colorCycleBrush) {

@@ -5,6 +5,7 @@ import { useAppStore } from '../stores/useAppStore';
 import { Layer, BrushShape } from '../types';
 import { Eye, EyeOff, Plus } from 'lucide-react';
 import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
+import { getColorCycleAnimationState, setColorCycleAnimationState } from './toolbar/BrushControls';
 
 // Component to display color swatches for a layer
 const LayerColorSwatches = memo<{ 
@@ -176,9 +177,11 @@ LayerItem.displayName = 'LayerItem';
 
 const MinimalLayerList = () => {
   const [dragOverLayerId, setDragOverLayerId] = useState<string | null>(null);
+  const [isAnimating, setIsAnimating] = useState(() => getColorCycleAnimationState());
   
   // Store subscriptions
   const layers = useAppStore(state => state.layers);
+  const brushShape = useAppStore(state => state.tools?.brushSettings?.brushShape);
   
   const activeLayerId = useAppStore(state => state.activeLayerId);
   const project = useAppStore(state => state.project);
@@ -188,6 +191,11 @@ const MinimalLayerList = () => {
   const updateLayer = useAppStore(state => state.updateLayer);
   const setActiveLayer = useAppStore(state => state.setActiveLayer);
   const reorderLayers = useAppStore(state => state.reorderLayers);
+  
+  // Sync animation state when brush changes
+  useEffect(() => {
+    setIsAnimating(getColorCycleAnimationState());
+  }, [brushShape]);
   
   // Generate gradient CSS for preview
   // Memoize gradient CSS generation to prevent recalculation on every render
@@ -437,6 +445,31 @@ const MinimalLayerList = () => {
             );
           })}
         </div>
+      </div>
+      
+      {/* Play/Pause Button - Always visible */}
+      <div className="border-t border-[#424242] p-2">
+        <button
+          onClick={() => {
+            const newIsAnimating = !isAnimating;
+            setIsAnimating(newIsAnimating);
+            setColorCycleAnimationState(newIsAnimating);
+            
+            // Get the handlers from BrushControls if available
+            const handlers = (window as any).colorCycleAnimationHandlers;
+            if (handlers) {
+              if (newIsAnimating) {
+                handlers.startContinuousColorCycleAnimation();
+              } else {
+                handlers.stopContinuousColorCycleAnimation();
+              }
+            }
+          }}
+          className="w-full h-7 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
+        >
+          <span className="text-[10px] mr-1">{isAnimating ? '⏸' : '▶'}</span>
+          <span className="text-[10px]">{isAnimating ? 'Pause' : 'Play'}</span>
+        </button>
       </div>
     </div>
   );

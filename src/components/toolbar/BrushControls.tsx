@@ -27,6 +27,8 @@ let globalIsAnimating = true; // Track global animation state (default to playin
 
 export const setColorCycleAnimationHandlers = (handlers: ColorCycleAnimationContext | null) => {
   colorCycleAnimationHandlers = handlers;
+  // Also make it available globally for LayerPanel
+  (window as any).colorCycleAnimationHandlers = handlers;
 };
 
 export const getColorCycleAnimationState = () => globalIsAnimating;
@@ -76,43 +78,21 @@ const BrushControls = () => {
       if (wasColorCycle && colorCycleAnimationHandlers) {
         // Stop the animation but keep the content visible
         colorCycleAnimationHandlers.stopContinuousColorCycleAnimation();
+        
+        // Reset Color Cycle speed to default when leaving CC mode
+        setActiveSettings({ colorCycleSpeed: 1.0 });
       }
       setIsAnimating(true); // Reset to playing state for next time
     }
     
     previousBrushShape.current = activeSettings.brushShape;
-  }, [activeSettings.brushShape, isAnimating]);
+  }, [activeSettings.brushShape, isAnimating, setActiveSettings]);
 
 
   // Show special controls for Color Cycle brush
   if (activeSettings.brushShape === BrushShape.COLOR_CYCLE) {
     return (
       <div className="p-4">
-        {/* Play/Pause Button */}
-        <div className="mb-4">
-          <button
-            onClick={() => {
-              // Toggle animation state
-              const newIsAnimating = !isAnimating;
-              setIsAnimating(newIsAnimating);
-              setColorCycleAnimationState(newIsAnimating); // Update global state
-              
-              // Start or stop the continuous animation loop based on play state
-              if (colorCycleAnimationHandlers) {
-                if (newIsAnimating) {
-                  colorCycleAnimationHandlers.startContinuousColorCycleAnimation();
-                } else {
-                  colorCycleAnimationHandlers.stopContinuousColorCycleAnimation();
-                }
-              }
-            }}
-            className="w-full h-8 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none"
-          >
-            <span className="text-[10px]">{isAnimating ? '⏸' : '▶'}</span>
-            <span className="ml-1">{isAnimating ? 'Pause' : 'Play'}</span>
-          </button>
-        </div>
-        
         {/* Gradient Editor - positioned first to avoid overlap */}
         <div className="mb-4">
           <GradientEditor
@@ -256,7 +236,7 @@ const BrushControls = () => {
             <ProgressSlider
               value={activeSettings.spacing || 25}
               min={1}
-              max={400}
+              max={40}
               step={1}
               onChange={(value) =>
                 setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
@@ -267,6 +247,25 @@ const BrushControls = () => {
           </div>
         </div>
 
+        {/* Gradient Bands - applies to all brushes and shapes */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Bands
+            </label>
+            <ProgressSlider
+              value={activeSettings.gradientBands || 12}
+              min={2}
+              max={50}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ gradientBands: Math.round(value) })
+              }
+              aria-label="Gradient Color Bands"
+              className="flex-1"
+            />
+          </div>
+        </div>
 
         {/* Color Jitter */}
         <div className="mb-2">
@@ -551,7 +550,7 @@ const BrushControls = () => {
             <ProgressSlider
               value={activeSettings.spacing}
               min={1}
-              max={400}
+              max={40}
               step={1}
               onChange={(value) =>
                 setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
@@ -1062,7 +1061,7 @@ const BrushControls = () => {
           <ProgressSlider
             value={activeSettings.spacing}
             min={1}
-            max={400}
+            max={40}
             step={1}
             onChange={(value) =>
               setActiveSettings({ spacing: Math.max(1, Math.round(value)) })

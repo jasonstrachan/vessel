@@ -20,6 +20,7 @@ export class ColorCycleBrushCanvas2D {
   private brushSize: number;
   private cycleSpeed: number;
   private fps: number;
+  private gradientBands: number = 12; // Number of color bands in gradients
   
   // Canvas dimensions
   private width: number;
@@ -258,8 +259,10 @@ export class ColorCycleBrushCanvas2D {
     if (strokeData) {
       // Calculate color index based on stamp position in gradient
       // Each stamp gets the next color in the gradient sequence
-      // Color indices are 0-255 for the gradient positions
-      const colorIndex = strokeData.stampCounter % this.totalGradientSteps;
+      // Map stamp counter to gradient bands for quantized color steps
+      const bandIndex = strokeData.stampCounter % this.gradientBands;
+      // Ensure colorIndex cycles through 1-255, never 0 (which might be transparent/white)
+      const colorIndex = Math.floor((bandIndex / this.gradientBands) * 254) + 1;
       
       // Paint with specific color index (0-255 representing gradient positions)
       animator.paintSquare(x, y, this.brushSize, colorIndex);
@@ -452,99 +455,74 @@ export class ColorCycleBrushCanvas2D {
     minY = Math.max(0, Math.floor(minY));
     maxY = Math.min(this.height - 1, Math.ceil(maxY));
     
-    // Helper function to check if point is inside polygon
-    const isPointInPolygon = (x: number, y: number): boolean => {
-      let inside = false;
-      for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
-        const xi = vertices[i].x, yi = vertices[i].y;
-        const xj = vertices[j].x, yj = vertices[j].y;
-        
-        if (((yi > y) !== (yj > y)) && 
-            (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
-          inside = !inside;
-        }
-      }
-      return inside;
-    };
+    // Use scanline fill with inline gradient calculation - simpler and more reliable
+    // Get number of bands from settings or use default
+    const numBands = this.gradientBands;
     
-    // Helper function to calculate minimum distance from point to polygon edge
-    const distanceToEdge = (px: number, py: number): number => {
-      let minDist = Infinity;
+    for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) {
+      const intersections: number[] = [];
       
+      // Find all edge intersections with this scanline
       for (let i = 0; i < vertices.length; i++) {
         const v1 = vertices[i];
         const v2 = vertices[(i + 1) % vertices.length];
         
-        const dx = v2.x - v1.x;
-        const dy = v2.y - v1.y;
-        const lengthSquared = dx * dx + dy * dy;
+        // Skip horizontal edges
+        if (Math.abs(v2.y - v1.y) < 0.0001) continue;
         
-        if (lengthSquared === 0) {
-          const dist = Math.sqrt((px - v1.x) ** 2 + (py - v1.y) ** 2);
-          minDist = Math.min(minDist, dist);
-        } else {
-          const t = Math.max(0, Math.min(1, 
-            ((px - v1.x) * dx + (py - v1.y) * dy) / lengthSquared));
-          
-          const projX = v1.x + t * dx;
-          const projY = v1.y + t * dy;
-          
-          const dist = Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
-          minDist = Math.min(minDist, dist);
+        // Check if edge crosses this scanline
+        if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
+          const t = (y - v1.y) / (v2.y - v1.y);
+          const x = v1.x + t * (v2.x - v1.x);
+          intersections.push(x);
         }
       }
       
-      return minDist;
-    };
-    
-    // Calculate distance for each point inside the polygon
-    const distances = new Map<string, number>();
-    let maxDistance = 0;
-    
-    // Calculate all distances first
-    for (let y = minY; y <= maxY; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        if (isPointInPolygon(x, y)) {
-          const dist = distanceToEdge(x, y);
-          const key = `${x},${y}`;
-          distances.set(key, dist);
-          maxDistance = Math.max(maxDistance, dist);
-        }
-      }
-    }
-    
-    // Ensure we have a valid max distance
-    maxDistance = Math.max(1, maxDistance);
-    
-    // Paint with gradient - ENSURE UNIDIRECTIONAL FLOW
-    const fillBrushSize = 2;
-    const numBands = 12;
-    
-    for (let y = minY; y <= maxY; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        const key = `${x},${y}`;
-        const dist = distances.get(key);
+      // Sort intersections left to right
+      intersections.sort((a, b) => a - b);
+      
+      // Fill between EVERY pair of intersections
+      for (let i = 0; i < intersections.length - 1; i += 2) {
+        const startX = Math.floor(intersections[i]);
+        const endX = Math.ceil(intersections[i + 1]);
         
-        if (dist !== undefined) {
-          // Normalize distance to 0-1 range (0 at edge, 1 at center)
-          const normalizedDist = dist / maxDistance;
+        for (let x = startX; x <= endX; x++) {
+          // Calculate distance to nearest edge for gradient
+          let minDist = Infinity;
           
-          // Create bands that ALWAYS increase from edge to center
+          // Distance to left and right boundaries of this span
+          const distToLeft = x - startX;
+          const distToRight = endX - x;
+          minDist = Math.min(distToLeft, distToRight);
+          
+          // Also check distance to polygon edges for better gradient
+          for (let j = 0; j < vertices.length; j++) {
+            const v1 = vertices[j];
+            const v2 = vertices[(j + 1) % vertices.length];
+            
+            const dx = v2.x - v1.x;
+            const dy = v2.y - v1.y;
+            const len2 = dx * dx + dy * dy;
+            
+            if (len2 > 0) {
+              const t = Math.max(0, Math.min(1, 
+                ((x - v1.x) * dx + (y - v1.y) * dy) / len2));
+              const projX = v1.x + t * dx;
+              const projY = v1.y + t * dy;
+              const dist = Math.sqrt((x - projX) ** 2 + (y - projY) ** 2);
+              minDist = Math.min(minDist, dist);
+            }
+          }
+          
+          // Create gradient based on distance
+          const maxDist = Math.max(maxX - minX, maxY - minY) / 2;
+          const normalizedDist = Math.min(1, minDist / maxDist);
+          
           const bandIndex = Math.floor(normalizedDist * numBands);
+          const colorIndex = Math.floor((bandIndex / Math.max(1, numBands - 1)) * 255);
           
-          // CRITICAL: Ensure monotonic color progression
-          // Start from a base offset and only ADD to it based on distance
-          // This prevents any backward flow
-          const baseColorIndex = 0;  // Starting point for edge pixels
-          const colorRange = 255;    // Full range available
-          
-          // Map band index to color, ensuring it only increases inward
-          const colorIndex = baseColorIndex + Math.floor((bandIndex / Math.max(1, numBands - 1)) * colorRange);
-          
-          // Clamp to valid range
-          const finalColorIndex = Math.min(255, Math.max(0, colorIndex));
-          
-          animator.paintSquare(x, y, fillBrushSize, finalColorIndex);
+          // Paint with size 1 for precise pixel control
+          animator.paintSquare(x, y, 1, colorIndex);
         }
       }
     }
@@ -796,6 +774,17 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
     this.brushSize = size;
+  }
+  
+  /**
+   * Set gradient bands (number of color steps)
+   */
+  setGradientBands(bands: number) {
+    if (!Number.isFinite(bands) || bands < 2 || bands > 50) {
+      console.warn(`Invalid gradient bands: ${bands}, using default`);
+      return;
+    }
+    this.gradientBands = Math.floor(bands);
   }
   
   /**

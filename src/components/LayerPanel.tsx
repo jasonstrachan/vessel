@@ -6,17 +6,21 @@ import { Layer } from '../types';
 import { XIcon } from './icons/XIcon';
 import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
 import PlusButton from './ui/PlusButton';
+import { BrushShape } from '../types';
+import { setColorCycleAnimationHandlers, getColorCycleAnimationState, setColorCycleAnimationState } from './toolbar/BrushControls';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 
 const LayerPanel = () => {
   const [showOpacityPopover, setShowOpacityPopover] = React.useState<string | null>(null);
   const [draggedLayerId, setDraggedLayerId] = React.useState<string | null>(null);
+  const [isAnimating, setIsAnimating] = React.useState(() => getColorCycleAnimationState()); // Get initial state
   const opacityButtonRef = React.useRef<{ [key: string]: HTMLButtonElement | null }>({});
   const opacityPopoverRef = React.useRef<HTMLDivElement>(null);
   // Direct subscriptions to avoid object creation in selectors
   const layers = useAppStore(state => state.layers);
   const activeLayerId = useAppStore(state => state.activeLayerId);
   const project = useAppStore(state => state.project);
+  const brushShape = useAppStore(state => state.tools.brushSettings.brushShape);
 
   // Actions (stable references)
   const addLayer = useAppStore(state => state.addLayer);
@@ -119,6 +123,13 @@ const LayerPanel = () => {
   const handleDragEnd = () => {
     setDraggedLayerId(null);
   };
+
+  // Sync animation state when brush changes or on mount
+  React.useEffect(() => {
+    console.log('[LayerPanel] Current brush shape:', brushShape);
+    console.log('[LayerPanel] Is Color Cycle?', brushShape === BrushShape.COLOR_CYCLE);
+    setIsAnimating(getColorCycleAnimationState());
+  }, [brushShape]);
 
   return (
     <div className="">
@@ -236,6 +247,38 @@ const LayerPanel = () => {
           </div>
         ))}
       </div>
+      
+      {/* Play/Pause Button for Color Cycle Brush - placed at bottom of layers column */}
+      {/* Debug: Show current brush shape */}
+      <div className="px-4 py-1 text-[10px] text-[#666]">
+        Current brush: {brushShape || 'none'}
+      </div>
+      {brushShape === BrushShape.COLOR_CYCLE && (
+        <div className="px-4 py-2 border-t border-[#404040]">
+          <button
+            onClick={() => {
+              // Toggle animation state
+              const newIsAnimating = !isAnimating;
+              setIsAnimating(newIsAnimating);
+              setColorCycleAnimationState(newIsAnimating);
+              
+              // Get the handlers from BrushControls if available
+              const handlers = (window as any).colorCycleAnimationHandlers;
+              if (handlers) {
+                if (newIsAnimating) {
+                  handlers.startContinuousColorCycleAnimation();
+                } else {
+                  handlers.stopContinuousColorCycleAnimation();
+                }
+              }
+            }}
+            className="w-full h-8 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none"
+          >
+            <span className="text-[10px]">{isAnimating ? '⏸' : '▶'}</span>
+            <span className="ml-1">{isAnimating ? 'Pause' : 'Play'}</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

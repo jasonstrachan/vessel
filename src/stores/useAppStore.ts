@@ -139,7 +139,13 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
     gridSnapEnabled: settings.gridSnapEnabled,
     shapeEnabled: settings.shapeEnabled,
     antialiasing: settings.antialiasing,
-    colors: settings.colors
+    colors: settings.colors,
+    // Color Cycle specific settings
+    colorCycleSpeed: settings.colorCycleSpeed,
+    colorCycleGradient: settings.colorCycleGradient,
+    colorCycleFPS: settings.colorCycleFPS,
+    colorCycleFlowForward: settings.colorCycleFlowForward,
+    gradientBands: settings.gradientBands
   };
 };
 
@@ -1481,13 +1487,22 @@ export const useAppStore = create<AppState>()(
             // Special handling for colorCycleData updates
             if ('colorCycleData' in updates) {
               if (updates.colorCycleData) {
-                // Merging colorCycleData
-                updatedLayer.colorCycleData = {
-                  ...layer.colorCycleData,
-                  ...updates.colorCycleData
-                };
-                // Ensure layerType is set to color-cycle
-                updatedLayer.layerType = 'color-cycle';
+                // CRITICAL: Only allow colorCycleData updates on color-cycle layers
+                if (layer.layerType !== 'color-cycle') {
+                  console.error('🚨 BLOCKED: Attempted to add colorCycleData to normal layer!', {
+                    layerId: layer.id?.substring(0, 20),
+                    layerType: layer.layerType
+                  });
+                  // Skip this update - don't add colorCycleData to normal layers
+                } else {
+                  // Merging colorCycleData for color-cycle layer
+                  updatedLayer.colorCycleData = {
+                    ...layer.colorCycleData,
+                    ...updates.colorCycleData
+                  };
+                  // Layer is already color-cycle, keep it that way
+                  updatedLayer.layerType = 'color-cycle';
+                }
               } else {
                 // FORBIDDEN: CC layers cannot be converted to normal layers!
                 console.error('🚨🚨🚨 BLOCKED: Attempted to convert CC layer to normal!', {
@@ -1675,7 +1690,7 @@ export const useAppStore = create<AppState>()(
         // When switching to a regular layer from color cycle, restore last regular tool
         let toolUpdate = {};
         const wasOnColorCycle = currentActiveLayer?.layerType === 'color-cycle';
-        if (wasOnColorCycle && layer && layer.layerType !== 'color-cycle') {
+        if (wasOnColorCycle && layer && layer.layerType === 'normal') {
           // Restore the last regular tool and brush shape
           const lastTool = (state.tools as any).lastRegularTool || 'brush';
           const lastShape = (state.tools as any).lastRegularBrushShape || state.tools.brushSettings.brushShape;
@@ -1799,6 +1814,15 @@ export const useAppStore = create<AppState>()(
             return {};
           }
           
+          // CRITICAL: Only allow initialization for color-cycle layers
+          if (layer.layerType !== 'color-cycle') {
+            console.error('🚨 BLOCKED: Attempted to init color cycle for non-CC layer!', {
+              layerId: layerId.substring(0, 20),
+              layerType: layer.layerType
+            });
+            return {}; // Prevent color cycle initialization on regular layers
+          }
+          
           // GUARD: Don't re-initialize if already initialized
           const existingBrush = colorCycleBrushManager.getBrush(layerId);
           if (existingBrush) {
@@ -1895,7 +1919,8 @@ export const useAppStore = create<AppState>()(
       
       cleanupColorCycleForLayer: (layerId) => set((state) => {
         const layer = state.layers.find(l => l.id === layerId);
-        if (!layer || !layer.colorCycleData) return state;
+        // CRITICAL: Only cleanup color-cycle layers, never touch normal layers
+        if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) return state;
         
         // Cleanup through manager
         colorCycleBrushManager.deleteBrush(layerId);
@@ -1921,6 +1946,17 @@ export const useAppStore = create<AppState>()(
       }),
       
       getLayerColorCycleBrush: (layerId) => {
+        // CRITICAL: Verify layer is actually a color-cycle layer
+        const state = get();
+        const layer = state.layers.find(l => l.id === layerId);
+        if (layer && layer.layerType !== 'color-cycle') {
+          console.warn('🚨 Attempted to get CC brush for non-CC layer:', {
+            layerId: layerId.substring(0, 20),
+            layerType: layer.layerType
+          });
+          return null; // Never return a CC brush for regular layers
+        }
+        
         // Get from manager
         return colorCycleBrushManager.getBrush(layerId);
       },
@@ -2992,12 +3028,25 @@ export const useAppStore = create<AppState>()(
                   }
                   // CRITICAL: Preserve ALL layer properties including layerType and colorCycleData
                   // Use spread operator first to preserve everything, then override only imageData
-                  return { 
+                  const updatedLayer = { 
                     ...layer, 
                     imageData,
                     version: (layer.version || 0) + 1 // Increment version for color swatch updates
                     // Don't explicitly set layerType and colorCycleData - they're already in ...layer
                   };
+                  
+                  // VALIDATION: Ensure layer type hasn't changed
+                  if (updatedLayer.layerType !== layer.layerType) {
+                    console.error('🚨 LAYER TYPE CORRUPTION IN CAPTURE!', {
+                      layerId: layer.id?.substring(0, 20),
+                      originalType: layer.layerType,
+                      corruptedType: updatedLayer.layerType
+                    });
+                    // Force restore the original layer type
+                    updatedLayer.layerType = layer.layerType;
+                  }
+                  
+                  return updatedLayer;
                 }
                 return layer;
               });

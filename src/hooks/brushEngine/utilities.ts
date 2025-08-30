@@ -45,11 +45,13 @@ export const calculateBrushSpacing = (
   brushSettings: BrushSettings,
   baseSize: number
 ): number => {
-  // Use the spacing value from brush settings directly
-  // This matches the monolithic implementation which uses activeSettings.spacing
-  const spacing = brushSettings.spacing || 1;
+  // Spacing value from settings is 1-40, representing pixels between stamps
+  // spacing = 1 means stamps are drawn 1 pixel apart
+  // spacing = 10 means stamps are drawn 10 pixels apart  
+  // spacing = 40 means stamps are drawn 40 pixels apart
+  const actualSpacing = brushSettings.spacing || 1;
   
-  return spacing;
+  return actualSpacing;
 };
 
 /**

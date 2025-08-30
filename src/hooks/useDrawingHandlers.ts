@@ -355,7 +355,26 @@ export function useDrawingHandlers({
                                   JSON.stringify(brushGradient) === JSON.stringify(layerGradient);
             
             if (gradientsMatch) {
-              brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure);
+              // Apply spacing for Color Cycle brush to be consistent with other brushes
+              if (colorCycleLastPosRef.current) {
+                const dx = worldPos.x - colorCycleLastPosRef.current.x;
+                const dy = worldPos.y - colorCycleLastPosRef.current.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                colorCycleDistanceRef.current += distance;
+                
+                // Calculate spacing - now in pixels directly
+                const spacing = currentState.tools.brushSettings.spacing || 1;
+                
+                // Only draw if we've moved enough distance
+                if (colorCycleDistanceRef.current >= spacing) {
+                  brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure);
+                  colorCycleDistanceRef.current = 0; // Reset distance
+                }
+              } else {
+                // First point in stroke
+                brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure);
+              }
               colorCycleLastPosRef.current = worldPos;
               // Rendering happens in the animation loop, not here
             }
@@ -538,9 +557,8 @@ export function useDrawingHandlers({
                 }
               }
               
-              // Use the spacing setting from brush controls, defaulting to 25% of size
-              const spacingPercent = (currentState.tools.brushSettings.spacing || 25) / 100;
-              const spacing = (currentState.tools.brushSettings.size || 20) * spacingPercent;
+              // Use the spacing setting from brush controls - now in pixels directly
+              const spacing = currentState.tools.brushSettings.spacing || 1;
               
               if (colorCycleLastPosRef.current) {
                 const dx = clippedEnd.x - colorCycleLastPosRef.current.x;
@@ -1274,6 +1292,13 @@ export function useDrawingHandlers({
 
   // Start continuous color cycle animation (for when play button is pressed)
   const startContinuousColorCycleAnimation = useCallback(() => {
+    // CRITICAL: Only start animation for color-cycle layers
+    const currentState = useAppStore.getState();
+    const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+    if (!activeLayer || activeLayer.layerType !== 'color-cycle') {
+      // Silently skip animation for non-CC layers
+      return;
+    }
     
     // Stop any existing continuous animation
     if (continuousColorCycleAnimationRef.current) {
