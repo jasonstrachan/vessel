@@ -43,6 +43,9 @@ export interface Layer {
     // Store the canvas element for this CC layer
     canvas?: HTMLCanvasElement;
   };
+  
+  // Version tracking for detecting content changes
+  version?: number;
 }
 
 export interface BrushPreset {

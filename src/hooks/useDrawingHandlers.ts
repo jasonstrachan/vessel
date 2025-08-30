@@ -825,32 +825,42 @@ export function useDrawingHandlers({
             // We'll rely on the DrawingCanvas to restart it based on UI state
           }
           
-          // Now composite the drawing (with risograph already applied per-stamp) onto the layer
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = project.width;
-          tempCanvas.height = project.height;
-          const tempCtx = tempCanvas.getContext('2d', {
-            willReadFrequently: true,
-            alpha: true
-          });
+          // Handle capture differently for CC layers vs regular layers
+          const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+          const isColorCycleBrush = activeSettings.brushShape === BrushShape.COLOR_CYCLE;
           
-          if (tempCtx) {
-            if (activeLayer.imageData) {
-              tempCtx.putImageData(activeLayer.imageData, 0, 0);
+          if (isColorCycleLayer && isColorCycleBrush && activeLayer.colorCycleData?.canvas) {
+            // For CC layers, capture directly from the layer's canvas
+            await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
+            saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', 'CC Drawing stroke');
+          } else {
+            // Regular layers: composite drawing onto layer
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = project.width;
+            tempCanvas.height = project.height;
+            const tempCtx = tempCanvas.getContext('2d', {
+              willReadFrequently: true,
+              alpha: true
+            });
+            
+            if (tempCtx) {
+              if (activeLayer.imageData) {
+                tempCtx.putImageData(activeLayer.imageData, 0, 0);
+              }
+              // Don't re-apply opacity and blend mode - they were already applied during drawing
+              tempCtx.globalCompositeOperation = 'source-over';
+              tempCtx.globalAlpha = 1;
+              tempCtx.drawImage(drawingCanvasRef.current, 0, 0);
+              
+              await captureCanvasToActiveLayer(tempCanvas);
+              saveCanvasState(tempCanvas, 'brush', 'Drawing stroke');
+              
+              
+              // Clean up temporary canvas to prevent memory leak
+              tempCanvas.width = 1;
+              tempCanvas.height = 1;
+              tempCtx.clearRect(0, 0, 1, 1);
             }
-            // Don't re-apply opacity and blend mode - they were already applied during drawing
-            tempCtx.globalCompositeOperation = 'source-over';
-            tempCtx.globalAlpha = 1;
-            tempCtx.drawImage(drawingCanvasRef.current, 0, 0);
-            
-            await captureCanvasToActiveLayer(tempCanvas);
-            saveCanvasState(tempCanvas, 'brush', 'Drawing stroke');
-            
-            
-            // Clean up temporary canvas to prevent memory leak
-            tempCanvas.width = 1;
-            tempCanvas.height = 1;
-            tempCtx.clearRect(0, 0, 1, 1);
           }
         }
       }
@@ -1158,23 +1168,25 @@ export function useDrawingHandlers({
               brushEngine.fillColorCycleShape(shapePointsRef.current);
             }
             
-            // CRITICAL FIX: Force immediate texture update and render after filling shape
+            // CRITICAL FIX: Ensure the CC layer's canvas is updated with the shape
             const activeLayerId = activeLayer?.id;
-            if (activeLayerId) {
+            if (activeLayerId && activeLayer.colorCycleData?.canvas) {
+              // Force immediate texture update and render to the layer's canvas
               brushEngine.updateColorCycleTexture(activeLayerId);
               
-              // Force the color cycle brush to render its content immediately
+              // Get the color cycle brush and render directly to the layer's canvas
               const colorCycleBrushManager = getColorCycleBrushManager();
               const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayerId);
               if (colorCycleBrush) {
-                colorCycleBrush.render(true); // Force full render
+                // Render directly to the layer's canvas to ensure it's updated
+                colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayerId);
               }
-            }
-            
-            // Clear and do one final render at FULL OPACITY
-            if (drawingCanvasRef.current) {
+              
+              // Now render from the layer's canvas to the drawing canvas for display
               drawCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-              brushEngine.renderColorCycle(drawCtx, false); // false = don't apply opacity
+              drawCtx.globalAlpha = 1.0; // Full opacity for finalization
+              drawCtx.globalCompositeOperation = 'source-over';
+              drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
             }
             
             drawingCanvasHasContent.current = true;
@@ -1193,8 +1205,12 @@ export function useDrawingHandlers({
         const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
         
         if (isColorCycleLayer && drawingCanvasHasContent.current) {
-          // Capture CC shape to layer directly
-          if (activeLayer && drawingCanvasRef.current) {
+          // For CC layers, capture from the layer's canvas instead of drawing canvas
+          if (activeLayer?.colorCycleData?.canvas) {
+            await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
+            saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', 'CC Shape');
+          } else if (activeLayer && drawingCanvasRef.current) {
+            // Fallback to drawing canvas if layer canvas not available
             await captureCanvasToActiveLayer(drawingCanvasRef.current);
             saveCanvasState(drawingCanvasRef.current, 'brush', 'CC Shape');
           }

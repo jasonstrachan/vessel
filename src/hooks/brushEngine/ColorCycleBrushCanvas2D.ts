@@ -383,7 +383,7 @@ export class ColorCycleBrushCanvas2D {
   }
   
   /**
-   * Fill shape (API compatible)
+   * Fill shape with smooth gradient bands from edge to center
    */
   fillShape(vertices: Array<{ x: number; y: number }>, layerId?: string) {
     // Validate input
@@ -398,13 +398,46 @@ export class ColorCycleBrushCanvas2D {
     }
     
     const id = layerId || this.activeLayerId || 'default';
+    
+    // Initialize stroke data BEFORE getting animator
+    if (!this.layerStrokes.has(id)) {
+      this.layerStrokes.set(id, {
+        paintBuffer: new Uint8Array(this.width * this.height),
+        hasContent: true, // Mark as having content immediately
+        strokeCounter: 0,
+        strokeLength: 0,
+        lastPoint: null,
+        gradientLayerIndices: [],
+        currentGradientIndex: 0,
+        stampCounter: 0
+      });
+    }
+    
+    const strokeData = this.layerStrokes.get(id);
+    if (strokeData) {
+      strokeData.hasContent = true;
+      // Ensure full-size buffer
+      if (strokeData.paintBuffer.length === 0) {
+        strokeData.paintBuffer = new Uint8Array(this.width * this.height);
+      }
+    }
+    
     const animator = this.getAnimator(id);
     
-    // Find bounds
-    let minX = vertices[0].x;
-    let maxX = vertices[0].x;
-    let minY = vertices[0].y;
-    let maxY = vertices[0].y;
+    // Ensure animator is at full resolution for fill operations
+    if ((animator as any)._deferredSize) {
+      const { width, height } = (animator as any)._deferredSize;
+      animator.resize(width, height);
+      delete (animator as any)._deferredSize;
+      
+      if (strokeData) {
+        strokeData.paintBuffer = new Uint8Array(width * height);
+      }
+    }
+    
+    // Find bounds with proper initialization
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
     
     for (const v of vertices) {
       minX = Math.min(minX, v.x);
@@ -413,34 +446,114 @@ export class ColorCycleBrushCanvas2D {
       maxY = Math.max(maxY, v.y);
     }
     
-    // Scan-line fill
-    for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) {
-      const intersections: number[] = [];
+    // Clamp to canvas bounds
+    minX = Math.max(0, Math.floor(minX));
+    maxX = Math.min(this.width - 1, Math.ceil(maxX));
+    minY = Math.max(0, Math.floor(minY));
+    maxY = Math.min(this.height - 1, Math.ceil(maxY));
+    
+    // Helper function to check if point is inside polygon
+    const isPointInPolygon = (x: number, y: number): boolean => {
+      let inside = false;
+      for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+        const xi = vertices[i].x, yi = vertices[i].y;
+        const xj = vertices[j].x, yj = vertices[j].y;
+        
+        if (((yi > y) !== (yj > y)) && 
+            (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+          inside = !inside;
+        }
+      }
+      return inside;
+    };
+    
+    // Helper function to calculate minimum distance from point to polygon edge
+    const distanceToEdge = (px: number, py: number): number => {
+      let minDist = Infinity;
       
-      // Find intersections with polygon edges
       for (let i = 0; i < vertices.length; i++) {
         const v1 = vertices[i];
         const v2 = vertices[(i + 1) % vertices.length];
         
-        if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
-          const x = v1.x + ((y - v1.y) / (v2.y - v1.y)) * (v2.x - v1.x);
-          intersections.push(x);
+        const dx = v2.x - v1.x;
+        const dy = v2.y - v1.y;
+        const lengthSquared = dx * dx + dy * dy;
+        
+        if (lengthSquared === 0) {
+          const dist = Math.sqrt((px - v1.x) ** 2 + (py - v1.y) ** 2);
+          minDist = Math.min(minDist, dist);
+        } else {
+          const t = Math.max(0, Math.min(1, 
+            ((px - v1.x) * dx + (py - v1.y) * dy) / lengthSquared));
+          
+          const projX = v1.x + t * dx;
+          const projY = v1.y + t * dy;
+          
+          const dist = Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+          minDist = Math.min(minDist, dist);
         }
       }
       
-      // Sort intersections
-      intersections.sort((a, b) => a - b);
-      
-      // Fill between pairs
-      for (let i = 0; i < intersections.length; i += 2) {
-        if (i + 1 < intersections.length) {
-          for (let x = Math.floor(intersections[i]); x <= Math.ceil(intersections[i + 1]); x++) {
-            animator.paint(x, y, 2);
-          }
+      return minDist;
+    };
+    
+    // Calculate distance for each point inside the polygon
+    const distances = new Map<string, number>();
+    let maxDistance = 0;
+    
+    // Calculate all distances first
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        if (isPointInPolygon(x, y)) {
+          const dist = distanceToEdge(x, y);
+          const key = `${x},${y}`;
+          distances.set(key, dist);
+          maxDistance = Math.max(maxDistance, dist);
         }
       }
     }
     
+    // Ensure we have a valid max distance
+    maxDistance = Math.max(1, maxDistance);
+    
+    // Paint with gradient - ENSURE UNIDIRECTIONAL FLOW
+    const fillBrushSize = 2;
+    const numBands = 12;
+    
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const key = `${x},${y}`;
+        const dist = distances.get(key);
+        
+        if (dist !== undefined) {
+          // Normalize distance to 0-1 range (0 at edge, 1 at center)
+          const normalizedDist = dist / maxDistance;
+          
+          // Create bands that ALWAYS increase from edge to center
+          const bandIndex = Math.floor(normalizedDist * numBands);
+          
+          // CRITICAL: Ensure monotonic color progression
+          // Start from a base offset and only ADD to it based on distance
+          // This prevents any backward flow
+          const baseColorIndex = 0;  // Starting point for edge pixels
+          const colorRange = 255;    // Full range available
+          
+          // Map band index to color, ensuring it only increases inward
+          const colorIndex = baseColorIndex + Math.floor((bandIndex / Math.max(1, numBands - 1)) * colorRange);
+          
+          // Clamp to valid range
+          const finalColorIndex = Math.min(255, Math.max(0, colorIndex));
+          
+          animator.paintSquare(x, y, fillBrushSize, finalColorIndex);
+        }
+      }
+    }
+    
+    // Mark layer as dirty for rendering
+    this.dirtyLayers.add(id);
+    
+    // Force immediate render to show the filled shape
+    animator.forceRender();
     this.render(false);
   }
   
@@ -501,11 +614,23 @@ export class ColorCycleBrushCanvas2D {
     
     const animator = this.animators.get(layerId);
     if (animator) {
-      const ctx = targetCanvas.getContext('2d');
-      if (ctx) {
-        animator.drawTo(ctx);
+      const strokeData = this.layerStrokes.get(layerId);
+      // Only render if there's actual content to render
+      if (strokeData?.hasContent) {
+        const ctx = targetCanvas.getContext('2d');
+        if (ctx) {
+          // Force a render update before drawing
+          animator.forceRender();
+          animator.drawTo(ctx);
+        } else {
+          console.warn('Failed to get 2D context from target canvas');
+        }
       } else {
-        console.warn('Failed to get 2D context from target canvas');
+        // Clear the canvas if there's no content
+        const ctx = targetCanvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+        }
       }
     } else {
       console.warn(`No animator found for layer: ${layerId}`);

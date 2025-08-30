@@ -1,9 +1,77 @@
 'use client';
 
-import React, { useState, useCallback, memo } from 'react';
+import React, { useState, useCallback, memo, useEffect, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { Layer, BrushShape } from '../types';
 import { Eye, EyeOff, Plus } from 'lucide-react';
+import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
+
+// Component to display color swatches for a layer
+const LayerColorSwatches = memo<{ 
+  layer: Layer;
+  visible: boolean;
+}>(({ layer, visible }) => {
+  const [swatches, setSwatches] = useState<ColorSwatch[]>([]);
+  const analyzerRef = useRef<ThrottledColorAnalyzer | undefined>();
+  
+  useEffect(() => {
+    // Create analyzer on mount
+    analyzerRef.current = new ThrottledColorAnalyzer();
+    
+    return () => {
+      // Cleanup on unmount
+      analyzerRef.current?.dispose();
+    };
+  }, []);
+  
+  useEffect(() => {
+    // Analyze colors when layer changes (watch version for content updates)
+    if (layer.framebuffer && analyzerRef.current) {
+      analyzerRef.current.analyze(
+        layer.framebuffer,
+        (newSwatches) => setSwatches(newSwatches),
+        6 // Show top 6 colors
+      );
+    }
+  }, [layer.framebuffer, layer.id, layer.version]);
+  
+  if (swatches.length === 0) {
+    return (
+      <div 
+        className="flex-1 h-4 rounded mr-1"
+        style={{
+          backgroundColor: '#444',
+          minWidth: '30px',
+          opacity: visible ? 1 : 0.5
+        }}
+        title={layer.name}
+      />
+    );
+  }
+  
+  // Create a gradient-like display from the color swatches
+  const gradientStops = swatches
+    .map((swatch, idx) => {
+      const start = (idx / swatches.length) * 100;
+      const end = ((idx + 1) / swatches.length) * 100;
+      return `${swatch.color} ${start}%, ${swatch.color} ${end}%`;
+    })
+    .join(', ');
+  
+  return (
+    <div 
+      className="flex-1 h-4 rounded mr-1"
+      style={{
+        background: `linear-gradient(90deg, ${gradientStops})`,
+        minWidth: '30px',
+        opacity: visible ? 1 : 0.5
+      }}
+      title={layer.name}
+    />
+  );
+});
+
+LayerColorSwatches.displayName = 'LayerColorSwatches';
 
 // Memoized layer item component to prevent unnecessary re-renders
 const LayerItem = memo<{
@@ -60,25 +128,29 @@ const LayerItem = memo<{
           {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
         </button>
         
-        {/* Simplified gradient check */}
+        {/* Display gradient for CC layers or color swatches for normal layers */}
         {(() => {
-          return layer.layerType === 'color-cycle' && layer.colorCycleData?.gradient ? (
-            <div 
-              className="flex-1 h-4 rounded mr-1"
-              style={{
-                backgroundColor: '#444', // Fallback color
-                background: generateGradientCSS(layer.colorCycleData.gradient),
-                minWidth: '30px',
-                opacity: layer.visible ? 1 : 0.5,
-                border: '1px solid red' // Debug border to see if div is rendering
-              }}
-              title={layer.name}
-            />
-          ) : (
-            <span className="text-[#D9D9D9] text-xs flex-1 truncate">
-              {layer.name}
-            </span>
-          );
+          if (layer.layerType === 'color-cycle' && layer.colorCycleData?.gradient) {
+            return (
+              <div 
+                className="flex-1 h-4 rounded mr-1"
+                style={{
+                  background: generateGradientCSS(layer.colorCycleData.gradient),
+                  minWidth: '30px',
+                  opacity: layer.visible ? 1 : 0.5
+                }}
+                title={layer.name}
+              />
+            );
+          } else if (layer.layerType === 'normal') {
+            return <LayerColorSwatches layer={layer} visible={layer.visible} />;
+          } else {
+            return (
+              <span className="text-[#D9D9D9] text-xs flex-1 truncate">
+                {layer.name}
+              </span>
+            );
+          }
         })()}
       </div>
     </div>
@@ -334,26 +406,24 @@ const MinimalLayerList = () => {
                     {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
                   </button>
                   
-                  {/* Gradient display */}
+                  {/* Display gradient for CC layers or color swatches for normal layers */}
                   {(() => {
-                    const shouldShowGradient = layer.layerType === 'color-cycle' && 
-                                               layer.colorCycleData && 
-                                               layer.colorCycleData.gradient && 
-                                               layer.colorCycleData.gradient.length > 0;
-                    
-                    if (shouldShowGradient) {
+                    if (layer.layerType === 'color-cycle' && 
+                        layer.colorCycleData?.gradient && 
+                        layer.colorCycleData.gradient.length > 0) {
                       return (
                         <div 
                           className="flex-1 h-4 rounded mr-1" 
                           style={{
                             background: generateGradientCSS(layer.colorCycleData?.gradient),
                             minWidth: '30px',
-                            opacity: layer.visible ? 1 : 0.5,
-                            border: '2px solid green' // Debug: green border to confirm it's rendering
+                            opacity: layer.visible ? 1 : 0.5
                           }}
                           title={`${layer.name} - ${layer.colorCycleData?.gradient?.length || 0} stops`}
                         />
                       );
+                    } else if (layer.layerType === 'normal') {
+                      return <LayerColorSwatches layer={layer} visible={layer.visible} />;
                     } else {
                       return (
                         <span className="text-[#D9D9D9] text-xs flex-1 truncate">

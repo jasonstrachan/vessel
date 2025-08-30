@@ -1666,20 +1666,12 @@ export const useBrushEngineSimplified = () => {
         brush.setGradient(currentGradient, activeLayerId);
       }
       
-      // Convert canvas coordinates to internal canvas coordinates
-      const internalCanvas = brush.getCanvas();
-      
-      const scaleX = internalCanvas.width / (project?.width || 1920);
-      const scaleY = internalCanvas.height / (project?.height || 1080);
-      
-      // Scale vertices to internal canvas space
-      const scaledVertices = vertices.map(v => ({
-        x: v.x * scaleX,
-        y: v.y * scaleY
-      }));
+      // The vertices are already in the correct coordinate space
+      // The ColorCycleBrush internal canvas should match the project dimensions
+      // No scaling needed - just pass vertices directly
       
       // Fill the shape with layer ID
-      brush.fillShape(scaledVertices, activeLayerId);
+      brush.fillShape(vertices, activeLayerId);
       
       // End the stroke to ensure texture is updated
       brush.endStroke(activeLayerId);

@@ -1734,21 +1734,22 @@ export const useAppStore = create<AppState>()(
         const newCCLayers = layers.filter(l => l.layerType === 'color-cycle');
         
         // CRITICAL: Log the full stack trace to find who's calling setLayers
-        const stack = new Error().stack;
-        console.error('🔴🔴🔴 SETLAYERS CALLED - FULL STACK:');
-        console.error(stack);
-        console.error('🔴🔴🔴 SETLAYERS DATA:', {
-          oldLayers: state.layers.map(l => ({
-            id: l.id.substring(0, 20),
-            type: l.layerType,
-            hasCC: !!l.colorCycleData
-          })),
-          newLayers: layers.map(l => ({
-            id: l.id.substring(0, 20),
-            type: l.layerType,
-            hasCC: !!l.colorCycleData
-          }))
-        });
+        // Commented out - this was for debugging only
+        // const stack = new Error().stack;
+        // console.error('🔴🔴🔴 SETLAYERS CALLED - FULL STACK:');
+        // console.error(stack);
+        // console.error('🔴🔴🔴 SETLAYERS DATA:', {
+        //   oldLayers: state.layers.map(l => ({
+        //     id: l.id.substring(0, 20),
+        //     type: l.layerType,
+        //     hasCC: !!l.colorCycleData
+        //   })),
+        //   newLayers: layers.map(l => ({
+        //     id: l.id.substring(0, 20),
+        //     type: l.layerType,
+        //     hasCC: !!l.colorCycleData
+        //   }))
+        // });
         
         if (oldCCLayers.length > newCCLayers.length) {
           console.error('🔴 CRITICAL: setLayers is removing color-cycle layers!');
@@ -2437,7 +2438,7 @@ export const useAppStore = create<AppState>()(
                 gradient: layer.colorCycleData.gradient ? [...layer.colorCycleData.gradient] : undefined,
                 // Canvas needs to be captured as ImageData for restoration
                 canvasImageData: layer.colorCycleData.canvas ? (() => {
-                  const ccCtx = layer.colorCycleData.canvas.getContext('2d');
+                  const ccCtx = layer.colorCycleData.canvas.getContext('2d', { willReadFrequently: true });
                   if (ccCtx) {
                     return ccCtx.getImageData(0, 0, layer.colorCycleData.canvas.width, layer.colorCycleData.canvas.height);
                   }
@@ -2993,7 +2994,8 @@ export const useAppStore = create<AppState>()(
                   // Use spread operator first to preserve everything, then override only imageData
                   return { 
                     ...layer, 
-                    imageData
+                    imageData,
+                    version: (layer.version || 0) + 1 // Increment version for color swatch updates
                     // Don't explicitly set layerType and colorCycleData - they're already in ...layer
                   };
                 }
