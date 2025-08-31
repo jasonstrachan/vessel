@@ -3,6 +3,8 @@
  * Reduces CPU usage during continuous drawing with pressure sensitivity.
  */
 
+import { applyPressureCurve, type CurvePreset } from './pressureCurve';
+
 interface PressureResult {
   adjustedSize: number;
   adjustedPressure: number;
@@ -13,6 +15,7 @@ interface PressureSettings {
   minPressure: number;
   maxPressure?: number;
   rawPressure: number;
+  curveType?: CurvePreset;
 }
 
 class PressureOptimizer {
@@ -56,17 +59,16 @@ class PressureOptimizer {
       };
     }
 
-    // minPressure and maxPressure from UI are absolute pixel values (1-1000)
-    // These directly specify the brush size at min/max pressure
-    // If not provided, default to using the base brush size (no pressure variation)
-    const minSize = settings.minPressure !== undefined ? settings.minPressure : baseSize;
-    const maxSize = settings.maxPressure !== undefined ? settings.maxPressure : baseSize;
+    // minPressure and maxPressure from UI are percentages (1-1000)
+    // Convert them to percentage values for the pressure curve
+    const minPercent = settings.minPressure !== undefined ? settings.minPressure : 100;
+    const maxPercent = settings.maxPressure !== undefined ? settings.maxPressure : 100;
     
     const cacheKey = this.getCacheKey(
       baseSize,
       settings.rawPressure,
-      minSize,
-      maxSize,
+      minPercent,
+      maxPercent,
       settings.pressureEnabled
     );
 
@@ -81,15 +83,20 @@ class PressureOptimizer {
       this.cleanup();
     }
 
-    // Calculate pressure adjustment with small deadzone
-    const pressureThreshold = 0.01; // 1% deadzone for better responsiveness
-    const adjustedPressure = Math.max(0, Math.min(1,
-      (settings.rawPressure - pressureThreshold) / (1.0 - pressureThreshold)
-    ));
+    // Apply smooth pressure curve
+    const curveType = settings.curveType || 's-curve';
+    const multiplier = applyPressureCurve(
+      settings.rawPressure,
+      minPercent,  // Percentage format (1-1000)
+      maxPercent,  // Percentage format (1-1000)
+      curveType
+    );
     
-    // Interpolate between minSize and maxSize based on pressure
-    // Ensure size is at least 1 pixel
-    const adjustedSize = Math.max(1, minSize + (adjustedPressure * (maxSize - minSize)));
+    // Calculate adjusted size using the curved multiplier
+    const adjustedSize = Math.max(1, Math.round(baseSize * multiplier));
+    
+    // Store the curved pressure value for reference
+    const adjustedPressure = settings.rawPressure; // Keep raw pressure for other uses
     
 
     const result: PressureResult = {

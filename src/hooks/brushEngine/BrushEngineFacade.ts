@@ -287,8 +287,8 @@ export class BrushEngineFacade {
     // Determine number of interpolation steps
     const steps = Math.max(1, Math.ceil(distance / settings.spacing));
 
-    // Interpolate and draw stamps
-    for (let i = 0; i <= steps; i++) {
+    // Interpolate and draw stamps (excluding the final position to avoid duplicate)
+    for (let i = 0; i < steps; i++) {
       const t = i / steps;
       const x = from.x + (to.x - from.x) * t;
       const y = from.y + (to.y - from.y) * t;
@@ -315,6 +315,29 @@ export class BrushEngineFacade {
             settings.isColorizable // Pass isColorizable as centerAlignment for custom brushes
           );
         }
+      }
+    }
+    
+    // Draw final stamp at exact end position if we have moved
+    if (distance > 0 && this.strokeProcessor.shouldDrawStamp(
+      this.config.brushSettings,
+      this.pixelQueue,
+      settings.size,
+      false
+    )) {
+      if (this.canDrawAt(ctx, to.x, to.y)) {
+        this.shapeDrawer(
+          ctx,
+          to.x,
+          to.y,
+          settings.size,
+          settings.shape,
+          settings.antiAliasing,
+          settings.rotation,
+          settings.risographIntensity,
+          settings.pattern,
+          settings.isColorizable
+        );
       }
     }
   }

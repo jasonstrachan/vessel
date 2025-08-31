@@ -6,6 +6,7 @@
 
 import { ColorCycleAnimator } from '../../lib/ColorCycleAnimator';
 import { GradientStop } from '../../lib/GradientPalette';
+import { applyPressureCurve } from '../../utils/pressureCurve';
 
 export class ColorCycleBrushCanvas2D {
   private animators: Map<string, ColorCycleAnimator> = new Map();
@@ -21,6 +22,9 @@ export class ColorCycleBrushCanvas2D {
   private cycleSpeed: number;
   private fps: number;
   private gradientBands: number = 12; // Number of color bands in gradients
+  private pressureEnabled: boolean = false; // Track if pressure is enabled
+  private minPressure: number = 1; // Min size as percentage of base size (1-1000)
+  private maxPressure: number = 200; // Max size as percentage of base size (1-1000) - 200 = 2x size at max pressure
   
   // Canvas dimensions
   private width: number;
@@ -103,6 +107,9 @@ export class ColorCycleBrushCanvas2D {
     this.brushSize = options.brushSize || 20;
     this.cycleSpeed = 0.4;
     this.fps = options.fps || 30;
+    this.pressureEnabled = false;
+    this.minPressure = 1;
+    this.maxPressure = 200; // Default to 2x size at max pressure
   }
   
   /**
@@ -230,8 +237,13 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Paint at position (API compatible)
    */
-  paint(x: number, y: number, layerId?: string) {
+  paint(x: number, y: number, layerId?: string, pressure: number = 1.0, rotation: number = 0) {
     const perfStart = performance.now();
+    
+    // DEBUG: Log pressure and rotation values
+    if (pressure !== 1.0 || rotation !== 0) {
+      console.log(`[DEBUG] ColorCycleBrush paint: pressure=${pressure.toFixed(2)}, rotation=${rotation.toFixed(2)}, pressureEnabled=${this.pressureEnabled}`);
+    }
     
     // Validate coordinates
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
@@ -264,16 +276,51 @@ export class ColorCycleBrushCanvas2D {
       // Ensure colorIndex cycles through 1-255, never 0 (which might be transparent/white)
       const colorIndex = Math.floor((bandIndex / this.gradientBands) * 254) + 1;
       
-      // Paint with specific color index (0-255 representing gradient positions)
-      animator.paintSquare(x, y, this.brushSize, colorIndex);
+      // Calculate pressure-modulated brush size using smooth curve
+      const pressureSize = this.pressureEnabled 
+        ? Math.max(1, Math.round(this.brushSize * applyPressureCurve(
+            pressure,
+            this.minPressure,    // Already in percentage format (1-1000)
+            this.maxPressure,    // Already in percentage format (1-1000)
+            's-curve'            // Use smooth S-curve
+          )))
+        : this.brushSize;
+      
+      // Debug logging - more detailed
+      if (this.pressureEnabled || pressure !== 1.0) {
+        const multiplier = applyPressureCurve(pressure, this.minPressure, this.maxPressure, 's-curve');
+        console.log(`[CC Paint Debug]`, {
+          enabled: this.pressureEnabled,
+          pressure: pressure.toFixed(3),
+          minPressure: `${this.minPressure}%`,
+          maxPressure: `${this.maxPressure}%`,
+          curveMultiplier: multiplier.toFixed(3),
+          baseSize: this.brushSize,
+          calculatedSize: pressureSize,
+          curveType: 's-curve'
+        });
+      }
+      
+      // Paint with specific color index and pressure-modulated size
+      // TODO: Add rotation support to paintSquare method in future update
+      animator.paintSquare(x, y, pressureSize, colorIndex);
       
       // Update tracking
       strokeData.strokeLength++;
       strokeData.lastPoint = { x, y };
       strokeData.stampCounter++;
     } else {
-      // Fallback if no stroke data
-      animator.paintSquare(x, y, this.brushSize);
+      // Fallback if no stroke data - use same smooth curve
+      const pressureSize = this.pressureEnabled 
+        ? Math.max(1, Math.round(this.brushSize * applyPressureCurve(
+            pressure,
+            this.minPressure,
+            this.maxPressure,
+            's-curve'
+          )))
+        : this.brushSize;
+      
+      animator.paintSquare(x, y, pressureSize);
     }
     
     // Mark layer as dirty for batched rendering
@@ -785,6 +832,34 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
     this.gradientBands = Math.floor(bands);
+  }
+  
+  /**
+   * Set pressure enabled state
+   */
+  setPressureEnabled(enabled: boolean) {
+    console.log(`[CC] setPressureEnabled called with: ${enabled}`);
+    this.pressureEnabled = enabled;
+  }
+  
+  /**
+   * Set min pressure (size percentage)
+   */
+  setMinPressure(min: number) {
+    this.minPressure = Math.max(1, Math.min(1000, min));
+    console.log(`[CC] setMinPressure: ${this.minPressure}%`);
+  }
+  
+  /**
+   * Set max pressure (size percentage)
+   */
+  setMaxPressure(max: number) {
+    this.maxPressure = Math.max(1, Math.min(1000, max));
+    // Ensure max is always >= min
+    if (this.maxPressure < this.minPressure) {
+      this.maxPressure = this.minPressure;
+    }
+    console.log(`[CC] setMaxPressure: ${this.maxPressure}%`);
   }
   
   /**

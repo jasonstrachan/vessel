@@ -1559,6 +1559,19 @@ export const useBrushEngineSimplified = () => {
       if (tools.brushSettings.gradientBands) {
         colorCycleBrush.setGradientBands(tools.brushSettings.gradientBands);
       }
+      // Set pressure enabled state and min/max values
+      console.log('[CC Init] Setting pressure enabled:', tools.brushSettings.pressureEnabled);
+      try {
+        // Force enable pressure for COLOR_CYCLE - the UI toggle isn't working correctly
+        const shouldEnablePressure = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ? true : (tools.brushSettings.pressureEnabled || false);
+        (colorCycleBrush as any).setPressureEnabled(shouldEnablePressure);
+        console.warn(`🔵 COLOR_CYCLE PRESSURE: ${shouldEnablePressure}`);
+        // Always set pressure values, using sensible defaults if not specified
+        (colorCycleBrush as any).setMinPressure(tools.brushSettings.minPressure || 50);
+        (colorCycleBrush as any).setMaxPressure(tools.brushSettings.maxPressure || 200);
+      } catch (e) {
+        console.error('[CC Init] Failed to set pressure settings:', e);
+      }
       
       // Apply gradient - prioritize layer's stored gradient over brush settings
       const activeLayer = useAppStore.getState().layers.find(l => l.id === activeLayerId);
@@ -1594,8 +1607,17 @@ export const useBrushEngineSimplified = () => {
     ctx: CanvasRenderingContext2D,
     x: number,
     y: number,
-    _pressure: number = 1.0
+    pressure: number = 1.0,
+    rotation: number = 0
   ) => {
+    // CRITICAL DEBUG - ALWAYS LOG - VERSION 3
+    console.warn(`🔴 [CC-V3] pressure=${pressure.toFixed(2)} pressureEnabled=${tools.brushSettings.pressureEnabled} min=${tools.brushSettings.minPressure} max=${tools.brushSettings.maxPressure}`);
+    
+    // DEBUG: Log incoming pressure and rotation values
+    if (pressure !== 1.0 || rotation !== 0) {
+      console.log(`[DEBUG] drawColorCycle called: pressure=${pressure.toFixed(2)}, rotation=${rotation.toFixed(2)}`);
+    }
+    
     try {
       // DEFENSIVE GUARD: Check if color cycle brush should be used
       // This prevents crashes when incompatible layer types are used
@@ -1605,12 +1627,44 @@ export const useBrushEngineSimplified = () => {
         return;
       }
       
+      // Ensure pressure settings are applied (might be a newly created brush)
+      // Log current settings to debug - only once per stroke to avoid spam
+      if (!ctx.canvas.dataset.loggedSettings) {
+        console.log('[CC DrawCycle] Brush settings from store:', {
+          pressureEnabled: tools.brushSettings.pressureEnabled,
+          minPressure: tools.brushSettings.minPressure,
+          maxPressure: tools.brushSettings.maxPressure,
+          brushShape: tools.brushSettings.brushShape,
+          currentTool: tools.currentTool
+        });
+        ctx.canvas.dataset.loggedSettings = 'true';
+        // Reset flag after a short delay
+        setTimeout(() => {
+          if (ctx.canvas.dataset) {
+            delete ctx.canvas.dataset.loggedSettings;
+          }
+        }, 1000);
+      }
+      
+      // Set pressure settings FIRST before painting
+      try {
+        // Force enable pressure for COLOR_CYCLE - the UI toggle isn't working correctly
+        const shouldEnablePressure = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ? true : (tools.brushSettings.pressureEnabled || false);
+        (colorCycleBrush as any).setPressureEnabled(shouldEnablePressure);
+        console.warn(`🔵 COLOR_CYCLE PRESSURE: ${shouldEnablePressure}`);
+        // Always set pressure values, using sensible defaults if not specified
+        (colorCycleBrush as any).setMinPressure(tools.brushSettings.minPressure || 50);
+        (colorCycleBrush as any).setMaxPressure(tools.brushSettings.maxPressure || 200);
+      } catch (e) {
+        console.error('[CC DrawCycle] Error setting pressure:', e);
+      }
+      
       // Safe brush size setting
       if (tools.brushSettings.size > 0) {
         colorCycleBrush.setBrushSize(tools.brushSettings.size);
       }
       
-      // Paint to the Canvas2D buffer only
+      // Paint to the Canvas2D buffer only - AFTER setting pressure
       // Convert canvas coordinates to internal canvas coordinates
       const internalCanvas = (colorCycleBrush as any).getCanvas();
       if (!internalCanvas || !internalCanvas.width || !internalCanvas.height) {
@@ -1628,7 +1682,8 @@ export const useBrushEngineSimplified = () => {
       // Bounds check
       if (paintX >= 0 && paintX < internalCanvas.width && 
           paintY >= 0 && paintY < internalCanvas.height) {
-        colorCycleBrush.paint(paintX, paintY, activeLayerId || undefined);
+        // THEN paint with pressure and rotation
+        colorCycleBrush.paint(paintX, paintY, activeLayerId || undefined, pressure, rotation);
       }
     } catch (error) {
       console.error('[ColorCycle] Error in drawColorCycle:', error);
@@ -1772,6 +1827,44 @@ export const useBrushEngineSimplified = () => {
       colorCycleBrush.setGradientBands(tools.brushSettings.gradientBands);
     }
   }, [tools.brushSettings.gradientBands, getActiveLayerColorCycleBrush]);
+  
+  // Update pressure enabled when it changes
+  useEffect(() => {
+    const colorCycleBrush = getActiveLayerColorCycleBrush();
+    console.log('[CC Effect] Pressure setting changed to:', tools.brushSettings.pressureEnabled, 'Brush exists?', !!colorCycleBrush);
+    if (colorCycleBrush) {
+      try {
+        (colorCycleBrush as any).setPressureEnabled(tools.brushSettings.pressureEnabled || false);
+        console.log('[CC Effect] Successfully set pressure enabled');
+      } catch (e) {
+        console.error('[CC Effect] Failed to set pressure enabled:', e);
+      }
+    }
+  }, [tools.brushSettings.pressureEnabled, getActiveLayerColorCycleBrush]);
+  
+  // Update min pressure when it changes
+  useEffect(() => {
+    const colorCycleBrush = getActiveLayerColorCycleBrush();
+    if (colorCycleBrush && tools.brushSettings.minPressure) {
+      try {
+        (colorCycleBrush as any).setMinPressure(tools.brushSettings.minPressure);
+      } catch (e) {
+        console.error('[CC Effect] Failed to set min pressure:', e);
+      }
+    }
+  }, [tools.brushSettings.minPressure, getActiveLayerColorCycleBrush]);
+  
+  // Update max pressure when it changes
+  useEffect(() => {
+    const colorCycleBrush = getActiveLayerColorCycleBrush();
+    if (colorCycleBrush && tools.brushSettings.maxPressure) {
+      try {
+        (colorCycleBrush as any).setMaxPressure(tools.brushSettings.maxPressure);
+      } catch (e) {
+        console.error('[CC Effect] Failed to set max pressure:', e);
+      }
+    }
+  }, [tools.brushSettings.maxPressure, getActiveLayerColorCycleBrush]);
 
   // Clean up resources
   useEffect(() => {

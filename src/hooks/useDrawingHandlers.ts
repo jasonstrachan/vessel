@@ -368,12 +368,16 @@ export function useDrawingHandlers({
                 
                 // Only draw if we've moved enough distance
                 if (colorCycleDistanceRef.current >= spacing) {
-                  brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure);
+                  // Calculate rotation if enabled
+                  const rotation = currentState.tools.brushSettings.rotationEnabled 
+                    ? Math.atan2(dy, dx) 
+                    : 0;
+                  brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure, rotation);
                   colorCycleDistanceRef.current = 0; // Reset distance
                 }
               } else {
-                // First point in stroke
-                brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure);
+                // First point in stroke (no rotation for initial point)
+                brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure, 0);
               }
               colorCycleLastPosRef.current = worldPos;
               // Rendering happens in the animation loop, not here
@@ -588,14 +592,11 @@ export function useDrawingHandlers({
                   
                   // Check dashed pattern before drawing
                   if (shouldDrawStamp(currentState.tools.brushSettings, colorCyclePixelQueue.current, currentState.tools.brushSettings.size)) {
-                    // TODO: Rotation support requires ColorCycleBrush modification to accept rotation parameter
-                    // and update the Canvas2D rendering to apply rotation transformation to stamps
-                    // For now, we calculate rotation but don't apply it
+                    // Pass rotation to the color cycle brush if enabled
                     if (currentState.tools.brushSettings.rotationEnabled && rotation !== 0) {
-                      // Future: brushEngine.drawColorCycle(drawCtx, stampX, stampY, pressure, rotation);
-                      brushEngine.drawColorCycle(drawCtx, stampX, stampY, pressure);
+                      brushEngine.drawColorCycle(drawCtx, stampX, stampY, pressure, rotation);
                     } else {
-                      brushEngine.drawColorCycle(drawCtx, stampX, stampY, pressure);
+                      brushEngine.drawColorCycle(drawCtx, stampX, stampY, pressure, 0);
                     }
                   }
                   

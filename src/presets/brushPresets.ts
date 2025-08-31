@@ -691,14 +691,14 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     settings.size = 5; // 5px default for ink brush
     settings.antialiasing = true;
     settings.pressureEnabled = true;
-    settings.minPressure = 1;
-    settings.maxPressure = 100;
+    settings.minPressure = 50;  // 50% size at min pressure
+    settings.maxPressure = 200; // 200% size at max pressure
   } else if (preset.id === 'resampler-brush') {
     settings.size = 20; // 20px default for resampler brush
     settings.antialiasing = true;
     settings.pressureEnabled = true;
-    settings.minPressure = 1;
-    settings.maxPressure = 100;
+    settings.minPressure = 50;  // 50% size at min pressure
+    settings.maxPressure = 200; // 200% size at max pressure
   } else if (preset.id === 'contour-polygon-brush') {
     settings.size = 10; // 10px default for contour polygon brush
     settings.antialiasing = false; // Crisp pixelated edges for contours
@@ -709,8 +709,8 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     // Handle custom brush presets - apply sensible defaults
     settings.antialiasing = true;
     settings.pressureEnabled = true;
-    settings.minPressure = 1;
-    settings.maxPressure = 100;
+    settings.minPressure = 50;  // 50% size at min pressure
+    settings.maxPressure = 200; // 200% size at max pressure
   }
   // Removed hardcoded opacity, spacing, colorJitter - these should come from user preferences or store defaults
   

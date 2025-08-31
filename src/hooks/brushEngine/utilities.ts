@@ -4,6 +4,7 @@
  */
 
 import type { BrushSettings } from '@/types';
+import { calculatePressureSize as calculatePressureSizeCurve } from '@/utils/pressureCurve';
 
 /**
  * Calculate grid spacing from brush settings
@@ -55,7 +56,7 @@ export const calculateBrushSpacing = (
 };
 
 /**
- * Calculate pressure-modified brush size
+ * Calculate pressure-modified brush size with smooth curve
  */
 export const calculatePressureSize = (
   baseSize: number,
@@ -68,16 +69,18 @@ export const calculatePressureSize = (
     return baseSize;
   }
   
-  // Map pressure (0.0-1.0) to size range
-  const minSizePx = minPressure || 1;
-  const maxSizePx = maxPressure || baseSize;
+  // Use the new pressure curve function
+  // minPressure and maxPressure are percentages (1-1000)
+  const minPercent = minPressure || 100; // Default to 100% (no reduction)
+  const maxPercent = maxPressure || 100; // Default to 100% (no increase)
   
-  // Add pressure deadzone for better low-pressure control
-  const pressureThreshold = 0.2;
-  const adjustedPressure = pressure < pressureThreshold ? 0 : 
-    (pressure - pressureThreshold) / (1.0 - pressureThreshold);
-  
-  return minSizePx + (adjustedPressure * (maxSizePx - minSizePx));
+  return calculatePressureSizeCurve(
+    baseSize,
+    pressure,
+    minPercent,
+    maxPercent,
+    's-curve' // Use smooth S-curve by default
+  );
 };
 
 /**
@@ -159,8 +162,8 @@ export const createBrushUtilities = (getSettings: () => BrushSettings) => {
       return calculatePressureSize(
         baseSize,
         pressure,
-        settings.minPressure || 1,
-        settings.maxPressure || baseSize,
+        settings.minPressure || 50,    // Default to 50% at min pressure
+        settings.maxPressure || 200,   // Default to 200% at max pressure
         settings.pressureEnabled || false
       );
     },

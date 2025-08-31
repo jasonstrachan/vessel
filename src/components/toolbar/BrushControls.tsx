@@ -319,7 +319,9 @@ const BrushControls = () => {
               id="pressure-enabled-color-cycle"
               checked={activeSettings.pressureEnabled || false}
               onChange={(checked) => {
+                console.log('[CC UI] Pressure toggle changed to:', checked);
                 setActiveSettings({ pressureEnabled: checked });
+                console.log('[CC UI] After setting, activeSettings:', activeSettings);
               }}
             />
             {(activeSettings.pressureEnabled || false) && (
@@ -336,7 +338,7 @@ const BrushControls = () => {
                   }}
                   min="1"
                   max="1000"
-                  className="w-8 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                  className="w-12 bg-[#4a4a4a] border-none focus:outline-none h-5"
                 />
                 <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
                   -
@@ -344,14 +346,14 @@ const BrushControls = () => {
                 <Input
                   type="number"
                   variant="compact"
-                  value={activeSettings.maxPressure ?? 100}
+                  value={activeSettings.maxPressure ?? 200}
                   onChange={(e) => {
                     const value = parseInt(e.target.value);
                     setActiveSettings({ maxPressure: value || undefined });
                   }}
                   min="1"
                   max="1000"
-                  className="w-8 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                  className="w-12 bg-[#4a4a4a] border-none focus:outline-none h-5"
                 />
               </>
             )}
@@ -660,7 +662,7 @@ const BrushControls = () => {
                   }}
                   min="1"
                   max="1000"
-                  className="w-8 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                  className="w-12 bg-[#4a4a4a] border-none focus:outline-none h-5"
                 />
                 <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
                   -
@@ -668,7 +670,7 @@ const BrushControls = () => {
                 <Input
                   type="number"
                   variant="compact"
-                  value={activeSettings.maxPressure ?? 100}
+                  value={activeSettings.maxPressure ?? 200}
                   onChange={(e) => {
                     const value = parseInt(e.target.value);
                     console.log('[Max Pressure Input Debug]', {
@@ -680,7 +682,7 @@ const BrushControls = () => {
                   }}
                   min="1"
                   max="1000"
-                  className="w-8 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                  className="w-12 bg-[#4a4a4a] border-none focus:outline-none h-5"
                 />
               </>
             )}
