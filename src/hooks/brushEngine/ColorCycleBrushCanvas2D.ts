@@ -560,17 +560,24 @@ export class ColorCycleBrushCanvas2D {
             }
           }
           
-          // Disable banding for shapes - use smooth gradient instead
-          // Map distance directly to color index for seamless gradients
+          // Color banding for shapes - quantize gradient into bands
           // Calculate shape size from bounds
           const shapeWidth = maxX - minX;
           const shapeHeight = maxY - minY;
           const shapeSize = Math.max(shapeWidth, shapeHeight);
-          // Scale distance to use full color palette range
+          // Calculate smooth gradient position (0-1)
           const maxDist = Math.max(50, shapeSize / 2); // Expected max distance
           const normalizedDist = Math.min(1, minDist / maxDist);
-          // Use full palette range for smooth gradient
-          const colorIndex = Math.floor(normalizedDist * 253) + 1;
+          
+          // Quantize into color bands
+          const numBands = this.gradientBands || 12;
+          const bandStep = 1.0 / numBands;
+          const bandIndex = Math.min(numBands - 1, Math.floor(normalizedDist / bandStep));
+          
+          // Map to color index with continuation from previous shapes
+          const colorStep = Math.floor(254 / numBands);
+          const baseOffset = this.stampCounter % 254; // Continue from last shape
+          const colorIndex = ((baseOffset + bandIndex * colorStep) % 254) + 1;
           
           // Paint with size 1 for precise pixel control
           animator.paintSquare(x, y, 1, colorIndex);

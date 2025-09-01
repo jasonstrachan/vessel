@@ -1848,8 +1848,8 @@ export const useBrushEngineSimplified = () => {
   // Update gradient bands when it changes
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (colorCycleBrush && tools.brushSettings.gradientBands) {
-      colorCycleBrush.setGradientBands(tools.brushSettings.gradientBands);
+    if (colorCycleBrush) {
+      colorCycleBrush.setGradientBands(tools.brushSettings.gradientBands || 12);
     }
   }, [tools.brushSettings.gradientBands, getActiveLayerColorCycleBrush]);
   

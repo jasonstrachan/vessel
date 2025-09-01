@@ -534,7 +534,7 @@ const polygonGradientBrushComponents: BrushComponent[] = [
 
 export const polygonGradientBrushPreset: BrushPreset = {
   id: 'polygon-gradient-brush',
-  name: 'Polygon Gradient',
+  name: 'Shape Gradient',
   category: 'Special',
   components: polygonGradientBrushComponents,
   thumbnail: '/assets/images/Brush.png',
