@@ -25,7 +25,8 @@ export const STROKE_BRUSHES: BrushShape[] = [
 export const SHAPE_FILL_BRUSHES: BrushShape[] = [
   BrushShape.RECTANGLE_GRADIENT,
   BrushShape.POLYGON_GRADIENT,
-  BrushShape.CONTOUR_POLYGON
+  BrushShape.CONTOUR_POLYGON,
+  BrushShape.COLOR_CYCLE_SHAPE
 ];
 
 /**
@@ -33,8 +34,8 @@ export const SHAPE_FILL_BRUSHES: BrushShape[] = [
  */
 export function isStrokeBrush(brushShape: BrushShape | string): boolean {
   // Handle both enum values and string values
-  const shape = typeof brushShape === 'string' ? brushShape : brushShape.toString();
-  return STROKE_BRUSHES.some(b => b.toString() === shape);
+  const shape = typeof brushShape === 'string' ? brushShape : String(brushShape);
+  return STROKE_BRUSHES.some(b => String(b) === shape);
 }
 
 /**
@@ -42,8 +43,8 @@ export function isStrokeBrush(brushShape: BrushShape | string): boolean {
  */
 export function isShapeFillBrush(brushShape: BrushShape | string): boolean {
   // Handle both enum values and string values
-  const shape = typeof brushShape === 'string' ? brushShape : brushShape.toString();
-  return SHAPE_FILL_BRUSHES.some(b => b.toString() === shape);
+  const shape = typeof brushShape === 'string' ? brushShape : String(brushShape);
+  return SHAPE_FILL_BRUSHES.some(b => String(b) === shape);
 }
 
 /**

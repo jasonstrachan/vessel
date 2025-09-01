@@ -81,6 +81,7 @@ export function generateBrushThumbnail(
       generateResamplerThumbnail(ctx, opts);
       break;
     case BrushShape.COLOR_CYCLE:
+    case BrushShape.COLOR_CYCLE_SHAPE:
       generateColorCycleThumbnail(ctx, opts);
       break;
     case BrushShape.ROUND:

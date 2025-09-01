@@ -1232,6 +1232,11 @@ export const useAppStore = create<AppState>()(
           newBrushSettings.lastRegularBrushSize = newBrushSettings.size;
         }
         
+        // Force antialiasing off for spam brush (disables shape mode)
+        if (newBrushSettings.brushShape === BrushShape.SPAM_TEXT) {
+          newBrushSettings.antialiasing = false;
+        }
+        
         // Clear temporary brush when switching away from custom brushes
         const updatedState = {
           ...state,

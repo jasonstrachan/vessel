@@ -68,6 +68,12 @@ export class BrushEngineFacade {
     counter: 0,
     recalcFrequency: 5
   };
+  // Spam text state for continuous text flow
+  private spamTextState = {
+    currentText: '',
+    charIndex: 0,
+    initialized: false
+  };
 
   constructor(config: BrushEngineConfig) {
     this.config = config;
@@ -95,7 +101,8 @@ export class BrushEngineFacade {
       brushStampCache: config.brushStampCache,
       createPixelCircleStamp: config.createPixelCircleStamp,
       createPixelSquareStamp: config.createPixelSquareStamp,
-      getRotationTempContext: config.getRotationTempContext
+      getRotationTempContext: config.getRotationTempContext,
+      getNextSpamChar: this.getNextSpamChar.bind(this)
     };
 
     this._shapeDrawer = createShapeDrawer(shapeSettings, shapeDeps);
@@ -127,7 +134,8 @@ export class BrushEngineFacade {
       brushStampCache: this.config.brushStampCache,
       createPixelCircleStamp: this.config.createPixelCircleStamp,
       createPixelSquareStamp: this.config.createPixelSquareStamp,
-      getRotationTempContext: this.config.getRotationTempContext
+      getRotationTempContext: this.config.getRotationTempContext,
+      getNextSpamChar: this.getNextSpamChar.bind(this)
     };
 
     this._shapeDrawer = createShapeDrawer(shapeSettings, shapeDeps);
@@ -536,6 +544,54 @@ export class BrushEngineFacade {
     } catch {
       return true; // Allow drawing if we can't check
     }
+  }
+
+  /**
+   * Get next character for spam text brush
+   */
+  getNextSpamChar(): string {
+    if (!this.spamTextState.currentText) {
+      return 'S'; // Fallback character
+    }
+    
+    const char = this.spamTextState.currentText[this.spamTextState.charIndex % this.spamTextState.currentText.length];
+    this.spamTextState.charIndex++;
+    return char;
+  }
+
+  /**
+   * Initialize spam text for current content type
+   */
+  initializeSpamText(contentType: string): void {
+    // Full spam messages for continuous flow
+    const spamTexts: Record<string, string> = {
+      classic: 'WINNER!!! ACT NOW!!! LIMITED TIME OFFER!!! CONGRATULATIONS!!! FREE FREE FREE!!! CLICK HERE!!! URGENT MESSAGE!!! HOT SINGLES IN YOUR AREA!!! 100% GUARANTEED!!! NO RISK!!! CALL NOW!!! AMAZING OFFER!!! EARN $$$!!! LOSE WEIGHT FAST!!! MIRACLE CURE!!! SECRET REVEALED!!! ',
+      crypto: 'TO THE MOON!!! HODL!!! DIAMOND HANDS!!! BUY THE DIP!!! WHALE ALERT!!! 100X GAINS!!! PUMP IT!!! NOT FINANCIAL ADVICE!!! LAMBO SOON!!! MOON MISSION!!! GEM FOUND!!! RUG PROOF!!! DYOR!!! APE IN NOW!!! ',
+      prince: 'DEAR BENEFICIARY!!! INHERITANCE FUND!!! BANK OF NIGERIA!!! TRANSFER FEES REQUIRED!!! MILLION DOLLARS!!! TRUSTED BARRISTER!!! URGENT RESPONSE NEEDED!!! STRICTLY CONFIDENTIAL!!! GOD BLESS!!! AWAITING YOUR REPLY!!! KINDLY SEND DETAILS!!! WESTERN UNION!!! ',
+      pharma: 'CHEAP MEDS!!! NO PRESCRIPTION!!! FDA APPROVED!!! GENERIC PILLS!!! DISCREET SHIPPING!!! ONLINE PHARMACY!!! SPECIAL PRICE!!! ORDER TODAY!!! DOCTOR APPROVED!!! SAFE & EFFECTIVE!!! FAST DELIVERY!!! ',
+      mixed: 'WINNER!!! TO THE MOON!!! DEAR BENEFICIARY!!! CHEAP MEDS!!! ACT NOW!!! HODL!!! BANK OF NIGERIA!!! FDA APPROVED!!! FREE FREE FREE!!! DIAMOND HANDS!!! MILLION DOLLARS!!! SPECIAL PRICE!!! 100% GUARANTEED!!! PUMP IT!!! URGENT!!! '
+    };
+    
+    this.spamTextState.currentText = spamTexts[contentType] || spamTexts.mixed;
+    if (!this.spamTextState.initialized) {
+      this.spamTextState.charIndex = 0;
+      this.spamTextState.initialized = true;
+    }
+  }
+
+  /**
+   * Reset spam text state
+   */
+  resetSpamText(): void {
+    this.spamTextState.charIndex = 0;
+    this.spamTextState.initialized = false;
+  }
+
+  /**
+   * Get spam text state for external access
+   */
+  getSpamTextState() {
+    return this.spamTextState;
   }
 }
 

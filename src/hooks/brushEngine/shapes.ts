@@ -85,6 +85,7 @@ export interface ShapeDrawingDependencies {
   createPixelCircleStamp?: (size: number) => HTMLCanvasElement | null;
   createPixelSquareStamp?: (size: number) => HTMLCanvasElement | null;
   getRotationTempContext?: (width: number, height: number) => CanvasRenderingContext2D | null;
+  getNextSpamChar?: () => string;
 }
 
 /**
@@ -677,6 +678,36 @@ export const drawShape = (
           drawingCtx.arc(drawX, drawY, halfSize, 0, Math.PI * 2);
           drawingCtx.fill();
         }
+        break;
+      }
+      
+      case BrushShape.SPAM_TEXT: {
+        // Spam text brush - render single characters sequentially
+        const fontSize = Math.round(size);
+        
+        // Get the next character from the continuous text stream
+        const char = deps?.getNextSpamChar ? deps.getNextSpamChar() : 'S';
+        
+        // Get font from settings or default to Courier
+        const brushSettings = settings?.brushSettings;
+        const fontFamily = brushSettings?.spamFont === 'consolas' ? 'Consolas, monospace' :
+                          brushSettings?.spamFont === 'monaco' ? 'Monaco, monospace' :
+                          brushSettings?.spamFont === 'lucida' ? 'Lucida Console, monospace' :
+                          brushSettings?.spamFont === 'roboto' ? 'Roboto Mono, monospace' :
+                          brushSettings?.spamFont === 'source' ? 'Source Code Pro, monospace' :
+                          brushSettings?.spamFont === 'terminal' ? 'Terminal, monospace' :
+                          brushSettings?.spamFont === 'menlo' ? 'Menlo, monospace' :
+                          'Courier New, monospace';
+        
+        drawingCtx.save();
+        drawingCtx.font = `${fontSize}px ${fontFamily}`;
+        drawingCtx.textAlign = 'center';
+        drawingCtx.textBaseline = 'middle';
+        
+        // No rotation for better readability of continuous text
+        drawingCtx.fillText(char, drawX, drawY);
+        
+        drawingCtx.restore();
         break;
       }
         

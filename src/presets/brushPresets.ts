@@ -402,8 +402,8 @@ export const inkBrushPreset: BrushPreset = {
   }
 };
 
-// Color Cycle Brush Components
-export const colorCycleBrushComponents: BrushComponent[] = [
+// Color Cycle Stroke Brush Components (shape mode OFF)
+export const colorCycleStrokeBrushComponents: BrushComponent[] = [
   {
     id: 'color-cycle-size',
     type: ComponentType.SIZE_MODIFIER,
@@ -435,20 +435,20 @@ export const colorCycleBrushComponents: BrushComponent[] = [
   }
 ];
 
-export const colorCycleBrushPreset: BrushPreset = {
-  id: 'color-cycle-brush',
-  name: 'Color Cycle',
+export const colorCycleStrokeBrushPreset: BrushPreset = {
+  id: 'color-cycle-stroke',
+  name: 'Color Cycle Stroke',
   category: 'Special',
-  components: colorCycleBrushComponents,
+  components: colorCycleStrokeBrushComponents,
   thumbnail: '/assets/images/Square.png',
-  tags: ['color', 'cycle', 'animated', 'special', 'square'],
+  tags: ['color', 'cycle', 'animated', 'special', 'stroke'],
   isDefault: false,
   createdAt: new Date(),
   modifiedAt: new Date(),
   preferredSettings: {
     size: 20,
     opacity: 1,
-    colorCycleSpeed: 1.0,
+    colorCycleSpeed: 0.3,
     colorCycleFPS: 30,
     colorCycleGradient: [
       { position: 0.0, color: '#ff0000' },
@@ -458,7 +458,70 @@ export const colorCycleBrushPreset: BrushPreset = {
       { position: 0.67, color: '#0000ff' },
       { position: 0.83, color: '#4b0082' },
       { position: 1.0, color: '#9400d3' }
-    ]
+    ],
+    shapeEnabled: false // Force shape mode OFF for stroke variant
+  }
+};
+
+// Color Cycle Shape Brush Components (shape mode ON)
+export const colorCycleShapeBrushComponents: BrushComponent[] = [
+  {
+    id: 'color-cycle-shape-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      minSize: 1,
+      maxSize: 500,
+      pressureInfluence: 0
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'color-cycle-shape-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0.5
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'color-cycle-shape-renderer',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.COLOR_CYCLE_SHAPE
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+export const colorCycleShapeBrushPreset: BrushPreset = {
+  id: 'color-cycle-shape',
+  name: 'Color Cycle Shape',
+  category: 'Special',
+  components: colorCycleShapeBrushComponents,
+  thumbnail: '/assets/images/Square.png',
+  tags: ['color', 'cycle', 'animated', 'special', 'shape', 'polygon'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    size: 20,
+    opacity: 1,
+    colorCycleSpeed: 0.3,
+    colorCycleFPS: 30,
+    gradientBands: 26,
+    colorCycleGradient: [
+      { position: 0.0, color: '#ff0000' },
+      { position: 0.17, color: '#ff7f00' },
+      { position: 0.33, color: '#ffff00' },
+      { position: 0.5, color: '#00ff00' },
+      { position: 0.67, color: '#0000ff' },
+      { position: 0.83, color: '#4b0082' },
+      { position: 1.0, color: '#9400d3' }
+    ],
+    shapeEnabled: true // Force shape mode ON for shape variant
   }
 };
 
@@ -586,6 +649,62 @@ export const contourPolygonBrushPreset: BrushPreset = {
   }
 };
 
+// Spam Brush Components
+const spamBrushComponents: BrushComponent[] = [
+  {
+    id: 'spam-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      minSize: 8,
+      maxSize: 72,
+      pressureInfluence: 0.3
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'spam-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0.2
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'spam-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.SPAM_TEXT
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+export const spamBrushPreset: BrushPreset = {
+  id: 'spam-brush',
+  name: 'Spam Text',
+  category: 'Text',
+  components: spamBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['spam', 'text', 'typography', 'artistic', 'monospace'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    size: 16,
+    opacity: 1,
+    antialiasing: false,  // MUST be false - this controls shape mode
+    spacing: 10,  // Optimized spacing for letter-by-letter text flow
+    pressureEnabled: false,  // Disable pressure for consistent text
+    minPressure: 1,
+    maxPressure: 1,
+    spamFont: 'courier',
+    spamContentType: 'mixed'
+  }
+};
+
 // Resampler Brush Components
 const resamplerBrushComponents: BrushComponent[] = [
   {
@@ -666,10 +785,12 @@ export const brushPresets: BrushPreset[] = [
   roundPixel4Preset,
   roundSquare6Preset,
   inkBrushPreset,
-  colorCycleBrushPreset,
+  colorCycleStrokeBrushPreset,
+  colorCycleShapeBrushPreset,
   rectangleGradientBrushPreset,
   polygonGradientBrushPreset,
   contourPolygonBrushPreset,
+  spamBrushPreset,
   resamplerBrushPreset
 ];
 

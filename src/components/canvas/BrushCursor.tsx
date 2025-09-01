@@ -67,7 +67,8 @@ const useCursorDataURL = (
         break;
       case BrushShape.TRIANGLE:
       case BrushShape.POLYGON_GRADIENT:
-        // Draw a hexagon for polygon gradient
+      case BrushShape.COLOR_CYCLE_SHAPE:
+        // Draw a hexagon for polygon gradient and color cycle shape
         const sides = 6;
         ctx.moveTo(center + radius, center);
         for (let i = 1; i <= sides; i++) {

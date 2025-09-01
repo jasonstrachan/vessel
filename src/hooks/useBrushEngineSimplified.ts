@@ -224,6 +224,12 @@ export const useBrushEngineSimplified = () => {
       brushStampCache: brushStampCacheRef.current,
       getRotationTempContext
     });
+    
+    // Initialize spam text when spam brush is selected
+    if (tools.brushSettings.brushShape === BrushShape.SPAM_TEXT) {
+      const contentType = tools.brushSettings.spamContentType || 'mixed';
+      brushEngine.initializeSpamText(contentType);
+    }
   }, [brushEngine, tools.brushSettings, getPatternTempContext, getRotationTempContext]);
 
   /**
@@ -585,7 +591,7 @@ export const useBrushEngineSimplified = () => {
   }, [tools.brushSettings.risographIntensity]);
 
   /**
-   * Draw polygon with gradient - FIXED VERSION
+   * Draw polygon with gradient - DEBUG VERSION
    */
   const drawPolygonGradient = useCallback((
     ctx: CanvasRenderingContext2D,
@@ -594,15 +600,11 @@ export const useBrushEngineSimplified = () => {
   ) => {
     const { vertices, colors } = polygonData || {};
     
-    // Use cached isPixelBrush value for crisp edges
-    
-    // Debug: Log input colors
-    // if (colors && colors.length > 0) {
-    //   // Check for black/undefined values
-    //   const blackCount = colors.filter(c => c === '#000000' || c === 'rgb(0, 0, 0)' || !c).length;
-    // }
-    
-    if (!vertices || !Array.isArray(vertices) || vertices.length < 3) return;
+    // Early return if no polygon data
+    if (!polygonData || !vertices || !Array.isArray(vertices) || vertices.length < 3) {
+      console.warn('[drawPolygonGradient] Skipping - insufficient vertices:', vertices?.length || 0);
+      return;
+    }
     
     // Validate all vertices are defined
     const validVertices = vertices.filter(v => v && typeof v.x === 'number' && typeof v.y === 'number');
@@ -746,6 +748,13 @@ export const useBrushEngineSimplified = () => {
     ctx.globalAlpha = tools.brushSettings.opacity;
     ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
     
+    // CRITICAL DEBUG - Log drawing context state
+    console.error('🔴 Drawing context state:', {
+      globalAlpha: ctx.globalAlpha,
+      globalCompositeOperation: ctx.globalCompositeOperation,
+      fillStyle: ctx.fillStyle
+    });
+    
     // Check if we'll be applying dithering
     const willApplyDithering = tools.brushSettings.ditherEnabled && !isPreview;
     
@@ -884,11 +893,29 @@ export const useBrushEngineSimplified = () => {
       // No dithering - draw directly with antialiasing
       ctx.imageSmoothingEnabled = true;
       ctx.fillStyle = gradient;
+      
+      // CRITICAL DEBUG - Log just before drawing
+      console.error('🔴 About to draw polygon:', {
+        fillStyle: ctx.fillStyle,
+        vertexCount: validVertices.length,
+        bounds: {
+          minX: Math.min(...validVertices.map(v => v.x)),
+          minY: Math.min(...validVertices.map(v => v.y)),
+          maxX: Math.max(...validVertices.map(v => v.x)),
+          maxY: Math.max(...validVertices.map(v => v.y))
+        },
+        firstVertex: validVertices[0],
+        lastVertex: validVertices[validVertices.length - 1]
+      });
+      
       ctx.beginPath();
       ctx.moveTo(validVertices[0].x, validVertices[0].y);
       validVertices.slice(1).forEach(vertex => ctx.lineTo(vertex.x, vertex.y));
       ctx.closePath();
       ctx.fill();
+      
+      // CRITICAL DEBUG - Log after drawing
+      console.error('🔴 Polygon drawn successfully');
       
       // Apply risograph effect if enabled
       const risographIntensity = tools.brushSettings.risographIntensity || 0;

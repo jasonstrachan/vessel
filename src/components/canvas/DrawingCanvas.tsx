@@ -79,9 +79,13 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     if (tools.brushSettings.brushShape === BrushShape.CUSTOM) {
       return 'crosshair';
     }
-    // Gradient and contour brushes use crosshair cursor
+    // Gradient, contour, shape brushes, and spam text use crosshair cursor
     const brushShape = tools.brushSettings.brushShape;
-    if (brushShape === BrushShape.RECTANGLE_GRADIENT || brushShape === BrushShape.POLYGON_GRADIENT || brushShape === BrushShape.CONTOUR_POLYGON) {
+    if (brushShape === BrushShape.RECTANGLE_GRADIENT || 
+        brushShape === BrushShape.POLYGON_GRADIENT || 
+        brushShape === BrushShape.CONTOUR_POLYGON ||
+        brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
+        brushShape === BrushShape.SPAM_TEXT) {
       return 'crosshair';
     }
     // Color cycle uses standard brush cursor to show size
@@ -849,8 +853,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
               },
               false
             );
-          } else {
-            // Standard polygon gradient
+          } else if (toolStateMachine.polygonGradientState.points.length >= 3) {
+            // Standard polygon gradient - only if we have valid points
             brushEngine.drawPolygonGradient(
               drawCtx,
               {

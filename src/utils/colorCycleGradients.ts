@@ -1,0 +1,83 @@
+/**
+ * Shared gradient management for Color Cycle brushes
+ * Both Color Cycle Stroke and Color Cycle Shape brushes use this module
+ * to ensure they share the same gradient settings
+ */
+
+import { useAppStore } from '@/stores/useAppStore';
+
+// Default rainbow gradient
+export const DEFAULT_COLOR_CYCLE_GRADIENT = [
+  { position: 0.0, color: '#ff0000' },
+  { position: 0.17, color: '#ff7f00' },
+  { position: 0.33, color: '#ffff00' },
+  { position: 0.5, color: '#00ff00' },
+  { position: 0.67, color: '#0000ff' },
+  { position: 0.83, color: '#4b0082' },
+  { position: 1.0, color: '#9400d3' }
+];
+
+/**
+ * Get the current shared gradient for color cycle brushes
+ */
+export function getSharedColorCycleGradient(): Array<{ position: number; color: string }> {
+  const state = useAppStore.getState();
+  const brushSettings = state.tools.brushSettings;
+  return brushSettings.colorCycleGradient || DEFAULT_COLOR_CYCLE_GRADIENT;
+}
+
+/**
+ * Set the shared gradient for both color cycle brushes
+ */
+export function setSharedColorCycleGradient(gradient: Array<{ position: number; color: string }>): void {
+  const state = useAppStore.getState();
+  const setBrushSettings = state.setBrushSettings;
+  const setEraserSettings = state.setEraserSettings;
+  
+  // Update brush settings
+  setBrushSettings({ colorCycleGradient: gradient });
+  
+  // Also update eraser settings if using color cycle
+  const eraserSettings = state.tools.eraserSettings;
+  if (isColorCycleBrush(eraserSettings.brushShape)) {
+    setEraserSettings({ colorCycleGradient: gradient });
+  }
+}
+
+/**
+ * Get all shared color cycle settings
+ */
+export function getSharedColorCycleSettings() {
+  const state = useAppStore.getState();
+  const settings = state.tools.brushSettings;
+  
+  return {
+    gradient: settings.colorCycleGradient || DEFAULT_COLOR_CYCLE_GRADIENT,
+    speed: settings.colorCycleSpeed || 1.0,
+    fps: settings.colorCycleFPS || 30,
+    flowForward: settings.colorCycleFlowForward !== false,
+    gradientBands: settings.gradientBands || 12
+  };
+}
+
+/**
+ * Check if a brush shape is a color cycle variant
+ */
+export function isColorCycleBrush(brushShape: string | undefined): boolean {
+  const shapeStr = brushShape?.toString();
+  return shapeStr === 'color_cycle' || shapeStr === 'color_cycle_shape';
+}
+
+/**
+ * Determine if shape mode should be forced for a brush
+ */
+export function getShapeModeForBrush(brushShape: string | undefined): boolean | undefined {
+  const shapeStr = brushShape?.toString();
+  if (shapeStr === 'color_cycle') {
+    return false; // Force shape mode OFF for stroke variant
+  }
+  if (shapeStr === 'color_cycle_shape') {
+    return true; // Force shape mode ON for shape variant
+  }
+  return undefined; // Let user control for other brushes
+}

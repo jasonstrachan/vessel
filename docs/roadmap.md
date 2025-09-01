@@ -210,17 +210,6 @@ Inverted control mappings for experimental effects.
 - Visual feedback showing active mappings
 - Preset chaos modes
 
-## Shape Tools
-
-### Migrate Shape Tools to useCanvasStateMachine
-Convert polygon and rectangle tools from separate `useToolStateMachine` to the unified state machine.
-
-**Implementation:**
-- Extend `useCanvasStateMachine` with shape-specific states (SHAPE_DEFINING, SHAPE_PREVIEW)
-- Add shape actions: SHAPE_START, SHAPE_ADD_POINT, SHAPE_UPDATE, SHAPE_COMPLETE
-- Move polygon/rectangle logic from `useToolStateMachine` into canvas state machine reducer
-- Unify shape preview rendering with main drawing pipeline
-- Benefits: Single source of truth, better state consistency, easier debugging
 
 ## Input & Interaction
 
@@ -257,51 +246,6 @@ Convert any data into pixel patterns.
 - Encoding options: Color mapping, size mapping, position mapping
 - Export as brush or direct canvas drawing
 
-## Canvas & Performance
-
-### Dynamic Canvas Size
-Remove hardcoded 2000x2000 limit, make responsive to user needs.
-
-**Implementation:**
-- User-defined canvas dimensions in settings
-- Dynamic memory allocation based on available RAM
-- Canvas size presets (A4, screen size, square, custom)
-- Efficient canvas resizing without data loss
-- Virtual canvas for sizes exceeding viewport
-- Tile-based rendering for very large canvases
-- Performance monitoring and warnings
-
-## Color Cycler Tool
-A creative tool that applies progressive color shifts while drawing, creating rainbow/gradient effects.
-
-**Technical Implementation Notes:**
-- Discovered during brush editor development when hue adjustments were applied to already-adjusted pixels
-- Effect occurs when drawing pixels are captured from canvas that already has HSL adjustments applied
-- Each stroke compounds the color transformation, creating a rainbow/prismatic effect
-- Implementation approach:
-  1. Maintain cumulative HSL adjustment state
-  2. On each draw operation, get current canvas pixels (with existing adjustments)
-  3. Apply additional HSL transformation
-  4. Result creates progressive color cycling effect
-  
-**Code Reference:**
-The effect was originally observed in `BrushEditorUI.tsx` when:
-```javascript
-// Drawing captures adjusted pixels from canvas
-const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-setBrushPixels(imageData);
-
-// Then adjustments are reapplied to already-adjusted pixels
-const [h, s, l] = rgbToHsl(r, g, b);
-const newH = (h + brushEditor.hueShift + 360) % 360;
-// This compounds the hue shift on each draw operation
-```
-
-**Potential Features:**
-- Adjustable cycle speed/intensity
-- Different cycling modes (hue, saturation, lightness)
-- Preset patterns (rainbow, sunset, ocean, etc.)
-- Could be used for both brush drawing and fill operations
 
 ### Time Capsule Brush
 **Concept:** Paint with words from history - select a date and the brush retrieves news headlines/articles from that specific day in time. As you paint, the brush applies sequential words from the retrieved text at the brush tip, literally painting the day's events in words one after another.

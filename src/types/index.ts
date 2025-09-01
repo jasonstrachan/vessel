@@ -101,7 +101,9 @@ export enum BrushShape {
   RISOGRAPH_SOFT = 'risograph_soft',
   RISOGRAPH_ULTRA = 'risograph_ultra',
   RESAMPLER = 'resampler',
-  COLOR_CYCLE = 'color_cycle'
+  COLOR_CYCLE = 'color_cycle',
+  COLOR_CYCLE_SHAPE = 'color_cycle_shape',
+  SPAM_TEXT = 'spam_text'
 }
 
 export interface CustomBrush {
@@ -298,6 +300,10 @@ export interface BrushSettings {
   
   // Gradient bands/steps for both strokes and fills
   gradientBands?: number; // 2-50 (number of color steps in gradients)
+  
+  // Spam brush settings
+  spamFont?: string; // Font ID for spam brush text
+  spamContentType?: string; // Type of spam content to use
 }
 
 export interface ComponentParams {
