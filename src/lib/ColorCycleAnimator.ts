@@ -36,6 +36,9 @@ export class ColorCycleAnimator {
   // Callbacks
   private onFrameCallbacks: Set<(imageData: ImageData) => void> = new Set();
   
+  // Performance optimization: cache palette as 32-bit values
+  private cachedPalette32: Uint32Array | null = null;
+  
   constructor(config: ColorCycleAnimatorConfig) {
     // If lazy init, defer heavy initialization
     if (config.lazyInit) {
@@ -148,6 +151,8 @@ export class ColorCycleAnimator {
   private updateIndexBufferPalette() {
     const paletteStrings = this.gradientPalette.getPaletteStrings();
     this.indexBuffer.setPalette(paletteStrings);
+    // Invalidate cached palette when gradient changes
+    this.cachedPalette32 = null;
   }
   
   /**
@@ -180,47 +185,61 @@ export class ColorCycleAnimator {
       
       const loopStart = performance.now();
       
-      // Apply palette with directional flow based on stroke order
-      for (let i = 0; i < indexData.length; i++) {
-        const colorIndex = indexData[i];
-        
-        // Skip transparent pixels
-        if (colorIndex === 0) {
-          const pixelIndex = i * 4;
-          pixels[pixelIndex] = 0;
-          pixels[pixelIndex + 1] = 0;
-          pixels[pixelIndex + 2] = 0;
-          pixels[pixelIndex + 3] = 0;
-          continue;
+      // Use Uint32Array for faster pixel operations
+      const pixels32 = new Uint32Array(pixels.buffer);
+      
+      // Use cached palette or create it once
+      if (!this.cachedPalette32) {
+        this.cachedPalette32 = new Uint32Array(256);
+        for (let i = 0; i < 256; i++) {
+          const color = this.gradientPalette.getColor(i);
+          // Pack RGBA into a single 32-bit value (little-endian)
+          this.cachedPalette32[i] = (color.a << 24) | (color.b << 16) | (color.g << 8) | color.r;
         }
+      }
+      const palette32 = this.cachedPalette32;
+      
+      // Optimized loop using 32-bit operations
+      if (offset > 0) {
+        // With animation
+        const animOffset = Math.floor(offset * 256);
         
-        // NEW: Use color index directly for stamp-based gradient progression
-        // The color index already represents the position in the gradient
-        // No need for animation offset or flow offset - each stamp has its assigned color
-        const paletteIndex = (colorIndex - 1) % 256;
-        
-        // Apply animation with flow direction
-        let finalIndex = paletteIndex;
-        
-        if (offset > 0) {
-          // Apply flow direction to animation
-          if (this.flowDirection === 'backward') {
-            // Reverse the animation direction - subtract offset and ensure positive
-            const backwardOffset = offset * 256;
-            finalIndex = Math.floor((paletteIndex - backwardOffset + 256 * 100) % 256);
-          } else {
-            // Forward animation (default)
-            finalIndex = Math.floor((paletteIndex + offset * 256) % 256);
+        if (this.flowDirection === 'backward') {
+          // Backward animation
+          for (let i = 0; i < indexData.length; i++) {
+            const colorIndex = indexData[i];
+            if (colorIndex === 0) {
+              pixels32[i] = 0;
+            } else {
+              const paletteIndex = (colorIndex - 1) % 256;
+              const finalIndex = (paletteIndex - animOffset + 256 * 100) % 256;
+              pixels32[i] = palette32[finalIndex];
+            }
+          }
+        } else {
+          // Forward animation
+          for (let i = 0; i < indexData.length; i++) {
+            const colorIndex = indexData[i];
+            if (colorIndex === 0) {
+              pixels32[i] = 0;
+            } else {
+              const paletteIndex = (colorIndex - 1) % 256;
+              const finalIndex = (paletteIndex + animOffset) % 256;
+              pixels32[i] = palette32[finalIndex];
+            }
           }
         }
-        
-        const color = this.gradientPalette.getColor(finalIndex);
-        const pixelIdx = i * 4;
-        
-        pixels[pixelIdx] = color.r;
-        pixels[pixelIdx + 1] = color.g;
-        pixels[pixelIdx + 2] = color.b;
-        pixels[pixelIdx + 3] = color.a;
+      } else {
+        // No animation - fastest path
+        for (let i = 0; i < indexData.length; i++) {
+          const colorIndex = indexData[i];
+          if (colorIndex === 0) {
+            pixels32[i] = 0;
+          } else {
+            const paletteIndex = (colorIndex - 1) % 256;
+            pixels32[i] = palette32[paletteIndex];
+          }
+        }
       }
     
     const loopTime = performance.now() - loopStart;

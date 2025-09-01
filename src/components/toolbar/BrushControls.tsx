@@ -74,11 +74,13 @@ const BrushControls = () => {
         colorCycleAnimationHandlers.startContinuousColorCycleAnimation();
       }
     } else {
-      // When switching AWAY from color cycle, ensure content is preserved
-      if (wasColorCycle && colorCycleAnimationHandlers) {
-        // Stop the animation but keep the content visible
+      // ALWAYS stop animation when switching to ANY other tool
+      // This prevents lag when using other tools
+      if (colorCycleAnimationHandlers) {
         colorCycleAnimationHandlers.stopContinuousColorCycleAnimation();
-        
+      }
+      
+      if (wasColorCycle) {
         // Reset Color Cycle speed to default when leaving CC mode
         setActiveSettings({ colorCycleSpeed: 1.0 });
       }

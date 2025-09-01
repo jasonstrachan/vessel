@@ -257,10 +257,18 @@ export class AnimationController {
     // Calculate average frame time
     const avgFrameTime = this.frameTimeHistory.reduce((a, b) => a + b, 0) / this.frameTimeHistory.length;
     
-    // If we're consistently missing our target by more than 50%
-    if (avgFrameTime > this.targetFrameTime * 1.5) {
-      // Skip next frame to catch up
+    // More aggressive frame skipping for better performance
+    if (avgFrameTime > this.targetFrameTime * 2.0) {
+      // Very poor performance - skip 2 frames
+      this.skipNextFrames = 2;
+    } else if (avgFrameTime > this.targetFrameTime * 1.5) {
+      // Poor performance - skip 1 frame
       this.skipNextFrames = 1;
+    } else if (avgFrameTime > this.targetFrameTime * 1.2) {
+      // Slightly behind - dynamically reduce FPS
+      if (this.fps > 15) {
+        this.setFPS(Math.max(15, this.fps - 5));
+      }
     }
   }
   

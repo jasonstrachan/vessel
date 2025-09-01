@@ -89,6 +89,16 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   
   const [cursorStyle, setCursorStyle] = useState(defaultCursorStyle);
   
+  // Update cursor style when defaultCursorStyle changes
+  useEffect(() => {
+    setCursorStyle(defaultCursorStyle);
+  }, [defaultCursorStyle]);
+  
+  // Debug cursor style
+  useEffect(() => {
+    console.log('Cursor style:', cursorStyle, 'Tool:', tools.currentTool, 'BrushShape:', tools.brushSettings.brushShape);
+  }, [cursorStyle, tools.currentTool, tools.brushSettings.brushShape]);
+  
   
   // Track floating paste dragging
   const [isDraggingFloatingPaste, setIsDraggingFloatingPaste] = useState(false);
@@ -2553,6 +2563,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           imageRendering: (canvas?.zoom || 1) > 3 ? 'pixelated' : 'auto',
           touchAction: 'none', // Prevent scrolling/zooming on touch devices
           userSelect: 'none', // Prevent text selection
+          cursor: cursorStyle,
         }}
       />
       
@@ -2569,6 +2580,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           imageRendering: (canvas?.zoom || 1) > 3 ? 'pixelated' : 'auto',
           touchAction: 'none', // Prevent scrolling/zooming on touch devices
           userSelect: 'none', // Prevent text selection
+          cursor: cursorStyle,
         }}
       />
       
