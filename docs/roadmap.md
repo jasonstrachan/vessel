@@ -1,5 +1,36 @@
 # TinyBrush Roadmap
 
+## Table of Contents
+
+### Brushes
+- [Resampler](#resampler)
+- [Datamosh Brush](#datamosh-brush)
+- [Quantum Superposition Brush](#the-quantum-superposition-brush)
+- [Consensus Reality Brush](#the-consensus-reality-brush)
+- [Semantic Web Brush](#the-semantic-web-brush)
+- [Data Erosion Brush](#data-erosion-brush)
+- [Contour Map Polygon Brush](#contour-map-polygon-brush)
+- [Grain/Noise Slider](#grainnoise-slider)
+- [Layered Paint Thickness](#layered-paint-thickness)
+- [Image Hose](#image-hose)
+- [Chaotic Brush System](#chaotic-brush-system)
+- [Brush Spacing Jitter](#brush-spacing-jitter)
+- [ASCII Brush](#ascii-brush-pressure-sensitive)
+- [Color Jitter](#color-jitter)
+- [Dithering Brush](#dithering-brush-pressure-sensitive)
+- [Texturizer Brush](#texturizer-brush)
+- [Haywire Brush](#haywire-brush)
+- [Time Capsule Brush](#time-capsule-brush)
+- [Spam Brush](#spam-brush)
+
+### Tools & Features
+- [Shape Tools](#shape-tools)
+- [Input & Interaction](#input--interaction)
+- [Canvas & Performance](#canvas--performance)
+- [Color Cycler Tool](#color-cycler-tool)
+
+---
+
 ## Brushes
 
 #### Resampler
@@ -291,3 +322,24 @@ const newH = (h + brushEditor.hueShift + 360) % 360;
 - Color coding by news category (politics, sports, culture, etc.)
 - Save/replay specific date's text stream
 - Mix multiple dates to create temporal collages
+
+### Spam Brush
+**Concept:** Paint with fixed-spacing letters extracted from spam emails, creating chaotic text-based artwork from digital detritus.
+
+**Implementation Details:**
+- Pre-loaded corpus of classic spam email phrases and keywords
+- Characters placed at fixed pixel intervals along stroke path
+- Random selection from spam vocabulary:
+  - "CONGRATULATIONS", "WINNER", "ACT NOW", "LIMITED TIME"
+  - Nigerian prince phrases, crypto scams, fake pharma ads
+  - Randomized special characters and numbers ($$$, !!!, 100% FREE)
+- Fixed character spacing regardless of stroke speed
+- Pressure controls character size/opacity
+
+**Potential Features:**
+- Different spam categories (financial, romance, pharma, crypto)
+- Glitch mode where characters corrupt/overlap
+- Rainbow color cycling through spam text
+- Import custom spam folder via text file
+- Character degradation effect (text gets more garbled over time)
+- Mixed language spam for international chaos

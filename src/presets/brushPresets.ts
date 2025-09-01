@@ -14,6 +14,13 @@ export const pixelBrushSettings: BrushSettings = {
   minPressure: 1,
   maxPressure: 2,
   rotationEnabled: false,
+  rotationConfig: {
+    enabled: false,
+    mode: 'direction' as const,
+    smoothing: 0.5,
+    jitter: 0,
+    offset: 0
+  },
   dashedEnabled: true,
   dashLength: 3,
   dashGap: 2,
@@ -43,6 +50,13 @@ export const defaultBrushSettings: BrushSettings = {
   minPressure: 1,
   maxPressure: undefined,
   rotationEnabled: false,
+  rotationConfig: {
+    enabled: false,
+    mode: 'direction' as const,
+    smoothing: 0.5,
+    jitter: 0,
+    offset: 0
+  },
   dashedEnabled: false,
   dashLength: 3,
   dashGap: 2,

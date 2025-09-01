@@ -234,7 +234,17 @@ export interface BrushSettings {
   minPressure: number; // Percentage (1-1000)
   maxPressure?: number; // Percentage (1-1000)
   // Rotation settings
+  // Legacy rotation toggle (kept for compatibility)
   rotationEnabled: boolean;
+  // New modular rotation configuration
+  rotationConfig?: {
+    enabled: boolean;
+    mode: 'direction' | 'fixed' | 'random';
+    fixedAngle?: number;      // Degrees for fixed mode
+    jitter?: number;          // 0-100% randomization
+    smoothing?: number;       // 0-1 direction smoothing
+    offset?: number;          // Degrees offset from direction
+  };
   // Dashed brush settings
   dashedEnabled: boolean;
   dashLength: number;

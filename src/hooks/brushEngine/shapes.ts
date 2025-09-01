@@ -7,6 +7,62 @@ import { BrushShape, type BrushSettings } from '@/types';
 import { canvasPool } from '@/utils/canvasPool';
 import { getRisographPattern } from '@/utils/risographTexture';
 
+// Cache for pre-rotated pixel stamps
+const rotatedStampCache = new Map<string, HTMLCanvasElement>();
+
+/**
+ * Get or create a pre-rotated pixel stamp
+ */
+function getRotatedPixelStamp(
+  baseStamp: HTMLCanvasElement,
+  rotation: number,
+  cacheKey: string
+): HTMLCanvasElement {
+  // Check cache first
+  const fullKey = `${cacheKey}_rot${Math.round(rotation * 180 / Math.PI)}`;
+  let cached = rotatedStampCache.get(fullKey);
+  if (cached) return cached;
+  
+  // No rotation needed
+  if (Math.abs(rotation) < 0.01) return baseStamp;
+  
+  const size = baseStamp.width;
+  // Calculate bounds for rotated stamp (needs to be larger)
+  const diagonal = Math.ceil(Math.sqrt(size * size * 2));
+  
+  const rotCanvas = document.createElement('canvas');
+  rotCanvas.width = diagonal;
+  rotCanvas.height = diagonal;
+  const rotCtx = rotCanvas.getContext('2d', { willReadFrequently: false });
+  
+  if (!rotCtx) return baseStamp;
+  
+  // IMPORTANT: Disable smoothing BEFORE any operations
+  rotCtx.imageSmoothingEnabled = false;
+  rotCtx.save();
+  
+  // Translate to center, rotate, then draw
+  const centerX = diagonal / 2;
+  const centerY = diagonal / 2;
+  rotCtx.translate(centerX, centerY);
+  rotCtx.rotate(rotation);
+  
+  // Draw the stamp centered at origin
+  rotCtx.drawImage(baseStamp, -size / 2, -size / 2);
+  rotCtx.restore();
+  
+  // Cache for reuse
+  rotatedStampCache.set(fullKey, rotCanvas);
+  
+  // Limit cache size
+  if (rotatedStampCache.size > 100) {
+    const firstKey = rotatedStampCache.keys().next().value;
+    rotatedStampCache.delete(firstKey);
+  }
+  
+  return rotCanvas;
+}
+
 // Cache for riso effect settings to avoid recalculation
 let cachedRisoAlpha = 0;
 let cachedRisoIntensity = -1;
@@ -95,40 +151,24 @@ export const drawShape = (
   // Preserve the globalCompositeOperation from the main context
   targetCtx.globalCompositeOperation = currentCompositeOp;
   
-  // Determine if this is a pixel brush that needs special handling
+  // Determine if this is a pixel brush
   const isPixelBrush = shape === BrushShape.PIXEL_ROUND || 
     (shape === BrushShape.SQUARE && !antiAliasing);
   
-  // Special handling for pixel brushes with rotation
-  // When rotation is applied to pixel brushes, browsers smooth edges even with imageSmoothingEnabled = false
-  // Solution: Pre-render to temp canvas without rotation, then draw temp canvas with rotation
-  const needsPixelRotationWorkaround = isPixelBrush && rotation !== 0;
+  // Quantize rotation to nearest 15 degrees for pixel brushes to enable caching
+  let quantizedRotation = rotation;
+  if (isPixelBrush && rotation !== 0) {
+    const degrees = (rotation * 180 / Math.PI) % 360;
+    const quantizedDegrees = Math.round(degrees / 15) * 15;
+    quantizedRotation = quantizedDegrees * Math.PI / 180;
+  }
   
-  let rotatedPixelCanvas: HTMLCanvasElement | null = null;
-  let rotatedPixelCtx: CanvasRenderingContext2D | null = null;
-  
-  if (needsPixelRotationWorkaround && deps?.getRotationTempContext) {
-    // Use persistent temporary canvas for pixel-perfect pre-rendering
-    const tempSize = Math.ceil(size) + 4; // Add padding for rotation
-    rotatedPixelCtx = deps.getRotationTempContext(tempSize, tempSize);
-    rotatedPixelCanvas = rotatedPixelCtx?.canvas || null;
-    
-    if (rotatedPixelCtx && rotatedPixelCanvas) {
-      rotatedPixelCtx.clearRect(0, 0, tempSize, tempSize);
-      rotatedPixelCtx.imageSmoothingEnabled = false;
-      rotatedPixelCtx.fillStyle = targetCtx.fillStyle;
-      rotatedPixelCtx.globalAlpha = targetCtx.globalAlpha;
-      rotatedPixelCtx.globalCompositeOperation = 'source-over';
-      
-      // Adjust coordinates for center rendering in temp canvas
-      drawX = tempSize / 2;
-      drawY = tempSize / 2;
-    }
-  } else {
-    // Standard handling for non-pixel brushes or pixel brushes without rotation
-    if (shape === BrushShape.PIXEL_ROUND) {
+  // Standard handling for all brushes
+  {
+    if (isPixelBrush) {
+      // For pixel brushes, disable smoothing in the context
       targetCtx.imageSmoothingEnabled = false;
-      // Always round to pixel boundaries for pixel brushes
+      // Round to pixel boundaries
       drawX = Math.round(x);
       drawY = Math.round(y);
     } else if (!antiAliasing) {
@@ -144,10 +184,12 @@ export const drawShape = (
       drawY = y;
     }
     
-    // Apply rotation if specified (only for non-pixel brushes)
-    if (rotation !== 0) {
+    // Apply rotation if specified (use quantized rotation for pixel brushes)
+    const rotationToApply = isPixelBrush ? quantizedRotation : rotation;
+    if (rotationToApply !== 0 && !isPixelBrush) {
+      // Only apply canvas rotation for non-pixel brushes
       targetCtx.translate(drawX, drawY);
-      targetCtx.rotate(rotation);
+      targetCtx.rotate(rotationToApply);
       targetCtx.translate(-drawX, -drawY);
     }
   }
@@ -435,8 +477,7 @@ export const drawShape = (
     return;
   } else {
     // Original shape rendering
-    // Choose which context to draw to based on pixel rotation workaround
-    const drawingCtx = needsPixelRotationWorkaround ? rotatedPixelCtx! : targetCtx;
+    const drawingCtx = targetCtx;
     
     switch (shape) {
       case BrushShape.SQUARE:
@@ -445,11 +486,32 @@ export const drawShape = (
         } else {
           // Pixel-perfect square
           const pixelSize = Math.round(size);
-          const offset = Math.floor(pixelSize / 2);
           
-          // For pixel-perfect squares, always use direct fillRect
-          // When using temp canvas, rotation is NOT applied to context yet
-          drawingCtx.fillRect(drawX - offset, drawY - offset, pixelSize, pixelSize);
+          if (quantizedRotation !== 0) {
+            // Create a square stamp and rotate it
+            const squareStamp = document.createElement('canvas');
+            squareStamp.width = pixelSize;
+            squareStamp.height = pixelSize;
+            const sqCtx = squareStamp.getContext('2d');
+            if (sqCtx) {
+              sqCtx.imageSmoothingEnabled = false;
+              sqCtx.fillStyle = drawingCtx.fillStyle;
+              sqCtx.fillRect(0, 0, pixelSize, pixelSize);
+              
+              // Get pre-rotated version
+              const rotatedSquare = getRotatedPixelStamp(squareStamp, quantizedRotation, `pixel_square_${pixelSize}`);
+              
+              // Draw rotated square
+              const offsetX = Math.round(drawX - rotatedSquare.width / 2);
+              const offsetY = Math.round(drawY - rotatedSquare.height / 2);
+              drawingCtx.imageSmoothingEnabled = false;
+              drawingCtx.drawImage(rotatedSquare, offsetX, offsetY);
+            }
+          } else {
+            // No rotation - use direct fillRect
+            const offset = Math.floor(pixelSize / 2);
+            drawingCtx.fillRect(drawX - offset, drawY - offset, pixelSize, pixelSize);
+          }
         }
         break;
         
@@ -588,13 +650,21 @@ export const drawShape = (
               tempCtx.fillStyle = drawingCtx.fillStyle;
               tempCtx.fillRect(0, 0, stampSize, stampSize);
               
-              // Calculate offset based on which context we're drawing to
-              const offsetX = Math.round(drawX - stampSize / 2);
-              const offsetY = Math.round(drawY - stampSize / 2);
+              // Get pre-rotated stamp if rotation is needed
+              let finalStamp = tempCanvas;
+              if (quantizedRotation !== 0) {
+                finalStamp = getRotatedPixelStamp(tempCanvas, quantizedRotation, `pixel_circle_${stampSize}`);
+              }
               
-              // Draw the colored stamp to the drawing context (either target or temp)
-              if (tempCanvas) {
-                drawingCtx.drawImage(tempCanvas, offsetX, offsetY);
+              // Calculate offset for stamp (account for larger size if rotated)
+              const offsetX = Math.round(drawX - finalStamp.width / 2);
+              const offsetY = Math.round(drawY - finalStamp.height / 2);
+              
+              // Draw the colored and possibly rotated stamp
+              if (finalStamp) {
+                // CRITICAL: Ensure no smoothing when drawing pixel stamps
+                drawingCtx.imageSmoothingEnabled = false;
+                drawingCtx.drawImage(finalStamp, offsetX, offsetY);
               }
             }
             
@@ -617,29 +687,10 @@ export const drawShape = (
     }
   }
   
-  // Apply rotation and draw temp canvas if pixel rotation workaround was used
-  if (needsPixelRotationWorkaround && rotatedPixelCanvas && rotatedPixelCtx) {
-    // Apply rotation to main context AFTER pixel brush is rendered
-    targetCtx.translate(x, y);
-    targetCtx.rotate(rotation);
-    targetCtx.translate(-x, -y);
-    
-    // Draw the pre-rendered pixel brush with rotation applied
-    const tempSize = rotatedPixelCanvas.width;
-    targetCtx.imageSmoothingEnabled = false; // Critical: maintain hard edges during rotation
-    targetCtx.drawImage(
-      rotatedPixelCanvas,
-      x - tempSize / 2,
-      y - tempSize / 2
-    );
-    
-    // Don't release - using persistent canvas from deps
-  }
-  
   // Apply risograph texture if enabled
   if (risographIntensity > 0) {
-    const risX = needsPixelRotationWorkaround ? x : drawX;
-    const risY = needsPixelRotationWorkaround ? y : drawY;
+    const risX = drawX;
+    const risY = drawY;
     applyRisographTexture(targetCtx, risX, risY, size, risographIntensity);
   }
   

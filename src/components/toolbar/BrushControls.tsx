@@ -12,6 +12,7 @@ import ProgressSlider from "../ui/ProgressSlider";
 import Dropdown from "../ui/Dropdown";
 import { drawTestSwatches } from "../../utils/drawTestSwatches";
 import { GradientEditor } from "../ui/GradientEditor";
+import { isStrokeBrush } from "../../utils/brushCategories";
 
 // Get access to drawing handlers via a context or ref - we'll need to create this
 interface ColorCycleAnimationContext {
@@ -362,25 +363,27 @@ const BrushControls = () => {
           </div>
         </div>
 
-        {/* Rotation */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="rotation-enabled-color-cycle"
-              className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
-            >
-              Rotation
-            </label>
-            <CustomSwitch
-              id="rotation-enabled-color-cycle"
-              checked={activeSettings.rotationEnabled || false}
-              onChange={(checked) =>
-                setActiveSettings({ rotationEnabled: checked })
-              }
-            />
+        {/* Rotation - only for stroke brushes */}
+        {isStrokeBrush(activeSettings.brushShape || BrushShape.COLOR_CYCLE) && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="rotation-enabled-color-cycle"
+                className="text-[#D9D9D9] w-16"
+                style={{ fontSize: "14px" }}
+              >
+                Rotation
+              </label>
+              <CustomSwitch
+                id="rotation-enabled-color-cycle"
+                checked={activeSettings.rotationEnabled || false}
+                onChange={(checked) =>
+                  setActiveSettings({ rotationEnabled: checked })
+                }
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Dashed */}
         <div className="mb-2">
@@ -691,25 +694,27 @@ const BrushControls = () => {
           </div>
         </div>
 
-        {/* Rotation */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="rotation-enabled-resampler"
-              className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
-            >
-              Rotation
-            </label>
-            <CustomSwitch
-              id="rotation-enabled-resampler"
-              checked={activeSettings.rotationEnabled || false}
-              onChange={(checked) =>
-                setActiveSettings({ rotationEnabled: checked })
-              }
-            />
+        {/* Rotation - only for stroke brushes */}
+        {isStrokeBrush(activeSettings.brushShape || BrushShape.RESAMPLER) && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="rotation-enabled-resampler"
+                className="text-[#D9D9D9] w-16"
+                style={{ fontSize: "14px" }}
+              >
+                Rotation
+              </label>
+              <CustomSwitch
+                id="rotation-enabled-resampler"
+                checked={activeSettings.rotationEnabled || false}
+                onChange={(checked) =>
+                  setActiveSettings({ rotationEnabled: checked })
+                }
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Dashed */}
         <div className="mb-2">
@@ -1202,25 +1207,27 @@ const BrushControls = () => {
         </div>
       </div>
 
-      {/* Rotation */}
-      <div className="mb-2">
-        <div className="flex items-center gap-2">
-          <label
-            htmlFor="rotation-enabled"
-            className="text-[#D9D9D9] w-16"
-            style={{ fontSize: "14px" }}
-          >
-            Rotation
-          </label>
-          <CustomSwitch
-            id="rotation-enabled"
-            checked={activeSettings.rotationEnabled || false}
-            onChange={(checked) =>
-              setActiveSettings({ rotationEnabled: checked })
-            }
-          />
+      {/* Rotation - only for stroke brushes */}
+      {isStrokeBrush(activeSettings.brushShape || BrushShape.ROUND) && (
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="rotation-enabled"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Rotation
+            </label>
+            <CustomSwitch
+              id="rotation-enabled"
+              checked={activeSettings.rotationEnabled || false}
+              onChange={(checked) =>
+                setActiveSettings({ rotationEnabled: checked })
+              }
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Dashed */}
       <div className="mb-2">

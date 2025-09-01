@@ -10,6 +10,15 @@ import { createBrushUtilities } from './utilities';
 import { applyThrottledColorJitter } from './colorUtils';
 import { applyDithering, applySierraLiteDither } from './dithering';
 import { getGridPositionsBetween } from '@/utils/gridSnap';
+import { isStrokeBrush } from '@/utils/brushCategories';
+import { 
+  calculateRotation, 
+  createDirectionState, 
+  createDefaultRotationConfig,
+  type DirectionState,
+  type RotationConfig,
+  type RotationInput 
+} from './rotation';
 import type { PixelQueue, RenderSettings, StrokeInput } from './types';
 
 /**
@@ -52,6 +61,7 @@ export class BrushEngineFacade {
   private utilities: ReturnType<typeof createBrushUtilities>;
   private pixelQueue: PixelQueue;
   private config: BrushEngineConfig;
+  private directionState: DirectionState;
   private jitterState = {
     lastJitterColor: [0, 0, 0] as [number, number, number],
     nextJitterColor: [0, 0, 0] as [number, number, number],
@@ -61,6 +71,9 @@ export class BrushEngineFacade {
 
   constructor(config: BrushEngineConfig) {
     this.config = config;
+    
+    // Initialize direction state for rotation
+    this.directionState = createDirectionState();
     
     // Initialize stroke processor
     this.strokeProcessor = createStrokeProcessor({
@@ -165,15 +178,52 @@ export class BrushEngineFacade {
       ? this.utilities.snapToGrid(to.x, to.y)
       : to;
 
-    // Calculate smoothed velocity and direction
+    // Calculate smoothed velocity
     const smoothedVelocity = this.strokeProcessor.calculateSmoothedVelocity(velocity);
-    const direction = this.strokeProcessor.calculateSmoothDirection(snappedFrom, snappedTo, pressure);
 
     // Determine if this is a pixel brush that should remain pixel-perfect
     // Override shape to CUSTOM if custom brush data is provided
     const shape = customBrushData ? BrushShape.CUSTOM : (brushSettings.brushShape || BrushShape.ROUND);
     const isPixelBrush = shape === BrushShape.PIXEL_ROUND;
     const isPixelSquare = shape === BrushShape.SQUARE && !brushSettings.antialiasing;
+    
+    // Calculate rotation only for stroke-based brushes
+    let rotation = 0;
+    const isStroke = isStrokeBrush(shape);
+    
+    if (isStroke) {
+      // Use new rotation config if available, otherwise fall back to legacy
+      // If rotationConfig exists but is disabled, check legacy rotationEnabled
+      const rotationConfig = brushSettings.rotationConfig ? 
+        {
+          ...brushSettings.rotationConfig,
+          // Override enabled with legacy setting if rotationConfig is disabled but legacy is enabled
+          enabled: brushSettings.rotationConfig.enabled || brushSettings.rotationEnabled || false
+        } : 
+        {
+          enabled: brushSettings.rotationEnabled || false,
+          mode: 'direction' as const,
+          smoothing: 0.5,
+          offset: 0,
+          jitter: 0
+        };
+      
+      if (rotationConfig.enabled) {
+        const rotationInput: RotationInput = {
+          from: snappedFrom,
+          to: snappedTo,
+          pressure,
+          velocity: smoothedVelocity
+        };
+        
+        rotation = calculateRotation(rotationConfig, rotationInput, this.directionState);
+        
+        // Apply the 0.5 multiplier for backward compatibility if using legacy mode
+        if (!brushSettings.rotationConfig && brushSettings.rotationEnabled) {
+          rotation *= 0.5; // Legacy behavior
+        }
+      }
+    }
     
     // Create render settings with custom brush pattern if provided
     const settings: RenderSettings = {
@@ -183,9 +233,7 @@ export class BrushEngineFacade {
       antiAliasing: brushSettings.antialiasing,
       pixelAlignment: !brushSettings.antialiasing,
       spacing,
-      // Apply half the direction angle to fix double rotation appearance
-      // The brush rotation should be subtle, not a full 1:1 with movement direction
-      rotation: brushSettings.rotationEnabled ? direction * 0.5 : 0,
+      rotation,
       shape,
       risographIntensity: brushSettings.risographIntensity || 0,
       blendMode: ctx.globalCompositeOperation,
@@ -421,17 +469,19 @@ export class BrushEngineFacade {
    * Finalize the current stroke by drawing any waiting pixels
    */
   finalizeStroke(ctx: CanvasRenderingContext2D): void {
-    // Draw any waiting pixel for pixel-perfect brushes
-    if (this.pixelQueue.initialized && 
-        this.pixelQueue.waitingPixelX !== this.pixelQueue.lastDrawnX ||
-        this.pixelQueue.waitingPixelY !== this.pixelQueue.lastDrawnY) {
+    // Only draw waiting pixel for pixel-perfect brushes (antialiasing disabled)
+    // This prevents an extra stamp at the end of strokes for normal brushes
+    if (!this.config.brushSettings.antialiasing && 
+        this.pixelQueue.initialized && 
+        (this.pixelQueue.waitingPixelX !== this.pixelQueue.lastDrawnX ||
+         this.pixelQueue.waitingPixelY !== this.pixelQueue.lastDrawnY)) {
       // Draw the waiting pixel if it's different from the last drawn pixel
       const settings: RenderSettings = {
         size: this.config.brushSettings.size,
         opacity: this.config.brushSettings.opacity,
         color: this.config.brushSettings.color,
-        antiAliasing: this.config.brushSettings.antialiasing,
-        pixelAlignment: !this.config.brushSettings.antialiasing,
+        antiAliasing: false, // Pixel-perfect mode
+        pixelAlignment: true, // Always align for pixel-perfect
         spacing: this.config.brushSettings.spacing,
         rotation: 0,
         shape: this.config.brushSettings.brushShape || BrushShape.ROUND,
@@ -450,7 +500,7 @@ export class BrushEngineFacade {
         this.pixelQueue.waitingPixelY,
         settings.size,
         settings.shape,
-        settings.antiAliasing,
+        false, // No antialiasing for pixel-perfect
         settings.rotation,
         settings.risographIntensity
       );

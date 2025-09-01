@@ -7,6 +7,14 @@
 import { BrushShape } from '@/types';
 import type { BrushSettings } from '@/types';
 import type { PixelQueue, RenderSettings } from './types';
+import { 
+  calculateRotation, 
+  createDirectionState, 
+  createDefaultRotationConfig,
+  type DirectionState,
+  type RotationConfig,
+  type RotationInput 
+} from './rotation';
 
 // Performance: Pre-calculated constants
 const QUANTIZE_STEP_SIZE = 0.5;
@@ -69,8 +77,47 @@ export const calculateSmoothedVelocity = (
 
 /**
  * Calculate and smooth direction from movement vector
+ * @deprecated Use rotation module's calculateRotation instead
  */
 export const calculateSmoothDirection = (
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  directionHistory: number[],
+  lastDirection: number,
+  cursorPressure: number = 1.0
+): number => {
+  // Create a temporary direction state for backward compatibility
+  const directionState = createDirectionState();
+  directionState.history = [...directionHistory];
+  directionState.lastDirection = lastDirection;
+  
+  // Use rotation module with direction mode
+  const rotationConfig: RotationConfig = {
+    enabled: true,
+    mode: 'direction',
+    smoothing: cursorPressure < 0.98 ? 0.3 : 0.6 // Adaptive smoothing
+  };
+  
+  const rotationInput: RotationInput = {
+    from,
+    to,
+    pressure: cursorPressure
+  };
+  
+  const direction = calculateRotation(rotationConfig, rotationInput, directionState);
+  
+  // Update history for backward compatibility
+  directionHistory.length = 0;
+  directionHistory.push(...directionState.history);
+  
+  return direction;
+};
+
+/**
+ * Legacy direction calculation - keeping for reference
+ * @deprecated
+ */
+const legacyCalculateSmoothDirection = (
   from: { x: number; y: number },
   to: { x: number; y: number },
   directionHistory: number[],

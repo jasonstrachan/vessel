@@ -98,6 +98,7 @@ export const useBrushEngineSimplified = () => {
   }, []);
   
   // Create pixel circle stamp (matching monolithic implementation exactly)
+  
   const createPixelCircleStamp = useCallback((size: number) => {
     const cacheKey = `pixel_circle_${size}`;
     let stamp = brushStampCacheRef.current.get(cacheKey);

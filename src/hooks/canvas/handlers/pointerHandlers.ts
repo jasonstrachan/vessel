@@ -475,14 +475,325 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return;
     }
     
-    // Handle drawing - complex preview logic omitted for brevity in this first pass
-    // We'll need to handle rectangle gradient, polygon gradient, etc. previews
-    // This requires access to overlay canvas and preview animation frame refs
+    // Check for rectangle gradient width preview mode (special case - works without mouse down)
+    if (toolStateMachine.isRectangleGradient && 
+        toolStateMachine.rectangleBrushState.drawingState === 'definingWidth' &&
+        !interaction.state.isDrawing && deps.previewAnimationFrameRef) {
+      
+      // Throttle rectangle gradient width preview with RAF
+      if (!deps.previewAnimationFrameRef.current) {
+        deps.previewAnimationFrameRef.current = requestAnimationFrame(() => {
+          const overlayCanvas = overlayCanvasRef.current;
+          const overlayCtx = overlayCanvas?.getContext('2d');
+          if (overlayCtx && overlayCanvas) {
+            // Clear only the overlay canvas
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            
+            // Width definition preview - show full rectangle with gradient
+            const currentRectState = toolStateMachine.rectangleBrushState;
+            const startPos = currentRectState.startPos;
+            const endPos = currentRectState.endPos;
+            const dx = endPos.x - startPos.x;
+            const dy = endPos.y - startPos.y;
+            const length = Math.hypot(dx, dy);
+            
+            if (length > 0) {
+              const lineVecX = dx / length;
+              const lineVecY = dy / length;
+              const toMouseX = worldPos.x - startPos.x;
+              const toMouseY = worldPos.y - startPos.y;
+              const perpDist = Math.abs(-lineVecY * toMouseX + lineVecX * toMouseY);
+              const previewWidth = perpDist * 2;
+              
+              const perpX = -dy / length * (previewWidth / 2);
+              const perpY = dx / length * (previewWidth / 2);
+              
+              const corners = [
+                { x: startPos.x + perpX, y: startPos.y + perpY },
+                { x: startPos.x - perpX, y: startPos.y - perpY },
+                { x: endPos.x - perpX, y: endPos.y - perpY },
+                { x: endPos.x + perpX, y: endPos.y + perpY }
+              ];
+              
+              overlayCtx.save();
+              overlayCtx.translate(deps.viewTransformRef.current.offsetX, deps.viewTransformRef.current.offsetY);
+              overlayCtx.scale(deps.viewTransformRef.current.scale, deps.viewTransformRef.current.scale);
+              
+              overlayCtx.globalAlpha = tools.currentTool === 'eraser' 
+                ? (tools.eraserSettings?.opacity || 1)
+                : (tools.brushSettings.opacity || 1);
+              overlayCtx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
+              
+              // Sample colors for preview
+              const numColors = tools.brushSettings.colors || 2;
+              const sampledColors = sampleColorsAlongLine(
+                startPos.x,
+                startPos.y,
+                endPos.x,
+                endPos.y,
+                numColors
+              );
+              
+              // Create gradient for preview
+              const gradient = overlayCtx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
+              
+              if (sampledColors.length > 0) {
+                sampledColors.forEach((color, index) => {
+                  const position = sampledColors.length === 1 ? 0 : index / (sampledColors.length - 1);
+                  gradient.addColorStop(position, color);
+                });
+              } else {
+                gradient.addColorStop(0, tools.brushSettings.color);
+                gradient.addColorStop(1, tools.brushSettings.color);
+              }
+              
+              overlayCtx.fillStyle = gradient;
+              overlayCtx.beginPath();
+              overlayCtx.moveTo(corners[0].x, corners[0].y);
+              overlayCtx.lineTo(corners[1].x, corners[1].y);
+              overlayCtx.lineTo(corners[2].x, corners[2].y);
+              overlayCtx.lineTo(corners[3].x, corners[3].y);
+              overlayCtx.closePath();
+              overlayCtx.fill();
+              
+              overlayCtx.restore();
+            }
+          }
+          if (deps.previewAnimationFrameRef) {
+            deps.previewAnimationFrameRef.current = null;
+          }
+        });
+      }
+      return;
+    }
     
     if (interaction.state.isDrawing) {
-      // Skip normal drawing for rectangle/polygon gradient/contour tools
-      if (toolStateMachine.isRectangleGradient || toolStateMachine.isPolygonGradient || toolStateMachine.isContourPolygon) {
-        // TODO: Handle preview logic for these tools
+      // Rectangle gradient preview
+      if (toolStateMachine.isRectangleGradient) {
+        const previewType = toolStateMachine.handleRectangleGradientMouseMove(worldPos);
+        if (previewType && deps.previewAnimationFrameRef) {
+          // Throttle rectangle gradient preview with RAF
+          if (!deps.previewAnimationFrameRef.current) {
+            deps.previewAnimationFrameRef.current = requestAnimationFrame(() => {
+              const overlayCanvas = overlayCanvasRef.current;
+              const overlayCtx = overlayCanvas?.getContext('2d');
+              if (overlayCtx && overlayCanvas) {
+                // Clear only the overlay canvas
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                
+                // Get current rectangle state
+                const currentRectState = toolStateMachine.rectangleBrushState;
+                
+                if (previewType === 'length') {
+                  // Length definition preview - show line with sampled colors
+                  overlayCtx.save();
+                  overlayCtx.translate(deps.viewTransformRef.current.offsetX, deps.viewTransformRef.current.offsetY);
+                  overlayCtx.scale(deps.viewTransformRef.current.scale, deps.viewTransformRef.current.scale);
+                  
+                  // Sample colors along the line
+                  const numColors = tools.brushSettings.colors || 2;
+                  const sampledColors = sampleColorsAlongLine(
+                    currentRectState.startPos.x,
+                    currentRectState.startPos.y,
+                    worldPos.x,
+                    worldPos.y,
+                    numColors
+                  );
+                  
+                  // Create gradient with sampled colors
+                  const gradient = overlayCtx.createLinearGradient(
+                    currentRectState.startPos.x,
+                    currentRectState.startPos.y,
+                    worldPos.x,
+                    worldPos.y
+                  );
+                  
+                  if (sampledColors.length === 1) {
+                    gradient.addColorStop(0, sampledColors[0]);
+                    gradient.addColorStop(1, sampledColors[0]);
+                  } else {
+                    sampledColors.forEach((color, i) => {
+                      gradient.addColorStop(i / (sampledColors.length - 1), color);
+                    });
+                  }
+                  
+                  overlayCtx.strokeStyle = gradient;
+                  overlayCtx.lineWidth = 2 / deps.viewTransformRef.current.scale;
+                  overlayCtx.beginPath();
+                  overlayCtx.moveTo(currentRectState.startPos.x, currentRectState.startPos.y);
+                  overlayCtx.lineTo(worldPos.x, worldPos.y);
+                  overlayCtx.stroke();
+                  
+                  overlayCtx.restore();
+                } else if (previewType === 'width') {
+                  // Width definition preview - show full rectangle with gradient
+                  const startPos = currentRectState.startPos;
+                  const endPos = currentRectState.endPos;
+                  const dx = endPos.x - startPos.x;
+                  const dy = endPos.y - startPos.y;
+                  const length = Math.hypot(dx, dy);
+                  
+                  if (length > 0) {
+                    const lineVecX = dx / length;
+                    const lineVecY = dy / length;
+                    const toMouseX = worldPos.x - startPos.x;
+                    const toMouseY = worldPos.y - startPos.y;
+                    const perpDist = Math.abs(-lineVecY * toMouseX + lineVecX * toMouseY);
+                    const previewWidth = perpDist * 2;
+                    
+                    const perpX = -dy / length * (previewWidth / 2);
+                    const perpY = dx / length * (previewWidth / 2);
+                    
+                    const corners = [
+                      { x: startPos.x + perpX, y: startPos.y + perpY },
+                      { x: startPos.x - perpX, y: startPos.y - perpY },
+                      { x: endPos.x - perpX, y: endPos.y - perpY },
+                      { x: endPos.x + perpX, y: endPos.y + perpY }
+                    ];
+                    
+                    overlayCtx.save();
+                    overlayCtx.translate(deps.viewTransformRef.current.offsetX, deps.viewTransformRef.current.offsetY);
+                    overlayCtx.scale(deps.viewTransformRef.current.scale, deps.viewTransformRef.current.scale);
+                    
+                    overlayCtx.globalAlpha = tools.currentTool === 'eraser' 
+                      ? (tools.eraserSettings?.opacity || 1)
+                      : (tools.brushSettings.opacity || 1);
+                    overlayCtx.globalCompositeOperation = tools.currentTool === 'eraser' ? 
+                      'destination-out' : (tools.brushSettings.blendMode || 'source-over');
+                    
+                    // Sample colors for preview
+                    const numColors = tools.brushSettings.colors || 2;
+                    const sampledColors = sampleColorsAlongLine(
+                      startPos.x,
+                      startPos.y,
+                      endPos.x,
+                      endPos.y,
+                      numColors
+                    );
+                    
+                    // Create gradient for preview
+                    const gradient = overlayCtx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
+                    
+                    if (sampledColors.length > 0) {
+                      sampledColors.forEach((color, index) => {
+                        const position = sampledColors.length === 1 ? 0 : index / (sampledColors.length - 1);
+                        gradient.addColorStop(position, color);
+                      });
+                    } else {
+                      gradient.addColorStop(0, tools.brushSettings.color);
+                      gradient.addColorStop(1, tools.brushSettings.color);
+                    }
+                    
+                    overlayCtx.fillStyle = gradient;
+                    overlayCtx.beginPath();
+                    overlayCtx.moveTo(corners[0].x, corners[0].y);
+                    overlayCtx.lineTo(corners[1].x, corners[1].y);
+                    overlayCtx.lineTo(corners[2].x, corners[2].y);
+                    overlayCtx.lineTo(corners[3].x, corners[3].y);
+                    overlayCtx.closePath();
+                    overlayCtx.fill();
+                    
+                    overlayCtx.restore();
+                  }
+                }
+              }
+              if (deps.previewAnimationFrameRef) {
+            deps.previewAnimationFrameRef.current = null;
+          }
+            });
+          }
+        }
+        return;
+      }
+      
+      // Polygon gradient or contour polygon preview
+      if (toolStateMachine.isPolygonGradient || toolStateMachine.isContourPolygon) {
+        if (toolStateMachine.handlePolygonGradientMouseMove(worldPos) && deps.previewAnimationFrameRef) {
+          // Throttle polygon gradient preview with RAF
+          if (!deps.previewAnimationFrameRef.current) {
+            deps.previewAnimationFrameRef.current = requestAnimationFrame(() => {
+              const overlayCanvas = overlayCanvasRef.current;
+              const overlayCtx = overlayCanvas?.getContext('2d');
+              const currentPolygonState = toolStateMachine.polygonGradientState;
+              
+              if (overlayCtx && overlayCanvas && currentPolygonState.points.length > 0) {
+                // Clear only the overlay canvas
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                
+                overlayCtx.save();
+                overlayCtx.imageSmoothingEnabled = false;
+                overlayCtx.translate(deps.viewTransformRef.current.offsetX, deps.viewTransformRef.current.offsetY);
+                overlayCtx.scale(deps.viewTransformRef.current.scale, deps.viewTransformRef.current.scale);
+                
+                // Build preview vertices including current mouse position
+                const previewVertices = [
+                  ...currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y })),
+                  { x: worldPos.x, y: worldPos.y }
+                ];
+                
+                if (previewVertices.length >= 3) {
+                  // For contour polygon, use solid color; for gradient polygon, use gradient
+                  if (toolStateMachine.isContourPolygon) {
+                    // Use solid color for contour polygon preview
+                    overlayCtx.fillStyle = tools.brushSettings.color;
+                    overlayCtx.globalAlpha = 0.5; // Semi-transparent preview
+                  } else {
+                    // Calculate bounds for gradient
+                    const minX = Math.min(...previewVertices.map((v: any) => v.x));
+                    const minY = Math.min(...previewVertices.map((v: any) => v.y));
+                    const maxX = Math.max(...previewVertices.map((v: any) => v.x));
+                    const maxY = Math.max(...previewVertices.map((v: any) => v.y));
+                    const width = maxX - minX;
+                    const height = maxY - minY;
+                    
+                    // Choose gradient direction based on polygon shape
+                    let gradient;
+                    if (width > height) {
+                      gradient = overlayCtx.createLinearGradient(minX, (minY + maxY) / 2, maxX, (minY + maxY) / 2);
+                    } else {
+                      gradient = overlayCtx.createLinearGradient((minX + maxX) / 2, minY, (minX + maxX) / 2, maxY);
+                    }
+                    
+                    // Build preview colors
+                    const previewColors = [
+                      ...currentPolygonState.points.map((p: any) => p.color),
+                      deps.sampleColorAtPosition(worldPos.x, worldPos.y)
+                    ];
+                    
+                    // Create gradient stops
+                    if (previewColors.length >= 3) {
+                      gradient.addColorStop(0, previewColors[0]);
+                      gradient.addColorStop(0.5, previewColors[Math.floor(previewColors.length / 2)]);
+                      gradient.addColorStop(1, previewColors[previewColors.length - 1]);
+                    } else if (previewColors.length === 2) {
+                      gradient.addColorStop(0, previewColors[0]);
+                      gradient.addColorStop(1, previewColors[1]);
+                    } else if (previewColors.length === 1) {
+                      gradient.addColorStop(0, previewColors[0]);
+                      gradient.addColorStop(1, previewColors[0]);
+                    }
+                    
+                    overlayCtx.fillStyle = gradient;
+                  }
+                  
+                  // Draw filled polygon preview
+                  overlayCtx.beginPath();
+                  overlayCtx.moveTo(previewVertices[0].x, previewVertices[0].y);
+                  for (let i = 1; i < previewVertices.length; i++) {
+                    overlayCtx.lineTo(previewVertices[i].x, previewVertices[i].y);
+                  }
+                  overlayCtx.closePath();
+                  overlayCtx.fill();
+                }
+                
+                overlayCtx.restore();
+              }
+              if (deps.previewAnimationFrameRef) {
+            deps.previewAnimationFrameRef.current = null;
+          }
+            });
+          }
+        }
         return;
       }
       
