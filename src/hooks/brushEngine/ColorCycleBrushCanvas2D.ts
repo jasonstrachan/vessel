@@ -384,10 +384,28 @@ export class ColorCycleBrushCanvas2D {
   
   
   /**
+   * Clear paint buffer for a layer (used for shape mode)
+   */
+  clearPaintBuffer(layerId?: string) {
+    const id = layerId || this.activeLayerId || 'default';
+    const strokeData = this.layerStrokes.get(id);
+    if (strokeData) {
+      console.log('[ColorCycleBrush.clearPaintBuffer] Clearing paint buffer for layer:', id);
+      // Clear the paint buffer to start fresh
+      strokeData.paintBuffer.fill(0);
+      // Reset stamp counter for new shape
+      strokeData.stampCounter = 0;
+    }
+  }
+
+  /**
    * Start new stroke (API compatible)
    */
-  startStroke(layerId?: string) {
+  startStroke(layerId?: string, clearBuffer: boolean = false) {
     const id = layerId || this.activeLayerId || 'default';
+    console.log('[ColorCycleBrush.startStroke] Called for layer:', id, 'clearBuffer:', clearBuffer);
+    console.log('[ColorCycleBrush.startStroke] Previous paint buffer exists?', !!this.layerStrokes.get(id)?.paintBuffer);
+    
     this.activeLayerId = id;
     this.isDrawing = true;
     this.strokeCounter++;
@@ -400,11 +418,18 @@ export class ColorCycleBrushCanvas2D {
     
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
+      if (clearBuffer) {
+        console.log('[ColorCycleBrush.startStroke] Clearing paint buffer for new shape');
+        strokeData.paintBuffer.fill(0);
+        strokeData.stampCounter = 0; // Reset stamp counter for new shape
+      } else {
+        console.log('[ColorCycleBrush.startStroke] Updating stroke data - NOT clearing paint buffer');
+      }
       strokeData.strokeCounter = this.strokeCounter;
       strokeData.strokeLength = 0;
       strokeData.lastPoint = null;
       
-      // Keep stamp counter continuous across strokes for flowing gradients
+      // Keep stamp counter continuous across strokes for flowing gradients (unless cleared above)
       // Don't reset - let it accumulate for continuous color progression
     }
   }
@@ -430,7 +455,163 @@ export class ColorCycleBrushCanvas2D {
   }
   
   /**
-   * Fill shape with smooth gradient bands from edge to center
+   * Fill shape with linear gradient in specified direction
+   */
+  fillShapeLinear(vertices: Array<{ x: number; y: number }>, direction: { x: number; y: number }, layerId?: string) {
+    // Validate input
+    if (!vertices || !Array.isArray(vertices)) {
+      console.warn('Invalid vertices provided to fillShapeLinear');
+      return;
+    }
+    
+    if (vertices.length < 3) {
+      console.warn('fillShapeLinear requires at least 3 vertices');
+      return;
+    }
+    
+    const id = layerId || this.activeLayerId || 'default';
+    
+    // Initialize stroke data BEFORE getting animator
+    if (!this.layerStrokes.has(id)) {
+      this.layerStrokes.set(id, {
+        paintBuffer: new Uint8Array(this.width * this.height),
+        hasContent: true,
+        strokeCounter: 0,
+        strokeLength: 0,
+        lastPoint: null,
+        gradientLayerIndices: [],
+        currentGradientIndex: 0,
+        stampCounter: 0
+      });
+    }
+    
+    const strokeData = this.layerStrokes.get(id);
+    if (strokeData) {
+      strokeData.hasContent = true;
+      if (strokeData.paintBuffer.length === 0) {
+        strokeData.paintBuffer = new Uint8Array(this.width * this.height);
+      }
+    }
+    
+    const animator = this.getAnimator(id);
+    
+    // Ensure animator is at full resolution
+    if ((animator as any)._deferredSize) {
+      const { width, height } = (animator as any)._deferredSize;
+      animator.resize(width, height);
+      delete (animator as any)._deferredSize;
+      
+      if (strokeData) {
+        strokeData.paintBuffer = new Uint8Array(width * height);
+      }
+    }
+    
+    // Find bounds
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    
+    for (const v of vertices) {
+      minX = Math.min(minX, v.x);
+      maxX = Math.max(maxX, v.x);
+      minY = Math.min(minY, v.y);
+      maxY = Math.max(maxY, v.y);
+    }
+    
+    // Clamp to canvas bounds
+    minX = Math.max(0, Math.floor(minX));
+    maxX = Math.min(this.width - 1, Math.ceil(maxX));
+    minY = Math.max(0, Math.floor(minY));
+    maxY = Math.min(this.height - 1, Math.ceil(maxY));
+    
+    // Calculate shape center for direction vector origin
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    
+    // Normalize direction vector
+    const dirLength = Math.sqrt(direction.x * direction.x + direction.y * direction.y);
+    const dirX = direction.x / dirLength;
+    const dirY = direction.y / dirLength;
+    
+    // Calculate projection range for normalization
+    let minProjection = Infinity;
+    let maxProjection = -Infinity;
+    
+    // Find min/max projections for all vertices
+    for (const v of vertices) {
+      const dx = v.x - centerX;
+      const dy = v.y - centerY;
+      const projection = dx * dirX + dy * dirY;
+      minProjection = Math.min(minProjection, projection);
+      maxProjection = Math.max(maxProjection, projection);
+    }
+    
+    const projectionRange = maxProjection - minProjection;
+    const numBands = Math.max(2, this.gradientBands || 12);
+    
+    // Scanline fill with linear gradient
+    for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) {
+      const intersections: number[] = [];
+      
+      // Find all edge intersections with this scanline
+      for (let i = 0; i < vertices.length; i++) {
+        const v1 = vertices[i];
+        const v2 = vertices[(i + 1) % vertices.length];
+        
+        if (Math.abs(v2.y - v1.y) < 0.0001) continue;
+        
+        if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
+          const t = (y - v1.y) / (v2.y - v1.y);
+          const x = v1.x + t * (v2.x - v1.x);
+          intersections.push(x);
+        }
+      }
+      
+      intersections.sort((a, b) => a - b);
+      
+      // Fill between pairs of intersections
+      for (let i = 0; i < intersections.length - 1; i += 2) {
+        const startX = Math.floor(intersections[i]);
+        const endX = Math.ceil(intersections[i + 1]);
+        
+        for (let x = startX; x <= endX; x++) {
+          // Project this pixel onto the direction vector
+          const dx = x - centerX;
+          const dy = y - centerY;
+          const projection = dx * dirX + dy * dirY;
+          
+          // Normalize projection to 0-1 range
+          const normalizedProjection = (projection - minProjection) / projectionRange;
+          
+          // Quantize into color bands
+          const bandIndex = Math.min(numBands - 1, Math.floor(normalizedProjection * numBands));
+          
+          // Map to color index
+          const colorStep = Math.floor(254 / numBands);
+          const baseOffset = this.stampCounter % 254;
+          const colorIndex = ((baseOffset + bandIndex * colorStep) % 254) + 1;
+          
+          // Paint pixel
+          animator.paintSquare(x, y, 1, colorIndex);
+        }
+      }
+    }
+    
+    // Increment stamp counter for next shape
+    this.stampCounter += numBands;
+    if (strokeData) {
+      strokeData.stampCounter = this.stampCounter;
+    }
+    
+    // Mark layer as dirty for rendering
+    this.dirtyLayers.add(id);
+    
+    // Force immediate render
+    animator.forceRender();
+    this.render(false);
+  }
+  
+  /**
+   * Fill shape with smooth gradient bands from edge to center (concentric)
    */
   fillShape(vertices: Array<{ x: number; y: number }>, layerId?: string, spacing?: number) {
     // Validate input

@@ -364,19 +364,19 @@ const MinimalLayerList = () => {
       <div className="border-b border-[#424242] bg-[#2C2C2C] flex">
         <button
           onClick={handleAddRegularLayer}
-          className="flex-1 flex items-center justify-center py-1 hover:bg-[#353535] transition-colors border-r border-[#424242]"
+          className="flex-1 flex items-center justify-center py-3 hover:bg-[#353535] transition-colors border-r border-[#424242]"
           title="Add Regular Layer"
         >
-          <Plus size={14} className="text-[#D9D9D9]" />
-          <span className="ml-1 text-[10px] text-[#D9D9D9]">Regular</span>
+          <Plus size={16} className="text-[#D9D9D9]" />
+          <span className="ml-1 text-[11px] text-[#D9D9D9]">Regular</span>
         </button>
         <button
           onClick={handleAddCCLayer}
-          className="flex-1 flex items-center justify-center py-1 hover:bg-[#353535] transition-colors"
+          className="flex-1 flex items-center justify-center py-3 hover:bg-[#353535] transition-colors"
           title="Add Color Cycle Layer"
         >
-          <Plus size={14} className="text-[#D9D9D9]" />
-          <span className="ml-1 text-[10px] text-[#D9D9D9]">CC</span>
+          <Plus size={16} className="text-[#D9D9D9]" />
+          <span className="ml-1 text-[11px] text-[#D9D9D9]">CC</span>
         </button>
       </div>
       

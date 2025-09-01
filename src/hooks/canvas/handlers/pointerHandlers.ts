@@ -974,9 +974,29 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
             if (drawCtx && brushEngine) {
               // Handle different polygon types
               if (toolStateMachine.isColorCycleShape) {
+                // CRITICAL: Save state BEFORE drawing the new shape for individual undo
+                const activeLayer = layers.find(l => l.id === activeLayerId);
+                if (activeLayer?.colorCycleData?.canvas) {
+                  console.log('🎨 Saving CC state before polygon shape');
+                  saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', 'CC Shape');
+                }
+                
                 // Use color cycle fill for COLOR_CYCLE_SHAPE
-                brushEngine.resetColorCycle();
-                brushEngine.fillColorCycleShape(currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y })));
+                // Pass false to keep existing shapes (accumulate)
+                brushEngine.resetColorCycle(false);
+                
+                // Check fill mode and use appropriate fill method
+                const fillMode = tools.brushSettings.colorCycleFillMode || 'concentric';
+                console.log('[Polygon CC Shape] Fill mode:', fillMode);
+                
+                if (fillMode === 'linear') {
+                  // For linear mode, use a default direction (left to right)
+                  // TODO: Add direction selection UI for polygon shapes
+                  const direction = { x: 1, y: 0 };
+                  brushEngine.fillColorCycleShapeLinear(currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y })), direction);
+                } else {
+                  brushEngine.fillColorCycleShape(currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y })));
+                }
                 
                 // Clear the drawing canvas before rendering
                 drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);

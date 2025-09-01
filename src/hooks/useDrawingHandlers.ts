@@ -88,6 +88,8 @@ export function useDrawingHandlers({
   
   const shapePointsRef = useRef<Array<{ x: number; y: number }>>([]);
   const isDrawingShapeRef = useRef(false);
+  const isSelectingDirectionRef = useRef(false);
+  const directionPreviewRef = useRef<{ x: number; y: number } | null>(null);
   
   // Store resampler brush data for the entire stroke
   const resamplerBrushDataRef = useRef<{
@@ -849,11 +851,23 @@ export function useDrawingHandlers({
           const isColorCycleBrush = activeSettings.brushShape === BrushShape.COLOR_CYCLE;
           
           if (isColorCycleLayer && isColorCycleBrush && activeLayer.colorCycleData?.canvas) {
+            console.log('=== FINALIZE: Saving CC layer state ===');
+            console.log('Shape mode?', tools.shapeMode);
+            
             // For CC layers, capture directly from the layer's canvas
             await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
+            
+            // Log canvas content before save
+            const ctx = activeLayer.colorCycleData.canvas.getContext('2d');
+            const imageData = ctx?.getImageData(0, 0, 100, 100);
+            console.log('Canvas sample before save:', imageData?.data.slice(0, 20));
+            
             // Use appropriate description based on whether it's a shape or stroke
             const description = tools.shapeMode ? 'CC Shape' : 'CC Drawing stroke';
+            console.log('Saving with description:', description);
+            
             saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', description);
+            console.log('Save completed');
           } else {
             // Regular layers: composite drawing onto layer
             const tempCanvas = document.createElement('canvas');
@@ -917,6 +931,14 @@ export function useDrawingHandlers({
   }, []);
   
   const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
+    // If we're selecting direction for linear gradient, record the direction
+    if (isSelectingDirectionRef.current) {
+      console.log('[CC Shape] Direction click received at', worldPos);
+      directionPreviewRef.current = worldPos;
+      // Direction selection will be finalized in finalizeShapeDrawing
+      return;
+    }
+    
     if (tools.shapeMode) {
       initDrawingCanvas();
       shapePointsRef.current = [worldPos];
@@ -932,6 +954,65 @@ export function useDrawingHandlers({
     const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
     if (activeLayer && !activeLayer.visible) {
       return; // Exit silently if layer became hidden mid-stroke
+    }
+    
+    // If we're selecting direction, show preview line
+    if (isSelectingDirectionRef.current && shapePointsRef.current.length >= 3) {
+      console.log('[CC Shape] Drawing direction preview to', worldPos);
+      const drawCtx = drawingCtxRef.current;
+      if (drawCtx && drawingCanvasRef.current) {
+        // Clear and redraw shape outline
+        drawCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+        
+        // Draw shape outline
+        drawCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        drawCtx.lineWidth = 1;
+        drawCtx.setLineDash([5, 5]);
+        drawCtx.beginPath();
+        drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
+        for (let i = 1; i < shapePointsRef.current.length; i++) {
+          drawCtx.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
+        }
+        drawCtx.closePath();
+        drawCtx.stroke();
+        
+        // Calculate shape center
+        let centerX = 0, centerY = 0;
+        for (const p of shapePointsRef.current) {
+          centerX += p.x;
+          centerY += p.y;
+        }
+        centerX /= shapePointsRef.current.length;
+        centerY /= shapePointsRef.current.length;
+        
+        // Draw direction arrow from center to mouse
+        drawCtx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+        drawCtx.lineWidth = 2;
+        drawCtx.setLineDash([]);
+        drawCtx.beginPath();
+        drawCtx.moveTo(centerX, centerY);
+        drawCtx.lineTo(worldPos.x, worldPos.y);
+        drawCtx.stroke();
+        
+        // Draw arrowhead
+        const angle = Math.atan2(worldPos.y - centerY, worldPos.x - centerX);
+        const arrowLength = 15;
+        const arrowAngle = Math.PI / 6;
+        
+        drawCtx.beginPath();
+        drawCtx.moveTo(worldPos.x, worldPos.y);
+        drawCtx.lineTo(
+          worldPos.x - arrowLength * Math.cos(angle - arrowAngle),
+          worldPos.y - arrowLength * Math.sin(angle - arrowAngle)
+        );
+        drawCtx.moveTo(worldPos.x, worldPos.y);
+        drawCtx.lineTo(
+          worldPos.x - arrowLength * Math.cos(angle + arrowAngle),
+          worldPos.y - arrowLength * Math.sin(angle + arrowAngle)
+        );
+        drawCtx.stroke();
+      }
+      return;
     }
     
     if (tools.shapeMode && isDrawingShapeRef.current) {
@@ -953,6 +1034,78 @@ export function useDrawingHandlers({
     }
     
     if (isBusyRef?.current) return;
+    
+    // Check if we're in direction selection mode for linear gradient
+    if (isSelectingDirectionRef.current && directionPreviewRef.current) {
+      try {
+        if (isBusyRef) isBusyRef.current = true;
+        
+        const drawCtx = drawingCtxRef.current;
+        if (drawCtx && brushEngine && shapePointsRef.current.length >= 3) {
+          // Calculate shape center
+          let centerX = 0, centerY = 0;
+          for (const p of shapePointsRef.current) {
+            centerX += p.x;
+            centerY += p.y;
+          }
+          centerX /= shapePointsRef.current.length;
+          centerY /= shapePointsRef.current.length;
+          
+          // Calculate direction vector from center to click point
+          const direction = {
+            x: directionPreviewRef.current.x - centerX,
+            y: directionPreviewRef.current.y - centerY
+          };
+          
+          // Clear the canvas first
+          drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
+          
+          // Reset and fill with linear gradient
+          // Pass false to keep existing shapes (we save state elsewhere)
+          brushEngine.resetColorCycle(false);
+          brushEngine.fillColorCycleShapeLinear(shapePointsRef.current, direction);
+          
+          // Handle color cycle layer finalization
+          const currentState = useAppStore.getState();
+          const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+          const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+          
+          if (isColorCycleLayer && activeLayer?.colorCycleData?.canvas) {
+            brushEngine.updateColorCycleTexture(activeLayerId || '');
+            
+            const colorCycleBrushManager = getColorCycleBrushManager();
+            const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayerId || '');
+            if (colorCycleBrush) {
+              colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayerId || '');
+            }
+            
+            drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
+            drawCtx.globalAlpha = 1.0;
+            drawCtx.globalCompositeOperation = 'source-over';
+            drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
+            
+            await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
+            // Save state for linear gradient shape
+            saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', 'CC Shape Linear');
+          }
+          
+          drawingCanvasHasContent.current = true;
+        }
+        
+        // Reset state
+        isSelectingDirectionRef.current = false;
+        directionPreviewRef.current = null;
+        shapePointsRef.current = [];
+        isDrawingShapeRef.current = false;
+        
+        if (isBusyRef) isBusyRef.current = false;
+        return;
+      } catch (error) {
+        console.error("Error during linear gradient direction selection:", error);
+      } finally {
+        if (isBusyRef) isBusyRef.current = false;
+      }
+    }
     
     try {
       if (isBusyRef) isBusyRef.current = true;
@@ -1190,11 +1343,45 @@ export function useDrawingHandlers({
             // We'll just add the shape to the color cycle layers
             
             // Reset and fill the shape with color cycle gradient
-            brushEngine.resetColorCycle();
+            // Pass false to keep existing shapes (we already saved state above)
+            brushEngine.resetColorCycle(false);
             
-            // Fill the shape with gradient
+            // Check fill mode and fill accordingly
             if (shapePointsRef.current.length >= 3) {
-              brushEngine.fillColorCycleShape(shapePointsRef.current);
+              const fillMode = tools.brushSettings.colorCycleFillMode || 'concentric';
+              console.log('[CC Shape] Fill mode:', fillMode, 'from settings:', tools.brushSettings.colorCycleFillMode);
+              
+              if (fillMode === 'linear') {
+                // For linear mode, enter direction selection phase
+                console.log('[CC Shape] Entering linear direction selection mode');
+                isSelectingDirectionRef.current = true;
+                isDrawingShapeRef.current = false;
+                
+                // Keep the shape points for when direction is selected
+                // Draw a preview of the shape with dashed outline
+                drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
+                drawCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                drawCtx.lineWidth = 1;
+                drawCtx.setLineDash([5, 5]);
+                drawCtx.beginPath();
+                drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
+                for (let i = 1; i < shapePointsRef.current.length; i++) {
+                  drawCtx.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
+                }
+                drawCtx.closePath();
+                drawCtx.stroke();
+                drawCtx.setLineDash([]); // Reset dash
+                
+                drawingCanvasHasContent.current = true;
+                
+                // Exit early - don't finalize yet, wait for direction click
+                if (isBusyRef) isBusyRef.current = false;
+                console.log('[CC Shape] Waiting for direction selection click');
+                return;
+              } else {
+                // Concentric fill (default)
+                brushEngine.fillColorCycleShape(shapePointsRef.current);
+              }
             }
             
             // CRITICAL FIX: Ensure the CC layer's canvas is updated with the shape
@@ -1236,11 +1423,12 @@ export function useDrawingHandlers({
           // For CC layers, capture from the layer's canvas instead of drawing canvas
           if (activeLayer?.colorCycleData?.canvas) {
             await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
-            saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', 'CC Shape');
+            // DON'T save here - we already saved BEFORE drawing the shape
+            // This prevents duplicate undo entries
           } else if (activeLayer && drawingCanvasRef.current) {
             // Fallback to drawing canvas if layer canvas not available
             await captureCanvasToActiveLayer(drawingCanvasRef.current);
-            saveCanvasState(drawingCanvasRef.current, 'brush', 'CC Shape');
+            // DON'T save here - we already saved BEFORE drawing the shape
           }
           
           if (isBusyRef) isBusyRef.current = false;

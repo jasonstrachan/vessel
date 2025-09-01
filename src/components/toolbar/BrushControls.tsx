@@ -10,6 +10,7 @@ import Input from "../ui/Input";
 import CustomSwitch from "../ui/CustomSwitch";
 import ProgressSlider from "../ui/ProgressSlider";
 import Dropdown from "../ui/Dropdown";
+import Tabs from "../ui/Tabs";
 import { drawTestSwatches } from "../../utils/drawTestSwatches";
 import { GradientEditor } from "../ui/GradientEditor";
 import { isStrokeBrush } from "../../utils/brushCategories";
@@ -103,6 +104,24 @@ const BrushControls = () => {
   if (isColorCycleBrush(activeSettings.brushShape)) {
     return (
       <div className="p-4">
+        {/* Fill Mode Tabs - only for Color Cycle Shape, not for Color Cycle Stroke */}
+        {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && (
+          <div className="mb-3">
+            <Tabs
+              tabs={[
+                { label: 'Concentric', value: 'concentric' },
+                { label: 'Linear', value: 'linear' },
+                { label: 'Circular', value: 'circular' }
+              ]}
+              activeTab={activeSettings.colorCycleFillMode || 'concentric'}
+              onTabChange={(value) => setActiveSettings({ 
+                colorCycleFillMode: value as 'concentric' | 'linear' | 'circular' 
+              })}
+              className="w-full"
+            />
+          </div>
+        )}
+
         {/* Gradient Editor - positioned first to avoid overlap */}
         <div className="mb-4">
           <GradientEditor
@@ -148,8 +167,8 @@ const BrushControls = () => {
             <ProgressSlider
               value={activeSettings.colorCycleSpeed || 1.0}
               min={0.1}
-              max={5.0}
-              step={0.1}
+              max={1.0}
+              step={0.01}
               onChange={(value) =>
                 setActiveSettings({ colorCycleSpeed: value })
               }
@@ -278,6 +297,7 @@ const BrushControls = () => {
             />
           </div>
         </div>
+
 
         {/* Color Jitter */}
         <div className="mb-2">

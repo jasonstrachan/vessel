@@ -553,6 +553,21 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     };
   }, [defaultCursorStyle]); // Only defaultCursorStyle as it's a string constant
 
+  // Monitor undo stack changes
+  useEffect(() => {
+    let prevLength = useAppStore.getState().history.undoStack.length;
+    const unsubscribe = useAppStore.subscribe((state) => {
+      const length = state.history.undoStack.length;
+      if (length > prevLength) {
+        console.log(`📝 NEW UNDO STATE SAVED. Stack: ${prevLength} -> ${length}`);
+        const lastItem = state.history.undoStack[length - 1];
+        console.log('Last saved item:', lastItem?.description);
+      }
+      prevLength = length;
+    });
+    return unsubscribe;
+  }, []);
+
   // Comprehensive keyboard handling (for other keys)
   const keyboard = useComprehensiveKeyboard({
     onSpacePressed: () => {
@@ -571,7 +586,18 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       // Eraser key released - tool restoration handled in hook
     },
     onUndo: () => {
+      console.log('=== UNDO TRIGGERED ===');
+      const currentStack = useAppStore.getState().history.undoStack;
+      console.log('Undo stack length:', currentStack.length);
+      console.log('Top item description:', currentStack[currentStack.length - 1]?.description);
+      
       const snapshot = undo();
+      console.log('Snapshot retrieved:', {
+        hasSnapshot: !!snapshot,
+        hasColorCycleState: !!snapshot?.colorCycleState,
+        hasLayers: !!snapshot?.layers,
+        hasImageData: !!snapshot?.imageData
+      });
       if (snapshot) {
         // Restore color cycle state if present
         if (snapshot.colorCycleState) {
@@ -602,15 +628,28 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         }
         
         if (snapshot.layers && snapshot.activeLayerId) {
-          // Reconstruct colorCycleData for any color-cycle layers
+          // Reconstruct layers with proper type preservation
           const restoredLayers = snapshot.layers.map((layer: any) => {
-            // Ensure layerType is preserved - if missing, default to 'normal'
-            if (!layer.layerType) {
-              console.error('WARNING: Layer missing layerType, defaulting to normal:', layer.id);
-              layer.layerType = 'normal';
-            }
+            // Determine the correct layer type based on colorCycleData presence
+            const shouldBeColorCycle = !!layer.colorCycleData;
+            const correctLayerType: 'color-cycle' | 'normal' = shouldBeColorCycle ? 'color-cycle' : 'normal';
             
-            if (layer.colorCycleData && layer.colorCycleData.canvasImageData) {
+            // Create base layer object with correct type
+            const baseLayer = {
+              id: layer.id,
+              name: layer.name,
+              visible: layer.visible,
+              opacity: layer.opacity,
+              blendMode: layer.blendMode,
+              locked: layer.locked,
+              order: layer.order,
+              imageData: layer.imageData,
+              framebuffer: layer.framebuffer,
+              layerType: correctLayerType // Set correct type from the start
+            };
+            
+            // Handle color-cycle specific data
+            if (shouldBeColorCycle && layer.colorCycleData.canvasImageData) {
               // Recreate the canvas for color cycle
               const canvas = document.createElement('canvas');
               canvas.width = layer.colorCycleData.canvasWidth || 1920;
@@ -622,24 +661,20 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
                 ctx.putImageData(layer.colorCycleData.canvasImageData, 0, 0);
               }
               
-              // Recreate colorCycleData with the restored canvas
+              // Add colorCycleData to the layer
               return {
-                ...layer,
-                layerType: layer.layerType, // Explicitly preserve layerType
+                ...baseLayer,
                 colorCycleData: {
                   gradient: layer.colorCycleData.gradient,
                   isAnimating: layer.colorCycleData.isAnimating,
                   canvas,
-                  // colorCycleBrush will be recreated if needed
-                  colorCycleBrush: undefined
+                  colorCycleBrush: undefined // Will be recreated if needed
                 }
               };
             }
-            // Also preserve layerType for non-color-cycle layers
-            return {
-              ...layer,
-              layerType: layer.layerType
-            };
+            
+            // Return normal layer (no colorCycleData)
+            return baseLayer;
           });
           
           setLayers(restoredLayers);
@@ -737,15 +772,28 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         }
         
         if (snapshot.layers && snapshot.activeLayerId) {
-          // Reconstruct colorCycleData for any color-cycle layers
+          // Reconstruct layers with proper type preservation
           const restoredLayers = snapshot.layers.map((layer: any) => {
-            // Ensure layerType is preserved - if missing, default to 'normal'
-            if (!layer.layerType) {
-              console.error('WARNING: Layer missing layerType, defaulting to normal:', layer.id);
-              layer.layerType = 'normal';
-            }
+            // Determine the correct layer type based on colorCycleData presence
+            const shouldBeColorCycle = !!layer.colorCycleData;
+            const correctLayerType: 'color-cycle' | 'normal' = shouldBeColorCycle ? 'color-cycle' : 'normal';
             
-            if (layer.colorCycleData && layer.colorCycleData.canvasImageData) {
+            // Create base layer object with correct type
+            const baseLayer = {
+              id: layer.id,
+              name: layer.name,
+              visible: layer.visible,
+              opacity: layer.opacity,
+              blendMode: layer.blendMode,
+              locked: layer.locked,
+              order: layer.order,
+              imageData: layer.imageData,
+              framebuffer: layer.framebuffer,
+              layerType: correctLayerType // Set correct type from the start
+            };
+            
+            // Handle color-cycle specific data
+            if (shouldBeColorCycle && layer.colorCycleData.canvasImageData) {
               // Recreate the canvas for color cycle
               const canvas = document.createElement('canvas');
               canvas.width = layer.colorCycleData.canvasWidth || 1920;
@@ -757,24 +805,20 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
                 ctx.putImageData(layer.colorCycleData.canvasImageData, 0, 0);
               }
               
-              // Recreate colorCycleData with the restored canvas
+              // Add colorCycleData to the layer
               return {
-                ...layer,
-                layerType: layer.layerType, // Explicitly preserve layerType
+                ...baseLayer,
                 colorCycleData: {
                   gradient: layer.colorCycleData.gradient,
                   isAnimating: layer.colorCycleData.isAnimating,
                   canvas,
-                  // colorCycleBrush will be recreated if needed
-                  colorCycleBrush: undefined
+                  colorCycleBrush: undefined // Will be recreated if needed
                 }
               };
             }
-            // Also preserve layerType for non-color-cycle layers
-            return {
-              ...layer,
-              layerType: layer.layerType
-            };
+            
+            // Return normal layer (no colorCycleData)
+            return baseLayer;
           });
           
           setLayers(restoredLayers);
@@ -852,14 +896,27 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
           
           if (isColorCycleLayer && tools.shapeMode) {
+            console.log('=== COLOR CYCLE SHAPE DRAW ===');
+            console.log('1. Before save - Canvas data exists?', !!activeLayer.colorCycleData?.canvas);
+            
+            if (activeLayer.colorCycleData?.canvas) {
+              // Log what we're saving
+              const ctx = activeLayer.colorCycleData.canvas.getContext('2d');
+              const imageData = ctx?.getImageData(0, 0, 100, 100); // Sample corner
+              console.log('2. Sample pixel data before save:', imageData?.data.slice(0, 20));
+            }
+            
             // Don't save here - it will be saved in finalizeDrawing
             // This prevents duplicate undo entries for color cycle shapes
+            console.log('3. NOT saving here - will save in finalizeDrawing');
             
-            // Reset color cycle for new shape
+            console.log('4. Before resetColorCycle');
             brushEngine.resetColorCycle();
+            console.log('5. After resetColorCycle');
             
             // Fill shape with color cycle gradient from edges to center
             const points = toolStateMachine.polygonGradientState.points.map(p => ({ x: p.x, y: p.y }));
+            console.log('6. Drawing shape with points:', points.length);
             brushEngine.fillColorCycleShape(points);
             
             // Clear the drawing canvas before rendering
@@ -867,6 +924,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             
             // Render the color cycle immediately at full opacity
             brushEngine.renderColorCycle(drawCtx, false);
+            console.log('7. Shape rendered to drawing canvas');
           } else if (toolStateMachine.isContourPolygon) {
             // Check if it's a contour polygon
             brushEngine.drawContourPolygon(
@@ -890,7 +948,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           drawingHandlers.drawingCanvasHasContent.current = true;
           // Mark composite as dirty BEFORE finalization
           compositeCanvasDirtyRef.current = true;
+          console.log('8. Before finalizeDrawing call');
           drawingHandlers.finalizeDrawing().then(() => {
+            console.log('=== FINALIZE COMPLETE ===');
+            console.log('Composite dirty?', compositeCanvasDirtyRef.current);
+            
+            // Check if another save happened during finalization
+            const stackLength = useAppStore.getState().history.undoStack.length;
+            console.log('Current undo stack length:', stackLength);
+            
             // Signal that finalization is complete
             stateMachine.finalizationComplete();
             

@@ -1735,60 +1735,33 @@ export const useAppStore = create<AppState>()(
       setLayers: (layers) => {
         const state = get();
         
-        // Check each layer for corruption
-        state.layers.forEach(oldLayer => {
-          const newLayer = layers.find(l => l.id === oldLayer.id);
-          if (oldLayer.layerType === 'color-cycle' && 
-              newLayer?.layerType !== 'color-cycle') {
-            console.error('🔴🔴🔴 setLayers CORRUPTING LAYER TYPE');
-            console.error('Stack trace:', new Error().stack);
-            console.error('Layer ID:', oldLayer.id);
-            console.error('Old type:', oldLayer.layerType);
-            console.error('New type:', newLayer?.layerType);
-            debugger;
+        // Fix any corrupted layers before setting
+        const fixedLayers = layers.map(layer => {
+          // Ensure layer type matches the presence of colorCycleData
+          const shouldBeColorCycle = !!layer.colorCycleData;
+          const correctType: 'color-cycle' | 'normal' = shouldBeColorCycle ? 'color-cycle' : 'normal';
+          
+          if (layer.layerType !== correctType) {
+            console.warn(`Fixing layer type mismatch for layer ${layer.id}: was ${layer.layerType}, should be ${correctType}`);
+            return {
+              ...layer,
+              layerType: correctType
+            };
           }
+          
+          return layer;
         });
         
-        // DEBUG: Check if any color-cycle layers are losing their type
+        // Check if any color-cycle layers are being removed
         const oldCCLayers = state.layers.filter(l => l.layerType === 'color-cycle');
-        const newCCLayers = layers.filter(l => l.layerType === 'color-cycle');
-        
-        // CRITICAL: Log the full stack trace to find who's calling setLayers
-        // Commented out - this was for debugging only
-        // const stack = new Error().stack;
-        // console.error('🔴🔴🔴 SETLAYERS CALLED - FULL STACK:');
-        // console.error(stack);
-        // console.error('🔴🔴🔴 SETLAYERS DATA:', {
-        //   oldLayers: state.layers.map(l => ({
-        //     id: l.id.substring(0, 20),
-        //     type: l.layerType,
-        //     hasCC: !!l.colorCycleData
-        //   })),
-        //   newLayers: layers.map(l => ({
-        //     id: l.id.substring(0, 20),
-        //     type: l.layerType,
-        //     hasCC: !!l.colorCycleData
-        //   }))
-        // });
+        const newCCLayers = fixedLayers.filter(l => l.layerType === 'color-cycle');
         
         if (oldCCLayers.length > newCCLayers.length) {
-          console.error('🔴 CRITICAL: setLayers is removing color-cycle layers!');
-          console.error('Old CC layers:', oldCCLayers.map(l => ({ id: l.id, type: l.layerType })));
-          console.error('New CC layers:', newCCLayers.map(l => ({ id: l.id, type: l.layerType })));
-          console.trace('Stack trace for setLayers');
+          console.info('Color-cycle layers being removed:', oldCCLayers.length - newCCLayers.length);
         }
         
-        // Also check if any CC layers are losing their type
-        oldCCLayers.forEach(oldLayer => {
-          const newLayer = layers.find(l => l.id === oldLayer.id);
-          if (newLayer && newLayer.layerType !== 'color-cycle') {
-            console.error('🔴 CRITICAL: setLayers changing layer', oldLayer.id, 'from color-cycle to', newLayer.layerType);
-            console.trace('Stack trace for layer type loss in setLayers');
-          }
-        });
-        
-        trackLayerChanges('setLayers CALLED', layers);
-        set({ layers });
+        trackLayerChanges('setLayers CALLED', fixedLayers);
+        set({ layers: fixedLayers });
       },
       reorderLayers: (sourceIndex, destinationIndex) => set((state) => {
         const newLayers = [...state.layers];
@@ -1955,10 +1928,7 @@ export const useAppStore = create<AppState>()(
         const state = get();
         const layer = state.layers.find(l => l.id === layerId);
         if (layer && layer.layerType !== 'color-cycle') {
-          console.warn('🚨 Attempted to get CC brush for non-CC layer:', {
-            layerId: layerId.substring(0, 20),
-            layerType: layer.layerType
-          });
+          // Silently return null for non-CC layers - this is expected behavior
           return null; // Never return a CC brush for regular layers
         }
         

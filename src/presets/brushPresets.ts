@@ -32,7 +32,8 @@ export const pixelBrushSettings: BrushSettings = {
   colorJitter: 0,
   risographIntensity: 0,
   risographOutline: false,
-  ditherEnabled: false
+  ditherEnabled: false,
+  colorCycleFillMode: 'concentric'
 };
 
 // Default brush settings for smooth drawing
@@ -73,7 +74,8 @@ export const defaultBrushSettings: BrushSettings = {
   colors: 2, // Default to 2 colors for rectangle and polygon gradient brushes
   contourSpacing: 4, // Default contour spacing (1-10)
   contourVariance: 5, // Default contour variance (0-10, medium variance)
-  contourSmoothness: 0.5 // Default contour smoothness (0-5, low smoothness)
+  contourSmoothness: 0.5, // Default contour smoothness (0-5, low smoothness)
+  colorCycleFillMode: 'concentric' // Default to concentric fill for Color Cycle Shape
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect

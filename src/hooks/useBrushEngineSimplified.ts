@@ -1764,21 +1764,23 @@ export const useBrushEngineSimplified = () => {
   /**
    * Reset Color Cycle - starts a new stroke with the existing brush
    */
-  const resetColorCycle = useCallback(() => {
+  const resetColorCycle = useCallback((clearBuffer: boolean = false) => {
+    console.log('[resetColorCycle] Called - starting new stroke, clearBuffer:', clearBuffer);
     // DEFENSIVE GUARD: Add try-catch to prevent crashes during initialization
     try {
       // Reuse existing brush or create if needed
       const brush = initializeColorCycleBrush();
       
       if (brush) {
-        // Just start a new stroke with the existing brush, passing layer ID
-        brush.startStroke(activeLayerId || undefined);
+        console.log('[resetColorCycle] Calling startStroke on brush for layer:', activeLayerId, 'clearBuffer:', clearBuffer);
+        // Start a new stroke with the existing brush, passing layer ID and clearBuffer flag
+        brush.startStroke(activeLayerId || undefined, clearBuffer);
       }
     } catch (error) {
       console.warn('[ColorCycle] Error during resetColorCycle:', error);
       // Fail gracefully - don't crash the app
     }
-  }, [initializeColorCycleBrush]);
+  }, [initializeColorCycleBrush, activeLayerId]);
   
   /**
    * End color cycle stroke
@@ -1791,18 +1793,60 @@ export const useBrushEngineSimplified = () => {
   }, [activeLayerId]);
   
   /**
-   * Fill a shape with color cycle gradient from edges to center
+   * Fill a shape with linear color cycle gradient in specified direction
    */
-  const fillColorCycleShape = useCallback((vertices: Array<{ x: number; y: number }>) => {
+  const fillColorCycleShapeLinear = useCallback((vertices: Array<{ x: number; y: number }>, direction: { x: number; y: number }) => {
+    console.log('[fillColorCycleShapeLinear] Called with', vertices.length, 'vertices and direction', direction);
+    
     // Initialize brush if needed
     const brush = initializeColorCycleBrush();
     
     if (brush && activeLayerId) {
-      // Start a stroke to ensure proper layer setup, passing layer ID
-      brush.startStroke(activeLayerId);
+      // Ensure we have a layer by setting the gradient if needed
+      if ((brush as any).currentLayerIndex < 0) {
+        console.log('[fillColorCycleShapeLinear] Setting gradient because currentLayerIndex < 0');
+        const currentGradient = tools.brushSettings.colorCycleGradient || [
+          { position: 0, color: '#ff0000' },
+          { position: 0.5, color: '#00ff00' },
+          { position: 1, color: '#0000ff' }
+        ];
+        brush.setGradient(currentGradient, activeLayerId);
+      }
+      
+      // Ensure bands are set before filling
+      const bands = tools.brushSettings.gradientBands || 12;
+      brush.setGradientBands(bands);
+      
+      console.log('[fillColorCycleShapeLinear] Calling fillShapeLinear');
+      // Fill the shape with linear gradient
+      (brush as any).fillShapeLinear(vertices, direction, activeLayerId);
+      
+      console.log('[fillColorCycleShapeLinear] Calling endStroke');
+      // End the stroke to ensure texture is updated
+      brush.endStroke(activeLayerId);
+      
+      console.log('[fillColorCycleShapeLinear] Forcing render');
+      // Force a render to ensure the shape is visible
+      brush.render(true);
+    }
+  }, [initializeColorCycleBrush, activeLayerId, tools.brushSettings.colorCycleGradient, tools.brushSettings.gradientBands]);
+  
+  /**
+   * Fill a shape with color cycle gradient from edges to center
+   */
+  const fillColorCycleShape = useCallback((vertices: Array<{ x: number; y: number }>) => {
+    console.log('[fillColorCycleShape] Called with', vertices.length, 'vertices');
+    
+    // Initialize brush if needed
+    const brush = initializeColorCycleBrush();
+    
+    if (brush && activeLayerId) {
+      // DON'T call startStroke here - resetColorCycle() already called it
+      // This was causing the double startStroke issue that accumulated shapes
       
       // Ensure we have a layer by setting the gradient if needed
       if ((brush as any).currentLayerIndex < 0) {
+        console.log('[fillColorCycleShape] Setting gradient because currentLayerIndex < 0');
         // Set the gradient to create a layer
         const currentGradient = tools.brushSettings.colorCycleGradient || [
           { position: 0, color: '#ff0000' },
@@ -1820,12 +1864,15 @@ export const useBrushEngineSimplified = () => {
       // The ColorCycleBrush internal canvas should match the project dimensions
       // No scaling needed - just pass vertices directly
       
+      console.log('[fillColorCycleShape] Calling fillShape');
       // Fill the shape with layer ID and spacing
       (brush as any).fillShape(vertices, activeLayerId, tools.brushSettings.spacing);
       
+      console.log('[fillColorCycleShape] Calling endStroke');
       // End the stroke to ensure texture is updated
       brush.endStroke(activeLayerId);
       
+      console.log('[fillColorCycleShape] Forcing render');
       // Force a render to ensure the shape is visible
       brush.render(true);
     }
@@ -1889,11 +1936,9 @@ export const useBrushEngineSimplified = () => {
   // Update pressure enabled when it changes
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
-    console.log('[CC Effect] Pressure setting changed to:', tools.brushSettings.pressureEnabled, 'Brush exists?', !!colorCycleBrush);
     if (colorCycleBrush) {
       try {
         (colorCycleBrush as any).setPressureEnabled(tools.brushSettings.pressureEnabled || false);
-        console.log('[CC Effect] Successfully set pressure enabled');
       } catch (e) {
         console.error('[CC Effect] Failed to set pressure enabled:', e);
       }
@@ -1956,6 +2001,7 @@ export const useBrushEngineSimplified = () => {
     resetColorCycle,
     endColorCycleStroke,
     fillColorCycleShape,
+    fillColorCycleShapeLinear,
     
     // Force immediate texture update for color cycle brush
     updateColorCycleTexture: (_layerId: string) => {
