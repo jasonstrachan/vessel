@@ -65,10 +65,32 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       canvas.width = width;
       canvas.height = height;
       
+      // Get current brush settings from store to apply to new brush
+      const { useAppStore } = require('../stores/useAppStore');
+      const currentSettings = useAppStore.getState().tools.brushSettings;
+      
       const brush = new ColorCycleBrushCanvas2D(canvas, {
-        brushSize: 20,
-        fps: 30
+        brushSize: currentSettings.size || 20,
+        fps: currentSettings.colorCycleFPS || 30
       });
+      
+      // Apply all current settings to the new brush instance
+      if (currentSettings.gradientBands) {
+        brush.setGradientBands(currentSettings.gradientBands);
+        console.log(`[ColorCycleBrushManager] Applied gradientBands=${currentSettings.gradientBands} to new brush for layer ${layerId.substring(0, 8)}`);
+      }
+      if (currentSettings.spacing) {
+        (brush as any).setBandSpacing(currentSettings.spacing);
+      }
+      if (currentSettings.pressureEnabled !== undefined) {
+        (brush as any).setPressureEnabled(currentSettings.pressureEnabled);
+      }
+      if (currentSettings.minPressure) {
+        (brush as any).setMinPressure(currentSettings.minPressure);
+      }
+      if (currentSettings.maxPressure) {
+        (brush as any).setMaxPressure(currentSettings.maxPressure);
+      }
       
       // Set layer ID if method exists
       if ('setLayerId' in brush && typeof brush.setLayerId === 'function') {
@@ -178,6 +200,31 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
         // Validate existing brush
         if (this.validateColorCycleBrush(layerId)) {
           console.log(`✅ Reusing valid ColorCycleBrush for layer ${layerId.substring(0, 8)}...`);
+          
+          // Apply current settings to existing brush to ensure it's up to date
+          const { useAppStore } = require('../stores/useAppStore');
+          const currentSettings = useAppStore.getState().tools.brushSettings;
+          const existingBrush = brushes.get(layerId);
+          
+          if (existingBrush) {
+            if (currentSettings.gradientBands) {
+              (existingBrush as any).setGradientBands(currentSettings.gradientBands);
+              console.log(`[ColorCycleBrushManager] Updated gradientBands=${currentSettings.gradientBands} on reused brush for layer ${layerId.substring(0, 8)}`);
+            }
+            if (currentSettings.spacing) {
+              (existingBrush as any).setBandSpacing(currentSettings.spacing);
+            }
+            if (currentSettings.pressureEnabled !== undefined) {
+              (existingBrush as any).setPressureEnabled(currentSettings.pressureEnabled);
+            }
+            if (currentSettings.minPressure) {
+              (existingBrush as any).setMinPressure(currentSettings.minPressure);
+            }
+            if (currentSettings.maxPressure) {
+              (existingBrush as any).setMaxPressure(currentSettings.maxPressure);
+            }
+          }
+          
           return true;
         }
         // Invalid brush - cleanup before creating new

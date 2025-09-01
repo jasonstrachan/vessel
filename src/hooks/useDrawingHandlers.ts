@@ -851,7 +851,9 @@ export function useDrawingHandlers({
           if (isColorCycleLayer && isColorCycleBrush && activeLayer.colorCycleData?.canvas) {
             // For CC layers, capture directly from the layer's canvas
             await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
-            saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', 'CC Drawing stroke');
+            // Use appropriate description based on whether it's a shape or stroke
+            const description = tools.shapeMode ? 'CC Shape' : 'CC Drawing stroke';
+            saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', description);
           } else {
             // Regular layers: composite drawing onto layer
             const tempCanvas = document.createElement('canvas');
@@ -1176,6 +1178,14 @@ export function useDrawingHandlers({
           
           // For color cycle layer, we need to fill the shape and render it
           if (isColorCycleLayer && drawCtx) {
+            // IMPORTANT: Save state BEFORE drawing the new shape
+            // This creates a checkpoint that undo can return to
+            const activeLayerId = activeLayer?.id;
+            if (activeLayerId && activeLayer.colorCycleData?.canvas) {
+              // Save the current state before adding the new shape
+              saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', 'CC Shape (before)');
+            }
+            
             // Don't stop the animation - let it continue if it's playing
             // We'll just add the shape to the color cycle layers
             
@@ -1188,7 +1198,6 @@ export function useDrawingHandlers({
             }
             
             // CRITICAL FIX: Ensure the CC layer's canvas is updated with the shape
-            const activeLayerId = activeLayer?.id;
             if (activeLayerId && activeLayer.colorCycleData?.canvas) {
               // Force immediate texture update and render to the layer's canvas
               brushEngine.updateColorCycleTexture(activeLayerId);
@@ -1202,7 +1211,7 @@ export function useDrawingHandlers({
               }
               
               // Now render from the layer's canvas to the drawing canvas for display
-              drawCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+              drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
               drawCtx.globalAlpha = 1.0; // Full opacity for finalization
               drawCtx.globalCompositeOperation = 'source-over';
               drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);

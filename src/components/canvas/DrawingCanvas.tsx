@@ -604,6 +604,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         if (snapshot.layers && snapshot.activeLayerId) {
           // Reconstruct colorCycleData for any color-cycle layers
           const restoredLayers = snapshot.layers.map((layer: any) => {
+            // Ensure layerType is preserved - if missing, default to 'normal'
+            if (!layer.layerType) {
+              console.error('WARNING: Layer missing layerType, defaulting to normal:', layer.id);
+              layer.layerType = 'normal';
+            }
+            
             if (layer.colorCycleData && layer.colorCycleData.canvasImageData) {
               // Recreate the canvas for color cycle
               const canvas = document.createElement('canvas');
@@ -629,7 +635,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
                 }
               };
             }
-            return layer;
+            // Also preserve layerType for non-color-cycle layers
+            return {
+              ...layer,
+              layerType: layer.layerType
+            };
           });
           
           setLayers(restoredLayers);
@@ -729,6 +739,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         if (snapshot.layers && snapshot.activeLayerId) {
           // Reconstruct colorCycleData for any color-cycle layers
           const restoredLayers = snapshot.layers.map((layer: any) => {
+            // Ensure layerType is preserved - if missing, default to 'normal'
+            if (!layer.layerType) {
+              console.error('WARNING: Layer missing layerType, defaulting to normal:', layer.id);
+              layer.layerType = 'normal';
+            }
+            
             if (layer.colorCycleData && layer.colorCycleData.canvasImageData) {
               // Recreate the canvas for color cycle
               const canvas = document.createElement('canvas');
@@ -754,7 +770,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
                 }
               };
             }
-            return layer;
+            // Also preserve layerType for non-color-cycle layers
+            return {
+              ...layer,
+              layerType: layer.layerType
+            };
           });
           
           setLayers(restoredLayers);
@@ -832,6 +852,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
           
           if (isColorCycleLayer && tools.shapeMode) {
+            // Don't save here - it will be saved in finalizeDrawing
+            // This prevents duplicate undo entries for color cycle shapes
+            
             // Reset color cycle for new shape
             brushEngine.resetColorCycle();
             

@@ -917,7 +917,11 @@ export class ColorCycleBrushCanvas2D {
    * Set playing state - wrapper for backward compatibility
    */
   setPlaying(playing: boolean) {
-    playing ? this.startAnimation() : this.stopAnimation();
+    if (playing) {
+      this.startAnimation();
+    } else {
+      this.stopAnimation();
+    }
   }
   
   /**
@@ -1036,30 +1040,27 @@ export class ColorCycleBrushCanvas2D {
    * Restore full state (API compatible)
    */
   restoreFullState(state: any) {
-    // Clear current state
-    this.animators.clear();
-    this.layerStrokes.clear();
+    console.log(`[ColorCycleBrush] restoreFullState called`, state);
     
-    // Restore settings
-    this.cycleSpeed = state.cycleSpeed || 0.4;
-    this.fps = state.fps || 30;
-    this.brushSize = state.brushSize || 20;
+    // CRITICAL FIX: The issue is that undo is trying to restore ColorCycleBrush state
+    // But the canvas itself is being restored separately via canvasImageData in DrawingCanvas
+    // This creates a conflict where the brush state is cleared but canvas content is restored
     
-    // Restore layers
-    if (state.layers) {
-      state.layers.forEach((layer: any) => {
-        this.layerStrokes.set(layer.layerId, {
-          paintBuffer: new Uint8Array(this.width * this.height),
-          hasContent: layer.strokeData.hasContent,
-          strokeCounter: layer.strokeData.strokeCounter,
-          strokeLength: 0,
-          lastPoint: null,
-          gradientLayerIndices: [],
-          currentGradientIndex: 0,
-          stampCounter: 0
-        });
-      });
-    }
+    // For color cycle layers, the primary state is in the canvas itself (canvasImageData)
+    // The ColorCycleBrush should not clear its state during undo/redo
+    // Instead, it should just update its settings if needed
+    
+    console.log(`[ColorCycleBrush] Skipping full state restoration - canvas content restored separately`);
+    
+    // Only update basic settings without clearing layer content
+    if (state.cycleSpeed !== undefined) this.cycleSpeed = state.cycleSpeed;
+    if (state.fps !== undefined) this.fps = state.fps;
+    if (state.brushSize !== undefined) this.brushSize = state.brushSize;
+    
+    // Do NOT clear animators or layerStrokes - let the canvas restoration handle the visual content
+    // The undo system restores the canvas imageData separately, which is the source of truth
+    
+    console.log(`[ColorCycleBrush] Settings updated, skipping layer data changes`);
   }
   
   /**

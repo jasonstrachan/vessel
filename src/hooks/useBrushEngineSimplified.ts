@@ -1623,7 +1623,7 @@ export const useBrushEngineSimplified = () => {
       console.error('[ColorCycle] Error initializing brush:', error);
       return null;
     }
-  }, [tools.brushSettings.size, tools.brushSettings.colorCycleFPS, tools.brushSettings.colorCycleSpeed, tools.brushSettings.colorCycleGradient, project?.width, project?.height, activeLayerId, getActiveLayerColorCycleBrush]);
+  }, [tools.brushSettings.size, tools.brushSettings.colorCycleFPS, tools.brushSettings.colorCycleSpeed, tools.brushSettings.colorCycleGradient, project?.width, project?.height, activeLayerId]);
   
   /**
    * Draw with Color Cycle Brush - only paints to Canvas2D buffer, no immediate rendering
@@ -1716,7 +1716,7 @@ export const useBrushEngineSimplified = () => {
     
     // Don't composite here - let renderColorCycle handle all rendering
     // This prevents visible brush stamps and ensures only animated strokes show
-  }, [tools.brushSettings.size, getActiveLayerColorCycleBrush, activeLayerId]);
+  }, [tools.brushSettings.size, activeLayerId]);
   
   /**
    * Render Color Cycle - UNIFIED rendering approach
@@ -1759,7 +1759,7 @@ export const useBrushEngineSimplified = () => {
       ctx.globalCompositeOperation = prevComposite;
       ctx.globalAlpha = prevAlpha;
     }
-  }, [tools.brushSettings.blendMode, tools.brushSettings.opacity, getActiveLayerColorCycleBrush, activeLayerId]);
+  }, [tools.brushSettings.blendMode, tools.brushSettings.opacity, activeLayerId]);
   
   /**
    * Reset Color Cycle - starts a new stroke with the existing brush
@@ -1788,7 +1788,7 @@ export const useBrushEngineSimplified = () => {
     if (colorCycleBrush) {
       colorCycleBrush.endStroke(activeLayerId || undefined);
     }
-  }, [getActiveLayerColorCycleBrush, activeLayerId]);
+  }, [activeLayerId]);
   
   /**
    * Fill a shape with color cycle gradient from edges to center
@@ -1812,6 +1812,10 @@ export const useBrushEngineSimplified = () => {
         brush.setGradient(currentGradient, activeLayerId);
       }
       
+      // Ensure bands are set before filling
+      const bands = tools.brushSettings.gradientBands || 12;
+      brush.setGradientBands(bands);
+      
       // The vertices are already in the correct coordinate space
       // The ColorCycleBrush internal canvas should match the project dimensions
       // No scaling needed - just pass vertices directly
@@ -1825,7 +1829,7 @@ export const useBrushEngineSimplified = () => {
       // Force a render to ensure the shape is visible
       brush.render(true);
     }
-  }, [initializeColorCycleBrush, activeLayerId, project?.width, project?.height, tools.brushSettings.colorCycleGradient, tools.brushSettings.spacing]);
+  }, [initializeColorCycleBrush, activeLayerId, project?.width, project?.height, tools.brushSettings.colorCycleGradient, tools.brushSettings.spacing, tools.brushSettings.gradientBands]);
 
   // Color cycle functions removed - now defined inline in return object to avoid stale closures
   
@@ -1835,7 +1839,7 @@ export const useBrushEngineSimplified = () => {
     if (colorCycleBrush && tools.brushSettings.colorCycleSpeed) {
       colorCycleBrush.setSpeed(tools.brushSettings.colorCycleSpeed);
     }
-  }, [tools.brushSettings.colorCycleSpeed, getActiveLayerColorCycleBrush]);
+  }, [tools.brushSettings.colorCycleSpeed, activeLayerId]);
   
   // Update color cycle FPS when it changes
   useEffect(() => {
@@ -1843,15 +1847,36 @@ export const useBrushEngineSimplified = () => {
     if (colorCycleBrush && tools.brushSettings.colorCycleFPS) {
       colorCycleBrush.setFPS(tools.brushSettings.colorCycleFPS);
     }
-  }, [tools.brushSettings.colorCycleFPS, getActiveLayerColorCycleBrush]);
+  }, [tools.brushSettings.colorCycleFPS, activeLayerId]);
   
   // Update gradient bands when it changes
   useEffect(() => {
-    const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (colorCycleBrush) {
-      colorCycleBrush.setGradientBands(tools.brushSettings.gradientBands || 12);
+    // First check if we're actually using a color cycle brush/layer
+    const state = useAppStore.getState();
+    const activeLayer = state.layers.find(l => l.id === activeLayerId);
+    
+    // Only proceed if this is a color-cycle layer
+    if (activeLayer?.layerType === 'color-cycle') {
+      let colorCycleBrush = getActiveLayerColorCycleBrush();
+      
+      // Initialize the brush if it doesn't exist yet
+      if (!colorCycleBrush) {
+        colorCycleBrush = initializeColorCycleBrush();
+      }
+      
+      if (colorCycleBrush) {
+        const bands = tools.brushSettings.gradientBands || 12;
+        colorCycleBrush.setGradientBands(bands);
+        console.log(`[useBrushEngineSimplified] Updated gradientBands=${bands} on brush`);
+        
+        // Force a render to show the change immediately
+        colorCycleBrush.render(true);
+        
+        // Dispatch event for canvas update
+        window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
+      }
     }
-  }, [tools.brushSettings.gradientBands, getActiveLayerColorCycleBrush]);
+  }, [tools.brushSettings.gradientBands, getActiveLayerColorCycleBrush, activeLayerId, initializeColorCycleBrush]);
   
   // Update band spacing when it changes
   useEffect(() => {
@@ -1859,7 +1884,7 @@ export const useBrushEngineSimplified = () => {
     if (colorCycleBrush && tools.brushSettings.spacing) {
       (colorCycleBrush as any).setBandSpacing(tools.brushSettings.spacing);
     }
-  }, [tools.brushSettings.spacing, getActiveLayerColorCycleBrush]);
+  }, [tools.brushSettings.spacing, activeLayerId]);
   
   // Update pressure enabled when it changes
   useEffect(() => {
@@ -1873,7 +1898,7 @@ export const useBrushEngineSimplified = () => {
         console.error('[CC Effect] Failed to set pressure enabled:', e);
       }
     }
-  }, [tools.brushSettings.pressureEnabled, getActiveLayerColorCycleBrush]);
+  }, [tools.brushSettings.pressureEnabled, activeLayerId]);
   
   // Update min pressure when it changes
   useEffect(() => {
@@ -1885,7 +1910,7 @@ export const useBrushEngineSimplified = () => {
         console.error('[CC Effect] Failed to set min pressure:', e);
       }
     }
-  }, [tools.brushSettings.minPressure, getActiveLayerColorCycleBrush]);
+  }, [tools.brushSettings.minPressure, activeLayerId]);
   
   // Update max pressure when it changes
   useEffect(() => {
@@ -1897,7 +1922,7 @@ export const useBrushEngineSimplified = () => {
         console.error('[CC Effect] Failed to set max pressure:', e);
       }
     }
-  }, [tools.brushSettings.maxPressure, getActiveLayerColorCycleBrush]);
+  }, [tools.brushSettings.maxPressure, activeLayerId]);
 
   // Clean up resources
   useEffect(() => {
@@ -1933,7 +1958,7 @@ export const useBrushEngineSimplified = () => {
     fillColorCycleShape,
     
     // Force immediate texture update for color cycle brush
-    updateColorCycleTexture: (layerId: string) => {
+    updateColorCycleTexture: (_layerId: string) => {
       const colorCycleBrush = getActiveLayerColorCycleBrush();
       if (colorCycleBrush) {
         // Force a render to update the texture

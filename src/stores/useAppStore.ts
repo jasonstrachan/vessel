@@ -2464,6 +2464,8 @@ export const useAppStore = create<AppState>()(
           const layersCopy = (state.layers || []).map(layer => {
             const layerCopy: any = {
               ...layer,
+              // CRITICAL: Explicitly preserve layerType to prevent corruption
+              layerType: layer.layerType,
               imageData: layer.imageData ? new ImageData(
                 new Uint8ClampedArray(layer.imageData.data),
                 layer.imageData.width,
