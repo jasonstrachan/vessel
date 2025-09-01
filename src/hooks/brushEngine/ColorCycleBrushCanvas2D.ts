@@ -22,6 +22,7 @@ export class ColorCycleBrushCanvas2D {
   private cycleSpeed: number;
   private fps: number;
   private gradientBands: number = 12; // Number of color bands in gradients
+  private bandSpacing: number = 5; // Pixel spacing between bands
   private pressureEnabled: boolean = false; // Track if pressure is enabled
   private minPressure: number = 1; // Min size as percentage of base size (1-1000)
   private maxPressure: number = 200; // Max size as percentage of base size (1-1000) - 200 = 2x size at max pressure
@@ -46,7 +47,6 @@ export class ColorCycleBrushCanvas2D {
   // Stamp tracking for gradient progression
   private stampCounter: number = 0;
   private totalGradientSteps: number = 256; // Total colors in gradient
-  private resetStampOnNewStroke: boolean = false; // Set to true to reset colors per stroke
   
   // Batched rendering
   private renderScheduled: boolean = false;
@@ -270,11 +270,18 @@ export class ColorCycleBrushCanvas2D {
     
     if (strokeData) {
       // Calculate color index based on stamp position in gradient
-      // Each stamp gets the next color in the gradient sequence
-      // Map stamp counter to gradient bands for quantized color steps
-      const bandIndex = strokeData.stampCounter % this.gradientBands;
-      // Ensure colorIndex cycles through 1-255, never 0 (which might be transparent/white)
-      const colorIndex = Math.floor((bandIndex / this.gradientBands) * 254) + 1;
+      // Use gradientBands to control how many distinct colors appear in the stroke
+      // This creates banded color zones instead of smooth gradients
+      const bandsToUse = Math.max(2, this.gradientBands || 12); // Default to 12 bands if not set
+      
+      // Simple banding: cycle through a limited set of evenly-spaced colors
+      // Each band gets an equal portion of the 255 color palette
+      const colorsToUse = Math.min(254, bandsToUse); // Don't exceed palette size
+      const colorStep = Math.max(1, Math.floor(254 / colorsToUse)); // Space between colors
+      const bandIndex = strokeData.stampCounter % colorsToUse;
+      
+      // Calculate color index and ensure it's in valid range (0-254)
+      const colorIndex = Math.min(254, (bandIndex * colorStep) % 255);
       
       // Calculate pressure-modulated brush size using smooth curve
       const pressureSize = this.pressureEnabled 
@@ -375,12 +382,6 @@ export class ColorCycleBrushCanvas2D {
     }
   }
   
-  /**
-   * Set whether to reset stamp counter on new strokes
-   */
-  setResetStampOnNewStroke(reset: boolean) {
-    this.resetStampOnNewStroke = reset;
-  }
   
   /**
    * Start new stroke (API compatible)
@@ -403,12 +404,8 @@ export class ColorCycleBrushCanvas2D {
       strokeData.strokeLength = 0;
       strokeData.lastPoint = null;
       
-      // Only reset stamp counter if configured to do so
-      // For continuous color progression across strokes, keep it accumulating
-      if (this.resetStampOnNewStroke) {
-        strokeData.stampCounter = 0;
-      } else {
-      }
+      // Keep stamp counter continuous across strokes for flowing gradients
+      // Don't reset - let it accumulate for continuous color progression
     }
   }
   
@@ -435,7 +432,7 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Fill shape with smooth gradient bands from edge to center
    */
-  fillShape(vertices: Array<{ x: number; y: number }>, layerId?: string) {
+  fillShape(vertices: Array<{ x: number; y: number }>, layerId?: string, spacing?: number) {
     // Validate input
     if (!vertices || !Array.isArray(vertices)) {
       console.warn('Invalid vertices provided to fillShape');
@@ -503,8 +500,10 @@ export class ColorCycleBrushCanvas2D {
     maxY = Math.min(this.height - 1, Math.ceil(maxY));
     
     // Use scanline fill with inline gradient calculation - simpler and more reliable
-    // Get number of bands from settings or use default
-    const numBands = this.gradientBands;
+    // gradientBands represents number of color divisions
+    // bandSpacing (or passed spacing) represents pixel distance between bands
+    const numBands = Math.max(2, this.gradientBands);
+    const pixelSpacing = spacing || this.bandSpacing;
     
     for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) {
       const intersections: number[] = [];
@@ -561,17 +560,28 @@ export class ColorCycleBrushCanvas2D {
             }
           }
           
-          // Create gradient based on distance
-          const maxDist = Math.max(maxX - minX, maxY - minY) / 2;
+          // Disable banding for shapes - use smooth gradient instead
+          // Map distance directly to color index for seamless gradients
+          // Calculate shape size from bounds
+          const shapeWidth = maxX - minX;
+          const shapeHeight = maxY - minY;
+          const shapeSize = Math.max(shapeWidth, shapeHeight);
+          // Scale distance to use full color palette range
+          const maxDist = Math.max(50, shapeSize / 2); // Expected max distance
           const normalizedDist = Math.min(1, minDist / maxDist);
-          
-          const bandIndex = Math.floor(normalizedDist * numBands);
-          const colorIndex = Math.floor((bandIndex / Math.max(1, numBands - 1)) * 255);
+          // Use full palette range for smooth gradient
+          const colorIndex = Math.floor(normalizedDist * 253) + 1;
           
           // Paint with size 1 for precise pixel control
           animator.paintSquare(x, y, 1, colorIndex);
         }
       }
+    }
+    
+    // Increment stamp counter for next shape to continue gradient sequence
+    this.stampCounter += numBands;
+    if (strokeData) {
+      strokeData.stampCounter = this.stampCounter;
     }
     
     // Mark layer as dirty for rendering
@@ -824,7 +834,8 @@ export class ColorCycleBrushCanvas2D {
   }
   
   /**
-   * Set gradient bands (number of color steps)
+   * Set gradient bands (number of color bands in the gradient)
+   * Controls how many distinct color zones appear in shapes
    */
   setGradientBands(bands: number) {
     if (!Number.isFinite(bands) || bands < 2 || bands > 50) {
@@ -832,6 +843,17 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
     this.gradientBands = Math.floor(bands);
+  }
+  
+  /**
+   * Set band spacing (pixel distance between bands)
+   */
+  setBandSpacing(spacing: number) {
+    if (!Number.isFinite(spacing) || spacing < 1 || spacing > 100) {
+      console.warn(`Invalid band spacing: ${spacing}, using default`);
+      return;
+    }
+    this.bandSpacing = Math.floor(spacing);
   }
   
   /**

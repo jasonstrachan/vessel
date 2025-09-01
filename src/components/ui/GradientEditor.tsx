@@ -7,46 +7,98 @@ interface GradientStop {
   opacity?: number;
 }
 
+interface SavedGradient {
+  id: string;
+  name: string;
+  stops: GradientStop[];
+  isDefault?: boolean;
+}
+
 interface GradientEditorProps {
   stops: GradientStop[];
   onChange: (stops: GradientStop[]) => void;
   className?: string;
 }
 
-const presetGradients = {
-  rainbow: [
-    { position: 0.0, color: '#ff0000', opacity: 1 },
-    { position: 0.17, color: '#ff7f00', opacity: 1 },
-    { position: 0.33, color: '#ffff00', opacity: 1 },
-    { position: 0.5, color: '#00ff00', opacity: 1 },
-    { position: 0.67, color: '#0000ff', opacity: 1 },
-    { position: 0.83, color: '#4b0082', opacity: 1 },
-    { position: 1.0, color: '#9400d3', opacity: 1 }
-  ],
-  fire: [
-    { position: 0.0, color: '#ff0000', opacity: 1 },
-    { position: 0.33, color: '#ff7f00', opacity: 1 },
-    { position: 0.67, color: '#ffff00', opacity: 1 },
-    { position: 1.0, color: '#ff0000', opacity: 1 }
-  ],
-  ocean: [
-    { position: 0.0, color: '#001f3f', opacity: 1 },
-    { position: 0.5, color: '#0074d9', opacity: 1 },
-    { position: 1.0, color: '#001f3f', opacity: 1 }
-  ],
-  sunset: [
-    { position: 0.0, color: '#ff6b6b', opacity: 1 },
-    { position: 0.33, color: '#ffa500', opacity: 1 },
-    { position: 0.67, color: '#ffd700', opacity: 1 },
-    { position: 1.0, color: '#4b0082', opacity: 1 }
-  ],
-  mint: [
-    { position: 0.0, color: '#00ff88', opacity: 1 },
-    { position: 0.5, color: '#00ffff', opacity: 1 },
-    { position: 1.0, color: '#0088ff', opacity: 1 }
-  ]
+const defaultGradients: SavedGradient[] = [
+  {
+    id: 'rainbow',
+    name: 'Rainbow',
+    stops: [
+      { position: 0.0, color: '#ff0000', opacity: 1 },
+      { position: 0.17, color: '#ff7f00', opacity: 1 },
+      { position: 0.33, color: '#ffff00', opacity: 1 },
+      { position: 0.5, color: '#00ff00', opacity: 1 },
+      { position: 0.67, color: '#0000ff', opacity: 1 },
+      { position: 0.83, color: '#4b0082', opacity: 1 },
+      { position: 1.0, color: '#9400d3', opacity: 1 }
+    ]
+  },
+  {
+    id: 'fire',
+    name: 'Fire',
+    stops: [
+      { position: 0.0, color: '#ff0000', opacity: 1 },
+      { position: 0.33, color: '#ff7f00', opacity: 1 },
+      { position: 0.67, color: '#ffff00', opacity: 1 },
+      { position: 1.0, color: '#ff0000', opacity: 1 }
+    ]
+  },
+  {
+    id: 'ocean',
+    name: 'Ocean',
+    stops: [
+      { position: 0.0, color: '#001f3f', opacity: 1 },
+      { position: 0.5, color: '#0074d9', opacity: 1 },
+      { position: 1.0, color: '#001f3f', opacity: 1 }
+    ]
+  },
+  {
+    id: 'sunset',
+    name: 'Sunset',
+    stops: [
+      { position: 0.0, color: '#ff6b6b', opacity: 1 },
+      { position: 0.33, color: '#ffa500', opacity: 1 },
+      { position: 0.67, color: '#ffd700', opacity: 1 },
+      { position: 1.0, color: '#4b0082', opacity: 1 }
+    ]
+  },
+  {
+    id: 'mint',
+    name: 'Mint',
+    stops: [
+      { position: 0.0, color: '#00ff88', opacity: 1 },
+      { position: 0.5, color: '#00ffff', opacity: 1 },
+      { position: 1.0, color: '#0088ff', opacity: 1 }
+    ]
+  }
+];
+
+
+// Load custom gradients from localStorage and merge with defaults
+const loadGradients = (): SavedGradient[] => {
+  const defaults = defaultGradients.map(g => ({ ...g, isDefault: true }));
+  try {
+    const stored = localStorage.getItem('tinybrush_custom_gradients');
+    if (stored) {
+      const customGradients = JSON.parse(stored);
+      return [...defaults, ...customGradients];
+    }
+  } catch (e) {
+    console.error('Failed to load gradients:', e);
+  }
+  return defaults;
 };
 
+// Save only custom gradients to localStorage
+const saveCustomGradients = (allGradients: SavedGradient[]) => {
+  try {
+    const customGradients = allGradients.filter(g => !g.isDefault);
+    localStorage.setItem('tinybrush_custom_gradients', JSON.stringify(customGradients));
+  } catch (e) {
+    console.error('Failed to save gradients:', e);
+  }
+};
 
 export const GradientEditor: React.FC<GradientEditorProps> = ({ 
   stops: initialStops, 
@@ -60,6 +112,8 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   const [stops, setStops] = useState<GradientStop[]>(normalizeStops(initialStops));
   const [selectedStop, setSelectedStop] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [savedGradients, setSavedGradients] = useState<SavedGradient[]>(loadGradients());
+  const [selectedGradientId, setSelectedGradientId] = useState<string>('');
   const containerRef = useRef<HTMLDivElement>(null);
   const colorInputRef = useRef<HTMLInputElement>(null);
 
@@ -67,6 +121,19 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   useEffect(() => {
     setStops(normalizeStops(initialStops));
   }, [initialStops]);
+  
+  // Update saved gradient when stops change
+  useEffect(() => {
+    if (selectedGradientId && stops.length > 0) {
+      setSavedGradients(prev => {
+        const updated = prev.map(g => 
+          g.id === selectedGradientId ? { ...g, stops } : g
+        );
+        saveCustomGradients(updated);
+        return updated;
+      });
+    }
+  }, [stops, selectedGradientId]);
 
   // Generate CSS gradient string with opacity
   const gradientString = stops
@@ -169,27 +236,124 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     setSelectedStop(null);
   }, [stops, onChange]);
 
-  const handlePresetChange = useCallback((preset: keyof typeof presetGradients) => {
-    const newStops = [...presetGradients[preset]];
-    setStops(newStops);
-    onChange(newStops);
-  }, [onChange]);
+  const handleGradientSelect = useCallback((gradientId: string) => {
+    const gradient = savedGradients.find(g => g.id === gradientId);
+    if (gradient) {
+      const newStops = [...gradient.stops];
+      setStops(newStops);
+      onChange(newStops);
+      setSelectedGradientId(gradientId);
+    }
+  }, [savedGradients, onChange]);
+
+  const handleAddGradient = useCallback(() => {
+    const existingCustom = savedGradients.filter(g => g.name.startsWith('Custom '));
+    const customNumber = existingCustom.length + 1;
+    const newId = `custom_${Date.now()}`;
+    const newGradient: SavedGradient = {
+      id: newId,
+      name: `Custom ${customNumber}`,
+      stops: [
+        { position: 0.0, color: '#000000', opacity: 1 },
+        { position: 0.5, color: '#ffffff', opacity: 1 },
+        { position: 1.0, color: '#000000', opacity: 1 }
+      ],
+      isDefault: false
+    };
+    
+    const updated = [...savedGradients, newGradient];
+    setSavedGradients(updated);
+    saveCustomGradients(updated);
+    
+    // Select and apply the new gradient
+    setStops(newGradient.stops);
+    onChange(newGradient.stops);
+    setSelectedGradientId(newId);
+  }, [savedGradients, onChange]);
+
+  const handleRemoveGradient = useCallback((gradientId: string) => {
+    const gradient = savedGradients.find(g => g.id === gradientId);
+    
+    // Don't permanently delete default gradients, just hide them for this session
+    if (gradient?.isDefault) {
+      const updated = savedGradients.filter(g => g.id !== gradientId);
+      setSavedGradients(updated);
+      // Don't save to localStorage - this is just a session hide
+    } else {
+      // Permanently delete custom gradients
+      const updated = savedGradients.filter(g => g.id !== gradientId);
+      setSavedGradients(updated);
+      saveCustomGradients(updated);
+    }
+    
+    // If removing the selected gradient, clear selection
+    if (selectedGradientId === gradientId) {
+      setSelectedGradientId('');
+    }
+  }, [savedGradients, selectedGradientId]);
+
+
+  // Render gradient preview for dropdown option
+  const renderGradientOption = useCallback((option: { value: string; label: string; isAction?: boolean }) => {
+    // Handle add button
+    if (option.isAction) {
+      return (
+        <div className="flex items-center gap-2">
+          <span className="text-[#D9D9D9]">+ Add</span>
+        </div>
+      );
+    }
+
+    const gradient = savedGradients.find(g => g.id === option.value);
+    if (!gradient) return option.label;
+
+    const gradientCss = gradient.stops
+      .map(s => {
+        const opacity = s.opacity ?? 1;
+        const hex = s.color;
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${opacity}) ${s.position * 100}%`;
+      })
+      .join(', ');
+
+    return (
+      <div className="flex items-center gap-2 w-full relative">
+        <div 
+          className="flex-1 h-5 border border-[#666]"
+          style={{ 
+            background: `linear-gradient(90deg, ${gradientCss})` 
+          }}
+        />
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleRemoveGradient(option.value);
+          }}
+          className="absolute right-0 text-[#888] hover:text-[#ff6b6b] transition-colors px-1"
+          title="Remove gradient"
+        >
+          ×
+        </button>
+      </div>
+    );
+  }, [savedGradients, handleRemoveGradient]);
 
   return (
     <div className={`gradient-editor relative ${className}`} ref={containerRef}>
       {/* Preset selector */}
       <div className="mb-2">
         <Dropdown
-          value=""
+          value={selectedGradientId}
           options={[
-            { value: 'rainbow', label: 'Rainbow' },
-            { value: 'fire', label: 'Fire' },
-            { value: 'ocean', label: 'Ocean' },
-            { value: 'sunset', label: 'Sunset' },
-            { value: 'mint', label: 'Mint' }
+            ...savedGradients.map(g => ({ value: g.id, label: g.name })),
+            { value: 'add', label: '+ Add', isAction: true }
           ]}
-          onChange={(value) => handlePresetChange(value as keyof typeof presetGradients)}
-          placeholder="Select preset..."
+          onChange={handleGradientSelect}
+          onAction={handleAddGradient}
+          placeholder="Select gradient..."
+          renderOption={renderGradientOption}
         />
       </div>
 

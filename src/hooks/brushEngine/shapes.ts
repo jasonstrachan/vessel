@@ -681,6 +681,67 @@ export const drawShape = (
         break;
       }
       
+      case BrushShape.POLYGON: {
+        // Polygon shape with dither support
+        const sides = settings?.brushSettings?.polygonSides || 6; // Default to hexagon
+        const ditherRes = settings?.brushSettings?.polygonDitherResolution || 3; // Default dither resolution
+        
+        drawingCtx.save();
+        
+        // For dithered polygons, ensure hard pixel edges
+        if (settings?.brushSettings?.ditherEnabled) {
+          drawingCtx.imageSmoothingEnabled = false;
+        }
+        
+        drawingCtx.beginPath();
+        
+        // Draw polygon path
+        for (let i = 0; i < sides; i++) {
+          const angle = (Math.PI * 2 / sides) * i - Math.PI / 2; // Start from top
+          const px = drawX + Math.cos(angle) * halfSize;
+          const py = drawY + Math.sin(angle) * halfSize;
+          
+          if (i === 0) {
+            drawingCtx.moveTo(px, py);
+          } else {
+            drawingCtx.lineTo(px, py);
+          }
+        }
+        drawingCtx.closePath();
+        
+        // Apply dithering if enabled
+        if (settings?.brushSettings?.ditherEnabled && ditherRes > 1) {
+          // Create a dithered fill pattern
+          const patternSize = ditherRes;
+          const patternCanvas = document.createElement('canvas');
+          patternCanvas.width = patternSize;
+          patternCanvas.height = patternSize;
+          const patternCtx = patternCanvas.getContext('2d');
+          
+          if (patternCtx) {
+            // Create dither pattern (checkerboard for now)
+            patternCtx.fillStyle = drawingCtx.fillStyle;
+            for (let y = 0; y < patternSize; y++) {
+              for (let x = 0; x < patternSize; x++) {
+                // Simple ordered dither
+                if ((x + y) % 2 === 0) {
+                  patternCtx.fillRect(x, y, 1, 1);
+                }
+              }
+            }
+            
+            const pattern = drawingCtx.createPattern(patternCanvas, 'repeat');
+            if (pattern) {
+              drawingCtx.fillStyle = pattern;
+            }
+          }
+        }
+        
+        drawingCtx.fill();
+        drawingCtx.restore();
+        break;
+      }
+      
       case BrushShape.SPAM_TEXT: {
         // Spam text brush - render single characters sequentially
         const fontSize = Math.round(size);

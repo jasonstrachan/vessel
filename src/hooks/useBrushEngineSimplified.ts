@@ -228,7 +228,8 @@ export const useBrushEngineSimplified = () => {
     // Initialize spam text when spam brush is selected
     if (tools.brushSettings.brushShape === BrushShape.SPAM_TEXT) {
       const contentType = tools.brushSettings.spamContentType || 'mixed';
-      brushEngine.initializeSpamText(contentType);
+      const customText = tools.brushSettings.spamCustomText;
+      brushEngine.initializeSpamText(contentType, customText);
     }
   }, [brushEngine, tools.brushSettings, getPatternTempContext, getRotationTempContext]);
 
@@ -747,13 +748,6 @@ export const useBrushEngineSimplified = () => {
     // Apply opacity and blend mode
     ctx.globalAlpha = tools.brushSettings.opacity;
     ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
-    
-    // CRITICAL DEBUG - Log drawing context state
-    console.error('🔴 Drawing context state:', {
-      globalAlpha: ctx.globalAlpha,
-      globalCompositeOperation: ctx.globalCompositeOperation,
-      fillStyle: ctx.fillStyle
-    });
     
     // Check if we'll be applying dithering
     const willApplyDithering = tools.brushSettings.ditherEnabled && !isPreview;
@@ -1587,6 +1581,9 @@ export const useBrushEngineSimplified = () => {
       if (tools.brushSettings.gradientBands) {
         colorCycleBrush.setGradientBands(tools.brushSettings.gradientBands);
       }
+      if (tools.brushSettings.spacing) {
+        (colorCycleBrush as any).setBandSpacing(tools.brushSettings.spacing);
+      }
       // Set pressure enabled state and min/max values
       console.log('[CC Init] Setting pressure enabled:', tools.brushSettings.pressureEnabled);
       try {
@@ -1819,8 +1816,8 @@ export const useBrushEngineSimplified = () => {
       // The ColorCycleBrush internal canvas should match the project dimensions
       // No scaling needed - just pass vertices directly
       
-      // Fill the shape with layer ID
-      brush.fillShape(vertices, activeLayerId);
+      // Fill the shape with layer ID and spacing
+      (brush as any).fillShape(vertices, activeLayerId, tools.brushSettings.spacing);
       
       // End the stroke to ensure texture is updated
       brush.endStroke(activeLayerId);
@@ -1828,7 +1825,7 @@ export const useBrushEngineSimplified = () => {
       // Force a render to ensure the shape is visible
       brush.render(true);
     }
-  }, [initializeColorCycleBrush, project?.width, project?.height, tools.brushSettings.colorCycleGradient]);
+  }, [initializeColorCycleBrush, activeLayerId, project?.width, project?.height, tools.brushSettings.colorCycleGradient, tools.brushSettings.spacing]);
 
   // Color cycle functions removed - now defined inline in return object to avoid stale closures
   
@@ -1855,6 +1852,14 @@ export const useBrushEngineSimplified = () => {
       colorCycleBrush.setGradientBands(tools.brushSettings.gradientBands);
     }
   }, [tools.brushSettings.gradientBands, getActiveLayerColorCycleBrush]);
+  
+  // Update band spacing when it changes
+  useEffect(() => {
+    const colorCycleBrush = getActiveLayerColorCycleBrush();
+    if (colorCycleBrush && tools.brushSettings.spacing) {
+      (colorCycleBrush as any).setBandSpacing(tools.brushSettings.spacing);
+    }
+  }, [tools.brushSettings.spacing, getActiveLayerColorCycleBrush]);
   
   // Update pressure enabled when it changes
   useEffect(() => {

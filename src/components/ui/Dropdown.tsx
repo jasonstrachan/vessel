@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 interface DropdownOption {
   value: string;
   label: string;
+  isAction?: boolean;
 }
 
 interface DropdownProps {
@@ -11,6 +12,8 @@ interface DropdownProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  renderOption?: (option: DropdownOption, isSelected: boolean, onClose: () => void) => React.ReactNode;
+  onAction?: (action: string) => void;
 }
 
 const Dropdown: React.FC<DropdownProps> = ({
@@ -18,7 +21,9 @@ const Dropdown: React.FC<DropdownProps> = ({
   options,
   onChange,
   placeholder = "Select...",
-  className = ""
+  className = "",
+  renderOption,
+  onAction
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -40,8 +45,17 @@ const Dropdown: React.FC<DropdownProps> = ({
     };
   }, []);
   
-  const handleSelect = (optionValue: string) => {
-    onChange(optionValue);
+  const handleSelect = (optionValue: string, isAction?: boolean) => {
+    if (isAction && onAction) {
+      onAction(optionValue);
+      setIsOpen(false);
+    } else if (!isAction) {
+      onChange(optionValue);
+      setIsOpen(false);
+    }
+  };
+  
+  const closeDropdown = () => {
     setIsOpen(false);
   };
   
@@ -66,21 +80,28 @@ const Dropdown: React.FC<DropdownProps> = ({
       
       {/* Dropdown menu */}
       {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-[#4a4a4a] border border-[#5a5a5a] shadow-lg">
-          {options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => handleSelect(option.value)}
-              className={`w-full px-2 py-1 text-xs text-left transition-colors outline-none focus:outline-none ${
-                option.value === value
-                  ? 'bg-[#555] text-[#D9D9D9]'
-                  : 'text-[#D9D9D9] hover:bg-[#555]'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
+        <div className="absolute z-50 w-full mt-1 bg-[#4a4a4a] border border-[#5a5a5a] shadow-lg max-h-64 overflow-y-auto">
+          {options.map((option) => {
+            const isSelected = option.value === value;
+            return (
+              <div
+                key={option.value}
+                onClick={(e) => {
+                  // Let the click handler work unless explicitly stopped
+                  handleSelect(option.value, option.isAction);
+                }}
+                className={`w-full px-2 py-1 text-xs text-left transition-colors outline-none focus:outline-none cursor-pointer ${
+                  option.isAction 
+                    ? 'text-[#D9D9D9] hover:bg-[#555] border-t border-[#5a5a5a]'
+                    : isSelected
+                      ? 'bg-[#555] text-[#D9D9D9]'
+                      : 'text-[#D9D9D9] hover:bg-[#555]'
+                }`}
+              >
+                {renderOption ? renderOption(option, isSelected, closeDropdown) : option.label}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

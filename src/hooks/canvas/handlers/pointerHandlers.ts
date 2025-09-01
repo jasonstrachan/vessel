@@ -707,17 +707,27 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         return;
       }
       
-      // Polygon gradient, color cycle shape, or contour polygon preview
-      if (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon) {
-        if (toolStateMachine.handlePolygonGradientMouseMove(worldPos) && deps.previewAnimationFrameRef) {
+      // Polygon gradient, color cycle shape, contour polygon, or shape mode preview
+      if (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon || 
+          (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current && drawingHandlers.shapePointsRef.current.length > 0)) {
+        // For gradient/special brushes, use their state machine. For shape mode, always show preview
+        const shouldShowPreview = (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon) 
+          ? toolStateMachine.handlePolygonGradientMouseMove(worldPos)
+          : (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current);
+        
+        if (shouldShowPreview && deps.previewAnimationFrameRef) {
           // Throttle polygon gradient preview with RAF
           if (!deps.previewAnimationFrameRef.current) {
             deps.previewAnimationFrameRef.current = requestAnimationFrame(() => {
               const overlayCanvas = overlayCanvasRef.current;
               const overlayCtx = overlayCanvas?.getContext('2d');
-              const currentPolygonState = toolStateMachine.polygonGradientState;
               
-              if (overlayCtx && overlayCanvas && currentPolygonState.points.length > 0) {
+              // Get points from either polygon state or shape drawing state
+              const points = (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon)
+                ? toolStateMachine.polygonGradientState.points
+                : drawingHandlers.shapePointsRef.current;
+              
+              if (overlayCtx && overlayCanvas && points && points.length > 0) {
                 // Clear only the overlay canvas
                 overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
                 
@@ -728,12 +738,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
                 
                 // Build preview vertices including current mouse position
                 const previewVertices = [
-                  ...currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y })),
+                  ...points.map((p: any) => ({ x: p.x || p, y: p.y || p })),
                   { x: worldPos.x, y: worldPos.y }
                 ];
                 
                 if (previewVertices.length >= 3) {
-                  // For all shape types, show a simple outline preview
+                  // For all shape types, show appropriate preview
                   if (toolStateMachine.isContourPolygon) {
                     // Use solid color for contour polygon preview
                     overlayCtx.strokeStyle = tools.brushSettings.color;
@@ -744,6 +754,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
                     overlayCtx.strokeStyle = '#ff00ff'; // Magenta outline for color cycle shape
                     overlayCtx.lineWidth = 2 / deps.viewTransformRef.current.scale;
                     overlayCtx.globalAlpha = 0.8;
+                  } else if (tools.shapeMode && !toolStateMachine.isPolygonGradient) {
+                    // For regular brushes in shape mode, show filled preview with current color
+                    overlayCtx.fillStyle = tools.brushSettings.color;
+                    overlayCtx.globalAlpha = 0.4; // Semi-transparent preview
                   } else {
                     // For regular polygon gradient, show gradient preview
                     const minX = Math.min(...previewVertices.map((v: any) => v.x));
@@ -762,10 +776,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
                     }
                     
                     // Sample colors from canvas for regular polygon gradient
-                    const previewColors = [
-                      ...currentPolygonState.points.map((p: any) => p.color),
+                    const previewColors = toolStateMachine.polygonGradientState.points.length > 0 ? [
+                      ...toolStateMachine.polygonGradientState.points.map((p: any) => p.color),
                       deps.sampleColorAtPosition(worldPos.x, worldPos.y)
-                    ];
+                    ] : [tools.brushSettings.color];
                     
                     // Create gradient stops
                     if (previewColors.length >= 3) {
@@ -794,7 +808,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
                   if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE || toolStateMachine.isContourPolygon) {
                     overlayCtx.stroke(); // Just outline for color cycle shape and contour
                   } else {
-                    overlayCtx.fill(); // Fill for regular polygon gradient
+                    overlayCtx.fill(); // Fill for regular polygon gradient and shape mode
                   }
                 }
                 

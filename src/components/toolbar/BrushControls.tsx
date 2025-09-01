@@ -198,25 +198,27 @@ const BrushControls = () => {
           </div>
         </div>
 
-        {/* Size */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              Size px
-            </label>
-            <ProgressSlider
-              value={globalBrushSize}
-              min={1}
-              max={500}
-              step={1}
-              onChange={(value) => {
-                setGlobalBrushSize(Math.max(1, value));
-              }}
-              aria-label="Brush Size (px)"
-              className="flex-1"
-            />
+        {/* Size - hide for COLOR_CYCLE_SHAPE since it uses shape size */}
+        {activeSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+                Size px
+              </label>
+              <ProgressSlider
+                value={globalBrushSize}
+                min={1}
+                max={500}
+                step={1}
+                onChange={(value) => {
+                  setGlobalBrushSize(Math.max(1, value));
+                }}
+                aria-label="Brush Size (px)"
+                className="flex-1"
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Opacity */}
         <div className="mb-2">
@@ -237,14 +239,14 @@ const BrushControls = () => {
           </div>
         </div>
         
-        {/* Spacing */}
+        {/* Spacing - controls pixel distance between bands */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Spacing
             </label>
             <ProgressSlider
-              value={activeSettings.spacing || 25}
+              value={activeSettings.spacing || 5}
               min={1}
               max={40}
               step={1}
@@ -257,7 +259,7 @@ const BrushControls = () => {
           </div>
         </div>
 
-        {/* Gradient Bands - applies to all brushes and shapes */}
+        {/* Gradient Bands - number of color steps in gradient */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
@@ -271,7 +273,7 @@ const BrushControls = () => {
               onChange={(value) =>
                 setActiveSettings({ gradientBands: Math.round(value) })
               }
-              aria-label="Gradient Color Bands"
+              aria-label="Gradient Bands (number of color steps)"
               className="flex-1"
             />
           </div>
@@ -457,8 +459,54 @@ const BrushControls = () => {
 
   // Show special controls for Spam brush
   if (activeSettings.brushShape === BrushShape.SPAM_TEXT) {
+    // Define spam text presets
+    const spamPresets: Record<string, string> = {
+      mixed: 'WINNER!!! TO THE MOON!!! DEAR BENEFICIARY!!! CHEAP MEDS!!! ACT NOW!!! HODL!!! BANK OF NIGERIA!!! FDA APPROVED!!! FREE FREE FREE!!! DIAMOND HANDS!!! MILLION DOLLARS!!! SPECIAL PRICE!!! 100% GUARANTEED!!! PUMP IT!!! URGENT!!! ',
+      classic: 'WINNER!!! ACT NOW!!! LIMITED TIME OFFER!!! CONGRATULATIONS!!! FREE FREE FREE!!! CLICK HERE!!! URGENT MESSAGE!!! HOT SINGLES IN YOUR AREA!!! 100% GUARANTEED!!! NO RISK!!! CALL NOW!!! AMAZING OFFER!!! EARN $$$!!! LOSE WEIGHT FAST!!! MIRACLE CURE!!! SECRET REVEALED!!! ',
+      crypto: 'TO THE MOON!!! HODL!!! DIAMOND HANDS!!! BUY THE DIP!!! WHALE ALERT!!! 100X GAINS!!! PUMP IT!!! NOT FINANCIAL ADVICE!!! LAMBO SOON!!! MOON MISSION!!! GEM FOUND!!! RUG PROOF!!! DYOR!!! APE IN NOW!!! ',
+      prince: 'DEAR BENEFICIARY!!! INHERITANCE FUND!!! BANK OF NIGERIA!!! TRANSFER FEES REQUIRED!!! MILLION DOLLARS!!! TRUSTED BARRISTER!!! URGENT RESPONSE NEEDED!!! STRICTLY CONFIDENTIAL!!! GOD BLESS!!! AWAITING YOUR REPLY!!! KINDLY SEND DETAILS!!! WESTERN UNION!!! ',
+      pharma: 'CHEAP MEDS!!! NO PRESCRIPTION!!! FDA APPROVED!!! GENERIC PILLS!!! DISCREET SHIPPING!!! ONLINE PHARMACY!!! SPECIAL PRICE!!! ORDER TODAY!!! DOCTOR APPROVED!!! SAFE & EFFECTIVE!!! FAST DELIVERY!!! '
+    };
+
     return (
       <div className="p-4">
+        {/* Content Type - dropdown that pre-populates text */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Content
+            </label>
+            <Dropdown
+              value={activeSettings.spamContentType || 'mixed'}
+              onChange={(value) => {
+                setActiveSettings({ 
+                  spamContentType: value,
+                  spamCustomText: spamPresets[value] || spamPresets.mixed
+                });
+              }}
+              options={[
+                { label: 'Mixed Chaos', value: 'mixed' },
+                { label: 'Classic Spam', value: 'classic' },
+                { label: 'Crypto Spam', value: 'crypto' },
+                { label: 'Nigerian Prince', value: 'prince' },
+                { label: 'Pharma Ads', value: 'pharma' }
+              ]}
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Custom Text Input - no label */}
+        <div className="mb-2">
+          <textarea
+            value={activeSettings.spamCustomText || spamPresets[activeSettings.spamContentType || 'mixed']}
+            onChange={(e) => setActiveSettings({ spamCustomText: e.target.value })}
+            placeholder="Enter custom text here..."
+            className="w-full h-20 p-2 bg-[#4a4a4a] text-[#D9D9D9] border-none rounded resize-none focus:outline-none focus:ring-1 focus:ring-[#5a5a5a]"
+            style={{ fontSize: "12px", fontFamily: 'monospace' }}
+          />
+        </div>
+
         {/* Font Selection */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
@@ -477,27 +525,6 @@ const BrushControls = () => {
                 { label: 'Source Code Pro', value: 'source' },
                 { label: 'Terminal', value: 'terminal' },
                 { label: 'Menlo', value: 'menlo' }
-              ]}
-              className="flex-1"
-            />
-          </div>
-        </div>
-
-        {/* Content Type */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              Content
-            </label>
-            <Dropdown
-              value={activeSettings.spamContentType || 'mixed'}
-              onChange={(value) => setActiveSettings({ spamContentType: value })}
-              options={[
-                { label: 'Mixed Chaos', value: 'mixed' },
-                { label: 'Classic Spam', value: 'classic' },
-                { label: 'Crypto Spam', value: 'crypto' },
-                { label: 'Nigerian Prince', value: 'prince' },
-                { label: 'Pharma Ads', value: 'pharma' }
               ]}
               className="flex-1"
             />
@@ -606,6 +633,26 @@ const BrushControls = () => {
                 />
               </>
             )}
+          </div>
+        </div>
+
+        {/* Grid Snap */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="grid-snap-enabled-spam"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Grid Snap
+            </label>
+            <CustomSwitch
+              id="grid-snap-enabled-spam"
+              checked={activeSettings.gridSnapEnabled || false}
+              onChange={(checked) =>
+                setActiveSettings({ gridSnapEnabled: checked })
+              }
+            />
           </div>
         </div>
       </div>
@@ -1002,6 +1049,107 @@ const BrushControls = () => {
                 setActiveSettings({ contourSmoothness: value })
               }
               aria-label="Contour Smoothness"
+              className="flex-1"
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show special controls for Polygon brush
+  if (activeSettings.brushShape === BrushShape.POLYGON) {
+    return (
+      <div className="p-4">
+        {/* Polygon Sides */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Sides
+            </label>
+            <ProgressSlider
+              value={activeSettings.polygonSides || 6}
+              min={3}
+              max={12}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ polygonSides: Math.round(value) })
+              }
+              aria-label="Polygon Sides"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Dither Resolution */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Dither
+            </label>
+            <ProgressSlider
+              value={activeSettings.polygonDitherResolution || 3}
+              min={1}
+              max={32}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({ polygonDitherResolution: Math.round(value) })
+              }
+              aria-label="Dither Resolution"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        {/* Dither Enabled */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="dither-enabled-polygon"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: "14px" }}
+            >
+              Dither
+            </label>
+            <CustomSwitch
+              id="dither-enabled-polygon"
+              checked={activeSettings.ditherEnabled || false}
+              onChange={(checked) =>
+                setActiveSettings({ ditherEnabled: checked })
+              }
+            />
+          </div>
+        </div>
+
+        {/* Standard brush controls */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Size px
+            </label>
+            <ProgressSlider
+              value={globalBrushSize}
+              min={1}
+              max={500}
+              step={1}
+              onChange={(value) => setGlobalBrushSize(value)}
+              aria-label="Brush Size"
+              className="flex-1"
+            />
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Opacity
+            </label>
+            <ProgressSlider
+              value={activeSettings.opacity}
+              min={1}
+              max={100}
+              onChange={(value) => setActiveSettings({ opacity: value })}
+              aria-label="Brush Opacity"
               className="flex-1"
             />
           </div>

@@ -326,82 +326,6 @@ export const roundSquare6Preset: BrushPreset = {
   modifiedAt: new Date()
 };
 
-// Ink Brush Components (pressure-sensitive with min/max override)
-export const inkBrushComponents: BrushComponent[] = [
-  {
-    id: 'ink-size',
-    type: ComponentType.SIZE_MODIFIER,
-    parameters: {
-      minSize: 1,
-      maxSize: 1000,
-      pressureInfluence: 100
-    },
-    priority: 10,
-    enabled: true
-  },
-  {
-    id: 'ink-opacity',
-    type: ComponentType.OPACITY_MODIFIER,
-    parameters: {
-      pressureInfluence: 0
-    },
-    priority: 20,
-    enabled: true
-  },
-  {
-    id: 'ink-antialiasing',
-    type: ComponentType.ANTI_ALIASING,
-    parameters: {
-      mode: 'antialiased'
-    },
-    priority: 30,
-    enabled: true
-  },
-  {
-    id: 'ink-shape',
-    type: ComponentType.SHAPE_RENDERER,
-    parameters: {
-      shape: BrushShape.ROUND
-    },
-    priority: 40,
-    enabled: true
-  },
-  {
-    id: 'ink-rotation',
-    type: ComponentType.ROTATION_TRANSFORM,
-    parameters: {
-      enableRotation: true
-    },
-    priority: 50,
-    enabled: true
-  }
-];
-
-// Ink Brush Preset (velocity-based sizing with ink blob effects)
-export const inkBrushPreset: BrushPreset = {
-  id: 'ink-brush',
-  name: 'Ink',
-  category: 'Artistic',
-  components: inkBrushComponents,
-  thumbnail: '/assets/images/Brush.png',
-  tags: ['ink', 'velocity', 'artistic', 'variable', 'sketchy'],
-  isDefault: false,
-  createdAt: new Date(),
-  modifiedAt: new Date(),
-  preferredSettings: {
-    size: 10,  // Base size that will be modified by velocity
-    antialiasing: true,
-    pressureEnabled: false,  // Turned off - ink uses velocity instead
-    minPressure: 5,  // Not used but kept for compatibility
-    maxPressure: 20,  // Not used but kept for compatibility
-    rotationEnabled: true,
-    dashedEnabled: false,
-    gridSnapEnabled: false,
-    shapeEnabled: false,
-    spacing: 0.8  // Tighter spacing for smoother ink flow
-  }
-};
-
 // Color Cycle Stroke Brush Components (shape mode OFF)
 export const colorCycleStrokeBrushComponents: BrushComponent[] = [
   {
@@ -448,8 +372,10 @@ export const colorCycleStrokeBrushPreset: BrushPreset = {
   preferredSettings: {
     size: 20,
     opacity: 1,
+    spacing: 4,
     colorCycleSpeed: 0.3,
     colorCycleFPS: 30,
+    gradientBands: 12, // Number of distinct color bands in strokes
     colorCycleGradient: [
       { position: 0.0, color: '#ff0000' },
       { position: 0.17, color: '#ff7f00' },
@@ -509,6 +435,7 @@ export const colorCycleShapeBrushPreset: BrushPreset = {
   preferredSettings: {
     size: 20,
     opacity: 1,
+    spacing: 4,
     colorCycleSpeed: 0.3,
     colorCycleFPS: 30,
     gradientBands: 26,
@@ -569,7 +496,8 @@ export const rectangleGradientBrushPreset: BrushPreset = {
   createdAt: new Date(),
   modifiedAt: new Date(),
   preferredSettings: {
-    ditherEnabled: true
+    ditherEnabled: true,
+    fillResolution: 3
   }
 };
 
@@ -615,7 +543,8 @@ export const polygonGradientBrushPreset: BrushPreset = {
   createdAt: new Date(),
   modifiedAt: new Date(),
   preferredSettings: {
-    ditherEnabled: true
+    ditherEnabled: true,
+    fillResolution: 3
   }
 };
 
@@ -693,11 +622,12 @@ export const spamBrushPreset: BrushPreset = {
   createdAt: new Date(),
   modifiedAt: new Date(),
   preferredSettings: {
-    size: 16,
+    size: 20,  // Default size for text visibility
     opacity: 1,
     antialiasing: false,  // MUST be false - this controls shape mode
     spacing: 10,  // Optimized spacing for letter-by-letter text flow
     pressureEnabled: false,  // Disable pressure for consistent text
+    gridSnapEnabled: true,  // Grid snap on by default
     minPressure: 1,
     maxPressure: 1,
     spamFont: 'courier',
@@ -778,20 +708,43 @@ export const resamplerBrushPreset: BrushPreset = {
   }
 };
 
+// Polygon with dither brush preset
+export const polygonDitherPreset: BrushPreset = {
+  id: 'polygon-dither',
+  name: 'Dither',
+  category: 'shapes',
+  components: defaultBrushComponents,
+  thumbnail: '',
+  tags: ['polygon', 'dither', 'shape'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    ...defaultBrushSettings,
+    brushShape: BrushShape.POLYGON,
+    polygonSides: 6,
+    polygonDitherResolution: 3,
+    ditherEnabled: true,
+    size: 50,
+    opacity: 100,
+    antialiasing: false
+  }
+};
+
 // Available brush presets
 export const brushPresets: BrushPreset[] = [
   pixelBrushPreset,
   defaultBrushPreset,
   roundPixel4Preset,
   roundSquare6Preset,
-  inkBrushPreset,
   colorCycleStrokeBrushPreset,
   colorCycleShapeBrushPreset,
   rectangleGradientBrushPreset,
   polygonGradientBrushPreset,
   contourPolygonBrushPreset,
   spamBrushPreset,
-  resamplerBrushPreset
+  resamplerBrushPreset,
+  polygonDitherPreset
 ];
 
 // Helper functions
@@ -822,12 +775,6 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
   } else if (preset.id === 'round-square-6') {
     settings.size = 6; // 6px default as per name
     settings.antialiasing = true;
-  } else if (preset.id === 'ink-brush') {
-    settings.size = 5; // 5px default for ink brush
-    settings.antialiasing = true;
-    settings.pressureEnabled = true;
-    settings.minPressure = 50;  // 50% size at min pressure
-    settings.maxPressure = 200; // 200% size at max pressure
   } else if (preset.id === 'resampler-brush') {
     settings.size = 20; // 20px default for resampler brush
     settings.antialiasing = true;

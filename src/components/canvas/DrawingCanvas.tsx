@@ -1487,7 +1487,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           width: tools.brushSettings.currentBrushTip.width || 32,
           height: tools.brushSettings.currentBrushTip.height || 32
         } : null}
-        visible={showBrushCursor && !pan.panState.isPanning && !isSpacePressedRef.current && cursorStyle !== 'crosshair'}
+        visible={showBrushCursor && !pan.panState.isPanning && !isSpacePressedRef.current && cursorStyle === 'none'}
       />
     </div>
   );

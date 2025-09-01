@@ -94,6 +94,7 @@ export enum BrushShape {
   PIXEL_ROUND = 'pixel_round',
   SQUARE = 'square',
   TRIANGLE = 'triangle',
+  POLYGON = 'polygon',
   CUSTOM = 'custom',
   RECTANGLE_GRADIENT = 'rectangle_gradient',
   POLYGON_GRADIENT = 'polygon_gradient',
@@ -301,9 +302,14 @@ export interface BrushSettings {
   // Gradient bands/steps for both strokes and fills
   gradientBands?: number; // 2-50 (number of color steps in gradients)
   
+  // Polygon settings
+  polygonSides?: number; // 3-12 (number of sides for polygon)
+  polygonDitherResolution?: number; // 1-32 (dither block size for polygon fill)
+  
   // Spam brush settings
   spamFont?: string; // Font ID for spam brush text
   spamContentType?: string; // Type of spam content to use
+  spamCustomText?: string; // Custom text to use instead of preset content
 }
 
 export interface ComponentParams {
