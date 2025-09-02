@@ -1841,6 +1841,7 @@ export const useBrushEngineSimplified = () => {
     const brush = initializeColorCycleBrush();
     
     if (brush && activeLayerId) {
+      console.log('[fillColorCycleShape] NOT calling startStroke - resetColorCycle() already called it');
       // DON'T call startStroke here - resetColorCycle() already called it
       // This was causing the double startStroke issue that accumulated shapes
       

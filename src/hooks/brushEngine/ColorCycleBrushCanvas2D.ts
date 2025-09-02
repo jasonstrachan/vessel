@@ -845,15 +845,16 @@ export class ColorCycleBrushCanvas2D {
           // Force a render update before drawing
           animator.forceRender();
           animator.drawTo(ctx);
+          try { const { debugLog } = require('../../utils/debug'); debugLog('cc-render', { event: 'renderDirectToCanvas', layerId: layerId?.substring(0, 20), stamps: strokeData.stampCounter, strokeCounter: strokeData.strokeCounter }); } catch {}
         } else {
           console.warn('Failed to get 2D context from target canvas');
         }
       } else {
-        // Clear the canvas if there's no content
-        const ctx = targetCanvas.getContext('2d');
-        if (ctx) {
-          ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-        }
+        // IMPORTANT: Do NOT clear the canvas here.
+        // When undo/redo restores pixel data directly to the layer canvas,
+        // calling renderDirectToCanvas without stroke content should leave
+        // the existing pixels intact.
+        try { const { debugLog } = require('../../utils/debug'); debugLog('cc-render', { event: 'render-skip-no-content', layerId: layerId?.substring(0, 20) }); } catch {}
       }
     } else {
       console.warn(`No animator found for layer: ${layerId}`);
@@ -945,10 +946,19 @@ export class ColorCycleBrushCanvas2D {
    * Toggle play/pause (API compatible)
    */
   togglePlayPause() {
-    if (this.isAnimating) {
-      this.pause();
-    } else {
+    // Correct toggle behavior:
+    // - If not animating at all, start
+    // - If animating but paused, resume
+    // - If animating and not paused, pause
+    if (!this.isAnimating) {
       this.startAnimation();
+      return;
+    }
+
+    if (this.isPaused) {
+      this.resume();
+    } else {
+      this.pause();
     }
   }
   
@@ -1048,7 +1058,8 @@ export class ColorCycleBrushCanvas2D {
    * Set pressure enabled state
    */
   setPressureEnabled(enabled: boolean) {
-    console.log(`[CC] setPressureEnabled called with: ${enabled}`);
+    // Debug (opt-in)
+    try { const { debugLog } = require('../../utils/debug'); debugLog('cc-settings', 'setPressureEnabled', enabled); } catch {}
     this.pressureEnabled = enabled;
   }
   
@@ -1057,7 +1068,7 @@ export class ColorCycleBrushCanvas2D {
    */
   setMinPressure(min: number) {
     this.minPressure = Math.max(1, Math.min(1000, min));
-    console.log(`[CC] setMinPressure: ${this.minPressure}%`);
+    try { const { debugLog } = require('../../utils/debug'); debugLog('cc-settings', 'setMinPressure', this.minPressure); } catch {}
   }
   
   /**
@@ -1069,7 +1080,7 @@ export class ColorCycleBrushCanvas2D {
     if (this.maxPressure < this.minPressure) {
       this.maxPressure = this.minPressure;
     }
-    console.log(`[CC] setMaxPressure: ${this.maxPressure}%`);
+    try { const { debugLog } = require('../../utils/debug'); debugLog('cc-settings', 'setMaxPressure', this.maxPressure); } catch {}
   }
   
   /**
@@ -1223,25 +1234,38 @@ export class ColorCycleBrushCanvas2D {
   restoreFullState(state: any) {
     console.log(`[ColorCycleBrush] restoreFullState called`, state);
     
-    // CRITICAL FIX: The issue is that undo is trying to restore ColorCycleBrush state
-    // But the canvas itself is being restored separately via canvasImageData in DrawingCanvas
-    // This creates a conflict where the brush state is cleared but canvas content is restored
-    
-    // For color cycle layers, the primary state is in the canvas itself (canvasImageData)
-    // The ColorCycleBrush should not clear its state during undo/redo
-    // Instead, it should just update its settings if needed
-    
-    console.log(`[ColorCycleBrush] Skipping full state restoration - canvas content restored separately`);
-    
-    // Only update basic settings without clearing layer content
+    // The canvas pixels are restored separately from history; treat them as source of truth.
+    // Update lightweight settings and clear internal stroke data for the affected layers
+    // so we don't overwrite restored pixels on the next animation/composite pass.
+
+    // Update basic settings only
     if (state.cycleSpeed !== undefined) this.cycleSpeed = state.cycleSpeed;
     if (state.fps !== undefined) this.fps = state.fps;
     if (state.brushSize !== undefined) this.brushSize = state.brushSize;
     
-    // Do NOT clear animators or layerStrokes - let the canvas restoration handle the visual content
-    // The undo system restores the canvas imageData separately, which is the source of truth
+    // Apply or clear stroke data for layers listed in the snapshot
+    if (state && state.layerSnapshots) {
+      // Accept Map(layerId -> ArrayBuffer) or Array<{layerId, paintBuffer}>
+      if (state.layerSnapshots instanceof Map) {
+        state.layerSnapshots.forEach((buffer: ArrayBuffer, layerId: string) => {
+          this.applyLayerSnapshot(layerId, {
+            paintBuffer: buffer,
+            hasContent: !!buffer && (buffer as ArrayBuffer).byteLength > 0,
+            strokeCounter: 0
+          });
+        });
+      } else if (Array.isArray(state.layerSnapshots)) {
+        state.layerSnapshots.forEach((ls: any) => {
+          this.applyLayerSnapshot(ls.layerId, {
+            paintBuffer: ls.paintBuffer,
+            hasContent: !!ls.hasContent || (!!ls.paintBuffer && ls.paintBuffer.byteLength > 0),
+            strokeCounter: ls.strokeCounter || 0
+          });
+        });
+      }
+    }
     
-    console.log(`[ColorCycleBrush] Settings updated, skipping layer data changes`);
+    console.log(`[ColorCycleBrush] Settings updated and stroke data cleared for restored layers`);
   }
   
   /**
@@ -1258,7 +1282,8 @@ export class ColorCycleBrushCanvas2D {
           data: animator.serialize(),
           strokeData: {
             hasContent: strokeData.hasContent,
-            strokeCounter: strokeData.strokeCounter
+            strokeCounter: strokeData.strokeCounter,
+            paintBuffer: strokeData.paintBuffer?.buffer ? strokeData.paintBuffer.buffer.slice(0) : new ArrayBuffer(0)
           }
         });
       }
@@ -1286,21 +1311,78 @@ export class ColorCycleBrushCanvas2D {
     // Restore layers
     if (data.layers) {
       data.layers.forEach((layer: any) => {
-        // Would need to implement ColorCycleAnimator deserialization
-        // For now, just track that the layer exists
-        instance.layerStrokes.set(layer.layerId, {
-          paintBuffer: new Uint8Array(instance.width * instance.height),
-          hasContent: layer.strokeData.hasContent,
-          strokeCounter: layer.strokeData.strokeCounter,
-          strokeLength: 0,
-          lastPoint: null,
-          gradientLayerIndices: [],
-          currentGradientIndex: 0,
-          stampCounter: 0
+        const buf: ArrayBuffer = layer?.strokeData?.paintBuffer || new ArrayBuffer(0);
+        instance.applyLayerSnapshot(layer.layerId, {
+          paintBuffer: buf,
+          hasContent: layer?.strokeData?.hasContent || (buf.byteLength > 0),
+          strokeCounter: layer?.strokeData?.strokeCounter || 0
         });
       });
     }
     
     return instance;
+  }
+
+  /**
+   * Export a snapshot of a layer's stroke data
+   */
+  getLayerSnapshot(layerId: string): { paintBuffer: ArrayBuffer; hasContent: boolean; strokeCounter: number } | null {
+    const strokeData = this.layerStrokes.get(layerId);
+    if (!strokeData) return null;
+    return {
+      paintBuffer: strokeData.paintBuffer?.buffer ? strokeData.paintBuffer.buffer.slice(0) : new ArrayBuffer(0),
+      hasContent: !!strokeData.hasContent,
+      strokeCounter: strokeData.strokeCounter || 0
+    };
+  }
+
+  /**
+   * Apply a snapshot to a layer's stroke data
+   */
+  applyLayerSnapshot(layerId: string, snapshot: { paintBuffer: ArrayBuffer; hasContent: boolean; strokeCounter: number }) {
+    // Ensure animator exists for this layer
+    const animator = this.getAnimator(layerId);
+    const buffer = snapshot.paintBuffer || new ArrayBuffer(0);
+    const existing = this.layerStrokes.get(layerId);
+    const expectedSize = this.width * this.height;
+    const incoming = new Uint8Array(buffer.byteLength ? buffer : new ArrayBuffer(expectedSize));
+    if (incoming.length !== expectedSize) {
+      // Resize animator if needed (deferred size)
+      animator.resize(this.width, this.height);
+    }
+    const strokeData = existing || {
+      paintBuffer: new Uint8Array(expectedSize),
+      hasContent: false,
+      strokeCounter: 0,
+      strokeLength: 0,
+      lastPoint: null,
+      gradientLayerIndices: [],
+      currentGradientIndex: 0,
+      stampCounter: 0
+    };
+    // Copy buffer (or clear if empty)
+    if (incoming.length === expectedSize) {
+      strokeData.paintBuffer.set(incoming);
+    } else {
+      strokeData.paintBuffer.fill(0);
+    }
+    strokeData.hasContent = !!snapshot.hasContent && incoming.some(v => v !== 0);
+    strokeData.strokeCounter = snapshot.strokeCounter || 0;
+    strokeData.strokeLength = 0;
+    strokeData.lastPoint = null;
+    strokeData.stampCounter = 0;
+    this.layerStrokes.set(layerId, strokeData);
+    // Mark layer dirty so next render updates
+    this.dirtyLayers.add(layerId);
+
+    // DEBUG (opt-in): Log snapshot application summary
+    try {
+      let nonZero = 0;
+      const sample = 512;
+      for (let i = 0; i < Math.min(sample, strokeData.paintBuffer.length); i++) {
+        if (strokeData.paintBuffer[i] !== 0) nonZero++;
+      }
+      try { const { debugLog } = require('../../utils/debug'); debugLog('cc-undo', { event: 'applyLayerSnapshot', layerId: layerId?.substring(0, 20), bufferBytes: buffer?.byteLength || 0, expectedSize, hasContent: strokeData.hasContent, nonZeroInFirst512: nonZero, strokeCounter: strokeData.strokeCounter }); } catch {}
+    } catch {}
   }
 }

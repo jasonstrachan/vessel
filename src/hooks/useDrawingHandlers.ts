@@ -764,7 +764,7 @@ export function useDrawingHandlers({
     }
   }, [processBatchedStrokes]);
   
-  const finalizeDrawing = useCallback(async () => {
+  const finalizeDrawing = useCallback(async (skipSave = false) => {
     if (isBusyRef?.current || !drawingCanvasRef.current || !drawingCanvasHasContent.current || !project) return;
     
     try {
@@ -792,8 +792,8 @@ export function useDrawingHandlers({
         brushEngine.finalizeStroke(drawingCtxRef.current);
       }
 
-      const currentState = useAppStore.getState();
-      const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+      let currentState = useAppStore.getState();
+      let activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
       const currentTool = currentState.tools.currentTool;
       const currentBrushId = currentState.currentBrushPreset?.id;
       
@@ -848,26 +848,52 @@ export function useDrawingHandlers({
           
           // Handle capture differently for CC layers vs regular layers
           const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
-          const isColorCycleBrush = activeSettings.brushShape === BrushShape.COLOR_CYCLE;
+          // Treat both stroke and shape variants as CC for saving
+          const isColorCycleBrush = activeSettings.brushShape === BrushShape.COLOR_CYCLE ||
+                                    activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+
+          // Ensure CC layer has a canvas before attempting to save
+          if (isColorCycleLayer && !activeLayer?.colorCycleData?.canvas && currentState.project) {
+            try {
+              useAppStore.getState().initColorCycleForLayer(activeLayer.id, currentState.project.width, currentState.project.height);
+              // Refresh state references after init
+              currentState = useAppStore.getState();
+              activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+              // Optional debug
+              try { const { debugLog } = require('../utils/debug'); debugLog('cc-finalize', { event: 'init-cc-canvas', layerId: activeLayer?.id?.substring(0, 20) }); } catch {}
+            } catch (e) {
+              console.warn('[Finalize] Failed to initialize CC layer before save:', e);
+            }
+          }
           
-          if (isColorCycleLayer && isColorCycleBrush && activeLayer.colorCycleData?.canvas) {
+          if (isColorCycleLayer && isColorCycleBrush && activeLayer?.colorCycleData?.canvas) {
             console.log('=== FINALIZE: Saving CC layer state ===');
             console.log('Shape mode?', tools.shapeMode);
             
             // For CC layers, capture directly from the layer's canvas
             await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
             
-            // Log canvas content before save
-            const ctx = activeLayer.colorCycleData.canvas.getContext('2d');
-            const imageData = ctx?.getImageData(0, 0, 100, 100);
-            console.log('Canvas sample before save:', imageData?.data.slice(0, 20));
-            
-            // Use appropriate description based on whether it's a shape or stroke
-            const description = tools.shapeMode ? 'CC Shape' : 'CC Drawing stroke';
-            console.log('Saving with description:', description);
-            
-            saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', description);
-            console.log('Save completed');
+            // Skip saving if requested (for CC shapes that already saved)
+            if (!skipSave) {
+              // Log canvas content before save
+              const ctx = activeLayer.colorCycleData.canvas.getContext('2d');
+              const imageData = ctx?.getImageData(0, 0, 100, 100);
+              console.log('Canvas sample before save:', imageData?.data.slice(0, 20));
+              
+              // Save the state
+              const description = tools.shapeMode ? 'CC Shape' : 'CC Drawing stroke';
+              console.log('Saving with description:', description);
+              saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', description);
+              console.log('Save completed');
+            } else {
+              console.log('[finalizeDrawing] Skipping save - requested by caller (skipSave=true)');
+            }
+          } else if (isColorCycleLayer) {
+            // On a color-cycle layer without a valid CC canvas, do not fall back to
+            // regular layer saving, as that would create a misleading 'Drawing stroke'
+            // history entry and break CC undo granularity. Skip saving in this edge case.
+            // Reduce noise: keep as debug unless explicitly enabled
+            try { const { debugLog } = require('../utils/debug'); debugLog('cc-finalize', { event: 'skip-regular-save-no-cc-canvas', layerId: activeLayer?.id?.substring(0, 20) }); } catch {}
           } else {
             // Regular layers: composite drawing onto layer
             const tempCanvas = document.createElement('canvas');
@@ -958,23 +984,29 @@ export function useDrawingHandlers({
     
     // If we're selecting direction, show preview line
     if (isSelectingDirectionRef.current && shapePointsRef.current.length >= 3) {
-      console.log('[CC Shape] Drawing direction preview to', worldPos);
+      console.log('[CC Shape] Mouse move during direction selection:', worldPos);
+      
+      // Make sure we have drawing context
+      if (!drawingCtxRef.current || !drawingCanvasRef.current) {
+        console.log('[CC Shape] Re-initializing canvas for direction preview');
+        initDrawingCanvas();
+      }
+      
       const drawCtx = drawingCtxRef.current;
       if (drawCtx && drawingCanvasRef.current) {
-        // Clear and redraw shape outline
+        console.log('[CC Shape] Drawing direction arrow preview');
+        // Clear and redraw shape with transparent fill
         drawCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
         
-        // Draw shape outline
-        drawCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-        drawCtx.lineWidth = 1;
-        drawCtx.setLineDash([5, 5]);
+        // Draw shape with transparent black fill (same as preview during drawing)
+        drawCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
         drawCtx.beginPath();
         drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
         for (let i = 1; i < shapePointsRef.current.length; i++) {
           drawCtx.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
         }
         drawCtx.closePath();
-        drawCtx.stroke();
+        drawCtx.fill();
         
         // Calculate shape center
         let centerX = 0, centerY = 0;
@@ -985,32 +1017,16 @@ export function useDrawingHandlers({
         centerX /= shapePointsRef.current.length;
         centerY /= shapePointsRef.current.length;
         
-        // Draw direction arrow from center to mouse
-        drawCtx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-        drawCtx.lineWidth = 2;
-        drawCtx.setLineDash([]);
+        // Draw direction line with difference blending mode
+        drawCtx.save();
+        drawCtx.globalCompositeOperation = 'difference';
+        drawCtx.strokeStyle = '#000000';  // Black line
+        drawCtx.lineWidth = 1;  // 1px width
         drawCtx.beginPath();
         drawCtx.moveTo(centerX, centerY);
         drawCtx.lineTo(worldPos.x, worldPos.y);
         drawCtx.stroke();
-        
-        // Draw arrowhead
-        const angle = Math.atan2(worldPos.y - centerY, worldPos.x - centerX);
-        const arrowLength = 15;
-        const arrowAngle = Math.PI / 6;
-        
-        drawCtx.beginPath();
-        drawCtx.moveTo(worldPos.x, worldPos.y);
-        drawCtx.lineTo(
-          worldPos.x - arrowLength * Math.cos(angle - arrowAngle),
-          worldPos.y - arrowLength * Math.sin(angle - arrowAngle)
-        );
-        drawCtx.moveTo(worldPos.x, worldPos.y);
-        drawCtx.lineTo(
-          worldPos.x - arrowLength * Math.cos(angle + arrowAngle),
-          worldPos.y - arrowLength * Math.sin(angle + arrowAngle)
-        );
-        drawCtx.stroke();
+        drawCtx.restore();
       }
       return;
     }
@@ -1085,8 +1101,8 @@ export function useDrawingHandlers({
             drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
             
             await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
-            // Save state for linear gradient shape
-            saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', 'CC Shape Linear');
+            // Save state for linear gradient shape (important -> immediate)
+            saveCanvasState(activeLayer.colorCycleData.canvas, 'fill', 'CC Shape Linear');
           }
           
           drawingCanvasHasContent.current = true;
@@ -1097,6 +1113,14 @@ export function useDrawingHandlers({
         directionPreviewRef.current = null;
         shapePointsRef.current = [];
         isDrawingShapeRef.current = false;
+        
+        // Restart color cycle animation if it was playing before direction selection
+        // Import the function to check animation state
+        const BrushControls = await import('../components/toolbar/BrushControls');
+        if (BrushControls.getColorCycleAnimationState && BrushControls.getColorCycleAnimationState()) {
+          console.log('[CC Shape] Restarting animation after direction selection');
+          startContinuousColorCycleAnimation();
+        }
         
         if (isBusyRef) isBusyRef.current = false;
         return;
@@ -1331,14 +1355,6 @@ export function useDrawingHandlers({
           
           // For color cycle layer, we need to fill the shape and render it
           if (isColorCycleLayer && drawCtx) {
-            // IMPORTANT: Save state BEFORE drawing the new shape
-            // This creates a checkpoint that undo can return to
-            const activeLayerId = activeLayer?.id;
-            if (activeLayerId && activeLayer.colorCycleData?.canvas) {
-              // Save the current state before adding the new shape
-              saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', 'CC Shape (before)');
-            }
-            
             // Don't stop the animation - let it continue if it's playing
             // We'll just add the shape to the color cycle layers
             
@@ -1350,68 +1366,110 @@ export function useDrawingHandlers({
             if (shapePointsRef.current.length >= 3) {
               const fillMode = tools.brushSettings.colorCycleFillMode || 'concentric';
               console.log('[CC Shape] Fill mode:', fillMode, 'from settings:', tools.brushSettings.colorCycleFillMode);
+              console.log('[CC Shape] isSelectingDirectionRef before check:', isSelectingDirectionRef.current);
+              console.log('[CC Shape] isDrawingShapeRef before check:', isDrawingShapeRef.current);
               
               if (fillMode === 'linear') {
                 // For linear mode, enter direction selection phase
                 console.log('[CC Shape] Entering linear direction selection mode');
+                console.log('[CC Shape] Shape has', shapePointsRef.current.length, 'points');
                 isSelectingDirectionRef.current = true;
                 isDrawingShapeRef.current = false;
                 
-                // Keep the shape points for when direction is selected
-                // Draw a preview of the shape with dashed outline
-                drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
-                drawCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-                drawCtx.lineWidth = 1;
-                drawCtx.setLineDash([5, 5]);
-                drawCtx.beginPath();
-                drawCtx.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
-                for (let i = 1; i < shapePointsRef.current.length; i++) {
-                  drawCtx.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
+                // Stop any color cycle animation during direction selection to prevent flickering
+                if (colorCycleAnimationRef.current) {
+                  cancelAnimationFrame(colorCycleAnimationRef.current);
+                  colorCycleAnimationRef.current = null;
                 }
-                drawCtx.closePath();
-                drawCtx.stroke();
-                drawCtx.setLineDash([]); // Reset dash
+                if (continuousColorCycleAnimationRef.current) {
+                  stopContinuousColorCycleAnimation();
+                }
                 
-                drawingCanvasHasContent.current = true;
+                // Keep the shape points for when direction is selected
+                // Make sure drawing canvas is initialized
+                if (!drawingCanvasRef.current || !drawingCtxRef.current) {
+                  console.log('[CC Shape] Initializing drawing canvas for direction selection');
+                  initDrawingCanvas();
+                }
+                
+                // Draw a preview of the shape with dashed outline
+                if (drawingCtxRef.current && drawingCanvasRef.current) {
+                  drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+                  drawingCtxRef.current.save();
+                  drawingCtxRef.current.globalCompositeOperation = 'difference';
+                  drawingCtxRef.current.strokeStyle = '#000000';  // Black with difference mode
+                  drawingCtxRef.current.lineWidth = 2;
+                  drawingCtxRef.current.beginPath();
+                  drawingCtxRef.current.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
+                  for (let i = 1; i < shapePointsRef.current.length; i++) {
+                    drawingCtxRef.current.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
+                  }
+                  drawingCtxRef.current.closePath();
+                  drawingCtxRef.current.stroke();
+                  drawingCtxRef.current.restore();
+                  
+                  drawingCanvasHasContent.current = true;
+                  console.log('[CC Shape] Drew shape outline for direction selection');
+                } else {
+                  console.error('[CC Shape] Failed to get drawing context for preview');
+                }
                 
                 // Exit early - don't finalize yet, wait for direction click
                 if (isBusyRef) isBusyRef.current = false;
-                console.log('[CC Shape] Waiting for direction selection click');
+                console.log('[CC Shape] Ready for direction selection - move mouse to preview, click to set');
+                console.log('[CC Shape] isSelectingDirectionRef after setting:', isSelectingDirectionRef.current);
+                console.log('[CC Shape] About to return from finalizeShapeDrawing for linear mode');
                 return;
               } else {
                 // Concentric fill (default)
                 brushEngine.fillColorCycleShape(shapePointsRef.current);
+                
+                // CRITICAL FIX: Ensure the CC layer's canvas is updated with the shape
+                // This should ONLY happen for concentric mode, not linear (which needs direction first)
+                if (activeLayerId && activeLayer.colorCycleData?.canvas) {
+                  // Force immediate texture update and render to the layer's canvas
+                  brushEngine.updateColorCycleTexture(activeLayerId);
+                  
+                  // Get the color cycle brush and render directly to the layer's canvas
+                  const colorCycleBrushManager = getColorCycleBrushManager();
+                  const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayerId);
+                  if (colorCycleBrush) {
+                    // Render directly to the layer's canvas to ensure it's updated
+                    colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayerId);
+                  }
+                  
+                  // Now render from the layer's canvas to the drawing canvas for display
+                  drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
+                  drawCtx.globalAlpha = 1.0; // Full opacity for finalization
+                  drawCtx.globalCompositeOperation = 'source-over';
+                  drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
+                  
+                  // IMPORTANT: Save state AFTER the shape is rendered
+                  // This ensures each shape gets its own undo entry
+                  await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
+                  // Mark as important to avoid debounce coalescing multiple shapes
+                  saveCanvasState(activeLayer.colorCycleData.canvas, 'fill', 'CC Shape');
+                }
+                
+                drawingCanvasHasContent.current = true;
               }
             }
-            
-            // CRITICAL FIX: Ensure the CC layer's canvas is updated with the shape
-            if (activeLayerId && activeLayer.colorCycleData?.canvas) {
-              // Force immediate texture update and render to the layer's canvas
-              brushEngine.updateColorCycleTexture(activeLayerId);
-              
-              // Get the color cycle brush and render directly to the layer's canvas
-              const colorCycleBrushManager = getColorCycleBrushManager();
-              const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayerId);
-              if (colorCycleBrush) {
-                // Render directly to the layer's canvas to ensure it's updated
-                colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayerId);
-              }
-              
-              // Now render from the layer's canvas to the drawing canvas for display
-              drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
-              drawCtx.globalAlpha = 1.0; // Full opacity for finalization
-              drawCtx.globalCompositeOperation = 'source-over';
-              drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
-            }
-            
-            drawingCanvasHasContent.current = true;
           }
           
           drawingCanvasHasContent.current = true;
         }
         
-        shapePointsRef.current = [];
-        isDrawingShapeRef.current = false;
+        // Only clear shape points if we're NOT in direction selection mode
+        // Linear mode needs to keep the points for when direction is selected
+        console.log('[CC Shape] Before clearing - isSelectingDirectionRef:', isSelectingDirectionRef.current);
+        console.log('[CC Shape] Before clearing - shapePointsRef length:', shapePointsRef.current.length);
+        if (!isSelectingDirectionRef.current) {
+          console.log('[CC Shape] Clearing shape points (not in direction selection)');
+          shapePointsRef.current = [];
+          isDrawingShapeRef.current = false;
+        } else {
+          console.log('[CC Shape] Keeping shape points for direction selection');
+        }
         
         // FIXED: For CC shapes on CC layers, handle finalization directly without calling finalizeDrawing
         // which would clear the drawing canvas and make the shape disappear
@@ -1420,16 +1478,8 @@ export function useDrawingHandlers({
         const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
         
         if (isColorCycleLayer && drawingCanvasHasContent.current) {
-          // For CC layers, capture from the layer's canvas instead of drawing canvas
-          if (activeLayer?.colorCycleData?.canvas) {
-            await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
-            // DON'T save here - we already saved BEFORE drawing the shape
-            // This prevents duplicate undo entries
-          } else if (activeLayer && drawingCanvasRef.current) {
-            // Fallback to drawing canvas if layer canvas not available
-            await captureCanvasToActiveLayer(drawingCanvasRef.current);
-            // DON'T save here - we already saved BEFORE drawing the shape
-          }
+          // For CC layers, the save already happened after drawing the shape
+          // No need to save again here
           
           if (isBusyRef) isBusyRef.current = false;
           return;
@@ -1469,11 +1519,12 @@ export function useDrawingHandlers({
         const colorCycleBrush = colorCycleBrushManager.getBrush(layer.id);
         if (!colorCycleBrush) return;
         
-        // Update animation for this layer's brush
-        colorCycleBrush.updateAnimation();
-        
-        // Render directly to this layer's canvas
-        colorCycleBrush.renderDirectToCanvas(layer.colorCycleData.canvas, layer.id);
+        // Only advance and render if this layer is actively animating
+        const shouldAnimate = !!layer.colorCycleData.isAnimating && colorCycleBrush.isPlaying && colorCycleBrush.isPlaying();
+        if (shouldAnimate) {
+          colorCycleBrush.updateAnimation();
+          colorCycleBrush.renderDirectToCanvas(layer.colorCycleData.canvas, layer.id);
+        }
         
         // Composite this layer onto the target canvas
         if (layer.id === currentState.activeLayerId || !onlyActiveLayer) {
@@ -1518,6 +1569,23 @@ export function useDrawingHandlers({
     
     // Ensure color cycle brush exists and is not in drawing mode
     brushEngine.ensureColorCycleBrush();
+
+    // Mark the active color-cycle layer as animating in store so composition/overlays respect it
+    try {
+      const state = useAppStore.getState();
+      const layer = state.layers.find(l => l.id === state.activeLayerId);
+      if (layer && layer.layerType === 'color-cycle' && state.activeLayerId) {
+        state.updateLayer(state.activeLayerId, {
+          colorCycleData: {
+            ...layer.colorCycleData,
+            isAnimating: true
+          }
+        } as any);
+      }
+    } catch (e) {
+      // Non-fatal; animation can still proceed visually
+      console.warn('[ColorCycle] Failed to mark layer animating:', e);
+    }
     
     // IMPORTANT: Do an initial render to show existing content
     // This ensures color cycle shapes are visible when switching back
@@ -1614,6 +1682,22 @@ export function useDrawingHandlers({
       brushEngine.toggleColorCycleAnimation();
     }
     
+    // Update store flag so composition/overlays stop advancing frames
+    try {
+      const state = useAppStore.getState();
+      const layer = state.layers.find(l => l.id === state.activeLayerId);
+      if (layer && layer.layerType === 'color-cycle' && state.activeLayerId) {
+        state.updateLayer(state.activeLayerId, {
+          colorCycleData: {
+            ...layer.colorCycleData,
+            isAnimating: false
+          }
+        } as any);
+      }
+    } catch (e) {
+      console.warn('[ColorCycle] Failed to clear layer animating flag:', e);
+    }
+
     // DON'T clear the drawing canvas when animation stops - this was causing content loss
     // The canvas should retain the color cycle content so it can be composited
     // Only clear when starting a new stroke or when explicitly needed
@@ -1639,6 +1723,7 @@ export function useDrawingHandlers({
     finalizeShapeDrawing,
     shapePointsRef,
     isDrawingShapeRef,
+    isSelectingDirectionRef,  // Export this so DrawingCanvas knows we're in direction selection mode
     startContinuousColorCycleAnimation,
     stopContinuousColorCycleAnimation,
     setFeedbackCallback

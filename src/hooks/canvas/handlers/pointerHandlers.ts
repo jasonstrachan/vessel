@@ -227,6 +227,19 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         return;
       }
       
+      // Handle direction selection click for linear gradient fill
+      if (drawingHandlers.isSelectingDirectionRef?.current) {
+        console.log('[PointerDown] Direction selection click detected at', worldPos);
+        console.log('[PointerDown] Passing position to startShapeDrawing...');
+        // Pass the click position to finalize the direction
+        drawingHandlers.startShapeDrawing(worldPos, pressure);
+        console.log('[PointerDown] Calling finalizeShapeDrawing to complete with direction...');
+        // Now finalize with the direction set
+        drawingHandlers.finalizeShapeDrawing();
+        console.log('[PointerDown] Direction selection complete');
+        return;
+      }
+      
       // Clear selection when clicking outside of selected area (for any other tool)
       if (selectionStart && selectionEnd) {
         const minX = Math.min(selectionStart.x, selectionEnd.x);
@@ -291,8 +304,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
               // Mark composite as dirty BEFORE finalization
               compositeCanvasDirtyRef.current = true;
               
-              // Finalize the drawing
-              drawingHandlers.finalizeDrawing().then(() => {
+              // Finalize the drawing (rectangles are not CC shapes, so don't skip save)
+              drawingHandlers.finalizeDrawing(false).then(() => {
                 // Signal that finalization is complete
                 stateMachine.finalizationComplete();
                 
@@ -468,6 +481,20 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       if (interaction.refs.selectionStart.current) {
         setSelectionBounds(interaction.refs.selectionStart.current, worldPos);
       }
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        deps.draw(ctx, deps.viewTransformRef.current);
+      }
+      return;
+    }
+    
+    // Handle direction selection for linear gradient fill (after shape completion)
+    if (drawingHandlers.isSelectingDirectionRef?.current && !interaction.state.isDrawing) {
+      // Continue shape drawing to show direction arrow preview
+      drawingHandlers.continueShapeDrawing(worldPos);
+      
+      // Trigger redraw to show the preview
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext('2d', { willReadFrequently: true });
       if (ctx) {
@@ -750,10 +777,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
                     overlayCtx.lineWidth = 2 / deps.viewTransformRef.current.scale;
                     overlayCtx.globalAlpha = 0.8;
                   } else if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
-                    // For COLOR_CYCLE_SHAPE, show a simple colored outline
-                    overlayCtx.strokeStyle = '#ff00ff'; // Magenta outline for color cycle shape
-                    overlayCtx.lineWidth = 2 / deps.viewTransformRef.current.scale;
-                    overlayCtx.globalAlpha = 0.8;
+                    // For COLOR_CYCLE_SHAPE, show transparent black fill
+                    overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.3)'; // Transparent black fill
+                    overlayCtx.globalAlpha = 1.0;
                   } else if (tools.shapeMode && !toolStateMachine.isPolygonGradient) {
                     // For regular brushes in shape mode, show filled preview with current color
                     overlayCtx.fillStyle = tools.brushSettings.color;
@@ -805,10 +831,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
                   }
                   overlayCtx.closePath();
                   
-                  if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE || toolStateMachine.isContourPolygon) {
-                    overlayCtx.stroke(); // Just outline for color cycle shape and contour
+                  if (toolStateMachine.isContourPolygon) {
+                    overlayCtx.stroke(); // Just outline for contour
                   } else {
-                    overlayCtx.fill(); // Fill for regular polygon gradient and shape mode
+                    overlayCtx.fill(); // Fill for color cycle shape, regular polygon gradient and shape mode
                   }
                 }
                 
@@ -974,12 +1000,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
             if (drawCtx && brushEngine) {
               // Handle different polygon types
               if (toolStateMachine.isColorCycleShape) {
-                // CRITICAL: Save state BEFORE drawing the new shape for individual undo
+                // Do NOT save before drawing. We save AFTER rendering the shape
+                // in useDrawingHandlers.finalizeShapeDrawing to ensure correct undo granularity.
+                // This avoids removing multiple shapes on a single undo.
                 const activeLayer = layers.find(l => l.id === activeLayerId);
-                if (activeLayer?.colorCycleData?.canvas) {
-                  console.log('🎨 Saving CC state before polygon shape');
-                  saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', 'CC Shape');
-                }
                 
                 // Use color cycle fill for COLOR_CYCLE_SHAPE
                 // Pass false to keep existing shapes (accumulate)
@@ -990,19 +1014,49 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
                 console.log('[Polygon CC Shape] Fill mode:', fillMode);
                 
                 if (fillMode === 'linear') {
-                  // For linear mode, use a default direction (left to right)
-                  // TODO: Add direction selection UI for polygon shapes
-                  const direction = { x: 1, y: 0 };
-                  brushEngine.fillColorCycleShapeLinear(currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y })), direction);
+                  // For linear mode, we need to enter direction selection mode
+                  console.log('[Polygon CC Shape] Linear mode - entering direction selection');
+                  // Store the polygon points in drawing handlers for direction selection
+                  drawingHandlers.shapePointsRef.current = currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y }));
+                  
+                  // Mark that we're selecting direction
+                  drawingHandlers.isSelectingDirectionRef.current = true;
+                  console.log('[Polygon CC Shape] Set isSelectingDirectionRef to true');
+                  
+                  // Stop any color cycle animation to prevent flickering during direction selection
+                  drawingHandlers.stopContinuousColorCycleAnimation?.();
+                  
+                  // Clear and draw preview outline on drawing canvas
+                  drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+                  drawCtx.save();
+                  drawCtx.globalCompositeOperation = 'difference';
+                  drawCtx.strokeStyle = '#000000';  // Black with difference mode
+                  drawCtx.lineWidth = 2;
+                  drawCtx.beginPath();
+                  const points = currentPolygonState.points;
+                  drawCtx.moveTo(points[0].x, points[0].y);
+                  for (let i = 1; i < points.length; i++) {
+                    drawCtx.lineTo(points[i].x, points[i].y);
+                  }
+                  drawCtx.closePath();
+                  drawCtx.stroke();
+                  drawCtx.restore();
+                  
+                  // Don't render color cycle yet - wait for direction
+                  console.log('[Polygon CC Shape] Ready for direction selection - move mouse and click');
+                  // Skip the normal finalization - we'll finalize after direction is selected
+                  drawingHandlers.drawingCanvasHasContent.current = true;
+                  toolStateMachine.resetPolygonGradient();
+                  interaction.dispatch({ type: 'DRAWING_END' });
+                  return; // Early return to prevent finalization
                 } else {
+                  // Concentric fill - immediate
                   brushEngine.fillColorCycleShape(currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y })));
+                  // Clear the drawing canvas before rendering
+                  drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+                  // Render the color cycle immediately
+                  brushEngine.renderColorCycle(drawCtx, false);
                 }
-                
-                // Clear the drawing canvas before rendering
-                drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
-                
-                // Render the color cycle immediately
-                brushEngine.renderColorCycle(drawCtx, false);
               } else if (toolStateMachine.isContourPolygon) {
                 // Draw contour polygon
                 brushEngine.drawContourPolygon(
@@ -1030,21 +1084,28 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           
           // Mark composite as dirty BEFORE finalization
           compositeCanvasDirtyRef.current = true;
-          // Finalize the drawing
-          drawingHandlers.finalizeDrawing().then(() => {
+          // Seed shape refs so finalizeShapeDrawing can operate with the same points
+          if (toolStateMachine.isColorCycleShape) {
+            drawingHandlers.shapePointsRef.current = currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y }));
+            drawingHandlers.isDrawingShapeRef.current = true;
+          }
+
+          // Finalize via shape path to ensure CC shapes render to the layer canvas
+          // and are saved once with correct state for undo/redo.
+          drawingHandlers.finalizeShapeDrawing().then(() => {
             // Signal that finalization is complete
             stateMachine.finalizationComplete();
-            
+
             // Force immediate composite regeneration after layer update
             if (compositeCanvasRef.current && project) {
               compositeLayersToCanvas(compositeCanvasRef.current);
               setCurrentOffscreenCanvas(compositeCanvasRef.current);
               compositeCanvasDirtyRef.current = false;
             }
-            
+
             // Trigger redraw after finalization
             setNeedsRedraw(prev => prev + 1);
-            
+
             // Restart color cycle animation if needed
             if (deps.restartColorCycleAnimation) {
               deps.restartColorCycleAnimation();
@@ -1063,25 +1124,49 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       compositeCanvasDirtyRef.current = true;
       
       if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
-        drawingHandlers.finalizeShapeDrawing();
-        // Signal that finalization is complete
-        stateMachine.finalizationComplete();
+        // Check if we need to enter direction selection mode for linear gradient
+        const isColorCycleShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+        const isLinearFill = tools.brushSettings.colorCycleFillMode === 'linear';
         
-        // Force immediate composite regeneration after layer update
-        if (compositeCanvasRef.current && project) {
-          compositeLayersToCanvas(compositeCanvasRef.current);
-          setCurrentOffscreenCanvas(compositeCanvasRef.current);
-          compositeCanvasDirtyRef.current = false;
+        if (isColorCycleShape && isLinearFill && !drawingHandlers.isSelectingDirectionRef?.current) {
+          // Don't finalize yet - enter direction selection mode
+          console.log('[Pointer] Should enter direction selection mode for linear gradient');
+          // Call finalizeShapeDrawing which will set up direction selection mode
+          drawingHandlers.finalizeShapeDrawing();
+          // CRITICAL FIX: Check if we actually entered direction selection mode AFTER the call
+          if (drawingHandlers.isSelectingDirectionRef?.current) {
+            console.log('[Pointer] Successfully entered direction selection mode');
+            // Don't complete finalization yet - we're still in direction selection
+            return;
+          }
+          console.log('[Pointer] Failed to enter direction selection mode, continuing with normal finalization');
         }
         
-        setNeedsRedraw(prev => prev + 1);
-        
-        // Restart color cycle animation if needed
-        if (deps.restartColorCycleAnimation) {
-          deps.restartColorCycleAnimation();
+        // Only proceed with finalization if NOT in direction selection mode
+        if (!drawingHandlers.isSelectingDirectionRef?.current) {
+          drawingHandlers.finalizeShapeDrawing();
+          // Signal that finalization is complete
+          stateMachine.finalizationComplete();
+          
+          // Force immediate composite regeneration after layer update
+          if (compositeCanvasRef.current && project) {
+            compositeLayersToCanvas(compositeCanvasRef.current);
+            setCurrentOffscreenCanvas(compositeCanvasRef.current);
+            compositeCanvasDirtyRef.current = false;
+          }
+          
+          setNeedsRedraw(prev => prev + 1);
+          
+          // Restart color cycle animation if needed
+          if (deps.restartColorCycleAnimation) {
+            deps.restartColorCycleAnimation();
+          }
+        } else {
+          console.log('[PointerUp] In direction selection mode - skipping finalization');
         }
       } else {
-        drawingHandlers.finalizeDrawing().then(() => {
+        // For regular drawing (non-shape mode), never skip save
+        drawingHandlers.finalizeDrawing(false).then(() => {
           // Signal that finalization is complete
           stateMachine.finalizationComplete();
           

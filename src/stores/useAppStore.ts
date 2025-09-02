@@ -118,6 +118,7 @@ import {
 // import { memoryManager } from '../utils/memoryCleanup';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 import { adjustHueAndSaturation } from '../utils/imageProcessing';
+import { debugLog } from '../utils/debug';
 
 // Helper function to get serializable brush settings for persistence
 const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSettings> => {
@@ -2473,29 +2474,49 @@ export const useAppStore = create<AppState>()(
           const activeLayer = (state.layers || []).find(l => l.id === state.activeLayerId);
           
           if (activeLayer?.colorCycleData?.colorCycleBrush) {
-            const brush = activeLayer.colorCycleData.colorCycleBrush;
-            const fullState = brush.getFullState();
+            const brush = activeLayer.colorCycleData.colorCycleBrush as any;
+            const fullState = brush.serialize ? brush.serialize() : (brush.getFullState ? brush.getFullState() : null);
             
-            colorCycleState = {
-              layerId: activeLayer.id,
-              strokeData: new ArrayBuffer(0), // Not used, using layerStrokes instead
-              gradients: [], // Canvas2D version doesn't have gradients in the same format
-              animationState: { // Provide default animation state
-                cycleOffset: 0,
-                speed: 1,
-                fps: 30,
-                isPaused: false
-              },
-              layerStrokes: (fullState.layers || []).map((layer: any) => ({
-                layerId: layer.layerId,
-                paintBuffer: new ArrayBuffer(0), // Canvas2D version doesn't expose buffer directly
-                hasContent: layer.strokeData?.hasContent || false,
-                strokeCounter: layer.strokeData?.strokeCounter || 0,
-                strokeLength: 0,
-                gradientLayerIndices: [],
-                currentGradientIndex: 0
-              }))
-            };
+            if (fullState) {
+              colorCycleState = {
+                layerId: activeLayer.id,
+                strokeData: new ArrayBuffer(0),
+                gradients: [],
+                animationState: {
+                  cycleOffset: 0,
+                  speed: 1,
+                  fps: 30,
+                  isPaused: false
+                },
+                layerStrokes: (fullState.layers || []).map((layer: any) => ({
+                  layerId: layer.layerId,
+                  paintBuffer: layer.strokeData?.paintBuffer ? layer.strokeData.paintBuffer.slice(0) : new ArrayBuffer(0),
+                  hasContent: !!layer.strokeData?.hasContent,
+                  strokeCounter: layer.strokeData?.strokeCounter || 0,
+                  strokeLength: 0,
+                  gradientLayerIndices: [],
+                  currentGradientIndex: 0
+                }))
+              };
+
+              // DEBUG: Log CC snapshot details
+              try {
+                const ls = colorCycleState.layerStrokes || [];
+                debugLog('cc-history', {
+                  phase: 'save',
+                  activeLayerId: activeLayer.id?.substring(0, 20),
+                  layersCount: (state.layers || []).length,
+                  ccLayers: (state.layers || []).filter(l => l.layerType === 'color-cycle').length,
+                  strokesSaved: ls.length,
+                  details: ls.map((s: any) => ({
+                    id: s.layerId?.substring(0, 20),
+                    hasContent: s.hasContent,
+                    paintBufferBytes: s.paintBuffer?.byteLength || 0,
+                    strokeCounter: s.strokeCounter
+                  }))
+                });
+              } catch {}
+            }
           }
           
           const snapshot: CanvasSnapshot = {
@@ -2886,22 +2907,25 @@ export const useAppStore = create<AppState>()(
           
           // Phase 3: Handle color cycle layers directly
           if (layer.layerType === 'color-cycle' && layer.colorCycleData?.canvas) {
-            // Update animation for this layer if it exists
+            // Only render brush output into the layer canvas when animating.
+            // Otherwise, respect the existing pixels (e.g., after undo/redo restore).
             const colorCycleBrushManager = getColorCycleBrushManager();
-            if (colorCycleBrushManager) {
+            const isAnimating = !!layer.colorCycleData.isAnimating;
+            if (colorCycleBrushManager && isAnimating) {
               const colorCycleBrush = colorCycleBrushManager.getBrush(layer.id);
-              if (colorCycleBrush) {
-                // Update animation frame for this layer
+              const playing = colorCycleBrush && colorCycleBrush.isPlaying && colorCycleBrush.isPlaying();
+              if (playing) {
+                // Advance animation and render into the layer's canvas
                 colorCycleBrush.updateAnimation();
-                // Render directly to layer's canvas
                 colorCycleBrush.renderDirectToCanvas(layer.colorCycleData.canvas, layer.id);
               }
+              try { const { debugLog } = require('../utils/debug'); debugLog('cc-render', { event: 'composite', layerId: layer.id.substring(0, 20), isAnimating, isPlaying: !!playing }); } catch {}
             }
-            
+
             // Set composite operation and opacity
             ctx.globalCompositeOperation = layer.blendMode;
             ctx.globalAlpha = layer.opacity;
-            
+
             // Draw the color cycle canvas directly
             ctx.drawImage(layer.colorCycleData.canvas, 0, 0);
             continue;
