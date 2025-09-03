@@ -486,9 +486,35 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       }
     };
     
+    const handleColorCycleFrameUpdate = (event: CustomEvent) => {
+      console.log('[DrawingCanvas] Color cycle frame update received:', event.detail);
+      
+      // Mark composite canvas as dirty
+      compositeCanvasDirtyRef.current = true;
+      
+      // Regenerate composite canvas to include updated layer imageData
+      if (compositeCanvasRef.current && project && compositeLayersToCanvas) {
+        compositeLayersToCanvas(compositeCanvasRef.current);
+      }
+      
+      // Trigger a redraw to show the updated animation frame
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+      if (ctx && drawRef.current && viewTransformRef.current) {
+        drawRef.current(ctx, viewTransformRef.current);
+      }
+      
+      console.log('[DrawingCanvas] Animation frame redraw completed');
+    };
+    
     window.addEventListener('colorCycleFrameReady', handleColorCycleFrame);
-    return () => window.removeEventListener('colorCycleFrameReady', handleColorCycleFrame);
-  }, []);
+    window.addEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate as EventListener);
+    
+    return () => {
+      window.removeEventListener('colorCycleFrameReady', handleColorCycleFrame);
+      window.removeEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate as EventListener);
+    };
+  }, [project, compositeLayersToCanvas]);
   
   // Handle blur to reset space key state when losing focus
   const handleBlur = useCallback((e: React.FocusEvent) => {

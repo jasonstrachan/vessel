@@ -1385,4 +1385,52 @@ export class ColorCycleBrushCanvas2D {
       try { const { debugLog } = require('../../utils/debug'); debugLog('cc-undo', { event: 'applyLayerSnapshot', layerId: layerId?.substring(0, 20), bufferBytes: buffer?.byteLength || 0, expectedSize, hasContent: strokeData.hasContent, nonZeroInFirst512: nonZero, strokeCounter: strokeData.strokeCounter }); } catch {}
     } catch {}
   }
+
+  /**
+   * Update gradient (async version for compatibility with tests)
+   */
+  async updateGradient(gradient: Array<{ position: number; color: string }>): Promise<void> {
+    this.setGradient(gradient);
+  }
+
+  /**
+   * Start cycling animation
+   */
+  startCycling(): void {
+    this.resumeAnimation();
+  }
+
+  /**
+   * Stop cycling animation
+   */
+  stopCycling(): void {
+    this.pauseAnimation();
+  }
+
+  /**
+   * Dispose resources and cleanup
+   */
+  dispose(): void {
+    // Stop all animations
+    this.pauseAnimation();
+    
+    // Clear all animators
+    for (const [layerId, animator] of this.animators) {
+      try {
+        animator.dispose();
+      } catch (error) {
+        console.warn(`Error disposing animator for layer ${layerId}:`, error);
+      }
+    }
+    this.animators.clear();
+    
+    // Clear callbacks
+    this.animatorCallbacks.clear();
+    
+    // Clear stroke data
+    this.layerStrokes.clear();
+    this.dirtyLayers.clear();
+    
+    console.log('ColorCycleBrushCanvas2D disposed');
+  }
 }

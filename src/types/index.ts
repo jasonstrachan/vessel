@@ -37,11 +37,46 @@ export interface Layer {
   
   // Color cycle specific data (only present for CC layers)
   colorCycleData?: {
+    // Mode selection: brush-based cycling vs recolor layer animation
+    mode?: 'brush' | 'recolor';
+    
+    // Brush mode data (existing functionality)
     gradient?: Array<{ position: number; color: string }>;
     colorCycleBrush?: import('../hooks/brushEngine/ColorCycleBrushCanvas2D').ColorCycleBrushCanvas2D;
     isAnimating?: boolean;
-    // Store the canvas element for this CC layer
     canvas?: HTMLCanvasElement;
+    
+    // Recolor mode data (new functionality)
+    recolorSettings?: {
+      // Quantization settings
+      quantizationMode: 'rgb332' | 'oklab-median-cut';
+      ditherMode: 'off' | 'bayer4' | 'bayer8';
+      
+      // Index buffer and palette (core performance data)
+      indexBuffer?: Uint8Array;
+      palette?: Uint32Array; // 256 RGBA colors as packed 32-bit values
+      colorMap?: Map<number, number>; // RGB color key to palette index mapping
+      
+      // Animation settings
+      animation: {
+        speed: number; // 0.1 - 2.0x
+        fps: number; // 15, 30, or 60
+        ticksPerFrame: number; // Calculated from speed
+        isPlaying: boolean;
+        currentTick: number;
+        flowDirection: 'forward' | 'reverse' | 'pingpong' | 'bounce';
+      };
+      
+      // Gradient configuration (for the cycling effect)
+      cycleColors: number; // 8-256, default 16 (visible color bands)
+      gradient: Array<{ position: number; color: string }>;
+      
+      // Performance optimization levels
+      currentLOD: 'full' | 'half' | 'quarter';
+      
+      // Original image data (preserved for undo/reprocessing)
+      originalImageData?: ImageData;
+    };
   };
   
   // Version tracking for detecting content changes
