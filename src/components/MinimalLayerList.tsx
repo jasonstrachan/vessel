@@ -6,6 +6,7 @@ import { Layer, BrushShape } from '../types';
 import { Eye, EyeOff, Plus } from 'lucide-react';
 import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
 import { getColorCycleAnimationState, setColorCycleAnimationState } from './toolbar/BrushControls';
+// Removed floating color cycle panel integration; panel now lives in Brush Settings
 
 // Component to display color swatches for a layer
 const LayerColorSwatches = memo<{ 
@@ -447,15 +448,13 @@ const MinimalLayerList = () => {
         </div>
       </div>
       
-      {/* Play/Pause Button - Always visible */}
+      {/* Bottom Controls: Play/Pause for Color Cycle animation only */}
       <div className="border-t border-[#424242] p-2">
         <button
           onClick={() => {
             const newIsAnimating = !isAnimating;
             setIsAnimating(newIsAnimating);
             setColorCycleAnimationState(newIsAnimating);
-            
-            // Get the handlers from BrushControls if available
             const handlers = (window as any).colorCycleAnimationHandlers;
             if (handlers) {
               if (newIsAnimating) {

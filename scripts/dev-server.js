@@ -31,17 +31,27 @@ async function killPortProcess(port) {
     
     // More aggressive port killing for Linux/WSL
     try {
-      // First try with ss (more reliable on Linux)
-      const ssOutput = execSync(`ss -tulpn | grep :${port} | grep -oP 'pid=\\K[0-9]+' | head -1`, { encoding: 'utf8' }).trim();
-      if (ssOutput) {
-        console.log(`⚠️  Found process ${ssOutput} on port ${port}, terminating...`);
+      if (process.platform === 'linux') {
+        // Only attempt ss if available; avoid grep -P for portability
         try {
-          process.kill(parseInt(ssOutput), 'SIGKILL'); // Use SIGKILL for stubborn processes
-        } catch (e) {
-          execSync(`kill -9 ${ssOutput} 2>/dev/null || true`);
+          execSync('command -v ss >/dev/null 2>&1');
+          const ssOutput = execSync(
+            `ss -tulpn 2>/dev/null | grep :${port} | sed -n 's/.*pid=\\([0-9][0-9]*\\).*/\\1/p' | head -1`,
+            { encoding: 'utf8' }
+          ).trim();
+          if (ssOutput) {
+            console.log(`⚠️  Found process ${ssOutput} on port ${port}, terminating...`);
+            try {
+              process.kill(parseInt(ssOutput, 10), 'SIGKILL'); // Use SIGKILL for stubborn processes
+            } catch (e) {
+              execSync(`kill -9 ${ssOutput} 2>/dev/null || true`);
+            }
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            return;
+          }
+        } catch (_) {
+          // ss not available or parsing failed; fall through to lsof
         }
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        return;
       }
     } catch (e) {
       // Fallback to lsof

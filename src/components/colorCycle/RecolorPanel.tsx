@@ -241,7 +241,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     <div className="recolor-panel bg-gray-800 border border-gray-600 rounded-lg p-4 w-full text-white">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold">Color Cycle</h3>
+        <h3 className="text-lg font-semibold">Recolor and animate</h3>
         {onClose && (
           <button
             onClick={onClose}

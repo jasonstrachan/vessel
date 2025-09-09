@@ -59,6 +59,62 @@ export class RecolorAnimationController {
   }
   
   /**
+   * Update a single layer immediately (manual tick/render)
+   * - Ensures the layer is registered
+   * - Advances tick based on current settings
+   * - Renders a frame and updates layer.imageData
+   */
+  updateLayer(layer: Layer): boolean {
+    const settings = layer.colorCycleData?.recolorSettings;
+    if (!settings || !settings.indexBuffer) {
+      console.warn('[RecolorAnimationController] updateLayer: missing recolor settings/indexBuffer');
+      return false;
+    }
+
+    // Ensure the layer is registered for animation tracking
+    let animatedLayer = this.animatedLayers.get(layer.id);
+    if (!animatedLayer) {
+      const registered = this.registerLayer(layer);
+      if (!registered) return false;
+      animatedLayer = this.animatedLayers.get(layer.id)!;
+    }
+
+    // Ensure ticksPerFrame is initialized
+    if (!Number.isFinite(settings.animation.ticksPerFrame) || settings.animation.ticksPerFrame <= 0) {
+      this.updateTicksPerFrame(layer);
+    }
+
+    // Advance tick (ensure minimum of 1 to show progress)
+    const tickIncrement = Math.max(settings.animation.ticksPerFrame, 1.0);
+    const newTick = Math.floor(settings.animation.currentTick + tickIncrement);
+    const wrappedTick = settings.cycleColors > 0 ? (newTick % settings.cycleColors) : 0;
+    settings.animation.currentTick = wrappedTick;
+
+    // Render frame for this layer
+    const imageData = this.engine.renderFrame(layer, wrappedTick);
+    if (!imageData) {
+      console.warn(`[RecolorAnimationController] updateLayer: render returned no imageData for layer ${layer.id}`);
+      return false;
+    }
+
+    // Apply frame and record timing
+    layer.imageData = imageData;
+    animatedLayer.lastTick = wrappedTick;
+    animatedLayer.lastFrameTime = performance.now();
+
+    // Notify any listeners that a frame is ready
+    try {
+      window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate', {
+        detail: { layerId: layer.id, tick: wrappedTick }
+      }));
+    } catch {
+      // In non-browser environments, CustomEvent may not exist; ignore
+    }
+
+    return true;
+  }
+  
+  /**
    * Register a layer for animation
    */
   registerLayer(layer: Layer): boolean {
