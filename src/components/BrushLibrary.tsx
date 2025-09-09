@@ -246,26 +246,9 @@ const BrushLibrary = () => {
       </div>
       
       <div className="flex-1 py-1 space-y-0 overflow-y-auto">
-        {/* Special entry: Recolor and animate (opens inline panel in Brush Settings) */}
-        <div
-          key="recolor-and-animate-entry"
-          onClick={() => setCurrentTool('recolor')}
-          className={`flex items-center justify-between px-3 py-2 cursor-pointer transition-colors ${
-            tools.currentTool === 'recolor' ? 'bg-[#505050]' : 'hover:bg-[#404040]'
-          }`}
-          title="Open Recolor and animate panel"
-        >
-          <div className="flex items-center space-x-2">
-            <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
-              🎨
-            </div>
-            <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>Recolor and animate</span>
-          </div>
-        </div>
-
         {allBrushes.map((preset) => (
+          <React.Fragment key={preset.id}>
           <div
-            key={preset.id}
             onClick={() => handlePresetClick(preset)}
             className={`flex items-center justify-between px-3 py-0 cursor-pointer transition-colors ${
               isPresetActive(preset)
@@ -331,6 +314,41 @@ const BrushLibrary = () => {
               </div>
             )}
           </div>
+
+          
+          {/* Insert Recolor and animate entry immediately after Color Cycle Shape */}
+          {preset.id === 'color-cycle-shape' && (
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                // Only switch tool, do not change the active brush preset
+                setCurrentTool('recolor');
+              }}
+              className={`flex items-center justify-between px-3 py-0 cursor-pointer transition-colors ${
+                tools.currentTool === 'recolor' ? 'bg-[#505050]' : 'hover:bg-[#404040]'
+              }`}
+              title="Open Recolor and animate panel"
+            >
+              <div className="flex items-center space-x-2">
+                {/* Use the same icon/thumbnail as Color Cycle Shape if available */}
+                {brushThumbnails['color-cycle-shape'] ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={brushThumbnails['color-cycle-shape']}
+                    alt={`Recolor and animate icon`}
+                    className="w-10 h-10"
+                    style={{ imageRendering: 'auto' }}
+                  />
+                ) : (
+                  <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+                    ▣
+                  </div>
+                )}
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>Recolor and animate</span>
+              </div>
+            </div>
+          )}
+          </React.Fragment>
         ))}
       </div>
     </div>

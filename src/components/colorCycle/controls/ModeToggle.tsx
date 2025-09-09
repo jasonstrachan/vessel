@@ -29,67 +29,29 @@ export const ModeToggle: React.FC<ModeToggleProps> = ({
   };
   return (
     <div className="mode-toggle">
-      <label className="block text-sm font-medium text-gray-300 mb-2">
-        Mode
-      </label>
-      <div className="flex bg-gray-700 rounded-lg p-1">
-        <button
-          type="button"
-          onClick={() => handleChange('brush')}
-          disabled={disabled || isChanging}
-          title="Paint with animated color cycling brushes"
-          className={`
-            flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors
-            ${mode === 'brush'
-              ? 'bg-blue-600 text-white'
-              : 'text-gray-300 hover:text-white hover:bg-gray-600'
-            }
-            ${disabled || isChanging ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-          `}
-        >
-          {isChanging && mode !== 'brush' ? (
-            <div className="flex items-center gap-1">
-              <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" />
-              Brush
-            </div>
-          ) : (
-            'Brush'
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => handleChange('recolor')}
-          disabled={disabled || isChanging}
-          title="Convert layers to animated indexed color"
-          className={`
-            flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors
-            ${mode === 'recolor'
-              ? 'bg-green-600 text-white'
-              : 'text-gray-300 hover:text-white hover:bg-gray-600'
-            }
-            ${disabled || isChanging ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-          `}
-        >
-          {isChanging && mode !== 'recolor' ? (
-            <div className="flex items-center gap-1">
-              <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" />
-              Recolor
-            </div>
-          ) : (
-            'Recolor & Animate'
-          )}
-        </button>
-      </div>
-      
-      {/* Mode Description */}
-      <div className="mt-2 text-xs text-gray-400">
-        {mode === 'brush' && (
-          <span>Paint with animated color cycling brushes</span>
+      <button
+        type="button"
+        onClick={() => handleChange('recolor')}
+        disabled={disabled || isChanging}
+        title={mode === 'recolor' ? 'Recolor mode active' : 'Convert selected layer to Recolor and animate'}
+        className={`
+          w-full px-3 py-2 text-sm font-medium rounded-md transition-colors
+          ${mode === 'recolor'
+            ? 'bg-[#D9D9D9] text-[#31313A]'
+            : 'bg-[#3A3A3A] text-[#D9D9D9] hover:bg-[#454545]'
+          }
+          ${disabled || isChanging ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+        `}
+      >
+        {isChanging && mode !== 'recolor' ? (
+          <div className="flex items-center gap-2 justify-center">
+            <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" />
+            Recolor and animate
+          </div>
+        ) : (
+          'Recolor and animate'
         )}
-        {mode === 'recolor' && (
-          <span>Convert layers to animated indexed color</span>
-        )}
-      </div>
+      </button>
     </div>
   );
 };

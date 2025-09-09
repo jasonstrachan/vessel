@@ -212,17 +212,22 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     }
     
     if (newMode === 'recolor') {
-      await processLayer(activeLayer, {
-        quantizationMode: 'rgb332',
-        ditherMode: 'off',
-        cycleColors: 16,
-        gradientPreset: 'rainbow'
-      });
+      // If already in recolor mode, treat this button as a quick toggle for animation
+      if (activeLayer.colorCycleData?.mode === 'recolor') {
+        toggleAnimation();
+      } else {
+        await processLayer(activeLayer, {
+          quantizationMode: 'rgb332',
+          ditherMode: 'off',
+          cycleColors: 16,
+          gradientPreset: 'rainbow'
+        });
+      }
     } else {
       await convertToNormal(activeLayer);
     }
     onLayerChange(activeLayer);
-  }, [activeLayer, processLayer, convertToNormal, onLayerChange]);
+  }, [activeLayer, processLayer, convertToNormal, onLayerChange, toggleAnimation]);
 
   const handleExtractDialogClose = useCallback((gradient?: Array<{ position: number; color: string }>) => {
     actions.hideExtractDialog();
@@ -238,23 +243,14 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
   }
 
   return (
-    <div className="recolor-panel bg-gray-800 border border-gray-600 rounded-lg p-4 w-full text-white">
+    <div className="recolor-panel w-full text-white p-2">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center mb-3">
         <h3 className="text-lg font-semibold">Recolor and animate</h3>
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white text-xl"
-            aria-label="Close panel"
-          >
-            ×
-          </button>
-        )}
       </div>
 
       {/* Mode Toggle */}
-      <div className="mb-4">
+      <div className="mb-3">
         <ModeToggle
           mode={state.mode}
           onChange={handleModeChange}
@@ -274,7 +270,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
 
       {/* Processing Indicator with Enhanced Feedback */}
       {state.isProcessing && (
-        <div className="mb-4 p-3 bg-blue-900/30 border border-blue-500 rounded animate-pulse">
+        <div className="mb-3 p-3 bg-gray-700/30 border border-gray-600 rounded animate-pulse">
           <div className="flex items-center gap-2">
             <div className="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full" />
             <div className="flex-1">
