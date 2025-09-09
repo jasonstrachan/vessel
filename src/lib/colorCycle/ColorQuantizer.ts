@@ -283,7 +283,11 @@ export class ColorQuantizer {
         const g3 = g >> 5;  // Top 3 bits (0-7)
         const b2 = b >> 6;  // Top 2 bits (0-3)
         
-        indices[idx] = (r3 << 5) | (g3 << 2) | b2;
+        let code = (r3 << 5) | (g3 << 2) | b2;
+        // Reserve index 0 exclusively for transparency; remap true black (code 0)
+        // to 1 so it remains visible during rendering where 0 is treated as transparent.
+        if (code === 0) code = 1;
+        indices[idx] = code;
       }
     }
     

@@ -216,12 +216,16 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
       if (activeLayer.colorCycleData?.mode === 'recolor') {
         toggleAnimation();
       } else {
-        await processLayer(activeLayer, {
+        const ok = await processLayer(activeLayer, {
           quantizationMode: 'rgb332',
           ditherMode: 'off',
           cycleColors: 16,
           gradientPreset: 'rainbow'
         });
+        // Auto-start animation after successful conversion
+        if (ok) {
+          toggleAnimation();
+        }
       }
     } else {
       await convertToNormal(activeLayer);

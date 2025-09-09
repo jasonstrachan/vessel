@@ -31,7 +31,11 @@ export const ModeToggle: React.FC<ModeToggleProps> = ({
     <div className="mode-toggle">
       <button
         type="button"
-        onClick={() => handleChange('recolor')}
+        onClick={() => {
+          if (mode !== 'recolor') {
+            handleChange('recolor');
+          }
+        }}
         disabled={disabled || isChanging}
         title={mode === 'recolor' ? 'Recolor mode active' : 'Convert selected layer to Recolor and animate'}
         className={`

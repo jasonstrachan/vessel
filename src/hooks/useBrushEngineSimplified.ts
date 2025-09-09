@@ -888,19 +888,22 @@ export const useBrushEngineSimplified = () => {
       ctx.imageSmoothingEnabled = true;
       ctx.fillStyle = gradient;
       
-      // CRITICAL DEBUG - Log just before drawing
-      console.error('🔴 About to draw polygon:', {
-        fillStyle: ctx.fillStyle,
-        vertexCount: validVertices.length,
-        bounds: {
-          minX: Math.min(...validVertices.map(v => v.x)),
-          minY: Math.min(...validVertices.map(v => v.y)),
-          maxX: Math.max(...validVertices.map(v => v.x)),
-          maxY: Math.max(...validVertices.map(v => v.y))
-        },
-        firstVertex: validVertices[0],
-        lastVertex: validVertices[validVertices.length - 1]
-      });
+      // Debug: only log in development and when we have vertices
+      if (process.env.NODE_ENV !== 'production' && validVertices.length >= 3) {
+        // eslint-disable-next-line no-console
+        console.debug('About to draw polygon:', {
+          fillStyle: ctx.fillStyle,
+          vertexCount: validVertices.length,
+          bounds: {
+            minX: Math.min(...validVertices.map(v => v.x)),
+            minY: Math.min(...validVertices.map(v => v.y)),
+            maxX: Math.max(...validVertices.map(v => v.x)),
+            maxY: Math.max(...validVertices.map(v => v.y))
+          },
+          firstVertex: validVertices[0],
+          lastVertex: validVertices[validVertices.length - 1]
+        });
+      }
       
       ctx.beginPath();
       ctx.moveTo(validVertices[0].x, validVertices[0].y);
@@ -908,8 +911,11 @@ export const useBrushEngineSimplified = () => {
       ctx.closePath();
       ctx.fill();
       
-      // CRITICAL DEBUG - Log after drawing
-      console.error('🔴 Polygon drawn successfully');
+      // Debug: non-intrusive logging
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.debug('Polygon drawn successfully');
+      }
       
       // Apply risograph effect if enabled
       const risographIntensity = tools.brushSettings.risographIntensity || 0;

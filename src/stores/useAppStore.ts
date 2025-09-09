@@ -1619,8 +1619,9 @@ export const useAppStore = create<AppState>()(
           }
         }
         
-        // If switching to a color-cycle layer, validate and reinitialize if needed
-        if (layer?.layerType === 'color-cycle') {
+        // If switching to a color-cycle layer in BRUSH context, validate/reinit brush resources.
+        // Skip entirely when the Recolor tool is active so we don't override recolor mode.
+        if (layer?.layerType === 'color-cycle' && state.tools.currentTool !== 'recolor') {
           console.log('🟣 SWITCHING TO CC LAYER:', {
             layerId: id.substring(0, 20),
             hasGradient: !!layer.colorCycleData?.gradient,
@@ -1666,11 +1667,13 @@ export const useAppStore = create<AppState>()(
             savedBrushShape = state.tools.brushSettings.brushShape;
           }
           
+          const nextTool: Tool = state.tools.currentTool === 'recolor' ? 'recolor' : 'brush';
           const result = {
             activeLayerId: id,
             tools: {
               ...state.tools,
-              currentTool: 'brush' as Tool, // Keep brush tool for color cycle layers
+              // Preserve recolor tool if user is in Recolor and animate view
+              currentTool: nextTool,
               lastRegularTool: savedRegularBrush, // Track the last regular tool
               lastRegularBrushShape: savedBrushShape, // Track the last brush shape
               brushSettings: {
@@ -1696,7 +1699,8 @@ export const useAppStore = create<AppState>()(
         // When switching to a regular layer from color cycle, restore last regular tool
         let toolUpdate = {};
         const wasOnColorCycle = currentActiveLayer?.layerType === 'color-cycle';
-        if (wasOnColorCycle && layer && layer.layerType === 'normal') {
+        // Only restore last regular tool if we're NOT explicitly in recolor tool
+        if (wasOnColorCycle && layer && layer.layerType === 'normal' && state.tools.currentTool !== 'recolor') {
           // Restore the last regular tool and brush shape
           const lastTool = (state.tools as any).lastRegularTool || 'brush';
           const lastShape = (state.tools as any).lastRegularBrushShape || state.tools.brushSettings.brushShape;

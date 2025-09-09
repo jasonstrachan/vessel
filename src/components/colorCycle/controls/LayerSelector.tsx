@@ -32,7 +32,7 @@ export const LayerSelector: React.FC<LayerSelectorProps> = ({
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'active': return 'text-blue-400';
+      case 'active': return 'text-gray-300';
       case 'processed': return 'text-green-400';
       default: return 'text-gray-400';
     }
@@ -72,7 +72,7 @@ export const LayerSelector: React.FC<LayerSelectorProps> = ({
                   flex items-center justify-between
                   border-b border-gray-600 last:border-b-0
                   ${isActive 
-                    ? 'bg-blue-600 text-white' 
+                    ? 'bg-[#505050] text-white' 
                     : 'hover:bg-gray-600 text-gray-300'
                   }
                 `}
@@ -112,7 +112,7 @@ export const LayerSelector: React.FC<LayerSelectorProps> = ({
           </span>
           {mode === 'brush' && (
             <span className="flex items-center gap-1">
-              <span className="text-blue-400">●</span>
+              <span className="text-gray-300">●</span>
               Active
             </span>
           )}

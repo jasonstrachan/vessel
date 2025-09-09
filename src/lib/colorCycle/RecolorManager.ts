@@ -92,8 +92,50 @@ export class RecolorManager {
     try {
       console.log(`[RecolorManager] Processing layer ${layer.id} for recolor animation`);
       
-      // Validate layer
-      if (!layer.imageData || layer.imageData.data.length === 0) {
+      // Ensure we have up-to-date pixel data. If the ImageData is empty or stale,
+      // try to grab it from the layer's framebuffer (OffscreenCanvas) first.
+      const ensureImageData = (): boolean => {
+        const looksEmpty = (img?: ImageData | null) => {
+          if (!img) return true;
+          const { data, width, height } = img;
+          if (width === 0 || height === 0) return true;
+          // Sample alpha across the image on a coarse grid to avoid top-left bias
+          const samples = 400; // up to 400 alpha checks
+          const stepX = Math.max(1, Math.floor(width / 20));
+          const stepY = Math.max(1, Math.floor(height / 20));
+          let checked = 0;
+          for (let y = 0; y < height && checked < samples; y += stepY) {
+            for (let x = 0; x < width && checked < samples; x += stepX) {
+              const idx = (y * width + x) * 4 + 3; // alpha channel
+              if (data[idx] !== 0) return false;
+              checked++;
+            }
+          }
+          return true;
+        };
+
+        if (!layer.imageData || looksEmpty(layer.imageData)) {
+          try {
+            const fb = layer.framebuffer as OffscreenCanvas | undefined;
+            if (fb) {
+              const ctx = fb.getContext('2d', { willReadFrequently: true }) as OffscreenCanvasRenderingContext2D | null;
+              if (ctx) {
+                const captured = ctx.getImageData(0, 0, fb.width as number, fb.height as number);
+                // Accept if captured has any alpha > 0 in small sample
+                if (!looksEmpty(captured)) {
+                  layer.imageData = captured;
+                  return true;
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[RecolorManager] Failed to capture imageData from framebuffer:', e);
+          }
+        }
+        return !!layer.imageData && layer.imageData.data.length > 0;
+      };
+
+      if (!ensureImageData()) {
         throw new Error('Layer has no image data to process');
       }
       
@@ -108,8 +150,14 @@ export class RecolorManager {
       const success = this.engine.processLayer(layer, options);
       
       if (success) {
-        // Register with animation controller
+        // Register with animation controller and render an initial frame immediately
         this.animationController.registerLayer(layer);
+        // Draw one frame so the user sees recoloring even before animation starts
+        try {
+          this.animationController.updateLayer(layer);
+        } catch (e) {
+          console.warn('[RecolorManager] Initial frame update failed:', e);
+        }
         console.log(`[RecolorManager] Successfully processed layer ${layer.id}`);
         
         // Notify UI
