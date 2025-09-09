@@ -120,19 +120,23 @@ export class RecolorEngine {
       }
       
       if (!layer.colorCycleData.recolorSettings) {
+        const defaultSpeed = 0.4;
+        const defaultFPS = 30;
+        const ticksPerFrame = (defaultSpeed / defaultFPS) * cycleColors; // keep in sync with controller logic
         layer.colorCycleData.recolorSettings = {
           quantizationMode,
           ditherMode,
           animation: {
-            speed: 0.4,
-            fps: 30,
-            ticksPerFrame: 0.4 / 30,
+            speed: defaultSpeed,
+            fps: defaultFPS,
+            ticksPerFrame,
             isPlaying: false,
             currentTick: 0,
             flowDirection: 'forward'
           },
           cycleColors,
           gradient: [],
+          mappingMode: 'banded',
           currentLOD: 'full',
           originalImageData: new ImageData(
             new Uint8ClampedArray(layer.imageData.data),
@@ -233,6 +237,19 @@ export class RecolorEngine {
         layer.imageData!.width,
         layer.imageData!.height
       );
+
+      // Preserve original alpha channel if available to avoid making index 0 fully transparent
+      try {
+        const original = settings.originalImageData as ImageData | undefined;
+        if (original && original.data && original.data.length === imageData.data.length) {
+          const data = imageData.data;
+          const orig = original.data;
+          // Copy alpha from original image
+          for (let i = 3; i < data.length; i += 4) {
+            data[i] = orig[i];
+          }
+        }
+      } catch {}
       
       // Reduced spam - only log important events
       return imageData;
@@ -249,31 +266,57 @@ export class RecolorEngine {
    */
   private buildGradientLUT(settings: any, tick: number): Uint32Array {
     const lut = new Uint32Array(256);
-    
-    // Simple color cycling - use basic colors that shift over time
-    const basicColors = [
-      { r: 255, g: 0, b: 0, a: 255 },     // Red
-      { r: 255, g: 128, b: 0, a: 255 },   // Orange  
-      { r: 255, g: 255, b: 0, a: 255 },   // Yellow
-      { r: 0, g: 255, b: 0, a: 255 },     // Green
-      { r: 0, g: 128, b: 255, a: 255 },   // Blue
-      { r: 128, g: 0, b: 255, a: 255 },   // Purple
-    ];
-    
-    // For each palette index, determine final color
+    const gradient: Array<{ position: number; color: string }> = settings?.gradient || [];
+    const bands: number = Math.max(1, Math.floor(settings?.cycleColors || 16));
+    const mappingMode: 'banded' | 'continuous' = settings?.mappingMode || 'banded';
+
+    // Direction handling
+    const flow: 'forward' | 'reverse' | 'pingpong' | 'bounce' = settings?.animation?.flowDirection || 'forward';
+    const dirSign = flow === 'reverse' ? -1 : 1;
+    const normalizedShift = dirSign * (tick / Math.max(1, bands)); // linear shift in cycles
+
+    // Helper to reflect a value into [0,1] without wrap jumps (triangle wave)
+    const reflect01 = (x: number): number => {
+      const two = 2;
+      let t = x % two;
+      if (t < 0) t += two; // proper modulo for negatives
+      return t <= 1 ? t : (two - t);
+    };
+
     for (let i = 0; i < 256; i++) {
-      if (i === 0) {
-        // Index 0 is always transparent
-        lut[i] = 0;
-        continue;
+
+      // Map palette index into gradient position
+      let pos: number;
+      if (mappingMode === 'continuous') {
+        // Sample continuously across full gradient range
+        const base = i / 255;
+        if (flow === 'pingpong' || flow === 'bounce') {
+          pos = reflect01(base + normalizedShift);
+        } else {
+          const s = base + (normalizedShift % 1);
+          pos = ((s % 1) + 1) % 1; // wrap forward/reverse smoothly
+        }
+      } else {
+        // Banded: compress into cycleColors distinct bands that march over time
+        const bandPos = (i % bands) / bands; // 0..1
+        if (flow === 'pingpong' || flow === 'bounce') {
+          pos = reflect01(bandPos + normalizedShift);
+        } else {
+          const s = bandPos + (normalizedShift % 1);
+          pos = ((s % 1) + 1) % 1;
+        }
       }
-      
-      // Simple color cycling: each palette index gets shifted by animation tick
-      const colorIndex = (i + tick) % basicColors.length;
-      const color = basicColors[colorIndex];
-      
-      // Pack into 32-bit RGBA (ABGR format for canvas)
-      lut[i] = (color.a << 24) | (color.b << 16) | (color.g << 8) | color.r;
+
+      // Keep pos strictly within [0, 1) to avoid stop boundary artifacts
+      if (pos >= 1) pos = 0.999999;
+      if (pos < 0) pos = 0;
+
+      // Sample from provided gradient; fallback to white if empty
+      const c = gradient.length > 0
+        ? this.sampleGradient(gradient, pos)
+        : { r: 255, g: 255, b: 255, a: 255 };
+
+      lut[i] = (c.a << 24) | (c.b << 16) | (c.g << 8) | c.r;
     }
     return lut;
   }
@@ -345,19 +388,7 @@ export class RecolorEngine {
     width: number, 
     height: number
   ): ImageData {
-    console.log(`[RecolorEngine] mapIndicesToColors: ${width}x${height}, indices: ${indices.length}, lut: ${lut.length}`);
-    
-    // Check how many non-zero indices we have (non-transparent pixels)
-    let nonZeroCount = 0;
-    const sampleIndices: number[] = [];
-    for (let i = 0; i < Math.min(indices.length, 100); i++) {
-      if (indices[i] > 0) nonZeroCount++;
-      if (i < 10) sampleIndices.push(indices[i]);
-    }
-    
-    console.log(`[RecolorEngine] Index analysis: ${nonZeroCount} non-zero in first 100 pixels`);
-    console.log(`[RecolorEngine] Sample indices:`, sampleIndices);
-    console.log(`[RecolorEngine] Sample LUT values:`, sampleIndices.map(idx => lut[idx]));
+    // Debug logs removed for performance
     
     const imageData = new ImageData(width, height);
     const pixels32 = new Uint32Array(imageData.data.buffer);
@@ -468,6 +499,15 @@ export class RecolorEngine {
     }
     
     layer.colorCycleData.recolorSettings.gradient = gradient;
+    return true;
+  }
+
+  /**
+   * Update mapping mode for a processed layer
+   */
+  updateMappingMode(layer: Layer, mode: 'banded' | 'continuous'): boolean {
+    if (!layer.colorCycleData?.recolorSettings) return false;
+    layer.colorCycleData.recolorSettings.mappingMode = mode;
     return true;
   }
   

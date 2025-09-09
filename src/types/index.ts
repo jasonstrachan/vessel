@@ -70,6 +70,7 @@ export interface Layer {
       // Gradient configuration (for the cycling effect)
       cycleColors: number; // 8-256, default 16 (visible color bands)
       gradient: Array<{ position: number; color: string }>;
+      mappingMode?: 'banded' | 'continuous';
       
       // Performance optimization levels
       currentLOD: 'full' | 'half' | 'quarter';

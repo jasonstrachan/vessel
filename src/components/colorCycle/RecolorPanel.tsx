@@ -16,7 +16,8 @@ import { useRecolorShortcuts } from './hooks/useRecolorShortcuts';
 // Modular sub-components
 import { ModeToggle } from './controls/ModeToggle';
 import { LayerSelector } from './controls/LayerSelector';
-import { GradientControls } from './controls/GradientControls';
+import { GradientEditor } from '../ui/GradientEditor';
+import { useAppStore } from '../../stores/useAppStore';
 import { AnimationControls } from './controls/AnimationControls';
 import { QualityControls } from './controls/QualityControls';
 import { ExtractColorsDialog } from './dialogs/ExtractColorsDialog';
@@ -51,6 +52,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     updateLayerSpeed,
     updateLayerCycleColors,
     updateLayerFlowDirection,
+    updateLayerMappingMode,
     updateGradient,
     updateGlobalFPS,
     performanceStats,
@@ -65,14 +67,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
   const recolorSettings = activeLayer?.colorCycleData?.recolorSettings;
   const isRecolorEnabled = activeLayer?.colorCycleData?.mode === 'recolor' && recolorSettings;
   
-  // Debug logging
-  console.log('[RecolorPanel] Debug state:', {
-    activeLayerId: activeLayer?.id,
-    mode: activeLayer?.colorCycleData?.mode,
-    hasRecolorSettings: !!recolorSettings,
-    isRecolorEnabled,
-    animationSpeed: recolorSettings?.animation?.speed
-  });
+  // debug log removed
 
   // Gradient presets for shortcuts (memoized to avoid dependency issues)
   const gradientPresets = useMemo(() => [
@@ -238,7 +233,11 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     
     if (gradient && activeLayer) {
       updateGradient(activeLayer, gradient);
-      onLayerChange(activeLayer);
+      // Sync brush UI only when not in recolor tool to avoid brush-engine effects
+      const store = useAppStore.getState();
+      if (store.tools.currentTool !== 'recolor') {
+        store.setBrushSettings({ colorCycleGradient: gradient });
+      }
     }
   }, [activeLayer, updateGradient, onLayerChange, actions]);
 
@@ -288,18 +287,38 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
       {/* Recolor Mode Controls */}
       {state.mode === 'recolor' && activeLayer && (
         <div className="space-y-4">
-          {/* Gradient Controls */}
-          <GradientControls
-            gradient={recolorSettings?.gradient || []}
-            onGradientChange={(gradient) => {
-              if (activeLayer) {
-                updateGradient(activeLayer, gradient);
-                onLayerChange(activeLayer);
+          {/* Gradient Editor (shared with Color Cycle brushes) */}
+          <div className="mb-2">
+            <GradientEditor
+              stops={recolorSettings?.gradient || []}
+              onChange={(stops) => {
+                if (!activeLayer) return;
+                // Update recolor layer gradient
+                updateGradient(activeLayer, stops);
+              // Keep brush UI in sync without mutating layer state again.
+              // Avoid touching brush settings while in recolor tool to prevent brush-engine side effects.
+              const store = useAppStore.getState();
+              if (store.tools.currentTool !== 'recolor') {
+                store.setBrushSettings({ colorCycleGradient: stops });
               }
-            }}
-            onExtractColors={actions.showExtractDialog}
+              }}
+            />
+          </div>
+
+          {/* Extract Colors (preserve feature) */}
+          <button
+            type="button"
+            onClick={actions.showExtractDialog}
             disabled={!isRecolorEnabled}
-          />
+            className={`
+              w-full px-3 py-2 text-sm font-medium rounded-lg border transition-colors mb-2
+              ${!isRecolorEnabled
+                ? 'opacity-50 cursor-not-allowed bg-gray-700 border-gray-600 text-gray-300'
+                : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'}
+            `}
+          >
+            Extract from Layer
+          </button>
 
           {/* Animation Controls */}
           <AnimationControls
@@ -308,11 +327,17 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
             fps={recolorSettings?.animation.fps || 30}
             cycleColors={recolorSettings?.cycleColors || 16}
             flowDirection={recolorSettings?.animation.flowDirection || 'forward'}
+            mappingMode={recolorSettings?.mappingMode || 'banded'}
             onToggleAnimation={toggleAnimation}
             onSpeedChange={(speed) => activeLayer && updateLayerSpeed(activeLayer.id, speed)}
             onFPSChange={updateGlobalFPS}
             onCycleColorsChange={(cycleColors) => activeLayer && updateLayerCycleColors(activeLayer.id, cycleColors)}
             onFlowDirectionChange={(direction) => activeLayer && updateLayerFlowDirection(activeLayer.id, direction)}
+            onMappingModeChange={(mode) => {
+              if (!activeLayer) return;
+              actions.clearError();
+              updateLayerMappingMode(activeLayer.id, mode);
+            }}
             disabled={!isRecolorEnabled}
           />
 

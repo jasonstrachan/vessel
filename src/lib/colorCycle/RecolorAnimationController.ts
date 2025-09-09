@@ -84,14 +84,14 @@ export class RecolorAnimationController {
       this.updateTicksPerFrame(layer);
     }
 
-    // Advance tick (ensure minimum of 1 to show progress)
-    const tickIncrement = Math.max(settings.animation.ticksPerFrame, 1.0);
-    const newTick = Math.floor(settings.animation.currentTick + tickIncrement);
-    const wrappedTick = settings.cycleColors > 0 ? (newTick % settings.cycleColors) : 0;
-    settings.animation.currentTick = wrappedTick;
+    // Advance tick with fractional support
+    const tickIncrement = settings.animation.ticksPerFrame;
+    const newTickFloat = (settings.animation.currentTick || 0) + tickIncrement;
+    settings.animation.currentTick = newTickFloat;
+    const wrappedTick = settings.cycleColors > 0 ? Math.floor(newTickFloat) % settings.cycleColors : 0;
 
-    // Render frame for this layer
-    const imageData = this.engine.renderFrame(layer, wrappedTick);
+    // Render frame for this layer (pass float tick for smooth offset)
+    const imageData = this.engine.renderFrame(layer, newTickFloat);
     if (!imageData) {
       console.warn(`[RecolorAnimationController] updateLayer: render returned no imageData for layer ${layer.id}`);
       return false;
@@ -107,9 +107,7 @@ export class RecolorAnimationController {
       window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate', {
         detail: { layerId: layer.id, tick: wrappedTick }
       }));
-    } catch {
-      // In non-browser environments, CustomEvent may not exist; ignore
-    }
+    } catch {}
 
     return true;
   }
@@ -118,10 +116,7 @@ export class RecolorAnimationController {
    * Register a layer for animation
    */
   registerLayer(layer: Layer): boolean {
-    console.log(`[RecolorAnimationController] Attempting to register layer ${layer.id}`);
-    console.log('[RecolorAnimationController] Layer colorCycleData:', layer.colorCycleData);
-    console.log('[RecolorAnimationController] Has indexBuffer:', !!layer.colorCycleData?.recolorSettings?.indexBuffer);
-    console.log('[RecolorAnimationController] Mode:', layer.colorCycleData?.mode);
+    // verbose logs removed
     
     if (!layer.colorCycleData?.recolorSettings?.indexBuffer) {
       console.warn('[RecolorAnimationController] Cannot register layer - no recolor data');
@@ -143,8 +138,7 @@ export class RecolorAnimationController {
     this.animatedLayers.set(layer.id, animatedLayer);
     this.updateStats();
     
-    console.log(`[RecolorAnimationController] Successfully registered layer ${layer.id} for animation`);
-    console.log(`[RecolorAnimationController] Total registered layers: ${this.animatedLayers.size}`);
+    // registration logs removed
     return true;
   }
   
@@ -155,7 +149,6 @@ export class RecolorAnimationController {
     const removed = this.animatedLayers.delete(layerId);
     if (removed) {
       this.updateStats();
-      console.log(`[RecolorAnimationController] Unregistered layer ${layerId}`);
     }
     return removed;
   }
@@ -178,9 +171,6 @@ export class RecolorAnimationController {
    * Start global animation (all enabled layers)
    */
   playAll(): void {
-    console.log(`[RecolorAnimationController] playAll() called, registered layers:`, this.animatedLayers.size);
-    console.log('[RecolorAnimationController] Registered layer IDs:', Array.from(this.animatedLayers.keys()));
-    
     if (this.animatedLayers.size === 0) {
       console.warn('[RecolorAnimationController] No layers registered for animation');
       return;
@@ -190,26 +180,22 @@ export class RecolorAnimationController {
     this.lastFrameTime = performance.now();
     this.startAnimationLoop();
     
-    console.log(`[RecolorAnimationController] Started animation with ${this.animatedLayers.size} layers`);
+    // started
   }
   
   /**
    * Play only a specific layer (disable others temporarily)
    */
   playSingle(layerId: string): void {
-    console.log(`[RecolorAnimationController] playSingle() called for layer:`, layerId);
     const targetLayer = this.animatedLayers.get(layerId);
     if (!targetLayer) {
       console.warn(`[RecolorAnimationController] Layer ${layerId} not found in registered layers`);
-      console.log('[RecolorAnimationController] Available layers:', Array.from(this.animatedLayers.keys()));
       return;
     }
     
-    console.log(`[RecolorAnimationController] Found target layer, setting enabled states`);
     // Temporarily disable all other layers
     for (const [id, layer] of Array.from(this.animatedLayers.entries())) {
       layer.enabled = (id === layerId);
-      console.log(`[RecolorAnimationController] Layer ${id} enabled:`, layer.enabled);
     }
     
     this.playAll();
@@ -234,7 +220,7 @@ export class RecolorAnimationController {
       }
     }
     
-    console.log('[RecolorAnimationController] Stopped animation');
+    // stopped
   }
   
   /**
@@ -248,7 +234,7 @@ export class RecolorAnimationController {
       this.animationFrameId = null;
     }
     
-    console.log('[RecolorAnimationController] Paused animation');
+    // paused
   }
   
   /**
@@ -263,7 +249,7 @@ export class RecolorAnimationController {
     this.lastFrameTime = performance.now();
     this.startAnimationLoop();
     
-    console.log('[RecolorAnimationController] Resumed animation');
+    // resumed
   }
   
   /**
@@ -304,7 +290,9 @@ export class RecolorAnimationController {
       return false;
     }
     
-    animatedLayer.layer.colorCycleData.recolorSettings.animation.speed = speed;
+    // Defensive clamp to avoid zero/negative speed from UI glitches
+    const clamped = Math.max(0.05, Math.min(2.0, Number.isFinite(speed) ? speed : 0.4));
+    animatedLayer.layer.colorCycleData.recolorSettings.animation.speed = clamped;
     this.updateTicksPerFrame(animatedLayer.layer);
     return true;
   }
@@ -349,39 +337,23 @@ export class RecolorAnimationController {
       const settings = animatedLayer.layer.colorCycleData?.recolorSettings;
       if (!settings) continue;
       
-      // Calculate new tick for this layer
-      // Force a minimum increment of 1 to ensure animation progresses
-      const tickIncrement = Math.max(settings.animation.ticksPerFrame, 1.0);
-      const newTick = Math.floor(settings.animation.currentTick + tickIncrement);
-      const wrappedTick = newTick % settings.cycleColors;
-      
-      // Removed spam logs - only log on significant events
-      
-      // Only update if tick changed
-      if (wrappedTick !== animatedLayer.lastTick) {
-        settings.animation.currentTick = wrappedTick;
-        // Only log every 10th tick to reduce spam
-        if (wrappedTick % 10 === 0) {
-          console.log(`[RecolorAnimationController] Tick ${wrappedTick} (every 10th)`);
-        }
-        
-        // Render frame for this layer
-        const imageData = this.engine.renderFrame(animatedLayer.layer, wrappedTick);
-        if (imageData) {
-          // Update layer's image data
-          animatedLayer.layer.imageData = imageData;
-          animatedLayer.lastTick = wrappedTick;
-          animatedLayer.lastFrameTime = performance.now();
-          console.log(`[RecolorAnimationController] Frame rendered for layer ${animatedLayer.layer.id}, imageData size: ${imageData.data.length}`);
-          
-          // Trigger visual update by dispatching custom event
-          // The canvas system will listen for this and redraw
+      // Calculate new tick for this layer (fractional support)
+      const tickIncrement = settings.animation.ticksPerFrame;
+      const newTickFloat = (settings.animation.currentTick || 0) + tickIncrement;
+      const wrappedTick = Math.floor(newTickFloat) % Math.max(1, settings.cycleColors);
+
+      // Always advance and render; fractional tick shifts gradient continuously
+      settings.animation.currentTick = newTickFloat;
+      const imageData = this.engine.renderFrame(animatedLayer.layer, newTickFloat);
+      if (imageData) {
+        animatedLayer.layer.imageData = imageData;
+        animatedLayer.lastTick = wrappedTick;
+        animatedLayer.lastFrameTime = performance.now();
+        try {
           window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate', {
             detail: { layerId: animatedLayer.layer.id, tick: wrappedTick }
           }));
-        } else {
-          console.warn(`[RecolorAnimationController] No imageData returned for layer ${animatedLayer.layer.id} at tick ${wrappedTick}`);
-        }
+        } catch {}
       }
       
       activeLayers.push(animatedLayer);

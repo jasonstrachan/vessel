@@ -487,7 +487,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     };
     
     const handleColorCycleFrameUpdate = (event: CustomEvent) => {
-      console.log('[DrawingCanvas] Color cycle frame update received:', event.detail);
+      // debug log removed
       
       // Mark composite canvas as dirty
       compositeCanvasDirtyRef.current = true;
@@ -504,7 +504,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         drawRef.current(ctx, viewTransformRef.current);
       }
       
-      console.log('[DrawingCanvas] Animation frame redraw completed');
+      // debug log removed
     };
     
     window.addEventListener('colorCycleFrameReady', handleColorCycleFrame);

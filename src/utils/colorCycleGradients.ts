@@ -33,6 +33,8 @@ export function setSharedColorCycleGradient(gradient: Array<{ position: number; 
   const state = useAppStore.getState();
   const setBrushSettings = state.setBrushSettings;
   const setEraserSettings = state.setEraserSettings;
+  const updateLayer = state.updateLayer;
+  const activeLayerId = state.activeLayerId;
   
   // Update brush settings
   setBrushSettings({ colorCycleGradient: gradient });
@@ -41,6 +43,25 @@ export function setSharedColorCycleGradient(gradient: Array<{ position: number; 
   const eraserSettings = state.tools.eraserSettings;
   if (isColorCycleBrush(eraserSettings.brushShape)) {
     setEraserSettings({ colorCycleGradient: gradient });
+  }
+
+  // Propagate to active layer if it's a color-cycle layer (brush-mode only)
+  if (activeLayerId) {
+    const layer = state.layers.find(l => l.id === activeLayerId);
+    if (layer && layer.layerType === 'color-cycle') {
+      // If recolor mode is active, do NOT mutate layer here to avoid partial state flashes
+      // RecolorPanel handles its own gradient updates safely via RecolorManager
+      const recolor = layer.colorCycleData?.recolorSettings;
+      if (!recolor && layer.colorCycleData) {
+        // Otherwise update brush-mode gradient field for consistency
+        updateLayer(activeLayerId, {
+          colorCycleData: {
+            ...layer.colorCycleData,
+            gradient
+          }
+        });
+      }
+    }
   }
 }
 

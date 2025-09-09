@@ -445,6 +445,7 @@ export class RecolorManager {
   }
   
   setLayerSpeed(layerId: string, speed: number): boolean {
+    // Just update ticks-per-frame; animation loop will pick it up next frame.
     return this.animationController.setLayerSpeed(layerId, speed);
   }
   
@@ -454,6 +455,10 @@ export class RecolorManager {
     
     if (animatedLayer?.layer.colorCycleData?.recolorSettings) {
       animatedLayer.layer.colorCycleData.recolorSettings.cycleColors = cycleColors;
+      // Recompute ticks-per-frame since cycleColors affects speed per frame
+      try { this.animationController['updateTicksPerFrame'](animatedLayer.layer as any); } catch {}
+      // Render a frame immediately so band count change is visible
+      try { this.animationController.updateLayer(animatedLayer.layer); } catch {}
       return true;
     }
     
@@ -466,6 +471,8 @@ export class RecolorManager {
     
     if (animatedLayer?.layer.colorCycleData?.recolorSettings) {
       animatedLayer.layer.colorCycleData.recolorSettings.animation.flowDirection = direction;
+      // Render an immediate frame so the change is visible even when paused
+      try { this.animationController.updateLayer(animatedLayer.layer); } catch {}
       return true;
     }
     
@@ -503,7 +510,42 @@ export class RecolorManager {
   getStats(): any {
     return this.animationController.getStats();
   }
+
+  /**
+   * Update mapping mode for a layer
+   */
+  setLayerMappingMode(layerId: string, mode: 'banded' | 'continuous'): boolean {
+    const layers = this.animationController.getLayers();
+    const animatedLayer = layers.find(l => l.layer.id === layerId);
+    const target = animatedLayer?.layer;
+    if (!target) return false;
+    const ok = this.engine.updateMappingMode(target, mode);
+    if (ok) {
+      // Render one frame immediately to reflect change
+      this.animationController.updateLayer(target);
+    }
+    return ok;
+  }
   
+  /**
+   * Update gradient and refresh the current frame so changes are visible immediately
+   */
+  updateGradient(layer: Layer, gradient: Array<{ position: number; color: string }>): boolean {
+    try {
+      const ok = this.engine.updateGradient(layer, gradient);
+      if (ok) {
+        try {
+          // Update one frame so UI reflects the new gradient instantly
+          this.animationController.updateLayer(layer);
+        } catch {}
+      }
+      return ok;
+    } catch (error) {
+      console.error('[RecolorManager] Failed to update gradient:', error);
+      return false;
+    }
+  }
+
   /**
    * Convert layer back to normal mode
    */

@@ -5,7 +5,7 @@
  * integrating with the RecolorManager and app store.
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../../../types';
 import { RecolorManager, RecolorOptions } from '../../../lib/colorCycle/RecolorManager';
 
@@ -51,6 +51,7 @@ export interface UseRecolorStateReturn {
   updateLayerSpeed: (layerId: string, speed: number) => void;
   updateLayerCycleColors: (layerId: string, cycleColors: number) => void;
   updateLayerFlowDirection: (layerId: string, direction: 'forward' | 'reverse' | 'pingpong' | 'bounce') => void;
+  updateLayerMappingMode: (layerId: string, mode: 'banded' | 'continuous') => void;
   updateGradient: (layer: Layer, gradient: Array<{ position: number; color: string }>) => void;
   updateGlobalFPS: (fps: number) => void;
   
@@ -186,8 +187,15 @@ export function useRecolorState(
   }, [recolorManager, actions]);
 
   // Animation controls
+  const lastToggleAtRef = useRef<number>(0);
   const toggleAnimation = useCallback(() => {
     try {
+      const now = performance.now?.() ?? Date.now();
+      if (now - lastToggleAtRef.current < 250) {
+        // Debounce rapid duplicate toggles from UI re-renders or double clicks
+        return;
+      }
+      lastToggleAtRef.current = now;
       console.log('[useRecolorState] toggleAnimation called, isAnimating:', recolorManager.isAnimating());
       console.log('[useRecolorState] activeLayer:', activeLayer?.id, 'hasRecolorData:', !!activeLayer?.colorCycleData?.recolorSettings);
       
@@ -238,6 +246,15 @@ export function useRecolorState(
       recolorManager.setLayerFlowDirection(layerId, direction);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update flow direction';
+      actions.setError(errorMessage);
+    }
+  }, [recolorManager, actions]);
+
+  const updateLayerMappingMode = useCallback((layerId: string, mode: 'banded' | 'continuous') => {
+    try {
+      recolorManager.setLayerMappingMode(layerId, mode);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update mapping mode';
       actions.setError(errorMessage);
     }
   }, [recolorManager, actions]);
@@ -298,7 +315,7 @@ export function useRecolorState(
   useEffect(() => {
     const handleLayerUpdate = (layer: Layer) => {
       // Layer was updated, could trigger re-render in parent component
-      console.log('Layer updated:', layer.id);
+      // debug log removed
     };
 
     const handleStatsUpdate = (stats: any) => {
@@ -353,6 +370,7 @@ export function useRecolorState(
     updateLayerSpeed,
     updateLayerCycleColors,
     updateLayerFlowDirection,
+    updateLayerMappingMode,
     updateGradient,
     updateGlobalFPS,
     performanceStats,

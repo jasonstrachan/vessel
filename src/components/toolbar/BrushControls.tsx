@@ -14,7 +14,7 @@ import Tabs from "../ui/Tabs";
 import { drawTestSwatches } from "../../utils/drawTestSwatches";
 import { GradientEditor } from "../ui/GradientEditor";
 import { isStrokeBrush } from "../../utils/brushCategories";
-import { isColorCycleBrush, getShapeModeForBrush } from "../../utils/colorCycleGradients";
+import { isColorCycleBrush, getShapeModeForBrush, setSharedColorCycleGradient } from "../../utils/colorCycleGradients";
 
 // Get access to drawing handlers via a context or ref - we'll need to create this
 interface ColorCycleAnimationContext {
@@ -136,6 +136,9 @@ const BrushControls = () => {
             ]}
             onChange={(stops) => {
               setActiveSettings({ colorCycleGradient: stops });
+
+              // Keep shared gradient in sync across all Color Cycle tools
+              setSharedColorCycleGradient(stops);
               
               // Update the active layer's gradient if it's a color-cycle layer
               const state = useAppStore.getState();

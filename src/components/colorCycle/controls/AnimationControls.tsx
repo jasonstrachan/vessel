@@ -10,11 +10,13 @@ export interface AnimationControlsProps {
   fps: number;
   cycleColors: number;
   flowDirection: 'forward' | 'reverse' | 'pingpong' | 'bounce';
+  mappingMode?: 'banded' | 'continuous';
   onToggleAnimation: () => void;
   onSpeedChange: (speed: number) => void;
   onFPSChange: (fps: number) => void;
   onCycleColorsChange: (cycleColors: number) => void;
   onFlowDirectionChange: (direction: 'forward' | 'reverse' | 'pingpong' | 'bounce') => void;
+  onMappingModeChange?: (mode: 'banded' | 'continuous') => void;
   disabled?: boolean;
 }
 
@@ -24,20 +26,25 @@ export const AnimationControls: React.FC<AnimationControlsProps> = ({
   fps,
   cycleColors,
   flowDirection,
+  mappingMode = 'banded',
   onToggleAnimation,
   onSpeedChange,
   onFPSChange,
   onCycleColorsChange,
   onFlowDirectionChange,
+  onMappingModeChange,
   disabled = false
 }) => {
   // Slider change handlers
   const handleSpeedChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    onSpeedChange(parseFloat(e.target.value));
+    // Use requestAnimationFrame to coalesce rapid input events for smoother dragging
+    const value = parseFloat(e.target.value);
+    requestAnimationFrame(() => onSpeedChange(value));
   }, [onSpeedChange]);
 
   const handleCycleColorsChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    onCycleColorsChange(parseInt(e.target.value, 10));
+    const value = parseInt(e.target.value, 10);
+    requestAnimationFrame(() => onCycleColorsChange(value));
   }, [onCycleColorsChange]);
 
   // FPS preset handler
@@ -193,6 +200,39 @@ export const AnimationControls: React.FC<AnimationControlsProps> = ({
           ))}
         </div>
       </div>
+
+      {/* Mapping Mode */}
+      {onMappingModeChange && (
+        <div className="space-y-2">
+          <label className="text-sm text-gray-400">Mapping</label>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { value: 'banded', label: 'Banded' },
+              { value: 'continuous', label: 'Continuous' }
+            ].map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onMappingModeChange(value as any)}
+                disabled={disabled}
+                className={`
+                  px-3 py-2 text-sm font-medium rounded-lg border transition-colors
+                  ${mappingMode === value
+                    ? 'bg-indigo-600 border-indigo-500 text-white'
+                    : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
+                  }
+                  ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+                `}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="text-xs text-gray-500">
+            Continuous uses full gradient; banded keeps {cycleColors} color steps.
+          </div>
+        </div>
+      )}
     </div>
   );
 };
