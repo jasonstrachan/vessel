@@ -14,6 +14,7 @@ import Tabs from "../ui/Tabs";
 import { drawTestSwatches } from "../../utils/drawTestSwatches";
 import { GradientEditor } from "../ui/GradientEditor";
 import { isStrokeBrush } from "../../utils/brushCategories";
+import { getPresetOptions as getRectGradientPresetOptions, getPresetStops } from "../../utils/gradientPresets";
 import { isColorCycleBrush, getShapeModeForBrush, setSharedColorCycleGradient } from "../../utils/colorCycleGradients";
 
 // Get access to drawing handlers via a context or ref - we'll need to create this
@@ -125,6 +126,7 @@ const BrushControls = () => {
         {/* Gradient Editor - positioned first to avoid overlap */}
         <div className="mb-4">
           <GradientEditor
+            sampleTarget="brush"
             stops={activeSettings.colorCycleGradient || [
               { position: 0.0, color: '#ff0000' },
               { position: 0.17, color: '#ff7f00' },
@@ -1188,7 +1190,60 @@ const BrushControls = () => {
   ) {
     return (
       <div className="p-4">
-        {/* Colors */}
+        {/* Gradient Source (Rectangle only): None = sample canvas, Presets = fixed list */}
+        {activeSettings.brushShape === BrushShape.RECTANGLE_GRADIENT && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+                Gradient
+              </label>
+              <Dropdown
+                value={activeSettings.rectGradientPresetId || 'none'}
+                options={[{ value: 'none', label: 'None' }, ...getRectGradientPresetOptions()]}
+                onChange={(value) => setActiveSettings({ rectGradientPresetId: value })}
+                renderOption={(option) => {
+                  if (option.value === 'none') {
+                    return (
+                      <div className="flex items-center gap-2 w-full">
+                        <span className="text-[#D9D9D9] text-xs">None</span>
+                      </div>
+                    );
+                  }
+                  const stops = getPresetStops(option.value) || [];
+                  const gradientCss = stops
+                    .map(s => `${s.color} ${Math.round(s.position * 100)}%`)
+                    .join(', ');
+                  return (
+                    <div className="flex items-center gap-2 w-full">
+                      <div
+                        className="flex-1 h-5 border border-[#666]"
+                        style={{ background: `linear-gradient(90deg, ${gradientCss})` }}
+                      />
+                    </div>
+                  );
+                }}
+                renderValue={(selected) => {
+                  if (!selected || selected.value === 'none') {
+                    return <span className="truncate">None</span>;
+                  }
+                  const stops = getPresetStops(selected.value) || [];
+                  const gradientCss = stops
+                    .map(s => `${s.color} ${Math.round(s.position * 100)}%`)
+                    .join(', ');
+                  return (
+                    <div
+                      className="h-5 w-full border border-[#666]"
+                      style={{ background: `linear-gradient(90deg, ${gradientCss})` }}
+                    />
+                  );
+                }}
+                className="flex-1"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Colors (final bands). Rectangle: 2-64; Polygon: 1-10 (unchanged) */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
@@ -1196,8 +1251,8 @@ const BrushControls = () => {
             </label>
             <ProgressSlider
               value={activeSettings.colors || 2}
-              min={1}
-              max={10}
+              min={activeSettings.brushShape === BrushShape.RECTANGLE_GRADIENT ? 2 : 1}
+              max={activeSettings.brushShape === BrushShape.RECTANGLE_GRADIENT ? 64 : 10}
               step={1}
               onChange={(value) =>
                 setActiveSettings({ colors: Math.round(value) })

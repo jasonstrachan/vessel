@@ -1,8 +1,11 @@
 import React from 'react';
+import { useAppStore } from '../../../stores/useAppStore';
+import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
 import type { EventHandlerDependencies, PointerHandlers } from '../utils/types';
 import { BrushShape } from '../../../types';
 import { floodFill } from '../../../utils/floodFill';
 import { detectWacomIssues, testWacomPressure } from '../../../utils/detectWacom';
+import { getPresetStops } from '../../../utils/gradientPresets';
 
 export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHandlers => {
   const {
@@ -105,6 +108,75 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     
     const scale = canvas?.zoom || 1;
     const worldPos = pan.screenToWorld(pointerPos.x, pointerPos.y, scale);
+
+    // Recolor/Brush sampling finalize (on second click as a fallback)
+    const rsUp = useAppStore.getState().recolorSampling;
+    if (rsUp.active && rsUp.start) {
+      const start = rsUp.start;
+      const end = { x: worldPos.x, y: worldPos.y };
+      const samples = Math.max(2, Math.min(32, rsUp.samples || 12));
+      const colors = sampleColorsAlongLine(start.x, start.y, end.x, end.y, samples);
+      const stops = colors.map((c, i) => ({ position: samples === 1 ? 0 : i / (samples - 1), color: cssColorToHex(c) }));
+      // Determine target (recolor layer vs brush settings)
+      const target = rsUp.target || 'recolor';
+
+      if (target === 'recolor') {
+        const layer = layers.find(l => l.id === activeLayerId);
+        if (layer) {
+          const manager = RecolorManager.getInstance();
+          (async () => {
+            try {
+              if (!layer.colorCycleData?.recolorSettings) {
+                const ok = await manager.processLayer(layer, {
+                  quantizationMode: 'rgb332',
+                  ditherMode: 'off',
+                  cycleColors: 16,
+                  gradientPreset: 'custom',
+                  customGradient: stops
+                });
+                if (!ok) throw new Error('processLayer failed');
+              } else {
+                manager.updateGradient(layer, stops);
+              }
+              // Remap palette index sequence to flow along sampled direction without changing pixel structure
+              const dx = end.x - start.x;
+              const dy = end.y - start.y;
+              const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+              try { manager.setPaletteDirectionalOrder(layer.id, angle); } catch {}
+              try { manager.autoSetAnimationDirection(layer.id, angle); } catch {}
+              } catch (e) {
+                console.warn('Failed to apply sampled gradient', e);
+              }
+          })();
+        }
+      } else {
+        // target === 'brush' -> update brush gradient settings directly
+        try {
+          useAppStore.getState().setBrushSettings({ colorCycleGradient: stops });
+        } catch {}
+      }
+
+      const overlayCanvas = overlayCanvasRef.current;
+      if (overlayCanvas) {
+        const overlayCtx = overlayCanvas.getContext('2d');
+        overlayCtx?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+      }
+      useAppStore.getState().stopRecolorSampling();
+      return;
+    }
+
+    // Recolor sampling: start point
+    const rs1 = useAppStore.getState().recolorSampling;
+    if (rs1.active) {
+      useAppStore.getState().updateRecolorSampling({ start: { x: worldPos.x, y: worldPos.y }, end: null });
+      // Clear overlay
+      const overlayCanvas = overlayCanvasRef.current;
+      if (overlayCanvas) {
+        const overlayCtx = overlayCanvas.getContext('2d');
+        overlayCtx?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+      }
+      return;
+    }
     
     // Check the state BEFORE dispatching - this is critical!
     const currentMode = stateMachine.state.mode;
@@ -277,15 +349,22 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
               const perpDist = Math.abs(-lineVecY * toMouseX + lineVecX * toMouseY);
               const width = perpDist * 2;
               
-              // Sample colors along the rectangle length
-              const numColors = tools.brushSettings.colors || 2;
-              const sampledColors = sampleColorsAlongLine(
-                currentRectState.startPos.x,
-                currentRectState.startPos.y,
-                currentRectState.endPos.x,
-                currentRectState.endPos.y,
-                numColors
-              );
+              // Determine colors: preset (resampled) or sampled from canvas
+              const numColors = Math.max(2, Math.min(64, tools.brushSettings.colors || 2));
+              let colorsForGradient: string[] = [];
+              const presetId = tools.brushSettings.rectGradientPresetId || 'none';
+              if (presetId !== 'none') {
+                const stops = getPresetStops(presetId) || [];
+                colorsForGradient = resampleStopsToColors(stops, numColors);
+              } else {
+                colorsForGradient = sampleColorsAlongLine(
+                  currentRectState.startPos.x,
+                  currentRectState.startPos.y,
+                  currentRectState.endPos.x,
+                  currentRectState.endPos.y,
+                  numColors
+                );
+              }
               
               // Draw the rectangle gradient (this is final, not preview)
               brushEngine.drawRectangleGradient(
@@ -295,7 +374,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
                 currentRectState.endPos.x,
                 currentRectState.endPos.y,
                 width,  // Use the calculated width, not currentRectState.width
-                sampledColors.length > 0 ? sampledColors : [tools.brushSettings.color],
+                colorsForGradient.length > 0 ? colorsForGradient : [tools.brushSettings.color],
                 false  // false = not preview, this is the final draw
               );
               
@@ -358,7 +437,67 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         }
       }
     }
-  };
+};
+
+// --- Helper functions for preset gradient resampling ---
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return m ? {
+    r: parseInt(m[1], 16),
+    g: parseInt(m[2], 16),
+    b: parseInt(m[3], 16)
+  } : { r: 0, g: 0, b: 0 };
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const toHex = (x: number) => x.toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+type Stop = { position: number; color: string };
+
+function interpolateStopColorAt(pos: number, stops: Stop[]): string {
+  if (!stops.length) return '#ffffff';
+  if (stops.length === 1) return stops[0].color;
+  let before = stops[0];
+  let after = stops[stops.length - 1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (pos >= stops[i].position && pos <= stops[i + 1].position) {
+      before = stops[i];
+      after = stops[i + 1];
+      break;
+    }
+  }
+  const range = after.position - before.position;
+  const t = range > 0 ? (pos - before.position) / range : 0;
+  const a = hexToRgb(before.color);
+  const b = hexToRgb(after.color);
+  const r = Math.round(a.r + (b.r - a.r) * t);
+  const g = Math.round(a.g + (b.g - a.g) * t);
+  const bl = Math.round(a.b + (b.b - a.b) * t);
+  return rgbToHex(r, g, bl);
+}
+
+function resampleStopsToColors(stops: Stop[], count: number): string[] {
+  const n = Math.max(2, count | 0);
+  const arr: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const t = n === 1 ? 0 : i / (n - 1);
+    arr.push(interpolateStopColorAt(t, stops));
+  }
+  return arr;
+}
+
+// Convert rgb(...) to #rrggbb
+function cssColorToHex(color: string): string {
+  if (color.startsWith('#')) return color;
+  const m = /rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/i.exec(color);
+  if (!m) return '#ffffff';
+  const r = Number(m[1]).toString(16).padStart(2, '0');
+  const g = Number(m[2]).toString(16).padStart(2, '0');
+  const b = Number(m[3]).toString(16).padStart(2, '0');
+  return `#${r}${g}${b}`;
+}
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
     // Throttle to 120fps max
@@ -373,6 +512,27 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     } : { x: 0, y: 0 };
     const scale = canvas?.zoom || 1;
     const worldPos = pan.screenToWorld(currentPointerPos.x, currentPointerPos.y, scale);
+
+    // Recolor sampling preview line
+    const rsMove = useAppStore.getState().recolorSampling;
+    if (rsMove.active && isMouseDownRef.current && rsMove.start) {
+      const overlayCanvas = overlayCanvasRef.current;
+      const overlayCtx = overlayCanvas?.getContext('2d');
+      if (overlayCtx && overlayCanvas) {
+        overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+        overlayCtx.save();
+        overlayCtx.translate(deps.viewTransformRef.current.offsetX, deps.viewTransformRef.current.offsetY);
+        overlayCtx.scale(deps.viewTransformRef.current.scale, deps.viewTransformRef.current.scale);
+        overlayCtx.strokeStyle = '#00d1b2';
+        overlayCtx.lineWidth = 2 / deps.viewTransformRef.current.scale;
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(rsMove.start.x, rsMove.start.y);
+        overlayCtx.lineTo(worldPos.x, worldPos.y);
+        overlayCtx.stroke();
+        overlayCtx.restore();
+      }
+      return;
+    }
     
     // Store pressure value (0-1, with 0.5 as default for mice)
     // For testing: Simulate pressure with mouse using Shift (low) and Ctrl (high)
@@ -618,15 +778,22 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
                   overlayCtx.translate(deps.viewTransformRef.current.offsetX, deps.viewTransformRef.current.offsetY);
                   overlayCtx.scale(deps.viewTransformRef.current.scale, deps.viewTransformRef.current.scale);
                   
-                  // Sample colors along the line
-                  const numColors = tools.brushSettings.colors || 2;
-                  const sampledColors = sampleColorsAlongLine(
-                    currentRectState.startPos.x,
-                    currentRectState.startPos.y,
-                    worldPos.x,
-                    worldPos.y,
-                    numColors
-                  );
+                  // Determine colors for length preview
+                  const numColorsLen = Math.max(2, Math.min(64, tools.brushSettings.colors || 2));
+                  let sampledColors: string[] = [];
+                  const presetIdLen = tools.brushSettings.rectGradientPresetId || 'none';
+                  if (presetIdLen !== 'none') {
+                    const stops = getPresetStops(presetIdLen) || [];
+                    sampledColors = resampleStopsToColors(stops, numColorsLen);
+                  } else {
+                    sampledColors = sampleColorsAlongLine(
+                      currentRectState.startPos.x,
+                      currentRectState.startPos.y,
+                      worldPos.x,
+                      worldPos.y,
+                      numColorsLen
+                    );
+                  }
                   
                   // Create gradient with sampled colors
                   const gradient = overlayCtx.createLinearGradient(
@@ -689,15 +856,22 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
                     overlayCtx.globalCompositeOperation = tools.currentTool === 'eraser' ? 
                       'destination-out' : (tools.brushSettings.blendMode || 'source-over');
                     
-                    // Sample colors for preview
-                    const numColors = tools.brushSettings.colors || 2;
-                    const sampledColors = sampleColorsAlongLine(
-                      startPos.x,
-                      startPos.y,
-                      endPos.x,
-                      endPos.y,
-                      numColors
-                    );
+                    // Determine colors for width preview
+                    const numColorsWid = Math.max(2, Math.min(64, tools.brushSettings.colors || 2));
+                    let sampledColors: string[] = [];
+                    const presetIdWid = tools.brushSettings.rectGradientPresetId || 'none';
+                    if (presetIdWid !== 'none') {
+                      const stops = getPresetStops(presetIdWid) || [];
+                      sampledColors = resampleStopsToColors(stops, numColorsWid);
+                    } else {
+                      sampledColors = sampleColorsAlongLine(
+                        startPos.x,
+                        startPos.y,
+                        endPos.x,
+                        endPos.y,
+                        numColorsWid
+                      );
+                    }
                     
                     // Create gradient for preview
                     const gradient = overlayCtx.createLinearGradient(startPos.x, startPos.y, endPos.x, endPos.y);
@@ -907,7 +1081,59 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     }
     
     const mousePos = getMousePos(event);
-    
+
+    // Recolor/Brush sampling finalize on drag-release
+    const rsFinalize = useAppStore.getState().recolorSampling;
+    if (rsFinalize.active && rsFinalize.start) {
+      const scaleFinalize = canvas?.zoom || 1;
+      const worldPosFinalize = pan.screenToWorld(mousePos.x, mousePos.y, scaleFinalize);
+      const startFinalize = rsFinalize.start;
+      const endFinalize = { x: worldPosFinalize.x, y: worldPosFinalize.y };
+      const samplesFinalize = Math.max(2, Math.min(32, rsFinalize.samples || 12));
+      const colorsFinalize = sampleColorsAlongLine(startFinalize.x, startFinalize.y, endFinalize.x, endFinalize.y, samplesFinalize);
+      const stopsFinalize = colorsFinalize.map((c, i) => ({ position: samplesFinalize === 1 ? 0 : i / (samplesFinalize - 1), color: cssColorToHex(c) }));
+      // Configure directional mapping so the gradient flows along the sampled path
+      const targetFinalize = rsFinalize.target || 'recolor';
+
+      if (targetFinalize === 'recolor') {
+        const layerFinalize = layers.find(l => l.id === activeLayerId);
+        if (layerFinalize) {
+          const managerFinalize = RecolorManager.getInstance();
+          (async () => {
+            try {
+              if (!layerFinalize.colorCycleData?.recolorSettings) {
+                const ok = await managerFinalize.processLayer(layerFinalize, {
+                  quantizationMode: 'rgb332',
+                  ditherMode: 'off',
+                  cycleColors: 16,
+                  gradientPreset: 'custom',
+                  customGradient: stopsFinalize
+                });
+                if (!ok) throw new Error('processLayer failed');
+              } else {
+                managerFinalize.updateGradient(layerFinalize, stopsFinalize);
+              }
+              // Remap palette index sequence to flow along sampled direction without changing pixel structure
+              const dxFinalize = endFinalize.x - startFinalize.x;
+              const dyFinalize = endFinalize.y - startFinalize.y;
+              const angleFinalize = (Math.atan2(dyFinalize, dxFinalize) * 180) / Math.PI;
+              try { managerFinalize.setPaletteDirectionalOrder(layerFinalize.id, angleFinalize); } catch {}
+              try { managerFinalize.autoSetAnimationDirection(layerFinalize.id, angleFinalize); } catch {}
+            } catch (e) {
+              console.warn('Failed to apply sampled gradient', e);
+            }
+          })();
+        }
+      } else {
+        try {
+          useAppStore.getState().setBrushSettings({ colorCycleGradient: stopsFinalize });
+        } catch {}
+      }
+
+      useAppStore.getState().stopRecolorSampling();
+      return;
+    }
+
     // SIMPLIFIED PANNING: End pan if we were panning
     if (pan.panState.isPanning) {
       pan.endPan();

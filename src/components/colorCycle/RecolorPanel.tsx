@@ -14,14 +14,14 @@ import { useRecolorState } from './hooks/useRecolorState';
 import { useRecolorShortcuts } from './hooks/useRecolorShortcuts';
 
 // Modular sub-components
-import { ModeToggle } from './controls/ModeToggle';
 import { GradientEditor } from '../ui/GradientEditor';
 import { useAppStore } from '../../stores/useAppStore';
 import { AnimationControls } from './controls/AnimationControls';
-import { QualityControls } from './controls/QualityControls';
-import { ExtractColorsDialog } from './dialogs/ExtractColorsDialog';
+import Button from '../ui/Button';
+import { Switch } from '../retroui/Switch';
+// Extract colors feature removed from UI
 import { ConfirmationDialog } from './dialogs/ConfirmationDialog';
-import { PerformanceIndicator } from './indicators/PerformanceIndicator';
+// Performance indicator removed from UI
 
 export interface RecolorPanelProps {
   activeLayer: Layer | null;
@@ -68,8 +68,18 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     fps: 30 as number,
     cycleColors: 16 as number,
     flowDirection: 'forward' as 'forward' | 'reverse' | 'pingpong' | 'bounce',
-    mappingMode: 'banded' as 'banded' | 'continuous'
+    mappingMode: 'banded' as 'banded' | 'continuous',
+    flowMapping: 'palette' as 'palette' | 'directional' | 'luminance'
   });
+  const [plannedGradient, setPlannedGradient] = useState<Array<{ position: number; color: string }>>([
+    { position: 0, color: '#ff0000' },
+    { position: 0.17, color: '#ff8000' },
+    { position: 0.33, color: '#ffff00' },
+    { position: 0.5, color: '#00ff00' },
+    { position: 0.67, color: '#0080ff' },
+    { position: 0.83, color: '#8000ff' },
+    { position: 1, color: '#ff0000' }
+  ]);
 
   // Keep planned settings synced with active recolor layer when available
   useEffect(() => {
@@ -79,10 +89,11 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
         fps: recolorSettings.animation.fps ?? 30,
         cycleColors: recolorSettings.cycleColors ?? 16,
         flowDirection: recolorSettings.animation.flowDirection ?? 'forward',
-        mappingMode: recolorSettings.mappingMode ?? 'banded'
+        mappingMode: recolorSettings.mappingMode ?? 'banded',
+        flowMapping: recolorSettings.flowMapping ?? 'palette'
       });
     }
-  }, [recolorSettings?.animation.speed, recolorSettings?.animation.fps, recolorSettings?.cycleColors, recolorSettings?.animation.flowDirection, recolorSettings?.mappingMode]);
+  }, [recolorSettings?.animation.speed, recolorSettings?.animation.fps, recolorSettings?.cycleColors, recolorSettings?.animation.flowDirection, recolorSettings?.mappingMode, recolorSettings?.flowMapping]);
 
   // Gradient presets for shortcuts (memoized to avoid dependency issues)
   const gradientPresets = useMemo(() => [
@@ -133,7 +144,8 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
         toggleAnimation();
       }
     },
-    extractColors: actions.showExtractDialog,
+    // Extract colors removed from UI
+    extractColors: () => {},
     speedUp: () => {
       if (activeLayer && recolorSettings) {
         const newSpeed = Math.min(2.0, recolorSettings.animation.speed + 0.1);
@@ -245,18 +257,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     }
   }, [activeLayer, processLayer, convertToNormal, toggleAnimation]);
 
-  const handleExtractDialogClose = useCallback((gradient?: Array<{ position: number; color: string }>) => {
-    actions.hideExtractDialog();
-    
-    if (gradient && activeLayer) {
-      updateGradient(activeLayer, gradient);
-      // Sync brush UI only when not in recolor tool to avoid brush-engine effects
-      const store = useAppStore.getState();
-      if (store.tools.currentTool !== 'recolor') {
-        store.setBrushSettings({ colorCycleGradient: gradient });
-      }
-    }
-  }, [activeLayer, updateGradient, actions]);
+  // Extract colors workflow removed from UI
 
   if (!isVisible) {
     return null;
@@ -264,19 +265,9 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
 
   return (
     <div className="recolor-panel w-full text-white p-2">
-      {/* Header */}
-      <div className="flex items-center mb-3">
-        <h3 className="text-lg font-semibold">Recolor and animate</h3>
-      </div>
+      {/* Header removed per request */}
 
-      {/* Mode Toggle */}
-      <div className="mb-3">
-        <ModeToggle
-          mode={state.mode}
-          onChange={handleModeChange}
-          disabled={state.isProcessing || !activeLayer}
-        />
-      </div>
+      {/* Apply-on-select UX: removed explicit convert button */}
 
       {/* Layer is controlled by the main Layers panel; no selector here */}
 
@@ -296,46 +287,44 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
       {/* Recolor Mode Controls (allow pre-configuration before conversion) */}
       {activeLayer && (
         <div className="space-y-4">
-          {/* Gradient Editor - only when recolor layer is active */}
-          {isRecolorEnabled && (
-            <div className="mb-2">
-              <GradientEditor
-                stops={recolorSettings?.gradient || []}
-                onChange={(stops) => {
-                  if (!activeLayer) return;
-                  // Update recolor layer gradient
+          {/* Gradient Editor - always visible; first selection applies conversion and plays */}
+          <div className="mb-2">
+            <GradientEditor
+              sampleTarget="recolor"
+              stops={isRecolorEnabled ? (recolorSettings?.gradient || []) : plannedGradient}
+              onChange={async (stops) => {
+                if (!activeLayer) return;
+                if (isRecolorEnabled) {
                   updateGradient(activeLayer, stops);
-                // Keep brush UI in sync without mutating layer state again.
-                // Avoid touching brush settings while in recolor tool to prevent brush-engine side effects.
+                } else {
+                  setPlannedGradient(stops);
+                  const ok = await processLayer(activeLayer, {
+                    quantizationMode: 'rgb332',
+                    ditherMode: 'off',
+                    cycleColors: plannedSettings.cycleColors,
+                    gradientPreset: 'custom',
+                    customGradient: stops
+                  });
+                  if (ok) {
+                    updateLayerSpeed(activeLayer.id, plannedSettings.speed);
+                    updateGlobalFPS(plannedSettings.fps);
+                    updateLayerFlowDirection(activeLayer.id, plannedSettings.flowDirection);
+                    updateLayerMappingMode(activeLayer.id, plannedSettings.mappingMode);
+                    // Auto-play on first apply
+                    toggleAnimation();
+                  }
+                }
                 const store = useAppStore.getState();
                 if (store.tools.currentTool !== 'recolor') {
                   store.setBrushSettings({ colorCycleGradient: stops });
                 }
-                }}
-              />
-            </div>
-          )}
+              }}
+            />
+          </div>
 
-          {/* Extract Colors (preserve feature) */}
-          <button
-            type="button"
-            onClick={actions.showExtractDialog}
-            disabled={!isRecolorEnabled}
-            className={`
-              w-full px-3 py-2 text-sm font-medium rounded-lg border transition-colors mb-2
-              ${!isRecolorEnabled
-                ? 'opacity-50 cursor-not-allowed bg-gray-700 border-gray-600 text-gray-300'
-                : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'}
-            `}
-          >
-            Extract from Layer
-          </button>
+          {/* Extract Colors UI removed */}
 
-          {!isRecolorEnabled && (
-            <div className="text-xs text-gray-400 -mt-1">
-              Settings below will apply after conversion.
-            </div>
-          )}
+          {/* Info text removed per request */}
 
           {/* Animation Controls */}
           <AnimationControls
@@ -345,6 +334,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
             cycleColors={isRecolorEnabled ? (recolorSettings?.cycleColors || 16) : plannedSettings.cycleColors}
             flowDirection={isRecolorEnabled ? (recolorSettings?.animation.flowDirection || 'forward') : plannedSettings.flowDirection}
             mappingMode={isRecolorEnabled ? (recolorSettings?.mappingMode || 'banded') : plannedSettings.mappingMode}
+            flowMapping={isRecolorEnabled ? (recolorSettings?.flowMapping || 'palette') : plannedSettings.flowMapping}
             onToggleAnimation={toggleAnimation}
             onSpeedChange={(speed) => {
               if (!activeLayer) return;
@@ -386,57 +376,62 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
                 setPlannedSettings((prev) => ({ ...prev, mappingMode: mode }));
               }
             }}
+            onFlowMappingChange={(mode) => {
+              if (!activeLayer) return;
+              actions.clearError();
+              if (isRecolorEnabled) {
+                // Use manager directly via state action
+                try {
+                  const manager = RecolorManager.getInstance();
+                  manager.setLayerFlowMapping(activeLayer.id, mode);
+                } catch (e) {
+                  console.warn('Failed to set flow mapping', e);
+                }
+              } else {
+                setPlannedSettings((prev) => ({ ...prev, flowMapping: mode }));
+              }
+            }}
             disabled={state.isProcessing || !activeLayer}
           />
 
-          {/* Advanced Controls Toggle */}
-          <button
-            onClick={actions.toggleAdvancedControls}
-            className="w-full text-left text-sm text-gray-400 hover:text-white flex items-center justify-between"
-          >
-            <span>Advanced Settings</span>
-            <span className={`transform transition-transform ${state.showAdvancedControls ? 'rotate-180' : ''}`}>
-              ▼
-            </span>
-          </button>
+          {/* Flow Tools */}
+          {isRecolorEnabled && (
+            <div className="mt-2 flex items-center gap-3">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  if (!activeLayer) return;
+                  try {
+                    const manager = RecolorManager.getInstance();
+                    manager.clearPaletteDirectionalOrder(activeLayer.id);
+                  } catch {}
+                }}
+                title="Revert to default palette flow order"
+              >
+                Reset Flow Order
+              </Button>
 
-          {/* Quality Controls (Advanced) */}
-          {state.showAdvancedControls && (
-            <QualityControls
-              quantizationMode={recolorSettings?.quantizationMode || 'rgb332'}
-              ditherMode={recolorSettings?.ditherMode || 'off'}
-              currentLOD={recolorSettings?.currentLOD || 'full'}
-              performanceMode={state.performanceMode}
-              quality={'balanced'}
-              useSpatialHash={true}
-              onQuantizationModeChange={(mode) => {
-                // Would trigger reprocessing
-                console.log('Quantization mode changed:', mode);
-              }}
-              onDitherModeChange={(mode) => {
-                // Would trigger reprocessing
-                console.log('Dither mode changed:', mode);
-              }}
-              onPerformanceModeChange={actions.setPerformanceMode}
-              onQualityChange={(quality) => {
-                console.log('Quality changed:', quality);
-              }}
-              onSpatialHashChange={(enabled) => {
-                console.log('Spatial hash changed:', enabled);
-              }}
-              disabled={!isRecolorEnabled}
-            />
+              <div className="flex items-center gap-2 text-sm">
+                <Switch
+                  id="smooth-flow-toggle"
+                  checked={(recolorSettings?.mappingMode || 'banded') === 'continuous'}
+                  onChange={(checked) => {
+                    if (!activeLayer) return;
+                    const mode = checked ? 'continuous' : 'banded';
+                    updateLayerMappingMode(activeLayer.id, mode);
+                  }}
+                />
+                <span>Smooth Flow</span>
+              </div>
+            </div>
           )}
+
+          {/* Advanced settings removed per request */}
         </div>
       )}
 
-      {/* Brush Mode Message */}
-      {state.mode === 'brush' && (
-        <div className="p-3 bg-gray-700 rounded text-sm text-gray-300">
-          <p>Brush mode: Paint with color cycling brushes.</p>
-          <p className="mt-1">Switch to <strong>Recolor</strong> mode to animate existing layers.</p>
-        </div>
-      )}
+      {/* Brush mode helper text removed per request */}
 
       {/* Enhanced No Active Layer Message */}
       {!activeLayer && (
@@ -484,24 +479,9 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
         </div>
       )}
 
-      {/* Performance Indicator */}
-      <div className="mt-4 pt-4 border-t border-gray-600">
-        <PerformanceIndicator
-          recolorManager={activeLayer ? RecolorManager.getInstance() : null}
-          compact={!state.showAdvancedControls}
-          performanceStats={performanceStats}
-        />
-      </div>
+      {/* Performance indicator removed per request */}
 
-      {/* Extract Colors Dialog */}
-      {state.showExtractDialog && activeLayer && (
-        <ExtractColorsDialog
-          layer={activeLayer}
-          isOpen={state.showExtractDialog}
-          onClose={handleExtractDialogClose}
-          recolorManager={RecolorManager.getInstance()}
-        />
-      )}
+      {/* Extract Colors Dialog removed */}
 
       {/* Confirmation Dialog */}
       <ConfirmationDialog

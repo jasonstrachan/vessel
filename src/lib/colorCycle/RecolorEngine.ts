@@ -137,6 +137,7 @@ export class RecolorEngine {
           cycleColors,
           gradient: [],
           mappingMode: 'banded',
+          flowMapping: 'palette',
           currentLOD: 'full',
           originalImageData: new ImageData(
             new Uint8ClampedArray(layer.imageData.data),
@@ -218,25 +219,43 @@ export class RecolorEngine {
       console.warn('[RecolorEngine] renderFrame: missing indexBuffer or palette');
       return null;
     }
-    
+
     const settings = layer.colorCycleData.recolorSettings;
     const currentTick = tick ?? settings.animation.currentTick;
     
     try {
-      // Create gradient LUT for current frame
-      const gradientLUT = this.buildGradientLUT(settings, currentTick);
-      
-      // Map indices to colors using LUT
-      if (!settings.indexBuffer) {
-        return null;
+      const width = layer.imageData!.width;
+      const height = layer.imageData!.height;
+
+      // Flow mapping branch: palette-index based vs. per-pixel phase based
+      const flowMapping = settings.flowMapping || 'palette';
+      let imageData: ImageData | null = null;
+
+      if (flowMapping === 'palette') {
+        // Existing path: build LUT over indices and map indexBuffer -> pixels
+        const gradientLUT = this.buildGradientLUT(settings, currentTick);
+        if (!settings.indexBuffer) return null;
+        imageData = this.mapIndicesToColors(
+          settings.indexBuffer,
+          gradientLUT,
+          width,
+          height
+        );
+      } else {
+        // Phase-based path: ensure phaseMap present, then index into LUT by phase
+        this.ensurePhaseMap(layer);
+        const phaseMap = settings.phaseMap;
+        if (!phaseMap) return null;
+
+        const gradientLUT = this.buildGradientLUT(settings, currentTick);
+        // Render using phase indices
+        const out = new ImageData(width, height);
+        const pixels32 = new Uint32Array(out.data.buffer);
+        for (let i = 0; i < phaseMap.length; i++) {
+          pixels32[i] = gradientLUT[phaseMap[i]];
+        }
+        imageData = out;
       }
-      
-      const imageData = this.mapIndicesToColors(
-        settings.indexBuffer,
-        gradientLUT,
-        layer.imageData!.width,
-        layer.imageData!.height
-      );
 
       // Preserve original alpha channel if available to avoid making index 0 fully transparent
       try {
@@ -258,6 +277,63 @@ export class RecolorEngine {
       console.error('[RecolorEngine] Error rendering frame:', error);
       return null;
     }
+  }
+
+  /**
+   * Ensure phase map is available for non-palette flow mappings
+   */
+  private ensurePhaseMap(layer: Layer): void {
+    const settings = layer.colorCycleData!.recolorSettings!;
+    const flowMapping = settings.flowMapping || 'palette';
+    if (flowMapping === 'palette') return;
+
+    const width = layer.imageData!.width;
+    const height = layer.imageData!.height;
+
+    // Rebuild if missing or size mismatch
+    if (!settings.phaseMap || settings.phaseMap.length !== width * height) {
+      if (flowMapping === 'directional') {
+        const angleDeg = Number.isFinite(settings.directionAngle) ? (settings.directionAngle as number) : 0;
+        const bandWidthPx = Number.isFinite(settings.bandWidthPx) && (settings.bandWidthPx as number) > 0 ? (settings.bandWidthPx as number) : 64;
+        settings.phaseMap = this.buildDirectionalPhaseMap(width, height, angleDeg, bandWidthPx);
+      } else if (flowMapping === 'luminance') {
+        const src = settings.originalImageData || layer.imageData!;
+        settings.phaseMap = this.buildLuminancePhaseMap(src);
+      }
+    }
+  }
+
+  private buildDirectionalPhaseMap(width: number, height: number, angleDeg: number, wavelengthPx: number): Uint8Array {
+    const map = new Uint8Array(width * height);
+    const theta = (angleDeg % 360) * Math.PI / 180;
+    const cos = Math.cos(theta);
+    const sin = Math.sin(theta);
+    const invWave = 1 / Math.max(1e-6, wavelengthPx);
+    let idx = 0;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++, idx++) {
+        const proj = x * cos + y * sin; // pixels along direction
+        let phase = proj * invWave; // cycles
+        phase = phase - Math.floor(phase); // 0..1
+        map[idx] = Math.max(0, Math.min(255, Math.floor(phase * 256))) as number;
+      }
+    }
+    return map;
+  }
+
+  private buildLuminancePhaseMap(img: ImageData): Uint8Array {
+    const map = new Uint8Array(img.width * img.height);
+    const data = img.data;
+    let idx = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      // Rec. 709 luma approximation
+      const luma = Math.max(0, Math.min(255, Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b)));
+      map[idx++] = luma;
+    }
+    return map;
   }
   
   /**
@@ -283,13 +359,14 @@ export class RecolorEngine {
       return t <= 1 ? t : (two - t);
     };
 
+    const indexPhaseMap: Uint8Array | undefined = settings?.indexPhaseMap;
     for (let i = 0; i < 256; i++) {
 
       // Map palette index into gradient position
       let pos: number;
       if (mappingMode === 'continuous') {
         // Sample continuously across full gradient range
-        const base = i / 255;
+        const base = indexPhaseMap ? (indexPhaseMap[i] / 255) : (i / 255);
         if (flow === 'pingpong' || flow === 'bounce') {
           pos = reflect01(base + normalizedShift);
         } else {
@@ -298,7 +375,13 @@ export class RecolorEngine {
         }
       } else {
         // Banded: compress into cycleColors distinct bands that march over time
-        const bandPos = (i % bands) / bands; // 0..1
+        let bandPos: number;
+        if (indexPhaseMap) {
+          const bandIndex = Math.max(0, Math.min(bands - 1, Math.floor((indexPhaseMap[i] / 255) * bands)));
+          bandPos = bandIndex / bands;
+        } else {
+          bandPos = (i % bands) / bands; // 0..1
+        }
         if (flow === 'pingpong' || flow === 'bounce') {
           pos = reflect01(bandPos + normalizedShift);
         } else {

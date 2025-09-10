@@ -14,6 +14,7 @@ interface DropdownProps {
   className?: string;
   renderOption?: (option: DropdownOption, isSelected: boolean, onClose: () => void) => React.ReactNode;
   onAction?: (action: string) => void;
+  renderValue?: (option: DropdownOption | null) => React.ReactNode;
 }
 
 const Dropdown: React.FC<DropdownProps> = ({
@@ -23,7 +24,8 @@ const Dropdown: React.FC<DropdownProps> = ({
   placeholder = "Select...",
   className = "",
   renderOption,
-  onAction
+  onAction,
+  renderValue
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -67,7 +69,9 @@ const Dropdown: React.FC<DropdownProps> = ({
         onClick={() => setIsOpen(!isOpen)}
         className="w-full bg-[#4a4a4a] text-[#D9D9D9] border border-[#5a5a5a] px-2 py-1 text-xs outline-none focus:outline-none focus:border-[#5a5a5a] flex items-center justify-between"
       >
-        <span>{selectedOption ? selectedOption.label : placeholder}</span>
+        <span className="flex-1 min-w-0 mr-2">
+          {renderValue ? renderValue(selectedOption || null) : (selectedOption ? selectedOption.label : placeholder)}
+        </span>
         <svg
           className={`w-3 h-3 ml-2 transition-transform ${isOpen ? 'rotate-180' : ''}`}
           fill="none"
@@ -80,7 +84,7 @@ const Dropdown: React.FC<DropdownProps> = ({
       
       {/* Dropdown menu */}
       {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-[#4a4a4a] border border-[#5a5a5a] shadow-lg max-h-64 overflow-y-auto">
+        <div className="absolute z-50 w-full mt-1 bg-[#4a4a4a] border border-[#5a5a5a] shadow-lg">
           {options.map((option) => {
             const isSelected = option.value === value;
             return (

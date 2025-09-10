@@ -70,7 +70,25 @@ export interface Layer {
       // Gradient configuration (for the cycling effect)
       cycleColors: number; // 8-256, default 16 (visible color bands)
       gradient: Array<{ position: number; color: string }>;
+      // Visual interpolation of gradient steps
       mappingMode?: 'banded' | 'continuous';
+
+      // Flow mapping determines how the gradient phase is chosen per pixel
+      // 'palette' = current behavior (by palette index)
+      // 'directional' = geometric sweep using angle + wavelength
+      // 'luminance' = phase from original pixel luminance
+      flowMapping?: 'palette' | 'directional' | 'luminance';
+
+      // Optional remap for palette-based flow: maps each palette index (0-255)
+      // to a phase 0-255 so the gradient sequence can follow a desired direction
+      // without altering the pixel index buffer structure.
+      indexPhaseMap?: Uint8Array;
+
+      // Parameters for directional mapping
+      directionAngle?: number; // degrees, 0 = left->right
+      bandWidthPx?: number;    // wavelength in pixels between repeating bands
+      // Cached per-pixel phase map (0-255) for non-palette mappings
+      phaseMap?: Uint8Array;
       
       // Performance optimization levels
       currentLOD: 'full' | 'half' | 'quarter';
@@ -321,6 +339,8 @@ export interface BrushSettings {
   };
   // Rectangle/Polygon gradient colors count
   colors?: number; // 1-10 for gradient brushes
+  // Rectangle gradient preset selection ('none' = sample from canvas)
+  rectGradientPresetId?: string;
   // Fill resolution for dither block size (1-32 pixels per block)
   fillResolution?: number; // 1-32 for dithering block size
   // Contour polygon settings

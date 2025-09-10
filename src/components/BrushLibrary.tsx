@@ -167,6 +167,8 @@ const BrushLibrary = () => {
   };
 
   const isPresetActive = (preset: BrushPreset): boolean => {
+    // When in Recolor and animate tool, suppress any brush selection highlight
+    if (tools.currentTool === 'recolor') return false;
     // REFACTOR: Robust check for active state
     if (preset.isCustomBrush) {
       const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
@@ -345,9 +347,7 @@ const BrushLibrary = () => {
                   </div>
                 )}
                 <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>Recolor and animate</span>
-                {tools.currentTool === 'recolor' && (
-                  <span className="ml-1 w-2 h-2 rounded-full bg-purple-300 animate-pulse" aria-hidden="true" />
-                )}
+                {/* Removed pulsing circle indicator for Recolor entry */}
               </div>
             </div>
           )}

@@ -273,6 +273,18 @@ interface AppState {
   setPolygonGradientState: (partialState: Partial<PolygonGradientState>) => void;
   addPolygonGradientPoint: (x: number, y: number, color: string) => void;
   clearPolygonGradientPoints: () => void;
+
+  // Recolor gradient sampling (draw-a-line) state
+  recolorSampling: {
+    active: boolean;
+    start?: { x: number; y: number } | null;
+    end?: { x: number; y: number } | null;
+    samples?: number; // number of colors to sample along line
+    target?: 'recolor' | 'brush'; // where to apply the sampled gradient
+  };
+  startRecolorSampling: (samples?: number, target?: 'recolor' | 'brush') => void;
+  updateRecolorSampling: (partial: Partial<AppState['recolorSampling']>) => void;
+  stopRecolorSampling: () => void;
   
   // UI State
   ui: UIState;
@@ -932,6 +944,7 @@ export const useAppStore = create<AppState>()(
           if (settings.shapeEnabled !== undefined) settingsToSave.shapeEnabled = newSettings.shapeEnabled;
           if (settings.antialiasing !== undefined) settingsToSave.antialiasing = newSettings.antialiasing;
           if (settings.colors !== undefined) settingsToSave.colors = newSettings.colors;
+          if (settings.rectGradientPresetId !== undefined) settingsToSave.rectGradientPresetId = newSettings.rectGradientPresetId;
           if (settings.continuousSampling !== undefined) settingsToSave.continuousSampling = newSettings.continuousSampling;
           if (settings.resampleInterval !== undefined) settingsToSave.resampleInterval = newSettings.resampleInterval;
           
@@ -1095,6 +1108,18 @@ export const useAppStore = create<AppState>()(
           points: [],
           previewPath: undefined
         }
+      })),
+
+      // Recolor/Brush gradient sampling state
+      recolorSampling: { active: false, start: null, end: null, samples: 8, target: 'recolor' },
+      startRecolorSampling: (samples, target) => set(() => ({
+        recolorSampling: { active: true, start: null, end: null, samples: samples ?? 8, target: target ?? 'recolor' }
+      })),
+      updateRecolorSampling: (partial) => set((state) => ({
+        recolorSampling: { ...state.recolorSampling, ...partial }
+      })),
+      stopRecolorSampling: () => set(() => ({
+        recolorSampling: { active: false, start: null, end: null, samples: 8, target: 'recolor' }
       })),
       
       // Canvas Reference

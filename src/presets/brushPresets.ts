@@ -72,6 +72,7 @@ export const defaultBrushSettings: BrushSettings = {
   ditherEnabled: false,
   fillResolution: 1,
   colors: 2, // Default to 2 colors for rectangle and polygon gradient brushes
+  rectGradientPresetId: 'none', // Default: sample from canvas for rectangle gradient
   contourSpacing: 4, // Default contour spacing (1-10)
   contourVariance: 5, // Default contour variance (0-10, medium variance)
   contourSmoothness: 0.5, // Default contour smoothness (0-5, low smoothness)

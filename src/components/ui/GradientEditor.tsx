@@ -1,5 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Dropdown from './Dropdown';
+import { useAppStore } from '../../stores/useAppStore';
+import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 
 interface GradientStop {
   position: number;
@@ -18,6 +20,9 @@ interface GradientEditorProps {
   stops: GradientStop[];
   onChange: (stops: GradientStop[]) => void;
   className?: string;
+  // When user chooses "+ Sample" in the dropdown, where should the sampled gradient apply?
+  // 'recolor' updates the active recolor layer; 'brush' updates the brush gradient.
+  sampleTarget?: 'recolor' | 'brush';
 }
 
 const defaultGradients: SavedGradient[] = [
@@ -103,8 +108,10 @@ const saveCustomGradients = (allGradients: SavedGradient[]) => {
 export const GradientEditor: React.FC<GradientEditorProps> = ({ 
   stops: initialStops, 
   onChange,
-  className = '' 
+  className = '',
+  sampleTarget = 'recolor'
 }) => {
+  const { startRecolorSampling, addNotification } = useAppStore();
   // Ensure all stops have opacity
   const normalizeStops = (stops: GradientStop[]) => 
     stops.map(s => ({ ...s, opacity: s.opacity ?? 1 }));
@@ -227,16 +234,46 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     onChange(newStops);
   }, [stops, onChange]);
 
-  const handleDeleteStop = useCallback((index: number) => {
-    if (stops.length <= 2) return; // Keep at least 2 stops
-    
-    const newStops = stops.filter((_, i) => i !== index);
-    setStops(newStops);
-    onChange(newStops);
-    setSelectedStop(null);
-  }, [stops, onChange]);
+  // Deleting stops via UI removed; keep logic minimal in component
 
   const handleGradientSelect = useCallback((gradientId: string) => {
+    // Special case: restore "Original" palette-derived gradient for the active recolor layer
+    if (gradientId === 'original') {
+      try {
+        const store = useAppStore.getState();
+        const activeLayer = store.layers.find(l => l.id === store.activeLayerId);
+        const palette = activeLayer?.colorCycleData?.recolorSettings?.palette;
+        if (palette && palette.length >= 2) {
+          // Build a reasonable number of stops from the palette (sample 16 evenly from indices 1..255)
+          const sampleCount = 16;
+          const newStops: GradientStop[] = [];
+          for (let i = 0; i < sampleCount; i++) {
+            const idx = 1 + Math.floor((i * (255 - 1)) / (sampleCount - 1));
+            const v = palette[idx] >>> 0; // ensure unsigned
+            const r = v & 0xff;
+            const g = (v >>> 8) & 0xff;
+            const b = (v >>> 16) & 0xff;
+            const hex = `#${r.toString(16).padStart(2, '0')}${g
+              .toString(16)
+              .padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+            newStops.push({ position: i / (sampleCount - 1), color: hex, opacity: 1 });
+          }
+          setStops(newStops);
+          onChange(newStops);
+          setSelectedGradientId('original');
+        } else {
+          // No palette available (e.g., not in recolor mode)
+          addNotification?.({
+            type: 'warning',
+            title: 'Original unavailable',
+            message: 'Select a recolor layer first to use its original colors.',
+            timestamp: new Date()
+          });
+        }
+      } catch {}
+      return;
+    }
+
     const gradient = savedGradients.find(g => g.id === gradientId);
     if (gradient) {
       const newStops = [...gradient.stops];
@@ -244,7 +281,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       onChange(newStops);
       setSelectedGradientId(gradientId);
     }
-  }, [savedGradients, onChange]);
+  }, [savedGradients, onChange, addNotification]);
 
   const handleAddGradient = useCallback(() => {
     const existingCustom = savedGradients.filter(g => g.name.startsWith('Custom '));
@@ -295,11 +332,11 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
 
   // Render gradient preview for dropdown option
   const renderGradientOption = useCallback((option: { value: string; label: string; isAction?: boolean }) => {
-    // Handle add button
+    // Handle action items: render label as-is (+ Add, + Sample)
     if (option.isAction) {
       return (
         <div className="flex items-center gap-2">
-          <span className="text-[#D9D9D9]">+ Add</span>
+          <span className="text-[#D9D9D9]">{option.label}</span>
         </div>
       );
     }
@@ -347,13 +384,58 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         <Dropdown
           value={selectedGradientId}
           options={[
+            { value: 'original', label: 'Original' },
             ...savedGradients.map(g => ({ value: g.id, label: g.name })),
-            { value: 'add', label: '+ Add', isAction: true }
+            { value: 'add', label: '+ Add', isAction: true },
+            { value: 'sample', label: '+ Sample', isAction: true }
           ]}
           onChange={handleGradientSelect}
-          onAction={handleAddGradient}
+          onAction={(action) => {
+            if (action === 'add') {
+              handleAddGradient();
+            } else if (action === 'sample') {
+              // Kick off recolor sampling mode; DrawingCanvas will capture a line
+              try {
+                startRecolorSampling(12, sampleTarget);
+                addNotification?.({ type: 'info', title: 'Sampling', message: 'Click and drag on the canvas to sample a gradient and flow direction.', timestamp: new Date() });
+              } catch {}
+            }
+          }}
           placeholder="Select gradient..."
-          renderOption={renderGradientOption}
+          renderOption={(option) => {
+            // Live preview for "Original" using active layer palette
+            if (option.value === 'original') {
+              try {
+                const store = useAppStore.getState();
+                const activeLayer = store.layers.find(l => l.id === store.activeLayerId);
+                const palette = activeLayer?.colorCycleData?.recolorSettings?.palette;
+                if (palette && palette.length >= 2) {
+                  // Build preview CSS by sampling more densely for a smooth bar
+                  const previewSamples = 24;
+                  const parts: string[] = [];
+                  for (let i = 0; i < previewSamples; i++) {
+                    const idx = 1 + Math.floor((i * (255 - 1)) / (previewSamples - 1));
+                    const v = palette[idx] >>> 0;
+                    const r = v & 0xff;
+                    const g = (v >>> 8) & 0xff;
+                    const b = (v >>> 16) & 0xff;
+                    const pos = (i / (previewSamples - 1)) * 100;
+                    parts.push(`rgba(${r}, ${g}, ${b}, 1) ${pos}%`);
+                  }
+                  return (
+                    <div className="flex items-center gap-2 w-full relative">
+                      <div
+                        className="flex-1 h-5 border border-[#666]"
+                        style={{ background: `linear-gradient(90deg, ${parts.join(', ')})` }}
+                      />
+                    </div>
+                  );
+                }
+              } catch {}
+              return option.label;
+            }
+            return renderGradientOption(option);
+          }}
         />
       </div>
 
@@ -419,18 +501,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         }}
       />
 
-      {/* Controls */}
-      <div className="flex justify-between text-xs text-[#888]">
-        <span>Click gradient to add stop</span>
-        {selectedStop !== null && stops.length > 2 && (
-          <button
-            className="text-[#ff6b6b] hover:text-[#ff8888]"
-            onClick={() => handleDeleteStop(selectedStop)}
-          >
-            Delete stop
-          </button>
-        )}
-      </div>
+      {/* Controls removed per request */}
     </div>
   );
 };
