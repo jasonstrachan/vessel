@@ -5,7 +5,7 @@
  * keyboard shortcuts, and real-time performance monitoring.
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Layer } from '../../types';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 
@@ -15,7 +15,6 @@ import { useRecolorShortcuts } from './hooks/useRecolorShortcuts';
 
 // Modular sub-components
 import { ModeToggle } from './controls/ModeToggle';
-import { LayerSelector } from './controls/LayerSelector';
 import { GradientEditor } from '../ui/GradientEditor';
 import { useAppStore } from '../../stores/useAppStore';
 import { AnimationControls } from './controls/AnimationControls';
@@ -25,19 +24,15 @@ import { ConfirmationDialog } from './dialogs/ConfirmationDialog';
 import { PerformanceIndicator } from './indicators/PerformanceIndicator';
 
 export interface RecolorPanelProps {
-  layers: Layer[];
   activeLayer: Layer | null;
   isVisible: boolean;
-  onLayerChange: (layer: Layer) => void;
   onClose?: () => void;
   onError?: (error: string) => void;
 }
 
 export const RecolorPanel: React.FC<RecolorPanelProps> = ({
-  layers,
   activeLayer,
   isVisible,
-  onLayerChange,
   onClose,
   onError
 }) => {
@@ -56,9 +51,8 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     updateGradient,
     updateGlobalFPS,
     performanceStats,
-    recolorableLayers,
     successMessage
-  } = useRecolorState(layers, activeLayer, {
+  } = useRecolorState(activeLayer, {
     initialMode: 'brush',
     onError
   });
@@ -68,6 +62,27 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
   const isRecolorEnabled = activeLayer?.colorCycleData?.mode === 'recolor' && recolorSettings;
   
   // debug log removed
+  // Planned (pre-conversion) animation settings so users can configure before applying
+  const [plannedSettings, setPlannedSettings] = useState({
+    speed: 0.4 as number,
+    fps: 30 as number,
+    cycleColors: 16 as number,
+    flowDirection: 'forward' as 'forward' | 'reverse' | 'pingpong' | 'bounce',
+    mappingMode: 'banded' as 'banded' | 'continuous'
+  });
+
+  // Keep planned settings synced with active recolor layer when available
+  useEffect(() => {
+    if (recolorSettings) {
+      setPlannedSettings({
+        speed: recolorSettings.animation.speed ?? 0.4,
+        fps: recolorSettings.animation.fps ?? 30,
+        cycleColors: recolorSettings.cycleColors ?? 16,
+        flowDirection: recolorSettings.animation.flowDirection ?? 'forward',
+        mappingMode: recolorSettings.mappingMode ?? 'banded'
+      });
+    }
+  }, [recolorSettings?.animation.speed, recolorSettings?.animation.fps, recolorSettings?.cycleColors, recolorSettings?.animation.flowDirection, recolorSettings?.mappingMode]);
 
   // Gradient presets for shortcuts (memoized to avoid dependency issues)
   const gradientPresets = useMemo(() => [
@@ -117,7 +132,6 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
         // If already in recolor mode, just toggle animation instead of converting back
         toggleAnimation();
       }
-      onLayerChange(activeLayer);
     },
     extractColors: actions.showExtractDialog,
     speedUp: () => {
@@ -164,7 +178,6 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     state.mode,
     processLayer,
     convertToNormal,
-    onLayerChange,
     actions,
     recolorSettings,
     updateLayerSpeed,
@@ -199,7 +212,6 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
         message: 'This will remove the recolor animation and convert the layer back to normal mode. This action cannot be undone.',
         action: async () => {
           await convertToNormal(activeLayer);
-          onLayerChange(activeLayer);
           setConfirmationDialog((prev) => ({ ...prev, isOpen: false }));
         }
       });
@@ -211,22 +223,27 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
       if (activeLayer.colorCycleData?.mode === 'recolor') {
         toggleAnimation();
       } else {
+        // Convert layer using any planned pre-conversion settings
         const ok = await processLayer(activeLayer, {
           quantizationMode: 'rgb332',
           ditherMode: 'off',
-          cycleColors: 16,
+          cycleColors: plannedSettings.cycleColors,
           gradientPreset: 'rainbow'
         });
-        // Auto-start animation after successful conversion
         if (ok) {
+          // Apply planned runtime settings immediately post-conversion
+          updateLayerSpeed(activeLayer.id, plannedSettings.speed);
+          updateGlobalFPS(plannedSettings.fps);
+          updateLayerFlowDirection(activeLayer.id, plannedSettings.flowDirection);
+          updateLayerMappingMode(activeLayer.id, plannedSettings.mappingMode);
+          // Auto-start animation after successful conversion
           toggleAnimation();
         }
       }
     } else {
       await convertToNormal(activeLayer);
     }
-    onLayerChange(activeLayer);
-  }, [activeLayer, processLayer, convertToNormal, onLayerChange, toggleAnimation]);
+  }, [activeLayer, processLayer, convertToNormal, toggleAnimation]);
 
   const handleExtractDialogClose = useCallback((gradient?: Array<{ position: number; color: string }>) => {
     actions.hideExtractDialog();
@@ -239,7 +256,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
         store.setBrushSettings({ colorCycleGradient: gradient });
       }
     }
-  }, [activeLayer, updateGradient, onLayerChange, actions]);
+  }, [activeLayer, updateGradient, actions]);
 
   if (!isVisible) {
     return null;
@@ -261,15 +278,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
         />
       </div>
 
-      {/* Layer Selector */}
-      <div className="mb-4">
-        <LayerSelector
-          layers={recolorableLayers}
-          activeLayer={activeLayer}
-          onLayerChange={onLayerChange}
-          mode={state.mode}
-        />
-      </div>
+      {/* Layer is controlled by the main Layers panel; no selector here */}
 
       {/* Processing Indicator with Enhanced Feedback */}
       {state.isProcessing && (
@@ -284,26 +293,28 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
         </div>
       )}
 
-      {/* Recolor Mode Controls */}
-      {state.mode === 'recolor' && activeLayer && (
+      {/* Recolor Mode Controls (allow pre-configuration before conversion) */}
+      {activeLayer && (
         <div className="space-y-4">
-          {/* Gradient Editor (shared with Color Cycle brushes) */}
-          <div className="mb-2">
-            <GradientEditor
-              stops={recolorSettings?.gradient || []}
-              onChange={(stops) => {
-                if (!activeLayer) return;
-                // Update recolor layer gradient
-                updateGradient(activeLayer, stops);
-              // Keep brush UI in sync without mutating layer state again.
-              // Avoid touching brush settings while in recolor tool to prevent brush-engine side effects.
-              const store = useAppStore.getState();
-              if (store.tools.currentTool !== 'recolor') {
-                store.setBrushSettings({ colorCycleGradient: stops });
-              }
-              }}
-            />
-          </div>
+          {/* Gradient Editor - only when recolor layer is active */}
+          {isRecolorEnabled && (
+            <div className="mb-2">
+              <GradientEditor
+                stops={recolorSettings?.gradient || []}
+                onChange={(stops) => {
+                  if (!activeLayer) return;
+                  // Update recolor layer gradient
+                  updateGradient(activeLayer, stops);
+                // Keep brush UI in sync without mutating layer state again.
+                // Avoid touching brush settings while in recolor tool to prevent brush-engine side effects.
+                const store = useAppStore.getState();
+                if (store.tools.currentTool !== 'recolor') {
+                  store.setBrushSettings({ colorCycleGradient: stops });
+                }
+                }}
+              />
+            </div>
+          )}
 
           {/* Extract Colors (preserve feature) */}
           <button
@@ -320,25 +331,62 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
             Extract from Layer
           </button>
 
+          {!isRecolorEnabled && (
+            <div className="text-xs text-gray-400 -mt-1">
+              Settings below will apply after conversion.
+            </div>
+          )}
+
           {/* Animation Controls */}
           <AnimationControls
             isPlaying={isAnimating}
-            speed={recolorSettings?.animation.speed || 0.4}
-            fps={recolorSettings?.animation.fps || 30}
-            cycleColors={recolorSettings?.cycleColors || 16}
-            flowDirection={recolorSettings?.animation.flowDirection || 'forward'}
-            mappingMode={recolorSettings?.mappingMode || 'banded'}
+            speed={isRecolorEnabled ? (recolorSettings?.animation.speed || 0.4) : plannedSettings.speed}
+            fps={isRecolorEnabled ? (recolorSettings?.animation.fps || 30) : plannedSettings.fps}
+            cycleColors={isRecolorEnabled ? (recolorSettings?.cycleColors || 16) : plannedSettings.cycleColors}
+            flowDirection={isRecolorEnabled ? (recolorSettings?.animation.flowDirection || 'forward') : plannedSettings.flowDirection}
+            mappingMode={isRecolorEnabled ? (recolorSettings?.mappingMode || 'banded') : plannedSettings.mappingMode}
             onToggleAnimation={toggleAnimation}
-            onSpeedChange={(speed) => activeLayer && updateLayerSpeed(activeLayer.id, speed)}
-            onFPSChange={updateGlobalFPS}
-            onCycleColorsChange={(cycleColors) => activeLayer && updateLayerCycleColors(activeLayer.id, cycleColors)}
-            onFlowDirectionChange={(direction) => activeLayer && updateLayerFlowDirection(activeLayer.id, direction)}
+            onSpeedChange={(speed) => {
+              if (!activeLayer) return;
+              if (isRecolorEnabled) {
+                updateLayerSpeed(activeLayer.id, speed);
+              } else {
+                setPlannedSettings((prev) => ({ ...prev, speed }));
+              }
+            }}
+            onFPSChange={(fps) => {
+              if (isRecolorEnabled) {
+                updateGlobalFPS(fps);
+              } else {
+                setPlannedSettings((prev) => ({ ...prev, fps }));
+              }
+            }}
+            onCycleColorsChange={(cycleColors) => {
+              if (!activeLayer) return;
+              if (isRecolorEnabled) {
+                updateLayerCycleColors(activeLayer.id, cycleColors);
+              } else {
+                setPlannedSettings((prev) => ({ ...prev, cycleColors }));
+              }
+            }}
+            onFlowDirectionChange={(direction) => {
+              if (!activeLayer) return;
+              if (isRecolorEnabled) {
+                updateLayerFlowDirection(activeLayer.id, direction);
+              } else {
+                setPlannedSettings((prev) => ({ ...prev, flowDirection: direction }));
+              }
+            }}
             onMappingModeChange={(mode) => {
               if (!activeLayer) return;
               actions.clearError();
-              updateLayerMappingMode(activeLayer.id, mode);
+              if (isRecolorEnabled) {
+                updateLayerMappingMode(activeLayer.id, mode);
+              } else {
+                setPlannedSettings((prev) => ({ ...prev, mappingMode: mode }));
+              }
             }}
-            disabled={!isRecolorEnabled}
+            disabled={state.isProcessing || !activeLayer}
           />
 
           {/* Advanced Controls Toggle */}
@@ -439,7 +487,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
       {/* Performance Indicator */}
       <div className="mt-4 pt-4 border-t border-gray-600">
         <PerformanceIndicator
-          recolorManager={recolorableLayers[0] ? RecolorManager.getInstance() : null}
+          recolorManager={activeLayer ? RecolorManager.getInstance() : null}
           compact={!state.showAdvancedControls}
           performanceStats={performanceStats}
         />

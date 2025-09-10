@@ -9,7 +9,6 @@ import { AppIntegration } from '../../../lib/colorCycle/integration/AppIntegrati
 import { RecolorPanel } from '../RecolorPanel';
 import { ColorCycleErrorBoundary } from '../error/ColorCycleErrorBoundary';
 import { AccessibilityProvider } from '../accessibility/AccessibilityProvider';
-import { Layer } from '../../../types';
 
 interface ColorCycleUIProps {
   isVisible?: boolean;
@@ -26,9 +25,8 @@ export const ColorCycleUI: React.FC<ColorCycleUIProps> = ({
   const [isBrowser, setIsBrowser] = useState(false);
 
   // App store selectors
-  const layers = useAppStore((state) => state.layers);
   const activeLayerId = useAppStore((state) => state.activeLayerId);
-  const setActiveLayer = useAppStore((state) => state.setActiveLayer);
+  const layers = useAppStore((state) => state.layers);
 
   // Find active layer
   const activeLayer = layers.find(layer => layer.id === activeLayerId) || null;
@@ -58,11 +56,6 @@ export const ColorCycleUI: React.FC<ColorCycleUIProps> = ({
 
     initializeIntegration();
   }, [isBrowser]);
-
-  // Handle layer changes
-  const handleLayerChange = useCallback((layer: Layer) => {
-    setActiveLayer(layer.id);
-  }, [setActiveLayer]);
 
   // Handle panel close
   const handleClose = useCallback(() => {
@@ -141,10 +134,8 @@ export const ColorCycleUI: React.FC<ColorCycleUIProps> = ({
       <AccessibilityProvider>
         <div className="color-cycle-ui">
           <RecolorPanel
-            layers={layers}
             activeLayer={activeLayer}
             isVisible={true}
-            onLayerChange={handleLayerChange}
             onClose={onToggleVisibility ? handleClose : undefined}
             onError={handlePanelError}
           />

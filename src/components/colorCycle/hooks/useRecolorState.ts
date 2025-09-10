@@ -7,6 +7,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../../../types';
+import { useAppStore } from '../../../stores/useAppStore';
 import { RecolorManager, RecolorOptions } from '../../../lib/colorCycle/RecolorManager';
 
 export interface RecolorState {
@@ -57,7 +58,6 @@ export interface UseRecolorStateReturn {
   
   // Performance monitoring
   performanceStats: any;
-  recolorableLayers: Layer[];
   
   // Success feedback
   successMessage: string | null;
@@ -65,7 +65,6 @@ export interface UseRecolorStateReturn {
 }
 
 export function useRecolorState(
-  layers: Layer[],
   activeLayer: Layer | null,
   options: UseRecolorStateOptions = {}
 ): UseRecolorStateReturn {
@@ -92,13 +91,8 @@ export function useRecolorState(
   const [performanceStats, setPerformanceStats] = useState<any>(null);
   const [isAnimating, setIsAnimating] = useState(false);
 
-  // Filter recolorable layers
-  const recolorableLayers = useMemo(() => {
-    return layers.filter(layer => {
-      const check = recolorManager.canProcessLayer(layer);
-      return check.canProcess;
-    });
-  }, [layers, recolorManager]);
+  // Access layers from the global store if needed by future logic
+  const layers = useAppStore((state) => state.layers);
 
   // Actions
   const actions = useMemo<RecolorActions>(() => ({
@@ -374,7 +368,6 @@ export function useRecolorState(
     updateGradient,
     updateGlobalFPS,
     performanceStats,
-    recolorableLayers,
     successMessage,
     showSuccess
   };

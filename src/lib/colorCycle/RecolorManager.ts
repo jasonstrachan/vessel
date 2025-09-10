@@ -398,17 +398,7 @@ export class RecolorManager {
     }
   }
 
-  /**
-   * Update gradient for a recolor layer
-   */
-  updateGradient(layer: Layer, gradient: Array<{ position: number; color: string }>): boolean {
-    if (layer.layerType !== 'color-cycle' || 
-        layer.colorCycleData?.mode !== 'recolor') {
-      return false;
-    }
-    
-    return this.engine.updateGradient(layer, gradient);
-  }
+  
   
   /**
    * Animation controls
@@ -532,6 +522,11 @@ export class RecolorManager {
    */
   updateGradient(layer: Layer, gradient: Array<{ position: number; color: string }>): boolean {
     try {
+      // Ensure this is a recolor layer
+      if (layer.layerType !== 'color-cycle' || layer.colorCycleData?.mode !== 'recolor') {
+        return false;
+      }
+
       const ok = this.engine.updateGradient(layer, gradient);
       if (ok) {
         try {

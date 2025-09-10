@@ -5,7 +5,7 @@
 - Modes:
   - Gradient Remap: Map each existing color to a position along a chosen gradient and animate through it.
   - Extract + Animate: Quantize and extract dominant colors from the layer to auto-generate a gradient; map pixels to those stops and animate.
-- UI: A control very similar to the current Color Cycle brush gradient dropdown with: preset gradients, Add New (+), and Extract From Layer.
+- UI: Use the shared `GradientEditor` (same as Color Cycle Stroke/Shape) with preset gradients, “+ Add”, and Extract From Layer. The older `GradientControls` is deprecated/removed.
 
 ## Objectives
 - Non-destructive recolor effect per layer (works on all existing pixels).
@@ -97,7 +97,7 @@ Recommended Path: Phase 1 implement CPU LUT with a cached per-pixel index buffer
 
 ## UI Spec (First Pass)
 - Component: `ColorCycleRecolorPanel`
-  - `GradientPicker` (existing) with presets + Add New.
+  - `GradientEditor` (shared) with presets + Add New.
   - `Extract From Layer` button.
   - `Mapping Basis` dropdown: Hue | Lightness | Luminance | Extracted Palette.
   - If Extracted:
@@ -151,4 +151,3 @@ Recommended Path: Phase 1 implement CPU LUT with a cached per-pixel index buffer
 - Undo/redo works for enabling, extracting, and editing gradients.
 - Performance is smooth at 1080p (>=30 FPS CPU path) and acceptable at 4K (>=24 FPS or throttled);
   optional GL path documented as future optimization.
-
