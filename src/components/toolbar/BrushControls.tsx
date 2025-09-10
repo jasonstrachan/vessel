@@ -9,6 +9,7 @@ import { BrushShape } from "../../types";
 import Input from "../ui/Input";
 import CustomSwitch from "../ui/CustomSwitch";
 import ProgressSlider from "../ui/ProgressSlider";
+// Using ProgressSlider to match pixel square brush opacity style
 import Dropdown from "../ui/Dropdown";
 import Tabs from "../ui/Tabs";
 import { drawTestSwatches } from "../../utils/drawTestSwatches";
@@ -174,9 +175,7 @@ const BrushControls = () => {
               min={0.1}
               max={1.0}
               step={0.01}
-              onChange={(value) =>
-                setActiveSettings({ colorCycleSpeed: value })
-              }
+              onChange={(value) => setActiveSettings({ colorCycleSpeed: value })}
               aria-label="Animation Speed"
               className="flex-1"
             />
@@ -194,9 +193,7 @@ const BrushControls = () => {
               min={15}
               max={60}
               step={5}
-              onChange={(value) =>
-                setActiveSettings({ colorCycleFPS: Math.round(value) })
-              }
+              onChange={(value) => setActiveSettings({ colorCycleFPS: Math.round(value) })}
               aria-label="Frames Per Second"
               className="flex-1"
             />
@@ -251,12 +248,11 @@ const BrushControls = () => {
               Opacity
             </label>
             <ProgressSlider
-              value={activeSettings.opacity * 100}
+              value={(activeSettings.opacity ?? 1) * 100}
               min={1}
               max={100}
-              onChange={(value) =>
-                setActiveSettings({ opacity: value / 100 })
-              }
+              step={1}
+              onChange={(value) => setActiveSettings({ opacity: value / 100 })}
               aria-label="Opacity"
               className="flex-1"
             />
@@ -274,9 +270,7 @@ const BrushControls = () => {
               min={1}
               max={40}
               step={1}
-              onChange={(value) =>
-                setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
-              }
+              onChange={(value) => setActiveSettings({ spacing: Math.max(1, Math.round(value)) })}
               aria-label="Spacing"
               className="flex-1"
             />
@@ -294,9 +288,7 @@ const BrushControls = () => {
               min={2}
               max={50}
               step={1}
-              onChange={(value) =>
-                setActiveSettings({ gradientBands: Math.round(value) })
-              }
+              onChange={(value) => setActiveSettings({ gradientBands: Math.round(value) })}
               aria-label="Gradient Bands (number of color steps)"
               className="flex-1"
             />
@@ -315,9 +307,7 @@ const BrushControls = () => {
               min={0}
               max={100}
               step={1}
-              onChange={(value) =>
-                setActiveSettings({ colorJitter: Math.round(value) })
-              }
+              onChange={(value) => setActiveSettings({ colorJitter: Math.round(value) })}
               aria-label="Color Jitter"
               className="flex-1"
             />

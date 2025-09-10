@@ -3,8 +3,8 @@
  */
 
 import React, { useCallback } from 'react';
-import { Slider } from '../../retroui/Slider';
 import Button from '../../ui/Button';
+import ProgressSlider from '../../ui/ProgressSlider';
 
 export interface AnimationControlsProps {
   isPlaying: boolean;
@@ -41,18 +41,6 @@ export const AnimationControls: React.FC<AnimationControlsProps> = ({
   onFlowMappingChange,
   disabled = false
 }) => {
-  // Slider change handlers
-  const handleSpeedChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    // Use requestAnimationFrame to coalesce rapid input events for smoother dragging
-    const value = parseFloat(e.target.value);
-    requestAnimationFrame(() => onSpeedChange(value));
-  }, [onSpeedChange]);
-
-  const handleCycleColorsChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseInt(e.target.value, 10);
-    requestAnimationFrame(() => onCycleColorsChange(value));
-  }, [onCycleColorsChange]);
-
   // FPS preset handler
   const handleFPSChange = useCallback((newFPS: number) => {
     onFPSChange(newFPS);
@@ -92,46 +80,39 @@ export const AnimationControls: React.FC<AnimationControlsProps> = ({
         </div>
       </div>
 
-      {/* Speed Control */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-sm text-gray-400">Speed</label>
-          <span className="text-sm text-gray-300">{speed.toFixed(1)}×</span>
+      {/* Speed Control - match pixel square brush opacity slider style */}
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            Speed
+          </label>
+          <ProgressSlider
+            value={speed}
+            min={0.1}
+            max={2.0}
+            step={0.1}
+            onChange={(value) => onSpeedChange(value)}
+            aria-label="Animation speed"
+            className="flex-1"
+          />
         </div>
-        <Slider
-          min={0.1}
-          max={2.0}
-          step={0.1}
-          value={[speed]}
-          onValueChange={(vals) => handleSpeedChange({
-            target: { value: String(vals[0]) }
-          } as any)}
-          disabled={disabled}
-          aria-label="Animation speed"
-          thumbColor="#3b82f6"
-        />
       </div>
 
-      {/* Cycle Colors Control */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-sm text-gray-400">Color Bands</label>
-          <span className="text-sm text-gray-300">{cycleColors}</span>
-        </div>
-        <Slider
-          min={8}
-          max={256}
-          step={8}
-          value={[cycleColors]}
-          onValueChange={(vals) => handleCycleColorsChange({
-            target: { value: String(vals[0]) }
-          } as any)}
-          disabled={disabled}
-          aria-label="Color bands"
-          thumbColor="#10b981"
-        />
-        <div className="text-xs text-gray-500">
-          More bands = smoother gradients, fewer bands = distinct color steps
+      {/* Color Bands Control - match pixel square brush opacity slider style */}
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            Color Bands
+          </label>
+          <ProgressSlider
+            value={cycleColors}
+            min={8}
+            max={256}
+            step={8}
+            onChange={(value) => onCycleColorsChange(value)}
+            aria-label="Color bands"
+            className="flex-1"
+          />
         </div>
       </div>
 
