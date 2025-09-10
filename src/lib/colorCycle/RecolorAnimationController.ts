@@ -176,6 +176,24 @@ export class RecolorAnimationController {
       return;
     }
     
+    // Defensive: ensure each layer has valid ImageData before starting
+    try {
+      for (const { layer } of Array.from(this.animatedLayers.values())) {
+        const settings = layer.colorCycleData?.recolorSettings;
+        if (!settings) continue;
+        const needsInit = !layer.imageData || !layer.imageData.data || layer.imageData.data.length === 0;
+        if (needsInit) {
+          const restored = settings.originalImageData || null;
+          if (restored) {
+            layer.imageData = restored;
+          } else {
+            const img = this.engine.renderFrame(layer, settings.animation.currentTick);
+            if (img) layer.imageData = img;
+          }
+        }
+      }
+    } catch {}
+
     this.isPlaying = true;
     this.lastFrameTime = performance.now();
     this.startAnimationLoop();
@@ -245,6 +263,24 @@ export class RecolorAnimationController {
       return;
     }
     
+    // Defensive: ensure each layer has valid ImageData before starting
+    try {
+      for (const { layer } of Array.from(this.animatedLayers.values())) {
+        const settings = layer.colorCycleData?.recolorSettings;
+        if (!settings) continue;
+        const needsInit = !layer.imageData || !layer.imageData.data || layer.imageData.data.length === 0;
+        if (needsInit) {
+          const restored = settings.originalImageData || null;
+          if (restored) {
+            layer.imageData = restored;
+          } else {
+            const img = this.engine.renderFrame(layer, settings.animation.currentTick);
+            if (img) layer.imageData = img;
+          }
+        }
+      }
+    } catch {}
+
     this.isPlaying = true;
     this.lastFrameTime = performance.now();
     this.startAnimationLoop();

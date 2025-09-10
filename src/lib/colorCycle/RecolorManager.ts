@@ -44,6 +44,14 @@ export class RecolorManager {
   private layerUpdateCallbacks: Set<(layer: Layer) => void> = new Set();
   private statsCallbacks: Set<(stats: any) => void> = new Set();
   
+  // Broadcast helpers
+  private broadcastAnimationState() {
+    try {
+      const isPlaying = this.isAnimating();
+      window.dispatchEvent(new CustomEvent('colorCycleAnimationState', { detail: { isPlaying, source: 'recolor' } }));
+    } catch {}
+  }
+  
   private constructor() {
     this.engine = new RecolorEngine();
     this.animationController = new RecolorAnimationController();
@@ -126,18 +134,25 @@ export class RecolorManager {
                   layer.imageData = captured;
                   return true;
                 }
+                // If captured is empty, still attach a blank ImageData so downstream
+                // processing has valid dimensions and can build index buffers.
+                try {
+                  layer.imageData = new ImageData(fb.width as number, fb.height as number);
+                  return true;
+                } catch {}
               }
             }
           } catch (e) {
             console.warn('[RecolorManager] Failed to capture imageData from framebuffer:', e);
           }
         }
-        return !!layer.imageData && layer.imageData.data.length > 0;
+        // As a last resort, if imageData exists (even empty), allow processing to continue
+        // so recolor can set up its buffers and accept gradients.
+        return !!layer.imageData;
       };
 
-      if (!ensureImageData()) {
-        throw new Error('Layer has no image data to process');
-      }
+      // Do not hard-fail here; ensureImageData will create a blank buffer as needed.
+      ensureImageData();
       
       // Set layer to color-cycle mode with recolor submode
       layer.layerType = 'color-cycle';
@@ -405,26 +420,32 @@ export class RecolorManager {
    */
   playAll(): void {
     this.animationController.playAll();
+    this.broadcastAnimationState();
   }
   
   playSingle(layerId: string): void {
     this.animationController.playSingle(layerId);
+    this.broadcastAnimationState();
   }
   
   stop(): void {
     this.animationController.stop();
+    this.broadcastAnimationState();
   }
   
   pause(): void {
     this.animationController.pause();
+    this.broadcastAnimationState();
   }
   
   resume(): void {
     this.animationController.resume();
+    this.broadcastAnimationState();
   }
   
   toggle(): void {
     this.animationController.toggle();
+    this.broadcastAnimationState();
   }
   
   /**
@@ -499,6 +520,41 @@ export class RecolorManager {
    */
   getStats(): any {
     return this.animationController.getStats();
+  }
+
+  /**
+   * Ensure a pre-converted recolor layer is registered with the animator
+   * If recolorSettings are missing, attempts to (re)process the layer using its stored gradient
+   */
+  async registerExistingLayer(layer: Layer): Promise<boolean> {
+    try {
+      if (!layer || layer.layerType !== 'color-cycle' || layer.colorCycleData?.mode !== 'recolor') {
+        return false;
+      }
+
+      // If the layer hasn't been processed (no settings/index), process using its current gradient
+      const hasSettings = !!layer.colorCycleData?.recolorSettings;
+      const hasIndex = !!layer.colorCycleData?.recolorSettings?.indexBuffer;
+      if (!hasSettings || !hasIndex) {
+        const gradient = layer.colorCycleData?.gradient;
+        await this.processLayer(layer, {
+          gradientPreset: gradient ? 'custom' : 'rainbow',
+          customGradient: gradient || undefined,
+          cycleColors: layer.colorCycleData?.recolorSettings?.cycleColors || 16
+        });
+      }
+
+      // Register with controller if not already present
+      this.animationController.registerLayer(layer);
+
+      // Render one frame so pixels are present before play
+      try { this.animationController.updateLayer(layer); } catch {}
+
+      return true;
+    } catch (e) {
+      console.warn('[RecolorManager] registerExistingLayer failed:', e);
+      return false;
+    }
   }
 
   /**

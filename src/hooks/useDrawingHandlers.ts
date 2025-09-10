@@ -1519,9 +1519,9 @@ export function useDrawingHandlers({
         const colorCycleBrush = colorCycleBrushManager.getBrush(layer.id);
         if (!colorCycleBrush) return;
         
-        // Only advance and render if this layer is actively animating
-        const shouldAnimate = !!layer.colorCycleData.isAnimating && colorCycleBrush.isPlaying && colorCycleBrush.isPlaying();
-        if (shouldAnimate) {
+        // Advance strictly when the store marks this layer as animating
+        // This ensures Pause reliably stops updates regardless of internal animator state.
+        if (layer.colorCycleData.isAnimating) {
           colorCycleBrush.updateAnimation();
           colorCycleBrush.renderDirectToCanvas(layer.colorCycleData.canvas, layer.id);
         }
@@ -1541,10 +1541,10 @@ export function useDrawingHandlers({
 
   // Start continuous color cycle animation (for when play button is pressed)
   const startContinuousColorCycleAnimation = useCallback(() => {
-    // CRITICAL: Only start animation for color-cycle layers
+    // CRITICAL: Only start animation for brush-based color-cycle layers
     const currentState = useAppStore.getState();
     const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
-    if (!activeLayer || activeLayer.layerType !== 'color-cycle') {
+    if (!activeLayer || activeLayer.layerType !== 'color-cycle' || activeLayer.colorCycleData?.mode === 'recolor') {
       // Silently skip animation for non-CC layers
       return;
     }
@@ -1611,11 +1611,15 @@ export function useDrawingHandlers({
       }
       // Mark as having content if color cycle has any strokes
       // This prevents the content from disappearing
+      try {
+        // Force a composite refresh so base layers are redrawn
+        window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
+      } catch {}
     }
     
-    // Resume the color cycle brush animation (don't toggle, just ensure it's playing)
+    // Resume the color cycle brush animation explicitly (avoid toggle side-effects)
     if (!brushEngine.isColorCycleAnimating()) {
-      brushEngine.toggleColorCycleAnimation();
+      (brushEngine as any).resumeColorCycleAnimation?.();
     }
     
     // Mark that the drawing canvas has content so it gets rendered
@@ -1657,8 +1661,8 @@ export function useDrawingHandlers({
             drawingCanvasHasContent.current = true;
           }
           
-          // Trigger main canvas redraw to composite the updated drawing canvas
-          window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
+          // Trigger main canvas to re-composite layers with updated CC canvases
+          window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
         }
         lastRenderTime = timestamp;
       }
@@ -1666,6 +1670,11 @@ export function useDrawingHandlers({
     
     // Start the animation
     continuousColorCycleAnimationRef.current = requestAnimationFrame(animateContinuousColorCycle);
+
+    // Broadcast unified animation state for brush-based CC
+    try {
+      window.dispatchEvent(new CustomEvent('colorCycleAnimationState', { detail: { isPlaying: true, source: 'brush' } }));
+    } catch {}
   }, [brushEngine, initDrawingCanvas, renderAllColorCycleLayers]);
   
   // Stop continuous color cycle animation AND pause it
@@ -1677,9 +1686,9 @@ export function useDrawingHandlers({
       continuousColorCycleAnimationRef.current = null;
     }
     
-    // Pause the brush animation (don't toggle, just ensure it's paused)
+    // Pause the brush animation explicitly (avoid toggle side-effects)
     if (brushEngine.isColorCycleAnimating()) {
-      brushEngine.toggleColorCycleAnimation();
+      (brushEngine as any).pauseColorCycleAnimation?.();
     }
     
     // Update store flag so composition/overlays stop advancing frames
@@ -1702,6 +1711,11 @@ export function useDrawingHandlers({
     // The canvas should retain the color cycle content so it can be composited
     // Only clear when starting a new stroke or when explicitly needed
     drawingCanvasHasContent.current = true; // Ensure content is marked as present
+
+    // Broadcast unified animation state for brush-based CC
+    try {
+      window.dispatchEvent(new CustomEvent('colorCycleAnimationState', { detail: { isPlaying: false, source: 'brush' } }));
+    } catch {}
   }, [brushEngine]);
   
   // Setter for feedback message callback

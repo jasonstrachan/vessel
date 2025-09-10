@@ -2934,8 +2934,8 @@ export const useAppStore = create<AppState>()(
             continue;
           }
           
-          // Phase 3: Handle color cycle layers directly
-          if (layer.layerType === 'color-cycle' && layer.colorCycleData?.canvas) {
+          // Phase 3: Handle color cycle brush layers directly (exclude recolor-mode)
+          if (layer.layerType === 'color-cycle' && layer.colorCycleData?.canvas && layer.colorCycleData?.mode !== 'recolor') {
             // Only render brush output into the layer canvas when animating.
             // Otherwise, respect the existing pixels (e.g., after undo/redo restore).
             const colorCycleBrushManager = getColorCycleBrushManager();

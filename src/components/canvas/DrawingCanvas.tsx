@@ -72,6 +72,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     if (tools.currentTool === 'fill') {
       return 'crosshair';
     }
+    // Recolor tool uses crosshair cursor (sampling only, no painting)
+    if (tools.currentTool === 'recolor') {
+      return 'crosshair';
+    }
     // Selection tool and custom selection use crosshair cursor
     if (tools.currentTool === 'selection' || tools.currentTool === 'custom') {
       return 'crosshair';

@@ -1546,6 +1546,10 @@ export const useBrushEngineSimplified = () => {
       });
       return null;
     }
+    // Do not initialize brush for recolor-mode layers
+    if (activeLayer.colorCycleData?.mode === 'recolor') {
+      return null;
+    }
     
     try {
       // Check if layer already has a color cycle brush
@@ -2053,6 +2057,37 @@ export const useBrushEngineSimplified = () => {
         }
       } else {
         colorCycleBrush.togglePlayPause();
+      }
+    },
+
+    // Explicit pause/resume to avoid unintended state resets when toggling
+    resumeColorCycleAnimation: () => {
+      // Ensure brush exists for the active CC layer
+      let colorCycleBrush = getActiveLayerColorCycleBrush();
+      if (!colorCycleBrush) {
+        colorCycleBrush = initializeColorCycleBrush();
+      }
+      if (colorCycleBrush) {
+        // If not animating at all, start; if paused, resume
+        if (!colorCycleBrush.isPlaying()) {
+          // startAnimation ensures callbacks are hooked without clearing buffers
+          colorCycleBrush.startAnimation();
+        } else {
+          // Already playing; nothing to do
+        }
+      }
+    },
+
+    pauseColorCycleAnimation: () => {
+      const colorCycleBrush = getActiveLayerColorCycleBrush();
+      if (colorCycleBrush) {
+        // Pause without clearing pixels or resetting buffers
+        if (colorCycleBrush.pause) {
+          colorCycleBrush.pause();
+        } else if (colorCycleBrush.stopAnimation) {
+          // Fallback if API surface differs
+          colorCycleBrush.stopAnimation();
+        }
       }
     },
     

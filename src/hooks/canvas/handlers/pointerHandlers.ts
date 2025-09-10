@@ -427,8 +427,17 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       }
       
       // Normal brush or shape mode
-      // BUT ONLY if we're not in pan mode and NOT using gradient/contour tools!
-      if (currentMode === 'IDLE' && !toolStateMachine.isRectangleGradient && !toolStateMachine.isPolygonGradient && !toolStateMachine.isColorCycleShape && !toolStateMachine.isContourPolygon) {
+      // BUT ONLY if we're not in pan mode, NOT using gradient/contour tools,
+      // AND the active tool actually supports painting (brush/eraser).
+      // This prevents painting while the 'recolor' tool is selected.
+      if (
+        currentMode === 'IDLE' &&
+        (tools.currentTool === 'brush' || tools.currentTool === 'eraser') &&
+        !toolStateMachine.isRectangleGradient &&
+        !toolStateMachine.isPolygonGradient &&
+        !toolStateMachine.isColorCycleShape &&
+        !toolStateMachine.isContourPolygon
+      ) {
         interaction.dispatch({ type: 'DRAWING_START', pressure });
         if (tools.shapeMode) {
           drawingHandlers.startShapeDrawing(worldPos, pressure);
@@ -1112,6 +1121,12 @@ function cssColorToHex(color: string): string {
                 if (!ok) throw new Error('processLayer failed');
               } else {
                 managerFinalize.updateGradient(layerFinalize, stopsFinalize);
+              }
+              // Auto-play the recolor animation for this layer after applying gradient
+              try {
+                managerFinalize.playSingle(layerFinalize.id);
+              } catch (e) {
+                console.warn('Failed to auto-play recolor animation:', e);
               }
               // Remap palette index sequence to flow along sampled direction without changing pixel structure
               const dxFinalize = endFinalize.x - startFinalize.x;

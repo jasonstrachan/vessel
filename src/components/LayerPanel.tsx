@@ -7,13 +7,19 @@ import { XIcon } from './icons/XIcon';
 import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
 import PlusButton from './ui/PlusButton';
 import { BrushShape } from '../types';
-import { setColorCycleAnimationHandlers, getColorCycleAnimationState, setColorCycleAnimationState } from './toolbar/BrushControls';
+import { setColorCycleAnimationHandlers, setColorCycleAnimationState } from './toolbar/BrushControls';
+import { RecolorManager } from '../lib/colorCycle/RecolorManager';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 
 const LayerPanel = () => {
   const [showOpacityPopover, setShowOpacityPopover] = React.useState<string | null>(null);
   const [draggedLayerId, setDraggedLayerId] = React.useState<string | null>(null);
-  const [isAnimating, setIsAnimating] = React.useState(() => getColorCycleAnimationState()); // Get initial state
+  // Derive brush-based animation from store flags
+  const brushAnimating = useAppStore(state => state.layers.some(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor' && !!l.colorCycleData?.isAnimating));
+  // External/global (recolor manager) state
+  const [externalIsPlaying, setExternalIsPlaying] = React.useState<boolean>(false);
+  // Effective combined state for UI
+  const isAnimating = brushAnimating || externalIsPlaying;
   const opacityButtonRef = React.useRef<{ [key: string]: HTMLButtonElement | null }>({});
   const opacityPopoverRef = React.useRef<HTMLDivElement>(null);
   // Direct subscriptions to avoid object creation in selectors
@@ -48,6 +54,22 @@ const LayerPanel = () => {
       removeLayer(layerId);
     }
   };
+
+  // Keep external/recolor play state in sync with unified animation event
+  React.useEffect(() => {
+    const handler = (e: Event) => {
+      try {
+        const ce = e as CustomEvent<{ isPlaying: boolean }>;
+        if (typeof ce.detail?.isPlaying === 'boolean') {
+          setExternalIsPlaying(ce.detail.isPlaying);
+        }
+      } catch {}
+    };
+    window.addEventListener('colorCycleAnimationState', handler as EventListener);
+    return () => {
+      window.removeEventListener('colorCycleAnimationState', handler as EventListener);
+    };
+  }, []);
 
   const handleToggleVisibility = (layerId: string) => {
     const layer = layers.find(l => l.id === layerId);
@@ -124,12 +146,7 @@ const LayerPanel = () => {
     setDraggedLayerId(null);
   };
 
-  // Sync animation state when brush changes or on mount
-  React.useEffect(() => {
-    console.log('[LayerPanel] Current brush shape:', brushShape);
-    console.log('[LayerPanel] Is Color Cycle?', brushShape === BrushShape.COLOR_CYCLE);
-    setIsAnimating(getColorCycleAnimationState());
-  }, [brushShape]);
+  // No local overrides; animation state comes from store + unified event
 
   return (
     <div className="">
@@ -253,24 +270,57 @@ const LayerPanel = () => {
       <div className="px-4 py-1 text-[10px] text-[#666]">
         Current brush: {brushShape || 'none'}
       </div>
-      {brushShape === BrushShape.COLOR_CYCLE && (
+      {/* Consolidated Color Cycle play/pause: controls brush and recolor animations */}
+      {true && (
         <div className="px-4 py-2 border-t border-[#404040]">
           <button
-            onClick={() => {
-              // Toggle animation state
+            onClick={async () => {
+              // Toggle desired state based on combined view
               const newIsAnimating = !isAnimating;
-              setIsAnimating(newIsAnimating);
-              setColorCycleAnimationState(newIsAnimating);
-              
-              // Get the handlers from BrushControls if available
-              const handlers = (window as any).colorCycleAnimationHandlers;
-              if (handlers) {
-                if (newIsAnimating) {
-                  handlers.startContinuousColorCycleAnimation();
-                } else {
-                  handlers.stopContinuousColorCycleAnimation();
+
+              // Brush-based color cycle (stroke/shape)
+              try {
+                setColorCycleAnimationState(newIsAnimating);
+                const handlers = (window as any).colorCycleAnimationHandlers;
+                if (handlers) {
+                  if (newIsAnimating) handlers.startContinuousColorCycleAnimation();
+                  else handlers.stopContinuousColorCycleAnimation();
                 }
-              }
+              } catch {}
+
+              // Recolor & animate layers (use pause/resume to avoid resetting state)
+              try {
+                const rm = RecolorManager.getInstance();
+                const state = useAppStore.getState();
+                // Register ALL recolor layers so play works regardless of active selection
+                if (newIsAnimating) {
+                  const recolorLayers = state.layers.filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode === 'recolor');
+                  await Promise.all(recolorLayers.map(l => rm.registerExistingLayer(l)));
+                }
+                if (newIsAnimating) {
+                  // Prefer resume so ticks and current frames continue smoothly
+                  rm.resume();
+                  // Fallback: if not actually animating, start playAll
+                  if (!rm.isAnimating()) rm.playAll();
+                } else {
+                  rm.pause();
+                }
+              } catch {}
+
+              // Update store flags for ALL brush-based color-cycle layers so rendering loop respects Pause/Play globally
+              try {
+                const st = useAppStore.getState();
+                st.layers
+                  .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor')
+                  .forEach(l => {
+                    st.updateLayer(l.id, {
+                      colorCycleData: {
+                        ...l.colorCycleData,
+                        isAnimating: newIsAnimating
+                      }
+                    } as any);
+                  });
+              } catch {}
             }}
             className="w-full h-8 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none"
           >

@@ -39,6 +39,12 @@ export const setColorCycleAnimationHandlers = (handlers: ColorCycleAnimationCont
 export const getColorCycleAnimationState = () => globalIsAnimating;
 export const setColorCycleAnimationState = (isAnimating: boolean) => {
   globalIsAnimating = isAnimating;
+  try {
+    // Unified broadcast so all UIs sync immediately
+    window.dispatchEvent(new CustomEvent('colorCycleAnimationState', {
+      detail: { isPlaying: isAnimating, source: 'brush' }
+    }));
+  } catch {}
 };
 
 const BrushControls = () => {

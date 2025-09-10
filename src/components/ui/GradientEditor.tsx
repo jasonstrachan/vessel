@@ -142,21 +142,25 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     }
   }, [stops, selectedGradientId]);
 
-  // Generate CSS gradient string with opacity
-  const gradientString = stops
-    .map(s => {
-      const opacity = s.opacity ?? 1;
-      const hex = s.color;
-      const r = parseInt(hex.slice(1, 3), 16);
-      const g = parseInt(hex.slice(3, 5), 16);
-      const b = parseInt(hex.slice(5, 7), 16);
-      return `rgba(${r}, ${g}, ${b}, ${opacity}) ${s.position * 100}%`;
-    })
-    .join(', ');
+  // Generate CSS gradient string with opacity (fallback transparent when no stops)
+  const gradientString = (stops.length > 0
+    ? stops
+        .map(s => {
+          const opacity = s.opacity ?? 1;
+          const hex = s.color;
+          const r = parseInt(hex.slice(1, 3), 16);
+          const g = parseInt(hex.slice(3, 5), 16);
+          const b = parseInt(hex.slice(5, 7), 16);
+          return `rgba(${r}, ${g}, ${b}, ${opacity}) ${s.position * 100}%`;
+        })
+        .join(', ')
+    : 'rgba(0,0,0,0) 0%, rgba(0,0,0,0) 100%');
 
   const handleStopClick = useCallback((index: number, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedStop(index);
+    // Ensure key events go to the gradient container
+    containerRef.current?.focus();
     
     // Directly trigger the native color picker
     if (colorInputRef.current) {
@@ -178,6 +182,8 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     e.preventDefault();
     setSelectedStop(index);
     setIsDragging(true);
+    // Ensure container receives keyboard events while dragging
+    containerRef.current?.focus();
   }, []);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -188,14 +194,12 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     const position = Math.max(0, Math.min(1, x / rect.width));
 
     const newStops = [...stops];
-    newStops[selectedStop].position = position;
-    
+    // Track the actual object being moved so selection stays with it
+    const movedStop = newStops[selectedStop];
+    movedStop.position = position;
     // Keep stops sorted by position
     newStops.sort((a, b) => a.position - b.position);
-    const newIndex = newStops.findIndex((s, i) => 
-      s.position === stops[selectedStop].position && 
-      s.color === stops[selectedStop].color
-    );
+    const newIndex = newStops.indexOf(movedStop);
     
     setSelectedStop(newIndex);
     setStops(newStops);
@@ -225,14 +229,32 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     const x = e.clientX - rect.left;
     const position = Math.max(0, Math.min(1, x / rect.width));
     
-    // Interpolate color at this position
-    const color = interpolateColor(position, stops);
-    
-    const newStops = [...stops, { position, color, opacity: 1 }];
+    // Interpolate color at this position (or use default when no stops yet)
+    const color = stops.length > 0 ? interpolateColor(position, stops) : '#ffffff';
+    const newStop = { position, color, opacity: 1 } as GradientStop;
+    const newStops = [...stops, newStop];
     newStops.sort((a, b) => a.position - b.position);
     setStops(newStops);
+    // Select the newly added stop
+    setSelectedStop(newStops.indexOf(newStop));
     onChange(newStops);
   }, [stops, onChange]);
+
+  // Keyboard: Delete/Backspace removes selected stop (keep at least 2)
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (selectedStop === null) return;
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+    e.preventDefault();
+
+    const index = selectedStop;
+    if (index < 0 || index >= stops.length) return;
+
+    const newStops = stops.filter((_, i) => i !== index);
+    const newSelected = newStops.length === 0 ? null : Math.min(index, newStops.length - 1);
+    setStops(newStops);
+    setSelectedStop(newSelected);
+    onChange(newStops);
+  }, [selectedStop, stops, onChange]);
 
   // Deleting stops via UI removed; keep logic minimal in component
 
@@ -451,11 +473,14 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         />
         {/* Gradient overlay */}
         <div 
-          className="relative h-8 border border-[#5a5a5a] cursor-pointer"
+          ref={containerRef}
+          tabIndex={0}
+          className="relative h-8 border border-[#5a5a5a] cursor-pointer focus:outline-none"
           style={{ 
             background: `linear-gradient(90deg, ${gradientString})` 
           }}
           onClick={handleAddStop}
+          onKeyDown={handleKeyDown}
         >
           {/* Gradient stops */}
           {stops.map((stop, index) => (

@@ -48,37 +48,7 @@ export const AnimationControls: React.FC<AnimationControlsProps> = ({
 
   return (
     <div className="animation-controls space-y-4">
-      <label className="block text-sm font-medium text-gray-300">
-        Animation
-      </label>
-
-      {/* Play/Pause Button */}
-      <div className="flex items-center gap-3">
-        <Button
-          type="button"
-          onClick={onToggleAnimation}
-          disabled={disabled}
-          title={isPlaying ? 'Stop animation (Space)' : 'Start animation (Space)'}
-          variant={isPlaying ? 'secondary' : 'primary'}
-          size="lg"
-          className="rounded-full w-12 h-12 p-0 flex items-center justify-center"
-        >
-          {isPlaying ? (
-            <span className="text-lg">⏸️</span>
-          ) : (
-            <span className="text-lg ml-1">▶️</span>
-          )}
-        </Button>
-        
-        <div className="flex-1">
-          <div className="text-sm font-medium text-gray-300">
-            {isPlaying ? 'Playing' : 'Paused'}
-          </div>
-          <div className="text-xs text-gray-400">
-            {speed}× speed, {fps} FPS, {cycleColors} colors
-          </div>
-        </div>
-      </div>
+      <label className="block text-sm font-medium text-gray-300">Animation</label>
 
       {/* Speed Control - match pixel square brush opacity slider style */}
       <div className="mb-2">

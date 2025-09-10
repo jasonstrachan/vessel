@@ -273,6 +273,17 @@ export function useRecolorState(
 
   // Update animation state periodically
   useEffect(() => {
+    // Immediate sync via unified event when any controller toggles state
+    const handler = (e: Event) => {
+      try {
+        const ce = e as CustomEvent<{ isPlaying: boolean }>;
+        if (typeof ce.detail?.isPlaying === 'boolean') {
+          setIsAnimating(ce.detail.isPlaying);
+        }
+      } catch {}
+    };
+    window.addEventListener('colorCycleAnimationState', handler as EventListener);
+
     const interval = setInterval(() => {
       const animating = recolorManager.isAnimating();
       if (animating !== isAnimating) {
@@ -280,7 +291,10 @@ export function useRecolorState(
       }
     }, 500);
 
-    return () => clearInterval(interval);
+    return () => {
+      window.removeEventListener('colorCycleAnimationState', handler as EventListener);
+      clearInterval(interval);
+    };
   }, [recolorManager, isAnimating]);
 
   // Update performance stats periodically during animation

@@ -5,7 +5,8 @@ import { useAppStore } from '../stores/useAppStore';
 import { Layer, BrushShape } from '../types';
 import { Eye, EyeOff, Plus } from 'lucide-react';
 import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
-import { getColorCycleAnimationState, setColorCycleAnimationState } from './toolbar/BrushControls';
+import { setColorCycleAnimationState } from './toolbar/BrushControls';
+import { RecolorManager } from '../lib/colorCycle/RecolorManager';
 // Removed floating color cycle panel integration; panel now lives in Brush Settings
 
 // Component to display color swatches for a layer
@@ -178,7 +179,26 @@ LayerItem.displayName = 'LayerItem';
 
 const MinimalLayerList = () => {
   const [dragOverLayerId, setDragOverLayerId] = useState<string | null>(null);
-  const [isAnimating, setIsAnimating] = useState(() => getColorCycleAnimationState());
+  // Derived animation state
+  const brushAnimating = useAppStore(state => state.layers.some(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor' && !!l.colorCycleData?.isAnimating));
+  const [externalIsPlaying, setExternalIsPlaying] = useState(false);
+  const isAnimating = brushAnimating || externalIsPlaying;
+
+  // Keep local play/pause UI in sync with unified animation state
+  useEffect(() => {
+    const handler = (e: Event) => {
+      try {
+        const ce = e as CustomEvent<{ isPlaying: boolean }>;
+        if (typeof ce.detail?.isPlaying === 'boolean') {
+          setExternalIsPlaying(ce.detail.isPlaying);
+        }
+      } catch {}
+    };
+    window.addEventListener('colorCycleAnimationState', handler as EventListener);
+    return () => {
+      window.removeEventListener('colorCycleAnimationState', handler as EventListener);
+    };
+  }, []);
   
   // Store subscriptions
   const layers = useAppStore(state => state.layers);
@@ -193,10 +213,7 @@ const MinimalLayerList = () => {
   const setActiveLayer = useAppStore(state => state.setActiveLayer);
   const reorderLayers = useAppStore(state => state.reorderLayers);
   
-  // Sync animation state when brush changes
-  useEffect(() => {
-    setIsAnimating(getColorCycleAnimationState());
-  }, [brushShape]);
+  // Remove local overrides; animation state comes from store + unified event
   
   // Generate gradient CSS for preview
   // Memoize gradient CSS generation to prevent recalculation on every render
@@ -451,18 +468,49 @@ const MinimalLayerList = () => {
       {/* Bottom Controls: Play/Pause for Color Cycle animation only */}
       <div className="border-t border-[#424242] p-2">
         <button
-          onClick={() => {
+          onClick={async () => {
             const newIsAnimating = !isAnimating;
-            setIsAnimating(newIsAnimating);
-            setColorCycleAnimationState(newIsAnimating);
-            const handlers = (window as any).colorCycleAnimationHandlers;
-            if (handlers) {
-              if (newIsAnimating) {
-                handlers.startContinuousColorCycleAnimation();
-              } else {
-                handlers.stopContinuousColorCycleAnimation();
+
+            // Brush-based color cycle (stroke/shape)
+            try {
+              setColorCycleAnimationState(newIsAnimating);
+              const handlers = (window as any).colorCycleAnimationHandlers;
+              if (handlers) {
+                if (newIsAnimating) handlers.startContinuousColorCycleAnimation();
+                else handlers.stopContinuousColorCycleAnimation();
               }
-            }
+            } catch {}
+
+            // Recolor & animate layers (use pause/resume to avoid resetting state)
+            try {
+              const rm = RecolorManager.getInstance();
+              const state = useAppStore.getState();
+              if (newIsAnimating) {
+                const recolorLayers = state.layers.filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode === 'recolor');
+                await Promise.all(recolorLayers.map(l => rm.registerExistingLayer(l)));
+              }
+              if (newIsAnimating) {
+                rm.resume();
+                if (!rm.isAnimating()) rm.playAll();
+              } else {
+                rm.pause();
+              }
+            } catch {}
+
+            // Update store flags for ALL brush-based CC layers so render loop respects Pause/Play globally
+            try {
+              const st = useAppStore.getState();
+              st.layers
+                .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor')
+                .forEach(l => {
+                  st.updateLayer(l.id, {
+                    colorCycleData: {
+                      ...l.colorCycleData,
+                      isAnimating: newIsAnimating
+                    }
+                  } as any);
+                });
+            } catch {}
           }}
           className="w-full h-7 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
         >
