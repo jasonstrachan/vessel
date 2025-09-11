@@ -370,6 +370,9 @@ export interface BrushSettings {
   spamFont?: string; // Font ID for spam brush text
   spamContentType?: string; // Type of spam content to use
   spamCustomText?: string; // Custom text to use instead of preset content
+  
+  // Shape gradient mode settings
+  shapeGradientMode?: 'contour' | 'mesh' | 'triangle'; // Mode for shape gradient brushes
 }
 
 export interface ComponentParams {

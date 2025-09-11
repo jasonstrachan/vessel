@@ -179,6 +179,7 @@ LayerItem.displayName = 'LayerItem';
 
 const MinimalLayerList = () => {
   const [dragOverLayerId, setDragOverLayerId] = useState<string | null>(null);
+  const [dragOverBottom, setDragOverBottom] = useState<boolean>(false);
   // Derived animation state
   const brushAnimating = useAppStore(state => state.layers.some(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor' && !!l.colorCycleData?.isAnimating));
   const [externalIsPlaying, setExternalIsPlaying] = useState(false);
@@ -346,10 +347,12 @@ const MinimalLayerList = () => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     setDragOverLayerId(layerId);
+    if (dragOverBottom) setDragOverBottom(false);
   };
   
   const handleDragLeave = () => {
     setDragOverLayerId(null);
+    setDragOverBottom(false);
   };
   
   const handleDrop = (e: React.DragEvent, targetLayerId: string) => {
@@ -368,6 +371,29 @@ const MinimalLayerList = () => {
       }
     }
     
+    setDragOverLayerId(null);
+    setDragOverBottom(false);
+  };
+
+  // Bottom drop zone handlers (drop at very bottom of stack)
+  const handleDragOverBottom = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverBottom(true);
+    if (dragOverLayerId) setDragOverLayerId(null);
+  };
+
+  const handleDropBottom = (e: React.DragEvent) => {
+    e.preventDefault();
+    const draggedId = e.dataTransfer.getData('text/plain');
+    if (draggedId) {
+      const originalDraggedIndex = layers.findIndex(l => l.id === draggedId);
+      if (originalDraggedIndex !== -1) {
+        // Destination index 0 = absolute bottom of stack
+        reorderLayers(originalDraggedIndex, 0);
+      }
+    }
+    setDragOverBottom(false);
     setDragOverLayerId(null);
   };
   
@@ -487,6 +513,13 @@ const MinimalLayerList = () => {
               </div>
             );
           })}
+          {/* Bottom drop sentinel: allows dropping below the last item */}
+          <div
+            className={`h-3 ${dragOverBottom ? 'border-t-2 border-blue-400' : ''}`}
+            onDragOver={handleDragOverBottom}
+            onDragLeave={() => setDragOverBottom(false)}
+            onDrop={handleDropBottom}
+          />
         </div>
       </div>
       

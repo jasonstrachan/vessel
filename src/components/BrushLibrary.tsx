@@ -159,11 +159,11 @@ const BrushLibrary = () => {
   };
   
   const handlePresetClick = (preset: BrushPreset) => {
-    
-    // Always allow normal brush selection - editing mode doesn't prevent switching brushes
-    setBrushPreset(preset, true); // preserveEditMode = true to keep editor open if active
-    // Also switch to Brush tool when any brush is selected
+    // Switch to Brush tool first to avoid any chance of preset
+    // application being overwritten by a subsequent tool change.
     setCurrentTool('brush');
+    // Then apply the selected preset (preserve edit mode if active)
+    setBrushPreset(preset, true);
   };
 
   const isPresetActive = (preset: BrushPreset): boolean => {

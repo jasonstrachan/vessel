@@ -76,7 +76,8 @@ export const defaultBrushSettings: BrushSettings = {
   contourSpacing: 4, // Default contour spacing (1-10)
   contourVariance: 5, // Default contour variance (0-10, medium variance)
   contourSmoothness: 0.5, // Default contour smoothness (0-5, low smoothness)
-  colorCycleFillMode: 'concentric' // Default to concentric fill for Color Cycle Shape
+  colorCycleFillMode: 'concentric', // Default to concentric fill for Color Cycle Shape
+  shapeGradientMode: 'contour' // Default to contour mode for shape gradient brushes
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect
@@ -379,6 +380,10 @@ export const colorCycleStrokeBrushPreset: BrushPreset = {
     colorCycleSpeed: 0.1,
     colorCycleFPS: 30,
     gradientBands: 12, // Number of distinct color bands in strokes
+    // Ensure pressure is enabled with sensible defaults for CC strokes
+    pressureEnabled: true,
+    minPressure: 50,
+    maxPressure: 200,
     colorCycleGradient: [
       { position: 0.0, color: '#ff0000' },
       { position: 0.17, color: '#ff7f00' },
@@ -442,6 +447,10 @@ export const colorCycleShapeBrushPreset: BrushPreset = {
     colorCycleSpeed: 0.1,
     colorCycleFPS: 30,
     gradientBands: 26,
+    // Enable pressure by default for consistency when drawing shapes
+    pressureEnabled: true,
+    minPressure: 50,
+    maxPressure: 200,
     colorCycleGradient: [
       { position: 0.0, color: '#ff0000' },
       { position: 0.17, color: '#ff7f00' },

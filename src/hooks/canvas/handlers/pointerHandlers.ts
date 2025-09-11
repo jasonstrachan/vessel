@@ -277,7 +277,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       strokeStartWorldPosRef.current = worldPos;
       lastBrushSampleWorldPosRef.current = worldPos;
       shiftAnchorWorldPosRef.current = event.shiftKey ? worldPos : null;
-      try { console.log('[SNAP] shape stroke start', { worldPos, shift: event.shiftKey, strokeStartWorldPos: strokeStartWorldPosRef.current, shiftAnchorWorldPos: shiftAnchorWorldPosRef.current }); } catch {}
+      debugLog('snap', 'shape stroke start', { worldPos, shift: event.shiftKey, strokeStartWorldPos: strokeStartWorldPosRef.current, shiftAnchorWorldPos: shiftAnchorWorldPosRef.current });
 
       interaction.dispatch({ type: 'DRAWING_START', pressure });
       drawingHandlers.startShapeDrawing(worldPos, pressure);
@@ -306,7 +306,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       strokeStartWorldPosRef.current = worldPos;
       lastBrushSampleWorldPosRef.current = worldPos;
       shiftAnchorWorldPosRef.current = event.shiftKey ? worldPos : null;
-      try { console.log('[SNAP] brush stroke start', { worldPos, shift: event.shiftKey, strokeStartWorldPos: strokeStartWorldPosRef.current, shiftAnchorWorldPos: shiftAnchorWorldPosRef.current }); } catch {}
+      debugLog('snap', 'brush stroke start', { worldPos, shift: event.shiftKey, strokeStartWorldPos: strokeStartWorldPosRef.current, shiftAnchorWorldPos: shiftAnchorWorldPosRef.current });
 
       // Use the existing drawing system with brush engine
       interaction.dispatch({ type: 'DRAWING_START', pressure });
@@ -678,13 +678,11 @@ function cssColorToHex(color: string): string {
 
     // Quick visibility: show when Shift is held during drawing
     if (interaction.state.isDrawing && event.shiftKey) {
-      try {
-        console.log('[SNAP] move shift held', {
-          isShape: tools.shapeMode && drawingHandlers.isDrawingShapeRef.current,
-          hasAnchor: !!(shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current),
-          anchor: shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current || null
-        });
-      } catch {}
+      debugLog('snap', 'move shift held', {
+        isShape: tools.shapeMode && drawingHandlers.isDrawingShapeRef.current,
+        hasAnchor: !!(shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current),
+        anchor: shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current || null
+      });
     }
 
     // Unified coalesced handling below covers both brush and shape drawing (with snapping)
@@ -723,7 +721,7 @@ function cssColorToHex(color: string): string {
     
     // If Shift is currently not held, allow re-anchoring the next time it's pressed during this stroke
     if (!event.shiftKey && interaction.state.isDrawing) {
-      if (shiftAnchorWorldPosRef.current) { try { console.log('[SNAP] shift released -> clear anchor'); } catch {} }
+      if (shiftAnchorWorldPosRef.current) { debugLog('snap', 'shift released -> clear anchor'); }
       shiftAnchorWorldPosRef.current = null;
     }
 
@@ -747,7 +745,7 @@ function cssColorToHex(color: string): string {
             // If Shift was pressed mid-stroke, anchor to the last sampled point
             if (!shiftAnchorWorldPosRef.current) {
               shiftAnchorWorldPosRef.current = lastBrushSampleWorldPosRef.current || coalescedWorldPos;
-              try { console.log('[SNAP] set mid-stroke anchor (coalesced)', { anchor: shiftAnchorWorldPosRef.current, lastBrushSampleWorldPos: lastBrushSampleWorldPosRef.current }); } catch {}
+              debugLog('snap', 'set mid-stroke anchor (coalesced)', { anchor: shiftAnchorWorldPosRef.current, lastBrushSampleWorldPos: lastBrushSampleWorldPosRef.current });
             }
             if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
               const pts = drawingHandlers.shapePointsRef?.current || [];
@@ -755,14 +753,14 @@ function cssColorToHex(color: string): string {
                 const anchor = pts[pts.length - 1];
                 const before = coalescedWorldPos;
                 coalescedWorldPos = snapPointToAngle(anchor, coalescedWorldPos, 45);
-                try { console.log('[SNAP] coalesced shape', { anchor, before, after: coalescedWorldPos }); } catch {}
+                debugLog('snap', 'coalesced shape', { anchor, before, after: coalescedWorldPos });
               }
             } else if (!tools.shapeMode) {
               const anchor = shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current;
               if (anchor) {
                 const before = coalescedWorldPos;
                 coalescedWorldPos = snapPointToAngle(anchor, coalescedWorldPos, 45);
-                try { console.log('[SNAP] coalesced brush', { anchor, before, after: coalescedWorldPos }); } catch {}
+                debugLog('snap', 'coalesced brush', { anchor, before, after: coalescedWorldPos });
               }
             }
           }
@@ -961,7 +959,7 @@ function cssColorToHex(color: string): string {
           if (start) {
             const before = rgWorld;
             rgWorld = snapPointToAngle(start, worldPos, 45);
-            try { console.log('[SNAP] rectangle length', { start, before, after: rgWorld }); } catch {}
+            debugLog('snap', 'rectangle length', { start, before, after: rgWorld });
           }
         }
         const previewType = toolStateMachine.handleRectangleGradientMouseMove(rgWorld);
@@ -1128,7 +1126,7 @@ function cssColorToHex(color: string): string {
             const anchor = points[points.length - 1];
             const before = previewWorld;
             previewWorld = snapPointToAngle(anchor, previewWorld, 45);
-            try { console.log('[SNAP] polygon preview', { anchor, before, after: previewWorld }); } catch {}
+            debugLog('snap', 'polygon preview', { anchor, before, after: previewWorld });
           }
         }
         const shouldShowPreview = (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon)
@@ -1156,10 +1154,10 @@ function cssColorToHex(color: string): string {
                 overlayCtx.translate(deps.viewTransformRef.current.offsetX, deps.viewTransformRef.current.offsetY);
                 overlayCtx.scale(deps.viewTransformRef.current.scale, deps.viewTransformRef.current.scale);
                 
-                // Build preview vertices including current (optionally snapped) mouse position
-                const previewVertices = buildPreviewVertices(points as any, { x: previewWorld.x, y: previewWorld.y });
+                const pts = points as any as { x: number; y: number }[];
+                const vertexCount = pts.length + 1; // include preview point
                 
-                if (previewVertices.length >= 3) {
+                if (vertexCount >= 3) {
                   // For all shape types, show appropriate preview
                   if (toolStateMachine.isContourPolygon) {
                     // Use solid color for contour polygon preview
@@ -1176,10 +1174,23 @@ function cssColorToHex(color: string): string {
                     overlayCtx.globalAlpha = 0.4; // Semi-transparent preview
                   } else {
                     // For regular polygon gradient, show gradient preview
-                    const minX = Math.min(...previewVertices.map((v: any) => v.x));
-                    const minY = Math.min(...previewVertices.map((v: any) => v.y));
-                    const maxX = Math.max(...previewVertices.map((v: any) => v.x));
-                    const maxY = Math.max(...previewVertices.map((v: any) => v.y));
+                    // Compute bounding box without allocating arrays
+                    let minX = pts[0].x;
+                    let minY = pts[0].y;
+                    let maxX = pts[0].x;
+                    let maxY = pts[0].y;
+                    for (let i = 1; i < pts.length; i++) {
+                      const p = pts[i];
+                      if (p.x < minX) minX = p.x;
+                      if (p.y < minY) minY = p.y;
+                      if (p.x > maxX) maxX = p.x;
+                      if (p.y > maxY) maxY = p.y;
+                    }
+                    // Include current preview point
+                    if (previewWorld.x < minX) minX = previewWorld.x;
+                    if (previewWorld.y < minY) minY = previewWorld.y;
+                    if (previewWorld.x > maxX) maxX = previewWorld.x;
+                    if (previewWorld.y > maxY) maxY = previewWorld.y;
                     const width = maxX - minX;
                     const height = maxY - minY;
                     
@@ -1219,10 +1230,12 @@ function cssColorToHex(color: string): string {
 
                   // Draw polygon preview - stroke for color cycle, fill for others
                   overlayCtx.beginPath();
-                  overlayCtx.moveTo(previewVertices[0].x, previewVertices[0].y);
-                  for (let i = 1; i < previewVertices.length; i++) {
-                    overlayCtx.lineTo(previewVertices[i].x, previewVertices[i].y);
+                  overlayCtx.moveTo(pts[0].x, pts[0].y);
+                  for (let i = 1; i < pts.length; i++) {
+                    overlayCtx.lineTo(pts[i].x, pts[i].y);
                   }
+                  // Append current pointer position as the last vertex for preview closure
+                  overlayCtx.lineTo(previewWorld.x, previewWorld.y);
                   overlayCtx.closePath();
                   
                   if (toolStateMachine.isContourPolygon) {
@@ -1230,20 +1243,20 @@ function cssColorToHex(color: string): string {
                   } else {
                     overlayCtx.fill(); // Fill for color cycle shape, regular polygon gradient and shape mode
                   }
-                } else if (previewVertices.length === 2 && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+                } else if (pts.length === 1 && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
                   // Early feedback for first segment: draw a simple guide line to current pointer
                   overlayCtx.beginPath();
                   overlayCtx.strokeStyle = tools.brushSettings.color;
                   overlayCtx.lineWidth = 1 / deps.viewTransformRef.current.scale;
-                  overlayCtx.moveTo(previewVertices[0].x, previewVertices[0].y);
-                  overlayCtx.lineTo(previewVertices[1].x, previewVertices[1].y);
+                  overlayCtx.moveTo(pts[0].x, pts[0].y);
+                  overlayCtx.lineTo(previewWorld.x, previewWorld.y);
                   overlayCtx.stroke();
-                } else if (previewVertices.length === 1 && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+                } else if (pts.length === 0 && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
                   // Single point: draw a small marker dot
                   overlayCtx.beginPath();
                   overlayCtx.fillStyle = tools.brushSettings.color;
                   const r = 2 / deps.viewTransformRef.current.scale;
-                  overlayCtx.arc(previewVertices[0].x, previewVertices[0].y, r, 0, Math.PI * 2);
+                  overlayCtx.arc(previewWorld.x, previewWorld.y, r, 0, Math.PI * 2);
                   overlayCtx.fill();
                 }
                 
@@ -1267,7 +1280,7 @@ function cssColorToHex(color: string): string {
             const anchor = pts[pts.length - 1];
             const before = shapeWorld;
             shapeWorld = snapPointToAngle(anchor, shapeWorld, 45);
-            try { console.log('[SNAP] shape segment', { anchor, before, after: shapeWorld }); } catch {}
+            debugLog('snap', 'shape segment', { anchor, before, after: shapeWorld });
           }
         }
         drawingHandlers.continueShapeDrawing(shapeWorld);
@@ -1278,13 +1291,13 @@ function cssColorToHex(color: string): string {
           // If Shift was pressed mid-stroke, and we don't yet have an anchor, use the last sampled point
           if (!shiftAnchorWorldPosRef.current) {
             shiftAnchorWorldPosRef.current = lastBrushSampleWorldPosRef.current || brushWorld;
-            try { console.log('[SNAP] set mid-stroke anchor', { anchor: shiftAnchorWorldPosRef.current, lastBrushSampleWorldPos: lastBrushSampleWorldPosRef.current }); } catch {}
+            debugLog('snap', 'set mid-stroke anchor', { anchor: shiftAnchorWorldPosRef.current, lastBrushSampleWorldPos: lastBrushSampleWorldPosRef.current });
           }
           const anchor = shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current;
           if (anchor) {
             const before = brushWorld;
             brushWorld = snapPointToAngle(anchor, brushWorld, 45);
-            try { console.log('[SNAP] brush segment', { anchor, before, after: brushWorld }); } catch {}
+            debugLog('snap', 'brush segment', { anchor, before, after: brushWorld });
           }
         }
         drawingHandlers.continueDrawing(brushWorld, pressure);
@@ -1320,7 +1333,7 @@ function cssColorToHex(color: string): string {
     strokeStartWorldPosRef.current = null;
     shiftAnchorWorldPosRef.current = null;
     lastBrushSampleWorldPosRef.current = null;
-    try { console.log('[SNAP] pointer up -> clear anchors'); } catch {}
+    debugLog('snap', 'pointer up -> clear anchors');
     
     // Release pointer capture
     (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
@@ -1561,7 +1574,8 @@ function cssColorToHex(color: string): string {
                 brushEngine.drawContourPolygon(
                   drawCtx,
                   {
-                    vertices: currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y }))
+                    vertices: currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y })),
+                    fillColor: currentPolygonState.points[0]?.color
                   },
                   false // not preview
                 );

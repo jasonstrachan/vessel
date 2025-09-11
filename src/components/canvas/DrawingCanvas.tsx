@@ -106,7 +106,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   
   // Debug cursor style
   useEffect(() => {
-    console.log('Cursor style:', cursorStyle, 'Tool:', tools.currentTool, 'BrushShape:', tools.brushSettings.brushShape);
+    debugLog('cursor', 'Cursor style:', cursorStyle, 'Tool:', tools.currentTool, 'BrushShape:', tools.brushSettings.brushShape);
   }, [cursorStyle, tools.currentTool, tools.brushSettings.brushShape]);
   
   
@@ -136,29 +136,44 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     }).join('|');
   }, [layers]);
   
-  // Helper function to sample color at position
+  // Small cache to avoid redundant getImageData calls when pointer stays in same pixel
+  const lastSampleRef = useRef<{ x: number; y: number; color: string }>({ x: -1, y: -1, color: 'rgb(0, 0, 0)' });
+  // Helper function to sample color at position (cached per pixel)
   const sampleColorAtPosition = useCallback((x: number, y: number): string => {
-    if (!compositeCanvasRef.current) return 'rgb(0, 0, 0)';
-    
-    const ctx = compositeCanvasRef.current.getContext('2d', { willReadFrequently: true });
+    const comp = compositeCanvasRef.current;
+    if (!comp) return 'rgb(0, 0, 0)';
+
+    const ctx = comp.getContext('2d', { willReadFrequently: true });
     if (!ctx) return 'rgb(0, 0, 0)';
-    
-    const clampedX = Math.max(0, Math.min(compositeCanvasRef.current.width - 1, Math.floor(x)));
-    const clampedY = Math.max(0, Math.min(compositeCanvasRef.current.height - 1, Math.floor(y)));
-    
+
+    const clampedX = Math.max(0, Math.min(comp.width - 1, Math.floor(x)));
+    const clampedY = Math.max(0, Math.min(comp.height - 1, Math.floor(y)));
+
+    // Return cached color if sampling the same pixel as last time
+    const last = lastSampleRef.current;
+    if (last.x === clampedX && last.y === clampedY) {
+      return last.color;
+    }
+
     const imageData = ctx.getImageData(clampedX, clampedY, 1, 1);
     let [r, g, b] = imageData.data;
     const a = imageData.data[3];
-    
-    if (a < 10) return 'rgb(255, 255, 255)';
-    
-    if (r <= 30 && g <= 30 && b <= 30) {
-      r = 0; g = 0; b = 0;
-    } else if (r >= 225 && g >= 225 && b >= 225) {
-      r = 255; g = 255; b = 255;
+
+    let color: string;
+    if (a < 10) {
+      color = 'rgb(255, 255, 255)';
+    } else {
+      if (r <= 30 && g <= 30 && b <= 30) {
+        r = 0; g = 0; b = 0;
+      } else if (r >= 225 && g >= 225 && b >= 225) {
+        r = 255; g = 255; b = 255;
+      }
+      color = `rgb(${r}, ${g}, ${b})`;
     }
-    
-    return `rgb(${r}, ${g}, ${b})`;
+
+    // Update cache
+    lastSampleRef.current = { x: clampedX, y: clampedY, color };
+    return color;
   }, []);
   
   // Helper function to sample colors along line
@@ -643,9 +658,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     const unsubscribe = useAppStore.subscribe((state) => {
       const length = state.history.undoStack.length;
       if (length > prevLength) {
-        console.log(`📝 NEW UNDO STATE SAVED. Stack: ${prevLength} -> ${length}`);
+        debugLog('undo', `NEW UNDO STATE SAVED. Stack: ${prevLength} -> ${length}`);
         const lastItem = state.history.undoStack[length - 1];
-        console.log('Last saved item:', lastItem?.description);
+        debugLog('undo', 'Last saved item:', lastItem?.description);
       }
       prevLength = length;
     });
@@ -694,51 +709,25 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       // Eraser key released - tool restoration handled in hook
     },
     onUndo: () => {
-      console.log('=== UNDO TRIGGERED ===');
-      const currentStack = useAppStore.getState().history.undoStack;
-      console.log('Undo stack length:', currentStack.length);
-      console.log('Top item description:', currentStack[currentStack.length - 1]?.description);
-      
+      debugLog('undo', '=== UNDO TRIGGERED ===');
+      const storeState = useAppStore.getState();
+      const currentStack = storeState.history.undoStack;
+      if (currentStack.length <= 1) {
+        debugLog('undo', 'Nothing to undo (stack length <= 1)');
+        return;
+      }
+      debugLog('undo', 'Undo stack length:', currentStack.length);
+      debugLog('undo', 'Top item description:', currentStack[currentStack.length - 1]?.description);
+
+      // Pop exactly one entry via store.undo() (single-step undo)
       const snapshot = undo();
-      console.log('Snapshot retrieved:', {
+      debugLog('undo', 'Snapshot retrieved:', {
         hasSnapshot: !!snapshot,
         hasColorCycleState: !!snapshot?.colorCycleState,
         hasLayers: !!snapshot?.layers,
         hasImageData: !!snapshot?.imageData
       });
       if (snapshot) {
-        // Restore color cycle state if present
-        if (snapshot.colorCycleState) {
-          const { layerId } = snapshot.colorCycleState;
-          const activeLayer = layers.find(l => l.id === layerId);
-          
-          if (activeLayer?.colorCycleData?.colorCycleBrush) {
-            // Restore Canvas2D state from snapshot
-            activeLayer.colorCycleData.colorCycleBrush.restoreFullState({
-              gradients: snapshot.colorCycleState.gradients.map(g => ({
-                gradientStops: g.gradientStops
-              })),
-              animationState: snapshot.colorCycleState.animationState,
-              layerSnapshots: snapshot.colorCycleState.layerStrokes
-            });
-            // Do NOT force a render here. The layer's canvas pixels will be restored
-            // from the snapshot below to avoid wiping undo-restored content.
-
-            // DEBUG: Verify internal stroke buffer after restore
-            try {
-              const snap = (activeLayer.colorCycleData.colorCycleBrush as any).getLayerSnapshot?.(layerId);
-              debugLog('cc-undo', {
-                phase: 'after-restore',
-                layerId: layerId?.substring(0, 20),
-                hasSnapshot: !!snap,
-                hasContent: snap?.hasContent,
-                paintBufferBytes: snap?.paintBuffer?.byteLength || 0,
-                strokeCounter: snap?.strokeCounter
-              });
-            } catch {}
-          }
-        }
-        
         if (snapshot.layers && snapshot.activeLayerId) {
           // Reconstruct layers with proper type preservation
           const restoredLayers = snapshot.layers.map((layer: any) => {
@@ -764,43 +753,99 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             };
             
             // Handle color-cycle specific data
-            if (shouldBeColorCycle && layer.colorCycleData.canvasImageData) {
-              // Check if we have an existing canvas to update
+            if (shouldBeColorCycle) {
+              const isRecolor = layer.colorCycleData?.mode === 'recolor';
+              if (isRecolor) {
+                // Preserve recolor settings and do not force-create a CC brush canvas
+                return {
+                  ...baseLayer,
+                  layerType: 'color-cycle' as const,
+                  colorCycleData: {
+                    ...layer.colorCycleData, // includes mode:'recolor' and recolorSettings
+                    // Ensure animation state is paused upon restore
+                    isAnimating: false,
+                    // Do not attach canvas/brush for recolor mode here
+                  }
+                };
+              }
+              // Prefer existing canvas if present, otherwise create one
               let canvas = existingLayer?.colorCycleData?.canvas;
-              
               if (!canvas) {
-                // Create new canvas only if it doesn't exist
                 canvas = document.createElement('canvas');
-                canvas.width = layer.colorCycleData.canvasWidth || 1920;
-                canvas.height = layer.colorCycleData.canvasHeight || 1080;
+                canvas.width = layer.colorCycleData?.canvasWidth || (layer.imageData?.width ?? 1920);
+                canvas.height = layer.colorCycleData?.canvasHeight || (layer.imageData?.height ?? 1080);
               }
-              
-              // Restore the canvas content
-              const ctx = canvas.getContext('2d');
-              if (ctx && layer.colorCycleData.canvasImageData) {
-                // Clear and restore the canvas content
+
+              // Restore the canvas content from saved canvasImageData when available,
+              // otherwise fall back to the layer's imageData stored in the snapshot.
+              const ctx = canvas.getContext('2d', { willReadFrequently: true });
+              if (ctx) {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.putImageData(layer.colorCycleData.canvasImageData, 0, 0);
+                if (layer.colorCycleData?.canvasImageData) {
+                  ctx.putImageData(layer.colorCycleData.canvasImageData, 0, 0);
+                } else if (layer.imageData) {
+                  ctx.putImageData(layer.imageData, 0, 0);
+                }
               }
-              
+
               // Add colorCycleData to the layer
               return {
                 ...baseLayer,
                 colorCycleData: {
-                  gradient: layer.colorCycleData.gradient,
-                  isAnimating: layer.colorCycleData.isAnimating,
+                  gradient: layer.colorCycleData?.gradient,
+                  // Pause animation after undo restore to avoid wiping pixels before canvas restore
+                  isAnimating: false,
                   canvas,
                   colorCycleBrush: existingLayer?.colorCycleData?.colorCycleBrush // Preserve existing brush
                 }
               };
             }
-            
+
             // Return normal layer (no colorCycleData)
             return baseLayer;
           });
           
           setLayers(restoredLayers);
           setActiveLayer(snapshot.activeLayerId);
+
+          // Restore color cycle internal state after layers are in place
+          if (snapshot.colorCycleState) {
+            const { layerId } = snapshot.colorCycleState;
+            const restoredActive = restoredLayers.find((l: any) => l.id === layerId);
+            if (restoredActive?.colorCycleData?.colorCycleBrush) {
+              restoredActive.colorCycleData.colorCycleBrush.restoreFullState({
+                gradients: snapshot.colorCycleState.gradients.map(g => ({
+                  gradientStops: g.gradientStops
+                })),
+                animationState: snapshot.colorCycleState.animationState,
+                layerSnapshots: snapshot.colorCycleState.layerStrokes
+              });
+
+              // DEBUG: Verify internal stroke buffer after restore
+              try {
+                const snap = (restoredActive.colorCycleData.colorCycleBrush as any).getLayerSnapshot?.(layerId);
+                debugLog('cc-undo', {
+                  phase: 'after-restore',
+                  layerId: layerId?.substring(0, 20),
+                  hasSnapshot: !!snap,
+                  hasContent: snap?.hasContent,
+                  paintBufferBytes: snap?.paintBuffer?.byteLength || 0,
+                  strokeCounter: snap?.strokeCounter
+                });
+              } catch {}
+            }
+          }
+          
+          // If the active layer is a CC layer, ensure its canvas content is captured
+          // into imageData so exports and non-CC paths stay consistent.
+          try {
+            const activeRestored = restoredLayers.find((l: any) => l.id === snapshot.activeLayerId);
+            if (activeRestored?.layerType === 'color-cycle' && activeRestored.colorCycleData?.canvas) {
+              const { captureCanvasToActiveLayer } = useAppStore.getState();
+              // Fire and forget; keep UI responsive
+              captureCanvasToActiveLayer(activeRestored.colorCycleData.canvas).catch(() => {});
+            }
+          } catch {}
           
           // Reinitialize color cycle brushes for restored layers
           restoredLayers.forEach((layer: any) => {
@@ -865,38 +910,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     onRedo: () => {
       const snapshot = redo();
       if (snapshot) {
-        // Restore color cycle state if present
-        if (snapshot.colorCycleState) {
-          const { layerId } = snapshot.colorCycleState;
-          const activeLayer = layers.find(l => l.id === layerId);
-          
-          if (activeLayer?.colorCycleData?.colorCycleBrush) {
-            // Restore Canvas2D state from snapshot
-            activeLayer.colorCycleData.colorCycleBrush.restoreFullState({
-              gradients: snapshot.colorCycleState.gradients.map(g => ({
-                gradientStops: g.gradientStops
-              })),
-              animationState: snapshot.colorCycleState.animationState,
-              layerSnapshots: snapshot.colorCycleState.layerStrokes
-            });
-            // Do NOT force a render here. The layer's canvas pixels will be restored
-            // from the snapshot below to avoid wiping redo-restored content.
-
-            // DEBUG: Verify internal stroke buffer after restore
-            try {
-              const snap = (activeLayer.colorCycleData.colorCycleBrush as any).getLayerSnapshot?.(layerId);
-              debugLog('cc-undo', {
-                phase: 'redo-after-restore',
-                layerId: layerId?.substring(0, 20),
-                hasSnapshot: !!snap,
-                hasContent: snap?.hasContent,
-                paintBufferBytes: snap?.paintBuffer?.byteLength || 0,
-                strokeCounter: snap?.strokeCounter
-              });
-            } catch {}
-          }
-        }
-        
         if (snapshot.layers && snapshot.activeLayerId) {
           // Reconstruct layers with proper type preservation
           const restoredLayers = snapshot.layers.map((layer: any) => {
@@ -922,43 +935,96 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             };
             
             // Handle color-cycle specific data
-            if (shouldBeColorCycle && layer.colorCycleData.canvasImageData) {
-              // Check if we have an existing canvas to update
+            if (shouldBeColorCycle) {
+              const isRecolor = layer.colorCycleData?.mode === 'recolor';
+              if (isRecolor) {
+                // Preserve recolor settings and do not force-create a CC brush canvas
+                return {
+                  ...baseLayer,
+                  layerType: 'color-cycle' as const,
+                  colorCycleData: {
+                    ...layer.colorCycleData, // includes mode:'recolor' and recolorSettings
+                    isAnimating: false,
+                  }
+                };
+              }
+              // Prefer existing canvas if present, otherwise create one
               let canvas = existingLayer?.colorCycleData?.canvas;
-              
               if (!canvas) {
-                // Create new canvas only if it doesn't exist
                 canvas = document.createElement('canvas');
-                canvas.width = layer.colorCycleData.canvasWidth || 1920;
-                canvas.height = layer.colorCycleData.canvasHeight || 1080;
+                canvas.width = layer.colorCycleData?.canvasWidth || (layer.imageData?.width ?? 1920);
+                canvas.height = layer.colorCycleData?.canvasHeight || (layer.imageData?.height ?? 1080);
               }
-              
-              // Restore the canvas content
-              const ctx = canvas.getContext('2d');
-              if (ctx && layer.colorCycleData.canvasImageData) {
-                // Clear and restore the canvas content
+
+              // Restore the canvas content from saved canvasImageData when available,
+              // otherwise fall back to the layer's imageData stored in the snapshot.
+              const ctx = canvas.getContext('2d', { willReadFrequently: true });
+              if (ctx) {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.putImageData(layer.colorCycleData.canvasImageData, 0, 0);
+                if (layer.colorCycleData?.canvasImageData) {
+                  ctx.putImageData(layer.colorCycleData.canvasImageData, 0, 0);
+                } else if (layer.imageData) {
+                  ctx.putImageData(layer.imageData, 0, 0);
+                }
               }
-              
+
               // Add colorCycleData to the layer
               return {
                 ...baseLayer,
                 colorCycleData: {
-                  gradient: layer.colorCycleData.gradient,
-                  isAnimating: layer.colorCycleData.isAnimating,
+                  gradient: layer.colorCycleData?.gradient,
+                  // Pause animation after redo restore to avoid wiping pixels before canvas restore
+                  isAnimating: false,
                   canvas,
                   colorCycleBrush: existingLayer?.colorCycleData?.colorCycleBrush // Preserve existing brush
                 }
               };
             }
-            
+
             // Return normal layer (no colorCycleData)
             return baseLayer;
           });
           
           setLayers(restoredLayers);
           setActiveLayer(snapshot.activeLayerId);
+
+          // Restore color cycle internal state after layers are in place
+          if (snapshot.colorCycleState) {
+            const { layerId } = snapshot.colorCycleState;
+            const restoredActive = restoredLayers.find((l: any) => l.id === layerId);
+            if (restoredActive?.colorCycleData?.colorCycleBrush) {
+              restoredActive.colorCycleData.colorCycleBrush.restoreFullState({
+                gradients: snapshot.colorCycleState.gradients.map(g => ({
+                  gradientStops: g.gradientStops
+                })),
+                animationState: snapshot.colorCycleState.animationState,
+                layerSnapshots: snapshot.colorCycleState.layerStrokes
+              });
+
+              // DEBUG: Verify internal stroke buffer after restore
+              try {
+                const snap = (restoredActive.colorCycleData.colorCycleBrush as any).getLayerSnapshot?.(layerId);
+                debugLog('cc-undo', {
+                  phase: 'redo-after-restore',
+                  layerId: layerId?.substring(0, 20),
+                  hasSnapshot: !!snap,
+                  hasContent: snap?.hasContent,
+                  paintBufferBytes: snap?.paintBuffer?.byteLength || 0,
+                  strokeCounter: snap?.strokeCounter
+                });
+              } catch {}
+            }
+          }
+          
+          // Keep imageData in sync for active CC layer
+          try {
+            const activeRestored = restoredLayers.find((l: any) => l.id === snapshot.activeLayerId);
+            if (activeRestored?.layerType === 'color-cycle' && activeRestored.colorCycleData?.canvas) {
+              const { captureCanvasToActiveLayer } = useAppStore.getState();
+              // Fire and forget; keep UI responsive
+              captureCanvasToActiveLayer(activeRestored.colorCycleData.canvas).catch(() => {});
+            }
+          } catch {}
           
           // Reinitialize color cycle brushes for restored layers
           restoredLayers.forEach((layer: any) => {
@@ -1032,27 +1098,28 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
           
           if (isColorCycleLayer && tools.shapeMode) {
-            console.log('=== COLOR CYCLE SHAPE DRAW ===');
-            console.log('1. Before save - Canvas data exists?', !!activeLayer.colorCycleData?.canvas);
+            debugLog('cc-shape', '=== COLOR CYCLE SHAPE DRAW ===');
+            debugLog('cc-shape', '1. Before save - Canvas data exists?', !!activeLayer.colorCycleData?.canvas);
             
             if (activeLayer.colorCycleData?.canvas) {
               // Log what we're saving
               const ctx = activeLayer.colorCycleData.canvas.getContext('2d');
               const imageData = ctx?.getImageData(0, 0, 100, 100); // Sample corner
-              console.log('2. Sample pixel data before save:', imageData?.data.slice(0, 20));
+              debugLog('cc-shape', '2. Sample pixel data before save:', imageData?.data.slice(0, 20));
             }
             
             // Don't save here - it will be saved in finalizeDrawing
             // This prevents duplicate undo entries for color cycle shapes
-            console.log('3. NOT saving here - will save in finalizeDrawing');
+            debugLog('cc-shape', '3. NOT saving here - will save in finalizeDrawing');
             
-            console.log('4. Before resetColorCycle');
-            brushEngine.resetColorCycle();
-            console.log('5. After resetColorCycle');
+            debugLog('cc-shape', '4. Before resetColorCycle (clearBuffer=true)');
+            // Start a fresh CC stroke buffer for each new shape to avoid accumulation
+            brushEngine.resetColorCycle(true);
+            debugLog('cc-shape', '5. After resetColorCycle');
             
             // Fill shape with color cycle gradient from edges to center
             const points = toolStateMachine.polygonGradientState.points.map(p => ({ x: p.x, y: p.y }));
-            console.log('6. Drawing shape with points:', points.length);
+            debugLog('cc-shape', '6. Drawing shape with points:', points.length);
             brushEngine.fillColorCycleShape(points);
             
             // Clear the drawing canvas before rendering
@@ -1060,13 +1127,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             
             // Render the color cycle immediately at full opacity
             brushEngine.renderColorCycle(drawCtx, false);
-            console.log('7. Shape rendered to drawing canvas');
+            debugLog('cc-shape', '7. Shape rendered to drawing canvas');
           } else if (toolStateMachine.isContourPolygon) {
             // Check if it's a contour polygon
             brushEngine.drawContourPolygon(
               drawCtx,
               {
-                vertices: toolStateMachine.polygonGradientState.points.map(p => ({ x: p.x, y: p.y }))
+                vertices: toolStateMachine.polygonGradientState.points.map(p => ({ x: p.x, y: p.y })),
+                fillColor: toolStateMachine.polygonGradientState.points[0]?.color
               },
               false
             );
@@ -1084,14 +1152,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           drawingHandlers.drawingCanvasHasContent.current = true;
           // Mark composite as dirty BEFORE finalization
           compositeCanvasDirtyRef.current = true;
-          console.log('8. Before finalizeDrawing call');
+          debugLog('cc-shape', '8. Before finalizeDrawing call');
           drawingHandlers.finalizeDrawing().then(() => {
-            console.log('=== FINALIZE COMPLETE ===');
-            console.log('Composite dirty?', compositeCanvasDirtyRef.current);
+            debugLog('cc-shape', '=== FINALIZE COMPLETE ===');
+            debugLog('cc-shape', 'Composite dirty?', compositeCanvasDirtyRef.current);
             
             // Check if another save happened during finalization
             const stackLength = useAppStore.getState().history.undoStack.length;
-            console.log('Current undo stack length:', stackLength);
+            debugLog('cc-shape', 'Current undo stack length:', stackLength);
             
             // Signal that finalization is complete
             stateMachine.finalizationComplete();
@@ -1291,10 +1359,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     
     compositeLayersToCanvas(compositeCanvasRef.current);
     setCurrentOffscreenCanvas(compositeCanvasRef.current);
-    
+
     // Update tracking
     lastCompositeHashRef.current = layersHash;
     compositeCanvasDirtyRef.current = false;
+    // Reset last sampled pixel cache after recomposition
+    lastSampleRef.current = { x: -1, y: -1, color: 'rgb(0, 0, 0)' };
     
     // Reset the recomposition flag if it was set
     if (layersNeedRecomposition) {

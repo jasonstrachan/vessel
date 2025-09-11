@@ -810,6 +810,7 @@ export function useDrawingHandlers({
           // We can capture it directly without any extra compositing.
           await captureCanvasToActiveLayer(drawingCanvasRef.current);
           saveCanvasState(drawingCanvasRef.current, 'eraser', 'Erased stroke');
+          try { console.log('[Stroke] Saved eraser stroke'); } catch {}
         } else { // Brush tool
           const activeSettings = currentState.tools.brushSettings;
           
@@ -871,22 +872,53 @@ export function useDrawingHandlers({
           if (isColorCycleLayer && isColorCycleBrush && activeLayer?.colorCycleData?.canvas) {
             console.log('=== FINALIZE: Saving CC layer state ===');
             console.log('Shape mode?', tools.shapeMode);
-            
+
+            // Commit any pending stroke data in the brush and copy to the layer canvas
+            try {
+              const colorCycleBrushManager = getColorCycleBrushManager();
+              const brush = colorCycleBrushManager.getBrush(activeLayer.id);
+              if (brush) {
+                // Ensure stroke is properly ended and frame rendered
+                if (typeof (brush as any).commitCurrentStroke === 'function') {
+                  (brush as any).commitCurrentStroke(activeLayer.id);
+                } else if (typeof (brush as any).finalizeCurrentStroke === 'function') {
+                  (brush as any).finalizeCurrentStroke(activeLayer.id);
+                }
+
+                // Commit buffer to the layer's canvas
+                if (typeof (brush as any).commitToLayer === 'function') {
+                  (brush as any).commitToLayer(activeLayer.colorCycleData.canvas, activeLayer.id);
+                } else {
+                  // Fallback to direct render helper
+                  (brush as any).renderDirectToCanvas?.(activeLayer.colorCycleData.canvas, activeLayer.id);
+                }
+
+                // Clear brush internal paint buffer so next stroke starts fresh
+                if (typeof (brush as any).clearPaintBuffer === 'function') {
+                  (brush as any).clearPaintBuffer(activeLayer.id);
+                }
+              }
+            } catch (e) {
+              console.warn('[CC Finalize] Failed to commit/clear brush buffers:', e);
+            }
+
             // For CC layers, capture directly from the layer's canvas
             await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
-            
+
+            // Optional sampling: verify we saved the actual layer canvas (not paint buffer)
+            try {
+              const ctx = activeLayer.colorCycleData.canvas.getContext('2d', { willReadFrequently: true });
+              const sample = ctx?.getImageData(0, 0, 5, 1)?.data;
+              if (sample) console.log('Canvas sample after commit:', Array.from(sample.slice(0, 20)));
+            } catch {}
+
             // Skip saving if requested (for CC shapes that already saved)
             if (!skipSave) {
-              // Log canvas content before save
-              const ctx = activeLayer.colorCycleData.canvas.getContext('2d');
-              const imageData = ctx?.getImageData(0, 0, 100, 100);
-              console.log('Canvas sample before save:', imageData?.data.slice(0, 20));
-              
-              // Save the state
               const description = tools.shapeMode ? 'CC Shape' : 'CC Drawing stroke';
               console.log('Saving with description:', description);
               saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', description);
               console.log('Save completed');
+              try { console.log('[Stroke] Saved CC stroke'); } catch {}
             } else {
               console.log('[finalizeDrawing] Skipping save - requested by caller (skipSave=true)');
             }
@@ -917,6 +949,7 @@ export function useDrawingHandlers({
               
               await captureCanvasToActiveLayer(tempCanvas);
               saveCanvasState(tempCanvas, 'brush', 'Drawing stroke');
+              try { console.log('[Stroke] Saved regular brush stroke'); } catch {}
               
               
               // Clean up temporary canvas to prevent memory leak

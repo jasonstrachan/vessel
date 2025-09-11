@@ -17,7 +17,10 @@ function readConfig(): DebugConfig {
       const raw = w.localStorage.getItem('TB_DEBUG');
       if (raw) {
         const cfg: DebugConfig = {};
-        raw.split(',').map(s => s.trim()).filter(Boolean).forEach(s => {
+        raw.split(',')
+          .map((s: string) => s.trim())
+          .filter((s: string) => !!s)
+          .forEach((s: string) => {
           if (s.toLowerCase() === 'all') cfg.all = true; else cfg[s] = true;
         });
         return cfg;
@@ -44,4 +47,3 @@ export function debugWarn(scope: string, ...args: any[]) {
     console.warn(`[${scope}]`, ...args);
   }
 }
-

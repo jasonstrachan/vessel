@@ -1003,7 +1003,24 @@ const BrushControls = () => {
   if (activeSettings.brushShape === BrushShape.CONTOUR_POLYGON) {
     return (
       <div className="p-4">
-        {/* Contour Spacing */}
+        {/* Shape Mode Selector - Contour, Mesh, Triangle */}
+        <div className="mb-3">
+          <ButtonGroup
+            options={[
+              { label: 'Contour', value: 'contour' },
+              { label: 'Mesh', value: 'mesh' },
+              { label: 'Triangle', value: 'triangle' }
+            ]}
+            value={activeSettings.shapeGradientMode || 'contour'}
+            onChange={(value) => setActiveSettings({ 
+              shapeGradientMode: value as 'contour' | 'mesh' | 'triangle' 
+            })}
+            className="w-full"
+          />
+        </div>
+
+        {/* Contour Spacing - only show for contour mode */}
+        {(activeSettings.shapeGradientMode || 'contour') === 'contour' && (
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
@@ -1022,8 +1039,10 @@ const BrushControls = () => {
             />
           </div>
         </div>
+        )}
         
-        {/* Contour Variance */}
+        {/* Contour Variance - only show for contour mode */}
+        {(activeSettings.shapeGradientMode || 'contour') === 'contour' && (
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
@@ -1042,8 +1061,10 @@ const BrushControls = () => {
             />
           </div>
         </div>
+        )}
         
-        {/* Contour Smoothness */}
+        {/* Contour Smoothness - only show for contour mode */}
+        {(activeSettings.shapeGradientMode || 'contour') === 'contour' && (
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
@@ -1062,6 +1083,7 @@ const BrushControls = () => {
             />
           </div>
         </div>
+        )}
       </div>
     );
   }

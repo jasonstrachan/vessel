@@ -932,7 +932,7 @@ export const useBrushEngineSimplified = () => {
   /**
    * Helper functions for signed distance field contours
    */
-  const distanceToPolygon = useCallback((
+  const distanceToPolygonSDF = useCallback((
     point: { x: number; y: number },
     vertices: Array<{ x: number; y: number }>
   ): number => {
@@ -962,7 +962,7 @@ export const useBrushEngineSimplified = () => {
     return minDist;
   }, []);
   
-  const isPointInPolygon = useCallback((
+  const isPointInPolygonSDF = useCallback((
     point: { x: number; y: number },
     vertices: Array<{ x: number; y: number }>
   ): boolean => {
@@ -1033,10 +1033,10 @@ export const useBrushEngineSimplified = () => {
         const py = y * resolution - extension;
         const point = { x: px, y: py };
         
-        const inside = isPointInPolygon(point, vertices);
+        const inside = isPointInPolygonSDF(point, vertices);
         
         if (inside) {
-          const edgeDist = distanceToPolygon(point, vertices);
+          const edgeDist = distanceToPolygonSDF(point, vertices);
           const peakDist = Math.sqrt(Math.pow(px - peakX, 2) + Math.pow(py - peakY, 2));
           const maxPossibleDist = Math.max(polyWidth, polyHeight);
           const normalizedPeakDist = peakDist / maxPossibleDist;
@@ -1050,13 +1050,93 @@ export const useBrushEngineSimplified = () => {
           
           distanceField[y][x] = elevation;
         } else {
-          distanceField[y][x] = -distanceToPolygon(point, vertices);
+          distanceField[y][x] = -distanceToPolygonSDF(point, vertices);
         }
       }
     }
     
     return { field: distanceField, cols, rows, resolution, peakX, peakY, extension };
-  }, [distanceToPolygon, isPointInPolygon]);
+  }, [distanceToPolygonSDF, isPointInPolygonSDF]);
+
+  /**
+   * Build a distance field measured from a set of seed edges (segments) only.
+   * Positive inside the polygon = distance to the nearest seed edge.
+   * Negative outside = -distance to the polygon boundary (for robust marching squares at edges).
+   */
+  const createEdgeDistanceField = useCallback((
+    vertices: Array<{ x: number; y: number }>,
+    seedEdges: Array<{ a: { x: number; y: number }; b: { x: number; y: number } }>,
+    canvasWidth: number,
+    canvasHeight: number,
+    resolution: number = 2,
+    useInfiniteLines: boolean = false
+  ) => {
+    const extension = 300;
+    const extendedWidth = canvasWidth + extension * 2;
+    const extendedHeight = canvasHeight + extension * 2;
+    const cols = Math.ceil(extendedWidth / resolution);
+    const rows = Math.ceil(extendedHeight / resolution);
+    const field: number[][] = [];
+
+    const distToSeg = (p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) => {
+      const vx = b.x - a.x, vy = b.y - a.y;
+      const wx = p.x - a.x, wy = p.y - a.y;
+      const len2 = vx * vx + vy * vy || 1e-5;
+      let t = (wx * vx + wy * vy) / len2;
+      t = Math.max(0, Math.min(1, t));
+      const cx = a.x + vx * t;
+      const cy = a.y + vy * t;
+      return Math.hypot(p.x - cx, p.y - cy);
+    };
+    const distToInfLine = (p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) => {
+      const vx = b.x - a.x, vy = b.y - a.y;
+      const len = Math.hypot(vx, vy) || 1e-5;
+      // area of parallelogram divided by base length = distance to infinite line
+      const cross = Math.abs((p.x - a.x) * vy - (p.y - a.y) * vx);
+      return cross / len;
+    };
+
+    for (let y = 0; y < rows; y++) {
+      field[y] = [];
+      for (let x = 0; x < cols; x++) {
+        const px = x * resolution - extension;
+        const py = y * resolution - extension;
+        const point = { x: px, y: py };
+        const inside = isPointInPolygonSDF(point, vertices);
+        if (inside) {
+          let d = Infinity;
+          for (const e of seedEdges) {
+            const de = useInfiniteLines ? distToInfLine(point, e.a, e.b) : distToSeg(point, e.a, e.b);
+            if (de < d) d = de;
+          }
+          field[y][x] = isFinite(d) ? d : 0;
+        } else {
+          field[y][x] = -distanceToPolygonSDF(point, vertices);
+        }
+      }
+    }
+
+    return { field, cols, rows, resolution, extension };
+  }, [isPointInPolygonSDF, distanceToPolygonSDF]);
+
+  /**
+   * Extract polygon edges with angle and length
+   */
+  const getPolygonEdges = useCallback((
+    vertices: Array<{ x: number; y: number }>
+  ) => {
+    const edges: Array<{ a: { x: number; y: number }; b: { x: number; y: number }; angle: number; length: number; index: number }> = [];
+    for (let i = 0; i < vertices.length; i++) {
+      const a = vertices[i];
+      const b = vertices[(i + 1) % vertices.length];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const angle = Math.atan2(dy, dx);
+      const length = Math.hypot(dx, dy);
+      edges.push({ a, b, angle, length, index: i });
+    }
+    return edges;
+  }, []);
   
   /**
    * Extract contour using marching squares
@@ -1274,10 +1354,10 @@ export const useBrushEngineSimplified = () => {
    */
   const drawContourPolygon = useCallback((
     ctx: CanvasRenderingContext2D,
-    polygonData: { vertices: Array<{ x: number; y: number }> },
+    polygonData: { vertices: Array<{ x: number; y: number }>; fillColor?: string },
     isPreview: boolean = false
   ) => {
-    const { vertices } = polygonData || {};
+    const { vertices, fillColor } = polygonData || {};
     
     if (!vertices || !Array.isArray(vertices) || vertices.length < 3) return;
     
@@ -1296,7 +1376,249 @@ export const useBrushEngineSimplified = () => {
     // Apply opacity and blend mode
     ctx.globalAlpha = tools.brushSettings.opacity;
     ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
+
+    // Fill the polygon first with sampled color (from first click) if provided
+    try {
+      const fc = fillColor || undefined;
+      if (fc && validVertices.length >= 3) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(Math.round(validVertices[0].x), Math.round(validVertices[0].y));
+        for (let i = 1; i < validVertices.length; i++) {
+          ctx.lineTo(Math.round(validVertices[i].x), Math.round(validVertices[i].y));
+        }
+        ctx.closePath();
+        const prevStyle = ctx.fillStyle;
+        const prevAlpha = ctx.globalAlpha;
+        ctx.fillStyle = fc;
+        ctx.globalAlpha = tools.brushSettings.opacity;
+        ctx.fill();
+        ctx.fillStyle = prevStyle as any;
+        ctx.globalAlpha = prevAlpha;
+        ctx.restore();
+      }
+    } catch {}
     
+    // Check the shape gradient mode and render accordingly
+    const mode = tools.brushSettings.shapeGradientMode || 'contour';
+    
+    // Calculate bounds for all modes
+    const minX = Math.floor(Math.min(...validVertices.map(v => v.x)));
+    const minY = Math.floor(Math.min(...validVertices.map(v => v.y)));
+    const maxX = Math.ceil(Math.max(...validVertices.map(v => v.x)));
+    const maxY = Math.ceil(Math.max(...validVertices.map(v => v.y)));
+    const boundWidth = maxX - minX;
+    const boundHeight = maxY - minY;
+    
+    if (mode === 'mesh') {
+      // Curvilinear mesh aligned to one chosen edge (U iso-lines) and an orthogonal family (V lines)
+      ctx.strokeStyle = tools.brushSettings.color;
+      ctx.lineWidth = 1;
+      ctx.imageSmoothingEnabled = false;
+
+      // Choose base edge = longest edge, and the opposite parallel edge = farthest from base
+      const edges = getPolygonEdges(validVertices);
+      const baseEdge = edges.reduce((best, e) => (e.length > best.length ? e : best), edges[0]);
+      const baseAngle = baseEdge.angle;
+      const angleDiff = (a: number, b: number) => {
+        let d = a - b;
+        while (d > Math.PI) d -= 2 * Math.PI;
+        while (d < -Math.PI) d += 2 * Math.PI;
+        return Math.abs(d);
+      };
+      const parallelTol = Math.PI / 12; // 15°
+
+      // Base edge line normal (for separation)
+      const bdx = baseEdge.b.x - baseEdge.a.x;
+      const bdy = baseEdge.b.y - baseEdge.a.y;
+      const blen = Math.hypot(bdx, bdy) || 1e-5;
+      const bn = { x: -bdy / blen, y: bdx / blen };
+      const distToBaseLine = (p: { x: number; y: number }) => Math.abs((p.x - baseEdge.a.x) * bn.x + (p.y - baseEdge.a.y) * bn.y);
+
+      // Find the opposite edge: parallel and with max separation
+      let oppEdge = baseEdge;
+      let maxSep = -1;
+      for (const e of edges) {
+        if (e.index === baseEdge.index) continue;
+        const diff = angleDiff(e.angle, baseAngle);
+        const isParallel = diff < parallelTol || Math.abs(diff - Math.PI) < parallelTol;
+        if (!isParallel) continue;
+        const sep = (distToBaseLine(e.a) + distToBaseLine(e.b)) * 0.5;
+        if (sep > maxSep) {
+          maxSep = sep;
+          oppEdge = e;
+        }
+      }
+
+      // Build distance field from the two opposite sides only (conform to both sides, not all)
+      const fieldData = createEdgeDistanceField(
+        validVertices,
+        [
+          { a: baseEdge.a, b: baseEdge.b },
+          { a: oppEdge.a, b: oppEdge.b }
+        ],
+        ctx.canvas.width,
+        ctx.canvas.height,
+        2,
+        true // use infinite supporting lines so other sides don't influence curvature
+      );
+
+      // Bilinear sampling of field at world coords
+      const sampleField = (wx: number, wy: number): number => {
+        const gx = (wx + fieldData.extension) / fieldData.resolution;
+        const gy = (wy + fieldData.extension) / fieldData.resolution;
+        const x0 = Math.floor(gx);
+        const y0 = Math.floor(gy);
+        const x1 = Math.min(fieldData.cols - 1, x0 + 1);
+        const y1 = Math.min(fieldData.rows - 1, y0 + 1);
+        const sx = Math.max(0, Math.min(1, gx - x0));
+        const sy = Math.max(0, Math.min(1, gy - y0));
+
+        const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+        const f00 = fieldData.field[clamp(y0, 0, fieldData.rows - 1)][clamp(x0, 0, fieldData.cols - 1)];
+        const f10 = fieldData.field[clamp(y0, 0, fieldData.rows - 1)][clamp(x1, 0, fieldData.cols - 1)];
+        const f01 = fieldData.field[clamp(y1, 0, fieldData.rows - 1)][clamp(x0, 0, fieldData.cols - 1)];
+        const f11 = fieldData.field[clamp(y1, 0, fieldData.rows - 1)][clamp(x1, 0, fieldData.cols - 1)];
+
+        const fx0 = f00 * (1 - sx) + f10 * sx;
+        const fx1 = f01 * (1 - sx) + f11 * sx;
+        return fx0 * (1 - sy) + fx1 * sy;
+      };
+
+      // Normalized gradient of the field at world coords
+      const gradientAt = (wx: number, wy: number): { x: number; y: number } => {
+        const h = fieldData.resolution * 1.5;
+        const dx = sampleField(wx + h, wy) - sampleField(wx - h, wy);
+        const dy = sampleField(wx, wy + h) - sampleField(wx, wy - h);
+        const len = Math.hypot(dx, dy) || 1e-5;
+        return { x: dx / len, y: dy / len };
+      };
+
+      // Find max positive value in the field
+      let maxPositive = 0;
+      for (let y = 0; y < fieldData.rows; y++) {
+        for (let x = 0; x < fieldData.cols; x++) {
+          const v = fieldData.field[y][x];
+          if (v > maxPositive) maxPositive = v;
+        }
+      }
+
+      // Spacing from UI
+      const spacing = (tools.brushSettings.contourSpacing || 5) * 2;
+
+      // Clip to polygon while drawing
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(validVertices[0].x, validVertices[0].y);
+      validVertices.slice(1).forEach(vertex => ctx.lineTo(vertex.x, vertex.y));
+      ctx.closePath();
+      ctx.clip();
+
+      // Family 1 (U): iso-distance contours from the base edge (flow in one direction away from that edge)
+      for (let d = spacing; d < maxPositive; d += spacing) {
+        const segments = extractContour(
+          fieldData.field,
+          fieldData.cols,
+          fieldData.rows,
+          fieldData.resolution,
+          d,
+          fieldData.extension
+        );
+        const loops = connectSegments(segments);
+        loops.forEach(loop => {
+          if (loop.length < 3) return;
+          ctx.beginPath();
+          const snap = (val: number) => Math.floor(val) + 0.5;
+          ctx.moveTo(snap(loop[0].x), snap(loop[0].y));
+          for (let i = 1; i < loop.length; i++) ctx.lineTo(snap(loop[i].x), snap(loop[i].y));
+          ctx.closePath();
+          ctx.stroke();
+        });
+      }
+
+      // Single-family only: no orthogonal lines rendered
+
+      ctx.restore(); // clip
+      ctx.restore(); // function-level save
+      return;
+    } else if (mode === 'triangle') {
+      // Triangle mode - draw triangulated mesh
+      ctx.strokeStyle = tools.brushSettings.color;
+      ctx.lineWidth = 1;
+      
+      // Create clipping path
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(validVertices[0].x, validVertices[0].y);
+      validVertices.slice(1).forEach(vertex => ctx.lineTo(vertex.x, vertex.y));
+      ctx.closePath();
+      ctx.clip();
+      
+      // Simple triangulation - connect center to all edges
+      const centerX = validVertices.reduce((sum, v) => sum + v.x, 0) / validVertices.length;
+      const centerY = validVertices.reduce((sum, v) => sum + v.y, 0) / validVertices.length;
+      
+      // Draw triangles from center to each edge
+      for (let i = 0; i < validVertices.length; i++) {
+        const next = (i + 1) % validVertices.length;
+        
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.lineTo(validVertices[i].x, validVertices[i].y);
+        ctx.lineTo(validVertices[next].x, validVertices[next].y);
+        ctx.closePath();
+        ctx.stroke();
+      }
+      
+      // Add some internal triangulation for more detail
+      const gridSize = Math.max(20, Math.min(40, Math.min(boundWidth, boundHeight) / 8));
+      
+      // Create internal grid points
+      const internalPoints: Array<{x: number, y: number}> = [];
+      for (let x = minX + gridSize; x < maxX; x += gridSize) {
+        for (let y = minY + gridSize; y < maxY; y += gridSize) {
+          // Check if point is inside polygon using helper function
+          let inside = false;
+          for (let i = 0, j = validVertices.length - 1; i < validVertices.length; j = i++) {
+            const xi = validVertices[i].x, yi = validVertices[i].y;
+            const xj = validVertices[j].x, yj = validVertices[j].y;
+            
+            const intersect = ((yi > y) !== (yj > y))
+                && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+          }
+          if (inside) {
+            internalPoints.push({x, y});
+          }
+        }
+      }
+      
+      // Connect internal points with triangles
+      for (const point of internalPoints) {
+        // Find nearest vertices
+        const distances = validVertices.map(v => ({
+          vertex: v,
+          dist: Math.hypot(v.x - point.x, v.y - point.y)
+        })).sort((a, b) => a.dist - b.dist);
+        
+        // Connect to nearest 3 vertices
+        if (distances.length >= 3) {
+          for (let i = 0; i < 2; i++) {
+            ctx.beginPath();
+            ctx.moveTo(point.x, point.y);
+            ctx.lineTo(distances[i].vertex.x, distances[i].vertex.y);
+            ctx.lineTo(distances[i + 1].vertex.x, distances[i + 1].vertex.y);
+            ctx.stroke();
+          }
+        }
+      }
+      
+      ctx.restore();
+      ctx.restore();
+      return;
+    }
+    
+    // Default contour mode continues with existing implementation
     // Base contour spacing - properly use the slider value
     const spacing = (tools.brushSettings.contourSpacing || 5) * 2; // Scale for better visibility
     // Smoothness is available from settings but not used in this implementation yet
@@ -1528,7 +1850,7 @@ export const useBrushEngineSimplified = () => {
     
     // Restore context state
     ctx.restore();
-  }, [tools.brushSettings.contourSpacing, tools.brushSettings.contourSmoothness, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.blendMode, tools.brushSettings.color, applyRisographEffect, createSignedDistanceField, extractContour, connectSegments, gaussianSmooth]);
+  }, [tools.brushSettings.contourSpacing, tools.brushSettings.contourSmoothness, tools.brushSettings.shapeGradientMode, tools.brushSettings.contourVariance, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.blendMode, tools.brushSettings.color, applyRisographEffect, createSignedDistanceField, extractContour, connectSegments, gaussianSmooth]);
 
   /**
    * Initialize Color Cycle Brush for the active layer
@@ -1645,8 +1967,17 @@ export const useBrushEngineSimplified = () => {
     pressure: number = 1.0,
     rotation: number = 0
   ) => {
-    // CRITICAL DEBUG - ALWAYS LOG - VERSION 3
-    console.warn(`🔴 [CC-V3] pressure=${pressure.toFixed(2)} pressureEnabled=${tools.brushSettings.pressureEnabled} min=${tools.brushSettings.minPressure} max=${tools.brushSettings.maxPressure}`);
+    // Compute effective pressure settings (store may not reflect forced CC values)
+    const storePressureEnabled = tools.brushSettings.pressureEnabled;
+    const effectivePressureEnabled = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE
+      ? true
+      : !!storePressureEnabled;
+    const effectiveMin = tools.brushSettings.minPressure ?? 50;
+    const effectiveMax = tools.brushSettings.maxPressure ?? 200;
+    // CRITICAL DEBUG - show both store and effective values to avoid confusion
+    console.warn(
+      `🔴 [CC-V3] pressure=${pressure.toFixed(2)} storeEnabled=${storePressureEnabled} effectiveEnabled=${effectivePressureEnabled} min=${tools.brushSettings.minPressure} (eff:${effectiveMin}) max=${tools.brushSettings.maxPressure} (eff:${effectiveMax})`
+    );
     
     // DEBUG: Log incoming pressure and rotation values
     if (pressure !== 1.0 || rotation !== 0) {
@@ -1684,12 +2015,12 @@ export const useBrushEngineSimplified = () => {
       // Set pressure settings FIRST before painting
       try {
         // Force enable pressure for COLOR_CYCLE - the UI toggle isn't working correctly
-        const shouldEnablePressure = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ? true : (tools.brushSettings.pressureEnabled || false);
+        const shouldEnablePressure = effectivePressureEnabled;
         (colorCycleBrush as any).setPressureEnabled(shouldEnablePressure);
         console.warn(`🔵 COLOR_CYCLE PRESSURE: ${shouldEnablePressure}`);
         // Always set pressure values, using sensible defaults if not specified
-        (colorCycleBrush as any).setMinPressure(tools.brushSettings.minPressure || 50);
-        (colorCycleBrush as any).setMaxPressure(tools.brushSettings.maxPressure || 200);
+        (colorCycleBrush as any).setMinPressure(effectiveMin);
+        (colorCycleBrush as any).setMaxPressure(effectiveMax);
       } catch (e) {
         console.error('[CC DrawCycle] Error setting pressure:', e);
       }
@@ -1726,7 +2057,15 @@ export const useBrushEngineSimplified = () => {
     
     // Don't composite here - let renderColorCycle handle all rendering
     // This prevents visible brush stamps and ensures only animated strokes show
-  }, [tools.brushSettings.size, activeLayerId]);
+  }, [
+    tools.brushSettings.size,
+    tools.brushSettings.pressureEnabled,
+    tools.brushSettings.minPressure,
+    tools.brushSettings.maxPressure,
+    tools.brushSettings.brushShape,
+    tools.currentTool,
+    activeLayerId
+  ]);
   
   /**
    * Render Color Cycle - UNIFIED rendering approach
@@ -1782,6 +2121,56 @@ export const useBrushEngineSimplified = () => {
       const brush = initializeColorCycleBrush();
       
       if (brush) {
+        // If there is visible content on the internal canvas, proactively
+        // separate it by committing to the layer and clearing buffers so
+        // this new stroke is stored distinctly in history.
+        try {
+          const state = useAppStore.getState();
+          const layer = state.layers.find(l => l.id === state.activeLayerId);
+          const layerCanvas = layer?.colorCycleData?.canvas || null;
+          if (layer && layer.layerType === 'color-cycle' && layerCanvas && activeLayerId) {
+            const internal = (brush as any).getCanvas?.();
+            const ictx = internal?.getContext?.('2d');
+            let hasAlpha = false;
+            if (internal && ictx) {
+              try {
+                const img = ictx.getImageData(0, 0, Math.min(8, internal.width), Math.min(8, internal.height));
+                const data = img.data;
+                for (let i = 3; i < data.length; i += 4) {
+                  if (data[i] > 0) { hasAlpha = true; break; }
+                }
+              } catch {}
+            }
+            if (hasAlpha) {
+              console.log('[resetColorCycle] Separating previous stroke by committing to layer');
+              if (typeof (brush as any).commitCurrentStroke === 'function') {
+                (brush as any).commitCurrentStroke(activeLayerId);
+              }
+              if (typeof (brush as any).commitToLayer === 'function') {
+                (brush as any).commitToLayer(layerCanvas, activeLayerId);
+              } else {
+                (brush as any).renderDirectToCanvas?.(layerCanvas, activeLayerId);
+              }
+              if (typeof (brush as any).clearPaintBuffer === 'function') {
+                (brush as any).clearPaintBuffer(activeLayerId);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[resetColorCycle] Stroke separation failed (continuing):', e);
+        }
+
+        // Ensure any in-progress stroke is finalized before starting a new one
+        try {
+          if (typeof (brush as any).finalizeCurrentStroke === 'function') {
+            (brush as any).finalizeCurrentStroke(activeLayerId || undefined);
+          } else if (typeof brush.endStroke === 'function') {
+            brush.endStroke(activeLayerId || undefined);
+          }
+        } catch (e) {
+          console.warn('[resetColorCycle] finalizeCurrentStroke failed (continuing):', e);
+        }
+
         console.log('[resetColorCycle] Calling startStroke on brush for layer:', activeLayerId, 'clearBuffer:', clearBuffer);
         // Start a new stroke with the existing brush, passing layer ID and clearBuffer flag
         brush.startStroke(activeLayerId || undefined, clearBuffer);

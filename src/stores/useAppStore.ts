@@ -1062,7 +1062,8 @@ export const useAppStore = create<AppState>()(
       })),
       setShapeMode: (enabled) => set((state) => {
         try {
-          console.log('[SHAPE/STORE] setShapeMode', {
+          // Gate noisy logs behind debug toggle
+          debugLog('shape-store', 'setShapeMode', {
             enabled,
             prev: state.tools.shapeMode,
             tool: state.tools.currentTool,
@@ -1192,6 +1193,18 @@ export const useAppStore = create<AppState>()(
           blendMode: currentSettings.blendMode,
           size: appropriateSize            // Use appropriate size based on brush type
         };
+
+        // Preserve Color Cycle dynamics across preset switches unless user changes them
+        // This keeps animation feel consistent between Color Cycle variants
+        if (currentSettings.colorCycleSpeed !== undefined) {
+          (newBrushSettings as any).colorCycleSpeed = currentSettings.colorCycleSpeed;
+        }
+        if (currentSettings.colorCycleFPS !== undefined) {
+          (newBrushSettings as any).colorCycleFPS = currentSettings.colorCycleFPS;
+        }
+        if (currentSettings.colorCycleFillMode !== undefined) {
+          (newBrushSettings as any).colorCycleFillMode = currentSettings.colorCycleFillMode;
+        }
         
         // Handle custom brush presets specifically
         if (preset.isCustomBrush) {
@@ -1286,6 +1299,14 @@ export const useAppStore = create<AppState>()(
         if (newBrushSettings.brushShape === BrushShape.SPAM_TEXT) {
           newBrushSettings.antialiasing = false;
         }
+
+        // Explicitly enforce Color Cycle variant selection
+        // Some UI sequences may briefly override the shape; guard here by preset id
+        if (preset.id === 'color-cycle-shape') {
+          newBrushSettings.brushShape = BrushShape.COLOR_CYCLE_SHAPE;
+        } else if (preset.id === 'color-cycle-stroke') {
+          newBrushSettings.brushShape = BrushShape.COLOR_CYCLE;
+        }
         
         // Clear temporary brush when switching away from custom brushes
         const updatedState = {
@@ -1295,6 +1316,10 @@ export const useAppStore = create<AppState>()(
           globalBrushSize: appropriateSize, // Update global size to match new brush
           tools: {
             ...state.tools,
+            // Keep shapeMode consistent with Color Cycle brush variant selection
+            shapeMode: preset.id === 'color-cycle-shape' ? true
+                      : preset.id === 'color-cycle-stroke' ? false
+                      : state.tools.shapeMode,
             brushSettings: newBrushSettings
           }
         };
@@ -1487,7 +1512,7 @@ export const useAppStore = create<AppState>()(
             layers: updatedLayers
           };
         });
-        
+
         return newLayerId;
       },
       removeLayer: (id) => set((state) => {
@@ -1865,7 +1890,29 @@ export const useAppStore = create<AppState>()(
           const existingBrush = colorCycleBrushManager.getBrush(layerId);
           if (existingBrush) {
             console.log('Color cycle already initialized for layer:', layerId);
-            return {}; // Already initialized, don't recreate
+            // Ensure the layer has a valid canvas and CC metadata even if we skip recreation.
+            const updatedLayers = state.layers.map(l => {
+              if (l.id !== layerId) return l;
+              const existingCanvas = l.colorCycleData?.canvas;
+              const brushCanvas = existingBrush.getCanvas ? existingBrush.getCanvas() : undefined;
+              // Prefer brush canvas; fall back to existing if present
+              const canvas = brushCanvas || existingCanvas;
+              return {
+                ...l,
+                layerType: 'color-cycle' as const,
+                colorCycleData: {
+                  ...(l.colorCycleData || {}),
+                  // Preserve existing gradient if any
+                  gradient: l.colorCycleData?.gradient || state.tools.brushSettings.colorCycleGradient || l.colorCycleData?.gradient,
+                  colorCycleBrush: existingBrush,
+                  // Keep current animation state if present; default to true for responsiveness
+                  isAnimating: l.colorCycleData?.isAnimating ?? true,
+                  canvas
+                }
+              };
+            });
+            trackLayerChanges('initColorCycleForLayer (hydrate existing)', updatedLayers);
+            return { layers: updatedLayers };
           }
           
           // Validate dimensions
@@ -2466,6 +2513,10 @@ export const useAppStore = create<AppState>()(
       
       // History Management
       saveCanvasState: (canvas, actionType, description) => {
+        // Stroke-save diagnostics (always-on)
+        try {
+          console.log('[History] saveCanvasState called', { actionType, description });
+        } catch {}
         if (isHistoryOperationInProgress) {
           return;
         }
@@ -2478,7 +2529,20 @@ export const useAppStore = create<AppState>()(
         }
         
         // For important actions, save immediately
-        const isImportantAction = actionType === 'paste' || actionType === 'fill';
+        // Treat Color-Cycle brush commits as important so each stroke becomes its own history entry.
+        let isImportantAction = actionType === 'paste' || actionType === 'fill';
+        try {
+          const s = get();
+          const activeLayer = (s.layers || []).find(l => l.id === s.activeLayerId);
+          const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+          if (actionType === 'brush' && isColorCycleLayer) {
+            isImportantAction = true;
+          }
+          // ADDITIONAL FIX: Also check description for any CC-related actions
+          if (description && (description.includes('CC') || description.includes('Color Cycle'))) {
+            isImportantAction = true;
+          }
+        } catch {}
         
         const performSave = () => {
           const state = get();
@@ -2505,24 +2569,46 @@ export const useAppStore = create<AppState>()(
             
             // Deep copy colorCycleData if present
             if (layer.colorCycleData) {
-              layerCopy.colorCycleData = {
-                ...layer.colorCycleData,
-                // Store gradient (simple data that can be cloned)
-                gradient: layer.colorCycleData.gradient ? [...layer.colorCycleData.gradient] : undefined,
-                // Canvas needs to be captured as ImageData for restoration
-                canvasImageData: layer.colorCycleData.canvas ? (() => {
-                  const ccCtx = layer.colorCycleData.canvas.getContext('2d', { willReadFrequently: true });
+              // Capture canvas pixels (if any) and only persist colorCycleData when there is content.
+              let captured: ImageData | undefined = undefined;
+              if (layer.colorCycleData.canvas) {
+                try {
+                  const ccCtx = layer.colorCycleData.canvas.getContext('2d', { willReadFrequently: true } as any);
                   if (ccCtx) {
-                    return ccCtx.getImageData(0, 0, layer.colorCycleData.canvas.width, layer.colorCycleData.canvas.height);
+                    captured = ccCtx.getImageData(0, 0, layer.colorCycleData.canvas.width, layer.colorCycleData.canvas.height);
                   }
-                  return undefined;
-                })() : undefined,
-                // Store canvas dimensions for recreation
-                canvasWidth: layer.colorCycleData.canvas?.width,
-                canvasHeight: layer.colorCycleData.canvas?.height,
-                // Don't store the actual canvas or colorCycleBrush references
-                // They will be recreated on restore
-              };
+                } catch {}
+              }
+
+              // Determine if the CC canvas has any visible pixels (alpha > 0)
+              // Default to true (keep CC) if we could not capture pixels safely
+              let hasCCPixels = !captured ? true : false;
+              if (captured?.data) {
+                const data = captured.data;
+                // Sample alpha every few pixels for performance
+                const step = Math.max(4, Math.floor(data.length / 4096));
+                for (let i = 3; i < data.length; i += step) {
+                  if (data[i] > 0) { hasCCPixels = true; break; }
+                }
+              }
+
+              if (hasCCPixels) {
+                // Persist CC data when there is actual content
+                layerCopy.colorCycleData = {
+                  ...layer.colorCycleData,
+                  gradient: layer.colorCycleData.gradient ? [...layer.colorCycleData.gradient] : undefined,
+                  canvasImageData: captured,
+                  canvasWidth: layer.colorCycleData.canvas?.width,
+                  canvasHeight: layer.colorCycleData.canvas?.height,
+                };
+              } else {
+                // No CC pixels at this snapshot — treat as a normal layer in history.
+                // This enables the desired undo sequence:
+                //  - Undo last stroke: layer remains but converts to normal
+                //  - Undo again (if the layer was created by that action): layer can be removed by older snapshot
+                delete layerCopy.colorCycleData;
+                layerCopy.layerType = 'normal';
+              }
             }
             
             return layerCopy;
@@ -2547,15 +2633,28 @@ export const useAppStore = create<AppState>()(
                   fps: 30,
                   isPaused: false
                 },
-                layerStrokes: (fullState.layers || []).map((layer: any) => ({
-                  layerId: layer.layerId,
-                  paintBuffer: layer.strokeData?.paintBuffer ? layer.strokeData.paintBuffer.slice(0) : new ArrayBuffer(0),
-                  hasContent: !!layer.strokeData?.hasContent,
-                  strokeCounter: layer.strokeData?.strokeCounter || 0,
-                  strokeLength: 0,
-                  gradientLayerIndices: [],
-                  currentGradientIndex: 0
-                }))
+                layerStrokes: (fullState.layers || []).map((layer: any) => {
+                  const idx = layer?.data?.indexBuffer;
+                  const dataArr: Uint8Array | null = idx?.data ? new Uint8Array(idx.data) : null;
+                  const nonZero = dataArr ? dataArr.some((v) => v !== 0) : false;
+                  return {
+                    layerId: layer.layerId,
+                    paintBuffer: layer.strokeData?.paintBuffer ? layer.strokeData.paintBuffer.slice(0) : new ArrayBuffer(0),
+                    hasContent: !!layer.strokeData?.hasContent || nonZero,
+                    strokeCounter: layer.strokeData?.strokeCounter || 0,
+                    strokeLength: 0,
+                    gradientLayerIndices: [],
+                    currentGradientIndex: 0,
+                    // Include animator's index buffer so restore can faithfully rebuild prior pixels
+                    animatorIndex: idx ? {
+                      width: idx.width,
+                      height: idx.height,
+                      data: (dataArr ? dataArr.slice(0) : new Uint8Array()).buffer,
+                      // Optional: persist current gradient stops with this layer
+                      gradientStops: layer?.data?.gradient?.gradientStops || undefined
+                    } : undefined
+                  };
+                })
               };
 
               // DEBUG: Log CC snapshot details
@@ -2607,14 +2706,21 @@ export const useAppStore = create<AppState>()(
               lastSaveTime: new Date()
             }
           });
+
+          // Debug: trace history entry and stack size (opt-in)
+          try { const { debugLog } = require('../utils/debug'); debugLog('history', { event: 'save', actionType, description, undoSize: newUndoStack.length }); } catch {}
+          // Always-on console confirmation that a save occurred (useful for verifying per-stroke saves)
+          try { console.log('[History] Saved snapshot', { actionType, description, undoSize: newUndoStack.length }); } catch {}
         };
         
         if (isImportantAction || (now - lastSaveTimestamp) >= MIN_SAVE_INTERVAL) {
           // Save immediately
+          try { console.log('[History] performSave immediate', { actionType, description }); } catch {}
           performSave();
           lastSaveTimestamp = now;
         } else {
           // Debounce for frequent actions like brush strokes
+          try { console.log('[History] performSave scheduled (100ms)', { actionType, description }); } catch {}
           saveCanvasStateTimer = setTimeout(() => {
             performSave();
             lastSaveTimestamp = Date.now();

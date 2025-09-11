@@ -8,6 +8,7 @@ import { RecolorManager } from '../RecolorManager';
 import { BrowserCompat } from '../compatibility/BrowserCompat';
 import { PerformanceProfiler } from '../monitoring/PerformanceProfiler';
 import { Layer } from '../../../types';
+import { debugLog } from '../../../utils/debug';
 
 export interface ColorCycleIntegrationConfig {
   autoEnablePerformanceMode: boolean;
@@ -45,7 +46,7 @@ export class AppIntegration {
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    console.log('🎨 Initializing Color Cycle Integration...');
+    debugLog('cc-integration', 'Initializing Color Cycle Integration...');
 
     try {
       // Test browser compatibility
@@ -56,7 +57,7 @@ export class AppIntegration {
 
       // Apply browser-specific optimizations
       if (compatibility.enableSafariWorkarounds || compatibility.enableFirefoxWorkarounds) {
-        console.log('🔧 Applying browser-specific optimizations');
+        debugLog('cc-integration', 'Applying browser-specific optimizations');
       }
 
       // Setup performance monitoring if enabled
@@ -73,7 +74,7 @@ export class AppIntegration {
       }
 
       this.initialized = true;
-      console.log('✅ Color Cycle Integration initialized successfully');
+      debugLog('cc-integration', 'Color Cycle Integration initialized successfully');
 
     } catch (error) {
       console.error('❌ Failed to initialize Color Cycle Integration:', error);
@@ -180,7 +181,7 @@ export class AppIntegration {
       // Update app store to reflect the change
       this.updateAppStore(layer);
 
-      console.log(`✅ Layer ${layer.id} converted to recolor mode`);
+      debugLog('cc-integration', `Layer ${layer.id} converted to recolor mode`);
     } catch (error) {
       this.profiler.end(profileId, { 
         success: false, 
@@ -231,7 +232,7 @@ export class AppIntegration {
       
       if (layer && layer.colorCycleData?.mode === 'recolor') {
         this.recolorManager.cleanup(layer);
-        console.log(`🧹 Cleaned up recolor resources for layer ${layerId}`);
+        debugLog('cc-integration', `Cleaned up recolor resources for layer ${layerId}`);
       }
     } catch (error) {
       console.error(`Failed to cleanup layer ${layerId}:`, error);
@@ -303,7 +304,7 @@ export class AppIntegration {
   private setupAppStoreHooks(): void {
     // We'll need to hook into layer deletion somehow
     // This would typically be done through the app store's layer management
-    console.log('📎 Setting up app store hooks for automatic cleanup');
+    debugLog('cc-integration', 'Setting up app store hooks for automatic cleanup');
   }
 
   /**
@@ -317,7 +318,7 @@ export class AppIntegration {
     );
     
     // This would normally call a store action to update layers
-    console.log(`📱 Updated app store for layer ${layer.id}`);
+    debugLog('cc-integration', `Updated app store for layer ${layer.id}`);
   }
 
   /**
@@ -371,11 +372,11 @@ export class AppIntegration {
       if (!increaseQuality && settings.animation.fps > 15) {
         // Reduce FPS to improve performance
         settings.animation.fps = Math.max(15, settings.animation.fps - 5);
-        console.log(`🎛️ Reduced FPS for layer ${layer.id} to ${settings.animation.fps}`);
+        debugLog('cc-perf', `Reduced FPS for layer ${layer.id} to ${settings.animation.fps}`);
       } else if (increaseQuality && settings.animation.fps < 30) {
         // Increase FPS when performance allows
         settings.animation.fps = Math.min(30, settings.animation.fps + 5);
-        console.log(`🎛️ Increased FPS for layer ${layer.id} to ${settings.animation.fps}`);
+        debugLog('cc-perf', `Increased FPS for layer ${layer.id} to ${settings.animation.fps}`);
       }
     }
   }

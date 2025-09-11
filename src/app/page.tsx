@@ -14,6 +14,7 @@ import { DocumentModal } from '../components/modals/DocumentModal';
 import { SettingsModal } from '../components/modals/SettingsModal';
 import { useAppStore } from '../stores/useAppStore';
 import { autosaveService } from '../utils/autosave';
+import { debugLog } from '../utils/debug';
 import { preloadRisographTexture } from '../utils/risographTexture';
 // import TestPluginBrushes from '../components/TestPluginBrushes'; // TEST COMPONENT - Disabled due to render loop
 
@@ -42,13 +43,13 @@ export default function Home() {
     const store = useAppStore.getState();
     // Check top-level layers, not project.layers
     if (store.layers.length === 0) {
-      console.log('🚀 Creating new project - no layers exist');
+      debugLog('app-init', 'Creating new project - no layers exist');
       newProject(1920, 1080, 'Untitled');
     } else {
-      console.log('🚀 Skipping new project - layers already exist:', store.layers.length);
+      debugLog('app-init', 'Skipping new project - layers already exist:', store.layers.length);
       // Log existing layer state
       store.layers.forEach(layer => {
-        console.log('  - Layer:', layer.id, 'Type:', layer.layerType, 'HasColorCycleData:', !!layer.colorCycleData);
+        debugLog('app-init', '  - Layer:', layer.id, 'Type:', layer.layerType, 'HasColorCycleData:', !!layer.colorCycleData);
       });
     }
     
