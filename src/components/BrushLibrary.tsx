@@ -329,7 +329,7 @@ const BrushLibrary = () => {
               className={`flex items-center justify-between px-3 py-0 cursor-pointer transition-colors ${
                 tools.currentTool === 'recolor' ? 'bg-[#505050]' : 'hover:bg-[#404040]'
               }`}
-              title="Open Recolor + Color cycle panel"
+              title="Open Color cycle + recolor panel"
             >
               <div className="flex items-center space-x-2">
                 {/* Use the same icon/thumbnail as Color Cycle Shape if available */}
@@ -337,7 +337,7 @@ const BrushLibrary = () => {
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={brushThumbnails['color-cycle-shape']}
-                    alt={`Recolor + Color cycle icon`}
+                    alt={`Color cycle + recolor icon`}
                     className="w-10 h-10"
                     style={{ imageRendering: 'auto' }}
                   />
@@ -346,7 +346,7 @@ const BrushLibrary = () => {
                     ▣
                   </div>
                 )}
-                <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>Recolor + Color cycle</span>
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>Color cycle + recolor</span>
                 {/* Removed pulsing circle indicator for Recolor entry */}
               </div>
             </div>

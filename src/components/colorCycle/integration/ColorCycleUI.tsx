@@ -88,7 +88,7 @@ export const ColorCycleUI: React.FC<ColorCycleUIProps> = ({
           <div className="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center">
             <span className="text-white font-bold text-sm">!</span>
           </div>
-          <h3 className="text-lg font-semibold">Recolor + Color cycle unavailable</h3>
+          <h3 className="text-lg font-semibold">Color cycle + recolor unavailable</h3>
         </div>
         
         <div className="mb-4">
@@ -115,7 +115,7 @@ export const ColorCycleUI: React.FC<ColorCycleUIProps> = ({
         <div className="flex items-center gap-3">
           <div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" />
           <div>
-            <h3 className="text-lg font-semibold">Initializing Recolor + Color cycle</h3>
+            <h3 className="text-lg font-semibold">Initializing Color cycle + recolor</h3>
             <p className="text-sm text-gray-300">Setting up browser optimizations...</p>
           </div>
         </div>
@@ -187,14 +187,14 @@ export const ColorCycleToggle: React.FC<ColorCycleToggleProps> = ({
       `}
       title={
         !hasRecolorCapability 
-          ? 'Select a layer with content to use Recolor + Color cycle' 
-          : 'Toggle Recolor + Color cycle panel'
+          ? 'Select a layer with content to use Color cycle + recolor' 
+          : 'Toggle Color cycle + recolor panel'
       }
     >
       <div className={`w-3 h-3 rounded-full ${
         isActive ? 'bg-purple-200' : 'bg-gray-500'
       } animate-pulse`} />
-      <span>Recolor + Color cycle</span>
+      <span>Color cycle + recolor</span>
     </button>
   );
 };

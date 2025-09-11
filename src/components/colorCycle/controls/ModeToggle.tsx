@@ -38,7 +38,7 @@ export const ModeToggle: React.FC<ModeToggleProps> = ({
         title={
           mode === 'recolor'
             ? 'Toggle animation for Recolor mode'
-            : 'Convert selected layer to Recolor + Color cycle'
+            : 'Convert selected layer to Color cycle + recolor'
         }
         className={`
           w-full px-3 py-2 text-sm font-medium rounded-md transition-colors
@@ -52,10 +52,10 @@ export const ModeToggle: React.FC<ModeToggleProps> = ({
         {isChanging && mode !== 'recolor' ? (
           <div className="flex items-center gap-2 justify-center">
             <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" />
-            Recolor + Color cycle
+            Color cycle + recolor
           </div>
         ) : (
-          'Recolor + Color cycle'
+          'Color cycle + recolor'
         )}
       </button>
     </div>

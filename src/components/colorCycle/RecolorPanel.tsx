@@ -19,7 +19,6 @@ import { GradientEditor } from '../ui/GradientEditor';
 import { useAppStore } from '../../stores/useAppStore';
 import { AnimationControls } from './controls/AnimationControls';
 import Button from '../ui/Button';
-import { Switch } from '../retroui/Switch';
 // Extract colors feature removed from UI
 import { ConfirmationDialog } from './dialogs/ConfirmationDialog';
 // Performance indicator removed from UI
@@ -414,19 +413,6 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
               >
                 Reset Flow Order
               </Button>
-
-              <div className="flex items-center gap-2 text-sm">
-                <Switch
-                  id="smooth-flow-toggle"
-                  checked={(recolorSettings?.mappingMode || 'banded') === 'continuous'}
-                  onChange={(checked) => {
-                    if (!activeLayer) return;
-                    const mode = checked ? 'continuous' : 'banded';
-                    updateLayerMappingMode(activeLayer.id, mode);
-                  }}
-                />
-                <span>Smooth Flow</span>
-              </div>
             </div>
           )}
 
