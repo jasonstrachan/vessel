@@ -107,25 +107,7 @@ export default function Home() {
     }
   }, [autosave.isEnabled, autosave.interval]);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Prevent default behavior for our shortcuts
-      if ((event.ctrlKey || event.metaKey) && (event.key === 's' || event.key === 'o')) {
-        event.preventDefault();
-        
-        if (event.key === 's') {
-          // Ctrl+S or Cmd+S for save
-          saveProject().catch(() => {});
-        } else if (event.key === 'o') {
-          // Ctrl+O or Cmd+O for open
-          loadProject().catch(() => {});
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [saveProject, loadProject]);
+  // Save/Open keyboard shortcuts are centralized in useComprehensiveKeyboard
 
   return (
     <main className="w-screen h-screen bg-[#141514] text-white flex overflow-hidden">

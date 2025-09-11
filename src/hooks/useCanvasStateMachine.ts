@@ -1,4 +1,5 @@
 import { useReducer, useRef, useCallback } from 'react';
+import { debugLog } from '../utils/debug';
 
 // State machine modes
 export type CanvasMode = 
@@ -123,11 +124,11 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
 
   // Handle spacebar press/release globally
   if (action.type === 'SPACE_DOWN') {
-    console.log('[PAN] SPACE_DOWN - Current mode:', state.mode);
+    debugLog('pan-sm', 'SPACE_DOWN', { mode: state.mode });
     
     // If we're currently drawing, we need to finalize first
     if (state.mode === 'DRAWING') {
-      console.log('[PAN] Currently DRAWING - transitioning to FINALIZING with space flag');
+      debugLog('pan-sm', 'DRAWING → FINALIZING (space)');
       return {
         ...state,
         mode: 'FINALIZING',
@@ -140,7 +141,7 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
     
     // Only transition to AWAITING_PAN if not already there or panning
     if (state.mode !== 'AWAITING_PAN' && state.mode !== 'PANNING') {
-      console.log('[PAN] Transitioning', state.mode, '→ AWAITING_PAN');
+      debugLog('pan-sm', 'Transition', { from: state.mode, to: 'AWAITING_PAN' });
       return { 
         ...state, 
         mode: 'AWAITING_PAN', 
@@ -159,13 +160,13 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
   }
 
   if (action.type === 'SPACE_UP') {
-    console.log('[PAN] SPACE_UP - Current mode:', state.mode);
+    debugLog('pan-sm', 'SPACE_UP', { mode: state.mode });
     // Always clear the space flag
     const newState = { ...state, isSpacePressed: false };
     
     // If we were in AWAITING_PAN or PANNING mode, return to IDLE
     if (state.mode === 'AWAITING_PAN' || state.mode === 'PANNING') {
-      console.log('[PAN] Transitioning', state.mode, '→ IDLE');
+      debugLog('pan-sm', 'Transition', { from: state.mode, to: 'IDLE' });
       return { 
         ...newState, 
         mode: 'IDLE', 
@@ -433,7 +434,7 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
       switch (action.type) {
         case 'MOUSE_DOWN':
           // Start panning when mouse is pressed while awaiting pan
-          console.log('[PAN] Transitioning AWAITING_PAN → PANNING');
+          debugLog('pan-sm', 'Transition', { from: 'AWAITING_PAN', to: 'PANNING' });
           return {
             ...state,
             mode: 'PANNING',
@@ -461,7 +462,7 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
         case 'MOUSE_UP':
           // Go back to awaiting pan if space is still held
           if (state.isSpacePressed) {
-            console.log('[PAN] Mouse up while space held - Transitioning PANNING → AWAITING_PAN');
+            debugLog('pan-sm', 'MouseUp (space held)', { from: 'PANNING', to: 'AWAITING_PAN' });
             return {
               ...state,
               mode: 'AWAITING_PAN',
@@ -470,7 +471,7 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
             };
           }
           // Otherwise go to idle
-          console.log('[PAN] Mouse up without space - Transitioning PANNING → IDLE');
+          debugLog('pan-sm', 'MouseUp (no space)', { from: 'PANNING', to: 'IDLE' });
           return {
             ...state,
             mode: 'IDLE',

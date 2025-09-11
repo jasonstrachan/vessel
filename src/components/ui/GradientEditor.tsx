@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Dropdown from './Dropdown';
 import { useAppStore } from '../../stores/useAppStore';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
+import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 
 interface GradientStop {
   position: number;
@@ -122,12 +123,89 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   const [savedGradients, setSavedGradients] = useState<SavedGradient[]>(loadGradients());
   const [selectedGradientId, setSelectedGradientId] = useState<string>('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const [hasFocus, setHasFocus] = useState(false);
+  // Suspend global/canvas shortcuts while gradient editor is focused
+  useKeyboardScope('gradient', hasFocus);
   const colorInputRef = useRef<HTMLInputElement>(null);
 
-  // Update internal state when props change
+  // Local undo/redo stacks (editor-scoped)
+  const undoStackRef = useRef<GradientStop[][]>([]);
+  const redoStackRef = useRef<GradientStop[][]>([]);
+  const pushUndo = useCallback((snapshot: GradientStop[]) => {
+    const snap = snapshot.map(s => ({ ...s }));
+    undoStackRef.current.push(snap);
+    // Clear redo on new edit
+    redoStackRef.current = [];
+    
+  }, []);
+  const doUndo = useCallback(() => {
+    if (undoStackRef.current.length === 0) return;
+    const prev = undoStackRef.current.pop()!;
+    const current = stops.map(s => ({ ...s }));
+    redoStackRef.current.push(current);
+    
+    setStops(prev);
+    setSelectedStop(null);
+    onChange(prev);
+  }, [stops, onChange]);
+  const doRedo = useCallback(() => {
+    if (redoStackRef.current.length === 0) return;
+    const next = redoStackRef.current.pop()!;
+    const current = stops.map(s => ({ ...s }));
+    undoStackRef.current.push(current);
+    
+    setStops(next);
+    setSelectedStop(null);
+    onChange(next);
+  }, [stops, onChange]);
+
+  const openColorPicker = useCallback((index: number) => {
+    if (colorInputRef.current) {
+      try {
+        colorInputRef.current.value = stops[index]?.color || '#ffffff';
+        // Focus container first so selection state is clear, then open picker
+        containerRef.current?.focus();
+        colorInputRef.current.click();
+      } catch {}
+    }
+  }, [stops]);
+
+  // Track last seen stops signature to avoid resetting selection on identical props
+  const lastPropSigRef = useRef<string>('');
+
+  const stopsSignature = useCallback((arr: GradientStop[]) =>
+    arr
+      .map(s => `${s.position.toFixed(4)}|${(s.opacity ?? 1).toFixed(3)}|${s.color.toLowerCase()}`)
+      .join(','),
+  []);
+
+  // Update internal state when props meaningfully change (content-based),
+  // preserving selection whenever possible.
   useEffect(() => {
-    setStops(normalizeStops(initialStops));
-  }, [initialStops]);
+    const normalized = normalizeStops(initialStops);
+    const nextSig = stopsSignature(normalized);
+    if (nextSig !== lastPropSigRef.current) {
+      lastPropSigRef.current = nextSig;
+      // props changed: update internal stops and try to preserve selection
+      setStops(normalized);
+      // Try to preserve selected stop by matching on position+color or nearest position
+      setSelectedStop(prev => {
+        if (prev === null || prev < 0) return prev;
+        const prevStop = stops[prev];
+        if (!prevStop) return null;
+        const exactIdx = normalized.findIndex(s => s.position === prevStop.position && s.color.toLowerCase() === prevStop.color.toLowerCase());
+        if (exactIdx !== -1) return exactIdx;
+        if (normalized.length === 0) return null;
+        let nearestIdx = 0;
+        let minDiff = Math.abs(normalized[0].position - prevStop.position);
+        for (let i = 1; i < normalized.length; i++) {
+          const d = Math.abs(normalized[i].position - prevStop.position);
+          if (d < minDiff) { minDiff = d; nearestIdx = i; }
+        }
+        return nearestIdx;
+      });
+    }
+  }, [initialStops, stops, stopsSignature]);
   
   // Update saved gradient when stops change
   useEffect(() => {
@@ -159,24 +237,26 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   const handleStopClick = useCallback((index: number, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedStop(index);
-    // Ensure key events go to the gradient container
+    // Keep focus on container so Delete works immediately
     containerRef.current?.focus();
-    
-    // Directly trigger the native color picker
-    if (colorInputRef.current) {
-      colorInputRef.current.value = stops[index].color;
-      colorInputRef.current.click();
-    }
   }, [stops]);
+
+  const handleStopDoubleClick = useCallback((index: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedStop(index);
+    openColorPicker(index);
+  }, [openColorPicker, stops]);
 
   const handleColorChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (selectedStop === null) return;
+
+    pushUndo(stops);
     
     const newStops = [...stops];
     newStops[selectedStop].color = e.target.value;
     setStops(newStops);
     onChange(newStops);
-  }, [selectedStop, stops, onChange]);
+  }, [selectedStop, stops, onChange, pushUndo]);
 
   const handleStopMouseDown = useCallback((index: number, e: React.MouseEvent) => {
     e.preventDefault();
@@ -184,7 +264,9 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     setIsDragging(true);
     // Ensure container receives keyboard events while dragging
     containerRef.current?.focus();
-  }, []);
+    // Capture snapshot for undo at drag start
+    pushUndo(stops);
+  }, [stops, pushUndo]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isDragging || selectedStop === null || !containerRef.current) return;
@@ -201,6 +283,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     newStops.sort((a, b) => a.position - b.position);
     const newIndex = newStops.indexOf(movedStop);
     
+    // Selection follows the moved stop's new index
     setSelectedStop(newIndex);
     setStops(newStops);
     onChange(newStops);
@@ -208,6 +291,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
+    // Drag finished
   }, []);
 
   // Add global mouse event listeners for dragging
@@ -224,11 +308,14 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
 
   const handleAddStop = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!containerRef.current) return;
-    
+    // Ensure editor has focus so subsequent Delete/Backspace works
+    containerRef.current.focus();
+    pushUndo(stops);
+
     const rect = containerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const position = Math.max(0, Math.min(1, x / rect.width));
-    
+
     // Interpolate color at this position (or use default when no stops yet)
     const color = stops.length > 0 ? interpolateColor(position, stops) : '#ffffff';
     const newStop = { position, color, opacity: 1 } as GradientStop;
@@ -236,25 +323,55 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     newStops.sort((a, b) => a.position - b.position);
     setStops(newStops);
     // Select the newly added stop
-    setSelectedStop(newStops.indexOf(newStop));
+    const sel = newStops.indexOf(newStop);
+    setSelectedStop(sel);
     onChange(newStops);
-  }, [stops, onChange]);
+  }, [stops, onChange, pushUndo]);
 
   // Keyboard: Delete/Backspace removes selected stop (keep at least 2)
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Always stop propagation so global shortcuts (e.g., canvas Delete) don't interfere
+    // when the gradient editor is active.
+    const key = e.key;
+    const lower = key.toLowerCase();
+    if (key === 'Enter' || lower === 'e' || key === 'Delete' || key === 'Backspace' || ((e.metaKey || e.ctrlKey) && (lower === 'z' || lower === 'y'))) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    // Local undo/redo when editor is focused
+    if ((e.metaKey || e.ctrlKey) && lower === 'z') {
+      if (e.shiftKey) {
+        doRedo();
+      } else {
+        doUndo();
+      }
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && lower === 'y') {
+      doRedo();
+      return;
+    }
+
     if (selectedStop === null) return;
-    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-    e.preventDefault();
+    // Open color picker
+    if (key === 'Enter' || lower === 'e') {
+      openColorPicker(selectedStop);
+      return;
+    }
+    // Delete stop
+    if (key === 'Delete' || key === 'Backspace') {
+      pushUndo(stops);
+      const index = selectedStop;
+      if (index < 0 || index >= stops.length) return;
+      const newStops = stops.filter((_, i) => i !== index);
+      const newSelected = newStops.length === 0 ? null : Math.min(index, newStops.length - 1);
+      setStops(newStops);
+      setSelectedStop(newSelected);
+      onChange(newStops);
+    }
+  }, [selectedStop, stops, onChange, openColorPicker, pushUndo, doUndo, doRedo]);
 
-    const index = selectedStop;
-    if (index < 0 || index >= stops.length) return;
-
-    const newStops = stops.filter((_, i) => i !== index);
-    const newSelected = newStops.length === 0 ? null : Math.min(index, newStops.length - 1);
-    setStops(newStops);
-    setSelectedStop(newSelected);
-    onChange(newStops);
-  }, [selectedStop, stops, onChange]);
 
   // Deleting stops via UI removed; keep logic minimal in component
 
@@ -283,6 +400,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
           setStops(newStops);
           onChange(newStops);
           setSelectedGradientId('original');
+          setSelectedStop(null);
         } else {
           // No palette available (e.g., not in recolor mode)
           addNotification?.({
@@ -302,6 +420,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       setStops(newStops);
       onChange(newStops);
       setSelectedGradientId(gradientId);
+      setSelectedStop(null);
     }
   }, [savedGradients, onChange, addNotification]);
 
@@ -328,6 +447,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     setStops(newGradient.stops);
     onChange(newGradient.stops);
     setSelectedGradientId(newId);
+    setSelectedStop(null);
   }, [savedGradients, onChange]);
 
   const handleRemoveGradient = useCallback((gradientId: string) => {
@@ -400,7 +520,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   }, [savedGradients, handleRemoveGradient]);
 
   return (
-    <div className={`gradient-editor relative ${className}`} ref={containerRef}>
+    <div className={`gradient-editor relative ${className}`}>
       {/* Preset selector */}
       <div className="mb-2">
         <Dropdown
@@ -479,6 +599,12 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
           style={{ 
             background: `linear-gradient(90deg, ${gradientString})` 
           }}
+          onFocus={() => setHasFocus(true)}
+          onBlur={() => setHasFocus(false)}
+          onMouseDownCapture={(e) => {
+            // Ensure container retains focus before any click/drag handlers run
+            try { (e.currentTarget as HTMLDivElement).focus(); } catch {}
+          }}
           onClick={handleAddStop}
           onKeyDown={handleKeyDown}
         >
@@ -492,6 +618,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
               style={{ left: `${stop.position * 100}%` }}
               onMouseDown={(e) => handleStopMouseDown(index, e)}
               onClick={(e) => handleStopClick(index, e)}
+              onDoubleClick={(e) => handleStopDoubleClick(index, e)}
             >
               {/* Stop handle - square shape */}
               <div 

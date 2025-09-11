@@ -326,8 +326,8 @@ export class RecolorAnimationController {
       return false;
     }
     
-    // Defensive clamp to avoid zero/negative speed from UI glitches
-    const clamped = Math.max(0.05, Math.min(2.0, Number.isFinite(speed) ? speed : 0.4));
+    // Defensive clamp to allow slower animations while avoiding zero/negative
+    const clamped = Math.max(0.02, Math.min(2.0, Number.isFinite(speed) ? speed : 0.1));
     animatedLayer.layer.colorCycleData.recolorSettings.animation.speed = clamped;
     this.updateTicksPerFrame(animatedLayer.layer);
     return true;

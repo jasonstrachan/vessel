@@ -3,6 +3,7 @@ import { useAppStore } from '../../stores/useAppStore';
 import { XIcon } from '../icons/XIcon';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
+import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 
 interface DocumentModalProps {
   isOpen: boolean;
@@ -32,6 +33,8 @@ const calculateMemoryUsage = (width: number, height: number): number => {
 };
 
 export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose }) => {
+  // Suspend global/canvas shortcuts while modal is open
+  useKeyboardScope('modal', isOpen);
   const { project, newProject, resizeCanvas } = useAppStore();
   
   const [resizeWidth, setResizeWidth] = useState<number | string>(project?.width || 1920);

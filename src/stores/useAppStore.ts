@@ -106,6 +106,7 @@ import type {
   ShapePoint,
   PolygonGradientState,
   BrushEditorState,
+  KeyboardScope,
 } from '../types';
 import { BrushShape } from '../types';
 import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
@@ -293,6 +294,7 @@ interface AppState {
   setTheme: (theme: 'dark' | 'light') => void;
   addNotification: (notification: Omit<UIState['notifications'][0], 'id'>) => void;
   removeNotification: (id: string) => void;
+  setKeyboardScope: (scope: KeyboardScope) => void;
   
   // Layer Management
   layers: Layer[];
@@ -418,7 +420,8 @@ const defaultUIState: UIState = {
     document: false
   },
   theme: 'dark',
-  notifications: []
+  notifications: [],
+  keyboardScope: 'canvas'
 };
 
 const defaultHistoryState: HistoryState = {
@@ -765,22 +768,32 @@ export const useAppStore = create<AppState>()(
       commitFloatingPaste: async () => {
         const state = get();
         const { floatingPaste, layers, activeLayerId, project } = state;
-        
+
         if (!floatingPaste || !floatingPaste.imageData || !project) return;
-        
+
         const activeLayer = layers.find(l => l.id === activeLayerId) || layers[0];
-        if (!activeLayer || !activeLayer.imageData) return;
-        
-        // Create a temporary canvas to merge the floating paste
+        if (!activeLayer) return;
+
+        // Create a temporary canvas to merge existing layer content + floating paste
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = project.width;
         tempCanvas.height = project.height;
         const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-        
+
         if (tempCtx) {
-          // Draw existing layer content
-          tempCtx.putImageData(activeLayer.imageData, 0, 0);
-          
+          // Draw existing layer content when available
+          if (activeLayer.imageData) {
+            // Fast path when ImageData is present
+            try {
+              tempCtx.putImageData(activeLayer.imageData, 0, 0);
+            } catch {}
+          } else if (activeLayer.framebuffer) {
+            // Fallback: draw from framebuffer if imageData is not yet populated
+            try {
+              tempCtx.drawImage(activeLayer.framebuffer, 0, 0);
+            } catch {}
+          }
+
           // Draw floating paste at its position
           const pasteCanvas = document.createElement('canvas');
           pasteCanvas.width = floatingPaste.width;
@@ -790,14 +803,14 @@ export const useAppStore = create<AppState>()(
             pasteCtx.putImageData(floatingPaste.imageData, 0, 0);
             tempCtx.drawImage(pasteCanvas, floatingPaste.position.x, floatingPaste.position.y);
           }
-          
-          // Capture to active layer
+
+          // Capture composited result to the active layer
           await state.captureCanvasToActiveLayer(tempCanvas);
-          
+
           // Save state for undo
           state.saveCanvasState(tempCanvas, 'paste', 'Committed paste');
         }
-        
+
         // Clear floating paste
         set({ floatingPaste: null });
       },
@@ -1047,12 +1060,23 @@ export const useAppStore = create<AppState>()(
           fillSettings: { ...state.tools.fillSettings, ...settings }
         }
       })),
-      setShapeMode: (enabled) => set((state) => ({
-        tools: {
-          ...state.tools,
-          shapeMode: enabled
-        }
-      })),
+      setShapeMode: (enabled) => set((state) => {
+        try {
+          console.log('[SHAPE/STORE] setShapeMode', {
+            enabled,
+            prev: state.tools.shapeMode,
+            tool: state.tools.currentTool,
+            brushShape: state.tools.brushSettings.brushShape,
+            selectedCustomBrush: state.tools.brushSettings.selectedCustomBrush,
+          });
+        } catch {}
+        return {
+          tools: {
+            ...state.tools,
+            shapeMode: enabled
+          }
+        };
+      }),
       
       // Brush Presets
       brushPresets,
@@ -1349,6 +1373,12 @@ export const useAppStore = create<AppState>()(
         ui: {
           ...state.ui,
           notifications: state.ui.notifications.filter(n => n.id !== id)
+        }
+      })),
+      setKeyboardScope: (scope) => set((state) => ({
+        ui: {
+          ...state.ui,
+          keyboardScope: scope
         }
       })),
       

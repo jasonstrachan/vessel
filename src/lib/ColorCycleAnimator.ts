@@ -82,7 +82,7 @@ export class ColorCycleAnimator {
       // Initialize animation controller with lazy settings
       this.animationController = new AnimationController({
         fps: config.fps || 30,
-        speed: config.speed || 0.4,
+        speed: config.speed || 0.1,
         autoStart: false, // Never auto-start in lazy mode
         onFrame: this.handleAnimationFrame.bind(this)
       });
@@ -119,7 +119,7 @@ export class ColorCycleAnimator {
       // Initialize animation controller
       this.animationController = new AnimationController({
         fps: config.fps || 30,
-        speed: config.speed || 0.4,
+        speed: config.speed || 0.1,
         autoStart: config.autoStart || false,
         onFrame: this.handleAnimationFrame.bind(this)
       });

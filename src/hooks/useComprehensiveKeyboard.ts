@@ -10,11 +10,15 @@ interface KeyboardState {
   isMetaPressed: boolean;
 }
 
+type KeyboardScope = 'global' | 'canvas' | 'recolor' | 'gradient' | 'modal';
+
 interface UseComprehensiveKeyboardProps {
   onSpacePressed?: () => void;
   onSpaceReleased?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
+  onSave?: () => void;
+  onOpen?: () => void;
   onBrushSizeDecrease?: () => void;
   onBrushSizeIncrease?: () => void;
   onCustomTool?: () => void;
@@ -25,6 +29,7 @@ interface UseComprehensiveKeyboardProps {
   onEraserPressed?: () => void;
   onEraserReleased?: () => void;
   enabled?: boolean;
+  allowedScopes?: KeyboardScope[]; // default: ['canvas']
 }
 
 export function useComprehensiveKeyboard({
@@ -32,6 +37,8 @@ export function useComprehensiveKeyboard({
   onSpaceReleased,
   onUndo,
   onRedo,
+  onSave,
+  onOpen,
   onBrushSizeDecrease,
   onBrushSizeIncrease,
   onCustomTool,
@@ -41,7 +48,8 @@ export function useComprehensiveKeyboard({
   onEscapePressed,
   onEraserPressed,
   onEraserReleased,
-  enabled = true
+  enabled = true,
+  allowedScopes = ['canvas']
 }: UseComprehensiveKeyboardProps) {
   // Track all modifier keys
   const keyboardStateRef = useRef<KeyboardState>({
@@ -78,6 +86,8 @@ export function useComprehensiveKeyboard({
   const onEraserReleasedRef = useRef(onEraserReleased);
   const onUndoRef = useRef(onUndo);
   const onRedoRef = useRef(onRedo);
+  const onSaveRef = useRef(onSave);
+  const onOpenRef = useRef(onOpen);
   
   // Update refs when callbacks change
   useEffect(() => {
@@ -88,10 +98,34 @@ export function useComprehensiveKeyboard({
     onEraserReleasedRef.current = onEraserReleased;
     onUndoRef.current = onUndo;
     onRedoRef.current = onRedo;
-  }, [onSpacePressed, onSpaceReleased, onCustomTool, onEraserPressed, onEraserReleased, onUndo, onRedo]);
+    onSaveRef.current = onSave;
+    onOpenRef.current = onOpen;
+  }, [onSpacePressed, onSpaceReleased, onCustomTool, onEraserPressed, onEraserReleased, onUndo, onRedo, onSave, onOpen]);
 
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
     if (!enabled) return;
+
+    // Respect keyboard scope: bail if current scope not allowed (Space handled below regardless)
+    let currentScope: KeyboardScope | null = null;
+    try {
+      currentScope = useAppStore.getState().ui.keyboardScope as KeyboardScope;
+      if (!allowedScopes.includes(currentScope)) {
+        // If not allowed, still allow Space to pass to our handler
+        if (event.code !== 'Space') return;
+      }
+    } catch {}
+
+    // Ignore if typing in inputs or editable elements
+    const target = event.target as HTMLElement | null;
+    if (target && (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      target.isContentEditable
+    )) {
+      // Still allow Space to initiate panning even when focus is on inputs
+      if (event.code !== 'Space') return;
+    }
 
 
     // Update modifier states
@@ -120,7 +154,7 @@ export function useComprehensiveKeyboard({
     }
 
     // Handle Space for panning (prevent repeat)
-    if (event.code === 'Space') {
+    if (event.code === 'Space' && onSpacePressedRef.current) {
       event.preventDefault();
       
       // Only process if not already pressed
@@ -144,16 +178,16 @@ export function useComprehensiveKeyboard({
     }
 
     // Handle Save (Ctrl/Cmd + S) - prevent default browser save
-    if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
       event.preventDefault();
-      // Save is handled in the main page component
+      onSaveRef.current?.();
       return;
     }
 
     // Handle Open (Ctrl/Cmd + O) - prevent default browser open
-    if ((event.ctrlKey || event.metaKey) && event.key === 'o') {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') {
       event.preventDefault();
-      // Open is handled in the main page component
+      onOpenRef.current?.();
       return;
     }
 
@@ -273,7 +307,8 @@ export function useComprehensiveKeyboard({
     }
 
     // Enter key general handling (for floating paste)
-    if (event.key === 'Enter') {
+    // Handle both standard Enter and NumpadEnter for wider keyboard support
+    if (event.key === 'Enter' || event.code === 'NumpadEnter') {
       event.preventDefault();
       onEnterPressed?.();
       return;
@@ -285,13 +320,19 @@ export function useComprehensiveKeyboard({
       onEscapePressed?.();
       return;
     }
-  }, [enabled, onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
+  }, [enabled, allowedScopes, onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
       onPolygonCancel, onEnterPressed, onEscapePressed,
       tools, polygonGradientState, setCurrentTool, setGlobalBrushSize,
       deleteSelectedPixels, selectionStart, selectionEnd]);
 
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
     if (!enabled) return;
+
+    // Respect keyboard scope
+    try {
+      const currentScope = useAppStore.getState().ui.keyboardScope as KeyboardScope;
+      if (!allowedScopes.includes(currentScope) && event.code !== 'Space') return;
+    } catch {}
 
 
     // Update modifier states
@@ -301,7 +342,7 @@ export function useComprehensiveKeyboard({
     keyboardStateRef.current.isMetaPressed = event.metaKey;
 
     // Handle Space release
-    if (event.code === 'Space') {
+    if (event.code === 'Space' && onSpaceReleasedRef.current) {
       event.preventDefault();
       
       // Only process if space was actually pressed
@@ -341,7 +382,7 @@ export function useComprehensiveKeyboard({
         return;
       }
     }
-  }, [enabled, setCurrentTool]);
+  }, [enabled, allowedScopes, setCurrentTool]);
 
   // Handle window blur to reset state when window loses focus
   const handleBlur = useCallback(() => {

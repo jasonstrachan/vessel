@@ -12,7 +12,9 @@ export function analyzeLayerColors(
   maxSwatches: number = 6,
   sampleRate: number = 10
 ): ColorSwatch[] {
-  const ctx = canvas.getContext('2d');
+  // Use willReadFrequently to avoid browser warnings and improve getImageData perf
+  const ctx = (canvas as any).getContext?.('2d', { willReadFrequently: true })
+    || canvas.getContext('2d');
   if (!ctx) return [];
 
   const width = canvas.width;

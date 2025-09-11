@@ -3,6 +3,9 @@ import { useAppStore } from '../../../stores/useAppStore';
 import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
 import type { EventHandlerDependencies, PointerHandlers } from '../utils/types';
 import { BrushShape } from '../../../types';
+import { buildPreviewVertices } from '../../../utils/shapeMaker';
+import { debugLog } from '../../../utils/debug';
+import { snapPointToAngle } from '../../../utils/angleSnap';
 import { floodFill } from '../../../utils/floodFill';
 import { detectWacomIssues, testWacomPressure } from '../../../utils/detectWacom';
 import { getPresetStops } from '../../../utils/gradientPresets';
@@ -49,6 +52,29 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     compositeCanvasDirtyRef,
     setNeedsRedraw
   } = deps;
+
+  // Track stroke start to support Shift-based angle snapping for freehand drawing (persist via refs)
+  const strokeStartWorldPosRef = (deps.snapStrokeStartRef ?? ({ current: null } as any));
+  const shiftAnchorWorldPosRef = (deps.snapShiftAnchorRef ?? ({ current: null } as any));
+  const lastBrushSampleWorldPosRef = (deps.snapLastBrushSampleRef ?? ({ current: null } as any)); // last point sent to continueDrawing
+
+  // Helper: Determine if current brush and active layer are compatible
+  const checkLayerBrushCompatibility = () => {
+    const activeLayer = layers.find(l => l.id === activeLayerId);
+    const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+    const brushShape = tools.brushSettings.brushShape;
+    const isCCBrush = brushShape === BrushShape.COLOR_CYCLE || brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+
+    // Mismatch if CC brush on normal layer OR regular brush/tool on CC layer
+    const mismatch = (isColorCycleLayer && !isCCBrush) || (!isColorCycleLayer && isCCBrush);
+    if (!mismatch) return { ok: true } as const;
+
+    // Compose a clear message
+    const message = isColorCycleLayer
+      ? "Can't use regular brushes on a Color Cycle layer. Switch layers or select a Color Cycle brush."
+      : "Can't use Color Cycle brushes on a normal layer. Create/select a Color Cycle layer.";
+    return { ok: false, message } as const;
+  };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     // Track that pointer is down
@@ -98,6 +124,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       pan.startPan(pointerPos.x, pointerPos.y);
       setCursorStyle('grabbing');
       setShowBrushCursor(false);
+      debugLog('pan', 'PTR_DOWN startPan (space held)', { pos: pointerPos });
       return; // Skip everything else - we're panning
     }
     
@@ -108,6 +135,15 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     
     const scale = canvas?.zoom || 1;
     const worldPos = pan.screenToWorld(pointerPos.x, pointerPos.y, scale);
+    debugLog('shape-ptr', 'DOWN', {
+      tool: tools.currentTool,
+      shapeMode: tools.shapeMode,
+      brushShape: tools.brushSettings.brushShape,
+      selectedCustomBrush: tools.brushSettings.selectedCustomBrush,
+      hasCurrentBrushTip: !!tools.brushSettings.currentBrushTip,
+      button: event.button,
+      pos: worldPos
+    });
 
     // Recolor/Brush sampling finalize (on second click as a fallback)
     const rsUp = useAppStore.getState().recolorSampling;
@@ -178,9 +214,27 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return;
     }
     
+    // PRIORITY: If a floating paste exists and the click is within its bounds,
+    // start dragging it BEFORE any other interactions (drawing, selection, etc.).
+    if (event.button === 0 && floatingPaste) {
+      const pasteX = floatingPaste.position.x;
+      const pasteY = floatingPaste.position.y;
+      const pasteWidth = floatingPaste.width;
+      const pasteHeight = floatingPaste.height;
+
+      if (worldPos.x >= pasteX && worldPos.x <= pasteX + pasteWidth &&
+          worldPos.y >= pasteY && worldPos.y <= pasteY + pasteHeight) {
+        setIsDraggingFloatingPaste(true);
+        floatingPasteDragStart.current = worldPos;
+        floatingPasteOriginalPos.current = { ...floatingPaste.position };
+        setCursorStyle('move');
+        return; // Do not start drawing/selection when dragging paste
+      }
+    }
+
     // Check the state BEFORE dispatching - this is critical!
     const currentMode = stateMachine.state.mode;
-    
+
     // Dispatch to state machine with SCREEN position for normal interactions
     stateMachine.dispatch({ 
       type: 'MOUSE_DOWN', 
@@ -197,6 +251,38 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         return; // Don't start any action if click is out of bounds
       }
     }
+
+    // Shape mode should take precedence for normal brushes
+    // Start shape drawing immediately to avoid interference from other branches
+    if (
+      event.button === 0 &&
+      (tools.currentTool === 'brush' || tools.currentTool === 'eraser') &&
+      tools.shapeMode &&
+      tools.brushSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT &&
+      tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT &&
+      tools.brushSettings.brushShape !== BrushShape.CONTOUR_POLYGON &&
+      tools.brushSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE
+    ) {
+      debugLog('shape-ptr', 'branch brush/eraser shape');
+      // Strictly block incompatible brush/layer combinations (but allow eraser on any layer)
+      if (tools.currentTool !== 'eraser') {
+        const compat = checkLayerBrushCompatibility();
+        if (!compat.ok) {
+          deps.feedback?.(compat.message);
+          return;
+        }
+      }
+
+      // Initialize snapping anchors for this stroke
+      strokeStartWorldPosRef.current = worldPos;
+      lastBrushSampleWorldPosRef.current = worldPos;
+      shiftAnchorWorldPosRef.current = event.shiftKey ? worldPos : null;
+      try { console.log('[SNAP] shape stroke start', { worldPos, shift: event.shiftKey, strokeStartWorldPos: strokeStartWorldPosRef.current, shiftAnchorWorldPos: shiftAnchorWorldPosRef.current }); } catch {}
+
+      interaction.dispatch({ type: 'DRAWING_START', pressure });
+      drawingHandlers.startShapeDrawing(worldPos, pressure);
+      return;
+    }
     
     // For simple drawing mode, use the existing drawing handlers
     // Use the currentMode captured BEFORE dispatch!
@@ -207,7 +293,21 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT &&
         tools.brushSettings.brushShape !== BrushShape.CONTOUR_POLYGON &&
         tools.brushSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE) {
+      // Strictly block incompatible brush/layer combinations (but allow eraser on any layer)
+      if (tools.currentTool !== 'eraser') {
+        const compat = checkLayerBrushCompatibility();
+        if (!compat.ok) {
+          deps.feedback?.(compat.message);
+          return;
+        }
+      }
       
+      // Initialize snapping anchors for this stroke
+      strokeStartWorldPosRef.current = worldPos;
+      lastBrushSampleWorldPosRef.current = worldPos;
+      shiftAnchorWorldPosRef.current = event.shiftKey ? worldPos : null;
+      try { console.log('[SNAP] brush stroke start', { worldPos, shift: event.shiftKey, strokeStartWorldPos: strokeStartWorldPosRef.current, shiftAnchorWorldPos: shiftAnchorWorldPosRef.current }); } catch {}
+
       // Use the existing drawing system with brush engine
       interaction.dispatch({ type: 'DRAWING_START', pressure });
       drawingHandlers.startDrawing(worldPos, pressure);
@@ -216,26 +316,14 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     
     // Handle left click
     if (event.button === 0) {
-      // Check if clicking on floating paste to drag it
-      if (floatingPaste) {
-        const pasteX = floatingPaste.position.x;
-        const pasteY = floatingPaste.position.y;
-        const pasteWidth = floatingPaste.width;
-        const pasteHeight = floatingPaste.height;
-        
-        // Check if click is within floating paste bounds
-        if (worldPos.x >= pasteX && worldPos.x <= pasteX + pasteWidth &&
-            worldPos.y >= pasteY && worldPos.y <= pasteY + pasteHeight) {
-          setIsDraggingFloatingPaste(true);
-          floatingPasteDragStart.current = worldPos;
-          floatingPasteOriginalPos.current = { ...floatingPaste.position };
-          setCursorStyle('move');
-          return;
-        }
-      }
-      
       // Handle fill tool
       if (tools.currentTool === 'fill') {
+        // Block fill on CC layers
+        const compat = checkLayerBrushCompatibility();
+        if (!compat.ok) {
+          deps.feedback?.(compat.message);
+          return;
+        }
         // Get the active layer
         const activeLayer = layers.find(l => l.id === activeLayerId);
         if (!activeLayer || !activeLayer.imageData) return;
@@ -289,7 +377,21 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       }
       
       // Handle selection tool
-      if (tools.currentTool === 'selection' || tools.currentTool === 'custom') {
+      // If using custom tool BUT shape mode is ON, treat as shape drawing with current brush
+      if (tools.currentTool === 'custom' && tools.shapeMode) {
+        try {
+          console.log('[SHAPE/PTR] Custom tool + shapeMode → start shape', {
+            selectedCustomBrush: tools.brushSettings.selectedCustomBrush,
+            hasCurrentBrushTip: !!tools.brushSettings.currentBrushTip
+          });
+        } catch {}
+        // Start shape drawing with the selected custom brush
+        interaction.dispatch({ type: 'DRAWING_START', pressure });
+        drawingHandlers.startShapeDrawing(worldPos, pressure);
+        return;
+      }
+
+      if (tools.currentTool === 'selection' || (tools.currentTool === 'custom' && !tools.shapeMode)) {
         interaction.dispatch({ type: 'SELECTION_START' });
         interaction.refs.selectionStart.current = worldPos;
         setSelectionBounds(worldPos, worldPos);
@@ -327,6 +429,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       
       // Handle rectangle gradient
       if (toolStateMachine.isRectangleGradient) {
+        // Block rectangle gradient on CC layers
+        const compat = checkLayerBrushCompatibility();
+        if (!compat.ok) {
+          deps.feedback?.(compat.message);
+          return;
+        }
         const result = toolStateMachine.handleRectangleGradientMouseDown(worldPos);
         if (result === 'finalize') {
           // This click finalizes the width - draw the rectangle
@@ -420,6 +528,17 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       
       // Handle polygon gradient, color cycle shape, or contour polygon
       if (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon) {
+        // Allow only CC shape on CC layers; block others accordingly
+        const activeLayer = layers.find(l => l.id === activeLayerId);
+        const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+        const isCCShape = toolStateMachine.isColorCycleShape;
+        if ((isColorCycleLayer && !isCCShape) || (!isColorCycleLayer && isCCShape)) {
+          const msg = isColorCycleLayer
+            ? "Can't use regular polygon/contour on a Color Cycle layer. Select a Color Cycle shape, or switch layers."
+            : "Can't use Color Cycle shape on a normal layer. Create/select a Color Cycle layer.";
+          deps.feedback?.(msg);
+          return;
+        }
         if (toolStateMachine.handlePolygonGradientMouseDown(worldPos)) {
           interaction.dispatch({ type: 'DRAWING_START' });
         }
@@ -509,9 +628,10 @@ function cssColorToHex(color: string): string {
 }
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    // Throttle to 120fps max
+    // Throttle to 120fps max, but never drop shape drawing events
     const now = performance.now();
-    if (now - pointerMoveThrottled.current < 8) return;
+    const isShapeDrawing = tools.shapeMode && drawingHandlers.isDrawingShapeRef.current;
+    if (!isShapeDrawing && now - pointerMoveThrottled.current < 8) return;
     pointerMoveThrottled.current = now;
     
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -521,6 +641,53 @@ function cssColorToHex(color: string): string {
     } : { x: 0, y: 0 };
     const scale = canvas?.zoom || 1;
     const worldPos = pan.screenToWorld(currentPointerPos.x, currentPointerPos.y, scale);
+
+    // Always update cursor position immediately for responsive feel
+    setMousePosition({ x: event.clientX, y: event.clientY });
+
+    // If space is held and mouse is down, but pan hasn't started yet, start it now and exit early.
+    if (isSpacePressedRef.current && isMouseDownRef.current && !pan.panState.isPanning) {
+      debugLog('pan', 'MOVE fallback startPan', { pos: currentPointerPos });
+      pan.startPan(currentPointerPos.x, currentPointerPos.y);
+      setCursorStyle('grabbing');
+      setShowBrushCursor(false);
+      return; // Important: skip shape/brush updates on the same frame
+    }
+
+    // PANNING TAKES PRECEDENCE: if actively panning, update pan and skip other handling
+    if (pan.panState.isPanning) {
+      pan.updatePan(currentPointerPos.x, currentPointerPos.y);
+
+      // Update view transform for immediate feedback
+      deps.viewTransformRef.current.offsetX = pan.panState.offsetX;
+      deps.viewTransformRef.current.offsetY = pan.panState.offsetY;
+
+      // Throttle redraws with RAF
+      if (!drawAnimationFrameRef.current) {
+        drawAnimationFrameRef.current = requestAnimationFrame(() => {
+          const ctx = canvasRef.current?.getContext('2d', { willReadFrequently: true });
+          if (ctx) {
+            deps.draw(ctx, deps.viewTransformRef.current);
+          }
+          drawAnimationFrameRef.current = null;
+        });
+      }
+
+      return; // Skip all other pointer move logic while panning
+    }
+
+    // Quick visibility: show when Shift is held during drawing
+    if (interaction.state.isDrawing && event.shiftKey) {
+      try {
+        console.log('[SNAP] move shift held', {
+          isShape: tools.shapeMode && drawingHandlers.isDrawingShapeRef.current,
+          hasAnchor: !!(shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current),
+          anchor: shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current || null
+        });
+      } catch {}
+    }
+
+    // Unified coalesced handling below covers both brush and shape drawing (with snapping)
 
     // Recolor sampling preview line
     const rsMove = useAppStore.getState().recolorSampling;
@@ -554,6 +721,12 @@ function cssColorToHex(color: string): string {
       }
     }
     
+    // If Shift is currently not held, allow re-anchoring the next time it's pressed during this stroke
+    if (!event.shiftKey && interaction.state.isDrawing) {
+      if (shiftAnchorWorldPosRef.current) { try { console.log('[SNAP] shift released -> clear anchor'); } catch {} }
+      shiftAnchorWorldPosRef.current = null;
+    }
+
     // Process coalesced events for smoother drawing (if available)
     // This gives us all the intermediate pointer positions between events
     // Skip for gradient/contour tools as they don't need continuous drawing
@@ -568,7 +741,31 @@ function cssColorToHex(color: string): string {
             x: coalescedEvent.clientX - rect.left,
             y: coalescedEvent.clientY - rect.top,
           } : { x: 0, y: 0 };
-          const coalescedWorldPos = pan.screenToWorld(coalescedPos.x, coalescedPos.y, scale);
+          let coalescedWorldPos = pan.screenToWorld(coalescedPos.x, coalescedPos.y, scale);
+          // Apply Shift-based angle snapping for coalesced events
+          if (coalescedEvent.shiftKey) {
+            // If Shift was pressed mid-stroke, anchor to the last sampled point
+            if (!shiftAnchorWorldPosRef.current) {
+              shiftAnchorWorldPosRef.current = lastBrushSampleWorldPosRef.current || coalescedWorldPos;
+              try { console.log('[SNAP] set mid-stroke anchor (coalesced)', { anchor: shiftAnchorWorldPosRef.current, lastBrushSampleWorldPos: lastBrushSampleWorldPosRef.current }); } catch {}
+            }
+            if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+              const pts = drawingHandlers.shapePointsRef?.current || [];
+              if (pts.length >= 1) {
+                const anchor = pts[pts.length - 1];
+                const before = coalescedWorldPos;
+                coalescedWorldPos = snapPointToAngle(anchor, coalescedWorldPos, 45);
+                try { console.log('[SNAP] coalesced shape', { anchor, before, after: coalescedWorldPos }); } catch {}
+              }
+            } else if (!tools.shapeMode) {
+              const anchor = shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current;
+              if (anchor) {
+                const before = coalescedWorldPos;
+                coalescedWorldPos = snapPointToAngle(anchor, coalescedWorldPos, 45);
+                try { console.log('[SNAP] coalesced brush', { anchor, before, after: coalescedWorldPos }); } catch {}
+              }
+            }
+          }
           const coalescedPressure = coalescedEvent.pressure || 0.5;
           
           // Draw with the intermediate position and pressure
@@ -576,13 +773,12 @@ function cssColorToHex(color: string): string {
             drawingHandlers.continueShapeDrawing(coalescedWorldPos);
           } else {
             drawingHandlers.continueDrawing(coalescedWorldPos, coalescedPressure);
+            // Track last sampled point for mid-stroke Shift anchoring
+            lastBrushSampleWorldPosRef.current = coalescedWorldPos;
           }
         }
       }
     }
-    
-    // Always update cursor position immediately for responsive feel
-    setMousePosition({ x: event.clientX, y: event.clientY });
     
     // Only dispatch to state machine if not panning (to avoid unnecessary updates)
     if (!pan.panState.isPanning) {
@@ -593,49 +789,29 @@ function cssColorToHex(color: string): string {
       });
     }
     
-    // SIMPLIFIED PANNING: Check if we're actively panning
-    if (pan.panState.isPanning) {
-      // Update pan position
-      pan.updatePan(currentPointerPos.x, currentPointerPos.y);
-      
-      // Update view transform for immediate feedback
-      deps.viewTransformRef.current.offsetX = pan.panState.offsetX;
-      deps.viewTransformRef.current.offsetY = pan.panState.offsetY;
-      
-      // Throttle redraws with RAF
-      if (!drawAnimationFrameRef.current) {
-        drawAnimationFrameRef.current = requestAnimationFrame(() => {
-          const ctx = canvasRef.current?.getContext('2d', { willReadFrequently: true });
-          if (ctx) {
-            deps.draw(ctx, deps.viewTransformRef.current);
-          }
-          drawAnimationFrameRef.current = null;
-        });
-      }
-      
-      return; // Skip other mouse move logic while panning
-    }
     
     // Show brush cursor logic:
-    // Hide cursor when: panning, custom tool, dragging paste, or actively erasing
+    // Hide cursor when: panning, custom tool, dragging paste
+    // NOTE: Keep cursor visible while erasing so users can see eraser size
     const shouldHideCursor = stateMachine.isAwaitingPan || 
                             stateMachine.isPanning || 
                             tools.currentTool === 'custom' || 
                             deps.isDraggingFloatingPaste ||
-                            (tools.currentTool === 'eraser' && interaction.state.isDrawing);
+                            (!!floatingPasteDragStart.current);
     
     setShowBrushCursor(!shouldHideCursor);
     
     // Handle dragging floating paste
-    if (deps.isDraggingFloatingPaste && floatingPasteDragStart.current && floatingPasteOriginalPos.current) {
+    // Use refs to avoid render timing issues; begin drag sets these synchronously
+    if (floatingPasteDragStart.current && floatingPasteOriginalPos.current) {
       const deltaX = worldPos.x - floatingPasteDragStart.current.x;
       const deltaY = worldPos.y - floatingPasteDragStart.current.y;
-      
+
       const newX = floatingPasteOriginalPos.current.x + deltaX;
       const newY = floatingPasteOriginalPos.current.y + deltaY;
-      
+
       updateFloatingPastePosition(newX, newY);
-      
+
       // Redraw
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext('2d', { willReadFrequently: true });
@@ -661,7 +837,18 @@ function cssColorToHex(color: string): string {
     // Handle direction selection for linear gradient fill (after shape completion)
     if (drawingHandlers.isSelectingDirectionRef?.current && !interaction.state.isDrawing) {
       // Continue shape drawing to show direction arrow preview
-      drawingHandlers.continueShapeDrawing(worldPos);
+      // If Shift is pressed, snap preview direction to 45° increments relative to shape center
+      let dirWorld = worldPos;
+      if (event.shiftKey) {
+        const pts = drawingHandlers.shapePointsRef?.current || [];
+        if (pts.length >= 3) {
+          const center = pts.reduce((acc: any, p: any) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
+          center.x /= pts.length;
+          center.y /= pts.length;
+          dirWorld = snapPointToAngle(center, dirWorld, 45);
+        }
+      }
+      drawingHandlers.continueShapeDrawing(dirWorld);
       
       // Trigger redraw to show the preview
       const canvas = canvasRef.current;
@@ -767,7 +954,17 @@ function cssColorToHex(color: string): string {
     if (interaction.state.isDrawing) {
       // Rectangle gradient preview
       if (toolStateMachine.isRectangleGradient) {
-        const previewType = toolStateMachine.handleRectangleGradientMouseMove(worldPos);
+        // If defining length and Shift is pressed, snap to 45° relative to start
+        let rgWorld = worldPos;
+        if (event.shiftKey && toolStateMachine.rectangleBrushState.drawingState === 'definingLength') {
+          const start = toolStateMachine.rectangleBrushState.startPos;
+          if (start) {
+            const before = rgWorld;
+            rgWorld = snapPointToAngle(start, worldPos, 45);
+            try { console.log('[SNAP] rectangle length', { start, before, after: rgWorld }); } catch {}
+          }
+        }
+        const previewType = toolStateMachine.handleRectangleGradientMouseMove(rgWorld);
         if (previewType && deps.previewAnimationFrameRef) {
           // Throttle rectangle gradient preview with RAF
           if (!deps.previewAnimationFrameRef.current) {
@@ -921,8 +1118,21 @@ function cssColorToHex(color: string): string {
       if (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon || 
           (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current && drawingHandlers.shapePointsRef.current.length > 0)) {
         // For gradient/special brushes, use their state machine. For shape mode, always show preview
-        const shouldShowPreview = (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon) 
-          ? toolStateMachine.handlePolygonGradientMouseMove(worldPos)
+        // Compute a possibly snapped mouse world position for preview (relative to last point)
+        let previewWorld = worldPos;
+        if (event.shiftKey) {
+          const points = (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon)
+            ? toolStateMachine.polygonGradientState.points
+            : drawingHandlers.shapePointsRef.current;
+          if (points && points.length >= 1) {
+            const anchor = points[points.length - 1];
+            const before = previewWorld;
+            previewWorld = snapPointToAngle(anchor, previewWorld, 45);
+            try { console.log('[SNAP] polygon preview', { anchor, before, after: previewWorld }); } catch {}
+          }
+        }
+        const shouldShowPreview = (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon)
+          ? toolStateMachine.handlePolygonGradientMouseMove(previewWorld)
           : (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current);
         
         if (shouldShowPreview && deps.previewAnimationFrameRef) {
@@ -946,11 +1156,8 @@ function cssColorToHex(color: string): string {
                 overlayCtx.translate(deps.viewTransformRef.current.offsetX, deps.viewTransformRef.current.offsetY);
                 overlayCtx.scale(deps.viewTransformRef.current.scale, deps.viewTransformRef.current.scale);
                 
-                // Build preview vertices including current mouse position
-                const previewVertices = [
-                  ...points.map((p: any) => ({ x: p.x || p, y: p.y || p })),
-                  { x: worldPos.x, y: worldPos.y }
-                ];
+                // Build preview vertices including current (optionally snapped) mouse position
+                const previewVertices = buildPreviewVertices(points as any, { x: previewWorld.x, y: previewWorld.y });
                 
                 if (previewVertices.length >= 3) {
                   // For all shape types, show appropriate preview
@@ -987,7 +1194,7 @@ function cssColorToHex(color: string): string {
                     // Sample colors from canvas for regular polygon gradient
                     const previewColors = toolStateMachine.polygonGradientState.points.length > 0 ? [
                       ...toolStateMachine.polygonGradientState.points.map((p: any) => p.color),
-                      deps.sampleColorAtPosition(worldPos.x, worldPos.y)
+                      deps.sampleColorAtPosition(previewWorld.x, previewWorld.y)
                     ] : [tools.brushSettings.color];
                     
                     // Create gradient stops
@@ -1006,6 +1213,10 @@ function cssColorToHex(color: string): string {
                     overlayCtx.fillStyle = gradient;
                   }
                   
+                  // Ensure normal compositing for preview drawing
+                  // (avoid lingering destination-out from eraser, etc.)
+                  overlayCtx.globalCompositeOperation = 'source-over';
+
                   // Draw polygon preview - stroke for color cycle, fill for others
                   overlayCtx.beginPath();
                   overlayCtx.moveTo(previewVertices[0].x, previewVertices[0].y);
@@ -1019,6 +1230,21 @@ function cssColorToHex(color: string): string {
                   } else {
                     overlayCtx.fill(); // Fill for color cycle shape, regular polygon gradient and shape mode
                   }
+                } else if (previewVertices.length === 2 && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+                  // Early feedback for first segment: draw a simple guide line to current pointer
+                  overlayCtx.beginPath();
+                  overlayCtx.strokeStyle = tools.brushSettings.color;
+                  overlayCtx.lineWidth = 1 / deps.viewTransformRef.current.scale;
+                  overlayCtx.moveTo(previewVertices[0].x, previewVertices[0].y);
+                  overlayCtx.lineTo(previewVertices[1].x, previewVertices[1].y);
+                  overlayCtx.stroke();
+                } else if (previewVertices.length === 1 && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+                  // Single point: draw a small marker dot
+                  overlayCtx.beginPath();
+                  overlayCtx.fillStyle = tools.brushSettings.color;
+                  const r = 2 / deps.viewTransformRef.current.scale;
+                  overlayCtx.arc(previewVertices[0].x, previewVertices[0].y, r, 0, Math.PI * 2);
+                  overlayCtx.fill();
                 }
                 
                 overlayCtx.restore();
@@ -1034,11 +1260,37 @@ function cssColorToHex(color: string): string {
       
       // Normal brush or shape mode
       if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
-        drawingHandlers.continueShapeDrawing(worldPos);
+        let shapeWorld = worldPos;
+        if (event.shiftKey) {
+          const pts = drawingHandlers.shapePointsRef?.current || [];
+          if (pts.length >= 1) {
+            const anchor = pts[pts.length - 1];
+            const before = shapeWorld;
+            shapeWorld = snapPointToAngle(anchor, shapeWorld, 45);
+            try { console.log('[SNAP] shape segment', { anchor, before, after: shapeWorld }); } catch {}
+          }
+        }
+        drawingHandlers.continueShapeDrawing(shapeWorld);
       } else {
         // Continue drawing immediately for responsive feel
-        drawingHandlers.continueDrawing(worldPos, pressure);
-        
+        let brushWorld = worldPos;
+        if (event.shiftKey) {
+          // If Shift was pressed mid-stroke, and we don't yet have an anchor, use the last sampled point
+          if (!shiftAnchorWorldPosRef.current) {
+            shiftAnchorWorldPosRef.current = lastBrushSampleWorldPosRef.current || brushWorld;
+            try { console.log('[SNAP] set mid-stroke anchor', { anchor: shiftAnchorWorldPosRef.current, lastBrushSampleWorldPos: lastBrushSampleWorldPosRef.current }); } catch {}
+          }
+          const anchor = shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current;
+          if (anchor) {
+            const before = brushWorld;
+            brushWorld = snapPointToAngle(anchor, brushWorld, 45);
+            try { console.log('[SNAP] brush segment', { anchor, before, after: brushWorld }); } catch {}
+          }
+        }
+        drawingHandlers.continueDrawing(brushWorld, pressure);
+        // Update last sampled point after drawing
+        lastBrushSampleWorldPosRef.current = brushWorld;
+
         // Throttle the expensive redraw with RAF
         if (!deps.drawingAnimationFrameRef.current) {
           deps.drawingAnimationFrameRef.current = requestAnimationFrame(() => {
@@ -1064,6 +1316,11 @@ function cssColorToHex(color: string): string {
   const handlePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
     // Clear pointer down state
     isMouseDownRef.current = false;
+    // Reset snapping anchors at end of action
+    strokeStartWorldPosRef.current = null;
+    shiftAnchorWorldPosRef.current = null;
+    lastBrushSampleWorldPosRef.current = null;
+    try { console.log('[SNAP] pointer up -> clear anchors'); } catch {}
     
     // Release pointer capture
     (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
@@ -1151,6 +1408,7 @@ function cssColorToHex(color: string): string {
 
     // SIMPLIFIED PANNING: End pan if we were panning
     if (pan.panState.isPanning) {
+      debugLog('pan', 'PTR_UP endPan', { spaceStillHeld: isSpacePressedRef.current });
       pan.endPan();
       // Restore cursor based on space state
       if (isSpacePressedRef.current) {
@@ -1169,7 +1427,7 @@ function cssColorToHex(color: string): string {
     });
     
     // Handle floating paste drag end
-    if (deps.isDraggingFloatingPaste) {
+    if (deps.isDraggingFloatingPaste || floatingPasteDragStart.current) {
       setIsDraggingFloatingPaste(false);
       floatingPasteDragStart.current = null;
       floatingPasteOriginalPos.current = null;
@@ -1365,6 +1623,14 @@ function cssColorToHex(color: string): string {
       compositeCanvasDirtyRef.current = true;
       
       if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+        debugLog('shape-ptr', 'UP finalize shape', { tool: tools.currentTool, brushShape: tools.brushSettings.brushShape });
+        // Guard: require at least 3 points to finalize a polygon
+        const ptsLen = (drawingHandlers as any).shapePointsRef?.current?.length || 0;
+        if (ptsLen < 3) {
+          debugLog('shape-ptr', 'UP not enough points', { ptsLen });
+          // Keep collecting vertices with subsequent clicks
+          return;
+        }
         // Check if we need to enter direction selection mode for linear gradient
         const isColorCycleShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
         const isLinearFill = tools.brushSettings.colorCycleFillMode === 'linear';

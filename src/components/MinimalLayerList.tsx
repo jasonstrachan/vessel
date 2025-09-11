@@ -432,20 +432,33 @@ const MinimalLayerList = () => {
                     {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
                   </button>
                   
-                  {/* Display gradient for CC layers or color swatches for normal layers */}
+                  {/* Display gradient for CC layers (brush or recolor) or color swatches for normal layers */}
                   {(() => {
-                    if (layer.layerType === 'color-cycle' && 
-                        layer.colorCycleData?.gradient && 
-                        layer.colorCycleData.gradient.length > 0) {
+                    if (layer.layerType === 'color-cycle') {
+                      const ccGradient = layer.colorCycleData?.gradient || layer.colorCycleData?.recolorSettings?.gradient;
+                      if (ccGradient && ccGradient.length > 0) {
+                        return (
+                          <div 
+                            className="flex-1 h-4 rounded mr-1" 
+                            style={{
+                              background: generateGradientCSS(ccGradient),
+                              minWidth: '30px',
+                              opacity: layer.visible ? 1 : 0.5
+                            }}
+                            title={`${layer.name} - ${ccGradient.length} stops`}
+                          />
+                        );
+                      }
+                      // No gradient available yet; show a neutral bar
                       return (
                         <div 
-                          className="flex-1 h-4 rounded mr-1" 
+                          className="flex-1 h-4 rounded mr-1"
                           style={{
-                            background: generateGradientCSS(layer.colorCycleData?.gradient),
+                            background: '#555',
                             minWidth: '30px',
                             opacity: layer.visible ? 1 : 0.5
                           }}
-                          title={`${layer.name} - ${layer.colorCycleData?.gradient?.length || 0} stops`}
+                          title={layer.name}
                         />
                       );
                     } else if (layer.layerType === 'normal') {
@@ -458,6 +471,18 @@ const MinimalLayerList = () => {
                       );
                     }
                   })()}
+
+                  {/* CC badges */}
+                  {layer.layerType === 'color-cycle' && (
+                    <div className="ml-1 flex items-center gap-1">
+                      <span className="px-1 rounded text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9] border border-[#545454]">CC</span>
+                      {layer.colorCycleData?.mode === 'recolor' ? (
+                        <span className="px-1 rounded text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9] border border-[#545454]">Recolor</span>
+                      ) : (
+                        <span className="px-1 rounded text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9] border border-[#545454]">Brush</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -512,7 +537,7 @@ const MinimalLayerList = () => {
                 });
             } catch {}
           }}
-          className="w-full h-7 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
+          className="w-full h-10 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
         >
           <span className="text-[10px] mr-1">{isAnimating ? '⏸' : '▶'}</span>
           <span className="text-[10px]">{isAnimating ? 'Pause' : 'Play'}</span>

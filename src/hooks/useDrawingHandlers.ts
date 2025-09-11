@@ -7,6 +7,8 @@ import { getRisographPattern } from '../utils/risographTexture';
 import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '../hooks/brushEngine/utilities';
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
 import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
+import { appendSegmentWithDynamicResampling } from '../utils/shapeMaker';
+import { debugLog } from '../utils/debug';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -966,9 +968,23 @@ export function useDrawingHandlers({
     }
     
     if (tools.shapeMode) {
+      debugLog('shape', 'START', {
+        tool: useAppStore.getState().tools.currentTool,
+        brushShape: useAppStore.getState().tools.brushSettings.brushShape,
+        selectedCustomBrush: useAppStore.getState().tools.brushSettings.selectedCustomBrush,
+        hasCurrentBrushTip: !!useAppStore.getState().tools.brushSettings.currentBrushTip,
+        pos: worldPos,
+        appending: isDrawingShapeRef.current && shapePointsRef.current.length > 0
+      });
       initDrawingCanvas();
-      shapePointsRef.current = [worldPos];
-      isDrawingShapeRef.current = true;
+      // Support click-to-add vertices: if already drawing a shape, append point instead of resetting
+      if (isDrawingShapeRef.current && shapePointsRef.current.length > 0) {
+        shapePointsRef.current.push(worldPos);
+        debugLog('shape', 'START append', { len: shapePointsRef.current.length });
+      } else {
+        shapePointsRef.current = [worldPos];
+        isDrawingShapeRef.current = true;
+      }
     } else {
       startDrawing(worldPos, pressure);
     }
@@ -1032,12 +1048,12 @@ export function useDrawingHandlers({
     }
     
     if (tools.shapeMode && isDrawingShapeRef.current) {
-      const lastPoint = shapePointsRef.current[shapePointsRef.current.length - 1];
-      if (lastPoint) {
-        const distance = Math.hypot(worldPos.x - lastPoint.x, worldPos.y - lastPoint.y);
-        if (distance >= 5) {
-          shapePointsRef.current.push(worldPos);
-        }
+      const store = useAppStore.getState();
+      const zoom = store.canvas?.zoom || 1;
+      const brushSize = store.tools.brushSettings.size || 20;
+      const added = appendSegmentWithDynamicResampling(shapePointsRef.current, worldPos, zoom, brushSize, 0.25, 0.6);
+      if (added > 0) {
+        debugLog('shape', 'MOVE add', { added, len: shapePointsRef.current.length });
       }
     } else if (!tools.shapeMode) {
       continueDrawing(worldPos);
@@ -1134,9 +1150,17 @@ export function useDrawingHandlers({
     try {
       if (isBusyRef) isBusyRef.current = true;
       
+      debugLog('shape', 'FINALIZE points', { len: shapePointsRef.current.length });
       if (isDrawingShapeRef.current && shapePointsRef.current.length >= 3) {
         const drawCtx = drawingCtxRef.current;
         if (drawCtx && brushEngine) {
+          debugLog('shape', 'FINALIZE start', {
+            points: shapePointsRef.current.length,
+            brushShape: tools.brushSettings.brushShape,
+            isCustom: tools.brushSettings.brushShape === BrushShape.CUSTOM,
+            selectedCustomBrush: tools.brushSettings.selectedCustomBrush,
+            hasCurrentBrushTip: !!tools.brushSettings.currentBrushTip
+          });
           drawCtx.globalAlpha = 1.0;
           drawCtx.globalCompositeOperation = 'source-over';
           
@@ -1198,10 +1222,18 @@ export function useDrawingHandlers({
           }
           
           if (isCustomBrush && customBrushImageData) {
+            try {
+            debugLog('shape', 'FINALIZE custom pattern', {
+                srcW: customBrushWidth,
+                srcH: customBrushHeight,
+                sizePct: tools.brushSettings.size
+              });
+            } catch {}
             // Calculate scaled size based on brush settings, maintaining aspect ratio
             const scale = tools.brushSettings.size / 100;
-            const scaledWidth = Math.round(customBrushWidth * scale);
-            const scaledHeight = Math.round(customBrushHeight * scale);
+            // Ensure at least 1px to avoid zero-size tiles causing artifacts
+            const scaledWidth = Math.max(1, Math.round(customBrushWidth * scale));
+            const scaledHeight = Math.max(1, Math.round(customBrushHeight * scale));
             
             // Create a pattern canvas at the scaled size
             const patternCanvas = document.createElement('canvas');
@@ -1227,14 +1259,37 @@ export function useDrawingHandlers({
                 }
                 
                 // Scale and draw to pattern canvas
-                patternCtx.drawImage(tipCanvas, 0, 0, scaledWidth, scaledHeight);
+                // Disable smoothing to prevent subpixel seams when the pattern repeats
+                if (patternCtx) {
+                  (patternCtx as any).imageSmoothingEnabled = false;
+                  try {
+                    // Some browsers support this hint
+                    (patternCtx as any).imageSmoothingQuality = 'low';
+                  } catch {}
+                }
+                // Use explicit src/dst rect signature to avoid implicit resampling differences
+                patternCtx.drawImage(
+                  tipCanvas,
+                  0,
+                  0,
+                  tipCanvas.width,
+                  tipCanvas.height,
+                  0,
+                  0,
+                  scaledWidth,
+                  scaledHeight
+                );
                 
                 // Create pattern from the scaled brush
                 const pattern = drawCtx.createPattern(patternCanvas, 'repeat');
                 if (pattern) {
+                  // Ensure no smoothing when painting the pattern fill
+                  (drawCtx as any).imageSmoothingEnabled = false;
                   drawCtx.fillStyle = pattern;
+                  debugLog('shape', 'FINALIZE pattern created', { scaledWidth, scaledHeight });
                 } else {
                   drawCtx.fillStyle = tools.brushSettings.color;
+                  debugLog('shape', 'FINALIZE pattern creation failed');
                 }
                 
                 // Clean up tip canvas to prevent memory leak
@@ -1245,16 +1300,11 @@ export function useDrawingHandlers({
                 drawCtx.fillStyle = tools.brushSettings.color;
               }
               
-              // Clean up pattern canvas to prevent memory leak
-              patternCanvas.width = 1;
-              patternCanvas.height = 1;
-              patternCtx.clearRect(0, 0, 1, 1);
+              // Note: Do not mutate patternCanvas here; keep it intact until after fill
             } else {
               drawCtx.fillStyle = tools.brushSettings.color;
               
-              // Clean up pattern canvas even if context failed
-              patternCanvas.width = 1;
-              patternCanvas.height = 1;
+              // Leave patternCanvas intact; rely on GC after draw
             }
           } else {
             // Use solid color for non-custom brushes or if custom brush not found
@@ -1284,6 +1334,7 @@ export function useDrawingHandlers({
           }
           drawCtx.closePath();
           drawCtx.fill();
+          debugLog('shape', 'FINALIZE filled');
           
           // Apply risograph effect if enabled (matching monolithic implementation)
           const risographIntensity = tools.brushSettings.risographIntensity || 0;

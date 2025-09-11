@@ -11,12 +11,23 @@ import CustomSwitch from "../ui/CustomSwitch";
 import ProgressSlider from "../ui/ProgressSlider";
 // Using ProgressSlider to match pixel square brush opacity style
 import Dropdown from "../ui/Dropdown";
-import Tabs from "../ui/Tabs";
+import ButtonGroup from "../ui/ButtonGroup";
 import { drawTestSwatches } from "../../utils/drawTestSwatches";
 import { GradientEditor } from "../ui/GradientEditor";
 import { isStrokeBrush } from "../../utils/brushCategories";
 import { getPresetOptions as getRectGradientPresetOptions, getPresetStops } from "../../utils/gradientPresets";
 import { isColorCycleBrush, getShapeModeForBrush, setSharedColorCycleGradient } from "../../utils/colorCycleGradients";
+
+// Stable default rainbow gradient to avoid re-creating arrays every render
+const DEFAULT_RAINBOW_STOPS = [
+  { position: 0.0, color: '#ff0000' },
+  { position: 0.17, color: '#ff7f00' },
+  { position: 0.33, color: '#ffff00' },
+  { position: 0.5, color: '#00ff00' },
+  { position: 0.67, color: '#0000ff' },
+  { position: 0.83, color: '#4b0082' },
+  { position: 1.0, color: '#9400d3' }
+];
 
 // Get access to drawing handlers via a context or ref - we'll need to create this
 interface ColorCycleAnimationContext {
@@ -99,7 +110,7 @@ const BrushControls = () => {
       
       if (wasColorCycle) {
         // Reset Color Cycle speed to default when leaving CC mode
-        setActiveSettings({ colorCycleSpeed: 1.0 });
+        setActiveSettings({ colorCycleSpeed: 0.1 });
       }
       setIsAnimating(true); // Reset to playing state for next time
     }
@@ -115,14 +126,14 @@ const BrushControls = () => {
         {/* Fill Mode Tabs - only for Color Cycle Shape, not for Color Cycle Stroke */}
         {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && (
           <div className="mb-3">
-            <Tabs
-              tabs={[
+            <ButtonGroup
+              options={[
                 { label: 'Concentric', value: 'concentric' },
                 { label: 'Linear', value: 'linear' },
                 { label: 'Circular', value: 'circular' }
               ]}
-              activeTab={activeSettings.colorCycleFillMode || 'concentric'}
-              onTabChange={(value) => setActiveSettings({ 
+              value={activeSettings.colorCycleFillMode || 'concentric'}
+              onChange={(value) => setActiveSettings({ 
                 colorCycleFillMode: value as 'concentric' | 'linear' | 'circular' 
               })}
               className="w-full"
@@ -134,15 +145,7 @@ const BrushControls = () => {
         <div className="mb-4">
           <GradientEditor
             sampleTarget="brush"
-            stops={activeSettings.colorCycleGradient || [
-              { position: 0.0, color: '#ff0000' },
-              { position: 0.17, color: '#ff7f00' },
-              { position: 0.33, color: '#ffff00' },
-              { position: 0.5, color: '#00ff00' },
-              { position: 0.67, color: '#0000ff' },
-              { position: 0.83, color: '#4b0082' },
-              { position: 1.0, color: '#9400d3' }
-            ]}
+            stops={activeSettings.colorCycleGradient || DEFAULT_RAINBOW_STOPS}
             onChange={(stops) => {
               setActiveSettings({ colorCycleGradient: stops });
 
@@ -177,8 +180,8 @@ const BrushControls = () => {
               Speed
             </label>
             <ProgressSlider
-              value={activeSettings.colorCycleSpeed || 1.0}
-              min={0.1}
+              value={activeSettings.colorCycleSpeed || 0.1}
+              min={0.02}
               max={1.0}
               step={0.01}
               onChange={(value) => setActiveSettings({ colorCycleSpeed: value })}
@@ -336,9 +339,7 @@ const BrushControls = () => {
               id="pressure-enabled-color-cycle"
               checked={activeSettings.pressureEnabled || false}
               onChange={(checked) => {
-                console.log('[CC UI] Pressure toggle changed to:', checked);
                 setActiveSettings({ pressureEnabled: checked });
-                console.log('[CC UI] After setting, activeSettings:', activeSettings);
               }}
             />
             {(activeSettings.pressureEnabled || false) && (
@@ -836,7 +837,10 @@ const BrushControls = () => {
             <CustomSwitch
               id="shape-mode-resampler"
               checked={shapeMode || false}
-              onChange={(checked) => setShapeMode(checked)}
+              onChange={(checked) => {
+                try { console.log('[SHAPE/UI] toggle (resampler)', { checked }); } catch {}
+                setShapeMode(checked);
+              }}
             />
           </div>
         </div>
@@ -855,12 +859,6 @@ const BrushControls = () => {
               id="pressure-enabled-resampler"
               checked={activeSettings.pressureEnabled || false}
               onChange={(checked) => {
-                console.log('[Pressure Toggle Debug]', {
-                  previousState: activeSettings.pressureEnabled,
-                  newState: checked,
-                  minPressure: activeSettings.minPressure,
-                  maxPressure: activeSettings.maxPressure
-                });
                 setActiveSettings({ pressureEnabled: checked });
               }}
             />
@@ -872,11 +870,6 @@ const BrushControls = () => {
                   value={activeSettings.minPressure || 1}
                   onChange={(e) => {
                     const newMin = parseInt(e.target.value) || 1;
-                    console.log('[Min Pressure Input Debug]', {
-                      oldValue: activeSettings.minPressure,
-                      newValue: newMin,
-                      pressureEnabled: activeSettings.pressureEnabled
-                    });
                     setActiveSettings({
                       minPressure: newMin,
                     });
@@ -894,11 +887,6 @@ const BrushControls = () => {
                   value={activeSettings.maxPressure ?? 200}
                   onChange={(e) => {
                     const value = parseInt(e.target.value);
-                    console.log('[Max Pressure Input Debug]', {
-                      oldValue: activeSettings.maxPressure,
-                      newValue: value,
-                      pressureEnabled: activeSettings.pressureEnabled
-                    });
                     setActiveSettings({ maxPressure: value || undefined });
                   }}
                   min="1"
@@ -1503,7 +1491,10 @@ const BrushControls = () => {
           <CustomSwitch
             id="shape-mode"
             checked={shapeMode || false}
-            onChange={(checked) => setShapeMode(checked)}
+            onChange={(checked) => {
+              try { console.log('[SHAPE/UI] toggle (default)', { checked }); } catch {}
+              setShapeMode(checked);
+            }}
           />
         </div>
       </div>
@@ -1522,12 +1513,6 @@ const BrushControls = () => {
             id="pressure-enabled"
             checked={activeSettings.pressureEnabled || false}
             onChange={(checked) => {
-              console.log('[Pressure Toggle Debug]', {
-                previousState: activeSettings.pressureEnabled,
-                newState: checked,
-                minPressure: activeSettings.minPressure,
-                maxPressure: activeSettings.maxPressure
-              });
               setActiveSettings({ pressureEnabled: checked });
             }}
           />
@@ -1539,11 +1524,6 @@ const BrushControls = () => {
                 value={activeSettings.minPressure || 1}
                 onChange={(e) => {
                   const newMin = parseInt(e.target.value) || 1;
-                  console.log('[Min Pressure Input Debug]', {
-                    oldValue: activeSettings.minPressure,
-                    newValue: newMin,
-                    pressureEnabled: activeSettings.pressureEnabled
-                  });
                   setActiveSettings({
                     minPressure: newMin,
                   });
@@ -1561,11 +1541,6 @@ const BrushControls = () => {
                 value={activeSettings.maxPressure ?? 100}
                 onChange={(e) => {
                   const value = parseInt(e.target.value);
-                  console.log('[Max Pressure Input Debug]', {
-                    oldValue: activeSettings.maxPressure,
-                    newValue: value,
-                    pressureEnabled: activeSettings.pressureEnabled
-                  });
                   setActiveSettings({ maxPressure: value || undefined });
                 }}
                 min="1"

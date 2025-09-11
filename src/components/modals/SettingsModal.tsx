@@ -3,6 +3,7 @@ import { useAppStore } from '../../stores/useAppStore';
 import { XIcon } from '../icons/XIcon';
 import { Switch } from '../retroui/Switch';
 import { FeatureFlagToggle } from '../ui/FeatureFlagToggle';
+import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -10,6 +11,8 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+  // Suspend global/canvas shortcuts while modal is open
+  useKeyboardScope('modal', isOpen);
   const { canvas, autosave, history, setAutosaveEnabled, setAutosaveInterval, setHistorySize } = useAppStore();
   
   const [isVisible, setIsVisible] = useState(false);

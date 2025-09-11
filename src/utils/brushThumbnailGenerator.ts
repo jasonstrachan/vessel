@@ -245,6 +245,20 @@ function generateColorCycleThumbnail(
   const y = center - size / 2;
   
   ctx.globalAlpha = 1;
-  ctx.fillStyle = opts.brushColor;
+
+  // Fill with a rainbow gradient at 45° (top-left to bottom-right)
+  // Slightly overscan past the square to "spread" colors more gradually
+  const pad = size * 0.2;
+  const grad = ctx.createLinearGradient(x - pad, y - pad, x + size + pad, y + size + pad);
+  // Bit more saturation for stronger read
+  grad.addColorStop(0.00, '#ff4d5e'); // red
+  grad.addColorStop(0.17, '#ff9933'); // orange
+  grad.addColorStop(0.33, '#ffcc33'); // yellow
+  grad.addColorStop(0.50, '#4fd6b8'); // mint/green
+  grad.addColorStop(0.67, '#4da6ff'); // blue
+  grad.addColorStop(0.83, '#8090ff'); // indigo
+  grad.addColorStop(1.00, '#b56dff'); // violet
+
+  ctx.fillStyle = grad;
   ctx.fillRect(x, y, size, size);
 }

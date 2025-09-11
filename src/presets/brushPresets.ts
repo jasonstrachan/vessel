@@ -376,7 +376,7 @@ export const colorCycleStrokeBrushPreset: BrushPreset = {
     size: 20,
     opacity: 1,
     spacing: 4,
-    colorCycleSpeed: 0.3,
+    colorCycleSpeed: 0.1,
     colorCycleFPS: 30,
     gradientBands: 12, // Number of distinct color bands in strokes
     colorCycleGradient: [
@@ -439,7 +439,7 @@ export const colorCycleShapeBrushPreset: BrushPreset = {
     size: 20,
     opacity: 1,
     spacing: 4,
-    colorCycleSpeed: 0.3,
+    colorCycleSpeed: 0.1,
     colorCycleFPS: 30,
     gradientBands: 26,
     colorCycleGradient: [

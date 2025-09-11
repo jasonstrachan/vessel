@@ -8,6 +8,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Layer } from '../../types';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
+import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 
 // Custom hooks for state management
 import { useRecolorState } from './hooks/useRecolorState';
@@ -60,11 +61,13 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
   // Current layer's recolor settings
   const recolorSettings = activeLayer?.colorCycleData?.recolorSettings;
   const isRecolorEnabled = activeLayer?.colorCycleData?.mode === 'recolor' && recolorSettings;
+  // While the recolor panel is visible and in recolor mode, suspend global/canvas shortcuts
+  useKeyboardScope('recolor', isVisible && state.mode === 'recolor');
   
   // debug log removed
   // Planned (pre-conversion) animation settings so users can configure before applying
   const [plannedSettings, setPlannedSettings] = useState({
-    speed: 0.4 as number,
+    speed: 0.1 as number,
     fps: 30 as number,
     cycleColors: 16 as number,
     flowDirection: 'forward' as 'forward' | 'reverse' | 'pingpong' | 'bounce',
@@ -85,7 +88,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
   useEffect(() => {
     if (recolorSettings) {
       setPlannedSettings({
-        speed: recolorSettings.animation.speed ?? 0.4,
+        speed: recolorSettings.animation.speed ?? 0.1,
         fps: recolorSettings.animation.fps ?? 30,
         cycleColors: recolorSettings.cycleColors ?? 16,
         flowDirection: recolorSettings.animation.flowDirection ?? 'forward',
@@ -154,7 +157,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     },
     slowDown: () => {
       if (activeLayer && recolorSettings) {
-        const newSpeed = Math.max(0.1, recolorSettings.animation.speed - 0.1);
+        const newSpeed = Math.max(0.02, recolorSettings.animation.speed - 0.1);
         updateLayerSpeed(activeLayer.id, newSpeed);
       }
     },
@@ -180,7 +183,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     },
     resetSpeed: () => {
       if (activeLayer) {
-        updateLayerSpeed(activeLayer.id, 0.4);
+        updateLayerSpeed(activeLayer.id, 0.1);
       }
     },
     toggleAdvanced: actions.toggleAdvancedControls
@@ -329,7 +332,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
           {/* Animation Controls */}
           <AnimationControls
             isPlaying={isAnimating}
-            speed={isRecolorEnabled ? (recolorSettings?.animation.speed || 0.4) : plannedSettings.speed}
+            speed={isRecolorEnabled ? (recolorSettings?.animation.speed || 0.1) : plannedSettings.speed}
             fps={isRecolorEnabled ? (recolorSettings?.animation.fps || 30) : plannedSettings.fps}
             cycleColors={isRecolorEnabled ? (recolorSettings?.cycleColors || 16) : plannedSettings.cycleColors}
             flowDirection={isRecolorEnabled ? (recolorSettings?.animation.flowDirection || 'forward') : plannedSettings.flowDirection}

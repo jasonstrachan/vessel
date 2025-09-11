@@ -544,12 +544,40 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   // Direct DOM keyboard handling for instant panning response
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore when typing in inputs or editable areas
+      const target = e.target as HTMLElement | null;
+      if (target && (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target.isContentEditable
+      )) {
+        // Space must take precedence even if focus is in inputs (e.g., toggles)
+        if (e.code !== 'Space') return;
+      }
+
+      // Read current scope (but allow Space regardless of most scopes)
+      const currentScope = useAppStore.getState().ui.keyboardScope;
+
+      // Space should take precedence over most actions (except modals)
       if (e.code === 'Space' && !isSpacePressedRef.current) {
         e.preventDefault();
-        
-        // Block if drawing
-        if (interaction.stateRef.current.isDrawing) return;
-        
+        e.stopPropagation();
+
+        {
+          const store = useAppStore.getState();
+          debugLog('pan', 'SPACE_DOWN', {
+            scope: currentScope,
+            isMouseDown: isMouseDownRef.current,
+            tool: store.tools.currentTool,
+            shapeMode: store.tools.shapeMode,
+            isPanning: panRef.current.panState.isPanning
+          });
+        }
+
+        // Do not start panning if a modal has focus
+        if (currentScope === 'modal') return;
+
         isSpacePressedRef.current = true;
         setShowBrushCursorRef.current(false);
         setCursorStyleRef.current('grab');
@@ -558,29 +586,54 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         if (isMouseDownRef.current && mousePosition.x !== undefined && mousePosition.y !== undefined) {
           panRef.current.startPan(mousePosition.x, mousePosition.y);
           setCursorStyleRef.current('grabbing');
+          debugLog('pan', 'KBD startPan immediate', { pos: mousePosition });
         }
+        return;
       }
+
+      // Non-space keys respect keyboard scope
+      if (currentScope !== 'canvas') return;
     };
     
     const handleKeyUp = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target.isContentEditable
+      )) {
+        // Allow Space release to flow even if an input is focused
+        if (e.code !== 'Space') return;
+      }
       if (e.code === 'Space') {
         e.preventDefault();
+        e.stopPropagation();
         isSpacePressedRef.current = false;
-        
-        if (panRef.current.panState.isPanning) {
+
+        const wasPanning = panRef.current.panState.isPanning;
+        if (wasPanning) {
           panRef.current.endPan();
+        }
+        {
+          const store = useAppStore.getState();
+          debugLog('pan', 'SPACE_UP', {
+            wasPanning,
+            tool: store.tools.currentTool,
+            shapeMode: store.tools.shapeMode
+          });
         }
         setCursorStyleRef.current(defaultCursorStyle);
         setShowBrushCursorRef.current(true);
       }
     };
     
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    window.addEventListener('keyup', handleKeyUp, { capture: true });
     
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
+      window.removeEventListener('keyup', handleKeyUp, { capture: true } as any);
     };
   }, [defaultCursorStyle]); // Only defaultCursorStyle as it's a string constant
 
@@ -602,10 +655,34 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   // Comprehensive keyboard handling (for other keys)
   const keyboard = useComprehensiveKeyboard({
     onSpacePressed: () => {
-      // Handled by direct DOM listener above
+      // Fallback: ensure space press is honored even if our direct handler missed it
+      if (!isSpacePressedRef.current) {
+        isSpacePressedRef.current = true;
+        setShowBrushCursorRef.current(false);
+        setCursorStyleRef.current('grab');
+        if (isMouseDownRef.current && mousePosition.x !== undefined && mousePosition.y !== undefined) {
+          panRef.current.startPan(mousePosition.x, mousePosition.y);
+          setCursorStyleRef.current('grabbing');
+          debugLog('pan', 'HOOK startPan immediate', { pos: mousePosition });
+        }
+      }
     },
     onSpaceReleased: () => {
-      // Handled by direct DOM listener above
+      if (isSpacePressedRef.current) {
+        isSpacePressedRef.current = false;
+        if (panRef.current.panState.isPanning) {
+          panRef.current.endPan();
+        }
+        setCursorStyleRef.current(defaultCursorStyle);
+        setShowBrushCursorRef.current(true);
+        debugLog('pan', 'HOOK space up');
+      }
+    },
+    onSave: () => {
+      useAppStore.getState().saveProject().catch(() => {});
+    },
+    onOpen: () => {
+      useAppStore.getState().loadProject().catch(() => {});
     },
     onCustomTool: () => {
       setCurrentTool('custom');
@@ -1164,7 +1241,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && getColorCycleAnimationState()) {
         wrappedStartAnimation();
       }
-    }
+    },
+    // Surface errors consistently in pointer handlers too
+    feedback: showFeedback
   });
   
   // Extract handlers from modular system
@@ -1623,20 +1702,25 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       </div>
       
       {/* Brush cursor preview */}
-      <BrushCursor
-        screenX={mousePosition.x}
-        screenY={mousePosition.y}
-        size={tools.brushSettings.size}
-        brushShape={tools.brushSettings.brushShape || BrushShape.ROUND}
-        zoom={canvas?.zoom || 1}
-        color={tools.brushSettings.color}
-        customBrush={tools.brushSettings.currentBrushTip ? {
-          imageData: tools.brushSettings.currentBrushTip.imageData,
-          width: tools.brushSettings.currentBrushTip.width || 32,
-          height: tools.brushSettings.currentBrushTip.height || 32
-        } : null}
-        visible={showBrushCursor && !pan.panState.isPanning && !isSpacePressedRef.current && cursorStyle === 'none'}
-      />
+      {(() => {
+        const active = tools.currentTool === 'eraser' ? tools.eraserSettings : tools.brushSettings;
+        return (
+          <BrushCursor
+            screenX={mousePosition.x}
+            screenY={mousePosition.y}
+            size={active.size}
+            brushShape={active.brushShape || BrushShape.ROUND}
+            zoom={canvas?.zoom || 1}
+            color={active.color}
+            customBrush={active.currentBrushTip ? {
+              imageData: active.currentBrushTip.imageData,
+              width: active.currentBrushTip.width || 32,
+              height: active.currentBrushTip.height || 32
+            } : null}
+            visible={showBrushCursor && !pan.panState.isPanning && !isSpacePressedRef.current && cursorStyle === 'none'}
+          />
+        );
+      })()}
     </div>
   );
 };

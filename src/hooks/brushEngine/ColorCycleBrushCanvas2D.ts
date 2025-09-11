@@ -105,7 +105,7 @@ export class ColorCycleBrushCanvas2D {
     
     // Core settings
     this.brushSize = options.brushSize || 20;
-    this.cycleSpeed = 0.4;
+    this.cycleSpeed = 0.1;
     this.fps = options.fps || 30;
     this.pressureEnabled = false;
     this.minPressure = 1;
@@ -810,7 +810,8 @@ export class ColorCycleBrushCanvas2D {
     const webglCtx = this.webglCanvas.getContext('2d');
     if (webglCtx) {
       webglCtx.clearRect(0, 0, this.width, this.height);
-      webglCtx.globalAlpha = forceFullOpacity ? 1.0 : 0.8;
+      // Always render internal canvas fully opaque; external compositing applies opacity
+      webglCtx.globalAlpha = 1.0;
       webglCtx.drawImage(this.compositeCanvas, 0, 0);
       webglCtx.globalAlpha = 1.0;
     }

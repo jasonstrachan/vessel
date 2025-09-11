@@ -5,6 +5,9 @@ const config = {
   roots: ['<rootDir>/__tests__', '<rootDir>/tests', '<rootDir>/src'],
   testMatch: ['**/__tests__/**/*.test.{ts,tsx,js,jsx}', '**/tests/**/*.test.{ts,tsx,js,jsx}', '**/src/**/__tests__/**/*.test.{ts,tsx,js,jsx}'],
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+  },
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
     '!src/**/*.d.ts',

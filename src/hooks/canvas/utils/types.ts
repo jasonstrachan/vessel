@@ -119,6 +119,14 @@ export interface EventHandlerDependencies {
   // Optional cursor style defaults
   defaultCursorStyle?: string;
   restartColorCycleAnimation?: () => void;
+
+  // Optional feedback hook for surfacing errors/warnings
+  feedback?: (message: string) => void;
+
+  // Angle snap refs (persist across re-renders for brush/shape snapping)
+  snapStrokeStartRef?: React.MutableRefObject<{ x: number; y: number } | null>;
+  snapShiftAnchorRef?: React.MutableRefObject<{ x: number; y: number } | null>;
+  snapLastBrushSampleRef?: React.MutableRefObject<{ x: number; y: number } | null>;
 }
 
 export interface PointerHandlers {

@@ -4,6 +4,7 @@ import { BrushShape } from '../types';
 import Button from './ui/Button';
 import { brushCache } from '../utils/brushCache';
 import { scaledBrushCache } from '../utils/scaledBrushCache';
+import { useKeyboardScope } from '../hooks/useKeyboardScope';
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 interface BrushEditorUIProps {}
@@ -33,6 +34,9 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isResizing, setIsResizing] = useState(false);
   const [modalSize, setModalSize] = useState({ width: 600, height: 500 });
+
+  // While editing, suspend global/canvas shortcuts
+  useKeyboardScope('modal', brushEditor.status === 'EDITING');
 
   // Helper functions for flood fill
   const getPixelColor = (imageData: ImageData, x: number, y: number) => {

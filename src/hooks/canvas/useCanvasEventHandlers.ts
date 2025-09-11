@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import type { EventHandlerDependencies, EventHandlers } from './utils/types';
 import { createPointerHandlers } from './handlers/pointerHandlers';
 
@@ -7,8 +7,19 @@ import { createPointerHandlers } from './handlers/pointerHandlers';
  * Consolidates all event handling logic into modular, testable functions
  */
 export const useCanvasEventHandlers = (deps: EventHandlerDependencies): EventHandlers => {
+  // Persistent refs for angle snapping across re-renders
+  const snapStrokeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const snapShiftAnchorRef = useRef<{ x: number; y: number } | null>(null);
+  const snapLastBrushSampleRef = useRef<{ x: number; y: number } | null>(null);
+
+  const augmentedDeps = {
+    ...deps,
+    snapStrokeStartRef,
+    snapShiftAnchorRef,
+    snapLastBrushSampleRef,
+  } as EventHandlerDependencies;
   // Create pointer event handlers
-  const pointerHandlers = createPointerHandlers(deps);
+  const pointerHandlers = createPointerHandlers(augmentedDeps);
   
   // Keyboard handlers (to be extracted)
   const handleKeyDown = useCallback((event: KeyboardEvent) => {

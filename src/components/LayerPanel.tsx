@@ -322,7 +322,7 @@ const LayerPanel = () => {
                   });
               } catch {}
             }}
-            className="w-full h-8 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none"
+            className="w-full h-11 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none"
           >
             <span className="text-[10px]">{isAnimating ? '⏸' : '▶'}</span>
             <span className="ml-1">{isAnimating ? 'Pause' : 'Play'}</span>

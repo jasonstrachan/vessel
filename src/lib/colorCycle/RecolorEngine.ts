@@ -120,7 +120,7 @@ export class RecolorEngine {
       }
       
       if (!layer.colorCycleData.recolorSettings) {
-        const defaultSpeed = 0.4;
+        const defaultSpeed = 0.1;
         const defaultFPS = 30;
         const ticksPerFrame = (defaultSpeed / defaultFPS) * cycleColors; // keep in sync with controller logic
         layer.colorCycleData.recolorSettings = {

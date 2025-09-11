@@ -59,7 +59,7 @@ export interface Layer {
       
       // Animation settings
       animation: {
-        speed: number; // 0.1 - 2.0x
+        speed: number; // 0.02 - 2.0x
         fps: number; // 15, 30, or 60
         ticksPerFrame: number; // Calculated from speed
         isPlaying: boolean;
@@ -222,7 +222,10 @@ export interface UIState {
   };
   theme: 'dark' | 'light';
   notifications: Notification[];
+  keyboardScope: KeyboardScope;
 }
+
+export type KeyboardScope = 'global' | 'canvas' | 'recolor' | 'gradient' | 'modal';
 
 export interface BrushEditorState {
   status: 'IDLE' | 'EDITING';
@@ -351,7 +354,7 @@ export interface BrushSettings {
   colorCycleFlowForward?: boolean; // true = forward flow, false = backward flow
   
   // Color cycle brush settings
-  colorCycleSpeed?: number; // 0.1-5.0 (animation speed)
+  colorCycleSpeed?: number; // 0.02-1.0 (brush animation speed)
   colorCycleGradient?: Array<{ position: number; color: string }>; // Gradient stops
   colorCycleFPS?: number; // 15-60 (frames per second for animation)
   colorCycleFillMode?: 'concentric' | 'linear' | 'circular'; // Fill mode for Color Cycle Shape
