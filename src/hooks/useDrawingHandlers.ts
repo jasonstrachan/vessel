@@ -8,7 +8,7 @@ import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '.
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
 import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
 import { appendSegmentWithDynamicResampling } from '../utils/shapeMaker';
-import { debugLog } from '../utils/debug';
+import { debugLog, debugWarn } from '../utils/debug';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -994,7 +994,7 @@ export function useDrawingHandlers({
   const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
     // If we're selecting direction for linear gradient, record the direction
     if (isSelectingDirectionRef.current) {
-      console.log('[CC Shape] Direction click received at', worldPos);
+      debugLog('cc-shape', 'direction-click', worldPos);
       directionPreviewRef.current = worldPos;
       // Direction selection will be finalized in finalizeShapeDrawing
       return;
@@ -1033,17 +1033,17 @@ export function useDrawingHandlers({
     
     // If we're selecting direction, show preview line
     if (isSelectingDirectionRef.current && shapePointsRef.current.length >= 3) {
-      console.log('[CC Shape] Mouse move during direction selection:', worldPos);
+      debugLog('cc-shape', 'direction-move', worldPos);
       
       // Make sure we have drawing context
       if (!drawingCtxRef.current || !drawingCanvasRef.current) {
-        console.log('[CC Shape] Re-initializing canvas for direction preview');
+        debugLog('cc-shape', 'reinit-preview');
         initDrawingCanvas();
       }
       
       const drawCtx = drawingCtxRef.current;
       if (drawCtx && drawingCanvasRef.current) {
-        console.log('[CC Shape] Drawing direction arrow preview');
+        debugLog('cc-shape', 'draw-direction-preview');
         // Clear and redraw shape with transparent fill
         drawCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
         
@@ -1167,7 +1167,7 @@ export function useDrawingHandlers({
         // Import the function to check animation state
         const BrushControls = await import('../components/toolbar/BrushControls');
         if (BrushControls.getColorCycleAnimationState && BrushControls.getColorCycleAnimationState()) {
-          console.log('[CC Shape] Restarting animation after direction selection');
+          debugLog('cc-shape', 'restart-animation-after-direction');
           startContinuousColorCycleAnimation();
         }
         
@@ -1449,14 +1449,13 @@ export function useDrawingHandlers({
             // Check fill mode and fill accordingly
             if (shapePointsRef.current.length >= 3) {
               const fillMode = tools.brushSettings.colorCycleFillMode || 'concentric';
-              console.log('[CC Shape] Fill mode:', fillMode, 'from settings:', tools.brushSettings.colorCycleFillMode);
-              console.log('[CC Shape] isSelectingDirectionRef before check:', isSelectingDirectionRef.current);
-              console.log('[CC Shape] isDrawingShapeRef before check:', isDrawingShapeRef.current);
+              debugLog('cc-shape', 'fill-mode', { fillMode, setting: tools.brushSettings.colorCycleFillMode });
+              debugLog('cc-shape', 'flags-before', { selecting: isSelectingDirectionRef.current, drawing: isDrawingShapeRef.current });
               
               if (fillMode === 'linear') {
                 // For linear mode, enter direction selection phase
-                console.log('[CC Shape] Entering linear direction selection mode');
-                console.log('[CC Shape] Shape has', shapePointsRef.current.length, 'points');
+                debugLog('cc-shape', 'enter-linear-direction');
+                debugLog('cc-shape', 'shape-points', shapePointsRef.current.length);
                 isSelectingDirectionRef.current = true;
                 isDrawingShapeRef.current = false;
                 
@@ -1472,7 +1471,7 @@ export function useDrawingHandlers({
                 // Keep the shape points for when direction is selected
                 // Make sure drawing canvas is initialized
                 if (!drawingCanvasRef.current || !drawingCtxRef.current) {
-                  console.log('[CC Shape] Initializing drawing canvas for direction selection');
+                  debugLog('cc-shape', 'init-canvas-direction');
                   initDrawingCanvas();
                 }
                 
@@ -1493,16 +1492,14 @@ export function useDrawingHandlers({
                   drawingCtxRef.current.restore();
                   
                   drawingCanvasHasContent.current = true;
-                  console.log('[CC Shape] Drew shape outline for direction selection');
+                  debugLog('cc-shape', 'direction-outline');
                 } else {
-                  console.error('[CC Shape] Failed to get drawing context for preview');
+                  debugWarn('cc-shape', 'preview-ctx-missing');
                 }
                 
                 // Exit early - don't finalize yet, wait for direction click
                 if (isBusyRef) isBusyRef.current = false;
-                console.log('[CC Shape] Ready for direction selection - move mouse to preview, click to set');
-                console.log('[CC Shape] isSelectingDirectionRef after setting:', isSelectingDirectionRef.current);
-                console.log('[CC Shape] About to return from finalizeShapeDrawing for linear mode');
+                debugLog('cc-shape', 'direction-ready', { selecting: isSelectingDirectionRef.current });
                 return;
               } else {
                 // Concentric fill (default)
@@ -1545,14 +1542,13 @@ export function useDrawingHandlers({
         
         // Only clear shape points if we're NOT in direction selection mode
         // Linear mode needs to keep the points for when direction is selected
-        console.log('[CC Shape] Before clearing - isSelectingDirectionRef:', isSelectingDirectionRef.current);
-        console.log('[CC Shape] Before clearing - shapePointsRef length:', shapePointsRef.current.length);
+        debugLog('cc-shape', 'before-clear', { selecting: isSelectingDirectionRef.current, len: shapePointsRef.current.length });
         if (!isSelectingDirectionRef.current) {
-          console.log('[CC Shape] Clearing shape points (not in direction selection)');
+          debugLog('cc-shape', 'clear-points');
           shapePointsRef.current = [];
           isDrawingShapeRef.current = false;
         } else {
-          console.log('[CC Shape] Keeping shape points for direction selection');
+          debugLog('cc-shape', 'keep-points-direction');
         }
         
         // FIXED: For CC shapes on CC layers, handle finalization directly without calling finalizeDrawing

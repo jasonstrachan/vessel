@@ -397,7 +397,8 @@ export class ColorCycleBrushCanvas2D {
     const id = layerId || this.activeLayerId || 'default';
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
-      console.log('[ColorCycleBrush.clearPaintBuffer] Clearing paint buffer for layer:', id);
+      // Debug only: clearing paint buffer
+      try { const { debugLog } = require('../../utils/debug'); debugLog('cc-brush', 'clearPaintBuffer', { layerId: id }); } catch {}
       // Clear the paint buffer to start fresh
       strokeData.paintBuffer.fill(0);
       // IMPORTANT: Do NOT mark hasContent=false or clear the animator here.
@@ -417,8 +418,7 @@ export class ColorCycleBrushCanvas2D {
    */
   startStroke(layerId?: string, clearBuffer: boolean = false) {
     const id = layerId || this.activeLayerId || 'default';
-    console.log('[ColorCycleBrush.startStroke] Called for layer:', id, 'clearBuffer:', clearBuffer);
-    console.log('[ColorCycleBrush.startStroke] Previous paint buffer exists?', !!this.layerStrokes.get(id)?.paintBuffer);
+    try { const { debugLog } = require('../../utils/debug'); debugLog('cc-brush', 'startStroke', { layerId: id, clearBuffer, hadPaintBuffer: !!this.layerStrokes.get(id)?.paintBuffer }); } catch {}
 
     this.activeLayerId = id;
     this.isDrawing = true;
@@ -445,9 +445,9 @@ export class ColorCycleBrushCanvas2D {
           }
           return false;
         })();
-        console.log('[DEBUG] Animator canvas has existing pixels (sampled):', hasPixels);
+        try { const { debugLog } = require('../../utils/debug'); debugLog('cc-brush', 'animator-sample', { hasPixels }); } catch {}
         if (hasPixels && clearBuffer) {
-          console.log('[DEBUG] Clearing animator due to clearBuffer=true');
+          try { const { debugLog } = require('../../utils/debug'); debugLog('cc-brush', 'animator-clear'); } catch {}
           try { animator.clear(); } catch {}
         }
       }
@@ -457,13 +457,13 @@ export class ColorCycleBrushCanvas2D {
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
       if (clearBuffer) {
-        console.log('[ColorCycleBrush.startStroke] Clearing paint buffer for new shape');
+        try { const { debugLog } = require('../../utils/debug'); debugLog('cc-brush', 'startStroke-clearPaintBuffer'); } catch {}
         strokeData.paintBuffer.fill(0);
         strokeData.hasContent = false;
         strokeData.strokeCounter = 0;
         strokeData.stampCounter = 0; // Reset stamp counter for new shape
       } else {
-        console.log('[ColorCycleBrush.startStroke] Updating stroke data - NOT clearing paint buffer');
+        try { const { debugLog } = require('../../utils/debug'); debugLog('cc-brush', 'startStroke-continue'); } catch {}
       }
       strokeData.strokeCounter = this.strokeCounter;
       strokeData.strokeLength = 0;

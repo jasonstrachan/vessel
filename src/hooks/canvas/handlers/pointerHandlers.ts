@@ -4,7 +4,7 @@ import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
 import type { EventHandlerDependencies, PointerHandlers } from '../utils/types';
 import { BrushShape } from '../../../types';
 import { buildPreviewVertices } from '../../../utils/shapeMaker';
-import { debugLog } from '../../../utils/debug';
+import { debugLog, debugWarn } from '../../../utils/debug';
 import { snapPointToAngle } from '../../../utils/angleSnap';
 import { floodFill } from '../../../utils/floodFill';
 import { detectWacomIssues, testWacomPressure } from '../../../utils/detectWacom';
@@ -112,10 +112,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // Test Wacom functionality
     const wacomTest = testWacomPressure(event);
     if (!wacomTest.isWorking && tools.brushSettings.pressureEnabled) {
-      console.warn('[WACOM ISSUE]', wacomTest.details);
+      // Gate noisy warnings behind debug
+      debugWarn('wacom', wacomTest.details);
       const issues = detectWacomIssues();
       if (issues.solutions.length > 0) {
-        console.log('[WACOM SOLUTIONS]:', issues.solutions.join('\n'));
+        debugLog('wacom', 'solutions', issues.solutions.join('\n'));
       }
     }
     
@@ -379,12 +380,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       // Handle selection tool
       // If using custom tool BUT shape mode is ON, treat as shape drawing with current brush
       if (tools.currentTool === 'custom' && tools.shapeMode) {
-        try {
-          console.log('[SHAPE/PTR] Custom tool + shapeMode → start shape', {
-            selectedCustomBrush: tools.brushSettings.selectedCustomBrush,
-            hasCurrentBrushTip: !!tools.brushSettings.currentBrushTip
-          });
-        } catch {}
+        debugLog('shape-ptr', 'custom+shape start', { selectedCustomBrush: tools.brushSettings.selectedCustomBrush, hasCurrentBrushTip: !!tools.brushSettings.currentBrushTip });
         // Start shape drawing with the selected custom brush
         interaction.dispatch({ type: 'DRAWING_START', pressure });
         drawingHandlers.startShapeDrawing(worldPos, pressure);
@@ -403,14 +399,13 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       
       // Handle direction selection click for linear gradient fill
       if (drawingHandlers.isSelectingDirectionRef?.current) {
-        console.log('[PointerDown] Direction selection click detected at', worldPos);
-        console.log('[PointerDown] Passing position to startShapeDrawing...');
+        debugLog('shape-ptr', 'direction-click', { pos: worldPos });
         // Pass the click position to finalize the direction
         drawingHandlers.startShapeDrawing(worldPos, pressure);
-        console.log('[PointerDown] Calling finalizeShapeDrawing to complete with direction...');
+        debugLog('shape-ptr', 'direction-finalize');
         // Now finalize with the direction set
         drawingHandlers.finalizeShapeDrawing();
-        console.log('[PointerDown] Direction selection complete');
+        debugLog('shape-ptr', 'direction-complete');
         return;
       }
       
@@ -1523,17 +1518,17 @@ function cssColorToHex(color: string): string {
                 
                 // Check fill mode and use appropriate fill method
                 const fillMode = tools.brushSettings.colorCycleFillMode || 'concentric';
-                console.log('[Polygon CC Shape] Fill mode:', fillMode);
+                debugLog('cc-shape', 'fill-mode', fillMode);
                 
                 if (fillMode === 'linear') {
                   // For linear mode, we need to enter direction selection mode
-                  console.log('[Polygon CC Shape] Linear mode - entering direction selection');
+                  debugLog('cc-shape', 'linear-enter-direction');
                   // Store the polygon points in drawing handlers for direction selection
                   drawingHandlers.shapePointsRef.current = currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y }));
                   
                   // Mark that we're selecting direction
                   drawingHandlers.isSelectingDirectionRef.current = true;
-                  console.log('[Polygon CC Shape] Set isSelectingDirectionRef to true');
+                  debugLog('cc-shape', 'set-selecting-direction', true);
                   
                   // Stop any color cycle animation to prevent flickering during direction selection
                   drawingHandlers.stopContinuousColorCycleAnimation?.();
@@ -1555,7 +1550,7 @@ function cssColorToHex(color: string): string {
                   drawCtx.restore();
                   
                   // Don't render color cycle yet - wait for direction
-                  console.log('[Polygon CC Shape] Ready for direction selection - move mouse and click');
+                  debugLog('cc-shape', 'ready-direction-click');
                   // Skip the normal finalization - we'll finalize after direction is selected
                   drawingHandlers.drawingCanvasHasContent.current = true;
                   toolStateMachine.resetPolygonGradient();

@@ -2552,10 +2552,8 @@ export const useAppStore = create<AppState>()(
       
       // History Management
       saveCanvasState: (canvas, actionType, description, overrideActiveLayerId?: string) => {
-        // Stroke-save diagnostics (always-on)
-        try {
-          console.log('[History] saveCanvasState called', { actionType, description });
-        } catch {}
+        // Diagnostics via scoped debug
+        try { const { debugLog } = require('../utils/debug'); debugLog('history', { event: 'saveCanvasState', actionType, description }); } catch {}
         if (isHistoryOperationInProgress) {
           return;
         }
@@ -2759,18 +2757,16 @@ export const useAppStore = create<AppState>()(
 
           // Debug: trace history entry and stack size (opt-in)
           try { const { debugLog } = require('../utils/debug'); debugLog('history', { event: 'save', actionType, description, undoSize: newUndoStack.length }); } catch {}
-          // Always-on console confirmation that a save occurred (useful for verifying per-stroke saves)
-          try { console.log('[History] Saved snapshot', { actionType, description, undoSize: newUndoStack.length }); } catch {}
         };
-        
+
         if (isImportantAction || (now - lastSaveTimestamp) >= MIN_SAVE_INTERVAL) {
           // Save immediately
-          try { console.log('[History] performSave immediate', { actionType, description }); } catch {}
+          try { const { debugLog } = require('../utils/debug'); debugLog('history', { event: 'performSave-immediate', actionType, description }); } catch {}
           performSave();
           lastSaveTimestamp = now;
         } else {
           // Debounce for frequent actions like brush strokes
-          try { console.log('[History] performSave scheduled (100ms)', { actionType, description }); } catch {}
+          try { const { debugLog } = require('../utils/debug'); debugLog('history', { event: 'performSave-scheduled', delay: 100, actionType, description }); } catch {}
           saveCanvasStateTimer = setTimeout(() => {
             performSave();
             lastSaveTimestamp = Date.now();

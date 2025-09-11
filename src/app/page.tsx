@@ -11,6 +11,7 @@ import MinimalLayerList from '../components/MinimalLayerList';
 import FeedbackStrip from '../components/FeedbackStrip';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
 import { DocumentModal } from '../components/modals/DocumentModal';
+import { ExportModal } from '../components/modals/ExportModal';
 import { SettingsModal } from '../components/modals/SettingsModal';
 import { useAppStore } from '../stores/useAppStore';
 import { autosaveService } from '../utils/autosave';
@@ -171,6 +172,12 @@ export default function Home() {
       <SettingsModal 
         isOpen={ui.modals.settings}
         onClose={() => toggleModal('settings')}
+      />
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={ui.modals.export}
+        onClose={() => toggleModal('export')}
       />
       
       {/* Brush Editor UI Modal */}

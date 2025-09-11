@@ -23,7 +23,7 @@ const LeftToolbar = () => {
     [
       { id: 'save' as Tool, icon: null, label: 'Save File' },
       { id: 'load' as Tool, icon: null, label: 'Load File' },
-      { id: 'export-png' as Tool, icon: null, label: 'Export PNG' },
+      { id: 'export' as Tool, icon: null, label: 'Export' },
       { id: 'options' as Tool, icon: null, label: 'Options' },
     ],
   ];
@@ -45,12 +45,8 @@ const LeftToolbar = () => {
       } catch (error) {
         alert(`Load failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
-    } else if (toolId === 'export-png') {
-      try {
-        await exportProject('png');
-      } catch (error) {
-        alert(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
+    } else if (toolId === 'export' || toolId === 'export-png') {
+      toggleModal('export');
     } else if (toolId === 'options') {
       toggleModal('settings');
     } else {
@@ -129,7 +125,7 @@ const LeftToolbar = () => {
             </svg>
           ) : tool.id === 'load' ? (
             <LoadIcon />
-          ) : tool.id === 'export-png' ? (
+          ) : (tool.id === 'export' || tool.id === 'export-png') ? (
             <ExportIcon />
           ) : tool.id === 'eyedropper' ? (
             <svg width="24" height="24" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">

@@ -15,6 +15,7 @@ import { detectWacomIssues, testWacomPressure } from '../../utils/detectWacom';
 import BrushCursor from './BrushCursor';
 import { setColorCycleAnimationHandlers, getColorCycleAnimationState } from '../toolbar/BrushControls';
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
+import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 
 interface DrawingCanvasProps {
   showFeedback?: (message: string) => void;
@@ -465,6 +466,39 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       colorCycleManagerRef.current?.stop();
     };
   }, [wrappedStartAnimation, wrappedStopAnimation, brushEngine.updateColorCycleGradient, brushEngine.setColorCycleFlowDirection]);
+
+  // Stop all color-cycle playback when switching to a non-CC layer
+  useEffect(() => {
+    const activeLayer = layers.find(l => l.id === activeLayerId);
+    const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+    if (isColorCycleLayer) return;
+
+    try {
+      // Pause recolor animations (global controller)
+      const rm = RecolorManager.getInstance();
+      if (rm.isAnimating()) rm.pause();
+    } catch {}
+
+    try {
+      // Stop brush-based continuous animation loop and redraw
+      wrappedStopAnimation();
+    } catch {}
+
+    try {
+      // Clear isAnimating flags on all brush-based CC layers so render loop doesn't advance them
+      const st = useAppStore.getState();
+      st.layers
+        .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor' && l.colorCycleData?.isAnimating)
+        .forEach(l => {
+          st.updateLayer(l.id, {
+            colorCycleData: {
+              ...l.colorCycleData,
+              isAnimating: false
+            }
+          } as any);
+        });
+    } catch {}
+  }, [activeLayerId, layers, wrappedStopAnimation]);
   
   // Wrapper draw function that uses current hook values
   const draw = useCallback((ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }, skipDrawingCanvas = false) => {
