@@ -1512,28 +1512,54 @@ export const useAppStore = create<AppState>()(
             layers: updatedLayers
           };
         });
+        
+        // Persist a structural snapshot immediately so undo of the first stroke
+        // on this layer does not also remove the layer.
+        try {
+          const st = get();
+          const w = st.project?.width ?? 1;
+          const h = st.project?.height ?? 1;
+          const temp = document.createElement('canvas');
+          temp.width = w;
+          temp.height = h;
+          // Save snapshot marking the new layer as active to avoid auto-switch after undo
+          st.saveCanvasState(temp as unknown as HTMLCanvasElement, 'layer-add', 'Add layer', newLayerId);
+        } catch {}
 
         return newLayerId;
       },
-      removeLayer: (id) => set((state) => {
-        // Find the layer to be removed
-        const layerToRemove = state.layers.find(l => l.id === id);
-        
-        // Use enhanced manager method for cleanup
-        colorCycleBrushManager.removeColorCycleBrush(id);
-        
-        const updatedLayers = state.layers.filter(l => l.id !== id);
-        const newActiveLayerId = state.activeLayerId === id ? 
-          updatedLayers.find(l => l.id !== id)?.id || null : 
-          state.activeLayerId;
-        
-        trackLayerChanges('removeLayer RETURN', updatedLayers);
-        return {
-          layers: updatedLayers,
-          activeLayerId: newActiveLayerId
-          // Remove the project update entirely - only update top-level layers
-        };
-      }),
+      removeLayer: (id) => {
+        set((state) => {
+          // Find the layer to be removed
+          const layerToRemove = state.layers.find(l => l.id === id);
+          
+          // Use enhanced manager method for cleanup
+          colorCycleBrushManager.removeColorCycleBrush(id);
+          
+          const updatedLayers = state.layers.filter(l => l.id !== id);
+          const newActiveLayerId = state.activeLayerId === id ? 
+            updatedLayers.find(l => l.id !== id)?.id || null : 
+            state.activeLayerId;
+          
+          trackLayerChanges('removeLayer RETURN', updatedLayers);
+          return {
+            layers: updatedLayers,
+            activeLayerId: newActiveLayerId
+            // Remove the project update entirely - only update top-level layers
+          };
+        });
+
+        // Persist a structural snapshot so undo restores the removed layer
+        try {
+          const st = get();
+          const w = st.project?.width ?? 1;
+          const h = st.project?.height ?? 1;
+          const temp = document.createElement('canvas');
+          temp.width = w;
+          temp.height = h;
+          st.saveCanvasState(temp as unknown as HTMLCanvasElement, 'layer-remove', 'Remove layer');
+        } catch {}
+      },
       updateLayer: (id, updates) => set((state) => {
         const originalLayer = state.layers.find(l => l.id === id);
         
@@ -1848,25 +1874,38 @@ export const useAppStore = create<AppState>()(
         trackLayerChanges('setLayers CALLED', fixedLayers);
         set({ layers: fixedLayers });
       },
-      reorderLayers: (sourceIndex, destinationIndex) => set((state) => {
-        const newLayers = [...state.layers];
-        const [removed] = newLayers.splice(sourceIndex, 1);
-        newLayers.splice(destinationIndex, 0, removed);
-        
-        // Update order values
-        const updatedLayers = newLayers.map((layer, index) => ({
-          ...layer,
-          order: index
-        }));
-        
-        // Layer order changed - triggering recomposition
-        
-        return {
-          layers: updatedLayers,
-          layersNeedRecomposition: true
-          // Remove the project update entirely - only update top-level layers
-        };
-      }),
+      reorderLayers: (sourceIndex, destinationIndex) => {
+        set((state) => {
+          const newLayers = [...state.layers];
+          const [removed] = newLayers.splice(sourceIndex, 1);
+          newLayers.splice(destinationIndex, 0, removed);
+          
+          // Update order values
+          const updatedLayers = newLayers.map((layer, index) => ({
+            ...layer,
+            order: index
+          }));
+          
+          // Layer order changed - triggering recomposition
+          
+          return {
+            layers: updatedLayers,
+            layersNeedRecomposition: true
+            // Remove the project update entirely - only update top-level layers
+          };
+        });
+
+        // Persist a structural snapshot so reorders are undoable step-by-step
+        try {
+          const st = get();
+          const w = st.project?.width ?? 1;
+          const h = st.project?.height ?? 1;
+          const temp = document.createElement('canvas');
+          temp.width = w;
+          temp.height = h;
+          st.saveCanvasState(temp as unknown as HTMLCanvasElement, 'layer-reorder', 'Reorder layers');
+        } catch {}
+      },
       
       // Color Cycle Layer Management
       initColorCycleForLayer: (layerId, width, height) => set((state) => {
@@ -2512,7 +2551,7 @@ export const useAppStore = create<AppState>()(
       }),
       
       // History Management
-      saveCanvasState: (canvas, actionType, description) => {
+      saveCanvasState: (canvas, actionType, description, overrideActiveLayerId?: string) => {
         // Stroke-save diagnostics (always-on)
         try {
           console.log('[History] saveCanvasState called', { actionType, description });
@@ -2529,8 +2568,19 @@ export const useAppStore = create<AppState>()(
         }
         
         // For important actions, save immediately
-        // Treat Color-Cycle brush commits as important so each stroke becomes its own history entry.
+        // Treat Color-Cycle brush commits and structural layer ops as important so each action
+        // becomes its own history entry (enables step-by-step undo: stroke -> empty layer -> no layer).
         let isImportantAction = actionType === 'paste' || actionType === 'fill';
+        if (typeof actionType === 'string') {
+          if (
+            actionType === 'layer' ||
+            actionType.startsWith('layer-') ||
+            actionType === 'layers' ||
+            actionType === 'structure'
+          ) {
+            isImportantAction = true;
+          }
+        }
         try {
           const s = get();
           const activeLayer = (s.layers || []).find(l => l.id === s.activeLayerId);
@@ -2682,7 +2732,7 @@ export const useAppStore = create<AppState>()(
             timestamp: Date.now(),
             imageData,
             layers: layersCopy,  // Deep copy of all layers with cloned ImageData
-            activeLayerId: state.activeLayerId || state.layers[0]?.id || '',  // Current active layer or fallback
+            activeLayerId: overrideActiveLayerId || state.activeLayerId || state.layers[0]?.id || '',  // Current active layer or fallback
             actionType,
             description,
             colorCycleState
