@@ -1130,7 +1130,18 @@ export function useDrawingHandlers({
         pos: worldPos,
         appending: isDrawingShapeRef.current && shapePointsRef.current.length > 0
       });
-      initDrawingCanvas();
+      // Avoid allocating the full-size drawing canvas at the first vertex for
+      // Color Cycle Shape previews. We render previews on the lightweight overlay
+      // canvas and defer allocation until direction selection or finalization.
+      try {
+        const st = useAppStore.getState();
+        const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+        if (!isCCShape) {
+          initDrawingCanvas();
+        }
+      } catch {
+        initDrawingCanvas();
+      }
       // Support click-to-add vertices: if already drawing a shape, append point instead of resetting
       if (isDrawingShapeRef.current && shapePointsRef.current.length > 0) {
         shapePointsRef.current.push(worldPos);
@@ -1280,8 +1291,8 @@ export function useDrawingHandlers({
             drawCtx.globalCompositeOperation = 'source-over';
             drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
             
-            await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
-            // Save state for linear gradient shape (important -> immediate)
+            // For CC layers, avoid an extra full-canvas capture; snapshot will
+            // record CC state separately. Save history directly.
             saveCanvasState(activeLayer.colorCycleData.canvas, 'fill', 'CC Shape Linear');
           }
           
@@ -1320,6 +1331,10 @@ export function useDrawingHandlers({
     }
     
     try {
+      // Ensure drawing canvas/context exist before we render any final content
+      if (!drawingCtxRef.current || !drawingCanvasRef.current) {
+        initDrawingCanvas();
+      }
       if (isBusyRef) isBusyRef.current = true;
       
       debugLog('shape', 'FINALIZE points', { len: shapePointsRef.current.length });
@@ -1665,9 +1680,7 @@ export function useDrawingHandlers({
                   drawCtx.globalCompositeOperation = 'source-over';
                   drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
                   
-                  // IMPORTANT: Save state AFTER the shape is rendered
-                  // This ensures each shape gets its own undo entry
-                  await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
+                  // Save state AFTER the shape is rendered (no extra capture)
                   // Mark as important to avoid debounce coalescing multiple shapes
                   saveCanvasState(activeLayer.colorCycleData.canvas, 'fill', 'CC Shape');
                 }

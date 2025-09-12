@@ -11,6 +11,9 @@ import { detectWacomIssues, testWacomPressure } from '../../../utils/detectWacom
 import { getPresetStops } from '../../../utils/gradientPresets';
 
 export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHandlers => {
+  // Cap overlay previews to 30 FPS to reduce main-thread load during drag
+  const OVERLAY_PREVIEW_FRAME_MS = 1000 / 30;
+  let lastOverlayPreviewTs = 0;
   const {
     canvasRef,
     overlayCanvasRef,
@@ -840,7 +843,7 @@ function cssColorToHex(color: string): string {
     
     // Handle direction selection for linear gradient fill (after shape completion)
     if (drawingHandlers.isSelectingDirectionRef?.current && !interaction.state.isDrawing) {
-      // Continue shape drawing to show direction arrow preview
+      // Continue shape drawing to show direction arrow preview (throttled)
       // If Shift is pressed, snap preview direction to 45° increments relative to shape center
       let dirWorld = worldPos;
       if (event.shiftKey) {
@@ -852,13 +855,23 @@ function cssColorToHex(color: string): string {
           dirWorld = snapPointToAngle(center, dirWorld, 45);
         }
       }
-      drawingHandlers.continueShapeDrawing(dirWorld);
-      
-      // Trigger redraw to show the preview
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-      if (ctx) {
-        deps.draw(ctx, deps.viewTransformRef.current);
+
+      if (deps.previewAnimationFrameRef && !deps.previewAnimationFrameRef.current) {
+        const nowTs = performance.now();
+        // Reuse overlay FPS cap for direction preview too
+        if (nowTs - lastOverlayPreviewTs < OVERLAY_PREVIEW_FRAME_MS) {
+          return;
+        }
+        deps.previewAnimationFrameRef.current = requestAnimationFrame(() => {
+          lastOverlayPreviewTs = performance.now();
+          drawingHandlers.continueShapeDrawing(dirWorld);
+          const canvas = canvasRef.current;
+          const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+          if (ctx) {
+            deps.draw(ctx, deps.viewTransformRef.current);
+          }
+          if (deps.previewAnimationFrameRef) deps.previewAnimationFrameRef.current = null;
+        });
       }
       return;
     }
@@ -868,9 +881,14 @@ function cssColorToHex(color: string): string {
         toolStateMachine.rectangleBrushState.drawingState === 'definingWidth' &&
         !interaction.state.isDrawing && deps.previewAnimationFrameRef) {
       
-      // Throttle rectangle gradient width preview with RAF
+      // Throttle rectangle gradient width preview with RAF + FPS cap
       if (!deps.previewAnimationFrameRef.current) {
+        const nowTs = performance.now();
+        if (nowTs - lastOverlayPreviewTs < OVERLAY_PREVIEW_FRAME_MS) {
+          return;
+        }
         deps.previewAnimationFrameRef.current = requestAnimationFrame(() => {
+          lastOverlayPreviewTs = performance.now();
           const overlayCanvas = overlayCanvasRef.current;
           const overlayCtx = overlayCanvas?.getContext('2d');
           if (overlayCtx && overlayCanvas) {
@@ -970,11 +988,16 @@ function cssColorToHex(color: string): string {
         }
         const previewType = toolStateMachine.handleRectangleGradientMouseMove(rgWorld);
         if (previewType && deps.previewAnimationFrameRef) {
-          // Throttle rectangle gradient preview with RAF
-          if (!deps.previewAnimationFrameRef.current) {
-            deps.previewAnimationFrameRef.current = requestAnimationFrame(() => {
-              const overlayCanvas = overlayCanvasRef.current;
-              const overlayCtx = overlayCanvas?.getContext('2d');
+        // Throttle rectangle gradient preview with RAF + FPS cap
+        if (!deps.previewAnimationFrameRef.current) {
+          const nowTs = performance.now();
+          if (nowTs - lastOverlayPreviewTs < OVERLAY_PREVIEW_FRAME_MS) {
+            return;
+          }
+          deps.previewAnimationFrameRef.current = requestAnimationFrame(() => {
+            lastOverlayPreviewTs = performance.now();
+            const overlayCanvas = overlayCanvasRef.current;
+            const overlayCtx = overlayCanvas?.getContext('2d');
               if (overlayCtx && overlayCanvas) {
                 // Clear only the overlay canvas
                 overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -1153,11 +1176,16 @@ function cssColorToHex(color: string): string {
           if (toolStateMachine.isColorCycleShape) {
             drawingHandlers.stopContinuousColorCycleAnimation?.();
           }
-          // Throttle polygon gradient preview with RAF
-          if (!deps.previewAnimationFrameRef.current) {
-            deps.previewAnimationFrameRef.current = requestAnimationFrame(() => {
-              const overlayCanvas = overlayCanvasRef.current;
-              const overlayCtx = overlayCanvas?.getContext('2d');
+        // Throttle polygon/shape preview with RAF + FPS cap
+        if (!deps.previewAnimationFrameRef.current) {
+          const nowTs = performance.now();
+          if (nowTs - lastOverlayPreviewTs < OVERLAY_PREVIEW_FRAME_MS) {
+            return;
+          }
+          deps.previewAnimationFrameRef.current = requestAnimationFrame(() => {
+            lastOverlayPreviewTs = performance.now();
+            const overlayCanvas = overlayCanvasRef.current;
+            const overlayCtx = overlayCanvas?.getContext('2d');
               
               // Get points from polygon state (polygon/contour) or local refs (shape/CC shape)
               const points = (toolStateMachine.isPolygonGradient || toolStateMachine.isContourPolygon)

@@ -30,7 +30,8 @@ export interface Layer {
   locked: boolean;
   order: number;
   imageData: ImageData | null;
-  framebuffer: OffscreenCanvas;
+  // Use a flexible framebuffer type for broader browser support
+  framebuffer: OffscreenCanvas | HTMLCanvasElement;
   
   // Layer type system for supporting different rendering modes
   layerType: 'normal' | 'color-cycle'; // REQUIRED - not optional
@@ -402,7 +403,10 @@ export interface CanvasSnapshot {
   imageData: ImageData;  // Keep for backward compatibility
   layers: Layer[];  // Full layers state
   activeLayerId: string;  // Active layer at time of snapshot
-  actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'paste' | 'delete';
+  // Expanded to include structural layer operations captured in history
+  actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'paste' | 'delete'
+            | 'layer' | 'layers' | 'structure'
+            | 'layer-add' | 'layer-remove' | 'layer-reorder';
   description: string;
   colorCycleState?: ColorCycleSnapshot; // Optional color cycle state
 }

@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import GlobalErrorBoundary from '../components/GlobalErrorBoundary';
+import GlobalErrorHooks from '../components/GlobalErrorHooks';
 
 export const metadata: Metadata = {
   title: 'tinybrush',
@@ -13,7 +15,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <GlobalErrorBoundary>
+          <GlobalErrorHooks />
+          {children}
+        </GlobalErrorBoundary>
+      </body>
     </html>
   );
 }

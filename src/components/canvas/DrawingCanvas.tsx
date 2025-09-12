@@ -410,6 +410,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   
   // Simplified color cycle animation manager
   const colorCycleManagerRef = useRef<SimplifiedColorCycleManager | null>(null);
+  // Guard to avoid repeatedly stopping animations when already stopped
+  const hasStoppedAnimationRef = useRef(false);
   
   // Initialize color cycle manager
   useEffect(() => {
@@ -471,7 +473,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   useEffect(() => {
     const activeLayer = layers.find(l => l.id === activeLayerId);
     const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
-    if (isColorCycleLayer) return;
+    if (isColorCycleLayer) {
+      // Reset guard so a future switch away from CC can stop again
+      hasStoppedAnimationRef.current = false;
+      return;
+    }
+
+    // If we've already stopped while on non-CC, avoid redundant work
+    if (hasStoppedAnimationRef.current) return;
 
     try {
       // Pause recolor animations (global controller)
@@ -498,6 +507,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           } as any);
         });
     } catch {}
+    // Mark as stopped so this effect doesn't run repeatedly from its own updates
+    hasStoppedAnimationRef.current = true;
   }, [activeLayerId, layers, wrappedStopAnimation]);
   
   // Wrapper draw function that uses current hook values

@@ -275,6 +275,18 @@ export class ColorCycleAnimator {
       this.renderFrame();
     }
   }
+
+  /**
+   * Fast path: set raw color index at pixel (no palette lookup, no render)
+   * Preserves isDirty flag on the underlying buffer so a later render draws it.
+   */
+  setIndex(x: number, y: number, colorIndex: number) {
+    try {
+      this.indexBuffer.setPixel(x, y, colorIndex);
+    } catch (e) {
+      // Fail silently for out-of-bounds or transient states
+    }
+  }
   
   /**
    * Paint square brush with stamp-based color progression

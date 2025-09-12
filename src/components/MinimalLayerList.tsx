@@ -7,6 +7,7 @@ import { Eye, EyeOff, Plus } from 'lucide-react';
 import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
 import { setColorCycleAnimationState } from './toolbar/BrushControls';
 import { RecolorManager } from '../lib/colorCycle/RecolorManager';
+import { debugLog, recordBreadcrumb } from '../utils/debug';
 // Removed floating color cycle panel integration; panel now lives in Brush Settings
 
 // Component to display color swatches for a layer
@@ -15,7 +16,7 @@ const LayerColorSwatches = memo<{
   visible: boolean;
 }>(({ layer, visible }) => {
   const [swatches, setSwatches] = useState<ColorSwatch[]>([]);
-  const analyzerRef = useRef<ThrottledColorAnalyzer | undefined>();
+  const analyzerRef = useRef<ThrottledColorAnalyzer | undefined>(undefined);
   
   useEffect(() => {
     // Create analyzer on mount
@@ -230,6 +231,26 @@ const MinimalLayerList = () => {
   }, []);
   
   const handleAddCCLayer = () => {
+    // Unconditional trace to verify handler fires even when TB_DEBUG isn't set
+    // eslint-disable-next-line no-console
+    console.log('[layers-raw] handleAddCCLayer: click');
+    recordBreadcrumb('layers', { event: 'ui-add-cc-click', count: layers.length, activeLayerId });
+    try {
+    debugLog('layers', 'UI: Add CC layer requested', {
+      existingCount: layers.length,
+      ccCount: layers.filter(l => l.layerType === 'color-cycle').length,
+      activeLayerId,
+      projectSize: project ? { w: project.width, h: project.height } : null,
+      offscreenAvailable: typeof OffscreenCanvas !== 'undefined'
+    });
+    // Helper to create a framebuffer that works across browsers
+    const makeFramebuffer = (_w: number, _h: number): OffscreenCanvas | HTMLCanvasElement => {
+      // Allocate tiny placeholder; resize lazily on first capture
+      const c = document.createElement('canvas');
+      c.width = 1;
+      c.height = 1;
+      return c;
+    };
     
     // Get current gradient from brush settings or use default rainbow
     const currentGradient = useAppStore.getState().tools.brushSettings.colorCycleGradient || [
@@ -250,18 +271,23 @@ const MinimalLayerList = () => {
       blendMode: 'source-over',
       locked: false,
       imageData: null,
-      framebuffer: project 
-        ? new OffscreenCanvas(project.width, project.height) 
-        : new OffscreenCanvas(1920, 1080),
+      framebuffer: project
+        ? makeFramebuffer(project.width, project.height)
+        : makeFramebuffer(1920, 1080),
       layerType: 'color-cycle', // Color-cycle layer - cannot be converted to normal
       colorCycleData: {
         gradient: currentGradient,
         isAnimating: true
       }
     };
-    
-    
+    debugLog('layers', 'UI: Creating CC layer object', {
+      name: newLayer.name,
+      type: newLayer.layerType,
+      framebufferType: (newLayer.framebuffer as any)?.constructor?.name
+    });
+
     const newLayerId = addLayer(newLayer);
+    debugLog('layers', 'UI: addLayer() returned id', newLayerId?.slice(0, 20));
     
     
     // Auto-select the new layer
@@ -270,20 +296,49 @@ const MinimalLayerList = () => {
       // Initialize the color cycle brush for this layer BEFORE setting active
       const state = useAppStore.getState();
       if (state.project) {
+        debugLog('layers', 'UI: initColorCycleForLayer()', {
+          id: newLayerId.slice(0, 20),
+          size: { w: state.project.width, h: state.project.height }
+        });
         state.initColorCycleForLayer(newLayerId, state.project.width, state.project.height);
       }
       
       // Set as active layer (this will also sync the gradient to brush settings)
       setActiveLayer(newLayerId);
+      debugLog('layers', 'UI: setActiveLayer(new CC)', newLayerId.slice(0, 20));
       
       // IMPORTANT: Switch to CC brush mode when creating a CC layer
       // This ensures users can immediately draw on the new CC layer
       const updatedState = useAppStore.getState();
       updatedState.setBrushSettings({ brushShape: BrushShape.COLOR_CYCLE });
+      debugLog('layers', 'UI: switched brush to COLOR_CYCLE for new CC layer');
+    }
+    } catch (e) {
+      try { debugLog('layers', 'UI: Add CC layer failed', e); } catch {}
+      // eslint-disable-next-line no-console
+      console.error('[layers] UI: Add CC layer failed', e);
     }
   };
   
   const handleAddRegularLayer = () => {
+    // Unconditional trace to verify handler fires even when TB_DEBUG isn't set
+    // eslint-disable-next-line no-console
+    console.log('[layers-raw] handleAddRegularLayer: click');
+    recordBreadcrumb('layers', { event: 'ui-add-regular-click', count: layers.length, activeLayerId });
+    try {
+      debugLog('layers', 'UI: Add regular layer requested', {
+      existingCount: layers.length,
+      activeLayerId,
+      projectSize: project ? { w: project.width, h: project.height } : null,
+      offscreenAvailable: typeof OffscreenCanvas !== 'undefined'
+    });
+    const makeFramebuffer = (_w: number, _h: number): OffscreenCanvas | HTMLCanvasElement => {
+      // Allocate tiny placeholder; resize lazily on first capture
+      const c = document.createElement('canvas');
+      c.width = 1;
+      c.height = 1;
+      return c;
+    };
     
     // Create a regular layer
     const newLayer: Omit<Layer, 'id' | 'order'> = {
@@ -293,26 +348,54 @@ const MinimalLayerList = () => {
       blendMode: 'source-over',
       locked: false,
       imageData: null,
-      framebuffer: project 
-        ? new OffscreenCanvas(project.width, project.height) 
-        : new OffscreenCanvas(1920, 1080),
+      framebuffer: project
+        ? makeFramebuffer(project.width, project.height)
+        : makeFramebuffer(1920, 1080),
       layerType: 'normal' // Regular layer - cannot be converted to CC
     };
-    
-    
+    debugLog('layers', 'UI: Creating regular layer object', {
+      name: newLayer.name,
+      type: newLayer.layerType,
+      framebufferType: (newLayer.framebuffer as any)?.constructor?.name
+    });
+    // Execute synchronously to avoid race conditions with CC layers
+    // Fetch fresh state before mutating
+    const preState = useAppStore.getState();
+    // eslint-disable-next-line no-console
+    console.log('[layers-raw] handleAddRegularLayer: before addLayer');
     const newLayerId = addLayer(newLayer);
-    
-    
+    debugLog('layers', 'UI: addLayer() returned id', newLayerId?.slice(0, 20));
+
     // Auto-select the new layer
     if (newLayerId) {
-      setActiveLayer(newLayerId);
+      // Use fresh state to avoid stale closures during fast interactions
+      const freshState = useAppStore.getState();
+      // eslint-disable-next-line no-console
+      console.log('[layers-raw] handleAddRegularLayer: before setActiveLayer');
+      try {
+        freshState.setActiveLayer(newLayerId);
+        debugLog('layers', 'UI: setActiveLayer(new regular)', newLayerId.slice(0, 20));
+      } catch (e) {
+        try { debugLog('layers', 'UI: setActiveLayer threw', e); } catch {}
+      }
       
       // IMPORTANT: If CC brush is selected, switch to a regular brush
       // This ensures users can immediately draw on the new regular layer
-      const state = useAppStore.getState();
-      if (state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
-        state.setBrushSettings({ brushShape: BrushShape.ROUND });
+      try {
+        const finalState = useAppStore.getState();
+        if (finalState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
+          finalState.setBrushSettings({ brushShape: BrushShape.ROUND });
+          debugLog('layers', 'UI: switched brush to ROUND for new regular layer');
+        }
+      } catch (e) {
+        // As a last resort, force a safe brush shape
+        try { useAppStore.getState().setBrushSettings({ brushShape: BrushShape.ROUND }); } catch {}
       }
+    }
+    } catch (e) {
+      try { debugLog('layers', 'UI: Add regular layer failed', e); } catch {}
+      // eslint-disable-next-line no-console
+      console.error('[layers] UI: Add regular layer failed', e);
     }
   };
   

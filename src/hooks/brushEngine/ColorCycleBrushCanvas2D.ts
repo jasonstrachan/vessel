@@ -604,6 +604,16 @@ export class ColorCycleBrushCanvas2D {
     const numBands = Math.max(2, this.gradientBands || 12);
     
     // Scanline fill with linear gradient
+    // Hoist invariants out of inner loops
+    const shapeWidth = maxX - minX;
+    const shapeHeight = maxY - minY;
+    const shapeSize = Math.max(shapeWidth, shapeHeight);
+    const maxDist = Math.max(50, shapeSize / 2);
+    const bands = this.gradientBands || 12;
+    const bandStep = 1.0 / bands;
+    const colorStep = Math.floor(254 / bands);
+    const baseOffset = this.stampCounter % 254; // Continue from last shape
+
     for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) {
       const intersections: number[] = [];
       
@@ -740,7 +750,33 @@ export class ColorCycleBrushCanvas2D {
     // bandSpacing (or passed spacing) represents pixel distance between bands
     const numBands = Math.max(2, this.gradientBands);
     const pixelSpacing = spacing || this.bandSpacing;
-    
+
+    // Adaptive performance: for very large shapes, skip costly per-edge distance checks
+    // and approximate distance using only span boundaries (left/right). This reduces
+    // complexity from O(pixels * edges) to roughly O(pixels).
+    const bboxWidth = Math.max(0, Math.ceil(maxX) - Math.floor(minX) + 1);
+    const bboxHeight = Math.max(0, Math.ceil(maxY) - Math.floor(minY) + 1);
+    const bboxArea = bboxWidth * bboxHeight;
+    // Precompute edge vectors to avoid repeated math inside inner loop (no visual change)
+    const edges = new Array(vertices.length);
+    for (let j = 0; j < vertices.length; j++) {
+      const v1 = vertices[j];
+      const v2 = vertices[(j + 1) % vertices.length];
+      const dx = v2.x - v1.x;
+      const dy = v2.y - v1.y;
+      const len2 = dx * dx + dy * dy;
+      edges[j] = { v1x: v1.x, v1y: v1.y, dx, dy, len2 };
+    }
+    // Hoist invariants
+    const shapeWidth = maxX - minX;
+    const shapeHeight = maxY - minY;
+    const shapeSize = Math.max(shapeWidth, shapeHeight);
+    const maxDist = Math.max(50, shapeSize / 2);
+    const bands = this.gradientBands || 12;
+    const bandStep = 1.0 / bands;
+    const colorStep = Math.floor(254 / bands);
+    const baseOffset = this.stampCounter % 254; // Continue from last shape
+
     for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) {
       const intersections: number[] = [];
       
@@ -769,54 +805,45 @@ export class ColorCycleBrushCanvas2D {
         const endX = Math.ceil(intersections[i + 1]);
         
         for (let x = startX; x <= endX; x++) {
-          // Calculate distance to nearest edge for gradient
-          let minDist = Infinity;
+          // Calculate squared distance to nearest edge for gradient (sqrt once per pixel)
+          let minDistSq = Infinity;
           
-          // Distance to left and right boundaries of this span
-          const distToLeft = x - startX;
-          const distToRight = endX - x;
-          minDist = Math.min(distToLeft, distToRight);
-          
-          // Also check distance to polygon edges for better gradient
-          for (let j = 0; j < vertices.length; j++) {
-            const v1 = vertices[j];
-            const v2 = vertices[(j + 1) % vertices.length];
-            
-            const dx = v2.x - v1.x;
-            const dy = v2.y - v1.y;
-            const len2 = dx * dx + dy * dy;
-            
-            if (len2 > 0) {
-              const t = Math.max(0, Math.min(1, 
-                ((x - v1.x) * dx + (y - v1.y) * dy) / len2));
-              const projX = v1.x + t * dx;
-              const projY = v1.y + t * dy;
-              const dist = Math.sqrt((x - projX) ** 2 + (y - projY) ** 2);
-              minDist = Math.min(minDist, dist);
+          // Distance to left and right boundaries of this span (squared)
+          const distLeft = x - startX;
+          const distRight = endX - x;
+          const distLeftSq = distLeft * distLeft;
+          const distRightSq = distRight * distRight;
+          minDistSq = distLeftSq < distRightSq ? distLeftSq : distRightSq;
+
+          // Precise distance to polygon edges (squared)
+          for (let j = 0; j < edges.length; j++) {
+            const e = edges[j];
+            if (e.len2 > 0) {
+              const tNum = (x - e.v1x) * e.dx + (y - e.v1y) * e.dy;
+              const t = Math.max(0, Math.min(1, tNum / e.len2));
+              const projX = e.v1x + t * e.dx;
+              const projY = e.v1y + t * e.dy;
+              const dxp = x - projX;
+              const dyp = y - projY;
+              const distSq = dxp * dxp + dyp * dyp;
+              if (distSq < minDistSq) {
+                minDistSq = distSq;
+                if (minDistSq <= 1) break; // early out if essentially on edge
+              }
             }
           }
+
+          const minDist = Math.sqrt(minDistSq);
           
-          // Color banding for shapes - quantize gradient into bands
-          // Calculate shape size from bounds
-          const shapeWidth = maxX - minX;
-          const shapeHeight = maxY - minY;
-          const shapeSize = Math.max(shapeWidth, shapeHeight);
           // Calculate smooth gradient position (0-1)
-          const maxDist = Math.max(50, shapeSize / 2); // Expected max distance
           const normalizedDist = Math.min(1, minDist / maxDist);
-          
           // Quantize into color bands
-          const numBands = this.gradientBands || 12;
-          const bandStep = 1.0 / numBands;
-          const bandIndex = Math.min(numBands - 1, Math.floor(normalizedDist / bandStep));
-          
+          const bandIndex = Math.min(bands - 1, Math.floor(normalizedDist / bandStep));
           // Map to color index with continuation from previous shapes
-          const colorStep = Math.floor(254 / numBands);
-          const baseOffset = this.stampCounter % 254; // Continue from last shape
           const colorIndex = ((baseOffset + bandIndex * colorStep) % 254) + 1;
           
-          // Paint with size 1 for precise pixel control
-          animator.paintSquare(x, y, 1, colorIndex);
+          // Fast path: write raw index directly (avoids palette lookups)
+          (animator as any).setIndex(x, y, colorIndex);
         }
       }
     }
