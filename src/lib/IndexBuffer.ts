@@ -83,7 +83,6 @@ export class IndexBuffer {
   private getColorIndex(color: string): number {
     // Validate color input
     if (!color || typeof color !== 'string') {
-      console.warn('[IndexBuffer] Invalid color:', color);
       return 0; // Return transparent index
     }
     

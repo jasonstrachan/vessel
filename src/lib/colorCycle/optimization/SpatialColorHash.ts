@@ -119,7 +119,6 @@ export class SpatialColorHash {
       
       return result;
     } catch (error) {
-      console.warn('Spatial hash lookup failed:', error);
       return this.fallbackLinearSearch(r, g, b);
     }
   }

@@ -1971,15 +1971,7 @@ export const useBrushEngineSimplified = () => {
       : !!storePressureEnabled;
     const effectiveMin = tools.brushSettings.minPressure ?? 50;
     const effectiveMax = tools.brushSettings.maxPressure ?? 200;
-    // CRITICAL DEBUG - show both store and effective values to avoid confusion
-    console.warn(
-      `🔴 [CC-V3] pressure=${pressure.toFixed(2)} storeEnabled=${storePressureEnabled} effectiveEnabled=${effectivePressureEnabled} min=${tools.brushSettings.minPressure} (eff:${effectiveMin}) max=${tools.brushSettings.maxPressure} (eff:${effectiveMax})`
-    );
     
-    // DEBUG: Log incoming pressure and rotation values
-    if (pressure !== 1.0 || rotation !== 0) {
-      console.log(`[DEBUG] drawColorCycle called: pressure=${pressure.toFixed(2)}, rotation=${rotation.toFixed(2)}`);
-    }
     
     try {
       // DEFENSIVE GUARD: Check if color cycle brush should be used

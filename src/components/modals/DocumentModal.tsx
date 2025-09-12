@@ -43,11 +43,17 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
   const [newHeight, setNewHeight] = useState(1080);
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
+  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragOffset = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   useEffect(() => {
     if (isOpen) {
       setShouldRender(true);
-      // Small delay to ensure the modal is rendered before fading in
+      const modalWidth = 384; // w-96
+      const x = Math.max(16, Math.round((window.innerWidth - modalWidth) / 2));
+      const y = Math.max(24, Math.round(window.innerHeight * 0.12));
+      setPos({ x, y });
       setTimeout(() => setIsVisible(true), 10);
     } else {
       setIsVisible(false);
@@ -79,6 +85,27 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
     };
   }, [isOpen, onClose]);
 
+  const onDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setDragging(true);
+    dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
+  };
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: MouseEvent) => {
+      const nx = Math.min(window.innerWidth - 60, Math.max(8, e.clientX - dragOffset.current.x));
+      const ny = Math.min(window.innerHeight - 60, Math.max(8, e.clientY - dragOffset.current.y));
+      setPos({ x: nx, y: ny });
+    };
+    const onUp = () => setDragging(false);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [dragging, pos.x, pos.y]);
+
   const handleResize = () => {
     if (project) {
       const width = resizeWidth === '' ? 1 : Number(resizeWidth);
@@ -97,18 +124,15 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
 
   return (
     <div 
-      className={`fixed inset-0 flex items-center justify-center z-50 transition-opacity duration-300 ${
-        isVisible ? 'opacity-100' : 'opacity-0'
-      }`}
+      className={`fixed inset-0 z-50 ${isVisible ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`}
       onClick={onClose}
     >
       <div 
-        className={`bg-[#31313A] rounded-lg p-6 w-96 max-w-full mx-4 shadow-xl transition-all duration-300 ${
-          isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
-        }`}
+        className="bg-[#31313A] rounded-lg w-96 max-w-full mx-4 shadow-xl"
+        style={{ position: 'fixed', left: pos.x, top: pos.y }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between px-6 pt-4 pb-3 border-b border-[#555] cursor-move" onMouseDown={onDragStart}>
           <h2 className="text-[#D9D9D9] text-base font-semibold">Document</h2>
           <button
             onClick={onClose}
@@ -118,7 +142,7 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
           </button>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-6 p-6 pt-4">
           {/* Resize Section */}
           <div>
             <h3 className="text-[#D9D9D9] text-base font-medium mb-3">Resize Canvas</h3>

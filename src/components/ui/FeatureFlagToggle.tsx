@@ -141,7 +141,7 @@ export const FeatureFlagToggle: React.FC<FeatureFlagToggleProps> = ({
                 // Toggle between implementations to test
                 const currentImpl = flags.useCanvas2DColorCycle;
                 setFeatureFlag('useCanvas2DColorCycle', !currentImpl);
-                console.log(`Switched to ${!currentImpl ? 'Canvas2D' : 'WebGL'} implementation`);
+                
               }}
               style={{
                 padding: '6px 12px',

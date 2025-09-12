@@ -291,9 +291,7 @@ export class ColorCycleDemo {
           this.animator.setPresetGradient(toPreset);
         }
       },
-      () => {
-        console.log('Gradient transition complete');
-      }
+      () => {}
     );
     
     controller.start();

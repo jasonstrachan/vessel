@@ -31,7 +31,6 @@ export class GradientWorkerManager {
         this.worker.onmessage = this.handleMessage.bind(this);
         this.worker.onerror = this.handleError.bind(this);
       } catch (error) {
-        console.warn('Failed to initialize gradient worker:', error);
         this.isSupported = false;
         this.worker = null;
       }

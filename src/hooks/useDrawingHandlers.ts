@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { useBrushEngineSimplified } from './useBrushEngineSimplified';
 import { useUserBrushEngine } from './useUserBrushEngine';
@@ -117,6 +117,112 @@ export function useDrawingHandlers({
   
   // Continuous animation for color cycle when play button is pressed
   const continuousColorCycleAnimationRef = useRef<number | null>(null);
+
+  // Track whether continuous CC animation was playing before a stroke/shape
+  const wasCCPlayingBeforeInteractionRef = useRef<boolean>(false);
+
+  // Stable refs to call start/stop CC animation from early hooks
+  const startCCRef = useRef<() => void>(() => {});
+  const stopCCRef = useRef<() => void>(() => {});
+
+  // Track which CC layers were animating so we can resume them after interaction
+  const pausedCCLayerIdsRef = useRef<string[]>([]);
+  const recolorWasAnimatingRef = useRef<boolean>(false);
+  // Tracks if we've already paused for the current CC shape preview
+  const ccShapePreviewPauseStartedRef = useRef<boolean>(false);
+
+  // Helper: pause animation for all brush-based CC layers and remember which were playing
+  const pauseAllBrushCCAnimationsNow = useCallback(() => {
+    
+    const state = useAppStore.getState();
+    const toResume: string[] = [];
+    state.layers.forEach(layer => {
+      if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode !== 'recolor') {
+        if (layer.colorCycleData?.isAnimating) {
+          toResume.push(layer.id);
+        }
+        // Flip flag off
+        state.updateLayer(layer.id, {
+          colorCycleData: {
+            ...layer.colorCycleData,
+            isAnimating: false
+          }
+        } as any);
+        // Pause brush animator instance if present
+        try {
+          const mgr = getColorCycleBrushManager();
+          const brush = mgr.getBrush(layer.id) as any;
+          brush?.pause?.();
+          brush?.stopAnimation?.();
+        } catch {}
+      }
+    });
+    
+    // Stop any global continuous loop (defensive)
+    if (continuousColorCycleAnimationRef.current) {
+      (continuousColorCycleAnimationRef as any).isAnimating = false;
+      cancelAnimationFrame(continuousColorCycleAnimationRef.current);
+      continuousColorCycleAnimationRef.current = null;
+    }
+    
+    // Also pause recolor animation if active
+    try {
+      const { RecolorManager } = require('../lib/colorCycle/RecolorManager');
+      const rm = RecolorManager.getInstance();
+      recolorWasAnimatingRef.current = rm.isAnimating();
+      if (recolorWasAnimatingRef.current) rm.pause();
+      
+    } catch {}
+    // Check global brush play state (toolbar) so we can resume even if no per-layer flags were set
+    let globalShouldResume = false;
+    try {
+      const bc = require('../components/toolbar/BrushControls');
+      if (bc && typeof bc.getColorCycleAnimationState === 'function') {
+        globalShouldResume = !!bc.getColorCycleAnimationState();
+      }
+    } catch {}
+    // Record and report state
+    pausedCCLayerIdsRef.current = toResume;
+    try { window.dispatchEvent(new CustomEvent('colorCycleAnimationState', { detail: { isPlaying: false, source: 'brush' } })); } catch {}
+    
+    return toResume.length > 0 || globalShouldResume || recolorWasAnimatingRef.current;
+  }, []);
+
+  // Helper: resume previously paused brush-based CC layers
+  const resumePausedBrushCCAnimations = useCallback(() => {
+    
+    const ids = pausedCCLayerIdsRef.current;
+    if (!ids || ids.length === 0) return;
+    const state = useAppStore.getState();
+    const mgr = getColorCycleBrushManager();
+    ids.forEach(id => {
+      try {
+        const layer = state.layers.find(l => l.id === id);
+        if (!layer) return;
+        state.updateLayer(id, {
+          colorCycleData: {
+            ...layer.colorCycleData,
+            isAnimating: true
+          }
+        } as any);
+        const brush = mgr.getBrush(id) as any;
+        brush?.startAnimation?.();
+      } catch {}
+    });
+    
+    pausedCCLayerIdsRef.current = [];
+    // Resume recolor animation if it was playing
+    if (recolorWasAnimatingRef.current) {
+      try {
+        const { RecolorManager } = require('../lib/colorCycle/RecolorManager');
+        RecolorManager.getInstance().resume();
+        
+      } catch {}
+      recolorWasAnimatingRef.current = false;
+    }
+    try { window.dispatchEvent(new CustomEvent('colorCycleAnimationState', { detail: { isPlaying: true, source: 'brush' } })); } catch {}
+    
+  }, []);
   
   const initDrawingCanvas = useCallback(() => {
     if (!project) return;
@@ -244,6 +350,9 @@ export function useDrawingHandlers({
     
     // Reset color cycle brush for new stroke and start animation
     if (currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
+      // Pause all CC playback while drawing a CC stroke
+      const hadAnyPlaying = pauseAllBrushCCAnimationsNow();
+      wasCCPlayingBeforeInteractionRef.current = hadAnyPlaying;
       // Don't set up callback here - let startContinuousColorCycleAnimation handle it
       brushEngine.resetColorCycle();
       
@@ -282,8 +391,7 @@ export function useDrawingHandlers({
               const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayer.id);
               if (!colorCycleBrush) return;
               
-              // Update and render
-              colorCycleBrush.updateAnimation();
+              // Render WITHOUT advancing animation while drawing
               colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayer.id);
               
               // Draw to drawing canvas
@@ -295,6 +403,7 @@ export function useDrawingHandlers({
             
             // If no color cycle layer was found, fallback to legacy
             if (!hasRendered) {
+              // Render current state only; do not call updateColorCycleAnimation here
               brushEngine.renderColorCycle(drawingCtxRef.current, true);
             }
             drawingCanvasHasContent.current = true;
@@ -810,7 +919,7 @@ export function useDrawingHandlers({
           // We can capture it directly without any extra compositing.
           await captureCanvasToActiveLayer(drawingCanvasRef.current);
           saveCanvasState(drawingCanvasRef.current, 'eraser', 'Erased stroke');
-          try { console.log('[Stroke] Saved eraser stroke'); } catch {}
+          
         } else { // Brush tool
           const activeSettings = currentState.tools.brushSettings;
           
@@ -870,8 +979,7 @@ export function useDrawingHandlers({
           }
           
           if (isColorCycleLayer && isColorCycleBrush && activeLayer?.colorCycleData?.canvas) {
-            console.log('=== FINALIZE: Saving CC layer state ===');
-            console.log('Shape mode?', tools.shapeMode);
+            
 
             // Commit any pending stroke data in the brush and copy to the layer canvas
             try {
@@ -909,18 +1017,16 @@ export function useDrawingHandlers({
             try {
               const ctx = activeLayer.colorCycleData.canvas.getContext('2d', { willReadFrequently: true });
               const sample = ctx?.getImageData(0, 0, 5, 1)?.data;
-              if (sample) console.log('Canvas sample after commit:', Array.from(sample.slice(0, 20)));
+              
             } catch {}
 
             // Skip saving if requested (for CC shapes that already saved)
             if (!skipSave) {
               const description = tools.shapeMode ? 'CC Shape' : 'CC Drawing stroke';
-              console.log('Saving with description:', description);
               saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', description);
-              console.log('Save completed');
-              try { console.log('[Stroke] Saved CC stroke'); } catch {}
+              
             } else {
-              console.log('[finalizeDrawing] Skipping save - requested by caller (skipSave=true)');
+              
             }
           } else if (isColorCycleLayer) {
             // On a color-cycle layer without a valid CC canvas, do not fall back to
@@ -949,7 +1055,7 @@ export function useDrawingHandlers({
               
               await captureCanvasToActiveLayer(tempCanvas);
               saveCanvasState(tempCanvas, 'brush', 'Drawing stroke');
-              try { console.log('[Stroke] Saved regular brush stroke'); } catch {}
+              
               
               
               // Clean up temporary canvas to prevent memory leak
@@ -979,6 +1085,11 @@ export function useDrawingHandlers({
     } catch (error) {
       console.error("Error during finalization:", error);
     } finally {
+      // Resume previously paused CC animations (all affected layers)
+      if (wasCCPlayingBeforeInteractionRef.current) {
+        resumePausedBrushCCAnimations();
+        wasCCPlayingBeforeInteractionRef.current = false;
+      }
       if (isBusyRef) isBusyRef.current = false;
     }
   }, [project, captureCanvasToActiveLayer, saveCanvasState, isBusyRef, userBrushEngine, brushEngine, tools.shapeMode, processBatchedStrokes]);
@@ -999,8 +1110,18 @@ export function useDrawingHandlers({
       // Direction selection will be finalized in finalizeShapeDrawing
       return;
     }
-    
+
     if (tools.shapeMode) {
+      // If this is a Color Cycle Shape, pause all CC animations during preview
+      try {
+        const state = useAppStore.getState();
+        const isCCShape = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+        if (isCCShape && !ccShapePreviewPauseStartedRef.current) {
+          const hadAnyPlaying = pauseAllBrushCCAnimationsNow();
+          wasCCPlayingBeforeInteractionRef.current = hadAnyPlaying;
+          ccShapePreviewPauseStartedRef.current = true;
+        }
+      } catch {}
       debugLog('shape', 'START', {
         tool: useAppStore.getState().tools.currentTool,
         brushShape: useAppStore.getState().tools.brushSettings.brushShape,
@@ -1024,6 +1145,16 @@ export function useDrawingHandlers({
   }, [tools.shapeMode, initDrawingCanvas, startDrawing]);
   
   const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }) => {
+    // Ensure CC animations remain paused during CC shape preview even if the preview starts from a move
+    try {
+      const state = useAppStore.getState();
+      const isCCShape = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+      if (tools.shapeMode && isCCShape && !ccShapePreviewPauseStartedRef.current) {
+        const hadAnyPlaying = pauseAllBrushCCAnimationsNow();
+        wasCCPlayingBeforeInteractionRef.current = wasCCPlayingBeforeInteractionRef.current || hadAnyPlaying;
+        ccShapePreviewPauseStartedRef.current = true;
+      }
+    } catch {}
     // Check if layer is still visible before continuing shape drawing
     const currentState = useAppStore.getState();
     const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
@@ -1164,12 +1295,20 @@ export function useDrawingHandlers({
         isDrawingShapeRef.current = false;
         
         // Restart color cycle animation if it was playing before direction selection
-        // Import the function to check animation state
-        const BrushControls = await import('../components/toolbar/BrushControls');
-        if (BrushControls.getColorCycleAnimationState && BrushControls.getColorCycleAnimationState()) {
+        if (wasCCPlayingBeforeInteractionRef.current) {
           debugLog('cc-shape', 'restart-animation-after-direction');
-          startContinuousColorCycleAnimation();
+          // Resume previously paused per-layer anims
+          resumePausedBrushCCAnimations();
+          // Also respect global play state and kick the continuous loop if needed
+          try {
+            const bc = require('../components/toolbar/BrushControls');
+            if (bc && typeof bc.getColorCycleAnimationState === 'function' && bc.getColorCycleAnimationState()) {
+              startCCRef.current?.();
+            }
+          } catch {}
+          wasCCPlayingBeforeInteractionRef.current = false;
         }
+        ccShapePreviewPauseStartedRef.current = false;
         
         if (isBusyRef) isBusyRef.current = false;
         return;
@@ -1465,8 +1604,9 @@ export function useDrawingHandlers({
                   colorCycleAnimationRef.current = null;
                 }
                 if (continuousColorCycleAnimationRef.current) {
-                  stopContinuousColorCycleAnimation();
+                  stopCCRef.current();
                 }
+                
                 
                 // Keep the shape points for when direction is selected
                 // Make sure drawing canvas is initialized
@@ -1561,12 +1701,30 @@ export function useDrawingHandlers({
           // For CC layers, the save already happened after drawing the shape
           // No need to save again here
           
+          // Resume continuous animation if it was playing before starting the shape
+          if (wasCCPlayingBeforeInteractionRef.current) {
+            try { startCCRef.current(); } catch {}
+            wasCCPlayingBeforeInteractionRef.current = false;
+          }
           if (isBusyRef) isBusyRef.current = false;
           return;
         }
         
         if (isBusyRef) isBusyRef.current = false;
         await finalizeDrawing();
+        // If animations were paused before the shape, resume them now
+        if (wasCCPlayingBeforeInteractionRef.current) {
+          // Resume per-layer and, if global play button on, start continuous loop
+          resumePausedBrushCCAnimations();
+          try {
+            const bc = require('../components/toolbar/BrushControls');
+            if (bc && typeof bc.getColorCycleAnimationState === 'function' && bc.getColorCycleAnimationState()) {
+              startCCRef.current?.();
+            }
+          } catch {}
+          wasCCPlayingBeforeInteractionRef.current = false;
+        }
+        ccShapePreviewPauseStartedRef.current = false;
         return;
       } else if (isDrawingShapeRef.current) {
         shapePointsRef.current = [];
@@ -1637,7 +1795,7 @@ export function useDrawingHandlers({
     
     // Initialize drawing canvas if needed
     if (!drawingCanvasRef.current || !drawingCtxRef.current) {
-      console.log('[DrawingHandlers] Initializing drawing canvas for color cycle');
+      
       initDrawingCanvas();
     }
     
@@ -1734,7 +1892,20 @@ export function useDrawingHandlers({
           // If no color cycle layers were rendered, try legacy fallback
           if (!hasColorCycleContent) {
             // Fallback: Legacy rendering for compatibility
-            brushEngine.updateColorCycleAnimation?.();
+            // IMPORTANT: Do not advance animation when paused
+            let shouldAdvance = false;
+            try {
+              // Respect brush animator state
+              shouldAdvance = !!(brushEngine.isColorCycleAnimating && brushEngine.isColorCycleAnimating());
+              if (!shouldAdvance) {
+                // Also check store flags in case animator is out-of-sync
+                const st = useAppStore.getState();
+                shouldAdvance = st.layers.some(l => l.layerType === 'color-cycle' && !!l.colorCycleData?.isAnimating);
+              }
+            } catch {}
+            if (shouldAdvance) {
+              brushEngine.updateColorCycleAnimation?.();
+            }
             brushEngine.renderColorCycle(drawingCtxRef.current, true);
             drawingCanvasHasContent.current = true;
           } else {
@@ -1757,46 +1928,25 @@ export function useDrawingHandlers({
     } catch {}
   }, [brushEngine, initDrawingCanvas, renderAllColorCycleLayers]);
   
-  // Stop continuous color cycle animation AND pause it
+  // Stop continuous color cycle animation AND pause it (applies to all brush-based CC layers)
   const stopContinuousColorCycleAnimation = useCallback(() => {
-    // Set the flag to stop animation
-    if (continuousColorCycleAnimationRef.current) {
-      (continuousColorCycleAnimationRef as any).isAnimating = false;
-      cancelAnimationFrame(continuousColorCycleAnimationRef.current);
-      continuousColorCycleAnimationRef.current = null;
-    }
-    
-    // Pause the brush animation explicitly (avoid toggle side-effects)
-    if (brushEngine.isColorCycleAnimating()) {
-      (brushEngine as any).pauseColorCycleAnimation?.();
-    }
-    
-    // Update store flag so composition/overlays stop advancing frames
-    try {
-      const state = useAppStore.getState();
-      const layer = state.layers.find(l => l.id === state.activeLayerId);
-      if (layer && layer.layerType === 'color-cycle' && state.activeLayerId) {
-        state.updateLayer(state.activeLayerId, {
-          colorCycleData: {
-            ...layer.colorCycleData,
-            isAnimating: false
-          }
-        } as any);
-      }
-    } catch (e) {
-      console.warn('[ColorCycle] Failed to clear layer animating flag:', e);
+    const hadAny = pauseAllBrushCCAnimationsNow();
+    // Mark that we should resume after this interaction if anything was playing
+    if (hadAny) {
+      wasCCPlayingBeforeInteractionRef.current = true;
     }
 
     // DON'T clear the drawing canvas when animation stops - this was causing content loss
     // The canvas should retain the color cycle content so it can be composited
     // Only clear when starting a new stroke or when explicitly needed
     drawingCanvasHasContent.current = true; // Ensure content is marked as present
+  }, [pauseAllBrushCCAnimationsNow]);
 
-    // Broadcast unified animation state for brush-based CC
-    try {
-      window.dispatchEvent(new CustomEvent('colorCycleAnimationState', { detail: { isPlaying: false, source: 'brush' } }));
-    } catch {}
-  }, [brushEngine]);
+  // Keep callable refs in sync with the real animation controls
+  useEffect(() => {
+    startCCRef.current = startContinuousColorCycleAnimation;
+    stopCCRef.current = stopContinuousColorCycleAnimation;
+  }, [startContinuousColorCycleAnimation, stopContinuousColorCycleAnimation]);
   
   // Setter for feedback message callback
   const setFeedbackCallback = useCallback((callback: (message: string) => void) => {

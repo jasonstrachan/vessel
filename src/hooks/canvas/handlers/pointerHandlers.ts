@@ -523,6 +523,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       
       // Handle polygon gradient, color cycle shape, or contour polygon
       if (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon) {
+        
         // Allow only CC shape on CC layers; block others accordingly
         const activeLayer = layers.find(l => l.id === activeLayerId);
         const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
@@ -534,6 +535,16 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           deps.feedback?.(msg);
           return;
         }
+        // Drive COLOR_CYCLE_SHAPE with local shape refs to avoid heavy store updates
+        if (isCCShape) {
+          // Proactively pause animations at the first vertex for CC shape previews
+          drawingHandlers.stopContinuousColorCycleAnimation?.();
+          interaction.dispatch({ type: 'DRAWING_START' });
+          drawingHandlers.startShapeDrawing(worldPos, pressure);
+          return;
+        }
+
+        // Polygon gradient / contour polygon via tool state machine
         if (toolStateMachine.handlePolygonGradientMouseDown(worldPos)) {
           interaction.dispatch({ type: 'DRAWING_START' });
         }
@@ -1114,7 +1125,7 @@ function cssColorToHex(color: string): string {
         // Compute a possibly snapped mouse world position for preview (relative to last point)
         let previewWorld = worldPos;
         if (event.shiftKey) {
-          const points = (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon)
+          const points = (toolStateMachine.isPolygonGradient || toolStateMachine.isContourPolygon)
             ? toolStateMachine.polygonGradientState.points
             : drawingHandlers.shapePointsRef.current;
           if (points && points.length >= 1) {
@@ -1124,19 +1135,32 @@ function cssColorToHex(color: string): string {
             debugLog('snap', 'polygon preview', { anchor, before, after: previewWorld });
           }
         }
-        const shouldShowPreview = (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon)
-          ? toolStateMachine.handlePolygonGradientMouseMove(previewWorld)
-          : (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current);
+        // Determine preview mode without driving store updates for CC shape
+        let shouldShowPreview: boolean;
+        if (toolStateMachine.isColorCycleShape) {
+          // Update local shape points and always preview while drawing
+          drawingHandlers.continueShapeDrawing(previewWorld);
+          shouldShowPreview = tools.shapeMode && drawingHandlers.isDrawingShapeRef.current;
+        } else if (toolStateMachine.isPolygonGradient || toolStateMachine.isContourPolygon) {
+          shouldShowPreview = !!toolStateMachine.handlePolygonGradientMouseMove(previewWorld);
+        } else {
+          shouldShowPreview = tools.shapeMode && drawingHandlers.isDrawingShapeRef.current;
+        }
+        
         
         if (shouldShowPreview && deps.previewAnimationFrameRef) {
+          // If previewing a Color Cycle Shape, ensure all CC animations are paused during preview
+          if (toolStateMachine.isColorCycleShape) {
+            drawingHandlers.stopContinuousColorCycleAnimation?.();
+          }
           // Throttle polygon gradient preview with RAF
           if (!deps.previewAnimationFrameRef.current) {
             deps.previewAnimationFrameRef.current = requestAnimationFrame(() => {
               const overlayCanvas = overlayCanvasRef.current;
               const overlayCtx = overlayCanvas?.getContext('2d');
               
-              // Get points from either polygon state or shape drawing state
-              const points = (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon)
+              // Get points from polygon state (polygon/contour) or local refs (shape/CC shape)
+              const points = (toolStateMachine.isPolygonGradient || toolStateMachine.isContourPolygon)
                 ? toolStateMachine.polygonGradientState.points
                 : drawingHandlers.shapePointsRef.current;
               
@@ -1494,8 +1518,8 @@ function cssColorToHex(color: string): string {
         return;
       }
       
-      // Polygon gradient, color cycle shape, or contour polygon
-      if (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon) {
+      // Polygon gradient or contour polygon (COLOR_CYCLE_SHAPE handled by shape-mode finalize below)
+      if (toolStateMachine.isPolygonGradient || toolStateMachine.isContourPolygon) {
         if (toolStateMachine.handlePolygonGradientMouseUp()) {
           // Finalize polygon - we have at least 3 points
           const currentPolygonState = toolStateMachine.polygonGradientState;
@@ -1506,7 +1530,8 @@ function cssColorToHex(color: string): string {
             
             if (drawCtx && brushEngine) {
               // Handle different polygon types
-              if (toolStateMachine.isColorCycleShape) {
+              if (false) {
+                
                 // Do NOT save before drawing. We save AFTER rendering the shape
                 // in useDrawingHandlers.finalizeShapeDrawing to ensure correct undo granularity.
                 // This avoids removing multiple shapes on a single undo.
@@ -1521,6 +1546,7 @@ function cssColorToHex(color: string): string {
                 debugLog('cc-shape', 'fill-mode', fillMode);
                 
                 if (fillMode === 'linear') {
+                  
                   // For linear mode, we need to enter direction selection mode
                   debugLog('cc-shape', 'linear-enter-direction');
                   // Store the polygon points in drawing handlers for direction selection
@@ -1646,16 +1672,16 @@ function cssColorToHex(color: string): string {
         
         if (isColorCycleShape && isLinearFill && !drawingHandlers.isSelectingDirectionRef?.current) {
           // Don't finalize yet - enter direction selection mode
-          console.log('[Pointer] Should enter direction selection mode for linear gradient');
+          
           // Call finalizeShapeDrawing which will set up direction selection mode
           drawingHandlers.finalizeShapeDrawing();
           // CRITICAL FIX: Check if we actually entered direction selection mode AFTER the call
           if (drawingHandlers.isSelectingDirectionRef?.current) {
-            console.log('[Pointer] Successfully entered direction selection mode');
+            
             // Don't complete finalization yet - we're still in direction selection
             return;
           }
-          console.log('[Pointer] Failed to enter direction selection mode, continuing with normal finalization');
+          
         }
         
         // Only proceed with finalization if NOT in direction selection mode
@@ -1678,7 +1704,7 @@ function cssColorToHex(color: string): string {
             deps.restartColorCycleAnimation();
           }
         } else {
-          console.log('[PointerUp] In direction selection mode - skipping finalization');
+          
         }
       } else {
         // For regular drawing (non-shape mode), never skip save

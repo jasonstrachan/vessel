@@ -77,7 +77,6 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       // Apply all current settings to the new brush instance
       if (currentSettings.gradientBands) {
         brush.setGradientBands(currentSettings.gradientBands);
-        console.log(`[ColorCycleBrushManager] Applied gradientBands=${currentSettings.gradientBands} to new brush for layer ${layerId.substring(0, 8)}`);
       }
       if (currentSettings.spacing) {
         (brush as any).setBandSpacing(currentSettings.spacing);
@@ -112,7 +111,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       // Track resources
       activeResources.add(layerId);
       
-      console.log(`✅ Created ColorCycleBrush for layer ${layerId.substring(0, 8)}...`);
+      
       
       return brush;
     },
@@ -149,7 +148,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
         brushMetadata.delete(layerId);
         activeResources.delete(layerId);
         
-        console.log(`🗑️ Deleted ColorCycleBrush for layer ${layerId.substring(0, 8)}...`);
+        
       }
     },
     
@@ -180,9 +179,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
         this.deleteBrush(layerId);
       });
       
-      if (toDelete.length > 0) {
-        console.log(`🧹 Cleaned up ${toDelete.length} inactive ColorCycleBrush instances`);
-      }
+      
     },
     
     cleanupAll() {
@@ -190,7 +187,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       brushes.forEach((brush, layerId) => {
         this.deleteBrush(layerId);
       });
-      console.log(`🧹 Cleaned up all ${count} ColorCycleBrush instances`);
+      
     },
     
     // Enhanced lifecycle methods
@@ -199,7 +196,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       if (brushes.has(layerId)) {
         // Validate existing brush
         if (this.validateColorCycleBrush(layerId)) {
-          console.log(`✅ Reusing valid ColorCycleBrush for layer ${layerId.substring(0, 8)}...`);
+          
           
           // Apply current settings to existing brush to ensure it's up to date
           const { useAppStore } = require('../stores/useAppStore');
@@ -209,7 +206,6 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
           if (existingBrush) {
             if (currentSettings.gradientBands) {
               (existingBrush as any).setGradientBands(currentSettings.gradientBands);
-              console.log(`[ColorCycleBrushManager] Updated gradientBands=${currentSettings.gradientBands} on reused brush for layer ${layerId.substring(0, 8)}`);
             }
             if (currentSettings.spacing) {
               (existingBrush as any).setBandSpacing(currentSettings.spacing);
@@ -228,7 +224,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
           return true;
         }
         // Invalid brush - cleanup before creating new
-        console.warn(`⚠️ Invalid ColorCycleBrush for layer ${layerId.substring(0, 8)}, recreating...`);
+        
         this.removeColorCycleBrush(layerId);
       }
       
@@ -263,7 +259,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       
       // Validate brush is still healthy
       if (!this.validateColorCycleBrush(layerId)) {
-        console.warn(`⚠️ Brush for layer ${layerId.substring(0, 8)} failed validation, removing...`);
+        
         this.removeColorCycleBrush(layerId);
         return null;
       }
@@ -288,7 +284,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
         if ('getCanvas' in brush && typeof brush.getCanvas === 'function') {
           const canvas = brush.getCanvas();
           if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
-            console.warn(`❌ Invalid canvas for layer ${layerId.substring(0, 8)}`);
+            
             return false;
           }
         }
@@ -296,7 +292,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
         // 2. WebGL context (if used) is not lost
         if ('isContextLost' in brush && typeof brush.isContextLost === 'function') {
           if (brush.isContextLost()) {
-            console.warn(`❌ WebGL context lost for layer ${layerId.substring(0, 8)}`);
+            
             return false;
           }
         }
@@ -304,7 +300,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
         // 3. Internal buffers are valid
         if ('hasValidBuffers' in brush && typeof brush.hasValidBuffers === 'function') {
           if (!brush.hasValidBuffers()) {
-            console.warn(`❌ Invalid buffers for layer ${layerId.substring(0, 8)}`);
+            
             return false;
           }
         }
@@ -312,7 +308,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
         // 4. Layer ID matches (prevent cross-contamination)
         if ('getLayerId' in brush && typeof brush.getLayerId === 'function') {
           if (brush.getLayerId() !== layerId) {
-            console.warn(`❌ Layer ID mismatch for layer ${layerId.substring(0, 8)}`);
+            
             return false;
           }
         }
@@ -355,7 +351,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
         activeResources.delete(`canvas_${layerId}`);
         activeResources.delete(`webgl_${layerId}`);
         
-        console.log(`🗑️ Removed ColorCycleBrush for layer ${layerId.substring(0, 8)}...`);
+        
       }
     },
     
@@ -368,11 +364,11 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       
       // Clean them up
       orphaned.forEach(layerId => {
-        console.log(`🧹 Cleaning up orphaned CC brush for deleted layer: ${layerId.substring(0, 8)}...`);
+        
         this.removeColorCycleBrush(layerId);
       });
       
-      console.log(`✅ Cleaned up ${orphaned.length} orphaned ColorCycleBrush instances`);
+      
     },
     
     transferColorCycleBrush(fromLayerId: string, toLayerId: string): boolean {
@@ -380,13 +376,13 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       const sourceMetadata = brushMetadata.get(fromLayerId);
       
       if (!sourceBrush || !sourceMetadata) {
-        console.warn(`⚠️ No brush to transfer from layer ${fromLayerId.substring(0, 8)}`);
+        
         return false;
       }
       
       // Validate source brush before transfer
       if (!this.validateColorCycleBrush(fromLayerId)) {
-        console.warn(`⚠️ Source brush invalid, cannot transfer from ${fromLayerId.substring(0, 8)}`);
+        
         return false;
       }
       
@@ -426,7 +422,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       brushes.delete(fromLayerId);
       brushMetadata.delete(fromLayerId);
       
-      console.log(`✅ Transferred ColorCycleBrush from ${fromLayerId.substring(0, 8)}... to ${toLayerId.substring(0, 8)}...`);
+      
       return true;
     }
   };

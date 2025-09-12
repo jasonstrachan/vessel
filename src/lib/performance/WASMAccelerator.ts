@@ -41,7 +41,6 @@ export class WASMAccelerator {
       this.isInitialized = true;
       return true;
     } catch (error) {
-      console.warn('WASM initialization failed, falling back to JS:', error);
       this.isInitialized = false;
       return false;
     }

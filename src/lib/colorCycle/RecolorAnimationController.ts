@@ -67,7 +67,7 @@ export class RecolorAnimationController {
   updateLayer(layer: Layer): boolean {
     const settings = layer.colorCycleData?.recolorSettings;
     if (!settings || !settings.indexBuffer) {
-      console.warn('[RecolorAnimationController] updateLayer: missing recolor settings/indexBuffer');
+      
       return false;
     }
 
@@ -93,7 +93,7 @@ export class RecolorAnimationController {
     // Render frame for this layer (pass float tick for smooth offset)
     const imageData = this.engine.renderFrame(layer, newTickFloat);
     if (!imageData) {
-      console.warn(`[RecolorAnimationController] updateLayer: render returned no imageData for layer ${layer.id}`);
+      
       return false;
     }
 
@@ -119,12 +119,12 @@ export class RecolorAnimationController {
     // verbose logs removed
     
     if (!layer.colorCycleData?.recolorSettings?.indexBuffer) {
-      console.warn('[RecolorAnimationController] Cannot register layer - no recolor data');
+      
       return false;
     }
     
     if (layer.colorCycleData.mode !== 'recolor') {
-      console.warn('[RecolorAnimationController] Cannot register layer - not in recolor mode');
+      
       return false;
     }
     
@@ -172,7 +172,7 @@ export class RecolorAnimationController {
    */
   playAll(): void {
     if (this.animatedLayers.size === 0) {
-      console.warn('[RecolorAnimationController] No layers registered for animation');
+      
       return;
     }
     
@@ -207,7 +207,7 @@ export class RecolorAnimationController {
   playSingle(layerId: string): void {
     const targetLayer = this.animatedLayers.get(layerId);
     if (!targetLayer) {
-      console.warn(`[RecolorAnimationController] Layer ${layerId} not found in registered layers`);
+      
       return;
     }
     
@@ -314,7 +314,7 @@ export class RecolorAnimationController {
       }
     }
     
-    console.log(`[RecolorAnimationController] Set FPS to ${this.targetFPS}`);
+    
   }
   
   /**
@@ -457,7 +457,7 @@ export class RecolorAnimationController {
         const settings = animatedLayer.layer.colorCycleData?.recolorSettings;
         if (settings && settings.currentLOD === 'full') {
           settings.currentLOD = 'half';
-          console.log(`[RecolorAnimationController] Reduced quality to half for layer ${animatedLayer.layer.id}`);
+          
         }
       }
     } else if (frameTime < this.frameTimeTarget * 0.7) {
@@ -466,7 +466,7 @@ export class RecolorAnimationController {
         const settings = animatedLayer.layer.colorCycleData?.recolorSettings;
         if (settings && settings.currentLOD !== 'full') {
           settings.currentLOD = 'full';
-          console.log(`[RecolorAnimationController] Increased quality to full for layer ${animatedLayer.layer.id}`);
+          
         }
       }
     }
@@ -523,6 +523,6 @@ export class RecolorAnimationController {
     this.stop();
     this.animatedLayers.clear();
     this.frameCallbacks.clear();
-    console.log('[RecolorAnimationController] Cleaned up resources');
+    
   }
 }

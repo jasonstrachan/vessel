@@ -7,6 +7,7 @@ import ControlsPanel from '../components/ControlsPanel';
 import ColorPickerPanel from '../components/panels/ColorPickerPanel';
 import DrawingCanvas from '../components/canvas/DrawingCanvas';
 import BrushEditorUI from '../components/BrushEditorUI';
+import ConsoleSilencer from '../components/dev/ConsoleSilencer';
 import MinimalLayerList from '../components/MinimalLayerList';
 import FeedbackStrip from '../components/FeedbackStrip';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
@@ -85,9 +86,7 @@ export default function Home() {
             store.setHistorySize(settings.history.maxHistorySize);
           }
         }
-      } catch (error) {
-        console.warn('Failed to load settings from localStorage:', error);
-      }
+      } catch (error) {}
     }
   }, []); // Only run once on mount
 
@@ -113,6 +112,7 @@ export default function Home() {
 
   return (
     <main className="w-screen h-screen bg-[#141514] text-white flex overflow-hidden">
+      <ConsoleSilencer />
       
       {/* Left Toolbar */}
       <LeftToolbar />

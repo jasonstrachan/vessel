@@ -98,7 +98,6 @@ export class RecolorManager {
    */
   async processLayer(layer: Layer, options: RecolorOptions = {}): Promise<boolean> {
     try {
-      console.log(`[RecolorManager] Processing layer ${layer.id} for recolor animation`);
       
       // Ensure we have up-to-date pixel data. If the ImageData is empty or stale,
       // try to grab it from the layer's framebuffer (OffscreenCanvas) first.
@@ -142,9 +141,7 @@ export class RecolorManager {
                 } catch {}
               }
             }
-          } catch (e) {
-            console.warn('[RecolorManager] Failed to capture imageData from framebuffer:', e);
-          }
+          } catch (e) {}
         }
         // As a last resort, if imageData exists (even empty), allow processing to continue
         // so recolor can set up its buffers and accept gradients.
@@ -170,10 +167,7 @@ export class RecolorManager {
         // Draw one frame so the user sees recoloring even before animation starts
         try {
           this.animationController.updateLayer(layer);
-        } catch (e) {
-          console.warn('[RecolorManager] Initial frame update failed:', e);
-        }
-        console.log(`[RecolorManager] Successfully processed layer ${layer.id}`);
+        } catch (e) {}
         
         // Notify UI
         this.layerUpdateCallbacks.forEach(callback => callback(layer));
@@ -255,17 +249,9 @@ export class RecolorManager {
       const gradientStops = this.gradientBuilder.buildGradient(extractedColors, options.gradientStops);
       
       const processingTime = performance.now() - startTime;
-      console.log(`[RecolorManager] Color extraction completed in ${processingTime.toFixed(1)}ms`);
-      console.log(`[RecolorManager] Generated ${gradientStops.length} gradient stops from ${extractedColors.length} extracted colors`);
       
       // Analyze gradient quality
       const analysis = this.gradientBuilder.analyzeGradient(gradientStops);
-      console.log(`[RecolorManager] Gradient analysis:`, {
-        quality: analysis.quality.toFixed(2),
-        harmony: analysis.harmony,
-        smoothness: analysis.smoothness.toFixed(2),
-        contrast: analysis.contrast.toFixed(2)
-      });
       
       // Convert to the expected format
       return gradientStops.map(stop => ({

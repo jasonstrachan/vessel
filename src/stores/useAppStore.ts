@@ -467,15 +467,7 @@ const defaultPolygonGradientState: PolygonGradientState = {
 const tracedSet = (setter: any, get: any) => {
   const result = setter(get());
   if (result && 'layers' in result) {
-    console.log('🔍 SET CALLED WITH LAYERS:', {
-      caller: new Error().stack?.split('\n')[3]?.trim(),
-      layersCount: result.layers?.length,
-      layers: result.layers?.map((l: any) => ({
-        id: l.id?.substring(0, 20),
-        type: l.layerType,
-        hasCC: !!l.colorCycleData
-      }))
-    });
+    // logging removed
   }
   return result;
 };
@@ -854,18 +846,13 @@ export const useAppStore = create<AppState>()(
         if (tool === 'custom') {
           // Clear these immediately before the state update
           const currentState = get();
-          console.log('[DEBUG] Switching to custom tool, current state:', {
-            hasTemporaryBrush: !!currentState.temporaryCustomBrush,
-            temporaryBrushId: currentState.temporaryCustomBrush?.id,
-            hasSelection: !!(currentState.selectionStart || currentState.selectionEnd),
-            currentBrushTip: currentState.tools.brushSettings.currentBrushTip
-          });
+          
           if (currentState.temporaryCustomBrush) {
-            console.log('[DEBUG] Clearing temporary brush:', currentState.temporaryCustomBrush.id);
+            
             get().setTemporaryCustomBrush(null);
           }
           if (currentState.selectionStart || currentState.selectionEnd) {
-            console.log('[DEBUG] Clearing selection');
+            
             get().clearSelection();
           }
         }
@@ -1255,7 +1242,7 @@ export const useAppStore = create<AppState>()(
               height: customBrush.height
             };
           } else {
-            console.warn('Custom brush data not found for preset:', preset.id);
+            
           }
         }
         
@@ -1414,7 +1401,7 @@ export const useAppStore = create<AppState>()(
       addLayer: (layer) => {
         const newLayerId = `layer-${Date.now()}-${Math.random()}`;
         
-        console.log('🔵 ADD LAYER DEBUG:', {
+        /* console.log('🔵 ADD LAYER DEBUG:', {
           newLayerId: newLayerId.substring(0, 20),
           layerType: layer.layerType,
           hasColorCycleData: !!layer.colorCycleData,
@@ -1423,7 +1410,7 @@ export const useAppStore = create<AppState>()(
             type: l.layerType,
             hasCC: !!l.colorCycleData
           }))
-        });
+        }); */
         
         set((state) => {
           // CRITICAL CHECK: Verify existing layers are not mutated
@@ -1477,7 +1464,7 @@ export const useAppStore = create<AppState>()(
                 // Call setSpeed to trigger animator creation internally
                 // This ensures the animator is ready before first paint
                 brush.setSpeed(1.0);
-                console.log('✅ Pre-created animator for layer:', newLayerId.substring(0, 20));
+                
               }
             }
           }
@@ -1498,7 +1485,7 @@ export const useAppStore = create<AppState>()(
             }
           });
           
-          console.log('🔵 ADD LAYER RESULT:', {
+          /* console.log('🔵 ADD LAYER RESULT:', {
             totalLayers: updatedLayers.length,
             layers: updatedLayers.map(l => ({
               id: l.id.substring(0, 20),
@@ -1506,7 +1493,7 @@ export const useAppStore = create<AppState>()(
               hasCC: !!l.colorCycleData,
               hasGradient: !!l.colorCycleData?.gradient
             }))
-          });
+          }); */
           
           return {
             layers: updatedLayers
@@ -1694,7 +1681,7 @@ export const useAppStore = create<AppState>()(
       setActiveLayer: (id) => set((state) => {
         const layer = state.layers.find(l => l.id === id);
         
-        console.log('🟢 SET ACTIVE LAYER DEBUG:', {
+        /* console.log('🟢 SET ACTIVE LAYER DEBUG:', {
           newActiveId: id?.substring(0, 20),
           oldActiveId: state.activeLayerId?.substring(0, 20),
           targetLayerType: layer?.layerType,
@@ -1705,15 +1692,15 @@ export const useAppStore = create<AppState>()(
             hasCC: !!l.colorCycleData,
             hasGradient: !!l.colorCycleData?.gradient
           }))
-        });
+        }); */
         
         // When switching away from a color-cycle layer, mark it as inactive
         const currentActiveLayer = state.layers.find(l => l.id === state.activeLayerId);
         if (currentActiveLayer?.layerType === 'color-cycle' && currentActiveLayer.id !== id) {
-          console.log('🟠 SWITCHING AWAY FROM CC LAYER:', {
+          /* console.log('🟠 SWITCHING AWAY FROM CC LAYER:', {
             fromLayerId: currentActiveLayer.id.substring(0, 20),
             toLayerId: id?.substring(0, 20)
-          });
+          }); */
           
           // Mark the old layer's brush as inactive
           colorCycleBrushManager.setActiveState(state.activeLayerId!, false);
@@ -1728,15 +1715,15 @@ export const useAppStore = create<AppState>()(
         // If switching to a color-cycle layer in BRUSH context, validate/reinit brush resources.
         // Skip entirely when the Recolor tool is active so we don't override recolor mode.
         if (layer?.layerType === 'color-cycle' && state.tools.currentTool !== 'recolor') {
-          console.log('🟣 SWITCHING TO CC LAYER:', {
+          /* console.log('🟣 SWITCHING TO CC LAYER:', {
             layerId: id.substring(0, 20),
             hasGradient: !!layer.colorCycleData?.gradient,
             gradientLength: layer.colorCycleData?.gradient?.length
-          });
+          }); */
           
           // Validate and reinitialize if needed
           if (!colorCycleBrushManager.validateColorCycleBrush(id)) {
-            console.warn('⚠️ CC brush validation failed, reinitializing...');
+            
             const width = state.project?.width || 1024;
             const height = state.project?.height || 1024;
             // Note: gradient is in { position, color }[] format, but initColorCycleForLayer expects Uint8Array
@@ -1762,7 +1749,7 @@ export const useAppStore = create<AppState>()(
             if ('setGradient' in colorCycleBrush && typeof colorCycleBrush.setGradient === 'function') {
               colorCycleBrush.setGradient(layer.colorCycleData.gradient, id);
             }
-            console.log('🟣 SET ACTIVE LAYER IN CC BRUSH:', id.substring(0, 20));
+            
           }
           
           // Save current brush settings if we're on a regular brush
@@ -1789,7 +1776,7 @@ export const useAppStore = create<AppState>()(
             }
           };
           
-          console.log('🟢 SET ACTIVE LAYER RESULT (CC):', {
+          /* console.log('🟢 SET ACTIVE LAYER RESULT (CC):', {
             activeLayerId: result.activeLayerId.substring(0, 20),
             gradientSet: !!result.tools.brushSettings.colorCycleGradient,
             allLayersAfter: state.layers.map(l => ({
@@ -1797,7 +1784,7 @@ export const useAppStore = create<AppState>()(
               type: l.layerType,
               hasCC: !!l.colorCycleData
             }))
-          });
+          }); */
           
           return result;
         }
@@ -1829,7 +1816,7 @@ export const useAppStore = create<AppState>()(
           // DO NOT return layers unless we're actually changing them
         };
         
-        console.log('🟢 SET ACTIVE LAYER RESULT (NORMAL):', {
+        /* console.log('🟢 SET ACTIVE LAYER RESULT (NORMAL):', {
           activeLayerId: id?.substring(0, 20),
           allLayersAfter: state.layers.map(l => ({
             id: l.id.substring(0, 20),
@@ -1837,7 +1824,7 @@ export const useAppStore = create<AppState>()(
             hasCC: !!l.colorCycleData
           })),
           returnedLayers: 'layers' in result
-        });
+        }); */
         
         // Debug checks removed - the race condition has been fixed
         

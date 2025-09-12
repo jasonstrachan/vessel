@@ -317,7 +317,7 @@ export class ColorQuantizer {
     
     // For now, fall back to RGB332 for Phase 1
     // Will implement proper median cut in Phase 4
-    console.warn('[ColorQuantizer] OKLab median cut not fully implemented, falling back to RGB332');
+    
     return this.quantizeRGB332(imageData);
   }
   

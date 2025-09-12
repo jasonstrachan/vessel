@@ -37,7 +37,6 @@ export class ImageBitmapTransfer {
       
       return bitmap;
     } catch (error) {
-      console.warn('Failed to create ImageBitmap:', error);
       return imageData;
     }
   }
@@ -62,7 +61,6 @@ export class ImageBitmapTransfer {
       
       return bitmap;
     } catch (error) {
-      console.warn('Failed to create ImageBitmap from canvas:', error);
       return canvas;
     }
   }

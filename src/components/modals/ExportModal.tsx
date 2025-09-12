@@ -7,6 +7,7 @@ import Input from '../ui/Input';
 import Button from '../ui/Button';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
+import { mapToIndexedWithDithering, type DitherMethod } from '@/utils/gifDither';
 
 type ExportKind = 'png' | 'gif' | 'mp4';
 
@@ -25,6 +26,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
+  // Draggable position (px)
+  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const [exportKind, setExportKind] = useState<ExportKind>('png');
   const [scale, setScale] = useState<1 | 2 | 3 | 4>(1);
@@ -37,9 +42,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const [gifFps, setGifFps] = useState(12);
   const [gifDuration, setGifDuration] = useState(3);
   const [gifRepeat, setGifRepeat] = useState(0); // 0 = forever
-  const [gifLoopPerfect, setGifLoopPerfect] = useState(false);
-  const [gifAutoFrames, setGifAutoFrames] = useState(false);
-  const [gifLoopCycles, setGifLoopCycles] = useState(1); // cycles per GIF when overriding speed
+  const [gifAutoFrames, setGifAutoFrames] = useState(true);
+  const [gifDitherMethod, setGifDitherMethod] = useState<DitherMethod>('none');
+  const [gifDitherStrength, setGifDitherStrength] = useState(1);
+  const [gifFrameStep, setGifFrameStep] = useState<1 | 2 | 3 | 4>(1); // Capture every Nth frame
+  const [gifMaxColors, setGifMaxColors] = useState<16 | 32 | 64 | 128 | 256>(128);
+  const [gifAutoColors, setGifAutoColors] = useState(true);
 
   // Video options
   const [videoFps, setVideoFps] = useState(30);
@@ -54,6 +62,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   useEffect(() => {
     if (isOpen) {
       setShouldRender(true);
+      // Initial position: center horizontally, shifted up
+      const modalWidth = 540; // matches class w-[540px]
+      const x = Math.max(16, Math.round((window.innerWidth - modalWidth) / 2));
+      const y = Math.max(24, Math.round(window.innerHeight * 0.12));
+      setPos({ x, y });
       setTimeout(() => setIsVisible(true), 10);
     } else {
       setIsVisible(false);
@@ -71,61 +84,106 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isOpen, isExporting, onClose]);
 
-  // Default GIF loop mode: on if color-cycling layers exist when opening
+  // Drag handlers (title bar)
+  const onDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setDragging(true);
+    dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
+  };
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: MouseEvent) => {
+      const nx = Math.min(window.innerWidth - 60, Math.max(8, e.clientX - dragOffset.current.x));
+      const ny = Math.min(window.innerHeight - 60, Math.max(8, e.clientY - dragOffset.current.y));
+      setPos({ x: nx, y: ny });
+    };
+    const onUp = () => setDragging(false);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [dragging, pos.x, pos.y]);
+
+  // Initialize GIF options when modal opens
   useEffect(() => {
     if (!isOpen) return;
     try {
-      const hasAnyCC = layers.some(l => l.layerType === 'color-cycle');
-      setGifLoopPerfect(hasAnyCC);
-      setGifAutoFrames(false);
-      setGifLoopCycles(1);
+      // Default auto-detect ON by default when opening
+      setGifAutoFrames(true);
     } catch {}
-  }, [isOpen, layers]);
+  }, [isOpen]);
 
-  // Compute suggested auto-detected frames for perfect loop (without changing speeds)
+  // Compute suggested frames/duration for a perfect loop based on animation speeds
+  // Strategy:
+  // 1) Try to find the SHORTEST perfect loop (minimal frames) within a sane bound (<= 20s)
+  // 2) If none found, pick the closest to user target with best residuals
   const autoFrameSuggestion = useMemo(() => {
     try {
-      const targetFrames = Math.max(1, Math.round(gifDuration * gifFps));
+      const fps = Math.max(1, Math.floor(gifFps / Math.max(1, gifFrameStep)));
+      const targetFrames = Math.max(1, Math.round(gifDuration * fps));
       const store = useAppStore.getState();
       const recolorSpeeds: number[] = store.layers
         .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode === 'recolor' && l.colorCycleData?.recolorSettings)
         .map(l => l.colorCycleData!.recolorSettings!.animation.speed || 0.1)
         .filter(s => Number.isFinite(s) && s > 0);
       const hasBrushCC = store.layers.some(l => l.layerType === 'color-cycle' && (!l.colorCycleData || l.colorCycleData.mode !== 'recolor'));
+      // Note: Brush engines use different internal scalars; using the UI speed as a proxy keeps behavior intuitive
       const brushSpeed = hasBrushCC ? (store.tools?.brushSettings?.colorCycleSpeed || 0.1) : null;
       const speeds = [...recolorSpeeds, ...(brushSpeed ? [brushSpeed] : [])];
+
+      // No animated speeds detected – fall back to user's target
       if (speeds.length === 0) {
-        return { frames: targetFrames, success: false, duration: targetFrames / gifFps };
+        return { frames: targetFrames, success: false, duration: targetFrames / fps };
       }
+
       const minFrames = 8;
+      const maxFrames = Math.max(minFrames, Math.round(fps * 20)); // cap search at 20s
+      const EPS = 1e-3;
+
+      // Phase 1: shortest perfect loop search
+      for (let f = minFrames; f <= maxFrames; f++) {
+        let ok = true;
+        for (const s of speeds) {
+          const cycles = (s * f) / fps; // cycles completed by this speed in f frames
+          const residual = Math.abs(cycles - Math.round(cycles));
+          if (residual >= EPS) { ok = false; break; }
+        }
+        if (ok) {
+          return { frames: f, success: true, duration: f / fps };
+        }
+      }
+
+      // Phase 2: best fit near user's target (closest + smallest residual)
       const searchRadius = Math.max(50, Math.round(targetFrames * 0.5));
       const start = Math.max(minFrames, targetFrames - searchRadius);
-      const end = targetFrames + searchRadius;
-      const epsilon = 1e-3;
+      const end = Math.min(maxFrames, targetFrames + searchRadius);
       let best = targetFrames;
       let bestScore = Number.POSITIVE_INFINITY;
       for (let f = start; f <= end; f++) {
         let maxResidual = 0;
         for (const s of speeds) {
-          const cycles = (s * f) / gifFps;
+          const cycles = (s * f) / fps;
           const residual = Math.abs(cycles - Math.round(cycles));
           if (residual > maxResidual) maxResidual = residual;
           if (maxResidual > bestScore) break;
         }
-        if (maxResidual < epsilon) {
-          return { frames: f, success: true, duration: f / gifFps };
-        }
-        if (maxResidual < bestScore) {
-          bestScore = maxResidual;
+        // Combine residual quality with distance from target (very small weight on distance)
+        const dist = Math.abs(f - targetFrames) / Math.max(1, targetFrames);
+        const score = maxResidual + dist * 1e-3;
+        if (score < bestScore) {
+          bestScore = score;
           best = f;
         }
       }
-      return { frames: best, success: false, duration: best / gifFps };
+      return { frames: best, success: false, duration: best / fps };
     } catch {
-      const fallbackFrames = Math.max(1, Math.round(gifDuration * gifFps));
-      return { frames: fallbackFrames, success: false, duration: fallbackFrames / gifFps };
+      const fps = Math.max(1, Math.floor(gifFps / Math.max(1, gifFrameStep)));
+      const fallbackFrames = Math.max(1, Math.round(gifDuration * fps));
+      return { frames: fallbackFrames, success: false, duration: fallbackFrames / fps };
     }
-  }, [gifDuration, gifFps, layers]);
+  }, [gifDuration, gifFps, gifFrameStep, layers]);
 
   const filenameBase = useMemo(() => {
     const name = project?.name || 'TinyBrush';
@@ -202,7 +260,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   }
 
   async function exportGIF() {
-    let totalFrames = Math.max(1, Math.round(gifDuration * gifFps));
+    const effectiveFps = Math.max(1, Math.floor(gifFps / Math.max(1, gifFrameStep)));
+    let totalFrames = Math.max(1, Math.round(gifDuration * effectiveFps));
     cancelRef.current.cancelled = false;
     setProgress(0);
 
@@ -224,55 +283,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     const gif = GIFEncoder();
 
     // If requested and color-cycling exists, adjust frames for a perfect loop
-    let enforcePerfectLoop = false;
     try {
       const st0 = useAppStore.getState();
       const hasAnyCC = st0.layers.some(l => l.layerType === 'color-cycle');
       const useAutoFrames = gifAutoFrames && hasAnyCC;
-      enforcePerfectLoop = gifLoopPerfect && hasAnyCC && !useAutoFrames;
       if (useAutoFrames) {
         totalFrames = autoFrameSuggestion.frames;
-      } else if (enforcePerfectLoop) {
-        const minFrames = 8;
-        if (totalFrames < minFrames) totalFrames = minFrames;
       }
     } catch {}
 
     // Prepare recolor animation (if any recolor-mode layers)
     const recolorManager = RecolorManager.getInstance();
-    try { recolorManager.setFPS(gifFps); } catch {}
-    const recolorStates: Array<{ layerId: string; wasPlaying: boolean; prevSpeed: number }> = [];
-    const brushRestores: Array<{ layerId: string; prevSpeed?: number; prevFPS?: number }> = [];
-    if (enforcePerfectLoop) {
-      try {
-        const store = useAppStore.getState();
-        for (const layer of store.layers) {
-          if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor' && layer.colorCycleData.recolorSettings) {
-            const wasPlaying = !!layer.colorCycleData.recolorSettings.animation.isPlaying;
-            const prevSpeed = layer.colorCycleData.recolorSettings.animation.speed;
-            recolorStates.push({ layerId: layer.id, wasPlaying, prevSpeed });
-            // Set speed so cycles per GIF completes exactly
-            const cycles = Math.max(1, Math.floor(gifLoopCycles));
-            try { recolorManager.setLayerSpeed(layer.id, (cycles * gifFps) / totalFrames); } catch {}
-            // Force playing so updateAnimation has effect
-            layer.colorCycleData.recolorSettings.animation.isPlaying = true;
-          }
-          // Brush-based color-cycle layers (non-recolor)
-          if (layer.layerType === 'color-cycle' && (!layer.colorCycleData || layer.colorCycleData.mode !== 'recolor')) {
-            const brush = store.getLayerColorCycleBrush(layer.id);
-            if (brush) {
-              const prevFPS = store.tools?.brushSettings?.colorCycleFPS;
-              const prevSpeed = store.tools?.brushSettings?.colorCycleSpeed;
-              try { brush.setFPS(gifFps); } catch {}
-              // Speed so that updateFrame (1/30 step) advances cycles/totalFrames per frame
-              const cycles = Math.max(1, Math.floor(gifLoopCycles));
-              try { brush.setSpeed((cycles * 30) / totalFrames); } catch {}
-              brushRestores.push({ layerId: layer.id, prevSpeed, prevFPS });
-            }
-          }
-        }
-      } catch {}
-    }
+    try { recolorManager.setFPS(effectiveFps); } catch {}
 
     // Attempt to ensure color-cycle layers are animating during export
     const originalStates: Array<{ layerId: string; wasPlaying: boolean; wasAnimating: boolean }> = [];
@@ -286,6 +308,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           originalStates.push({ layerId: layer.id, wasPlaying, wasAnimating });
           // Turn on
           if (!wasAnimating) store.updateLayer(layer.id, { colorCycleData: { ...layer.colorCycleData, isAnimating: true } } as any);
+          // Sync brush FPS to GIF FPS for tighter loops
+          try {
+            if (brush && (brush as any).setFPS) {
+              (brush as any).setFPS(effectiveFps);
+            }
+          } catch {}
           if (brush && brush.setPlaying) brush.setPlaying(true);
         }
       }
@@ -315,17 +343,45 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
       const frame = sctx.getImageData(0, 0, scaledW, scaledH);
       if (!fixedPalette) {
-        fixedPalette = quantize(frame.data, 256, { format: 'rgba4444', oneBitAlpha: 128, clearAlpha: true });
+        let colors = Math.max(32, Math.min(256, gifMaxColors));
+        if (gifAutoColors) {
+          try {
+            // Estimate needed colors by counting unique indices when quantized at 256
+            const testPalette = quantize(frame.data, 256, { format: 'rgba4444', oneBitAlpha: 128, clearAlpha: true });
+            const tmpIndex = applyPalette(frame.data, testPalette);
+            const used = new Uint8Array(256);
+            for (let k = 0; k < tmpIndex.length; k++) used[tmpIndex[k]] = 1;
+            let unique = 0; for (let k = 0; k < 256; k++) unique += used[k];
+            const estimated = Math.ceil(unique * 1.1); // margin
+            if (estimated <= 32) colors = 32;
+            else if (estimated <= 64) colors = 64;
+            else if (estimated <= 128) colors = 128;
+            else colors = 256;
+          } catch {}
+        }
+        fixedPalette = quantize(frame.data, colors, { format: 'rgba4444', oneBitAlpha: 128, clearAlpha: true });
       }
-      const index = applyPalette(frame.data, fixedPalette);
-      gif.writeFrame(index, scaledW, scaledH, { palette: fixedPalette, delay: Math.round(1000 / gifFps), repeat: gifRepeat });
+      let index: Uint8Array;
+      if (gifDitherMethod === 'none') {
+        index = applyPalette(frame.data, fixedPalette);
+      } else {
+        // Custom dithering path
+        index = mapToIndexedWithDithering(
+          frame.data,
+          scaledW,
+          scaledH,
+          fixedPalette,
+          { method: gifDitherMethod, strength: gifDitherStrength, alphaThreshold: 16 }
+        );
+      }
+      gif.writeFrame(index, scaledW, scaledH, { palette: fixedPalette, delay: Math.round(1000 / effectiveFps), repeat: gifRepeat });
 
       setProgress(Math.round(((i + 1) / totalFrames) * 100));
       // Step time – allow animations to advance roughly per frame
-      await new Promise((r) => setTimeout(r, Math.max(0, Math.floor(1000 / gifFps))));
+      await new Promise((r) => setTimeout(r, Math.max(0, Math.floor(1000 / effectiveFps))));
     }
 
-    // Restore animation states and speeds
+    // Restore animation states
     try {
       const store = useAppStore.getState();
       for (const st of originalStates) {
@@ -333,31 +389,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
         if (!layer) continue;
         if (!st.wasAnimating) store.updateLayer(layer.id, { colorCycleData: { ...layer.colorCycleData!, isAnimating: false } } as any);
         const brush = store.getLayerColorCycleBrush(layer.id);
+        // Restore brush FPS to configured setting
+        try {
+          const fps0 = store.tools?.brushSettings?.colorCycleFPS || 30;
+          if (brush && (brush as any).setFPS) {
+            (brush as any).setFPS(fps0);
+          }
+        } catch {}
         if (brush && brush.setPlaying) brush.setPlaying(st.wasPlaying);
-      }
-      if (enforcePerfectLoop) {
-        // Restore recolor play flags and speeds
-        for (const st of recolorStates) {
-          const layer = store.layers.find((l) => l.id === st.layerId);
-          if (layer?.colorCycleData?.recolorSettings) {
-            layer.colorCycleData.recolorSettings.animation.isPlaying = st.wasPlaying;
-            layer.colorCycleData.recolorSettings.animation.speed = st.prevSpeed;
-          }
-        }
-        // Restore brush speeds/fps (best effort via current tool settings)
-        for (const r of brushRestores) {
-          const brush = store.getLayerColorCycleBrush(r.layerId);
-          if (brush) {
-            try { if (r.prevFPS !== undefined) brush.setFPS(r.prevFPS); } catch {}
-            try { if (r.prevSpeed !== undefined) brush.setSpeed(r.prevSpeed); } catch {}
-          }
-        }
       }
     } catch {}
 
     gif.finish();
     const bytes = gif.bytes();
-    const blob = new Blob([bytes], { type: 'image/gif' });
+    // Ensure BlobPart is ArrayBuffer-backed to satisfy TS DOM lib types
+    const bytesCopy = new Uint8Array(bytes.length);
+    bytesCopy.set(bytes);
+    const blob = new Blob([bytesCopy], { type: 'image/gif' });
     downloadBlob(blob, `${filenameBase}@${scale}x.gif`);
   }
 
@@ -417,6 +465,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           const wasAnimating = !!layer.colorCycleData.isAnimating;
           originalStates.push({ layerId: layer.id, wasPlaying, wasAnimating });
           if (!wasAnimating) store.updateLayer(layer.id, { colorCycleData: { ...layer.colorCycleData, isAnimating: true } } as any);
+          // Sync brush FPS to video FPS during export
+          try {
+            if (brush && (brush as any).setFPS) {
+              (brush as any).setFPS(videoFps);
+            }
+          } catch {}
           if (brush && brush.setPlaying) brush.setPlaying(true);
         }
       }
@@ -463,6 +517,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
         if (!layer) continue;
         if (!st.wasAnimating) store.updateLayer(layer.id, { colorCycleData: { ...layer.colorCycleData!, isAnimating: false } } as any);
         const brush = store.getLayerColorCycleBrush(layer.id);
+        // Restore brush FPS to configured setting
+        try {
+          const fps0 = store.tools?.brushSettings?.colorCycleFPS || 30;
+          if (brush && (brush as any).setFPS) {
+            (brush as any).setFPS(fps0);
+          }
+        } catch {}
         if (brush && brush.setPlaying) brush.setPlaying(st.wasPlaying);
       }
     } catch {}
@@ -495,18 +556,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
   return (
     <div
-      className={`fixed inset-0 flex items-center justify-center z-50 transition-opacity duration-300 ${
-        isVisible ? 'opacity-100' : 'opacity-0'
-      }`}
+      className={`fixed inset-0 z-50 ${isVisible ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`}
       onClick={() => { if (!isExporting) onClose(); }}
     >
       <div
-        className={`bg-[#31313A] rounded-lg p-6 w-[540px] max-w-full mx-4 shadow-xl transition-all duration-300 ${
-          isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
-        }`}
+        className="bg-[#31313A] rounded-lg w-[540px] max-w-full mx-4 shadow-xl"
+        style={{ position: 'fixed', left: pos.x, top: pos.y }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-6">
+        <div
+          className="flex items-center justify-between px-6 pt-4 pb-3 border-b border-[#555] cursor-move"
+          onMouseDown={onDragStart}
+        >
           <h2 className="text-[#D9D9D9] text-base font-semibold">Export</h2>
           <button
             onClick={() => { if (!isExporting) onClose(); }}
@@ -517,21 +578,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           </button>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-6 p-6 pt-4">
           {/* Type & Scale */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <label className="text-base text-[#D9D9D9]">Type</label>
-              <select
-                className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
-                value={exportKind}
-                onChange={(e) => setExportKind(e.target.value as ExportKind)}
-                disabled={isExporting}
-              >
-                <option value="png">PNG (image)</option>
-                <option value="gif">GIF (animation)</option>
-                <option value="mp4">MP4/WebM (video)</option>
-              </select>
+              <div className="flex gap-1">
+                {(['png','gif','mp4'] as ExportKind[]).map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => setExportKind(k)}
+                    className={`px-2 py-1 text-xs rounded border ${exportKind===k? 'bg-[#D9D9D9] text-[#31313A] border-[#D9D9D9]' : 'bg-transparent text-[#D9D9D9] border-[#888]'}`}
+                    disabled={isExporting}
+                  >
+                    {k === 'png' ? 'PNG' : k === 'gif' ? 'GIF' : 'Video'}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <label className="text-base text-[#D9D9D9]">Scale</label>
@@ -597,28 +660,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                 </select>
               </div>
               <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">Loop perfectly (speed override)</label>
-                <input
-                  type="checkbox"
-                  checked={gifLoopPerfect}
-                  onChange={(e) => setGifLoopPerfect(e.target.checked)}
-                  disabled={gifAutoFrames}
-                />
-              </div>
-              {gifLoopPerfect && (
-                <div className="flex items-center justify-between">
-                  <label className="text-base text-[#888]">Cycles per GIF</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={gifLoopCycles}
-                    onChange={(e) => setGifLoopCycles(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
-                    className="w-24 text-right"
-                  />
-                </div>
-              )}
-              <div className="flex items-center justify-between">
                 <label className="text-base text-[#888]">Auto-detect best frame count</label>
                 <input
                   type="checkbox"
@@ -626,17 +667,76 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   onChange={(e) => {
                     const v = e.target.checked;
                     setGifAutoFrames(v);
-                    if (v) setGifLoopPerfect(false);
                   }}
                 />
               </div>
+              <div className="flex items-center justify-between">
+                <label className="text-base text-[#888]">Dithering</label>
+                <select
+                  className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
+                  value={gifDitherMethod}
+                  onChange={(e) => setGifDitherMethod(e.target.value as DitherMethod)}
+                >
+                  <option value="none">None</option>
+                  <option value="floyd-steinberg">Floyd–Steinberg</option>
+                  <option value="ordered-4x4">Ordered (Bayer 4×4)</option>
+                </select>
+              </div>
+              <div className="flex items-center justify-between">
+                <label className="text-base text-[#888]">Dither Strength</label>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={gifDitherStrength}
+                  onChange={(e) => setGifDitherStrength(parseFloat(e.target.value))}
+                  className="w-48"
+                  disabled={gifDitherMethod === 'none'}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <label className="text-base text-[#888]">Palette Size</label>
+                <select
+                  className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
+                  value={gifAutoColors ? 'auto' : String(gifMaxColors)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === 'auto') {
+                      setGifAutoColors(true);
+                    } else {
+                      setGifAutoColors(false);
+                      setGifMaxColors(parseInt(v, 10) as 16 | 32 | 64 | 128 | 256);
+                    }
+                  }}
+                >
+                  <option value="auto">Auto</option>
+                  <option value={32}>32</option>
+                  <option value={64}>64</option>
+                  <option value={128}>128</option>
+                  <option value={256}>256</option>
+                </select>
+              </div>
+              <div className="flex items-center justify-between">
+                <label className="text-base text-[#888]">Frame Step</label>
+                <select
+                  className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
+                  value={gifFrameStep}
+                  onChange={(e) => setGifFrameStep(Math.max(1, Math.min(4, parseInt(e.target.value))) as 1|2|3|4)}
+                >
+                  <option value={1}>1 (every frame)</option>
+                  <option value={2}>2 (every other)</option>
+                  <option value={3}>3</option>
+                  <option value={4}>4</option>
+                </select>
+              </div>
               {gifAutoFrames && (
                 <div className="text-xs text-[#aaa] flex flex-col gap-1">
-                  <div>Frames: {autoFrameSuggestion.frames} {autoFrameSuggestion.success ? '(perfect)' : '(closest)'} · FPS: {gifFps}</div>
+                  <div>Frames: {autoFrameSuggestion.frames} {autoFrameSuggestion.success ? '(perfect)' : '(closest)'} · FPS: {Math.max(1, Math.floor(gifFps / Math.max(1, gifFrameStep)))}</div>
                   <div>Resulting duration: {autoFrameSuggestion.duration.toFixed(2)}s</div>
                 </div>
               )}
-              <div className="text-xs text-[#aaa]">Tip: GIF export is optimized for flat colors. For long/high-res animations prefer Video.</div>
+              <div className="text-xs text-[#aaa]">Tip: Lower FPS or increase Frame Step to reduce frames. Fewer palette colors and disabling dithering can significantly shrink file size. For long/high-res animations, prefer Video.</div>
             </div>
           )}
 
