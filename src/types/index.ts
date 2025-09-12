@@ -198,6 +198,9 @@ export interface ToolState {
   previousTool: Tool;
   lastRegularTool?: Tool; // Track last regular brush/eraser tool
   lastRegularBrushShape?: BrushShape; // Track last regular brush shape
+  // Separate shape mode memories to avoid leakage between CC and default brushes
+  lastRegularShapeMode?: boolean;
+  lastColorCycleShapeMode?: boolean;
   brushSettings: BrushSettings;
   eraserSettings: BrushSettings;
   fillSettings: {

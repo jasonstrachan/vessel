@@ -1792,87 +1792,79 @@ export function useDrawingHandlers({
 
   // Start continuous color cycle animation (for when play button is pressed)
   const startContinuousColorCycleAnimation = useCallback(() => {
-    // CRITICAL: Only start animation for brush-based color-cycle layers
-    const currentState = useAppStore.getState();
-    const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
-    if (!activeLayer || activeLayer.layerType !== 'color-cycle' || activeLayer.colorCycleData?.mode === 'recolor') {
-      // Silently skip animation for non-CC layers
+    const state = useAppStore.getState();
+    // Consider ALL brush-based color-cycle layers, regardless of active selection
+    const ccLayers = state.layers.filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor');
+    if (ccLayers.length === 0) {
+      // Nothing to animate
       return;
     }
-    
+
     // Stop any existing continuous animation
     if (continuousColorCycleAnimationRef.current) {
       cancelAnimationFrame(continuousColorCycleAnimationRef.current);
       continuousColorCycleAnimationRef.current = null;
     }
-    
+
     // Initialize drawing canvas if needed
     if (!drawingCanvasRef.current || !drawingCtxRef.current) {
-      
       initDrawingCanvas();
     }
-    
+
     // Check again after initialization
     if (!drawingCtxRef.current || !drawingCanvasRef.current) {
       console.error('[DrawingHandlers] Failed to initialize drawing canvas');
       return;
     }
-    
-    // Ensure color cycle brush exists and is not in drawing mode
-    brushEngine.ensureColorCycleBrush();
 
-    // Mark the active color-cycle layer as animating in store so composition/overlays respect it
+    // Ensure CC brushes exist for all CC layers (idempotent)
     try {
-      const state = useAppStore.getState();
-      const layer = state.layers.find(l => l.id === state.activeLayerId);
-      if (layer && layer.layerType === 'color-cycle' && state.activeLayerId) {
-        state.updateLayer(state.activeLayerId, {
+      const mgr = getColorCycleBrushManager();
+      const projW = state.project?.width || 1024;
+      const projH = state.project?.height || 1024;
+      ccLayers.forEach(l => {
+        const hasBrush = !!mgr.getBrush(l.id);
+        if (!hasBrush) {
+          // Delegate to store action to create and wire layer canvas/metadata
+          try { state.initColorCycleForLayer(l.id, projW, projH); } catch {}
+        }
+      });
+    } catch {}
+
+    // Mark ALL brush-based CC layers as animating so render loop advances them
+    try {
+      const st = useAppStore.getState();
+      ccLayers.forEach(l => {
+        st.updateLayer(l.id, {
           colorCycleData: {
-            ...layer.colorCycleData,
+            ...l.colorCycleData,
             isAnimating: true
           }
         } as any);
-      }
-    } catch (e) {
-      // Non-fatal; animation can still proceed visually
-      console.warn('[ColorCycle] Failed to mark layer animating:', e);
-    }
-    
-    // IMPORTANT: Do an initial render to show existing content
-    // This ensures color cycle shapes are visible when switching back
+      });
+    } catch {}
+
+    // IMPORTANT: Do an initial render to show existing content across all CC layers
     if (drawingCtxRef.current && drawingCanvasRef.current) {
-      // Phase 3: Direct rendering approach for initial content
-      const currentState = useAppStore.getState();
-      const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
-      const colorCycleBrushManager = getColorCycleBrushManager();
-      const colorCycleBrush = activeLayer ? colorCycleBrushManager.getBrush(activeLayer.id) : undefined;
-      
-      if (colorCycleBrush && activeLayer?.colorCycleData?.canvas) {
-        // Render to layer canvas first
-        colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayer.id);
-        
-        // Copy to drawing canvas for display
-        drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-        drawingCtxRef.current.globalAlpha = currentState.tools.brushSettings.opacity || 1;
-        drawingCtxRef.current.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
-      } else {
-        // Fallback: Legacy rendering
-        drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-        brushEngine.renderColorCycle(drawingCtxRef.current, true);
+      drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+      const had = renderAllColorCycleLayers(drawingCtxRef.current, false);
+      if (!had) {
+        // Fallback: Legacy rendering for compatibility
+        try { brushEngine.renderColorCycle(drawingCtxRef.current, true); } catch {}
       }
-      // Mark as having content if color cycle has any strokes
-      // This prevents the content from disappearing
       try {
         // Force a composite refresh so base layers are redrawn
         window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
       } catch {}
     }
-    
-    // Resume the color cycle brush animation explicitly (avoid toggle side-effects)
-    if (!brushEngine.isColorCycleAnimating()) {
-      (brushEngine as any).resumeColorCycleAnimation?.();
-    }
-    
+
+    // Resume the color cycle brush animation explicitly (avoid toggle side-effects) for active brush engine
+    try {
+      if (!brushEngine.isColorCycleAnimating?.()) {
+        (brushEngine as any).resumeColorCycleAnimation?.();
+      }
+    } catch {}
+
     // Mark that the drawing canvas has content so it gets rendered
     drawingCanvasHasContent.current = true;
     

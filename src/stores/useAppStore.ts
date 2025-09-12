@@ -396,6 +396,8 @@ const defaultToolState: ToolState = {
   previousTool: 'brush',
   lastRegularTool: 'brush',
   lastRegularBrushShape: BrushShape.ROUND,
+  lastRegularShapeMode: false,
+  lastColorCycleShapeMode: false,
   brushSettings: defaultBrushSettingsForStore,
   eraserSettings: { ...defaultBrushSettingsForStore, blendMode: 'destination-out', color: 'rgba(255, 255, 255, 0.1)' },
   fillSettings: {
@@ -1067,10 +1069,16 @@ export const useAppStore = create<AppState>()(
             selectedCustomBrush: state.tools.brushSettings.selectedCustomBrush,
           });
         } catch {}
+
+        const isCC = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
+                      state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+
         return {
           tools: {
             ...state.tools,
-            shapeMode: enabled
+            shapeMode: enabled,
+            // Persist per-domain shape mode memories so switching brushes restores expected state
+            ...(isCC ? { lastColorCycleShapeMode: enabled } : { lastRegularShapeMode: enabled })
           }
         };
       }),
@@ -1304,6 +1312,25 @@ export const useAppStore = create<AppState>()(
           newBrushSettings.brushShape = BrushShape.COLOR_CYCLE;
         }
         
+        // Decide shapeMode based on brush domain (Color Cycle vs regular)
+        const isNewCC = newBrushSettings.brushShape === BrushShape.COLOR_CYCLE ||
+                        newBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+
+        let nextShapeMode: boolean;
+        if (isNewCC) {
+          // Respect explicit CC variant presets; otherwise restore last CC shape mode
+          if (preset.id === 'color-cycle-shape') {
+            nextShapeMode = true;
+          } else if (preset.id === 'color-cycle-stroke') {
+            nextShapeMode = false;
+          } else {
+            nextShapeMode = state.tools.lastColorCycleShapeMode ?? state.tools.shapeMode ?? false;
+          }
+        } else {
+          // Non-CC brushes should not inherit CC shape mode
+          nextShapeMode = state.tools.lastRegularShapeMode ?? false;
+        }
+
         // Clear temporary brush when switching away from custom brushes
         const updatedState = {
           ...state,
@@ -1312,10 +1339,12 @@ export const useAppStore = create<AppState>()(
           globalBrushSize: appropriateSize, // Update global size to match new brush
           tools: {
             ...state.tools,
-            // Keep shapeMode consistent with Color Cycle brush variant selection
-            shapeMode: preset.id === 'color-cycle-shape' ? true
-                      : preset.id === 'color-cycle-stroke' ? false
-                      : state.tools.shapeMode,
+            // Keep shapeMode separate between CC and default brushes
+            shapeMode: nextShapeMode,
+            ...(isNewCC
+              ? { lastColorCycleShapeMode: nextShapeMode }
+              : { lastRegularShapeMode: nextShapeMode }
+            ),
             brushSettings: newBrushSettings
           }
         };
@@ -1437,7 +1466,8 @@ export const useAppStore = create<AppState>()(
           const newLayer = {
             ...layer,
             id: newLayerId,
-            order: state.layers.length,
+            // Temporary order; will be normalized after insertion
+            order: 0,
             // CRITICAL: Preserve layerType EXACTLY - DO NOT convert CC layers to normal!
             layerType: layer.layerType || (
               console.error('🚨🚨🚨 CRITICAL: Layer missing layerType!', {
@@ -1449,13 +1479,24 @@ export const useAppStore = create<AppState>()(
             )
           };
           
-          // Create new array preserving exact layer objects
-          // DO NOT recreate existing layers - just add the new one
-          const updatedLayers = [...state.layers, newLayer];
-          try { const { recordBreadcrumb } = require('../utils/debug'); recordBreadcrumb('layers', { event: 'store-addLayer-updated', total: updatedLayers.length }); } catch {}
+          // Insert the new layer directly ABOVE the currently active layer
+          // Fallback: if no active layer, append to top of stack
+          const activeIdx = state.activeLayerId
+            ? state.layers.findIndex(l => l.id === state.activeLayerId)
+            : -1;
+          const insertedIndex = activeIdx >= 0 ? activeIdx + 1 : state.layers.length;
+          const newLayers = [...state.layers];
+          newLayers.splice(insertedIndex, 0, newLayer);
+
+          // Normalize order values to match visual/composite order (ascending = bottom -> top)
+          const updatedLayers = newLayers.map((l, idx) => ({ ...l, order: idx }));
+          try { const { recordBreadcrumb } = require('../utils/debug'); recordBreadcrumb('layers', { event: 'store-addLayer-updated', total: updatedLayers.length, insertedIndex }); } catch {}
           debugLog('layers', 'STORE: addLayer updatedLayers', {
             total: updatedLayers.length,
-            last: { id: newLayerId.substring(0, 20), type: newLayer.layerType, hasCC: !!newLayer.colorCycleData }
+            insertedIndex,
+            newId: newLayerId.substring(0, 20),
+            newType: newLayer.layerType,
+            hasCC: !!newLayer.colorCycleData
           });
           
           // Initialize ColorCycleBrush for color-cycle layers
