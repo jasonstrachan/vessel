@@ -1949,10 +1949,18 @@ export function useDrawingHandlers({
       wasCCPlayingBeforeInteractionRef.current = true;
     }
 
-    // DON'T clear the drawing canvas when animation stops - this was causing content loss
-    // The canvas should retain the color cycle content so it can be composited
-    // Only clear when starting a new stroke or when explicitly needed
-    drawingCanvasHasContent.current = true; // Ensure content is marked as present
+    // Clear the overlay drawing canvas so CC frames don't sit above the layer stack
+    try {
+      if (drawingCtxRef.current && drawingCanvasRef.current) {
+        drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+      }
+    } catch {}
+
+    // Mark no overlay content; rely on compositeLayersToCanvas for final display
+    drawingCanvasHasContent.current = false;
+
+    // Ask the main canvas to recompose with current layer order
+    try { window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate')); } catch {}
   }, [pauseAllBrushCCAnimationsNow]);
 
   // Keep callable refs in sync with the real animation controls
