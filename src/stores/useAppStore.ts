@@ -107,8 +107,8 @@ import type {
   PolygonGradientState,
   BrushEditorState,
   KeyboardScope,
-} from '../types';
-import { BrushShape } from '../types';
+} from '@/types';
+import { BrushShape } from '@/types';
 import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
 import { 
   saveProjectToFile, 
@@ -731,8 +731,8 @@ export const useAppStore = create<AppState>()(
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = project.width;
         tempCanvas.height = project.height;
-        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-        if (tempCtx) {
+            const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
+            if (tempCtx) {
           tempCtx.putImageData(newImageData, 0, 0);
           state.saveCanvasState(tempCanvas, 'delete', 'Delete selected pixels');
         }
@@ -1533,18 +1533,27 @@ export const useAppStore = create<AppState>()(
           }
           
           // VERIFY: Check if any existing layer lost its type
-          updatedLayers.forEach((updatedLayer, idx) => {
-            if (idx < state.layers.length) { // Existing layer
-              const original = existingLayersSnapshot[idx];
-              if (original.type !== updatedLayer.layerType) {
-                console.error('🔴🔴🔴 LAYER TYPE MUTATION IN ADD_LAYER:', {
-                  layerId: original.id.substring(0, 20),
-                  originalType: original.type,
-                  newType: updatedLayer.layerType,
-                  wasCC: original.hasCC,
-                  isCC: !!updatedLayer.colorCycleData
-                });
-              }
+          // IMPORTANT: Compare by stable id, not by array index, because we inserted a new
+          // layer and normalized order which shifts indices. Index-based comparison would
+          // falsely report a mutation at and after the insertion point.
+          existingLayersSnapshot.forEach((original) => {
+            const updated = updatedLayers.find(l => l.id === original.id);
+            if (!updated) {
+              // Should never happen; log once for diagnostics without throwing
+              console.error('🔴🔴🔴 LAYER MISSING AFTER ADD_LAYER (by id lookup):', {
+                layerId: original.id.substring(0, 20),
+                originalType: original.type
+              });
+              return;
+            }
+            if (original.type !== updated.layerType) {
+              console.error('🔴🔴🔴 LAYER TYPE MUTATION IN ADD_LAYER:', {
+                layerId: original.id.substring(0, 20),
+                originalType: original.type,
+                newType: updated.layerType,
+                wasCC: original.hasCC,
+                isCC: !!updated.colorCycleData
+              });
             }
           });
           
@@ -1870,7 +1879,8 @@ export const useAppStore = create<AppState>()(
             savedBrushShape = state.tools.brushSettings.brushShape;
           }
           
-          const nextTool: Tool = state.tools.currentTool === 'recolor' ? 'recolor' : 'brush';
+          // Inside this branch we've already ruled out 'recolor'; default to 'brush'
+          const nextTool: Tool = 'brush';
           // When activating a Color Cycle layer, ensure a CC brush is selected so CC settings are visible
           const preferShapeMode = (state.tools.lastColorCycleShapeMode ?? state.tools.shapeMode) ?? false;
           const ccBrushShape = preferShapeMode ? BrushShape.COLOR_CYCLE_SHAPE : BrushShape.COLOR_CYCLE;
@@ -2351,7 +2361,7 @@ export const useAppStore = create<AppState>()(
       // Brush Editor State
       brushEditor: defaultBrushEditorState,
       startBrushEdit: (brushId, canvas) => set((state) => {
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
         if (!ctx || !state.project) {
           return state;
         }
@@ -2372,7 +2382,7 @@ export const useAppStore = create<AppState>()(
             const size = 32; // Default editing size for brush presets
             tempCanvas.width = size;
             tempCanvas.height = size;
-            const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+            const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
             if (tempCtx) {
               // Create a simple black brush shape based on the preset
               tempCtx.fillStyle = '#000000';
@@ -2471,7 +2481,7 @@ export const useAppStore = create<AppState>()(
           return state;
         }
 
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
         if (!ctx || !state.project) return state;
 
         const bounds = state.brushEditor.editingBounds;
@@ -2483,8 +2493,8 @@ export const useAppStore = create<AppState>()(
         const compositeCanvas = document.createElement('canvas');
         compositeCanvas.width = canvas.width;
         compositeCanvas.height = canvas.height;
-        const compositeCtx = compositeCanvas.getContext('2d', { willReadFrequently: true });
-        
+        const compositeCtx = compositeCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
+
         if (!compositeCtx) return state;
         
         // Get the pixels directly from the modal canvas (starts at 0,0)
@@ -2500,7 +2510,7 @@ export const useAppStore = create<AppState>()(
         const thumbnailCanvas = document.createElement('canvas');
         thumbnailCanvas.width = thumbnailSize;
         thumbnailCanvas.height = thumbnailSize;
-        const thumbnailCtx = thumbnailCanvas.getContext('2d', { willReadFrequently: true });
+        const thumbnailCtx = thumbnailCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
         
         let thumbnail = '';
         if (thumbnailCtx) {
@@ -2708,7 +2718,7 @@ export const useAppStore = create<AppState>()(
             return;
           }
           
-          const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+          const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
           if (!ctx) return;
           
           let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -2746,8 +2756,8 @@ export const useAppStore = create<AppState>()(
               if (!isCCAction && layer.colorCycleData.canvas) {
                 try {
                   const ccCtx = layer.colorCycleData.canvas.getContext('2d', { willReadFrequently: true } as any);
-                  if (ccCtx) {
-                    captured = ccCtx.getImageData(0, 0, layer.colorCycleData.canvas.width, layer.colorCycleData.canvas.height);
+                  if (ccCtx && 'getImageData' in ccCtx) {
+                    captured = (ccCtx as CanvasRenderingContext2D).getImageData(0, 0, layer.colorCycleData.canvas.width, layer.colorCycleData.canvas.height);
                   }
                 } catch {}
               }
@@ -3201,7 +3211,7 @@ export const useAppStore = create<AppState>()(
             return;
           }
 
-          const ctx = targetCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+          const ctx = targetCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
           if (!ctx) {
             return;
           }
@@ -3279,7 +3289,7 @@ export const useAppStore = create<AppState>()(
               const layerCanvas = document.createElement('canvas');
               layerCanvas.width = layerImageData.width;
               layerCanvas.height = layerImageData.height;
-              const layerCtx = layerCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+              const layerCtx = layerCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
               if (layerCtx) {
                 layerCtx.putImageData(layerImageData, 0, 0);
                 ctx.globalCompositeOperation = layer.blendMode;
@@ -3321,7 +3331,7 @@ export const useAppStore = create<AppState>()(
           return;
         }
         
-        const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+        const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
         if (!ctx) {
           return;
         }
@@ -3364,7 +3374,7 @@ export const useAppStore = create<AppState>()(
                     fb.width = imageData.width;
                     fb.height = imageData.height;
                   }
-                  const framebufferCtx = fb.getContext('2d', { willReadFrequently: true });
+                  const framebufferCtx = fb.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null);
                   if (framebufferCtx) {
                     framebufferCtx.clearRect(0, 0, fb.width, fb.height);
                     framebufferCtx.putImageData(imageData, 0, 0);
@@ -3434,7 +3444,7 @@ export const useAppStore = create<AppState>()(
           return;
         }
         
-        const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+        const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
         if (!ctx) {
           return;
         }
@@ -3461,7 +3471,7 @@ export const useAppStore = create<AppState>()(
                 fb.width = imageData.width;
                 fb.height = imageData.height;
               }
-              const ctx2 = fb.getContext('2d', { willReadFrequently: true });
+              const ctx2 = fb.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null);
               if (ctx2) {
                 ctx2.clearRect(0, 0, fb.width, fb.height);
                 ctx2.putImageData(imageData, 0, 0);

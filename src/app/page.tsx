@@ -10,6 +10,7 @@ import BrushEditorUI from '../components/BrushEditorUI';
 import ConsoleSilencer from '../components/dev/ConsoleSilencer';
 import MinimalLayerList from '../components/MinimalLayerList';
 import FeedbackStrip from '../components/FeedbackStrip';
+import FPSMeter from '../components/dev/FPSMeter';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
 import { DocumentModal } from '../components/modals/DocumentModal';
 import { ExportModal } from '../components/modals/ExportModal';
@@ -182,11 +183,14 @@ export default function Home() {
       
       {/* Brush Editor UI Modal */}
       <BrushEditorUI />
-      
+
       {/* TEST: Plugin Brush Test Panel - Disabled due to render loop */}
       {/* <TestPluginBrushes /> */}
-      
-      
+
+      {/* Simple FPS overlay */}
+      <FPSMeter />
+
+
     </main>
   );
 }

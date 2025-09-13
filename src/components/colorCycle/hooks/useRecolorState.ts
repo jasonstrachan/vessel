@@ -9,6 +9,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../../../types';
 import { useAppStore } from '../../../stores/useAppStore';
 import { RecolorManager, RecolorOptions } from '../../../lib/colorCycle/RecolorManager';
+import { setColorCycleAnimationState } from '../../toolbar/BrushControls';
 
 export interface RecolorState {
   mode: 'brush' | 'recolor';
@@ -182,7 +183,7 @@ export function useRecolorState(
 
   // Animation controls
   const lastToggleAtRef = useRef<number>(0);
-  const toggleAnimation = useCallback(() => {
+  const toggleAnimation = useCallback(async () => {
     try {
       const now = performance.now?.() ?? Date.now();
       if (now - lastToggleAtRef.current < 250) {
@@ -190,31 +191,58 @@ export function useRecolorState(
         return;
       }
       lastToggleAtRef.current = now;
-      console.log('[useRecolorState] toggleAnimation called, isAnimating:', recolorManager.isAnimating());
-      console.log('[useRecolorState] activeLayer:', activeLayer?.id, 'hasRecolorData:', !!activeLayer?.colorCycleData?.recolorSettings);
-      
-      if (recolorManager.isAnimating()) {
-        console.log('[useRecolorState] Stopping animation');
-        recolorManager.stop();
-      } else {
-        if (activeLayer && activeLayer.colorCycleData?.mode === 'recolor') {
-          console.log('[useRecolorState] Starting single layer animation for:', activeLayer.id);
-          recolorManager.playSingle(activeLayer.id);
-        } else {
-          console.log('[useRecolorState] Starting all layers animation');
-          recolorManager.playAll();
+
+      // Determine intended new global state based on unified view
+      const newIsAnimating = !isAnimating;
+
+      // 1) Brush-based Color Cycle (stroke/shape) — update global state + start/stop loop
+      try {
+        setColorCycleAnimationState(newIsAnimating);
+        const handlers = (window as any).colorCycleAnimationHandlers;
+        if (handlers) {
+          if (newIsAnimating) handlers.startContinuousColorCycleAnimation();
+          else handlers.stopContinuousColorCycleAnimation();
         }
-      }
-      
-      const newAnimatingState = recolorManager.isAnimating();
-      console.log('[useRecolorState] Animation state after toggle:', newAnimatingState);
-      setIsAnimating(newAnimatingState);
+      } catch {}
+
+      // 2) Recolor & Animate manager — pause/resume all
+      try {
+        // Ensure all recolor layers are registered so play works globally
+        if (newIsAnimating) {
+          const state = useAppStore.getState();
+          const recolorLayers = state.layers.filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode === 'recolor');
+          await Promise.all(recolorLayers.map(l => recolorManager.registerExistingLayer(l)));
+        }
+        if (newIsAnimating) {
+          // Play all recolor layers to ensure previously 'single' plays re-enable others
+          recolorManager.playAll();
+        } else {
+          recolorManager.pause();
+        }
+      } catch {}
+
+      // 3) Update store flags for ALL brush-based CC layers so render loop respects Pause/Play globally
+      try {
+        const st = useAppStore.getState();
+        st.layers
+          .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor')
+          .forEach(l => {
+            st.updateLayer(l.id, {
+              colorCycleData: {
+                ...l.colorCycleData,
+                isAnimating: newIsAnimating
+              }
+            } as any);
+          });
+      } catch {}
+
+      setIsAnimating(newIsAnimating);
     } catch (error) {
       console.error('[useRecolorState] Animation toggle error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Animation control error';
       actions.setError(errorMessage);
     }
-  }, [recolorManager, activeLayer, actions]);
+  }, [recolorManager, actions, isAnimating]);
 
   // Settings management
   const updateLayerSpeed = useCallback((layerId: string, speed: number) => {

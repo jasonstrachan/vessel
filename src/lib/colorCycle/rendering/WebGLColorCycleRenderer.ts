@@ -45,13 +45,40 @@ export class WebGLColorCycleRenderer {
   private paletteSize: number = 256;
   private paletteUploaded: boolean = false;
 
+  private static _supportCached: boolean | null = null;
+  
+  /**
+   * Detect WebGL support once and cache the result.
+   * Uses WEBGL_lose_context to immediately release any probe context to avoid
+   * exceeding browser limits for simultaneous WebGL contexts.
+   */
   static isSupported(): boolean {
-    if (typeof window === 'undefined') return false;
-    const canvas = document.createElement('canvas');
-    const gl2 = canvas.getContext('webgl2');
-    if (gl2) return true;
-    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-    return !!gl;
+    if (this._supportCached !== null) return this._supportCached;
+    if (typeof window === 'undefined') {
+      this._supportCached = false;
+      return false;
+    }
+    try {
+      const canvas = document.createElement('canvas');
+      // Prefer WebGL2
+      const gl2 = canvas.getContext('webgl2') as WebGL2RenderingContext | null;
+      if (gl2) {
+        try { (gl2.getExtension('WEBGL_lose_context') as any)?.loseContext?.(); } catch {}
+        this._supportCached = true;
+        return true;
+      }
+      const gl = (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')) as WebGLRenderingContext | null;
+      if (gl) {
+        try { (gl.getExtension('WEBGL_lose_context') as any)?.loseContext?.(); } catch {}
+        this._supportCached = true;
+        return true;
+      }
+      this._supportCached = false;
+      return false;
+    } catch {
+      this._supportCached = false;
+      return false;
+    }
   }
 
   constructor(config: GLRendererConfig) {

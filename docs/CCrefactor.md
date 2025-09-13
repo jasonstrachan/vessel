@@ -47,12 +47,22 @@ There is a partial performance layer (OffscreenCanvas/worker utilities), but per
 
 - Fuse alpha into main write (recolor)
   - Compose original alpha while writing the 32‑bit pixel, eliminating a second full‑frame alpha pass.
+  - DONE: Fused alpha in the CPU recolor path; removed the follow‑up alpha copy.
+    - Implementation: replace `A` per‑pixel during the main write using the original image’s alpha.
+    - Code: `src/lib/colorCycle/RecolorEngine.ts:516` (fused alpha in `mapIndicesToColors`)
+    - Code: `src/lib/colorCycle/RecolorEngine.ts:283` (palette flow callsite passes original alpha)
+    - Code: `src/lib/colorCycle/RecolorEngine.ts:300` (phase‑map flow fuses alpha in the write loop)
+    - Expected: saves one full image pass per frame (~5–15% on large layers), no visual change.
 
 - Precompute per‑frame palette remap (brush CC)
   - Build a 256‑entry `remap32` for the current offset; pixel loop becomes a single table lookup instead of modulo per pixel.
 
 - Reuse `ImageData`/buffers per layer
   - Maintain a persistent `ImageData` per recolor layer; avoid `new ImageData` every frame and reuse backing buffers.
+  - DONE: Added per-layer frame buffer cache and switched CPU paths to reuse it.
+    - Code: `src/lib/colorCycle/RecolorEngine.ts: added frameBuffers map and getFrameBuffer()`
+    - Code: `src/lib/colorCycle/RecolorEngine.ts` CPU palette and phase branches now fill the reused buffer instead of allocating.
+    - Expected: removes an allocation per frame; reduces GC and jank.
 
 - Prefer ImageBitmap blits over `putImageData`
   - Where OffscreenCanvas is available, render offscreen and transfer via `drawImage(ImageBitmap)`.
@@ -139,4 +149,3 @@ Phase 3 (strategic)
 - Pan/zoom interactions remain responsive (< 16 ms handlers) during playback.
 - Single redraw per frame; no duplicate animation loops or per‑layer event storms.
 - GPU path (when enabled) significantly reduces main‑thread time vs. CPU path.
-

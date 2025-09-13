@@ -298,10 +298,8 @@ const LayerPanel = () => {
                   await Promise.all(recolorLayers.map(l => rm.registerExistingLayer(l)));
                 }
                 if (newIsAnimating) {
-                  // Prefer resume so ticks and current frames continue smoothly
-                  rm.resume();
-                  // Fallback: if not actually animating, start playAll
-                  if (!rm.isAnimating()) rm.playAll();
+                  // Always use playAll to ensure all layers are enabled
+                  rm.playAll();
                 } else {
                   rm.pause();
                 }

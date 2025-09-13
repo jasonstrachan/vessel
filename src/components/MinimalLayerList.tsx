@@ -633,8 +633,7 @@ const MinimalLayerList = () => {
                 await Promise.all(recolorLayers.map(l => rm.registerExistingLayer(l)));
               }
               if (newIsAnimating) {
-                rm.resume();
-                if (!rm.isAnimating()) rm.playAll();
+                rm.playAll();
               } else {
                 rm.pause();
               }

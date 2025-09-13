@@ -191,9 +191,16 @@ export class RecolorAnimationController {
       }
     } catch {}
 
+    // Ensure all layers are enabled when playing all
+    for (const al of Array.from(this.animatedLayers.values())) {
+      al.enabled = true;
+    }
     this.isPlaying = true;
     this.lastFrameTime = performance.now();
-    this.startAnimationLoop();
+    // Avoid spawning multiple RAF loops if already running
+    if (this.animationFrameId === null) {
+      this.startAnimationLoop();
+    }
     
     // started
   }
@@ -280,7 +287,10 @@ export class RecolorAnimationController {
 
     this.isPlaying = true;
     this.lastFrameTime = performance.now();
-    this.startAnimationLoop();
+    // Avoid spawning multiple RAF loops if already running
+    if (this.animationFrameId === null) {
+      this.startAnimationLoop();
+    }
     
     // resumed
   }

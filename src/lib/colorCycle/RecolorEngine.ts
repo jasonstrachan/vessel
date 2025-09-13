@@ -21,6 +21,8 @@ export class RecolorEngine {
   // GPU renderer for palette mapping
   private glRenderer: WebGLColorCycleRenderer | null = null;
   private lastPaletteHash: string | null = null;
+  // CPU frame buffer reuse per layer (avoid new ImageData per frame)
+  private frameBuffers: Map<string, { imageData: ImageData; pixels32: Uint32Array }> = new Map();
   
   // Buffer pooling for memory efficiency
   private static bufferPool: Map<string, Uint8Array[]> = new Map();
@@ -284,12 +286,16 @@ export class RecolorEngine {
         // Existing path: build LUT over indices and map indexBuffer -> pixels
         const gradientLUT = this.buildGradientLUT(settings, currentTick);
         if (!settings.indexBuffer) return null;
-        imageData = this.mapIndicesToColors(
+        const fb = this.getFrameBuffer(layer.id, width, height);
+        this.fillPixelsFromIndices(
           settings.indexBuffer,
           gradientLUT,
+          fb.pixels32,
           width,
-          height
+          height,
+          settings.originalImageData?.data
         );
+        imageData = fb.imageData;
       } else {
         // Phase-based path: ensure phaseMap present, then index into LUT by phase
         this.ensurePhaseMap(layer);
@@ -297,27 +303,25 @@ export class RecolorEngine {
         if (!phaseMap) return null;
 
         const gradientLUT = this.buildGradientLUT(settings, currentTick);
-        // Render using phase indices
-        const out = new ImageData(width, height);
-        const pixels32 = new Uint32Array(out.data.buffer);
-        for (let i = 0; i < phaseMap.length; i++) {
-          pixels32[i] = gradientLUT[phaseMap[i]];
-        }
-        imageData = out;
-      }
-
-      // Preserve original alpha channel if available to avoid making index 0 fully transparent
-      try {
-        const original = settings.originalImageData as ImageData | undefined;
-        if (original && original.data && original.data.length === imageData.data.length) {
-          const data = imageData.data;
-          const orig = original.data;
-          // Copy alpha from original image
-          for (let i = 3; i < data.length; i += 4) {
-            data[i] = orig[i];
+        // Render using phase indices into reused buffer
+        const fb = this.getFrameBuffer(layer.id, width, height);
+        const pixels32 = fb.pixels32;
+        const orig = settings.originalImageData?.data;
+        if (orig && orig.length >= width * height * 4) {
+          for (let i = 0, aIdx = 3; i < phaseMap.length; i++, aIdx += 4) {
+            const rgb = gradientLUT[phaseMap[i]] & 0x00ffffff;
+            const a = orig[aIdx];
+            pixels32[i] = (a << 24) | rgb;
+          }
+        } else {
+          for (let i = 0; i < phaseMap.length; i++) {
+            pixels32[i] = gradientLUT[phaseMap[i]];
           }
         }
-      } catch {}
+        imageData = fb.imageData;
+      }
+
+      // Alpha composed during main write when original alpha is available
       
       // Reduced spam - only log important events
       return imageData;
@@ -515,22 +519,69 @@ export class RecolorEngine {
    * Core performance-critical rendering function
    */
   private mapIndicesToColors(
-    indices: Uint8Array, 
-    lut: Uint32Array, 
-    width: number, 
-    height: number
+    indices: Uint8Array,
+    lut: Uint32Array,
+    width: number,
+    height: number,
+    originalAlpha?: Uint8ClampedArray
   ): ImageData {
     // Debug logs removed for performance
     
     const imageData = new ImageData(width, height);
     const pixels32 = new Uint32Array(imageData.data.buffer);
-    
-    // Fast 32-bit copy operation
-    for (let i = 0; i < indices.length; i++) {
-      pixels32[i] = lut[indices[i]];
+
+    // Fast 32-bit write with optional fused alpha from original image
+    if (originalAlpha && originalAlpha.length >= width * height * 4) {
+      for (let i = 0, aIdx = 3; i < indices.length; i++, aIdx += 4) {
+        const rgb = lut[indices[i]] & 0x00ffffff;
+        const a = originalAlpha[aIdx];
+        pixels32[i] = (a << 24) | rgb;
+      }
+    } else {
+      // Fallback: write packed RGBA from LUT directly
+      for (let i = 0; i < indices.length; i++) {
+        pixels32[i] = lut[indices[i]];
+      }
     }
     
     return imageData;
+  }
+
+  /**
+   * Get or create a reusable ImageData + Uint32 view for a layer/size.
+   */
+  private getFrameBuffer(layerId: string, width: number, height: number): { imageData: ImageData; pixels32: Uint32Array } {
+    let fb = this.frameBuffers.get(layerId);
+    if (!fb || fb.imageData.width !== width || fb.imageData.height !== height) {
+      const imageData = new ImageData(width, height);
+      fb = { imageData, pixels32: new Uint32Array(imageData.data.buffer) };
+      this.frameBuffers.set(layerId, fb);
+    }
+    return fb;
+  }
+
+  /**
+   * Fast 32-bit write from indices+LUT into an existing output buffer, with optional fused alpha.
+   */
+  private fillPixelsFromIndices(
+    indices: Uint8Array,
+    lut: Uint32Array,
+    outPixels32: Uint32Array,
+    width: number,
+    height: number,
+    originalAlpha?: Uint8ClampedArray
+  ): void {
+    if (originalAlpha && originalAlpha.length >= width * height * 4) {
+      for (let i = 0, aIdx = 3; i < indices.length; i++, aIdx += 4) {
+        const rgb = lut[indices[i]] & 0x00ffffff;
+        const a = originalAlpha[aIdx];
+        outPixels32[i] = (a << 24) | rgb;
+      }
+    } else {
+      for (let i = 0; i < indices.length; i++) {
+        outPixels32[i] = lut[indices[i]];
+      }
+    }
   }
   
   /**
