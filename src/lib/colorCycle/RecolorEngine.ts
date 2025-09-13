@@ -5,6 +5,8 @@
  */
 
 import { ColorQuantizer, QuantizedResult, QuantizationOptions } from './ColorQuantizer';
+import { WebGLColorCycleRenderer } from './rendering/WebGLColorCycleRenderer';
+import { GradientPalette } from '../GradientPalette';
 import type { Layer } from '../../types';
 
 export interface RecolorEngineConfig {
@@ -16,6 +18,9 @@ export class RecolorEngine {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private config: RecolorEngineConfig;
+  // GPU renderer for palette mapping
+  private glRenderer: WebGLColorCycleRenderer | null = null;
+  private lastPaletteHash: string | null = null;
   
   // Buffer pooling for memory efficiency
   private static bufferPool: Map<string, Uint8Array[]> = new Map();
@@ -227,7 +232,51 @@ export class RecolorEngine {
       const width = layer.imageData!.width;
       const height = layer.imageData!.height;
 
-      // Flow mapping branch: palette-index based vs. per-pixel phase based
+      // GPU fast-path: palette-index based flow with cyclic offset
+      if (typeof window !== 'undefined' && WebGLColorCycleRenderer.isSupported()) {
+        // Lazy init renderer
+        if (!this.glRenderer) {
+          this.glRenderer = new WebGLColorCycleRenderer({ width, height });
+        } else {
+          this.glRenderer.resize(width, height);
+        }
+
+        // Upload base palette (once per gradient change)
+        const gradientKey = JSON.stringify(settings.gradient || []);
+        if (this.lastPaletteHash !== gradientKey) {
+          try {
+            const gp = new GradientPalette(settings.gradient || [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' }
+            ]);
+            const paletteRGBA = gp.getPaletteColors();
+            this.glRenderer.setPaletteColors(paletteRGBA);
+            this.lastPaletteHash = gradientKey;
+          } catch (e) {
+            // If palette upload fails, fallback to CPU path below
+          }
+        }
+
+        // Compute cyclic offset in [0,1)
+        const bands = Math.max(1, settings.cycleColors || 16);
+        const dir = settings.animation.flowDirection === 'reverse' ? -1 : 1;
+        let o = (currentTick / bands) * dir;
+        o = ((o % 1) + 1) % 1;
+
+        // Upload index buffer and render
+        this.glRenderer.setIndexData(settings.indexBuffer!);
+        this.glRenderer.render(o);
+
+        // Expose GPU canvas to layer for composition
+        if (!layer.colorCycleData) layer.colorCycleData = { mode: 'recolor' } as any;
+        layer.colorCycleData.mode = 'recolor';
+        (layer.colorCycleData as any).canvas = this.glRenderer.getCanvas();
+
+        // Return null to indicate GPU path updated canvas (no ImageData copy)
+        return null;
+      }
+
+      // Flow mapping branch (CPU fallback): palette-index based vs. per-pixel phase based
       const flowMapping = settings.flowMapping || 'palette';
       let imageData: ImageData | null = null;
 

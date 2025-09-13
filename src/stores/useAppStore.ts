@@ -1871,6 +1871,9 @@ export const useAppStore = create<AppState>()(
           }
           
           const nextTool: Tool = state.tools.currentTool === 'recolor' ? 'recolor' : 'brush';
+          // When activating a Color Cycle layer, ensure a CC brush is selected so CC settings are visible
+          const preferShapeMode = (state.tools.lastColorCycleShapeMode ?? state.tools.shapeMode) ?? false;
+          const ccBrushShape = preferShapeMode ? BrushShape.COLOR_CYCLE_SHAPE : BrushShape.COLOR_CYCLE;
           const result = {
             activeLayerId: id,
             tools: {
@@ -1879,8 +1882,12 @@ export const useAppStore = create<AppState>()(
               currentTool: nextTool,
               lastRegularTool: savedRegularBrush, // Track the last regular tool
               lastRegularBrushShape: savedBrushShape, // Track the last brush shape
+              // Align shape mode to the preferred CC variant so UI reflects CC controls immediately
+              shapeMode: preferShapeMode,
               brushSettings: {
                 ...state.tools.brushSettings,
+                // Select Color Cycle brush variant so BrushControls show CC settings
+                brushShape: ccBrushShape,
                 colorCycleGradient: layer.colorCycleData?.gradient || []
               }
             }
@@ -3229,6 +3236,7 @@ export const useAppStore = create<AppState>()(
             try {
               if (!layer.visible) continue;
 
+              // Brush-based Color Cycle (Canvas2D path)
               if (layer.layerType === 'color-cycle' && layer.colorCycleData?.canvas && layer.colorCycleData?.mode !== 'recolor') {
                 try { const { debugLog } = require('../utils/debug'); debugLog('composite', 'Draw CC layer', { id: layer.id.slice(0, 8) }); } catch {}
                 const colorCycleBrushManager = getColorCycleBrushManager();
@@ -3243,6 +3251,15 @@ export const useAppStore = create<AppState>()(
                   try { const { debugLog } = require('../utils/debug'); debugLog('cc-render', { event: 'composite', layerId: layer.id.substring(0, 20), isAnimating, isPlaying: !!playing }); } catch {}
                 }
 
+                ctx.globalCompositeOperation = layer.blendMode;
+                ctx.globalAlpha = layer.opacity;
+                ctx.drawImage(layer.colorCycleData.canvas, 0, 0);
+                continue;
+              }
+
+              // Recolor mode (GPU path): draw GPU-updated canvas if available
+              if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor' && layer.colorCycleData.canvas) {
+                try { const { debugLog } = require('../utils/debug'); debugLog('composite', 'Draw recolor GPU canvas', { id: layer.id.slice(0, 8) }); } catch {}
                 ctx.globalCompositeOperation = layer.blendMode;
                 ctx.globalAlpha = layer.opacity;
                 ctx.drawImage(layer.colorCycleData.canvas, 0, 0);

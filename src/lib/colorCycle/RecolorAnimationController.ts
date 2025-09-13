@@ -92,13 +92,10 @@ export class RecolorAnimationController {
 
     // Render frame for this layer (pass float tick for smooth offset)
     const imageData = this.engine.renderFrame(layer, newTickFloat);
-    if (!imageData) {
-      
-      return false;
+    // If GPU path, engine returns null after updating layer.colorCycleData.canvas
+    if (imageData) {
+      layer.imageData = imageData;
     }
-
-    // Apply frame and record timing
-    layer.imageData = imageData;
     animatedLayer.lastTick = wrappedTick;
     animatedLayer.lastFrameTime = performance.now();
 
@@ -188,7 +185,7 @@ export class RecolorAnimationController {
             layer.imageData = restored;
           } else {
             const img = this.engine.renderFrame(layer, settings.animation.currentTick);
-            if (img) layer.imageData = img;
+            if (img) layer.imageData = img; // GPU path returns null
           }
         }
       }

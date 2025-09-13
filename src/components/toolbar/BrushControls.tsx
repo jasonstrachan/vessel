@@ -69,6 +69,8 @@ const BrushControls = () => {
   const globalBrushSize = useAppStore(state => state.globalBrushSize);
   const shapeMode = useAppStore(state => state.tools.shapeMode);
   const setShapeMode = useAppStore(state => state.setShapeMode);
+  const setBrushPreset = useAppStore(state => state.setBrushPreset);
+  const brushPresets = useAppStore(state => state.brushPresets);
   
   // Determine if current brush is custom (uses percentage) or default (uses pixels)
   const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
@@ -123,6 +125,26 @@ const BrushControls = () => {
   if (isColorCycleBrush(activeSettings.brushShape)) {
     return (
       <div className="p-4">
+        {/* Color Cycle variant switcher (Stroke vs Shape) */}
+        <div className="mb-3">
+          <ButtonGroup
+            options={[
+              { label: 'Stroke', value: 'stroke' },
+              { label: 'Shape', value: 'shape' }
+            ]}
+            value={activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE ? 'shape' : 'stroke'}
+            onChange={(value) => {
+              const strokePreset = brushPresets.find(p => p.id === 'color-cycle-stroke');
+              const shapePreset = brushPresets.find(p => p.id === 'color-cycle-shape');
+              if (value === 'shape' && shapePreset) {
+                setBrushPreset(shapePreset, true);
+              } else if (value === 'stroke' && strokePreset) {
+                setBrushPreset(strokePreset, true);
+              }
+            }}
+            size="sm"
+          />
+        </div>
         {/* Fill Mode Tabs - only for Color Cycle Shape, not for Color Cycle Stroke */}
         {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && (
           <div className="mb-3">

@@ -169,6 +169,16 @@ const BrushLibrary = () => {
   const isPresetActive = (preset: BrushPreset): boolean => {
     // When in Recolor and animate tool, suppress any brush selection highlight
     if (tools.currentTool === 'recolor') return false;
+
+    // If using Color Cycle brush shapes, map directly to CC presets so highlight stays in sync
+    if (
+      (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
+       tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) &&
+      preset.id === 'color-cycle-stroke'
+    ) {
+      return true;
+    }
+
     // REFACTOR: Robust check for active state
     if (preset.isCustomBrush) {
       const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
@@ -250,107 +260,111 @@ const BrushLibrary = () => {
       <div className="flex-1 py-1 space-y-0 overflow-y-auto">
         {allBrushes.map((preset) => (
           <React.Fragment key={preset.id}>
-          <div
-            onClick={() => handlePresetClick(preset)}
-            className={`flex items-center justify-between px-3 py-0 cursor-pointer transition-colors ${
-              isPresetActive(preset)
-                ? 'bg-[#505050]' 
-                : 'hover:bg-[#404040]'
-            }`}
-          >
-            <div className="flex items-center space-x-2">
-              {preset.isCustomBrush ? (
-                preset.thumbnail ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img 
-                    src={preset.thumbnail} 
-                    alt={`${preset.name} thumbnail`}
-                    className="w-10 h-10"
-                    style={{ imageRendering: 'pixelated' }}
-                  />
-                ) : (
-                  <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
-                    ▣
-                  </div>
-                )
-              ) : brushThumbnails[preset.id] ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img 
-                  src={brushThumbnails[preset.id]} 
-                  alt={`${preset.name} thumbnail`}
-                  className="w-10 h-10"
-                  style={{ imageRendering: 'auto' }}
-                />
-              ) : (
-                <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
-                  {preset.category === 'Pixel Art' ? '▪' : '●'}
+            {/* Skip the separate Color Cycle Shape row to consolidate */}
+            {preset.id !== 'color-cycle-shape' && (
+              <div
+                onClick={() => handlePresetClick(preset)}
+                className={`flex items-center justify-between px-3 py-0 cursor-pointer transition-colors ${
+                  isPresetActive(preset)
+                    ? 'bg-[#505050]'
+                    : 'hover:bg-[#404040]'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  {preset.isCustomBrush ? (
+                    preset.thumbnail ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={preset.thumbnail}
+                        alt={`${preset.name} thumbnail`}
+                        className="w-10 h-10"
+                        style={{ imageRendering: 'pixelated' }}
+                      />
+                    ) : (
+                      <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+                        ▣
+                      </div>
+                    )
+                  ) : brushThumbnails[preset.id] ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={brushThumbnails[preset.id]}
+                      alt={`${preset.name} thumbnail`}
+                      className="w-10 h-10"
+                      style={{ imageRendering: 'auto' }}
+                    />
+                  ) : (
+                    <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+                      {preset.category === 'Pixel Art' ? '▪' : '●'}
+                    </div>
+                  )}
+                  <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
+                    {preset.id === 'color-cycle-stroke' ? 'Color Cycle' : preset.name}
+                  </span>
                 </div>
-              )}
-              <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>{preset.name}</span>
-            </div>
-            {preset.isCustomBrush && (
-              <div className="flex items-center space-x-0.5">
-                <button
-                  onClick={(e) => handleEditClick(e, preset)}
-                  className="px-1.5 py-0 text-xs text-[#D9D9D9] hover:text-green-400 transition-colors opacity-60 hover:opacity-100 border border-[#606060] hover:border-green-400 rounded"
-                  title={brushEditor.status === 'EDITING' && brushEditor.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save changes' : 'Edit brush'}
-                >
-                  {brushEditor.status === 'EDITING' && brushEditor.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save' : 'Edit'}
-                </button>
-                <span className="text-[#D9D9D9] w-3 text-center" style={{ fontSize: '12px' }}>
-                  {preset.isDefault ? '★' : '☆'}
-                </span>
-                {!preset.isDefault && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeletePreset(preset.id);
-                    }}
-                    className="w-3 h-3 text-[#D9D9D9] hover:text-red-400 transition-colors opacity-60 hover:opacity-100 text-center flex items-center justify-center"
-                    title={`Delete ${preset.name}`}
-                    style={{ fontSize: '14px' }}
-                  >
-                    ×
-                  </button>
+                {preset.isCustomBrush && (
+                  <div className="flex items-center space-x-0.5">
+                    <button
+                      onClick={(e) => handleEditClick(e, preset)}
+                      className="px-1.5 py-0 text-xs text-[#D9D9D9] hover:text-green-400 transition-colors opacity-60 hover:opacity-100 border border-[#606060] hover:border-green-400 rounded"
+                      title={brushEditor.status === 'EDITING' && brushEditor.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save changes' : 'Edit brush'}
+                    >
+                      {brushEditor.status === 'EDITING' && brushEditor.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save' : 'Edit'}
+                    </button>
+                    <span className="text-[#D9D9D9] w-3 text-center" style={{ fontSize: '12px' }}>
+                      {preset.isDefault ? '★' : '☆'}
+                    </span>
+                    {!preset.isDefault && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeletePreset(preset.id);
+                        }}
+                        className="w-3 h-3 text-[#D9D9D9] hover:text-red-400 transition-colors opacity-60 hover:opacity-100 text-center flex items-center justify-center"
+                        title={`Delete ${preset.name}`}
+                        style={{ fontSize: '14px' }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             )}
-          </div>
 
-          
-          {/* Insert Recolor and animate entry immediately after Color Cycle Shape */}
-          {preset.id === 'color-cycle-shape' && (
-            <div
-              onClick={(e) => {
-                e.stopPropagation();
-                // Only switch tool, do not change the active brush preset
-                setCurrentTool('recolor');
-              }}
-              className={`flex items-center justify-between px-3 py-0 cursor-pointer transition-colors ${
-                tools.currentTool === 'recolor' ? 'bg-[#505050]' : 'hover:bg-[#404040]'
-              }`}
-              title="Open Color cycle + recolor panel"
-            >
-              <div className="flex items-center space-x-2">
-                {/* Use the same icon/thumbnail as Color Cycle Shape if available */}
-                {brushThumbnails['color-cycle-shape'] ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={brushThumbnails['color-cycle-shape']}
-                    alt={`Color cycle + recolor icon`}
-                    className="w-10 h-10"
-                    style={{ imageRendering: 'auto' }}
-                  />
-                ) : (
-                  <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
-                    ▣
-                  </div>
-                )}
-                <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>Color cycle + recolor</span>
-                {/* Removed pulsing circle indicator for Recolor entry */}
+            {/* Insert Recolor and animate entry immediately after consolidated Color Cycle row */}
+            {preset.id === 'color-cycle-stroke' && (
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Only switch tool, do not change the active brush preset
+                  setCurrentTool('recolor');
+                }}
+                className={`flex items-center justify-between px-3 py-0 cursor-pointer transition-colors ${
+                  tools.currentTool === 'recolor' ? 'bg-[#505050]' : 'hover:bg-[#404040]'
+                }`}
+                title="Open Color cycle + recolor panel"
+              >
+                <div className="flex items-center space-x-2">
+                  {/* Use the same icon/thumbnail as Color Cycle Shape if available */}
+                  {brushThumbnails['color-cycle-shape'] ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={brushThumbnails['color-cycle-shape']}
+                      alt={`Color cycle + recolor icon`}
+                      className="w-10 h-10"
+                      style={{ imageRendering: 'auto' }}
+                    />
+                  ) : (
+                    <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+                      ▣
+                    </div>
+                  )}
+                  <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>Color cycle + recolor</span>
+                  {/* Removed pulsing circle indicator for Recolor entry */}
+                </div>
               </div>
-            </div>
-          )}
+            )}
           </React.Fragment>
         ))}
       </div>

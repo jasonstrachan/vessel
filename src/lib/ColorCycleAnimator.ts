@@ -6,6 +6,7 @@
 import { IndexBuffer } from './IndexBuffer';
 import { GradientPalette, GradientStop } from './GradientPalette';
 import { AnimationController } from './AnimationController';
+import { WebGLColorCycleRenderer } from './colorCycle/rendering/WebGLColorCycleRenderer';
 import { canvasPool } from '../utils/canvasPool';
 
 export interface ColorCycleAnimatorConfig {
@@ -26,6 +27,9 @@ export class ColorCycleAnimator {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private imageData: ImageData;
+  // GPU renderer (optional)
+  private glRenderer: WebGLColorCycleRenderer | null = null;
+  private glCanvas: HTMLCanvasElement | null = null;
   
   // Stroke tracking for directional flow
   private strokeOrder: Uint16Array; // Store order each pixel was painted (0 = not painted)
@@ -75,6 +79,14 @@ export class ColorCycleAnimator {
       // Defer image data creation until first use
       this.imageData = null as any; // Will be created on first paint
       
+      // Try to prepare GPU renderer lazily
+      if (typeof window !== 'undefined' && WebGLColorCycleRenderer.isSupported()) {
+        try {
+          this.glRenderer = new WebGLColorCycleRenderer({ width: config.width, height: config.height });
+          this.glCanvas = this.glRenderer.getCanvas();
+        } catch {}
+      }
+      
       // Use smaller stroke order buffer initially
       this.strokeOrder = new Uint16Array(0); // Start empty
       
@@ -112,6 +124,14 @@ export class ColorCycleAnimator {
       this.ctx = ctx;
       this.ctx.imageSmoothingEnabled = false;
       this.imageData = ctx.createImageData(config.width, config.height);
+      
+      // Initialize GPU renderer if possible
+      if (typeof window !== 'undefined' && WebGLColorCycleRenderer.isSupported()) {
+        try {
+          this.glRenderer = new WebGLColorCycleRenderer({ width: config.width, height: config.height });
+          this.glCanvas = this.glRenderer.getCanvas();
+        } catch {}
+      }
       
       // Initialize stroke order buffer
       this.strokeOrder = new Uint16Array(config.width * config.height);
@@ -153,6 +173,13 @@ export class ColorCycleAnimator {
     this.indexBuffer.setPalette(paletteStrings);
     // Invalidate cached palette when gradient changes
     this.cachedPalette32 = null;
+    // If GPU renderer exists, upload palette once (as base palette)
+    if (this.glRenderer) {
+      try {
+        const paletteRGBA = this.gradientPalette.getPaletteColors();
+        this.glRenderer.setPaletteColors(paletteRGBA);
+      } catch {}
+    }
   }
   
   /**
@@ -162,94 +189,75 @@ export class ColorCycleAnimator {
     const perfStart = performance.now();
     
     try {
+      // GPU path if available
+      if (this.glRenderer && this.glCanvas) {
+        // Upload index data and render with offset
+        const indexData = this.indexBuffer.getDirectData();
+        if (!indexData) return;
+
+        // Compute forward/backward offset in [0,1)
+        const dir = this.flowDirection === 'backward' ? -1 : 1;
+        let o = offset * dir;
+        o = ((o % 1) + 1) % 1;
+
+        // Ensure palette is uploaded at least once
+        // (updateIndexBufferPalette uploads base palette on gradient changes)
+        this.glRenderer.setIndexData(indexData);
+        this.glRenderer.render(o);
+
+        // Draw GPU canvas onto our 2D canvas (presentation)
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.drawImage(this.glCanvas, 0, 0);
+
+        // Keep an ImageData placeholder allocated to satisfy callbacks consumers
+        if (!this.imageData) {
+          this.imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
+        }
+        return;
+      }
+
+      // Fallback CPU path (unchanged behavior)
       // Ensure imageData is created (for lazy init)
       if (!this.imageData) {
-        const imgStart = performance.now();
         this.imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
-        console.log(`[PERF] createImageData took ${(performance.now() - imgStart).toFixed(1)}ms for ${this.canvas.width}x${this.canvas.height}`);
       }
-      
-      // Get index data directly (no copy)
       const indexData = this.indexBuffer.getDirectData();
-      
-      if (!indexData) {
-        console.error('[ColorCycleAnimator] IndexBuffer data is invalid');
-        return;
-      }
+      if (!indexData) return;
+
       const pixels = this.imageData.data;
-      
-      if (!pixels) {
-        console.error('[ColorCycleAnimator] ImageData pixels is null');
-        return;
-      }
-      
-      const loopStart = performance.now();
-      
-      // Use Uint32Array for faster pixel operations
       const pixels32 = new Uint32Array(pixels.buffer);
-      
-      // Use cached palette or create it once
+
       if (!this.cachedPalette32) {
         this.cachedPalette32 = new Uint32Array(256);
         for (let i = 0; i < 256; i++) {
           const color = this.gradientPalette.getColor(i);
-          // Pack RGBA into a single 32-bit value (little-endian)
           this.cachedPalette32[i] = (color.a << 24) | (color.b << 16) | (color.g << 8) | color.r;
         }
       }
       const palette32 = this.cachedPalette32;
-      
-      // Optimized loop using 32-bit operations
-      if (offset > 0) {
-        // With animation
-        const animOffset = Math.floor(offset * 256);
-        
-        if (this.flowDirection === 'backward') {
-          // Backward animation
+
+      const animOffset = Math.floor(Math.abs(offset) * 256);
+      const backward = this.flowDirection === 'backward';
+      if (animOffset > 0) {
+        if (backward) {
           for (let i = 0; i < indexData.length; i++) {
             const colorIndex = indexData[i];
-            if (colorIndex === 0) {
-              pixels32[i] = 0;
-            } else {
-              const paletteIndex = (colorIndex - 1) % 256;
-              const finalIndex = (paletteIndex - animOffset + 256 * 100) % 256;
-              pixels32[i] = palette32[finalIndex];
-            }
+            pixels32[i] = colorIndex === 0 ? 0 : palette32[((colorIndex - 1) - animOffset + 256 * 100) % 256];
           }
         } else {
-          // Forward animation
           for (let i = 0; i < indexData.length; i++) {
             const colorIndex = indexData[i];
-            if (colorIndex === 0) {
-              pixels32[i] = 0;
-            } else {
-              const paletteIndex = (colorIndex - 1) % 256;
-              const finalIndex = (paletteIndex + animOffset) % 256;
-              pixels32[i] = palette32[finalIndex];
-            }
+            pixels32[i] = colorIndex === 0 ? 0 : palette32[((colorIndex - 1) + animOffset) % 256];
           }
         }
       } else {
-        // No animation - fastest path
         for (let i = 0; i < indexData.length; i++) {
           const colorIndex = indexData[i];
-          if (colorIndex === 0) {
-            pixels32[i] = 0;
-          } else {
-            const paletteIndex = (colorIndex - 1) % 256;
-            pixels32[i] = palette32[paletteIndex];
-          }
+          pixels32[i] = colorIndex === 0 ? 0 : palette32[(colorIndex - 1) % 256];
         }
       }
-    
-    const loopTime = performance.now() - loopStart;
-    
-    // Put image data to canvas
-    const putStart = performance.now();
-    this.ctx.putImageData(this.imageData, 0, 0);
-    const putTime = performance.now() - putStart;
-    
-    const totalTime = performance.now() - perfStart;
+
+      this.ctx.putImageData(this.imageData, 0, 0);
     
     } catch (error) {
       console.error('[ColorCycleAnimator] Error in renderFrame:', error);
@@ -579,6 +587,14 @@ export class ColorCycleAnimator {
     
     // Create new image data
     this.imageData = this.ctx.createImageData(width, height);
+
+    // Resize GPU renderer
+    if (this.glRenderer) {
+      try {
+        this.glRenderer.resize(width, height);
+        this.glCanvas = this.glRenderer.getCanvas();
+      } catch {}
+    }
     
     // Resize stroke order buffer only if dimensions actually changed
     if (width * height !== this.strokeOrder.length) {
