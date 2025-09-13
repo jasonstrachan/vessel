@@ -95,6 +95,16 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       if ('setLayerId' in brush && typeof brush.setLayerId === 'function') {
         brush.setLayerId(layerId);
       }
+
+      // Apply per-layer speed if available
+      try {
+        const state = require('../stores/useAppStore').useAppStore.getState();
+        const layer = state.layers.find((l: any) => l.id === layerId);
+        const perLayerSpeed = layer?.colorCycleData?.brushSpeed;
+        if (perLayerSpeed && 'setSpeed' in brush && typeof (brush as any).setSpeed === 'function') {
+          (brush as any).setSpeed(perLayerSpeed);
+        }
+      } catch {}
       
       // Store brush and metadata
       brushes.set(layerId, brush);

@@ -2050,6 +2050,8 @@ export const useAppStore = create<AppState>()(
                   colorCycleBrush: existingBrush,
                   // Keep current animation state if present; default to true for responsiveness
                   isAnimating: l.colorCycleData?.isAnimating ?? true,
+                  // Ensure per-layer brush speed exists
+                  brushSpeed: l.colorCycleData?.brushSpeed ?? (state.tools.brushSettings.colorCycleSpeed || 0.1),
                   canvas
                 }
               };
@@ -2128,6 +2130,8 @@ export const useAppStore = create<AppState>()(
                   gradient: gradient || [],
                   colorCycleBrush,
                   isAnimating: true,
+                  // Initialize per-layer brush speed from current brush settings
+                  brushSpeed: state.tools.brushSettings.colorCycleSpeed || 0.1,
                   canvas: colorCycleBrush.getCanvas ? colorCycleBrush.getCanvas() : undefined
                 }
               }

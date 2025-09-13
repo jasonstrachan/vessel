@@ -128,10 +128,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
         .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode === 'recolor' && l.colorCycleData?.recolorSettings)
         .map(l => l.colorCycleData!.recolorSettings!.animation.speed || 0.1)
         .filter(s => Number.isFinite(s) && s > 0);
-      const hasBrushCC = store.layers.some(l => l.layerType === 'color-cycle' && (!l.colorCycleData || l.colorCycleData.mode !== 'recolor'));
-      // Note: Brush engines use different internal scalars; using the UI speed as a proxy keeps behavior intuitive
-      const brushSpeed = hasBrushCC ? (store.tools?.brushSettings?.colorCycleSpeed || 0.1) : null;
-      const speeds = [...recolorSpeeds, ...(brushSpeed ? [brushSpeed] : [])];
+      // Gather per-layer speeds for brush-mode CC layers (fallback to current UI speed if undefined)
+      const brushSpeeds: number[] = store.layers
+        .filter(l => l.layerType === 'color-cycle' && (l.colorCycleData?.mode !== 'recolor'))
+        .map(l => (l.colorCycleData?.brushSpeed ?? store.tools?.brushSettings?.colorCycleSpeed ?? 0.1))
+        .filter(s => Number.isFinite(s) && s > 0);
+      const speeds = [...recolorSpeeds, ...brushSpeeds];
 
       // No animated speeds detected – fall back to user's target
       if (speeds.length === 0) {

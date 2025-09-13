@@ -40,13 +40,16 @@ export interface Layer {
   colorCycleData?: {
     // Mode selection: brush-based cycling vs recolor layer animation
     mode?: 'brush' | 'recolor';
-    
+
     // Brush mode data (existing functionality)
     gradient?: Array<{ position: number; color: string }>;
     colorCycleBrush?: import('../hooks/brushEngine/ColorCycleBrushCanvas2D').ColorCycleBrushCanvas2D;
     isAnimating?: boolean;
+    // Per-layer animation speed for brush-mode CC (cycles per second)
+    // If undefined, UI should default to 0.1 or fall back to brush settings
+    brushSpeed?: number;
     canvas?: HTMLCanvasElement;
-    
+
     // Recolor mode data (new functionality)
     recolorSettings?: {
       // Quantization settings

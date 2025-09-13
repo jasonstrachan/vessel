@@ -71,6 +71,10 @@ const BrushControls = () => {
   const setShapeMode = useAppStore(state => state.setShapeMode);
   const setBrushPreset = useAppStore(state => state.setBrushPreset);
   const brushPresets = useAppStore(state => state.brushPresets);
+  // For per-layer CC brush speed
+  const activeLayerId = useAppStore(state => state.activeLayerId);
+  const layers = useAppStore(state => state.layers);
+  const updateLayer = useAppStore(state => state.updateLayer);
   
   // Determine if current brush is custom (uses percentage) or default (uses pixels)
   const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
@@ -202,11 +206,33 @@ const BrushControls = () => {
               Speed
             </label>
             <ProgressSlider
-              value={activeSettings.colorCycleSpeed || 0.1}
+              value={(function() {
+                // If the active layer is a CC layer in brush mode, bind to its per-layer speed
+                const layer = layers.find(l => l.id === activeLayerId);
+                const isCCBrushLayer = layer?.layerType === 'color-cycle' && layer?.colorCycleData?.mode !== 'recolor';
+                if (isCCBrushLayer) {
+                  return layer?.colorCycleData?.brushSpeed ?? 0.1;
+                }
+                return activeSettings.colorCycleSpeed || 0.1;
+              })()}
               min={0.02}
               max={1.0}
               step={0.01}
-              onChange={(value) => setActiveSettings({ colorCycleSpeed: value })}
+              onChange={(value) => {
+                // Update per-layer speed when on a CC brush layer, else update global brush setting
+                const layer = layers.find(l => l.id === activeLayerId);
+                const isCCBrushLayer = layer?.layerType === 'color-cycle' && layer?.colorCycleData?.mode !== 'recolor';
+                if (isCCBrushLayer && activeLayerId) {
+                  updateLayer(activeLayerId, {
+                    colorCycleData: {
+                      ...(layer?.colorCycleData || {}),
+                      brushSpeed: Math.max(0.02, Math.min(1.0, value))
+                    }
+                  } as any);
+                } else {
+                  setActiveSettings({ colorCycleSpeed: value });
+                }
+              }}
               aria-label="Animation Speed"
               className="flex-1"
             />

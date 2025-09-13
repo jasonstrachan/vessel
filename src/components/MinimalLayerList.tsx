@@ -277,7 +277,9 @@ const MinimalLayerList = () => {
       layerType: 'color-cycle', // Color-cycle layer - cannot be converted to normal
       colorCycleData: {
         gradient: currentGradient,
-        isAnimating: true
+        isAnimating: true,
+        // Initialize per-layer brush speed from current brush setting
+        brushSpeed: (useAppStore.getState().tools?.brushSettings?.colorCycleSpeed) || 0.1
       }
     };
     debugLog('layers', 'UI: Creating CC layer object', {

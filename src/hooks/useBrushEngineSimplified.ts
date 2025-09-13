@@ -19,6 +19,11 @@ import { featureFlags } from '../config/featureFlags';
  */
 export const useBrushEngineSimplified = () => {
   const { tools, project, activeLayerId } = useAppStore();
+  // Track per-layer CC brush speed for the active layer
+  const activeLayerBrushSpeed = useAppStore((state) => {
+    const layer = state.layers.find(l => l.id === state.activeLayerId);
+    return layer?.colorCycleData?.brushSpeed;
+  });
   
   // Cache for brush stamps
   const brushStampCacheRef = useRef(new Map<string, HTMLCanvasElement>());
@@ -1904,9 +1909,16 @@ export const useBrushEngineSimplified = () => {
       if (tools.brushSettings.colorCycleFPS) {
         colorCycleBrush.setFPS(tools.brushSettings.colorCycleFPS);
       }
-      if (tools.brushSettings.colorCycleSpeed) {
-        colorCycleBrush.setSpeed(tools.brushSettings.colorCycleSpeed);
-      }
+      // Prefer per-layer CC brush speed when available; fallback to global brush setting
+      try {
+        const state = useAppStore.getState();
+        const activeLayer = state.layers.find(l => l.id === activeLayerId);
+        const perLayerSpeed = activeLayer?.colorCycleData?.brushSpeed;
+        const speed = perLayerSpeed ?? tools.brushSettings.colorCycleSpeed;
+        if (speed) {
+          colorCycleBrush.setSpeed(speed);
+        }
+      } catch {}
       if (tools.brushSettings.gradientBands) {
         colorCycleBrush.setGradientBands(tools.brushSettings.gradientBands);
       }
@@ -2272,10 +2284,13 @@ export const useBrushEngineSimplified = () => {
   // Update color cycle speed when it changes
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (colorCycleBrush && tools.brushSettings.colorCycleSpeed) {
-      colorCycleBrush.setSpeed(tools.brushSettings.colorCycleSpeed);
+    const state = useAppStore.getState();
+    const activeLayer = state.layers.find(l => l.id === activeLayerId);
+    const perLayerSpeed = activeLayer?.colorCycleData?.brushSpeed;
+    if (colorCycleBrush && perLayerSpeed) {
+      colorCycleBrush.setSpeed(perLayerSpeed);
     }
-  }, [tools.brushSettings.colorCycleSpeed, activeLayerId]);
+  }, [activeLayerId, activeLayerBrushSpeed, getActiveLayerColorCycleBrush]);
   
   // Update color cycle FPS when it changes
   useEffect(() => {
