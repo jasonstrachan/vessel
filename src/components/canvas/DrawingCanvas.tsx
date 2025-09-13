@@ -121,6 +121,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const compositeCanvasDirtyRef = useRef(true); // Track if composite needs update
   const lastCompositeHashRef = useRef<string>(''); // Track last composite state
   const [needsRedraw, setNeedsRedraw] = useState(0);
+
+  // Cached floating paste canvas (avoid creating per frame)
+  const pasteCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lastPasteInfoRef = useRef<{ imageData: ImageData | null; width: number; height: number }>(
+    { imageData: null, width: 0, height: 0 }
+  );
   
   // Ref for draw function to use in resize observer
   const drawRef = useRef<((ctx: CanvasRenderingContext2D, viewTransform: { scale: number; offsetX: number; offsetY: number }) => void) | null>(null);
@@ -280,38 +286,55 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         ctx.translate(offsetX, offsetY);
         ctx.scale(scale, scale);
         
-        // Create a temporary canvas for the floating paste
-        const pasteCanvas = document.createElement('canvas');
-        pasteCanvas.width = floatingPaste.width;
-        pasteCanvas.height = floatingPaste.height;
-        const pasteCtx = pasteCanvas.getContext('2d', { willReadFrequently: true });
-        
-        if (pasteCtx) {
-          pasteCtx.putImageData(floatingPaste.imageData, 0, 0);
-          
-          // Draw the floating paste at its position
-          ctx.drawImage(pasteCanvas, floatingPaste.position.x, floatingPaste.position.y);
-          
-          // Draw marching ants selection border around the paste
-          const x = floatingPaste.position.x;
-          const y = floatingPaste.position.y;
-          const width = floatingPaste.width;
-          const height = floatingPaste.height;
-          
-          // White background line
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 2 / scale;
-          ctx.setLineDash([]);
-          ctx.strokeRect(x, y, width, height);
-          
-          // Black dashed line for marching ants
-          ctx.strokeStyle = '#000000';
-          ctx.lineWidth = 1 / scale;
-          ctx.setLineDash([5 / scale, 5 / scale]);
-          ctx.lineDashOffset = -marchingAntsOffset / scale;
-          ctx.strokeRect(x, y, width, height);
+        // Ensure we have a reusable paste canvas
+        if (!pasteCanvasRef.current) {
+          pasteCanvasRef.current = document.createElement('canvas');
         }
+        const pasteCanvas = pasteCanvasRef.current;
+
+        // Resize only when dimensions change
+        let needsUpdate = false;
+        if (pasteCanvas.width !== floatingPaste.width || pasteCanvas.height !== floatingPaste.height) {
+          pasteCanvas.width = floatingPaste.width;
+          pasteCanvas.height = floatingPaste.height;
+          needsUpdate = true;
+        }
+
+        // Update image data only when it changes or canvas resized
+        if (lastPasteInfoRef.current.imageData !== floatingPaste.imageData || needsUpdate) {
+          const pasteCtx = pasteCanvas.getContext('2d', { willReadFrequently: true });
+          if (pasteCtx) {
+            pasteCtx.putImageData(floatingPaste.imageData, 0, 0);
+            lastPasteInfoRef.current = {
+              imageData: floatingPaste.imageData,
+              width: pasteCanvas.width,
+              height: pasteCanvas.height,
+            };
+          }
+        }
+
+        // Draw the floating paste at its position
+        ctx.drawImage(pasteCanvas, floatingPaste.position.x, floatingPaste.position.y);
+
+        // Draw marching ants selection border around the paste
+        const x = floatingPaste.position.x;
+        const y = floatingPaste.position.y;
+        const width = floatingPaste.width;
+        const height = floatingPaste.height;
         
+        // White background line
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2 / scale;
+        ctx.setLineDash([]);
+        ctx.strokeRect(x, y, width, height);
+        
+        // Black dashed line for marching ants
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 1 / scale;
+        ctx.setLineDash([5 / scale, 5 / scale]);
+        ctx.lineDashOffset = -marchingAntsOffset / scale;
+        ctx.strokeRect(x, y, width, height);
+
         ctx.restore();
       }
       
