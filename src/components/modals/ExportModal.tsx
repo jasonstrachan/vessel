@@ -48,6 +48,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const [gifFrameStep, setGifFrameStep] = useState<1 | 2 | 3 | 4>(1); // Capture every Nth frame
   const [gifMaxColors, setGifMaxColors] = useState<16 | 32 | 64 | 128 | 256>(128);
   const [gifAutoColors, setGifAutoColors] = useState(true);
+  // Live readout of palette size used during export (informational)
+  const [gifPaletteCount, setGifPaletteCount] = useState<number | null>(null);
 
   // Video options
   const [videoFps, setVideoFps] = useState(30);
@@ -266,9 +268,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     let totalFrames = Math.max(1, Math.round(gifDuration * effectiveFps));
     cancelRef.current.cancelled = false;
     setProgress(0);
+    setGifPaletteCount(null);
 
-    // Dynamically import gifenc to keep bundle light
-    const { GIFEncoder, quantize, applyPalette } = await import('gifenc');
+    // Dynamically import gifenc (ESM build) to avoid dev chunk 404s
+    // Prefer explicit ESM path for reliable bundling
+    const { GIFEncoder, quantize, applyPalette } = await import('gifenc/dist/gifenc.esm.js');
 
     // We'll render to base size then scale for encoding
     const base = document.createElement('canvas');
@@ -321,8 +325,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       }
     } catch {}
 
-    // Lock palette to first frame for stable colors and smooth loop
-    let fixedPalette: any = null;
+    // First pass: capture frames and discover all colors used across the animation
+    // This ensures we include every color actually used, no more, no less (<=256 limit)
+    const frames: ImageData[] = [];
+    const usedRGB = new Set<number>();
+    let usesTransparency = false;
+    const ALPHA_THRESHOLD = 16;
 
     for (let i = 0; i < totalFrames; i++) {
       if (cancelRef.current.cancelled) break;
@@ -344,43 +352,143 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       sctx.drawImage(base, 0, 0, scaledW, scaledH);
 
       const frame = sctx.getImageData(0, 0, scaledW, scaledH);
-      if (!fixedPalette) {
-        let colors = Math.max(32, Math.min(256, gifMaxColors));
-        if (gifAutoColors) {
-          try {
-            // Estimate needed colors by counting unique indices when quantized at 256
-            const testPalette = quantize(frame.data, 256, { format: 'rgba4444', oneBitAlpha: 128, clearAlpha: true });
-            const tmpIndex = applyPalette(frame.data, testPalette);
-            const used = new Uint8Array(256);
-            for (let k = 0; k < tmpIndex.length; k++) used[tmpIndex[k]] = 1;
-            let unique = 0; for (let k = 0; k < 256; k++) unique += used[k];
-            const estimated = Math.ceil(unique * 1.1); // margin
-            if (estimated <= 32) colors = 32;
-            else if (estimated <= 64) colors = 64;
-            else if (estimated <= 128) colors = 128;
-            else colors = 256;
-          } catch {}
+      frames.push(frame);
+
+      // Accumulate unique RGB colors (ignore fully/mostly transparent)
+      const data = frame.data;
+      for (let p = 0; p < data.length; p += 4) {
+        const a = data[p + 3];
+        if (a <= ALPHA_THRESHOLD) { usesTransparency = true; continue; }
+        const r = data[p];
+        const g = data[p + 1];
+        const b = data[p + 2];
+        usedRGB.add((r << 16) | (g << 8) | b);
+        // Early bail if clearly over the GIF limit (keep scanning for progress but don't rely on exact set size)
+        if (usedRGB.size > 512) {
+          // No need to track beyond this for performance; palette will be quantized later
+          // but we still record frames for the second pass
+          // Do nothing extra here
         }
-        fixedPalette = quantize(frame.data, colors, { format: 'rgba4444', oneBitAlpha: 128, clearAlpha: true });
       }
+
+      setProgress(Math.round((((i + 1) / totalFrames) * 100) * 0.5)); // 0-50% during analysis pass
+      // Step time – allow animations to advance roughly per frame
+      await new Promise((r) => setTimeout(r, Math.max(0, Math.floor(1000 / effectiveFps))));
+    }
+
+    // Build the final palette
+    let fixedPalette: number[][] = [];
+    const needTransparentSlot = usesTransparency;
+    const colorCountCandidate = usedRGB.size + (needTransparentSlot ? 1 : 0);
+    const MAX_GIF_COLORS = 256;
+
+    const buildSampleBuffer = (limitColors: number): Uint8Array => {
+      // Build a sampling buffer across frames to feed into quantize()
+      // Aim for up to ~500k samples to keep perf reasonable
+      const targetSamples = 500_000;
+      const totalPixels = frames.reduce((acc, f) => acc + (f.width * f.height), 0);
+      const stride = Math.max(1, Math.floor(totalPixels / targetSamples));
+      const totalRGBA = frames.reduce((acc, f) => acc + f.data.length, 0);
+      const approxLen = Math.ceil(totalRGBA / stride);
+      const sample = new Uint8Array(approxLen);
+      let w = 0;
+      for (let fi = 0; fi < frames.length; fi++) {
+        const arr = frames[fi].data;
+        for (let i = 0; i < arr.length; i += 4 * stride) {
+          const a = arr[i + 3];
+          if (a <= ALPHA_THRESHOLD) continue; // skip transparent when sampling
+          if (w + 4 > sample.length) break;
+          sample[w++] = arr[i];
+          sample[w++] = arr[i + 1];
+          sample[w++] = arr[i + 2];
+          sample[w++] = a;
+        }
+      }
+      if (w === 0) {
+        // Fallback: sample from discovered unique colors (opaque)
+        const count = Math.max(1, usedRGB.size);
+        const fallback = new Uint8Array(count * 4);
+        let o = 0;
+        if (usedRGB.size > 0) {
+          for (const rgb of usedRGB) {
+            if (o + 4 > fallback.length) break;
+            fallback[o++] = (rgb >> 16) & 255;
+            fallback[o++] = (rgb >> 8) & 255;
+            fallback[o++] = rgb & 255;
+            fallback[o++] = 255;
+          }
+        } else {
+          // Last resort: a single black opaque pixel
+          fallback[0] = 0; fallback[1] = 0; fallback[2] = 0; fallback[3] = 255;
+        }
+        return fallback;
+      }
+      // Important: create a copy so underlying ArrayBuffer length equals w (multiple of 4)
+      // Some libs create Uint32 views over buffer length; subarray's backing buffer may be misaligned.
+      return sample.slice(0, w);
+    };
+
+    if (gifAutoColors) {
+      if (colorCountCandidate <= MAX_GIF_COLORS) {
+        // Exact palette: include every color used, plus transparent index if needed
+        if (needTransparentSlot) fixedPalette.push([0, 0, 0, 0]);
+        for (const rgb of usedRGB) {
+          const r = (rgb >> 16) & 255;
+          const g = (rgb >> 8) & 255;
+          const b = rgb & 255;
+          fixedPalette.push([r, g, b, 255]);
+        }
+        setGifPaletteCount(fixedPalette.length);
+      } else {
+        // Too many colors for GIF; quantize across all frames to 256
+        const sample = buildSampleBuffer(MAX_GIF_COLORS);
+        const target = needTransparentSlot ? MAX_GIF_COLORS - 1 : MAX_GIF_COLORS;
+        const q = quantize(sample, target, { format: 'rgba4444' });
+        fixedPalette = needTransparentSlot ? [[0, 0, 0, 0], ...q] : q as any;
+        setGifPaletteCount(fixedPalette.length);
+      }
+    } else {
+      // Manual size selected: quantize across all frames to requested size
+      const sample = buildSampleBuffer(gifMaxColors);
+      const target = needTransparentSlot ? gifMaxColors - 1 : gifMaxColors;
+      const q = quantize(sample, target, { format: 'rgba4444' });
+      fixedPalette = needTransparentSlot ? [[0, 0, 0, 0], ...q] : q as any;
+      setGifPaletteCount(fixedPalette.length);
+    }
+
+    const transparentIndex = fixedPalette.findIndex((c) => (c.length >= 4 && c[3] === 0));
+
+    // Second pass: map frames with the fixed palette and write to GIF
+    for (let i = 0; i < frames.length; i++) {
+      if (cancelRef.current.cancelled) break;
+      const frame = frames[i];
       let index: Uint8Array;
       if (gifDitherMethod === 'none') {
         index = applyPalette(frame.data, fixedPalette);
+        // Ensure transparent pixels are mapped to transparent index explicitly
+        if (transparentIndex >= 0) {
+          const data = frame.data;
+          for (let p = 0, px = 0; p < data.length; p += 4, px++) {
+            if (data[p + 3] <= ALPHA_THRESHOLD) index[px] = transparentIndex;
+          }
+        }
       } else {
-        // Custom dithering path
         index = mapToIndexedWithDithering(
           frame.data,
           scaledW,
           scaledH,
           fixedPalette,
-          { method: gifDitherMethod, strength: gifDitherStrength, alphaThreshold: 16 }
+          { method: gifDitherMethod, strength: gifDitherStrength, alphaThreshold: ALPHA_THRESHOLD }
         );
       }
-      gif.writeFrame(index, scaledW, scaledH, { palette: fixedPalette, delay: Math.round(1000 / effectiveFps), repeat: gifRepeat });
-
-      setProgress(Math.round(((i + 1) / totalFrames) * 100));
-      // Step time – allow animations to advance roughly per frame
-      await new Promise((r) => setTimeout(r, Math.max(0, Math.floor(1000 / effectiveFps))));
+      gif.writeFrame(index, scaledW, scaledH, { 
+        palette: fixedPalette, 
+        delay: Math.round(1000 / effectiveFps), 
+        repeat: gifRepeat,
+        transparentIndex: transparentIndex >= 0 ? transparentIndex : undefined,
+      });
+      setProgress(50 + Math.round(((i + 1) / frames.length) * 50));
+      await new Promise((r) => setTimeout(r, 0));
     }
 
     // Restore animation states
@@ -737,6 +845,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   <div>Frames: {autoFrameSuggestion.frames} {autoFrameSuggestion.success ? '(perfect)' : '(closest)'} · FPS: {Math.max(1, Math.floor(gifFps / Math.max(1, gifFrameStep)))}</div>
                   <div>Resulting duration: {autoFrameSuggestion.duration.toFixed(2)}s</div>
                 </div>
+              )}
+              {gifPaletteCount !== null && (
+                <div className="text-xs text-[#aaa]">Palette: {gifPaletteCount} colors</div>
               )}
               <div className="text-xs text-[#aaa]">Tip: Lower FPS or increase Frame Step to reduce frames. Fewer palette colors and disabling dithering can significantly shrink file size. For long/high-res animations, prefer Video.</div>
             </div>

@@ -88,3 +88,7 @@ declare module 'gifenc' {
   ): void;
 }
 
+// Allow importing the ESM subpath explicitly
+declare module 'gifenc/dist/gifenc.esm.js' {
+  export * from 'gifenc';
+}
