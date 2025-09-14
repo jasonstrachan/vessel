@@ -8,6 +8,7 @@ import { ColorCycleAnimator } from '../../lib/ColorCycleAnimator';
 import { debugLog, debugWarn } from '../../utils/debug';
 import { GradientStop } from '../../lib/GradientPalette';
 import { applyPressureCurve } from '../../utils/pressureCurve';
+import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 
 export class ColorCycleBrushCanvas2D {
   private animators: Map<string, ColorCycleAnimator> = new Map();
@@ -788,21 +789,36 @@ export class ColorCycleBrushCanvas2D {
       const bandsForGPU = bands;
       const baseOffset = this.stampCounter % 254;
       // Guard GPU path for complex polygons: fallback to CPU when vertex count exceeds shader uniform limit
-      const GPU_MAX_VERTS = 256;
-      const withinVertLimit = vertices.length <= GPU_MAX_VERTS;
+      // Determine runtime GPU vertex limit from animator if available
+      const runtimeMax = (anyAnimator && typeof anyAnimator.getGLFillMaxVerts === 'function') ? (anyAnimator.getGLFillMaxVerts() || 256) : 256;
+      const GPU_MAX_VERTS = Math.max(8, Math.min(256, runtimeMax));
+      // If over the limit, try to simplify polygon to meet the limit
+      let gpuVertices = vertices;
+      if (tryGPU && vertices.length > GPU_MAX_VERTS) {
+        const simplified = simplifyToVertexLimit(vertices, GPU_MAX_VERTS, { initialTolerance: 0.5, maxTolerance: 12, stepFactor: 1.8 });
+        if (simplified.length < vertices.length) {
+          debugLog('cc-fill', '[fillShape] Simplified polygon for GPU', { original: vertices.length, simplified: simplified.length });
+        }
+        gpuVertices = simplified;
+      }
+      const withinVertLimit = gpuVertices.length <= GPU_MAX_VERTS;
       // Clean rule: if GPU is available and within uniform limit, always use GPU (any size)
       if (tryGPU && withinVertLimit) {
-        debugLog('cc-fill', '[fillShape] Using GPU path', { verts: vertices.length, GPU_MAX_VERTS, bbox, bands: bandsForGPU, hasGL });
+        debugLog('cc-fill', '[fillShape] Using GPU path', { verts: gpuVertices.length, GPU_MAX_VERTS, bbox, bands: bandsForGPU, hasGL });
         // quiet
         // GPU concentric fill
-        anyAnimator.gpuFillShapeConcentric(vertices, bandsForGPU, baseOffset, colorStep, maxDist, bbox);
-        // Continue stamp progression and render
-        this.stampCounter += Math.max(2, this.gradientBands);
-        if (strokeData) strokeData.stampCounter = this.stampCounter;
-        this.dirtyLayers.add(id);
-        anyAnimator.forceRender?.();
-        this.render(false);
-        return;
+        const ok = anyAnimator.gpuFillShapeConcentric(gpuVertices, bandsForGPU, baseOffset, colorStep, maxDist, bbox);
+        if (ok) {
+          // Continue stamp progression and render
+          this.stampCounter += Math.max(2, this.gradientBands);
+          if (strokeData) strokeData.stampCounter = this.stampCounter;
+          this.dirtyLayers.add(id);
+          anyAnimator.forceRender?.();
+          this.render(false);
+          return;
+        } else {
+          debugLog('cc-fill', '[fillShape] GPU fill produced no content; falling back to CPU');
+        }
       }
       // GPU not used, log reason once per call
       debugLog('cc-fill', '[fillShape] GPU not used', {

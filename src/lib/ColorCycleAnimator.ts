@@ -33,6 +33,12 @@ export class ColorCycleAnimator {
   private glCanvas: HTMLCanvasElement | null = null;
   // One-time render path log guard
   private _renderPathLogged: boolean = false;
+  // Palette upload guard for GPU renderer
+  private _glPaletteReady: boolean = false;
+  // One-time sample log guard
+  private _renderSampledOnce: boolean = false;
+  // Track when index buffer changed to avoid re-uploading every frame
+  private _glIndexDirty: boolean = true;
   
   // Stroke tracking for directional flow
   private strokeOrder: Uint16Array; // Store order each pixel was painted (0 = not painted)
@@ -77,6 +83,7 @@ export class ColorCycleAnimator {
           this.glRenderer = new WebGLColorCycleRenderer({ width: config.width, height: config.height });
           this.glCanvas = this.glRenderer.getCanvas();
           debugLog('cc-gpu', '[Animator:laxyInit] WebGL renderer created');
+          this._glPaletteReady = false;
         } catch {}
       } else {
         debugLog('cc-gpu', '[Animator:laxyInit] WebGL not supported or window undefined');
@@ -124,6 +131,7 @@ export class ColorCycleAnimator {
           this.glRenderer = new WebGLColorCycleRenderer({ width: config.width, height: config.height });
           this.glCanvas = this.glRenderer.getCanvas();
           debugLog('cc-gpu', '[Animator:init] WebGL renderer created');
+          this._glPaletteReady = false;
         } catch {}
       } else {
         debugLog('cc-gpu', '[Animator:init] WebGL not supported or window undefined');
@@ -174,6 +182,8 @@ export class ColorCycleAnimator {
       try {
         const paletteRGBA = this.gradientPalette.getPaletteColors();
         this.glRenderer.setPaletteColors(paletteRGBA);
+        this._glPaletteReady = true;
+        debugLog('cc-gpu', '[Animator] Uploaded palette to GPU (updateIndexBufferPalette)');
       } catch {}
     }
   }
@@ -198,10 +208,10 @@ export class ColorCycleAnimator {
     colorStep: number,
     maxDist: number,
     bbox: { minX: number; minY: number; width: number; height: number }
-  ) {
+  ): boolean {
     if (!this.glRenderer || vertices.length < 3) {
       debugLog('cc-gpu', '[gpuFillShape] Skip: glRenderer?', !!this.glRenderer, 'verts', vertices.length);
-      return;
+      return false;
     }
     try {
       debugLog('cc-gpu', '[gpuFillShape] start', { verts: vertices.length, bands, baseOffset, colorStep, maxDist, bbox });
@@ -221,7 +231,7 @@ export class ColorCycleAnimator {
         canvasHeight: this.canvas.height,
       });
 
-      if (!result) return;
+      if (!result) return false;
 
       const data = this.indexBuffer.getDirectData();
       const width = this.canvas.width;
@@ -236,12 +246,24 @@ export class ColorCycleAnimator {
         data.set(result.subarray(srcStart, srcStart + bw), destStart);
       }
 
+      // Mark index as dirty for GPU texture upload and force a render
+      this._glIndexDirty = true;
       // Force a render to show the update
       this.forceRender();
       debugLog('cc-gpu', '[gpuFillShape] wrote bbox to index buffer and forced render');
+      // Determine if any indices are non-zero to confirm visible output
+      let hasContent = false;
+      for (let i = 0; i < result.length; i++) { if (result[i] !== 0) { hasContent = true; break; } }
+      return hasContent;
     } catch (e) {
-      debugWarn('cc-render', 'gpuFillShapeConcentric failed; falling back to CPU.', e);
+      debugWarn('cc-gpu', 'gpuFillShapeConcentric failed; will fallback to CPU.', e);
+      return false;
     }
+  }
+
+  /** Return runtime GPU vertex limit for fill shader (if available) */
+  getGLFillMaxVerts(): number | null {
+    try { return (this.glRenderer as any)?.getFillMaxVerts?.() ?? null; } catch { return null; }
   }
   
   /**
@@ -253,6 +275,15 @@ export class ColorCycleAnimator {
     try {
       // GPU path if available
       if (this.glRenderer && this.glCanvas) {
+        // Ensure palette is available on GPU (lazy init can defer initial upload)
+        if (!this._glPaletteReady) {
+          try {
+            const paletteRGBA = this.gradientPalette.getPaletteColors();
+            this.glRenderer.setPaletteColors(paletteRGBA);
+            this._glPaletteReady = true;
+            debugLog('cc-gpu', '[renderFrame] Uploaded palette lazily');
+          } catch {}
+        }
         if (!this._renderPathLogged) { debugLog('cc-gpu', '[renderFrame] Using GPU path'); this._renderPathLogged = true; }
         // Upload index data and render with offset
         const indexData = this.indexBuffer.getDirectData();
@@ -263,14 +294,30 @@ export class ColorCycleAnimator {
         let o = offset * dir;
         o = ((o % 1) + 1) % 1;
 
-        // Ensure palette is uploaded at least once
-        // (updateIndexBufferPalette uploads base palette on gradient changes)
-        this.glRenderer.setIndexData(indexData);
+        // Upload index texture only when data changed
+        if (this._glIndexDirty) {
+          this.glRenderer.setIndexData(indexData);
+          this._glIndexDirty = false;
+        }
         this.glRenderer.render(o);
 
-        // Draw GPU canvas onto our 2D canvas (presentation)
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        this.ctx.drawImage(this.glCanvas, 0, 0);
+        // Optional one-time sample to verify visible output by drawing into the 2D canvas
+        if (!this._renderSampledOnce) {
+          try {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.drawImage(this.glCanvas, 0, 0);
+            const w = Math.min(4, this.canvas.width);
+            const h = Math.min(4, this.canvas.height);
+            const sample = this.ctx.getImageData(0, 0, w, h).data;
+            let anyAlpha = false; let anyRGB = false;
+            for (let i = 0; i < sample.length; i += 4) {
+              if (sample[i+3] > 0) anyAlpha = true;
+              if (sample[i] || sample[i+1] || sample[i+2]) anyRGB = true;
+            }
+            debugLog('cc-gpu', '[renderFrame] sample', { anyAlpha, anyRGB, w, h });
+          } catch {}
+          this._renderSampledOnce = true;
+        }
 
         // Keep an ImageData placeholder allocated to satisfy callbacks consumers
         if (!this.imageData) {
@@ -355,6 +402,7 @@ export class ColorCycleAnimator {
   setIndex(x: number, y: number, colorIndex: number) {
     try {
       this.indexBuffer.setPixel(x, y, colorIndex);
+      this._glIndexDirty = true;
     } catch (e) {
       // Fail silently for out-of-bounds or transient states
     }
@@ -372,6 +420,7 @@ export class ColorCycleAnimator {
       
       // Paint to index buffer with the specific color index - NO RENDERING
       this.indexBuffer.paintSquare(x, y, brushSize, color);
+      this._glIndexDirty = true;
       
       // REMOVED per-stamp rendering - caller handles batched rendering
       
@@ -388,6 +437,7 @@ export class ColorCycleAnimator {
     const color = this.gradientPalette.getColorString(index);
     
     this.indexBuffer.paintLine(x0, y0, x1, y1, brushSize, color);
+    this._glIndexDirty = true;
     
     // REMOVED per-stamp rendering - caller handles batched rendering
   }
@@ -400,6 +450,7 @@ export class ColorCycleAnimator {
     const color = this.gradientPalette.getColorString(index);
     
     this.indexBuffer.fill(x, y, color);
+    this._glIndexDirty = true;
     
     if (!this.animationController.isPlaying()) {
       this.renderFrame();
@@ -442,6 +493,7 @@ export class ColorCycleAnimator {
    */
   clear() {
     this.indexBuffer.clear();
+    this._glIndexDirty = true;
     this.nextIndex = 1;
     this.currentStrokeIndex = 1;
     this.maxStrokeIndex = 0;
@@ -455,6 +507,7 @@ export class ColorCycleAnimator {
    */
   clearRect(x: number, y: number, width: number, height: number) {
     this.indexBuffer.clearRect(x, y, width, height);
+    this._glIndexDirty = true;
     
     if (!this.animationController.isPlaying()) {
       this.renderFrame();
@@ -592,7 +645,7 @@ export class ColorCycleAnimator {
    * Get canvas
    */
   getCanvas(): HTMLCanvasElement {
-    return this.canvas;
+    return this.glCanvas || this.canvas;
   }
   
   /**
@@ -606,7 +659,8 @@ export class ColorCycleAnimator {
    * Draw to another context
    */
   drawTo(ctx: CanvasRenderingContext2D, x: number = 0, y: number = 0) {
-    ctx.drawImage(this.canvas, x, y);
+    const src = this.glCanvas || this.canvas;
+    ctx.drawImage(src, x, y);
   }
   
   /**
@@ -631,6 +685,7 @@ export class ColorCycleAnimator {
     
     // Resize index buffer
     this.indexBuffer.resize(width, height);
+    this._glIndexDirty = true;
     
     // Get a new canvas from pool with proper dimensions
     const oldCanvas = this.canvas;

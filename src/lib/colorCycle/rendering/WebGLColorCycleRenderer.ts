@@ -43,6 +43,7 @@ export class WebGLColorCycleRenderer {
   private paletteTex: WebGLTexture | null = null;
   private width: number;
   private height: number;
+  private indexTexAllocated: boolean = false;
 
   private paletteSize: number = 256;
   private paletteUploaded: boolean = false;
@@ -51,7 +52,8 @@ export class WebGLColorCycleRenderer {
   private fillProgram: WebGLProgram | null = null;
   private fillFbo: WebGLFramebuffer | null = null;
   private fillTex: WebGLTexture | null = null;
-  private static readonly MAX_VERTS = 256; // cap to keep uniform usage reasonable
+  private static readonly MAX_VERTS = 256; // hard cap
+  private fillMaxVerts: number = 128; // runtime-adaptive max based on uniform limits
 
   private static _supportCached: boolean | null = null;
   
@@ -120,6 +122,26 @@ export class WebGLColorCycleRenderer {
     this.setupGeometry();
     this.setupUniformsAndSamplers();
     this.createTextures();
+
+    // Determine safe vertex limit for fragment uniform array
+    try {
+      // Prefer querying in vec4 units
+      let maxVec4 = 64;
+      // @ts-ignore
+      const v1 = (this.gl as any).MAX_FRAGMENT_UNIFORM_VECTORS;
+      if (v1) {
+        maxVec4 = this.gl.getParameter(v1) as number;
+      } else {
+        // @ts-ignore WebGL2
+        const comps = (this.gl as any).MAX_FRAGMENT_UNIFORM_COMPONENTS ? this.gl.getParameter((this.gl as any).MAX_FRAGMENT_UNIFORM_COMPONENTS) : 256;
+        maxVec4 = Math.floor((comps || 256) / 4);
+      }
+      // Reserve some headroom for other uniforms; each vec2 consumes 1 vec4 slot on many drivers
+      const reserve = 24;
+      const allowed = Math.max(8, maxVec4 - reserve);
+      this.fillMaxVerts = Math.min(WebGLColorCycleRenderer.MAX_VERTS, allowed);
+      debugLog('cc-gpu', '[WebGLColorCycleRenderer] Uniform limit vec4', maxVec4, 'fillMaxVerts', this.fillMaxVerts);
+    } catch {}
   }
 
   getCanvas(): HTMLCanvasElement {
@@ -136,6 +158,7 @@ export class WebGLColorCycleRenderer {
     this.canvas.height = h;
     // Reallocate index texture storage on next setIndexData() call
     // Palette texture remains 256x1
+    this.indexTexAllocated = false;
   }
 
   setPaletteColors(paletteRGBA: Uint8Array | Uint8ClampedArray) {
@@ -171,11 +194,19 @@ export class WebGLColorCycleRenderer {
     // Define or update the index texture. Use a single channel if available.
     if (this.isWebGL2) {
       const gl2 = gl as WebGL2RenderingContext;
-      // Allocate or re-allocate storage
-      gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.R8, this.width, this.height, 0, gl2.RED, gl2.UNSIGNED_BYTE, indexData);
+      if (!this.indexTexAllocated) {
+        // Allocate storage once, then sub-image updates
+        gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.R8, this.width, this.height, 0, gl2.RED, gl2.UNSIGNED_BYTE, null);
+        this.indexTexAllocated = true;
+      }
+      gl2.texSubImage2D(gl2.TEXTURE_2D, 0, 0, 0, this.width, this.height, gl2.RED, gl2.UNSIGNED_BYTE, indexData);
     } else {
       // WebGL1 fallback: use LUMINANCE as 8-bit channel
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, this.width, this.height, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, indexData);
+      if (!this.indexTexAllocated) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, this.width, this.height, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, null);
+        this.indexTexAllocated = true;
+      }
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.width, this.height, gl.LUMINANCE, gl.UNSIGNED_BYTE, indexData);
     }
   }
 
@@ -306,7 +337,7 @@ export class WebGLColorCycleRenderer {
    */
   private createFillProgram(): WebGLProgram {
     const gl = this.gl;
-    const MAX = WebGLColorCycleRenderer.MAX_VERTS;
+    const MAX = this.fillMaxVerts;
     const vertSrc = `
       attribute vec2 a_position;
       attribute vec2 a_texCoord;
@@ -412,6 +443,8 @@ export class WebGLColorCycleRenderer {
     return program;
   }
 
+  getFillMaxVerts(): number { return this.fillMaxVerts; }
+
   private ensureFillResources(width: number, height: number) {
     const gl = this.gl;
     if (!this.fillProgram) {
@@ -438,6 +471,11 @@ export class WebGLColorCycleRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fillFbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.fillTex, 0);
     // No need for depth/stencil
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      // eslint-disable-next-line no-console
+      console.warn('[WebGLColorCycleRenderer] Fill FBO incomplete:', status.toString(16));
+    }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
@@ -454,7 +492,8 @@ export class WebGLColorCycleRenderer {
     canvasHeight: number;
   }): Uint8Array | null {
     const gl = this.gl;
-    const count = Math.min(params.vertices.length / 2 | 0, WebGLColorCycleRenderer.MAX_VERTS);
+    const maxVerts = this.fillMaxVerts;
+    const count = Math.min((params.vertices.length / 2) | 0, maxVerts);
     if (count < 3) return null;
 
     const bw = Math.max(1, Math.floor(params.bbox.width));
@@ -498,7 +537,7 @@ export class WebGLColorCycleRenderer {
     if (loc_bboxH) gl.uniform1f(loc_bboxH, bh);
     if (loc_canvasH) gl.uniform1f(loc_canvasH, params.canvasHeight);
     if (loc_count) gl.uniform1i(loc_count, count);
-    if (loc_verts) gl.uniform2fv(loc_verts, params.vertices);
+    if (loc_verts) gl.uniform2fv(loc_verts, params.vertices.subarray(0, count * 2));
     if (loc_bands) gl.uniform1f(loc_bands, params.bands);
     if (loc_bandStep) gl.uniform1f(loc_bandStep, 1.0 / Math.max(2, params.bands));
     if (loc_baseOffset) gl.uniform1f(loc_baseOffset, params.baseOffset);
@@ -516,7 +555,13 @@ export class WebGLColorCycleRenderer {
     const pixels = new Uint8Array(bw * bh * 4);
     gl.readPixels(0, 0, bw, bh, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     const out = new Uint8Array(bw * bh);
-    for (let i = 0, j = 0; i < out.length; i++, j += 4) out[i] = pixels[j];
+    let nonZero = 0;
+    for (let i = 0, j = 0; i < out.length; i++, j += 4) {
+      const r = pixels[j];
+      out[i] = r;
+      if (r !== 0) nonZero++;
+    }
+    debugLog('cc-gpu', '[fillPolygonConcentric] nonZero', nonZero, '/', out.length, 'bw', bw, 'bh', bh, 'count', count);
 
     // Unbind FBO
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
