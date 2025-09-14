@@ -655,8 +655,8 @@ export class ColorCycleBrushCanvas2D {
           const baseOffset = this.stampCounter % 254;
           const colorIndex = ((baseOffset + bandIndex * colorStep) % 254) + 1;
           
-          // Paint pixel
-          animator.paintSquare(x, y, 1, colorIndex);
+          // Paint pixel using raw index for speed
+          animator.setIndex(x, y, colorIndex);
         }
       }
     }
@@ -757,6 +757,9 @@ export class ColorCycleBrushCanvas2D {
     const bboxWidth = Math.max(0, Math.ceil(maxX) - Math.floor(minX) + 1);
     const bboxHeight = Math.max(0, Math.ceil(maxY) - Math.floor(minY) + 1);
     const bboxArea = bboxWidth * bboxHeight;
+    // Preserve visual quality by default; fast approx disabled unless explicitly enabled
+    const FAST_AREA_THRESHOLD = Number.POSITIVE_INFINITY;
+    const useFastScanline = false && ((bboxArea >= FAST_AREA_THRESHOLD) || (vertices.length > 32));
     // Precompute edge vectors to avoid repeated math inside inner loop (no visual change)
     const edges = new Array(vertices.length);
     for (let j = 0; j < vertices.length; j++) {
@@ -772,10 +775,18 @@ export class ColorCycleBrushCanvas2D {
     const shapeHeight = maxY - minY;
     const shapeSize = Math.max(shapeWidth, shapeHeight);
     const maxDist = Math.max(50, shapeSize / 2);
+    const maxDistSq = maxDist * maxDist;
+    const invMaxDistSq = 1 / maxDistSq;
     const bands = this.gradientBands || 12;
     const bandStep = 1.0 / bands;
     const colorStep = Math.floor(254 / bands);
     const baseOffset = this.stampCounter % 254; // Continue from last shape
+    // Precompute squared thresholds to avoid per-pixel sqrt
+    const thresholdsSq = new Float32Array(bands);
+    for (let b = 0; b < bands; b++) {
+      const t = b * bandStep; // normalized distance in [0,1)
+      thresholdsSq[b] = (t * t) * maxDistSq;
+    }
 
     for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) {
       const intersections: number[] = [];
@@ -803,47 +814,61 @@ export class ColorCycleBrushCanvas2D {
       for (let i = 0; i < intersections.length - 1; i += 2) {
         const startX = Math.floor(intersections[i]);
         const endX = Math.ceil(intersections[i + 1]);
-        
-        for (let x = startX; x <= endX; x++) {
-          // Calculate squared distance to nearest edge for gradient (sqrt once per pixel)
-          let minDistSq = Infinity;
-          
-          // Distance to left and right boundaries of this span (squared)
-          const distLeft = x - startX;
-          const distRight = endX - x;
-          const distLeftSq = distLeft * distLeft;
-          const distRightSq = distRight * distRight;
-          minDistSq = distLeftSq < distRightSq ? distLeftSq : distRightSq;
 
-          // Precise distance to polygon edges (squared)
-          for (let j = 0; j < edges.length; j++) {
-            const e = edges[j];
-            if (e.len2 > 0) {
-              const tNum = (x - e.v1x) * e.dx + (y - e.v1y) * e.dy;
-              const t = Math.max(0, Math.min(1, tNum / e.len2));
-              const projX = e.v1x + t * e.dx;
-              const projY = e.v1y + t * e.dy;
-              const dxp = x - projX;
-              const dyp = y - projY;
-              const distSq = dxp * dxp + dyp * dyp;
-              if (distSq < minDistSq) {
-                minDistSq = distSq;
-                if (minDistSq <= 1) break; // early out if essentially on edge
+        if (useFastScanline) {
+          // Fast approximation: distance from span edges only (no per-edge projections)
+          const half = Math.max(1, (endX - startX) / 2);
+          for (let x = startX; x <= endX; x++) {
+            const d = Math.min(x - startX, endX - x);
+            const normalized = Math.min(1, d / half);
+            const bandIndex = Math.min(bands - 1, Math.floor(normalized / bandStep));
+            const colorIndex = ((baseOffset + bandIndex * colorStep) % 254) + 1;
+            (animator as any).setIndex(x, y, colorIndex);
+          }
+        } else {
+          for (let x = startX; x <= endX; x++) {
+            // Calculate squared distance to nearest edge for gradient (sqrt once per pixel)
+            let minDistSq = Infinity;
+            // Distance to left and right boundaries of this span (squared)
+            const distLeft = x - startX;
+            const distRight = endX - x;
+            const distLeftSq = distLeft * distLeft;
+            const distRightSq = distRight * distRight;
+            minDistSq = distLeftSq < distRightSq ? distLeftSq : distRightSq;
+
+            // Precise distance to polygon edges (squared)
+            for (let j = 0; j < edges.length; j++) {
+              const e = edges[j];
+              if (e.len2 > 0) {
+                const tNum = (x - e.v1x) * e.dx + (y - e.v1y) * e.dy;
+                const t = Math.max(0, Math.min(1, tNum / e.len2));
+                const projX = e.v1x + t * e.dx;
+                const projY = e.v1y + t * e.dy;
+                const dxp = x - projX;
+                const dyp = y - projY;
+                const distSq = dxp * dxp + dyp * dyp;
+                if (distSq < minDistSq) {
+                  minDistSq = distSq;
+                  if (minDistSq <= 1) break; // early out if essentially on edge
+                }
               }
             }
-          }
 
-          const minDist = Math.sqrt(minDistSq);
-          
-          // Calculate smooth gradient position (0-1)
-          const normalizedDist = Math.min(1, minDist / maxDist);
-          // Quantize into color bands
-          const bandIndex = Math.min(bands - 1, Math.floor(normalizedDist / bandStep));
-          // Map to color index with continuation from previous shapes
+          // Compute band index without sqrt using squared thresholds
+          // rSq = (minDistSq / maxDist^2) ∈ [0,1]
+          // Band j threshold in squared domain is (j*bandStep)^2
+          let bandIndex = 0;
+          // Fast check for higher bands when far from edge
+          const rSq = minDistSq * invMaxDistSq;
+          if (rSq > 0) {
+            for (let b = 1; b < bands; b++) {
+              if (minDistSq < thresholdsSq[b]) { bandIndex = b - 1; break; }
+              bandIndex = b;
+            }
+          }
           const colorIndex = ((baseOffset + bandIndex * colorStep) % 254) + 1;
-          
-          // Fast path: write raw index directly (avoids palette lookups)
           (animator as any).setIndex(x, y, colorIndex);
+          }
         }
       }
     }

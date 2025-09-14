@@ -46,8 +46,10 @@ if (typeof window !== 'undefined') {
     });
     
     if (issues.length > 0) {
-      console.error('🔴 LAYER INTEGRITY ISSUES:', issues);
-      console.trace('Stack trace for integrity check');
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.error('🔴 LAYER INTEGRITY ISSUES:', issues);
+      }
     }
     return issues;
   };
@@ -119,7 +121,7 @@ import {
 // import { memoryManager } from '../utils/memoryCleanup';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 import { adjustHueAndSaturation } from '../utils/imageProcessing';
-import { debugLog } from '../utils/debug';
+import { debugLog, debugWarn, logError, __DEV__ } from '../utils/debug';
 
 // Helper function to get serializable brush settings for persistence
 const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSettings> => {
@@ -1437,9 +1439,9 @@ export const useAppStore = create<AppState>()(
       activeLayerId: null,
       currentLayer: 0,
       addLayer: (layer) => {
-        // Unconditional trace to confirm function entry in field
-        // eslint-disable-next-line no-console
-        console.log('[layers-raw] STORE:addLayer invoked', layer?.layerType);
+        if (__DEV__) {
+          debugLog('layers-raw', 'STORE:addLayer invoked', layer?.layerType);
+        }
         try { const { recordBreadcrumb } = require('../utils/debug'); recordBreadcrumb('layers', { event: 'store-addLayer-enter', incomingType: layer?.layerType }); } catch {}
         const newLayerId = `layer-${Date.now()}-${Math.random()}`;
         debugLog('layers', 'STORE: addLayer called', {
@@ -1470,12 +1472,12 @@ export const useAppStore = create<AppState>()(
             order: 0,
             // CRITICAL: Preserve layerType EXACTLY - DO NOT convert CC layers to normal!
             layerType: layer.layerType || (
-              console.error('🚨🚨🚨 CRITICAL: Layer missing layerType!', {
+              (logError('CRITICAL: Layer missing layerType!', {
                 layerId: newLayerId?.substring(0, 20),
-                hasColorCycleData: !!layer.colorCycleData,
+                hasColorCycleData: !!(layer as any)?.colorCycleData,
                 fallbackToNormal: true
               }),
-              'normal'
+              'normal')
             )
           };
           
@@ -1746,7 +1748,7 @@ export const useAppStore = create<AppState>()(
         // FINAL VERIFICATION: Check for unexpected CC -> Normal conversions
         const updatedLayer = updatedLayers.find(l => l.id === id);
         if (originalLayer?.layerType === 'color-cycle' && updatedLayer?.layerType === 'normal') {
-          console.error('🚨🚨🚨 LAYER CONVERSION DETECTED DESPITE PROTECTIONS!', {
+          logError('LAYER CONVERSION DETECTED DESPITE PROTECTIONS!', {
             layerId: id.substring(0, 20),
             originalType: originalLayer.layerType,
             finalType: updatedLayer.layerType,
@@ -1782,7 +1784,7 @@ export const useAppStore = create<AppState>()(
       setActiveLayer: (id) => set((state) => {
         const layer = state.layers.find(l => l.id === id);
         if (!layer) {
-          console.error('setActiveLayer: Invalid layer ID', id);
+          logError('setActiveLayer: Invalid layer ID', id);
           return {} as any;
         }
         debugLog('layers', 'STORE: setActiveLayer called', {
@@ -1817,14 +1819,14 @@ export const useAppStore = create<AppState>()(
             // Mark the old layer's brush as inactive
             if (colorCycleBrushManager) {
               if (state.activeLayerId) {
-                try { colorCycleBrushManager.setActiveState(state.activeLayerId, false); } catch (e) { console.error('CC cleanup error (non-fatal): setActiveState', e); }
+                try { colorCycleBrushManager.setActiveState(state.activeLayerId, false); } catch (e) { logError('CC cleanup error (non-fatal): setActiveState', e); }
                 // End any active strokes
                 try {
                   const oldBrush = colorCycleBrushManager.getLayerColorCycleBrush(state.activeLayerId);
                   if (oldBrush && 'endStroke' in oldBrush && typeof (oldBrush as any).endStroke === 'function') {
                     (oldBrush as any).endStroke(state.activeLayerId);
                   }
-                } catch (e) { console.error('CC cleanup error (non-fatal): endStroke', e); }
+                } catch (e) { logError('CC cleanup error (non-fatal): endStroke', e); }
               }
             }
           } catch (e) {

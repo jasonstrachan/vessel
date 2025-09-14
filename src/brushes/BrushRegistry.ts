@@ -1,5 +1,6 @@
 import { BrushPlugin, BrushMetadata, BrushConfig } from './BrushPlugin';
 import { BUILTIN_BRUSH_PLUGINS, BuiltinBrushId } from './plugins';
+import { debugLog, debugWarn } from '@/utils/debug';
 
 /**
  * Registry for managing user-created brush plugins
@@ -15,7 +16,7 @@ class BrushRegistry {
    */
   async register(brush: BrushPlugin, config?: BrushConfig): Promise<void> {
     if (this.brushes.has(brush.id)) {
-      console.warn(`Brush with id "${brush.id}" is already registered, skipping registration`);
+      debugWarn('brush-registry', `Brush with id "${brush.id}" is already registered, skipping registration`);
       return; // Skip instead of throwing error for hot reload compatibility
     }
 
@@ -204,7 +205,7 @@ class BrushRegistry {
   importState(state: BrushRegistryState): void {
     // This would need to be paired with actual brush loading
     // Just sets up the metadata for now
-    console.log('Registry state imported:', state);
+    debugLog('brush-registry', 'Registry state imported:', state);
   }
 }
 

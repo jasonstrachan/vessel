@@ -1,8 +1,11 @@
 // Lightweight debug logger with scope-based opt-in
-// Enable by setting either:
+// Dev-only: all debug helpers become no-ops in production.
+// Enable by setting either (in dev builds only):
 //   window.__TB_DEBUG = { all: true } or { cc: true, 'cc-undo': true }
 // Or via localStorage:
 //   localStorage.setItem('TB_DEBUG', 'all') or 'cc,cc-undo'
+
+export const __DEV__ = process.env.NODE_ENV !== 'production';
 
 type DebugConfig = { all?: boolean; [scope: string]: boolean | undefined };
 
@@ -12,6 +15,7 @@ let __lastConfigRead = 0;
 const __CONFIG_CACHE_MS = 1000; // refresh at most once per second if needed
 
 function readConfig(): DebugConfig {
+  if (!__DEV__) return {};
   // Serve cached config when fresh to keep pointer-move hot paths cheap
   const now = Date.now();
   if (__cachedDebugConfig && now - __lastConfigRead < __CONFIG_CACHE_MS) {
@@ -47,21 +51,32 @@ function readConfig(): DebugConfig {
 }
 
 export function isDebugEnabled(scope: string): boolean {
+  if (!__DEV__) return false;
   const cfg = readConfig();
   return !!cfg.all || !!cfg[scope];
 }
 
 export function debugLog(scope: string, ...args: any[]) {
+  if (!__DEV__) return; // Stripped in production builds
   if (isDebugEnabled(scope)) {
     // Small, consistent prefix
+    // eslint-disable-next-line no-console
     console.log(`[${scope}]`, ...args);
   }
 }
 
 export function debugWarn(scope: string, ...args: any[]) {
+  if (!__DEV__) return; // Stripped in production builds
   if (isDebugEnabled(scope)) {
+    // eslint-disable-next-line no-console
     console.warn(`[${scope}]`, ...args);
   }
+}
+
+// Always-on error log for unexpected failures (kept in production)
+export function logError(...args: any[]) {
+  // eslint-disable-next-line no-console
+  console.error(...args);
 }
 
 // Lightweight persistent breadcrumbs to survive page reloads/crashes
@@ -72,6 +87,7 @@ const BC_LS_KEY = 'TB_BREADCRUMBS';
 const BC_MAX = 200;
 
 export function recordBreadcrumb(scope: string, data: any) {
+  if (!__DEV__) return; // Dev-only breadcrumbs
   try {
     const w: any = typeof window !== 'undefined' ? window : undefined;
     const entry: Breadcrumb = { t: Date.now(), scope, data };

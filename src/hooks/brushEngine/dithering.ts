@@ -264,7 +264,7 @@ const selectDynamicPalette = (
   
   // If no colors found, fall back to default palette
   if (colorMap.size === 0) {
-    console.log('No colors found in image, using default palette');
+    debugLog('dithering', 'No colors found in image, using default palette');
     return DITHER_PALETTE.slice(0, numColors);
   }
   
@@ -272,7 +272,7 @@ const selectDynamicPalette = (
   const colors = Array.from(colorMap.values());
   colors.sort((a, b) => b.count - a.count);
   
-  console.log('Colors found in image:', colors.slice(0, 10).map(c => ({
+  debugLog('dithering', 'Colors found in image:', colors.slice(0, 10).map(c => ({
     color: `rgb(${c.color[0]}, ${c.color[1]}, ${c.color[2]})`,
     count: c.count
   })));
@@ -343,7 +343,7 @@ const selectDynamicPalette = (
     });
   }
   
-  console.log('Final selected palette for dithering:', selectedColors.map(c => 
+  debugLog('dithering', 'Final selected palette for dithering:', selectedColors.map(c => 
     `rgb(${c[0]}, ${c[1]}, ${c[2]})`
   ));
   
@@ -582,3 +582,4 @@ export const applyDitheringWithFillResolution = (
   
   return finalCtx.getImageData(0, 0, imageData.width, imageData.height);
 };
+import { debugLog } from '@/utils/debug';

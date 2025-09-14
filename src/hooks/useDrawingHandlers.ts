@@ -8,7 +8,7 @@ import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '.
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
 import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
 import { appendSegmentWithDynamicResampling } from '../utils/shapeMaker';
-import { debugLog, debugWarn } from '../utils/debug';
+import { debugLog, debugWarn, logError } from '../utils/debug';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -555,7 +555,7 @@ export function useDrawingHandlers({
                   // The captured area is already the right size based on current brush size
                   
                 } catch (e) {
-                  console.warn('Failed to sample canvas for Resampler brush:', e);
+                  debugWarn('resampler', 'Failed to sample canvas for Resampler brush:', e);
                 }
               }
             }
@@ -779,7 +779,7 @@ export function useDrawingHandlers({
                             isResampler: true // Flag to identify resampler brush data
                           } as any;
                         } catch (e) {
-                          console.warn('Failed to sample canvas for continuous Resampler:', e);
+                          debugWarn('resampler', 'Failed to sample canvas for continuous Resampler:', e);
                         }
                       }
                     }
@@ -974,7 +974,7 @@ export function useDrawingHandlers({
               // Optional debug
               try { const { debugLog } = require('../utils/debug'); debugLog('cc-finalize', { event: 'init-cc-canvas', layerId: activeLayer?.id?.substring(0, 20) }); } catch {}
             } catch (e) {
-              console.warn('[Finalize] Failed to initialize CC layer before save:', e);
+              debugWarn('cc-finalize', 'Failed to initialize CC layer before save:', e);
             }
           }
           
@@ -1007,7 +1007,7 @@ export function useDrawingHandlers({
                 }
               }
             } catch (e) {
-              console.warn('[CC Finalize] Failed to commit/clear brush buffers:', e);
+              debugWarn('cc-finalize', 'Failed to commit/clear brush buffers:', e);
             }
 
             // For CC layers, capture directly from the layer's canvas
@@ -1083,7 +1083,7 @@ export function useDrawingHandlers({
       
       // Parent component will handle final redraw
     } catch (error) {
-      console.error("Error during finalization:", error);
+      logError('Error during finalization:', error);
     } finally {
       // Resume previously paused CC animations (all affected layers)
       if (wasCCPlayingBeforeInteractionRef.current) {
@@ -1323,8 +1323,8 @@ export function useDrawingHandlers({
         
         if (isBusyRef) isBusyRef.current = false;
         return;
-      } catch (error) {
-        console.error("Error during linear gradient direction selection:", error);
+    } catch (error) {
+      logError('Error during linear gradient direction selection:', error);
       } finally {
         if (isBusyRef) isBusyRef.current = false;
       }
@@ -1744,7 +1744,7 @@ export function useDrawingHandlers({
         isDrawingShapeRef.current = false;
       }
     } catch (error) {
-      console.error("Error during shape finalization:", error);
+      logError('Error during shape finalization:', error);
     } finally {
       if (isBusyRef) isBusyRef.current = false;
     }
@@ -1813,7 +1813,7 @@ export function useDrawingHandlers({
 
     // Check again after initialization
     if (!drawingCtxRef.current || !drawingCanvasRef.current) {
-      console.error('[DrawingHandlers] Failed to initialize drawing canvas');
+      logError('[DrawingHandlers] Failed to initialize drawing canvas');
       return;
     }
 
