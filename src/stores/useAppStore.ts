@@ -1756,9 +1756,23 @@ export const useAppStore = create<AppState>()(
           });
         }
         
+        // If a color-cycle layer's per-layer brush speed was updated, push it to the brush instance immediately
+        try {
+          if ('colorCycleData' in updates && (updates as any).colorCycleData) {
+            const maybeSpeed = (updates as any).colorCycleData.brushSpeed;
+            if (typeof maybeSpeed === 'number') {
+              const newSpeed = Math.max(0.02, Math.min(2.0, maybeSpeed));
+              const mgr = colorCycleBrushManager;
+              const brush = mgr.getBrush(id);
+              if (brush && 'setSpeed' in (brush as any) && typeof (brush as any).setSpeed === 'function') {
+                (brush as any).setSpeed(newSpeed);
+              }
+            }
+          }
+        } catch {}
+
         trackLayerChanges('updateLayer RETURN', updatedLayers);
-        
-        
+
         return {
           layers: updatedLayers,
           layersNeedRecomposition: needsRecomposition || state.layersNeedRecomposition

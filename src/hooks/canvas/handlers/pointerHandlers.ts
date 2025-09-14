@@ -636,13 +636,11 @@ function cssColorToHex(color: string): string {
   return `#${r}${g}${b}`;
 }
 
-  const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    // Throttle to 120fps max, but never drop shape drawing events
-    const now = performance.now();
-    const isShapeDrawing = tools.shapeMode && drawingHandlers.isDrawingShapeRef.current;
-    if (!isShapeDrawing && now - pointerMoveThrottled.current < 8) return;
-    pointerMoveThrottled.current = now;
-    
+  // RAF aggregator for pointermove to ensure at most one heavy processing per frame
+  let scheduledMoveRAF: number | null = null;
+  let lastMoveEvent: React.PointerEvent<HTMLCanvasElement> | null = null;
+
+  const processPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     const currentPointerPos = rect ? {
       x: event.clientX - rect.left,
@@ -1396,6 +1394,13 @@ function cssColorToHex(color: string): string {
       cancelAnimationFrame(deps.previewAnimationFrameRef.current);
       deps.previewAnimationFrameRef.current = null;
     }
+
+    // Cancel any pending move RAF batch
+    if (scheduledMoveRAF != null) {
+      cancelAnimationFrame(scheduledMoveRAF);
+      scheduledMoveRAF = null;
+      lastMoveEvent = null;
+    }
     
     // Clear overlay canvas
     const overlayCanvas = overlayCanvasRef.current;
@@ -1766,6 +1771,23 @@ function cssColorToHex(color: string): string {
     }
   };
 
+  const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    // Keep handler minimal; batch work to next animation frame
+    // Never drop updates while drawing shapes; RAF will still run at display rate
+    // Persist the synthetic event just in case (React 17+ no-ops)
+    (event as any).persist?.();
+    lastMoveEvent = event;
+    if (scheduledMoveRAF == null) {
+      scheduledMoveRAF = requestAnimationFrame(() => {
+        const e = lastMoveEvent;
+        scheduledMoveRAF = null;
+        if (e) {
+          processPointerMove(e);
+        }
+      });
+    }
+  };
+
   const handlePointerEnter = () => {
     // Show brush cursor when entering canvas
     if (tools.currentTool === 'brush' || tools.currentTool === 'eraser') {
@@ -1781,6 +1803,13 @@ function cssColorToHex(color: string): string {
     // Handle pointer cancel (e.g., stylus moving out of range)
     isMouseDownRef.current = false;
     (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+
+    // Cancel any pending move RAF batch on cancel
+    if (scheduledMoveRAF != null) {
+      cancelAnimationFrame(scheduledMoveRAF);
+      scheduledMoveRAF = null;
+      lastMoveEvent = null;
+    }
   };
 
   return {
