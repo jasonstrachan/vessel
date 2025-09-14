@@ -115,12 +115,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // Test Wacom functionality
     const wacomTest = testWacomPressure(event);
     if (!wacomTest.isWorking && tools.brushSettings.pressureEnabled) {
-      // Gate noisy warnings behind debug
-      debugWarn('wacom', wacomTest.details);
       const issues = detectWacomIssues();
-      if (issues.solutions.length > 0) {
-        debugLog('wacom', 'solutions', issues.solutions.join('\n'));
-      }
+      // Intentionally silent to avoid console noise
     }
     
     // SIMPLIFIED PANNING: Just check if space is pressed
@@ -128,7 +124,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       pan.startPan(pointerPos.x, pointerPos.y);
       setCursorStyle('grabbing');
       setShowBrushCursor(false);
-      debugLog('pan', 'PTR_DOWN startPan (space held)', { pos: pointerPos });
+      // Intentionally quiet: avoid console noise for common panning
       return; // Skip everything else - we're panning
     }
     
@@ -139,15 +135,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     
     const scale = canvas?.zoom || 1;
     const worldPos = pan.screenToWorld(pointerPos.x, pointerPos.y, scale);
-    debugLog('shape-ptr', 'DOWN', {
-      tool: tools.currentTool,
-      shapeMode: tools.shapeMode,
-      brushShape: tools.brushSettings.brushShape,
-      selectedCustomBrush: tools.brushSettings.selectedCustomBrush,
-      hasCurrentBrushTip: !!tools.brushSettings.currentBrushTip,
-      button: event.button,
-      pos: worldPos
-    });
+    // Intentionally quiet
 
     // Recolor/Brush sampling finalize (on second click as a fallback)
     const rsUp = useAppStore.getState().recolorSampling;
@@ -267,7 +255,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       tools.brushSettings.brushShape !== BrushShape.CONTOUR_POLYGON &&
       tools.brushSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE
     ) {
-      debugLog('shape-ptr', 'branch brush/eraser shape');
+      // quiet
       // Strictly block incompatible brush/layer combinations (but allow eraser on any layer)
       if (tools.currentTool !== 'eraser') {
         const compat = checkLayerBrushCompatibility();
@@ -281,7 +269,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       strokeStartWorldPosRef.current = worldPos;
       lastBrushSampleWorldPosRef.current = worldPos;
       shiftAnchorWorldPosRef.current = event.shiftKey ? worldPos : null;
-      debugLog('snap', 'shape stroke start', { worldPos, shift: event.shiftKey, strokeStartWorldPos: strokeStartWorldPosRef.current, shiftAnchorWorldPos: shiftAnchorWorldPosRef.current });
+      // quiet
 
       interaction.dispatch({ type: 'DRAWING_START', pressure });
       drawingHandlers.startShapeDrawing(worldPos, pressure);
@@ -310,7 +298,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       strokeStartWorldPosRef.current = worldPos;
       lastBrushSampleWorldPosRef.current = worldPos;
       shiftAnchorWorldPosRef.current = event.shiftKey ? worldPos : null;
-      debugLog('snap', 'brush stroke start', { worldPos, shift: event.shiftKey, strokeStartWorldPos: strokeStartWorldPosRef.current, shiftAnchorWorldPos: shiftAnchorWorldPosRef.current });
+      // quiet
 
       // Use the existing drawing system with brush engine
       interaction.dispatch({ type: 'DRAWING_START', pressure });
@@ -383,7 +371,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       // Handle selection tool
       // If using custom tool BUT shape mode is ON, treat as shape drawing with current brush
       if (tools.currentTool === 'custom' && tools.shapeMode) {
-        debugLog('shape-ptr', 'custom+shape start', { selectedCustomBrush: tools.brushSettings.selectedCustomBrush, hasCurrentBrushTip: !!tools.brushSettings.currentBrushTip });
+        // quiet
         // Start shape drawing with the selected custom brush
         interaction.dispatch({ type: 'DRAWING_START', pressure });
         drawingHandlers.startShapeDrawing(worldPos, pressure);
@@ -402,13 +390,13 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       
       // Handle direction selection click for linear gradient fill
       if (drawingHandlers.isSelectingDirectionRef?.current) {
-        debugLog('shape-ptr', 'direction-click', { pos: worldPos });
+        // quiet
         // Pass the click position to finalize the direction
         drawingHandlers.startShapeDrawing(worldPos, pressure);
-        debugLog('shape-ptr', 'direction-finalize');
+        // quiet
         // Now finalize with the direction set
         drawingHandlers.finalizeShapeDrawing();
-        debugLog('shape-ptr', 'direction-complete');
+        // quiet
         return;
       }
       
@@ -685,11 +673,7 @@ function cssColorToHex(color: string): string {
 
     // Quick visibility: show when Shift is held during drawing
     if (interaction.state.isDrawing && event.shiftKey) {
-      debugLog('snap', 'move shift held', {
-        isShape: tools.shapeMode && drawingHandlers.isDrawingShapeRef.current,
-        hasAnchor: !!(shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current),
-        anchor: shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current || null
-      });
+      // quiet
     }
 
     // Unified coalesced handling below covers both brush and shape drawing (with snapping)
@@ -728,7 +712,6 @@ function cssColorToHex(color: string): string {
     
     // If Shift is currently not held, allow re-anchoring the next time it's pressed during this stroke
     if (!event.shiftKey && interaction.state.isDrawing) {
-      if (shiftAnchorWorldPosRef.current) { debugLog('snap', 'shift released -> clear anchor'); }
       shiftAnchorWorldPosRef.current = null;
     }
 
@@ -752,7 +735,6 @@ function cssColorToHex(color: string): string {
             // If Shift was pressed mid-stroke, anchor to the last sampled point
             if (!shiftAnchorWorldPosRef.current) {
               shiftAnchorWorldPosRef.current = lastBrushSampleWorldPosRef.current || coalescedWorldPos;
-              debugLog('snap', 'set mid-stroke anchor (coalesced)', { anchor: shiftAnchorWorldPosRef.current, lastBrushSampleWorldPos: lastBrushSampleWorldPosRef.current });
             }
             if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
               const pts = drawingHandlers.shapePointsRef?.current || [];
@@ -760,14 +742,14 @@ function cssColorToHex(color: string): string {
                 const anchor = pts[pts.length - 1];
                 const before = coalescedWorldPos;
                 coalescedWorldPos = snapPointToAngle(anchor, coalescedWorldPos, 45);
-                debugLog('snap', 'coalesced shape', { anchor, before, after: coalescedWorldPos });
+                // quiet
               }
             } else if (!tools.shapeMode) {
               const anchor = shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current;
               if (anchor) {
                 const before = coalescedWorldPos;
                 coalescedWorldPos = snapPointToAngle(anchor, coalescedWorldPos, 45);
-                debugLog('snap', 'coalesced brush', { anchor, before, after: coalescedWorldPos });
+                // quiet
               }
             }
           }
@@ -981,7 +963,6 @@ function cssColorToHex(color: string): string {
           if (start) {
             const before = rgWorld;
             rgWorld = snapPointToAngle(start, worldPos, 45);
-            debugLog('snap', 'rectangle length', { start, before, after: rgWorld });
           }
         }
         const previewType = toolStateMachine.handleRectangleGradientMouseMove(rgWorld);
@@ -1153,7 +1134,6 @@ function cssColorToHex(color: string): string {
             const anchor = points[points.length - 1];
             const before = previewWorld;
             previewWorld = snapPointToAngle(anchor, previewWorld, 45);
-            debugLog('snap', 'polygon preview', { anchor, before, after: previewWorld });
           }
         }
         // Determine preview mode without driving store updates for CC shape
@@ -1325,7 +1305,6 @@ function cssColorToHex(color: string): string {
             const anchor = pts[pts.length - 1];
             const before = shapeWorld;
             shapeWorld = snapPointToAngle(anchor, shapeWorld, 45);
-            debugLog('snap', 'shape segment', { anchor, before, after: shapeWorld });
           }
         }
         drawingHandlers.continueShapeDrawing(shapeWorld);
@@ -1336,13 +1315,11 @@ function cssColorToHex(color: string): string {
           // If Shift was pressed mid-stroke, and we don't yet have an anchor, use the last sampled point
           if (!shiftAnchorWorldPosRef.current) {
             shiftAnchorWorldPosRef.current = lastBrushSampleWorldPosRef.current || brushWorld;
-            debugLog('snap', 'set mid-stroke anchor', { anchor: shiftAnchorWorldPosRef.current, lastBrushSampleWorldPos: lastBrushSampleWorldPosRef.current });
           }
           const anchor = shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current;
           if (anchor) {
             const before = brushWorld;
             brushWorld = snapPointToAngle(anchor, brushWorld, 45);
-            debugLog('snap', 'brush segment', { anchor, before, after: brushWorld });
           }
         }
         drawingHandlers.continueDrawing(brushWorld, pressure);
@@ -1378,7 +1355,7 @@ function cssColorToHex(color: string): string {
     strokeStartWorldPosRef.current = null;
     shiftAnchorWorldPosRef.current = null;
     lastBrushSampleWorldPosRef.current = null;
-    debugLog('snap', 'pointer up -> clear anchors');
+    // quiet
     
     // Release pointer capture
     (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
@@ -1576,18 +1553,15 @@ function cssColorToHex(color: string): string {
                 
                 // Check fill mode and use appropriate fill method
                 const fillMode = tools.brushSettings.colorCycleFillMode || 'concentric';
-                debugLog('cc-shape', 'fill-mode', fillMode);
                 
                 if (fillMode === 'linear') {
                   
                   // For linear mode, we need to enter direction selection mode
-                  debugLog('cc-shape', 'linear-enter-direction');
                   // Store the polygon points in drawing handlers for direction selection
                   drawingHandlers.shapePointsRef.current = currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y }));
                   
                   // Mark that we're selecting direction
                   drawingHandlers.isSelectingDirectionRef.current = true;
-                  debugLog('cc-shape', 'set-selecting-direction', true);
                   
                   // Stop any color cycle animation to prevent flickering during direction selection
                   drawingHandlers.stopContinuousColorCycleAnimation?.();
@@ -1609,7 +1583,6 @@ function cssColorToHex(color: string): string {
                   drawCtx.restore();
                   
                   // Don't render color cycle yet - wait for direction
-                  debugLog('cc-shape', 'ready-direction-click');
                   // Skip the normal finalization - we'll finalize after direction is selected
                   drawingHandlers.drawingCanvasHasContent.current = true;
                   toolStateMachine.resetPolygonGradient();
@@ -1691,11 +1664,9 @@ function cssColorToHex(color: string): string {
       compositeCanvasDirtyRef.current = true;
       
       if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
-        debugLog('shape-ptr', 'UP finalize shape', { tool: tools.currentTool, brushShape: tools.brushSettings.brushShape });
         // Guard: require at least 3 points to finalize a polygon
         const ptsLen = (drawingHandlers as any).shapePointsRef?.current?.length || 0;
         if (ptsLen < 3) {
-          debugLog('shape-ptr', 'UP not enough points', { ptsLen });
           // Keep collecting vertices with subsequent clicks
           return;
         }

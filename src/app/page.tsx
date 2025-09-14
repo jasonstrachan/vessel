@@ -46,14 +46,9 @@ export default function Home() {
     const store = useAppStore.getState();
     // Check top-level layers, not project.layers
     if (store.layers.length === 0) {
-      debugLog('app-init', 'Creating new project - no layers exist');
       newProject(1920, 1080, 'Untitled');
     } else {
-      debugLog('app-init', 'Skipping new project - layers already exist:', store.layers.length);
-      // Log existing layer state
-      store.layers.forEach(layer => {
-        debugLog('app-init', '  - Layer:', layer.id, 'Type:', layer.layerType, 'HasColorCycleData:', !!layer.colorCycleData);
-      });
+      // quiet
     }
     
     // Preload risograph texture to avoid lag on first use

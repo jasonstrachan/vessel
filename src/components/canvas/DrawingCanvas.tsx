@@ -107,7 +107,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   
   // Debug cursor style
   useEffect(() => {
-    debugLog('cursor', 'Cursor style:', cursorStyle, 'Tool:', tools.currentTool, 'BrushShape:', tools.brushSettings.brushShape);
+    // quiet
   }, [cursorStyle, tools.currentTool, tools.brushSettings.brushShape]);
   
   
@@ -649,16 +649,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         e.preventDefault();
         e.stopPropagation();
 
-        {
-          const store = useAppStore.getState();
-          debugLog('pan', 'SPACE_DOWN', {
-            scope: currentScope,
-            isMouseDown: isMouseDownRef.current,
-            tool: store.tools.currentTool,
-            shapeMode: store.tools.shapeMode,
-            isPanning: panRef.current.panState.isPanning
-          });
-        }
+        // quiet
 
         // Do not start panning if a modal has focus
         if (currentScope === 'modal') return;
@@ -671,7 +662,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         if (isMouseDownRef.current && mousePosition.x !== undefined && mousePosition.y !== undefined) {
           panRef.current.startPan(mousePosition.x, mousePosition.y);
           setCursorStyleRef.current('grabbing');
-          debugLog('pan', 'KBD startPan immediate', { pos: mousePosition });
+          // quiet
         }
         return;
       }
@@ -700,14 +691,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         if (wasPanning) {
           panRef.current.endPan();
         }
-        {
-          const store = useAppStore.getState();
-          debugLog('pan', 'SPACE_UP', {
-            wasPanning,
-            tool: store.tools.currentTool,
-            shapeMode: store.tools.shapeMode
-          });
-        }
         setCursorStyleRef.current(defaultCursorStyle);
         setShowBrushCursorRef.current(true);
       }
@@ -722,15 +705,13 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     };
   }, [defaultCursorStyle]); // Only defaultCursorStyle as it's a string constant
 
-  // Monitor undo stack changes
+  // Monitor undo stack changes (quiet)
   useEffect(() => {
     let prevLength = useAppStore.getState().history.undoStack.length;
     const unsubscribe = useAppStore.subscribe((state) => {
       const length = state.history.undoStack.length;
       if (length > prevLength) {
-        debugLog('undo', `NEW UNDO STATE SAVED. Stack: ${prevLength} -> ${length}`);
-        const lastItem = state.history.undoStack[length - 1];
-        debugLog('undo', 'Last saved item:', lastItem?.description);
+        // quiet
       }
       prevLength = length;
     });
@@ -748,7 +729,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         if (isMouseDownRef.current && mousePosition.x !== undefined && mousePosition.y !== undefined) {
           panRef.current.startPan(mousePosition.x, mousePosition.y);
           setCursorStyleRef.current('grabbing');
-          debugLog('pan', 'HOOK startPan immediate', { pos: mousePosition });
+          // quiet
         }
       }
     },
@@ -760,7 +741,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         }
         setCursorStyleRef.current(defaultCursorStyle);
         setShowBrushCursorRef.current(true);
-        debugLog('pan', 'HOOK space up');
+        // quiet
       }
     },
     onSave: () => {
@@ -779,24 +760,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       // Eraser key released - tool restoration handled in hook
     },
     onUndo: () => {
-      debugLog('undo', '=== UNDO TRIGGERED ===');
       const storeState = useAppStore.getState();
       const currentStack = storeState.history.undoStack;
       if (currentStack.length <= 1) {
-        debugLog('undo', 'Nothing to undo (stack length <= 1)');
         return;
       }
-      debugLog('undo', 'Undo stack length:', currentStack.length);
-      debugLog('undo', 'Top item description:', currentStack[currentStack.length - 1]?.description);
 
       // Pop exactly one entry via store.undo() (single-step undo)
       const snapshot = undo();
-      debugLog('undo', 'Snapshot retrieved:', {
-        hasSnapshot: !!snapshot,
-        hasColorCycleState: !!snapshot?.colorCycleState,
-        hasLayers: !!snapshot?.layers,
-        hasImageData: !!snapshot?.imageData
-      });
       if (snapshot) {
         if (snapshot.layers && snapshot.activeLayerId) {
           // Reconstruct layers with proper type preservation
@@ -891,18 +862,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
                 layerSnapshots: snapshot.colorCycleState.layerStrokes
               });
 
-              // DEBUG: Verify internal stroke buffer after restore
-              try {
-                const snap = (restoredActive.colorCycleData.colorCycleBrush as any).getLayerSnapshot?.(layerId);
-                debugLog('cc-undo', {
-                  phase: 'after-restore',
-                  layerId: layerId?.substring(0, 20),
-                  hasSnapshot: !!snap,
-                  hasContent: snap?.hasContent,
-                  paintBufferBytes: snap?.paintBuffer?.byteLength || 0,
-                  strokeCounter: snap?.strokeCounter
-                });
-              } catch {}
+              // quiet
             }
           }
           
@@ -1071,18 +1031,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
                 layerSnapshots: snapshot.colorCycleState.layerStrokes
               });
 
-              // DEBUG: Verify internal stroke buffer after restore
-              try {
-                const snap = (restoredActive.colorCycleData.colorCycleBrush as any).getLayerSnapshot?.(layerId);
-                debugLog('cc-undo', {
-                  phase: 'redo-after-restore',
-                  layerId: layerId?.substring(0, 20),
-                  hasSnapshot: !!snap,
-                  hasContent: snap?.hasContent,
-                  paintBufferBytes: snap?.paintBuffer?.byteLength || 0,
-                  strokeCounter: snap?.strokeCounter
-                });
-              } catch {}
+              // quiet
             }
           }
           
@@ -1168,28 +1117,23 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
           
           if (isColorCycleLayer && tools.shapeMode) {
-            debugLog('cc-shape', '=== COLOR CYCLE SHAPE DRAW ===');
-            debugLog('cc-shape', '1. Before save - Canvas data exists?', !!activeLayer.colorCycleData?.canvas);
             
             if (activeLayer.colorCycleData?.canvas) {
               // Log what we're saving
-              const ctx = activeLayer.colorCycleData.canvas.getContext('2d');
+              const ctx = activeLayer.colorCycleData.canvas.getContext('2d', { willReadFrequently: true });
               const imageData = ctx?.getImageData(0, 0, 100, 100); // Sample corner
-              debugLog('cc-shape', '2. Sample pixel data before save:', imageData?.data.slice(0, 20));
             }
             
             // Don't save here - it will be saved in finalizeDrawing
             // This prevents duplicate undo entries for color cycle shapes
-            debugLog('cc-shape', '3. NOT saving here - will save in finalizeDrawing');
             
-            debugLog('cc-shape', '4. Before resetColorCycle (clearBuffer=true)');
+            
             // Start a fresh CC stroke buffer for each new shape to avoid accumulation
             brushEngine.resetColorCycle(true);
-            debugLog('cc-shape', '5. After resetColorCycle');
+            
             
             // Fill shape with color cycle gradient from edges to center
             const points = toolStateMachine.polygonGradientState.points.map(p => ({ x: p.x, y: p.y }));
-            debugLog('cc-shape', '6. Drawing shape with points:', points.length);
             brushEngine.fillColorCycleShape(points);
             
             // Clear the drawing canvas before rendering
@@ -1197,7 +1141,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             
             // Render the color cycle immediately at full opacity
             brushEngine.renderColorCycle(drawCtx, false);
-            debugLog('cc-shape', '7. Shape rendered to drawing canvas');
+            
           } else if (toolStateMachine.isContourPolygon) {
             // Check if it's a contour polygon
             brushEngine.drawContourPolygon(
@@ -1222,14 +1166,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           drawingHandlers.drawingCanvasHasContent.current = true;
           // Mark composite as dirty BEFORE finalization
           compositeCanvasDirtyRef.current = true;
-          debugLog('cc-shape', '8. Before finalizeDrawing call');
+          
           drawingHandlers.finalizeDrawing().then(() => {
-            debugLog('cc-shape', '=== FINALIZE COMPLETE ===');
-            debugLog('cc-shape', 'Composite dirty?', compositeCanvasDirtyRef.current);
+            
             
             // Check if another save happened during finalization
             const stackLength = useAppStore.getState().history.undoStack.length;
-            debugLog('cc-shape', 'Current undo stack length:', stackLength);
             
             // Signal that finalization is complete
             stateMachine.finalizationComplete();

@@ -372,11 +372,9 @@ export class AppIntegration {
       if (!increaseQuality && settings.animation.fps > 15) {
         // Reduce FPS to improve performance
         settings.animation.fps = Math.max(15, settings.animation.fps - 5);
-        debugLog('cc-perf', `Reduced FPS for layer ${layer.id} to ${settings.animation.fps}`);
       } else if (increaseQuality && settings.animation.fps < 30) {
         // Increase FPS when performance allows
         settings.animation.fps = Math.min(30, settings.animation.fps + 5);
-        debugLog('cc-perf', `Increased FPS for layer ${layer.id} to ${settings.animation.fps}`);
       }
     }
   }

@@ -8,7 +8,15 @@ This document captures prioritized, actionable recommendations to make Tinybrush
 - Offload palette/gradient work: Use `src/lib/performance/GradientWorkerManager.ts` + `src/workers/gradientWorker.ts` for gradient generation and palette shifting everywhere (avoid synchronous paths).
 - OffscreenCanvas/ImageBitmap: Integrate `src/lib/performance/OffscreenRenderer.ts` and `src/lib/performance/ImageBitmapTransfer.ts` in render/composite paths when supported to reduce main‑thread blocking.
 - Throttle pointer work with RAF: Keep pointer handlers minimal; subscribe only to needed store slices. Ensure no excessive store reads per move.
-- Strip dev logging in prod: Gate logs via `src/utils/debug.ts` and remove raw `console.*` in hot paths. Ensure they’re dead‑code‑eliminated in production.
+- Strip dev logging in prod: Gate logs via `src/utils/debug.ts` and remove raw `console.*` in hot paths. Ensure they’re dead-code-eliminated in production.
+
+### Debug logging controls (dev-only)
+- Default excluded scopes: `composite`, `cc-render` (quiet by default to avoid floods).
+- Enable scopes: `localStorage.setItem('TB_DEBUG', 'layers,undo')`
+- Enable all (respects excludes): `localStorage.setItem('TB_DEBUG', 'all')`
+- Force include excluded scopes: `localStorage.setItem('TB_DEBUG_FORCE', 'composite,cc-render')` or `'all'`
+- Add exclusions: `localStorage.setItem('TB_DEBUG_EXCLUDE', 'scope1,scope2')`
+- Kill switch (off): `localStorage.setItem('TB_DEBUG', 'off')`
 
 ## State Management (Zustand)
 - Split the monolithic store: Break `src/stores/useAppStore.ts` into slices (project, canvas, tools, layers, ui, history, autosave, customBrushes). Compose with Zustand’s slice pattern for readability and testability.
@@ -71,4 +79,3 @@ References
 - `src/stores/useAppStore.ts` and `src/stores/colorCycleBrushManager.ts`
 - `src/lib/performance/*`, `src/workers/gradientWorker.ts`
 - `src/utils/debug.ts`
-

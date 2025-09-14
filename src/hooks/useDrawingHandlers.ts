@@ -1105,7 +1105,6 @@ export function useDrawingHandlers({
   const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
     // If we're selecting direction for linear gradient, record the direction
     if (isSelectingDirectionRef.current) {
-      debugLog('cc-shape', 'direction-click', worldPos);
       directionPreviewRef.current = worldPos;
       // Direction selection will be finalized in finalizeShapeDrawing
       return;
@@ -1122,14 +1121,7 @@ export function useDrawingHandlers({
           ccShapePreviewPauseStartedRef.current = true;
         }
       } catch {}
-      debugLog('shape', 'START', {
-        tool: useAppStore.getState().tools.currentTool,
-        brushShape: useAppStore.getState().tools.brushSettings.brushShape,
-        selectedCustomBrush: useAppStore.getState().tools.brushSettings.selectedCustomBrush,
-        hasCurrentBrushTip: !!useAppStore.getState().tools.brushSettings.currentBrushTip,
-        pos: worldPos,
-        appending: isDrawingShapeRef.current && shapePointsRef.current.length > 0
-      });
+      // quiet
       // Avoid allocating the full-size drawing canvas at the first vertex for
       // Color Cycle Shape previews. We render previews on the lightweight overlay
       // canvas and defer allocation until direction selection or finalization.
@@ -1145,7 +1137,6 @@ export function useDrawingHandlers({
       // Support click-to-add vertices: if already drawing a shape, append point instead of resetting
       if (isDrawingShapeRef.current && shapePointsRef.current.length > 0) {
         shapePointsRef.current.push(worldPos);
-        debugLog('shape', 'START append', { len: shapePointsRef.current.length });
       } else {
         shapePointsRef.current = [worldPos];
         isDrawingShapeRef.current = true;
@@ -1175,17 +1166,17 @@ export function useDrawingHandlers({
     
     // If we're selecting direction, show preview line
     if (isSelectingDirectionRef.current && shapePointsRef.current.length >= 3) {
-      debugLog('cc-shape', 'direction-move', worldPos);
+      // quiet
       
       // Make sure we have drawing context
       if (!drawingCtxRef.current || !drawingCanvasRef.current) {
-        debugLog('cc-shape', 'reinit-preview');
+        // quiet
         initDrawingCanvas();
       }
       
       const drawCtx = drawingCtxRef.current;
       if (drawCtx && drawingCanvasRef.current) {
-        debugLog('cc-shape', 'draw-direction-preview');
+        // quiet
         // Clear and redraw shape with transparent fill
         drawCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
         
@@ -1228,7 +1219,7 @@ export function useDrawingHandlers({
       const brushSize = store.tools.brushSettings.size || 20;
       const added = appendSegmentWithDynamicResampling(shapePointsRef.current, worldPos, zoom, brushSize, 0.25, 0.6);
       if (added > 0) {
-        debugLog('shape', 'MOVE add', { added, len: shapePointsRef.current.length });
+        // quiet
       }
     } else if (!tools.shapeMode) {
       continueDrawing(worldPos);
@@ -1307,7 +1298,6 @@ export function useDrawingHandlers({
         
         // Restart color cycle animation if it was playing before direction selection
         if (wasCCPlayingBeforeInteractionRef.current) {
-          debugLog('cc-shape', 'restart-animation-after-direction');
           // Resume previously paused per-layer anims
           resumePausedBrushCCAnimations();
           // Also respect global play state and kick the continuous loop if needed
@@ -1337,17 +1327,11 @@ export function useDrawingHandlers({
       }
       if (isBusyRef) isBusyRef.current = true;
       
-      debugLog('shape', 'FINALIZE points', { len: shapePointsRef.current.length });
+      // quiet
       if (isDrawingShapeRef.current && shapePointsRef.current.length >= 3) {
         const drawCtx = drawingCtxRef.current;
         if (drawCtx && brushEngine) {
-          debugLog('shape', 'FINALIZE start', {
-            points: shapePointsRef.current.length,
-            brushShape: tools.brushSettings.brushShape,
-            isCustom: tools.brushSettings.brushShape === BrushShape.CUSTOM,
-            selectedCustomBrush: tools.brushSettings.selectedCustomBrush,
-            hasCurrentBrushTip: !!tools.brushSettings.currentBrushTip
-          });
+          // quiet
           drawCtx.globalAlpha = 1.0;
           drawCtx.globalCompositeOperation = 'source-over';
           
@@ -1410,11 +1394,7 @@ export function useDrawingHandlers({
           
           if (isCustomBrush && customBrushImageData) {
             try {
-            debugLog('shape', 'FINALIZE custom pattern', {
-                srcW: customBrushWidth,
-                srcH: customBrushHeight,
-                sizePct: tools.brushSettings.size
-              });
+            // quiet
             } catch {}
             // Calculate scaled size based on brush settings, maintaining aspect ratio
             const scale = tools.brushSettings.size / 100;
@@ -1473,10 +1453,10 @@ export function useDrawingHandlers({
                   // Ensure no smoothing when painting the pattern fill
                   (drawCtx as any).imageSmoothingEnabled = false;
                   drawCtx.fillStyle = pattern;
-                  debugLog('shape', 'FINALIZE pattern created', { scaledWidth, scaledHeight });
+                  // quiet
                 } else {
                   drawCtx.fillStyle = tools.brushSettings.color;
-                  debugLog('shape', 'FINALIZE pattern creation failed');
+                  // quiet
                 }
                 
                 // Clean up tip canvas to prevent memory leak
@@ -1521,7 +1501,6 @@ export function useDrawingHandlers({
           }
           drawCtx.closePath();
           drawCtx.fill();
-          debugLog('shape', 'FINALIZE filled');
           
           // Apply risograph effect if enabled (matching monolithic implementation)
           const risographIntensity = tools.brushSettings.risographIntensity || 0;
@@ -1603,13 +1582,11 @@ export function useDrawingHandlers({
             // Check fill mode and fill accordingly
             if (shapePointsRef.current.length >= 3) {
               const fillMode = tools.brushSettings.colorCycleFillMode || 'concentric';
-              debugLog('cc-shape', 'fill-mode', { fillMode, setting: tools.brushSettings.colorCycleFillMode });
-              debugLog('cc-shape', 'flags-before', { selecting: isSelectingDirectionRef.current, drawing: isDrawingShapeRef.current });
+              // quiet
               
               if (fillMode === 'linear') {
                 // For linear mode, enter direction selection phase
-                debugLog('cc-shape', 'enter-linear-direction');
-                debugLog('cc-shape', 'shape-points', shapePointsRef.current.length);
+                // quiet
                 isSelectingDirectionRef.current = true;
                 isDrawingShapeRef.current = false;
                 
@@ -1626,7 +1603,7 @@ export function useDrawingHandlers({
                 // Keep the shape points for when direction is selected
                 // Make sure drawing canvas is initialized
                 if (!drawingCanvasRef.current || !drawingCtxRef.current) {
-                  debugLog('cc-shape', 'init-canvas-direction');
+                  // quiet
                   initDrawingCanvas();
                 }
                 
@@ -1647,14 +1624,14 @@ export function useDrawingHandlers({
                   drawingCtxRef.current.restore();
                   
                   drawingCanvasHasContent.current = true;
-                  debugLog('cc-shape', 'direction-outline');
+      // quiet
                 } else {
-                  debugWarn('cc-shape', 'preview-ctx-missing');
+                  // quiet
                 }
                 
                 // Exit early - don't finalize yet, wait for direction click
                 if (isBusyRef) isBusyRef.current = false;
-                debugLog('cc-shape', 'direction-ready', { selecting: isSelectingDirectionRef.current });
+                // quiet
                 return;
               } else {
                 // Concentric fill (default)
@@ -1683,6 +1660,10 @@ export function useDrawingHandlers({
                   // Save state AFTER the shape is rendered (no extra capture)
                   // Mark as important to avoid debounce coalescing multiple shapes
                   saveCanvasState(activeLayer.colorCycleData.canvas, 'fill', 'CC Shape');
+
+                  // Force composite refresh so the persisted shape appears even if
+                  // the overlay is suppressed by CC animation state.
+                  try { window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate')); } catch {}
                 }
                 
                 drawingCanvasHasContent.current = true;
@@ -1695,13 +1676,13 @@ export function useDrawingHandlers({
         
         // Only clear shape points if we're NOT in direction selection mode
         // Linear mode needs to keep the points for when direction is selected
-        debugLog('cc-shape', 'before-clear', { selecting: isSelectingDirectionRef.current, len: shapePointsRef.current.length });
+        // quiet
         if (!isSelectingDirectionRef.current) {
-          debugLog('cc-shape', 'clear-points');
+          // quiet
           shapePointsRef.current = [];
           isDrawingShapeRef.current = false;
         } else {
-          debugLog('cc-shape', 'keep-points-direction');
+          // quiet
         }
         
         // FIXED: For CC shapes on CC layers, handle finalization directly without calling finalizeDrawing
@@ -1940,6 +1921,21 @@ export function useDrawingHandlers({
     if (hadAny) {
       wasCCPlayingBeforeInteractionRef.current = true;
     }
+
+    // Ensure store flags reflect paused state so overlay preview can render
+    try {
+      const st = useAppStore.getState();
+      st.layers
+        .filter(l => l.layerType === 'color-cycle' && (l as any).colorCycleData?.mode !== 'recolor' && (l as any).colorCycleData?.isAnimating)
+        .forEach(l => {
+          st.updateLayer(l.id, {
+            colorCycleData: {
+              ...(l as any).colorCycleData,
+              isAnimating: false
+            }
+          } as any);
+        });
+    } catch {}
 
     // Clear the overlay drawing canvas so CC frames don't sit above the layer stack
     try {

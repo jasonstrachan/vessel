@@ -15,6 +15,8 @@
  * - Index value 0 is treated as transparent (alpha = 0)
  */
 
+import { debugLog } from '../../../utils/debug';
+
 export interface GLRendererConfig {
   width: number;
   height: number;
@@ -44,6 +46,12 @@ export class WebGLColorCycleRenderer {
 
   private paletteSize: number = 256;
   private paletteUploaded: boolean = false;
+
+  // Offscreen resources for compute-style polygon fills
+  private fillProgram: WebGLProgram | null = null;
+  private fillFbo: WebGLFramebuffer | null = null;
+  private fillTex: WebGLTexture | null = null;
+  private static readonly MAX_VERTS = 256; // cap to keep uniform usage reasonable
 
   private static _supportCached: boolean | null = null;
   
@@ -102,7 +110,7 @@ export class WebGLColorCycleRenderer {
       const gl = (this.canvas.getContext('webgl', { premultipliedAlpha: false, alpha: true }) ||
                   this.canvas.getContext('experimental-webgl', { premultipliedAlpha: false, alpha: true })) as WebGLRenderingContext | null;
       if (!gl) {
-        throw new Error('Failed to create WebGL context');
+      throw new Error('Failed to create WebGL context');
       }
       this.gl = gl;
       this.isWebGL2 = false;
@@ -290,6 +298,229 @@ export class WebGLColorCycleRenderer {
     }
 
     return program;
+  }
+
+  /**
+   * Create program for concentric polygon fill with band quantization.
+   * Writes the banded index into the red channel of an offscreen RGBA8 target.
+   */
+  private createFillProgram(): WebGLProgram {
+    const gl = this.gl;
+    const MAX = WebGLColorCycleRenderer.MAX_VERTS;
+    const vertSrc = `
+      attribute vec2 a_position;
+      attribute vec2 a_texCoord;
+      varying vec2 v_uv;
+      void main() {
+        v_uv = a_texCoord;
+        gl_Position = vec4(a_position, 0.0, 1.0);
+      }
+    `;
+    const fragSrc = `
+      precision mediump float;
+      varying vec2 v_uv;
+      uniform float u_minX;
+      uniform float u_minY;
+      uniform float u_bboxW;
+      uniform float u_bboxH;
+      uniform float u_canvasH;
+
+      uniform int u_count;
+      uniform vec2 u_verts[${MAX}];
+
+      uniform float u_bands;
+      uniform float u_bandStep;
+      uniform float u_baseOffset;
+      uniform float u_colorStep;
+      uniform float u_maxDist;
+
+      // Compute min distance to polygon edges and inside/outside via crossing parity
+      void main() {
+        // Map fragment to top-left pixel coordinates in canvas space
+        float x = u_minX + v_uv.x * u_bboxW;
+        float yGL = v_uv.y * u_bboxH;             // 0..bboxH bottom->top
+        float y = u_minY + (u_bboxH - 1.0 - yGL); // convert to top-left origin
+
+        // Crossing parity inside test and min distance to segments
+        float minDistSq = 1.0e20;
+        bool inside = false;
+        for (int i = 0; i < ${MAX}; i++) {
+          if (i >= u_count) break;
+          int j = (i + 1) >= u_count ? 0 : (i + 1);
+          vec2 a = u_verts[i];
+          vec2 b = u_verts[j];
+
+          // Crossing test (top-left coords)
+          bool cond = ((a.y > y) != (b.y > y)) && (x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x);
+          if (cond) inside = !inside;
+
+          // Distance to segment squared
+          vec2 pa = vec2(x, y) - a;
+          vec2 ba = b - a;
+          float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+          vec2 proj = a + h * ba;
+          vec2 d = vec2(x, y) - proj;
+          float dsq = dot(d, d);
+          if (dsq < minDistSq) minDistSq = dsq;
+        }
+
+        if (!inside) {
+          gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+          return;
+        }
+
+        float maxDist = max(u_maxDist, 1.0);
+        float dist = sqrt(minDistSq);
+        float n = clamp(dist / maxDist, 0.0, 1.0);
+        float bandF = floor(n * u_bands);
+        float colorIndex = mod(u_baseOffset + bandF * u_colorStep, 254.0) + 1.0;
+        // Output index in red channel (normalized)
+        gl_FragColor = vec4(colorIndex / 255.0, 0.0, 0.0, 1.0);
+      }
+    `;
+
+    const vs = gl.createShader(gl.VERTEX_SHADER)!;
+    gl.shaderSource(vs, vertSrc);
+    gl.compileShader(vs);
+    if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) {
+      const info = gl.getShaderInfoLog(vs);
+      gl.deleteShader(vs);
+      throw new Error('Fill vertex shader compile failed: ' + info);
+    }
+    const fs = gl.createShader(gl.FRAGMENT_SHADER)!;
+    gl.shaderSource(fs, fragSrc);
+    gl.compileShader(fs);
+    if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
+      const info = gl.getShaderInfoLog(fs);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      throw new Error('Fill fragment shader compile failed: ' + info);
+    }
+    const program = gl.createProgram()!;
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.bindAttribLocation(program, 0, 'a_position');
+    gl.bindAttribLocation(program, 1, 'a_texCoord');
+    gl.linkProgram(program);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      const info = gl.getProgramInfoLog(program);
+      gl.deleteProgram(program);
+      throw new Error('Fill program link failed: ' + info);
+    }
+    return program;
+  }
+
+  private ensureFillResources(width: number, height: number) {
+    const gl = this.gl;
+    if (!this.fillProgram) {
+      this.fillProgram = this.createFillProgram();
+    }
+    // Create/resize fill target
+    if (!this.fillTex) {
+      this.fillTex = gl.createTexture();
+    }
+    gl.bindTexture(gl.TEXTURE_2D, this.fillTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    if (this.isWebGL2) {
+      const gl2 = gl as WebGL2RenderingContext;
+      gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, width, height, 0, gl2.RGBA, gl2.UNSIGNED_BYTE, null);
+    } else {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    }
+    if (!this.fillFbo) {
+      this.fillFbo = gl.createFramebuffer();
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fillFbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.fillTex, 0);
+    // No need for depth/stencil
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  /**
+   * GPU concentric polygon fill. Returns an 8-bit index buffer for bbox (R channel).
+   */
+  fillPolygonConcentric(params: {
+    vertices: Float32Array;
+    bands: number;
+    baseOffset: number;
+    colorStep: number;
+    maxDist: number;
+    bbox: { minX: number; minY: number; width: number; height: number };
+    canvasHeight: number;
+  }): Uint8Array | null {
+    const gl = this.gl;
+    const count = Math.min(params.vertices.length / 2 | 0, WebGLColorCycleRenderer.MAX_VERTS);
+    if (count < 3) return null;
+
+    const bw = Math.max(1, Math.floor(params.bbox.width));
+    const bh = Math.max(1, Math.floor(params.bbox.height));
+    this.ensureFillResources(bw, bh);
+
+    // Set up drawing to FBO
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fillFbo);
+    gl.viewport(0, 0, bw, bh);
+    gl.useProgram(this.fillProgram!);
+
+    // Attributes (reuse VBO already bound in setupGeometry if needed)
+    // Bind VBO and enable attribs for pos/uv
+    // Rebuild the same quad as main program expects
+    // Assumes setupGeometry was called and VBO is still valid
+    const posLoc = 0;
+    const uvLoc = 1;
+    if (this.vbo) gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
+    gl.enableVertexAttribArray(posLoc);
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(uvLoc);
+    gl.vertexAttribPointer(uvLoc, 2, gl.FLOAT, false, 16, 8);
+
+    // Uniforms
+    const loc_minX = gl.getUniformLocation(this.fillProgram!, 'u_minX');
+    const loc_minY = gl.getUniformLocation(this.fillProgram!, 'u_minY');
+    const loc_bboxW = gl.getUniformLocation(this.fillProgram!, 'u_bboxW');
+    const loc_bboxH = gl.getUniformLocation(this.fillProgram!, 'u_bboxH');
+    const loc_canvasH = gl.getUniformLocation(this.fillProgram!, 'u_canvasH');
+    const loc_count = gl.getUniformLocation(this.fillProgram!, 'u_count');
+    const loc_verts = gl.getUniformLocation(this.fillProgram!, 'u_verts[0]');
+    const loc_bands = gl.getUniformLocation(this.fillProgram!, 'u_bands');
+    const loc_bandStep = gl.getUniformLocation(this.fillProgram!, 'u_bandStep');
+    const loc_baseOffset = gl.getUniformLocation(this.fillProgram!, 'u_baseOffset');
+    const loc_colorStep = gl.getUniformLocation(this.fillProgram!, 'u_colorStep');
+    const loc_maxDist = gl.getUniformLocation(this.fillProgram!, 'u_maxDist');
+
+    if (loc_minX) gl.uniform1f(loc_minX, params.bbox.minX);
+    if (loc_minY) gl.uniform1f(loc_minY, params.bbox.minY);
+    if (loc_bboxW) gl.uniform1f(loc_bboxW, bw);
+    if (loc_bboxH) gl.uniform1f(loc_bboxH, bh);
+    if (loc_canvasH) gl.uniform1f(loc_canvasH, params.canvasHeight);
+    if (loc_count) gl.uniform1i(loc_count, count);
+    if (loc_verts) gl.uniform2fv(loc_verts, params.vertices);
+    if (loc_bands) gl.uniform1f(loc_bands, params.bands);
+    if (loc_bandStep) gl.uniform1f(loc_bandStep, 1.0 / Math.max(2, params.bands));
+    if (loc_baseOffset) gl.uniform1f(loc_baseOffset, params.baseOffset);
+    if (loc_colorStep) gl.uniform1f(loc_colorStep, params.colorStep);
+    if (loc_maxDist) gl.uniform1f(loc_maxDist, params.maxDist);
+
+    // Clear to 0 index
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    // Draw full quad
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    // Read back RGBA and extract R channel
+    const pixels = new Uint8Array(bw * bh * 4);
+    gl.readPixels(0, 0, bw, bh, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    const out = new Uint8Array(bw * bh);
+    for (let i = 0, j = 0; i < out.length; i++, j += 4) out[i] = pixels[j];
+
+    // Unbind FBO
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return out;
   }
 
   private setupGeometry() {

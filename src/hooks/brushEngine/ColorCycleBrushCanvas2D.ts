@@ -5,6 +5,7 @@
  */
 
 import { ColorCycleAnimator } from '../../lib/ColorCycleAnimator';
+import { debugLog, debugWarn } from '../../utils/debug';
 import { GradientStop } from '../../lib/GradientPalette';
 import { applyPressureCurve } from '../../utils/pressureCurve';
 
@@ -122,7 +123,7 @@ export class ColorCycleBrushCanvas2D {
     }
     
     if (!this.animators.has(layerId)) {
-      console.log(`[PERF] Creating animator for layer ${layerId}`);
+      // quiet
       const startTime = performance.now();
       
       // PERFORMANCE FIX: Lazy initialization with smaller initial size
@@ -131,16 +132,11 @@ export class ColorCycleBrushCanvas2D {
       const initWidth = useReducedSize ? 256 : this.width;
       const initHeight = useReducedSize ? 256 : this.height;
       
-      console.log(`[PERF] Canvas dimensions: ${initWidth}x${initHeight} (full: ${this.width}x${this.height})`);
-      console.log(`[PERF] Estimated memory usage:`, {
-        indexBuffer: (initWidth * initHeight) / 1024 / 1024 + ' MB',
-        strokeOrder: (initWidth * initHeight * 2) / 1024 / 1024 + ' MB',
-        imageData: (initWidth * initHeight * 4) / 1024 / 1024 + ' MB',
-        total: ((initWidth * initHeight * 7) / 1024 / 1024) + ' MB'
-      });
+      // quiet
       
       // Measure ColorCycleAnimator creation
-      console.time('ColorCycleAnimator constructor');
+      // debug timing (dev-only)
+      // quiet
       const animator = new ColorCycleAnimator({
         width: initWidth,
         height: initHeight,
@@ -149,7 +145,7 @@ export class ColorCycleBrushCanvas2D {
         autoStart: false,
         lazyInit: true  // Add flag to defer heavy initialization
       });
-      console.timeEnd('ColorCycleAnimator constructor');
+      // quiet
       
       // Defer full initialization until first paint
       (animator as any)._deferredSize = { width: this.width, height: this.height };
@@ -157,7 +153,7 @@ export class ColorCycleBrushCanvas2D {
       this.animators.set(layerId, animator);
       
       // Measure callback setup
-      console.time('Callback setup');
+      // quiet
       if (this.isAnimating) {
         // Use requestIdleCallback to defer non-critical setup
         if (typeof requestIdleCallback !== 'undefined') {
@@ -189,10 +185,10 @@ export class ColorCycleBrushCanvas2D {
           }, 0);
         }
       }
-      console.timeEnd('Callback setup');
+      // quiet
       
       // Measure stroke data setup
-      console.time('Stroke data setup');
+      // quiet
       if (!this.layerStrokes.has(layerId)) {
         this.layerStrokes.set(layerId, {
           paintBuffer: new Uint8Array(0), // Start with empty buffer
@@ -205,14 +201,10 @@ export class ColorCycleBrushCanvas2D {
           stampCounter: 0
         });
       }
-      console.timeEnd('Stroke data setup');
+      // quiet
       
       const totalTime = performance.now() - startTime;
-      console.log(`[PERF] Total time for getAnimator: ${totalTime.toFixed(2)}ms`);
-      
-      if (totalTime > 1000) {
-        console.error(`[PERF] CRITICAL: Animator creation took ${totalTime.toFixed(2)}ms!`);
-      }
+      // quiet
     }
     
     const animator = this.animators.get(layerId);
@@ -242,7 +234,7 @@ export class ColorCycleBrushCanvas2D {
     
     // DEBUG: Log pressure and rotation values
     if (pressure !== 1.0 || rotation !== 0) {
-      console.log(`[DEBUG] ColorCycleBrush paint: pressure=${pressure.toFixed(2)}, rotation=${rotation.toFixed(2)}, pressureEnabled=${this.pressureEnabled}`);
+      debugLog('cc-paint', `[DEBUG] ColorCycleBrush paint: pressure=${pressure.toFixed(2)}, rotation=${rotation.toFixed(2)}, pressureEnabled=${this.pressureEnabled}`);
     }
     
     // Validate coordinates
@@ -315,7 +307,7 @@ export class ColorCycleBrushCanvas2D {
       // Debug logging - more detailed
       if (this.pressureEnabled || pressure !== 1.0) {
         const multiplier = applyPressureCurve(pressure, this.minPressure, this.maxPressure, 's-curve');
-        console.log(`[CC Paint Debug]`, {
+        debugLog('cc-paint', `[CC Paint Debug]`, {
           enabled: this.pressureEnabled,
           pressure: pressure.toFixed(3),
           minPressure: `${this.minPressure}%`,
@@ -365,10 +357,7 @@ export class ColorCycleBrushCanvas2D {
       });
     }
     
-    const totalTime = performance.now() - perfStart;
-    if (totalTime > 10) {
-      console.warn(`⚠️ [PERF] Paint took ${totalTime.toFixed(1)}ms at (${x},${y})`);
-    }
+    // quiet
   }
   
   /**
@@ -397,8 +386,6 @@ export class ColorCycleBrushCanvas2D {
     const id = layerId || this.activeLayerId || 'default';
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
-      // Debug only: clearing paint buffer
-      try { const { debugLog } = require('../../utils/debug'); debugLog('cc-brush', 'clearPaintBuffer', { layerId: id }); } catch {}
       // Clear the paint buffer to start fresh
       strokeData.paintBuffer.fill(0);
       // IMPORTANT: Do NOT mark hasContent=false or clear the animator here.
@@ -418,7 +405,7 @@ export class ColorCycleBrushCanvas2D {
    */
   startStroke(layerId?: string, clearBuffer: boolean = false) {
     const id = layerId || this.activeLayerId || 'default';
-    try { const { debugLog } = require('../../utils/debug'); debugLog('cc-brush', 'startStroke', { layerId: id, clearBuffer, hadPaintBuffer: !!this.layerStrokes.get(id)?.paintBuffer }); } catch {}
+    
 
     this.activeLayerId = id;
     this.isDrawing = true;
@@ -445,9 +432,8 @@ export class ColorCycleBrushCanvas2D {
           }
           return false;
         })();
-        try { const { debugLog } = require('../../utils/debug'); debugLog('cc-brush', 'animator-sample', { hasPixels }); } catch {}
+        
         if (hasPixels && clearBuffer) {
-          try { const { debugLog } = require('../../utils/debug'); debugLog('cc-brush', 'animator-clear'); } catch {}
           try { animator.clear(); } catch {}
         }
       }
@@ -457,13 +443,11 @@ export class ColorCycleBrushCanvas2D {
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
       if (clearBuffer) {
-        try { const { debugLog } = require('../../utils/debug'); debugLog('cc-brush', 'startStroke-clearPaintBuffer'); } catch {}
         strokeData.paintBuffer.fill(0);
         strokeData.hasContent = false;
         strokeData.strokeCounter = 0;
         strokeData.stampCounter = 0; // Reset stamp counter for new shape
       } else {
-        try { const { debugLog } = require('../../utils/debug'); debugLog('cc-brush', 'startStroke-continue'); } catch {}
       }
       strokeData.strokeCounter = this.strokeCounter;
       strokeData.strokeLength = 0;
@@ -549,6 +533,7 @@ export class ColorCycleBrushCanvas2D {
     }
     
     const animator = this.getAnimator(id);
+    // quiet
     
     // Ensure animator is at full resolution
     if ((animator as any)._deferredSize) {
@@ -788,6 +773,51 @@ export class ColorCycleBrushCanvas2D {
       thresholdsSq[b] = (t * t) * maxDistSq;
     }
 
+    // Attempt GPU path (simple rule: use when available and within uniform limits)
+    try {
+      const anyAnimator: any = animator as any;
+      const hasMethod = (anyAnimator && typeof anyAnimator.gpuFillShapeConcentric === 'function');
+      const hasGL = (anyAnimator && typeof anyAnimator.hasWebGL === 'function') ? anyAnimator.hasWebGL() : false;
+      const tryGPU = hasMethod && hasGL;
+      const bbox = {
+        minX: Math.floor(minX),
+        minY: Math.floor(minY),
+        width: Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1),
+        height: Math.max(1, Math.ceil(maxY) - Math.floor(minY) + 1)
+      };
+      const bandsForGPU = bands;
+      const baseOffset = this.stampCounter % 254;
+      // Guard GPU path for complex polygons: fallback to CPU when vertex count exceeds shader uniform limit
+      const GPU_MAX_VERTS = 256;
+      const withinVertLimit = vertices.length <= GPU_MAX_VERTS;
+      // Clean rule: if GPU is available and within uniform limit, always use GPU (any size)
+      if (tryGPU && withinVertLimit) {
+        debugLog('cc-fill', '[fillShape] Using GPU path', { verts: vertices.length, GPU_MAX_VERTS, bbox, bands: bandsForGPU, hasGL });
+        // quiet
+        // GPU concentric fill
+        anyAnimator.gpuFillShapeConcentric(vertices, bandsForGPU, baseOffset, colorStep, maxDist, bbox);
+        // Continue stamp progression and render
+        this.stampCounter += Math.max(2, this.gradientBands);
+        if (strokeData) strokeData.stampCounter = this.stampCounter;
+        this.dirtyLayers.add(id);
+        anyAnimator.forceRender?.();
+        this.render(false);
+        return;
+      }
+      // GPU not used, log reason once per call
+      debugLog('cc-fill', '[fillShape] GPU not used', {
+        hasMethod,
+        hasGL,
+        verts: vertices.length,
+        GPU_MAX_VERTS,
+        reason: !tryGPU ? 'no gl or method' : (!withinVertLimit ? 'too many vertices' : 'unknown')
+      });
+    } catch {}
+
+    // CPU fallback path
+    const bboxInfo = { minX: Math.floor(minX), minY: Math.floor(minY), width: Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1), height: Math.max(1, Math.ceil(maxY) - Math.floor(minY) + 1) };
+    // quiet
+
     for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) {
       const intersections: number[] = [];
       
@@ -970,7 +1000,6 @@ export class ColorCycleBrushCanvas2D {
           // Force a render update before drawing
           animator.forceRender();
           animator.drawTo(ctx);
-          try { const { debugLog } = require('../../utils/debug'); debugLog('cc-render', { event: 'renderDirectToCanvas', layerId: layerId?.substring(0, 20), stamps: strokeData.stampCounter, strokeCounter: strokeData.strokeCounter }); } catch {}
         } else {
           console.warn('Failed to get 2D context from target canvas');
         }
@@ -979,7 +1008,6 @@ export class ColorCycleBrushCanvas2D {
         // When undo/redo restores pixel data directly to the layer canvas,
         // calling renderDirectToCanvas without stroke content should leave
         // the existing pixels intact.
-        try { const { debugLog } = require('../../utils/debug'); debugLog('cc-render', { event: 'render-skip-no-content', layerId: layerId?.substring(0, 20) }); } catch {}
       }
     } else {
       console.warn(`No animator found for layer: ${layerId}`);
@@ -1039,7 +1067,7 @@ export class ColorCycleBrushCanvas2D {
       }
     } catch {}
 
-    const ctx = targetCanvas.getContext('2d');
+    const ctx = targetCanvas.getContext('2d', { willReadFrequently: true } as any);
     if (!ctx) {
       console.warn('[ColorCycleBrush.commitToLayer] Failed to acquire 2D context');
       return;
@@ -1294,8 +1322,6 @@ export class ColorCycleBrushCanvas2D {
    * Set pressure enabled state
    */
   setPressureEnabled(enabled: boolean) {
-    // Debug (opt-in)
-    try { const { debugLog } = require('../../utils/debug'); debugLog('cc-settings', 'setPressureEnabled', enabled); } catch {}
     this.pressureEnabled = enabled;
   }
   
@@ -1304,7 +1330,6 @@ export class ColorCycleBrushCanvas2D {
    */
   setMinPressure(min: number) {
     this.minPressure = Math.max(1, Math.min(1000, min));
-    try { const { debugLog } = require('../../utils/debug'); debugLog('cc-settings', 'setMinPressure', this.minPressure); } catch {}
   }
   
   /**
@@ -1316,7 +1341,6 @@ export class ColorCycleBrushCanvas2D {
     if (this.maxPressure < this.minPressure) {
       this.maxPressure = this.minPressure;
     }
-    try { const { debugLog } = require('../../utils/debug'); debugLog('cc-settings', 'setMaxPressure', this.maxPressure); } catch {}
   }
   
   /**
@@ -1366,7 +1390,7 @@ export class ColorCycleBrushCanvas2D {
     this.layerId = layerId;
     // Also call setActiveLayer for compatibility
     this.setActiveLayer(layerId);
-    console.log(`🏷️ [ColorCycle] Set layer ID: ${layerId.substring(0, 8)}...`);
+    // quiet
   }
   
   /**
@@ -1748,15 +1772,7 @@ export class ColorCycleBrushCanvas2D {
     // Mark layer dirty so next render updates
     this.dirtyLayers.add(layerId);
 
-    // DEBUG (opt-in): Log snapshot application summary
-    try {
-      let nonZero = 0;
-      const sample = 512;
-      for (let i = 0; i < Math.min(sample, strokeData.paintBuffer.length); i++) {
-        if (strokeData.paintBuffer[i] !== 0) nonZero++;
-      }
-      try { const { debugLog } = require('../../utils/debug'); debugLog('cc-undo', { event: 'applyLayerSnapshot', layerId: layerId?.substring(0, 20), bufferBytes: buffer?.byteLength || 0, expectedSize, hasContent: strokeData.hasContent, nonZeroInFirst512: nonZero, strokeCounter: strokeData.strokeCounter }); } catch {}
-    } catch {}
+    // quiet
   }
 
   /**

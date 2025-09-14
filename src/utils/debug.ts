@@ -1,13 +1,79 @@
 // Lightweight debug logger with scope-based opt-in
 // Dev-only: all debug helpers become no-ops in production.
-// Enable by setting either (in dev builds only):
-//   window.__TB_DEBUG = { all: true } or { cc: true, 'cc-undo': true }
-// Or via localStorage:
-//   localStorage.setItem('TB_DEBUG', 'all') or 'cc,cc-undo'
+// Usage (dev):
+//   - Enable specific scopes: localStorage.setItem('TB_DEBUG', 'layers,undo')
+//   - Enable everything (except excluded defaults): localStorage.setItem('TB_DEBUG', 'all')
+//   - Force include even excluded defaults: localStorage.setItem('TB_DEBUG_FORCE', 'composite,cc-render') or 'all'
+//   - Exclude noisy scopes: localStorage.setItem('TB_DEBUG_EXCLUDE', 'scope1,scope2')
+//   - Kill switch: localStorage.setItem('TB_DEBUG', 'off')
+// You can also set window.__TB_DEBUG / __TB_DEBUG_EXCLUDE / __TB_DEBUG_FORCE directly.
 
 export const __DEV__ = process.env.NODE_ENV !== 'production';
 
 type DebugConfig = { all?: boolean; [scope: string]: boolean | undefined };
+
+// Optional exclusion list to suppress noisy scopes even when `all` is enabled
+let __cachedExclude: Set<string> | null = null;
+let __lastExcludeRead = 0;
+const __EXCLUDE_CACHE_MS = 1000;
+
+// Default noisy scopes we want permanently quiet unless explicitly forced.
+// These are high-frequency hot-path logs that tend to flood the console.
+const DEFAULT_EXCLUDED_SCOPES = new Set<string>([
+  'composite',
+  'cc-render',
+]);
+
+function readExcludeSet(): Set<string> {
+  if (!__DEV__) return new Set();
+  const now = Date.now();
+  if (__cachedExclude && now - __lastExcludeRead < __EXCLUDE_CACHE_MS) return __cachedExclude;
+  const out = new Set<string>(DEFAULT_EXCLUDED_SCOPES);
+  try {
+    const w: any = typeof window !== 'undefined' ? window : undefined;
+    // If forced scopes are defined, we temporarily ignore default excludes for those
+    // (but keep other excludes). Accepts 'all' or comma-separated list.
+    let forceSet: Set<string> | null = null;
+    try {
+      const forceRaw = w?.localStorage?.getItem('TB_DEBUG_FORCE') ?? w?.__TB_DEBUG_FORCE;
+      if (typeof forceRaw === 'string') {
+        const val = forceRaw.trim();
+        if (val.toLowerCase() === 'all') {
+          // Clear all default excludes
+          forceSet = new Set<string>(['*ALL*']);
+        } else if (val) {
+          forceSet = new Set<string>(val.split(',').map((s: string) => s.trim()).filter(Boolean));
+        }
+      } else if (Array.isArray(w?.__TB_DEBUG_FORCE)) {
+        forceSet = new Set<string>(w.__TB_DEBUG_FORCE.map((s: any) => String(s)));
+      }
+    } catch {}
+
+    // window.__TB_DEBUG_EXCLUDE can be array or comma string
+    if (w && w.__TB_DEBUG_EXCLUDE) {
+      const val = w.__TB_DEBUG_EXCLUDE;
+      if (Array.isArray(val)) val.forEach((s: string) => s && out.add(String(s)));
+      else if (typeof val === 'string') val.split(',').map((s: string) => s.trim()).filter(Boolean).forEach((s: string) => out.add(s));
+    }
+    // localStorage TB_DEBUG_EXCLUDE: comma separated scopes
+    if (w && w.localStorage) {
+      const raw = w.localStorage.getItem('TB_DEBUG_EXCLUDE');
+      if (raw) raw.split(',').map((s: string) => s.trim()).filter(Boolean).forEach((s: string) => out.add(s));
+    }
+
+    // If forcing, remove matching entries from the exclusion set
+    if (forceSet) {
+      if (forceSet.has('*ALL*')) {
+        out.clear();
+      } else {
+        forceSet.forEach((s: string) => out.delete(s));
+      }
+    }
+  } catch {}
+  __cachedExclude = out;
+  __lastExcludeRead = Date.now();
+  return out;
+}
 
 // Cache debug config to avoid repeated localStorage/window lookups in hot paths
 let __cachedDebugConfig: DebugConfig | null = null;
@@ -32,19 +98,26 @@ function readConfig(): DebugConfig {
     if (w && w.localStorage) {
       const raw = w.localStorage.getItem('TB_DEBUG');
       if (raw) {
-        const cfg: DebugConfig = {};
-        raw.split(',')
-          .map((s: string) => s.trim())
-          .filter((s: string) => !!s)
-          .forEach((s: string) => {
-          if (s.toLowerCase() === 'all') cfg.all = true; else cfg[s] = true;
-        });
-        __cachedDebugConfig = cfg;
+        const lowered = raw.trim().toLowerCase();
+        // Explicit disable in dev
+        if (lowered === 'off' || lowered === 'none' || lowered === '0' || lowered === 'false') {
+          __cachedDebugConfig = {};
+        } else {
+          const cfg: DebugConfig = {};
+          raw.split(',')
+            .map((s: string) => s.trim())
+            .filter((s: string) => !!s)
+            .forEach((s: string) => {
+              if (s.toLowerCase() === 'all') cfg.all = true; else cfg[s] = true;
+            });
+          __cachedDebugConfig = cfg;
+        }
         __lastConfigRead = now;
         return __cachedDebugConfig;
       }
     }
   } catch {}
+  // Default in dev: no scopes enabled unless explicitly opted-in via TB_DEBUG or window.__TB_DEBUG
   __cachedDebugConfig = {};
   __lastConfigRead = now;
   return __cachedDebugConfig;
@@ -53,6 +126,8 @@ function readConfig(): DebugConfig {
 export function isDebugEnabled(scope: string): boolean {
   if (!__DEV__) return false;
   const cfg = readConfig();
+  const exclude = readExcludeSet();
+  if (exclude.has(scope)) return false;
   return !!cfg.all || !!cfg[scope];
 }
 
@@ -103,4 +178,29 @@ export function recordBreadcrumb(scope: string, data: any) {
       } catch {}
     }
   } catch {}
+}
+
+// Helper to update debug config at runtime (e.g., from a dev UI toggle)
+export function setDebugScopes(scopes: string | string[] | DebugConfig) {
+  if (!__DEV__) return;
+  try {
+    const w: any = typeof window !== 'undefined' ? window : undefined;
+    let cfg: DebugConfig = {};
+    if (typeof scopes === 'string') {
+      scopes.split(',').map(s => s.trim()).filter(Boolean).forEach(s => { if (s === 'all') cfg.all = true; else cfg[s] = true; });
+    } else if (Array.isArray(scopes)) {
+      scopes.forEach(s => { if (s === 'all') cfg.all = true; else cfg[s] = true; });
+    } else {
+      cfg = { ...scopes };
+    }
+    if (w && w.localStorage) {
+      const keys = Object.keys(cfg).filter(k => k !== 'all' || cfg.all);
+      const value = cfg.all ? 'all' : keys.join(',');
+      w.localStorage.setItem('TB_DEBUG', value);
+    }
+    w.__TB_DEBUG = cfg;
+  } catch {}
+  // Reset caches
+  __cachedDebugConfig = null;
+  __cachedExclude = null;
 }

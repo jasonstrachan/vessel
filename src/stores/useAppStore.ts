@@ -903,7 +903,7 @@ export const useAppStore = create<AppState>()(
         } catch {}
       },
       setBrushSettings: (settings) => set((state) => {
-        try { const { debugLog } = require('../utils/debug'); debugLog('brush', 'SET brush settings called', settings); } catch {}
+        // quiet
         try {
         const currentSettings = state.tools.brushSettings;
         const newSettings = { ...currentSettings, ...settings };
@@ -1440,24 +1440,14 @@ export const useAppStore = create<AppState>()(
       currentLayer: 0,
       addLayer: (layer) => {
         if (__DEV__) {
-          debugLog('layers-raw', 'STORE:addLayer invoked', layer?.layerType);
+          // quiet
         }
         try { const { recordBreadcrumb } = require('../utils/debug'); recordBreadcrumb('layers', { event: 'store-addLayer-enter', incomingType: layer?.layerType }); } catch {}
         const newLayerId = `layer-${Date.now()}-${Math.random()}`;
-        debugLog('layers', 'STORE: addLayer called', {
-          newLayerId: newLayerId.substring(0, 20),
-          incomingType: layer.layerType,
-          hasCCData: !!(layer as any)?.colorCycleData,
-          framebufferType: (layer as any)?.framebuffer?.constructor?.name,
-          existing: get().layers.map(l => ({ id: l.id.substring(0, 20), type: l.layerType }))
-        });
+        // quiet
 
         set((state) => {
-          debugLog('layers', 'STORE: addLayer set() begin', {
-            existingCount: state.layers.length,
-            offscreenAvailable: typeof OffscreenCanvas !== 'undefined',
-            projectSize: state.project ? { w: state.project.width, h: state.project.height } : null
-          });
+          // quiet
           // CRITICAL CHECK: Verify existing layers are not mutated
           const existingLayersSnapshot = state.layers.map(l => ({
             id: l.id,
@@ -1493,22 +1483,14 @@ export const useAppStore = create<AppState>()(
           // Normalize order values to match visual/composite order (ascending = bottom -> top)
           const updatedLayers = newLayers.map((l, idx) => ({ ...l, order: idx }));
           try { const { recordBreadcrumb } = require('../utils/debug'); recordBreadcrumb('layers', { event: 'store-addLayer-updated', total: updatedLayers.length, insertedIndex }); } catch {}
-          debugLog('layers', 'STORE: addLayer updatedLayers', {
-            total: updatedLayers.length,
-            insertedIndex,
-            newId: newLayerId.substring(0, 20),
-            newType: newLayer.layerType,
-            hasCC: !!newLayer.colorCycleData
-          });
+          // quiet
           
           // Initialize ColorCycleBrush for color-cycle layers
           if (newLayer.layerType === 'color-cycle' && state.project) {
             const width = state.project.width || 1024;
             const height = state.project.height || 1024;
             const gradient = newLayer.colorCycleData?.gradient;
-            debugLog('layers', 'STORE: init CC brush for new layer', {
-              id: newLayerId.substring(0, 20), size: { w: width, h: height }, hasGradient: !!gradient
-            });
+            // quiet
 
             // Use enhanced manager method for initialization
             // Note: gradient is in { position, color }[] format, but initColorCycleForLayer expects Uint8Array
@@ -1529,7 +1511,7 @@ export const useAppStore = create<AppState>()(
                 // Call setSpeed to trigger animator creation internally
                 // This ensures the animator is ready before first paint
                 brush.setSpeed(1.0);
-                debugLog('layers', 'STORE: CC brush initialized and warmed', newLayerId.substring(0, 20));
+                // quiet
               }
             }
           }
@@ -1582,7 +1564,7 @@ export const useAppStore = create<AppState>()(
           const st = get();
           const w = st.project?.width ?? 1;
           const h = st.project?.height ?? 1;
-          debugLog('layers', 'STORE: schedule saveCanvasState(layer-add)', { w, h, activeLayerId: st.activeLayerId?.substring(0, 20) });
+          // quiet
           // Use a tiny placeholder canvas; we only need to record structure here.
           const temp = document.createElement('canvas');
           temp.width = 1;
@@ -1593,11 +1575,11 @@ export const useAppStore = create<AppState>()(
               st.saveCanvasState(temp as unknown as HTMLCanvasElement, 'layer-add', 'Add layer', newLayerId);
               try { const { recordBreadcrumb } = require('../utils/debug'); recordBreadcrumb('layers', { event: 'store-addLayer-saved', id: newLayerId.slice(0,20) }); } catch {}
             } catch (e) {
-              try { const { debugLog } = require('../utils/debug'); debugLog('layers', 'STORE: async saveCanvasState(layer-add) failed', e); } catch {}
+              // quiet
             }
           }, 0);
         } catch (e) {
-          try { const { debugLog } = require('../utils/debug'); debugLog('layers', 'STORE: schedule saveCanvasState(layer-add) failed', e); } catch {}
+          // quiet
         }
 
         return newLayerId;
@@ -1787,12 +1769,7 @@ export const useAppStore = create<AppState>()(
           logError('setActiveLayer: Invalid layer ID', id);
           return {} as any;
         }
-        debugLog('layers', 'STORE: setActiveLayer called', {
-          newId: id?.substring(0, 20),
-          type: layer?.layerType,
-          hadCC: !!layer?.colorCycleData,
-          prev: state.activeLayerId?.substring(0, 20)
-        });
+        // quiet
         
         /* console.log('🟢 SET ACTIVE LAYER DEBUG:', {
           newActiveId: id?.substring(0, 20),
@@ -1830,12 +1807,9 @@ export const useAppStore = create<AppState>()(
               }
             }
           } catch (e) {
-            try { const { debugLog } = require('../utils/debug'); debugLog('layers', 'STORE: error switching away from CC layer', e); } catch {}
+            // quiet
           }
-          debugLog('layers', 'STORE: switched away from CC layer', {
-            from: state.activeLayerId?.substring(0, 20),
-            to: id?.substring(0, 20)
-          });
+          // quiet
         }
         
         // If switching to a color-cycle layer in BRUSH context, validate/reinit brush resources.
@@ -1863,7 +1837,7 @@ export const useAppStore = create<AppState>()(
             } catch (e) {
               console.error('Error re-initializing CC brush on setActiveLayer:', e);
             }
-            debugLog('layers', 'STORE: re-initialized CC brush on setActiveLayer', { id: id.substring(0, 20), size: { w: width, h: height } });
+            // quiet
           }
           
           // Mark as active
@@ -1881,10 +1855,10 @@ export const useAppStore = create<AppState>()(
               if ('setGradient' in colorCycleBrush && typeof colorCycleBrush.setGradient === 'function') {
                 colorCycleBrush.setGradient(layer.colorCycleData.gradient, id);
               }
-              debugLog('layers', 'STORE: synced gradient to CC brush for active layer', id.substring(0, 20));
+              // quiet
             }
           } catch (e) {
-            try { const { debugLog } = require('../utils/debug'); debugLog('layers', 'STORE: error syncing CC brush on activate', e); } catch {}
+            // quiet
           }
           
           // Save current brush settings if we're on a regular brush
@@ -2058,7 +2032,7 @@ export const useAppStore = create<AppState>()(
           // GUARD: Don't re-initialize if already initialized
           const existingBrush = colorCycleBrushManager.getBrush(layerId);
           if (existingBrush) {
-            console.log('Color cycle already initialized for layer:', layerId);
+            // quiet
             // Ensure the layer has a valid canvas and CC metadata even if we skip recreation.
             const updatedLayers = state.layers.map(l => {
               if (l.id !== layerId) return l;
@@ -2686,8 +2660,7 @@ export const useAppStore = create<AppState>()(
       
       // History Management
       saveCanvasState: (canvas, actionType, description, overrideActiveLayerId?: string) => {
-        // Diagnostics via scoped debug
-        try { const { debugLog } = require('../utils/debug'); debugLog('history', { event: 'saveCanvasState', actionType, description }); } catch {}
+        // quiet: remove diagnostics noise
         // Allow disabling history during debugging/perf triage
         try { if ((window as any).__TB_DEBUG?.disableHistory) { return; } } catch {}
         if (isHistoryOperationInProgress) {
@@ -2855,23 +2828,7 @@ export const useAppStore = create<AppState>()(
                 })
               };
 
-              // DEBUG: Log CC snapshot details
-              try {
-                const ls = colorCycleState.layerStrokes || [];
-                debugLog('cc-history', {
-                  phase: 'save',
-                  activeLayerId: activeLayer.id?.substring(0, 20),
-                  layersCount: (state.layers || []).length,
-                  ccLayers: (state.layers || []).filter(l => l.layerType === 'color-cycle').length,
-                  strokesSaved: ls.length,
-                  details: ls.map((s: any) => ({
-                    id: s.layerId?.substring(0, 20),
-                    hasContent: s.hasContent,
-                    paintBufferBytes: s.paintBuffer?.byteLength || 0,
-                    strokeCounter: s.strokeCounter
-                  }))
-                });
-              } catch {}
+              // quiet: remove cc-history diagnostics
             }
           }
           
@@ -2905,18 +2862,15 @@ export const useAppStore = create<AppState>()(
             }
           });
 
-          // Debug: trace history entry and stack size (opt-in)
-          try { const { debugLog } = require('../utils/debug'); debugLog('history', { event: 'save', actionType, description, undoSize: newUndoStack.length }); } catch {}
+          // quiet
         };
 
         if (isImportantAction || (now - lastSaveTimestamp) >= MIN_SAVE_INTERVAL) {
           // Save immediately
-          try { const { debugLog } = require('../utils/debug'); debugLog('history', { event: 'performSave-immediate', actionType, description }); } catch {}
           performSave();
           lastSaveTimestamp = now;
         } else {
           // Debounce for frequent actions like brush strokes
-          try { const { debugLog } = require('../utils/debug'); debugLog('history', { event: 'performSave-scheduled', delay: 100, actionType, description }); } catch {}
           saveCanvasStateTimer = setTimeout(() => {
             performSave();
             lastSaveTimestamp = Date.now();
@@ -3220,7 +3174,6 @@ export const useAppStore = create<AppState>()(
       
       compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => {
         const state = get();
-        try { const { debugLog } = require('../utils/debug'); debugLog('composite', 'BEGIN compose', { count: state.layers.length, size: { w: state.project?.width, h: state.project?.height } }); } catch {}
 
         try {
           if (!state.project || !state.layers.length) {
@@ -3260,7 +3213,6 @@ export const useAppStore = create<AppState>()(
           }
 
           const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
-          try { const { debugLog } = require('../utils/debug'); debugLog('composite', 'Layers order', sortedLayers.map(l => ({ id: l.id.slice(0, 8), type: l.layerType, vis: l.visible, hasCC: !!l.colorCycleData }))); } catch {}
 
           for (const layer of sortedLayers) {
             try {
@@ -3268,7 +3220,6 @@ export const useAppStore = create<AppState>()(
 
               // Brush-based Color Cycle (Canvas2D path)
               if (layer.layerType === 'color-cycle' && layer.colorCycleData?.canvas && layer.colorCycleData?.mode !== 'recolor') {
-                try { const { debugLog } = require('../utils/debug'); debugLog('composite', 'Draw CC layer', { id: layer.id.slice(0, 8) }); } catch {}
                 const colorCycleBrushManager = getColorCycleBrushManager();
                 const isAnimating = !!layer.colorCycleData.isAnimating;
                 if (colorCycleBrushManager && isAnimating) {
@@ -3278,7 +3229,6 @@ export const useAppStore = create<AppState>()(
                     colorCycleBrush.updateAnimation();
                     colorCycleBrush.renderDirectToCanvas(layer.colorCycleData.canvas, layer.id);
                   }
-                  try { const { debugLog } = require('../utils/debug'); debugLog('cc-render', { event: 'composite', layerId: layer.id.substring(0, 20), isAnimating, isPlaying: !!playing }); } catch {}
                 }
 
                 ctx.globalCompositeOperation = layer.blendMode;
@@ -3289,7 +3239,6 @@ export const useAppStore = create<AppState>()(
 
               // Recolor mode (GPU path): draw GPU-updated canvas if available
               if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor' && layer.colorCycleData.canvas) {
-                try { const { debugLog } = require('../utils/debug'); debugLog('composite', 'Draw recolor GPU canvas', { id: layer.id.slice(0, 8) }); } catch {}
                 ctx.globalCompositeOperation = layer.blendMode;
                 ctx.globalAlpha = layer.opacity;
                 ctx.drawImage(layer.colorCycleData.canvas, 0, 0);
@@ -3298,7 +3247,6 @@ export const useAppStore = create<AppState>()(
 
               // Normal layers
               if (!layer.imageData) {
-                try { const { debugLog } = require('../utils/debug'); debugLog('composite', 'Skip normal layer (no imageData)', { id: layer.id.slice(0, 8) }); } catch {}
                 continue;
               }
               const layerImageData = layer.imageData;
@@ -3313,7 +3261,7 @@ export const useAppStore = create<AppState>()(
                 ctx.drawImage(layerCanvas, 0, 0);
               }
             } catch (layerError) {
-              try { const { debugLog } = require('../utils/debug'); debugLog('composite-error', 'Layer compose error', layerError); } catch {}
+              try { const { logError } = require('../utils/debug'); logError('[compose] Layer compose error', layerError); } catch {}
               // Continue composing remaining layers
             }
           }
@@ -3322,9 +3270,8 @@ export const useAppStore = create<AppState>()(
           ctx.globalCompositeOperation = 'source-over';
           ctx.globalAlpha = 1.0;
         } catch (e) {
-          try { const { debugLog } = require('../utils/debug'); debugLog('composite-error', 'Compose failed', e); } catch {}
+          try { const { logError } = require('../utils/debug'); logError('[compose] Compose failed', e); } catch {}
         } finally {
-          try { const { debugLog } = require('../utils/debug'); debugLog('composite', 'END compose'); } catch {}
         }
       },
       

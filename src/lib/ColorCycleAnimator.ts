@@ -4,6 +4,7 @@
  */
 
 import { IndexBuffer } from './IndexBuffer';
+import { debugLog, debugWarn } from '../utils/debug';
 import { GradientPalette, GradientStop } from './GradientPalette';
 import { AnimationController } from './AnimationController';
 import { WebGLColorCycleRenderer } from './colorCycle/rendering/WebGLColorCycleRenderer';
@@ -30,6 +31,8 @@ export class ColorCycleAnimator {
   // GPU renderer (optional)
   private glRenderer: WebGLColorCycleRenderer | null = null;
   private glCanvas: HTMLCanvasElement | null = null;
+  // One-time render path log guard
+  private _renderPathLogged: boolean = false;
   
   // Stroke tracking for directional flow
   private strokeOrder: Uint16Array; // Store order each pixel was painted (0 = not painted)
@@ -46,28 +49,17 @@ export class ColorCycleAnimator {
   constructor(config: ColorCycleAnimatorConfig) {
     // If lazy init, defer heavy initialization
     if (config.lazyInit) {
-      console.time('[ColorCycleAnimator] IndexBuffer creation (lazy)');
       // Create minimal buffers first
       this.indexBuffer = new IndexBuffer(config.width, config.height);
-      console.timeEnd('[ColorCycleAnimator] IndexBuffer creation (lazy)');
-      
-      console.time('[ColorCycleAnimator] GradientPalette creation');
       this.gradientPalette = config.gradientStops 
         ? new GradientPalette(config.gradientStops)
         : GradientPalette.createRainbow();
-      console.timeEnd('[ColorCycleAnimator] GradientPalette creation');
-      
-      console.time('[ColorCycleAnimator] Canvas creation (pooled)');
       // Use canvas pool for better performance
       this.canvas = canvasPool.acquire(config.width, config.height);
-      console.timeEnd('[ColorCycleAnimator] Canvas creation (pooled)');
-      
-      console.time('[ColorCycleAnimator] Context creation');
       const ctx = this.canvas.getContext('2d', {
         willReadFrequently: false, // Changed to false for lazy init
         alpha: true
       });
-      console.timeEnd('[ColorCycleAnimator] Context creation');
       
       if (!ctx) {
         throw new Error('Failed to create canvas context');
@@ -84,13 +76,15 @@ export class ColorCycleAnimator {
         try {
           this.glRenderer = new WebGLColorCycleRenderer({ width: config.width, height: config.height });
           this.glCanvas = this.glRenderer.getCanvas();
+          debugLog('cc-gpu', '[Animator:laxyInit] WebGL renderer created');
         } catch {}
+      } else {
+        debugLog('cc-gpu', '[Animator:laxyInit] WebGL not supported or window undefined');
       }
       
       // Use smaller stroke order buffer initially
       this.strokeOrder = new Uint16Array(0); // Start empty
       
-      console.time('[ColorCycleAnimator] AnimationController creation');
       // Initialize animation controller with lazy settings
       this.animationController = new AnimationController({
         fps: config.fps || 30,
@@ -98,7 +92,6 @@ export class ColorCycleAnimator {
         autoStart: false, // Never auto-start in lazy mode
         onFrame: this.handleAnimationFrame.bind(this)
       });
-      console.timeEnd('[ColorCycleAnimator] AnimationController creation');
       
       // Defer palette update
       requestAnimationFrame(() => this.updateIndexBufferPalette());
@@ -130,7 +123,10 @@ export class ColorCycleAnimator {
         try {
           this.glRenderer = new WebGLColorCycleRenderer({ width: config.width, height: config.height });
           this.glCanvas = this.glRenderer.getCanvas();
+          debugLog('cc-gpu', '[Animator:init] WebGL renderer created');
         } catch {}
+      } else {
+        debugLog('cc-gpu', '[Animator:init] WebGL not supported or window undefined');
       }
       
       // Initialize stroke order buffer
@@ -181,6 +177,72 @@ export class ColorCycleAnimator {
       } catch {}
     }
   }
+
+  /**
+   * Whether GPU renderer is available
+   */
+  hasWebGL(): boolean {
+    const ok = !!this.glRenderer;
+    return ok;
+  }
+
+  /**
+   * GPU concentric fill: renders polygon bands on the GPU into an offscreen buffer,
+   * reads back indices for the bbox, and writes into our index buffer.
+   * Falls back to no-op if GPU is not available.
+   */
+  gpuFillShapeConcentric(
+    vertices: Array<{ x: number; y: number }>,
+    bands: number,
+    baseOffset: number,
+    colorStep: number,
+    maxDist: number,
+    bbox: { minX: number; minY: number; width: number; height: number }
+  ) {
+    if (!this.glRenderer || vertices.length < 3) {
+      debugLog('cc-gpu', '[gpuFillShape] Skip: glRenderer?', !!this.glRenderer, 'verts', vertices.length);
+      return;
+    }
+    try {
+      debugLog('cc-gpu', '[gpuFillShape] start', { verts: vertices.length, bands, baseOffset, colorStep, maxDist, bbox });
+      const flat = new Float32Array(vertices.length * 2);
+      for (let i = 0; i < vertices.length; i++) {
+        flat[i * 2] = vertices[i].x;
+        flat[i * 2 + 1] = vertices[i].y;
+      }
+
+      const result = this.glRenderer.fillPolygonConcentric({
+        vertices: flat,
+        bands,
+        baseOffset,
+        colorStep,
+        maxDist,
+        bbox,
+        canvasHeight: this.canvas.height,
+      });
+
+      if (!result) return;
+
+      const data = this.indexBuffer.getDirectData();
+      const width = this.canvas.width;
+      const { minX, minY, width: bw, height: bh } = bbox;
+
+      // Blit rows into the index buffer
+      // WebGL readPixels returns rows bottom-to-top; flip vertically to top-left origin
+      for (let y = 0; y < bh; y++) {
+        const srcStart = y * bw;
+        const destY = minY + (bh - 1 - y);
+        const destStart = destY * width + minX;
+        data.set(result.subarray(srcStart, srcStart + bw), destStart);
+      }
+
+      // Force a render to show the update
+      this.forceRender();
+      debugLog('cc-gpu', '[gpuFillShape] wrote bbox to index buffer and forced render');
+    } catch (e) {
+      debugWarn('cc-render', 'gpuFillShapeConcentric failed; falling back to CPU.', e);
+    }
+  }
   
   /**
    * Render a single frame with directional flow
@@ -191,6 +253,7 @@ export class ColorCycleAnimator {
     try {
       // GPU path if available
       if (this.glRenderer && this.glCanvas) {
+        if (!this._renderPathLogged) { debugLog('cc-gpu', '[renderFrame] Using GPU path'); this._renderPathLogged = true; }
         // Upload index data and render with offset
         const indexData = this.indexBuffer.getDirectData();
         if (!indexData) return;
@@ -217,6 +280,7 @@ export class ColorCycleAnimator {
       }
 
       // Fallback CPU path (unchanged behavior)
+      if (!this._renderPathLogged) { debugLog('cc-gpu', '[renderFrame] Using CPU path'); this._renderPathLogged = true; }
       // Ensure imageData is created (for lazy init)
       if (!this.imageData) {
         this.imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
@@ -260,8 +324,8 @@ export class ColorCycleAnimator {
       this.ctx.putImageData(this.imageData, 0, 0);
     
     } catch (error) {
-      console.error('[ColorCycleAnimator] Error in renderFrame:', error);
-      console.error('[ColorCycleAnimator] Stack:', (error as Error).stack);
+      debugWarn('cc-render', '[ColorCycleAnimator] Error in renderFrame:', error);
+      debugWarn('cc-render', '[ColorCycleAnimator] Stack:', (error as Error).stack);
     }
   }
   
@@ -621,7 +685,6 @@ export class ColorCycleAnimator {
    * Set flow direction
    */
   setFlowDirection(direction: 'forward' | 'backward') {
-    console.log('🎨 [ColorCycleAnimator] Setting flow direction to:', direction);
     this.flowDirection = direction;
     // Always re-render to show the change immediately
     this.forceRender();

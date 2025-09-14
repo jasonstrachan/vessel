@@ -207,7 +207,7 @@ const BrushLibrary = () => {
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = 64;
       tempCanvas.height = 64;
-      const ctx = tempCanvas.getContext('2d');
+      const ctx = tempCanvas.getContext('2d', { willReadFrequently: true });
       
       if (ctx) {
         // Clear with transparency

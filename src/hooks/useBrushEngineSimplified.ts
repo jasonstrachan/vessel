@@ -9,6 +9,7 @@ import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams
 import { BrushShape } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
+import { debugLog } from '@/utils/debug';
 import { canvasPool } from '../utils/canvasPool';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { createColorCycleBrush, type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
@@ -893,22 +894,7 @@ export const useBrushEngineSimplified = () => {
       ctx.imageSmoothingEnabled = true;
       ctx.fillStyle = gradient;
       
-      // Debug: only log in development and when we have vertices
-      if (process.env.NODE_ENV !== 'production' && validVertices.length >= 3) {
-        // eslint-disable-next-line no-console
-        console.debug('About to draw polygon:', {
-          fillStyle: ctx.fillStyle,
-          vertexCount: validVertices.length,
-          bounds: {
-            minX: Math.min(...validVertices.map(v => v.x)),
-            minY: Math.min(...validVertices.map(v => v.y)),
-            maxX: Math.max(...validVertices.map(v => v.x)),
-            maxY: Math.max(...validVertices.map(v => v.y))
-          },
-          firstVertex: validVertices[0],
-          lastVertex: validVertices[validVertices.length - 1]
-        });
-      }
+      // quiet
       
       ctx.beginPath();
       ctx.moveTo(validVertices[0].x, validVertices[0].y);
@@ -916,11 +902,7 @@ export const useBrushEngineSimplified = () => {
       ctx.closePath();
       ctx.fill();
       
-      // Debug: non-intrusive logging
-      if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
-        console.debug('Polygon drawn successfully');
-      }
+      // quiet
       
       // Apply risograph effect if enabled
       const risographIntensity = tools.brushSettings.risographIntensity || 0;
@@ -1867,7 +1849,7 @@ export const useBrushEngineSimplified = () => {
     const state = useAppStore.getState();
     const activeLayer = state.layers.find(l => l.id === activeLayerId);
     if (!activeLayer || activeLayer.layerType !== 'color-cycle') {
-      try { const { debugWarn } = require('../utils/debug'); debugWarn('cc-init', 'non-cc-layer', { layerId: activeLayerId.substring(0, 20), layerType: activeLayer?.layerType }); } catch {}
+      // quiet
       return null;
     }
     // Do not initialize brush for recolor-mode layers
@@ -1926,12 +1908,12 @@ export const useBrushEngineSimplified = () => {
         (colorCycleBrush as any).setBandSpacing(tools.brushSettings.spacing);
       }
       // Set pressure enabled state and min/max values
-      try { const { debugLog } = require('../utils/debug'); debugLog('cc-init', 'pressureEnabled', tools.brushSettings.pressureEnabled); } catch {}
+      // quiet
       try {
         // Force enable pressure for COLOR_CYCLE - the UI toggle isn't working correctly
         const shouldEnablePressure = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ? true : (tools.brushSettings.pressureEnabled || false);
         (colorCycleBrush as any).setPressureEnabled(shouldEnablePressure);
-        try { const { debugLog } = require('../utils/debug'); debugLog('cc-init', 'pressure-override', shouldEnablePressure); } catch {}
+        // quiet
         // Always set pressure values, using sensible defaults if not specified
         (colorCycleBrush as any).setMinPressure(tools.brushSettings.minPressure || 50);
         (colorCycleBrush as any).setMaxPressure(tools.brushSettings.maxPressure || 200);
@@ -1990,20 +1972,12 @@ export const useBrushEngineSimplified = () => {
       // This prevents crashes when incompatible layer types are used
       const colorCycleBrush = getActiveLayerColorCycleBrush();
       if (!colorCycleBrush) {
-        try { const { debugWarn } = require('../utils/debug'); debugWarn('cc-draw', 'no-active-brush'); } catch {}
         return;
       }
       
       // Ensure pressure settings are applied (might be a newly created brush)
       // Log current settings to debug - only once per stroke to avoid spam
       if (!ctx.canvas.dataset.loggedSettings) {
-        try { const { debugLog } = require('../utils/debug'); debugLog('cc-draw', 'settings', {
-          pressureEnabled: tools.brushSettings.pressureEnabled,
-          minPressure: tools.brushSettings.minPressure,
-          maxPressure: tools.brushSettings.maxPressure,
-          brushShape: tools.brushSettings.brushShape,
-          currentTool: tools.currentTool
-        }); } catch {}
         ctx.canvas.dataset.loggedSettings = 'true';
         // Reset flag after a short delay
         setTimeout(() => {
@@ -2018,7 +1992,7 @@ export const useBrushEngineSimplified = () => {
         // Force enable pressure for COLOR_CYCLE - the UI toggle isn't working correctly
         const shouldEnablePressure = effectivePressureEnabled;
         (colorCycleBrush as any).setPressureEnabled(shouldEnablePressure);
-        try { const { debugLog } = require('../utils/debug'); debugLog('cc-draw', 'pressure', shouldEnablePressure); } catch {}
+        // quiet
         // Always set pressure values, using sensible defaults if not specified
         (colorCycleBrush as any).setMinPressure(effectiveMin);
         (colorCycleBrush as any).setMaxPressure(effectiveMax);
@@ -2115,7 +2089,7 @@ export const useBrushEngineSimplified = () => {
    * Reset Color Cycle - starts a new stroke with the existing brush
    */
   const resetColorCycle = useCallback((clearBuffer: boolean = false) => {
-    try { const { debugLog } = require('../utils/debug'); debugLog('cc-stroke', 'reset', { clearBuffer }); } catch {}
+    // quiet
     // DEFENSIVE GUARD: Add try-catch to prevent crashes during initialization
     try {
       // Reuse existing brush or create if needed
@@ -2143,7 +2117,7 @@ export const useBrushEngineSimplified = () => {
               } catch {}
             }
             if (hasAlpha) {
-              try { const { debugLog } = require('../utils/debug'); debugLog('cc-stroke', 'separate-previous'); } catch {}
+              // quiet
               if (typeof (brush as any).commitCurrentStroke === 'function') {
                 (brush as any).commitCurrentStroke(activeLayerId);
               }
@@ -2158,7 +2132,7 @@ export const useBrushEngineSimplified = () => {
             }
           }
         } catch (e) {
-          try { const { debugWarn } = require('../utils/debug'); debugWarn('cc-stroke', 'separate-failed', e); } catch {}
+          // quiet
         }
 
         // Ensure any in-progress stroke is finalized before starting a new one
@@ -2169,15 +2143,15 @@ export const useBrushEngineSimplified = () => {
             brush.endStroke(activeLayerId || undefined);
           }
         } catch (e) {
-          try { const { debugWarn } = require('../utils/debug'); debugWarn('cc-stroke', 'finalize-failed', e); } catch {}
+          // quiet
         }
 
-        try { const { debugLog } = require('../utils/debug'); debugLog('cc-stroke', 'startStroke', { layerId: activeLayerId, clearBuffer }); } catch {}
+        // quiet
         // Start a new stroke with the existing brush, passing layer ID and clearBuffer flag
         brush.startStroke(activeLayerId || undefined, clearBuffer);
       }
     } catch (error) {
-      try { const { debugWarn } = require('../utils/debug'); debugWarn('cc-stroke', 'reset-error', error); } catch {}
+      // quiet
       // Fail gracefully - don't crash the app
     }
   }, [initializeColorCycleBrush, activeLayerId]);
@@ -2196,7 +2170,7 @@ export const useBrushEngineSimplified = () => {
    * Fill a shape with linear color cycle gradient in specified direction
    */
   const fillColorCycleShapeLinear = useCallback((vertices: Array<{ x: number; y: number }>, direction: { x: number; y: number }) => {
-    try { const { debugLog } = require('../utils/debug'); debugLog('cc-shape', 'fill-linear', { vertices: vertices.length, direction }); } catch {}
+    // quiet
     
     // Initialize brush if needed
     const brush = initializeColorCycleBrush();
@@ -2204,7 +2178,7 @@ export const useBrushEngineSimplified = () => {
     if (brush && activeLayerId) {
       // Ensure we have a layer by setting the gradient if needed
       if ((brush as any).currentLayerIndex < 0) {
-        try { const { debugLog } = require('../utils/debug'); debugLog('cc-shape', 'ensure-gradient'); } catch {}
+        // quiet
         const currentGradient = tools.brushSettings.colorCycleGradient || [
           { position: 0, color: '#ff0000' },
           { position: 0.5, color: '#00ff00' },
@@ -2217,15 +2191,15 @@ export const useBrushEngineSimplified = () => {
       const bands = tools.brushSettings.gradientBands || 12;
       brush.setGradientBands(bands);
       
-      try { const { debugLog } = require('../utils/debug'); debugLog('cc-shape', 'call-fillShapeLinear'); } catch {}
+      // quiet
       // Fill the shape with linear gradient
       (brush as any).fillShapeLinear(vertices, direction, activeLayerId);
 
-      try { const { debugLog } = require('../utils/debug'); debugLog('cc-shape', 'endStroke'); } catch {}
+      // quiet
       // End the stroke to ensure texture is updated
       brush.endStroke(activeLayerId);
 
-      try { const { debugLog } = require('../utils/debug'); debugLog('cc-shape', 'force-render'); } catch {}
+      // quiet
       // Force a render to ensure the shape is visible
       brush.render(true);
     }
@@ -2235,19 +2209,19 @@ export const useBrushEngineSimplified = () => {
    * Fill a shape with color cycle gradient from edges to center
    */
   const fillColorCycleShape = useCallback((vertices: Array<{ x: number; y: number }>) => {
-    try { const { debugLog } = require('../utils/debug'); debugLog('cc-shape', 'fill', { vertices: vertices.length }); } catch {}
+    // quiet
     
     // Initialize brush if needed
     const brush = initializeColorCycleBrush();
     
     if (brush && activeLayerId) {
-      try { const { debugLog } = require('../utils/debug'); debugLog('cc-shape', 'skip-startStroke-already-started'); } catch {}
+      // quiet
       // DON'T call startStroke here - resetColorCycle() already called it
       // This was causing the double startStroke issue that accumulated shapes
       
       // Ensure we have a layer by setting the gradient if needed
       if ((brush as any).currentLayerIndex < 0) {
-        try { const { debugLog } = require('../utils/debug'); debugLog('cc-shape', 'ensure-gradient'); } catch {}
+        // quiet
         // Set the gradient to create a layer
         const currentGradient = tools.brushSettings.colorCycleGradient || [
           { position: 0, color: '#ff0000' },
@@ -2265,15 +2239,15 @@ export const useBrushEngineSimplified = () => {
       // The ColorCycleBrush internal canvas should match the project dimensions
       // No scaling needed - just pass vertices directly
       
-      try { const { debugLog } = require('../utils/debug'); debugLog('cc-shape', 'call-fillShape'); } catch {}
+      // quiet
       // Fill the shape with layer ID and spacing
       (brush as any).fillShape(vertices, activeLayerId, tools.brushSettings.spacing);
 
-      try { const { debugLog } = require('../utils/debug'); debugLog('cc-shape', 'endStroke'); } catch {}
+      // quiet
       // End the stroke to ensure texture is updated
       brush.endStroke(activeLayerId);
 
-      try { const { debugLog } = require('../utils/debug'); debugLog('cc-shape', 'force-render'); } catch {}
+      // quiet
       // Force a render to ensure the shape is visible
       brush.render(true);
     }
@@ -2318,7 +2292,7 @@ export const useBrushEngineSimplified = () => {
       if (colorCycleBrush) {
         const bands = tools.brushSettings.gradientBands || 12;
         colorCycleBrush.setGradientBands(bands);
-        try { const { debugLog } = require('../utils/debug'); debugLog('cc-init', 'update-bands', bands); } catch {}
+        // quiet
         
         // Force a render to show the change immediately
         colorCycleBrush.render(true);
