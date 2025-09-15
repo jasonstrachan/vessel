@@ -337,21 +337,21 @@ const BrushControls = () => {
           </div>
         )}
 
-        {/* Gradient Bands - number of color steps in gradient */}
+        {/* Gradient Bands - always shown; when Dither is ON we dither between bands */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
               Bands
             </label>
-            <ProgressSlider
-              value={activeSettings.gradientBands || 12}
-              min={2}
-              max={50}
-              step={1}
-              onChange={(value) => setActiveSettings({ gradientBands: Math.round(value) })}
-              aria-label="Gradient Bands (number of color steps)"
-              className="flex-1"
-            />
+              <ProgressSlider
+                value={activeSettings.gradientBands || 12}
+                min={2}
+                max={128}
+                step={1}
+                onChange={(value) => setActiveSettings({ gradientBands: Math.round(value) })}
+                aria-label="Gradient Bands (number of color steps)"
+                className="flex-1"
+              />
           </div>
         </div>
 

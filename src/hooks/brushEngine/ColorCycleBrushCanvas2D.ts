@@ -829,10 +829,11 @@ export class ColorCycleBrushCanvas2D {
       return (n & 0xffff) / 65536; // 16-bit fraction
     };
     const thresholdJitter = 0.2; // +/-10% around 0.5
-    // Dither pixel size: influences sampling grid for r/threshold, not the shape mask
+    // Dither pixel size: when >1 and dithering enabled, we optionally switch to
+    // block-based dithering so the pattern is visually "zoomed" into larger cells.
+    // This matches the desired UX of a pixel-resolution slider.
     const cellSize = Math.max(1, this.ditherEnabled ? this.ditherPixelSize : 1);
-    // Disable block fill (keep mask crisp); we only use coarse sampling for r/threshold
-    if (false && this.ditherEnabled && cellSize > 1) {
+    if (this.ditherEnabled && cellSize > 1) {
       const y0 = Math.floor(minY);
       const yMax = Math.ceil(maxY);
       const cellsAcross = Math.max(1, Math.ceil(bboxW / cellSize));
@@ -863,6 +864,30 @@ export class ColorCycleBrushCanvas2D {
           const xStartCell = Math.floor((startX - ixBase) / cellSize);
           const xEndCell = Math.floor((endX - ixBase) / cellSize);
 
+          // Precompute per-row horizontal spans for crisp edge clipping within this block
+          const rowClips: Array<{ start: number; end: number } | null> = [];
+          const yTo = Math.min(yMax, yb + cellSize - 1);
+          for (let yy = yb; yy <= yTo; yy++) {
+            const intsRow: number[] = [];
+            for (let k = 0; k < vertices.length; k++) {
+              const a = vertices[k];
+              const b = vertices[(k + 1) % vertices.length];
+              if (Math.abs(b.y - a.y) < 0.0001) continue;
+              if ((a.y <= yy && b.y > yy) || (b.y <= yy && a.y > yy)) {
+                const t = (yy - a.y) / (b.y - a.y);
+                const x = a.x + t * (b.x - a.x);
+                intsRow.push(x);
+              }
+            }
+            intsRow.sort((a, b) => a - b);
+            if (intsRow.length >= i + 2) {
+              rowClips.push({ start: Math.floor(intsRow[i]), end: Math.ceil(intsRow[i + 1]) });
+            } else {
+              // Fallback to center-row span
+              rowClips.push({ start: startX, end: endX });
+            }
+          }
+
           const processCell = (cx: number) => {
             const xBlock = ixBase + cx * cellSize;
             const xCenter = Math.min(endX, xBlock + Math.floor(cellSize / 2));
@@ -885,14 +910,17 @@ export class ColorCycleBrushCanvas2D {
               }
             }
             const r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
-            const qStep = bands > 1 ? 1.0 / (bands - 1) : 1.0;
-            const kLower = Math.max(0, Math.min(bands - 1, Math.floor(r / qStep)));
+            // Quantize to the user-selected number of bands; dithering
+            // toggles between adjacent band levels (Sierra Lite).
+            const quantLevels = Math.max(2, bands);
+            const qStep = quantLevels > 1 ? 1.0 / (quantLevels - 1) : 1.0;
+            const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
             const lowerPos = Math.min(1, kLower * qStep);
             const upperPos = Math.min(1, (kLower + 1) * qStep);
             const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
             const adj = frac + (cErrCurr[cx] || 0);
             const thr = 0.5 + (noiseAt(xCenter, yCenter) - 0.5) * thresholdJitter;
-            const chooseUpper = (kLower < bands - 1) && (adj >= thr);
+            const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
             const q = chooseUpper ? 1 : 0;
             const err = (frac - q) * this.ditherStrength;
             if (!serpentine) {
@@ -904,11 +932,16 @@ export class ColorCycleBrushCanvas2D {
             }
             cErrNext[cx] += err * 0.25;
             const outIdx = chooseUpper ? idxFromPos(upperPos) : idxFromPos(lowerPos);
-            const yTo = Math.min(yMax, yb + cellSize - 1);
             const xTo = Math.min(endX, xBlock + cellSize - 1);
             for (let yy = yb; yy <= yTo; yy++) {
-              for (let xx = xBlock; xx <= xTo; xx++) {
-                (animator as any).setIndex(xx, yy, outIdx);
+              const clip = rowClips[yy - yb];
+              if (!clip) continue;
+              const fillStart = Math.max(clip.start, xBlock);
+              const fillEnd = Math.min(clip.end, xTo);
+              if (fillStart <= fillEnd) {
+                for (let xx = fillStart; xx <= fillEnd; xx++) {
+                  (animator as any).setIndex(xx, yy, outIdx);
+                }
               }
             }
           };
@@ -1007,20 +1040,22 @@ export class ColorCycleBrushCanvas2D {
 
           // Continuous normalized distance [0,1]
           const r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
-          // Treat bands as number of colors; quantize positions uniformly across [0,1]
-          const qStep = bands > 1 ? 1.0 / (bands - 1) : 1.0;
-          const kLower = Math.max(0, Math.min(bands - 1, Math.floor(r / qStep)));
+          // Quantize to the user-selected number of bands; dithering
+          // toggles between adjacent band levels (Sierra Lite).
+          const quantLevels = Math.max(2, bands);
+          const qStep = quantLevels > 1 ? 1.0 / (quantLevels - 1) : 1.0;
+          const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
           const lowerPos = Math.min(1, kLower * qStep);
           const upperPos = Math.min(1, (kLower + 1) * qStep);
           const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
           const idxFromPos = (pos: number) => ((baseOffset + Math.round(pos * 254)) % 254) + 1;
 
-          if (this.ditherEnabled && bands >= 2) {
+          if (this.ditherEnabled) {
               // Sierra Lite between adjacent quantization levels
               const ix = x - ixBase;
               const adj = frac + (errCurr[ix] || 0);
               const thr = 0.5 + (noiseAt(tileXCenter, tileYCenter) - 0.5) * thresholdJitter; // jittered threshold per tile
-              const chooseUpper = (kLower < bands - 1) && (adj >= thr);
+              const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
               const q = chooseUpper ? 1 : 0;
               const err = (frac - q) * this.ditherStrength;
 
@@ -1068,21 +1103,23 @@ export class ColorCycleBrushCanvas2D {
                 }
               }
 
-              // Continuous normalized distance [0,1]
-              const r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
-              // Treat bands as number of colors; quantize positions uniformly across [0,1]
-              const qStep = bands > 1 ? 1.0 / (bands - 1) : 1.0;
-              const kLower = Math.max(0, Math.min(bands - 1, Math.floor(r / qStep)));
-              const lowerPos = Math.min(1, kLower * qStep);
-              const upperPos = Math.min(1, (kLower + 1) * qStep);
-              const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
-              const idxFromPos = (pos: number) => ((baseOffset + Math.round(pos * 254)) % 254) + 1;
+          // Continuous normalized distance [0,1]
+          const r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
+          // Quantize to the user-selected number of bands; dithering
+          // toggles between adjacent band levels (Sierra Lite).
+          const quantLevels = Math.max(2, bands);
+          const qStep = quantLevels > 1 ? 1.0 / (quantLevels - 1) : 1.0;
+          const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
+          const lowerPos = Math.min(1, kLower * qStep);
+          const upperPos = Math.min(1, (kLower + 1) * qStep);
+          const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
+          const idxFromPos = (pos: number) => ((baseOffset + Math.round(pos * 254)) % 254) + 1;
 
-              if (this.ditherEnabled && bands >= 2) {
+              if (this.ditherEnabled) {
                 const ix = x - ixBase;
                 const adj = frac + (errCurr[ix] || 0);
                 const thr = 0.5 + (noiseAt(tileXCenter, tileYCenter) - 0.5) * thresholdJitter;
-                const chooseUpper = (kLower < bands - 1) && (adj >= thr);
+                const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
                 const q = chooseUpper ? 1 : 0;
                 const err = (frac - q) * this.ditherStrength;
 
@@ -1522,7 +1559,7 @@ export class ColorCycleBrushCanvas2D {
    * Controls how many distinct color zones appear in shapes
    */
   setGradientBands(bands: number) {
-    if (!Number.isFinite(bands) || bands < 2 || bands > 50) {
+    if (!Number.isFinite(bands) || bands < 2 || bands > 254) {
       console.warn(`Invalid gradient bands: ${bands}, using default`);
       return;
     }
