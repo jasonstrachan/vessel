@@ -70,6 +70,8 @@ export const defaultBrushSettings: BrushSettings = {
   risographIntensity: 0,
   risographOutline: false, // Default: no rough outline effect
   ditherEnabled: false,
+  // Auto-sample gradient for color cycle brushes (off by default)
+  autoSampleGradient: false,
   fillResolution: 1,
   colors: 2, // Default to 2 colors for rectangle and polygon gradient brushes
   rectGradientPresetId: 'none', // Default: sample from canvas for rectangle gradient

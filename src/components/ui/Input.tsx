@@ -12,8 +12,11 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     const inputRef = (ref as React.RefObject<HTMLInputElement>) || internalRef;
     
     useEffect(() => {
-      if (inputRef.current && String(value || '') !== inputRef.current.value) {
-        inputRef.current.value = String(value || '');
+      if (inputRef.current) {
+        const newValue = value !== undefined && value !== null ? String(value) : '';
+        if (newValue !== inputRef.current.value) {
+          inputRef.current.value = newValue;
+        }
       }
     }, [value]);
 

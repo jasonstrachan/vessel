@@ -4,7 +4,8 @@
  */
 
 import { IndexBuffer } from './IndexBuffer';
-import { debugLog, debugWarn } from '../utils/debug';
+import { debugWarn } from '../utils/debug';
+// Debug logs suppressed for color cycle GPU path
 import { GradientPalette, GradientStop } from './GradientPalette';
 import { AnimationController } from './AnimationController';
 import { WebGLColorCycleRenderer } from './colorCycle/rendering/WebGLColorCycleRenderer';
@@ -82,11 +83,11 @@ export class ColorCycleAnimator {
         try {
           this.glRenderer = new WebGLColorCycleRenderer({ width: config.width, height: config.height });
           this.glCanvas = this.glRenderer.getCanvas();
-          debugLog('cc-gpu', '[Animator:laxyInit] WebGL renderer created');
+          // quiet
           this._glPaletteReady = false;
         } catch {}
       } else {
-        debugLog('cc-gpu', '[Animator:laxyInit] WebGL not supported or window undefined');
+        // quiet
       }
       
       // Use smaller stroke order buffer initially
@@ -130,11 +131,11 @@ export class ColorCycleAnimator {
         try {
           this.glRenderer = new WebGLColorCycleRenderer({ width: config.width, height: config.height });
           this.glCanvas = this.glRenderer.getCanvas();
-          debugLog('cc-gpu', '[Animator:init] WebGL renderer created');
+          // quiet
           this._glPaletteReady = false;
         } catch {}
       } else {
-        debugLog('cc-gpu', '[Animator:init] WebGL not supported or window undefined');
+        // quiet
       }
       
       // Initialize stroke order buffer
@@ -183,7 +184,6 @@ export class ColorCycleAnimator {
         const paletteRGBA = this.gradientPalette.getPaletteColors();
         this.glRenderer.setPaletteColors(paletteRGBA);
         this._glPaletteReady = true;
-        debugLog('cc-gpu', '[Animator] Uploaded palette to GPU (updateIndexBufferPalette)');
       } catch {}
     }
   }
@@ -210,11 +210,10 @@ export class ColorCycleAnimator {
     bbox: { minX: number; minY: number; width: number; height: number }
   ): boolean {
     if (!this.glRenderer || vertices.length < 3) {
-      debugLog('cc-gpu', '[gpuFillShape] Skip: glRenderer?', !!this.glRenderer, 'verts', vertices.length);
       return false;
     }
     try {
-      debugLog('cc-gpu', '[gpuFillShape] start', { verts: vertices.length, bands, baseOffset, colorStep, maxDist, bbox });
+      // quiet
       const flat = new Float32Array(vertices.length * 2);
       for (let i = 0; i < vertices.length; i++) {
         flat[i * 2] = vertices[i].x;
@@ -250,13 +249,12 @@ export class ColorCycleAnimator {
       this._glIndexDirty = true;
       // Force a render to show the update
       this.forceRender();
-      debugLog('cc-gpu', '[gpuFillShape] wrote bbox to index buffer and forced render');
       // Determine if any indices are non-zero to confirm visible output
       let hasContent = false;
       for (let i = 0; i < result.length; i++) { if (result[i] !== 0) { hasContent = true; break; } }
       return hasContent;
     } catch (e) {
-      debugWarn('cc-gpu', 'gpuFillShapeConcentric failed; will fallback to CPU.', e);
+      // quiet
       return false;
     }
   }
@@ -281,10 +279,10 @@ export class ColorCycleAnimator {
             const paletteRGBA = this.gradientPalette.getPaletteColors();
             this.glRenderer.setPaletteColors(paletteRGBA);
             this._glPaletteReady = true;
-            debugLog('cc-gpu', '[renderFrame] Uploaded palette lazily');
+            // quiet
           } catch {}
         }
-        if (!this._renderPathLogged) { debugLog('cc-gpu', '[renderFrame] Using GPU path'); this._renderPathLogged = true; }
+        if (!this._renderPathLogged) { this._renderPathLogged = true; }
         // Upload index data and render with offset
         const indexData = this.indexBuffer.getDirectData();
         if (!indexData) return;
@@ -314,7 +312,7 @@ export class ColorCycleAnimator {
               if (sample[i+3] > 0) anyAlpha = true;
               if (sample[i] || sample[i+1] || sample[i+2]) anyRGB = true;
             }
-            debugLog('cc-gpu', '[renderFrame] sample', { anyAlpha, anyRGB, w, h });
+            // quiet
           } catch {}
           this._renderSampledOnce = true;
         }
@@ -327,7 +325,7 @@ export class ColorCycleAnimator {
       }
 
       // Fallback CPU path (unchanged behavior)
-      if (!this._renderPathLogged) { debugLog('cc-gpu', '[renderFrame] Using CPU path'); this._renderPathLogged = true; }
+      if (!this._renderPathLogged) { this._renderPathLogged = true; }
       // Ensure imageData is created (for lazy init)
       if (!this.imageData) {
         this.imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
@@ -586,8 +584,11 @@ export class ColorCycleAnimator {
    * Used when animation is driven externally
    */
   updateFrame() {
-    // Calculate delta time (assume 30fps if called externally)
-    const deltaTime = 1/30;
+    // Calculate delta time based on target FPS when driven externally
+    // Use controller stats to avoid hardcoding 30fps
+    const stats = this.animationController.getStats();
+    const fps = Math.max(1, stats.targetFPS || 30);
+    const deltaTime = 1 / fps;
     
     // Update animation offset manually
     const currentOffset = this.animationController.getOffset();
@@ -597,6 +598,16 @@ export class ColorCycleAnimator {
     
     // Trigger frame render
     this.handleAnimationFrame(deltaTime, 0);
+  }
+
+  /**
+   * Set absolute animation phase [0,1) and render immediately
+   * Useful for deterministic exports (perfect loops)
+   */
+  setPhase(phase: number) {
+    const p = ((phase % 1) + 1) % 1;
+    this.animationController.setOffset(p);
+    this.renderFrame(p);
   }
   
   /**

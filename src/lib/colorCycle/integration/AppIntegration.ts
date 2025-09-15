@@ -8,7 +8,7 @@ import { RecolorManager } from '../RecolorManager';
 import { BrowserCompat } from '../compatibility/BrowserCompat';
 import { PerformanceProfiler } from '../monitoring/PerformanceProfiler';
 import { Layer } from '../../../types';
-import { debugLog } from '../../../utils/debug';
+// Debug logs suppressed for integration layer
 
 export interface ColorCycleIntegrationConfig {
   autoEnablePerformanceMode: boolean;
@@ -46,7 +46,7 @@ export class AppIntegration {
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    debugLog('cc-integration', 'Initializing Color Cycle Integration...');
+    // quiet
 
     try {
       // Test browser compatibility
@@ -57,7 +57,7 @@ export class AppIntegration {
 
       // Apply browser-specific optimizations
       if (compatibility.enableSafariWorkarounds || compatibility.enableFirefoxWorkarounds) {
-        debugLog('cc-integration', 'Applying browser-specific optimizations');
+        // quiet
       }
 
       // Setup performance monitoring if enabled
@@ -74,7 +74,7 @@ export class AppIntegration {
       }
 
       this.initialized = true;
-      debugLog('cc-integration', 'Color Cycle Integration initialized successfully');
+      // quiet
 
     } catch (error) {
       console.error('❌ Failed to initialize Color Cycle Integration:', error);
@@ -181,7 +181,7 @@ export class AppIntegration {
       // Update app store to reflect the change
       this.updateAppStore(layer);
 
-      debugLog('cc-integration', `Layer ${layer.id} converted to recolor mode`);
+      // quiet
     } catch (error) {
       this.profiler.end(profileId, { 
         success: false, 
@@ -232,7 +232,6 @@ export class AppIntegration {
       
       if (layer && layer.colorCycleData?.mode === 'recolor') {
         this.recolorManager.cleanup(layer);
-        debugLog('cc-integration', `Cleaned up recolor resources for layer ${layerId}`);
       }
     } catch (error) {
       console.error(`Failed to cleanup layer ${layerId}:`, error);
@@ -304,7 +303,7 @@ export class AppIntegration {
   private setupAppStoreHooks(): void {
     // We'll need to hook into layer deletion somehow
     // This would typically be done through the app store's layer management
-    debugLog('cc-integration', 'Setting up app store hooks for automatic cleanup');
+    // quiet
   }
 
   /**
@@ -318,7 +317,7 @@ export class AppIntegration {
     );
     
     // This would normally call a store action to update layers
-    debugLog('cc-integration', `Updated app store for layer ${layer.id}`);
+    // quiet
   }
 
   /**

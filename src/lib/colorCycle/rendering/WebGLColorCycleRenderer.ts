@@ -15,7 +15,7 @@
  * - Index value 0 is treated as transparent (alpha = 0)
  */
 
-import { debugLog } from '../../../utils/debug';
+// Debug logs suppressed for GPU renderer
 
 export interface GLRendererConfig {
   width: number;
@@ -140,8 +140,7 @@ export class WebGLColorCycleRenderer {
       const reserve = 24;
       const allowed = Math.max(8, maxVec4 - reserve);
       this.fillMaxVerts = Math.min(WebGLColorCycleRenderer.MAX_VERTS, allowed);
-      debugLog('cc-gpu', '[WebGLColorCycleRenderer] Uniform limit vec4', maxVec4, 'fillMaxVerts', this.fillMaxVerts);
-    } catch {}
+      } catch {}
   }
 
   getCanvas(): HTMLCanvasElement {
@@ -561,7 +560,7 @@ export class WebGLColorCycleRenderer {
       out[i] = r;
       if (r !== 0) nonZero++;
     }
-    debugLog('cc-gpu', '[fillPolygonConcentric] nonZero', nonZero, '/', out.length, 'bw', bw, 'bh', bh, 'count', count);
+    // quiet
 
     // Unbind FBO
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);

@@ -33,6 +33,15 @@
 
 ## Brushes
 
+#### CC shape sampler colors below
+All cc brushes buoild a gradienbt by sanmpling colors while drawing the stroke / gadient (8 colores by default) thwy autmatically apply this gradienbt to the shape / sttoke
+
+#### CC All brushes dither bands
+for all color cycles brushes add a toggle above speed sldier called Dither so gradeiotn are diothered instead of getting bands. Use the Sierra lite dithering algo rythem
+
+#### CC any custom brush
+Each stamp of the cistom brush is a new col cycling color in the sequence. can we apply this thingking to any brush? a toggle in brush optopns that sets any brush as a CC brush, toggled on bring suip the gradeiont dtop down, speed and bands slider  
+
 #### Resampler
 Dynamically samples canvas content for each new stroke.
 

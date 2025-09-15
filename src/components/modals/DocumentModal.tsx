@@ -37,10 +37,10 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
   useKeyboardScope('modal', isOpen);
   const { project, newProject, resizeCanvas } = useAppStore();
   
-  const [resizeWidth, setResizeWidth] = useState<number | string>(project?.width || 1920);
-  const [resizeHeight, setResizeHeight] = useState<number | string>(project?.height || 1080);
-  const [newWidth, setNewWidth] = useState(1920);
-  const [newHeight, setNewHeight] = useState(1080);
+  const [resizeWidth, setResizeWidth] = useState<number | string>(project?.width || 1000);
+  const [resizeHeight, setResizeHeight] = useState<number | string>(project?.height || 1000);
+  const [newWidth, setNewWidth] = useState(1000);
+  const [newHeight, setNewHeight] = useState(1000);
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });

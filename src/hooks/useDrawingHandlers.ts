@@ -8,7 +8,7 @@ import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '.
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
 import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
 import { appendSegmentWithDynamicResampling } from '../utils/shapeMaker';
-import { debugLog, debugWarn, logError } from '../utils/debug';
+import { logError } from '../utils/debug';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -124,6 +124,169 @@ export function useDrawingHandlers({
   // Stable refs to call start/stop CC animation from early hooks
   const startCCRef = useRef<() => void>(() => {});
   const stopCCRef = useRef<() => void>(() => {});
+
+  // Auto-sample gradient (for color cycle brushes)
+  const autoSamplePointsRef = useRef<Array<{ x: number; y: number }>>([]);
+  const autoSampleLastUpdateRef = useRef<number>(0);
+
+  const sampleHexAt = useCallback((x: number, y: number): string => {
+    try {
+      const toHex = (v: number) => v.toString(16).padStart(2, '0');
+
+      // 1) Prefer sampling from the live overlay/drawing canvas so preview builds while drawing
+      const overlay = drawingCanvasRef.current;
+      if (overlay) {
+        const octx = overlay.getContext('2d', { willReadFrequently: true });
+        if (octx) {
+          const clampedX = Math.max(0, Math.min(overlay.width - 1, Math.floor(x)));
+          const clampedY = Math.max(0, Math.min(overlay.height - 1, Math.floor(y)));
+          const img = octx.getImageData(clampedX, clampedY, 1, 1);
+          let [r, g, b, a] = img.data;
+          if (a > 10) {
+            if (r <= 30 && g <= 30 && b <= 30) { r = 0; g = 0; b = 0; }
+            if (r >= 225 && g >= 225 && b >= 225) { r = 255; g = 255; b = 255; }
+            return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+          }
+        }
+      }
+
+      // 2) Fallback to the composited canvas beneath
+      const comp = useAppStore.getState().currentOffscreenCanvas;
+      if (comp) {
+        const ctx = comp.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          const clampedX = Math.max(0, Math.min(comp.width - 1, Math.floor(x)));
+          const clampedY = Math.max(0, Math.min(comp.height - 1, Math.floor(y)));
+          const img = ctx.getImageData(clampedX, clampedY, 1, 1);
+          let [r, g, b, a] = img.data;
+          if (a < 10) return '#ffffff';
+          if (r <= 30 && g <= 30 && b <= 30) { r = 0; g = 0; b = 0; }
+          if (r >= 225 && g >= 225 && b >= 225) { r = 255; g = 255; b = 255; }
+          return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+        }
+      }
+    } catch {}
+    return '#ffffff';
+  }, []);
+
+  const equidistantPointsOnPolyline = useCallback((pts: Array<{ x: number; y: number }>, count: number) => {
+    if (pts.length === 0) return [] as Array<{ x: number; y: number }>;
+    if (pts.length === 1 || count === 1) return [pts[0]];
+    // Deduplicate nearly-identical consecutive points to avoid zero-length total
+    const deduped: Array<{ x: number; y: number }> = [];
+    const EPS = 0.25; // ~subpixel tolerance
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      const last = deduped[deduped.length - 1];
+      if (!last || Math.hypot(p.x - last.x, p.y - last.y) > EPS) {
+        deduped.push(p);
+      }
+    }
+    if (deduped.length === 0) return [];
+    if (deduped.length === 1) return [deduped[0]];
+    // Compute cumulative lengths
+    const segLens: number[] = [];
+    let total = 0;
+    for (let i = 0; i < deduped.length - 1; i++) {
+      const dx = deduped[i + 1].x - deduped[i].x;
+      const dy = deduped[i + 1].y - deduped[i].y;
+      const len = Math.hypot(dx, dy);
+      segLens.push(len);
+      total += len;
+    }
+    if (total === 0) return [deduped[0]];
+    const result: Array<{ x: number; y: number }> = [];
+    for (let i = 0; i < count; i++) {
+      const d = (i / Math.max(1, count - 1)) * total;
+      // Find segment containing this distance
+      let acc = 0;
+      let segIndex = 0;
+      while (segIndex < segLens.length && acc + segLens[segIndex] < d) {
+        acc += segLens[segIndex];
+        segIndex++;
+      }
+      if (segIndex >= segLens.length) {
+        result.push(deduped[deduped.length - 1]);
+        continue;
+      }
+      const segStart = deduped[segIndex];
+      const segEnd = deduped[segIndex + 1];
+      const segLen = segLens[segIndex] || 1;
+      const t = (d - acc) / segLen;
+      result.push({ x: segStart.x + (segEnd.x - segStart.x) * t, y: segStart.y + (segEnd.y - segStart.y) * t });
+    }
+    return result;
+  }, []);
+
+  const updateAutoSampledGradient = useCallback((sourcePts: Array<{ x: number; y: number }>) => {
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - autoSampleLastUpdateRef.current < 120) return; // throttle ~8fps
+    autoSampleLastUpdateRef.current = now;
+
+    // Dynamically choose sample count based on total path length so preview builds up quickly
+    // Compute polyline length with basic dedupe to avoid zero-length segments
+    const EPS = 0.25;
+    let last = null as { x: number; y: number } | null;
+    let totalLen = 0;
+    for (let i = 0; i < sourcePts.length; i++) {
+      const p = sourcePts[i];
+      if (!last) { last = p; continue; }
+      const dx = p.x - last.x; const dy = p.y - last.y;
+      const d = Math.hypot(dx, dy);
+      if (d > EPS) {
+        totalLen += d;
+        last = p;
+      }
+    }
+    const maxStops = 8;
+    const dynamicCount = Math.min(maxStops, Math.max(2, Math.floor(totalLen / 64) + 2));
+    const samplePts = equidistantPointsOnPolyline(sourcePts, dynamicCount);
+    if (samplePts.length === 0) return;
+
+    const colors = samplePts.map(p => sampleHexAt(p.x, p.y));
+    // Build gradient stops spaced 0..1
+    const stops = colors.map((c, i) => ({ position: samplePts.length === 1 ? 0 : i / (samplePts.length - 1), color: c }));
+    const store = useAppStore.getState();
+    // Avoid redundant updates
+    const current = store.tools.brushSettings.colorCycleGradient || [];
+    const same = JSON.stringify(current) === JSON.stringify(stops);
+    if (same) return;
+
+    // Ensure we have enough bands to display distinct sampled colors
+    try {
+      const gb = store.tools.brushSettings.gradientBands || 0;
+      if (gb < stops.length) {
+        store.setBrushSettings({ gradientBands: stops.length });
+      }
+    } catch {}
+
+    // Use shared setter to propagate to tools + active CC layer consistently
+    try {
+      const { setSharedColorCycleGradient } = require('../utils/colorCycleGradients');
+      setSharedColorCycleGradient(stops);
+    } catch {
+      // Fallback: update brush and active layer directly
+      store.setBrushSettings({ colorCycleGradient: stops });
+      const activeId = store.activeLayerId;
+      if (activeId) {
+        const layer = store.layers.find(l => l.id === activeId);
+        if (layer && layer.layerType === 'color-cycle') {
+          store.updateLayer(activeId, {
+            colorCycleData: {
+              ...(layer.colorCycleData || {}),
+              gradient: stops,
+              isAnimating: layer.colorCycleData?.isAnimating || false
+            }
+          } as any);
+        }
+      }
+    }
+
+    // Also push updated gradient into the active ColorCycle brush instance
+    try {
+      brushEngine.updateColorCycleGradient?.(stops);
+    } catch {}
+  }, [equidistantPointsOnPolyline, sampleHexAt]);
 
   // Track which CC layers were animating so we can resume them after interaction
   const pausedCCLayerIdsRef = useRef<string[]>([]);
@@ -342,6 +505,18 @@ export function useDrawingHandlers({
     }
     
     initDrawingCanvas();
+
+    // Initialize auto-sampling for color cycle stroke
+    try {
+      const isCCStroke = currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE;
+      const autoSample = !!currentState.tools.brushSettings.autoSampleGradient;
+      if (isCCStroke && autoSample) {
+        autoSamplePointsRef.current = [worldPos];
+        autoSampleLastUpdateRef.current = 0;
+        // Apply an initial sample immediately (single point)
+        updateAutoSampledGradient(autoSamplePointsRef.current);
+      }
+    } catch {}
     
     // Reset stroke for new drawing (modular engine)
     if (brushEngine.resetStroke) {
@@ -839,6 +1014,20 @@ export function useDrawingHandlers({
       }
       
       lastDrawPosRef.current = worldPos;
+
+      // Record points for auto-sampling and defer gradient update to finalize
+      try {
+        const state = useAppStore.getState();
+        const isCCStroke = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE;
+        if (isCCStroke && state.tools.brushSettings.autoSampleGradient) {
+          autoSamplePointsRef.current.push(worldPos);
+          if (autoSamplePointsRef.current.length > 5000) {
+            autoSamplePointsRef.current.splice(0, autoSamplePointsRef.current.length - 5000);
+          }
+          // Live, throttled gradient update based on the whole stroke path so far
+          updateAutoSampledGradient(autoSamplePointsRef.current);
+        }
+      } catch {}
     }
     
     // Clear the batch
@@ -925,6 +1114,26 @@ export function useDrawingHandlers({
           
           // For color cycle brush, stop the animation and do final render
           if (activeSettings.brushShape === BrushShape.COLOR_CYCLE && drawingCtxRef.current) {
+            // If auto-sampling is enabled, compute final 8-stop gradient across full stroke path now
+            try {
+              if (activeSettings.autoSampleGradient && autoSamplePointsRef.current.length > 0) {
+                const finalPts = [...autoSamplePointsRef.current];
+                const maxStops = 8;
+                const samplePts = equidistantPointsOnPolyline(finalPts, Math.min(maxStops, Math.max(1, finalPts.length)));
+                if (samplePts.length > 0) {
+                  const colors = samplePts.map(p => sampleHexAt(p.x, p.y));
+                  const stops = colors.map((c, i) => ({ position: samplePts.length === 1 ? 0 : i / (samplePts.length - 1), color: c }));
+                  try {
+                    const { setSharedColorCycleGradient } = require('../utils/colorCycleGradients');
+                    setSharedColorCycleGradient(stops);
+                  } catch {
+                    useAppStore.getState().setBrushSettings({ colorCycleGradient: stops });
+                  }
+                  // Push into live brush
+                  try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
+                }
+              }
+            } catch {}
             // Stop animation loop
             if (colorCycleAnimationRef.current) {
               cancelAnimationFrame(colorCycleAnimationRef.current);
@@ -971,10 +1180,8 @@ export function useDrawingHandlers({
               // Refresh state references after init
               currentState = useAppStore.getState();
               activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
-              // Optional debug
-              try { const { debugLog } = require('../utils/debug'); debugLog('cc-finalize', { event: 'init-cc-canvas', layerId: activeLayer?.id?.substring(0, 20) }); } catch {}
             } catch (e) {
-              debugWarn('cc-finalize', 'Failed to initialize CC layer before save:', e);
+              // Suppressed debug warn for finalize init
             }
           }
           
@@ -1007,7 +1214,7 @@ export function useDrawingHandlers({
                 }
               }
             } catch (e) {
-              debugWarn('cc-finalize', 'Failed to commit/clear brush buffers:', e);
+              // Suppressed debug warn for buffer commit
             }
 
             // For CC layers, capture directly from the layer's canvas
@@ -1032,8 +1239,7 @@ export function useDrawingHandlers({
             // On a color-cycle layer without a valid CC canvas, do not fall back to
             // regular layer saving, as that would create a misleading 'Drawing stroke'
             // history entry and break CC undo granularity. Skip saving in this edge case.
-            // Reduce noise: keep as debug unless explicitly enabled
-            try { const { debugLog } = require('../utils/debug'); debugLog('cc-finalize', { event: 'skip-regular-save-no-cc-canvas', layerId: activeLayer?.id?.substring(0, 20) }); } catch {}
+            // Reduce noise: suppressed finalize debug
           } else {
             // Regular layers: composite drawing onto layer
             const tempCanvas = document.createElement('canvas');
@@ -1085,6 +1291,9 @@ export function useDrawingHandlers({
     } catch (error) {
       logError('Error during finalization:', error);
     } finally {
+      // Reset auto-sample state after stroke ends
+      autoSamplePointsRef.current = [];
+      autoSampleLastUpdateRef.current = 0;
       // Resume previously paused CC animations (all affected layers)
       if (wasCCPlayingBeforeInteractionRef.current) {
         resumePausedBrushCCAnimations();
@@ -1140,6 +1349,16 @@ export function useDrawingHandlers({
       } else {
         shapePointsRef.current = [worldPos];
         isDrawingShapeRef.current = true;
+        // Initialize auto-sampling for CC shape
+        try {
+          const st = useAppStore.getState();
+          const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+          if (isCCShape && st.tools.brushSettings.autoSampleGradient) {
+            autoSamplePointsRef.current = [...shapePointsRef.current];
+            autoSampleLastUpdateRef.current = 0;
+            updateAutoSampledGradient(autoSamplePointsRef.current);
+          }
+        } catch {}
       }
     } else {
       startDrawing(worldPos, pressure);
@@ -1221,6 +1440,7 @@ export function useDrawingHandlers({
       if (added > 0) {
         // quiet
       }
+      // Defer auto-sampled gradient computation for CC shape to finalize
     } else if (!tools.shapeMode) {
       continueDrawing(worldPos);
     }
@@ -1353,6 +1573,28 @@ export function useDrawingHandlers({
             }
           }
           
+          // If drawing a Color Cycle Shape and auto-sampling is enabled, finalize gradient now
+          try {
+            const st = useAppStore.getState();
+            const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+            if (isCCShape && st.tools.brushSettings.autoSampleGradient) {
+              const finalPts = [...shapePointsRef.current];
+              const maxStops = 8;
+              const samplePts = equidistantPointsOnPolyline(finalPts, Math.min(maxStops, Math.max(1, finalPts.length)));
+              if (samplePts.length > 0) {
+                const colors = samplePts.map(p => sampleHexAt(p.x, p.y));
+                const stops = colors.map((c, i) => ({ position: samplePts.length === 1 ? 0 : i / (samplePts.length - 1), color: c }));
+                try {
+                  const { setSharedColorCycleGradient } = require('../utils/colorCycleGradients');
+                  setSharedColorCycleGradient(stops);
+                } catch {
+                  useAppStore.getState().setBrushSettings({ colorCycleGradient: stops });
+                }
+                try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
+              }
+            }
+          } catch {}
+
           // Check if we're using a custom brush
           const isCustomBrush = tools.brushSettings.brushShape === BrushShape.CUSTOM;
           let customBrushImageData: ImageData | null = null;
@@ -1700,6 +1942,9 @@ export function useDrawingHandlers({
             try { startCCRef.current(); } catch {}
             wasCCPlayingBeforeInteractionRef.current = false;
           }
+          // Reset auto-sample state after shape ends
+          autoSamplePointsRef.current = [];
+          autoSampleLastUpdateRef.current = 0;
           if (isBusyRef) isBusyRef.current = false;
           return;
         }

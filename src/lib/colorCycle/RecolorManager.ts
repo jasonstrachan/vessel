@@ -408,6 +408,25 @@ export class RecolorManager {
     this.animationController.playAll();
     this.broadcastAnimationState();
   }
+
+  /**
+   * Set absolute animation phase for a recolor layer and render it immediately
+   * Phase in [0,1); maps to currentTick in [0, cycleColors)
+   */
+  setPhase(layer: Layer, phase: number): void {
+    try {
+      const settings = layer.colorCycleData?.recolorSettings;
+      if (!settings) return;
+      const p = ((phase % 1) + 1) % 1;
+      const ticks = (settings.cycleColors || 256) * p;
+      settings.animation.currentTick = ticks;
+      const imageData = this.engine.renderFrame(layer, ticks);
+      if (imageData) {
+        layer.imageData = imageData;
+      }
+      this.broadcastAnimationState();
+    } catch {}
+  }
   
   playSingle(layerId: string): void {
     this.animationController.playSingle(layerId);

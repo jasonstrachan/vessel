@@ -167,7 +167,18 @@ const BrushControls = () => {
           </div>
         )}
 
-        {/* Gradient Editor - positioned first to avoid overlap */}
+        {/* Auto-sample toggle + Gradient Editor */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Sampled
+            </label>
+            <CustomSwitch
+              checked={!!activeSettings.autoSampleGradient}
+              onChange={(checked) => setActiveSettings({ autoSampleGradient: checked })}
+            />
+          </div>
+        </div>
         <div className="mb-4">
           <GradientEditor
             sampleTarget="brush"
@@ -316,23 +327,7 @@ const BrushControls = () => {
           </div>
         </div>
         
-        {/* Spacing - controls pixel distance between bands */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              Spacing
-            </label>
-            <ProgressSlider
-              value={activeSettings.spacing || 5}
-              min={1}
-              max={40}
-              step={1}
-              onChange={(value) => setActiveSettings({ spacing: Math.max(1, Math.round(value)) })}
-              aria-label="Spacing"
-              className="flex-1"
-            />
-          </div>
-        </div>
+        {/* Spacing removed for Color Cycle brushes */}
 
         {/* Gradient Bands - number of color steps in gradient */}
         <div className="mb-2">
@@ -373,58 +368,60 @@ const BrushControls = () => {
 
         {/* Shape Mode - Hidden for Color Cycle brushes as it's auto-managed */}
 
-        {/* Pressure */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="pressure-enabled-color-cycle"
-              className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
-            >
-              Pressure
-            </label>
-            <CustomSwitch
-              id="pressure-enabled-color-cycle"
-              checked={activeSettings.pressureEnabled || false}
-              onChange={(checked) => {
-                setActiveSettings({ pressureEnabled: checked });
-              }}
-            />
-            {(activeSettings.pressureEnabled || false) && (
-              <>
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={activeSettings.minPressure || 1}
-                  onChange={(e) => {
-                    const newMin = parseInt(e.target.value) || 1;
-                    setActiveSettings({
-                      minPressure: newMin,
-                    });
-                  }}
-                  min="1"
-                  max="1000"
-                  className="w-12 bg-[#4a4a4a] border-none focus:outline-none h-5"
-                />
-                <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
-                  -
-                </span>
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={activeSettings.maxPressure ?? 200}
-                  onChange={(e) => {
-                    const value = parseInt(e.target.value);
-                    setActiveSettings({ maxPressure: value || undefined });
-                  }}
-                  min="1"
-                  max="1000"
-                  className="w-12 bg-[#4a4a4a] border-none focus:outline-none h-5"
-                />
-              </>
-            )}
+        {/* Pressure - only for Color Cycle stroke variant */}
+        {activeSettings.brushShape === BrushShape.COLOR_CYCLE && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="pressure-enabled-color-cycle"
+                className="text-[#D9D9D9] w-16"
+                style={{ fontSize: "14px" }}
+              >
+                Pressure
+              </label>
+              <CustomSwitch
+                id="pressure-enabled-color-cycle"
+                checked={activeSettings.pressureEnabled || false}
+                onChange={(checked) => {
+                  setActiveSettings({ pressureEnabled: checked });
+                }}
+              />
+              {(activeSettings.pressureEnabled || false) && (
+                <>
+                  <Input
+                    type="number"
+                    variant="compact"
+                    value={activeSettings.minPressure || 1}
+                    onChange={(e) => {
+                      const newMin = parseInt(e.target.value) || 1;
+                      setActiveSettings({
+                        minPressure: newMin,
+                      });
+                    }}
+                    min="1"
+                    max="1000"
+                    className="w-12 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                  />
+                  <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
+                    -
+                  </span>
+                  <Input
+                    type="number"
+                    variant="compact"
+                    value={activeSettings.maxPressure ?? 200}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value);
+                      setActiveSettings({ maxPressure: value || undefined });
+                    }}
+                    min="1"
+                    max="1000"
+                    className="w-12 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                  />
+                </>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Rotation - only for stroke variant */}
         {activeSettings.brushShape === BrushShape.COLOR_CYCLE && (
@@ -448,81 +445,9 @@ const BrushControls = () => {
           </div>
         )}
 
-        {/* Dashed */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="dashed-enabled-color-cycle"
-              className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
-            >
-              Dashed
-            </label>
-            <CustomSwitch
-              id="dashed-enabled-color-cycle"
-              checked={activeSettings.dashedEnabled || false}
-              onChange={(checked) =>
-                setActiveSettings({ dashedEnabled: checked })
-              }
-            />
-            {(activeSettings.dashedEnabled || false) && (
-              <>
-                <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
-                  L
-                </span>
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={activeSettings.dashLength || 3}
-                  onChange={(e) =>
-                    setActiveSettings({
-                      dashLength: parseInt(e.target.value) || 3,
-                    })
-                  }
-                  min="1"
-                  max="20"
-                  className="w-7 bg-[#4a4a4a] border-none focus:outline-none px-0 h-5"
-                  title="Length multiplier (×brush size)"
-                />
-                <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
-                  G
-                </span>
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={activeSettings.dashGap || 2}
-                  onChange={(e) =>
-                    setActiveSettings({ dashGap: parseInt(e.target.value) || 2 })
-                  }
-                  min="1"
-                  max="20"
-                  className="w-7 bg-[#4a4a4a] border-none focus:outline-none px-0 h-5"
-                  title="Gap multiplier (×brush size)"
-                />
-              </>
-            )}
-          </div>
-        </div>
+        {/* Dashed removed for Color Cycle brushes */}
 
-        {/* Grid Snap */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="grid-snap-enabled-color-cycle"
-              className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
-            >
-              Grid Snap
-            </label>
-            <CustomSwitch
-              id="grid-snap-enabled-color-cycle"
-              checked={activeSettings.gridSnapEnabled || false}
-              onChange={(checked) =>
-                setActiveSettings({ gridSnapEnabled: checked })
-              }
-            />
-          </div>
-        </div>
+        {/* Grid Snap removed for Color Cycle brushes */}
       </div>
     );
   }

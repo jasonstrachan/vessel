@@ -46,7 +46,7 @@ export default function Home() {
     const store = useAppStore.getState();
     // Check top-level layers, not project.layers
     if (store.layers.length === 0) {
-      newProject(1920, 1080, 'Untitled');
+      newProject(1000, 1000, 'Untitled');
     } else {
       // quiet
     }

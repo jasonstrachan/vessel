@@ -5,7 +5,7 @@
  */
 
 import { ColorCycleAnimator } from '../../lib/ColorCycleAnimator';
-import { debugLog, debugWarn } from '../../utils/debug';
+// Debug logs suppressed for color cycle brush
 import { GradientStop } from '../../lib/GradientPalette';
 import { applyPressureCurve } from '../../utils/pressureCurve';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
@@ -233,10 +233,7 @@ export class ColorCycleBrushCanvas2D {
   paint(x: number, y: number, layerId?: string, pressure: number = 1.0, rotation: number = 0) {
     const perfStart = performance.now();
     
-    // DEBUG: Log pressure and rotation values
-    if (pressure !== 1.0 || rotation !== 0) {
-      debugLog('cc-paint', `[DEBUG] ColorCycleBrush paint: pressure=${pressure.toFixed(2)}, rotation=${rotation.toFixed(2)}, pressureEnabled=${this.pressureEnabled}`);
-    }
+    // Debug logging removed for paint hot path
     
     // Validate coordinates
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
@@ -286,14 +283,15 @@ export class ColorCycleBrushCanvas2D {
       // This creates banded color zones instead of smooth gradients
       const bandsToUse = Math.max(2, this.gradientBands || 12); // Default to 12 bands if not set
       
-      // Simple banding: cycle through a limited set of evenly-spaced colors
-      // Each band gets an equal portion of the 255 color palette
+      // Monotonic band progression across the stroke to avoid single-color stamps
+      // Advance through bands once, then clamp to the last band. This produces a
+      // left-to-right gradient across the stroke rather than cycling the same color.
       const colorsToUse = Math.min(254, bandsToUse); // Don't exceed palette size
       const colorStep = Math.max(1, Math.floor(254 / colorsToUse)); // Space between colors
-      const bandIndex = strokeData.stampCounter % colorsToUse;
+      const bandIndex = Math.min(colorsToUse - 1, strokeData.stampCounter);
       
       // Calculate color index and ensure it's in valid range (0-254)
-      const colorIndex = Math.min(254, (bandIndex * colorStep) % 255);
+      const colorIndex = Math.min(254, bandIndex * colorStep);
       
       // Calculate pressure-modulated brush size using smooth curve
       const pressureSize = this.pressureEnabled 
@@ -305,20 +303,7 @@ export class ColorCycleBrushCanvas2D {
           )))
         : this.brushSize;
       
-      // Debug logging - more detailed
-      if (this.pressureEnabled || pressure !== 1.0) {
-        const multiplier = applyPressureCurve(pressure, this.minPressure, this.maxPressure, 's-curve');
-        debugLog('cc-paint', `[CC Paint Debug]`, {
-          enabled: this.pressureEnabled,
-          pressure: pressure.toFixed(3),
-          minPressure: `${this.minPressure}%`,
-          maxPressure: `${this.maxPressure}%`,
-          curveMultiplier: multiplier.toFixed(3),
-          baseSize: this.brushSize,
-          calculatedSize: pressureSize,
-          curveType: 's-curve'
-        });
-      }
+      // Detailed paint debug removed
       
       // Paint with specific color index and pressure-modulated size
       // TODO: Add rotation support to paintSquare method in future update
@@ -796,15 +781,12 @@ export class ColorCycleBrushCanvas2D {
       let gpuVertices = vertices;
       if (tryGPU && vertices.length > GPU_MAX_VERTS) {
         const simplified = simplifyToVertexLimit(vertices, GPU_MAX_VERTS, { initialTolerance: 0.5, maxTolerance: 12, stepFactor: 1.8 });
-        if (simplified.length < vertices.length) {
-          debugLog('cc-fill', '[fillShape] Simplified polygon for GPU', { original: vertices.length, simplified: simplified.length });
-        }
+        // quiet
         gpuVertices = simplified;
       }
       const withinVertLimit = gpuVertices.length <= GPU_MAX_VERTS;
       // Clean rule: if GPU is available and within uniform limit, always use GPU (any size)
       if (tryGPU && withinVertLimit) {
-        debugLog('cc-fill', '[fillShape] Using GPU path', { verts: gpuVertices.length, GPU_MAX_VERTS, bbox, bands: bandsForGPU, hasGL });
         // quiet
         // GPU concentric fill
         const ok = anyAnimator.gpuFillShapeConcentric(gpuVertices, bandsForGPU, baseOffset, colorStep, maxDist, bbox);
@@ -817,17 +799,10 @@ export class ColorCycleBrushCanvas2D {
           this.render(false);
           return;
         } else {
-          debugLog('cc-fill', '[fillShape] GPU fill produced no content; falling back to CPU');
+          // quiet
         }
       }
-      // GPU not used, log reason once per call
-      debugLog('cc-fill', '[fillShape] GPU not used', {
-        hasMethod,
-        hasGL,
-        verts: vertices.length,
-        GPU_MAX_VERTS,
-        reason: !tryGPU ? 'no gl or method' : (!withinVertLimit ? 'too many vertices' : 'unknown')
-      });
+      // GPU not used - quiet
     } catch {}
 
     // CPU fallback path
@@ -1097,7 +1072,7 @@ export class ColorCycleBrushCanvas2D {
     // If the target is the same canvas as the animator's internal canvas,
     // do not draw onto itself. forceRender() already updated pixels.
     if (srcCanvas === targetCanvas) {
-      try { const { debugLog } = require('../../utils/debug'); debugLog('cc-commit', { event: 'same-canvas-skip-draw', layerId: layerId?.substring(0, 20) }); } catch {}
+      // Skip drawing to same canvas; already up to date
       return;
     }
 
@@ -1123,13 +1098,7 @@ export class ColorCycleBrushCanvas2D {
         ctx.drawImage(srcCanvas, 0, 0);
       }
 
-      // Optional debug sampling to verify alpha > 0
-      try {
-        const sample = ctx.getImageData(0, 0, Math.min(10, targetCanvas.width), Math.min(10, targetCanvas.height)).data;
-        let hasAlpha = false;
-        for (let i = 3; i < sample.length; i += 4) { if (sample[i] > 0) { hasAlpha = true; break; } }
-        try { const { debugLog } = require('../../utils/debug'); debugLog('cc-commit', { event: 'committed', layerId: layerId?.substring(0, 20), hasAlpha, srcHasContent, hadStrokeContent: !!strokeData?.hasContent }); } catch {}
-      } catch {}
+      // Optional alpha sampling removed from production path
     } finally {
       // Restore prior state regardless of outcome
       ctx.globalCompositeOperation = prevComposite;
@@ -1273,6 +1242,22 @@ export class ColorCycleBrushCanvas2D {
     });
     
     // Always render when updateAnimation is called
+    this.render(false);
+  }
+
+  /**
+   * Set absolute animation phase across all animators and render
+   */
+  setPhase(phase: number) {
+    const p = ((phase % 1) + 1) % 1;
+    this.animators.forEach((animator) => {
+      if ((animator as any).setPhase) {
+        (animator as any).setPhase(p);
+      } else {
+        // Fallback: set FPS-based step to approximate phase
+        animator.updateFrame();
+      }
+    });
     this.render(false);
   }
   
