@@ -400,7 +400,7 @@ export const applyDithering = (
   const ditherSettings: DitherSettings = {
     algorithm: (algorithm as DitherAlgorithmType) || 'sierra-lite',
     pressure: 0.5,
-    intensity: 0.75,
+    intensity: 1.0,
     bayerMatrixSize: 8,
     palette: palette,
     patternStyle: (patternStyle as PatternStyle) || 'dots'

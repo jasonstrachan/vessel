@@ -2310,6 +2310,28 @@ export const useBrushEngineSimplified = () => {
       (colorCycleBrush as any).setBandSpacing(tools.brushSettings.spacing);
     }
   }, [tools.brushSettings.spacing, activeLayerId]);
+
+  // Update dithering toggle for color-cycle shape fills
+  useEffect(() => {
+    const colorCycleBrush = getActiveLayerColorCycleBrush();
+    if (colorCycleBrush) {
+      try {
+        (colorCycleBrush as any).setDitherEnabled(!!tools.brushSettings.ditherEnabled);
+      } catch (e) {
+        // Non-fatal; older brushes may not support dithering
+      }
+    }
+  }, [tools.brushSettings.ditherEnabled, activeLayerId]);
+
+  // Update dither pixel size (fillResolution) for color-cycle shape fills
+  useEffect(() => {
+    const colorCycleBrush = getActiveLayerColorCycleBrush();
+    if (colorCycleBrush && tools.brushSettings.fillResolution) {
+      try {
+        (colorCycleBrush as any).setDitherPixelSize(Math.max(1, Math.floor(tools.brushSettings.fillResolution)));
+      } catch {}
+    }
+  }, [tools.brushSettings.fillResolution, activeLayerId]);
   
   // Update pressure enabled when it changes
   useEffect(() => {

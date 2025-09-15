@@ -355,6 +355,41 @@ const BrushControls = () => {
           </div>
         </div>
 
+        {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="dither-enabled-color-cycle"
+                className="text-[#D9D9D9] w-16"
+                style={{ fontSize: '14px' }}
+              >
+                Dither
+              </label>
+              <CustomSwitch
+                id="dither-enabled-color-cycle"
+                checked={activeSettings.ditherEnabled || false}
+                onChange={(checked) => setActiveSettings({ ditherEnabled: checked })}
+              />
+            </div>
+            {activeSettings.ditherEnabled && (
+              <div className="flex items-center gap-2 mt-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Pixel
+                </label>
+                <ProgressSlider
+                  value={activeSettings.fillResolution || 1}
+                  min={1}
+                  max={16}
+                  step={1}
+                  onChange={(value) => setActiveSettings({ fillResolution: Math.round(value) })}
+                  aria-label="Dither Pixel Size"
+                  className="flex-1"
+                />
+              </div>
+            )}
+          </div>
+        )}
+
 
         {/* Color Jitter */}
         <div className="mb-2">

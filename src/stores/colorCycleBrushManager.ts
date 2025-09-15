@@ -73,7 +73,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
         brushSize: currentSettings.size || 20,
         fps: currentSettings.colorCycleFPS || 30
       });
-      
+
       // Apply all current settings to the new brush instance
       if (currentSettings.gradientBands) {
         brush.setGradientBands(currentSettings.gradientBands);
@@ -89,6 +89,12 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       }
       if (currentSettings.maxPressure) {
         (brush as any).setMaxPressure(currentSettings.maxPressure);
+      }
+      if (currentSettings.ditherEnabled !== undefined) {
+        (brush as any).setDitherEnabled(!!currentSettings.ditherEnabled);
+      }
+      if (currentSettings.fillResolution) {
+        (brush as any).setDitherPixelSize(Math.max(1, Math.floor(currentSettings.fillResolution)));
       }
       
       // Set layer ID if method exists
@@ -228,6 +234,12 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
             }
             if (currentSettings.maxPressure) {
               (existingBrush as any).setMaxPressure(currentSettings.maxPressure);
+            }
+            if (currentSettings.ditherEnabled !== undefined) {
+              (existingBrush as any).setDitherEnabled(!!currentSettings.ditherEnabled);
+            }
+            if (currentSettings.fillResolution) {
+              (existingBrush as any).setDitherPixelSize(Math.max(1, Math.floor(currentSettings.fillResolution)));
             }
           }
           
