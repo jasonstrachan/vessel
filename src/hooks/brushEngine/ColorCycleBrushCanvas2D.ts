@@ -946,15 +946,19 @@ export class ColorCycleBrushCanvas2D {
             }
           }
         } else {
-          // No dithering: continuous mapping end-to-end
-          // Sample gradient position r in [0,1] and map directly to palette index 1..255
+          // No dithering: banded quantization anchored to gradient ends
+          // Respect gradientBands so the UI "Bands" slider affects linear fills.
+          const quantLevels = Math.max(2, this.gradientBands || 12);
           const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
+          const denom = quantLevels - 1;
           for (let x = startX; x <= endX; x++) {
             const dx = x - centerX;
             const dy = y - centerY;
             const projection = dx * dirX + dy * dirY;
             const r = Math.max(0, Math.min(1, (projection - minProjection) / projectionRange));
-            const outIdx = idxFromPos(r);
+            const k = Math.round(r * denom); // snap to nearest band including endpoints
+            const pos = k / denom; // 0..1 inclusive
+            const outIdx = idxFromPos(pos);
             animator.setIndex(x, y, outIdx);
           }
         }
