@@ -341,7 +341,7 @@ const BrushControls = () => {
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              Bands
+              {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && (activeSettings.ditherEnabled || false) ? 'Colors' : 'Bands'}
             </label>
               <ProgressSlider
                 value={activeSettings.gradientBands || 12}
@@ -374,7 +374,7 @@ const BrushControls = () => {
             {activeSettings.ditherEnabled && (
               <div className="flex items-center gap-2 mt-2">
                 <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                  Pixel
+                  Resolution
                 </label>
                 <ProgressSlider
                   value={activeSettings.fillResolution || 1}
@@ -382,7 +382,7 @@ const BrushControls = () => {
                   max={16}
                   step={1}
                   onChange={(value) => setActiveSettings({ fillResolution: Math.round(value) })}
-                  aria-label="Dither Pixel Size"
+                  aria-label="Dither Resolution"
                   className="flex-1"
                 />
               </div>

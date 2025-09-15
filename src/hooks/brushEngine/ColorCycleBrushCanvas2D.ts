@@ -31,6 +31,11 @@ export class ColorCycleBrushCanvas2D {
   private ditherEnabled: boolean = false; // Sierra Lite dithering for shape fills
   private ditherStrength: number = 1.0; // 0..1 scaling for error diffusion
   private ditherPixelSize: number = 1; // coarse cell size for dithering (>=1)
+  private perceptualDither: boolean = false; // Use color-space dithering then map to indices
+  private currentGradientStops: GradientStop[] = [
+    { position: 0, color: '#000000' },
+    { position: 1, color: '#ffffff' }
+  ];
   
   // Canvas dimensions
   private width: number;
@@ -353,9 +358,14 @@ export class ColorCycleBrushCanvas2D {
   setGradient(stops: GradientStop[], layerId?: string) {
     const id = layerId || this.activeLayerId || 'default';
     const animator = this.getAnimator(id);
-    
+
     // Update gradient
     animator.setGradient(stops);
+
+    // Cache stops for perceptual dithering paths
+    try {
+      this.currentGradientStops = Array.isArray(stops) && stops.length > 0 ? [...stops] : this.currentGradientStops;
+    } catch {}
     
     // Store in layer data
     const strokeData = this.layerStrokes.get(id);
@@ -386,6 +396,69 @@ export class ColorCycleBrushCanvas2D {
       this.compositeCtx.clearRect(0, 0, this.width, this.height);
     }
   }
+
+  // --- Perceptual dithering helpers ---
+  private parseCssColor(color: string | { r: number; g: number; b: number }): { r: number; g: number; b: number } {
+    if (typeof color === 'object' && color && typeof (color as any).r === 'number') {
+      const c = color as any; return { r: Math.round(c.r), g: Math.round(c.g), b: Math.round(c.b) };
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = 1; canvas.height = 1;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true } as any);
+    if (!ctx) return { r: 0, g: 0, b: 0 };
+    ctx.fillStyle = color as string; ctx.fillRect(0, 0, 1, 1);
+    const d = ctx.getImageData(0, 0, 1, 1).data;
+    return { r: d[0], g: d[1], b: d[2] };
+  }
+
+  private interpolateColor(a: { r: number; g: number; b: number }, b: { r: number; g: number; b: number }, t: number) {
+    return {
+      r: Math.round(a.r + (b.r - a.r) * t),
+      g: Math.round(a.g + (b.g - a.g) * t),
+      b: Math.round(a.b + (b.b - a.b) * t)
+    };
+  }
+
+  private colorAtPosition(pos: number): { r: number; g: number; b: number } {
+    const stops = this.currentGradientStops;
+    if (!stops || stops.length === 0) return { r: 0, g: 0, b: 0 };
+    const sorted = [...stops].sort((a, b) => a.position - b.position);
+    if (pos <= sorted[0].position) return this.parseCssColor(sorted[0].color);
+    if (pos >= sorted[sorted.length - 1].position) return this.parseCssColor(sorted[sorted.length - 1].color);
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const s0 = sorted[i]; const s1 = sorted[i + 1];
+      if (pos >= s0.position && pos <= s1.position) {
+        const c0 = this.parseCssColor(s0.color); const c1 = this.parseCssColor(s1.color);
+        const t = (pos - s0.position) / Math.max(1e-6, (s1.position - s0.position));
+        return this.interpolateColor(c0, c1, t);
+      }
+    }
+    return this.parseCssColor(sorted[sorted.length - 1].color);
+  }
+
+  private rgbToHex(c: { r: number; g: number; b: number }): string {
+    const toHex = (v: number) => v.toString(16).padStart(2, '0');
+    return `#${toHex(c.r)}${toHex(c.g)}${toHex(c.b)}`;
+  }
+
+  private buildQuantizedGradientPalette(numColors: number): { css: string[]; mapRgbToIndex: Map<string, number> } {
+    const colors: string[] = [];
+    const map = new Map<string, number>();
+    const n = Math.max(2, Math.floor(numColors));
+    for (let i = 0; i < n; i++) {
+      const pos = n === 1 ? 0 : i / (n - 1);
+      const rgb = this.colorAtPosition(pos);
+      const hex = this.rgbToHex(rgb);
+      colors.push(hex);
+      // Pre-map this palette color to a gradient index using position → index mapping
+      const idx = ((Math.round(pos * 254)) % 254) + 1; // 1..255 (0 reserved)
+      map.set(`${rgb.r},${rgb.g},${rgb.b}`, idx);
+    }
+    return { css: colors, mapRgbToIndex: map };
+  }
+
+  /** Enable/disable perceptual dithering for shape fills. */
+  setPerceptualDither(enabled: boolean) { this.perceptualDither = !!enabled; }
 
   /**
    * Start new stroke (API compatible)
@@ -574,26 +647,151 @@ export class ColorCycleBrushCanvas2D {
     
     const projectionRange = maxProjection - minProjection;
     const numBands = Math.max(2, this.gradientBands || 12);
-    
-    // Scanline fill with linear gradient
+
+    // If using perceptual dithering, render gradient into an ImageData, dither in color space,
+    // then map back to gradient indices and write to the index buffer.
+    if (this.ditherEnabled && this.perceptualDither) {
+      try {
+        const width = Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1);
+        const height = Math.max(1, Math.ceil(maxY) - Math.floor(minY) + 1);
+        const img = new ImageData(width, height);
+        const data = img.data;
+        const x0 = Math.floor(minX);
+        const y0 = Math.floor(minY);
+
+        // Precompute per-row spans
+        const spans: Array<Array<[number, number]>> = [];
+        for (let y = y0; y <= Math.ceil(maxY); y++) {
+          const ints: number[] = [];
+          for (let i = 0; i < vertices.length; i++) {
+            const v1 = vertices[i];
+            const v2 = vertices[(i + 1) % vertices.length];
+            if (Math.abs(v2.y - v1.y) < 1e-4) continue;
+            if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
+              const t = (y - v1.y) / (v2.y - v1.y);
+              const x = v1.x + t * (v2.x - v1.x);
+              ints.push(x);
+            }
+          }
+          ints.sort((a, b) => a - b);
+          const row: [number, number][] = [];
+          for (let i = 0; i < ints.length - 1; i += 2) {
+            row.push([Math.floor(ints[i]), Math.ceil(ints[i + 1])]);
+          }
+          spans.push(row);
+        }
+
+        // Fill gradient colors into buffer
+        const dirLength = Math.sqrt(direction.x * direction.x + direction.y * direction.y) || 1;
+        const dirX = direction.x / dirLength;
+        const dirY = direction.y / dirLength;
+        const centerX = (minX + maxX) / 2; const centerY = (minY + maxY) / 2;
+        let minProj = Infinity, maxProj = -Infinity;
+        for (const v of vertices) {
+          const dx = v.x - centerX; const dy = v.y - centerY;
+          const p = dx * dirX + dy * dirY; if (p < minProj) minProj = p; if (p > maxProj) maxProj = p;
+        }
+        const projRange = Math.max(1e-6, maxProj - minProj);
+
+        for (let yy = 0; yy < height; yy++) {
+          const y = y0 + yy;
+          const rowSpans = spans[yy] || [];
+          for (const [sx, ex] of rowSpans) {
+            for (let x = sx; x <= ex; x++) {
+              const xx = x - x0; if (xx < 0 || xx >= width) continue;
+              const dx = x - centerX; const dy = y - centerY;
+              const proj = dx * dirX + dy * dirY;
+              const r = Math.max(0, Math.min(1, (proj - minProj) / projRange));
+              const { r: R, g: G, b: B } = this.colorAtPosition(r);
+              const idx = (yy * width + xx) * 4;
+              data[idx] = R; data[idx + 1] = G; data[idx + 2] = B; data[idx + 3] = 255;
+            }
+          }
+        }
+
+        // Build palette of N colors from gradient
+        const quantLevels = Math.max(2, this.gradientBands || 12);
+        const { css: paletteCss, mapRgbToIndex } = this.buildQuantizedGradientPalette(quantLevels);
+
+        // Run color-space dithering at requested pixel size
+        const { applyDitheringWithFillResolution } = require('./dithering');
+        const dithered: ImageData = applyDitheringWithFillResolution(img, quantLevels, Math.max(1, this.ditherPixelSize), 'sierra-lite', undefined, paletteCss);
+
+        // Map dithered pixels back to gradient indices and write to index buffer
+        const out = dithered.data;
+        for (let yy = 0; yy < height; yy++) {
+          const y = y0 + yy;
+          const rowSpans = spans[yy] || [];
+          for (const [sx, ex] of rowSpans) {
+            for (let x = sx; x <= ex; x++) {
+              const xx = x - x0; if (xx < 0 || xx >= width) continue;
+              const p = (yy * width + xx) * 4;
+              const key = `${out[p]},${out[p + 1]},${out[p + 2]}`;
+              const gi = mapRgbToIndex.get(key);
+              if (gi !== undefined) {
+                animator.setIndex(x, y, gi);
+              }
+            }
+          }
+        }
+
+        this.stampCounter += quantLevels;
+        if (strokeData) strokeData.stampCounter = this.stampCounter;
+        this.dirtyLayers.add(id);
+        animator.forceRender();
+        this.render(false);
+        return;
+      } catch (e) {
+        // Fallback to existing path on any failure
+      }
+    }
+
+    // Scanline fill with linear gradient + optional Sierra Lite dithering
     // Hoist invariants out of inner loops
-    const shapeWidth = maxX - minX;
-    const shapeHeight = maxY - minY;
-    const shapeSize = Math.max(shapeWidth, shapeHeight);
-    const maxDist = Math.max(50, shapeSize / 2);
-    const bands = this.gradientBands || 12;
-    const bandStep = 1.0 / bands;
+    const bands = Math.max(2, this.gradientBands || 12);
     const colorStep = Math.floor(254 / bands);
     const baseOffset = this.stampCounter % 254; // Continue from last shape
 
-    // Prepare error buffers for Sierra Lite dithering across the bbox
+    // BBox metrics and error buffers
     const bboxW = Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1);
+    const bboxH = Math.max(1, Math.ceil(maxY) - Math.floor(minY) + 1);
+    const ixBase = Math.floor(minX);
+    const iyBase = Math.floor(minY);
     let errCurr = new Float32Array(bboxW);
     let errNext = new Float32Array(bboxW);
 
-    for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) {
-      // swap rows and clear next row accumulator
+    // Deterministic threshold jitter to avoid patterns
+    const noiseAt = (x: number, y: number): number => {
+      let n = (x | 0) * 374761393 + (y | 0) * 668265263;
+      n = (n ^ (n >>> 13)) * 1274126177;
+      n = (n ^ (n >>> 16)) >>> 0;
+      return (n & 0xffff) / 65536;
+    };
+    const thresholdJitter = 0.2; // +/-10% around 0.5
+    const cellSize = Math.max(1, this.ditherEnabled ? this.ditherPixelSize : 1);
+    const cellsAcross = Math.max(1, Math.ceil(bboxW / cellSize));
+    const cellsDown = Math.max(1, Math.ceil(bboxH / cellSize));
+    let cErrCurr = new Float32Array(cellsAcross);
+    let cErrNext = new Float32Array(cellsAcross);
+    // Cache per-cell output index so each cell uses one decision across its full height
+    const cellOutIdx: Int16Array[] = Array.from({ length: cellsDown }, () => new Int16Array(cellsAcross).fill(-1));
+
+    for (let y = Math.floor(minY), rowIdx = 0; y <= Math.ceil(maxY); y++, rowIdx++) {
+      // swap rows and clear next row accumulator (per-pixel dithering path)
       const _t = errCurr; errCurr = errNext; errNext = _t; errNext.fill(0);
+
+      // For block dithering, only advance cell-error buffers when entering a new y-cell
+      const inBlockMode = this.ditherEnabled && cellSize > 1;
+      const isFirstRowOfCell = inBlockMode ? (rowIdx % cellSize) === 0 : false;
+      if (inBlockMode && isFirstRowOfCell) {
+        const _tc = cErrCurr; cErrCurr = cErrNext; cErrNext = _tc; cErrNext.fill(0);
+      } else if (!inBlockMode) {
+        // In per-pixel mode, keep previous behavior (advance each row)
+        const _tc = cErrCurr; cErrCurr = cErrNext; cErrNext = _tc; cErrNext.fill(0);
+      }
+
+      const serpentine = (rowIdx & 1) === 1; // per-pixel path serpentine
+      const serpentineCell = ((Math.floor(rowIdx / Math.max(1, cellSize)) & 1) === 1); // block path serpentine
       const intersections: number[] = [];
       
       // Find all edge intersections with this scanline
@@ -616,26 +814,149 @@ export class ColorCycleBrushCanvas2D {
       for (let i = 0; i < intersections.length - 1; i += 2) {
         const startX = Math.floor(intersections[i]);
         const endX = Math.ceil(intersections[i + 1]);
-        
-        for (let x = startX; x <= endX; x++) {
-          // Project this pixel onto the direction vector
-          const dx = x - centerX;
-          const dy = y - centerY;
-          const projection = dx * dirX + dy * dirY;
-          
-          // Normalize projection to 0-1 range
-          const normalizedProjection = (projection - minProjection) / projectionRange;
-          
-          // Quantize into color bands
-          const bandIndex = Math.min(numBands - 1, Math.floor(normalizedProjection * numBands));
-          
-          // Map to color index
-          const colorStep = Math.floor(254 / numBands);
-          const baseOffset = this.stampCounter % 254;
-          const colorIndex = ((baseOffset + bandIndex * colorStep) % 254) + 1;
-          
-          // Paint pixel using raw index for speed
-          animator.setIndex(x, y, colorIndex);
+
+        if (this.ditherEnabled && cellSize > 1) {
+          // Block-based Sierra Lite dithering with crisp edge clipping
+          const xStartCell = Math.floor((startX - ixBase) / cellSize);
+          const xEndCell = Math.floor((endX - ixBase) / cellSize);
+          const cy = Math.floor((y - iyBase) / cellSize);
+
+          const processCell = (cx: number) => {
+            // If this cell already has a decision, reuse it for square pixels
+            let cached = cellOutIdx[cy][cx];
+            if (cached < 0) {
+              const xBlock = ixBase + cx * cellSize;
+              const xCenter = Math.min(endX, xBlock + Math.floor(cellSize / 2));
+              const yCenterBlock = Math.min(Math.ceil(maxY), iyBase + cy * cellSize + Math.floor(cellSize / 2));
+
+              // Projection at block center
+              const dx = xCenter - centerX;
+              const dy = yCenterBlock - centerY;
+              const projection = dx * dirX + dy * dirY;
+              let r = Math.max(0, Math.min(1, (projection - minProjection) / projectionRange));
+              if (this.ditherEnabled) {
+                const jitterScale = 0.35;
+                const quantLevels = Math.max(2, bands);
+                const j = (noiseAt(xCenter, yCenterBlock) - 0.5) * (jitterScale / quantLevels);
+                r = Math.max(0, Math.min(1, r + j));
+              }
+
+              const quantLevels = Math.max(2, bands);
+              const qStep = 1.0 / (quantLevels - 1);
+              const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
+              const lowerPos = Math.min(1, kLower * qStep);
+              const upperPos = Math.min(1, (kLower + 1) * qStep);
+              const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
+              const adj = frac + (cErrCurr[cx] || 0);
+              const thr = 0.5 + (noiseAt(xCenter, yCenterBlock) - 0.5) * thresholdJitter;
+              const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
+              const q = chooseUpper ? 1 : 0;
+              const err = (frac - q) * this.ditherStrength;
+              if (!serpentineCell) {
+                if (cx + 1 < cellsAcross) cErrCurr[cx + 1] += err * 0.5;
+                if (cx - 1 >= 0) cErrNext[cx - 1] += err * 0.25;
+              } else {
+                if (cx - 1 >= 0) cErrCurr[cx - 1] += err * 0.5;
+                if (cx + 1 < cellsAcross) cErrNext[cx + 1] += err * 0.25;
+              }
+              cErrNext[cx] += err * 0.25;
+
+              const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
+              cached = chooseUpper ? idxFromPos(upperPos) : idxFromPos(lowerPos);
+              cellOutIdx[cy][cx] = cached;
+            }
+
+            // Fill the block clipped to the current span for this row
+            const xBlock = ixBase + cx * cellSize;
+            const xTo = Math.min(endX, xBlock + cellSize - 1);
+            const fillStart = Math.max(startX, xBlock);
+            if (fillStart <= xTo) {
+              for (let xx = fillStart; xx <= xTo; xx++) {
+                (animator as any).setIndex(xx, y, cached);
+              }
+            }
+          };
+
+          if (!serpentineCell) {
+            for (let cx = xStartCell; cx <= xEndCell; cx++) processCell(cx);
+          } else {
+            for (let cx = xEndCell; cx >= xStartCell; cx--) processCell(cx);
+          }
+        } else if (this.ditherEnabled) {
+          // Per-pixel Sierra Lite dithering with serpentine scanning
+          const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
+          const quantLevels = Math.max(2, bands);
+          const qStep = 1.0 / (quantLevels - 1);
+
+          if (!serpentine) {
+            for (let x = startX; x <= endX; x++) {
+              const dx = x - centerX;
+              const dy = y - centerY;
+              const projection = dx * dirX + dy * dirY;
+              let r = Math.max(0, Math.min(1, (projection - minProjection) / projectionRange));
+              if (this.ditherEnabled) {
+                const jitterScale = 0.35;
+                const quantLevels = Math.max(2, bands);
+                const j = (noiseAt(x, y) - 0.5) * (jitterScale / quantLevels);
+                r = Math.max(0, Math.min(1, r + j));
+              }
+              const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
+              const lowerPos = Math.min(1, kLower * qStep);
+              const upperPos = Math.min(1, (kLower + 1) * qStep);
+              const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
+              const ix = x - ixBase;
+              const adj = frac + (errCurr[ix] || 0);
+              const thr = 0.5 + (noiseAt(x, y) - 0.5) * thresholdJitter;
+              const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
+              const q = chooseUpper ? 1 : 0;
+              const err = (frac - q) * this.ditherStrength;
+              if (ix + 1 < bboxW) errCurr[ix + 1] += err * 0.5;
+              if (ix - 1 >= 0) errNext[ix - 1] += err * 0.25;
+              errNext[ix] += err * 0.25;
+              const outIdx = chooseUpper ? idxFromPos(upperPos) : idxFromPos(lowerPos);
+              (animator as any).setIndex(x, y, outIdx);
+            }
+          } else {
+            for (let x = endX; x >= startX; x--) {
+              const dx = x - centerX;
+              const dy = y - centerY;
+              const projection = dx * dirX + dy * dirY;
+              let r = Math.max(0, Math.min(1, (projection - minProjection) / projectionRange));
+              if (this.ditherEnabled) {
+                const jitterScale = 0.35;
+                const quantLevels = Math.max(2, bands);
+                const j = (noiseAt(x, y) - 0.5) * (jitterScale / quantLevels);
+                r = Math.max(0, Math.min(1, r + j));
+              }
+              const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
+              const lowerPos = Math.min(1, kLower * qStep);
+              const upperPos = Math.min(1, (kLower + 1) * qStep);
+              const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
+              const ix = x - ixBase;
+              const adj = frac + (errCurr[ix] || 0);
+              const thr = 0.5 + (noiseAt(x, y) - 0.5) * thresholdJitter;
+              const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
+              const q = chooseUpper ? 1 : 0;
+              const err = (frac - q) * this.ditherStrength;
+              if (ix - 1 >= 0) errCurr[ix - 1] += err * 0.5;
+              if (ix + 1 < bboxW) errNext[ix + 1] += err * 0.25;
+              errNext[ix] += err * 0.25;
+              const outIdx = chooseUpper ? idxFromPos(upperPos) : idxFromPos(lowerPos);
+              (animator as any).setIndex(x, y, outIdx);
+            }
+          }
+        } else {
+          // No dithering: continuous mapping end-to-end
+          // Sample gradient position r in [0,1] and map directly to palette index 1..255
+          const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
+          for (let x = startX; x <= endX; x++) {
+            const dx = x - centerX;
+            const dy = y - centerY;
+            const projection = dx * dirX + dy * dirY;
+            const r = Math.max(0, Math.min(1, (projection - minProjection) / projectionRange));
+            const outIdx = idxFromPos(r);
+            animator.setIndex(x, y, outIdx);
+          }
         }
       }
     }
@@ -765,6 +1086,93 @@ export class ColorCycleBrushCanvas2D {
     for (let b = 0; b < bands; b++) {
       const t = b * bandStep; // normalized distance in [0,1)
       thresholdsSq[b] = (t * t) * maxDistSq;
+    }
+
+    // Perceptual dithering path for concentric fill
+    if (this.ditherEnabled && this.perceptualDither) {
+      try {
+        const id2 = layerId || this.activeLayerId || 'default';
+        const animator2 = this.getAnimator(id2);
+        const bbox2 = { minX: Math.floor(minX), minY: Math.floor(minY), width: Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1), height: Math.max(1, Math.ceil(maxY) - Math.floor(minY) + 1) };
+        const width2 = bbox2.width; const height2 = bbox2.height;
+        const img2 = new ImageData(width2, height2);
+        const data2 = img2.data; const x02 = bbox2.minX; const y02 = bbox2.minY;
+
+        // Precompute edges once
+        const edges2 = new Array(vertices.length);
+        for (let j = 0; j < vertices.length; j++) {
+          const v1 = vertices[j]; const v2 = vertices[(j + 1) % vertices.length];
+          const dx = v2.x - v1.x; const dy = v2.y - v1.y; const len2 = dx * dx + dy * dy;
+          edges2[j] = { v1x: v1.x, v1y: v1.y, dx, dy, len2 };
+        }
+
+        // Build row spans (scanline polygon fill)
+        const spans2: Array<Array<[number, number]>> = [];
+        for (let y = y02; y <= Math.ceil(maxY); y++) {
+          const ints: number[] = [];
+          for (let i = 0; i < vertices.length; i++) {
+            const v1 = vertices[i]; const v2 = vertices[(i + 1) % vertices.length];
+            if (Math.abs(v2.y - v1.y) < 1e-4) continue;
+            if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
+              const t = (y - v1.y) / (v2.y - v1.y);
+              const x = v1.x + t * (v2.x - v1.x);
+              ints.push(x);
+            }
+          }
+          ints.sort((a, b) => a - b);
+          const row: [number, number][] = [];
+          for (let i = 0; i < ints.length - 1; i += 2) row.push([Math.floor(ints[i]), Math.ceil(ints[i + 1])]);
+          spans2.push(row);
+        }
+
+        // Precompute distance parameters (edge to center bands)
+        const shapeWidth2 = maxX - minX;
+        const shapeHeight2 = maxY - minY;
+        const shapeSize2 = Math.max(shapeWidth2, shapeHeight2);
+        const maxDist2 = Math.max(50, shapeSize2 / 2);
+
+        // Fill gradient colors into buffer using concentric distance
+        for (let yy = 0; yy < height2; yy++) {
+          const y = y02 + yy; const rowSpans = spans2[yy] || [];
+          for (const [sx, ex] of rowSpans) {
+            for (let x = sx; x <= ex; x++) {
+              const xx = x - x02; if (xx < 0 || xx >= width2) continue;
+              let minDistSq = Infinity;
+              const left = x - sx; const right = ex - x; const dLR = Math.min(left * left, right * right);
+              minDistSq = Math.min(minDistSq, dLR);
+              for (let j = 0; j < edges2.length; j++) {
+                const e = edges2[j]; if (e.len2 <= 0) continue;
+                const tNum = (x - e.v1x) * e.dx + (y - e.v1y) * e.dy; const t = Math.max(0, Math.min(1, tNum / e.len2));
+                const px = e.v1x + t * e.dx; const py = e.v1y + t * e.dy;
+                const dx = x - px; const dy = y - py; const d2 = dx * dx + dy * dy;
+                if (d2 < minDistSq) { minDistSq = d2; if (minDistSq <= 1) break; }
+              }
+              const r = Math.min(1, Math.sqrt(minDistSq) / maxDist2);
+              const { r: R, g: G, b: B } = this.colorAtPosition(r);
+              const p = (yy * width2 + xx) * 4; data2[p] = R; data2[p + 1] = G; data2[p + 2] = B; data2[p + 3] = 255;
+            }
+          }
+        }
+
+        const quantLevels2 = Math.max(2, this.gradientBands || 12);
+        const { css: paletteCss2, mapRgbToIndex: mapRgbToIndex2 } = this.buildQuantizedGradientPalette(quantLevels2);
+        const { applyDitheringWithFillResolution: applyDitherFR } = require('./dithering');
+        const dithered2: ImageData = applyDitherFR(img2, quantLevels2, Math.max(1, this.ditherPixelSize), 'sierra-lite', undefined, paletteCss2);
+        const out2 = dithered2.data;
+        for (let yy = 0; yy < height2; yy++) {
+          const y = y02 + yy; const rowSpans = spans2[yy] || [];
+          for (const [sx, ex] of rowSpans) {
+            for (let x = sx; x <= ex; x++) {
+              const xx = x - x02; if (xx < 0 || xx >= width2) continue;
+              const p = (yy * width2 + xx) * 4; const key = `${out2[p]},${out2[p + 1]},${out2[p + 2]}`;
+              const gi = mapRgbToIndex2.get(key); if (gi !== undefined) (animator2 as any).setIndex(x, y, gi);
+            }
+          }
+        }
+
+        this.stampCounter += quantLevels2; if (strokeData) strokeData.stampCounter = this.stampCounter;
+        this.dirtyLayers.add(id2); animator2.forceRender(); this.render(false); return;
+      } catch (e) { /* fall back to index-space path */ }
     }
 
     // Attempt GPU path (simple rule: use when available and within uniform limits)
@@ -909,7 +1317,14 @@ export class ColorCycleBrushCanvas2D {
                 if (d2 < minDistSq) { minDistSq = d2; if (minDistSq <= 1) break; }
               }
             }
-            const r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
+            let r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
+            // Small position jitter proportional to quantization step to reduce residual banding
+            if (this.ditherEnabled) {
+              const jitterScale = 0.35; // 0..1 of a step
+              const quantLevels = Math.max(2, bands);
+              const j = (noiseAt(xCenter, yCenter) - 0.5) * (jitterScale / quantLevels);
+              r = Math.max(0, Math.min(1, r + j));
+            }
             // Quantize to the user-selected number of bands; dithering
             // toggles between adjacent band levels (Sierra Lite).
             const quantLevels = Math.max(2, bands);
@@ -1039,7 +1454,13 @@ export class ColorCycleBrushCanvas2D {
               }
 
           // Continuous normalized distance [0,1]
-          const r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
+          let r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
+          if (this.ditherEnabled) {
+            const jitterScale = 0.35;
+            const quantLevels = Math.max(2, bands);
+            const j = (noiseAt(tileXCenter, tileYCenter) - 0.5) * (jitterScale / quantLevels);
+            r = Math.max(0, Math.min(1, r + j));
+          }
           // Quantize to the user-selected number of bands; dithering
           // toggles between adjacent band levels (Sierra Lite).
           const quantLevels = Math.max(2, bands);
@@ -1048,7 +1469,7 @@ export class ColorCycleBrushCanvas2D {
           const lowerPos = Math.min(1, kLower * qStep);
           const upperPos = Math.min(1, (kLower + 1) * qStep);
           const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
-          const idxFromPos = (pos: number) => ((baseOffset + Math.round(pos * 254)) % 254) + 1;
+          const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
 
           if (this.ditherEnabled) {
               // Sierra Lite between adjacent quantization levels
@@ -1104,7 +1525,13 @@ export class ColorCycleBrushCanvas2D {
               }
 
           // Continuous normalized distance [0,1]
-          const r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
+          let r = Math.min(1, Math.sqrt(minDistSq) / maxDist);
+          if (this.ditherEnabled) {
+            const jitterScale = 0.35;
+            const quantLevels = Math.max(2, bands);
+            const j = (noiseAt(tileXCenter, tileYCenter) - 0.5) * (jitterScale / quantLevels);
+            r = Math.max(0, Math.min(1, r + j));
+          }
           // Quantize to the user-selected number of bands; dithering
           // toggles between adjacent band levels (Sierra Lite).
           const quantLevels = Math.max(2, bands);
@@ -1113,7 +1540,7 @@ export class ColorCycleBrushCanvas2D {
           const lowerPos = Math.min(1, kLower * qStep);
           const upperPos = Math.min(1, (kLower + 1) * qStep);
           const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
-          const idxFromPos = (pos: number) => ((baseOffset + Math.round(pos * 254)) % 254) + 1;
+          const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
 
               if (this.ditherEnabled) {
                 const ix = x - ixBase;

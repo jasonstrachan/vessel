@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { Palette, RGB, RGBA } from 'gifenc';
 import { useAppStore } from '../../stores/useAppStore';
 import { XIcon } from '../icons/XIcon';
 import Input from '../ui/Input';
@@ -17,6 +18,15 @@ interface ExportModalProps {
 }
 
 export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => {
+  // Normalize a loose number[][] palette to a gifenc Palette (RGB[] or RGBA[])
+  const toGifPalette = (p: number[][]): Palette => {
+    if (p.length === 0) return [] as RGB[];
+    const hasAlpha = p.some((c) => c.length >= 4);
+    if (hasAlpha) {
+      return p.map((c) => [c[0] | 0, c[1] | 0, c[2] | 0, (c[3] ?? 255) | 0] as RGBA) as RGBA[];
+    }
+    return p.map((c) => [c[0] | 0, c[1] | 0, c[2] | 0] as RGB) as RGB[];
+  };
   // Suspend global/canvas shortcuts while modal is open
   useKeyboardScope('modal', isOpen);
 
@@ -365,7 +375,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           for (const img of frames) {
             let index: Uint8Array;
             if (gifDitherMethod === 'none') {
-              index = applyPalette(img.data, palette);
+              index = applyPalette(img.data, toGifPalette(palette));
               if (tIndex >= 0) {
                 for (let p = 0, px = 0; p < img.data.length; p += 4, px++) {
                   if (img.data[p + 3] <= 16) index[px] = tIndex;
@@ -378,7 +388,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               );
             }
             enc.writeFrame(index, scaledW, scaledH, {
-              palette,
+              palette: toGifPalette(palette),
               delay: Math.round(1000 / fps),
               repeat: gifRepeat,
               transparentIndex: tIndex >= 0 ? tIndex : undefined,
@@ -704,7 +714,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       const frame = frames[i];
       let index: Uint8Array;
       if (gifDitherMethod === 'none') {
-        index = applyPalette(frame.data, fixedPalette);
+        index = applyPalette(frame.data, toGifPalette(fixedPalette));
         // Ensure transparent pixels are mapped to transparent index explicitly
         if (transparentIndex >= 0) {
           const data = frame.data;
@@ -722,7 +732,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
         );
       }
       gif.writeFrame(index, scaledW, scaledH, { 
-        palette: fixedPalette, 
+        palette: toGifPalette(fixedPalette), 
         delay: Math.round(1000 / effectiveFps), 
         repeat: gifRepeat,
         transparentIndex: transparentIndex >= 0 ? transparentIndex : undefined,

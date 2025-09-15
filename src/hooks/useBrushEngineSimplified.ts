@@ -2332,6 +2332,8 @@ export const useBrushEngineSimplified = () => {
       } catch {}
     }
   }, [tools.brushSettings.fillResolution, activeLayerId]);
+
+  // Perceptual dithering removed
   
   // Update pressure enabled when it changes
   useEffect(() => {
