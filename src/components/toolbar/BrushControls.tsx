@@ -167,18 +167,7 @@ const BrushControls = () => {
           </div>
         )}
 
-        {/* Auto-sample toggle + Gradient Editor */}
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-              Sampled
-            </label>
-            <CustomSwitch
-              checked={!!activeSettings.autoSampleGradient}
-              onChange={(checked) => setActiveSettings({ autoSampleGradient: checked })}
-            />
-          </div>
-        </div>
+        {/* Gradient Editor (sampling toggle moved into dropdown) */}
         <div className="mb-4">
           <GradientEditor
             sampleTarget="brush"
@@ -326,8 +315,27 @@ const BrushControls = () => {
             />
           </div>
         </div>
-        
-        {/* Spacing removed for Color Cycle brushes */}
+        {/* Spacing (Color Cycle Stroke only) */}
+        {activeSettings.brushShape === BrushShape.COLOR_CYCLE && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+                Spacing
+              </label>
+              <ProgressSlider
+                value={activeSettings.spacing || 4}
+                min={1}
+                max={50}
+                step={1}
+                onChange={(value) =>
+                  setActiveSettings({ spacing: Math.max(1, Math.round(value)) })
+                }
+                aria-label="Spacing (px between stamps)"
+                className="flex-1"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Gradient Bands - number of color steps in gradient */}
         <div className="mb-2">

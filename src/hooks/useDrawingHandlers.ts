@@ -130,10 +130,27 @@ export function useDrawingHandlers({
   const autoSampleLastUpdateRef = useRef<number>(0);
 
   const sampleHexAt = useCallback((x: number, y: number): string => {
+    // Unify sampling for stroke and shape: always sample the composited canvas
+    // so results reflect existing artwork, not the transient overlay.
     try {
       const toHex = (v: number) => v.toString(16).padStart(2, '0');
 
-      // 1) Prefer sampling from the live overlay/drawing canvas so preview builds while drawing
+      const comp = useAppStore.getState().currentOffscreenCanvas;
+      if (comp) {
+        const ctx = comp.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          const clampedX = Math.max(0, Math.min(comp.width - 1, Math.floor(x)));
+          const clampedY = Math.max(0, Math.min(comp.height - 1, Math.floor(y)));
+          const img = ctx.getImageData(clampedX, clampedY, 1, 1);
+          let [r, g, b, a] = img.data;
+          if (a < 10) return '#ffffff';
+          if (r <= 30 && g <= 30 && b <= 30) { r = 0; g = 0; b = 0; }
+          if (r >= 225 && g >= 225 && b >= 225) { r = 255; g = 255; b = 255; }
+          return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+        }
+      }
+
+      // Fallback: if offscreen composite is unavailable, try overlay as a last resort
       const overlay = drawingCanvasRef.current;
       if (overlay) {
         const octx = overlay.getContext('2d', { willReadFrequently: true });
@@ -147,22 +164,6 @@ export function useDrawingHandlers({
             if (r >= 225 && g >= 225 && b >= 225) { r = 255; g = 255; b = 255; }
             return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
           }
-        }
-      }
-
-      // 2) Fallback to the composited canvas beneath
-      const comp = useAppStore.getState().currentOffscreenCanvas;
-      if (comp) {
-        const ctx = comp.getContext('2d', { willReadFrequently: true });
-        if (ctx) {
-          const clampedX = Math.max(0, Math.min(comp.width - 1, Math.floor(x)));
-          const clampedY = Math.max(0, Math.min(comp.height - 1, Math.floor(y)));
-          const img = ctx.getImageData(clampedX, clampedY, 1, 1);
-          let [r, g, b, a] = img.data;
-          if (a < 10) return '#ffffff';
-          if (r <= 30 && g <= 30 && b <= 30) { r = 0; g = 0; b = 0; }
-          if (r >= 225 && g >= 225 && b >= 225) { r = 255; g = 255; b = 255; }
-          return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
         }
       }
     } catch {}
@@ -1131,6 +1132,13 @@ export function useDrawingHandlers({
                   }
                   // Push into live brush
                   try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
+                  // One-shot: auto-disable sampling after applying
+                  try {
+                    const st = useAppStore.getState();
+                    if (st.tools.brushSettings.autoSampleGradient) {
+                      st.setBrushSettings({ autoSampleGradient: false });
+                    }
+                  } catch {}
                 }
               }
             } catch {}
@@ -1294,6 +1302,13 @@ export function useDrawingHandlers({
       // Reset auto-sample state after stroke ends
       autoSamplePointsRef.current = [];
       autoSampleLastUpdateRef.current = 0;
+      // Safety net: ensure one-shot sampling is turned off at end of stroke
+      try {
+        const st = useAppStore.getState();
+        if (st.tools.brushSettings.autoSampleGradient) {
+          st.setBrushSettings({ autoSampleGradient: false });
+        }
+      } catch {}
       // Resume previously paused CC animations (all affected layers)
       if (wasCCPlayingBeforeInteractionRef.current) {
         resumePausedBrushCCAnimations();
@@ -1438,9 +1453,16 @@ export function useDrawingHandlers({
       const brushSize = store.tools.brushSettings.size || 20;
       const added = appendSegmentWithDynamicResampling(shapePointsRef.current, worldPos, zoom, brushSize, 0.25, 0.6);
       if (added > 0) {
-        // quiet
+        // Live auto-sampling for CC Shape while adding vertices/segments
+        try {
+          const isCCShape = store.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+          if (isCCShape && store.tools.brushSettings.autoSampleGradient) {
+            // Use the current polyline of the shape for sampling
+            autoSamplePointsRef.current = [...shapePointsRef.current];
+            updateAutoSampledGradient(autoSamplePointsRef.current);
+          }
+        } catch {}
       }
-      // Defer auto-sampled gradient computation for CC shape to finalize
     } else if (!tools.shapeMode) {
       continueDrawing(worldPos);
     }
@@ -1591,6 +1613,12 @@ export function useDrawingHandlers({
                   useAppStore.getState().setBrushSettings({ colorCycleGradient: stops });
                 }
                 try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
+                // One-shot: auto-disable sampling after applying for shapes
+                try {
+                  if (st.tools.brushSettings.autoSampleGradient) {
+                    st.setBrushSettings({ autoSampleGradient: false });
+                  }
+                } catch {}
               }
             }
           } catch {}

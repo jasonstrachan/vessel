@@ -282,16 +282,14 @@ export class ColorCycleBrushCanvas2D {
       // Use gradientBands to control how many distinct colors appear in the stroke
       // This creates banded color zones instead of smooth gradients
       const bandsToUse = Math.max(2, this.gradientBands || 12); // Default to 12 bands if not set
-      
-      // Monotonic band progression across the stroke to avoid single-color stamps
-      // Advance through bands once, then clamp to the last band. This produces a
-      // left-to-right gradient across the stroke rather than cycling the same color.
-      const colorsToUse = Math.min(254, bandsToUse); // Don't exceed palette size
+
+      // Repeat gradient: wrap band index instead of clamping so colors cycle continuously
+      const colorsToUse = Math.max(2, Math.min(254, bandsToUse)); // Keep within palette capacity
       const colorStep = Math.max(1, Math.floor(254 / colorsToUse)); // Space between colors
-      const bandIndex = Math.min(colorsToUse - 1, strokeData.stampCounter);
-      
+      const bandIndex = strokeData.stampCounter % colorsToUse;
+
       // Calculate color index and ensure it's in valid range (0-254)
-      const colorIndex = Math.min(254, bandIndex * colorStep);
+      const colorIndex = Math.max(0, Math.min(254, bandIndex * colorStep));
       
       // Calculate pressure-modulated brush size using smooth curve
       const pressureSize = this.pressureEnabled 
@@ -981,7 +979,16 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
     
-    const animator = this.animators.get(layerId);
+    // Ensure an animator exists for the layer to avoid noisy warnings
+    let animator = this.animators.get(layerId);
+    if (!animator) {
+      try {
+        animator = this.getAnimator(layerId);
+      } catch {
+        // If we still cannot create an animator, exit quietly
+        return;
+      }
+    }
     if (animator) {
       const strokeData = this.layerStrokes.get(layerId);
       // Only render if there's actual content to render
@@ -1000,8 +1007,6 @@ export class ColorCycleBrushCanvas2D {
         // calling renderDirectToCanvas without stroke content should leave
         // the existing pixels intact.
       }
-    } else {
-      console.warn(`No animator found for layer: ${layerId}`);
     }
   }
 
@@ -1037,10 +1042,14 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
 
-    const animator = this.animators.get(layerId);
+    let animator = this.animators.get(layerId);
     if (!animator) {
-      console.warn(`[ColorCycleBrush.commitToLayer] No animator for layer: ${layerId}`);
-      return;
+      try {
+        animator = this.getAnimator(layerId);
+      } catch {
+        // Could not create animator; nothing to commit
+        return;
+      }
     }
 
     const strokeData = this.layerStrokes.get(layerId);

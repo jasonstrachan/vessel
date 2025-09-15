@@ -113,6 +113,13 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   sampleTarget = 'recolor'
 }) => {
   const { startRecolorSampling, addNotification } = useAppStore();
+  // Brush auto-sample state (used when sampleTarget === 'brush')
+  const autoSampleEnabled = useAppStore(state => !!state.tools.brushSettings.autoSampleGradient);
+  const setBrushSettings = useAppStore(state => state.setBrushSettings);
+  // Track pending creation of a saved gradient from live sampling
+  const pendingSampleAddRef = useRef<boolean>(false);
+  const sampleStartSigRef = useRef<string>('');
+  const prevAutoSampleRef = useRef<boolean>(autoSampleEnabled);
   // Ensure all stops have opacity
   const normalizeStops = (stops: GradientStop[]) => 
     stops.map(s => ({ ...s, opacity: s.opacity ?? 1 }));
@@ -179,6 +186,19 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       .join(','),
   []);
 
+  // If auto-sample toggles ON for brush, arm a one-shot capture to add the next
+  // sampled gradient to the saved list once stops meaningfully change.
+  useEffect(() => {
+    if (sampleTarget !== 'brush') return;
+    if (autoSampleEnabled && !prevAutoSampleRef.current) {
+      pendingSampleAddRef.current = true;
+      // Record the signature at the moment sampling starts, so we can detect the first change
+      sampleStartSigRef.current = stopsSignature(normalizeStops(initialStops));
+    }
+    prevAutoSampleRef.current = autoSampleEnabled;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSampleEnabled, sampleTarget]);
+
   // Update internal state when props meaningfully change (content-based),
   // preserving selection whenever possible.
   useEffect(() => {
@@ -204,8 +224,28 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         }
         return nearestIdx;
       });
+
+      // If we're armed to capture the first sampled gradient after enabling
+      // auto-sampling for brush, and the new props reflect a different gradient,
+      // add it into the saved list exactly once.
+      if (sampleTarget === 'brush' && pendingSampleAddRef.current) {
+        const changedFromStart = nextSig && nextSig !== sampleStartSigRef.current;
+        if (changedFromStart) {
+          const newId = `sampled-${Date.now()}`;
+          const newEntry: SavedGradient = { id: newId, name: 'Sampled', stops: normalized.map(s => ({ ...s })) };
+          setSavedGradients(prev => {
+            // Avoid duplicates if an identical gradient already exists
+            const exists = prev.some(g => stopsSignature(normalizeStops(g.stops)) === nextSig);
+            const updated = exists ? prev : [...prev, newEntry];
+            saveCustomGradients(updated);
+            return updated;
+          });
+          setSelectedGradientId(newId);
+          pendingSampleAddRef.current = false;
+        }
+      }
     }
-  }, [initialStops, stops, stopsSignature]);
+  }, [initialStops]);
   
   // Update saved gradient when stops change
   useEffect(() => {
@@ -529,20 +569,32 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
             { value: 'original', label: 'Original' },
             ...savedGradients.map(g => ({ value: g.id, label: g.name })),
             { value: 'add', label: '+ Add', isAction: true },
-            { value: 'sample', label: '+ Sample', isAction: true }
+            // Replace "+ Sample" with a Sampling toggle when editing brush gradients
+            ...(sampleTarget === 'brush'
+              ? [{ value: 'toggle-sampled', label: 'Sample', isAction: true }]
+              : [{ value: 'sample', label: '+ Sample', isAction: true }]
+            )
           ]}
           onChange={handleGradientSelect}
           onAction={(action) => {
             if (action === 'add') {
               handleAddGradient();
             } else if (action === 'sample') {
-              // Kick off recolor sampling mode; DrawingCanvas will capture a line
+              // Kick off recolor or brush sampling mode via line-drag
               try {
                 startRecolorSampling(12, sampleTarget);
                 addNotification?.({ type: 'info', title: 'Sampling', message: 'Click and drag on the canvas to sample a gradient and flow direction.', timestamp: new Date() });
               } catch {}
+            } else if (action === 'toggle-sampled') {
+              // One-shot sampling for brush mode: always enable sampling and arm capture
+              try {
+                setBrushSettings({ autoSampleGradient: true });
+                pendingSampleAddRef.current = true;
+                sampleStartSigRef.current = stopsSignature(stops);
+                addNotification?.({ type: 'info', title: 'Sampling', message: 'Sampling enabled for one use. Draw to sample; it will auto-disable after applying.', timestamp: new Date() });
+              } catch {}
             }
-          }}
+        }}
           placeholder="Select gradient..."
           renderOption={(option) => {
             // Live preview for "Original" using active layer palette
