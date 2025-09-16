@@ -153,7 +153,15 @@ class GradientProcessor {
         continue;
       }
       
-      const paletteIndex = (colorIndex - 1) % this.paletteSize;
+      let paletteIndex = colorIndex - 1;
+      if (colorIndex >= 255 && this.paletteSize >= 256) {
+        paletteIndex = this.paletteSize - 1;
+      }
+      if (paletteIndex < 0) {
+        paletteIndex = 0;
+      } else if (paletteIndex >= this.paletteSize) {
+        paletteIndex = this.paletteSize - 1;
+      }
       const colorIdx = paletteIndex * 4;
       const pixelIdx = i * 4;
       

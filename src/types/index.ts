@@ -359,7 +359,10 @@ export interface BrushSettings {
   contourSmoothness?: number; // 0-5 (smoothness of contour lines, 0=sharp, 5=very smooth)
   // Color cycle flow direction
   colorCycleFlowForward?: boolean; // true = forward flow, false = backward flow
-  
+
+  // Custom brush color cycle toggle
+  customBrushColorCycle?: boolean; // true = cycle gradient colors per stamp for custom brushes
+
   // Color cycle brush settings
   colorCycleSpeed?: number; // 0.02-1.0 (brush animation speed)
   colorCycleGradient?: Array<{ position: number; color: string }>; // Gradient stops

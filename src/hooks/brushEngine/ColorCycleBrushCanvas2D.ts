@@ -451,7 +451,7 @@ export class ColorCycleBrushCanvas2D {
       const hex = this.rgbToHex(rgb);
       colors.push(hex);
       // Pre-map this palette color to a gradient index using position → index mapping
-      const idx = ((Math.round(pos * 254)) % 254) + 1; // 1..255 (0 reserved)
+      const idx = Math.min(255, Math.round(pos * 254) + 1); // clamp to final gradient stop
       map.set(`${rgb.r},${rgb.g},${rgb.b}`, idx);
     }
     return { css: colors, mapRgbToIndex: map };
@@ -646,7 +646,10 @@ export class ColorCycleBrushCanvas2D {
     }
     
     const projectionRange = maxProjection - minProjection;
+    const safeProjectionRange = Math.abs(projectionRange) < 1e-6 ? 1 : projectionRange;
     const numBands = Math.max(2, this.gradientBands || 12);
+    const edgePadding = 1 / Math.max(8, numBands * 4);
+    const applyEdgePadding = (value: number) => Math.min(1 - edgePadding, Math.max(edgePadding, value));
 
     // If using perceptual dithering, render gradient into an ImageData, dither in color space,
     // then map back to gradient indices and write to the index buffer.
@@ -701,7 +704,7 @@ export class ColorCycleBrushCanvas2D {
               const xx = x - x0; if (xx < 0 || xx >= width) continue;
               const dx = x - centerX; const dy = y - centerY;
               const proj = dx * dirX + dy * dirY;
-              const r = Math.max(0, Math.min(1, (proj - minProj) / projRange));
+              const r = applyEdgePadding((proj - minProj) / Math.max(projRange, 1e-6));
               const { r: R, g: G, b: B } = this.colorAtPosition(r);
               const idx = (yy * width + xx) * 4;
               data[idx] = R; data[idx + 1] = G; data[idx + 2] = B; data[idx + 3] = 255;
@@ -749,8 +752,8 @@ export class ColorCycleBrushCanvas2D {
     // Scanline fill with linear gradient + optional Sierra Lite dithering
     // Hoist invariants out of inner loops
     const bands = Math.max(2, this.gradientBands || 12);
-    const colorStep = Math.floor(254 / bands);
-    const baseOffset = this.stampCounter % 254; // Continue from last shape
+    const bandStepLinear = bands > 1 ? 1 / (bands - 1) : 1;
+    const stepPerBandLinear = bands > 1 ? 254 / (bands - 1) : 254;
 
     // BBox metrics and error buffers
     const bboxW = Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1);
@@ -833,12 +836,12 @@ export class ColorCycleBrushCanvas2D {
               const dx = xCenter - centerX;
               const dy = yCenterBlock - centerY;
               const projection = dx * dirX + dy * dirY;
-              let r = Math.max(0, Math.min(1, (projection - minProjection) / projectionRange));
+              let r = applyEdgePadding((projection - minProjection) / safeProjectionRange);
               if (this.ditherEnabled) {
                 const jitterScale = 0.35;
                 const quantLevels = Math.max(2, bands);
                 const j = (noiseAt(xCenter, yCenterBlock) - 0.5) * (jitterScale / quantLevels);
-                r = Math.max(0, Math.min(1, r + j));
+                r = applyEdgePadding(r + j);
               }
 
               const quantLevels = Math.max(2, bands);
@@ -893,12 +896,12 @@ export class ColorCycleBrushCanvas2D {
               const dx = x - centerX;
               const dy = y - centerY;
               const projection = dx * dirX + dy * dirY;
-              let r = Math.max(0, Math.min(1, (projection - minProjection) / projectionRange));
+              let r = applyEdgePadding((projection - minProjection) / safeProjectionRange);
               if (this.ditherEnabled) {
                 const jitterScale = 0.35;
                 const quantLevels = Math.max(2, bands);
                 const j = (noiseAt(x, y) - 0.5) * (jitterScale / quantLevels);
-                r = Math.max(0, Math.min(1, r + j));
+                r = applyEdgePadding(r + j);
               }
               const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
               const lowerPos = Math.min(1, kLower * qStep);
@@ -921,12 +924,12 @@ export class ColorCycleBrushCanvas2D {
               const dx = x - centerX;
               const dy = y - centerY;
               const projection = dx * dirX + dy * dirY;
-              let r = Math.max(0, Math.min(1, (projection - minProjection) / projectionRange));
+              let r = applyEdgePadding((projection - minProjection) / safeProjectionRange);
               if (this.ditherEnabled) {
                 const jitterScale = 0.35;
                 const quantLevels = Math.max(2, bands);
                 const j = (noiseAt(x, y) - 0.5) * (jitterScale / quantLevels);
-                r = Math.max(0, Math.min(1, r + j));
+                r = applyEdgePadding(r + j);
               }
               const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
               const lowerPos = Math.min(1, kLower * qStep);
@@ -955,7 +958,7 @@ export class ColorCycleBrushCanvas2D {
             const dx = x - centerX;
             const dy = y - centerY;
             const projection = dx * dirX + dy * dirY;
-            const r = Math.max(0, Math.min(1, (projection - minProjection) / projectionRange));
+            const r = applyEdgePadding((projection - minProjection) / safeProjectionRange);
             const k = Math.round(r * denom); // snap to nearest band including endpoints
             const pos = k / denom; // 0..1 inclusive
             const outIdx = idxFromPos(pos);
@@ -1082,9 +1085,9 @@ export class ColorCycleBrushCanvas2D {
     const maxDistSq = maxDist * maxDist;
     const invMaxDistSq = 1 / maxDistSq;
     const bands = this.gradientBands || 12;
-    const bandStep = 1.0 / bands;
-    const colorStep = Math.floor(254 / bands);
-    const baseOffset = this.stampCounter % 254; // Continue from last shape
+    const bandStep = bands > 1 ? 1.0 / (bands - 1) : 1.0;
+    const stepPerBand = bands > 1 ? 254 / (bands - 1) : 254;
+    const baseOffset = this.stampCounter % 255; // Continue from last shape across full palette
     // Precompute squared thresholds to avoid per-pixel sqrt
     const thresholdsSq = new Float32Array(bands);
     for (let b = 0; b < bands; b++) {
@@ -1192,7 +1195,7 @@ export class ColorCycleBrushCanvas2D {
         height: Math.max(1, Math.ceil(maxY) - Math.floor(minY) + 1)
       };
       const bandsForGPU = bands;
-      const baseOffset = this.stampCounter % 254;
+      const baseOffset = this.stampCounter % 255;
       // Guard GPU path for complex polygons: fallback to CPU when vertex count exceeds shader uniform limit
       // Determine runtime GPU vertex limit from animator if available
       const runtimeMax = (anyAnimator && typeof anyAnimator.getGLFillMaxVerts === 'function') ? (anyAnimator.getGLFillMaxVerts() || 256) : 256;
@@ -1209,7 +1212,7 @@ export class ColorCycleBrushCanvas2D {
       if (tryGPU && withinVertLimit) {
         // quiet
         // GPU concentric fill
-        const ok = anyAnimator.gpuFillShapeConcentric(gpuVertices, bandsForGPU, baseOffset, colorStep, maxDist, bbox);
+        const ok = anyAnimator.gpuFillShapeConcentric(gpuVertices, bandsForGPU, baseOffset, stepPerBand, maxDist, bbox);
         if (ok) {
           // Continue stamp progression and render
           this.stampCounter += Math.max(2, this.gradientBands);
@@ -1251,7 +1254,7 @@ export class ColorCycleBrushCanvas2D {
       const cellsAcross = Math.max(1, Math.ceil(bboxW / cellSize));
       let cErrCurr = new Float32Array(cellsAcross);
       let cErrNext = new Float32Array(cellsAcross);
-      const idxFromPos = (pos: number) => ((baseOffset + Math.round(pos * 254)) % 254) + 1;
+      const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
 
       for (let yb = y0, rowIdx = 0; yb <= yMax; yb += cellSize, rowIdx++) {
         const tmp = cErrCurr; cErrCurr = cErrNext; cErrNext = tmp; cErrNext.fill(0);
@@ -1419,9 +1422,10 @@ export class ColorCycleBrushCanvas2D {
           const half = Math.max(1, (endX - startX) / 2);
           for (let x = startX; x <= endX; x++) {
             const d = Math.min(x - startX, endX - x);
-            const normalized = Math.min(1, d / half);
-            const bandIndex = Math.min(bands - 1, Math.floor(normalized / bandStep));
-            const colorIndex = ((baseOffset + bandIndex * colorStep) % 254) + 1;
+            const normalized = applyEdgePadding(d / half);
+            const bandIndex = Math.min(bands - 1, Math.floor(normalized / bandStepLinear));
+            const quantized = Math.round(bandIndex * stepPerBandLinear);
+            const colorIndex = Math.max(1, Math.min(255, quantized + 1));
             (animator as any).setIndex(x, y, colorIndex);
           }
         } else {

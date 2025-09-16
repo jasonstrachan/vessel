@@ -66,6 +66,13 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [showBrushCursor, setShowBrushCursor] = useState(false);
   const [marchingAntsOffset, setMarchingAntsOffset] = useState(0);
+
+  const isPointerInsideCanvas = useCallback(() => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return false;
+    const { x, y } = mousePosition;
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  }, [mousePosition]);
   
   // Determine cursor style based on tool and brush shape
   const defaultCursorStyle = useMemo(() => {
@@ -422,6 +429,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const drawingAnimationFrameRef = useRef<number | null>(null);
   const previewAnimationFrameRef = useRef<number | null>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  // Run initial centering once after sizing
+  const hasCenteredRef = useRef(false);
   
   // Extract the color cycle animation functions for use by BrushControls
   const { startContinuousColorCycleAnimation, stopContinuousColorCycleAnimation, setFeedbackCallback } = drawingHandlers;
@@ -621,9 +630,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       // Dispatch SPACE_UP to correctly transition the state machine
       stateMachine.dispatch({ type: 'SPACE_UP' });
       setCursorStyle(defaultCursorStyle);
-      setShowBrushCursor(true);
+      setShowBrushCursor(isPointerInsideCanvas());
     }
-  }, [defaultCursorStyle, setCursorStyle]);
+  }, [defaultCursorStyle, isPointerInsideCanvas, setCursorStyle]);
 
 
   // Direct DOM keyboard handling for instant panning response
@@ -1501,9 +1510,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         
         // Space handling now in state machine
         
-        // Always restore the default cursor and show the brush
+        // Always restore the default cursor and only show the brush when pointer is over canvas
         setCursorStyle(defaultCursorStyle);
-        setShowBrushCursor(true);
+        setShowBrushCursor(isPointerInsideCanvas());
       } else {
       }
     };
@@ -1528,7 +1537,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     };
     
     // Dependencies ensure the handler has the correct functions/values if they ever change.
-  }, [defaultCursorStyle, setCursorStyle, setShowBrushCursor]);
+  }, [defaultCursorStyle, isPointerInsideCanvas, setCursorStyle, setShowBrushCursor]);
   
   // Center canvas on mount and focus
   useEffect(() => {
@@ -1697,6 +1706,26 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         if (drawFunc) {
           drawFunc(ctx, viewTransform);
         }
+
+        // Center the project within the viewport once after initial sizing
+        if (!hasCenteredRef.current && project) {
+          const scale = (viewTransform.scale || 1);
+          const contentWidth = project.width * scale;
+          const contentHeight = project.height * scale;
+          const offsetX = Math.floor((width - contentWidth) / 2);
+          const offsetY = Math.floor((height - contentHeight) / 2);
+
+          // Apply pan and update transform immediately to avoid visual lag
+          pan.setPan(offsetX, offsetY);
+          viewTransformRef.current.offsetX = offsetX;
+          viewTransformRef.current.offsetY = offsetY;
+
+          if (drawFunc) {
+            drawFunc(ctx, viewTransformRef.current);
+          }
+
+          hasCenteredRef.current = true;
+        }
       }
     };
     
@@ -1715,6 +1744,33 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   // Color cycle animation frames are now handled by SimplifiedColorCycleManager
   // No need for separate event listeners
   
+  // Center when project becomes available (e.g., created after mount)
+  useEffect(() => {
+    if (!project) return;
+    const canvasEl = canvasRef.current;
+    const wrapper = wrapperRef.current;
+    if (!canvasEl || !wrapper) return;
+    if (hasCenteredRef.current) return;
+
+    const { width, height } = wrapper.getBoundingClientRect();
+    const scale = (viewTransformRef.current?.scale || 1);
+    const contentWidth = project.width * scale;
+    const contentHeight = project.height * scale;
+    const offsetX = Math.floor((width - contentWidth) / 2);
+    const offsetY = Math.floor((height - contentHeight) / 2);
+
+    pan.setPan(offsetX, offsetY);
+    viewTransformRef.current.offsetX = offsetX;
+    viewTransformRef.current.offsetY = offsetY;
+
+    const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
+    if (ctx && drawRef.current) {
+      drawRef.current(ctx, viewTransformRef.current);
+    }
+
+    hasCenteredRef.current = true;
+  }, [project, pan.setPan]);
+
   
   return (
     <div

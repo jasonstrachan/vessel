@@ -61,6 +61,32 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   const shiftAnchorWorldPosRef = (deps.snapShiftAnchorRef ?? ({ current: null } as any));
   const lastBrushSampleWorldPosRef = (deps.snapLastBrushSampleRef ?? ({ current: null } as any)); // last point sent to continueDrawing
 
+  // Track whether the pointer is currently within the canvas bounds. This stays accurate
+  // even when pointer capture is active so we can hide the brush cursor once the pointer
+  // drifts over the UI column.
+  let pointerInsideCanvas = false;
+
+  const isPointerWithinCanvas = (clientX: number, clientY: number) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return false;
+    return clientX >= rect.left && clientX <= rect.right &&
+           clientY >= rect.top && clientY <= rect.bottom;
+  };
+
+  const updateBrushCursorVisibility = (overridePointerInside?: boolean) => {
+    const pointerInside = overridePointerInside ?? pointerInsideCanvas;
+    const shouldHideCursor = stateMachine.isAwaitingPan ||
+                             stateMachine.isPanning ||
+                             tools.currentTool === 'custom' ||
+                             deps.isDraggingFloatingPaste ||
+                             (!!floatingPasteDragStart.current) ||
+                             !pointerInside;
+    const nextVisible = !shouldHideCursor;
+    console.log('[BrushCursor] pointerInsideCanvas', pointerInside, 'shouldHide', shouldHideCursor, 'showBrushCursor', nextVisible);
+
+    setShowBrushCursor(nextVisible);
+  };
+
   // Helper: Determine if current brush and active layer are compatible
   const checkLayerBrushCompatibility = () => {
     const activeLayer = layers.find(l => l.id === activeLayerId);
@@ -94,6 +120,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     
     // Capture pointer for consistent events even when pointer moves outside canvas
     (event.target as HTMLCanvasElement).setPointerCapture(event.pointerId);
+
+    pointerInsideCanvas = true;
+    setMousePosition({ x: event.clientX, y: event.clientY });
     
     const rect = canvasRef.current?.getBoundingClientRect();
     const pointerPos = rect ? {
@@ -635,6 +664,8 @@ function cssColorToHex(color: string): string {
       y: event.clientY - rect.top,
     } : { x: 0, y: 0 };
     const scale = canvas?.zoom || 1;
+
+    pointerInsideCanvas = isPointerWithinCanvas(event.clientX, event.clientY);
     const worldPos = pan.screenToWorld(currentPointerPos.x, currentPointerPos.y, scale);
 
     // Always update cursor position immediately for responsive feel
@@ -778,15 +809,9 @@ function cssColorToHex(color: string): string {
     
     
     // Show brush cursor logic:
-    // Hide cursor when: panning, custom tool, dragging paste
+    // Hide cursor when: panning, custom tool, dragging paste, or pointer outside canvas bounds
     // NOTE: Keep cursor visible while erasing so users can see eraser size
-    const shouldHideCursor = stateMachine.isAwaitingPan || 
-                            stateMachine.isPanning || 
-                            tools.currentTool === 'custom' || 
-                            deps.isDraggingFloatingPaste ||
-                            (!!floatingPasteDragStart.current);
-    
-    setShowBrushCursor(!shouldHideCursor);
+    updateBrushCursorVisibility();
     
     // Handle dragging floating paste
     // Use refs to avoid render timing issues; begin drag sets these synchronously
@@ -1359,6 +1384,8 @@ function cssColorToHex(color: string): string {
     
     // Release pointer capture
     (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+
+    pointerInsideCanvas = isPointerWithinCanvas(event.clientX, event.clientY);
     
     // Cancel any pending drawing animation frame
     if (deps.drawingAnimationFrameRef.current) {
@@ -1457,7 +1484,7 @@ function cssColorToHex(color: string): string {
         setCursorStyle('grab');
       } else {
         setCursorStyle(deps.defaultCursorStyle || 'none');
-        setShowBrushCursor(true);
+        updateBrushCursorVisibility();
       }
       return;
     }
@@ -1474,7 +1501,7 @@ function cssColorToHex(color: string): string {
       floatingPasteDragStart.current = null;
       floatingPasteOriginalPos.current = null;
       setCursorStyle(deps.defaultCursorStyle || 'none');
-      setShowBrushCursor(true);
+      updateBrushCursorVisibility();
       return;
     }
     
@@ -1496,7 +1523,7 @@ function cssColorToHex(color: string): string {
         if (tools.currentTool === 'custom') {
           deps.setCurrentTool('brush');
           clearSelection();
-          setShowBrushCursor(true); // Show brush cursor again after custom brush selection
+          updateBrushCursorVisibility(); // Show brush cursor again after custom brush selection
         }
       }
       interaction.refs.selectionStart.current = null;
@@ -1740,6 +1767,8 @@ function cssColorToHex(color: string): string {
         });
       }
     }
+
+    updateBrushCursorVisibility();
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -1760,20 +1789,22 @@ function cssColorToHex(color: string): string {
   };
 
   const handlePointerEnter = () => {
-    // Show brush cursor when entering canvas
-    if (tools.currentTool === 'brush' || tools.currentTool === 'eraser') {
-      setShowBrushCursor(true);
-    }
+    pointerInsideCanvas = true;
+    updateBrushCursorVisibility(true);
   };
 
   const handlePointerLeave = () => {
-    setShowBrushCursor(false);
+    pointerInsideCanvas = false;
+    updateBrushCursorVisibility(false);
   };
 
   const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
     // Handle pointer cancel (e.g., stylus moving out of range)
     isMouseDownRef.current = false;
     (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+
+    pointerInsideCanvas = isPointerWithinCanvas(event.clientX, event.clientY);
+    updateBrushCursorVisibility();
 
     // Cancel any pending move RAF batch on cancel
     if (scheduledMoveRAF != null) {

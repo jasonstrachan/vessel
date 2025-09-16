@@ -40,7 +40,7 @@ All cc brushes buoild a gradienbt by sanmpling colors while drawing the stroke /
 for all color cycles brushes add a toggle below banbds sldier called Dither so gradeiotn are diothered instead of getting bands. Use the Sierra lite dithering algo. bands are still relvent bescuase it dithers between the bands 
 
 #### CC any custom brush
-add color cycling to the custom bruishes. Each stamp of the cistom brush is a new col cycling color in the sequence. can we apply this thingking to any custom brush. a toggle in brush optopns that sets the bush as a CC brush, toggled on brings up the gradeiont dtop down, speed and bands slider. must also be on itd own cc layer  
+add color cycling to the custom bruishes. Each stamp of the cistom brush is a new col cycling color in the selected gradient sequence. can we apply this thingking to any custom brush. UI - a toggle in brush optopns that sets the bush as a CC brush, toggled on brings up the gradeiont dtop down, speed slider. must also be on itd own cc layer  
 
 #### Resampler
 Dynamically samples canvas content for each new stroke.

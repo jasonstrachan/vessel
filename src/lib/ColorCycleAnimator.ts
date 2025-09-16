@@ -347,27 +347,50 @@ export class ColorCycleAnimator {
 
       const animOffset = Math.floor(Math.abs(offset) * 256);
       const backward = this.flowDirection === 'backward';
+      const mapPaletteIndex = (idx: number): number => {
+        if (idx <= 0) return -1;
+        if (idx >= 255) return 255;
+        return idx - 1;
+      };
+
       if (animOffset > 0) {
         if (backward) {
           for (let i = 0; i < indexData.length; i++) {
             const colorIndex = indexData[i];
-            pixels32[i] = colorIndex === 0 ? 0 : palette32[((colorIndex - 1) - animOffset + 256 * 100) % 256];
+            if (colorIndex === 0) {
+              pixels32[i] = 0;
+              continue;
+            }
+            const paletteIndex = mapPaletteIndex(colorIndex);
+            const shifted = (paletteIndex - animOffset + 256 * 100) % 256;
+            pixels32[i] = palette32[shifted];
           }
         } else {
           for (let i = 0; i < indexData.length; i++) {
             const colorIndex = indexData[i];
-            pixels32[i] = colorIndex === 0 ? 0 : palette32[((colorIndex - 1) + animOffset) % 256];
+            if (colorIndex === 0) {
+              pixels32[i] = 0;
+              continue;
+            }
+            const paletteIndex = mapPaletteIndex(colorIndex);
+            const shifted = (paletteIndex + animOffset) % 256;
+            pixels32[i] = palette32[shifted];
           }
         }
       } else {
         for (let i = 0; i < indexData.length; i++) {
           const colorIndex = indexData[i];
-          pixels32[i] = colorIndex === 0 ? 0 : palette32[(colorIndex - 1) % 256];
+          if (colorIndex === 0) {
+            pixels32[i] = 0;
+            continue;
+          }
+          const paletteIndex = mapPaletteIndex(colorIndex);
+          pixels32[i] = palette32[paletteIndex];
         }
       }
 
       this.ctx.putImageData(this.imageData, 0, 0);
-    
+
     } catch (error) {
       debugWarn('cc-render', '[ColorCycleAnimator] Error in renderFrame:', error);
       debugWarn('cc-render', '[ColorCycleAnimator] Stack:', (error as Error).stack);

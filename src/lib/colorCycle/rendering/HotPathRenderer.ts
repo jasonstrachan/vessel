@@ -226,7 +226,7 @@ export class HotPathRenderer {
         if (colorIndex === 0) {
           pixels32[i] = 0; // Transparent
         } else {
-          const paletteIndex = (colorIndex - 1) & 255;
+          const paletteIndex = colorIndex >= 255 ? 255 : Math.max(0, colorIndex - 1);
           const finalIndex = (paletteIndex - animOffset) & mask;
           pixels32[i] = basePalette[finalIndex];
         }
@@ -237,7 +237,7 @@ export class HotPathRenderer {
         if (colorIndex === 0) {
           pixels32[i] = 0; // Transparent
         } else {
-          const paletteIndex = (colorIndex - 1) & 255;
+          const paletteIndex = colorIndex >= 255 ? 255 : Math.max(0, colorIndex - 1);
           const finalIndex = (paletteIndex + animOffset) & mask;
           pixels32[i] = basePalette[finalIndex];
         }
@@ -264,7 +264,7 @@ export class HotPathRenderer {
         if (colorIndex === 0) {
           pixels32[i] = 0;
         } else {
-          const paletteIndex = (colorIndex - 1) & 255;
+          const paletteIndex = colorIndex >= 255 ? 255 : Math.max(0, colorIndex - 1);
           const finalIndex = (paletteIndex - animOffset) & mask;
           pixels32[i] = basePalette[finalIndex];
         }
@@ -275,7 +275,7 @@ export class HotPathRenderer {
         if (colorIndex === 0) {
           pixels32[i] = 0;
         } else {
-          const paletteIndex = (colorIndex - 1) & 255;
+          const paletteIndex = colorIndex >= 255 ? 255 : Math.max(0, colorIndex - 1);
           const finalIndex = (paletteIndex + animOffset) & mask;
           pixels32[i] = basePalette[finalIndex];
         }
@@ -302,7 +302,7 @@ export class HotPathRenderer {
         if (colorIndex === 0) {
           pixels32[i] = 0;
         } else {
-          const paletteIndex = (colorIndex - 1) % 256;
+          const paletteIndex = colorIndex >= 255 ? 255 : Math.max(0, colorIndex - 1);
           const finalIndex = (paletteIndex - animOffset + cycleColors * 100) % cycleColors;
           pixels32[i] = basePalette[finalIndex];
         }
@@ -313,7 +313,7 @@ export class HotPathRenderer {
         if (colorIndex === 0) {
           pixels32[i] = 0;
         } else {
-          const paletteIndex = (colorIndex - 1) % 256;
+          const paletteIndex = colorIndex >= 255 ? 255 : Math.max(0, colorIndex - 1);
           const finalIndex = (paletteIndex + animOffset) % cycleColors;
           pixels32[i] = basePalette[finalIndex];
         }

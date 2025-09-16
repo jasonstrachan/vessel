@@ -33,6 +33,7 @@ export const pixelBrushSettings: BrushSettings = {
   risographIntensity: 0,
   risographOutline: false,
   ditherEnabled: false,
+  customBrushColorCycle: false,
   colorCycleFillMode: 'concentric'
 };
 
@@ -70,6 +71,7 @@ export const defaultBrushSettings: BrushSettings = {
   risographIntensity: 0,
   risographOutline: false, // Default: no rough outline effect
   ditherEnabled: false,
+  customBrushColorCycle: false,
   // Auto-sample gradient for color cycle brushes (off by default)
   autoSampleGradient: false,
   fillResolution: 1,

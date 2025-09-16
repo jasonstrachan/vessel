@@ -107,11 +107,12 @@ export function useComprehensiveKeyboard({
 
     // Respect keyboard scope: bail if current scope not allowed (Space handled below regardless)
     let currentScope: KeyboardScope | null = null;
+    const isBracketShortcut = event.key === '[' || event.key === ']';
     try {
       currentScope = useAppStore.getState().ui.keyboardScope as KeyboardScope;
       if (!allowedScopes.includes(currentScope)) {
-        // If not allowed, still allow Space to pass to our handler
-        if (event.code !== 'Space') return;
+        // If not allowed, still allow Space and bracket size shortcuts
+        if (event.code !== 'Space' && !isBracketShortcut) return;
       }
     } catch {}
 
@@ -167,7 +168,7 @@ export function useComprehensiveKeyboard({
     }
 
     // For bracket keys, allow repeat events for continuous size adjustment
-    const allowRepeat = event.key === '[' || event.key === ']';
+    const allowRepeat = isBracketShortcut;
     
     // Prevent repeat events for other keys (but allow for bracket keys)
     if (!allowRepeat && pressedKeysRef.current.has(event.code)) {

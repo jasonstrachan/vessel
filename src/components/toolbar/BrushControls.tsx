@@ -5,7 +5,7 @@
 
 import React from "react";
 import { useAppStore } from "../../stores/useAppStore";
-import { BrushShape } from "../../types";
+import { BrushShape, type Layer } from "../../types";
 import Input from "../ui/Input";
 import CustomSwitch from "../ui/CustomSwitch";
 import ProgressSlider from "../ui/ProgressSlider";
@@ -85,9 +85,25 @@ const BrushControls = () => {
     currentTool === "eraser" ? eraserSettings : brushSettings;
   const setActiveSettings =
     currentTool === "eraser" ? setEraserSettings : setBrushSettings;
-  
+
   // Use state to track animation status for proper re-renders
   const [isAnimating, setIsAnimating] = React.useState(true); // Default to playing
+
+  // Ensure Color Cycle brushes start with a sensible spacing value even when no preset overrides exist
+  React.useEffect(() => {
+    const shape = activeSettings.brushShape;
+    if (shape !== BrushShape.COLOR_CYCLE && shape !== BrushShape.COLOR_CYCLE_SHAPE) {
+      return;
+    }
+
+    const currentSpacing = activeSettings.spacing;
+    if (currentSpacing && currentSpacing >= 1) {
+      return;
+    }
+
+    const fallbackSpacing = shape === BrushShape.COLOR_CYCLE_SHAPE ? 4 : 2;
+    setActiveSettings({ spacing: fallbackSpacing });
+  }, [activeSettings.brushShape, activeSettings.spacing, setActiveSettings]);
   
   // Handle animation when switching brush types
   const previousBrushShape = React.useRef(activeSettings.brushShape);
@@ -323,7 +339,7 @@ const BrushControls = () => {
                 Spacing
               </label>
               <ProgressSlider
-                value={activeSettings.spacing || 4}
+                value={activeSettings.spacing ?? 2}
                 min={1}
                 max={50}
                 step={1}

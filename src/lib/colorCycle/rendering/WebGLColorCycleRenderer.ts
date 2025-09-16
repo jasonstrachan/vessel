@@ -402,8 +402,12 @@ export class WebGLColorCycleRenderer {
         float maxDist = max(u_maxDist, 1.0);
         float dist = sqrt(minDistSq);
         float n = clamp(dist / maxDist, 0.0, 1.0);
-        float bandF = floor(n * u_bands);
-        float colorIndex = mod(u_baseOffset + bandF * u_colorStep, 254.0) + 1.0;
+        float padding = clamp(1.0 / max(u_bands * 4.0, 8.0), 0.001, 0.02);
+        n = clamp(n, padding, 1.0 - padding);
+        float denom = max(1.0, u_bands - 1.0);
+        float bandF = floor(n * denom + 0.5);
+        bandF = min(denom, bandF);
+        float colorIndex = mod(u_baseOffset + bandF * u_colorStep, 255.0) + 1.0;
         // Output index in red channel (normalized)
         gl_FragColor = vec4(colorIndex / 255.0, 0.0, 0.0, 1.0);
       }

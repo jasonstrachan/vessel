@@ -247,18 +247,38 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     }
   }, [initialStops]);
   
-  // Update saved gradient when stops change
+  // Update saved gradient when stops change without triggering recursive renders
   useEffect(() => {
-    if (selectedGradientId && stops.length > 0) {
-      setSavedGradients(prev => {
-        const updated = prev.map(g => 
-          g.id === selectedGradientId ? { ...g, stops } : g
-        );
-        saveCustomGradients(updated);
-        return updated;
-      });
-    }
-  }, [stops, selectedGradientId]);
+    if (!selectedGradientId || stops.length === 0) return;
+
+    const normalizedStops = stops.map(stop => ({
+      ...stop,
+      opacity: stop.opacity ?? 1
+    }));
+    const incomingSignature = stopsSignature(normalizedStops);
+
+    setSavedGradients(prev => {
+      const index = prev.findIndex(g => g.id === selectedGradientId);
+      if (index === -1) return prev;
+
+      const target = prev[index];
+      const existingSignature = stopsSignature(
+        (target.stops ?? []).map(stop => ({
+          ...stop,
+          opacity: stop.opacity ?? 1
+        }))
+      );
+
+      if (existingSignature === incomingSignature) {
+        return prev;
+      }
+
+      const updated = [...prev];
+      updated[index] = { ...target, stops: normalizedStops };
+      saveCustomGradients(updated);
+      return updated;
+    });
+  }, [stops, selectedGradientId, stopsSignature]);
 
   // Generate CSS gradient string with opacity (fallback transparent when no stops)
   const gradientString = (stops.length > 0
