@@ -673,7 +673,6 @@ function cssColorToHex(color: string): string {
 
     // If space is held and mouse is down, but pan hasn't started yet, start it now and exit early.
     if (isSpacePressedRef.current && isMouseDownRef.current && !pan.panState.isPanning) {
-      debugLog('pan', 'MOVE fallback startPan', { pos: currentPointerPos });
       pan.startPan(currentPointerPos.x, currentPointerPos.y);
       setCursorStyle('grabbing');
       setShowBrushCursor(false);
@@ -1477,7 +1476,6 @@ function cssColorToHex(color: string): string {
 
     // SIMPLIFIED PANNING: End pan if we were panning
     if (pan.panState.isPanning) {
-      debugLog('pan', 'PTR_UP endPan', { spaceStillHeld: isSpacePressedRef.current });
       pan.endPan();
       // Restore cursor based on space state
       if (isSpacePressedRef.current) {

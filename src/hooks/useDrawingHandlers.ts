@@ -547,9 +547,11 @@ export function useDrawingHandlers({
       const hadAnyPlaying = pauseAllBrushCCAnimationsNow();
       wasCCPlayingBeforeInteractionRef.current = hadAnyPlaying;
       // Don't set up callback here - let startContinuousColorCycleAnimation handle it
-      brushEngine.resetColorCycle();
-
       const shouldAnimateLive = !ccFlags.isCustom;
+
+      if (shouldAnimateLive) {
+        brushEngine.resetColorCycle();
+      }
 
       // Reset distance tracking for consistent spacing
       colorCycleDistanceRef.current = 0;
@@ -1224,35 +1226,46 @@ export function useDrawingHandlers({
           }
           
           if (isColorCycleLayer && isColorCycleBrush && activeLayer?.colorCycleData?.canvas) {
-            
-
-            // Commit any pending stroke data in the brush and copy to the layer canvas
-            try {
-              const colorCycleBrushManager = getColorCycleBrushManager();
-              const brush = colorCycleBrushManager.getBrush(activeLayer.id);
-              if (brush) {
-                // Ensure stroke is properly ended and frame rendered
-                if (typeof (brush as any).commitCurrentStroke === 'function') {
-                  (brush as any).commitCurrentStroke(activeLayer.id);
-                } else if (typeof (brush as any).finalizeCurrentStroke === 'function') {
-                  (brush as any).finalizeCurrentStroke(activeLayer.id);
+            if (saveFlags.isCustom && drawingCanvasRef.current) {
+              try {
+                const targetCtx = activeLayer.colorCycleData.canvas.getContext('2d', { willReadFrequently: true });
+                if (targetCtx) {
+                  targetCtx.save();
+                  targetCtx.globalCompositeOperation = activeSettings.blendMode || 'source-over';
+                  targetCtx.globalAlpha = activeSettings.opacity ?? 1;
+                  targetCtx.drawImage(drawingCanvasRef.current, 0, 0);
+                  targetCtx.restore();
                 }
+              } catch {}
+            } else {
+              // Commit any pending stroke data in the brush and copy to the layer canvas
+              try {
+                const colorCycleBrushManager = getColorCycleBrushManager();
+                const brush = colorCycleBrushManager.getBrush(activeLayer.id);
+                if (brush) {
+                  // Ensure stroke is properly ended and frame rendered
+                  if (typeof (brush as any).commitCurrentStroke === 'function') {
+                    (brush as any).commitCurrentStroke(activeLayer.id);
+                  } else if (typeof (brush as any).finalizeCurrentStroke === 'function') {
+                    (brush as any).finalizeCurrentStroke(activeLayer.id);
+                  }
 
-                // Commit buffer to the layer's canvas
-                if (typeof (brush as any).commitToLayer === 'function') {
-                  (brush as any).commitToLayer(activeLayer.colorCycleData.canvas, activeLayer.id);
-                } else {
-                  // Fallback to direct render helper
-                  (brush as any).renderDirectToCanvas?.(activeLayer.colorCycleData.canvas, activeLayer.id);
-                }
+                  // Commit buffer to the layer's canvas
+                  if (typeof (brush as any).commitToLayer === 'function') {
+                    (brush as any).commitToLayer(activeLayer.colorCycleData.canvas, activeLayer.id);
+                  } else {
+                    // Fallback to direct render helper
+                    (brush as any).renderDirectToCanvas?.(activeLayer.colorCycleData.canvas, activeLayer.id);
+                  }
 
-                // Clear brush internal paint buffer so next stroke starts fresh
-                if (typeof (brush as any).clearPaintBuffer === 'function') {
-                  (brush as any).clearPaintBuffer(activeLayer.id);
+                  // Clear brush internal paint buffer so next stroke starts fresh
+                  if (typeof (brush as any).clearPaintBuffer === 'function') {
+                    (brush as any).clearPaintBuffer(activeLayer.id);
+                  }
                 }
+              } catch (e) {
+                // Suppressed debug warn for buffer commit
               }
-            } catch (e) {
-              // Suppressed debug warn for buffer commit
             }
 
             // For CC layers, capture directly from the layer's canvas

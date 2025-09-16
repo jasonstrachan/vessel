@@ -1561,6 +1561,7 @@ const BrushControls = () => {
                     if (presetStops) {
                       const gradientStops = presetStops.map(stop => ({ ...stop }));
                       setActiveSettings({ colorCycleGradient: gradientStops });
+                      setSharedColorCycleGradient(gradientStops);
 
                       if (activeLayerId) {
                         const layer = layers.find(l => l.id === activeLayerId);
@@ -1580,6 +1581,27 @@ const BrushControls = () => {
                 />
               </div>
 
+              <GradientEditor
+                sampleTarget="brush"
+                stops={activeSettings.colorCycleGradient || DEFAULT_RAINBOW_STOPS}
+                onChange={(stops) => {
+                  setActiveSettings({ colorCycleGradient: stops });
+                  setSharedColorCycleGradient(stops);
+
+                  const state = useAppStore.getState();
+                  const activeLayer = state.layers.find(l => l.id === state.activeLayerId);
+                  if (activeLayer?.layerType === 'color-cycle' && state.activeLayerId) {
+                    state.updateLayer(state.activeLayerId, {
+                      colorCycleData: {
+                        ...activeLayer.colorCycleData,
+                        gradient: stops,
+                        isAnimating: activeLayer.colorCycleData?.isAnimating || false
+                      }
+                    });
+                  }
+                }}
+              />
+
               <div className="flex items-center gap-2">
                 <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
                   Speed
@@ -1593,16 +1615,16 @@ const BrushControls = () => {
                     const clamped = Math.max(0.02, Math.min(1.0, value));
                     setActiveSettings({ colorCycleSpeed: clamped });
 
-                    if (activeLayerId) {
-                      const layer = layers.find(l => l.id === activeLayerId);
-                      if (layer?.layerType === 'color-cycle') {
-                        updateLayer(activeLayerId, {
-                          colorCycleData: {
-                            ...(layer.colorCycleData || {}),
-                            brushSpeed: clamped
-                          }
-                        } as any);
-                      }
+                    const state = useAppStore.getState();
+                    const layer = state.layers.find(l => l.id === state.activeLayerId);
+
+                    if (layer?.layerType === 'color-cycle' && state.activeLayerId) {
+                      state.updateLayer(state.activeLayerId, {
+                        colorCycleData: {
+                          ...(layer.colorCycleData || {}),
+                          brushSpeed: clamped
+                        }
+                      });
                     }
                   }}
                   aria-label="Color Cycle Speed"
