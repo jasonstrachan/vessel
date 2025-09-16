@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { useBrushEngineSimplified } from './useBrushEngineSimplified';
 import { useUserBrushEngine } from './useUserBrushEngine';
-import { BrushShape } from '../types';
+import { BrushShape, type BrushSettings } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '../hooks/brushEngine/utilities';
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
@@ -438,11 +438,13 @@ export function useDrawingHandlers({
     const currentState = useAppStore.getState();
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
-    
-    
+    const brushSettings = currentState.tools.brushSettings;
+    const ccFlags = getColorCycleBrushFlags(brushSettings);
+
+
     // Early return if no project
     if (!project) return;
-    
+
     // Layer type handling and validation
     const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
     if (activeLayer) {
@@ -450,7 +452,9 @@ export function useDrawingHandlers({
       if (!activeLayer.visible) {
         return; // Exit silently, cursor will still show
       }
-      const isColorCycleBrush = currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE;
+      const isStandardColorCycleBrush = ccFlags.isStandard;
+      const isCustomColorCycleBrush = ccFlags.isCustom;
+      const isAnyColorCycleBrush = ccFlags.isAny;
       
       // IMPORTANT: Layers can NEVER be converted from one type to another.
       // You simply can't draw on the wrong layer with a CC brush and vice versa.
@@ -460,7 +464,7 @@ export function useDrawingHandlers({
         
         
         // Check for incompatible combinations
-        if (isColorCycleBrush && !isColorCycleLayer) {
+        if (isAnyColorCycleBrush && !isColorCycleLayer) {
           // CC brush on normal layer
           if (feedbackMessageRef.current) {
             feedbackMessageRef.current("Can't use Color Cycle brush on a normal layer. Create a new layer.");
@@ -468,7 +472,7 @@ export function useDrawingHandlers({
           return; // Block drawing
         }
         
-        if (!isColorCycleBrush && isColorCycleLayer && currentTool !== 'eraser') {
+        if (!isAnyColorCycleBrush && isColorCycleLayer && currentTool !== 'eraser') {
           // Normal brush on CC layer (allow eraser on any layer)
           if (feedbackMessageRef.current) {
             feedbackMessageRef.current("Can't use regular brushes on a Color Cycle layer. Switch layers.");
@@ -477,7 +481,7 @@ export function useDrawingHandlers({
         }
         
         // Check gradient compatibility for CC layers
-        if (isColorCycleBrush && isColorCycleLayer) {
+        if (isStandardColorCycleBrush && isColorCycleLayer) {
           // Ensure the CC layer has Canvas2D brush initialized
           const colorCycleBrushManager = getColorCycleBrushManager();
           if (!colorCycleBrushManager.getBrush(activeLayer.id)) {
@@ -502,6 +506,19 @@ export function useDrawingHandlers({
             }
           }
         }
+        if (isCustomColorCycleBrush && isColorCycleLayer) {
+          const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
+          const layerGradient = activeLayer.colorCycleData?.gradient;
+          if (brushGradient && layerGradient) {
+            const gradientsMatch = JSON.stringify(brushGradient) === JSON.stringify(layerGradient);
+            if (!gradientsMatch) {
+              if (feedbackMessageRef.current) {
+                feedbackMessageRef.current("This layer uses a different gradient");
+              }
+              return;
+            }
+          }
+        }
       }
     }
     
@@ -509,7 +526,7 @@ export function useDrawingHandlers({
 
     // Initialize auto-sampling for color cycle stroke
     try {
-      const isCCStroke = currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE;
+      const isCCStroke = ccFlags.isAny;
       const autoSample = !!currentState.tools.brushSettings.autoSampleGradient;
       if (isCCStroke && autoSample) {
         autoSamplePointsRef.current = [worldPos];
@@ -525,7 +542,7 @@ export function useDrawingHandlers({
     }
     
     // Reset color cycle brush for new stroke and start animation
-    if (currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
+    if (ccFlags.isAny) {
       // Pause all CC playback while drawing a CC stroke
       const hadAnyPlaying = pauseAllBrushCCAnimationsNow();
       wasCCPlayingBeforeInteractionRef.current = hadAnyPlaying;
@@ -628,9 +645,10 @@ export function useDrawingHandlers({
       } else if (brushEngine) {
         // Check if we're using a custom brush or resampler
         let customBrushData = undefined;
-        
+        const ccStrokeFlags = getColorCycleBrushFlags(currentState.tools.brushSettings);
+
         // Handle Color Cycle brush - only paints to Canvas2D buffer
-        if (currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
+        if (ccStrokeFlags.isAny) {
           // SAFETY CHECK: Verify we're on a compatible CC layer with matching gradient
           // This prevents crashes when continueDrawing is called after startDrawing blocked
           const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
@@ -744,7 +762,7 @@ export function useDrawingHandlers({
               imageData: brushTip.imageData,
               width: brushTip.width || brushTip.imageData.width,
               height: brushTip.height || brushTip.imageData.height,
-              isColorizable: brushTip.isColorizable || currentState.tools.brushSettings.useSwatchColor
+              isColorizable: brushTip.isColorizable || currentState.tools.brushSettings.useSwatchColor || !!currentState.tools.brushSettings.customBrushColorCycle
             };
           } else if (currentState.tools.brushSettings.selectedCustomBrush) {
             // Look for custom brush in project's custom brushes
@@ -754,7 +772,7 @@ export function useDrawingHandlers({
                 imageData: tempBrush.imageData,
                 width: tempBrush.width,
                 height: tempBrush.height,
-                isColorizable: currentState.tools.brushSettings.useSwatchColor
+                isColorizable: currentState.tools.brushSettings.useSwatchColor || !!currentState.tools.brushSettings.customBrushColorCycle
               };
             } else {
               const customBrush = currentState.project?.customBrushes?.find(b => b.id === currentState.tools.brushSettings.selectedCustomBrush);
@@ -763,7 +781,7 @@ export function useDrawingHandlers({
                   imageData: customBrush.imageData,
                   width: customBrush.width,
                   height: customBrush.height,
-                  isColorizable: currentState.tools.brushSettings.useSwatchColor
+                  isColorizable: currentState.tools.brushSettings.useSwatchColor || !!currentState.tools.brushSettings.customBrushColorCycle
                 };
               }
             }
@@ -974,31 +992,31 @@ export function useDrawingHandlers({
               // Try to get custom brush from currentBrushTip first
               if (currentState.tools.brushSettings.currentBrushTip) {
                 const brushTip = currentState.tools.brushSettings.currentBrushTip;
-                customBrushData = {
-                  imageData: brushTip.imageData,
-                  width: brushTip.width || brushTip.imageData.width,
-                  height: brushTip.height || brushTip.imageData.height,
-                  isColorizable: brushTip.isColorizable || currentState.tools.brushSettings.useSwatchColor
-                };
+            customBrushData = {
+              imageData: brushTip.imageData,
+              width: brushTip.width || brushTip.imageData.width,
+              height: brushTip.height || brushTip.imageData.height,
+              isColorizable: brushTip.isColorizable || currentState.tools.brushSettings.useSwatchColor || !!currentState.tools.brushSettings.customBrushColorCycle
+            };
               } else if (currentState.tools.brushSettings.selectedCustomBrush) {
                 // Look for custom brush in project's custom brushes
                 if (currentState.temporaryCustomBrush?.id === currentState.tools.brushSettings.selectedCustomBrush) {
                   const tempBrush = currentState.temporaryCustomBrush;
-                  customBrushData = {
-                    imageData: tempBrush.imageData,
-                    width: tempBrush.width,
-                    height: tempBrush.height,
-                    isColorizable: currentState.tools.brushSettings.useSwatchColor
-                  };
+              customBrushData = {
+                imageData: tempBrush.imageData,
+                width: tempBrush.width,
+                height: tempBrush.height,
+                isColorizable: currentState.tools.brushSettings.useSwatchColor || !!currentState.tools.brushSettings.customBrushColorCycle
+              };
                 } else {
                   const customBrush = currentState.project?.customBrushes?.find(b => b.id === currentState.tools.brushSettings.selectedCustomBrush);
                   if (customBrush) {
-                    customBrushData = {
-                      imageData: customBrush.imageData,
-                      width: customBrush.width,
-                      height: customBrush.height,
-                      isColorizable: currentState.tools.brushSettings.useSwatchColor
-                    };
+                customBrushData = {
+                  imageData: customBrush.imageData,
+                  width: customBrush.width,
+                  height: customBrush.height,
+                  isColorizable: currentState.tools.brushSettings.useSwatchColor || !!currentState.tools.brushSettings.customBrushColorCycle
+                };
                   }
                 }
               }
@@ -1019,7 +1037,7 @@ export function useDrawingHandlers({
       // Record points for auto-sampling and defer gradient update to finalize
       try {
         const state = useAppStore.getState();
-        const isCCStroke = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE;
+        const isCCStroke = getColorCycleBrushFlags(state.tools.brushSettings).isAny;
         if (isCCStroke && state.tools.brushSettings.autoSampleGradient) {
           autoSamplePointsRef.current.push(worldPos);
           if (autoSamplePointsRef.current.length > 5000) {
@@ -1112,9 +1130,10 @@ export function useDrawingHandlers({
           
         } else { // Brush tool
           const activeSettings = currentState.tools.brushSettings;
+          const activeFlags = getColorCycleBrushFlags(activeSettings);
           
           // For color cycle brush, stop the animation and do final render
-          if (activeSettings.brushShape === BrushShape.COLOR_CYCLE && drawingCtxRef.current) {
+          if (activeFlags.isAny && drawingCtxRef.current) {
             // If auto-sampling is enabled, compute final 8-stop gradient across full stroke path now
             try {
               if (activeSettings.autoSampleGradient && autoSamplePointsRef.current.length > 0) {
@@ -1177,9 +1196,9 @@ export function useDrawingHandlers({
           
           // Handle capture differently for CC layers vs regular layers
           const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
-          // Treat both stroke and shape variants as CC for saving
-          const isColorCycleBrush = activeSettings.brushShape === BrushShape.COLOR_CYCLE ||
-                                    activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+          // Treat stroke, shape, and custom CC variants as CC for saving
+          const saveFlags = getColorCycleBrushFlags(activeSettings);
+          const isColorCycleBrush = saveFlags.isAny;
 
           // Ensure CC layer has a canvas before attempting to save
           if (isColorCycleLayer && !activeLayer?.colorCycleData?.canvas && currentState.project) {
@@ -1284,9 +1303,9 @@ export function useDrawingHandlers({
       // FIXED: Don't clear drawing canvas for CC shapes to prevent them from disappearing
       // Only clear for non-CC layers to prevent stale content issues
       const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
-      const isColorCycleBrush = currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE;
-      
-      if (!isColorCycleLayer || !isColorCycleBrush) {
+      const isAnyColorCycleBrush = getColorCycleBrushFlags(currentState.tools.brushSettings).isAny;
+
+      if (!isColorCycleLayer || !isAnyColorCycleBrush) {
         // Clear the drawing canvas immediately after finalizing to prevent stale content
         // from appearing/disappearing when brush settings change
         if (drawingCtxRef.current && drawingCanvasRef.current) {
@@ -1637,7 +1656,7 @@ export function useDrawingHandlers({
               customBrushImageData = brushTip.imageData;
               customBrushWidth = brushTip.width || brushTip.imageData.width;
               customBrushHeight = brushTip.height || brushTip.imageData.height;
-              isColorizable = brushTip.isColorizable || tools.brushSettings.useSwatchColor;
+              isColorizable = brushTip.isColorizable || tools.brushSettings.useSwatchColor || !!tools.brushSettings.customBrushColorCycle;
             } else if (tools.brushSettings.selectedCustomBrush) {
               // Look for custom brush in project's custom brushes from the store
               const currentState = useAppStore.getState();
@@ -1648,7 +1667,7 @@ export function useDrawingHandlers({
                 customBrushImageData = tempBrush.imageData;
                 customBrushWidth = tempBrush.width;
                 customBrushHeight = tempBrush.height;
-                isColorizable = tools.brushSettings.useSwatchColor;
+                isColorizable = tools.brushSettings.useSwatchColor || !!tools.brushSettings.customBrushColorCycle;
               } else {
                 // Then check saved custom brushes
                 const customBrush = currentState.project?.customBrushes?.find(b => b.id === tools.brushSettings.selectedCustomBrush);
@@ -1656,7 +1675,7 @@ export function useDrawingHandlers({
                   customBrushImageData = customBrush.imageData;
                   customBrushWidth = customBrush.width;
                   customBrushHeight = customBrush.height;
-                  isColorizable = tools.brushSettings.useSwatchColor;
+                  isColorizable = tools.brushSettings.useSwatchColor || !!tools.brushSettings.customBrushColorCycle;
                 }
               }
             }
@@ -2253,5 +2272,18 @@ export function useDrawingHandlers({
     startContinuousColorCycleAnimation,
     stopContinuousColorCycleAnimation,
     setFeedbackCallback
+  };
+}
+
+function getColorCycleBrushFlags(settings: BrushSettings) {
+  const shape = settings.brushShape;
+  const isStandard = shape === BrushShape.COLOR_CYCLE;
+  const isShapeVariant = shape === BrushShape.COLOR_CYCLE_SHAPE;
+  const isCustom = shape === BrushShape.CUSTOM && settings.customBrushColorCycle === true;
+  return {
+    isStandard,
+    isShapeVariant,
+    isCustom,
+    isAny: isStandard || isShapeVariant || isCustom
   };
 }

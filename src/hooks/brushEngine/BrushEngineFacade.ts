@@ -7,7 +7,8 @@ import { BrushShape, type BrushSettings, type CustomBrush } from '@/types';
 import { createStrokeProcessor } from './strokeProcessor';
 import { createShapeDrawer, type DrawShapeSettings, type ShapeDrawingDependencies } from './shapes';
 import { createBrushUtilities } from './utilities';
-import { applyThrottledColorJitter } from './colorUtils';
+import { applyThrottledColorJitter, parseColor } from './colorUtils';
+import { DEFAULT_COLOR_CYCLE_GRADIENT } from '@/utils/colorCycleGradients';
 import { applyDithering, applySierraLiteDither } from './dithering';
 import { getGridPositionsBetween } from '@/utils/gridSnap';
 import { isStrokeBrush } from '@/utils/brushCategories';
@@ -74,6 +75,9 @@ export class BrushEngineFacade {
     charIndex: 0,
     initialized: false
   };
+  private customColorCyclePhase = 0;
+  private lastCustomColorCycleEnabled = false;
+  private lastCustomGradientHash = '';
 
   constructor(config: BrushEngineConfig) {
     this.config = config;
@@ -112,6 +116,9 @@ export class BrushEngineFacade {
 
     // Initialize pixel queue
     this.pixelQueue = this.strokeProcessor.createPixelQueue();
+
+    this.lastCustomColorCycleEnabled = !!config.brushSettings.customBrushColorCycle;
+    this.lastCustomGradientHash = this.hashGradient(config.brushSettings.colorCycleGradient);
   }
 
   /**
@@ -142,6 +149,21 @@ export class BrushEngineFacade {
     
     if (config.brushSettings) {
       this.utilities = createBrushUtilities(() => this.config.brushSettings);
+
+      const nextSettings = this.config.brushSettings;
+      const nowEnabled = !!nextSettings.customBrushColorCycle;
+      const nextHash = this.hashGradient(nextSettings.colorCycleGradient);
+
+      if (!nowEnabled) {
+        this.customColorCyclePhase = 0;
+      } else {
+        if (!this.lastCustomColorCycleEnabled || nextHash !== this.lastCustomGradientHash) {
+          this.customColorCyclePhase = 0;
+        }
+      }
+
+      this.lastCustomColorCycleEnabled = nowEnabled;
+      this.lastCustomGradientHash = nextHash;
     }
   }
 
@@ -358,6 +380,11 @@ export class BrushEngineFacade {
       )) {
         // Check transparency lock
         if (this.canDrawAt(ctx, x, y)) {
+          if (this.config.brushSettings.customBrushColorCycle && settings.shape === BrushShape.CUSTOM) {
+            ctx.fillStyle = this.getNextCustomCycleColor();
+          } else {
+            ctx.fillStyle = settings.color;
+          }
           this.shapeDrawer(
             ctx,
             x,
@@ -382,6 +409,11 @@ export class BrushEngineFacade {
       false
     )) {
       if (this.canDrawAt(ctx, to.x, to.y)) {
+        if (this.config.brushSettings.customBrushColorCycle && settings.shape === BrushShape.CUSTOM) {
+          ctx.fillStyle = this.getNextCustomCycleColor();
+        } else {
+          ctx.fillStyle = settings.color;
+        }
         this.shapeDrawer(
           ctx,
           to.x,
@@ -418,6 +450,59 @@ export class BrushEngineFacade {
       this.pixelQueue,
       this.config.brushSettings
     );
+  }
+
+  private hashGradient(stops?: Array<{ position: number; color: string }>): string {
+    if (!stops || stops.length === 0) {
+      return 'none';
+    }
+    return stops.map(stop => `${stop.position}:${stop.color}`).join('|');
+  }
+
+  private sampleGradientColor(
+    stops: Array<{ position: number; color: string }>,
+    position: number
+  ): string {
+    if (!stops.length) {
+      return '#ffffff';
+    }
+
+    const clamped = Math.max(0, Math.min(1, position));
+    let prev = stops[0];
+    let next = stops[stops.length - 1];
+
+    for (let i = 0; i < stops.length - 1; i++) {
+      const current = stops[i];
+      const upcoming = stops[i + 1];
+      if (clamped >= current.position && clamped <= upcoming.position) {
+        prev = current;
+        next = upcoming;
+        break;
+      }
+    }
+
+    const span = next.position - prev.position;
+    const t = span > 0 ? (clamped - prev.position) / span : 0;
+
+    const [r1, g1, b1] = parseColor(prev.color);
+    const [r2, g2, b2] = parseColor(next.color);
+
+    const r = Math.round(r1 + (r2 - r1) * t);
+    const g = Math.round(g1 + (g2 - g1) * t);
+    const b = Math.round(b1 + (b2 - b1) * t);
+
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  private getNextCustomCycleColor(): string {
+    const stops = this.config.brushSettings.colorCycleGradient && this.config.brushSettings.colorCycleGradient.length > 0
+      ? this.config.brushSettings.colorCycleGradient
+      : DEFAULT_COLOR_CYCLE_GRADIENT;
+
+    const color = this.sampleGradientColor(stops, this.customColorCyclePhase);
+    const step = Math.max(0.02, Math.min(1, this.config.brushSettings.colorCycleSpeed || 0.1));
+    this.customColorCyclePhase = (this.customColorCyclePhase + step) % 1;
+    return color;
   }
 
   /**

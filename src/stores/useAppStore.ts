@@ -1871,25 +1871,33 @@ export const useAppStore = create<AppState>()(
           
           // Inside this branch we've already ruled out 'recolor'; default to 'brush'
           const nextTool: Tool = 'brush';
-          // When activating a Color Cycle layer, ensure a CC brush is selected so CC settings are visible
           const preferShapeMode = (state.tools.lastColorCycleShapeMode ?? state.tools.shapeMode) ?? false;
           const ccBrushShape = preferShapeMode ? BrushShape.COLOR_CYCLE_SHAPE : BrushShape.COLOR_CYCLE;
+          const isCustomColorCycleBrush = state.tools.brushSettings.brushShape === BrushShape.CUSTOM &&
+            !!state.tools.brushSettings.customBrushColorCycle;
+
+          const nextBrushSettings = {
+            ...state.tools.brushSettings,
+            colorCycleGradient: layer.colorCycleData?.gradient || state.tools.brushSettings.colorCycleGradient || []
+          };
+
+          const nextShapeMode = isCustomColorCycleBrush ? state.tools.shapeMode : preferShapeMode;
+
+          if (!isCustomColorCycleBrush) {
+            nextBrushSettings.brushShape = ccBrushShape;
+          } else {
+            nextBrushSettings.customBrushColorCycle = true;
+          }
+
           const result = {
             activeLayerId: id,
             tools: {
               ...state.tools,
-              // Preserve recolor tool if user is in Recolor and animate view
               currentTool: nextTool,
-              lastRegularTool: savedRegularBrush, // Track the last regular tool
-              lastRegularBrushShape: savedBrushShape, // Track the last brush shape
-              // Align shape mode to the preferred CC variant so UI reflects CC controls immediately
-              shapeMode: preferShapeMode,
-              brushSettings: {
-                ...state.tools.brushSettings,
-                // Select Color Cycle brush variant so BrushControls show CC settings
-                brushShape: ccBrushShape,
-                colorCycleGradient: layer.colorCycleData?.gradient || []
-              }
+              lastRegularTool: savedRegularBrush,
+              lastRegularBrushShape: savedBrushShape,
+              shapeMode: nextShapeMode,
+              brushSettings: nextBrushSettings
             }
           };
           

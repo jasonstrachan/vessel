@@ -76,6 +76,59 @@ const BrushControls = () => {
   const layers = useAppStore(state => state.layers);
   const updateLayer = useAppStore(state => state.updateLayer);
   
+  const ensureCustomColorCycleLayer = React.useCallback(() => {
+    const state = useAppStore.getState();
+    const activeLayer = state.layers.find(l => l.id === state.activeLayerId);
+    if (activeLayer?.layerType === 'color-cycle') {
+      return activeLayer.id;
+    }
+
+    const ccLayerCount = state.layers.filter(l => l.layerType === 'color-cycle').length;
+    const width = state.project?.width || 1920;
+    const height = state.project?.height || 1080;
+
+    const makeFramebuffer = (w: number, h: number): OffscreenCanvas | HTMLCanvasElement => {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, w);
+      canvas.height = Math.max(1, h);
+      return canvas;
+    };
+
+    const gradient = state.tools.brushSettings.colorCycleGradient || DEFAULT_RAINBOW_STOPS;
+
+    const newLayer: Omit<Layer, 'id' | 'order'> = {
+      name: `CC Brush ${ccLayerCount + 1}`,
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      imageData: null,
+      framebuffer: makeFramebuffer(width, height),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        mode: 'brush',
+        gradient: gradient.map(stop => ({ ...stop })),
+        isAnimating: false,
+        brushSpeed: state.tools.brushSettings.colorCycleSpeed || 0.1
+      }
+    };
+
+    try {
+      const newLayerId = state.addLayer(newLayer);
+      if (newLayerId) {
+        if (state.project) {
+          state.initColorCycleForLayer(newLayerId, width, height);
+        }
+        state.setActiveLayer(newLayerId);
+        state.setBrushSettings({ customBrushColorCycle: true });
+      }
+      return newLayerId;
+    } catch (error) {
+      console.error('[BrushControls] Failed to create CC layer for custom brush:', error);
+      return null;
+    }
+  }, []);
+
   // Determine if current brush is custom (uses percentage) or default (uses pixels)
   const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
   const sizeUnit = isCustomBrush ? '%' : 'px';
@@ -85,6 +138,53 @@ const BrushControls = () => {
     currentTool === "eraser" ? eraserSettings : brushSettings;
   const setActiveSettings =
     currentTool === "eraser" ? setEraserSettings : setBrushSettings;
+
+  const isCustomColorCycleEnabled = isCustomBrush && !!activeSettings.customBrushColorCycle;
+
+  const colorCyclePresetOptions = React.useMemo(() => {
+    const base = getRectGradientPresetOptions();
+    return [...base, { value: 'custom', label: 'Custom' }];
+  }, []);
+
+  const selectedColorCyclePreset = React.useMemo(() => {
+    const stops = activeSettings.colorCycleGradient || DEFAULT_RAINBOW_STOPS;
+    for (const option of colorCyclePresetOptions) {
+      if (option.value === 'custom') continue;
+      const presetStops = getPresetStops(option.value);
+      if (!presetStops) continue;
+      const sameLength = presetStops.length === stops.length;
+      if (!sameLength) continue;
+      const matches = presetStops.every((stop, idx) => {
+        const target = stops[idx];
+        return target && stop.position === target.position && stop.color === target.color;
+      });
+      if (matches) {
+        return option.value;
+      }
+    }
+    return 'custom';
+  }, [activeSettings.colorCycleGradient, colorCyclePresetOptions]);
+
+  const handleToggleCustomColorCycle = React.useCallback((checked: boolean) => {
+    const updates: Partial<typeof activeSettings> = {
+      customBrushColorCycle: checked
+    };
+
+    if (checked) {
+      if (!activeSettings.colorCycleGradient || activeSettings.colorCycleGradient.length === 0) {
+        updates.colorCycleGradient = DEFAULT_RAINBOW_STOPS;
+      }
+      if (!activeSettings.colorCycleSpeed) {
+        updates.colorCycleSpeed = 0.1;
+      }
+    }
+
+    setActiveSettings(updates);
+
+    if (checked) {
+      ensureCustomColorCycleLayer();
+    }
+  }, [activeSettings.colorCycleGradient, activeSettings.colorCycleSpeed, ensureCustomColorCycleLayer, setActiveSettings]);
 
   // Use state to track animation status for proper re-renders
   const [isAnimating, setIsAnimating] = React.useState(true); // Default to playing
@@ -1433,6 +1533,87 @@ const BrushControls = () => {
 
   return (
     <div className="p-4">
+      {isCustomBrush && (
+        <div className="mb-3">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              Color Cycle
+            </label>
+            <CustomSwitch
+              checked={isCustomColorCycleEnabled}
+              onChange={handleToggleCustomColorCycle}
+            />
+          </div>
+
+          {isCustomColorCycleEnabled && (
+            <div className="mt-2 space-y-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+                  Gradient
+                </label>
+                <Dropdown
+                  value={selectedColorCyclePreset}
+                  onChange={(value) => {
+                    if (value === 'custom') {
+                      return;
+                    }
+                    const presetStops = getPresetStops(value);
+                    if (presetStops) {
+                      const gradientStops = presetStops.map(stop => ({ ...stop }));
+                      setActiveSettings({ colorCycleGradient: gradientStops });
+
+                      if (activeLayerId) {
+                        const layer = layers.find(l => l.id === activeLayerId);
+                        if (layer?.layerType === 'color-cycle') {
+                          updateLayer(activeLayerId, {
+                            colorCycleData: {
+                              ...(layer.colorCycleData || {}),
+                              gradient: gradientStops
+                            }
+                          } as any);
+                        }
+                      }
+                    }
+                  }}
+                  options={colorCyclePresetOptions}
+                  className="flex-1"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+                  Speed
+                </label>
+                <ProgressSlider
+                  value={activeSettings.colorCycleSpeed || 0.1}
+                  min={0.02}
+                  max={1.0}
+                  step={0.01}
+                  onChange={(value) => {
+                    const clamped = Math.max(0.02, Math.min(1.0, value));
+                    setActiveSettings({ colorCycleSpeed: clamped });
+
+                    if (activeLayerId) {
+                      const layer = layers.find(l => l.id === activeLayerId);
+                      if (layer?.layerType === 'color-cycle') {
+                        updateLayer(activeLayerId, {
+                          colorCycleData: {
+                            ...(layer.colorCycleData || {}),
+                            brushSpeed: clamped
+                          }
+                        } as any);
+                      }
+                    }
+                  }}
+                  aria-label="Color Cycle Speed"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Size */}
       <div className="mb-2">
         <div className="flex items-center gap-2">

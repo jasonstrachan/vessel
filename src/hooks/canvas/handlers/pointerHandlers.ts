@@ -92,7 +92,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const activeLayer = layers.find(l => l.id === activeLayerId);
     const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
     const brushShape = tools.brushSettings.brushShape;
-    const isCCBrush = brushShape === BrushShape.COLOR_CYCLE || brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+    const isCCBrush = brushShape === BrushShape.COLOR_CYCLE ||
+      brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
+      (brushShape === BrushShape.CUSTOM && tools.brushSettings.customBrushColorCycle === true);
 
     // Mismatch if CC brush on normal layer OR regular brush/tool on CC layer
     const mismatch = (isColorCycleLayer && !isCCBrush) || (!isColorCycleLayer && isCCBrush);
