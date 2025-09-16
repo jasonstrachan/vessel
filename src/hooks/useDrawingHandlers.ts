@@ -548,11 +548,13 @@ export function useDrawingHandlers({
       wasCCPlayingBeforeInteractionRef.current = hadAnyPlaying;
       // Don't set up callback here - let startContinuousColorCycleAnimation handle it
       brushEngine.resetColorCycle();
-      
+
+      const shouldAnimateLive = !ccFlags.isCustom;
+
       // Reset distance tracking for consistent spacing
       colorCycleDistanceRef.current = 0;
       colorCycleLastPosRef.current = null;
-      
+
       // Reset pixel queue for dashed pattern support
       colorCyclePixelQueue.current = createPixelQueue();
       
@@ -563,9 +565,13 @@ export function useDrawingHandlers({
       const frameInterval = 1000 / targetFPS;
       
       const animateWhileDrawing = (timestamp: number) => {
+        if (!shouldAnimateLive) {
+          colorCycleAnimationRef.current = null;
+          return;
+        }
         // Only animate if we're still in color cycle mode
         if (!colorCycleAnimationRef.current) return;
-        
+
         if (timestamp - lastRenderTime >= frameInterval) {
           if (drawingCtxRef.current && drawingCanvasRef.current) {
             // Clear once for all layers
@@ -603,12 +609,16 @@ export function useDrawingHandlers({
           }
           lastRenderTime = timestamp;
         }
-        
+
         colorCycleAnimationRef.current = requestAnimationFrame(animateWhileDrawing);
       };
-      
+
       // Start the animation
-      colorCycleAnimationRef.current = requestAnimationFrame(animateWhileDrawing);
+      if (shouldAnimateLive) {
+        colorCycleAnimationRef.current = requestAnimationFrame(animateWhileDrawing);
+      } else {
+        colorCycleAnimationRef.current = null;
+      }
     }
     
     // Reset stamp counter for continuous sampling
@@ -648,7 +658,7 @@ export function useDrawingHandlers({
         const ccStrokeFlags = getColorCycleBrushFlags(currentState.tools.brushSettings);
 
         // Handle Color Cycle brush - only paints to Canvas2D buffer
-        if (ccStrokeFlags.isAny) {
+        if (ccStrokeFlags.isAny && !ccStrokeFlags.isCustom) {
           // SAFETY CHECK: Verify we're on a compatible CC layer with matching gradient
           // This prevents crashes when continueDrawing is called after startDrawing blocked
           const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
@@ -816,6 +826,7 @@ export function useDrawingHandlers({
     }
     
     const boundary = { x: 0, y: 0, width: project.width, height: project.height };
+    const ccProcessFlags = getColorCycleBrushFlags(currentState.tools.brushSettings);
     
     // Process all points in the batch
     for (let i = 0; i < batch.length; i++) {
@@ -845,7 +856,7 @@ export function useDrawingHandlers({
             let customBrushData = undefined;
             
             // Check for Color Cycle brush with stroke processor features
-            if (currentState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
+            if (ccProcessFlags.isAny && !ccProcessFlags.isCustom) {
               // GUARD: Verify layer compatibility before calling color cycle functions
               const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
               const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';

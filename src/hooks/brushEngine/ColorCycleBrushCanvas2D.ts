@@ -648,8 +648,7 @@ export class ColorCycleBrushCanvas2D {
     const projectionRange = maxProjection - minProjection;
     const safeProjectionRange = Math.abs(projectionRange) < 1e-6 ? 1 : projectionRange;
     const numBands = Math.max(2, this.gradientBands || 12);
-    const edgePadding = 1 / Math.max(8, numBands * 4);
-    const applyEdgePadding = (value: number) => Math.min(1 - edgePadding, Math.max(edgePadding, value));
+    const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
     // If using perceptual dithering, render gradient into an ImageData, dither in color space,
     // then map back to gradient indices and write to the index buffer.
@@ -815,8 +814,27 @@ export class ColorCycleBrushCanvas2D {
       
       // Fill between pairs of intersections
       for (let i = 0; i < intersections.length - 1; i += 2) {
-        const startX = Math.floor(intersections[i]);
-        const endX = Math.ceil(intersections[i + 1]);
+        const startFloat = intersections[i];
+        const endFloat = intersections[i + 1];
+        if (endFloat <= startFloat) continue;
+
+        const startX = Math.floor(startFloat);
+        const endX = Math.ceil(endFloat);
+        const spanWidth = endFloat - startFloat;
+        const invSpanWidth = Math.abs(spanWidth) > 1e-6 ? 1 / spanWidth : 0;
+
+        const spanStartProj = (startFloat - centerX) * dirX + (y - centerY) * dirY;
+        const spanEndProj = (endFloat - centerX) * dirX + (y - centerY) * dirY;
+        const spanStartNorm = clamp01((spanStartProj - minProjection) / safeProjectionRange);
+        const spanEndNorm = clamp01((spanEndProj - minProjection) / safeProjectionRange);
+        const spanDeltaNorm = spanEndNorm - spanStartNorm;
+
+        const sampleNormalized = (sampleX: number) => {
+          if (!isFinite(sampleX)) return spanStartNorm;
+          const t = (sampleX - startFloat) * invSpanWidth;
+          const clampedT = Math.min(1, Math.max(0, t));
+          return clamp01(spanStartNorm + clampedT * spanDeltaNorm);
+        };
 
         if (this.ditherEnabled && cellSize > 1) {
           // Block-based Sierra Lite dithering with crisp edge clipping
@@ -833,15 +851,13 @@ export class ColorCycleBrushCanvas2D {
               const yCenterBlock = Math.min(Math.ceil(maxY), iyBase + cy * cellSize + Math.floor(cellSize / 2));
 
               // Projection at block center
-              const dx = xCenter - centerX;
-              const dy = yCenterBlock - centerY;
-              const projection = dx * dirX + dy * dirY;
-              let r = applyEdgePadding((projection - minProjection) / safeProjectionRange);
+              const sampleX = xCenter + 0.5;
+              let r = sampleNormalized(sampleX);
               if (this.ditherEnabled) {
                 const jitterScale = 0.35;
                 const quantLevels = Math.max(2, bands);
                 const j = (noiseAt(xCenter, yCenterBlock) - 0.5) * (jitterScale / quantLevels);
-                r = applyEdgePadding(r + j);
+                r = clamp01(r + j);
               }
 
               const quantLevels = Math.max(2, bands);
@@ -893,15 +909,12 @@ export class ColorCycleBrushCanvas2D {
 
           if (!serpentine) {
             for (let x = startX; x <= endX; x++) {
-              const dx = x - centerX;
-              const dy = y - centerY;
-              const projection = dx * dirX + dy * dirY;
-              let r = applyEdgePadding((projection - minProjection) / safeProjectionRange);
+              let r = sampleNormalized(x + 0.5);
               if (this.ditherEnabled) {
                 const jitterScale = 0.35;
                 const quantLevels = Math.max(2, bands);
                 const j = (noiseAt(x, y) - 0.5) * (jitterScale / quantLevels);
-                r = applyEdgePadding(r + j);
+                r = clamp01(r + j);
               }
               const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
               const lowerPos = Math.min(1, kLower * qStep);
@@ -921,15 +934,12 @@ export class ColorCycleBrushCanvas2D {
             }
           } else {
             for (let x = endX; x >= startX; x--) {
-              const dx = x - centerX;
-              const dy = y - centerY;
-              const projection = dx * dirX + dy * dirY;
-              let r = applyEdgePadding((projection - minProjection) / safeProjectionRange);
+              let r = sampleNormalized(x + 0.5);
               if (this.ditherEnabled) {
                 const jitterScale = 0.35;
                 const quantLevels = Math.max(2, bands);
                 const j = (noiseAt(x, y) - 0.5) * (jitterScale / quantLevels);
-                r = applyEdgePadding(r + j);
+                r = clamp01(r + j);
               }
               const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
               const lowerPos = Math.min(1, kLower * qStep);
@@ -955,10 +965,7 @@ export class ColorCycleBrushCanvas2D {
           const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
           const denom = quantLevels - 1;
           for (let x = startX; x <= endX; x++) {
-            const dx = x - centerX;
-            const dy = y - centerY;
-            const projection = dx * dirX + dy * dirY;
-            const r = applyEdgePadding((projection - minProjection) / safeProjectionRange);
+            const r = sampleNormalized(x + 0.5);
             const k = Math.round(r * denom); // snap to nearest band including endpoints
             const pos = k / denom; // 0..1 inclusive
             const outIdx = idxFromPos(pos);

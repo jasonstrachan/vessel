@@ -82,8 +82,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
                              (!!floatingPasteDragStart.current) ||
                              !pointerInside;
     const nextVisible = !shouldHideCursor;
-    console.log('[BrushCursor] pointerInsideCanvas', pointerInside, 'shouldHide', shouldHideCursor, 'showBrushCursor', nextVisible);
-
     setShowBrushCursor(nextVisible);
   };
 
