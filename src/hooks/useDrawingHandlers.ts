@@ -9,6 +9,7 @@ import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokePr
 import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
 import { appendSegmentWithDynamicResampling } from '../utils/shapeMaker';
 import { logError } from '../utils/debug';
+import type { CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -94,13 +95,7 @@ export function useDrawingHandlers({
   const directionPreviewRef = useRef<{ x: number; y: number } | null>(null);
   
   // Store resampler brush data for the entire stroke
-  const resamplerBrushDataRef = useRef<{
-    imageData: ImageData;
-    width: number;
-    height: number;
-    isColorizable: boolean;
-    isResampler?: boolean;
-  } | undefined>(undefined);
+  const resamplerBrushDataRef = useRef<CustomBrushStrokeData | undefined>(undefined);
   
   // Track stamp count for continuous resampling
   const stampCounterRef = useRef<number>(0);
@@ -354,38 +349,74 @@ export function useDrawingHandlers({
 
   // Helper: resume previously paused brush-based CC layers
   const resumePausedBrushCCAnimations = useCallback(() => {
-    
-    const ids = pausedCCLayerIdsRef.current;
-    if (!ids || ids.length === 0) return;
     const state = useAppStore.getState();
     const mgr = getColorCycleBrushManager();
-    ids.forEach(id => {
-      try {
-        const layer = state.layers.find(l => l.id === id);
-        if (!layer) return;
-        state.updateLayer(id, {
-          colorCycleData: {
-            ...layer.colorCycleData,
-            isAnimating: true
-          }
-        } as any);
-        const brush = mgr.getBrush(id) as any;
-        brush?.startAnimation?.();
-      } catch {}
-    });
-    
+    const ids = pausedCCLayerIdsRef.current;
+    let resumedAny = false;
+
+    if (ids && ids.length > 0) {
+      ids.forEach(id => {
+        try {
+          const layer = state.layers.find(l => l.id === id);
+          if (!layer) return;
+          state.updateLayer(id, {
+            colorCycleData: {
+              ...layer.colorCycleData,
+              isAnimating: true
+            }
+          } as any);
+          const brush = mgr.getBrush(id) as any;
+          brush?.startAnimation?.();
+          resumedAny = true;
+        } catch {}
+      });
+    }
     pausedCCLayerIdsRef.current = [];
+
     // Resume recolor animation if it was playing
     if (recolorWasAnimatingRef.current) {
       try {
         const { RecolorManager } = require('../lib/colorCycle/RecolorManager');
         RecolorManager.getInstance().resume();
-        
+        resumedAny = true;
       } catch {}
       recolorWasAnimatingRef.current = false;
     }
-    try { window.dispatchEvent(new CustomEvent('colorCycleAnimationState', { detail: { isPlaying: true, source: 'brush' } })); } catch {}
-    
+
+    let globalIsPlaying = false;
+    try {
+      const bc = require('../components/toolbar/BrushControls');
+      if (bc && typeof bc.getColorCycleAnimationState === 'function') {
+        globalIsPlaying = !!bc.getColorCycleAnimationState();
+      }
+    } catch {}
+
+    if (globalIsPlaying) {
+      const ccLayers = state.layers.filter(layer => layer.layerType === 'color-cycle' && layer.colorCycleData?.mode !== 'recolor');
+      ccLayers.forEach(layer => {
+        const wasAnimating = !!layer.colorCycleData?.isAnimating;
+        if (!wasAnimating) {
+          state.updateLayer(layer.id, {
+            colorCycleData: {
+              ...layer.colorCycleData,
+              isAnimating: true
+            }
+          } as any);
+        }
+        try {
+          const brush = mgr.getBrush(layer.id) as any;
+          brush?.startAnimation?.();
+        } catch {}
+      });
+      if (ccLayers.length > 0) {
+        resumedAny = true;
+        startCCRef.current?.();
+      }
+    }
+
+    if (resumedAny || globalIsPlaying) {
+      try { window.dispatchEvent(new CustomEvent('colorCycleAnimationState', { detail: { isPlaying: true, source: 'brush' } })); } catch {}
+    }
   }, []);
   
   const initDrawingCanvas = useCallback(() => {
@@ -547,7 +578,7 @@ export function useDrawingHandlers({
       const hadAnyPlaying = pauseAllBrushCCAnimationsNow();
       wasCCPlayingBeforeInteractionRef.current = hadAnyPlaying;
       // Don't set up callback here - let startContinuousColorCycleAnimation handle it
-      const shouldAnimateLive = !ccFlags.isCustom;
+      const shouldAnimateLive = true;
 
       if (shouldAnimateLive) {
         brushEngine.resetColorCycle();
@@ -567,10 +598,6 @@ export function useDrawingHandlers({
       const frameInterval = 1000 / targetFPS;
       
       const animateWhileDrawing = (timestamp: number) => {
-        if (!shouldAnimateLive) {
-          colorCycleAnimationRef.current = null;
-          return;
-        }
         // Only animate if we're still in color cycle mode
         if (!colorCycleAnimationRef.current) return;
 
@@ -655,56 +682,83 @@ export function useDrawingHandlers({
         userBrushEngine.setActiveBrush(currentBrushId);
         userBrushEngine.startStroke(drawCtx, worldPos.x, worldPos.y, pressure);
       } else if (brushEngine) {
-        // Check if we're using a custom brush or resampler
-        let customBrushData = undefined;
+        let customBrushData: CustomBrushStrokeData | undefined = resolveActiveCustomBrushData(currentState);
         const ccStrokeFlags = getColorCycleBrushFlags(currentState.tools.brushSettings);
 
-        // Handle Color Cycle brush - only paints to Canvas2D buffer
-        if (ccStrokeFlags.isAny && !ccStrokeFlags.isCustom) {
-          // SAFETY CHECK: Verify we're on a compatible CC layer with matching gradient
-          // This prevents crashes when continueDrawing is called after startDrawing blocked
+        if (ccStrokeFlags.isAny) {
           const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
           const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
-          
-          if (isColorCycleLayer) {
-            // Also check gradient compatibility
-            const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
-            const layerGradient = activeLayer.colorCycleData?.gradient;
-            const gradientsMatch = !brushGradient || !layerGradient || 
-                                  JSON.stringify(brushGradient) === JSON.stringify(layerGradient);
-            
-            if (gradientsMatch) {
-              // Apply spacing for Color Cycle brush to be consistent with other brushes
-              if (colorCycleLastPosRef.current) {
-                const dx = worldPos.x - colorCycleLastPosRef.current.x;
-                const dy = worldPos.y - colorCycleLastPosRef.current.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                
-                colorCycleDistanceRef.current += distance;
-                
-                // Calculate spacing - now in pixels directly
-                const spacing = currentState.tools.brushSettings.spacing || 1;
-                
-                // Only draw if we've moved enough distance
-                if (colorCycleDistanceRef.current >= spacing) {
-                  // Calculate rotation if enabled
-                  const rotation = currentState.tools.brushSettings.rotationEnabled 
-                    ? Math.atan2(dy, dx) 
-                    : 0;
-                  brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure, rotation);
-                  colorCycleDistanceRef.current = 0; // Reset distance
-                }
-              } else {
-                // First point in stroke (no rotation for initial point)
-                brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure, 0);
-              }
-              colorCycleLastPosRef.current = worldPos;
-              // Rendering happens in the animation loop, not here
-            }
-            // If gradients don't match, silently skip drawing (warning was already shown in startDrawing)
+
+          if (!isColorCycleLayer) {
+            return;
           }
-          // If not a CC layer, silently skip (warning was already shown in startDrawing)
-        } else if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER && 
+
+          const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
+          const layerGradient = activeLayer.colorCycleData?.gradient;
+          const gradientsMatch =
+            !brushGradient ||
+            !layerGradient ||
+            JSON.stringify(brushGradient) === JSON.stringify(layerGradient);
+
+          if (!gradientsMatch) {
+            return;
+          }
+
+          const spacing = currentState.tools.brushSettings.spacing || 1;
+
+          if (ccStrokeFlags.isCustom) {
+            const brushData = customBrushData ?? resamplerBrushDataRef.current;
+            if (!brushData) {
+              return;
+            }
+
+            if (colorCycleLastPosRef.current) {
+              const dx = worldPos.x - colorCycleLastPosRef.current.x;
+              const dy = worldPos.y - colorCycleLastPosRef.current.y;
+              const distance = Math.sqrt(dx * dx + dy * dy);
+
+              colorCycleDistanceRef.current += distance;
+
+              if (colorCycleDistanceRef.current >= spacing) {
+                const rotation = currentState.tools.brushSettings.rotationEnabled
+                  ? Math.atan2(dy, dx)
+                  : 0;
+                brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure, rotation, {
+                  customStamp: brushData
+                });
+                colorCycleDistanceRef.current = 0;
+              }
+            } else {
+              brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure, 0, {
+                customStamp: brushData
+              });
+            }
+
+            colorCycleLastPosRef.current = worldPos;
+            return;
+          }
+
+          if (colorCycleLastPosRef.current) {
+            const dx = worldPos.x - colorCycleLastPosRef.current.x;
+            const dy = worldPos.y - colorCycleLastPosRef.current.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            colorCycleDistanceRef.current += distance;
+
+            if (colorCycleDistanceRef.current >= spacing) {
+              const rotation = currentState.tools.brushSettings.rotationEnabled
+                ? Math.atan2(dy, dx)
+                : 0;
+              brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure, rotation);
+              colorCycleDistanceRef.current = 0;
+            }
+          } else {
+            brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure, 0);
+          }
+
+          colorCycleLastPosRef.current = worldPos;
+          return;
+        } else if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER &&
             !currentState.tools.brushSettings.continuousSampling) {
           // Use the exact same approach as CustomBrushPanel for capturing
           const brushSize = currentState.tools.brushSettings.size || 20;
@@ -750,11 +804,11 @@ export function useDrawingHandlers({
                     imageData,
                     width,
                     height,
-                    isColorizable: false, // Resampler uses sampled colors as-is
-                    isResampler: true // Flag to identify resampler brush data
-                  } as any;
-                  
-                  // Store for the entire stroke
+                    isColorizable: false,
+                    isResampler: true,
+                    cacheKey: 'resampler:single'
+                  };
+
                   resamplerBrushDataRef.current = customBrushData;
                   
                   // DON'T change brush size - keep it as is so the sample matches cursor size
@@ -766,40 +820,12 @@ export function useDrawingHandlers({
               }
             }
           }
-        } else if (currentState.tools.brushSettings.brushShape === BrushShape.CUSTOM) {
-          // Try to get custom brush from currentBrushTip first
-          if (currentState.tools.brushSettings.currentBrushTip) {
-            const brushTip = currentState.tools.brushSettings.currentBrushTip;
-            customBrushData = {
-              imageData: brushTip.imageData,
-              width: brushTip.width || brushTip.imageData.width,
-              height: brushTip.height || brushTip.imageData.height,
-              isColorizable: brushTip.isColorizable || currentState.tools.brushSettings.useSwatchColor || !!currentState.tools.brushSettings.customBrushColorCycle
-            };
-          } else if (currentState.tools.brushSettings.selectedCustomBrush) {
-            // Look for custom brush in project's custom brushes
-            if (currentState.temporaryCustomBrush?.id === currentState.tools.brushSettings.selectedCustomBrush) {
-              const tempBrush = currentState.temporaryCustomBrush;
-              customBrushData = {
-                imageData: tempBrush.imageData,
-                width: tempBrush.width,
-                height: tempBrush.height,
-                isColorizable: currentState.tools.brushSettings.useSwatchColor || !!currentState.tools.brushSettings.customBrushColorCycle
-              };
-            } else {
-              const customBrush = currentState.project?.customBrushes?.find(b => b.id === currentState.tools.brushSettings.selectedCustomBrush);
-              if (customBrush) {
-                customBrushData = {
-                  imageData: customBrush.imageData,
-                  width: customBrush.width,
-                  height: customBrush.height,
-                  isColorizable: currentState.tools.brushSettings.useSwatchColor || !!currentState.tools.brushSettings.customBrushColorCycle
-                };
-              }
-            }
-          }
         }
-        
+
+        if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER) {
+          customBrushData = resamplerBrushDataRef.current ?? customBrushData;
+        }
+
         brushEngine.drawBrush(
           drawCtx,
           worldPos,
@@ -855,10 +881,10 @@ export function useDrawingHandlers({
             drawCtx.globalCompositeOperation = 'source-over';
             
             // Check if we're using a custom brush or resampler
-            let customBrushData = undefined;
+            let customBrushData: CustomBrushStrokeData | undefined = resolveActiveCustomBrushData(currentState);
             
             // Check for Color Cycle brush with stroke processor features
-            if (ccProcessFlags.isAny && !ccProcessFlags.isCustom) {
+            if (ccProcessFlags.isAny) {
               // GUARD: Verify layer compatibility before calling color cycle functions
               const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
               const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
@@ -868,17 +894,24 @@ export function useDrawingHandlers({
                 continue; // Skip this batch item and continue with next
               }
               
-              // GUARD: Also check gradient compatibility
-              if (isColorCycleLayer) {
-                const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
-                const layerGradient = activeLayer.colorCycleData?.gradient;
-                const gradientsMatch = !brushGradient || !layerGradient || 
-                                      JSON.stringify(brushGradient) === JSON.stringify(layerGradient);
-                
-                if (!gradientsMatch) {
-                  // Wrong gradient - skip processing to prevent crash
-                  continue; // Skip this batch item and continue with next
-                }
+              const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
+              const layerGradient = activeLayer?.colorCycleData?.gradient;
+              const gradientsMatch =
+                !brushGradient ||
+                !layerGradient ||
+                JSON.stringify(brushGradient) === JSON.stringify(layerGradient);
+
+              if (!gradientsMatch) {
+                continue;
+              }
+
+              const usingCustomStamp = ccProcessFlags.isCustom;
+              const stampData = usingCustomStamp
+                ? customBrushData ?? resamplerBrushDataRef.current
+                : undefined;
+
+              if (usingCustomStamp && !stampData) {
+                continue;
               }
               
               // Use the spacing setting from brush controls - now in pixels directly
@@ -912,8 +945,11 @@ export function useDrawingHandlers({
                   
                   // Check dashed pattern before drawing
                   if (shouldDrawStamp(currentState.tools.brushSettings, colorCyclePixelQueue.current, currentState.tools.brushSettings.size)) {
-                    // Pass rotation to the color cycle brush if enabled
-                    if (currentState.tools.brushSettings.rotationEnabled && rotation !== 0) {
+                    if (usingCustomStamp) {
+                      brushEngine.drawColorCycle(drawCtx, stampX, stampY, pressure, rotation, {
+                        customStamp: stampData!
+                      });
+                    } else if (currentState.tools.brushSettings.rotationEnabled && rotation !== 0) {
                       brushEngine.drawColorCycle(drawCtx, stampX, stampY, pressure, rotation);
                     } else {
                       brushEngine.drawColorCycle(drawCtx, stampX, stampY, pressure, 0);
@@ -925,6 +961,7 @@ export function useDrawingHandlers({
               }
               
               colorCycleLastPosRef.current = clippedEnd;
+              continue;
             } else if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER) {
               if (currentState.tools.brushSettings.continuousSampling) {
                 // Continuous sampling mode - check if we need to resample
@@ -982,9 +1019,10 @@ export function useDrawingHandlers({
                             imageData,
                             width,
                             height,
-                            isColorizable: false, // Resampler uses sampled colors as-is
-                            isResampler: true // Flag to identify resampler brush data
-                          } as any;
+                            isColorizable: false,
+                            isResampler: true,
+                            cacheKey: 'resampler:continuous'
+                          };
                         } catch (e) {
                           debugWarn('resampler', 'Failed to sample canvas for continuous Resampler:', e);
                         }
@@ -995,43 +1033,10 @@ export function useDrawingHandlers({
                 
                 // Use the current resampler data
                 if (resamplerBrushDataRef.current) {
-                  customBrushData = resamplerBrushDataRef.current as any; // Type assertion for isResampler flag
+                  customBrushData = resamplerBrushDataRef.current;
                 }
               } else if (resamplerBrushDataRef.current) {
-                // Single sample mode - use the stored resampler data for the entire stroke
-                customBrushData = resamplerBrushDataRef.current as any; // Type assertion for isResampler flag
-              }
-            } else if (currentState.tools.brushSettings.brushShape === BrushShape.CUSTOM) {
-              // Try to get custom brush from currentBrushTip first
-              if (currentState.tools.brushSettings.currentBrushTip) {
-                const brushTip = currentState.tools.brushSettings.currentBrushTip;
-            customBrushData = {
-              imageData: brushTip.imageData,
-              width: brushTip.width || brushTip.imageData.width,
-              height: brushTip.height || brushTip.imageData.height,
-              isColorizable: brushTip.isColorizable || currentState.tools.brushSettings.useSwatchColor || !!currentState.tools.brushSettings.customBrushColorCycle
-            };
-              } else if (currentState.tools.brushSettings.selectedCustomBrush) {
-                // Look for custom brush in project's custom brushes
-                if (currentState.temporaryCustomBrush?.id === currentState.tools.brushSettings.selectedCustomBrush) {
-                  const tempBrush = currentState.temporaryCustomBrush;
-              customBrushData = {
-                imageData: tempBrush.imageData,
-                width: tempBrush.width,
-                height: tempBrush.height,
-                isColorizable: currentState.tools.brushSettings.useSwatchColor || !!currentState.tools.brushSettings.customBrushColorCycle
-              };
-                } else {
-                  const customBrush = currentState.project?.customBrushes?.find(b => b.id === currentState.tools.brushSettings.selectedCustomBrush);
-                  if (customBrush) {
-                customBrushData = {
-                  imageData: customBrush.imageData,
-                  width: customBrush.width,
-                  height: customBrush.height,
-                  isColorizable: currentState.tools.brushSettings.useSwatchColor || !!currentState.tools.brushSettings.customBrushColorCycle
-                };
-                  }
-                }
+                customBrushData = resamplerBrushDataRef.current;
               }
             }
             
@@ -1226,46 +1231,39 @@ export function useDrawingHandlers({
           }
           
           if (isColorCycleLayer && isColorCycleBrush && activeLayer?.colorCycleData?.canvas) {
-            if (saveFlags.isCustom && drawingCanvasRef.current) {
-              try {
-                const targetCtx = activeLayer.colorCycleData.canvas.getContext('2d', { willReadFrequently: true });
-                if (targetCtx) {
-                  targetCtx.save();
-                  targetCtx.globalCompositeOperation = activeSettings.blendMode || 'source-over';
-                  targetCtx.globalAlpha = activeSettings.opacity ?? 1;
-                  targetCtx.drawImage(drawingCanvasRef.current, 0, 0);
-                  targetCtx.restore();
+            try {
+              const colorCycleBrushManager = getColorCycleBrushManager();
+              const brush = colorCycleBrushManager.getBrush(activeLayer.id);
+              if (brush) {
+                if (typeof (brush as any).commitCurrentStroke === 'function') {
+                  (brush as any).commitCurrentStroke(activeLayer.id);
+                } else if (typeof (brush as any).finalizeCurrentStroke === 'function') {
+                  (brush as any).finalizeCurrentStroke(activeLayer.id);
                 }
-              } catch {}
-            } else {
-              // Commit any pending stroke data in the brush and copy to the layer canvas
-              try {
-                const colorCycleBrushManager = getColorCycleBrushManager();
-                const brush = colorCycleBrushManager.getBrush(activeLayer.id);
-                if (brush) {
-                  // Ensure stroke is properly ended and frame rendered
-                  if (typeof (brush as any).commitCurrentStroke === 'function') {
-                    (brush as any).commitCurrentStroke(activeLayer.id);
-                  } else if (typeof (brush as any).finalizeCurrentStroke === 'function') {
-                    (brush as any).finalizeCurrentStroke(activeLayer.id);
-                  }
 
-                  // Commit buffer to the layer's canvas
-                  if (typeof (brush as any).commitToLayer === 'function') {
-                    (brush as any).commitToLayer(activeLayer.colorCycleData.canvas, activeLayer.id);
-                  } else {
-                    // Fallback to direct render helper
-                    (brush as any).renderDirectToCanvas?.(activeLayer.colorCycleData.canvas, activeLayer.id);
-                  }
-
-                  // Clear brush internal paint buffer so next stroke starts fresh
-                  if (typeof (brush as any).clearPaintBuffer === 'function') {
-                    (brush as any).clearPaintBuffer(activeLayer.id);
-                  }
+                if (typeof (brush as any).commitToLayer === 'function') {
+                  (brush as any).commitToLayer(activeLayer.colorCycleData.canvas, activeLayer.id);
+                } else {
+                  (brush as any).renderDirectToCanvas?.(activeLayer.colorCycleData.canvas, activeLayer.id);
                 }
-              } catch (e) {
-                // Suppressed debug warn for buffer commit
+
+                if (typeof (brush as any).clearPaintBuffer === 'function') {
+                  (brush as any).clearPaintBuffer(activeLayer.id);
+                }
+              } else if (drawingCanvasRef.current) {
+                try {
+                  const targetCtx = activeLayer.colorCycleData.canvas.getContext('2d', { willReadFrequently: true });
+                  if (targetCtx) {
+                    targetCtx.save();
+                    targetCtx.globalCompositeOperation = activeSettings.blendMode || 'source-over';
+                    targetCtx.globalAlpha = activeSettings.opacity ?? 1;
+                    targetCtx.drawImage(drawingCanvasRef.current, 0, 0);
+                    targetCtx.restore();
+                  }
+                } catch {}
               }
+            } catch (e) {
+              // Suppressed debug warn for buffer commit
             }
 
             // For CC layers, capture directly from the layer's canvas
@@ -2297,6 +2295,81 @@ export function useDrawingHandlers({
     stopContinuousColorCycleAnimation,
     setFeedbackCallback
   };
+}
+
+type CustomBrushStoreState = {
+  tools: {
+    brushSettings: BrushSettings & {
+      currentBrushTip?: {
+        imageData: ImageData;
+        brushId: string;
+        isColorizable: boolean;
+        width?: number;
+        height?: number;
+      };
+      selectedCustomBrush?: string;
+      useSwatchColor?: boolean;
+      customBrushColorCycle?: boolean;
+    };
+  };
+  temporaryCustomBrush?: {
+    id?: string;
+    imageData: ImageData;
+    width: number;
+    height: number;
+  };
+  project?: {
+    customBrushes?: Array<{
+      id?: string;
+      imageData: ImageData;
+      width: number;
+      height: number;
+    }>;
+  };
+};
+
+function resolveActiveCustomBrushData(state: CustomBrushStoreState): CustomBrushStrokeData | undefined {
+  const settings = state.tools.brushSettings;
+
+  if (settings.currentBrushTip) {
+    const brushTip = settings.currentBrushTip;
+    return {
+      imageData: brushTip.imageData,
+      width: brushTip.width || brushTip.imageData.width,
+      height: brushTip.height || brushTip.imageData.height,
+      isColorizable:
+        brushTip.isColorizable || settings.useSwatchColor || !!settings.customBrushColorCycle,
+      cacheKey: `tip:${brushTip.brushId ?? 'anon'}`
+    };
+  }
+
+  if (settings.selectedCustomBrush) {
+    if (state.temporaryCustomBrush?.id === settings.selectedCustomBrush) {
+      const tempBrush = state.temporaryCustomBrush;
+      return {
+        imageData: tempBrush.imageData,
+        width: tempBrush.width,
+        height: tempBrush.height,
+        isColorizable: settings.useSwatchColor || !!settings.customBrushColorCycle,
+        cacheKey: `temp:${tempBrush.id ?? 'anon'}`
+      };
+    }
+
+    const saved = state.project?.customBrushes?.find(
+      brush => brush.id === settings.selectedCustomBrush
+    );
+    if (saved) {
+      return {
+        imageData: saved.imageData,
+        width: saved.width,
+        height: saved.height,
+        isColorizable: settings.useSwatchColor || !!settings.customBrushColorCycle,
+        cacheKey: `project:${saved.id ?? 'anon'}`
+      };
+    }
+  }
+
+  return undefined;
 }
 
 function getColorCycleBrushFlags(settings: BrushSettings) {

@@ -184,17 +184,45 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
     cleanupInactive(maxInactiveMs: number = 60000) {
       const now = Date.now();
       const toDelete: string[] = [];
-      
+
       brushMetadata.forEach((metadata, layerId) => {
-        if (!metadata.isActive && (now - metadata.lastUsed > maxInactiveMs)) {
-          toDelete.push(layerId);
+        if (metadata.isActive) {
+          return;
         }
+
+        if (now - metadata.lastUsed <= maxInactiveMs) {
+          return;
+        }
+
+        let shouldPreserve = false;
+        try {
+          // Keep brushes alive for layers that still own Color Cycle canvases so
+          // previously painted animations remain playable when users hit "Play" later.
+          const store = require('../stores/useAppStore').useAppStore.getState();
+          const layer = store.layers.find((l: any) => l.id === layerId);
+          if (layer && layer.layerType === 'color-cycle' && layer.colorCycleData?.mode !== 'recolor') {
+            const hasCanvas = !!layer.colorCycleData?.canvas;
+            const isAnimating = !!layer.colorCycleData?.isAnimating;
+            if (hasCanvas || isAnimating) {
+              shouldPreserve = true;
+            }
+          }
+        } catch (error) {
+          // If state lookup fails, fall back to default cleanup behaviour
+        }
+
+        if (shouldPreserve) {
+          metadata.lastUsed = now;
+          return;
+        }
+
+        toDelete.push(layerId);
       });
-      
+
       toDelete.forEach(layerId => {
         this.deleteBrush(layerId);
       });
-      
+
       
     },
     

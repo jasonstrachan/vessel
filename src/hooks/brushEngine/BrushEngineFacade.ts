@@ -39,18 +39,22 @@ export interface BrushEngineConfig {
 /**
  * Simplified brush stroke parameters
  */
+export interface CustomBrushStrokeData {
+  imageData: ImageData;
+  width: number;
+  height: number;
+  isColorizable?: boolean;
+  isResampler?: boolean;
+  cacheKey?: string;
+}
+
 export interface BrushStrokeParams {
   from: { x: number; y: number };
   to: { x: number; y: number };
   pressure: number;
   velocity: number;
   timestamp: number;
-  customBrushData?: {
-    imageData: ImageData;
-    width: number;
-    height: number;
-    isColorizable?: boolean;
-  };
+  customBrushData?: CustomBrushStrokeData;
 }
 
 /**
@@ -180,12 +184,12 @@ export class BrushEngineFacade {
     // Calculate size with pressure
     // For custom brushes, scale based on the brush's max dimension
     let baseSize = brushSettings.size;
-    if (customBrushData && !(customBrushData as any).isResampler) {
+    if (customBrushData && !customBrushData.isResampler) {
       // Custom brushes: size slider (1-100) represents percentage of max dimension
       // BUT NOT for Resampler - it already captured at the right size
       const maxDimension = Math.max(customBrushData.width, customBrushData.height);
       baseSize = (brushSettings.size / 100) * maxDimension;
-    } else if ((customBrushData as any)?.isResampler) {
+    } else if (customBrushData?.isResampler) {
       // Resampler: use the original brush size, not the captured size
       // This allows the captured pattern to be scaled to match the brush cursor size
       baseSize = brushSettings.size;

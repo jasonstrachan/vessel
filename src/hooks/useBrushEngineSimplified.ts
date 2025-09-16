@@ -5,7 +5,7 @@
 
 import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { useAppStore } from '../stores/useAppStore';
-import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams } from './brushEngine/BrushEngineFacade';
+import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams, type CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 import { BrushShape } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
@@ -18,6 +18,10 @@ import { featureFlags } from '../config/featureFlags';
 /**
  * Simplified brush engine hook with facade pattern
  */
+type DrawColorCycleOptions = {
+  customStamp?: CustomBrushStrokeData;
+};
+
 export const useBrushEngineSimplified = () => {
   const { tools, project, activeLayerId } = useAppStore();
   // Track per-layer CC brush speed for the active layer
@@ -1956,7 +1960,8 @@ export const useBrushEngineSimplified = () => {
     x: number,
     y: number,
     pressure: number = 1.0,
-    rotation: number = 0
+    rotation: number = 0,
+    options?: DrawColorCycleOptions
   ) => {
     // Compute effective pressure settings (store may not reflect forced CC values)
     const storePressureEnabled = tools.brushSettings.pressureEnabled;
@@ -2000,10 +2005,22 @@ export const useBrushEngineSimplified = () => {
         console.error('[CC DrawCycle] Error setting pressure:', e);
       }
       
-      // Safe brush size setting
-      if (tools.brushSettings.size > 0) {
-        colorCycleBrush.setBrushSize(tools.brushSettings.size);
+      let brushSizeSetting = tools.brushSettings.size || 1;
+      if (options?.customStamp) {
+        const stamp = options.customStamp;
+        if (stamp.isResampler) {
+          brushSizeSetting = tools.brushSettings.size || brushSizeSetting;
+        } else {
+          const maxDimension = Math.max(stamp.width, stamp.height) || 1;
+          brushSizeSetting = (tools.brushSettings.size / 100) * maxDimension;
+        }
       }
+
+      if (!Number.isFinite(brushSizeSetting) || brushSizeSetting <= 0) {
+        brushSizeSetting = 1;
+      }
+
+      colorCycleBrush.setBrushSize(brushSizeSetting);
       
       // Paint to the Canvas2D buffer only - AFTER setting pressure
       // Convert canvas coordinates to internal canvas coordinates
@@ -2024,7 +2041,18 @@ export const useBrushEngineSimplified = () => {
       if (paintX >= 0 && paintX < internalCanvas.width && 
           paintY >= 0 && paintY < internalCanvas.height) {
         // THEN paint with pressure and rotation
-        colorCycleBrush.paint(paintX, paintY, activeLayerId || undefined, pressure, rotation);
+        if (options?.customStamp && typeof (colorCycleBrush as any).paintCustomStamp === 'function') {
+          (colorCycleBrush as any).paintCustomStamp(
+            options.customStamp,
+            paintX,
+            paintY,
+            activeLayerId || undefined,
+            pressure,
+            rotation
+          );
+        } else {
+          colorCycleBrush.paint(paintX, paintY, activeLayerId || undefined, pressure, rotation);
+        }
       }
     } catch (error) {
       console.error('[ColorCycle] Error in drawColorCycle:', error);

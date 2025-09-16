@@ -9,6 +9,26 @@ import { ColorCycleAnimator } from '../../lib/ColorCycleAnimator';
 import { GradientStop } from '../../lib/GradientPalette';
 import { applyPressureCurve } from '../../utils/pressureCurve';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
+import { canvasPool } from '@/utils/canvasPool';
+
+interface CustomStampInput {
+  imageData: ImageData;
+  width: number;
+  height: number;
+  cacheKey?: string;
+  isResampler?: boolean;
+}
+
+type LayerStrokeState = {
+  paintBuffer: Uint8Array;
+  hasContent: boolean;
+  strokeCounter: number;
+  strokeLength: number;
+  lastPoint: { x: number; y: number } | null;
+  gradientLayerIndices: number[];
+  currentGradientIndex: number;
+  stampCounter: number;
+};
 
 export class ColorCycleBrushCanvas2D {
   private animators: Map<string, ColorCycleAnimator> = new Map();
@@ -66,16 +86,10 @@ export class ColorCycleBrushCanvas2D {
   private onFrameRendered?: () => void;
   
   // Layer tracking for API compatibility
-  private layerStrokes: Map<string, {
-    paintBuffer: Uint8Array;
-    hasContent: boolean;
-    strokeCounter: number;
-    strokeLength: number;
-    lastPoint: { x: number; y: number } | null;
-    gradientLayerIndices: number[];
-    currentGradientIndex: number;
-    stampCounter: number; // Track stamps per layer
-  }> = new Map();
+  private layerStrokes: Map<string, LayerStrokeState> = new Map();
+
+  private customStampSourceCache: WeakMap<ImageData, HTMLCanvasElement> = new WeakMap();
+  private customStampCanvasCache: Map<string, HTMLCanvasElement> = new Map();
   
   constructor(canvas: HTMLCanvasElement, options: {
     brushSize?: number;
@@ -238,23 +252,10 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Paint at position (API compatible)
    */
-  paint(x: number, y: number, layerId?: string, pressure: number = 1.0, rotation: number = 0) {
-    const perfStart = performance.now();
-    
-    // Debug logging removed for paint hot path
-    
-    // Validate coordinates
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      console.warn(`Invalid paint coordinates: x=${x}, y=${y}`);
-      return;
-    }
-    
+  private prepareStrokeContext(layerId?: string) {
     const id = layerId || this.activeLayerId || 'default';
-
-    // Ensure animator exists first so layerStrokes is initialized for this layer
     const animator = this.getAnimator(id);
 
-    // Get or create stroke data record
     let strokeData = this.layerStrokes.get(id);
     if (!strokeData) {
       strokeData = {
@@ -275,7 +276,6 @@ export class ColorCycleBrushCanvas2D {
       }
     }
 
-    // If animator was created at reduced size, finalize resize now that we have content
     if ((animator as any)._deferredSize) {
       const { width, height } = (animator as any)._deferredSize;
       animator.resize(width, height);
@@ -285,19 +285,75 @@ export class ColorCycleBrushCanvas2D {
       }
     }
 
+    return { id, animator, strokeData };
+  }
+
+  private computeColorBandIndex(strokeData: LayerStrokeState): number {
+    const bandsToUse = Math.max(2, this.gradientBands || 12);
+    const colorsToUse = Math.max(2, Math.min(254, bandsToUse));
+    const colorStep = Math.max(1, Math.floor(254 / colorsToUse));
+    const bandIndex = strokeData.stampCounter % colorsToUse;
+    return Math.max(0, Math.min(254, bandIndex * colorStep));
+  }
+
+  private getSourceCanvasForStamp(stamp: CustomStampInput): HTMLCanvasElement {
+    let source = this.customStampSourceCache.get(stamp.imageData);
+    if (!source) {
+      source = document.createElement('canvas');
+      source.width = stamp.width;
+      source.height = stamp.height;
+      const ctx = source.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        ctx.putImageData(stamp.imageData, 0, 0);
+      }
+      this.customStampSourceCache.set(stamp.imageData, source);
+    }
+    return source;
+  }
+
+  private getScaledStampCanvas(stamp: CustomStampInput, width: number, height: number): HTMLCanvasElement {
+    const baseKey = stamp.cacheKey || `anon:${stamp.imageData.width}x${stamp.imageData.height}`;
+    const key = `${baseKey}:${width}x${height}`;
+    let cached = this.customStampCanvasCache.get(key);
+    if (!cached) {
+      const source = this.getSourceCanvasForStamp(stamp);
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) {
+        return source;
+      }
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, width, height);
+      ctx.drawImage(source, 0, 0, source.width, source.height, 0, 0, width, height);
+      cached = canvas;
+      this.customStampCanvasCache.set(key, canvas);
+      if (this.customStampCanvasCache.size > 40) {
+        const firstKey = this.customStampCanvasCache.keys().next().value;
+        if (firstKey) {
+          this.customStampCanvasCache.delete(firstKey);
+        }
+      }
+    }
+    return cached;
+  }
+
+  paint(x: number, y: number, layerId?: string, pressure: number = 1.0, rotation: number = 0) {
+    const perfStart = performance.now();
+    
+    // Debug logging removed for paint hot path
+    
+    // Validate coordinates
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      console.warn(`Invalid paint coordinates: x=${x}, y=${y}`);
+      return;
+    }
+    
+    const { id, animator, strokeData } = this.prepareStrokeContext(layerId);
+
     if (strokeData) {
-      // Calculate color index based on stamp position in gradient
-      // Use gradientBands to control how many distinct colors appear in the stroke
-      // This creates banded color zones instead of smooth gradients
-      const bandsToUse = Math.max(2, this.gradientBands || 12); // Default to 12 bands if not set
-
-      // Repeat gradient: wrap band index instead of clamping so colors cycle continuously
-      const colorsToUse = Math.max(2, Math.min(254, bandsToUse)); // Keep within palette capacity
-      const colorStep = Math.max(1, Math.floor(254 / colorsToUse)); // Space between colors
-      const bandIndex = strokeData.stampCounter % colorsToUse;
-
-      // Calculate color index and ensure it's in valid range (0-254)
-      const colorIndex = Math.max(0, Math.min(254, bandIndex * colorStep));
+      const colorIndex = this.computeColorBandIndex(strokeData);
       
       // Calculate pressure-modulated brush size using smooth curve
       const pressureSize = this.pressureEnabled 
@@ -351,7 +407,110 @@ export class ColorCycleBrushCanvas2D {
     
     // quiet
   }
-  
+
+  paintCustomStamp(
+    stamp: CustomStampInput,
+    x: number,
+    y: number,
+    layerId?: string,
+    pressure: number = 1.0,
+    rotation: number = 0
+  ) {
+    if (!stamp?.imageData) {
+      return;
+    }
+
+    const { id, animator, strokeData } = this.prepareStrokeContext(layerId);
+    const colorIndex = this.computeColorBandIndex(strokeData);
+
+    const pressureMultiplier = this.pressureEnabled
+      ? applyPressureCurve(pressure, this.minPressure, this.maxPressure, 's-curve')
+      : 1;
+    const targetSize = Math.max(1, Math.round(this.brushSize * pressureMultiplier));
+
+    const baseWidth = Math.max(1, stamp.width);
+    const baseHeight = Math.max(1, stamp.height);
+    const maxDimension = Math.max(baseWidth, baseHeight);
+    const scale = maxDimension > 0 ? targetSize / maxDimension : 1;
+    const scaledWidth = Math.max(1, Math.round(baseWidth * scale));
+    const scaledHeight = Math.max(1, Math.round(baseHeight * scale));
+
+    const scaledCanvas = this.getScaledStampCanvas(stamp, scaledWidth, scaledHeight);
+    const cos = Math.cos(rotation);
+    const sin = Math.sin(rotation);
+    const rotatedWidth = Math.abs(scaledWidth * cos) + Math.abs(scaledHeight * sin);
+    const rotatedHeight = Math.abs(scaledWidth * sin) + Math.abs(scaledHeight * cos);
+    const targetWidth = Math.max(1, Math.ceil(rotatedWidth));
+    const targetHeight = Math.max(1, Math.ceil(rotatedHeight));
+
+    const tempCanvas = canvasPool.acquire(targetWidth, targetHeight);
+    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+    if (!tempCtx) {
+      canvasPool.release(tempCanvas);
+      return;
+    }
+
+    tempCtx.clearRect(0, 0, targetWidth, targetHeight);
+    tempCtx.imageSmoothingEnabled = false;
+    tempCtx.save();
+    tempCtx.translate(targetWidth / 2, targetHeight / 2);
+    if (rotation) {
+      tempCtx.rotate(rotation);
+    }
+    tempCtx.drawImage(
+      scaledCanvas,
+      -scaledWidth / 2,
+      -scaledHeight / 2,
+      scaledWidth,
+      scaledHeight
+    );
+    tempCtx.restore();
+
+    const maskData = tempCtx.getImageData(0, 0, targetWidth, targetHeight);
+    const data = maskData.data;
+    const originX = Math.round(x - targetWidth / 2);
+    const originY = Math.round(y - targetHeight / 2);
+
+    for (let py = 0; py < targetHeight; py++) {
+      const targetY = originY + py;
+      if (targetY < 0 || targetY >= this.height) continue;
+      for (let px = 0; px < targetWidth; px++) {
+        const targetX = originX + px;
+        if (targetX < 0 || targetX >= this.width) continue;
+        const alpha = data[(py * targetWidth + px) * 4 + 3];
+        if (alpha < 16) continue;
+        animator.setIndex(targetX, targetY, colorIndex);
+      }
+    }
+
+    canvasPool.release(tempCanvas);
+
+    strokeData.strokeLength++;
+    strokeData.lastPoint = { x, y };
+    strokeData.stampCounter++;
+
+    this.dirtyLayers.add(id);
+
+    if (!this.isAnimating && !this.renderScheduled) {
+      this.renderScheduled = true;
+      requestAnimationFrame(() => {
+        this.renderScheduled = false;
+
+        if (this.dirtyLayers.size > 0) {
+          this.dirtyLayers.forEach(layerIdDirty => {
+            const layerAnimator = this.animators.get(layerIdDirty);
+            if (layerAnimator) {
+              layerAnimator.forceRender();
+            }
+          });
+
+          this.dirtyLayers.clear();
+          this.render(false);
+        }
+      });
+    }
+  }
+
   /**
    * Set gradient (API compatible)
    */
@@ -751,8 +910,8 @@ export class ColorCycleBrushCanvas2D {
     // Scanline fill with linear gradient + optional Sierra Lite dithering
     // Hoist invariants out of inner loops
     const bands = Math.max(2, this.gradientBands || 12);
-    const bandStepLinear = bands > 1 ? 1 / (bands - 1) : 1;
-    const stepPerBandLinear = bands > 1 ? 254 / (bands - 1) : 254;
+    const bandStepLinear = 1 / bands;
+    const stepPerBandLinear = 254 / bands;
 
     // BBox metrics and error buffers
     const bboxW = Math.max(1, Math.ceil(maxX) - Math.floor(minX) + 1);
@@ -861,11 +1020,12 @@ export class ColorCycleBrushCanvas2D {
               }
 
               const quantLevels = Math.max(2, bands);
-              const qStep = 1.0 / (quantLevels - 1);
-              const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
-              const lowerPos = Math.min(1, kLower * qStep);
+              const qStep = 1 / quantLevels;
+              const scaled = r * quantLevels;
+              const kLower = Math.min(quantLevels - 1, Math.floor(scaled));
+              const lowerPos = kLower * qStep;
               const upperPos = Math.min(1, (kLower + 1) * qStep);
-              const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
+              const frac = Math.max(0, Math.min(1, scaled - kLower));
               const adj = frac + (cErrCurr[cx] || 0);
               const thr = 0.5 + (noiseAt(xCenter, yCenterBlock) - 0.5) * thresholdJitter;
               const chooseUpper = (kLower < quantLevels - 1) && (adj >= thr);
@@ -905,7 +1065,7 @@ export class ColorCycleBrushCanvas2D {
           // Per-pixel Sierra Lite dithering with serpentine scanning
           const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
           const quantLevels = Math.max(2, bands);
-          const qStep = 1.0 / (quantLevels - 1);
+          const qStep = 1 / quantLevels;
 
           if (!serpentine) {
             for (let x = startX; x <= endX; x++) {
@@ -916,10 +1076,11 @@ export class ColorCycleBrushCanvas2D {
                 const j = (noiseAt(x, y) - 0.5) * (jitterScale / quantLevels);
                 r = clamp01(r + j);
               }
-              const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
-              const lowerPos = Math.min(1, kLower * qStep);
+              const scaled = r * quantLevels;
+              const kLower = Math.min(quantLevels - 1, Math.floor(scaled));
+              const lowerPos = kLower * qStep;
               const upperPos = Math.min(1, (kLower + 1) * qStep);
-              const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
+              const frac = Math.max(0, Math.min(1, scaled - kLower));
               const ix = x - ixBase;
               const adj = frac + (errCurr[ix] || 0);
               const thr = 0.5 + (noiseAt(x, y) - 0.5) * thresholdJitter;
@@ -941,10 +1102,11 @@ export class ColorCycleBrushCanvas2D {
                 const j = (noiseAt(x, y) - 0.5) * (jitterScale / quantLevels);
                 r = clamp01(r + j);
               }
-              const kLower = Math.max(0, Math.min(quantLevels - 1, Math.floor(r / qStep)));
-              const lowerPos = Math.min(1, kLower * qStep);
+              const scaled = r * quantLevels;
+              const kLower = Math.min(quantLevels - 1, Math.floor(scaled));
+              const lowerPos = kLower * qStep;
               const upperPos = Math.min(1, (kLower + 1) * qStep);
-              const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
+              const frac = Math.max(0, Math.min(1, scaled - kLower));
               const ix = x - ixBase;
               const adj = frac + (errCurr[ix] || 0);
               const thr = 0.5 + (noiseAt(x, y) - 0.5) * thresholdJitter;
@@ -963,11 +1125,11 @@ export class ColorCycleBrushCanvas2D {
           // Respect gradientBands so the UI "Bands" slider affects linear fills.
           const quantLevels = Math.max(2, this.gradientBands || 12);
           const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
-          const denom = quantLevels - 1;
           for (let x = startX; x <= endX; x++) {
             const r = sampleNormalized(x + 0.5);
-            const k = Math.round(r * denom); // snap to nearest band including endpoints
-            const pos = k / denom; // 0..1 inclusive
+            const scaled = r * quantLevels;
+            const k = Math.min(quantLevels - 1, Math.floor(scaled)); // ensure exactly quantLevels unique bands
+            const pos = k / quantLevels; // 0..1 range without duplicating endpoints
             const outIdx = idxFromPos(pos);
             animator.setIndex(x, y, outIdx);
           }

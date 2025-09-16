@@ -141,30 +141,6 @@ const BrushControls = () => {
 
   const isCustomColorCycleEnabled = isCustomBrush && !!activeSettings.customBrushColorCycle;
 
-  const colorCyclePresetOptions = React.useMemo(() => {
-    const base = getRectGradientPresetOptions();
-    return [...base, { value: 'custom', label: 'Custom' }];
-  }, []);
-
-  const selectedColorCyclePreset = React.useMemo(() => {
-    const stops = activeSettings.colorCycleGradient || DEFAULT_RAINBOW_STOPS;
-    for (const option of colorCyclePresetOptions) {
-      if (option.value === 'custom') continue;
-      const presetStops = getPresetStops(option.value);
-      if (!presetStops) continue;
-      const sameLength = presetStops.length === stops.length;
-      if (!sameLength) continue;
-      const matches = presetStops.every((stop, idx) => {
-        const target = stops[idx];
-        return target && stop.position === target.position && stop.color === target.color;
-      });
-      if (matches) {
-        return option.value;
-      }
-    }
-    return 'custom';
-  }, [activeSettings.colorCycleGradient, colorCyclePresetOptions]);
-
   const handleToggleCustomColorCycle = React.useCallback((checked: boolean) => {
     const updates: Partial<typeof activeSettings> = {
       customBrushColorCycle: checked
@@ -1547,40 +1523,6 @@ const BrushControls = () => {
 
           {isCustomColorCycleEnabled && (
             <div className="mt-2 space-y-2">
-              <div className="flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-                  Gradient
-                </label>
-                <Dropdown
-                  value={selectedColorCyclePreset}
-                  onChange={(value) => {
-                    if (value === 'custom') {
-                      return;
-                    }
-                    const presetStops = getPresetStops(value);
-                    if (presetStops) {
-                      const gradientStops = presetStops.map(stop => ({ ...stop }));
-                      setActiveSettings({ colorCycleGradient: gradientStops });
-                      setSharedColorCycleGradient(gradientStops);
-
-                      if (activeLayerId) {
-                        const layer = layers.find(l => l.id === activeLayerId);
-                        if (layer?.layerType === 'color-cycle') {
-                          updateLayer(activeLayerId, {
-                            colorCycleData: {
-                              ...(layer.colorCycleData || {}),
-                              gradient: gradientStops
-                            }
-                          } as any);
-                        }
-                      }
-                    }
-                  }}
-                  options={colorCyclePresetOptions}
-                  className="flex-1"
-                />
-              </div>
-
               <GradientEditor
                 sampleTarget="brush"
                 stops={activeSettings.colorCycleGradient || DEFAULT_RAINBOW_STOPS}
@@ -1598,6 +1540,10 @@ const BrushControls = () => {
                         isAnimating: activeLayer.colorCycleData?.isAnimating || false
                       }
                     });
+                  }
+
+                  if (colorCycleAnimationHandlers?.updateColorCycleGradient) {
+                    colorCycleAnimationHandlers.updateColorCycleGradient(stops);
                   }
                 }}
               />
