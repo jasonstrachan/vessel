@@ -198,6 +198,14 @@ interface AppState {
   setZoom: (zoom: number) => void;
   setRotation: (rotation: number) => void;
   setGridSize: (size: number) => void;
+  setCanvasOffset: (offsetX: number, offsetY: number) => void;
+  canvasViewport: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
+  setCanvasViewport: (viewport: { left: number; top: number; width: number; height: number }) => void;
   toggleRulers: () => void;
   setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
   setCanvasDimensions: (width: number, height: number) => void;
@@ -381,6 +389,8 @@ const defaultCanvasState: CanvasState = {
   displayMode: 'pixelated',
   canvasWidth: 0,
   canvasHeight: 0,
+  offsetX: 0,
+  offsetY: 0,
   selection: {
     active: false,
     bounds: { x: 0, y: 0, width: 0, height: 0 },
@@ -585,7 +595,13 @@ export const useAppStore = create<AppState>()(
       
       // Canvas State
       canvas: defaultCanvasState,
-      
+      canvasViewport: {
+        left: 0,
+        top: 0,
+        width: 0,
+        height: 0
+      },
+
       // History State
       history: defaultHistoryState,
       setZoom: (zoom) => set((state) => ({
@@ -597,6 +613,28 @@ export const useAppStore = create<AppState>()(
       setGridSize: (gridSize) => set((state) => ({
         canvas: { ...state.canvas, gridSize }
       })),
+      setCanvasOffset: (offsetX, offsetY) => set((state) => {
+        if (state.canvas.offsetX === offsetX && state.canvas.offsetY === offsetY) {
+          return state;
+        }
+        return {
+          canvas: { ...state.canvas, offsetX, offsetY }
+        };
+      }),
+      setCanvasViewport: (viewport) => set((state) => {
+        const { left, top, width, height } = state.canvasViewport;
+        if (
+          left === viewport.left &&
+          top === viewport.top &&
+          width === viewport.width &&
+          height === viewport.height
+        ) {
+          return state;
+        }
+        return {
+          canvasViewport: viewport
+        };
+      }),
       toggleRulers: () => set((state) => ({
         canvas: { ...state.canvas, showRulers: !state.canvas.showRulers }
       })),
@@ -1861,42 +1899,26 @@ export const useAppStore = create<AppState>()(
             // quiet
           }
           
-          // Save current brush settings if we're on a regular brush
-          let savedRegularBrush = state.tools.currentTool;
-          let savedBrushShape = state.tools.brushSettings.brushShape;
+          // Remember the user's current brush context so we can restore it when leaving CC layers
+          let savedRegularTool = state.tools.lastRegularTool;
+          let savedBrushShape = state.tools.lastRegularBrushShape;
           if (state.tools.currentTool === 'brush' || state.tools.currentTool === 'eraser') {
-            savedRegularBrush = state.tools.currentTool;
+            savedRegularTool = state.tools.currentTool;
             savedBrushShape = state.tools.brushSettings.brushShape;
           }
-          
-          // Inside this branch we've already ruled out 'recolor'; default to 'brush'
-          const nextTool: Tool = 'brush';
-          const preferShapeMode = (state.tools.lastColorCycleShapeMode ?? state.tools.shapeMode) ?? false;
-          const ccBrushShape = preferShapeMode ? BrushShape.COLOR_CYCLE_SHAPE : BrushShape.COLOR_CYCLE;
-          const isCustomColorCycleBrush = state.tools.brushSettings.brushShape === BrushShape.CUSTOM &&
-            !!state.tools.brushSettings.customBrushColorCycle;
 
           const nextBrushSettings = {
             ...state.tools.brushSettings,
-            colorCycleGradient: layer.colorCycleData?.gradient || state.tools.brushSettings.colorCycleGradient || []
+            customBrushColorCycle: true
           };
-
-          const nextShapeMode = isCustomColorCycleBrush ? state.tools.shapeMode : preferShapeMode;
-
-          if (!isCustomColorCycleBrush) {
-            nextBrushSettings.brushShape = ccBrushShape;
-          } else {
-            nextBrushSettings.customBrushColorCycle = true;
-          }
 
           const result = {
             activeLayerId: id,
             tools: {
               ...state.tools,
-              currentTool: nextTool,
-              lastRegularTool: savedRegularBrush,
+              lastRegularTool: savedRegularTool,
               lastRegularBrushShape: savedBrushShape,
-              shapeMode: nextShapeMode,
+              lastColorCycleShapeMode: state.tools.shapeMode,
               brushSettings: nextBrushSettings
             }
           };
@@ -1915,29 +1937,35 @@ export const useAppStore = create<AppState>()(
         }
         
         // When switching to a regular layer from color cycle, restore last regular tool
-        let toolUpdate = {};
+        const baseBrushSettings = {
+          ...state.tools.brushSettings,
+          customBrushColorCycle: false
+        };
+
+        let nextTools = {
+          ...state.tools,
+          brushSettings: baseBrushSettings
+        };
         const wasOnColorCycle = currentActiveLayer?.layerType === 'color-cycle';
         // Only restore last regular tool if we're NOT explicitly in recolor tool
         if (wasOnColorCycle && layer && layer.layerType === 'normal' && state.tools.currentTool !== 'recolor') {
           // Restore the last regular tool and brush shape
           const lastTool = (state.tools as any).lastRegularTool || 'brush';
           const lastShape = (state.tools as any).lastRegularBrushShape || state.tools.brushSettings.brushShape;
-          
-          toolUpdate = {
-            tools: {
-              ...state.tools,
-              currentTool: lastTool,
-              brushSettings: {
-                ...state.tools.brushSettings,
-                brushShape: lastShape
-              }
+
+          nextTools = {
+            ...nextTools,
+            currentTool: lastTool,
+            brushSettings: {
+              ...baseBrushSettings,
+              brushShape: lastShape
             }
           };
         }
-        
-        const result = { 
+
+        const result = {
           activeLayerId: id,
-          ...toolUpdate
+          tools: nextTools
           // DO NOT return layers unless we're actually changing them
         };
         

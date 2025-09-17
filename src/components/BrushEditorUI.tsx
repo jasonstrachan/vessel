@@ -1,10 +1,16 @@
 import React, { useCallback, useRef, useEffect, useState } from 'react';
-import { useAppStore } from '../stores/useAppStore';
-import { BrushShape } from '../types';
-import Button from './ui/Button';
-import { brushCache } from '../utils/brushCache';
-import { scaledBrushCache } from '../utils/scaledBrushCache';
-import { useKeyboardScope } from '../hooks/useKeyboardScope';
+import { useAppStore } from '@/stores/useAppStore';
+import { BrushShape } from '@/types';
+import Button from '@/components/ui/Button';
+import { brushCache } from '@/utils/brushCache';
+import { scaledBrushCache } from '@/utils/scaledBrushCache';
+import { useKeyboardScope } from '@/hooks/useKeyboardScope';
+import { useBrushEngineSimplified } from '@/hooks/useBrushEngineSimplified';
+
+const MIN_ZOOM = 0.1;
+const MAX_ZOOM = 10;
+const ZOOM_IN_FACTOR = 1.1;
+const ZOOM_OUT_FACTOR = 0.9;
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 interface BrushEditorUIProps {}
@@ -19,6 +25,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   const setBrushEditorLightness = useAppStore((state) => state.setBrushEditorLightness);
   const setBrushEditorSaturation = useAppStore((state) => state.setBrushEditorSaturation);
   const saveBrushEdit = useAppStore((state) => state.saveBrushEdit);
+  const cancelBrushEdit = useAppStore((state) => state.cancelBrushEdit);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [basePixels, setBasePixels] = useState<ImageData | null>(null); // Current base pixels (original + drawn) before adjustments
   const [isDrawing, setIsDrawing] = useState(false);
@@ -34,9 +41,46 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isResizing, setIsResizing] = useState(false);
   const [modalSize, setModalSize] = useState({ width: 600, height: 500 });
+  const canvasContextRef = useRef<CanvasRenderingContext2D | null>(null);
+
+  const brushEngine = useBrushEngineSimplified();
+
+  const editingBounds = brushEditor.editingBounds;
+  const canvasPixelWidth = editingBounds?.width ?? 0;
+  const canvasPixelHeight = editingBounds?.height ?? 0;
+
+  const getCanvasContext = useCallback(() => {
+    if (!canvasRef.current) return null;
+    if (!canvasContextRef.current) {
+      canvasContextRef.current = canvasRef.current.getContext('2d', { willReadFrequently: true });
+    }
+    return canvasContextRef.current;
+  }, [canvasRef]);
 
   // While editing, suspend global/canvas shortcuts
   useKeyboardScope('modal', brushEditor.status === 'EDITING');
+
+  useEffect(() => {
+    if (brushEditor.status === 'EDITING') {
+      setSpacePressed(false);
+      setIsPanning(false);
+      setLastPanPoint(null);
+    } else {
+      canvasContextRef.current = null;
+    }
+  }, [brushEditor.status]);
+
+  const getCanvasCoordinates = useCallback((clientX: number, clientY: number) => {
+    if (!canvasRef.current) return null;
+    const rect = canvasRef.current.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    const scaleX = canvasRef.current.width / rect.width;
+    const scaleY = canvasRef.current.height / rect.height;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+    };
+  }, []);
 
   // Helper functions for flood fill
   const getPixelColor = (imageData: ImageData, x: number, y: number) => {
@@ -129,126 +173,190 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     }
   }, [saveBrushEdit]);
 
+  const handleCancelEdit = useCallback(() => {
+    if (canvasRef.current) {
+      cancelBrushEdit(canvasRef.current);
+    }
+  }, [cancelBrushEdit]);
+
+  const handleCloseButtonMouseDown = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+  }, []);
+
 
 
   // Drawing handlers for the modal canvas
-  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current) return;
-    
-    // Get the canvas bounding rect
-    const canvasRect = canvasRef.current.getBoundingClientRect();
-    
-    // Calculate position relative to the canvas element itself
-    // Since the canvas is transformed, we need to account for that
-    const x = (e.clientX - canvasRect.left) * (canvasRef.current.width / canvasRect.width);
-    const y = (e.clientY - canvasRect.top) * (canvasRef.current.height / canvasRect.height);
-    
-    // Handle spacebar panning
-    if (spacePressed) {
+
+    const shouldPan = spacePressed || event.button === 1 || event.button === 2;
+
+    if (shouldPan) {
+      event.preventDefault();
       setIsPanning(true);
-      setLastPanPoint({ x: e.clientX, y: e.clientY });
+      setLastPanPoint({ x: event.clientX, y: event.clientY });
+      try {
+        canvasRef.current.setPointerCapture?.(event.pointerId);
+      } catch {}
       return;
     }
-    
-    const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
+
+    if (event.button !== 0) {
+      return;
+    }
+
+    const coordinates = getCanvasCoordinates(event.clientX, event.clientY);
+    if (!coordinates) return;
+    const { x, y } = coordinates;
+
+    const ctx = getCanvasContext();
     if (!ctx) return;
-    
-    // Handle flood fill
+
+    try {
+      canvasRef.current.setPointerCapture?.(event.pointerId);
+    } catch {}
+
+    const pointerPressure = event.pressure && event.pressure > 0 ? event.pressure : 1;
+
     if (currentTool === 'fill') {
-      // Get current canvas state (includes all drawings)
       const currentImageData = ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
-      
       const targetColor = getPixelColor(currentImageData, Math.floor(x), Math.floor(y));
       const fillColor = hexToRgba(brushColor);
-      
+
       if (colorsMatch(targetColor, fillColor)) return;
-      
-      // Flood fill modifies the current state
+
       floodFillCanvas(currentImageData, Math.floor(x), Math.floor(y), fillColor, targetColor);
-      
-      // Draw the filled result directly to canvas
       ctx.putImageData(currentImageData, 0, 0);
-      
-      // Don't update basePixels here - that would trigger adjustments
       return;
     }
-    
-    // Regular drawing
+
     setIsDrawing(true);
     setLastPoint({ x, y });
-    
-    // Draw directly on the canvas (don't replace existing content)
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = brushColor;
-    const halfSize = brushSize / 2;
-    ctx.beginPath();
-    ctx.arc(x, y, halfSize, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Don't update basePixels here - that would trigger adjustments
-  }, [brushColor, brushSize, currentTool, spacePressed]);
 
-  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current) return;
-    
-    // Handle panning
-    if (isPanning && lastPanPoint) {
-      const dx = e.clientX - lastPanPoint.x;
-      const dy = e.clientY - lastPanPoint.y;
-      setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
-      setLastPanPoint({ x: e.clientX, y: e.clientY });
+    if (currentTool === 'eraser') {
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      const halfSize = brushSize / 2;
+      ctx.beginPath();
+      ctx.arc(x, y, halfSize, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
       return;
     }
-    
-    if (!isDrawing || !lastPoint) return;
-    
-    // Get the canvas bounding rect
-    const canvasRect = canvasRef.current.getBoundingClientRect();
-    
-    // Calculate position relative to the canvas element itself
-    // Since the canvas is transformed, we need to account for that
-    const x = (e.clientX - canvasRect.left) * (canvasRef.current.width / canvasRect.width);
-    const y = (e.clientY - canvasRect.top) * (canvasRef.current.height / canvasRect.height);
-    
-    const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return;
-    
-    // Draw directly on the canvas (don't replace existing content)
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.strokeStyle = brushColor;
-    ctx.lineWidth = brushSize;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(lastPoint.x, lastPoint.y);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    
-    setLastPoint({ x, y });
-    
-    // Don't update basePixels here - that would trigger adjustments
-  }, [isDrawing, isPanning, lastPoint, lastPanPoint, brushColor, brushSize]);
 
-  const handlePointerUp = useCallback(() => {
-    // If we were drawing, capture the new state as base pixels and reset adjustments
+    brushEngine.resetStroke();
+    brushEngine.drawBrush(ctx, { x, y }, { x, y }, { pressure: pointerPressure });
+  }, [brushColor, brushSize, brushEngine, currentTool, getCanvasContext, getCanvasCoordinates, spacePressed]);
+
+  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!canvasRef.current) return;
+
+    if (isPanning && lastPanPoint) {
+      event.preventDefault();
+      const dx = event.clientX - lastPanPoint.x;
+      const dy = event.clientY - lastPanPoint.y;
+      setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+      setLastPanPoint({ x: event.clientX, y: event.clientY });
+      return;
+    }
+
+    if (!isDrawing || !lastPoint) return;
+
+    const coordinates = getCanvasCoordinates(event.clientX, event.clientY);
+    if (!coordinates) return;
+    const { x, y } = coordinates;
+
+    const ctx = getCanvasContext();
+    if (!ctx) return;
+
+    if (currentTool === 'eraser') {
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.lineWidth = brushSize;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(lastPoint.x, lastPoint.y);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      const pointerPressure = event.pressure && event.pressure > 0 ? event.pressure : 1;
+      brushEngine.drawBrush(ctx, lastPoint, { x, y }, { pressure: pointerPressure });
+    }
+
+    setLastPoint({ x, y });
+  }, [brushEngine, brushSize, currentTool, getCanvasContext, getCanvasCoordinates, isDrawing, isPanning, lastPoint, lastPanPoint]);
+
+  const handlePointerUp = useCallback((event?: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event && canvasRef.current) {
+      if (isPanning) {
+        event.preventDefault();
+      }
+      try {
+        canvasRef.current.releasePointerCapture?.(event.pointerId);
+      } catch {}
+    }
+
     if (isDrawing && canvasRef.current) {
-      const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
+      const ctx = getCanvasContext();
       if (ctx) {
+        if (currentTool !== 'eraser' && currentTool !== 'fill') {
+          brushEngine.finalizeStroke(ctx);
+          brushEngine.resetStroke();
+        }
+
         const currentCanvas = ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
         setBasePixels(currentCanvas);
-        
-        // Reset adjustments since we've drawn new pixels
         setBrushEditorHue(0);
         setBrushEditorLightness(0);
         setBrushEditorSaturation(100);
       }
     }
-    
+
     setIsDrawing(false);
     setLastPoint(null);
     setIsPanning(false);
     setLastPanPoint(null);
-  }, [isDrawing, setBrushEditorHue, setBrushEditorLightness, setBrushEditorSaturation]);
+  }, [brushEngine, currentTool, getCanvasContext, isDrawing, isPanning, setBrushEditorHue, setBrushEditorLightness, setBrushEditorSaturation]);
+
+  const handleContainerPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.target === canvasRef.current) return;
+
+    const shouldPan = spacePressed || event.button === 1 || event.button === 2;
+
+    if (!shouldPan) return;
+
+    event.preventDefault();
+    setIsPanning(true);
+    setLastPanPoint({ x: event.clientX, y: event.clientY });
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    } catch {}
+  }, [spacePressed]);
+
+  const handleContainerPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isPanning || !lastPanPoint) return;
+    event.preventDefault();
+    const dx = event.clientX - lastPanPoint.x;
+    const dy = event.clientY - lastPanPoint.y;
+    setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+    setLastPanPoint({ x: event.clientX, y: event.clientY });
+  }, [isPanning, lastPanPoint]);
+
+  const handleContainerPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    try {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    } catch {}
+    setIsPanning(false);
+    setLastPanPoint(null);
+  }, []);
+
+  const handleContextMenu = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    if (spacePressed || isPanning) {
+      event.preventDefault();
+    }
+  }, [isPanning, spacePressed]);
 
   // Drag handlers
   const handleDragStart = useCallback((e: React.MouseEvent) => {
@@ -332,44 +440,89 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   // Handle wheel zoom with non-passive listener (zoom to cursor)
   useEffect(() => {
     if (brushEditor.status !== 'EDITING') return;
-    
+
     const container = containerRef.current;
     if (!container) return;
-    
-    const handleWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      
-      // Get container bounds
-      const rect = container.getBoundingClientRect();
-      
-      // Calculate mouse position relative to container
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-      
-      // Calculate the position in canvas space (before zoom)
-      const canvasX = (mouseX - pan.x) / zoom;
-      const canvasY = (mouseY - pan.y) / zoom;
-      
-      // Calculate new zoom
-      const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      const newZoom = Math.max(0.1, Math.min(10, zoom * delta));
-      
-      // Calculate new pan to keep the mouse position fixed
-      const newPanX = mouseX - canvasX * newZoom;
-      const newPanY = mouseY - canvasY * newZoom;
-      
-      // Apply both zoom and pan together
-      setZoom(newZoom);
-      setPan({ x: newPanX, y: newPanY });
+
+    const handleWheel = (event: WheelEvent) => {
+      const canvasElement = canvasRef.current;
+      if (!canvasElement) return;
+
+      const canvasWidth = canvasElement.width;
+      const canvasHeight = canvasElement.height;
+      if (canvasWidth === 0 || canvasHeight === 0) return;
+
+      event.preventDefault();
+
+      const containerRect = container.getBoundingClientRect();
+      const mouseX = event.clientX - containerRect.left;
+      const mouseY = event.clientY - containerRect.top;
+
+      setZoom((previousZoom) => {
+        const zoomFactor = event.deltaY > 0 ? ZOOM_OUT_FACTOR : ZOOM_IN_FACTOR;
+        const unclamped = previousZoom * zoomFactor;
+        const nextZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, unclamped));
+
+        if (nextZoom === previousZoom) {
+          return previousZoom;
+        }
+
+        setPan((previousPan) => {
+          const worldX = (mouseX - previousPan.x) / previousZoom;
+          const worldY = (mouseY - previousPan.y) / previousZoom;
+
+          return {
+            x: mouseX - worldX * nextZoom,
+            y: mouseY - worldY * nextZoom,
+          };
+        });
+
+        return nextZoom;
+      });
     };
-    
-    // Add listener with passive: false to allow preventDefault
+
     container.addEventListener('wheel', handleWheel, { passive: false });
-    
+
     return () => {
       container.removeEventListener('wheel', handleWheel);
     };
-  }, [brushEditor.status, zoom, pan]);
+  }, [brushEditor.status]);
+
+  useEffect(() => {
+    if (brushEditor.status !== 'EDITING') return;
+
+    setZoom(1);
+
+    const frame = requestAnimationFrame(() => {
+      const container = containerRef.current;
+      const canvasElement = canvasRef.current;
+
+      if (!container || !canvasElement) {
+        setPan({ x: 0, y: 0 });
+        return;
+      }
+
+      const containerRect = container.getBoundingClientRect();
+      const canvasWidth = canvasElement.width;
+      const canvasHeight = canvasElement.height;
+
+      const centeredPan = {
+        x: (containerRect.width - canvasWidth) / 2,
+        y: (containerRect.height - canvasHeight) / 2,
+      };
+
+      setPan(centeredPan);
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [
+    brushEditor.status,
+    brushEditor.editingBrushId,
+    brushEditor.editingBounds?.width,
+    brushEditor.editingBounds?.height,
+  ]);
 
   // Keyboard handlers for spacebar panning
   useEffect(() => {
@@ -407,8 +560,10 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
+    canvasContextRef.current = ctx;
+
     const bounds = brushEditor.editingBounds;
-    
+
     // Set canvas size
     canvasRef.current.width = bounds.width;
     canvasRef.current.height = bounds.height;
@@ -514,18 +669,19 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   // Modal overlay styles
 
   const canvasContainerStyle: React.CSSProperties = {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
+    position: 'relative',
+    display: 'block',
     minHeight: '200px',
     backgroundColor: 'transparent',
-    overflow: 'auto',
+    overflow: 'hidden',
   };
 
   const canvasStyle: React.CSSProperties = {
     imageRendering: 'pixelated', // Keep pixels crisp when scaled
-    maxWidth: '100%',
-    height: 'auto',
+    width: canvasPixelWidth ? `${canvasPixelWidth}px` : 'auto',
+    height: canvasPixelHeight ? `${canvasPixelHeight}px` : 'auto',
+    display: 'block',
+    touchAction: 'none',
   };
 
   const controlsStyle: React.CSSProperties = {
@@ -635,16 +791,37 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
           onMouseDown={handleDragStart}
           style={{
             backgroundColor: 'rgba(255, 255, 255, 0.1)',
-            padding: '8px',
+            padding: '8px 12px',
             cursor: isDragging ? 'grabbing' : 'grab',
             userSelect: 'none',
             borderBottom: '1px solid rgba(255, 255, 255, 0.2)',
             fontSize: '12px',
-            color: '#999',
-            textAlign: 'center',
+            color: '#d9d9d9',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px',
           }}
         >
-::::::::::::::::::
+          <span style={{ letterSpacing: '0.08em', textTransform: 'uppercase' }}>Brush Editor</span>
+          <button
+            type="button"
+            onMouseDown={handleCloseButtonMouseDown}
+            onClick={handleCancelEdit}
+            aria-label="Close brush editor"
+            title="Close without saving"
+            style={{
+              background: 'transparent',
+              color: '#f0f0f0',
+              border: 'none',
+              fontSize: '16px',
+              lineHeight: 1,
+              cursor: 'pointer',
+              padding: '4px 6px',
+            }}
+          >
+            ×
+          </button>
         </div>
         {/* Canvas Preview */}
         <div 
@@ -655,7 +832,14 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
             overflow: 'hidden',
             backgroundColor: '#404040', // Match main canvas dark grey
             flex: 1, // Take remaining space after header and controls
+            touchAction: 'none',
           }}
+          onPointerDown={handleContainerPointerDown}
+          onPointerMove={handleContainerPointerMove}
+          onPointerUp={handleContainerPointerUp}
+          onPointerLeave={handleContainerPointerUp}
+          onPointerCancel={handleContainerPointerUp}
+          onContextMenu={handleContextMenu}
         >
           <div
             style={{
@@ -670,6 +854,8 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
               `,
               backgroundSize: '20px 20px',
               backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+              width: canvasPixelWidth ? `${canvasPixelWidth}px` : 'auto',
+              height: canvasPixelHeight ? `${canvasPixelHeight}px` : 'auto',
             }}
           >
             <canvas
@@ -682,6 +868,8 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
               onPointerLeave={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+              onContextMenu={handleContextMenu}
             />
           </div>
         </div>

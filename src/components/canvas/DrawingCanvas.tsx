@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
+import React, { useRef, useEffect, useCallback, useState, useMemo, useLayoutEffect } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { useBrushEngineSimplified } from '../../hooks/useBrushEngineSimplified';
 import { useCanvasInteraction } from '../../hooks/useCanvasInteraction';
@@ -49,6 +49,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     compositeLayersToCanvas,
     setCanvasDimensions,
     setZoom,
+    setCanvasOffset,
+    setCanvasViewport,
     undo,
     redo,
     saveCanvasState,
@@ -382,6 +384,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const stateMachine = useCanvasStateMachine();
   const pan = useSimplePan({ scale: canvas?.zoom || 1 });
   // const prevStateRef = useRef(stateMachine.state);
+  const panOffsetX = pan.panState.offsetX;
+  const panOffsetY = pan.panState.offsetY;
+
+  useEffect(() => {
+    setCanvasOffset(panOffsetX, panOffsetY);
+  }, [panOffsetX, panOffsetY, setCanvasOffset]);
   
   // Simplified cursor state ref for space key
   const isSpacePressedRef = useRef(false);
@@ -446,7 +454,47 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const colorCycleManagerRef = useRef<SimplifiedColorCycleManager | null>(null);
   // Guard to avoid repeatedly stopping animations when already stopped
   const hasStoppedAnimationRef = useRef(false);
-  
+
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const updateViewport = () => {
+      const wrapper = wrapperRef.current;
+      if (!wrapper) {
+        return;
+      }
+      const rect = wrapper.getBoundingClientRect();
+      setCanvasViewport({
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height
+      });
+    };
+
+    updateViewport();
+
+    const wrapper = wrapperRef.current;
+    let resizeObserver: ResizeObserver | null = null;
+    if (wrapper && typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        updateViewport();
+      });
+      resizeObserver.observe(wrapper);
+    }
+
+    window.addEventListener('resize', updateViewport);
+    window.addEventListener('scroll', updateViewport, true);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', updateViewport);
+      window.removeEventListener('scroll', updateViewport, true);
+    };
+  }, [setCanvasViewport]);
+
   // Initialize color cycle manager
   useEffect(() => {
     colorCycleManagerRef.current = new SimplifiedColorCycleManager({

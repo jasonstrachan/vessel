@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { useBrushEngineSimplified } from './useBrushEngineSimplified';
 import { useUserBrushEngine } from './useUserBrushEngine';
-import { BrushShape, type BrushSettings } from '../types';
+import { BrushShape, type BrushSettings, type CustomBrush } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '../hooks/brushEngine/utilities';
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
 import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
 import { appendSegmentWithDynamicResampling } from '../utils/shapeMaker';
-import { logError } from '../utils/debug';
+import { logError, debugWarn } from '../utils/debug';
 import type { CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 
 interface UseDrawingHandlersProps {
@@ -686,7 +686,7 @@ export function useDrawingHandlers({
         const ccStrokeFlags = getColorCycleBrushFlags(currentState.tools.brushSettings);
 
         if (ccStrokeFlags.isAny) {
-          const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+          let activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
           const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
 
           if (!isColorCycleLayer) {
@@ -1229,8 +1229,13 @@ export function useDrawingHandlers({
               // Suppressed debug warn for finalize init
             }
           }
-          
+
+          if (!activeLayer) {
+            return;
+          }
+
           if (isColorCycleLayer && isColorCycleBrush && activeLayer?.colorCycleData?.canvas) {
+            const layerCanvas = activeLayer.colorCycleData.canvas;
             try {
               const colorCycleBrushManager = getColorCycleBrushManager();
               const brush = colorCycleBrushManager.getBrush(activeLayer.id);
@@ -1242,9 +1247,9 @@ export function useDrawingHandlers({
                 }
 
                 if (typeof (brush as any).commitToLayer === 'function') {
-                  (brush as any).commitToLayer(activeLayer.colorCycleData.canvas, activeLayer.id);
+                  (brush as any).commitToLayer(layerCanvas, activeLayer.id);
                 } else {
-                  (brush as any).renderDirectToCanvas?.(activeLayer.colorCycleData.canvas, activeLayer.id);
+                  (brush as any).renderDirectToCanvas?.(layerCanvas, activeLayer.id);
                 }
 
                 if (typeof (brush as any).clearPaintBuffer === 'function') {
@@ -1252,7 +1257,7 @@ export function useDrawingHandlers({
                 }
               } else if (drawingCanvasRef.current) {
                 try {
-                  const targetCtx = activeLayer.colorCycleData.canvas.getContext('2d', { willReadFrequently: true });
+                  const targetCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
                   if (targetCtx) {
                     targetCtx.save();
                     targetCtx.globalCompositeOperation = activeSettings.blendMode || 'source-over';
@@ -1267,11 +1272,11 @@ export function useDrawingHandlers({
             }
 
             // For CC layers, capture directly from the layer's canvas
-            await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
+            await captureCanvasToActiveLayer(layerCanvas);
 
             // Optional sampling: verify we saved the actual layer canvas (not paint buffer)
             try {
-              const ctx = activeLayer.colorCycleData.canvas.getContext('2d', { willReadFrequently: true });
+              const ctx = layerCanvas.getContext('2d', { willReadFrequently: true });
               const sample = ctx?.getImageData(0, 0, 5, 1)?.data;
               
             } catch {}
@@ -1279,7 +1284,7 @@ export function useDrawingHandlers({
             // Skip saving if requested (for CC shapes that already saved)
             if (!skipSave) {
               const description = tools.shapeMode ? 'CC Shape' : 'CC Drawing stroke';
-              saveCanvasState(activeLayer.colorCycleData.canvas, 'brush', description);
+              saveCanvasState(layerCanvas, 'brush', description);
               
             } else {
               
@@ -2299,33 +2304,12 @@ export function useDrawingHandlers({
 
 type CustomBrushStoreState = {
   tools: {
-    brushSettings: BrushSettings & {
-      currentBrushTip?: {
-        imageData: ImageData;
-        brushId: string;
-        isColorizable: boolean;
-        width?: number;
-        height?: number;
-      };
-      selectedCustomBrush?: string;
-      useSwatchColor?: boolean;
-      customBrushColorCycle?: boolean;
-    };
+    brushSettings: BrushSettings;
   };
-  temporaryCustomBrush?: {
-    id?: string;
-    imageData: ImageData;
-    width: number;
-    height: number;
-  };
+  temporaryCustomBrush?: CustomBrush | null;
   project?: {
-    customBrushes?: Array<{
-      id?: string;
-      imageData: ImageData;
-      width: number;
-      height: number;
-    }>;
-  };
+    customBrushes?: CustomBrush[];
+  } | null;
 };
 
 function resolveActiveCustomBrushData(state: CustomBrushStoreState): CustomBrushStrokeData | undefined {

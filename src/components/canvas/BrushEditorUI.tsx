@@ -7,6 +7,7 @@ interface BrushEditorUIProps {}
 const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   const brushEditor = useAppStore((state) => state.brushEditor);
   const canvas = useAppStore((state) => state.canvas);
+  const canvasViewport = useAppStore((state) => state.canvasViewport);
   const setBrushEditorHue = useAppStore((state) => state.setBrushEditorHue);
   const setBrushEditorLightness = useAppStore((state) => state.setBrushEditorLightness);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -26,19 +27,30 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   const bounds = brushEditor.editingBounds;
   
   // Calculate the transformed position using the same logic as canvas drawing
-  const transformedX = bounds.x * canvas.zoom;
-  const transformedY = bounds.y * canvas.zoom;
-  const transformedWidth = bounds.width * canvas.zoom;
-  const transformedHeight = bounds.height * canvas.zoom;
+  const zoom = canvas.zoom;
+  const offsetX = canvas.offsetX ?? 0;
+  const offsetY = canvas.offsetY ?? 0;
+  const viewportLeft = canvasViewport.left ?? 0;
+  const viewportTop = canvasViewport.top ?? 0;
+  const viewportWidth = canvasViewport.width ?? 0;
+  const viewportHeight = canvasViewport.height ?? 0;
+
+  const baseLeft = viewportLeft + offsetX;
+  const baseTop = viewportTop + offsetY;
+
+  const screenLeft = baseLeft + bounds.x * zoom;
+  const screenTop = baseTop + bounds.y * zoom;
+  const screenWidth = bounds.width * zoom;
+  const screenHeight = bounds.height * zoom;
 
   // Container div that wraps the editing area and sliders
   // This moves and scales with the canvas transformations
   const containerStyle: React.CSSProperties = {
     position: 'fixed',
-    left: transformedX,
-    top: transformedY,
-    width: transformedWidth,
-    height: transformedHeight + 48, // Extra height for sliders (2 sliders + spacing)
+    left: viewportWidth === 0 && viewportHeight === 0 ? bounds.x * zoom : screenLeft,
+    top: viewportWidth === 0 && viewportHeight === 0 ? bounds.y * zoom : screenTop,
+    width: screenWidth,
+    height: screenHeight + 48, // Extra height for sliders (2 sliders + spacing)
     pointerEvents: 'none', // Allow clicking through except for sliders
     zIndex: 12, // Match your original z-index
   };
@@ -49,8 +61,8 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     position: 'absolute',
     top: 0,
     left: 0,
-    width: transformedWidth,
-    height: transformedHeight,
+    width: screenWidth,
+    height: screenHeight,
     border: '2px solid #00ff00',
     borderRadius: '4px',
     boxSizing: 'border-box',
@@ -64,7 +76,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   // Container for the sliders, positioned below the editing bounds
   const sliderContainerStyle: React.CSSProperties = {
     position: 'absolute',
-    top: transformedHeight + 4, // Position below the green box with 4px gap
+    top: screenHeight + 4, // Position below the green box with 4px gap
     left: 0,
     width: '100%',
     pointerEvents: 'auto', // Enable interaction for sliders

@@ -184,6 +184,8 @@ export interface CanvasState {
   displayMode: 'pixelated' | 'smooth';
   canvasWidth: number;
   canvasHeight: number;
+  offsetX: number;
+  offsetY: number;
   selection: {
     active: boolean;
     bounds: Rectangle;

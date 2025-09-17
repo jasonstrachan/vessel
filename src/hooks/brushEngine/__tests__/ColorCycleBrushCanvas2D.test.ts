@@ -121,6 +121,6 @@ describe('ColorCycleBrushCanvas2D paintCustomStamp', () => {
     const firstCall = setIndexSpy.mock.calls[0][0];
     expect(firstCall.x).toBeGreaterThan(0);
     expect(firstCall.y).toBeGreaterThan(0);
-    expect(firstCall.colorIndex).toBeGreaterThanOrEqual(0);
+    expect(firstCall.colorIndex).toBeGreaterThanOrEqual(1);
   });
 });

@@ -2447,9 +2447,39 @@ export const useBrushEngineSimplified = () => {
     // These need fresh ref access, define inline:
     updateColorCycleGradient: (stops: Array<{ position: number; color: string }>) => {
       const colorCycleBrush = getActiveLayerColorCycleBrush();
-      if (colorCycleBrush && activeLayerId) {
-        colorCycleBrush.setGradient(stops, activeLayerId);
+      if (!colorCycleBrush || !activeLayerId) {
+        return;
       }
+
+      colorCycleBrush.setGradient(stops, activeLayerId);
+
+      // Force the brush to rebuild its palette caches immediately so the next render uses
+      // the updated gradient without waiting for the animation loop.
+      try {
+        if (typeof colorCycleBrush.render === 'function') {
+          colorCycleBrush.render(true);
+        } else if (typeof (colorCycleBrush as any).forceRender === 'function') {
+          (colorCycleBrush as any).forceRender();
+        }
+      } catch (error) {
+        console.warn('[ColorCycle] Failed to force render after gradient update:', error);
+      }
+
+      const { layers, setLayersNeedRecomposition } = useAppStore.getState();
+      const activeLayer = layers.find(layer => layer.id === activeLayerId);
+      const layerCanvas = activeLayer?.colorCycleData?.canvas;
+
+      if (layerCanvas && typeof colorCycleBrush.renderDirectToCanvas === 'function') {
+        try {
+          colorCycleBrush.renderDirectToCanvas(layerCanvas, activeLayerId);
+        } catch (error) {
+          console.warn('[ColorCycle] Failed to redraw layer canvas after gradient update:', error);
+        }
+      }
+
+      try {
+        setLayersNeedRecomposition(true);
+      } catch {}
     },
     
     updateColorCycleSpeed: (speed: number) => {
