@@ -10,12 +10,25 @@ import { useComprehensiveKeyboard } from '../../hooks/useComprehensiveKeyboard';
 import { useDrawingHandlers } from '../../hooks/useDrawingHandlers';
 import { useCanvasEventHandlers } from '../../hooks/canvas/useCanvasEventHandlers';
 import { BrushShape } from '../../types';
+import type { Layer } from '../../types';
 import { floodFill } from '../../utils/floodFill';
 import { detectWacomIssues, testWacomPressure } from '../../utils/detectWacom';
 import BrushCursor from './BrushCursor';
 import { setColorCycleAnimationHandlers, getColorCycleAnimationState } from '../toolbar/BrushControls';
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
+
+const isColorCycleLayerWithData = (
+  layer: Layer | undefined | null
+): layer is Layer & { colorCycleData: NonNullable<Layer['colorCycleData']> } => {
+  return !!layer && layer.layerType === 'color-cycle' && !!layer.colorCycleData;
+};
+
+type ColorCycleSnapshotData = NonNullable<Layer['colorCycleData']> & {
+  canvasWidth?: number;
+  canvasHeight?: number;
+  canvasImageData?: ImageData;
+};
 
 interface DrawingCanvasProps {
   showFeedback?: (message: string) => void;
@@ -708,8 +721,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
         // quiet
 
-        // Do not start panning if a modal has focus
-        if (currentScope === 'modal') return;
+        // Allow panning even when brush editor modal is open - it should only block other modal types
+        if (currentScope === 'modal') {
+          // Check if it's the brush editor modal specifically - allow panning for brush editor
+          const brushEditor = useAppStore.getState().brushEditor;
+          if (brushEditor.status !== 'EDITING') return;
+        }
 
         isSpacePressedRef.current = true;
         setShowBrushCursorRef.current(false);
@@ -828,16 +845,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       if (snapshot) {
         if (snapshot.layers && snapshot.activeLayerId) {
           // Reconstruct layers with proper type preservation
-          const restoredLayers = snapshot.layers.map((layer: any) => {
-            // Find the existing layer in the current state
-            const existingLayer = layers.find(l => l.id === layer.id);
-            
-            // Determine the correct layer type based on colorCycleData presence
-            const shouldBeColorCycle = !!layer.colorCycleData;
-            const correctLayerType: 'color-cycle' | 'normal' = shouldBeColorCycle ? 'color-cycle' : 'normal';
-            
-            // Create base layer object with correct type
-            const baseLayer = {
+          const restoredLayers = snapshot.layers.map((rawLayer: any) => {
+            const layer = rawLayer as Layer & { colorCycleData?: ColorCycleSnapshotData };
+            const existingLayer = layers.find(l => l.id === layer.id) as Layer | undefined;
+
+            const baseProps = {
               id: layer.id,
               name: layer.name,
               visible: layer.visible,
@@ -846,62 +858,67 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
               locked: layer.locked,
               order: layer.order,
               imageData: layer.imageData,
-              framebuffer: layer.framebuffer,
-              layerType: correctLayerType // Set correct type from the start
+              framebuffer: layer.framebuffer
             };
-            
-            // Handle color-cycle specific data
-            if (shouldBeColorCycle) {
-              const isRecolor = layer.colorCycleData?.mode === 'recolor';
-              if (isRecolor) {
-                // Preserve recolor settings and do not force-create a CC brush canvas
+
+            const colorCycleData = layer.colorCycleData;
+            if (colorCycleData) {
+              const {
+                canvasWidth,
+                canvasHeight,
+                canvasImageData,
+                canvas: snapshotCanvas,
+                colorCycleBrush: snapshotBrush,
+                ...persistedColorCycle
+              } = colorCycleData;
+
+              if (colorCycleData.mode === 'recolor') {
                 return {
-                  ...baseLayer,
+                  ...baseProps,
                   layerType: 'color-cycle' as const,
                   colorCycleData: {
-                    ...layer.colorCycleData, // includes mode:'recolor' and recolorSettings
-                    // Ensure animation state is paused upon restore
-                    isAnimating: false,
-                    // Do not attach canvas/brush for recolor mode here
+                    ...persistedColorCycle,
+                    mode: 'recolor',
+                    isAnimating: false
                   }
-                };
-              }
-              // Prefer existing canvas if present, otherwise create one
-              let canvas = existingLayer?.colorCycleData?.canvas;
-              if (!canvas) {
-                canvas = document.createElement('canvas');
-                canvas.width = layer.colorCycleData?.canvasWidth || (layer.imageData?.width ?? 1920);
-                canvas.height = layer.colorCycleData?.canvasHeight || (layer.imageData?.height ?? 1080);
+                } as Layer;
               }
 
-              // Restore the canvas content from saved canvasImageData when available,
-              // otherwise fall back to the layer's imageData stored in the snapshot.
+              let canvas = existingLayer?.colorCycleData?.canvas ?? snapshotCanvas;
+              if (!canvas) {
+                canvas = document.createElement('canvas');
+                canvas.width = canvasWidth || (layer.imageData?.width ?? 1920);
+                canvas.height = canvasHeight || (layer.imageData?.height ?? 1080);
+              }
+
               const ctx = canvas.getContext('2d', { willReadFrequently: true });
               if (ctx) {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-                if (layer.colorCycleData?.canvasImageData) {
-                  ctx.putImageData(layer.colorCycleData.canvasImageData, 0, 0);
+                if (canvasImageData) {
+                  ctx.putImageData(canvasImageData, 0, 0);
                 } else if (layer.imageData) {
                   ctx.putImageData(layer.imageData, 0, 0);
                 }
               }
 
-              // Add colorCycleData to the layer
               return {
-                ...baseLayer,
+                ...baseProps,
+                layerType: 'color-cycle' as const,
                 colorCycleData: {
-                  gradient: layer.colorCycleData?.gradient,
-                  // Pause animation after undo restore to avoid wiping pixels before canvas restore
+                  ...persistedColorCycle,
                   isAnimating: false,
                   canvas,
-                  colorCycleBrush: existingLayer?.colorCycleData?.colorCycleBrush // Preserve existing brush
+                  colorCycleBrush: existingLayer?.colorCycleData?.colorCycleBrush ?? snapshotBrush
                 }
-              };
+              } as Layer;
             }
 
-            // Return normal layer (no colorCycleData)
-            return baseLayer;
-          });
+            return {
+              ...baseProps,
+              layerType: 'normal' as const,
+              colorCycleData: undefined
+            } as Layer;
+          }) as Layer[];
           
           setLayers(restoredLayers);
           setActiveLayer(snapshot.activeLayerId);
@@ -909,8 +926,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           // Restore color cycle internal state after layers are in place
           if (snapshot.colorCycleState) {
             const { layerId } = snapshot.colorCycleState;
-            const restoredActive = restoredLayers.find((l: any) => l.id === layerId);
-            if (restoredActive?.colorCycleData?.colorCycleBrush) {
+            const restoredActive = restoredLayers.find(l => l.id === layerId);
+            if (isColorCycleLayerWithData(restoredActive) && restoredActive.colorCycleData.colorCycleBrush) {
               restoredActive.colorCycleData.colorCycleBrush.restoreFullState({
                 gradients: snapshot.colorCycleState.gradients.map(g => ({
                   gradientStops: g.gradientStops
@@ -926,8 +943,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           // If the active layer is a CC layer, ensure its canvas content is captured
           // into imageData so exports and non-CC paths stay consistent.
           try {
-            const activeRestored = restoredLayers.find((l: any) => l.id === snapshot.activeLayerId);
-            if (activeRestored?.layerType === 'color-cycle' && activeRestored.colorCycleData?.canvas) {
+            const activeRestored = restoredLayers.find(l => l.id === snapshot.activeLayerId);
+            if (isColorCycleLayerWithData(activeRestored) && activeRestored.colorCycleData.canvas) {
               const { captureCanvasToActiveLayer } = useAppStore.getState();
               // Fire and forget; keep UI responsive
               captureCanvasToActiveLayer(activeRestored.colorCycleData.canvas).catch(() => {});
@@ -935,8 +952,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           } catch {}
           
           // Reinitialize color cycle brushes for restored layers
-          restoredLayers.forEach((layer: any) => {
-            if (layer.layerType === 'color-cycle' && layer.colorCycleData && !layer.colorCycleData.colorCycleBrush) {
+          restoredLayers.forEach(layer => {
+            if (isColorCycleLayerWithData(layer) && !layer.colorCycleData.colorCycleBrush) {
               // Call initColorCycleForLayer to recreate the brush
               const { initColorCycleForLayer } = useAppStore.getState();
               if (layer.colorCycleData.canvas) {
@@ -999,16 +1016,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       if (snapshot) {
         if (snapshot.layers && snapshot.activeLayerId) {
           // Reconstruct layers with proper type preservation
-          const restoredLayers = snapshot.layers.map((layer: any) => {
-            // Find the existing layer in the current state
-            const existingLayer = layers.find(l => l.id === layer.id);
-            
-            // Determine the correct layer type based on colorCycleData presence
-            const shouldBeColorCycle = !!layer.colorCycleData;
-            const correctLayerType: 'color-cycle' | 'normal' = shouldBeColorCycle ? 'color-cycle' : 'normal';
-            
-            // Create base layer object with correct type
-            const baseLayer = {
+          const restoredLayers = snapshot.layers.map((rawLayer: any) => {
+            const layer = rawLayer as Layer & { colorCycleData?: ColorCycleSnapshotData };
+            const existingLayer = layers.find(l => l.id === layer.id) as Layer | undefined;
+
+            const baseProps = {
               id: layer.id,
               name: layer.name,
               visible: layer.visible,
@@ -1017,60 +1029,68 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
               locked: layer.locked,
               order: layer.order,
               imageData: layer.imageData,
-              framebuffer: layer.framebuffer,
-              layerType: correctLayerType // Set correct type from the start
+              framebuffer: layer.framebuffer
             };
-            
-            // Handle color-cycle specific data
-            if (shouldBeColorCycle) {
-              const isRecolor = layer.colorCycleData?.mode === 'recolor';
-              if (isRecolor) {
-                // Preserve recolor settings and do not force-create a CC brush canvas
+
+            const colorCycleData = layer.colorCycleData;
+            if (colorCycleData) {
+              const {
+                canvasWidth,
+                canvasHeight,
+                canvasImageData,
+                canvas: snapshotCanvas,
+                colorCycleBrush: snapshotBrush,
+                ...persistedColorCycle
+              } = colorCycleData;
+
+              if (colorCycleData.mode === 'recolor') {
                 return {
-                  ...baseLayer,
+                  ...baseProps,
                   layerType: 'color-cycle' as const,
                   colorCycleData: {
-                    ...layer.colorCycleData, // includes mode:'recolor' and recolorSettings
-                    isAnimating: false,
+                    ...persistedColorCycle,
+                    mode: 'recolor',
+                    isAnimating: false
                   }
-                };
-              }
-              // Prefer existing canvas if present, otherwise create one
-              let canvas = existingLayer?.colorCycleData?.canvas;
-              if (!canvas) {
-                canvas = document.createElement('canvas');
-                canvas.width = layer.colorCycleData?.canvasWidth || (layer.imageData?.width ?? 1920);
-                canvas.height = layer.colorCycleData?.canvasHeight || (layer.imageData?.height ?? 1080);
+                } as Layer;
               }
 
-              // Restore the canvas content from saved canvasImageData when available,
-              // otherwise fall back to the layer's imageData stored in the snapshot.
+              let canvas = existingLayer?.colorCycleData?.canvas ?? snapshotCanvas;
+              if (!canvas) {
+                canvas = document.createElement('canvas');
+                canvas.width = canvasWidth || (layer.imageData?.width ?? 1920);
+                canvas.height = canvasHeight || (layer.imageData?.height ?? 1080);
+              }
+
               const ctx = canvas.getContext('2d', { willReadFrequently: true });
               if (ctx) {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-                if (layer.colorCycleData?.canvasImageData) {
-                  ctx.putImageData(layer.colorCycleData.canvasImageData, 0, 0);
+                if (canvasImageData) {
+                  ctx.putImageData(canvasImageData, 0, 0);
                 } else if (layer.imageData) {
                   ctx.putImageData(layer.imageData, 0, 0);
                 }
               }
 
-              // Add colorCycleData to the layer
               return {
-                ...baseLayer,
+                ...baseProps,
+                layerType: 'color-cycle' as const,
                 colorCycleData: {
-                  gradient: layer.colorCycleData?.gradient,
+                  ...persistedColorCycle,
                   // Pause animation after redo restore to avoid wiping pixels before canvas restore
                   isAnimating: false,
                   canvas,
-                  colorCycleBrush: existingLayer?.colorCycleData?.colorCycleBrush // Preserve existing brush
+                  colorCycleBrush: existingLayer?.colorCycleData?.colorCycleBrush ?? snapshotBrush
                 }
-              };
+              } as Layer;
             }
 
-            // Return normal layer (no colorCycleData)
-            return baseLayer;
-          });
+            return {
+              ...baseProps,
+              layerType: 'normal' as const,
+              colorCycleData: undefined
+            } as Layer;
+          }) as Layer[];
           
           setLayers(restoredLayers);
           setActiveLayer(snapshot.activeLayerId);
@@ -1078,8 +1098,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           // Restore color cycle internal state after layers are in place
           if (snapshot.colorCycleState) {
             const { layerId } = snapshot.colorCycleState;
-            const restoredActive = restoredLayers.find((l: any) => l.id === layerId);
-            if (restoredActive?.colorCycleData?.colorCycleBrush) {
+            const restoredActive = restoredLayers.find(l => l.id === layerId);
+            if (isColorCycleLayerWithData(restoredActive) && restoredActive.colorCycleData.colorCycleBrush) {
               restoredActive.colorCycleData.colorCycleBrush.restoreFullState({
                 gradients: snapshot.colorCycleState.gradients.map(g => ({
                   gradientStops: g.gradientStops
@@ -1094,8 +1114,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           
           // Keep imageData in sync for active CC layer
           try {
-            const activeRestored = restoredLayers.find((l: any) => l.id === snapshot.activeLayerId);
-            if (activeRestored?.layerType === 'color-cycle' && activeRestored.colorCycleData?.canvas) {
+            const activeRestored = restoredLayers.find(l => l.id === snapshot.activeLayerId);
+            if (isColorCycleLayerWithData(activeRestored) && activeRestored.colorCycleData.canvas) {
               const { captureCanvasToActiveLayer } = useAppStore.getState();
               // Fire and forget; keep UI responsive
               captureCanvasToActiveLayer(activeRestored.colorCycleData.canvas).catch(() => {});
@@ -1103,8 +1123,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           } catch {}
           
           // Reinitialize color cycle brushes for restored layers
-          restoredLayers.forEach((layer: any) => {
-            if (layer.layerType === 'color-cycle' && layer.colorCycleData && !layer.colorCycleData.colorCycleBrush) {
+          restoredLayers.forEach(layer => {
+            if (isColorCycleLayerWithData(layer) && !layer.colorCycleData.colorCycleBrush) {
               // Call initColorCycleForLayer to recreate the brush
               const { initColorCycleForLayer } = useAppStore.getState();
               if (layer.colorCycleData.canvas) {

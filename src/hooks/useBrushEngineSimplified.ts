@@ -7,6 +7,8 @@ import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams, type CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 import { BrushShape } from '../types';
+import type { ContourLinesBasis } from '@/types';
+import { generateContourLines, MIN_LINE_SPACING, MAX_LINE_SPACING, prepareContourLinesBasis } from '@/utils/contourLines';
 import { getRisographPattern } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { debugLog } from '@/utils/debug';
@@ -1346,7 +1348,12 @@ export const useBrushEngineSimplified = () => {
   const drawContourPolygon = useCallback((
     ctx: CanvasRenderingContext2D,
     polygonData: { vertices: Array<{ x: number; y: number }>; fillColor?: string },
-    isPreview: boolean = false
+    isPreview: boolean = false,
+    lineOptions?: {
+      lineSpacingA?: number;
+      lineSpacingB?: number;
+      lineBasis?: ContourLinesBasis;
+    }
   ) => {
     const { vertices, fillColor } = polygonData || {};
     
@@ -1391,7 +1398,8 @@ export const useBrushEngineSimplified = () => {
     } catch {}
     
     // Check the shape gradient mode and render accordingly
-    const mode = tools.brushSettings.shapeGradientMode || 'contour';
+    const rawMode = tools.brushSettings.shapeGradientMode || 'contour';
+    const mode = rawMode === 'mesh' ? 'lines' : rawMode;
     
     // Calculate bounds for all modes
     const minX = Math.floor(Math.min(...validVertices.map(v => v.x)));
@@ -1401,136 +1409,45 @@ export const useBrushEngineSimplified = () => {
     const boundWidth = maxX - minX;
     const boundHeight = maxY - minY;
     
-    if (mode === 'mesh') {
-      // Curvilinear mesh aligned to one chosen edge (U iso-lines) and an orthogonal family (V lines)
+    if (mode === 'lines') {
+      const clampSpacing = (value: number) => Math.min(MAX_LINE_SPACING, Math.max(MIN_LINE_SPACING, value));
+      const spacingA = clampSpacing(lineOptions?.lineSpacingA ?? (tools.brushSettings.contourSpacing || 5) * 2);
+      const spacingB = clampSpacing(lineOptions?.lineSpacingB ?? spacingA);
+      const basis = lineOptions?.lineBasis ?? prepareContourLinesBasis(validVertices);
+
+      if (!basis) {
+        ctx.restore();
+        return;
+      }
+
       ctx.strokeStyle = tools.brushSettings.color;
       ctx.lineWidth = 1;
       ctx.imageSmoothingEnabled = false;
 
-      // Choose base edge = longest edge, and the opposite parallel edge = farthest from base
-      const edges = getPolygonEdges(validVertices);
-      const baseEdge = edges.reduce((best, e) => (e.length > best.length ? e : best), edges[0]);
-      const baseAngle = baseEdge.angle;
-      const angleDiff = (a: number, b: number) => {
-        let d = a - b;
-        while (d > Math.PI) d -= 2 * Math.PI;
-        while (d < -Math.PI) d += 2 * Math.PI;
-        return Math.abs(d);
-      };
-      const parallelTol = Math.PI / 12; // 15°
+      const lines = generateContourLines(validVertices, basis, spacingA, spacingB);
+      const snapToPixel = (val: number) => Math.floor(val) + 0.5;
 
-      // Base edge line normal (for separation)
-      const bdx = baseEdge.b.x - baseEdge.a.x;
-      const bdy = baseEdge.b.y - baseEdge.a.y;
-      const blen = Math.hypot(bdx, bdy) || 1e-5;
-      const bn = { x: -bdy / blen, y: bdx / blen };
-      const distToBaseLine = (p: { x: number; y: number }) => Math.abs((p.x - baseEdge.a.x) * bn.x + (p.y - baseEdge.a.y) * bn.y);
-
-      // Find the opposite edge: parallel and with max separation
-      let oppEdge = baseEdge;
-      let maxSep = -1;
-      for (const e of edges) {
-        if (e.index === baseEdge.index) continue;
-        const diff = angleDiff(e.angle, baseAngle);
-        const isParallel = diff < parallelTol || Math.abs(diff - Math.PI) < parallelTol;
-        if (!isParallel) continue;
-        const sep = (distToBaseLine(e.a) + distToBaseLine(e.b)) * 0.5;
-        if (sep > maxSep) {
-          maxSep = sep;
-          oppEdge = e;
-        }
-      }
-
-      // Build distance field from the two opposite sides only (conform to both sides, not all)
-      const fieldData = createEdgeDistanceField(
-        validVertices,
-        [
-          { a: baseEdge.a, b: baseEdge.b },
-          { a: oppEdge.a, b: oppEdge.b }
-        ],
-        ctx.canvas.width,
-        ctx.canvas.height,
-        2,
-        true // use infinite supporting lines so other sides don't influence curvature
-      );
-
-      // Bilinear sampling of field at world coords
-      const sampleField = (wx: number, wy: number): number => {
-        const gx = (wx + fieldData.extension) / fieldData.resolution;
-        const gy = (wy + fieldData.extension) / fieldData.resolution;
-        const x0 = Math.floor(gx);
-        const y0 = Math.floor(gy);
-        const x1 = Math.min(fieldData.cols - 1, x0 + 1);
-        const y1 = Math.min(fieldData.rows - 1, y0 + 1);
-        const sx = Math.max(0, Math.min(1, gx - x0));
-        const sy = Math.max(0, Math.min(1, gy - y0));
-
-        const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-        const f00 = fieldData.field[clamp(y0, 0, fieldData.rows - 1)][clamp(x0, 0, fieldData.cols - 1)];
-        const f10 = fieldData.field[clamp(y0, 0, fieldData.rows - 1)][clamp(x1, 0, fieldData.cols - 1)];
-        const f01 = fieldData.field[clamp(y1, 0, fieldData.rows - 1)][clamp(x0, 0, fieldData.cols - 1)];
-        const f11 = fieldData.field[clamp(y1, 0, fieldData.rows - 1)][clamp(x1, 0, fieldData.cols - 1)];
-
-        const fx0 = f00 * (1 - sx) + f10 * sx;
-        const fx1 = f01 * (1 - sx) + f11 * sx;
-        return fx0 * (1 - sy) + fx1 * sy;
-      };
-
-      // Normalized gradient of the field at world coords
-      const gradientAt = (wx: number, wy: number): { x: number; y: number } => {
-        const h = fieldData.resolution * 1.5;
-        const dx = sampleField(wx + h, wy) - sampleField(wx - h, wy);
-        const dy = sampleField(wx, wy + h) - sampleField(wx, wy - h);
-        const len = Math.hypot(dx, dy) || 1e-5;
-        return { x: dx / len, y: dy / len };
-      };
-
-      // Find max positive value in the field
-      let maxPositive = 0;
-      for (let y = 0; y < fieldData.rows; y++) {
-        for (let x = 0; x < fieldData.cols; x++) {
-          const v = fieldData.field[y][x];
-          if (v > maxPositive) maxPositive = v;
-        }
-      }
-
-      // Spacing from UI
-      const spacing = (tools.brushSettings.contourSpacing || 5) * 2;
-
-      // Clip to polygon while drawing
       ctx.save();
       ctx.beginPath();
       ctx.moveTo(validVertices[0].x, validVertices[0].y);
-      validVertices.slice(1).forEach(vertex => ctx.lineTo(vertex.x, vertex.y));
+      for (let i = 1; i < validVertices.length; i++) {
+        ctx.lineTo(validVertices[i].x, validVertices[i].y);
+      }
       ctx.closePath();
       ctx.clip();
 
-      // Family 1 (U): iso-distance contours from the base edge (flow in one direction away from that edge)
-      for (let d = spacing; d < maxPositive; d += spacing) {
-        const segments = extractContour(
-          fieldData.field,
-          fieldData.cols,
-          fieldData.rows,
-          fieldData.resolution,
-          d,
-          fieldData.extension
-        );
-        const loops = connectSegments(segments);
-        loops.forEach(loop => {
-          if (loop.length < 3) return;
-          ctx.beginPath();
-          const snap = (val: number) => Math.floor(val) + 0.5;
-          ctx.moveTo(snap(loop[0].x), snap(loop[0].y));
-          for (let i = 1; i < loop.length; i++) ctx.lineTo(snap(loop[i].x), snap(loop[i].y));
-          ctx.closePath();
-          ctx.stroke();
-        });
+      for (const path of lines) {
+        if (!path.points || path.points.length < 2) continue;
+        ctx.beginPath();
+        ctx.moveTo(snapToPixel(path.points[0].x), snapToPixel(path.points[0].y));
+        for (let i = 1; i < path.points.length; i++) {
+          ctx.lineTo(snapToPixel(path.points[i].x), snapToPixel(path.points[i].y));
+        }
+        ctx.stroke();
       }
 
-      // Single-family only: no orthogonal lines rendered
-
-      ctx.restore(); // clip
-      ctx.restore(); // function-level save
+      ctx.restore();
+      ctx.restore();
       return;
     } else if (mode === 'triangle') {
       // Triangle mode - draw triangulated mesh

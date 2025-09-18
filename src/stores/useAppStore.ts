@@ -109,6 +109,7 @@ import type {
   PolygonGradientState,
   BrushEditorState,
   KeyboardScope,
+  ContourLinesState,
 } from '@/types';
 import { BrushShape } from '@/types';
 import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
@@ -284,6 +285,11 @@ interface AppState {
   setPolygonGradientState: (partialState: Partial<PolygonGradientState>) => void;
   addPolygonGradientPoint: (x: number, y: number, color: string) => void;
   clearPolygonGradientPoints: () => void;
+
+  // Contour lines interactive state
+  contourLinesState: ContourLinesState;
+  setContourLinesState: (partialState: Partial<ContourLinesState>) => void;
+  resetContourLinesState: () => void;
 
   // Recolor gradient sampling (draw-a-line) state
   recolorSampling: {
@@ -476,6 +482,16 @@ const defaultPolygonGradientState: PolygonGradientState = {
   points: [],
   previewPath: undefined
 };
+
+const createDefaultContourLinesState = (): ContourLinesState => ({
+  stage: 'idle',
+  shapePoints: [],
+  fillColor: undefined,
+  basis: undefined,
+  spacingA: null,
+  spacingB: null,
+  previewSpacing: null
+});
 
 // Wrap set to trace ALL state updates
 const tracedSet = (setter: any, get: any) => {
@@ -1178,6 +1194,19 @@ export const useAppStore = create<AppState>()(
           previewPath: undefined
         }
       })),
+
+      // Contour lines interactive state
+      contourLinesState: createDefaultContourLinesState(),
+      setContourLinesState: (partialState) => set((state) => ({
+        contourLinesState: {
+          ...state.contourLinesState,
+          ...partialState,
+          shapePoints: partialState.shapePoints
+            ? [...partialState.shapePoints]
+            : state.contourLinesState.shapePoints,
+        }
+      })),
+      resetContourLinesState: () => set(() => ({ contourLinesState: createDefaultContourLinesState() })),
 
       // Recolor/Brush gradient sampling state
       recolorSampling: { active: false, start: null, end: null, samples: 8, target: 'recolor' },

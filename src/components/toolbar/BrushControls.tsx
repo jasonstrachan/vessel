@@ -1111,17 +1111,19 @@ const BrushControls = () => {
   if (activeSettings.brushShape === BrushShape.CONTOUR_POLYGON) {
     return (
       <div className="p-4">
-        {/* Shape Mode Selector - Contour, Mesh, Triangle */}
+        {/* Shape Mode Selector - Contour, Lines, Triangle */}
         <div className="mb-3">
           <ButtonGroup
             options={[
               { label: 'Contour', value: 'contour' },
-              { label: 'Mesh', value: 'mesh' },
+              { label: 'Lines', value: 'lines' },
               { label: 'Triangle', value: 'triangle' }
             ]}
-            value={activeSettings.shapeGradientMode || 'contour'}
+            value={(activeSettings.shapeGradientMode === 'mesh'
+              ? 'lines'
+              : activeSettings.shapeGradientMode) || 'contour'}
             onChange={(value) => setActiveSettings({ 
-              shapeGradientMode: value as 'contour' | 'mesh' | 'triangle' 
+              shapeGradientMode: value as 'contour' | 'lines' | 'triangle' 
             })}
             className="w-full"
           />

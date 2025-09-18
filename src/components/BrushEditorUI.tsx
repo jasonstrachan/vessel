@@ -9,8 +9,6 @@ import { useBrushEngineSimplified } from '@/hooks/useBrushEngineSimplified';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 10;
-const ZOOM_IN_FACTOR = 1.1;
-const ZOOM_OUT_FACTOR = 0.9;
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 interface BrushEditorUIProps {}
@@ -30,9 +28,9 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   const [basePixels, setBasePixels] = useState<ImageData | null>(null); // Current base pixels (original + drawn) before adjustments
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPoint, setLastPoint] = useState<{x: number, y: number} | null>(null);
+  const [modalPosition, setModalPosition] = useState({ x: 100, y: 100 });
   const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [modalPosition, setModalPosition] = useState({ x: 40, y: 30 }); // Start near center-ish but not exactly
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
@@ -57,7 +55,8 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     return canvasContextRef.current;
   }, [canvasRef]);
 
-  // While editing, suspend global/canvas shortcuts
+  // While editing, suspend most global/canvas shortcuts but allow spacebar panning
+  // Note: DrawingCanvas has been updated to allow spacebar panning for brush editor specifically
   useKeyboardScope('modal', brushEditor.status === 'EDITING');
 
   useEffect(() => {
@@ -65,6 +64,12 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
       setSpacePressed(false);
       setIsPanning(false);
       setLastPanPoint(null);
+      
+      // Auto-focus the modal container for keyboard events
+      const modalElement = document.querySelector('.brush-editor-modal') as HTMLElement;
+      if (modalElement) {
+        modalElement.focus();
+      }
     } else {
       canvasContextRef.current = null;
     }
@@ -358,32 +363,20 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     }
   }, [isPanning, spacePressed]);
 
-  // Drag handlers
+  // Drag handlers for modal movement
   const handleDragStart = useCallback((e: React.MouseEvent) => {
-    const modalElement = e.currentTarget.parentElement as HTMLElement;
-    const rect = modalElement.getBoundingClientRect();
-    // Calculate offset from click position to modal's top-left corner
-    setDragOffset({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top
-    });
-    setIsDragging(true);
     e.preventDefault();
-  }, []);
+    e.stopPropagation();
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - modalPosition.x, y: e.clientY - modalPosition.y });
+  }, [modalPosition]);
 
   const handleDragMove = useCallback((e: MouseEvent) => {
     if (!isDragging) return;
-    
-    // Calculate new position maintaining the offset
-    const newLeft = e.clientX - dragOffset.x;
-    const newTop = e.clientY - dragOffset.y;
-    
-    // Convert to percentage for responsive positioning
-    const x = (newLeft / window.innerWidth) * 100;
-    const y = (newTop / window.innerHeight) * 100;
-    
-    setModalPosition({ x, y });
-  }, [isDragging, dragOffset]);
+    const newX = e.clientX - dragStart.x;
+    const newY = e.clientY - dragStart.y;
+    setModalPosition({ x: newX, y: newY });
+  }, [isDragging, dragStart]);
 
   const handleDragEnd = useCallback(() => {
     setIsDragging(false);
@@ -454,26 +447,35 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
 
       event.preventDefault();
 
+      // Get container bounds for proper coordinate calculation
       const containerRect = container.getBoundingClientRect();
       const mouseX = event.clientX - containerRect.left;
       const mouseY = event.clientY - containerRect.top;
 
-      setZoom((previousZoom) => {
-        const zoomFactor = event.deltaY > 0 ? ZOOM_OUT_FACTOR : ZOOM_IN_FACTOR;
-        const unclamped = previousZoom * zoomFactor;
-        const nextZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, unclamped));
+      // Use the same zoom logic as the main canvas
+      const scrollSensitivity = 0.001;
+      const zoomFactor = 1 - event.deltaY * scrollSensitivity;
 
-        if (nextZoom === previousZoom) {
+      setZoom((previousZoom) => {
+        const nextZoom = Math.max(MIN_ZOOM, Math.min(previousZoom * zoomFactor, MAX_ZOOM));
+
+        // Only update if there's an actual change to prevent precision errors
+        if (Math.abs(nextZoom - previousZoom) < 0.0001) {
           return previousZoom;
         }
 
         setPan((previousPan) => {
+          // Calculate world coordinates under the mouse cursor
           const worldX = (mouseX - previousPan.x) / previousZoom;
           const worldY = (mouseY - previousPan.y) / previousZoom;
 
+          // Calculate new pan to keep the world point under the cursor
+          const newPanX = mouseX - worldX * nextZoom;
+          const newPanY = mouseY - worldY * nextZoom;
+
           return {
-            x: mouseX - worldX * nextZoom,
-            y: mouseY - worldY * nextZoom,
+            x: newPanX,
+            y: newPanY,
           };
         });
 
@@ -524,30 +526,39 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     brushEditor.editingBounds?.height,
   ]);
 
-  // Keyboard handlers for spacebar panning
+  // Keyboard handlers for spacebar panning within the modal canvas area
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && !spacePressed) {
+      // Only handle spacebar when the modal container or its children have focus
+      const activeElement = document.activeElement;
+      const modalElement = document.querySelector('.brush-editor-modal');
+      const isWithinModal = modalElement && (modalElement.contains(activeElement) || activeElement === modalElement);
+      
+      if (e.code === 'Space' && !spacePressed && isWithinModal) {
+        // Only prevent default if we're actually within the modal
         e.preventDefault();
+        e.stopPropagation();
         setSpacePressed(true);
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
+      if (e.code === 'Space' && spacePressed) {
+        // Only handle if we were the ones who initiated the space press
         e.preventDefault();
+        e.stopPropagation();
         setSpacePressed(false);
         setIsPanning(false);
         setLastPanPoint(null);
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    window.addEventListener('keyup', handleKeyUp, { capture: true });
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
+      window.removeEventListener('keyup', handleKeyUp, { capture: true } as any);
     };
   }, [spacePressed]);
 
@@ -770,10 +781,11 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
       {/* Brush Editor Panel - Draggable and Resizable */}
       <div 
         className="brush-editor-modal"
+        tabIndex={0}
         style={{
         position: 'fixed',
-        left: `${modalPosition.x}%`,
-        top: `${modalPosition.y}%`,
+        left: `${modalPosition.x}px`,
+        top: `${modalPosition.y}px`,
         transform: 'none', // Remove centering transform
         width: `${modalSize.width}px`,
         height: `${modalSize.height}px`,
@@ -785,6 +797,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
         borderRadius: '0',
         overflow: 'hidden',
         boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+        outline: 'none', // Remove focus outline
       }}>
         {/* Drag Handle */}
         <div
@@ -792,7 +805,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
           style={{
             backgroundColor: 'rgba(255, 255, 255, 0.1)',
             padding: '8px 12px',
-            cursor: isDragging ? 'grabbing' : 'grab',
+            cursor: 'move',
             userSelect: 'none',
             borderBottom: '1px solid rgba(255, 255, 255, 0.2)',
             fontSize: '12px',

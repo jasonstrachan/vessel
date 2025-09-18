@@ -386,7 +386,7 @@ export interface BrushSettings {
   spamCustomText?: string; // Custom text to use instead of preset content
   
   // Shape gradient mode settings
-  shapeGradientMode?: 'contour' | 'mesh' | 'triangle'; // Mode for shape gradient brushes
+  shapeGradientMode?: 'contour' | 'lines' | 'mesh' | 'triangle'; // Mode for shape gradient brushes ('mesh' kept for legacy projects)
 }
 
 export interface ComponentParams {
@@ -522,4 +522,25 @@ export interface PolygonGradientState {
   drawingState: 'idle' | 'drawing' | 'completed';
   points: PolygonGradientPoint[];
   previewPath?: Path2D;
+}
+
+export type ContourLinesStage = 'idle' | 'awaitingAnchorA' | 'awaitingAnchorB';
+
+export interface ContourLinesBasis {
+  baseEdge: { a: { x: number; y: number }; b: { x: number; y: number } };
+  direction: { x: number; y: number };
+  normal: { x: number; y: number };
+  baseProjection: number;
+  maxDistance: number;
+  backDistance: number;
+}
+
+export interface ContourLinesState {
+  stage: ContourLinesStage;
+  shapePoints: Array<{ x: number; y: number }>;
+  fillColor?: string;
+  basis?: ContourLinesBasis;
+  spacingA?: number | null;
+  spacingB?: number | null;
+  previewSpacing?: number | null;
 }

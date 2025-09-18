@@ -35,11 +35,17 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   const viewportWidth = canvasViewport.width ?? 0;
   const viewportHeight = canvasViewport.height ?? 0;
 
-  const baseLeft = viewportLeft + offsetX;
-  const baseTop = viewportTop + offsetY;
+  if (!viewportWidth || !viewportHeight) {
+    return null;
+  }
 
-  const screenLeft = baseLeft + bounds.x * zoom;
-  const screenTop = baseTop + bounds.y * zoom;
+  const calculateScreenPosition = () => {
+    const screenLeft = viewportLeft + offsetX + bounds.x * zoom;
+    const screenTop = viewportTop + offsetY + bounds.y * zoom;
+    return { screenLeft, screenTop };
+  };
+
+  const { screenLeft, screenTop } = calculateScreenPosition();
   const screenWidth = bounds.width * zoom;
   const screenHeight = bounds.height * zoom;
 
@@ -47,11 +53,13 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   // This moves and scales with the canvas transformations
   const containerStyle: React.CSSProperties = {
     position: 'fixed',
-    left: viewportWidth === 0 && viewportHeight === 0 ? bounds.x * zoom : screenLeft,
-    top: viewportWidth === 0 && viewportHeight === 0 ? bounds.y * zoom : screenTop,
+    left: screenLeft,
+    top: screenTop,
     width: screenWidth,
     height: screenHeight + 48, // Extra height for sliders (2 sliders + spacing)
-    pointerEvents: 'none', // Allow clicking through except for sliders
+    pointerEvents: 'none',
+    userSelect: 'none',
+    touchAction: 'none',
     zIndex: 12, // Match your original z-index
   };
 
@@ -80,6 +88,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     left: 0,
     width: '100%',
     pointerEvents: 'auto', // Enable interaction for sliders
+    isolation: 'isolate',
   };
 
   const sliderStyle: React.CSSProperties = {
@@ -168,13 +177,19 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
       `}</style>
       
       {/* Container div that holds everything and moves with canvas transformations */}
-      <div ref={containerRef} style={containerStyle}>
+      <div
+        ref={containerRef}
+        style={containerStyle}
+      >
         {/* Optional: Visual border to match the canvas-drawn green box */}
         {/* Remove this if you're already drawing the green box on canvas */}
         <div style={visualBorderStyle} />
         
         {/* Sliders container */}
-        <div style={sliderContainerStyle}>
+        <div
+          style={sliderContainerStyle}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
           <input
             className="hue-slider"
             type="range"
