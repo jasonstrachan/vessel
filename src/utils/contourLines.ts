@@ -4,8 +4,24 @@ export interface ContourLinePath {
   points: Array<{ x: number; y: number }>;
 }
 
+export interface Lines2EdgeHit {
+  start: Point;
+  end: Point;
+}
+
 export const MIN_LINE_SPACING = 4;
 export const MAX_LINE_SPACING = 160;
+
+export interface Lines2GenerationOptions {
+  angle: number;
+  convergenceA: Point;
+  convergenceB: Point;
+  spacing: number;
+  density: number;
+  alternate: boolean;
+}
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const EPSILON = 1e-5;
 const EDGE_TOLERANCE = EPSILON * 100; // More generous tolerance for edge detection
@@ -75,6 +91,179 @@ const pointInPolygon = (point: Point, vertices: Point[]): boolean => {
   return inside;
 };
 
+const computeCentroid = (vertices: Point[]): Point => {
+  if (!vertices.length) return { x: 0, y: 0 };
+  let x = 0;
+  let y = 0;
+  for (const v of vertices) {
+    x += v.x;
+    y += v.y;
+  }
+  return { x: x / vertices.length, y: y / vertices.length };
+};
+
+const lerpPoint = (a: Point, b: Point, t: number): Point => ({
+  x: a.x + (b.x - a.x) * t,
+  y: a.y + (b.y - a.y) * t
+});
+
+const cubicBezierPoint = (
+  p0: Point,
+  p1: Point,
+  p2: Point,
+  p3: Point,
+  t: number
+): Point => {
+  const mt = 1 - t;
+  const mt2 = mt * mt;
+  const t2 = t * t;
+  const a = mt2 * mt;
+  const b = 3 * mt2 * t;
+  const c = 3 * mt * t2;
+  const d = t * t2;
+  return {
+    x: a * p0.x + b * p1.x + c * p2.x + d * p3.x,
+    y: a * p0.y + b * p1.y + c * p2.y + d * p3.y
+  };
+};
+
+export type Lines2Side = 'min' | 'max';
+
+export interface Lines2ProjectionStats {
+  centroid: Point;
+  dir: Point;
+  normal: Point;
+  dirMin: number;
+  dirMax: number;
+  dirRange: number;
+  normalMin: number;
+  normalMax: number;
+  normalRange: number;
+  minBand: { min: number; max: number; mid: number };
+  maxBand: { min: number; max: number; mid: number };
+}
+
+const reconstructFromProjections = (
+  centroid: Point,
+  dir: Point,
+  normal: Point,
+  dirProj: number,
+  normalProj: number
+): Point => ({
+  x: centroid.x + dir.x * dirProj + normal.x * normalProj,
+  y: centroid.y + dir.y * dirProj + normal.y * normalProj
+});
+
+export const computeLines2ProjectionStats = (
+  vertices: Array<{ x: number; y: number }>,
+  angle: number,
+  centroidOverride?: Point | null
+): Lines2ProjectionStats => {
+  const valid = vertices.filter((v) => Number.isFinite(v.x) && Number.isFinite(v.y));
+  const centroid = centroidOverride ?? computeCentroid(valid as Point[]);
+
+  const dir = normalise({ x: Math.cos(angle), y: Math.sin(angle) });
+  const normal = { x: -dir.y, y: dir.x };
+
+  const projections = valid.map((v) => {
+    const rel = subtract(v, centroid);
+    return {
+      vertex: v,
+      dirProj: dot(rel, dir),
+      normalProj: dot(rel, normal)
+    };
+  });
+
+  if (!projections.length) {
+    return {
+      centroid,
+      dir,
+      normal,
+      dirMin: 0,
+      dirMax: 0,
+      dirRange: 0,
+      normalMin: 0,
+      normalMax: 0,
+      normalRange: 0,
+      minBand: { min: 0, max: 0, mid: 0 },
+      maxBand: { min: 0, max: 0, mid: 0 }
+    };
+  }
+
+  const dirValues = projections.map((p) => p.dirProj);
+  const normalValues = projections.map((p) => p.normalProj);
+
+  const dirMin = Math.min(...dirValues);
+  const dirMax = Math.max(...dirValues);
+  const normalMin = Math.min(...normalValues);
+  const normalMax = Math.max(...normalValues);
+  const dirRange = dirMax - dirMin;
+  const normalRange = normalMax - normalMin;
+
+  const tolerance = Math.max(dirRange * 0.05, 4);
+  const minBandPoints = dirRange < EPSILON
+    ? projections
+    : projections.filter((p) => Math.abs(p.dirProj - dirMin) <= tolerance);
+  const maxBandPoints = dirRange < EPSILON
+    ? projections
+    : projections.filter((p) => Math.abs(p.dirProj - dirMax) <= tolerance);
+
+  const bandStats = (band: typeof projections) => {
+    if (!band.length) {
+      return {
+        min: normalMin,
+        max: normalMax,
+        mid: (normalMin + normalMax) * 0.5
+      };
+    }
+    const vals = band.map((p) => p.normalProj);
+    const minVal = Math.min(...vals);
+    const maxVal = Math.max(...vals);
+    return {
+      min: minVal,
+      max: maxVal,
+      mid: (minVal + maxVal) * 0.5
+    };
+  };
+
+  return {
+    centroid,
+    dir,
+    normal,
+    dirMin,
+    dirMax,
+    dirRange,
+    normalMin,
+    normalMax,
+    normalRange,
+    minBand: bandStats(minBandPoints),
+    maxBand: bandStats(maxBandPoints)
+  };
+};
+
+export const getLines2SideMidpoint = (
+  stats: Lines2ProjectionStats,
+  side: Lines2Side
+): Point => {
+  const band = side === 'min' ? stats.minBand : stats.maxBand;
+  const dirProj = side === 'min' ? stats.dirMin : stats.dirMax;
+  const normalProj = band.mid;
+  return reconstructFromProjections(stats.centroid, stats.dir, stats.normal, dirProj, normalProj);
+};
+
+export const projectPointOntoLines2Side = (
+  stats: Lines2ProjectionStats,
+  point: Point,
+  side: Lines2Side
+): Point => {
+  const rel = subtract(point, stats.centroid);
+  const pointerNormal = dot(rel, stats.normal);
+  const band = side === 'min' ? stats.minBand : stats.maxBand;
+  const clampedNormal = clamp(pointerNormal, band.min, band.max);
+  const dirProj = side === 'min' ? stats.dirMin : stats.dirMax;
+  return reconstructFromProjections(stats.centroid, stats.dir, stats.normal, dirProj, clampedNormal);
+};
+
 export function prepareContourLinesBasis(vertices: Array<{ x: number; y: number }>): ContourLinesBasis | null {
   if (!vertices || vertices.length < 3) return null;
 
@@ -120,6 +309,47 @@ export function prepareContourLinesBasis(vertices: Array<{ x: number; y: number 
     backDistance: Math.max(0, baseProjection - minProjection)
   };
 }
+
+export interface Lines2Defaults {
+  centroid: Point;
+  defaultAngle: number;
+  convergenceA: Point;
+  convergenceB: Point;
+  basis: ContourLinesBasis | null;
+}
+
+export const computeLines2Defaults = (
+  vertices: Array<{ x: number; y: number }>,
+  existingBasis?: ContourLinesBasis | null
+): Lines2Defaults => {
+  const valid = vertices.filter((v) => Number.isFinite(v.x) && Number.isFinite(v.y));
+  const centroid = computeCentroid(valid as Point[]);
+
+  const basis = existingBasis ?? prepareContourLinesBasis(valid);
+  const defaultAngle = basis
+    ? Math.atan2(basis.direction.y, basis.direction.x)
+    : (() => {
+        if (valid.length >= 2) {
+          const dx = valid[1].x - valid[0].x;
+          const dy = valid[1].y - valid[0].y;
+          return Math.atan2(dy, Math.abs(dx) < EPSILON ? (dy >= 0 ? EPSILON : -EPSILON) : dx);
+        }
+        return 0;
+      })();
+
+  const stats = computeLines2ProjectionStats(valid, defaultAngle, centroid);
+
+  const convergenceA = getLines2SideMidpoint(stats, 'min');
+  const convergenceB = getLines2SideMidpoint(stats, 'max');
+
+  return {
+    centroid: stats.centroid,
+    defaultAngle,
+    convergenceA,
+    convergenceB,
+    basis: basis ?? null
+  };
+};
 
 const getPolygonEdges = (vertices: Point[]) => {
   const edges: Array<{ a: Point; b: Point; angle: number; index: number }> = [];
@@ -329,6 +559,209 @@ export function generateContourLines(
   }
   
   return paths;
+}
+
+export function generateLines2Paths(
+  vertices: Array<{ x: number; y: number }>,
+  options: Lines2GenerationOptions,
+  centroidOverride?: Point,
+  debugEdgeHits?: Lines2EdgeHit[]
+): ContourLinePath[] {
+  if (!vertices || vertices.length < 3) return [];
+
+  const valid: Point[] = vertices.filter((v) => Number.isFinite(v.x) && Number.isFinite(v.y));
+  if (valid.length < 3) return [];
+
+  const stats = computeLines2ProjectionStats(valid, options.angle, centroidOverride ?? null);
+  const centroid = stats.centroid;
+  const dir = stats.dir;
+  const normal = stats.normal;
+  const minProj = stats.normalMin;
+  const maxProj = stats.normalMax;
+  const range = Math.max(EPSILON, stats.normalRange);
+  const dirRange = stats.dirRange;
+
+  const spacingValue = clamp(options.spacing, 1, 40) * 3.5;
+  const densityScale = clamp(options.density, 1, 10) / 5; // 0.2 - 2 scale factor
+
+  const baseCount = Math.max(0, Math.floor(range / spacingValue));
+  let numLines = baseCount > 0 ? baseCount : Math.round(6 * densityScale);
+  numLines = Math.max(3, Math.min(200, Math.round(numLines * (0.75 + densityScale * 0.5))));
+
+  const normalPadding = Math.max(spacingValue * 0.1, 1);
+  const paddedMin = stats.normalMin - normalPadding;
+  const paddedMax = stats.normalMax + normalPadding;
+  const paddedRange = Math.max(EPSILON, paddedMax - paddedMin);
+
+  const actualSpacing = paddedRange / Math.max(1, numLines - 1);
+
+  const span = Math.max(paddedRange, dirRange) + Math.max(120, spacingValue * 6);
+
+  const results: ContourLinePath[] = [];
+
+  for (let lineIndex = 0; lineIndex < numLines; lineIndex++) {
+    const t = numLines === 1 ? 0.5 : lineIndex / (numLines - 1);
+    const offset = paddedMin + t * paddedRange;
+
+    const lineOrigin = {
+      x: centroid.x + normal.x * offset,
+      y: centroid.y + normal.y * offset
+    };
+
+    const halfSpan = span * 0.5;
+    const sampleCount = Math.max(32, Math.min(240, Math.round(span / (actualSpacing * 0.35))));
+    let startPoint: Point | null = null;
+    let endPoint: Point | null = null;
+
+    let minAlong = Infinity;
+    let maxAlong = -Infinity;
+    let minPoint: Point | null = null;
+    let maxPoint: Point | null = null;
+
+    const linePoint = lineOrigin;
+    const lineDir = dir;
+
+    for (let i = 0; i < valid.length; i++) {
+      const a = valid[i];
+      const b = valid[(i + 1) % valid.length];
+      const intersection = lineSegmentIntersectionWithParams(linePoint, {
+        x: linePoint.x + lineDir.x,
+        y: linePoint.y + lineDir.y,
+      }, a, b);
+      if (intersection) {
+        const along = dot(subtract(intersection.point, linePoint), lineDir);
+        if (along < minAlong) {
+          minAlong = along;
+          minPoint = intersection.point;
+        }
+        if (along > maxAlong) {
+          maxAlong = along;
+          maxPoint = intersection.point;
+        }
+      }
+    }
+
+    if (minPoint && maxPoint && Math.hypot(maxPoint.x - minPoint.x, maxPoint.y - minPoint.y) > EPSILON) {
+      startPoint = minPoint;
+      endPoint = maxPoint;
+    }
+
+    if (!startPoint || !endPoint) {
+      const segmentSeed: Point[] = [];
+      for (let i = 0; i <= sampleCount; i++) {
+        const lerp = (i / sampleCount) * 2 - 1;
+        const dist = lerp * halfSpan;
+        segmentSeed.push({
+          x: lineOrigin.x + dir.x * dist,
+          y: lineOrigin.y + dir.y * dist
+        });
+      }
+
+      const clippedSegments = clipLineToPolygon(segmentSeed, valid);
+      if (clippedSegments.length === 0) continue;
+
+      let longestSegment = clippedSegments[0];
+      let longestLen = Math.hypot(
+        longestSegment[longestSegment.length - 1].x - longestSegment[0].x,
+        longestSegment[longestSegment.length - 1].y - longestSegment[0].y
+      );
+      for (let i = 1; i < clippedSegments.length; i++) {
+        const seg = clippedSegments[i];
+        const segLen = Math.hypot(
+          seg[seg.length - 1].x - seg[0].x,
+          seg[seg.length - 1].y - seg[0].y
+        );
+        if (segLen > longestLen) {
+          longestSegment = seg;
+          longestLen = segLen;
+        }
+      }
+
+      if (!longestSegment || longestSegment.length < 2) continue;
+      startPoint = longestSegment[0];
+      endPoint = longestSegment[longestSegment.length - 1];
+    }
+
+    if (!startPoint || !endPoint) continue;
+
+    if (debugEdgeHits) {
+      debugEdgeHits.push({
+        start: { ...startPoint },
+        end: { ...endPoint },
+      });
+    }
+
+    const offsetNormRaw = range > EPSILON ? (offset - stats.normalMin) / range : 0.5;
+    const offsetNorm = clamp(offsetNormRaw, -0.25, 1.25);
+    const baseWeightA = clamp(0.3 + offsetNorm * 0.3, 0.2, 0.8);
+    const baseWeightB = clamp(0.7 - offsetNorm * 0.3, 0.2, 0.8);
+    const groupSize = Math.max(1, Math.round(options.density));
+    const groupIndex = Math.floor(lineIndex / groupSize);
+    const altDelta = options.alternate ? ((groupIndex % 2 === 0 ? -1 : 1) * 0.05) : 0;
+    const weightA = clamp(baseWeightA + altDelta, 0.2, 0.8);
+    const weightB = clamp(baseWeightB - altDelta, 0.2, 0.8);
+
+    const offsetA = subtract(options.convergenceA, startPoint);
+    const offsetB = subtract(options.convergenceB, endPoint);
+    const directedA = {
+      x: dir.x * dot(offsetA, dir) + normal.x * dot(offsetA, normal),
+      y: dir.y * dot(offsetA, dir) + normal.y * dot(offsetA, normal),
+    };
+    const directedB = {
+      x: dir.x * dot(offsetB, dir) + normal.x * dot(offsetB, normal),
+      y: dir.y * dot(offsetB, dir) + normal.y * dot(offsetB, normal),
+    };
+
+    const curveSamples = Math.max(24, Math.min(96, Math.round(dirRange / 6)));
+    const curve: Point[] = [];
+    const lineVector = subtract(endPoint, startPoint);
+    const lineVecLength = Math.hypot(lineVector.x, lineVector.y) || 1;
+    const lineDirNorm = { x: lineVector.x / lineVecLength, y: lineVector.y / lineVecLength };
+    const extension = Math.max(spacingValue * 1.5, 12);
+
+    for (let i = 0; i <= curveSamples; i++) {
+      const tt = i / curveSamples;
+      const edgeFalloffA = Math.pow(1 - tt, 3);
+      const edgeFalloffB = Math.pow(tt, 3);
+      const influenceA = (1 - tt) * (1 - tt) * weightA * edgeFalloffA;
+      const influenceB = tt * tt * weightB * edgeFalloffB;
+      const altInfluence = options.alternate ? Math.sin(tt * Math.PI) * altDelta * 0.5 : 0;
+      curve.push({
+        x:
+          startPoint.x +
+          lineVector.x * tt +
+          directedA.x * influenceA +
+          directedB.x * influenceB +
+          normal.x * altInfluence,
+        y:
+          startPoint.y +
+          lineVector.y * tt +
+          directedA.y * influenceA +
+          directedB.y * influenceB +
+          normal.y * altInfluence,
+      });
+    }
+
+    const extendedCurve: Point[] = [];
+    extendedCurve.push({
+      x: curve[0].x - lineDirNorm.x * extension,
+      y: curve[0].y - lineDirNorm.y * extension,
+    });
+    extendedCurve.push(...curve);
+    extendedCurve.push({
+      x: curve[curve.length - 1].x + lineDirNorm.x * extension,
+      y: curve[curve.length - 1].y + lineDirNorm.y * extension,
+    });
+
+    const clippedCurveSegments = clipLineToPolygon(extendedCurve, valid);
+    for (const seg of clippedCurveSegments) {
+      if (seg.length < 2) continue;
+      const smoothed = seg.length > 2 ? smoothPolyline(seg, 0.25) : seg;
+      results.push({ points: smoothed });
+    }
+  }
+
+  return results;
 }
 
 // Helper function to resample a polyline with uniform spacing
