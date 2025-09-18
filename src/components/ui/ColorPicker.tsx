@@ -124,12 +124,26 @@ export default function ColorPicker({
         for (let y = 0; y < height; y++) {
           for (let x = 0; x < width; x++) {
             // Calculate grid position - snap to grid cells
-            const gridX = Math.floor(x / cellWidth) * cellWidth;
-            const gridY = Math.floor(y / cellHeight) * cellHeight;
+            const gridCol = Math.floor(x / cellWidth);
+            const gridRow = Math.floor(y / cellHeight);
+            const gridX = gridCol * cellWidth;
+            const gridY = gridRow * cellHeight;
 
-            const s = (gridX / width) * 100;
-            const v = ((height - gridY) / height) * 100;
-            const hex = hsvToHex(hue, s, v);
+            let hex;
+            
+            // Special cases for specific grid cells
+            if (gridCol === 0 && gridRow === 0) {
+              // Top-left cell: pure white
+              hex = "#ffffff";
+            } else if (gridCol === gridCols - 1 && gridRow === gridRows - 1) {
+              // Bottom-right cell: pure black
+              hex = "#000000";
+            } else {
+              // All other cells: normal color picker behavior
+              const s = (gridX / width) * 100;
+              const v = ((height - gridY) / height) * 100;
+              hex = hsvToHex(hue, s, v);
+            }
 
             const r = parseInt(hex.slice(1, 3), 16);
             const g = parseInt(hex.slice(3, 5), 16);
@@ -233,10 +247,26 @@ export default function ColorPicker({
       const x = Math.max(0, Math.min(canvas.width, e.clientX - rect.left));
       const y = Math.max(0, Math.min(canvas.height, e.clientY - rect.top));
 
-      const s = (x / canvas.width) * 100;
-      const v = ((canvas.height - y) / canvas.height) * 100;
-
-      updateColor({ ...currentHsv, s, v });
+      const gridCols = 10;
+      const gridRows = 10;
+      const cellWidth = canvas.width / gridCols;
+      const cellHeight = canvas.height / gridRows;
+      const gridCol = Math.floor(x / cellWidth);
+      const gridRow = Math.floor(y / cellHeight);
+      
+      // Check for special cells
+      if (gridCol === 0 && gridRow === 0) {
+        // Top-left: pure white
+        updateColor({ h: 0, s: 0, v: 100 });
+      } else if (gridCol === gridCols - 1 && gridRow === gridRows - 1) {
+        // Bottom-right: pure black
+        updateColor({ h: 0, s: 0, v: 0 });
+      } else {
+        // Normal color selection
+        const s = (x / canvas.width) * 100;
+        const v = ((canvas.height - y) / canvas.height) * 100;
+        updateColor({ ...currentHsv, s, v });
+      }
     },
     [currentHsv, updateColor],
   );
@@ -252,10 +282,26 @@ export default function ColorPicker({
       const x = Math.max(0, Math.min(canvas.width, e.clientX - rect.left));
       const y = Math.max(0, Math.min(canvas.height, e.clientY - rect.top));
 
-      const s = (x / canvas.width) * 100;
-      const v = ((canvas.height - y) / canvas.height) * 100;
-
-      updateColor({ ...currentHsv, s, v });
+      const gridCols = 10;
+      const gridRows = 10;
+      const cellWidth = canvas.width / gridCols;
+      const cellHeight = canvas.height / gridRows;
+      const gridCol = Math.floor(x / cellWidth);
+      const gridRow = Math.floor(y / cellHeight);
+      
+      // Check for special cells
+      if (gridCol === 0 && gridRow === 0) {
+        // Top-left: pure white
+        updateColor({ h: 0, s: 0, v: 100 });
+      } else if (gridCol === gridCols - 1 && gridRow === gridRows - 1) {
+        // Bottom-right: pure black
+        updateColor({ h: 0, s: 0, v: 0 });
+      } else {
+        // Normal color selection
+        const s = (x / canvas.width) * 100;
+        const v = ((canvas.height - y) / canvas.height) * 100;
+        updateColor({ ...currentHsv, s, v });
+      }
     },
     [isPointerDown, currentHsv, updateColor],
   );

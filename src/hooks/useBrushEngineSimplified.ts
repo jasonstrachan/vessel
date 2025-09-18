@@ -8,7 +8,14 @@ import { useAppStore } from '../stores/useAppStore';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams, type CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 import { BrushShape } from '../types';
 import type { ContourLinesBasis } from '@/types';
-import { generateContourLines, MIN_LINE_SPACING, MAX_LINE_SPACING, prepareContourLinesBasis } from '@/utils/contourLines';
+import {
+  generateContourLines,
+  generateLines2Paths,
+  MIN_LINE_SPACING,
+  MAX_LINE_SPACING,
+  prepareContourLinesBasis,
+  computeLines2Defaults,
+} from '@/utils/contourLines';
 import { getRisographPattern } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { debugLog } from '@/utils/debug';
@@ -1350,9 +1357,17 @@ export const useBrushEngineSimplified = () => {
     polygonData: { vertices: Array<{ x: number; y: number }>; fillColor?: string },
     isPreview: boolean = false,
     lineOptions?: {
+      variant?: 'legacy' | 'lines2';
       lineSpacingA?: number;
       lineSpacingB?: number;
       lineBasis?: ContourLinesBasis;
+      lines2Angle?: number;
+      lines2ConvergenceA?: { x: number; y: number };
+      lines2ConvergenceB?: { x: number; y: number };
+      lines2Spacing?: number;
+      lines2Density?: number;
+      lines2Alternate?: boolean;
+      centroid?: { x: number; y: number } | null;
     }
   ) => {
     const { vertices, fillColor } = polygonData || {};
@@ -1410,6 +1425,67 @@ export const useBrushEngineSimplified = () => {
     const boundHeight = maxY - minY;
     
     if (mode === 'lines') {
+      const shapeGradientMode = tools.brushSettings.shapeGradientMode === 'mesh'
+        ? 'lines'
+        : tools.brushSettings.shapeGradientMode;
+      const isLines2Variant =
+        lineOptions?.variant === 'lines2' ||
+        tools.brushSettings.brushShape === BrushShape.CONTOUR_LINES2 ||
+        (tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON && shapeGradientMode === 'lines2');
+
+      if (isLines2Variant) {
+        const defaults = computeLines2Defaults(validVertices, lineOptions?.lineBasis);
+        const angle = lineOptions?.lines2Angle ?? defaults.defaultAngle;
+        const convergenceA = lineOptions?.lines2ConvergenceA ?? defaults.convergenceA;
+        const convergenceB = lineOptions?.lines2ConvergenceB ?? defaults.convergenceB;
+        const spacingSetting = lineOptions?.lines2Spacing ?? tools.brushSettings.contourLines2Spacing ?? 8;
+        const densitySetting = lineOptions?.lines2Density ?? tools.brushSettings.contourLines2Density ?? 5;
+        const alternateSetting = lineOptions?.lines2Alternate ?? tools.brushSettings.contourLines2Alternate ?? true;
+        const centroidOverride = lineOptions?.centroid ?? defaults.centroid;
+
+        ctx.strokeStyle = tools.brushSettings.color;
+        ctx.lineWidth = 1;
+        ctx.imageSmoothingEnabled = false;
+
+        const lines = generateLines2Paths(
+          validVertices,
+          {
+            angle,
+            convergenceA,
+            convergenceB,
+            spacing: spacingSetting,
+            density: densitySetting,
+            alternate: alternateSetting,
+          },
+          centroidOverride ?? undefined
+        );
+
+        const snapToPixel = (val: number) => Math.floor(val) + 0.5;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(validVertices[0].x, validVertices[0].y);
+        for (let i = 1; i < validVertices.length; i++) {
+          ctx.lineTo(validVertices[i].x, validVertices[i].y);
+        }
+        ctx.closePath();
+        ctx.clip();
+
+        for (const path of lines) {
+          if (!path.points || path.points.length < 2) continue;
+          ctx.beginPath();
+          ctx.moveTo(snapToPixel(path.points[0].x), snapToPixel(path.points[0].y));
+          for (let i = 1; i < path.points.length; i++) {
+            ctx.lineTo(snapToPixel(path.points[i].x), snapToPixel(path.points[i].y));
+          }
+          ctx.stroke();
+        }
+
+        ctx.restore();
+        ctx.restore();
+        return;
+      }
+
       const clampSpacing = (value: number) => Math.min(MAX_LINE_SPACING, Math.max(MIN_LINE_SPACING, value));
       const spacingA = clampSpacing(lineOptions?.lineSpacingA ?? (tools.brushSettings.contourSpacing || 5) * 2);
       const spacingB = clampSpacing(lineOptions?.lineSpacingB ?? spacingA);

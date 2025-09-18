@@ -33,6 +33,9 @@ export const pixelBrushSettings: BrushSettings = {
   risographIntensity: 0,
   risographOutline: false,
   ditherEnabled: false,
+  contourLines2Spacing: 4,
+  contourLines2Density: 4,
+  contourLines2Alternate: false,
   customBrushColorCycle: false,
   colorCycleFillMode: 'concentric'
 };
@@ -80,6 +83,9 @@ export const defaultBrushSettings: BrushSettings = {
   contourSpacing: 4, // Default contour spacing (1-10)
   contourVariance: 5, // Default contour variance (0-10, medium variance)
   contourSmoothness: 0.5, // Default contour smoothness (0-5, low smoothness)
+  contourLines2Spacing: 4, // Default base spacing for Lines2 brush
+  contourLines2Density: 4, // Default line bundle density
+  contourLines2Alternate: false, // Default to uniform direction
   colorCycleFillMode: 'concentric', // Default to concentric fill for Color Cycle Shape
   shapeGradientMode: 'contour' // Default to contour mode for shape gradient brushes
 };
@@ -594,6 +600,37 @@ export const contourPolygonBrushPreset: BrushPreset = {
   }
 };
 
+// Contour Lines 2 Brush Components (placeholder brush that will evolve later)
+const contourLines2BrushComponents: BrushComponent[] = [
+  {
+    id: 'contour-lines2-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.CONTOUR_LINES2
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+export const contourLines2BrushPreset: BrushPreset = {
+  id: 'contour-lines2-brush',
+  name: 'Contour Lines 2',
+  category: 'Special',
+  components: contourLines2BrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['contour', 'lines', 'special', 'experimental'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    shapeGradientMode: 'lines2',
+    contourLines2Spacing: 4,
+    contourLines2Density: 5,
+    contourLines2Alternate: false
+  }
+};
+
 // Spam Brush Components
 const spamBrushComponents: BrushComponent[] = [
   {
@@ -758,6 +795,7 @@ export const brushPresets: BrushPreset[] = [
   rectangleGradientBrushPreset,
   polygonGradientBrushPreset,
   contourPolygonBrushPreset,
+  contourLines2BrushPreset,
   spamBrushPreset,
   resamplerBrushPreset,
   polygonDitherPreset
@@ -803,6 +841,13 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     settings.contourSpacing = 4; // Default contour spacing
     settings.contourVariance = 5; // Default medium variance for balanced organic look
     settings.contourSmoothness = 0.5; // Default low smoothness for sharp details
+  } else if (preset.id === 'contour-lines2-brush') {
+    settings.size = 12; // Slightly larger base size for Lines2 brush
+    settings.antialiasing = false;
+    settings.shapeGradientMode = 'lines2'; // Default to Lines 2 workflow
+    settings.contourLines2Spacing = 4;
+    settings.contourLines2Density = 5;
+    settings.contourLines2Alternate = false;
   } else if (preset.category === 'Custom') {
     // Handle custom brush presets - apply sensible defaults
     settings.antialiasing = true;

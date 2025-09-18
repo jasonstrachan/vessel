@@ -2,36 +2,40 @@
 
 import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
-import { Switch } from '../retroui/Switch';
+import CustomSwitch from '../ui/CustomSwitch';
+import ProgressSlider from '../ui/ProgressSlider';
 
 export default function FillControls() {
   const { tools, setFillSettings } = useAppStore();
   const { fillSettings } = tools;
 
   return (
-    <div className="bg-[#31313A] p-4">
+    <div className="p-4">
       {/* Threshold */}
-      <div className="mb-4">
-        <label className="block text-base text-[#D9D9D9] mb-2">
-          Threshold: {fillSettings.threshold}
-        </label>
-        <input
-          type="range"
-          className="slider w-full"
-          value={fillSettings.threshold}
-          min={0}
-          max={255}
-          step={1}
-          onChange={(e) => setFillSettings({ threshold: parseInt(e.target.value) })}
-          aria-label="Fill Threshold"
-        />
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            Threshold
+          </label>
+          <ProgressSlider
+            value={fillSettings.threshold}
+            min={0}
+            max={255}
+            step={1}
+            onChange={(value) => setFillSettings({ threshold: Math.round(value) })}
+            aria-label="Fill Threshold"
+            className="flex-1"
+          />
+        </div>
       </div>
 
       {/* Connected Pixels */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between">
-          <label htmlFor="connected-pixels" className="text-base text-[#D9D9D9]">Connected Pixels</label>
-          <Switch
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <label htmlFor="connected-pixels" className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            Connected
+          </label>
+          <CustomSwitch
             id="connected-pixels"
             checked={fillSettings.contiguous}
             onChange={(checked) => setFillSettings({ contiguous: checked })}

@@ -1111,88 +1111,150 @@ const BrushControls = () => {
   if (activeSettings.brushShape === BrushShape.CONTOUR_POLYGON) {
     return (
       <div className="p-4">
-        {/* Shape Mode Selector - Contour, Lines, Triangle */}
+        {/* Shape Mode Selector */}
         <div className="mb-3">
           <ButtonGroup
             options={[
               { label: 'Contour', value: 'contour' },
               { label: 'Lines', value: 'lines' },
+              { label: 'Lines 2', value: 'lines2' },
               { label: 'Triangle', value: 'triangle' }
             ]}
             value={(activeSettings.shapeGradientMode === 'mesh'
               ? 'lines'
               : activeSettings.shapeGradientMode) || 'contour'}
             onChange={(value) => setActiveSettings({ 
-              shapeGradientMode: value as 'contour' | 'lines' | 'triangle' 
+              shapeGradientMode: value as 'contour' | 'lines' | 'lines2' | 'triangle' 
             })}
             className="w-full"
           />
         </div>
 
-        {/* Contour Spacing - only show for contour mode */}
+        {/* Contour controls */}
         {(activeSettings.shapeGradientMode || 'contour') === 'contour' && (
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              Spacing
-            </label>
-            <ProgressSlider
-              value={activeSettings.contourSpacing || 5}
-              min={1}
-              max={10}
-              step={1}
-              onChange={(value) =>
-                setActiveSettings({ contourSpacing: Math.round(value) })
-              }
-              aria-label="Contour Spacing"
-              className="flex-1"
-            />
-          </div>
-        </div>
+          <>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Spacing
+                </label>
+                <ProgressSlider
+                  value={activeSettings.contourSpacing || 5}
+                  min={1}
+                  max={10}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ contourSpacing: Math.round(value) })
+                  }
+                  aria-label="Contour Spacing"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Variance
+                </label>
+                <ProgressSlider
+                  value={activeSettings.contourVariance ?? 5}
+                  min={0}
+                  max={10}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ contourVariance: Math.round(value) })
+                  }
+                  aria-label="Contour Variance"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Smooth
+                </label>
+                <ProgressSlider
+                  value={activeSettings.contourSmoothness ?? 2.5}
+                  min={0}
+                  max={5}
+                  step={0.5}
+                  onChange={(value) =>
+                    setActiveSettings({ contourSmoothness: value })
+                  }
+                  aria-label="Contour Smoothness"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+          </>
         )}
-        
-        {/* Contour Variance - only show for contour mode */}
-        {(activeSettings.shapeGradientMode || 'contour') === 'contour' && (
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              Variance
-            </label>
-            <ProgressSlider
-              value={activeSettings.contourVariance ?? 5}
-              min={0}
-              max={10}
-              step={1}
-              onChange={(value) =>
-                setActiveSettings({ contourVariance: Math.round(value) })
-              }
-              aria-label="Contour Variance"
-              className="flex-1"
-            />
-          </div>
-        </div>
-        )}
-        
-        {/* Contour Smoothness - only show for contour mode */}
-        {(activeSettings.shapeGradientMode || 'contour') === 'contour' && (
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
-              Smooth
-            </label>
-            <ProgressSlider
-              value={activeSettings.contourSmoothness ?? 2.5}
-              min={0}
-              max={5}
-              step={0.5}
-              onChange={(value) =>
-                setActiveSettings({ contourSmoothness: value })
-              }
-              aria-label="Contour Smoothness"
-              className="flex-1"
-            />
-          </div>
-        </div>
+
+        {/* Lines2 controls */}
+        {activeSettings.shapeGradientMode === 'lines2' && (
+          <>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Bundle Spacing
+                </label>
+                <ProgressSlider
+                  value={activeSettings.contourLines2Spacing ?? 4}
+                  min={1}
+                  max={20}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ contourLines2Spacing: Math.round(value) })
+                  }
+                  aria-label="Lines2 Bundle Spacing"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '2rem', textAlign: 'right' }}>
+                  {activeSettings.contourLines2Spacing ?? 4}
+                </span>
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Line Density
+                </label>
+                <ProgressSlider
+                  value={activeSettings.contourLines2Density ?? 5}
+                  min={1}
+                  max={10}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ contourLines2Density: Math.round(value) })
+                  }
+                  aria-label="Lines2 Density"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '2rem', textAlign: 'right' }}>
+                  {activeSettings.contourLines2Density ?? 5}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                Alternate
+              </label>
+              <CustomSwitch
+                id="contour-lines2-alternate"
+                checked={activeSettings.contourLines2Alternate ?? true}
+                onChange={(checked) =>
+                  setActiveSettings({ contourLines2Alternate: checked })
+                }
+              />
+              <span className="text-[#9FA0A4]" style={{ fontSize: '12px' }}>
+                Toggle offset direction every other line group.
+              </span>
+            </div>
+          </>
         )}
       </div>
     );

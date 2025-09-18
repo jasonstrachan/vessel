@@ -4,11 +4,6 @@ export interface ContourLinePath {
   points: Array<{ x: number; y: number }>;
 }
 
-export interface Lines2EdgeHit {
-  start: Point;
-  end: Point;
-}
-
 export const MIN_LINE_SPACING = 4;
 export const MAX_LINE_SPACING = 160;
 
@@ -258,10 +253,18 @@ export const projectPointOntoLines2Side = (
 ): Point => {
   const rel = subtract(point, stats.centroid);
   const pointerNormal = dot(rel, stats.normal);
+  const pointerDir = dot(rel, stats.dir);
+
+  // Allow generous movement beyond the detected face while keeping a minimal guard
   const band = side === 'min' ? stats.minBand : stats.maxBand;
-  const clampedNormal = clamp(pointerNormal, band.min, band.max);
-  const dirProj = side === 'min' ? stats.dirMin : stats.dirMax;
-  return reconstructFromProjections(stats.centroid, stats.dir, stats.normal, dirProj, clampedNormal);
+  const normalSlack = Math.max((band.max - band.min) * 2, 32);
+  const dirSlack = Math.max(stats.dirRange * 2, 48);
+
+  const clampedNormal = clamp(pointerNormal, band.min - normalSlack, band.max + normalSlack);
+  const baseDir = side === 'min' ? stats.dirMin : stats.dirMax;
+  const clampedDir = clamp(pointerDir, baseDir - dirSlack, baseDir + dirSlack);
+
+  return reconstructFromProjections(stats.centroid, stats.dir, stats.normal, clampedDir, clampedNormal);
 };
 
 export function prepareContourLinesBasis(vertices: Array<{ x: number; y: number }>): ContourLinesBasis | null {
@@ -564,8 +567,7 @@ export function generateContourLines(
 export function generateLines2Paths(
   vertices: Array<{ x: number; y: number }>,
   options: Lines2GenerationOptions,
-  centroidOverride?: Point,
-  debugEdgeHits?: Lines2EdgeHit[]
+  centroidOverride?: Point
 ): ContourLinePath[] {
   if (!vertices || vertices.length < 3) return [];
 
@@ -602,6 +604,8 @@ export function generateLines2Paths(
   for (let lineIndex = 0; lineIndex < numLines; lineIndex++) {
     const t = numLines === 1 ? 0.5 : lineIndex / (numLines - 1);
     const offset = paddedMin + t * paddedRange;
+
+    const pullStrength = Math.max(0.15, Math.min(0.4, (1 - Math.abs(0.5 - t) * 1.8)));
 
     const lineOrigin = {
       x: centroid.x + normal.x * offset,
@@ -684,13 +688,6 @@ export function generateLines2Paths(
 
     if (!startPoint || !endPoint) continue;
 
-    if (debugEdgeHits) {
-      debugEdgeHits.push({
-        start: { ...startPoint },
-        end: { ...endPoint },
-      });
-    }
-
     const offsetNormRaw = range > EPSILON ? (offset - stats.normalMin) / range : 0.5;
     const offsetNorm = clamp(offsetNormRaw, -0.25, 1.25);
     const baseWeightA = clamp(0.3 + offsetNorm * 0.3, 0.2, 0.8);
@@ -698,18 +695,22 @@ export function generateLines2Paths(
     const groupSize = Math.max(1, Math.round(options.density));
     const groupIndex = Math.floor(lineIndex / groupSize);
     const altDelta = options.alternate ? ((groupIndex % 2 === 0 ? -1 : 1) * 0.05) : 0;
-    const weightA = clamp(baseWeightA + altDelta, 0.2, 0.8);
-    const weightB = clamp(baseWeightB - altDelta, 0.2, 0.8);
+    const weightA = clamp((baseWeightA + altDelta) * pullStrength, 0.1, 0.6);
+    const weightB = clamp((baseWeightB - altDelta) * pullStrength, 0.1, 0.6);
 
     const offsetA = subtract(options.convergenceA, startPoint);
     const offsetB = subtract(options.convergenceB, endPoint);
+    const projectedA = subtract(options.convergenceA, stats.centroid);
+    const projectedB = subtract(options.convergenceB, stats.centroid);
+    const screwOffsetA = dot(projectedA, dir) - dot(subtract(startPoint, stats.centroid), dir);
+    const screwOffsetB = dot(projectedB, dir) - dot(subtract(endPoint, stats.centroid), dir);
     const directedA = {
-      x: dir.x * dot(offsetA, dir) + normal.x * dot(offsetA, normal),
-      y: dir.y * dot(offsetA, dir) + normal.y * dot(offsetA, normal),
+      x: dir.x * screwOffsetA + normal.x * dot(offsetA, normal),
+      y: dir.y * screwOffsetA + normal.y * dot(offsetA, normal),
     };
     const directedB = {
-      x: dir.x * dot(offsetB, dir) + normal.x * dot(offsetB, normal),
-      y: dir.y * dot(offsetB, dir) + normal.y * dot(offsetB, normal),
+      x: dir.x * screwOffsetB + normal.x * dot(offsetB, normal),
+      y: dir.y * screwOffsetB + normal.y * dot(offsetB, normal),
     };
 
     const curveSamples = Math.max(24, Math.min(96, Math.round(dirRange / 6)));

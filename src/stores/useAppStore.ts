@@ -490,7 +490,12 @@ const createDefaultContourLinesState = (): ContourLinesState => ({
   basis: undefined,
   spacingA: null,
   spacingB: null,
-  previewSpacing: null
+  previewSpacing: null,
+  variant: 'legacy',
+  lineAngle: null,
+  convergenceA: null,
+  convergenceB: null,
+  centroid: null
 });
 
 // Wrap set to trace ALL state updates

@@ -157,6 +157,7 @@ export enum BrushShape {
   RECTANGLE_GRADIENT = 'rectangle_gradient',
   POLYGON_GRADIENT = 'polygon_gradient',
   CONTOUR_POLYGON = 'contour_polygon',
+  CONTOUR_LINES2 = 'contour_lines2',
   RISOGRAPH_SOFT = 'risograph_soft',
   RISOGRAPH_ULTRA = 'risograph_ultra',
   RESAMPLER = 'resampler',
@@ -359,6 +360,10 @@ export interface BrushSettings {
   contourSpacing?: number; // 1-10 (spacing between contour lines)
   contourVariance?: number; // 0-10 (variance in spacing, 0=uniform, 10=high variance)
   contourSmoothness?: number; // 0-5 (smoothness of contour lines, 0=sharp, 5=very smooth)
+  // Contour Lines 2 brush settings (placeholder for upcoming implementation)
+  contourLines2Spacing?: number; // 1-20 (base spacing between line groups)
+  contourLines2Density?: number; // 1-10 (number of sub-lines per group)
+  contourLines2Alternate?: boolean; // Whether to alternate stroke offset every other line
   // Color cycle flow direction
   colorCycleFlowForward?: boolean; // true = forward flow, false = backward flow
 
@@ -386,7 +391,7 @@ export interface BrushSettings {
   spamCustomText?: string; // Custom text to use instead of preset content
   
   // Shape gradient mode settings
-  shapeGradientMode?: 'contour' | 'lines' | 'mesh' | 'triangle'; // Mode for shape gradient brushes ('mesh' kept for legacy projects)
+  shapeGradientMode?: 'contour' | 'lines' | 'lines2' | 'mesh' | 'triangle'; // Mode for shape gradient brushes ('mesh' kept for legacy projects)
 }
 
 export interface ComponentParams {
@@ -524,7 +529,13 @@ export interface PolygonGradientState {
   previewPath?: Path2D;
 }
 
-export type ContourLinesStage = 'idle' | 'awaitingAnchorA' | 'awaitingAnchorB';
+export type ContourLinesStage =
+  | 'idle'
+  | 'awaitingAnchorA'
+  | 'awaitingAnchorB'
+  | 'awaitingAngle'
+  | 'awaitingConvergenceA'
+  | 'awaitingConvergenceB';
 
 export interface ContourLinesBasis {
   baseEdge: { a: { x: number; y: number }; b: { x: number; y: number } };
@@ -543,4 +554,9 @@ export interface ContourLinesState {
   spacingA?: number | null;
   spacingB?: number | null;
   previewSpacing?: number | null;
+  variant?: 'legacy' | 'lines2';
+  lineAngle?: number | null;
+  convergenceA?: { x: number; y: number } | null;
+  convergenceB?: { x: number; y: number } | null;
+  centroid?: { x: number; y: number } | null;
 }

@@ -8,7 +8,18 @@ import { debugLog, debugWarn } from '../../../utils/debug';
 import { snapPointToAngle } from '../../../utils/angleSnap';
 import { floodFill } from '../../../utils/floodFill';
 import { detectWacomIssues, testWacomPressure } from '../../../utils/detectWacom';
-import { calculateLineSpacingFromPointer, generateContourLines, prepareContourLinesBasis, MIN_LINE_SPACING, MAX_LINE_SPACING } from '@/utils/contourLines';
+import {
+  calculateLineSpacingFromPointer,
+  generateContourLines,
+  generateLines2Paths,
+  computeLines2Defaults,
+  computeLines2ProjectionStats,
+  getLines2SideMidpoint,
+  projectPointOntoLines2Side,
+  prepareContourLinesBasis,
+  MIN_LINE_SPACING,
+  MAX_LINE_SPACING,
+} from '@/utils/contourLines';
 import { getPresetStops } from '../../../utils/gradientPresets';
 
 export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHandlers => {
@@ -117,6 +128,72 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     overlayCtx.restore();
   };
 
+  const drawLines2Preview = (
+    angle: number,
+    convergenceA: { x: number; y: number },
+    convergenceB: { x: number; y: number }
+  ) => {
+    const overlayCanvas = overlayCanvasRef.current;
+    const overlayCtx = overlayCanvas?.getContext('2d');
+    if (!overlayCanvas || !overlayCtx) return;
+
+    const { contourLinesState } = useAppStore.getState();
+    const { shapePoints } = contourLinesState;
+    if (!shapePoints || shapePoints.length < 3) return;
+
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    overlayCtx.save();
+    overlayCtx.translate(deps.viewTransformRef.current.offsetX, deps.viewTransformRef.current.offsetY);
+    overlayCtx.scale(deps.viewTransformRef.current.scale, deps.viewTransformRef.current.scale);
+
+    overlayCtx.lineWidth = 1 / Math.max(deps.viewTransformRef.current.scale, 0.001);
+    overlayCtx.strokeStyle = tools.brushSettings.color;
+    overlayCtx.imageSmoothingEnabled = false;
+
+    const spacingSetting = tools.brushSettings.contourLines2Spacing ?? 8;
+    const densitySetting = tools.brushSettings.contourLines2Density ?? 5;
+    const alternateSetting = tools.brushSettings.contourLines2Alternate ?? true;
+
+    const paths = generateLines2Paths(
+      shapePoints,
+      {
+        angle,
+        convergenceA,
+        convergenceB,
+        spacing: spacingSetting,
+        density: densitySetting,
+        alternate: alternateSetting,
+      },
+      contourLinesState.centroid ?? undefined
+    );
+
+    const first = shapePoints[0];
+    if (first) {
+      overlayCtx.save();
+      overlayCtx.beginPath();
+      overlayCtx.moveTo(first.x, first.y);
+      for (let i = 1; i < shapePoints.length; i++) {
+        overlayCtx.lineTo(shapePoints[i].x, shapePoints[i].y);
+      }
+      overlayCtx.closePath();
+      overlayCtx.clip();
+
+      for (const path of paths) {
+        if (!path.points || path.points.length < 2) continue;
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(path.points[0].x, path.points[0].y);
+        for (let i = 1; i < path.points.length; i++) {
+          overlayCtx.lineTo(path.points[i].x, path.points[i].y);
+        }
+        overlayCtx.stroke();
+      }
+
+      overlayCtx.restore();
+    }
+
+    overlayCtx.restore();
+  };
+
   const finalizeContourLinesStroke = (spacingStart: number, spacingEnd: number) => {
     const state = useAppStore.getState();
     const { contourLinesState } = state;
@@ -147,6 +224,82 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         lineSpacingA: spacingStart,
         lineSpacingB: spacingEnd,
         lineBasis: basis,
+      }
+    );
+
+    drawingHandlers.drawingCanvasHasContent.current = true;
+    compositeCanvasDirtyRef.current = true;
+
+    drawingHandlers.finalizeDrawing(false).then(() => {
+      stateMachine.finalizationComplete();
+      requestAnimationFrame(() => {
+        if (compositeCanvasRef.current && project) {
+          compositeLayersToCanvas(compositeCanvasRef.current);
+          setCurrentOffscreenCanvas(compositeCanvasRef.current);
+          compositeCanvasDirtyRef.current = false;
+
+          const canvasEl = canvasRef.current;
+          const ctx = canvasEl?.getContext('2d', { willReadFrequently: true });
+          if (ctx) {
+            deps.draw(ctx, deps.viewTransformRef.current);
+          }
+        }
+      });
+
+      if (deps.restartColorCycleAnimation) {
+        deps.restartColorCycleAnimation();
+      }
+    });
+
+    toolStateMachine.resetPolygonGradient();
+    resetContourLinesState();
+    clearOverlayCanvas();
+  };
+
+  const finalizeLines2Stroke = (
+    angle: number,
+    convergenceA: { x: number; y: number },
+    convergenceB: { x: number; y: number }
+  ) => {
+    const state = useAppStore.getState();
+    const { contourLinesState } = state;
+    const { shapePoints, fillColor, basis, centroid } = contourLinesState;
+
+    if (!brushEngine || !shapePoints || shapePoints.length < 3) {
+      resetContourLinesState();
+      clearOverlayCanvas();
+      return;
+    }
+
+    drawingHandlers.initDrawingCanvas();
+    const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
+    if (!drawCtx) {
+      resetContourLinesState();
+      clearOverlayCanvas();
+      return;
+    }
+
+    const spacingSetting = tools.brushSettings.contourLines2Spacing ?? 8;
+    const densitySetting = tools.brushSettings.contourLines2Density ?? 5;
+    const alternateSetting = tools.brushSettings.contourLines2Alternate ?? true;
+
+    brushEngine.drawContourPolygon(
+      drawCtx,
+      {
+        vertices: shapePoints,
+        fillColor,
+      },
+      false,
+      {
+        variant: 'lines2',
+        lineBasis: basis,
+        lines2Angle: angle,
+        lines2ConvergenceA: convergenceA,
+        lines2ConvergenceB: convergenceB,
+        lines2Spacing: spacingSetting,
+        lines2Density: densitySetting,
+        lines2Alternate: alternateSetting,
+        centroid,
       }
     );
 
@@ -285,6 +438,87 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // Intentionally quiet
 
     const contourLinesState = useAppStore.getState().contourLinesState;
+
+    if (contourLinesState.variant === 'lines2') {
+      const defaults = computeLines2Defaults(contourLinesState.shapePoints, contourLinesState.basis);
+
+      if (contourLinesState.stage === 'awaitingAngle') {
+        const centroidBase = contourLinesState.centroid ?? defaults.centroid;
+        const candidate = Math.atan2(worldPos.y - centroidBase.y, worldPos.x - centroidBase.x);
+        const nextAngle = Number.isFinite(candidate) ? candidate : defaults.defaultAngle;
+        const stats = computeLines2ProjectionStats(
+          contourLinesState.shapePoints,
+          nextAngle,
+          centroidBase
+        );
+        const midpointA = getLines2SideMidpoint(stats, 'min');
+        const midpointB = getLines2SideMidpoint(stats, 'max');
+
+        setContourLinesState({
+          stage: 'awaitingConvergenceA',
+          lineAngle: nextAngle,
+          convergenceA: midpointA,
+          convergenceB: midpointB,
+          centroid: stats.centroid,
+        });
+
+        drawLines2Preview(nextAngle, midpointA, midpointB);
+
+        isMouseDownRef.current = false;
+        (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+        return;
+      }
+
+      if (contourLinesState.stage === 'awaitingConvergenceA') {
+        const angle = contourLinesState.lineAngle ?? defaults.defaultAngle;
+        const stats = computeLines2ProjectionStats(
+          contourLinesState.shapePoints,
+          angle,
+          contourLinesState.centroid ?? defaults.centroid
+        );
+        const projectedA = projectPointOntoLines2Side(stats, worldPos, 'min');
+        const fallbackB = contourLinesState.convergenceB ?? getLines2SideMidpoint(stats, 'max');
+
+        setContourLinesState({
+          stage: 'awaitingConvergenceB',
+          lineAngle: angle,
+          convergenceA: projectedA,
+          convergenceB: fallbackB,
+          centroid: stats.centroid,
+        });
+
+        drawLines2Preview(angle, projectedA, fallbackB);
+
+        isMouseDownRef.current = false;
+        (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+        return;
+      }
+
+      if (contourLinesState.stage === 'awaitingConvergenceB') {
+        const angle = contourLinesState.lineAngle ?? defaults.defaultAngle;
+        const stats = computeLines2ProjectionStats(
+          contourLinesState.shapePoints,
+          angle,
+          contourLinesState.centroid ?? defaults.centroid
+        );
+        const fallbackA = contourLinesState.convergenceA ?? getLines2SideMidpoint(stats, 'min');
+        const projectedB = projectPointOntoLines2Side(stats, worldPos, 'max');
+
+        setContourLinesState({
+          lineAngle: angle,
+          convergenceA: fallbackA,
+          convergenceB: projectedB,
+          centroid: stats.centroid,
+        });
+
+        finalizeLines2Stroke(angle, fallbackA, projectedB);
+
+        isMouseDownRef.current = false;
+        (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+        return;
+      }
+    }
+
     if (contourLinesState.stage === 'awaitingAnchorA' || contourLinesState.stage === 'awaitingAnchorB') {
       const { basis } = contourLinesState;
       if (basis) {
@@ -423,6 +657,14 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     // Shape mode should take precedence for normal brushes
     // Start shape drawing immediately to avoid interference from other branches
+    const normalizedShapeMode = tools.brushSettings.shapeGradientMode === 'mesh'
+      ? 'lines'
+      : (tools.brushSettings.shapeGradientMode || 'contour');
+    const isLines2Active = (
+      tools.brushSettings.brushShape === BrushShape.CONTOUR_LINES2 ||
+      (tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON && normalizedShapeMode === 'lines2')
+    );
+
     if (
       event.button === 0 &&
       (tools.currentTool === 'brush' || tools.currentTool === 'eraser') &&
@@ -430,6 +672,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       tools.brushSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT &&
       tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT &&
       tools.brushSettings.brushShape !== BrushShape.CONTOUR_POLYGON &&
+      !isLines2Active &&
       tools.brushSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE
     ) {
       // quiet
@@ -461,6 +704,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         tools.brushSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT &&
         tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT &&
         tools.brushSettings.brushShape !== BrushShape.CONTOUR_POLYGON &&
+        !isLines2Active &&
         tools.brushSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE) {
       // Strictly block incompatible brush/layer combinations (but allow eraser on any layer)
       if (tools.currentTool !== 'eraser') {
@@ -495,7 +739,25 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         }
         // Get the active layer
         const activeLayer = layers.find(l => l.id === activeLayerId);
-        if (!activeLayer || !activeLayer.imageData) return;
+        if (!activeLayer) return;
+        
+        // Get the image data from the layer's framebuffer
+        let currentImageData: ImageData | null = null;
+        
+        if (activeLayer.framebuffer) {
+          const fb = activeLayer.framebuffer;
+          const ctx = fb.getContext('2d', { willReadFrequently: true });
+          if (ctx) {
+            currentImageData = ctx.getImageData(0, 0, fb.width, fb.height);
+          }
+        }
+        
+        // Fall back to imageData if available
+        if (!currentImageData && activeLayer.imageData) {
+          currentImageData = activeLayer.imageData;
+        }
+        
+        if (!currentImageData) return;
         
         // Parse fill color - handle both hex and rgb formats
         const fillColor = tools.brushSettings.color;
@@ -515,9 +777,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           }
         }
         
-        // Perform flood fill on the active layer's image data
+        // Perform flood fill on the current image data
         const filledImageData = floodFill(
-          activeLayer.imageData,
+          currentImageData,
           Math.floor(worldPos.x),
           Math.floor(worldPos.y),
           { r, g, b, a: 255 },
@@ -527,10 +789,35 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           }
         );
         
-        // Update the layer with the filled image data
+        // Update the layer's framebuffer with the filled image data
+        if (activeLayer.framebuffer) {
+          const fb = activeLayer.framebuffer;
+          const ctx = fb.getContext('2d', { willReadFrequently: true });
+          if (ctx) {
+            ctx.putImageData(filledImageData, 0, 0);
+          }
+        }
+        
+        // Also update the imageData if it exists
         if (activeLayerId) {
           updateLayer(activeLayerId, { imageData: filledImageData });
         }
+        
+        // Trigger canvas composite update
+        compositeCanvasDirtyRef.current = true;
+        requestAnimationFrame(() => {
+          if (compositeCanvasRef.current && project) {
+            compositeLayersToCanvas(compositeCanvasRef.current);
+            setCurrentOffscreenCanvas(compositeCanvasRef.current);
+            compositeCanvasDirtyRef.current = false;
+            
+            const canvasEl = canvasRef.current;
+            const ctx = canvasEl?.getContext('2d', { willReadFrequently: true });
+            if (ctx) {
+              deps.draw(ctx, deps.viewTransformRef.current);
+            }
+          }
+        });
         
         // Save state for undo
         const tempCanvas = document.createElement('canvas');
@@ -1127,6 +1414,93 @@ function cssColorToHex(color: string): string {
 
     const contourLinesPreviewState = useAppStore.getState().contourLinesState;
     if (
+      contourLinesPreviewState.variant === 'lines2' &&
+      (contourLinesPreviewState.stage === 'awaitingAngle' ||
+        contourLinesPreviewState.stage === 'awaitingConvergenceA' ||
+        contourLinesPreviewState.stage === 'awaitingConvergenceB') &&
+      deps.previewAnimationFrameRef &&
+      !interaction.state.isDrawing
+    ) {
+      if (!deps.previewAnimationFrameRef.current) {
+        const nowTs = performance.now();
+        if (nowTs - lastOverlayPreviewTs < OVERLAY_PREVIEW_FRAME_MS) {
+          return;
+        }
+
+        const previewWorld = { x: worldPos.x, y: worldPos.y };
+        deps.previewAnimationFrameRef.current = requestAnimationFrame(() => {
+          lastOverlayPreviewTs = performance.now();
+
+          const currentState = useAppStore.getState().contourLinesState;
+          const defaults = computeLines2Defaults(currentState.shapePoints, currentState.basis);
+
+          if (!currentState.shapePoints || currentState.shapePoints.length < 3) {
+            if (deps.previewAnimationFrameRef) deps.previewAnimationFrameRef.current = null;
+            return;
+          }
+
+          if (currentState.stage === 'awaitingAngle') {
+            const centroidBase = currentState.centroid ?? defaults.centroid;
+            const candidate = Math.atan2(previewWorld.y - centroidBase.y, previewWorld.x - centroidBase.x);
+            const nextAngle = Number.isFinite(candidate) ? candidate : defaults.defaultAngle;
+            const stats = computeLines2ProjectionStats(currentState.shapePoints, nextAngle, centroidBase);
+            const midpointA = getLines2SideMidpoint(stats, 'min');
+            const midpointB = getLines2SideMidpoint(stats, 'max');
+
+            setContourLinesState({
+              lineAngle: nextAngle,
+              convergenceA: midpointA,
+              convergenceB: midpointB,
+              centroid: stats.centroid,
+            });
+
+            drawLines2Preview(nextAngle, midpointA, midpointB);
+          } else if (currentState.stage === 'awaitingConvergenceA') {
+            const baseAngle = currentState.lineAngle ?? defaults.defaultAngle;
+            const stats = computeLines2ProjectionStats(
+              currentState.shapePoints,
+              baseAngle,
+              currentState.centroid ?? defaults.centroid
+            );
+            const projectedA = projectPointOntoLines2Side(stats, previewWorld, 'min');
+            const fallbackB = currentState.convergenceB ?? getLines2SideMidpoint(stats, 'max');
+
+            setContourLinesState({
+              convergenceA: projectedA,
+              lineAngle: baseAngle,
+              centroid: stats.centroid,
+              convergenceB: fallbackB,
+            });
+
+            drawLines2Preview(baseAngle, projectedA, fallbackB);
+          } else if (currentState.stage === 'awaitingConvergenceB') {
+            const baseAngle = currentState.lineAngle ?? defaults.defaultAngle;
+            const stats = computeLines2ProjectionStats(
+              currentState.shapePoints,
+              baseAngle,
+              currentState.centroid ?? defaults.centroid
+            );
+            const fallbackA = currentState.convergenceA ?? getLines2SideMidpoint(stats, 'min');
+            const projectedB = projectPointOntoLines2Side(stats, previewWorld, 'max');
+
+            setContourLinesState({
+              convergenceB: projectedB,
+              lineAngle: baseAngle,
+              centroid: stats.centroid,
+              convergenceA: fallbackA,
+            });
+
+            drawLines2Preview(baseAngle, fallbackA, projectedB);
+          }
+
+          if (deps.previewAnimationFrameRef) deps.previewAnimationFrameRef.current = null;
+        });
+      }
+
+      return;
+    }
+
+    if (
       (contourLinesPreviewState.stage === 'awaitingAnchorA' || contourLinesPreviewState.stage === 'awaitingAnchorB') &&
       deps.previewAnimationFrameRef &&
       !interaction.state.isDrawing
@@ -1597,8 +1971,15 @@ function cssColorToHex(color: string): string {
     // Clear overlay canvas
     const linesStateOnPointerUp = useAppStore.getState().contourLinesState;
     const overlayCanvas = overlayCanvasRef.current;
+    const isLines2Previewing =
+      linesStateOnPointerUp.variant === 'lines2' &&
+      (linesStateOnPointerUp.stage === 'awaitingAngle' ||
+        linesStateOnPointerUp.stage === 'awaitingConvergenceA' ||
+        linesStateOnPointerUp.stage === 'awaitingConvergenceB');
+
     if (
       overlayCanvas &&
+      !isLines2Previewing &&
       !(linesStateOnPointerUp.stage === 'awaitingAnchorA' || linesStateOnPointerUp.stage === 'awaitingAnchorB')
     ) {
       const overlayCtx = overlayCanvas.getContext('2d');
@@ -1754,10 +2135,36 @@ function cssColorToHex(color: string): string {
           
           if (currentPolygonState.points.length >= 3) {
             const vertices = currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y }));
-            const shapeGradientMode = tools.brushSettings.shapeGradientMode === 'mesh'
-              ? 'lines'
-              : (tools.brushSettings.shapeGradientMode || 'contour');
-            const isContourLinesMode = toolStateMachine.isContourPolygon && shapeGradientMode === 'lines';
+            const shapeGradientMode = normalizedShapeMode;
+            const brushShape = tools.brushSettings.brushShape;
+            const isLines2Mode = toolStateMachine.isContourPolygon && (shapeGradientMode === 'lines2' || brushShape === BrushShape.CONTOUR_LINES2);
+            const isContourLinesMode = toolStateMachine.isContourPolygon && shapeGradientMode === 'lines' && !isLines2Mode;
+
+            if (isLines2Mode) {
+              const basis = prepareContourLinesBasis(vertices);
+              const defaults = computeLines2Defaults(vertices, basis);
+
+              setContourLinesState({
+                stage: 'awaitingAngle',
+                variant: 'lines2',
+                shapePoints: vertices,
+                fillColor: currentPolygonState.points[0]?.color,
+                basis: defaults.basis ?? basis ?? undefined,
+                spacingA: null,
+                spacingB: null,
+                previewSpacing: null,
+                lineAngle: defaults.defaultAngle,
+                convergenceA: defaults.convergenceA,
+                convergenceB: defaults.convergenceB,
+                centroid: defaults.centroid,
+              });
+
+              drawLines2Preview(defaults.defaultAngle, defaults.convergenceA, defaults.convergenceB);
+
+              toolStateMachine.resetPolygonGradient();
+              interaction.dispatch({ type: 'DRAWING_END' });
+              return;
+            }
 
             if (isContourLinesMode) {
               const basis = prepareContourLinesBasis(vertices);
@@ -1771,6 +2178,7 @@ function cssColorToHex(color: string): string {
 
                 setContourLinesState({
                   stage: 'awaitingAnchorA',
+                  variant: 'legacy',
                   shapePoints: vertices,
                   fillColor: currentPolygonState.points[0]?.color,
                   basis,

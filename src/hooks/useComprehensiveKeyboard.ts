@@ -285,8 +285,15 @@ export function useComprehensiveKeyboard({
     }
 
     // Polygon gradient or contour polygon completion
+    const normalizedShapeGradientMode = tools.brushSettings.shapeGradientMode === 'mesh'
+      ? 'lines'
+      : (tools.brushSettings.shapeGradientMode || 'contour');
+    const isContourLines2Mode = tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON && normalizedShapeGradientMode === 'lines2';
+
     if ((tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT || 
-         tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON) && 
+         tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON ||
+         tools.brushSettings.brushShape === BrushShape.CONTOUR_LINES2 ||
+         isContourLines2Mode) && 
         polygonGradientState.points.length >= 3) {
       if (event.key === 'Enter') {
         event.preventDefault();

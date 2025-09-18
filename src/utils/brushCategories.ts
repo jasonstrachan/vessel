@@ -26,6 +26,7 @@ export const SHAPE_FILL_BRUSHES: BrushShape[] = [
   BrushShape.RECTANGLE_GRADIENT,
   BrushShape.POLYGON_GRADIENT,
   BrushShape.CONTOUR_POLYGON,
+  BrushShape.CONTOUR_LINES2,
   BrushShape.COLOR_CYCLE_SHAPE
 ];
 

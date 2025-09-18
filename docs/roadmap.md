@@ -31,7 +31,22 @@
 
 ---
 
+
+
 ## Brushes
+
+#### Line segment rotation to define width
+using a styus we define a line width by the rotation of a line segmment. thin line pay segments mext to each other in line, as the pressure increases the segment s get rotated to a max of 90 degrees to the diecttion of rthe stroke. Max pressure is 90 degrees lines swegments
+
+Setttings: segmenbt length, Spacing (defaul to segment lengh),  
+
+#### Lines2
+- user draws a shape that closes on mouse up (use the code we already have for this shape making) plesae resuse
+- lines fill the shape curving to fit inside the shape of the 2 longers opposite edges
+- the shape acts as a mask for the lines
+- user moves the mouse and chnages the angle / rotation of the lines changes, click to set
+- user clicks to set the convergence point of the lines on one side (live preview)
+- user clicks to set the convergence point of the lines of the final side (live preview) and the lines are all baked
 
 #### CC shape sampler colors below
 All cc brushes buoild a gradienbt by sanmpling colors while drawing the stroke / gadient (8 colores by default) thwy autmatically apply this gradienbt to the shape / sttoke
