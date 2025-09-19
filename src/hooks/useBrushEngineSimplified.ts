@@ -4,6 +4,7 @@
  */
 
 import { useCallback, useMemo, useRef, useEffect } from 'react';
+import Delaunator from 'delaunator';
 import { useAppStore } from '../stores/useAppStore';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams, type CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 import { BrushShape } from '../types';
@@ -1378,6 +1379,9 @@ export const useBrushEngineSimplified = () => {
     const validVertices = vertices.filter(v => v && typeof v.x === 'number' && typeof v.y === 'number');
     if (validVertices.length < 3) return;
 
+    const rawMode = tools.brushSettings.shapeGradientMode || 'contour';
+    const mode = rawMode === 'mesh' ? 'lines' : rawMode;
+
     // Save context state
     ctx.save();
     
@@ -1390,10 +1394,15 @@ export const useBrushEngineSimplified = () => {
     ctx.globalAlpha = tools.brushSettings.opacity;
     ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
 
-    // Fill the polygon first with sampled color (from first click) if provided
+    // Fill the polygon first with sampled color (from first click) if provided.
+    // Skip this for contour line modes so the baked result keeps the background transparent.
     try {
       const fc = fillColor || undefined;
-      if (fc && validVertices.length >= 3) {
+      const shouldFillPolygon =
+        Boolean(fc) &&
+        validVertices.length >= 3 &&
+        !['contour', 'lines', 'lines2', 'triangle'].includes(mode);
+      if (shouldFillPolygon) {
         ctx.save();
         ctx.beginPath();
         ctx.moveTo(Math.round(validVertices[0].x), Math.round(validVertices[0].y));
@@ -1413,9 +1422,7 @@ export const useBrushEngineSimplified = () => {
     } catch {}
     
     // Check the shape gradient mode and render accordingly
-    const rawMode = tools.brushSettings.shapeGradientMode || 'contour';
-    const mode = rawMode === 'mesh' ? 'lines' : rawMode;
-    
+
     // Calculate bounds for all modes
     const minX = Math.floor(Math.min(...validVertices.map(v => v.x)));
     const minY = Math.floor(Math.min(...validVertices.map(v => v.y)));
@@ -1505,9 +1512,9 @@ export const useBrushEngineSimplified = () => {
 
       ctx.save();
       ctx.beginPath();
-      ctx.moveTo(validVertices[0].x, validVertices[0].y);
+      ctx.moveTo(snapToPixel(validVertices[0].x), snapToPixel(validVertices[0].y));
       for (let i = 1; i < validVertices.length; i++) {
-        ctx.lineTo(validVertices[i].x, validVertices[i].y);
+        ctx.lineTo(snapToPixel(validVertices[i].x), snapToPixel(validVertices[i].y));
       }
       ctx.closePath();
       ctx.clip();
@@ -1526,77 +1533,422 @@ export const useBrushEngineSimplified = () => {
       ctx.restore();
       return;
     } else if (mode === 'triangle') {
-      // Triangle mode - draw triangulated mesh
-      ctx.strokeStyle = tools.brushSettings.color;
-      ctx.lineWidth = 1;
-      
-      // Create clipping path
+      const clampValue = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+      const rotationDeg = tools.brushSettings.triangleFillRotation ?? 0;
+      const rotationRad = (rotationDeg % 360) * Math.PI / 180;
+      const estimatedSize = Math.max(12, Math.min(96, Math.min(boundWidth, boundHeight) / 2));
+      const baseSizeSetting = tools.brushSettings.triangleFillSize ?? estimatedSize;
+      const cellSize = clampValue(baseSizeSetting, 8, 200);
+      const jitterPct = clampValue((tools.brushSettings.triangleFillJitter ?? 35) / 100, 0, 1);
+
+      const polygonCentroid = (() => {
+        let areaAcc = 0;
+        let cxAcc = 0;
+        let cyAcc = 0;
+        for (let i = 0; i < validVertices.length; i++) {
+          const current = validVertices[i];
+          const next = validVertices[(i + 1) % validVertices.length];
+          const cross = current.x * next.y - next.x * current.y;
+          areaAcc += cross;
+          cxAcc += (current.x + next.x) * cross;
+          cyAcc += (current.y + next.y) * cross;
+        }
+        const area = areaAcc / 2;
+        if (Math.abs(area) < 1e-5) {
+          const avg = validVertices.reduce(
+            (acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }),
+            { x: 0, y: 0 }
+          );
+          return {
+            x: avg.x / validVertices.length,
+            y: avg.y / validVertices.length,
+          };
+        }
+        return {
+          x: cxAcc / (6 * area),
+          y: cyAcc / (6 * area),
+        };
+      })();
+
+      const sinR = Math.sin(rotationRad);
+      const cosR = Math.cos(rotationRad);
+
+      const toRotated = (point: { x: number; y: number }) => {
+        const dx = point.x - polygonCentroid.x;
+        const dy = point.y - polygonCentroid.y;
+        return {
+          x: dx * cosR + dy * sinR,
+          y: -dx * sinR + dy * cosR,
+        };
+      };
+
+      const fromRotated = (point: { x: number; y: number }) => ({
+        x: polygonCentroid.x + point.x * cosR - point.y * sinR,
+        y: polygonCentroid.y + point.x * sinR + point.y * cosR,
+      });
+
+      const rotatedVertices = validVertices.map(toRotated);
+      const padding = cellSize * 2;
+      const minRotX = Math.min(...rotatedVertices.map(v => v.x)) - padding;
+      const maxRotX = Math.max(...rotatedVertices.map(v => v.x)) + padding;
+      const minRotY = Math.min(...rotatedVertices.map(v => v.y)) - padding;
+      const maxRotY = Math.max(...rotatedVertices.map(v => v.y)) + padding;
+
+      const minCol = Math.floor(minRotX / cellSize) - 1;
+      const maxCol = Math.ceil(maxRotX / cellSize) + 1;
+      const minRow = Math.floor(minRotY / cellSize) - 1;
+      const maxRow = Math.ceil(maxRotY / cellSize) + 1;
+
+      let seedValue = Math.floor((polygonCentroid.x + polygonCentroid.y) * 9973) ^ Math.floor(cellSize * 131) ^ Math.floor(rotationDeg * 53);
+      seedValue = (seedValue ^ (seedValue >>> 13)) >>> 0;
+
+      const random = (row: number, col: number, variant: number): number => {
+        let s = seedValue;
+        s ^= Math.imul(row + 2048, 374761393);
+        s ^= Math.imul(col + 4096, 668265263);
+        s ^= Math.imul(variant + 12289, 2246822519);
+        s = (s ^ (s >>> 15)) >>> 0;
+        s = Math.imul(s, 3266489917) >>> 0;
+        return (s & 0xffffffff) / 0xffffffff;
+      };
+
+      const randomScalar = (token: number) => {
+        let s = seedValue ^ Math.imul(token + 8192, 2246822519);
+        s = (s ^ (s >>> 15)) >>> 0;
+        s = Math.imul(s, 3266489917) >>> 0;
+        return (s & 0xffffffff) / 0xffffffff;
+      };
+
+      const columnCount = maxCol - minCol + 2;
+      const rowCount = maxRow - minRow + 2;
+
+      const columnPositions: number[] = new Array(columnCount);
+      columnPositions[0] = minCol * cellSize;
+      for (let i = 1; i < columnCount; i++) {
+        const scale = 0.65 + randomScalar(i) * 0.7;
+        columnPositions[i] = columnPositions[i - 1] + cellSize * scale;
+      }
+
+      const rowPositions: number[] = new Array(rowCount);
+      rowPositions[0] = minRow * cellSize;
+      for (let i = 1; i < rowCount; i++) {
+        const scale = 0.65 + randomScalar(4096 + i) * 0.7;
+        rowPositions[i] = rowPositions[i - 1] + cellSize * scale;
+      }
+
+      const getHorizontalSpan = (index: number) => {
+        const prev = index > 0 ? columnPositions[index] - columnPositions[index - 1] : columnPositions[index + 1] - columnPositions[index];
+        const next = index + 1 < columnPositions.length ? columnPositions[index + 1] - columnPositions[index] : prev;
+        return Math.max(4, (prev + next) * 0.5);
+      };
+
+      const getVerticalSpan = (index: number) => {
+        const prev = index > 0 ? rowPositions[index] - rowPositions[index - 1] : rowPositions[index + 1] - rowPositions[index];
+        const next = index + 1 < rowPositions.length ? rowPositions[index + 1] - rowPositions[index] : prev;
+        return Math.max(4, (prev + next) * 0.5);
+      };
+
+      const isPointInside = (x: number, y: number): boolean => {
+        let inside = false;
+        for (let i = 0, j = rotatedVertices.length - 1; i < rotatedVertices.length; j = i++) {
+          const xi = rotatedVertices[i].x;
+          const yi = rotatedVertices[i].y;
+          const xj = rotatedVertices[j].x;
+          const yj = rotatedVertices[j].y;
+          const denom = (yj - yi) || 1e-6;
+          const intersect = ((yi > y) !== (yj > y)) && (x < ((xj - xi) * (y - yi)) / denom + xi);
+          if (intersect) inside = !inside;
+        }
+        return inside;
+      };
+
+      const triangleArea = (
+        p0: { x: number; y: number },
+        p1: { x: number; y: number },
+        p2: { x: number; y: number }
+      ): number => {
+        return Math.abs(
+          p0.x * (p1.y - p2.y) +
+          p1.x * (p2.y - p0.y) +
+          p2.x * (p0.y - p1.y)
+        ) * 0.5;
+      };
+
+      const strokeWidth = 0.75; // constant thin line regardless of triangle scale
+
+      const drawnEdges = new Set<string>();
+      const drawnVertices = new Set<string>();
+      const snap = (value: number) => Math.round(value) + 0.5;
+      const edgeKey = (p1: { x: number; y: number }, p2: { x: number; y: number }) => {
+        const k1 = `${Math.round(p1.x * 1000)}:${Math.round(p1.y * 1000)}`;
+        const k2 = `${Math.round(p2.x * 1000)}:${Math.round(p2.y * 1000)}`;
+        return k1 < k2 ? `${k1}|${k2}` : `${k2}|${k1}`;
+      };
+      const vertexKey = (p: { x: number; y: number }) => `${Math.round(p.x * 1000)}:${Math.round(p.y * 1000)}`;
+
+      const pointMap = new Map<string, { x: number; y: number; isBoundary: boolean }>();
+      const addPoint = (point: { x: number; y: number }, isBoundary: boolean) => {
+        const key = `${Math.round(point.x * 1000)}:${Math.round(point.y * 1000)}`;
+        const existing = pointMap.get(key);
+        if (!existing) {
+          pointMap.set(key, { x: point.x, y: point.y, isBoundary });
+        } else if (isBoundary && !existing.isBoundary) {
+          pointMap.set(key, { ...existing, isBoundary: true });
+        }
+      };
+
+      rotatedVertices.forEach(vertex => addPoint(vertex, true));
+
+      for (let i = 0; i < rotatedVertices.length; i++) {
+        const current = rotatedVertices[i];
+        const next = rotatedVertices[(i + 1) % rotatedVertices.length];
+        const edgeLength = Math.hypot(next.x - current.x, next.y - current.y);
+        const segments = Math.max(1, Math.round(edgeLength / cellSize));
+        for (let s = 1; s < segments; s++) {
+          const t = s / segments;
+          addPoint(
+            {
+              x: current.x + (next.x - current.x) * t,
+              y: current.y + (next.y - current.y) * t,
+            },
+            true
+          );
+        }
+      }
+
+      const nextRandom = (() => {
+        let state = seedValue || 1;
+        return () => {
+          state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+          return state / 0xffffffff;
+        };
+      })();
+
+      const generatePoissonPoints = () => {
+        const width = maxRotX - minRotX;
+        const height = maxRotY - minRotY;
+        if (width <= 0 || height <= 0) return [] as Array<{ x: number; y: number }>;
+
+        const minDistance = cellSize * (0.55 + jitterPct * 0.35);
+        const minDistanceSq = minDistance * minDistance;
+        const k = 30;
+        const cellSizePoisson = minDistance / Math.sqrt(2);
+        const gridWidth = Math.ceil(width / cellSizePoisson);
+        const gridHeight = Math.ceil(height / cellSizePoisson);
+        const grid: number[] = new Array(gridWidth * gridHeight).fill(-1);
+        const samples: Array<{ x: number; y: number }> = [];
+        const active: number[] = [];
+
+        const toGridCoords = (pt: { x: number; y: number }) => {
+          const gx = Math.floor((pt.x - minRotX) / cellSizePoisson);
+          const gy = Math.floor((pt.y - minRotY) / cellSizePoisson);
+          return { gx, gy };
+        };
+
+        const insertPoint = (pt: { x: number; y: number }) => {
+          samples.push(pt);
+          const { gx, gy } = toGridCoords(pt);
+          if (gx >= 0 && gx < gridWidth && gy >= 0 && gy < gridHeight) {
+            grid[gy * gridWidth + gx] = samples.length - 1;
+          }
+          active.push(samples.length - 1);
+        };
+
+        const initialPoint = (() => {
+          for (let attempt = 0; attempt < 40; attempt++) {
+            const pt = {
+              x: minRotX + nextRandom() * width,
+              y: minRotY + nextRandom() * height,
+            };
+            if (isPointInside(pt.x, pt.y)) return pt;
+          }
+          return { x: polygonCentroid.x, y: polygonCentroid.y };
+        })();
+
+        insertPoint(initialPoint);
+
+        const maxSamples = 600;
+
+        while (active.length > 0 && samples.length < maxSamples) {
+          const activeIndex = Math.floor(nextRandom() * active.length);
+          const pointIndex = active[activeIndex];
+          const basePoint = samples[pointIndex];
+          let found = false;
+
+          for (let attempt = 0; attempt < k; attempt++) {
+            const radius = minDistance * (1 + nextRandom());
+            const angle = nextRandom() * Math.PI * 2;
+            const newPoint = {
+              x: basePoint.x + Math.cos(angle) * radius,
+              y: basePoint.y + Math.sin(angle) * radius,
+            };
+
+            if (
+              newPoint.x >= minRotX &&
+              newPoint.x <= maxRotX &&
+              newPoint.y >= minRotY &&
+              newPoint.y <= maxRotY &&
+              isPointInside(newPoint.x, newPoint.y)
+            ) {
+              const { gx, gy } = toGridCoords(newPoint);
+              let ok = true;
+              for (let y = gy - 2; y <= gy + 2 && ok; y++) {
+                if (y < 0 || y >= gridHeight) continue;
+                for (let x = gx - 2; x <= gx + 2; x++) {
+                  if (x < 0 || x >= gridWidth) continue;
+                  const idx = grid[y * gridWidth + x];
+                  if (idx !== -1) {
+                    const s = samples[idx];
+                    const distSq = (s.x - newPoint.x) * (s.x - newPoint.x) + (s.y - newPoint.y) * (s.y - newPoint.y);
+                    if (distSq < minDistanceSq) {
+                      ok = false;
+                      break;
+                    }
+                  }
+                }
+              }
+
+              if (ok) {
+                insertPoint(newPoint);
+                found = true;
+                break;
+              }
+            }
+          }
+
+          if (!found) {
+            active.splice(activeIndex, 1);
+          }
+        }
+
+        return samples;
+      };
+
+      const poissonPoints = generatePoissonPoints();
+      for (const samplePoint of poissonPoints) {
+        if (nextRandom() < 0.18) {
+          // Occasionally skip a point to introduce larger triangles
+          continue;
+        }
+
+        addPoint(samplePoint, false);
+
+        // Occasionally add a clustered companion point for smaller local triangles
+        if (nextRandom() < (0.25 + jitterPct * 0.45)) {
+          const offsetMagnitude = cellSize * (0.12 + nextRandom() * 0.38);
+          const offsetAngle = nextRandom() * Math.PI * 2;
+          const companionPoint = {
+            x: samplePoint.x + Math.cos(offsetAngle) * offsetMagnitude,
+            y: samplePoint.y + Math.sin(offsetAngle) * offsetMagnitude,
+          };
+          if (isPointInside(companionPoint.x, companionPoint.y)) {
+            addPoint(companionPoint, false);
+          }
+        }
+      }
+
+      const pointsForTriangulation = Array.from(pointMap.values());
+
+      if (pointsForTriangulation.length < 3) {
+        ctx.restore();
+        ctx.restore();
+        return;
+      }
+
+      let triangleIndices: Uint32Array | Uint16Array;
+      try {
+        const delaunay = Delaunator.from(pointsForTriangulation, (p: {x: number, y: number}) => p.x, (p: {x: number, y: number}) => p.y);
+        triangleIndices = delaunay.triangles;
+      } catch (error) {
+        try { debugLog('triangle-fill', 'delaunay_failed', error); } catch {}
+        ctx.restore();
+        ctx.restore();
+        return;
+      }
+
       ctx.save();
       ctx.beginPath();
-      ctx.moveTo(validVertices[0].x, validVertices[0].y);
-      validVertices.slice(1).forEach(vertex => ctx.lineTo(vertex.x, vertex.y));
+      ctx.moveTo(snap(validVertices[0].x), snap(validVertices[0].y));
+      for (let i = 1; i < validVertices.length; i++) {
+        ctx.lineTo(snap(validVertices[i].x), snap(validVertices[i].y));
+      }
       ctx.closePath();
-      ctx.clip();
-      
-      // Simple triangulation - connect center to all edges
-      const centerX = validVertices.reduce((sum, v) => sum + v.x, 0) / validVertices.length;
-      const centerY = validVertices.reduce((sum, v) => sum + v.y, 0) / validVertices.length;
-      
-      // Draw triangles from center to each edge
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = strokeWidth;
+      ctx.lineJoin = 'miter';
+      ctx.lineCap = 'butt';
+      ctx.imageSmoothingEnabled = false;
+      ctx.stroke();
+
+      ctx.lineJoin = 'miter';
+      ctx.lineCap = 'butt';
+
       for (let i = 0; i < validVertices.length; i++) {
-        const next = (i + 1) % validVertices.length;
-        
-        ctx.beginPath();
-        ctx.moveTo(centerX, centerY);
-        ctx.lineTo(validVertices[i].x, validVertices[i].y);
-        ctx.lineTo(validVertices[next].x, validVertices[next].y);
-        ctx.closePath();
-        ctx.stroke();
+        const current = validVertices[i];
+        const next = validVertices[(i + 1) % validVertices.length];
+        drawnEdges.add(edgeKey({ x: snap(current.x), y: snap(current.y) }, { x: snap(next.x), y: snap(next.y) }));
+        drawnVertices.add(vertexKey({ x: current.x, y: current.y }));
       }
-      
-      // Add some internal triangulation for more detail
-      const gridSize = Math.max(20, Math.min(40, Math.min(boundWidth, boundHeight) / 8));
-      
-      // Create internal grid points
-      const internalPoints: Array<{x: number, y: number}> = [];
-      for (let x = minX + gridSize; x < maxX; x += gridSize) {
-        for (let y = minY + gridSize; y < maxY; y += gridSize) {
-          // Check if point is inside polygon using helper function
-          let inside = false;
-          for (let i = 0, j = validVertices.length - 1; i < validVertices.length; j = i++) {
-            const xi = validVertices[i].x, yi = validVertices[i].y;
-            const xj = validVertices[j].x, yj = validVertices[j].y;
-            
-            const intersect = ((yi > y) !== (yj > y))
-                && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-            if (intersect) inside = !inside;
-          }
-          if (inside) {
-            internalPoints.push({x, y});
-          }
+
+      for (let i = 0; i < triangleIndices.length; i += 3) {
+        const p0 = pointsForTriangulation[triangleIndices[i]];
+        const p1 = pointsForTriangulation[triangleIndices[i + 1]];
+        const p2 = pointsForTriangulation[triangleIndices[i + 2]];
+
+        if (!p0 || !p1 || !p2) continue;
+
+        const centroidRot = {
+          x: (p0.x + p1.x + p2.x) / 3,
+          y: (p0.y + p1.y + p2.y) / 3,
+        };
+
+        if (!isPointInside(centroidRot.x, centroidRot.y)) {
+          continue;
+        }
+
+        if (triangleArea(p0, p1, p2) < 0.5) {
+          continue;
+        }
+
+        const a = fromRotated(p0);
+        const b = fromRotated(p1);
+        const c = fromRotated(p2);
+
+        const edges: Array<[ { x: number; y: number }, { x: number; y: number } ]> = [
+          [a, b],
+          [b, c],
+          [c, a],
+        ];
+
+        for (const [p1World, p2World] of edges) {
+          const key = edgeKey(p1World, p2World);
+          if (drawnEdges.has(key)) continue;
+          drawnEdges.add(key);
+
+          ctx.beginPath();
+          ctx.moveTo(snap(p1World.x), snap(p1World.y));
+          ctx.lineTo(snap(p2World.x), snap(p2World.y));
+          ctx.strokeStyle = '#000000';
+          ctx.stroke();
+
+          drawnVertices.add(vertexKey(p1World));
+          drawnVertices.add(vertexKey(p2World));
         }
       }
-      
-      // Connect internal points with triangles
-      for (const point of internalPoints) {
-        // Find nearest vertices
-        const distances = validVertices.map(v => ({
-          vertex: v,
-          dist: Math.hypot(v.x - point.x, v.y - point.y)
-        })).sort((a, b) => a.dist - b.dist);
-        
-        // Connect to nearest 3 vertices
-        if (distances.length >= 3) {
-          for (let i = 0; i < 2; i++) {
-            ctx.beginPath();
-            ctx.moveTo(point.x, point.y);
-            ctx.lineTo(distances[i].vertex.x, distances[i].vertex.y);
-            ctx.lineTo(distances[i + 1].vertex.x, distances[i + 1].vertex.y);
-            ctx.stroke();
-          }
+
+      if (drawnVertices.size > 0) {
+        const junctionRadius = strokeWidth * 1.6;
+        ctx.fillStyle = '#000000';
+        for (const key of drawnVertices) {
+          const [xStr, yStr] = key.split(':');
+          const vx = Number(xStr) / 1000;
+          const vy = Number(yStr) / 1000;
+          ctx.beginPath();
+          ctx.arc(vx, vy, junctionRadius, 0, Math.PI * 2);
+          ctx.fill();
         }
       }
-      
+
       ctx.restore();
       ctx.restore();
       return;
@@ -1834,7 +2186,142 @@ export const useBrushEngineSimplified = () => {
     
     // Restore context state
     ctx.restore();
-  }, [tools.brushSettings.contourSpacing, tools.brushSettings.contourSmoothness, tools.brushSettings.shapeGradientMode, tools.brushSettings.contourVariance, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.blendMode, tools.brushSettings.color, applyRisographEffect, createSignedDistanceField, extractContour, connectSegments, gaussianSmooth]);
+  }, [
+    tools.brushSettings.contourSpacing,
+    tools.brushSettings.contourSmoothness,
+    tools.brushSettings.shapeGradientMode,
+    tools.brushSettings.contourVariance,
+    tools.brushSettings.risographIntensity,
+    tools.brushSettings.opacity,
+    tools.brushSettings.blendMode,
+    tools.brushSettings.color,
+    tools.brushSettings.triangleFillRotation,
+    tools.brushSettings.triangleFillSize,
+    tools.brushSettings.triangleFillJitter,
+    applyRisographEffect,
+    createSignedDistanceField,
+    extractContour,
+    connectSegments,
+    gaussianSmooth
+  ]);
+
+  /**
+   * Draw cross-hatch polygon - fills with rough, hand-drawn cross-hatching pattern
+   */
+  const drawCrossHatchPolygon = useCallback((
+    ctx: CanvasRenderingContext2D,
+    polygonData: { vertices: Array<{ x: number; y: number }>; fillColor?: string },
+    isPreview: boolean = false
+  ) => {
+    const { vertices, fillColor } = polygonData || {};
+    
+    if (!vertices || !Array.isArray(vertices) || vertices.length < 3) return;
+    
+    // Validate all vertices
+    const validVertices = vertices.filter(v => v && typeof v.x === 'number' && typeof v.y === 'number');
+    if (validVertices.length < 3) return;
+
+    // Save context state
+    ctx.save();
+    
+    // Apply opacity and blend mode
+    ctx.globalAlpha = tools.brushSettings.opacity;
+    ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
+
+    // Get cross-hatch settings
+    const rotation = (tools.brushSettings.crossHatchRotation || 45) * Math.PI / 180;
+    const spacing = tools.brushSettings.crossHatchSpacing || 10;
+    const lineWidth = tools.brushSettings.crossHatchLineWidth || 2;
+
+    // Calculate bounds
+    const minX = Math.min(...validVertices.map(v => v.x)) - spacing;
+    const maxX = Math.max(...validVertices.map(v => v.x)) + spacing;
+    const minY = Math.min(...validVertices.map(v => v.y)) - spacing;
+    const maxY = Math.max(...validVertices.map(v => v.y)) + spacing;
+    const width = maxX - minX;
+    const height = maxY - minY;
+    const diagonal = Math.sqrt(width * width + height * height);
+
+    // Create clipping mask
+    ctx.beginPath();
+    ctx.moveTo(validVertices[0].x, validVertices[0].y);
+    for (let i = 1; i < validVertices.length; i++) {
+      ctx.lineTo(validVertices[i].x, validVertices[i].y);
+    }
+    ctx.closePath();
+    ctx.clip();
+
+    // Set up line style - always use black for hatching
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = lineWidth;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // Function to add hand-drawn waviness to a line
+    const drawWavyLine = (x1: number, y1: number, x2: number, y2: number) => {
+      const segments = 8;
+      const amplitude = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      
+      for (let i = 1; i <= segments; i++) {
+        const t = i / segments;
+        const baseX = x1 + (x2 - x1) * t;
+        const baseY = y1 + (y2 - y1) * t;
+        
+        // Add perpendicular offset for waviness
+        const perpAngle = Math.atan2(y2 - y1, x2 - x1) + Math.PI / 2;
+        const offset = Math.sin(t * Math.PI * 4) * amplitude * (0.5 + Math.random() * 0.5);
+        const wobbleX = baseX + Math.cos(perpAngle) * offset;
+        const wobbleY = baseY + Math.sin(perpAngle) * offset;
+        
+        if (i === segments) {
+          ctx.lineTo(x2, y2);
+        } else {
+          ctx.lineTo(wobbleX, wobbleY);
+        }
+      }
+      
+      ctx.stroke();
+    };
+
+    // Draw first set of lines
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    
+    for (let i = -diagonal; i <= diagonal; i += spacing) {
+      const offset = i;
+      
+      // Calculate line endpoints
+      const startX = centerX + Math.cos(rotation + Math.PI/2) * offset - Math.cos(rotation) * diagonal;
+      const startY = centerY + Math.sin(rotation + Math.PI/2) * offset - Math.sin(rotation) * diagonal;
+      const endX = centerX + Math.cos(rotation + Math.PI/2) * offset + Math.cos(rotation) * diagonal;
+      const endY = centerY + Math.sin(rotation + Math.PI/2) * offset + Math.sin(rotation) * diagonal;
+      
+      drawWavyLine(startX, startY, endX, endY);
+    }
+
+    // Draw second set of lines (perpendicular)
+    const rotation2 = rotation + Math.PI / 2;
+    
+    for (let i = -diagonal; i <= diagonal; i += spacing) {
+      const offset = i;
+      
+      // Add slight variation to spacing for hand-drawn look
+      const jitter = (Math.random() - 0.5) * 2;
+      
+      // Calculate line endpoints
+      const startX = centerX + Math.cos(rotation2 + Math.PI/2) * (offset + jitter) - Math.cos(rotation2) * diagonal;
+      const startY = centerY + Math.sin(rotation2 + Math.PI/2) * (offset + jitter) - Math.sin(rotation2) * diagonal;
+      const endX = centerX + Math.cos(rotation2 + Math.PI/2) * (offset + jitter) + Math.cos(rotation2) * diagonal;
+      const endY = centerY + Math.sin(rotation2 + Math.PI/2) * (offset + jitter) + Math.sin(rotation2) * diagonal;
+      
+      drawWavyLine(startX, startY, endX, endY);
+    }
+    
+    // Restore context state
+    ctx.restore();
+  }, [tools.brushSettings]);
 
   /**
    * Initialize Color Cycle Brush for the active layer
@@ -2417,6 +2904,7 @@ export const useBrushEngineSimplified = () => {
     drawRectangleGradient,
     drawPolygonGradient,
     drawContourPolygon,
+    drawCrossHatchPolygon,
     
     // Color cycle brush
     drawColorCycle,

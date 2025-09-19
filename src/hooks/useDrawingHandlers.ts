@@ -1363,6 +1363,10 @@ export function useDrawingHandlers({
       if (isBusyRef) isBusyRef.current = false;
     }
   }, [project, captureCanvasToActiveLayer, saveCanvasState, isBusyRef, userBrushEngine, brushEngine, tools.shapeMode, processBatchedStrokes]);
+
+  const finalizeStroke = useCallback(() => {
+    void finalizeDrawing(false);
+  }, [finalizeDrawing]);
   
   const clearDrawingCanvas = useCallback(() => {
     if (drawingCtxRef.current && drawingCanvasRef.current) {
@@ -2289,6 +2293,7 @@ export function useDrawingHandlers({
     startDrawing,
     continueDrawing,
     finalizeDrawing,
+    finalizeStroke,
     clearDrawingCanvas,
     startShapeDrawing,
     continueShapeDrawing,

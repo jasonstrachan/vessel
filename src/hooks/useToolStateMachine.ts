@@ -64,7 +64,7 @@ export function useToolStateMachine({
     
     return null;
   }, [setRectangleBrushState]);
-  
+
   const handleRectangleGradientMouseUp = useCallback(() => {
     const currentState = useAppStore.getState().rectangleBrushState;
     
@@ -93,11 +93,22 @@ export function useToolStateMachine({
       endPos: { x: 0, y: 0 }
     });
   }, [setRectangleBrushState]);
-  
+
+  const resolvePolygonPointColor = useCallback((worldPos: { x: number; y: number }) => {
+    const { tools } = useAppStore.getState();
+    const brushSettings = tools.brushSettings;
+    if (brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
+      return sampleColorAtPosition(worldPos.x, worldPos.y);
+    }
+    if (brushSettings.shapeFillUseSampledColor) {
+      return sampleColorAtPosition(worldPos.x, worldPos.y);
+    }
+    return brushSettings.color;
+  }, [sampleColorAtPosition]);
+
   // Polygon gradient state machine
   const handlePolygonGradientMouseDown = useCallback((worldPos: { x: number; y: number }) => {
-    // Sample color from the canvas at this position
-    const sampledColor = sampleColorAtPosition(worldPos.x, worldPos.y);
+    const sampledColor = resolvePolygonPointColor(worldPos);
     
     setPolygonGradientState({
       drawingState: 'drawing',
@@ -105,11 +116,19 @@ export function useToolStateMachine({
         x: worldPos.x,
         y: worldPos.y,
         color: sampledColor
-      }]
+      }],
+      vertices: undefined,
+      fillColor: sampledColor,
+      adjustmentStartPos: undefined,
+      tempRotation: undefined,
+      tempSpacing: undefined,
+      mode: undefined,
+      rotationReferenceAngle: undefined,
+      rotationInitialRotation: undefined,
     });
     
     return true; // Proceed with drawing state
-  }, [sampleColorAtPosition, setPolygonGradientState]);
+  }, [resolvePolygonPointColor, setPolygonGradientState]);
   
   const handlePolygonGradientMouseMove = useCallback((worldPos: { x: number; y: number }) => {
     const currentState = useAppStore.getState().polygonGradientState;
@@ -121,8 +140,7 @@ export function useToolStateMachine({
         const minSpacing = 5;
         
         if (distance >= minSpacing) {
-          // Sample color from the canvas at this position
-          const sampledColor = sampleColorAtPosition(worldPos.x, worldPos.y);
+          const sampledColor = resolvePolygonPointColor(worldPos);
           const newPoints = [...currentState.points, {
             x: worldPos.x,
             y: worldPos.y,
@@ -137,9 +155,9 @@ export function useToolStateMachine({
       }
       return true; // Drawing in progress
     }
-    
+  
     return false;
-  }, [sampleColorAtPosition, setPolygonGradientState]);
+  }, [resolvePolygonPointColor, setPolygonGradientState]);
   
   const handlePolygonGradientMouseUp = useCallback(() => {
     const currentState = useAppStore.getState().polygonGradientState;
@@ -149,7 +167,18 @@ export function useToolStateMachine({
   const resetPolygonGradient = useCallback(() => {
     setPolygonGradientState({
       drawingState: 'idle',
-      points: []
+      points: [],
+      vertices: undefined,
+      fillColor: undefined,
+      adjustmentStartPos: undefined,
+      tempRotation: undefined,
+      tempSpacing: undefined,
+      tempSize: undefined,
+      mode: undefined,
+      rotationReferenceAngle: undefined,
+      rotationInitialRotation: undefined,
+      sizeReferenceDistance: undefined,
+      sizeInitialSize: undefined,
     });
   }, [setPolygonGradientState]);
   

@@ -1118,16 +1118,30 @@ const BrushControls = () => {
               { label: 'Contour', value: 'contour' },
               { label: 'Lines', value: 'lines' },
               { label: 'Lines 2', value: 'lines2' },
-              { label: 'Triangle', value: 'triangle' }
+              { label: 'Delaunator', value: 'triangle' },
+              { label: 'Hatch', value: 'crosshatch' }
             ]}
             value={(activeSettings.shapeGradientMode === 'mesh'
               ? 'lines'
               : activeSettings.shapeGradientMode) || 'contour'}
             onChange={(value) => setActiveSettings({ 
-              shapeGradientMode: value as 'contour' | 'lines' | 'lines2' | 'triangle' 
+              shapeGradientMode: value as 'contour' | 'lines' | 'lines2' | 'triangle' | 'crosshatch' 
             })}
             className="w-full"
           />
+        </div>
+
+        <div className="mb-3">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-24" style={{ fontSize: '14px' }}>
+              Sample
+            </label>
+            <CustomSwitch
+              id="shape-fill-sample-toggle"
+              checked={activeSettings.shapeFillUseSampledColor ?? false}
+              onChange={(checked) => setActiveSettings({ shapeFillUseSampledColor: checked })}
+            />
+          </div>
         </div>
 
         {/* Contour controls */}
@@ -1253,6 +1267,147 @@ const BrushControls = () => {
               <span className="text-[#9FA0A4]" style={{ fontSize: '12px' }}>
                 Toggle offset direction every other line group.
               </span>
+            </div>
+          </>
+        )}
+
+        {activeSettings.shapeGradientMode === 'triangle' && (
+          <>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Rotation
+                </label>
+                <ProgressSlider
+                  value={activeSettings.triangleFillRotation ?? 0}
+                  min={0}
+                  max={180}
+                  step={5}
+                  onChange={(value) =>
+                    setActiveSettings({ triangleFillRotation: Math.round(value) })
+                  }
+                  aria-label="Triangle Rotation"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                  {(activeSettings.triangleFillRotation ?? 0)}°
+                </span>
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Size
+                </label>
+                <ProgressSlider
+                  value={activeSettings.triangleFillSize ?? 36}
+                  min={8}
+                  max={160}
+                  step={2}
+                  onChange={(value) =>
+                    setActiveSettings({ triangleFillSize: Math.round(value) })
+                  }
+                  aria-label="Triangle Size"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                  {(activeSettings.triangleFillSize ?? 36)}px
+                </span>
+              </div>
+            </div>
+
+            <div className="mb-1">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Variation
+                </label>
+                <ProgressSlider
+                  value={activeSettings.triangleFillJitter ?? 35}
+                  min={0}
+                  max={100}
+                  step={5}
+                  onChange={(value) =>
+                    setActiveSettings({ triangleFillJitter: Math.round(value) })
+                  }
+                  aria-label="Triangle Variation"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                  {(activeSettings.triangleFillJitter ?? 35)}%
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Hatch controls */}
+        {activeSettings.shapeGradientMode === 'crosshatch' && (
+          <>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Rotation
+                </label>
+                <ProgressSlider
+                  value={activeSettings.crossHatchRotation || 45}
+                  min={0}
+                  max={360}
+                  step={5}
+                  onChange={(value) =>
+                    setActiveSettings({ crossHatchRotation: Math.round(value) })
+                  }
+                  aria-label="Hatch Rotation"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                  {activeSettings.crossHatchRotation || 45}°
+                </span>
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Spacing
+                </label>
+                <ProgressSlider
+                  value={activeSettings.crossHatchSpacing || 10}
+                  min={2}
+                  max={50}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ crossHatchSpacing: Math.round(value) })
+                  }
+                  aria-label="Hatch Spacing"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                  {activeSettings.crossHatchSpacing || 10}px
+                </span>
+              </div>
+            </div>
+
+            <div className="mb-1">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Width
+                </label>
+                <ProgressSlider
+                  value={activeSettings.crossHatchLineWidth || 2}
+                  min={1}
+                  max={10}
+                  step={0.5}
+                  onChange={(value) =>
+                    setActiveSettings({ crossHatchLineWidth: value })
+                  }
+                  aria-label="Hatch Line Width"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                  {activeSettings.crossHatchLineWidth || 2}px
+                </span>
+              </div>
             </div>
           </>
         )}

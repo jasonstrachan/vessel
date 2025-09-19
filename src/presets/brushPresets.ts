@@ -37,7 +37,11 @@ export const pixelBrushSettings: BrushSettings = {
   contourLines2Density: 4,
   contourLines2Alternate: false,
   customBrushColorCycle: false,
-  colorCycleFillMode: 'concentric'
+  colorCycleFillMode: 'concentric',
+  triangleFillSize: 36,
+  triangleFillJitter: 35,
+  triangleFillRotation: 0,
+  shapeFillUseSampledColor: false
 };
 
 // Default brush settings for smooth drawing
@@ -87,7 +91,11 @@ export const defaultBrushSettings: BrushSettings = {
   contourLines2Density: 4, // Default line bundle density
   contourLines2Alternate: false, // Default to uniform direction
   colorCycleFillMode: 'concentric', // Default to concentric fill for Color Cycle Shape
-  shapeGradientMode: 'contour' // Default to contour mode for shape gradient brushes
+  shapeGradientMode: 'contour', // Default to contour mode for shape gradient brushes
+  triangleFillSize: 36,
+  triangleFillJitter: 35,
+  triangleFillRotation: 0,
+  shapeFillUseSampledColor: false
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect
@@ -585,7 +593,7 @@ const contourPolygonBrushComponents: BrushComponent[] = [
 
 export const contourPolygonBrushPreset: BrushPreset = {
   id: 'contour-polygon-brush',
-  name: 'Contour Map',
+  name: 'Shape Fill',
   category: 'Special',
   components: contourPolygonBrushComponents,
   thumbnail: '/assets/images/Brush.png',
@@ -596,7 +604,10 @@ export const contourPolygonBrushPreset: BrushPreset = {
   preferredSettings: {
     contourSpacing: 4,
     contourVariance: 5,
-    contourSmoothness: 0.5
+    contourSmoothness: 0.5,
+    triangleFillSize: 48,
+    triangleFillJitter: 35,
+    triangleFillRotation: 0
   }
 };
 

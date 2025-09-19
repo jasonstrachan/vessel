@@ -128,6 +128,120 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     overlayCtx.restore();
   };
 
+  const clampTriangleSize = (value: number) => Math.min(200, Math.max(8, value));
+  const clampContourSpacing = (value: number) => Math.min(MAX_LINE_SPACING, Math.max(MIN_LINE_SPACING, value));
+
+  type PreviewStrokePalette = {
+    inner: string;
+    outer: string;
+  };
+
+  const getPreviewStrokePalette = (color?: string): PreviewStrokePalette => {
+    let r = 255;
+    let g = 255;
+    let b = 255;
+
+    if (color) {
+      const hex = color.trim().toLowerCase();
+      const hexMatch = hex.match(/^#([0-9a-f]{3})$/i);
+      const hexMatch6 = hex.match(/^#([0-9a-f]{6})$/i);
+
+      if (hexMatch6) {
+        const value = hexMatch6[1];
+        r = parseInt(value.slice(0, 2), 16);
+        g = parseInt(value.slice(2, 4), 16);
+        b = parseInt(value.slice(4, 6), 16);
+      } else if (hexMatch) {
+        const value = hexMatch[1];
+        r = parseInt(value[0] + value[0], 16);
+        g = parseInt(value[1] + value[1], 16);
+        b = parseInt(value[2] + value[2], 16);
+      }
+    }
+
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+
+    if (luminance > 0.55) {
+      return {
+        inner: 'rgba(25, 25, 25, 0.95)',
+        outer: 'rgba(250, 250, 250, 0.9)',
+      };
+    }
+
+    return {
+      inner: 'rgba(245, 245, 245, 0.95)',
+      outer: 'rgba(0, 0, 0, 0.85)',
+    };
+  };
+
+  const drawHighContrastStroke = (
+    ctx: CanvasRenderingContext2D,
+    drawPath: (ctx: CanvasRenderingContext2D) => void,
+    scale: number,
+    palette: PreviewStrokePalette,
+    alpha = 1
+  ) => {
+    const safeScale = Math.max(scale, 0.001);
+    const lineWidth = Math.max(1, 2 / safeScale);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.globalCompositeOperation = 'source-over';
+
+    ctx.strokeStyle = palette.inner;
+    ctx.lineWidth = lineWidth;
+    drawPath(ctx);
+    ctx.stroke();
+
+    ctx.restore();
+  };
+
+  const drawHighContrastDot = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    scale: number,
+    palette: PreviewStrokePalette,
+    alpha = 1
+  ) => {
+    const safeScale = Math.max(scale, 0.001);
+    const radius = Math.max(1.25, 1.75 / safeScale);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.globalCompositeOperation = 'source-over';
+
+    ctx.fillStyle = palette.inner;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  };
+
+  const shapeFillUsesSampledColor = () => {
+    const { brushSettings } = useAppStore.getState().tools;
+    if (brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
+      return true;
+    }
+    return !!brushSettings.shapeFillUseSampledColor;
+  };
+
+  const resolveShapeFillColor = (points?: Array<{ color?: string }>) => {
+    const { tools } = useAppStore.getState();
+    if (tools.brushSettings.shapeFillUseSampledColor) {
+      if (points && points.length > 0) {
+        for (const point of points) {
+          const candidate = (point as any)?.color;
+          if (candidate) return candidate;
+        }
+      }
+    }
+    return tools.brushSettings.color;
+  };
+
   const drawLines2Preview = (
     angle: number,
     convergenceA: { x: number; y: number },
@@ -523,20 +637,26 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       const { basis } = contourLinesState;
       if (basis) {
         const stage = contourLinesState.stage;
-        const spacingValue = contourLinesState.previewSpacing ?? calculateLineSpacingFromPointer(basis, worldPos, stage);
+        const rawSpacing = contourLinesState.previewSpacing ?? calculateLineSpacingFromPointer(basis, worldPos, stage);
+        const spacingValue = clampContourSpacing(rawSpacing);
 
         if (stage === 'awaitingAnchorA') {
-          setContourLinesState({
-            spacingA: spacingValue,
-            previewSpacing: null,
-            stage: 'awaitingAnchorB'
-          });
-          drawContourLinesPreview(spacingValue, spacingValue);
+          const shouldCaptureSecondAnchor = event.altKey || event.metaKey;
+
+          if (shouldCaptureSecondAnchor) {
+            setContourLinesState({
+              spacingA: spacingValue,
+              previewSpacing: null,
+              stage: 'awaitingAnchorB'
+            });
+            drawContourLinesPreview(spacingValue, spacingValue);
+          } else {
+            finalizeContourLinesStroke(spacingValue, spacingValue);
+          }
         } else {
-          const spacingA = (contourLinesState.spacingA ?? spacingValue);
-          const clampedStart = Math.min(MAX_LINE_SPACING, Math.max(MIN_LINE_SPACING, spacingA));
-          const clampedEnd = Math.min(MAX_LINE_SPACING, Math.max(MIN_LINE_SPACING, spacingValue));
-          finalizeContourLinesStroke(clampedStart, clampedEnd);
+          const spacingA = clampContourSpacing(contourLinesState.spacingA ?? spacingValue);
+          const spacingB = clampContourSpacing(spacingValue);
+          finalizeContourLinesStroke(spacingA, spacingB);
         }
       } else {
         resetContourLinesState();
@@ -655,6 +775,82 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       }
     }
 
+    const polygonState = useAppStore.getState().polygonGradientState;
+    if (event.button === 0) {
+      if (polygonState.drawingState === 'adjustingSize' && polygonState.mode === 'triangle') {
+        const setBrushSettings = useAppStore.getState().setBrushSettings;
+        const fallbackSize = tools.brushSettings.triangleFillSize ?? 36;
+        const finalSize = clampTriangleSize(polygonState.tempSize ?? fallbackSize);
+        setBrushSettings({ triangleFillSize: Math.round(finalSize) });
+
+        const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
+        if (drawCtx && brushEngine && polygonState.vertices) {
+          drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+
+          const originalSize = tools.brushSettings.triangleFillSize;
+          try {
+            tools.brushSettings.triangleFillSize = finalSize;
+            brushEngine.drawContourPolygon(
+              drawCtx,
+              {
+                vertices: polygonState.vertices,
+                fillColor: polygonState.fillColor
+              },
+              false
+            );
+          } finally {
+            tools.brushSettings.triangleFillSize = originalSize;
+          }
+
+          drawingHandlers.drawingCanvasHasContent.current = true;
+          drawingHandlers.finalizeStroke();
+        }
+
+        toolStateMachine.resetPolygonGradient();
+        useAppStore.getState().setPolygonGradientState({
+          drawingState: 'idle',
+          points: [],
+          vertices: undefined,
+          fillColor: undefined,
+          adjustmentStartPos: undefined,
+          tempRotation: undefined,
+          tempSpacing: undefined,
+          tempSize: undefined,
+          mode: undefined,
+          rotationReferenceAngle: undefined,
+          rotationInitialRotation: undefined,
+          sizeReferenceDistance: undefined,
+          sizeInitialSize: undefined,
+        });
+
+        return;
+      }
+
+      if (polygonState.drawingState === 'adjustingRotation' && polygonState.mode === 'crosshatch') {
+        const setBrushSettings = useAppStore.getState().setBrushSettings;
+        setBrushSettings({ crossHatchRotation: polygonState.tempRotation || 45 });
+
+        useAppStore.getState().setPolygonGradientState({
+          drawingState: 'adjustingSpacing',
+          adjustmentStartPos: { x: worldPos.x, y: worldPos.y },
+          rotationReferenceAngle: undefined,
+          rotationInitialRotation: undefined,
+          tempSize: undefined,
+          sizeReferenceDistance: undefined,
+          sizeInitialSize: undefined,
+        });
+        return;
+      }
+
+      if (polygonState.drawingState === 'adjustingSpacing' && polygonState.mode === 'crosshatch') {
+        // Capture drag origin so spacing adjustments respond immediately when dragging
+        useAppStore.getState().setPolygonGradientState({
+          adjustmentStartPos: { x: worldPos.x, y: worldPos.y }
+        });
+        return;
+      }
+    }
+
     // Shape mode should take precedence for normal brushes
     // Start shape drawing immediately to avoid interference from other branches
     const normalizedShapeMode = tools.brushSettings.shapeGradientMode === 'mesh'
@@ -741,14 +937,26 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         const activeLayer = layers.find(l => l.id === activeLayerId);
         if (!activeLayer) return;
         
-        // Get the image data from the layer's framebuffer
+        // Get the proper canvas dimensions from the project
+        const canvasWidth = project?.width || 1920;
+        const canvasHeight = project?.height || 1080;
+        
+        // Get or create properly-sized image data
         let currentImageData: ImageData | null = null;
         
         if (activeLayer.framebuffer) {
           const fb = activeLayer.framebuffer;
+          
+          // Check if framebuffer needs resizing (it might be a 1x1 placeholder)
+          if (fb.width !== canvasWidth || fb.height !== canvasHeight) {
+            // Resize the framebuffer to match project dimensions
+            fb.width = canvasWidth;
+            fb.height = canvasHeight;
+          }
+          
           const ctx = fb.getContext('2d', { willReadFrequently: true });
-          if (ctx) {
-            currentImageData = ctx.getImageData(0, 0, fb.width, fb.height);
+          if (ctx && 'getImageData' in ctx) {
+            currentImageData = ctx.getImageData(0, 0, canvasWidth, canvasHeight);
           }
         }
         
@@ -757,7 +965,18 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           currentImageData = activeLayer.imageData;
         }
         
-        if (!currentImageData) return;
+        // If still no image data, create a new blank one
+        if (!currentImageData) {
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = canvasWidth;
+          tempCanvas.height = canvasHeight;
+          const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+          if (tempCtx) {
+            currentImageData = tempCtx.createImageData(canvasWidth, canvasHeight);
+          } else {
+            return;
+          }
+        }
         
         // Parse fill color - handle both hex and rgb formats
         const fillColor = tools.brushSettings.color;
@@ -793,7 +1012,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         if (activeLayer.framebuffer) {
           const fb = activeLayer.framebuffer;
           const ctx = fb.getContext('2d', { willReadFrequently: true });
-          if (ctx) {
+          if (ctx && 'putImageData' in ctx) {
             ctx.putImageData(filledImageData, 0, 0);
           }
         }
@@ -821,8 +1040,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         
         // Save state for undo
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = project?.width || 1920;
-        tempCanvas.height = project?.height || 1080;
+        tempCanvas.width = canvasWidth;
+        tempCanvas.height = canvasHeight;
         const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
         if (tempCtx) {
           tempCtx.putImageData(filledImageData, 0, 0);
@@ -1114,6 +1333,143 @@ function cssColorToHex(color: string): string {
       return; // Important: skip shape/brush updates on the same frame
     }
 
+    // Check if we're in hatch adjustment mode
+    const polygonState = useAppStore.getState().polygonGradientState;
+
+    if (polygonState.drawingState === 'adjustingSize' && polygonState.mode === 'triangle' && polygonState.vertices) {
+      const centerX = polygonState.vertices.reduce((sum, v) => sum + v.x, 0) / polygonState.vertices.length;
+      const centerY = polygonState.vertices.reduce((sum, v) => sum + v.y, 0) / polygonState.vertices.length;
+
+      const pointerDistance = Math.hypot(worldPos.x - centerX, worldPos.y - centerY);
+      const referenceDistance = polygonState.sizeReferenceDistance && polygonState.sizeReferenceDistance > 1e-3
+        ? polygonState.sizeReferenceDistance
+        : Math.max(pointerDistance, 1);
+      const initialSize = polygonState.sizeInitialSize ?? (tools.brushSettings.triangleFillSize ?? 36);
+      let newSize = initialSize;
+      if (referenceDistance > 1e-3) {
+        let scale = pointerDistance / referenceDistance;
+        const enlargeExponent = 1.35;
+        if (scale >= 1) {
+          scale = Math.pow(scale, enlargeExponent);
+        } else {
+          scale = Math.pow(scale, 1 / enlargeExponent);
+        }
+        newSize = clampTriangleSize(initialSize * scale);
+      }
+
+      useAppStore.getState().setPolygonGradientState({
+        tempSize: newSize
+      });
+
+      const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
+      if (drawCtx && brushEngine) {
+        drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+
+        const originalSize = tools.brushSettings.triangleFillSize;
+        try {
+          tools.brushSettings.triangleFillSize = newSize;
+          brushEngine.drawContourPolygon(
+            drawCtx,
+            {
+              vertices: polygonState.vertices,
+              fillColor: polygonState.fillColor
+            },
+            false
+          );
+        } finally {
+          tools.brushSettings.triangleFillSize = originalSize;
+        }
+      }
+
+      return;
+    }
+
+    if ((polygonState.drawingState === 'adjustingRotation' || polygonState.drawingState === 'adjustingSpacing') && 
+        polygonState.adjustmentStartPos && polygonState.vertices && isMouseDownRef.current) {
+      
+      const startPos = polygonState.adjustmentStartPos;
+      const dx = worldPos.x - startPos.x;
+      const dy = worldPos.y - startPos.y;
+      
+      // Calculate center of shape for rotation
+      const centerX = polygonState.vertices.reduce((sum, v) => sum + v.x, 0) / polygonState.vertices.length;
+      const centerY = polygonState.vertices.reduce((sum, v) => sum + v.y, 0) / polygonState.vertices.length;
+      
+      if (polygonState.drawingState === 'adjustingRotation' && polygonState.mode === 'crosshatch') {
+        // Calculate angle based on drag direction relative to center
+        const angleToStart = Math.atan2(startPos.y - centerY, startPos.x - centerX);
+        const angleToNow = Math.atan2(worldPos.y - centerY, worldPos.x - centerX);
+        const deltaAngle = (angleToNow - angleToStart) * 180 / Math.PI;
+        
+        const newRotation = ((polygonState.tempRotation || 45) + deltaAngle) % 360;
+        
+        // Update temp rotation and redraw
+        useAppStore.getState().setPolygonGradientState({
+          tempRotation: newRotation,
+          adjustmentStartPos: worldPos // Update start pos for continuous drag
+        });
+        
+        // Clear and redraw with new rotation
+        const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
+        if (drawCtx && brushEngine) {
+          drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+          
+          // Temporarily update brush settings for preview
+          const originalRotation = tools.brushSettings.crossHatchRotation;
+          tools.brushSettings.crossHatchRotation = newRotation;
+          
+         brushEngine.drawCrossHatchPolygon(
+           drawCtx,
+           {
+             vertices: polygonState.vertices,
+             fillColor: polygonState.fillColor
+           },
+           false
+         );
+         
+         // Restore original setting
+         tools.brushSettings.crossHatchRotation = originalRotation;
+       }
+      } else if (polygonState.drawingState === 'adjustingSpacing') {
+        // Calculate spacing based on horizontal drag distance
+        const dragDistance = dx;
+        const newSpacing = Math.max(2, Math.min(50, (polygonState.tempSpacing || 10) + dragDistance / 5));
+        
+        // Update temp spacing and redraw
+        useAppStore.getState().setPolygonGradientState({
+          tempSpacing: newSpacing,
+          adjustmentStartPos: worldPos // Update start pos for continuous drag
+        });
+        
+        // Clear and redraw with new spacing
+        const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
+        if (drawCtx && brushEngine) {
+          drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+          
+          // Temporarily update brush settings for preview
+          const originalSpacing = tools.brushSettings.crossHatchSpacing;
+          const originalRotation = tools.brushSettings.crossHatchRotation;
+          tools.brushSettings.crossHatchSpacing = newSpacing;
+          tools.brushSettings.crossHatchRotation = polygonState.tempRotation || 45;
+          
+          brushEngine.drawCrossHatchPolygon(
+            drawCtx,
+            {
+              vertices: polygonState.vertices,
+              fillColor: polygonState.fillColor
+            },
+            false
+          );
+          
+          // Restore original settings
+          tools.brushSettings.crossHatchSpacing = originalSpacing;
+          tools.brushSettings.crossHatchRotation = originalRotation;
+        }
+      }
+      
+      return; // Skip other mouse move processing
+    }
+
     // PANNING TAKES PRECEDENCE: if actively panning, update pan and skip other handling
     if (pan.panState.isPanning) {
       pan.updatePan(currentPointerPos.x, currentPointerPos.y);
@@ -1367,7 +1723,7 @@ function cssColorToHex(color: string): string {
               overlayCtx.globalAlpha = tools.currentTool === 'eraser' 
                 ? (tools.eraserSettings?.opacity || 1)
                 : (tools.brushSettings.opacity || 1);
-              overlayCtx.globalCompositeOperation = tools.currentTool === 'eraser' ? 'destination-out' : (tools.brushSettings.blendMode || 'source-over');
+              overlayCtx.globalCompositeOperation = 'source-over';
               
               // Sample colors for preview
               const numColors = tools.brushSettings.colors || 2;
@@ -1652,8 +2008,7 @@ function cssColorToHex(color: string): string {
                     overlayCtx.globalAlpha = tools.currentTool === 'eraser' 
                       ? (tools.eraserSettings?.opacity || 1)
                       : (tools.brushSettings.opacity || 1);
-                    overlayCtx.globalCompositeOperation = tools.currentTool === 'eraser' ? 
-                      'destination-out' : (tools.brushSettings.blendMode || 'source-over');
+                    overlayCtx.globalCompositeOperation = 'source-over';
                     
                     // Determine colors for width preview
                     const numColorsWid = Math.max(2, Math.min(64, tools.brushSettings.colors || 2));
@@ -1708,7 +2063,7 @@ function cssColorToHex(color: string): string {
       }
       
       // Polygon gradient, color cycle shape, contour polygon, or shape mode preview
-      if (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon || 
+      if (toolStateMachine.isPolygonGradient || toolStateMachine.isColorCycleShape || toolStateMachine.isContourPolygon ||
           (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current && drawingHandlers.shapePointsRef.current.length > 0)) {
         // For gradient/special brushes, use their state machine. For shape mode, always show preview
         // Compute a possibly snapped mouse world position for preview (relative to last point)
@@ -1752,7 +2107,7 @@ function cssColorToHex(color: string): string {
             const overlayCanvas = overlayCanvasRef.current;
             const overlayCtx = overlayCanvas?.getContext('2d');
               
-              // Get points from polygon state (polygon/contour) or local refs (shape/CC shape)
+              // Get points from polygon state (polygon/contour/cross-hatch) or local refs (shape/CC shape)
               const points = (toolStateMachine.isPolygonGradient || toolStateMachine.isContourPolygon)
                 ? toolStateMachine.polygonGradientState.points
                 : drawingHandlers.shapePointsRef.current;
@@ -1770,9 +2125,28 @@ function cssColorToHex(color: string): string {
                 const vertexCount = pts.length + 1; // include preview point
                 
                 if (vertexCount >= 3) {
+                  const previewStrokePalette = getPreviewStrokePalette(tools.brushSettings.color);
+                  const strokePreviewOutline = () => {
+                    drawHighContrastStroke(
+                      overlayCtx,
+                      ctx => {
+                        ctx.beginPath();
+                        ctx.moveTo(pts[0].x, pts[0].y);
+                        for (let i = 1; i < pts.length; i++) {
+                          ctx.lineTo(pts[i].x, pts[i].y);
+                        }
+                        ctx.lineTo(previewWorld.x, previewWorld.y);
+                        ctx.closePath();
+                      },
+                      deps.viewTransformRef.current.scale,
+                      previewStrokePalette,
+                      0.95
+                    );
+                  };
+
                   // For all shape types, show appropriate preview
                   if (toolStateMachine.isContourPolygon) {
-                    // Use solid color for contour polygon preview
+                    // Use solid color for contour/cross-hatch polygon preview
                     overlayCtx.strokeStyle = tools.brushSettings.color;
                     overlayCtx.lineWidth = 2 / deps.viewTransformRef.current.scale;
                     overlayCtx.globalAlpha = 0.8;
@@ -1815,10 +2189,14 @@ function cssColorToHex(color: string): string {
                     }
                     
                     // Sample colors from canvas for regular polygon gradient
-                    const previewColors = toolStateMachine.polygonGradientState.points.length > 0 ? [
-                      ...toolStateMachine.polygonGradientState.points.map((p: any) => p.color),
-                      deps.sampleColorAtPosition(previewWorld.x, previewWorld.y)
-                    ] : [tools.brushSettings.color];
+                    const useSampledFill = shapeFillUsesSampledColor();
+                    const previewColors = toolStateMachine.polygonGradientState.points.length > 0
+                      ? toolStateMachine.polygonGradientState.points.map((p: any) => p.color)
+                      : [];
+                    const previewColor = useSampledFill
+                      ? deps.sampleColorAtPosition(previewWorld.x, previewWorld.y)
+                      : resolveShapeFillColor();
+                    previewColors.push(previewColor);
                     
                     // Create gradient stops
                     if (previewColors.length >= 3) {
@@ -1835,9 +2213,7 @@ function cssColorToHex(color: string): string {
                     
                     overlayCtx.fillStyle = gradient;
                   }
-                  
-                  // Ensure normal compositing for preview drawing
-                  // (avoid lingering destination-out from eraser, etc.)
+
                   overlayCtx.globalCompositeOperation = 'source-over';
 
                   // Draw polygon preview - stroke for color cycle, fill for others
@@ -1852,26 +2228,38 @@ function cssColorToHex(color: string): string {
                   
                   if (toolStateMachine.isContourPolygon) {
                     overlayCtx.stroke(); // Just outline for contour
+                    strokePreviewOutline();
                   } else {
                     overlayCtx.fill(); // Fill for color cycle shape, regular polygon gradient and shape mode
+                    strokePreviewOutline();
                   }
                 } else if (pts.length === 1 && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
                   // Early feedback for first segment: draw a simple guide line to current pointer
-                  overlayCtx.beginPath();
-                  overlayCtx.strokeStyle = tools.brushSettings.color;
-                  overlayCtx.lineWidth = 1 / deps.viewTransformRef.current.scale;
-                  overlayCtx.moveTo(pts[0].x, pts[0].y);
-                  overlayCtx.lineTo(previewWorld.x, previewWorld.y);
-                  overlayCtx.stroke();
+                  const palette = getPreviewStrokePalette(tools.brushSettings.color);
+                  drawHighContrastStroke(
+                    overlayCtx,
+                    ctx => {
+                      ctx.beginPath();
+                      ctx.moveTo(pts[0].x, pts[0].y);
+                      ctx.lineTo(previewWorld.x, previewWorld.y);
+                    },
+                    deps.viewTransformRef.current.scale,
+                    palette,
+                    0.95
+                  );
                 } else if (pts.length === 0 && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
                   // Single point: draw a small marker dot
-                  overlayCtx.beginPath();
-                  overlayCtx.fillStyle = tools.brushSettings.color;
-                  const r = 2 / deps.viewTransformRef.current.scale;
-                  overlayCtx.arc(previewWorld.x, previewWorld.y, r, 0, Math.PI * 2);
-                  overlayCtx.fill();
+                  const palette = getPreviewStrokePalette(tools.brushSettings.color);
+                  drawHighContrastDot(
+                    overlayCtx,
+                    previewWorld.x,
+                    previewWorld.y,
+                    deps.viewTransformRef.current.scale,
+                    palette,
+                    0.95
+                  );
                 }
-                
+
                 overlayCtx.restore();
               }
               if (deps.previewAnimationFrameRef) {
@@ -1971,6 +2359,9 @@ function cssColorToHex(color: string): string {
     // Clear overlay canvas
     const linesStateOnPointerUp = useAppStore.getState().contourLinesState;
     const overlayCanvas = overlayCanvasRef.current;
+    const normalizedShapeMode = tools.brushSettings.shapeGradientMode === 'mesh'
+      ? 'lines'
+      : (tools.brushSettings.shapeGradientMode || 'contour');
     const isLines2Previewing =
       linesStateOnPointerUp.variant === 'lines2' &&
       (linesStateOnPointerUp.stage === 'awaitingAngle' ||
@@ -1989,6 +2380,165 @@ function cssColorToHex(color: string): string {
     }
     
     const mousePos = getMousePos(event);
+    const pointerWorldPos = pan.screenToWorld(mousePos.x, mousePos.y, canvas?.zoom || 1);
+
+    // Check if we're completing a hatch/triangle adjustment
+    const polygonState = useAppStore.getState().polygonGradientState;
+    if (polygonState.drawingState === 'adjustingSize' && polygonState.mode === 'triangle') {
+      const setBrushSettings = useAppStore.getState().setBrushSettings;
+      const fallbackSize = tools.brushSettings.triangleFillSize ?? 36;
+      const finalSize = clampTriangleSize(polygonState.tempSize ?? fallbackSize);
+      setBrushSettings({ triangleFillSize: Math.round(finalSize) });
+
+      const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
+      if (drawCtx && brushEngine && polygonState.vertices) {
+        drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+
+        const originalSize = tools.brushSettings.triangleFillSize;
+        try {
+          tools.brushSettings.triangleFillSize = finalSize;
+          brushEngine.drawContourPolygon(
+            drawCtx,
+            {
+              vertices: polygonState.vertices,
+              fillColor: polygonState.fillColor
+            },
+            false
+          );
+        } finally {
+          tools.brushSettings.triangleFillSize = originalSize;
+        }
+
+        drawingHandlers.drawingCanvasHasContent.current = true;
+        drawingHandlers.finalizeStroke();
+      }
+
+      toolStateMachine.resetPolygonGradient();
+      useAppStore.getState().setPolygonGradientState({
+        drawingState: 'idle',
+        points: [],
+        vertices: undefined,
+        fillColor: undefined,
+        adjustmentStartPos: undefined,
+        tempRotation: undefined,
+        tempSpacing: undefined,
+        tempSize: undefined,
+        mode: undefined,
+        rotationReferenceAngle: undefined,
+        rotationInitialRotation: undefined,
+        sizeReferenceDistance: undefined,
+        sizeInitialSize: undefined,
+      });
+
+      return;
+    }
+
+    if (polygonState.drawingState === 'adjustingRotation') {
+      if (polygonState.mode === 'crosshatch') {
+        const setBrushSettings = useAppStore.getState().setBrushSettings;
+        setBrushSettings({ crossHatchRotation: polygonState.tempRotation || 45 });
+
+        useAppStore.getState().setPolygonGradientState({
+          drawingState: 'adjustingSpacing',
+          adjustmentStartPos: undefined,
+          rotationReferenceAngle: undefined,
+          rotationInitialRotation: undefined,
+        });
+
+        return;
+      }
+
+      if (polygonState.mode === 'triangle') {
+        const setBrushSettings = useAppStore.getState().setBrushSettings;
+        const finalRotation = polygonState.tempRotation ?? tools.brushSettings.triangleFillRotation ?? 0;
+        setBrushSettings({ triangleFillRotation: finalRotation });
+
+        const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
+        if (drawCtx && brushEngine && polygonState.vertices) {
+          drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+
+          const originalRotation = tools.brushSettings.triangleFillRotation;
+          try {
+            tools.brushSettings.triangleFillRotation = finalRotation;
+            brushEngine.drawContourPolygon(
+              drawCtx,
+              {
+                vertices: polygonState.vertices,
+                fillColor: polygonState.fillColor
+              },
+              false
+            );
+          } finally {
+            tools.brushSettings.triangleFillRotation = originalRotation;
+          }
+
+          drawingHandlers.drawingCanvasHasContent.current = true;
+          drawingHandlers.finalizeStroke();
+        }
+
+        toolStateMachine.resetPolygonGradient();
+        useAppStore.getState().setPolygonGradientState({
+          drawingState: 'idle',
+          points: [],
+          vertices: undefined,
+          fillColor: undefined,
+          adjustmentStartPos: undefined,
+          tempRotation: undefined,
+          tempSpacing: undefined,
+          mode: undefined,
+          rotationReferenceAngle: undefined,
+          rotationInitialRotation: undefined,
+          tempSize: undefined,
+          sizeReferenceDistance: undefined,
+          sizeInitialSize: undefined,
+        });
+
+        return;
+      }
+    }
+
+    if (polygonState.drawingState === 'adjustingSpacing' && polygonState.mode === 'crosshatch') {
+      const setBrushSettings = useAppStore.getState().setBrushSettings;
+      setBrushSettings({ 
+        crossHatchSpacing: polygonState.tempSpacing || 10,
+        crossHatchRotation: polygonState.tempRotation || 45
+      });
+
+      const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
+      if (drawCtx && brushEngine && polygonState.vertices) {
+        drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+
+        brushEngine.drawCrossHatchPolygon(
+          drawCtx,
+          {
+            vertices: polygonState.vertices,
+            fillColor: polygonState.fillColor
+          },
+          false
+        );
+
+        drawingHandlers.finalizeStroke();
+      }
+
+      toolStateMachine.resetPolygonGradient();
+      useAppStore.getState().setPolygonGradientState({
+        drawingState: 'idle',
+        points: [],
+        vertices: undefined,
+        fillColor: undefined,
+        adjustmentStartPos: undefined,
+        tempRotation: undefined,
+        tempSpacing: undefined,
+        mode: undefined,
+        rotationReferenceAngle: undefined,
+        rotationInitialRotation: undefined,
+        tempSize: undefined,
+        sizeReferenceDistance: undefined,
+        sizeInitialSize: undefined,
+      });
+
+      return;
+    }
 
     // Recolor/Brush sampling finalize on drag-release
     const rsFinalize = useAppStore.getState().recolorSampling;
@@ -2148,7 +2698,7 @@ function cssColorToHex(color: string): string {
                 stage: 'awaitingAngle',
                 variant: 'lines2',
                 shapePoints: vertices,
-                fillColor: currentPolygonState.points[0]?.color,
+                fillColor: undefined,
                 basis: defaults.basis ?? basis ?? undefined,
                 spacingA: null,
                 spacingB: null,
@@ -2180,7 +2730,7 @@ function cssColorToHex(color: string): string {
                   stage: 'awaitingAnchorA',
                   variant: 'legacy',
                   shapePoints: vertices,
-                  fillColor: currentPolygonState.points[0]?.color,
+                  fillColor: resolveShapeFillColor(currentPolygonState.points),
                   basis,
                   spacingA: null,
                   spacingB: null,
@@ -2229,19 +2779,22 @@ function cssColorToHex(color: string): string {
                   
                   // Clear and draw preview outline on drawing canvas
                   drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
-                  drawCtx.save();
-                  drawCtx.globalCompositeOperation = 'difference';
-                  drawCtx.strokeStyle = '#000000';  // Black with difference mode
-                  drawCtx.lineWidth = 2;
-                  drawCtx.beginPath();
-                  const points = currentPolygonState.points;
-                  drawCtx.moveTo(points[0].x, points[0].y);
-                  for (let i = 1; i < points.length; i++) {
-                    drawCtx.lineTo(points[i].x, points[i].y);
-                  }
-                  drawCtx.closePath();
-                  drawCtx.stroke();
-                  drawCtx.restore();
+                  const palette = getPreviewStrokePalette(tools.brushSettings.color);
+                  const polygonPoints = currentPolygonState.points;
+                  drawHighContrastStroke(
+                    drawCtx,
+                    ctx => {
+                      ctx.beginPath();
+                      ctx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
+                      for (let i = 1; i < polygonPoints.length; i++) {
+                        ctx.lineTo(polygonPoints[i].x, polygonPoints[i].y);
+                      }
+                      ctx.closePath();
+                    },
+                    1,
+                    palette,
+                    0.9
+                  );
                   
                   // Don't render color cycle yet - wait for direction
                   // Skip the normal finalization - we'll finalize after direction is selected
@@ -2258,22 +2811,104 @@ function cssColorToHex(color: string): string {
                   brushEngine.renderColorCycle(drawCtx, false);
                 }
               } else if (toolStateMachine.isContourPolygon) {
-                // Draw contour polygon
-                brushEngine.drawContourPolygon(
-                  drawCtx,
-                  {
+                // Check if we're in cross-hatch mode
+                const shapeGradientMode = tools.brushSettings.shapeGradientMode || 'contour';
+                if (shapeGradientMode === 'crosshatch') {
+                  // Store shape data for interactive adjustment
+                  useAppStore.getState().setPolygonGradientState({
+                    drawingState: 'adjustingRotation',
+                    mode: 'crosshatch',
                     vertices: currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y })),
-                    fillColor: currentPolygonState.points[0]?.color
-                  },
-                  false // not preview
-                );
+                    fillColor: resolveShapeFillColor(currentPolygonState.points),
+                    tempRotation: tools.brushSettings.crossHatchRotation || 45,
+                    tempSpacing: tools.brushSettings.crossHatchSpacing || 10,
+                    adjustmentStartPos: { x: pointerWorldPos.x, y: pointerWorldPos.y },
+                    rotationReferenceAngle: undefined,
+                    rotationInitialRotation: undefined,
+                    tempSize: undefined,
+                    sizeReferenceDistance: undefined,
+                    sizeInitialSize: undefined,
+                  });
+
+                  // Draw initial cross-hatch with current settings
+                  brushEngine.drawCrossHatchPolygon(
+                    drawCtx,
+                    {
+                      vertices: currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y })),
+                      fillColor: resolveShapeFillColor(currentPolygonState.points),
+                    },
+                    false // not preview
+                  );
+
+                  // Don't reset polygon state yet - we need it for adjustments
+                  return;
+                } else if (shapeGradientMode === 'triangle') {
+                  const vertices = currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y }));
+                  const vertexCount = vertices.length;
+                  const centroid = vertexCount > 0
+                    ? vertices.reduce((acc: { x: number; y: number }, v: { x: number; y: number }) => ({ x: acc.x + v.x, y: acc.y + v.y }), { x: 0, y: 0 })
+                    : { x: pointerWorldPos.x, y: pointerWorldPos.y };
+                  if (vertexCount > 0) {
+                    centroid.x /= vertexCount;
+                    centroid.y /= vertexCount;
+                  }
+                  const referenceDistance = Math.max(1, Math.hypot(pointerWorldPos.x - centroid.x, pointerWorldPos.y - centroid.y));
+                  const initialSize = clampTriangleSize(tools.brushSettings.triangleFillSize ?? 36);
+
+                  useAppStore.getState().setPolygonGradientState({
+                    drawingState: 'adjustingSize',
+                    mode: 'triangle',
+                    vertices,
+                    fillColor: resolveShapeFillColor(currentPolygonState.points),
+                    tempSize: initialSize,
+                    sizeInitialSize: initialSize,
+                    sizeReferenceDistance: referenceDistance,
+                    adjustmentStartPos: undefined,
+                    rotationReferenceAngle: undefined,
+                    rotationInitialRotation: undefined,
+                  });
+
+                  drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+
+                  const originalSize = tools.brushSettings.triangleFillSize;
+                  try {
+                    tools.brushSettings.triangleFillSize = initialSize;
+                    brushEngine.drawContourPolygon(
+                      drawCtx,
+                      {
+                        vertices: currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y })),
+                        fillColor: resolveShapeFillColor(currentPolygonState.points)
+                      },
+                      false
+                    );
+                  } finally {
+                    tools.brushSettings.triangleFillSize = originalSize;
+                  }
+
+                  return;
+                } else {
+                  // Draw contour polygon with selected mode
+                  brushEngine.drawContourPolygon(
+                    drawCtx,
+                    {
+                      vertices: currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y })),
+                      fillColor: resolveShapeFillColor(currentPolygonState.points)
+                    },
+                    false // not preview
+                  );
+                }
               } else {
                 // Standard polygon gradient
+                const useSampledFill = shapeFillUsesSampledColor();
+                const polygonColors = useSampledFill
+                  ? currentPolygonState.points.map((p: any) => p.color)
+                  : currentPolygonState.points.map(() => resolveShapeFillColor(currentPolygonState.points));
+
                 brushEngine.drawPolygonGradient(
                   drawCtx,
                   {
                     vertices: currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y })),
-                    colors: currentPolygonState.points.map((p: any) => p.color)
+                    colors: polygonColors
                   },
                   false // not preview
                 );

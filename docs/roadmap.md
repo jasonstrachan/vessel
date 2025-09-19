@@ -9,7 +9,7 @@
 - [Consensus Reality Brush](#the-consensus-reality-brush)
 - [Semantic Web Brush](#the-semantic-web-brush)
 - [Data Erosion Brush](#data-erosion-brush)
-- [Contour Map Polygon Brush](#contour-map-polygon-brush)
+- [Shape Fill Polygon Brush](#shape-fill-polygon-brush)
 - [Grain/Noise Slider](#grainnoise-slider)
 - [Layered Paint Thickness](#layered-paint-thickness)
 - [Image Hose](#image-hose)
@@ -119,7 +119,7 @@ Instead of painting with colors, this brush paints with live-scraped imagery fro
 - Erosion masks (protect certain areas from erosion)
 - Export erosion pattern as animated sequence
 
-#### Contour Map Polygon Brush
+#### Shape Fill Polygon Brush
 Creates contour lines like what yuo see o a countour map.
 
 **Implementation:**
@@ -233,6 +233,14 @@ Inverted control mappings for experimental effects.
 - Configurable mapping curves
 - Visual feedback showing active mappings
 - Preset chaos modes
+
+
+## Shape Tools
+
+### Full Shape - Triangle
+- click to set rotation, click to set spacing
+- fills the entire equilateral triangle with the active paint or gradient selection
+- spacing gesture locks in lattice distance; rotation click snaps the orientation for repeatable tiling
 
 
 ## Input & Interaction

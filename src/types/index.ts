@@ -364,6 +364,15 @@ export interface BrushSettings {
   contourLines2Spacing?: number; // 1-20 (base spacing between line groups)
   contourLines2Density?: number; // 1-10 (number of sub-lines per group)
   contourLines2Alternate?: boolean; // Whether to alternate stroke offset every other line
+  // Triangle fill brush settings
+  triangleFillSize?: number; // 8-200 pixels (base cell size for triangle lattice)
+  triangleFillJitter?: number; // 0-100% jitter applied to lattice points
+  triangleFillRotation?: number; // 0-360 degrees orientation of triangle lattice
+  // Hatch fill settings
+  crossHatchRotation?: number; // 0-360 degrees
+  crossHatchSpacing?: number; // 2-50 pixels
+  crossHatchLineWidth?: number; // 1-10 pixels
+  shapeFillUseSampledColor?: boolean; // true = sample canvas color, false = use selected brush color
   // Color cycle flow direction
   colorCycleFlowForward?: boolean; // true = forward flow, false = backward flow
 
@@ -391,7 +400,7 @@ export interface BrushSettings {
   spamCustomText?: string; // Custom text to use instead of preset content
   
   // Shape gradient mode settings
-  shapeGradientMode?: 'contour' | 'lines' | 'lines2' | 'mesh' | 'triangle'; // Mode for shape gradient brushes ('mesh' kept for legacy projects)
+  shapeGradientMode?: 'contour' | 'lines' | 'lines2' | 'mesh' | 'triangle' | 'crosshatch'; // Mode for shape gradient brushes ('mesh' kept for legacy projects)
 }
 
 export interface ComponentParams {
@@ -524,9 +533,21 @@ export interface PolygonGradientPoint {
 }
 
 export interface PolygonGradientState {
-  drawingState: 'idle' | 'drawing' | 'completed';
+  drawingState: 'idle' | 'drawing' | 'completed' | 'adjustingRotation' | 'adjustingSpacing' | 'adjustingSize';
   points: PolygonGradientPoint[];
   previewPath?: Path2D;
+  // For cross-hatch interactive adjustment
+  vertices?: Array<{ x: number; y: number }>;
+  fillColor?: string;
+  adjustmentStartPos?: { x: number; y: number };
+  tempRotation?: number;
+  tempSpacing?: number;
+  mode?: 'crosshatch' | 'triangle';
+  rotationReferenceAngle?: number;
+  rotationInitialRotation?: number;
+  tempSize?: number;
+  sizeReferenceDistance?: number;
+  sizeInitialSize?: number;
 }
 
 export type ContourLinesStage =

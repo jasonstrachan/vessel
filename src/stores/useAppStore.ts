@@ -480,7 +480,12 @@ const defaultRectangleBrushState = {
 const defaultPolygonGradientState: PolygonGradientState = {
   drawingState: 'idle',
   points: [],
-  previewPath: undefined
+  previewPath: undefined,
+  rotationReferenceAngle: undefined,
+  rotationInitialRotation: undefined,
+  tempSize: undefined,
+  sizeReferenceDistance: undefined,
+  sizeInitialSize: undefined
 };
 
 const createDefaultContourLinesState = (): ContourLinesState => ({
