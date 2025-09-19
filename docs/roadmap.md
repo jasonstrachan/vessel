@@ -9,7 +9,7 @@
 - [Consensus Reality Brush](#the-consensus-reality-brush)
 - [Semantic Web Brush](#the-semantic-web-brush)
 - [Data Erosion Brush](#data-erosion-brush)
-- [Shape Fill Polygon Brush](#shape-fill-polygon-brush)
+- [Contour Map Polygon Brush](#contour-map-polygon-brush)
 - [Grain/Noise Slider](#grainnoise-slider)
 - [Layered Paint Thickness](#layered-paint-thickness)
 - [Image Hose](#image-hose)
@@ -34,6 +34,12 @@
 
 
 ## Brushes
+
+#### Cross hatching
+user drawn shape, Rough cross hachtung fill look hand drawn, click to set rotation, click to set spacing
+
+#### Traingle brush
+User drawn shape, filled the shape with roughly connected traingles of sligjhtly diffeern sizes, click to set rotation, clcik to set size 
 
 #### Line segment rotation to define width
 using a styus we define a line width by the rotation of a line segmment. thin line pay segments mext to each other in line, as the pressure increases the segment s get rotated to a max of 90 degrees to the diecttion of rthe stroke. Max pressure is 90 degrees lines swegments
@@ -119,7 +125,7 @@ Instead of painting with colors, this brush paints with live-scraped imagery fro
 - Erosion masks (protect certain areas from erosion)
 - Export erosion pattern as animated sequence
 
-#### Shape Fill Polygon Brush
+#### Contour Map Polygon Brush
 Creates contour lines like what yuo see o a countour map.
 
 **Implementation:**
@@ -233,14 +239,6 @@ Inverted control mappings for experimental effects.
 - Configurable mapping curves
 - Visual feedback showing active mappings
 - Preset chaos modes
-
-
-## Shape Tools
-
-### Full Shape - Triangle
-- click to set rotation, click to set spacing
-- fills the entire equilateral triangle with the active paint or gradient selection
-- spacing gesture locks in lattice distance; rotation click snaps the orientation for repeatable tiling
 
 
 ## Input & Interaction
