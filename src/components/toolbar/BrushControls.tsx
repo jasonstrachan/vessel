@@ -29,6 +29,8 @@ const DEFAULT_RAINBOW_STOPS = [
   { position: 1.0, color: '#9400d3' }
 ];
 
+const DEFAULT_CROSS_HATCH_LINE_WIDTH = 1.25;
+
 // Get access to drawing handlers via a context or ref - we'll need to create this
 interface ColorCycleAnimationContext {
   startContinuousColorCycleAnimation: () => void;
@@ -138,6 +140,11 @@ const BrushControls = () => {
     currentTool === "eraser" ? eraserSettings : brushSettings;
   const setActiveSettings =
     currentTool === "eraser" ? setEraserSettings : setBrushSettings;
+
+  const crossHatchLineWidth = activeSettings.crossHatchLineWidth ?? DEFAULT_CROSS_HATCH_LINE_WIDTH;
+  const crossHatchLineWidthLabel = Number.isFinite(crossHatchLineWidth)
+    ? (Number.isInteger(crossHatchLineWidth) ? crossHatchLineWidth.toString() : crossHatchLineWidth.toFixed(1))
+    : DEFAULT_CROSS_HATCH_LINE_WIDTH.toFixed(1);
 
   const isCustomColorCycleEnabled = isCustomBrush && !!activeSettings.customBrushColorCycle;
 
@@ -1394,8 +1401,8 @@ const BrushControls = () => {
                   Width
                 </label>
                 <ProgressSlider
-                  value={activeSettings.crossHatchLineWidth || 2}
-                  min={1}
+                  value={crossHatchLineWidth}
+                  min={0.5}
                   max={10}
                   step={0.5}
                   onChange={(value) =>
@@ -1405,7 +1412,7 @@ const BrushControls = () => {
                   className="flex-1"
                 />
                 <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
-                  {activeSettings.crossHatchLineWidth || 2}px
+                  {crossHatchLineWidthLabel}px
                 </span>
               </div>
             </div>

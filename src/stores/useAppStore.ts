@@ -485,7 +485,9 @@ const defaultPolygonGradientState: PolygonGradientState = {
   rotationInitialRotation: undefined,
   tempSize: undefined,
   sizeReferenceDistance: undefined,
-  sizeInitialSize: undefined
+  sizeInitialSize: undefined,
+  spacingReferenceDistance: undefined,
+  spacingReferenceSpacing: undefined
 };
 
 const createDefaultContourLinesState = (): ContourLinesState => ({

@@ -1397,9 +1397,9 @@ export const useBrushEngineSimplified = () => {
     // Fill the polygon first with sampled color (from first click) if provided.
     // Skip this for contour line modes so the baked result keeps the background transparent.
     try {
-      const fc = fillColor || undefined;
+      const fillStyle = fillColor;
       const shouldFillPolygon =
-        Boolean(fc) &&
+        fillStyle !== undefined &&
         validVertices.length >= 3 &&
         !['contour', 'lines', 'lines2', 'triangle'].includes(mode);
       if (shouldFillPolygon) {
@@ -1412,7 +1412,7 @@ export const useBrushEngineSimplified = () => {
         ctx.closePath();
         const prevStyle = ctx.fillStyle;
         const prevAlpha = ctx.globalAlpha;
-        ctx.fillStyle = fc;
+        ctx.fillStyle = fillStyle;
         ctx.globalAlpha = tools.brushSettings.opacity;
         ctx.fill();
         ctx.fillStyle = prevStyle as any;
@@ -1993,10 +1993,26 @@ export const useBrushEngineSimplified = () => {
     const actualPeakX = fieldData.peakX;
     const actualPeakY = fieldData.peakY;
     
-    // Generate contours with organic variable spacing
-    let currentDistance = spacing * (0.5 + Math.random() * 0.5); // Start at random offset
+    if (!Number.isFinite(maxDistance) || maxDistance <= 0) {
+      ctx.restore();
+      return;
+    }
+
+    const snapToPixel = (val: number) => Math.floor(val) + 0.5;
+    const minSpacingCandidate = Math.max(0.75, spacing * 0.25);
+    let safeMinStep = minSpacingCandidate;
+    if (safeMinStep >= maxDistance) {
+      safeMinStep = Math.max(0.005, maxDistance * 0.5);
+    }
+    safeMinStep = Math.min(safeMinStep, Math.max(0.005, maxDistance * 0.9));
+    const maxStartDistance = Math.max(safeMinStep, maxDistance - safeMinStep * 0.5);
+
+    // Generate contours with organic variable spacing and guarantee at least one pass
+    let currentDistance = spacing * (0.5 + Math.random() * 0.5);
+    currentDistance = Math.max(safeMinStep, Math.min(currentDistance, maxStartDistance));
     let level = 1;
-    
+    let drewAnyContours = false;
+
     // Multiple layers of randomness for organic feel
     const baseNoise = Math.random() * 2 - 1;
     const noiseScale = 0.3 + Math.random() * 0.4;
@@ -2031,27 +2047,25 @@ export const useBrushEngineSimplified = () => {
       loops.forEach(loop => {
         // NO SMOOTHING - use raw contour points for pixel-perfect hard edges
         const processedLoop = loop;  // Raw contour points only
-        
+
         ctx.beginPath();
-        if (processedLoop.length > 3) {
+        if (processedLoop.length >= 2) {
           // Absolutely ensure pixel-perfect rendering before stroking
           ctx.imageSmoothingEnabled = false;
-          
-          // Snap to pixel grid for ultra-crisp lines
-          const snapToPixel = (val: number) => Math.floor(val) + 0.5; // Centers line on pixel
-          
+
           ctx.moveTo(snapToPixel(processedLoop[0].x), snapToPixel(processedLoop[0].y));
-          
+
           // Use simple line segments with pixel snapping
           for (let i = 1; i < processedLoop.length; i++) {
             ctx.lineTo(snapToPixel(processedLoop[i].x), snapToPixel(processedLoop[i].y));
           }
-          
+
           // Ensure the path is properly closed
           ctx.lineTo(snapToPixel(processedLoop[0].x), snapToPixel(processedLoop[0].y));
           ctx.stroke();
+          drewAnyContours = true;
         }
-        
+
         // Add elevation labels on major contours
         if (isMajor && processedLoop.length > 20) {
           const idx = Math.floor(processedLoop.length / 2);
@@ -2070,7 +2084,6 @@ export const useBrushEngineSimplified = () => {
           const padding = 2; // Minimal padding
           
           // Snap text position to pixel grid
-          const snapToPixel = (val: number) => Math.floor(val) + 0.5;
           const textX = snapToPixel(point.x);
           const textY = snapToPixel(point.y);
           
@@ -2126,7 +2139,49 @@ export const useBrushEngineSimplified = () => {
       currentDistance += Math.max(minSpacing, Math.min(maxSpacing, baseSpacing));
       level++;
     }
-    
+
+    if (!drewAnyContours) {
+      let fallbackDistance = Math.max(
+        Math.min(maxDistance * 0.66, maxStartDistance),
+        Math.max(0.1, safeMinStep * 0.5)
+      );
+      if (fallbackDistance >= maxDistance) {
+        fallbackDistance = Math.max(maxDistance * 0.5, maxDistance - 0.01);
+      }
+      fallbackDistance = Math.max(0.005, Math.min(fallbackDistance, Math.max(0.005, maxDistance * 0.95)));
+      const fallbackSegments = extractContour(
+        fieldData.field,
+        fieldData.cols,
+        fieldData.rows,
+        fieldData.resolution,
+        fallbackDistance,
+        fieldData.extension
+      );
+      const fallbackLoops = connectSegments(fallbackSegments);
+
+      fallbackLoops.forEach(loop => {
+        if (loop.length < 2) return;
+        ctx.beginPath();
+        ctx.moveTo(snapToPixel(loop[0].x), snapToPixel(loop[0].y));
+        for (let i = 1; i < loop.length; i++) {
+          ctx.lineTo(snapToPixel(loop[i].x), snapToPixel(loop[i].y));
+        }
+        ctx.lineTo(snapToPixel(loop[0].x), snapToPixel(loop[0].y));
+        ctx.stroke();
+        drewAnyContours = true;
+      });
+
+      if (!drewAnyContours && validVertices.length >= 2) {
+        ctx.beginPath();
+        ctx.moveTo(snapToPixel(validVertices[0].x), snapToPixel(validVertices[0].y));
+        for (let i = 1; i < validVertices.length; i++) {
+          ctx.lineTo(snapToPixel(validVertices[i].x), snapToPixel(validVertices[i].y));
+        }
+        ctx.closePath();
+        ctx.stroke();
+      }
+    }
+
     // Draw peak marker - only 10% chance
     if (Math.random() < 0.1) {
       ctx.save();
@@ -2138,7 +2193,6 @@ export const useBrushEngineSimplified = () => {
       ctx.lineWidth = 1;  // Use exactly 1 pixel width
       
       // Snap peak position to pixel grid
-      const snapToPixel = (val: number) => Math.floor(val) + 0.5;
       const snappedPeakX = snapToPixel(actualPeakX);
       const snappedPeakY = snapToPixel(actualPeakY);
       
@@ -2231,7 +2285,9 @@ export const useBrushEngineSimplified = () => {
     // Get cross-hatch settings
     const rotation = (tools.brushSettings.crossHatchRotation || 45) * Math.PI / 180;
     const spacing = tools.brushSettings.crossHatchSpacing || 10;
-    const lineWidth = tools.brushSettings.crossHatchLineWidth || 2;
+    const defaultCrossHatchWidth = 1.25;
+    const lineWidthSetting = tools.brushSettings.crossHatchLineWidth;
+    const lineWidth = Math.max(0.5, lineWidthSetting == null ? defaultCrossHatchWidth : lineWidthSetting);
 
     // Calculate bounds
     const minX = Math.min(...validVertices.map(v => v.x)) - spacing;
@@ -2254,13 +2310,14 @@ export const useBrushEngineSimplified = () => {
     // Set up line style - always use black for hatching
     ctx.strokeStyle = '#000000';
     ctx.lineWidth = lineWidth;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'miter';
+    ctx.miterLimit = 2.5;
 
     // Function to add hand-drawn waviness to a line
     const drawWavyLine = (x1: number, y1: number, x2: number, y2: number) => {
       const segments = 8;
-      const amplitude = 1.5;
+      const amplitude = Math.min(0.9, Math.max(0.35, lineWidth * 0.45));
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       
@@ -2306,9 +2363,10 @@ export const useBrushEngineSimplified = () => {
     
     for (let i = -diagonal; i <= diagonal; i += spacing) {
       const offset = i;
-      
+
       // Add slight variation to spacing for hand-drawn look
-      const jitter = (Math.random() - 0.5) * 2;
+      const jitterRange = Math.min(spacing * 0.12, 0.75);
+      const jitter = (Math.random() - 0.5) * 2 * jitterRange;
       
       // Calculate line endpoints
       const startX = centerX + Math.cos(rotation2 + Math.PI/2) * (offset + jitter) - Math.cos(rotation2) * diagonal;

@@ -1895,6 +1895,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           left: 0,
           width: '100%', 
           height: '100%',
+          mixBlendMode: 'normal',
           pointerEvents: 'none',
           imageRendering: (canvas?.zoom || 1) > 3 ? 'pixelated' : 'auto',
           touchAction: 'none', // Prevent scrolling/zooming on touch devices

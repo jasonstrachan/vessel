@@ -542,6 +542,8 @@ export interface PolygonGradientState {
   adjustmentStartPos?: { x: number; y: number };
   tempRotation?: number;
   tempSpacing?: number;
+  spacingReferenceDistance?: number;
+  spacingReferenceSpacing?: number;
   mode?: 'crosshatch' | 'triangle';
   rotationReferenceAngle?: number;
   rotationInitialRotation?: number;
