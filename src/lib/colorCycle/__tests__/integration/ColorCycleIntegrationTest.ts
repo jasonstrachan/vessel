@@ -9,7 +9,8 @@ import { PerformanceProfiler } from '../../monitoring/PerformanceProfiler';
 import { ColorQuantizer } from '../../ColorQuantizer';
 import { RecolorManager } from '../../RecolorManager';
 import { BrowserCompat } from '../../compatibility/BrowserCompat';
-import { Layer } from '../../../../types';
+import type { Layer } from '@/types';
+import { createMockLayer } from '../testUtils/layerFactory';
 
 export interface IntegrationTestResult {
   testName: string;
@@ -27,6 +28,30 @@ export interface IntegrationTestSuite {
   recommendations: string[];
   timestamp: number;
 }
+
+const buildTestLayer = (canvas: HTMLCanvasElement, overrides: Partial<Layer> = {}): Layer => {
+  const layerOverrides: Partial<Layer> = {
+    framebuffer: overrides.framebuffer ?? canvas,
+    ...overrides,
+  };
+
+  if (!('colorCycleData' in layerOverrides)) {
+    layerOverrides.colorCycleData = {
+      mode: 'recolor',
+      canvas,
+    };
+  } else if (
+    layerOverrides.colorCycleData &&
+    !layerOverrides.colorCycleData.canvas
+  ) {
+    layerOverrides.colorCycleData = {
+      ...layerOverrides.colorCycleData,
+      canvas,
+    };
+  }
+
+  return createMockLayer(layerOverrides);
+};
 
 export class ColorCycleIntegrationTest {
   private profiler: PerformanceProfiler;
@@ -146,16 +171,11 @@ export class ColorCycleIntegrationTest {
     }
     ctx.putImageData(imageData, 0, 0);
 
-    const layer: Layer = {
+    const layer = buildTestLayer(canvas, {
       id: 'test-layer',
       name: 'Test Layer',
-      visible: true,
-      opacity: 1,
-      canvas,
-      colorCycleData: {
-        mode: 'brush'
-      }
-    };
+      imageData,
+    });
 
     return { layer, imageSize: `${canvas.width}x${canvas.height}` };
   }
@@ -185,14 +205,14 @@ export class ColorCycleIntegrationTest {
 
     // Test RGB332 quantization
     const rgb332Result = ColorQuantizer.quantize(imageData, {
-      mode: 'rgb332',
+      method: 'rgb332',
       maxColors: 256,
       ditherMode: 'off'
     });
 
     // Test with dithering
     const ditheredResult = ColorQuantizer.quantize(imageData, {
-      mode: 'rgb332',
+      method: 'rgb332',
       maxColors: 256,
       ditherMode: 'bayer4'
     });
@@ -200,12 +220,12 @@ export class ColorCycleIntegrationTest {
     return {
       rgb332: {
         paletteSize: rgb332Result.palette.length,
-        indexBufferSize: rgb332Result.indexBuffer.length,
+        indexBufferSize: rgb332Result.indices.length,
         hasColorMap: !!rgb332Result.colorMap
       },
       dithered: {
         paletteSize: ditheredResult.palette.length,
-        indexBufferSize: ditheredResult.indexBuffer.length
+        indexBufferSize: ditheredResult.indices.length
       }
     };
   }
@@ -220,13 +240,12 @@ export class ColorCycleIntegrationTest {
     canvas.height = 64;
     const ctx = canvas.getContext('2d')!;
     
-    const layer: Layer = {
+    const baseImage = ctx.createImageData(canvas.width, canvas.height);
+    const layer = buildTestLayer(canvas, {
       id: 'anim-test-layer',
       name: 'Animation Test Layer',
-      visible: true,
-      opacity: 1,
-      canvas
-    };
+      imageData: baseImage,
+    });
 
     // Convert to recolor mode
     await manager.convertToRecolorMode(layer, {
@@ -270,13 +289,11 @@ export class ColorCycleIntegrationTest {
       canvas.width = 128;
       canvas.height = 128;
       
-      const layer: Layer = {
+      const layer = buildTestLayer(canvas, {
         id: `memory-test-${i}`,
         name: `Memory Test Layer ${i}`,
-        visible: true,
-        opacity: 1,
-        canvas
-      };
+        imageData: new ImageData(canvas.width, canvas.height),
+      });
 
       await manager.convertToRecolorMode(layer, {
         quantizationMode: 'rgb332',
@@ -328,14 +345,12 @@ export class ColorCycleIntegrationTest {
 
     // Test invalid canvas
     try {
-      const layer: Layer = {
+      const badLayer = createMockLayer({
         id: 'invalid-canvas',
         name: 'Invalid Canvas',
-        visible: true,
-        opacity: 1,
-        canvas: null as any
-      };
-      await manager.convertToRecolorMode(layer, {});
+        colorCycleData: undefined,
+      });
+      await manager.convertToRecolorMode(badLayer, {});
       errorTests.push({ test: 'null canvas', handled: false });
     } catch (e) {
       errorTests.push({ test: 'null canvas', handled: true });
@@ -343,14 +358,11 @@ export class ColorCycleIntegrationTest {
 
     // Test invalid options
     try {
-      const layer: Layer = {
+      const invalidOptionsLayer = buildTestLayer(document.createElement('canvas'), {
         id: 'invalid-options',
         name: 'Invalid Options',
-        visible: true,
-        opacity: 1,
-        canvas: document.createElement('canvas')
-      };
-      await manager.convertToRecolorMode(layer, { maxColors: -1 } as any);
+      });
+      await manager.convertToRecolorMode(invalidOptionsLayer, { maxColors: -1 } as any);
       errorTests.push({ test: 'invalid options', handled: false });
     } catch (e) {
       errorTests.push({ test: 'invalid options', handled: true });
@@ -440,13 +452,11 @@ export class ColorCycleIntegrationTest {
     }
     ctx.putImageData(imageData, 0, 0);
 
-    const layer: Layer = {
+    const layer = buildTestLayer(canvas, {
       id: 'workflow-test',
       name: 'Workflow Test',
-      visible: true,
-      opacity: 1,
-      canvas
-    };
+      imageData,
+    });
 
     // Full workflow: Convert -> Animate -> Extract Colors -> Update Gradient
     const startTime = performance.now();
@@ -465,9 +475,11 @@ export class ColorCycleIntegrationTest {
 
     // Step 3: Extract colors
     const extractedColors = await manager.extractColors(layer, {
-      method: 'oklab-clustering',
-      colorCount: 8,
-      includeFrequency: true
+      method: 'oklab',
+      gradientStops: 8,
+      buildMode: 'perceptual',
+      sortBy: 'perceptual',
+      preserveOriginalColors: true,
     });
 
     // Step 4: Update gradient
@@ -502,13 +514,11 @@ export class ColorCycleIntegrationTest {
     canvas.width = optimalSize.width;
     canvas.height = optimalSize.height;
     
-    const layer: Layer = {
+    const layer = buildTestLayer(canvas, {
       id: 'large-image-test',
       name: 'Large Image Test',
-      visible: true,
-      opacity: 1,
-      canvas
-    };
+      imageData: new ImageData(canvas.width, canvas.height),
+    });
 
     const startTime = performance.now();
     
@@ -559,14 +569,12 @@ export class ColorCycleIntegrationTest {
         const canvas = document.createElement('canvas');
         canvas.width = 128;
         canvas.height = 128;
-        
-        const layer: Layer = {
+
+        const layer = buildTestLayer(canvas, {
           id: `concurrent-${i}`,
           name: `Concurrent Layer ${i}`,
-          visible: true,
-          opacity: 1,
-          canvas
-        };
+          imageData: new ImageData(canvas.width, canvas.height),
+        });
         
         await manager.convertToRecolorMode(layer, {
           quantizationMode: 'rgb332',

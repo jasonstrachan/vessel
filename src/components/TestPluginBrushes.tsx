@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useUserBrushEngine } from '../hooks/useUserBrushEngine';
 import { useAppStore } from '../stores/useAppStore';
-import { BrushPreset } from '../types';
+import type { BrushPreset } from '@/types';
 
 /**
  * Test component for the modular brush plugin system
@@ -12,10 +12,16 @@ import { BrushPreset } from '../types';
 export function TestPluginBrushes() {
   const userBrushEngine = useUserBrushEngine();
   const currentBrushPreset = useAppStore(state => state.currentBrushPreset);
-  const selectBrushPreset = useAppStore(state => state.selectBrushPreset);
+  const setBrushPreset = useAppStore(state => state.setBrushPreset);
   const [pluginBrushes, setPluginBrushes] = useState<any[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [testCanvas, setTestCanvas] = useState<HTMLCanvasElement | null>(null);
+  const attachCanvasRef = useCallback((el: HTMLDivElement | null) => {
+    if (!el || !testCanvas) return;
+    if (!el.contains(testCanvas)) {
+      el.appendChild(testCanvas);
+    }
+  }, [testCanvas]);
 
   // Load plugin brushes on mount
   useEffect(() => {
@@ -110,7 +116,7 @@ export function TestPluginBrushes() {
     };
     
     // Set it as current brush using the selectBrushPreset action
-    selectBrushPreset(pluginPreset);
+    setBrushPreset(pluginPreset, true);
     
     console.log(`✅ Activated plugin brush: ${brushName}`);
   };
@@ -157,7 +163,7 @@ export function TestPluginBrushes() {
       {testCanvas && (
         <div className="mb-3">
           <p className="text-sm text-gray-400 mb-2">Test Canvas:</p>
-          <div ref={(el) => el && el.appendChild(testCanvas)} />
+          <div ref={attachCanvasRef} />
         </div>
       )}
 

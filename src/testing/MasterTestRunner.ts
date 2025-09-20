@@ -27,6 +27,35 @@ export class MasterTestRunner {
     this.visualComparison = new VisualQualityComparison();
     this.memoryAnalysis = new MemoryAnalysis();
   }
+
+  /**
+   * Run just the feature parity test suite.
+   * Exposed for the test selection UI.
+   */
+  async runFeatureParityTest() {
+    return this.parityTest.runAllTests();
+  }
+
+  /**
+   * Run the performance benchmark suite only.
+   */
+  async runPerformanceBenchmark() {
+    return this.performanceBenchmark.runAllBenchmarks();
+  }
+
+  /**
+   * Run visual comparison tests only.
+   */
+  async runVisualQualityComparison() {
+    return this.visualComparison.runAllTests();
+  }
+
+  /**
+   * Run the memory analysis suite only.
+   */
+  async runMemoryAnalysis() {
+    return this.memoryAnalysis.runAllTests();
+  }
   
   /**
    * Run all tests

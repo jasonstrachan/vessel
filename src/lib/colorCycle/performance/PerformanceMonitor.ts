@@ -133,7 +133,14 @@ export class PerformanceMonitor {
   private frameMetrics: RingBuffer<FrameMetrics>;
   private memoryMetrics: RingBuffer<MemoryMetrics>;
   private cacheMetrics: RingBuffer<CacheMetrics>;
-  private systemMetrics: SystemMetrics;
+  private systemMetrics: SystemMetrics = {
+    cpuUsage: 0,
+    memoryPressure: 'low',
+    devicePixelRatio: 1,
+    hardwareConcurrency: 1,
+    userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+    timestamp: Date.now(),
+  };
   
   // Performance tracking
   private frameStartTime = 0;

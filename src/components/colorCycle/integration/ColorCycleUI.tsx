@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
+import type { Layer } from '@/types';
 import { useAppStore } from '../../../stores/useAppStore';
 import { AppIntegration } from '../../../lib/colorCycle/integration/AppIntegration';
 import { RecolorPanel } from '../RecolorPanel';

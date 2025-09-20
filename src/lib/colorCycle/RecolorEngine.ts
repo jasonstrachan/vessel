@@ -10,13 +10,13 @@ import { GradientPalette } from '../GradientPalette';
 import type { Layer } from '../../types';
 
 export interface RecolorEngineConfig {
-  canvas?: HTMLCanvasElement;
-  context?: CanvasRenderingContext2D;
+  canvas?: HTMLCanvasElement | OffscreenCanvas;
+  context?: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 }
 
 export class RecolorEngine {
-  private canvas: HTMLCanvasElement | null = null;
-  private ctx: CanvasRenderingContext2D | null = null;
+  private canvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+  private ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
   private config: RecolorEngineConfig;
   // GPU renderer for palette mapping
   private glRenderer: WebGLColorCycleRenderer | null = null;
@@ -37,7 +37,10 @@ export class RecolorEngine {
   /**
    * Lazy initialization of canvas - only called when needed and in browser environment
    */
-  private ensureCanvas(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
+  private ensureCanvas(): {
+    canvas: HTMLCanvasElement | OffscreenCanvas;
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+  } {
     if (this.canvas && this.ctx) {
       return { canvas: this.canvas, ctx: this.ctx };
     }
@@ -61,16 +64,27 @@ export class RecolorEngine {
         this.canvas.height = 1;
       }
       
-      this.ctx = this.canvas.getContext('2d', {
+      const canvas = this.canvas;
+      if (!canvas) {
+        throw new Error('Failed to allocate canvas for RecolorEngine');
+      }
+
+      const context = canvas.getContext('2d', {
         willReadFrequently: true,
         alpha: true
-      }) as CanvasRenderingContext2D;
-      
-      if (!this.ctx) {
+      });
+
+      if (!context) {
         throw new Error('Failed to create canvas context for RecolorEngine');
       }
+
+      this.ctx = context as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
     }
-    
+
+    if (!this.canvas || !this.ctx) {
+      throw new Error('Failed to initialize RecolorEngine canvas/context');
+    }
+
     this.ctx.imageSmoothingEnabled = false;
     return { canvas: this.canvas, ctx: this.ctx };
   }
@@ -122,15 +136,28 @@ export class RecolorEngine {
       } = options;
       
       // Initialize recolor settings if not present
-      if (!layer.colorCycleData) {
-        layer.colorCycleData = { mode: 'recolor' };
+      const existingColorCycleData = layer.colorCycleData ?? {};
+      const framebufferCanvas =
+        existingColorCycleData.canvas ??
+        (layer.framebuffer instanceof HTMLCanvasElement ? layer.framebuffer : undefined);
+
+      layer.colorCycleData = {
+        ...existingColorCycleData,
+        mode: 'recolor',
+        canvas: framebufferCanvas,
+      };
+
+      const colorCycleData = layer.colorCycleData;
+
+      if (!colorCycleData) {
+        throw new Error('Failed to initialize color cycle data for layer');
       }
-      
-      if (!layer.colorCycleData.recolorSettings) {
+
+      if (!colorCycleData.recolorSettings) {
         const defaultSpeed = 0.1;
         const defaultFPS = 30;
         const ticksPerFrame = (defaultSpeed / defaultFPS) * cycleColors; // keep in sync with controller logic
-        layer.colorCycleData.recolorSettings = {
+        colorCycleData.recolorSettings = {
           quantizationMode,
           ditherMode,
           animation: {
@@ -153,8 +180,8 @@ export class RecolorEngine {
           )
         };
       }
-      
-      const settings = layer.colorCycleData.recolorSettings!;
+
+      const settings = colorCycleData.recolorSettings!;
       
       // Step 1: Quantize to indexed color with enhanced options
       console.time('[RecolorEngine] quantization');
@@ -227,7 +254,8 @@ export class RecolorEngine {
       return null;
     }
 
-    const settings = layer.colorCycleData.recolorSettings;
+    const colorCycleData = layer.colorCycleData!;
+    const settings = colorCycleData.recolorSettings!;
     const currentTick = tick ?? settings.animation.currentTick;
     
     try {
@@ -270,9 +298,8 @@ export class RecolorEngine {
         this.glRenderer.render(o);
 
         // Expose GPU canvas to layer for composition
-        if (!layer.colorCycleData) layer.colorCycleData = { mode: 'recolor' } as any;
-        layer.colorCycleData.mode = 'recolor';
-        (layer.colorCycleData as any).canvas = this.glRenderer.getCanvas();
+        colorCycleData.mode = 'recolor';
+        (colorCycleData as any).canvas = this.glRenderer.getCanvas();
 
         // Return null to indicate GPU path updated canvas (no ImageData copy)
         return null;

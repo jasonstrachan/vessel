@@ -178,7 +178,7 @@ describe('GradientPalette', () => {
       
       expect(stops.length).toBeGreaterThan(3);
       // Should have blue colors
-      expect(stops.some(s => s.color.includes('00'))).toBe(true);
+      expect(stops.some(s => typeof s.color === 'string' && s.color.includes('00'))).toBe(true);
     });
     
     it('should create sunset gradient', () => {

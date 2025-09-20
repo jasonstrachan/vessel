@@ -143,7 +143,8 @@ export class CrossBrowserTest {
 
     try {
       const canvas = document.createElement('canvas');
-      const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+      const gl = (canvas.getContext('webgl') as WebGLRenderingContext | null)
+        ?? (canvas.getContext('experimental-webgl') as WebGLRenderingContext | null);
       
       if (gl) {
         result.supported = true;
@@ -336,21 +337,23 @@ export class CrossBrowserTest {
       quantizationWorks: false,
       ditheringWorks: false,
       animationWorks: false,
-      issues: [] as string[]
+      issues: [] as string[],
     };
 
+    let testData: ImageData | null = null;
+
     try {
-      // Test quantization
-      const testData = this.ctx?.createImageData(64, 64);
-      if (testData) {
+      if (this.ctx) {
+        testData = this.ctx.createImageData(64, 64);
         this.fillTestPattern(testData);
         const quantized = ColorQuantizer.quantize(testData, {
-          mode: 'rgb332',
-          maxColors: 256
+          method: 'rgb332',
+          maxColors: 256,
+          ditherMode: 'off',
         });
-        result.quantizationWorks = quantized.indexBuffer.length > 0 && quantized.palette.length > 0;
+        result.quantizationWorks = quantized.indices.length > 0 && quantized.palette.length > 0;
       }
-      
+
       if (!result.quantizationWorks) {
         result.issues.push('Color quantization failed');
       }
@@ -359,17 +362,17 @@ export class CrossBrowserTest {
     }
 
     try {
-      // Test dithering
       if (result.quantizationWorks && testData) {
         const palette = new Uint32Array(256);
         for (let i = 0; i < 256; i++) {
           palette[i] = (255 << 24) | (i << 16) | (i << 8) | i;
         }
-        
-        const dithered = BayerDithering.dither(testData, palette);
+
+        const dithering = new BayerDithering();
+        const dithered = dithering.dither(testData, palette);
         result.ditheringWorks = dithered.imageData.data.length > 0;
       }
-      
+
       if (!result.ditheringWorks) {
         result.issues.push('Dithering failed');
       }
@@ -378,21 +381,19 @@ export class CrossBrowserTest {
     }
 
     try {
-      // Test animation (basic frame update)
       if (result.quantizationWorks) {
         let animationWorked = false;
-        
-        // Simple animation test
+
         const startTime = performance.now();
         const testFrame = () => {
           const elapsed = performance.now() - startTime;
-          if (elapsed > 100) { // 100ms test
+          if (elapsed > 100) {
             animationWorked = true;
           } else {
             requestAnimationFrame(testFrame);
           }
         };
-        
+
         await new Promise<void>((resolve) => {
           testFrame();
           setTimeout(() => {
@@ -401,7 +402,7 @@ export class CrossBrowserTest {
           }, 200);
         });
       }
-      
+
       if (!result.animationWorks) {
         result.issues.push('Animation system failed');
       }

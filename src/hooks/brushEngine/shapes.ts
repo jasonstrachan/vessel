@@ -57,7 +57,9 @@ function getRotatedPixelStamp(
   // Limit cache size
   if (rotatedStampCache.size > 100) {
     const firstKey = rotatedStampCache.keys().next().value;
-    rotatedStampCache.delete(firstKey);
+    if (typeof firstKey === 'string') {
+      rotatedStampCache.delete(firstKey);
+    }
   }
   
   return rotCanvas;

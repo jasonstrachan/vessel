@@ -89,7 +89,7 @@ export class PerformanceBenchmark {
       const start = performance.now();
       
       ColorQuantizer.quantize(imageData, {
-        mode: 'rgb332',
+        method: 'rgb332',
         ditherMode: 'off',
         maxColors: 256
       });
@@ -159,7 +159,8 @@ export class PerformanceBenchmark {
    */
   private async benchmarkSpatialHashLookup(): Promise<BenchmarkResult> {
     const palette = this.generateTestPalette(256);
-    const spatialHash = new SpatialColorHash(palette);
+    const spatialHash = new SpatialColorHash();
+    spatialHash.buildHash(palette);
     const iterations = 10000;
     const times: number[] = [];
 
@@ -204,10 +205,11 @@ export class PerformanceBenchmark {
     const times: number[] = [];
 
     const startMemory = this.getMemoryUsage();
+    const dithering = new BayerDithering();
 
     for (let i = 0; i < iterations; i++) {
       const start = performance.now();
-      BayerDithering.dither(imageData, palette);
+      dithering.dither(imageData, palette);
       const end = performance.now();
       times.push(end - start);
     }
@@ -310,16 +312,11 @@ export class PerformanceBenchmark {
   private async benchmarkAnimationFrames(): Promise<BenchmarkResult> {
     const imageData = this.generateTestImage(256, 256);
     const quantized = ColorQuantizer.quantize(imageData, {
-      mode: 'rgb332',
+      method: 'rgb332',
       maxColors: 256
     });
 
-    const controller = new RecolorAnimationController({
-      fps: 30,
-      speed: 0.5,
-      cycleColors: 16,
-      flowDirection: 'forward'
-    });
+    const controller = new RecolorAnimationController();
 
     const gradient = [
       { position: 0, color: '#ff0000' },
@@ -333,7 +330,7 @@ export class PerformanceBenchmark {
 
     for (let i = 0; i < iterations; i++) {
       const start = performance.now();
-      controller.updateFrame(quantized.indexBuffer, quantized.palette, gradient, imageData);
+      (controller as any).updateFrame(quantized.indices, quantized.palette, gradient, imageData);
       const end = performance.now();
       times.push(end - start);
     }
@@ -374,7 +371,7 @@ export class PerformanceBenchmark {
       // Simulate heavy memory usage
       const imageData = this.generateTestImage(512, 512);
       const quantized = ColorQuantizer.quantize(imageData, {
-        mode: 'rgb332',
+        method: 'rgb332',
         maxColors: 256
       });
       
@@ -421,17 +418,12 @@ export class PerformanceBenchmark {
       // Full workflow: generate -> quantize -> animate
       const imageData = this.generateTestImage(256, 256);
       const quantized = ColorQuantizer.quantize(imageData, {
-        mode: 'rgb332',
+        method: 'rgb332',
         ditherMode: 'bayer4',
         maxColors: 256
       });
       
-      const controller = new RecolorAnimationController({
-        fps: 30,
-        speed: 0.5,
-        cycleColors: 16,
-        flowDirection: 'forward'
-      });
+      const controller = new RecolorAnimationController();
       
       const gradient = [
         { position: 0, color: '#ff0000' },
@@ -440,7 +432,7 @@ export class PerformanceBenchmark {
       
       // Simulate 10 animation frames
       for (let frame = 0; frame < 10; frame++) {
-        controller.updateFrame(quantized.indexBuffer, quantized.palette, gradient, imageData);
+        (controller as any).updateFrame(quantized.indices, quantized.palette, gradient, imageData);
       }
       
       const end = performance.now();

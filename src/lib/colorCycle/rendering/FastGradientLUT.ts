@@ -256,7 +256,9 @@ export class FastGradientLUT {
     // Remove oldest entries if cache is full
     if (FastGradientLUT.cache.size >= FastGradientLUT.MAX_CACHE_SIZE) {
       const oldestKey = FastGradientLUT.cache.keys().next().value;
-      FastGradientLUT.cache.delete(oldestKey);
+      if (typeof oldestKey === 'string') {
+        FastGradientLUT.cache.delete(oldestKey);
+      }
     }
     
     // Store copy to prevent mutations

@@ -303,27 +303,34 @@ export class ProductionReadinessCheck {
       });
 
       // Error handling
-      const errorHandlingPassed = results.results.find(r => r.testName.includes('Error Handling'))?.success;
+      const errorHandlingIssue = results.issues.find(
+        issue => issue.component === 'ErrorHandling' && issue.severity === 'error'
+      );
+      const errorHandlingPassed = !errorHandlingIssue;
       checks.push({
         name: 'Error Handling',
         category: 'reliability',
         status: errorHandlingPassed ? 'pass' : 'fail',
-        message: errorHandlingPassed 
+        message: errorHandlingPassed
           ? 'Error handling is working correctly'
-          : 'Error handling tests failed',
+          : errorHandlingIssue?.message ?? 'Error handling issues detected',
         blocker: true
       });
 
       // Memory management
-      const memoryTestPassed = results.results.find(r => r.testName.includes('Memory'))?.success;
+      const memoryIssue = results.issues.find(
+        issue => issue.component === 'MemoryManagement' && issue.severity === 'error'
+      );
+      const memoryWarning = results.issues.find(
+        issue => issue.component === 'MemoryManagement' && issue.severity !== 'error'
+      );
+      const memoryStatus = memoryIssue ? 'fail' : memoryWarning ? 'warning' : 'pass';
       checks.push({
         name: 'Memory Management',
         category: 'reliability',
-        status: memoryTestPassed ? 'pass' : 'warning',
-        message: memoryTestPassed
-          ? 'Memory management is working'
-          : 'Memory management issues detected',
-        blocker: false
+        status: memoryStatus,
+        message: memoryIssue?.message ?? memoryWarning?.message ?? 'Memory management is working',
+        blocker: memoryStatus === 'fail'
       });
 
     } catch (error) {

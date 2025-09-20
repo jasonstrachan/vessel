@@ -74,7 +74,7 @@ export class ColorCycleBrushOptimized {
     // Initialize animation controller
     this.animationController = new AnimationController();
     this.animationController.setFPS(options.fps || 30);
-    this.animationController.setAnimationCallback(this.animate.bind(this));
+    this.animationController.setOnFrame(this.animate.bind(this));
     
     // Set brush properties
     this.brushSize = options.brushSize || 10;
@@ -142,14 +142,14 @@ export class ColorCycleBrushOptimized {
     // Use WASM for painting if available
     if (this.useWASM && this.wasmAccelerator) {
       // Access the buffer data directly for WASM operations
-    const buffer = new Uint8Array(this.width * this.height);
-    // Copy current index buffer state
-    for (let y = 0; y < this.height; y++) {
-      for (let x = 0; x < this.width; x++) {
-        const idx = y * this.width + x;
-        buffer[idx] = this.indexBuffer.getColorIndex(x, y);
+      const buffer = new Uint8Array(this.width * this.height);
+      // Copy current index buffer state
+      for (let py = 0; py < this.height; py++) {
+        for (let px = 0; px < this.width; px++) {
+          const idx = py * this.width + px;
+          buffer[idx] = this.indexBuffer.getPixel(px, py);
+        }
       }
-    }
       const success = this.wasmAccelerator.paintCircle(
         buffer,
         this.width,
@@ -162,20 +162,24 @@ export class ColorCycleBrushOptimized {
       
       if (success) {
         // Update index buffer with modified data
-        for (let y = 0; y < this.height; y++) {
-          for (let x = 0; x < this.width; x++) {
-            const idx = y * this.width + x;
-            if (buffer[idx] !== 0) {
-              this.indexBuffer.paint(x, y, buffer[idx], 1);
+        for (let py = 0; py < this.height; py++) {
+          for (let px = 0; px < this.width; px++) {
+            const idx = py * this.width + px;
+            const colorIndex = buffer[idx];
+            if (colorIndex !== 0) {
+              this.indexBuffer.setPixel(px, py, colorIndex);
             }
           }
         }
         return;
       }
     }
-    
+
     // Fallback to regular painting
-    this.indexBuffer.paint(Math.floor(x), Math.floor(y), this.currentColorIndex.toString(), this.brushSize);
+    const brushX = Math.floor(x);
+    const brushY = Math.floor(y);
+    const color = this.gradientPalette.getColorString(this.currentColorIndex);
+    this.indexBuffer.paint(brushX, brushY, this.brushSize, color);
   }
 
   /**
@@ -194,10 +198,10 @@ export class ColorCycleBrushOptimized {
   async render() {
     // Get index data as Uint8Array
     const indexData = new Uint8Array(this.width * this.height);
-    for (let y = 0; y < this.height; y++) {
-      for (let x = 0; x < this.width; x++) {
-        const idx = y * this.width + x;
-        indexData[idx] = this.indexBuffer.getColorIndex(x, y);
+    for (let py = 0; py < this.height; py++) {
+      for (let px = 0; px < this.width; px++) {
+        const idx = py * this.width + px;
+        indexData[idx] = this.indexBuffer.getPixel(px, py);
       }
     }
     let imageData: ImageData;

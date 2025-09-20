@@ -178,11 +178,13 @@ export class ImageBitmapTransfer {
     // Manage cache size
     if (this.bitmapCache.size >= this.maxCacheSize) {
       const firstKey = this.bitmapCache.keys().next().value;
-      const firstBitmap = this.bitmapCache.get(firstKey);
-      if (firstBitmap) {
-        firstBitmap.close();
+      if (typeof firstKey === 'string') {
+        const firstBitmap = this.bitmapCache.get(firstKey);
+        if (firstBitmap) {
+          firstBitmap.close();
+        }
+        this.bitmapCache.delete(firstKey);
       }
-      this.bitmapCache.delete(firstKey);
     }
     
     this.bitmapCache.set(key, bitmap);

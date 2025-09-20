@@ -892,7 +892,7 @@ export class ColorCycleBrushPath2D {
     
     const encoder = new TextEncoder();
     const encoded = encoder.encode(pathData);
-    return encoded.buffer.slice(0);
+    return encoded.slice().buffer;
   }
   
   restoreSnapshot(layerId: string, snapshot: ArrayBuffer) {

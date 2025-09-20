@@ -5,9 +5,18 @@
  * Navigate to different test suites for the 2D unified rendering pipeline
  */
 
+import { useCallback } from 'react';
 import Link from 'next/link';
+import { useFeatureFlag, useFeatureFlagSetter } from '@/config/featureFlags';
 
 export default function TestsPage() {
+  const shapeRewriteEnabled = useFeatureFlag('shapeToolHandlerRewrite');
+  const setShapeRewrite = useFeatureFlagSetter('shapeToolHandlerRewrite');
+
+  const toggleShapeRewrite = useCallback(() => {
+    setShapeRewrite(!shapeRewriteEnabled);
+  }, [setShapeRewrite, shapeRewriteEnabled]);
+
   return (
     <div className="min-h-screen bg-gray-100 py-8">
       <div className="container mx-auto px-4">
@@ -66,7 +75,7 @@ export default function TestsPage() {
             <h3 className="text-lg font-semibold mb-3">📊 What These Tests Measure</h3>
             <div className="grid md:grid-cols-2 gap-4 text-sm text-gray-700">
               <div>
-                <h4 rongngth="font-semibold mb-2">Migration Success</h4>
+                <h4 className="font-semibold mb-2">Migration Success</h4>
                 <ul className="space-y-1">
                   <li>• API compatibility maintained</li>
                   <li>• All features working correctly</li>
@@ -86,6 +95,34 @@ export default function TestsPage() {
             </div>
           </div>
           
+          <div className="mt-6 bg-white rounded-lg p-6 shadow-md">
+            <h3 className="text-lg font-semibold mb-2">🧪 Experimental Switches</h3>
+            <p className="text-gray-600 mb-4">
+              Flip feature toggles to validate new interaction flows before they fully replace the
+              legacy handlers.
+            </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-gray-800">Polygon &amp; Crosshatch Rewrite</p>
+                <p className="text-sm text-gray-600">
+                  Enables the new shape tool pointer handler stack for polygon fills and
+                  crosshatch adjustments.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={toggleShapeRewrite}
+                className={`px-4 py-2 rounded-md font-semibold transition-colors ${
+                  shapeRewriteEnabled
+                    ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                    : 'bg-gray-300 hover:bg-gray-400 text-gray-900'
+                }`}
+              >
+                {shapeRewriteEnabled ? 'Enabled' : 'Disabled'}
+              </button>
+            </div>
+          </div>
+
           <div className="mt-6 bg-yellow-50 rounded-lg p-6">
             <h3 className="text-lg font-semibold mb-2">⚡ Quick Start</h3>
             <ol className="list-decimal list-inside space-y-2 text-gray-700">

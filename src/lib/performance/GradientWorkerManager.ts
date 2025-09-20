@@ -62,7 +62,8 @@ export class GradientWorkerManager {
   }
 
   private sendMessage(type: string, data: any): Promise<any> {
-    if (!this.worker) {
+    const worker = this.worker;
+    if (!worker) {
       return Promise.reject(new Error('Worker not available'));
     }
     
@@ -85,7 +86,7 @@ export class GradientWorkerManager {
         originalResolve(value);
       };
       
-      this.worker.postMessage({ type, data, id });
+      worker.postMessage({ type, data, id });
     });
   }
 

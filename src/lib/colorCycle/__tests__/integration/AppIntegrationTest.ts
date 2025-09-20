@@ -6,7 +6,8 @@
 import { AppIntegration } from '../../integration/AppIntegration';
 import { ColorCycleIntegrationTest } from './ColorCycleIntegrationTest';
 import { BrowserCompat } from '../../compatibility/BrowserCompat';
-import { Layer } from '../../../../types';
+import type { Layer } from '@/types';
+import { createMockLayer } from '../testUtils/layerFactory';
 
 interface IntegrationIssue {
   severity: 'error' | 'warning' | 'info';
@@ -183,13 +184,16 @@ export class AppIntegrationTest {
     validCanvas.width = 256;
     validCanvas.height = 256;
 
-    const validLayer: Layer = {
+    const validLayer = createMockLayer({
       id: 'test-valid',
       name: 'Valid Test Layer',
-      visible: true,
-      opacity: 1,
-      canvas: validCanvas
-    };
+      layerType: 'color-cycle',
+      framebuffer: validCanvas,
+      colorCycleData: {
+        mode: 'recolor',
+        canvas: validCanvas,
+      },
+    });
 
     const validResult = this.integration.canConvertLayer(validLayer);
     if (!validResult.canConvert) {
@@ -197,13 +201,12 @@ export class AppIntegrationTest {
     }
 
     // Test with invalid layer (no canvas)
-    const invalidLayer: Layer = {
+    const invalidLayer = createMockLayer({
       id: 'test-invalid',
       name: 'Invalid Test Layer',
-      visible: true,
-      opacity: 1,
-      canvas: null as any
-    };
+      colorCycleData: undefined,
+      layerType: 'normal',
+    });
 
     const invalidResult = this.integration.canConvertLayer(invalidLayer);
     if (invalidResult.canConvert) {
@@ -215,13 +218,16 @@ export class AppIntegrationTest {
     oversizedCanvas.width = 8192;
     oversizedCanvas.height = 8192;
 
-    const oversizedLayer: Layer = {
+    const oversizedLayer = createMockLayer({
       id: 'test-oversized',
       name: 'Oversized Test Layer',
-      visible: true,
-      opacity: 1,
-      canvas: oversizedCanvas
-    };
+      layerType: 'color-cycle',
+      framebuffer: oversizedCanvas,
+      colorCycleData: {
+        mode: 'recolor',
+        canvas: oversizedCanvas,
+      },
+    });
 
     const oversizedResult = this.integration.canConvertLayer(oversizedLayer);
     // This should either be rejected OR the layer should be resized
@@ -264,13 +270,17 @@ export class AppIntegrationTest {
         }
         ctx.putImageData(imageData, 0, 0);
 
-        const layer: Layer = {
+        const layer = createMockLayer({
           id: `memory-test-${i}`,
           name: `Memory Test Layer ${i}`,
-          visible: true,
-          opacity: 1,
-          canvas
-        };
+          framebuffer: canvas,
+          layerType: 'color-cycle',
+          imageData,
+          colorCycleData: {
+            mode: 'recolor',
+            canvas,
+          },
+        });
 
         // Test conversion
         await this.integration.convertLayerOptimized(layer, {
@@ -379,13 +389,17 @@ export class AppIntegrationTest {
     }
     ctx.putImageData(imageData, 0, 0);
 
-    const layer: Layer = {
+    const layer = createMockLayer({
       id: 'performance-test',
       name: 'Performance Test Layer',
-      visible: true,
-      opacity: 1,
-      canvas
-    };
+      framebuffer: canvas,
+      layerType: 'color-cycle',
+      imageData,
+      colorCycleData: {
+        mode: 'recolor',
+        canvas,
+      },
+    });
 
     try {
       // Test conversion performance
@@ -444,13 +458,16 @@ export class AppIntegrationTest {
     canvas.width = 64;
     canvas.height = 64;
     
-    const layer: Layer = {
+    const layer = createMockLayer({
       id: 'error-test',
       name: 'Error Test Layer',
-      visible: true,
-      opacity: 1,
-      canvas
-    };
+      framebuffer: canvas,
+      layerType: 'color-cycle',
+      colorCycleData: {
+        mode: 'recolor',
+        canvas,
+      },
+    });
 
     try {
       await this.integration.convertLayerOptimized(layer, {
