@@ -88,7 +88,18 @@ Implement crosshatch and
       ShapeToolHandler, ensuring state
       updates and previews mirror current
       behavior.
+    □ ShapeToolHandler rewrite is now
+      always active (feature flag removed
+      after crosshatch/triangle/Delaunay
+      parity sign-off).
+    □ Document regression checks (manual
+      and automated) while the rewrite
+      stabilized prior to full rollout.
     □ Prune migrated logic from
       pointerHandlers, wire up handler
       delegation, and validate via code
       review (consider targeted checks).
+    ■ Feature flag + legacy fallback
+      removed post Polygon/Crosshatch QA
+      sign-off; handler rewrite owns all
+      shape interactions going forward.

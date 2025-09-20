@@ -23,7 +23,6 @@ import {
 import { getPresetStops } from '../../../utils/gradientPresets';
 import { debugLog } from '@/utils/debug';
 import { createShapeToolHandler } from './shapes/ShapeToolHandler';
-import { isFeatureFlagEnabled } from '@/config/featureFlags';
 
 export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHandlers => {
   // Cap overlay previews to 30 FPS to reduce main-thread load during drag
@@ -775,6 +774,18 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // Check the state BEFORE dispatching - this is critical!
     const currentMode = stateMachine.state.mode;
 
+    const rewriteHandled = shapeHandler.handlePointerDown(event);
+    if (rewriteHandled) {
+      const polygonState = useAppStore.getState().polygonGradientState;
+      if (polygonState.drawingState === 'idle') {
+        isMouseDownRef.current = false;
+        if ((event.target as HTMLCanvasElement).hasPointerCapture?.(event.pointerId)) {
+          (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+        }
+      }
+      return;
+    }
+
     // Dispatch to state machine with SCREEN position for normal interactions
     stateMachine.dispatch({ 
       type: 'MOUSE_DOWN', 
@@ -790,17 +801,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           worldPos.y < 0 || worldPos.y > project.height) {
         return; // Don't start any action if click is out of bounds
       }
-    }
-
-    if (isShapeHandlerRewriteEnabled() && shapeHandler.handlePointerDown(event)) {
-      const polygonState = useAppStore.getState().polygonGradientState;
-      if (polygonState.drawingState === 'idle') {
-        isMouseDownRef.current = false;
-        if ((event.target as HTMLCanvasElement).hasPointerCapture?.(event.pointerId)) {
-          (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
-        }
-      }
-      return;
     }
 
     // Shape mode should take precedence for normal brushes
@@ -1228,9 +1228,6 @@ function cssColorToHex(color: string): string {
   const b = Number(m[3]).toString(16).padStart(2, '0');
   return `#${r}${g}${b}`;
 }
-
-  const isShapeHandlerRewriteEnabled = () => isFeatureFlagEnabled('shapeToolHandlerRewrite');
-
   const shapeHandler = createShapeToolHandler(
     {
       deps,
@@ -1270,7 +1267,7 @@ function cssColorToHex(color: string): string {
     }
 
     // Check if we're in hatch adjustment mode
-    if (isShapeHandlerRewriteEnabled() && shapeHandler.handlePointerMove(event)) {
+    if (shapeHandler.handlePointerMove(event)) {
       return;
     }
 
@@ -2044,7 +2041,7 @@ function cssColorToHex(color: string): string {
       return;
     }
 
-    if (isShapeHandlerRewriteEnabled() && shapeHandler.handlePointerUp(event)) {
+    if (shapeHandler.handlePointerUp(event)) {
       return;
     }
 

@@ -58,7 +58,6 @@ export const createShapeToolHandler = (
     pan,
     drawingHandlers,
     brushEngine,
-    toolStateMachine,
     tools,
     overlayCanvasRef,
     compositeCanvasRef,
@@ -118,6 +117,7 @@ export const createShapeToolHandler = (
 
   const contourFillSpacingClickArmedRef = { current: false };
   type ContourBasis = NonNullable<ReturnType<typeof prepareContourLinesBasis>>;
+  const MIN_POLYGON_POINT_SPACING = 5;
 
   const computePolygonCentroid = (vertices: Array<{ x: number; y: number }>) => {
     if (!vertices.length) {
@@ -133,6 +133,54 @@ export const createShapeToolHandler = (
       x: sum.x / vertices.length,
       y: sum.y / vertices.length,
     };
+  };
+
+  const getPolygonState = () => useAppStore.getState().polygonGradientState;
+
+  const startPolygonGradientDrawing = (worldPos: { x: number; y: number }) => {
+    const color = resolvePolygonPointColor(worldPos);
+    resetPolygonAdjustmentState();
+    useAppStore.getState().setPolygonGradientState({
+      drawingState: 'drawing',
+      points: [{ x: worldPos.x, y: worldPos.y, color }],
+      previewPath: undefined,
+      vertices: undefined,
+      fillColor: color,
+      adjustmentStartPos: undefined,
+      tempRotation: undefined,
+      tempSpacing: undefined,
+      tempSize: undefined,
+      mode: undefined,
+      rotationReferenceAngle: undefined,
+      rotationInitialRotation: undefined,
+      sizeReferenceDistance: undefined,
+      sizeInitialSize: undefined,
+      spacingReferenceDistance: undefined,
+      spacingReferenceSpacing: undefined,
+    });
+  };
+
+  const appendPolygonGradientPoint = (worldPos: { x: number; y: number }) => {
+    const state = useAppStore.getState();
+    const polygonState = state.polygonGradientState;
+    if (polygonState.drawingState !== 'drawing') {
+      return false;
+    }
+
+    const points = polygonState.points;
+    const lastPoint = points[points.length - 1];
+    if (lastPoint) {
+      const distance = Math.hypot(worldPos.x - lastPoint.x, worldPos.y - lastPoint.y);
+      if (distance < MIN_POLYGON_POINT_SPACING) {
+        return true;
+      }
+    }
+
+    const color = resolvePolygonPointColor(worldPos);
+    state.setPolygonGradientState({
+      points: [...points, { x: worldPos.x, y: worldPos.y, color }],
+    });
+    return true;
   };
 
   const drawCrosshatchPreview = (rotation: number, spacing: number) => {
@@ -291,6 +339,25 @@ export const createShapeToolHandler = (
       return true;
     }
     return !!brushSettings.shapeFillUseSampledColor;
+  };
+
+  const resolvePolygonPointColor = (worldPos: { x: number; y: number }) => {
+    const { tools: toolsState } = useAppStore.getState();
+    const { brushSettings } = toolsState;
+    if (
+      brushSettings.brushShape === BrushShape.POLYGON_GRADIENT ||
+      brushSettings.shapeFillUseSampledColor
+    ) {
+      return sampleColorAtPosition(worldPos.x, worldPos.y);
+    }
+    return brushSettings.color;
+  };
+
+  const isPolygonGradientBrush = () => tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT;
+  const isColorCycleShapeBrush = () => tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+  const isContourPolygonBrush = () => {
+    const shape = tools.brushSettings.brushShape;
+    return shape === BrushShape.CONTOUR_POLYGON || shape === BrushShape.CONTOUR_LINES2;
   };
 
   const resolveShapeFillColor = (points?: Array<{ color?: string }>) => {
@@ -501,7 +568,7 @@ export const createShapeToolHandler = (
       }
     });
 
-    toolStateMachine.resetPolygonGradient();
+    resetPolygonAdjustmentState();
     state.resetContourLinesState();
     clearOverlayCanvas();
     contourFillSpacingClickArmedRef.current = false;
@@ -572,7 +639,7 @@ export const createShapeToolHandler = (
       }
     });
 
-    toolStateMachine.resetPolygonGradient();
+    resetPolygonAdjustmentState();
     state.resetContourLinesState();
     clearOverlayCanvas();
   };
@@ -771,7 +838,6 @@ export const createShapeToolHandler = (
 
       drawingHandlers.finalizeStroke();
 
-      toolStateMachine.resetPolygonGradient();
       resetPolygonAdjustmentState();
       return true;
     }
@@ -794,11 +860,11 @@ export const createShapeToolHandler = (
   const polygonShapePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (event.button !== 0) return false;
 
-    if (
-      !toolStateMachine.isPolygonGradient &&
-      !toolStateMachine.isColorCycleShape &&
-      !toolStateMachine.isContourPolygon
-    ) {
+    const isPolygonGradient = isPolygonGradientBrush();
+    const isContourPolygon = isContourPolygonBrush();
+    const isCCShape = isColorCycleShapeBrush();
+
+    if (!isPolygonGradient && !isContourPolygon && !isCCShape) {
       return false;
     }
 
@@ -807,7 +873,6 @@ export const createShapeToolHandler = (
 
     const activeLayer = layers.find(layer => layer.id === activeLayerId);
     const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
-    const isCCShape = toolStateMachine.isColorCycleShape;
     if ((isColorCycleLayer && !isCCShape) || (!isColorCycleLayer && isCCShape)) {
       const message = isColorCycleLayer
         ? "Can't use regular polygon/contour on a Color Cycle layer. Select a Color Cycle shape, or switch layers."
@@ -823,28 +888,31 @@ export const createShapeToolHandler = (
       return true;
     }
 
-    if (toolStateMachine.handlePolygonGradientMouseDown(worldPos)) {
-      interaction.dispatch({ type: 'DRAWING_START' });
-    }
+    startPolygonGradientDrawing(worldPos);
+    interaction.dispatch({ type: 'DRAWING_START' });
 
     return true;
   };
 
   const polygonShapePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (
-      !toolStateMachine.isPolygonGradient &&
-      !toolStateMachine.isColorCycleShape &&
-      !toolStateMachine.isContourPolygon &&
-      !(tools.shapeMode && drawingHandlers.isDrawingShapeRef.current && drawingHandlers.shapePointsRef.current.length > 0)
-    ) {
+    const isPolygonGradient = isPolygonGradientBrush();
+    const isContourPolygon = isContourPolygonBrush();
+    const isCCShape = isColorCycleShapeBrush();
+    const isShapePreviewActive =
+      tools.shapeMode &&
+      drawingHandlers.isDrawingShapeRef.current &&
+      drawingHandlers.shapePointsRef.current.length > 0;
+
+    if (!isPolygonGradient && !isContourPolygon && !isCCShape && !isShapePreviewActive) {
       return false;
     }
 
     const worldPos = computeWorldPointer(event);
     let previewWorld = worldPos;
     if (event.shiftKey) {
-      const points = (toolStateMachine.isPolygonGradient || toolStateMachine.isContourPolygon)
-        ? toolStateMachine.polygonGradientState.points
+      const polygonState = getPolygonState();
+      const points = (isPolygonGradient || isContourPolygon)
+        ? polygonState.points
         : drawingHandlers.shapePointsRef.current;
       if (points && points.length >= 1) {
         const anchor = points[points.length - 1];
@@ -853,12 +921,12 @@ export const createShapeToolHandler = (
     }
 
     let shouldShowPreview: boolean;
-    if (toolStateMachine.isColorCycleShape) {
+    if (isCCShape) {
       drawingHandlers.stopContinuousColorCycleAnimation?.();
       drawingHandlers.continueShapeDrawing(previewWorld);
       shouldShowPreview = tools.shapeMode && drawingHandlers.isDrawingShapeRef.current;
-    } else if (toolStateMachine.isPolygonGradient || toolStateMachine.isContourPolygon) {
-      shouldShowPreview = !!toolStateMachine.handlePolygonGradientMouseMove(previewWorld);
+    } else if (isPolygonGradient || isContourPolygon) {
+      shouldShowPreview = appendPolygonGradientPoint(previewWorld);
     } else {
       shouldShowPreview = tools.shapeMode && drawingHandlers.isDrawingShapeRef.current;
     }
@@ -875,8 +943,9 @@ export const createShapeToolHandler = (
           context.setLastOverlayPreviewTs(performance.now());
           const overlayCanvas = overlayCanvasRef.current;
           const overlayCtx = overlayCanvas?.getContext('2d');
-          const points = (toolStateMachine.isPolygonGradient || toolStateMachine.isContourPolygon)
-            ? toolStateMachine.polygonGradientState.points
+          const polygonStateForPreview = getPolygonState();
+          const points = (isPolygonGradient || isContourPolygon)
+            ? polygonStateForPreview.points
             : drawingHandlers.shapePointsRef.current;
 
           if (overlayCtx && overlayCanvas && points && points.length > 0) {
@@ -910,14 +979,14 @@ export const createShapeToolHandler = (
                 );
               };
 
-              if (toolStateMachine.isContourPolygon) {
+              if (isContourPolygon) {
                 overlayCtx.strokeStyle = tools.brushSettings.color;
                 overlayCtx.lineWidth = 2 / viewTransformRef.current.scale;
                 overlayCtx.globalAlpha = 0.8;
               } else if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
                 overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
                 overlayCtx.globalAlpha = 1.0;
-              } else if (tools.shapeMode && !toolStateMachine.isPolygonGradient) {
+              } else if (tools.shapeMode && !isPolygonGradient) {
                 overlayCtx.fillStyle = tools.brushSettings.color;
                 overlayCtx.globalAlpha = 0.4;
               } else {
@@ -947,8 +1016,8 @@ export const createShapeToolHandler = (
                 }
 
                 const useSampledFill = shapeFillUsesSampledColor();
-                const previewColors = toolStateMachine.polygonGradientState.points.length > 0
-                  ? toolStateMachine.polygonGradientState.points.map((p: any) => p.color)
+                const previewColors = polygonStateForPreview.points.length > 0
+                  ? polygonStateForPreview.points.map(point => point.color ?? tools.brushSettings.color)
                   : [];
                 const previewColor = useSampledFill
                   ? sampleColorAtPosition(previewPoint.x, previewPoint.y)
@@ -979,7 +1048,7 @@ export const createShapeToolHandler = (
               overlayCtx.lineTo(previewPoint.x, previewPoint.y);
               overlayCtx.closePath();
 
-              if (toolStateMachine.isContourPolygon) {
+              if (isContourPolygon) {
                 overlayCtx.stroke();
                 strokePreviewOutline();
               } else {
@@ -1043,8 +1112,17 @@ export const createShapeToolHandler = (
   };
 
   const polygonShapePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!toolStateMachine.isPolygonGradient && !toolStateMachine.isContourPolygon) {
+    const isPolygonGradient = isPolygonGradientBrush();
+    const isContourPolygon = isContourPolygonBrush();
+
+    if (!isPolygonGradient && !isContourPolygon) {
       return false;
+    }
+
+    const polygonState = getPolygonState();
+    const points = polygonState.points;
+    if (!points || points.length === 0) {
+      return true;
     }
 
     const pointerWorld = computeWorldPointer(event);
@@ -1053,20 +1131,14 @@ export const createShapeToolHandler = (
       : (tools.brushSettings.shapeGradientMode || 'contour');
     const brushShape = tools.brushSettings.brushShape;
 
-    if (!toolStateMachine.handlePolygonGradientMouseUp()) {
-      return false;
-    }
-
-    const currentPolygonState = toolStateMachine.polygonGradientState;
-    if (currentPolygonState.points.length < 3) {
-      toolStateMachine.resetPolygonGradient();
-      interaction.dispatch({ type: 'DRAWING_END' });
+    if (points.length < 3) {
       return true;
     }
 
-    const vertices = currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y }));
-    const isLines2Mode = toolStateMachine.isContourPolygon && (normalizedShapeMode === 'lines2' || brushShape === BrushShape.CONTOUR_LINES2);
-    const isContourFillMode = toolStateMachine.isContourPolygon && normalizedShapeMode === 'contour' && !isLines2Mode;
+    const vertices = points.map((p: { x: number; y: number }) => ({ x: p.x, y: p.y }));
+    const fillColor = resolveShapeFillColor(points);
+    const isLines2Mode = isContourPolygon && (normalizedShapeMode === 'lines2' || brushShape === BrushShape.CONTOUR_LINES2);
+    const isContourFillMode = isContourPolygon && normalizedShapeMode === 'contour' && !isLines2Mode;
 
     if (isLines2Mode) {
       const basis = prepareContourLinesBasis(vertices);
@@ -1089,7 +1161,7 @@ export const createShapeToolHandler = (
 
       drawLines2Preview(defaults.defaultAngle, defaults.convergenceA, defaults.convergenceB);
 
-      toolStateMachine.resetPolygonGradient();
+      resetPolygonAdjustmentState();
       interaction.dispatch({ type: 'DRAWING_END' });
       return true;
     }
@@ -1108,7 +1180,7 @@ export const createShapeToolHandler = (
           stage: 'awaitingAnchorA',
           variant: 'legacy',
           shapePoints: vertices,
-          fillColor: resolveShapeFillColor(currentPolygonState.points),
+          fillColor,
           basis,
           spacingA: null,
           spacingB: null,
@@ -1122,7 +1194,7 @@ export const createShapeToolHandler = (
           stage: 'awaitingAnchorA',
         });
 
-        toolStateMachine.resetPolygonGradient();
+        resetPolygonAdjustmentState();
         interaction.dispatch({ type: 'DRAWING_END' });
         return true;
       }
@@ -1132,7 +1204,7 @@ export const createShapeToolHandler = (
     const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
 
     if (drawCtx && brushEngine) {
-      if (toolStateMachine.isContourPolygon) {
+      if (isContourPolygon) {
         const shapeMode = tools.brushSettings.shapeGradientMode || 'contour';
 
         if (shapeMode === 'crosshatch') {
@@ -1142,8 +1214,8 @@ export const createShapeToolHandler = (
           useAppStore.getState().setPolygonGradientState({
             drawingState: 'adjustingRotation',
             mode: 'crosshatch',
-            vertices: currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y })),
-            fillColor: resolveShapeFillColor(currentPolygonState.points),
+            vertices,
+            fillColor,
             tempRotation: tools.brushSettings.crossHatchRotation || 45,
             tempSpacing: tools.brushSettings.crossHatchSpacing || 10,
             adjustmentStartPos: undefined,
@@ -1159,8 +1231,8 @@ export const createShapeToolHandler = (
           brushEngine.drawCrossHatchPolygon(
             drawCtx,
             {
-              vertices: currentPolygonState.points.map((p: any) => ({ x: p.x, y: p.y })),
-              fillColor: resolveShapeFillColor(currentPolygonState.points),
+              vertices,
+              fillColor,
             },
             false
           );
@@ -1184,7 +1256,7 @@ export const createShapeToolHandler = (
             drawingState: 'adjustingSize',
             mode: 'triangle',
             vertices,
-            fillColor: resolveShapeFillColor(currentPolygonState.points),
+            fillColor,
             tempSize: initialSize,
             tempRotation: tools.brushSettings.triangleFillRotation ?? 0,
             sizeReferenceDistance: referenceDistance,
@@ -1198,7 +1270,7 @@ export const createShapeToolHandler = (
               drawCtx,
               {
                 vertices,
-                fillColor: resolveShapeFillColor(currentPolygonState.points),
+                fillColor,
               },
               false
             );
@@ -1215,15 +1287,15 @@ export const createShapeToolHandler = (
           drawCtx,
           {
             vertices,
-            fillColor: resolveShapeFillColor(currentPolygonState.points)
+            fillColor,
           },
           false
         );
       } else {
         const useSampledFill = shapeFillUsesSampledColor();
         const polygonColors = useSampledFill
-          ? currentPolygonState.points.map((p: any) => p.color)
-          : currentPolygonState.points.map(() => resolveShapeFillColor(currentPolygonState.points));
+          ? points.map(point => point.color ?? fillColor)
+          : points.map(() => fillColor);
 
         brushEngine.drawPolygonGradient(
           drawCtx,
@@ -1256,7 +1328,7 @@ export const createShapeToolHandler = (
       }
     });
 
-    toolStateMachine.resetPolygonGradient();
+    resetPolygonAdjustmentState();
     interaction.dispatch({ type: 'DRAWING_END' });
     return true;
   };
@@ -1291,7 +1363,6 @@ export const createShapeToolHandler = (
       drawingHandlers.finalizeStroke();
     }
 
-    toolStateMachine.resetPolygonGradient();
     resetPolygonAdjustmentState();
   };
 
@@ -1325,7 +1396,6 @@ export const createShapeToolHandler = (
       drawingHandlers.finalizeStroke();
     }
 
-    toolStateMachine.resetPolygonGradient();
     resetPolygonAdjustmentState();
   };
 

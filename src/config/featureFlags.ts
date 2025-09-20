@@ -1,20 +1,17 @@
 import { useSyncExternalStore } from 'react';
 
 export type FeatureFlagKey =
-  | 'shapeToolHandlerRewrite'
   | 'useCanvas2DColorCycle'
   | 'logColorCycleOperations';
 
 type FeatureFlagState = Record<FeatureFlagKey, boolean>;
 
 const STORAGE_KEYS: Record<FeatureFlagKey, string> = {
-  shapeToolHandlerRewrite: 'tinybrush:flag:shapeToolHandlerRewrite',
   useCanvas2DColorCycle: 'tinybrush:flag:useCanvas2DColorCycle',
   logColorCycleOperations: 'tinybrush:flag:logColorCycleOperations',
 };
 
 const defaultState: FeatureFlagState = {
-  shapeToolHandlerRewrite: true,
   useCanvas2DColorCycle: true,
   logColorCycleOperations: false,
 };
