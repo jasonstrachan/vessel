@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Palette, RGB, RGBA } from 'gifenc';
 import { useAppStore } from '../../stores/useAppStore';
 import { XIcon } from '../icons/XIcon';
@@ -9,8 +9,20 @@ import Button from '../ui/Button';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { mapToIndexedWithDithering, type DitherMethod } from '@/utils/gifDither';
+import { ContainerLayoutControls, LayerAlignmentControls } from '@/components/MinimalLayerList';
+import { createDefaultExportLayout } from '@/utils/layoutDefaults';
+import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
 
-type ExportKind = 'png' | 'gif' | 'mp4';
+type ExportKind = 'png' | 'gif' | 'mp4' | 'webgl';
+
+const WEBGL_VIEWPORT_PRESETS = [
+  { value: 'project', label: 'Project' },
+  { value: 'square', label: 'Square' },
+  { value: 'widescreen', label: 'Widescreen' },
+  { value: 'custom', label: 'Custom' }
+] as const;
+
+type WebglViewportPreset = typeof WEBGL_VIEWPORT_PRESETS[number]['value'];
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -39,6 +51,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const project = useAppStore((s) => s.project);
   const compositeLayersToCanvas = useAppStore((s) => s.compositeLayersToCanvas);
   const layers = useAppStore((s) => s.layers);
+  const activeLayerId = useAppStore((s) => s.activeLayerId);
+  const setActiveLayer = useAppStore((s) => s.setActiveLayer);
+  const addNotification = useAppStore((s) => s.addNotification);
+  const webglExportSettings = useAppStore((s) => s.webglExportSettings);
+  const updateWebglExportSettings = useAppStore((s) => s.updateWebglExportSettings);
 
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
@@ -72,6 +89,19 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const [videoDuration, setVideoDuration] = useState(3);
   const [videoMime, setVideoMime] = useState<'video/mp4' | 'video/webm'>('video/webm');
   const [videoBitrate, setVideoBitrate] = useState(6000); // kbps
+
+  // WebGL options
+  const [webglFps, setWebglFps] = useState(60);
+  const [webglDuration, setWebglDuration] = useState(3);
+  const [webglAutoFrames, setWebglAutoFrames] = useState(true);
+  const webglIncludeHidden = webglExportSettings.includeHiddenLayers;
+  const webglEmbedFallback = webglExportSettings.embedCanvasFallback;
+  const webglMinify = webglExportSettings.minifyOutput;
+  const [webglViewportPreset, setWebglViewportPreset] = useState<WebglViewportPreset>('project');
+  const [webglCustomViewport, setWebglCustomViewport] = useState<{ width: number; height: number }>(() => ({
+    width: project?.width ?? 1024,
+    height: project?.height ?? 1024
+  }));
 
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -137,6 +167,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       setGifAutoFrames(true);
     } catch {}
   }, [isOpen]);
+
+  useEffect(() => {
+    if (exportKind === 'webgl' && scale !== 1) {
+      setScale(1);
+    }
+  }, [exportKind, scale]);
 
   // Compute suggested frames/duration for a perfect loop based on animation speeds
   // Strategy:
@@ -209,6 +245,132 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       return { frames: fallbackFrames, success: false, duration: fallbackFrames / fps };
     }
   }, [gifDuration, gifFps, gifFrameStep, layers]);
+
+  const resolvedWebglViewport = useMemo(() => {
+    const fallbackWidth = project?.width ?? 1024;
+    const fallbackHeight = project?.height ?? 1024;
+    switch (webglViewportPreset) {
+      case 'project':
+        return { width: fallbackWidth, height: fallbackHeight };
+      case 'square': {
+        const side = Math.max(fallbackWidth, fallbackHeight);
+        return { width: side, height: side };
+      }
+      case 'widescreen':
+        return { width: 1920, height: 1080 };
+      case 'custom':
+      default:
+        return {
+          width: Math.max(1, Math.round(webglCustomViewport.width)),
+          height: Math.max(1, Math.round(webglCustomViewport.height))
+        };
+    }
+  }, [project?.height, project?.width, webglCustomViewport.height, webglCustomViewport.width, webglViewportPreset]);
+
+  const webglFrameSuggestion = useMemo(() => {
+    try {
+      const fps = Math.max(1, Math.floor(webglFps));
+      const targetFrames = Math.max(1, Math.round(webglDuration * fps));
+      const store = useAppStore.getState();
+      const recolorSpeeds: number[] = layers
+        .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode === 'recolor' && l.colorCycleData?.recolorSettings)
+        .map(l => l.colorCycleData!.recolorSettings!.animation.speed || 0.1)
+        .filter(s => Number.isFinite(s) && s > 0);
+      const brushSpeeds: number[] = layers
+        .filter(l => l.layerType === 'color-cycle' && (l.colorCycleData?.mode !== 'recolor'))
+        .map(l => (l.colorCycleData?.brushSpeed ?? store.tools?.brushSettings?.colorCycleSpeed ?? 0.1))
+        .filter(s => Number.isFinite(s) && s > 0);
+      const speeds = [...recolorSpeeds, ...brushSpeeds];
+
+      if (speeds.length === 0) {
+        return { frames: targetFrames, success: false, duration: targetFrames / fps };
+      }
+
+      const minFrames = 8;
+      const maxFrames = Math.max(minFrames, Math.round(fps * 20));
+      const EPS = 1e-3;
+
+      for (let f = minFrames; f <= maxFrames; f++) {
+        let ok = true;
+        for (const s of speeds) {
+          const cycles = (s * f) / fps;
+          const residual = Math.abs(cycles - Math.round(cycles));
+          if (residual >= EPS) { ok = false; break; }
+        }
+        if (ok) {
+          return { frames: f, success: true, duration: f / fps };
+        }
+      }
+
+      const searchRadius = Math.max(50, Math.round(targetFrames * 0.5));
+      const start = Math.max(minFrames, targetFrames - searchRadius);
+      const end = Math.min(maxFrames, targetFrames + searchRadius);
+      let best = targetFrames;
+      let bestScore = Number.POSITIVE_INFINITY;
+      for (let f = start; f <= end; f++) {
+        let maxResidual = 0;
+        for (const s of speeds) {
+          const cycles = (s * f) / fps;
+          const residual = Math.abs(cycles - Math.round(cycles));
+          if (residual > maxResidual) maxResidual = residual;
+          if (maxResidual > bestScore) break;
+        }
+        const dist = Math.abs(f - targetFrames) / Math.max(1, targetFrames);
+        const score = maxResidual + dist * 1e-3;
+        if (score < bestScore) {
+          bestScore = score;
+          best = f;
+        }
+      }
+      return { frames: best, success: false, duration: best / fps };
+    } catch {
+      const fps = Math.max(1, Math.floor(webglFps));
+      const fallbackFrames = Math.max(1, Math.round(webglDuration * fps));
+      return { frames: fallbackFrames, success: false, duration: fallbackFrames / fps };
+    }
+  }, [layers, webglDuration, webglFps]);
+
+  const webglTotalFrames = useMemo(() => {
+    const fps = Math.max(1, Math.floor(webglFps));
+    if (webglAutoFrames) {
+      return webglFrameSuggestion.frames;
+    }
+    return Math.max(1, Math.round(webglDuration * fps));
+  }, [webglAutoFrames, webglDuration, webglFps, webglFrameSuggestion.frames]);
+
+  const webglEffectiveDuration = useMemo(() => (
+    webglAutoFrames ? webglFrameSuggestion.duration : Math.max(0.5, webglDuration)
+  ), [webglAutoFrames, webglDuration, webglFrameSuggestion.duration]);
+
+  const layerAlignmentSummary = useMemo(() => layers.map(layer => ({
+    id: layer.id,
+    name: layer.name,
+    visible: layer.visible,
+    fit: layer.alignment.fit,
+    horizontal: layer.alignment.horizontal,
+    vertical: layer.alignment.vertical,
+    offset: {
+      x: layer.alignment.offsetPx?.x ?? 0,
+      y: layer.alignment.offsetPx?.y ?? 0
+    },
+    isActive: layer.id === activeLayerId,
+    kind: layer.layerType
+  })), [activeLayerId, layers]);
+
+  const handleCustomViewportChange = useCallback((dimension: 'width' | 'height', raw: string) => {
+    if (raw === '') {
+      setWebglCustomViewport(prev => ({ ...prev, [dimension]: 1 }));
+      return;
+    }
+    const numeric = Number(raw);
+    if (!Number.isFinite(numeric)) {
+      return;
+    }
+    setWebglCustomViewport(prev => ({
+      ...prev,
+      [dimension]: Math.max(1, Math.round(numeric))
+    }));
+  }, []);
 
   const filenameBase = useMemo(() => {
     const name = project?.name || 'TinyBrush';
@@ -793,6 +955,40 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     downloadBlob(blob, `${filenameBase}@${scale}x.gif`);
   }
 
+  async function exportWebGL() {
+    if (!project) {
+      throw new Error('No project available for export');
+    }
+
+    const layoutConfig = project.exportLayout ?? createDefaultExportLayout();
+    const fps = Math.max(1, Math.floor(webglFps));
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers,
+      layout: layoutConfig,
+      viewport: resolvedWebglViewport,
+      fps,
+      totalFrames: webglTotalFrames,
+      durationSeconds: webglEffectiveDuration,
+      perfectLoop: webglAutoFrames,
+      includeHiddenLayers: webglIncludeHidden,
+      embedCanvasFallback: webglEmbedFallback,
+      minify: webglMinify,
+      filenameBase,
+      compositeLayersToCanvas
+    });
+
+    setProgress(100);
+    addNotification({
+      type: 'success',
+      title: 'WebGL bundle saved',
+      message: `Exported ${metadata.layers.length} layer${metadata.layers.length === 1 ? '' : 's'} to JSON bundle`,
+      timestamp: new Date(),
+      duration: 5000
+    });
+  }
+
   async function exportVideo() {
     // Prepare canvases
     const base = document.createElement('canvas');
@@ -954,6 +1150,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     try {
       if (exportKind === 'png') await exportPNG();
       else if (exportKind === 'gif') await exportGIF();
+      else if (exportKind === 'webgl') await exportWebGL();
       else await exportVideo();
       onClose();
     } catch (e) {
@@ -973,12 +1170,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       onClick={() => { if (!isExporting) onClose(); }}
     >
       <div
-        className="bg-[#31313A] rounded-lg w-[540px] max-w-full mx-4 shadow-xl"
-        style={{ position: 'fixed', left: pos.x, top: pos.y }}
+        className="bg-[#31313A] rounded-lg w-[540px] max-w-full mx-4 shadow-xl flex flex-col overflow-hidden"
+        style={{ position: 'fixed', left: pos.x, top: pos.y, maxHeight: 'calc(100vh - 48px)' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div
-          className="flex items-center justify-between px-6 pt-4 pb-3 border-b border-[#555] cursor-move"
+          className="flex items-center justify-between px-6 pt-4 pb-3 border-b border-[#555] cursor-move shrink-0"
           onMouseDown={onDragStart}
         >
           <h2 className="text-[#D9D9D9] text-base font-semibold">Export</h2>
@@ -991,39 +1188,41 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           </button>
         </div>
 
-        <div className="space-y-6 p-6 pt-4">
+        <div className="space-y-6 p-6 pt-4 flex-1 overflow-y-auto">
           {/* Type & Scale */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <label className="text-base text-[#D9D9D9]">Type</label>
               <div className="flex gap-1">
-                {(['png','gif','mp4'] as ExportKind[]).map((k) => (
+                {(['png','gif','mp4','webgl'] as ExportKind[]).map((k) => (
                   <button
                     key={k}
                     onClick={() => setExportKind(k)}
                     className={`px-2 py-1 text-xs rounded border ${exportKind===k? 'bg-[#D9D9D9] text-[#31313A] border-[#D9D9D9]' : 'bg-transparent text-[#D9D9D9] border-[#888]'}`}
                     disabled={isExporting}
                   >
-                    {k === 'png' ? 'PNG' : k === 'gif' ? 'GIF' : 'Video'}
+                    {k === 'png' ? 'PNG' : k === 'gif' ? 'GIF' : k === 'mp4' ? 'Video' : 'WebGL'}
                   </button>
                 ))}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="text-base text-[#D9D9D9]">Scale</label>
-              <div className="flex gap-1">
-                {[1,2,3,4].map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setScale(s as 1|2|3|4)}
-                    className={`px-2 py-1 text-xs rounded border ${scale===s? 'bg-[#D9D9D9] text-[#31313A] border-[#D9D9D9]' : 'bg-transparent text-[#D9D9D9] border-[#888]'}`}
-                    disabled={isExporting}
-                  >
-                    {s}x
-                  </button>
-                ))}
+            {exportKind !== 'webgl' && (
+              <div className="flex items-center gap-2">
+                <label className="text-base text-[#D9D9D9]">Scale</label>
+                <div className="flex gap-1">
+                  {[1,2,3,4].map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setScale(s as 1|2|3|4)}
+                      className={`px-2 py-1 text-xs rounded border ${scale===s? 'bg-[#D9D9D9] text-[#31313A] border-[#D9D9D9]' : 'bg-transparent text-[#D9D9D9] border-[#888]'}`}
+                      disabled={isExporting}
+                    >
+                      {s}x
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* PNG Options */}
@@ -1173,6 +1372,169 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                 <div className="text-xs text-[#aaa]">Palette: {gifPaletteCount} colors</div>
               )}
               <div className="text-xs text-[#aaa]">Tip: Lower FPS or increase Frame Step to reduce frames. Fewer palette colors and disabling dithering can significantly shrink file size. For long/high-res animations, prefer Video.</div>
+            </div>
+          )}
+
+          {exportKind === 'webgl' && (
+            <div className="space-y-4">
+              <ContainerLayoutControls />
+              <LayerAlignmentControls />
+
+              <div className="bg-[#2A2A33] border border-[#3F3F49] rounded-md p-3 space-y-3">
+                <div>
+                  <span className="text-sm text-[#D9D9D9] font-semibold">Viewport preset</span>
+                  <div className="flex gap-1 mt-2">
+                    {WEBGL_VIEWPORT_PRESETS.map((preset) => (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        onClick={() => setWebglViewportPreset(preset.value)}
+                        className={`px-2 py-1 text-[11px] rounded border ${webglViewportPreset === preset.value ? 'bg-[#6F6FFF] text-white border-[#6F6FFF]' : 'bg-transparent text-[#D9D9D9] border-[#555]'}`}
+                        disabled={isExporting}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  {webglViewportPreset === 'custom' && (
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      <label className="text-[11px] text-[#A5A5A5] flex flex-col gap-1">
+                        Width
+                        <Input
+                          type="number"
+                          min={1}
+                          value={webglCustomViewport.width}
+                          onChange={(event) => handleCustomViewportChange('width', event.target.value)}
+                          className="w-full"
+                          disabled={isExporting}
+                        />
+                      </label>
+                      <label className="text-[11px] text-[#A5A5A5] flex flex-col gap-1">
+                        Height
+                        <Input
+                          type="number"
+                          min={1}
+                          value={webglCustomViewport.height}
+                          onChange={(event) => handleCustomViewportChange('height', event.target.value)}
+                          className="w-full"
+                          disabled={isExporting}
+                        />
+                      </label>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-[#9F9FB2] mt-2">
+                    Using {resolvedWebglViewport.width} × {resolvedWebglViewport.height} px
+                  </p>
+                </div>
+
+                <div className="space-y-2 border-t border-[#3F3F49] pt-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm text-[#D9D9D9]">FPS</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={120}
+                      value={webglFps}
+                      onChange={(event) => setWebglFps(Math.max(1, Math.min(120, parseInt(event.target.value) || 1)))}
+                      className="w-24 text-right"
+                      disabled={isExporting}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm text-[#D9D9D9]">Duration (s)</label>
+                    <Input
+                      type="number"
+                      min={0.5}
+                      step={0.5}
+                      value={webglDuration}
+                      onChange={(event) => setWebglDuration(Math.max(0.5, parseFloat(event.target.value) || 0.5))}
+                      className="w-24 text-right"
+                      disabled={isExporting || webglAutoFrames}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm text-[#D9D9D9] flex items-center gap-2">
+                      Perfect loop
+                      <input
+                        type="checkbox"
+                        checked={webglAutoFrames}
+                        onChange={(event) => setWebglAutoFrames(event.target.checked)}
+                        disabled={isExporting}
+                      />
+                    </label>
+                    <span className="text-[11px] text-[#9F9FB2]">
+                      {webglAutoFrames
+                        ? `${webglFrameSuggestion.frames} frames (${webglFrameSuggestion.success ? 'exact' : 'approx'})`
+                        : `${webglTotalFrames} frames`}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#9F9FB2]">
+                    Playback duration: {webglEffectiveDuration.toFixed(2)}s
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-[#2A2A33] border border-[#3F3F49] rounded-md p-3 space-y-2">
+                <label className="flex items-center justify-between text-sm text-[#D9D9D9]">
+                  <span>Include hidden layers</span>
+                  <input
+                    type="checkbox"
+                    checked={webglIncludeHidden}
+                    onChange={(event) => updateWebglExportSettings({ includeHiddenLayers: event.target.checked })}
+                    disabled={isExporting}
+                  />
+                </label>
+                <label className="flex items-center justify-between text-sm text-[#D9D9D9]">
+                  <span>Embed Canvas2D fallback</span>
+                  <input
+                    type="checkbox"
+                    checked={webglEmbedFallback}
+                    onChange={(event) => updateWebglExportSettings({ embedCanvasFallback: event.target.checked })}
+                    disabled={isExporting}
+                  />
+                </label>
+                <label className="flex items-center justify-between text-sm text-[#D9D9D9]">
+                  <span>Minify bundle output</span>
+                  <input
+                    type="checkbox"
+                    checked={webglMinify}
+                    onChange={(event) => updateWebglExportSettings({ minifyOutput: event.target.checked })}
+                    disabled={isExporting}
+                  />
+                </label>
+              </div>
+
+              <div className="bg-[#2A2A33] border border-[#3F3F49] rounded-md p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-[#D9D9D9] font-semibold">Layer alignment</span>
+                  <span className="text-[11px] text-[#9F9FB2]">Click to focus a layer</span>
+                </div>
+                <div className="mt-2 max-h-40 overflow-y-auto border border-[#3F3F49] rounded divide-y divide-[#3F3F49]">
+                  {layerAlignmentSummary.length === 0 && (
+                    <div className="px-3 py-2 text-[11px] text-[#9F9FB2]">No layers available</div>
+                  )}
+                  {layerAlignmentSummary.map(layer => (
+                    <button
+                      key={layer.id}
+                      type="button"
+                      onClick={() => setActiveLayer(layer.id)}
+                      className={`w-full text-left px-3 py-2 text-[11px] transition-colors ${layer.isActive ? 'bg-[#3B3B4A] text-white' : 'hover:bg-[#34343F] text-[#D9D9D9]'}`}
+                      disabled={isExporting}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className={`font-medium ${layer.isActive ? 'text-white' : 'text-[#E5E5FF]'}`}>
+                          {layer.name}
+                        </span>
+                        <span className="text-[10px] text-[#9F9FB2] uppercase tracking-wide">{layer.fit}</span>
+                      </div>
+                      <div className="text-[10px] text-[#9F9FB2] mt-1">
+                        {layer.horizontal}/{layer.vertical} • offset ({layer.offset.x}, {layer.offset.y})
+                        {!layer.visible ? ' • hidden' : ''}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 

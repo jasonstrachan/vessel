@@ -223,7 +223,7 @@ export const ExtractColorsDialog: React.FC<ExtractColorsDialogProps> = ({
         // Use existing RGB-based extraction
         const gradient = await recolorManager.extractColors(layer, options);
         setPreviewGradient(gradient);
-        extractedCount = gradient.length;
+        extractedCount = gradient?.length ?? 0;
       }
 
       // Calculate processing statistics

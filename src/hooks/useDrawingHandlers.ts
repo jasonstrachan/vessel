@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { useBrushEngineSimplified } from './useBrushEngineSimplified';
 import { useUserBrushEngine } from './useUserBrushEngine';
-import { BrushShape, type BrushSettings, type CustomBrush } from '../types';
+import { BrushShape, type BrushSettings, type CustomBrush, type Layer } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '../hooks/brushEngine/utilities';
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
@@ -123,6 +123,7 @@ export function useDrawingHandlers({
   
   // Continuous animation for color cycle when play button is pressed
   const continuousColorCycleAnimationRef = useRef<number | null>(null);
+  const continuousColorCycleAnimationActiveRef = useRef(false);
 
   // Track whether continuous CC animation was playing before a stroke/shape
   const wasCCPlayingBeforeInteractionRef = useRef<boolean>(false);
@@ -279,13 +280,12 @@ export function useDrawingHandlers({
       if (activeId) {
         const layer = store.layers.find(l => l.id === activeId);
         if (layer && layer.layerType === 'color-cycle') {
-          store.updateLayer(activeId, {
-            colorCycleData: {
-              ...(layer.colorCycleData || {}),
-              gradient: stops,
-              isAnimating: layer.colorCycleData?.isAnimating || false
-            }
-          } as unknown);
+          const updatedColorCycleData: Layer['colorCycleData'] = {
+            ...(layer.colorCycleData ?? {}),
+            gradient: stops,
+            isAnimating: layer.colorCycleData?.isAnimating ?? false,
+          };
+          store.updateLayer(activeId, { colorCycleData: updatedColorCycleData });
         }
       }
     }
@@ -313,16 +313,15 @@ export function useDrawingHandlers({
           toResume.push(layer.id);
         }
         // Flip flag off
-        state.updateLayer(layer.id, {
-          colorCycleData: {
-            ...layer.colorCycleData,
-            isAnimating: false
-          }
-        } as unknown);
+        const updatedColorCycleData: Layer['colorCycleData'] = {
+          ...(layer.colorCycleData ?? {}),
+          isAnimating: false,
+        };
+        state.updateLayer(layer.id, { colorCycleData: updatedColorCycleData });
         // Pause brush animator instance if present
         try {
           const mgr = getColorCycleBrushManager();
-          const brush = mgr.getBrush(layer.id) as unknown;
+          const brush = mgr.getBrush(layer.id);
           brush?.pause?.();
           brush?.stopAnimation?.();
         } catch {}
@@ -331,7 +330,7 @@ export function useDrawingHandlers({
     
     // Stop any global continuous loop (defensive)
     if (continuousColorCycleAnimationRef.current) {
-      (continuousColorCycleAnimationRef as unknown).isAnimating = false;
+      continuousColorCycleAnimationActiveRef.current = false;
       cancelAnimationFrame(continuousColorCycleAnimationRef.current);
       continuousColorCycleAnimationRef.current = null;
     }
@@ -369,13 +368,12 @@ export function useDrawingHandlers({
         try {
           const layer = state.layers.find(l => l.id === id);
           if (!layer) return;
-          state.updateLayer(id, {
-            colorCycleData: {
-              ...layer.colorCycleData,
-              isAnimating: true
-            }
-          } as unknown);
-          const brush = mgr.getBrush(id) as unknown;
+          const updatedColorCycleData: Layer['colorCycleData'] = {
+            ...(layer.colorCycleData ?? {}),
+            isAnimating: true,
+          };
+          state.updateLayer(id, { colorCycleData: updatedColorCycleData });
+          const brush = mgr.getBrush(id);
           brush?.startAnimation?.();
           resumedAny = true;
         } catch {}
@@ -404,15 +402,14 @@ export function useDrawingHandlers({
       ccLayers.forEach(layer => {
         const wasAnimating = !!layer.colorCycleData?.isAnimating;
         if (!wasAnimating) {
-          state.updateLayer(layer.id, {
-            colorCycleData: {
-              ...layer.colorCycleData,
-              isAnimating: true
-            }
-          } as unknown);
+          const resumedData: Layer['colorCycleData'] = {
+            ...(layer.colorCycleData ?? {}),
+            isAnimating: true,
+          };
+          state.updateLayer(layer.id, { colorCycleData: resumedData });
         }
         try {
-          const brush = mgr.getBrush(layer.id) as unknown;
+          const brush = mgr.getBrush(layer.id);
           brush?.startAnimation?.();
         } catch {}
       });
@@ -954,7 +951,7 @@ export function useDrawingHandlers({
                   
                   // Apply grid snapping if enabled
                   if (shouldApplyGridSnapPure(currentState.tools.brushSettings)) {
-                    const gridSpacing = calculateGridSpacing(currentState.tools.brushSettings);
+                    const gridSpacing = calculateGridSpacing();
                     const snapped = snapToGridPure(stampX, stampY, gridSpacing);
                     stampX = snapped.x;
                     stampY = snapped.y;
@@ -1585,7 +1582,7 @@ export function useDrawingHandlers({
           const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
           
           if (isColorCycleLayer && activeLayer?.colorCycleData?.canvas) {
-            brushEngine.updateColorCycleTexture(activeLayerId || '');
+            brushEngine.updateColorCycleTexture();
             
             const colorCycleBrushManager = getColorCycleBrushManager();
             const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayerId || '');
@@ -1657,15 +1654,10 @@ export function useDrawingHandlers({
           // Set ALL smoothing properties to ensure pixel-perfect shapes
           if (isPixelBrush) {
             drawCtx.imageSmoothingEnabled = false;
-            // Force pixel-perfect rendering by disabling all smoothing algorithms
-            if ('imageSmoothingQuality' in drawCtx) {
-              (drawCtx as unknown).imageSmoothingQuality = 'low';
-            }
+            drawCtx.imageSmoothingQuality = 'low';
           } else {
             drawCtx.imageSmoothingEnabled = true;
-            if ('imageSmoothingQuality' in drawCtx) {
-              (drawCtx as unknown).imageSmoothingQuality = 'high';
-            }
+            drawCtx.imageSmoothingQuality = 'high';
           }
           
           // If drawing a Color Cycle Shape and auto-sampling is enabled, finalize gradient now
@@ -1770,10 +1762,10 @@ export function useDrawingHandlers({
                 // Scale and draw to pattern canvas
                 // Disable smoothing to prevent subpixel seams when the pattern repeats
                 if (patternCtx) {
-                  (patternCtx as unknown).imageSmoothingEnabled = false;
+                  patternCtx.imageSmoothingEnabled = false;
                   try {
                     // Some browsers support this hint
-                    (patternCtx as unknown).imageSmoothingQuality = 'low';
+                    patternCtx.imageSmoothingQuality = 'low';
                   } catch {}
                 }
                 // Use explicit src/dst rect signature to avoid implicit resampling differences
@@ -1793,7 +1785,7 @@ export function useDrawingHandlers({
                 const pattern = drawCtx.createPattern(patternCanvas, 'repeat');
                 if (pattern) {
                   // Ensure no smoothing when painting the pattern fill
-                  (drawCtx as unknown).imageSmoothingEnabled = false;
+                  drawCtx.imageSmoothingEnabled = false;
                   drawCtx.fillStyle = pattern;
                   // quiet
                 } else {
@@ -1983,7 +1975,7 @@ export function useDrawingHandlers({
                 // This should ONLY happen for concentric mode, not linear (which needs direction first)
                 if (activeLayerId && activeLayer.colorCycleData?.canvas) {
                   // Force immediate texture update and render to the layer's canvas
-                  brushEngine.updateColorCycleTexture(activeLayerId);
+                  brushEngine.updateColorCycleTexture();
                   
                   // Get the color cycle brush and render directly to the layer's canvas
                   const colorCycleBrushManager = getColorCycleBrushManager();
@@ -2159,13 +2151,12 @@ export function useDrawingHandlers({
     // Mark ALL brush-based CC layers as animating so render loop advances them
     try {
       const st = useAppStore.getState();
-      ccLayers.forEach(l => {
-        st.updateLayer(l.id, {
-          colorCycleData: {
-            ...l.colorCycleData,
-            isAnimating: true
-          }
-        } as unknown);
+      ccLayers.forEach(layer => {
+        const updatedData: Layer['colorCycleData'] = {
+          ...(layer.colorCycleData ?? {}),
+          isAnimating: true,
+        };
+        st.updateLayer(layer.id, { colorCycleData: updatedData });
       });
     } catch {}
 
@@ -2185,8 +2176,8 @@ export function useDrawingHandlers({
 
     // Resume the color cycle brush animation explicitly (avoid toggle side-effects) for active brush engine
     try {
-      if (!brushEngine.isColorCycleAnimating?.()) {
-        (brushEngine as unknown).resumeColorCycleAnimation?.();
+      if (brushEngine && !brushEngine.isColorCycleAnimating?.()) {
+        brushEngine.resumeColorCycleAnimation?.();
       }
     } catch {}
 
@@ -2198,11 +2189,11 @@ export function useDrawingHandlers({
     const frameInterval = 1000 / targetFPS;
     
     // Store the animation state on the ref so stop can access it
-    (continuousColorCycleAnimationRef as unknown).isAnimating = true;
-    
+    continuousColorCycleAnimationActiveRef.current = true;
+
     const animateContinuousColorCycle = (timestamp: number) => {
       // IMMEDIATELY schedule the next frame to ensure continuity
-      if ((continuousColorCycleAnimationRef as unknown).isAnimating) {
+      if (continuousColorCycleAnimationActiveRef.current) {
         continuousColorCycleAnimationRef.current = requestAnimationFrame(animateContinuousColorCycle);
       } else {
         continuousColorCycleAnimationRef.current = null;
@@ -2266,19 +2257,32 @@ export function useDrawingHandlers({
       wasCCPlayingBeforeInteractionRef.current = true;
     }
 
+    continuousColorCycleAnimationActiveRef.current = false;
+    if (continuousColorCycleAnimationRef.current) {
+      cancelAnimationFrame(continuousColorCycleAnimationRef.current);
+      continuousColorCycleAnimationRef.current = null;
+    }
+
     // Ensure store flags reflect paused state so overlay preview can render
     try {
       const st = useAppStore.getState();
-      st.layers
-        .filter(l => l.layerType === 'color-cycle' && (l as unknown).colorCycleData?.mode !== 'recolor' && (l as unknown).colorCycleData?.isAnimating)
-        .forEach(l => {
-          st.updateLayer(l.id, {
-            colorCycleData: {
-              ...(l as unknown).colorCycleData,
-              isAnimating: false
-            }
-          } as unknown);
-        });
+      st.layers.forEach(layer => {
+        const shouldPause =
+          layer.layerType === 'color-cycle' &&
+          layer.colorCycleData?.mode !== 'recolor' &&
+          layer.colorCycleData?.isAnimating;
+
+        if (!shouldPause || !layer.colorCycleData) {
+          return;
+        }
+
+        const updatedData: Layer['colorCycleData'] = {
+          ...layer.colorCycleData,
+          isAnimating: false,
+        };
+
+        st.updateLayer(layer.id, { colorCycleData: updatedData });
+      });
     } catch {}
 
     // Clear the overlay drawing canvas so CC frames don't sit above the layer stack

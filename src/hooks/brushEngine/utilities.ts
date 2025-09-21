@@ -11,11 +11,7 @@ import { calculatePressureSize as calculatePressureSizeCurve } from '@/utils/pre
  */
 export const calculateGridSpacing = (): number => {
   const defaultSpacing = 16;
-  // Grid size is not in BrushSettings, using default
-  const gridSize = defaultSpacing;
-  
-  // Ensure minimum spacing of 2 pixels
-  return Math.max(2, gridSize);
+  return Math.max(2, defaultSpacing);
 };
 
 /**
@@ -43,15 +39,14 @@ export const snapToGridPure = (
  * Calculate spacing between brush stamps
  */
 export const calculateBrushSpacing = (
-  brushSettings: BrushSettings
+  brushSettings: BrushSettings,
+  baseSize: number
 ): number => {
-  // Spacing value from settings is 1-40, representing pixels between stamps
-  // spacing = 1 means stamps are drawn 1 pixel apart
-  // spacing = 10 means stamps are drawn 10 pixels apart  
-  // spacing = 40 means stamps are drawn 40 pixels apart
-  const actualSpacing = brushSettings.spacing || 1;
-  
-  return actualSpacing;
+  const rawSpacing = typeof brushSettings.spacing === 'number' ? brushSettings.spacing : 0.1;
+  const effectiveBaseSize = baseSize || brushSettings.size || 1;
+  const isRatio = rawSpacing > 0 && rawSpacing <= 1;
+  const calculated = isRatio ? effectiveBaseSize * rawSpacing : rawSpacing;
+  return Math.max(0.5, calculated || 0);
 };
 
 /**
@@ -148,10 +143,10 @@ export const checkTransparencyLock = (
  */
 export const createBrushUtilities = (getSettings: () => BrushSettings) => {
   return {
-    calculateGridSpacing: () => calculateGridSpacing(getSettings()),
+    calculateGridSpacing,
     shouldApplyGridSnap: () => shouldApplyGridSnapPure(getSettings()),
     snapToGrid: (x: number, y: number) => {
-      const spacing = calculateGridSpacing(getSettings());
+      const spacing = calculateGridSpacing();
       return snapToGridPure(x, y, spacing);
     },
     calculateBrushSpacing: (baseSize: number) => 

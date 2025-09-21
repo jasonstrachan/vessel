@@ -28,7 +28,7 @@ export class ColorCycleAnimator {
   
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  private imageData: ImageData;
+  private imageData: ImageData | null;
   // GPU renderer (optional)
   private glRenderer: WebGLColorCycleRenderer | null = null;
   private glCanvas: HTMLCanvasElement | null = null;
@@ -76,7 +76,7 @@ export class ColorCycleAnimator {
       this.ctx.imageSmoothingEnabled = false;
       
       // Defer image data creation until first use
-      this.imageData = null as unknown; // Will be created on first paint
+      this.imageData = null; // Will be created on first paint
       
       // Try to prepare GPU renderer lazily
       if (typeof window !== 'undefined' && WebGLColorCycleRenderer.isSupported()) {
@@ -165,8 +165,12 @@ export class ColorCycleAnimator {
     this.renderFrame(offset);
     
     // Notify all callbacks
+    if (!this.imageData) {
+      this.imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
+    }
+    const frameImageData = this.imageData;
     this.onFrameCallbacks.forEach(callback => {
-      callback(this.imageData);
+      callback(frameImageData);
     });
   }
   
@@ -261,7 +265,7 @@ export class ColorCycleAnimator {
 
   /** Return runtime GPU vertex limit for fill shader (if available) */
   getGLFillMaxVerts(): number | null {
-    try { return (this.glRenderer as unknown)?.getFillMaxVerts?.() ?? null; } catch { return null; }
+    try { return this.glRenderer?.getFillMaxVerts?.() ?? null; } catch { return null; }
   }
   
   /**
@@ -485,8 +489,6 @@ export class ColorCycleAnimator {
    * Start new stroke
    */
   startStroke() {
-    void _x;
-    void _y;
     // Don't reset stroke index, let it accumulate for proper flow
   }
   
@@ -681,6 +683,9 @@ export class ColorCycleAnimator {
    * Get current image data
    */
   getImageData(): ImageData {
+    if (!this.imageData) {
+      this.imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
+    }
     return this.imageData;
   }
   

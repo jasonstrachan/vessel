@@ -7,12 +7,94 @@
 
 import React, { useState, useRef } from 'react';
 import { MasterTestRunner } from '@/testing/MasterTestRunner';
+import type { TestResult } from '@/testing/ColorCycleFeatureParityTest';
+import type { BenchmarkResult } from '@/testing/PerformanceBenchmark';
+import type { ComparisonResult } from '@/testing/VisualQualityComparison';
+import type { MemoryTestResult } from '@/testing/MemoryAnalysis';
+
+type MigrationSummary = {
+  parity?: {
+    passed: number;
+    total: number;
+  };
+  performance?: {
+    averageImprovement: string;
+  };
+  visual?: {
+    qualityScore: string;
+  };
+  memory?: {
+    reduction: string;
+  };
+};
+
+type AllTestResults = Awaited<ReturnType<MasterTestRunner['runAllTests']>>;
+type ParityTestResult = Awaited<ReturnType<MasterTestRunner['runFeatureParityTest']>>;
+
+const summarizeParity = (
+  results: TestResult[],
+  summary?: ParityTestResult['summary']
+): MigrationSummary['parity'] => {
+  const passed = summary?.passed ?? results.filter(result => result.parity).length;
+  const total = summary?.totalTests ?? results.length;
+  return {
+    passed,
+    total,
+  };
+};
+
+const summarizePerformance = (results: BenchmarkResult[]): MigrationSummary['performance'] => {
+  if (!results.length) {
+    return { averageImprovement: 'N/A' };
+  }
+
+  const averageRatio = results.reduce((sum, result) => sum + result.ratio, 0) / results.length;
+  const improvement = (1 - averageRatio) * 100;
+  const formatted = Number.isFinite(improvement) ? `${improvement.toFixed(1)}%` : 'N/A';
+
+  return {
+    averageImprovement: formatted,
+  };
+};
+
+const summarizeVisual = (results: ComparisonResult[]): MigrationSummary['visual'] => {
+  if (!results.length) {
+    return { qualityScore: 'N/A' };
+  }
+
+  const averageDifference = results.reduce((sum, result) => sum + result.difference, 0) / results.length;
+  const score = Math.max(0, Math.min(1, 1 - averageDifference));
+
+  return {
+    qualityScore: `${Math.round(score * 100)}%`,
+  };
+};
+
+const summarizeMemory = (results: MemoryTestResult[]): MigrationSummary['memory'] => {
+  if (!results.length) {
+    return { reduction: 'N/A' };
+  }
+
+  const averageSavings = results.reduce((sum, result) => sum + result.savings.percentSaved, 0) / results.length;
+  const formatted = Number.isFinite(averageSavings) ? `${averageSavings.toFixed(1)}%` : 'N/A';
+
+  return {
+    reduction: formatted,
+  };
+};
+
+const summarizeAllResults = (results: AllTestResults): MigrationSummary => ({
+  parity: summarizeParity(results.parity),
+  performance: summarizePerformance(results.performance),
+  visual: summarizeVisual(results.visual),
+  memory: summarizeMemory(results.memory),
+});
 
 export default function MigrationTestPage() {
   const [isRunning, setIsRunning] = useState(false);
   const [currentTest, setCurrentTest] = useState('');
   const [progress, setProgress] = useState(0);
-  const [results, setResults] = useState<Record<string, unknown> | null>(null);
+  const [results, setResults] = useState<MigrationSummary | null>(null);
   const [reportHtml, setReportHtml] = useState('');
   const [selectedTest, setSelectedTest] = useState('all');
   const reportRef = useRef<HTMLIFrameElement>(null);
@@ -31,35 +113,49 @@ export default function MigrationTestPage() {
         setProgress(25);
         
         const testResults = await runner.runAllTests();
-        
+
         setCurrentTest('Generating comprehensive report...');
         setProgress(90);
-        
+
         const report = runner.generateMasterReport(testResults);
         setReportHtml(report);
-        setResults(testResults);
+        setResults(summarizeAllResults(testResults));
         
       } else {
         setCurrentTest(`Running ${selectedTest} test...`);
         setProgress(50);
         
-        let testResult;
+        let summary: MigrationSummary | null = null;
         switch(selectedTest) {
           case 'parity':
-            testResult = await runner.runFeatureParityTest();
+            {
+              const parityResults = await runner.runFeatureParityTest();
+              summary = { parity: summarizeParity(parityResults.results, parityResults.summary) };
+            }
             break;
           case 'performance':
-            testResult = await runner.runPerformanceBenchmark();
+            {
+              const performanceResults = await runner.runPerformanceBenchmark();
+              summary = { performance: summarizePerformance(performanceResults) };
+            }
             break;
           case 'visual':
-            testResult = await runner.runVisualQualityComparison();
+            {
+              const visualResults = await runner.runVisualQualityComparison();
+              summary = { visual: summarizeVisual(visualResults) };
+            }
             break;
           case 'memory':
-            testResult = await runner.runMemoryAnalysis();
+            {
+              const memoryResults = await runner.runMemoryAnalysis();
+              summary = { memory: summarizeMemory(memoryResults) };
+            }
             break;
         }
         
-        setResults({ [selectedTest]: testResult });
+        if (summary) {
+          setResults(summary);
+        }
         setCurrentTest('Test complete!');
       }
       
@@ -144,7 +240,7 @@ export default function MigrationTestPage() {
           )}
         </div>
         
-        {results && (
+        {results ? (
           <div className="bg-white rounded-lg shadow-md p-6 mb-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold">📊 Test Results</h2>
@@ -158,43 +254,43 @@ export default function MigrationTestPage() {
               )}
             </div>
             
-            {results.parity && (
+            {results.parity ? (
               <div className="mb-6 p-4 bg-blue-50 rounded-lg">
                 <h3 className="text-lg font-semibold mb-2">✅ Feature Parity Results</h3>
                 <p className="text-gray-700">
-                  Passed: {results.parity.passed || 0} / {results.parity.total || 0} tests
+                  Passed: {results.parity.passed} / {results.parity.total} tests
                 </p>
               </div>
-            )}
+            ) : null}
             
-            {results.performance && (
+            {results.performance ? (
               <div className="mb-6 p-4 bg-yellow-50 rounded-lg">
                 <h3 className="text-lg font-semibold mb-2">⚡ Performance Results</h3>
                 <p className="text-gray-700">
-                  Average improvement: {results.performance.averageImprovement || 'N/A'}
+                  Average improvement: {results.performance.averageImprovement}
                 </p>
               </div>
-            )}
+            ) : null}
             
-            {results.visual && (
+            {results.visual ? (
               <div className="mb-6 p-4 bg-green-50 rounded-lg">
                 <h3 className="text-lg font-semibold mb-2">🎨 Visual Quality Results</h3>
                 <p className="text-gray-700">
-                  Quality score: {results.visual.qualityScore || 'N/A'}
+                  Quality score: {results.visual.qualityScore}
                 </p>
               </div>
-            )}
+            ) : null}
             
-            {results.memory && (
+            {results.memory ? (
               <div className="mb-6 p-4 bg-purple-50 rounded-lg">
                 <h3 className="text-lg font-semibold mb-2">💾 Memory Usage Results</h3>
                 <p className="text-gray-700">
-                  Memory reduction: {results.memory.reduction || 'N/A'}
+                  Memory reduction: {results.memory.reduction}
                 </p>
               </div>
-            )}
+            ) : null}
           </div>
-        )}
+        ) : null}
         
         {reportHtml && (
           <div className="bg-white rounded-lg shadow-md p-6">

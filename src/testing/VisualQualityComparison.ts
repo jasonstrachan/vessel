@@ -254,15 +254,19 @@ export class VisualQualityComparison {
    */
   async testFillOperations(): Promise<ComparisonResult> {
     return this.runTest('Fill Operations', (brush) => {
+      const fillBrush = brush as ColorCycleBrushCanvas2D & {
+        fillRect?: (x: number, y: number, width: number, height: number) => void;
+        fill?: (x: number, y: number, width: number, height: number) => void;
+      };
       // Draw filled rectangles
-      if (brush.fillRect) {
-        brush.fillRect(50, 50, 150, 100);
-        brush.fillRect(250, 150, 200, 150);
-        brush.fillRect(100, 300, 300, 100);
-      } else if (brush.fill) {
-        brush.fill(50, 50, 150, 100);
-        brush.fill(250, 150, 200, 150);
-        brush.fill(100, 300, 300, 100);
+      if (fillBrush.fillRect) {
+        fillBrush.fillRect(50, 50, 150, 100);
+        fillBrush.fillRect(250, 150, 200, 150);
+        fillBrush.fillRect(100, 300, 300, 100);
+      } else if (fillBrush.fill) {
+        fillBrush.fill(50, 50, 150, 100);
+        fillBrush.fill(250, 150, 200, 150);
+        fillBrush.fill(100, 300, 300, 100);
       }
     });
   }

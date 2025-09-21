@@ -1346,7 +1346,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   });
   
   // Helper to get mouse position
-  const getMousePos = useCallback((event: React.MouseEvent<HTMLCanvasElement> | React.WheelEvent<HTMLCanvasElement>) => {
+  const getMousePos = useCallback((event: React.MouseEvent<Element> | React.WheelEvent<Element>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return {
       x: event.clientX - rect.left,

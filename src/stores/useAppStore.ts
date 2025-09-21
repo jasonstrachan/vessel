@@ -86,6 +86,7 @@ import { scaledBrushCache } from '../utils/scaledBrushCache';
 import type {
   Project,
   Layer,
+  LayerAlignmentSettings,
   CanvasState,
   ToolState,
   UIState,
@@ -103,9 +104,11 @@ import type {
   BrushEditorState,
   KeyboardScope,
   ContourLinesState,
+  ExportContainerLayout,
+  WebGLExportSettings,
 } from '@/types';
 import { BrushShape } from '@/types';
-import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings } from '../presets/brushPresets';
+import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings, pixelBrushPreset } from '../presets/brushPresets';
 import { 
   saveProjectToFile, 
   loadProjectFromFile, 
@@ -116,6 +119,14 @@ import {
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 import { adjustHueAndSaturation } from '../utils/imageProcessing';
 import { debugLog, logError, __DEV__, recordBreadcrumb } from '../utils/debug';
+import {
+  cloneExportLayout,
+  cloneLayerAlignment,
+  createDefaultExportLayout,
+  createDefaultLayerAlignment,
+  normalizeLayers,
+  normalizeProject
+} from '@/utils/layoutDefaults';
 
 // Helper function to get serializable brush settings for persistence
 const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSettings> => {
@@ -152,6 +163,9 @@ export interface AppState {
   project: Project | null;
   setProject: (project: Project) => void;
   updateProject: (updates: Partial<Project>) => void;
+  setExportLayout: (layout: ExportContainerLayout) => void;
+  webglExportSettings: WebGLExportSettings;
+  updateWebglExportSettings: (settings: Partial<WebGLExportSettings>) => void;
   
   // Layer composition trigger
   layersNeedRecomposition: boolean;
@@ -314,6 +328,7 @@ export interface AppState {
   updateLayer: (id: string, updates: Partial<Layer>) => void;
   setActiveLayer: (id: string) => void;
   setLayers: (layers: Layer[]) => void;
+  updateLayerAlignment: (layerId: string, alignment: LayerAlignmentSettings) => void;
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
   
   // Color Cycle Layer Management
@@ -373,7 +388,8 @@ export interface AppState {
 }
 
 // Default states - apply default brush preset to get correct size
-const { settings: defaultPresetSettings } = applyBrushPreset(defaultBrushPreset);
+const initialBrushPreset = pixelBrushPreset;
+const { settings: defaultPresetSettings } = applyBrushPreset(initialBrushPreset);
 const defaultBrushSettingsForStore: BrushSettings = {
   ...defaultBrushSettings,
   ...defaultPresetSettings
@@ -454,7 +470,7 @@ const defaultToolState: ToolState = {
   currentTool: 'brush',
   previousTool: 'brush',
   lastRegularTool: 'brush',
-  lastRegularBrushShape: BrushShape.ROUND,
+  lastRegularBrushShape: BrushShape.SQUARE,
   lastRegularShapeMode: false,
   lastColorCycleShapeMode: false,
   brushSettings: defaultBrushSettingsForStore,
@@ -570,11 +586,50 @@ export const useAppStore = create<AppState>()(
         createdAt: new Date(),
         updatedAt: new Date(),
         customBrushes: [],
-        brushSpecificSettings: {}
+        brushSpecificSettings: {},
+        exportLayout: createDefaultExportLayout()
       },
-      setProject: (project) => set({ project }),
-      updateProject: (updates) => set((state) => ({
-        project: state.project ? { ...state.project, ...updates } : null
+      webglExportSettings: {
+        includeHiddenLayers: false,
+        embedCanvasFallback: false,
+        minifyOutput: false
+      },
+      setProject: (project) => set(() => ({
+        project: normalizeProject(project)
+      })),
+      updateProject: (updates) => set((state) => {
+        if (!state.project) {
+          return { project: null };
+        }
+
+        const nextProject = {
+          ...state.project,
+          ...updates,
+          exportLayout: 'exportLayout' in updates
+            ? cloneExportLayout(updates.exportLayout)
+            : cloneExportLayout(state.project.exportLayout)
+        };
+
+        return { project: nextProject };
+      }),
+      setExportLayout: (layout) => set((state) => {
+        if (!state.project) {
+          return state;
+        }
+
+        return {
+          project: {
+            ...state.project,
+            exportLayout: cloneExportLayout(layout),
+            updatedAt: new Date()
+          }
+        };
+      }),
+      updateWebglExportSettings: (settings) => set((state) => ({
+        webglExportSettings: {
+          ...state.webglExportSettings,
+          ...settings
+        }
       })),
       
       // Global brush settings
@@ -1185,8 +1240,8 @@ export const useAppStore = create<AppState>()(
       
       // Brush Presets
       brushPresets,
-      currentBrushPreset: defaultBrushPreset,
-      activeBrushComponents: defaultBrushPreset.components,
+      currentBrushPreset: initialBrushPreset,
+      activeBrushComponents: initialBrushPreset.components,
       
       // Temporary Custom Brush
       temporaryCustomBrush: null,
@@ -1571,6 +1626,7 @@ export const useAppStore = create<AppState>()(
             id: newLayerId,
             // Temporary order; will be normalized after insertion
             order: 0,
+            alignment: cloneLayerAlignment(layer.alignment),
             // CRITICAL: Preserve layerType EXACTLY - DO NOT convert CC layers to normal!
             layerType: layer.layerType || (
               (logError('CRITICAL: Layer missing layerType!', {
@@ -2086,8 +2142,20 @@ export const useAppStore = create<AppState>()(
         }
         
         trackLayerChanges('setLayers CALLED', fixedLayers);
-        set({ layers: fixedLayers });
+        set({ layers: normalizeLayers(fixedLayers) });
       },
+      updateLayerAlignment: (layerId, alignment) => set((state) => {
+        const updatedLayers = state.layers.map(layer => (
+          layer.id === layerId
+            ? { ...layer, alignment: cloneLayerAlignment(alignment) }
+            : layer
+        ));
+
+        return {
+          layers: updatedLayers,
+          layersNeedRecomposition: true
+        };
+      }),
       reorderLayers: (sourceIndex, destinationIndex) => {
         set((state) => {
           const newLayers = [...state.layers];
@@ -2849,7 +2917,8 @@ export const useAppStore = create<AppState>()(
               ...layer,
               // CRITICAL: Explicitly preserve layerType to prevent corruption
               layerType: layer.layerType,
-              imageData: clonedImageData
+              imageData: clonedImageData,
+              alignment: cloneLayerAlignment(layer.alignment)
             };
 
             // Deep copy colorCycleData if present
@@ -2922,7 +2991,7 @@ export const useAppStore = create<AppState>()(
           const brush = activeLayer?.colorCycleData?.colorCycleBrush;
           const rawState = brush?.serialize?.() ?? brush?.getFullState?.() ?? null;
 
-          if (isSerializedColorCycleBrushState(rawState) && rawState.layers) {
+          if (activeLayer && isSerializedColorCycleBrushState(rawState) && rawState.layers) {
             colorCycleState = {
               layerId: activeLayer.id,
               strokeData: new ArrayBuffer(0),
@@ -3169,8 +3238,8 @@ export const useAppStore = create<AppState>()(
           
           // Update the store with the loaded project and restored layers
           set({
-            project: loadedProject,
-            layers: finalLayers,
+            project: normalizeProject(loadedProject),
+            layers: normalizeLayers(finalLayers),
             activeLayerId: loadedProject.layers[0]?.id || null,
             layersNeedRecomposition: true,
             // Restore view state if available
@@ -3275,6 +3344,7 @@ export const useAppStore = create<AppState>()(
           locked: false,
           imageData: new ImageData(width, height),
           framebuffer,
+          alignment: createDefaultLayerAlignment(),
           layerType: 'normal' // REQUIRED field
         };
         
@@ -3288,12 +3358,13 @@ export const useAppStore = create<AppState>()(
           createdAt: new Date(),
           updatedAt: new Date(),
           customBrushes: [],
-          brushSpecificSettings: {}
+          brushSpecificSettings: {},
+          exportLayout: createDefaultExportLayout()
         };
-        
+
         set({
-          project: newProject,
-          layers: [defaultLayer], // Only set top-level layers
+          project: normalizeProject(newProject),
+          layers: normalizeLayers([defaultLayer]), // Only set top-level layers
           activeLayerId: defaultLayerId,
           canvas: {
             ...get().canvas,

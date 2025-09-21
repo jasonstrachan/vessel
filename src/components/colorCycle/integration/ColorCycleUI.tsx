@@ -136,7 +136,6 @@ export const ColorCycleUI: React.FC<ColorCycleUIProps> = ({
           <RecolorPanel
             activeLayer={activeLayer}
             isVisible={true}
-            onClose={onToggleVisibility ? handleClose : undefined}
             onError={handlePanelError}
           />
           {error && (

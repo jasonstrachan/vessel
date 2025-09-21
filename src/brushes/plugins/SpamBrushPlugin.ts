@@ -77,11 +77,11 @@ export class SpamBrushPlugin extends BaseBrushPlugin {
   };
 
   initialize(config?: BrushConfig): void {
-    if (config?.font) {
+    if (typeof config?.font === 'string') {
       const fontConfig = SPAM_FONTS.find(f => f.id === config.font);
       this.currentFont = fontConfig?.value || SPAM_FONTS[0].value;
     }
-    if (config?.contentType && config.contentType in SPAM_CONTENT) {
+    if (typeof config?.contentType === 'string' && config.contentType in SPAM_CONTENT) {
       this.contentType = config.contentType as keyof typeof SPAM_CONTENT;
     }
     this.charIndex = Math.floor(Math.random() * SPAM_CONTENT[this.contentType].length);

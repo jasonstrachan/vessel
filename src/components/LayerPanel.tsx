@@ -3,6 +3,7 @@
 import React from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { Layer } from '../types';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { XIcon } from './icons/XIcon';
 import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
 import PlusButton from './ui/PlusButton';
@@ -43,6 +44,7 @@ const LayerPanel = () => {
       locked: false,
       imageData: null,
       framebuffer: project ? new OffscreenCanvas(project.width, project.height) : new OffscreenCanvas(DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT),
+      alignment: createDefaultLayerAlignment(),
       layerType: 'normal' // Explicitly set as normal
     };
     addLayer(newLayer);

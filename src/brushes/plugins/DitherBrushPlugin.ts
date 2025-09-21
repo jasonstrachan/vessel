@@ -47,15 +47,18 @@ export class DitherBrushPlugin extends BaseBrushPlugin {
     if (config?.algorithm) {
       this.ditherSettings.algorithm = config.algorithm as DitherAlgorithm;
     }
+
     if (config?.palette === 'grayscale') {
       this.ditherSettings.palette = createGrayscalePalette(16);
     } else if (config?.palette === 'apple2') {
       this.ditherSettings.palette = APPLE_II_PALETTE;
     }
-    if (config?.intensity !== undefined) {
+
+    if (typeof config?.intensity === 'number') {
       this.ditherSettings.intensity = config.intensity;
     }
-    if (config?.bayerMatrixSize !== undefined) {
+
+    if (isValidBayerMatrixSize(config?.bayerMatrixSize)) {
       this.ditherSettings.bayerMatrixSize = config.bayerMatrixSize;
     }
 
@@ -185,6 +188,10 @@ export class DitherBrushPlugin extends BaseBrushPlugin {
     // For now, return null to use default controls
     return null;
   }
+}
+
+function isValidBayerMatrixSize(value: unknown): value is DitherSettings['bayerMatrixSize'] {
+  return value === 2 || value === 4 || value === 8;
 }
 
 // Export as default for dynamic loading

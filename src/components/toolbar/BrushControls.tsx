@@ -6,6 +6,7 @@
 import React from "react";
 import { useAppStore } from "../../stores/useAppStore";
 import { BrushShape, type Layer } from "../../types";
+import { createDefaultLayerAlignment } from "@/utils/layoutDefaults";
 import Input from "../ui/Input";
 import CustomSwitch from "../ui/CustomSwitch";
 import ProgressSlider from "../ui/ProgressSlider";
@@ -32,7 +33,7 @@ const DEFAULT_RAINBOW_STOPS = [
 const DEFAULT_CROSS_HATCH_LINE_WIDTH = 1.25;
 
 // Get access to drawing handlers via a context or ref - we'll need to create this
-interface ColorCycleAnimationContext {
+export interface ColorCycleAnimationContext {
   startContinuousColorCycleAnimation: () => void;
   stopContinuousColorCycleAnimation: () => void;
   updateColorCycleGradient?: (stops: Array<{ position: number; color: string }>) => void;
@@ -112,6 +113,7 @@ const BrushControls = () => {
       locked: false,
       imageData: null,
       framebuffer: makeFramebuffer(width, height),
+      alignment: createDefaultLayerAlignment(),
       layerType: 'color-cycle',
       colorCycleData: {
         mode: 'brush',

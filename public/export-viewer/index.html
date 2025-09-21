@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TinyBrush WebGL Bundle Viewer</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #111;
+        color: #f5f5f5;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 24px;
+        gap: 16px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.6rem;
+        font-weight: 600;
+      }
+      p {
+        margin: 0;
+        color: #bdbdbd;
+      }
+      .controls {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        width: min(960px, 90vw);
+      }
+      .drop-zone {
+        border: 2px dashed #555;
+        border-radius: 12px;
+        padding: 24px;
+        text-align: center;
+        transition: border-color 0.2s, background 0.2s;
+      }
+      .drop-zone.dragging {
+        border-color: #8c7bff;
+        background: rgba(140, 123, 255, 0.08);
+      }
+      .drop-zone button,
+      .drop-zone input[type="file"] {
+        margin-top: 12px;
+      }
+      .drop-zone button {
+        padding: 10px 18px;
+        border-radius: 8px;
+        border: none;
+        background: #8c7bff;
+        color: #111;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .drop-zone button:hover {
+        background: #a498ff;
+      }
+      canvas {
+        background: #1b1b1b;
+        border: 1px solid #333;
+        border-radius: 8px;
+        max-width: 100%;
+        image-rendering: pixelated;
+      }
+      .status {
+        font-size: 0.9rem;
+        color: #a498ff;
+      }
+      .info {
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+        font-size: 0.85rem;
+        background: #1a1a1a;
+        border-radius: 8px;
+        padding: 12px;
+        border: 1px solid #333;
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>TinyBrush WebGL bundle viewer</h1>
+    <p>Drop an exported <code>.json</code> bundle to preview it right in the browser.</p>
+
+    <div class="controls">
+      <div id="drop-zone" class="drop-zone" role="button" tabindex="0">
+        <strong>Drop your <code>-webgl.json</code> file here</strong>
+        <div class="status" id="status-text">No bundle loaded yet.</div>
+        <button type="button" id="browse-button">Browse files</button>
+        <input id="file-input" type="file" accept="application/json" hidden />
+      </div>
+
+      <canvas id="preview-canvas" width="640" height="360" aria-label="TinyBrush export preview"></canvas>
+
+      <div class="info" id="bundle-info">Bundle metadata will appear here once loaded.</div>
+    </div>
+
+    <script type="module">
+      import { renderTinyBrushWebGL } from './viewer.js';
+
+      const dropZone = document.getElementById('drop-zone');
+      const fileInput = document.getElementById('file-input');
+      const browseButton = document.getElementById('browse-button');
+      const statusText = document.getElementById('status-text');
+      const info = document.getElementById('bundle-info');
+      const canvas = document.getElementById('preview-canvas');
+
+      const setStatus = (message, tone = 'info') => {
+        statusText.textContent = message;
+        statusText.style.color = tone === 'error' ? '#ff8a80' : '#a498ff';
+      };
+
+      const summarizeMetadata = (metadata, renderResult) => {
+        const lines = [];
+        lines.push(`Project: ${metadata.project?.name ?? 'Untitled'} (id: ${metadata.project?.id ?? 'n/a'})`);
+        lines.push(`Viewport: ${metadata.viewport.width} × ${metadata.viewport.height}`);
+        lines.push(`Layers rendered: ${renderResult.layers}`);
+        if (metadata.animation) {
+          lines.push(`Animation: ${metadata.animation.totalFrames} frames @ ${metadata.animation.fps}fps (${metadata.animation.durationSeconds.toFixed(2)}s)`);
+        }
+        lines.push(`Perfect loop: ${renderResult.animation?.perfectLoop ? 'yes' : 'no'}`);
+        if (metadata.settings) {
+          lines.push(`Settings: hidden layers ${metadata.settings.includeHiddenLayers ? 'included' : 'excluded'}, fallback ${metadata.settings.embedCanvasFallback ? 'embedded' : 'none'}, minify ${metadata.settings.minifyOutput ? 'on' : 'off'}`);
+        }
+        info.textContent = lines.join('\n');
+      };
+
+      const computeScale = (metadata) => {
+        const maxWidth = Math.min(window.innerWidth - 48, 960);
+        if (!metadata.viewport?.width) {
+          return 1;
+        }
+        const scale = maxWidth / metadata.viewport.width;
+        return scale < 1 ? scale : 1;
+      };
+
+      const handleBundle = async (file) => {
+        if (!file) {
+          return;
+        }
+        setStatus(`Loading ${file.name}…`);
+        try {
+          const text = await file.text();
+          const metadata = JSON.parse(text);
+          const scale = computeScale(metadata);
+          const renderResult = await renderTinyBrushWebGL(metadata, canvas, { scale });
+          summarizeMetadata(metadata, renderResult);
+          setStatus(`Rendered ${file.name}`);
+        } catch (error) {
+          console.error(error);
+          setStatus(error instanceof Error ? error.message : 'Failed to render bundle', 'error');
+        }
+      };
+
+      browseButton.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', (event) => {
+        const file = event.target.files?.[0];
+        if (file) {
+          void handleBundle(file);
+        }
+      });
+
+      dropZone.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        dropZone.classList.add('dragging');
+      });
+
+      dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragging');
+      });
+
+      dropZone.addEventListener('drop', (event) => {
+        event.preventDefault();
+        dropZone.classList.remove('dragging');
+        const file = event.dataTransfer?.files?.[0];
+        if (file) {
+          void handleBundle(file);
+        }
+      });
+
+      dropZone.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          browseButton.click();
+        }
+      });
+    </script>
+  </body>
+</html>

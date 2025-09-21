@@ -1384,7 +1384,7 @@ export const createShapeToolHandler = (
       if (polygonShapePointerUp(event)) {
         return true;
       }
-      if (handleTrianglePointerUp(event)) {
+      if (handleTrianglePointerUp()) {
         return true;
       }
       return safeDelegate.pointerUp?.(event, context) ?? false;

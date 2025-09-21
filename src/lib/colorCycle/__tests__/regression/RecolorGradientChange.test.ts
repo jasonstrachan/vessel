@@ -1,5 +1,6 @@
 import { RecolorManager } from '../../../colorCycle/RecolorManager';
 import type { Layer } from '../../../../types';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 describe('Recolor gradient change preserves image data', () => {
   it('keeps layer.imageData non-null after gradient change in recolor mode', () => {
@@ -45,6 +46,7 @@ describe('Recolor gradient change preserves image data', () => {
       order: 0,
       imageData: new ImageData(1, 1),
       framebuffer,
+      alignment: createDefaultLayerAlignment(),
       layerType: 'color-cycle',
       colorCycleData: {
         mode: 'recolor',

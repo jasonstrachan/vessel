@@ -1,7 +1,15 @@
 // Project input/output utilities for TinyBrush
 // Handles serialization, deserialization, and file operations
 
-import type { Project, Layer, CustomBrush, BrushSettings } from '../types';
+import type {
+  Project,
+  Layer,
+  CustomBrush,
+  BrushSettings,
+  LayerAlignmentSettings,
+  ExportContainerLayout
+} from '../types';
+import { cloneExportLayout, cloneLayerAlignment } from './layoutDefaults';
 
 // TinyBrush project file format version
 const PROJECT_VERSION = '1.0.0';
@@ -25,6 +33,7 @@ export interface TinyBrushProject {
     thumbnail?: string;
     brushSpecificSettings?: Record<string, unknown>;
     globalBrushSize?: number;
+    exportLayout?: ExportContainerLayout;
   };
 }
 
@@ -38,6 +47,7 @@ interface SerializedLayer {
   order: number;
   imageDataUrl: string; // Base64 encoded ImageData
   layerType?: 'normal' | 'color-cycle';
+  alignment?: LayerAlignmentSettings;
   colorCycleData?: {
     gradient?: Array<{ position: number; color: string }>;
     isAnimating?: boolean;
@@ -175,7 +185,8 @@ function serializeLayer(layer: Layer): SerializedLayer {
     locked: layer.locked,
     order: layer.order,
     imageDataUrl,
-    layerType: layer.layerType
+    layerType: layer.layerType,
+    alignment: cloneLayerAlignment(layer.alignment)
   };
   
   // Serialize color cycle data if present
@@ -234,6 +245,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
     order: serializedLayer.order,
     imageData,
     framebuffer,
+    alignment: cloneLayerAlignment(serializedLayer.alignment),
     layerType: serializedLayer.layerType || (
       console.warn('🟡 Layer missing layerType during load, defaulting to normal:', serializedLayer.id?.substring(0, 20)),
       'normal' as const
@@ -369,7 +381,8 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
       customBrushes: serializedCustomBrushes,
       thumbnail: thumbnail || undefined,
       brushSpecificSettings: project.brushSpecificSettings,
-      globalBrushSize: project.globalBrushSize
+      globalBrushSize: project.globalBrushSize,
+      exportLayout: cloneExportLayout(project.exportLayout)
     }
   };
   
@@ -418,7 +431,8 @@ export async function deserializeProject(projectData: string): Promise<Project> 
     createdAt: new Date(tinyBrushProject.metadata.created),
     updatedAt: new Date(tinyBrushProject.metadata.modified),
     brushSpecificSettings: serializedProject.brushSpecificSettings as Record<string, Partial<BrushSettings>> | undefined,
-    globalBrushSize: serializedProject.globalBrushSize
+    globalBrushSize: serializedProject.globalBrushSize,
+    exportLayout: cloneExportLayout(serializedProject.exportLayout)
   };
 }
 

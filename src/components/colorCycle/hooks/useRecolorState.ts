@@ -9,14 +9,11 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../../../types';
 import { useAppStore } from '../../../stores/useAppStore';
 import { RecolorManager, RecolorOptions, RecolorPerformanceStats } from '../../../lib/colorCycle/RecolorManager';
-import { setColorCycleAnimationState } from '../../toolbar/BrushControls';
+import { setColorCycleAnimationState, type ColorCycleAnimationContext } from '../../toolbar/BrushControls';
 
 declare global {
   interface Window {
-    colorCycleAnimationHandlers?: {
-      startContinuousColorCycleAnimation: () => void;
-      stopContinuousColorCycleAnimation: () => void;
-    };
+    colorCycleAnimationHandlers?: ColorCycleAnimationContext | null;
   }
 }
 

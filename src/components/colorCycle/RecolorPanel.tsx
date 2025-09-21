@@ -343,7 +343,6 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
                 setPlannedSettings((prev) => ({ ...prev, flowMapping: mode }));
               }
             }}
-            disabled={state.isProcessing || !activeLayer}
           />
 
           {/* Flow Tools */}

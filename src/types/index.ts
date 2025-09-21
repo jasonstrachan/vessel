@@ -1,6 +1,55 @@
 // Core type definitions for TinyBrush
 // Based on /docs/02_System_Architecture/Data_Model.md
 
+export type LayerAlignmentFit = 'contain' | 'cover' | 'fill' | 'fit-width' | 'fit-height' | 'scale-down' | 'none';
+
+export type LayerAlignmentAxis = 'start' | 'center' | 'end';
+
+export interface LayerAlignmentOffset {
+  x: number;
+  y: number;
+}
+
+export interface LayerAlignmentSettings {
+  fit: LayerAlignmentFit;
+  horizontal: LayerAlignmentAxis;
+  vertical: LayerAlignmentAxis;
+  offsetPx?: LayerAlignmentOffset;
+}
+
+export type ExportContainerFlow = 'row' | 'row-reverse' | 'column' | 'column-reverse';
+
+export type ExportContainerJustify = 'start' | 'center' | 'end' | 'space-between' | 'space-around';
+
+export type ExportContainerAlign = 'start' | 'center' | 'end' | 'stretch';
+
+export interface ExportContainerPadding {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+export type ExportContainerSizeMode = 'hug' | 'fixed';
+
+export interface ExportContainerLayout {
+  flow: ExportContainerFlow;
+  justify: ExportContainerJustify;
+  align: ExportContainerAlign;
+  wrap: boolean;
+  gap: number;
+  padding: ExportContainerPadding;
+  sizeMode: ExportContainerSizeMode;
+  width?: number;
+  height?: number;
+}
+
+export interface WebGLExportSettings {
+  includeHiddenLayers: boolean;
+  embedCanvasFallback: boolean;
+  minifyOutput: boolean;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -19,6 +68,7 @@ export interface Project {
   brushSpecificSettings?: Record<string, Partial<BrushSettings>>;
   // Global brush size (applies to all brushes)
   globalBrushSize?: number;
+  exportLayout?: ExportContainerLayout;
 }
 
 export interface Layer {
@@ -32,6 +82,7 @@ export interface Layer {
   imageData: ImageData | null;
   // Use a flexible framebuffer type for broader browser support
   framebuffer: OffscreenCanvas | HTMLCanvasElement;
+  alignment: LayerAlignmentSettings;
   
   // Layer type system for supporting different rendering modes
   layerType: 'normal' | 'color-cycle'; // REQUIRED - not optional

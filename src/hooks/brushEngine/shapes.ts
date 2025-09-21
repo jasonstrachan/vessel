@@ -226,9 +226,13 @@ export const drawShape = (
           // Create temporary canvas with proper configuration
           if (deps?.getPatternTempContext) {
             const tempCtx = deps.getPatternTempContext(sampleWidth, sampleHeight);
-            const tempCanvas = tempCtx.canvas;
-            
-            if (tempCtx && tempCanvas) {
+
+            if (tempCtx) {
+              const tempCanvas = tempCtx.canvas;
+              if (!tempCanvas) {
+                targetCtx.restore();
+                return;
+              }
               // Configure for high-quality pixel-perfect operations
               tempCtx.imageSmoothingEnabled = false;
               tempCtx.clearRect(0, 0, sampleWidth, sampleHeight);
@@ -291,10 +295,9 @@ export const drawShape = (
   // Handle custom pattern rendering (for custom brushes)
   if (pattern && pattern.width > 0 && pattern.height > 0 && shape === BrushShape.CUSTOM && deps?.getPatternTempContext) {
     const tempCtx = deps.getPatternTempContext(pattern.width, pattern.height);
-    // Get the temp canvas from the context - it's stored as _canvas
-    const tempCanvas = tempCtx.canvas;
 
     if (tempCtx) {
+      const tempCanvas = tempCtx.canvas;
       // Ensure we have a canvas to draw to
       const canvasToUse = tempCanvas || tempCtx.canvas;
       if (!canvasToUse) {

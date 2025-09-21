@@ -18,6 +18,10 @@ import {
 } from '../ditherAlgorithms';
 
 // Mock ImageData for Node.js environment
+type ImageDataConstructor = typeof globalThis extends { ImageData: infer T }
+  ? T
+  : never;
+
 class MockImageData {
   data: Uint8ClampedArray;
   width: number;
@@ -36,12 +40,17 @@ class MockImageData {
   }
 }
 
-declare global {
-  var ImageData: typeof MockImageData;
-}
+const originalImageData = globalThis.ImageData as ImageDataConstructor | undefined;
 
-// Override global ImageData for tests
-globalThis.ImageData = MockImageData as unknown as typeof ImageData;
+beforeAll(() => {
+  globalThis.ImageData = MockImageData as unknown as ImageDataConstructor;
+});
+
+afterAll(() => {
+  if (originalImageData) {
+    globalThis.ImageData = originalImageData;
+  }
+});
 
 describe('Dithering Algorithms', () => {
   

@@ -6,19 +6,13 @@
  */
 
 import React, { useRef, useState } from 'react';
-import { PerformanceEnhancementsTest } from '@/testing/PerformanceEnhancementsTest';
+import { PerformanceEnhancementsTest, type PerformanceTestResult } from '@/testing/PerformanceEnhancementsTest';
 
 export default function PerformanceTestPage() {
   const canvas1Ref = useRef<HTMLCanvasElement>(null);
   const canvas2Ref = useRef<HTMLCanvasElement>(null);
   const [isRunning, setIsRunning] = useState(false);
-  const [results, setResults] = useState<Array<{
-    testName: string;
-    improvement: number;
-    baseline: number;
-    optimized: number;
-    details?: unknown;
-  }>>([]);
+  const [results, setResults] = useState<PerformanceTestResult[]>([]);
   const [reportHTML, setReportHTML] = useState('');
 
   const runTests = async () => {
@@ -146,7 +140,7 @@ export default function PerformanceTestPage() {
                     </div>
                   </div>
                   
-                  {result.details && (
+                  {result.details ? (
                     <details className="mt-2">
                       <summary className="cursor-pointer text-blue-600 hover:text-blue-800">
                         View Details
@@ -155,7 +149,7 @@ export default function PerformanceTestPage() {
                         {JSON.stringify(result.details, null, 2)}
                       </pre>
                     </details>
-                  )}
+                  ) : null}
                 </div>
               ))}
             </div>

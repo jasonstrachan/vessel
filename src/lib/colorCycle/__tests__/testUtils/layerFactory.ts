@@ -1,4 +1,5 @@
 import type { Layer } from '@/types';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 /**
  * Lightweight helper for building Layer objects inside tests without
@@ -42,6 +43,7 @@ export const createMockLayer = (overrides: Partial<Layer> = {}): Layer => {
     order: overrides.order ?? 0,
     imageData: overrides.imageData ?? null,
     framebuffer: overrides.framebuffer ?? resolvedCanvas,
+    alignment: overrides.alignment ?? createDefaultLayerAlignment(),
     layerType: overrides.layerType ?? 'color-cycle',
     colorCycleData,
     version: overrides.version,

@@ -37,6 +37,15 @@ type DrawColorCycleOptions = {
   customStamp?: CustomBrushStrokeData;
 };
 
+const isTransparencyLockEnabled = () =>
+  typeof window !== 'undefined' && window.transparencyLockEnabled === true;
+
+const hasForceRender = (
+  brush: ColorCycleBrushImplementation | null
+): brush is ColorCycleBrushImplementation & { forceRender: () => void } => {
+  return Boolean(brush && typeof (brush as { forceRender?: unknown }).forceRender === 'function');
+};
+
 export const useBrushEngineSimplified = () => {
   const { tools, project, activeLayerId } = useAppStore();
   // Track per-layer CC brush speed for the active layer
@@ -229,7 +238,7 @@ export const useBrushEngineSimplified = () => {
   const brushEngine = useMemo(() => {
     const config: BrushEngineConfig = {
       brushSettings: tools.brushSettings,
-      transparencyLockEnabled: typeof window !== 'undefined' ? (window as unknown).transparencyLockEnabled : false,
+      transparencyLockEnabled: isTransparencyLockEnabled(),
       getPatternTempContext,
       brushStampCache: brushStampCacheRef.current,
       createPixelCircleStamp,
@@ -245,7 +254,7 @@ export const useBrushEngineSimplified = () => {
   useEffect(() => {
     brushEngine.updateConfig({
       brushSettings: tools.brushSettings,
-      transparencyLockEnabled: typeof window !== 'undefined' ? (window as unknown).transparencyLockEnabled : false,
+      transparencyLockEnabled: isTransparencyLockEnabled(),
       getPatternTempContext,
       brushStampCache: brushStampCacheRef.current,
       getRotationTempContext
@@ -2879,8 +2888,8 @@ export const useBrushEngineSimplified = () => {
       try {
         if (typeof colorCycleBrush.render === 'function') {
           colorCycleBrush.render(true);
-        } else if (typeof (colorCycleBrush as unknown).forceRender === 'function') {
-          (colorCycleBrush as unknown).forceRender();
+        } else if (hasForceRender(colorCycleBrush)) {
+          colorCycleBrush.forceRender();
         }
       } catch (error) {
         console.warn('[ColorCycle] Failed to force render after gradient update:', error);
@@ -2892,7 +2901,7 @@ export const useBrushEngineSimplified = () => {
 
       if (layerCanvas && typeof colorCycleBrush.renderDirectToCanvas === 'function') {
         try {
-          colorCycleBrush.renderDirectToCanvas(layerCanvas, activeLayerId);
+          colorCycleBrush.renderDirectToCanvas?.(layerCanvas, activeLayerId);
         } catch (error) {
           console.warn('[ColorCycle] Failed to redraw layer canvas after gradient update:', error);
         }

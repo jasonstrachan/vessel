@@ -69,7 +69,7 @@ function get2dContext(canvas: CanvasLike): Canvas2DContext | null {
     return canvas.getContext('2d', { willReadFrequently: true });
   }
 
-  return canvas.getContext('2d', { willReadFrequently: true } as OffscreenCanvasRenderingContext2DSettings);
+  return canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
 }
 
 /**

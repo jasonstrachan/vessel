@@ -32,10 +32,6 @@ const getPerformanceMemory = (): PerformanceMemoryStats | null => {
   return null;
 };
 
-type RecolorAnimationControllerInternal = RecolorAnimationController & {
-  updateFrame: (...args: unknown[]) => void;
-};
-
 export interface BenchmarkResult {
   name: string;
   duration: number;
@@ -342,7 +338,9 @@ export class PerformanceBenchmark {
     });
 
     const controller = new RecolorAnimationController();
-    const controllerInternal = controller as RecolorAnimationControllerInternal;
+    const controllerUpdateFrame = (controller as unknown as {
+      updateFrame: (...args: unknown[]) => void;
+    }).updateFrame;
 
     const gradient = [
       { position: 0, color: '#ff0000' },
@@ -356,7 +354,7 @@ export class PerformanceBenchmark {
 
     for (let i = 0; i < iterations; i++) {
       const start = performance.now();
-      controllerInternal.updateFrame(quantized.indices, quantized.palette, gradient, imageData);
+      controllerUpdateFrame(quantized.indices, quantized.palette, gradient, imageData);
       const end = performance.now();
       times.push(end - start);
     }
@@ -451,7 +449,9 @@ export class PerformanceBenchmark {
       });
       
       const controller = new RecolorAnimationController();
-      const controllerInternal = controller as RecolorAnimationControllerInternal;
+      const controllerUpdateFrame = (controller as unknown as {
+        updateFrame: (...args: unknown[]) => void;
+      }).updateFrame;
       
       const gradient = [
         { position: 0, color: '#ff0000' },
@@ -460,7 +460,7 @@ export class PerformanceBenchmark {
       
       // Simulate 10 animation frames
       for (let frame = 0; frame < 10; frame++) {
-        controllerInternal.updateFrame(quantized.indices, quantized.palette, gradient, imageData);
+        controllerUpdateFrame(quantized.indices, quantized.palette, gradient, imageData);
       }
       
       const end = performance.now();

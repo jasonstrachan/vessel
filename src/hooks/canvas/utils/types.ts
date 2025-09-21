@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { BrushSettings, Project, Layer } from '../../../types';
-import type { InteractionState } from '../../useCanvasInteraction';
+import type { InteractionAction, InteractionState } from '../../useCanvasInteraction';
 import type { CanvasStateMachine } from '@/hooks/useCanvasStateMachine';
 import type { DrawingHandlers } from '@/hooks/useDrawingHandlers';
 import type { SimplePan } from '@/hooks/useSimplePan';
@@ -90,7 +90,7 @@ export interface EventHandlerDependencies {
   // Hooks
   interaction: {
     state: InteractionState;
-    dispatch: React.Dispatch<unknown>;
+    dispatch: React.Dispatch<InteractionAction>;
     refs: {
       selectionStart: React.MutableRefObject<{ x: number; y: number } | null>;
       drawAnimationFrame: React.MutableRefObject<number | null>;
@@ -109,7 +109,9 @@ export interface EventHandlerDependencies {
   // Helper functions
   sampleColorAtPosition: (x: number, y: number) => string;
   sampleColorsAlongLine: (startX: number, startY: number, endX: number, endY: number, numSamples: number) => string[];
-  getMousePos: (event: React.MouseEvent | React.PointerEvent | React.WheelEvent) => { x: number; y: number };
+  getMousePos: (
+    event: React.MouseEvent<Element> | React.PointerEvent<Element> | React.WheelEvent<Element>
+  ) => { x: number; y: number };
   
   // Drawing state management
   compositeCanvasDirtyRef: React.MutableRefObject<boolean>;

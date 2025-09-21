@@ -295,25 +295,31 @@ export class BrowserCompat {
   private applyPolyfills(): void {
     // ImageData constructor polyfill
     if (typeof ImageData === 'undefined') {
-      (window as typeof window & { ImageData: typeof ImageData }).ImageData = class {
+      const PolyfillImageData = class implements ImageData {
         data: Uint8ClampedArray;
-        width: number;
-        height: number;
+        readonly width: number;
+        readonly height: number;
+        readonly colorSpace: PredefinedColorSpace;
         
         constructor(widthOrArray: number | Uint8ClampedArray, height?: number) {
           if (typeof widthOrArray === 'number' && height) {
             this.width = widthOrArray;
             this.height = height;
             this.data = new Uint8ClampedArray(this.width * this.height * 4);
+            this.colorSpace = 'srgb';
           } else if (widthOrArray instanceof Uint8ClampedArray && height) {
             this.data = widthOrArray;
             this.width = Math.sqrt(widthOrArray.length / 4);
             this.height = height;
+            this.colorSpace = 'srgb';
           } else {
             throw new Error('Invalid ImageData constructor arguments');
           }
         }
       };
+
+      (globalThis as typeof globalThis & { ImageData: typeof ImageData }).ImageData =
+        PolyfillImageData as unknown as typeof ImageData;
     }
 
     // Performance.now polyfill
@@ -323,8 +329,8 @@ export class BrowserCompat {
 
     // requestAnimationFrame polyfill
     if (typeof requestAnimationFrame === 'undefined') {
-      (window as typeof window & { requestAnimationFrame: typeof requestAnimationFrame }).requestAnimationFrame = (callback: FrameRequestCallback) => {
-        return setTimeout(() => callback(Date.now()), 1000 / 60);
+      (globalThis as typeof globalThis & { requestAnimationFrame: typeof requestAnimationFrame }).requestAnimationFrame = (callback: FrameRequestCallback) => {
+        return window.setTimeout(() => callback(Date.now()), 1000 / 60);
       };
     }
   }

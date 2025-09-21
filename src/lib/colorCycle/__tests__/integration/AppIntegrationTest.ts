@@ -473,7 +473,7 @@ export class AppIntegrationTest {
 
     try {
       await this.integration.convertLayerOptimized(layer, {
-        quantizationMode: 'invalid-mode',
+        quantizationMode: 'invalid-mode' as never,
         cycleColors: -1
       });
       throw new Error('Should have thrown error for invalid options');
