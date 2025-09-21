@@ -44,10 +44,13 @@ export interface ExportContainerLayout {
   height?: number;
 }
 
+export type WebGLExportBundleFormat = 'zip' | 'single-html' | 'json';
+
 export interface WebGLExportSettings {
   includeHiddenLayers: boolean;
   embedCanvasFallback: boolean;
   minifyOutput: boolean;
+  bundleFormat: WebGLExportBundleFormat;
 }
 
 export interface Project {

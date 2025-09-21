@@ -7,8 +7,7 @@ import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { XIcon } from './icons/XIcon';
 import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
 import PlusButton from './ui/PlusButton';
-import { setColorCycleAnimationState } from './toolbar/BrushControls';
-import { RecolorManager } from '../lib/colorCycle/RecolorManager';
+import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 
 const LayerPanel = () => {
@@ -276,49 +275,8 @@ const LayerPanel = () => {
         <div className="px-4 py-2 border-t border-[#404040]">
           <button
             onClick={async () => {
-              // Toggle desired state based on combined view
               const newIsAnimating = !isAnimating;
-
-              // Brush-based color cycle (stroke/shape)
-              try {
-                setColorCycleAnimationState(newIsAnimating);
-              const handlers = window.colorCycleAnimationHandlers;
-                if (handlers) {
-                  if (newIsAnimating) handlers.startContinuousColorCycleAnimation();
-                  else handlers.stopContinuousColorCycleAnimation();
-                }
-              } catch {}
-
-              // Recolor & animate layers (use pause/resume to avoid resetting state)
-              try {
-                const rm = RecolorManager.getInstance();
-                const state = useAppStore.getState();
-                // Register ALL recolor layers so play works regardless of active selection
-                if (newIsAnimating) {
-                  const recolorLayers = state.layers.filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode === 'recolor');
-                  await Promise.all(recolorLayers.map(l => rm.registerExistingLayer(l)));
-                }
-                if (newIsAnimating) {
-                  // Always use playAll to ensure all layers are enabled
-                  rm.playAll();
-                } else {
-                  rm.pause();
-                }
-              } catch {}
-
-              // Update store flags for ALL brush-based color-cycle layers so rendering loop respects Pause/Play globally
-              try {
-                const st = useAppStore.getState();
-                st.layers
-                  .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor')
-                  .forEach(l => {
-                    const colorCycleData: Layer['colorCycleData'] = {
-                      ...(l.colorCycleData ?? {}),
-                      isAnimating: newIsAnimating
-                    };
-                    st.updateLayer(l.id, { colorCycleData });
-                  });
-              } catch {}
+              await toggleGlobalColorCyclePlayback(newIsAnimating);
             }}
             className="w-full h-11 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none"
           >

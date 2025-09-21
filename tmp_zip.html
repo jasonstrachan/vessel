@@ -129,6 +129,12 @@
       });
 
       console.info('TinyBrush WebGL Viewer ready. Drop a bundle or use Ctrl/Cmd+O to open a file.');
-    </script>
+    
+      const packagedMetadata = JSON.parse(JSON.parse("{\"html\":\"<div>test<\\/div>\"}"));
+      const autoBundleName = "bundle.json";
+      const renderPackagedMetadata = async (metadata) => {};
+      const autoLoadPackagedBundle = async () => {};
+      void autoLoadPackagedBundle();
+</script>
   </body>
 </html>

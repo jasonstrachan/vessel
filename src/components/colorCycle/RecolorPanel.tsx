@@ -40,7 +40,6 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     actions,
     processLayer,
     toggleAnimation,
-    isAnimating,
     updateLayerSpeed,
     updateLayerCycleColors,
     updateLayerFlowDirection,
@@ -280,14 +279,12 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
 
           {/* Animation Controls */}
           <AnimationControls
-            isPlaying={isAnimating}
             speed={isRecolorEnabled ? (recolorSettings?.animation.speed || 0.1) : plannedSettings.speed}
             fps={isRecolorEnabled ? (recolorSettings?.animation.fps || 30) : plannedSettings.fps}
             cycleColors={isRecolorEnabled ? (recolorSettings?.cycleColors || 16) : plannedSettings.cycleColors}
             flowDirection={isRecolorEnabled ? (recolorSettings?.animation.flowDirection || 'forward') : plannedSettings.flowDirection}
             mappingMode={isRecolorEnabled ? (recolorSettings?.mappingMode || 'banded') : plannedSettings.mappingMode}
             flowMapping={isRecolorEnabled ? (recolorSettings?.flowMapping || 'palette') : plannedSettings.flowMapping}
-            onToggleAnimation={toggleAnimation}
             onSpeedChange={(speed) => {
               if (!activeLayer) return;
               if (isRecolorEnabled) {

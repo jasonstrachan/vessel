@@ -12,8 +12,31 @@ import { mapToIndexedWithDithering, type DitherMethod } from '@/utils/gifDither'
 import { ContainerLayoutControls, LayerAlignmentControls } from '@/components/MinimalLayerList';
 import { createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
+import type { WebGLExportBundleFormat } from '@/types';
 
 type ExportKind = 'png' | 'gif' | 'mp4' | 'webgl';
+
+const BUNDLE_FORMAT_DESCRIPTIONS: Record<WebGLExportBundleFormat, string> = {
+  zip: 'Bundles the viewer, runtime, and JSON into a single zip.',
+  'single-html': 'Produces a self-contained HTML viewer for instant sharing.',
+  json: 'Downloads only the raw TinyBrush JSON bundle.'
+};
+
+const BUNDLE_FORMAT_LABELS: Record<WebGLExportBundleFormat, string> = {
+  zip: 'viewer bundle zip',
+  'single-html': 'single-file viewer',
+  json: 'JSON bundle'
+};
+
+const MODAL_PANEL_CLASS = 'bg-[#1F1F28] border border-[#2F2F39]';
+const MODAL_SURFACE_CLASS = 'bg-[#242432] border border-[#3F3F49]';
+const MODAL_TEXT_PRIMARY = 'text-[#E8E8FF]';
+const MODAL_TEXT_SECONDARY = 'text-[#A8A8C6]';
+const TOGGLE_BASE_CLASS = 'px-3 py-2 text-sm font-medium rounded-md border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6F6FFF] focus-visible:ring-offset-0 disabled:opacity-50 disabled:cursor-not-allowed';
+const TOGGLE_ACTIVE_CLASS = 'bg-[#6F6FFF] border-[#6F6FFF] text-white';
+const TOGGLE_INACTIVE_CLASS = 'bg-[#242432] border-[#3F3F49] text-[#E0E0F5] hover:bg-[#2E2E3C] hover:text-white';
+const INLINE_FIELD_CLASS = 'bg-[#242432] border border-[#3F3F49] text-sm text-[#E8E8FF] px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-[#6F6FFF] disabled:text-[#58586D] disabled:bg-[#1B1B24]';
+const INPUT_OVERRIDE_CLASS = '!bg-[#242432] !border-[#3F3F49] !text-[#E8E8FF] !px-3 !py-2 !h-9 focus:!border-[#6F6FFF] focus:!ring-0 focus:!outline-none disabled:!text-[#58586D] disabled:!bg-[#1B1B24]';
 
 const WEBGL_VIEWPORT_PRESETS = [
   { value: 'project', label: 'Project' },
@@ -97,6 +120,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const webglIncludeHidden = webglExportSettings.includeHiddenLayers;
   const webglEmbedFallback = webglExportSettings.embedCanvasFallback;
   const webglMinify = webglExportSettings.minifyOutput;
+  const webglBundleFormat = webglExportSettings.bundleFormat;
   const [webglViewportPreset, setWebglViewportPreset] = useState<WebglViewportPreset>('project');
   const [webglCustomViewport, setWebglCustomViewport] = useState<{ width: number; height: number }>(() => ({
     width: project?.width ?? 1024,
@@ -115,11 +139,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   useEffect(() => {
     if (isOpen) {
       setShouldRender(true);
-      // Initial position: center horizontally, shifted up
-      const modalWidth = 540; // matches class w-[540px]
+      // Initial position: center horizontally with a fixed top margin so the modal stays within the viewport
+      const modalWidth = 580; // matches class w-[580px]
       const x = Math.max(16, Math.round((window.innerWidth - modalWidth) / 2));
-      const y = Math.max(24, Math.round(window.innerHeight * 0.12));
-      setPos({ x, y });
+      setPos({ x, y: 24 });
       setTimeout(() => setIsVisible(true), 10);
     } else {
       setIsVisible(false);
@@ -976,6 +999,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       embedCanvasFallback: webglEmbedFallback,
       minify: webglMinify,
       filenameBase,
+      bundleFormat: webglBundleFormat,
       compositeLayersToCanvas
     });
 
@@ -983,7 +1007,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     addNotification({
       type: 'success',
       title: 'WebGL bundle saved',
-      message: `Exported ${metadata.layers.length} layer${metadata.layers.length === 1 ? '' : 's'} to JSON bundle`,
+      message: `Exported ${metadata.layers.length} layer${metadata.layers.length === 1 ? '' : 's'} to ${BUNDLE_FORMAT_LABELS[webglBundleFormat]}`,
       timestamp: new Date(),
       duration: 5000
     });
@@ -1170,54 +1194,54 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       onClick={() => { if (!isExporting) onClose(); }}
     >
       <div
-        className="bg-[#31313A] rounded-lg w-[540px] max-w-full mx-4 shadow-xl flex flex-col overflow-hidden"
+        className={`${MODAL_PANEL_CLASS} rounded-xl w-[580px] max-w-full mx-4 shadow-xl flex flex-col overflow-hidden`}
         style={{ position: 'fixed', left: pos.x, top: pos.y, maxHeight: 'calc(100vh - 48px)' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div
-          className="flex items-center justify-between px-6 pt-4 pb-3 border-b border-[#555] cursor-move shrink-0"
+          className="flex items-center justify-between px-6 pt-4 pb-3 border-b border-[#353542] cursor-move shrink-0"
           onMouseDown={onDragStart}
         >
-          <h2 className="text-[#D9D9D9] text-base font-semibold">Export</h2>
+          <h2 className="text-[#F0F0FF] text-lg font-semibold tracking-tight">Export</h2>
           <button
             onClick={() => { if (!isExporting) onClose(); }}
-            className="text-[#888] hover:text-white transition-colors p-1"
+            className="text-[#8F90A6] hover:text-white transition-colors p-1"
             disabled={isExporting}
           >
             <XIcon className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="space-y-6 p-6 pt-4 flex-1 overflow-y-auto">
+        <div className="space-y-6 p-6 pt-4 flex-1 overflow-y-auto text-sm text-[#D9DAF5]">
           {/* Type & Scale */}
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <label className="text-base text-[#D9D9D9]">Type</label>
-              <div className="flex gap-1">
-                {(['png','gif','mp4','webgl'] as ExportKind[]).map((k) => (
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-3">
+              <label className={`${MODAL_TEXT_PRIMARY} text-sm font-semibold uppercase tracking-[0.08em]`}>Type</label>
+              <div className="flex flex-wrap gap-2">
+                {(['png','gif','mp4','webgl'] as ExportKind[]).map((kind) => (
                   <button
-                    key={k}
-                    onClick={() => setExportKind(k)}
-                    className={`px-2 py-1 text-xs rounded border ${exportKind===k? 'bg-[#D9D9D9] text-[#31313A] border-[#D9D9D9]' : 'bg-transparent text-[#D9D9D9] border-[#888]'}`}
+                    key={kind}
+                    onClick={() => setExportKind(kind)}
+                    className={`${TOGGLE_BASE_CLASS} ${exportKind === kind ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
                     disabled={isExporting}
                   >
-                    {k === 'png' ? 'PNG' : k === 'gif' ? 'GIF' : k === 'mp4' ? 'Video' : 'WebGL'}
+                    {kind === 'png' ? 'PNG' : kind === 'gif' ? 'GIF' : kind === 'mp4' ? 'Video' : 'WebGL'}
                   </button>
                 ))}
               </div>
             </div>
             {exportKind !== 'webgl' && (
-              <div className="flex items-center gap-2">
-                <label className="text-base text-[#D9D9D9]">Scale</label>
-                <div className="flex gap-1">
-                  {[1,2,3,4].map((s) => (
+              <div className="flex items-center gap-3">
+                <label className={`${MODAL_TEXT_PRIMARY} text-sm font-semibold uppercase tracking-[0.08em]`}>Scale</label>
+                <div className="flex flex-wrap gap-2">
+                  {[1,2,3,4].map((value) => (
                     <button
-                      key={s}
-                      onClick={() => setScale(s as 1|2|3|4)}
-                      className={`px-2 py-1 text-xs rounded border ${scale===s? 'bg-[#D9D9D9] text-[#31313A] border-[#D9D9D9]' : 'bg-transparent text-[#D9D9D9] border-[#888]'}`}
+                      key={value}
+                      onClick={() => setScale(value as 1|2|3|4)}
+                      className={`${TOGGLE_BASE_CLASS} ${scale === value ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
                       disabled={isExporting}
                     >
-                      {s}x
+                      {value}x
                     </button>
                   ))}
                 </div>
@@ -1376,158 +1400,30 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           )}
 
           {exportKind === 'webgl' && (
-            <div className="space-y-4">
-              <ContainerLayoutControls />
-              <LayerAlignmentControls />
-
-              <div className="bg-[#2A2A33] border border-[#3F3F49] rounded-md p-3 space-y-3">
-                <div>
-                  <span className="text-sm text-[#D9D9D9] font-semibold">Viewport preset</span>
-                  <div className="flex gap-1 mt-2">
-                    {WEBGL_VIEWPORT_PRESETS.map((preset) => (
-                      <button
-                        key={preset.value}
-                        type="button"
-                        onClick={() => setWebglViewportPreset(preset.value)}
-                        className={`px-2 py-1 text-[11px] rounded border ${webglViewportPreset === preset.value ? 'bg-[#6F6FFF] text-white border-[#6F6FFF]' : 'bg-transparent text-[#D9D9D9] border-[#555]'}`}
-                        disabled={isExporting}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                  {webglViewportPreset === 'custom' && (
-                    <div className="mt-3 grid grid-cols-2 gap-3">
-                      <label className="text-[11px] text-[#A5A5A5] flex flex-col gap-1">
-                        Width
-                        <Input
-                          type="number"
-                          min={1}
-                          value={webglCustomViewport.width}
-                          onChange={(event) => handleCustomViewportChange('width', event.target.value)}
-                          className="w-full"
-                          disabled={isExporting}
-                        />
-                      </label>
-                      <label className="text-[11px] text-[#A5A5A5] flex flex-col gap-1">
-                        Height
-                        <Input
-                          type="number"
-                          min={1}
-                          value={webglCustomViewport.height}
-                          onChange={(event) => handleCustomViewportChange('height', event.target.value)}
-                          className="w-full"
-                          disabled={isExporting}
-                        />
-                      </label>
-                    </div>
-                  )}
-                  <p className="text-[11px] text-[#9F9FB2] mt-2">
-                    Using {resolvedWebglViewport.width} × {resolvedWebglViewport.height} px
-                  </p>
-                </div>
-
-                <div className="space-y-2 border-t border-[#3F3F49] pt-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm text-[#D9D9D9]">FPS</label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={120}
-                      value={webglFps}
-                      onChange={(event) => setWebglFps(Math.max(1, Math.min(120, parseInt(event.target.value) || 1)))}
-                      className="w-24 text-right"
-                      disabled={isExporting}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm text-[#D9D9D9]">Duration (s)</label>
-                    <Input
-                      type="number"
-                      min={0.5}
-                      step={0.5}
-                      value={webglDuration}
-                      onChange={(event) => setWebglDuration(Math.max(0.5, parseFloat(event.target.value) || 0.5))}
-                      className="w-24 text-right"
-                      disabled={isExporting || webglAutoFrames}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm text-[#D9D9D9] flex items-center gap-2">
-                      Perfect loop
-                      <input
-                        type="checkbox"
-                        checked={webglAutoFrames}
-                        onChange={(event) => setWebglAutoFrames(event.target.checked)}
-                        disabled={isExporting}
-                      />
-                    </label>
-                    <span className="text-[11px] text-[#9F9FB2]">
-                      {webglAutoFrames
-                        ? `${webglFrameSuggestion.frames} frames (${webglFrameSuggestion.success ? 'exact' : 'approx'})`
-                        : `${webglTotalFrames} frames`}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-[#9F9FB2]">
-                    Playback duration: {webglEffectiveDuration.toFixed(2)}s
-                  </p>
-                </div>
+            <div className="space-y-5">
+              <div className={`${MODAL_SURFACE_CLASS} rounded-lg p-4`}>
+                <ContainerLayoutControls density="comfortable" className="border-none p-0 bg-transparent space-y-4" />
               </div>
 
-              <div className="bg-[#2A2A33] border border-[#3F3F49] rounded-md p-3 space-y-2">
-                <label className="flex items-center justify-between text-sm text-[#D9D9D9]">
-                  <span>Include hidden layers</span>
-                  <input
-                    type="checkbox"
-                    checked={webglIncludeHidden}
-                    onChange={(event) => updateWebglExportSettings({ includeHiddenLayers: event.target.checked })}
-                    disabled={isExporting}
-                  />
-                </label>
-                <label className="flex items-center justify-between text-sm text-[#D9D9D9]">
-                  <span>Embed Canvas2D fallback</span>
-                  <input
-                    type="checkbox"
-                    checked={webglEmbedFallback}
-                    onChange={(event) => updateWebglExportSettings({ embedCanvasFallback: event.target.checked })}
-                    disabled={isExporting}
-                  />
-                </label>
-                <label className="flex items-center justify-between text-sm text-[#D9D9D9]">
-                  <span>Minify bundle output</span>
-                  <input
-                    type="checkbox"
-                    checked={webglMinify}
-                    onChange={(event) => updateWebglExportSettings({ minifyOutput: event.target.checked })}
-                    disabled={isExporting}
-                  />
-                </label>
-              </div>
-
-              <div className="bg-[#2A2A33] border border-[#3F3F49] rounded-md p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-[#D9D9D9] font-semibold">Layer alignment</span>
-                  <span className="text-[11px] text-[#9F9FB2]">Click to focus a layer</span>
-                </div>
-                <div className="mt-2 max-h-40 overflow-y-auto border border-[#3F3F49] rounded divide-y divide-[#3F3F49]">
+              <div className={`${MODAL_SURFACE_CLASS} rounded-lg p-4 space-y-4`}>
+                <LayerAlignmentControls density="comfortable" className="border-none p-0 bg-transparent space-y-4" />
+                <div className="border border-[#3F3F49] rounded-md overflow-hidden divide-y divide-[#3F3F49]">
                   {layerAlignmentSummary.length === 0 && (
-                    <div className="px-3 py-2 text-[11px] text-[#9F9FB2]">No layers available</div>
+                    <div className="px-4 py-3 text-sm text-[#9F9FB2]">No layers available</div>
                   )}
-                  {layerAlignmentSummary.map(layer => (
+                  {layerAlignmentSummary.map((layer) => (
                     <button
                       key={layer.id}
                       type="button"
                       onClick={() => setActiveLayer(layer.id)}
-                      className={`w-full text-left px-3 py-2 text-[11px] transition-colors ${layer.isActive ? 'bg-[#3B3B4A] text-white' : 'hover:bg-[#34343F] text-[#D9D9D9]'}`}
+                      className={`w-full text-left px-4 py-3 transition-colors text-sm ${layer.isActive ? 'bg-[#3B3B4A] text-white' : 'hover:bg-[#32323F] text-[#E8E8FF]'}`}
                       disabled={isExporting}
                     >
                       <div className="flex items-center justify-between">
-                        <span className={`font-medium ${layer.isActive ? 'text-white' : 'text-[#E5E5FF]'}`}>
-                          {layer.name}
-                        </span>
-                        <span className="text-[10px] text-[#9F9FB2] uppercase tracking-wide">{layer.fit}</span>
+                        <span className={`font-medium ${layer.isActive ? 'text-white' : 'text-[#E5E5FF]'}`}>{layer.name}</span>
+                        <span className="text-xs uppercase tracking-wide text-[#9F9FB2]">{layer.fit}</span>
                       </div>
-                      <div className="text-[10px] text-[#9F9FB2] mt-1">
+                      <div className="text-xs text-[#9F9FB2] mt-1">
                         {layer.horizontal}/{layer.vertical} • offset ({layer.offset.x}, {layer.offset.y})
                         {!layer.visible ? ' • hidden' : ''}
                       </div>
@@ -1535,11 +1431,158 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   ))}
                 </div>
               </div>
+
+              <div className={`${MODAL_SURFACE_CLASS} rounded-lg p-4 space-y-4`}>
+                <div>
+                  <h3 className={`${MODAL_TEXT_PRIMARY} text-base font-semibold mb-3`}>Viewport preset</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {WEBGL_VIEWPORT_PRESETS.map((preset) => (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        onClick={() => setWebglViewportPreset(preset.value)}
+                        className={`${TOGGLE_BASE_CLASS} ${webglViewportPreset === preset.value ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
+                        disabled={isExporting}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  {webglViewportPreset === 'custom' && (
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <label className="flex flex-col gap-2 text-sm text-[#C3C3DD]">
+                        <span>Width</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={webglCustomViewport.width}
+                          onChange={(event) => handleCustomViewportChange('width', event.target.value)}
+                          className={`${INPUT_OVERRIDE_CLASS} w-full text-right`}
+                          disabled={isExporting}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-2 text-sm text-[#C3C3DD]">
+                        <span>Height</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={webglCustomViewport.height}
+                          onChange={(event) => handleCustomViewportChange('height', event.target.value)}
+                          className={`${INPUT_OVERRIDE_CLASS} w-full text-right`}
+                          disabled={isExporting}
+                        />
+                      </label>
+                    </div>
+                  )}
+                  <p className={`${MODAL_TEXT_SECONDARY} text-xs mt-3`}>
+                    Using {resolvedWebglViewport.width} × {resolvedWebglViewport.height} px
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-2">
+                    <span className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>FPS</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={120}
+                      value={webglFps}
+                      onChange={(event) => setWebglFps(Math.max(1, Math.min(120, parseInt(event.target.value) || 1)))}
+                      className={`${INPUT_OVERRIDE_CLASS} w-full text-right`}
+                      disabled={isExporting}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2">
+                    <span className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Duration (s)</span>
+                    <Input
+                      type="number"
+                      min={0.5}
+                      step={0.5}
+                      value={webglDuration}
+                      onChange={(event) => setWebglDuration(Math.max(0.5, parseFloat(event.target.value) || 0.5))}
+                      className={`${INPUT_OVERRIDE_CLASS} w-full text-right`}
+                      disabled={isExporting || webglAutoFrames}
+                    />
+                  </label>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-center justify-between gap-3 text-sm text-[#E8E8FF]">
+                    <span className="font-medium">Perfect loop</span>
+                    <input
+                      type="checkbox"
+                      className="accent-[#6F6FFF]"
+                      checked={webglAutoFrames}
+                      onChange={(event) => setWebglAutoFrames(event.target.checked)}
+                      disabled={isExporting}
+                    />
+                  </label>
+                  <span className={`${MODAL_TEXT_SECONDARY} text-xs`}>
+                    {webglAutoFrames
+                      ? `${webglFrameSuggestion.frames} frames (${webglFrameSuggestion.success ? 'exact' : 'approx'})`
+                      : `${webglTotalFrames} frames`}
+                  </span>
+                  <span className={`${MODAL_TEXT_SECONDARY} text-xs`}>
+                    Playback duration: {webglEffectiveDuration.toFixed(2)}s
+                  </span>
+                </div>
+              </div>
+
+              <div className={`${MODAL_SURFACE_CLASS} rounded-lg p-4 space-y-4`}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="flex items-center justify-between gap-3 text-sm text-[#E8E8FF]">
+                    <span>Include hidden layers</span>
+                    <input
+                      type="checkbox"
+                      className="accent-[#6F6FFF]"
+                      checked={webglIncludeHidden}
+                      onChange={(event) => updateWebglExportSettings({ includeHiddenLayers: event.target.checked })}
+                      disabled={isExporting}
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 text-sm text-[#E8E8FF]">
+                    <span>Embed Canvas2D fallback</span>
+                    <input
+                      type="checkbox"
+                      className="accent-[#6F6FFF]"
+                      checked={webglEmbedFallback}
+                      onChange={(event) => updateWebglExportSettings({ embedCanvasFallback: event.target.checked })}
+                      disabled={isExporting}
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 text-sm text-[#E8E8FF]">
+                    <span>Minify bundle output</span>
+                    <input
+                      type="checkbox"
+                      className="accent-[#6F6FFF]"
+                      checked={webglMinify}
+                      onChange={(event) => updateWebglExportSettings({ minifyOutput: event.target.checked })}
+                      disabled={isExporting}
+                    />
+                  </label>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Packaging</label>
+                  <select
+                    className={INLINE_FIELD_CLASS}
+                    value={webglBundleFormat}
+                    onChange={(event) => updateWebglExportSettings({ bundleFormat: event.target.value as WebGLExportBundleFormat })}
+                    disabled={isExporting}
+                  >
+                    <option value="zip">Viewer zip (HTML + runtime + JSON)</option>
+                    <option value="single-html">Single HTML (self-contained)</option>
+                    <option value="json">Raw JSON only</option>
+                  </select>
+                  <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
+                    {BUNDLE_FORMAT_DESCRIPTIONS[webglBundleFormat]}
+                  </p>
+                </div>
+              </div>
             </div>
           )}
 
           {/* Video Options */}
-          {exportKind === 'mp4' && (
+{exportKind === 'mp4' && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <label className="text-base text-[#888]">FPS</label>

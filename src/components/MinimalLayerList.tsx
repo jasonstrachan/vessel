@@ -6,8 +6,7 @@ import { Layer, BrushShape, type LayerAlignmentSettings, type ExportContainerLay
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { Eye, EyeOff, Plus } from 'lucide-react';
 import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
-import { setColorCycleAnimationState } from './toolbar/BrushControls';
-import { RecolorManager } from '../lib/colorCycle/RecolorManager';
+import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
 import { recordBreadcrumb } from '../utils/debug';
 // Removed floating color cycle panel integration; panel now lives in Brush Settings
 
@@ -116,7 +115,14 @@ const alignOptions: Array<{ value: ExportContainerLayout['align']; label: string
   { value: 'stretch', label: 'Stretch' }
 ];
 
-export const LayerAlignmentControls = memo(() => {
+type ControlDensity = 'compact' | 'comfortable';
+
+interface DensityProps {
+  density?: ControlDensity;
+  className?: string;
+}
+
+export const LayerAlignmentControls = memo<DensityProps>(({ density = 'compact', className = '' }) => {
   const activeLayerId = useAppStore(state => state.activeLayerId);
   const alignment = useAppStore(state => {
     if (!state.activeLayerId) {
@@ -129,6 +135,43 @@ export const LayerAlignmentControls = memo(() => {
 
   const disabled = !alignment || !activeLayerId;
   const offset = alignment?.offsetPx ?? { x: 0, y: 0 };
+  const isComfortable = density === 'comfortable';
+
+  const containerClasses = [
+    'border-b border-[#424242]',
+    isComfortable ? 'p-3 space-y-3 rounded-md bg-[#1F1F28] border-[#2F2F39]' : 'p-2 space-y-2',
+    className
+  ].filter(Boolean).join(' ');
+
+  const headingClass = isComfortable
+    ? 'text-base font-semibold text-[#E8E8FF]'
+    : 'text-[10px] font-semibold tracking-[0.08em] text-[#D9D9D9]';
+
+  const subtitleClass = isComfortable
+    ? 'text-xs text-[#8F8FA9]'
+    : 'text-[9px] text-[#808080]';
+
+  const labelClass = isComfortable ? 'text-sm text-[#B8B8D8]' : 'text-[9px] text-[#A5A5A5]';
+  const selectClass = isComfortable
+    ? 'w-full bg-[#242432] text-[#E8E8FF] text-sm px-3 py-2 rounded-md border border-[#3F3F49] outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#58586D] disabled:bg-[#1B1B24]'
+    : 'w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#666] disabled:bg-[#2C2C2C]';
+
+  const buttonBaseClass = isComfortable
+    ? 'flex-1 py-2 text-sm rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6F6FFF] focus-visible:ring-offset-0'
+    : 'flex-1 py-1 text-[9px] rounded transition-colors';
+
+  const buttonActiveClass = 'bg-[#6F6FFF] text-white';
+  const buttonInactiveClass = isComfortable
+    ? 'bg-[#242432] text-[#E8E8FF] hover:bg-[#2E2E3C]'
+    : 'bg-[#2F2F2F] text-[#D9D9D9] hover:bg-[#3A3A3A]';
+
+  const disabledButtonClass = isComfortable
+    ? '!bg-[#1B1B24] !text-[#58586D]'
+    : '!bg-[#2C2C2C] !text-[#666]';
+
+  const inputClass = isComfortable
+    ? 'w-full bg-[#242432] text-[#E8E8FF] text-sm px-3 py-2 rounded-md border border-[#3F3F49] outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#58586D] disabled:bg-[#1B1B24]'
+    : 'w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#666] disabled:bg-[#2C2C2C]';
 
   const handleAlignmentChange = useCallback(
     (partial: Partial<LayerAlignmentSettings>) => {
@@ -161,16 +204,16 @@ export const LayerAlignmentControls = memo(() => {
   );
 
   return (
-    <div className="border-b border-[#424242] p-2">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] font-semibold tracking-[0.08em] text-[#D9D9D9]">Layer alignment</span>
-        {!alignment && <span className="text-[9px] text-[#808080]">Select a layer</span>}
+    <div className={containerClasses}>
+      <div className={`flex items-center justify-between ${isComfortable ? 'mb-3' : 'mb-2'}`}>
+        <span className={headingClass}>Layer alignment</span>
+        {!alignment && <span className={subtitleClass}>Select a layer</span>}
       </div>
-      <div className="space-y-2">
+      <div className={isComfortable ? 'space-y-3' : 'space-y-2'}>
         <div>
-          <label className="text-[9px] text-[#A5A5A5] block mb-1">Fit</label>
+          <label className={`${labelClass} block mb-1`}>Fit</label>
           <select
-            className="w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#666] disabled:bg-[#2C2C2C]"
+            className={selectClass}
             value={alignment?.fit ?? 'contain'}
             onChange={(event) => handleAlignmentChange({ fit: event.target.value as LayerAlignmentSettings['fit'] })}
             disabled={disabled}
@@ -184,15 +227,15 @@ export const LayerAlignmentControls = memo(() => {
         </div>
 
         <div>
-          <span className="text-[9px] text-[#A5A5A5] block mb-1">Horizontal</span>
-          <div className="flex gap-1">
+          <span className={`${labelClass} block mb-1`}>Horizontal</span>
+          <div className={`flex ${isComfortable ? 'gap-2' : 'gap-1'}`}>
             {axisOptions.map(option => (
               <button
                 key={option.value}
                 type="button"
                 onClick={() => handleAlignmentChange({ horizontal: option.value })}
                 disabled={disabled}
-                className={`flex-1 py-1 text-[9px] rounded transition-colors ${alignment?.horizontal === option.value ? 'bg-[#6F6FFF] text-white' : 'bg-[#2F2F2F] text-[#D9D9D9] hover:bg-[#3A3A3A]'} ${disabled ? '!bg-[#2C2C2C] !text-[#666]' : ''}`}
+                className={`${buttonBaseClass} ${alignment?.horizontal === option.value ? buttonActiveClass : buttonInactiveClass} ${disabled ? disabledButtonClass : ''}`}
               >
                 {option.label}
               </button>
@@ -201,15 +244,15 @@ export const LayerAlignmentControls = memo(() => {
         </div>
 
         <div>
-          <span className="text-[9px] text-[#A5A5A5] block mb-1">Vertical</span>
-          <div className="flex gap-1">
+          <span className={`${labelClass} block mb-1`}>Vertical</span>
+          <div className={`flex ${isComfortable ? 'gap-2' : 'gap-1'}`}>
             {axisOptions.map(option => (
               <button
                 key={option.value}
                 type="button"
                 onClick={() => handleAlignmentChange({ vertical: option.value })}
                 disabled={disabled}
-                className={`flex-1 py-1 text-[9px] rounded transition-colors ${alignment?.vertical === option.value ? 'bg-[#6F6FFF] text-white' : 'bg-[#2F2F2F] text-[#D9D9D9] hover:bg-[#3A3A3A]'} ${disabled ? '!bg-[#2C2C2C] !text-[#666]' : ''}`}
+                className={`${buttonBaseClass} ${alignment?.vertical === option.value ? buttonActiveClass : buttonInactiveClass} ${disabled ? disabledButtonClass : ''}`}
               >
                 {option.label}
               </button>
@@ -217,22 +260,22 @@ export const LayerAlignmentControls = memo(() => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <label className="text-[9px] text-[#A5A5A5] flex flex-col gap-1">
+        <div className={`grid grid-cols-2 ${isComfortable ? 'gap-3' : 'gap-2'}`}>
+          <label className={`${labelClass} flex flex-col gap-1`}>
             Offset X
             <input
               type="number"
-              className="w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#666] disabled:bg-[#2C2C2C]"
+              className={inputClass}
               value={alignment ? offset.x : 0}
               onChange={(event) => handleOffsetChange('x', Number(event.target.value))}
               disabled={disabled}
             />
           </label>
-          <label className="text-[9px] text-[#A5A5A5] flex flex-col gap-1">
+          <label className={`${labelClass} flex flex-col gap-1`}>
             Offset Y
             <input
               type="number"
-              className="w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#666] disabled:bg-[#2C2C2C]"
+              className={inputClass}
               value={alignment ? offset.y : 0}
               onChange={(event) => handleOffsetChange('y', Number(event.target.value))}
               disabled={disabled}
@@ -246,7 +289,7 @@ export const LayerAlignmentControls = memo(() => {
 
 LayerAlignmentControls.displayName = 'LayerAlignmentControls';
 
-export const ContainerLayoutControls = memo(() => {
+export const ContainerLayoutControls = memo<DensityProps>(({ density = 'compact', className = '' }) => {
   const exportLayoutFromStore = useAppStore(state => state.project?.exportLayout);
   const layout = useMemo(
     () => exportLayoutFromStore ?? createDefaultExportLayout(),
@@ -296,33 +339,65 @@ export const ContainerLayoutControls = memo(() => {
     [handleLayoutChange, layout.sizeMode]
   );
 
-  return (
-    <div className="border-b border-[#424242] p-2">
-      <span className="text-[10px] font-semibold tracking-[0.08em] text-[#D9D9D9] block mb-2">Container layout</span>
+  const isComfortable = density === 'comfortable';
 
-      <div className="space-y-2">
+  const containerClasses = [
+    'border-b border-[#424242]',
+    isComfortable ? 'p-3 space-y-3 rounded-md bg-[#1F1F28] border-[#2F2F39]' : 'p-2 space-y-2',
+    className
+  ].filter(Boolean).join(' ');
+
+  const headingClass = isComfortable
+    ? 'text-base font-semibold text-[#E8E8FF]'
+    : 'text-[10px] font-semibold tracking-[0.08em] text-[#D9D9D9]';
+
+  const labelClass = isComfortable ? 'text-sm text-[#B8B8D8]' : 'text-[9px] text-[#A5A5A5]';
+  const subLabelClass = isComfortable ? 'text-xs text-[#8F8FA9]' : 'text-[8px] opacity-80';
+
+  const controlButtonBase = isComfortable
+    ? 'py-2 text-sm rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6F6FFF] focus-visible:ring-offset-0'
+    : 'py-1 text-[9px] rounded transition-colors';
+
+  const controlButtonActive = 'bg-[#6F6FFF] text-white';
+  const controlButtonInactive = isComfortable
+    ? 'bg-[#242432] text-[#E8E8FF] hover:bg-[#2E2E3C]'
+    : 'bg-[#2F2F2F] text-[#D9D9D9] hover:bg-[#3A3A3A]';
+
+  const selectClass = isComfortable
+    ? 'w-full bg-[#242432] text-[#E8E8FF] text-sm px-3 py-2 rounded-md border border-[#3F3F49] outline-none focus:ring-1 focus:ring-[#6F6FFF]'
+    : 'w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF]';
+
+  const inputClass = isComfortable
+    ? 'w-full bg-[#242432] text-[#E8E8FF] text-sm px-3 py-2 rounded-md border border-[#3F3F49] outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#58586D] disabled:bg-[#1B1B24]'
+    : 'w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#666] disabled:bg-[#2C2C2C]';
+
+  return (
+    <div className={containerClasses}>
+      <span className={`${headingClass} block`}>Container layout</span>
+
+      <div className={isComfortable ? 'space-y-3' : 'space-y-2'}>
         <div>
-          <span className="text-[9px] text-[#A5A5A5] block mb-1">Flow</span>
-          <div className="grid grid-cols-4 gap-1">
+          <span className={`${labelClass} block mb-1`}>Flow</span>
+          <div className={`grid grid-cols-4 ${isComfortable ? 'gap-2' : 'gap-1'}`}>
             {flowOptions.map(option => (
               <button
                 key={option.value}
                 type="button"
                 onClick={() => handleLayoutChange({ flow: option.value })}
-                className={`py-1 text-[9px] rounded transition-colors ${layout.flow === option.value ? 'bg-[#6F6FFF] text-white' : 'bg-[#2F2F2F] text-[#D9D9D9] hover:bg-[#3A3A3A]'}`}
+                className={`${controlButtonBase} ${layout.flow === option.value ? controlButtonActive : controlButtonInactive}`}
               >
                 <span className="block leading-none">{option.short}</span>
-                <span className="block text-[8px] mt-0.5 opacity-80">{option.label}</span>
+                <span className={`${subLabelClass} block mt-1`}>{option.label}</span>
               </button>
             ))}
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <label className="text-[9px] text-[#A5A5A5] flex flex-col gap-1">
+        <div className={`grid grid-cols-2 ${isComfortable ? 'gap-3' : 'gap-2'}`}>
+          <label className={`${labelClass} flex flex-col gap-1`}>
             Justify
             <select
-              className="w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF]"
+              className={selectClass}
               value={layout.justify}
               onChange={(event) => handleLayoutChange({ justify: event.target.value as ExportContainerLayout['justify'] })}
             >
@@ -333,10 +408,10 @@ export const ContainerLayoutControls = memo(() => {
               ))}
             </select>
           </label>
-          <label className="text-[9px] text-[#A5A5A5] flex flex-col gap-1">
+          <label className={`${labelClass} flex flex-col gap-1`}>
             Align
             <select
-              className="w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF]"
+              className={selectClass}
               value={layout.align}
               onChange={(event) => handleLayoutChange({ align: event.target.value as ExportContainerLayout['align'] })}
             >
@@ -349,106 +424,81 @@ export const ContainerLayoutControls = memo(() => {
           </label>
         </div>
 
-        <div className="grid grid-cols-[auto,1fr] gap-2 items-center">
-          <span className="text-[9px] text-[#A5A5A5]">Wrap</span>
+        <div className={`grid grid-cols-[auto,1fr] items-center ${isComfortable ? 'gap-3' : 'gap-2'}`}>
+          <span className={labelClass}>Wrap</span>
           <button
             type="button"
             onClick={() => handleLayoutChange({ wrap: !layout.wrap })}
-            className={`py-1 text-[9px] rounded transition-colors ${layout.wrap ? 'bg-[#6F6FFF] text-white' : 'bg-[#2F2F2F] text-[#D9D9D9] hover:bg-[#3A3A3A]'}`}
+            className={`${controlButtonBase} ${layout.wrap ? controlButtonActive : controlButtonInactive}`}
           >
             {layout.wrap ? 'Enabled' : 'Disabled'}
           </button>
         </div>
 
-        <div className="grid grid-cols-[auto,1fr] gap-2 items-center">
-          <span className="text-[9px] text-[#A5A5A5]">Gap</span>
+        <div className={`grid grid-cols-[auto,1fr] items-center ${isComfortable ? 'gap-3' : 'gap-2'}`}>
+          <span className={labelClass}>Gap</span>
           <input
             type="number"
             min={0}
-            className="w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF]"
+            className={inputClass}
             value={layout.gap}
             onChange={(event) => handleLayoutChange({ gap: Math.max(0, Number(event.target.value) || 0) })}
           />
         </div>
 
         <div>
-          <span className="text-[9px] text-[#A5A5A5] block mb-1">Padding</span>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="text-[9px] text-[#A5A5A5] flex flex-col gap-1">
-              Top
-              <input
-                type="number"
-                className="w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF]"
-                value={layout.padding.top}
-                onChange={(event) => handlePaddingChange('top', Number(event.target.value))}
-              />
-            </label>
-            <label className="text-[9px] text-[#A5A5A5] flex flex-col gap-1">
-              Right
-              <input
-                type="number"
-                className="w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF]"
-                value={layout.padding.right}
-                onChange={(event) => handlePaddingChange('right', Number(event.target.value))}
-              />
-            </label>
-            <label className="text-[9px] text-[#A5A5A5] flex flex-col gap-1">
-              Bottom
-              <input
-                type="number"
-                className="w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF]"
-                value={layout.padding.bottom}
-                onChange={(event) => handlePaddingChange('bottom', Number(event.target.value))}
-              />
-            </label>
-            <label className="text-[9px] text-[#A5A5A5] flex flex-col gap-1">
-              Left
-              <input
-                type="number"
-                className="w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF]"
-                value={layout.padding.left}
-                onChange={(event) => handlePaddingChange('left', Number(event.target.value))}
-              />
-            </label>
+          <span className={`${labelClass} block mb-1`}>Padding</span>
+          <div className={`grid grid-cols-2 ${isComfortable ? 'gap-3' : 'gap-2'}`}>
+            {(['top', 'right', 'bottom', 'left'] as const).map(side => (
+              <label key={side} className={`${labelClass} flex flex-col gap-1`}>
+                {side[0].toUpperCase() + side.slice(1)}
+                <input
+                  type="number"
+                  className={inputClass}
+                  value={layout.padding[side]}
+                  onChange={(event) => handlePaddingChange(side, Number(event.target.value))}
+                />
+              </label>
+            ))}
           </div>
         </div>
 
         <div>
-          <span className="text-[9px] text-[#A5A5A5] block mb-1">Size Mode</span>
-          <div className="flex gap-1">
+          <span className={`${labelClass} block mb-1`}>Size Mode</span>
+          <div className={`flex ${isComfortable ? 'gap-2' : 'gap-1'}`}>
             <button
               type="button"
               onClick={() => handleLayoutChange({ sizeMode: 'hug', width: undefined, height: undefined })}
-              className={`flex-1 py-1 text-[9px] rounded transition-colors ${layout.sizeMode === 'hug' ? 'bg-[#6F6FFF] text-white' : 'bg-[#2F2F2F] text-[#D9D9D9] hover:bg-[#3A3A3A]'}`}
+              className={`${controlButtonBase} ${layout.sizeMode === 'hug' ? controlButtonActive : controlButtonInactive}`}
             >
               Hug Content
             </button>
             <button
               type="button"
               onClick={() => handleLayoutChange({ sizeMode: 'fixed', width: layout.width ?? layout.padding.left + layout.padding.right, height: layout.height ?? layout.padding.top + layout.padding.bottom })}
-              className={`flex-1 py-1 text-[9px] rounded transition-colors ${layout.sizeMode === 'fixed' ? 'bg-[#6F6FFF] text-white' : 'bg-[#2F2F2F] text-[#D9D9D9] hover:bg-[#3A3A3A]'}`}
+              className={`${controlButtonBase} ${layout.sizeMode === 'fixed' ? controlButtonActive : controlButtonInactive}`}
             >
               Fixed
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <label className="text-[9px] text-[#A5A5A5] flex flex-col gap-1">
+        <div className={`grid grid-cols-2 ${isComfortable ? 'gap-3' : 'gap-2'}`}>
+          <label className={`${labelClass} flex flex-col gap-1`}>
             Width
             <input
               type="number"
-              className="w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#666] disabled:bg-[#2C2C2C]"
+              className={inputClass}
               value={layout.width ?? ''}
               onChange={(event) => handleDimensionChange('width', event.target.value)}
               disabled={layout.sizeMode !== 'fixed'}
             />
           </label>
-          <label className="text-[9px] text-[#A5A5A5] flex flex-col gap-1">
+          <label className={`${labelClass} flex flex-col gap-1`}>
             Height
             <input
               type="number"
-              className="w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#666] disabled:bg-[#2C2C2C]"
+              className={inputClass}
               value={layout.height ?? ''}
               onChange={(event) => handleDimensionChange('height', event.target.value)}
               disabled={layout.sizeMode !== 'fixed'}
@@ -461,6 +511,7 @@ export const ContainerLayoutControls = memo(() => {
 });
 
 ContainerLayoutControls.displayName = 'ContainerLayoutControls';
+
 
 // Memoized layer item component to prevent unnecessary re-renders
 const LayerItem = memo<{
@@ -958,45 +1009,7 @@ const MinimalLayerList = () => {
           <button
             onClick={async () => {
             const newIsAnimating = !isAnimating;
-
-            // Brush-based color cycle (stroke/shape)
-            try {
-              setColorCycleAnimationState(newIsAnimating);
-              const handlers = window.colorCycleAnimationHandlers;
-              if (handlers) {
-                if (newIsAnimating) handlers.startContinuousColorCycleAnimation();
-                else handlers.stopContinuousColorCycleAnimation();
-              }
-            } catch {}
-
-            // Recolor & animate layers (use pause/resume to avoid resetting state)
-            try {
-              const rm = RecolorManager.getInstance();
-              const state = useAppStore.getState();
-              if (newIsAnimating) {
-                const recolorLayers = state.layers.filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode === 'recolor');
-                await Promise.all(recolorLayers.map(l => rm.registerExistingLayer(l)));
-              }
-              if (newIsAnimating) {
-                rm.playAll();
-              } else {
-                rm.pause();
-              }
-            } catch {}
-
-            // Update store flags for ALL brush-based CC layers so render loop respects Pause/Play globally
-            try {
-              const st = useAppStore.getState();
-              st.layers
-                .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor')
-                .forEach(l => {
-                  const colorCycleData: Layer['colorCycleData'] = {
-                    ...(l.colorCycleData ?? {}),
-                    isAnimating: newIsAnimating
-                  };
-                  st.updateLayer(l.id, { colorCycleData });
-                });
-            } catch {}
+            await toggleGlobalColorCyclePlayback(newIsAnimating);
             }}
             className="w-full h-10 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
           >

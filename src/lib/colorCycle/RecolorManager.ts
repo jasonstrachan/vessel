@@ -442,6 +442,7 @@ export class RecolorManager {
    */
   playAll(): void {
     this.animationController.playAll();
+    this.syncPlaybackState(true);
     this.broadcastAnimationState();
   }
 
@@ -471,21 +472,26 @@ export class RecolorManager {
   
   stop(): void {
     this.animationController.stop();
+    this.syncPlaybackState(false);
     this.broadcastAnimationState();
   }
-  
+
   pause(): void {
     this.animationController.pause();
+    this.syncPlaybackState(false);
     this.broadcastAnimationState();
   }
-  
+
   resume(): void {
     this.animationController.resume();
+    this.syncPlaybackState(true);
     this.broadcastAnimationState();
   }
   
   toggle(): void {
     this.animationController.toggle();
+    const playing = this.animationController.isAnimating();
+    this.syncPlaybackState(playing);
     this.broadcastAnimationState();
   }
   
@@ -919,5 +925,34 @@ export class RecolorManager {
     }
     
     return { canProcess: true };
+  }
+
+  /**
+   * Ensure layer metadata reflects the current playback state so UI stays in sync
+   */
+  private syncPlaybackState(isPlaying: boolean): void {
+    const layers = this.animationController.getLayers();
+    if (layers.length === 0) {
+      return;
+    }
+
+    layers.forEach(({ layer }) => {
+      const settings = layer.colorCycleData?.recolorSettings;
+      if (!settings?.animation) {
+        return;
+      }
+
+      if (settings.animation.isPlaying === isPlaying) {
+        return;
+      }
+
+      settings.animation.isPlaying = isPlaying;
+
+      this.layerUpdateCallbacks.forEach(callback => {
+        try {
+          callback(layer);
+        } catch {}
+      });
+    });
   }
 }

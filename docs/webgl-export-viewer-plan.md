@@ -15,12 +15,12 @@ The goal is to make every TinyBrush WebGL export immediately viewable in any bro
 - [ ] Document runtime assumptions (Canvas 2D vs. WebGL, browser requirements, bundle size budgets).
 
 ### Phase 1 — Self-Contained Viewer Packaging
-- [ ] Update `exportProjectAsWebGL` to emit a zipped package containing:
+- [x] Update `exportProjectAsWebGL` to emit a zipped package containing:
   - `index.html` – copy of the viewer page with inline styles.
   - `viewer.js` – loader/runtime (minified when `minifyOutput` is enabled).
   - `<project-name>-webgl.json` – TinyBrush bundle.
-- [ ] Add CLI/service option to emit a single self-contained HTML file (JSON + runtime embedded) for drag-and-drop playback.
-- [ ] Ensure asset paths respect `basePath`/`assetPrefix` when deployed statically.
+- [x] Add CLI/service option to emit a single self-contained HTML file (JSON + runtime embedded) for drag-and-drop playback.
+- [x] Ensure asset paths respect `basePath`/`assetPrefix` when deployed statically.
 
 ### Phase 2 — Runtime Fidelity & Controls
 - [ ] Promote the viewer runtime to a shared module (`src/exportRuntime/`) so both the bundled viewer and future integrations reuse the same code.

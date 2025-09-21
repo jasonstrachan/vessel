@@ -7,15 +7,8 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../../../types';
-import { useAppStore } from '../../../stores/useAppStore';
 import { RecolorManager, RecolorOptions, RecolorPerformanceStats } from '../../../lib/colorCycle/RecolorManager';
-import { setColorCycleAnimationState, type ColorCycleAnimationContext } from '../../toolbar/BrushControls';
-
-declare global {
-  interface Window {
-    colorCycleAnimationHandlers?: ColorCycleAnimationContext | null;
-  }
-}
+import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
 
 export interface RecolorState {
   mode: 'brush' | 'recolor';
@@ -98,6 +91,11 @@ export function useRecolorState(
   const [performanceStats, setPerformanceStats] = useState<RecolorPerformanceStats | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [, setRenderTick] = useState(0);
+
+  const forceRender = useCallback(() => {
+    setRenderTick((tick) => tick + 1);
+  }, []);
 
   const showSuccess = useCallback((message: string) => {
     setSuccessMessage(message);
@@ -204,47 +202,7 @@ export function useRecolorState(
       // Determine intended new global state based on unified view
       const newIsAnimating = !isAnimating;
 
-      // 1) Brush-based Color Cycle (stroke/shape) — update global state + start/stop loop
-      try {
-        setColorCycleAnimationState(newIsAnimating);
-        const handlers = window.colorCycleAnimationHandlers;
-        if (handlers) {
-          if (newIsAnimating) handlers.startContinuousColorCycleAnimation();
-          else handlers.stopContinuousColorCycleAnimation();
-        }
-      } catch {}
-
-      // 2) Recolor & Animate manager — pause/resume all
-      try {
-        // Ensure all recolor layers are registered so play works globally
-        if (newIsAnimating) {
-          const state = useAppStore.getState();
-          const recolorLayers = state.layers.filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode === 'recolor');
-          await Promise.all(recolorLayers.map(l => recolorManager.registerExistingLayer(l)));
-        }
-        if (newIsAnimating) {
-          // Play all recolor layers to ensure previously 'single' plays re-enable others
-          recolorManager.playAll();
-        } else {
-          recolorManager.pause();
-        }
-      } catch {}
-
-      // 3) Update store flags for ALL brush-based CC layers so render loop respects Pause/Play globally
-      try {
-        const st = useAppStore.getState();
-        st.layers
-          .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor')
-          .forEach(l => {
-            if (!l.colorCycleData) return;
-            st.updateLayer(l.id, {
-              colorCycleData: {
-                ...l.colorCycleData,
-                isAnimating: newIsAnimating
-              }
-            });
-          });
-      } catch {}
+      await toggleGlobalColorCyclePlayback(newIsAnimating);
 
       setIsAnimating(newIsAnimating);
     } catch (error) {
@@ -252,7 +210,7 @@ export function useRecolorState(
       const errorMessage = error instanceof Error ? error.message : 'Animation control error';
       actions.setError(errorMessage);
     }
-  }, [recolorManager, actions, isAnimating]);
+  }, [actions, isAnimating]);
 
   // Settings management
   const updateLayerSpeed = useCallback((layerId: string, speed: number) => {
@@ -360,8 +318,8 @@ export function useRecolorState(
   // Setup RecolorManager callbacks for real-time updates
   useEffect(() => {
     const handleLayerUpdate = () => {
-      // Layer was updated, could trigger re-render in parent component
-      // debug log removed
+      // Force a rerender so controlled inputs (e.g., sliders) pick up mutated layer state
+      forceRender();
     };
 
     const handleStatsUpdate = (stats: RecolorPerformanceStats) => {
@@ -377,7 +335,7 @@ export function useRecolorState(
       recolorManager.offLayerUpdate(handleLayerUpdate);
       recolorManager.offStatsUpdate(handleStatsUpdate);
     };
-  }, [recolorManager]);
+  }, [recolorManager, forceRender]);
 
   // Auto-clear errors after a timeout with fade out
   useEffect(() => {

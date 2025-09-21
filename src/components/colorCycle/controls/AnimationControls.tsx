@@ -5,7 +5,6 @@
 import React, { useCallback } from 'react';
 import LabeledSlider from '../../ui/LabeledSlider';
 import ButtonGroup from '../../ui/ButtonGroup';
-import Button from '../../ui/Button';
 
 const MAPPING_MODES = ['banded', 'continuous'] as const;
 const FLOW_MAPPINGS = ['palette', 'directional', 'luminance'] as const;
@@ -21,14 +20,12 @@ const isFlowMapping = (value: string): value is FlowMapping => (
 );
 
 export interface AnimationControlsProps {
-  isPlaying: boolean;
   speed: number;
   fps: number;
   cycleColors: number;
   flowDirection: 'forward' | 'reverse' | 'pingpong' | 'bounce';
   mappingMode?: 'banded' | 'continuous';
   flowMapping?: 'palette' | 'directional' | 'luminance';
-  onToggleAnimation: () => void;
   onSpeedChange: (speed: number) => void;
   onFPSChange: (fps: number) => void;
   onCycleColorsChange: (cycleColors: number) => void;
@@ -38,14 +35,12 @@ export interface AnimationControlsProps {
 }
 
 export const AnimationControls: React.FC<AnimationControlsProps> = ({
-  isPlaying,
   speed,
   fps,
   cycleColors,
   flowDirection,
   mappingMode = 'banded',
   flowMapping = 'palette',
-  onToggleAnimation,
   onSpeedChange,
   onFPSChange,
   onCycleColorsChange,
@@ -74,17 +69,6 @@ export const AnimationControls: React.FC<AnimationControlsProps> = ({
 
   return (
     <div className="animation-controls space-y-4">
-      <div className="flex items-center justify-between">
-        <label className="block text-sm font-medium text-gray-300">Animation</label>
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={onToggleAnimation}
-        >
-          {isPlaying ? 'Pause' : 'Play'}
-        </Button>
-      </div>
-
       {/* Speed */}
       <LabeledSlider
         label="Speed"

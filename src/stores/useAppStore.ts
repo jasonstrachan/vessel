@@ -108,7 +108,7 @@ import type {
   WebGLExportSettings,
 } from '@/types';
 import { BrushShape } from '@/types';
-import { brushPresets, applyBrushPreset, defaultBrushPreset, defaultBrushSettings, pixelBrushPreset } from '../presets/brushPresets';
+import { brushPresets, applyBrushPreset, defaultBrushSettings, pixelBrushPreset } from '../presets/brushPresets';
 import { 
   saveProjectToFile, 
   loadProjectFromFile, 
@@ -590,9 +590,10 @@ export const useAppStore = create<AppState>()(
         exportLayout: createDefaultExportLayout()
       },
       webglExportSettings: {
-        includeHiddenLayers: false,
+        includeHiddenLayers: true,
         embedCanvasFallback: false,
-        minifyOutput: false
+        minifyOutput: true,
+        bundleFormat: 'single-html'
       },
       setProject: (project) => set(() => ({
         project: normalizeProject(project)

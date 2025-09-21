@@ -363,8 +363,8 @@ export const resolveContainerLayout = (
       const crossSize = layout.align === 'stretch' ? lineCrossSize : item.cross;
       const crossAdjust = computeCrossOffsetWithinLine(lineCrossSize, crossSize, layout.align);
 
-      let frameWidth = flowAxis === 'row' ? mainSize : crossSize;
-      let frameHeight = flowAxis === 'row' ? crossSize : mainSize;
+      const frameWidth = flowAxis === 'row' ? mainSize : crossSize;
+      const frameHeight = flowAxis === 'row' ? crossSize : mainSize;
 
       let frameX = flowAxis === 'row' ? mainCursor : crossCursor + crossAdjust;
       let frameY = flowAxis === 'row' ? crossCursor + crossAdjust : mainCursor;
