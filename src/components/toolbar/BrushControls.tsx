@@ -39,6 +39,12 @@ interface ColorCycleAnimationContext {
   setFlowDirection?: (direction: 'forward' | 'backward') => void;
 }
 
+declare global {
+  interface Window {
+    colorCycleAnimationHandlers?: ColorCycleAnimationContext | null;
+  }
+}
+
 // For now, we'll store this globally - a proper solution would use React context
 let colorCycleAnimationHandlers: ColorCycleAnimationContext | null = null;
 let globalIsAnimating = true; // Track global animation state (default to playing)
@@ -46,7 +52,7 @@ let globalIsAnimating = true; // Track global animation state (default to playin
 export const setColorCycleAnimationHandlers = (handlers: ColorCycleAnimationContext | null) => {
   colorCycleAnimationHandlers = handlers;
   // Also make it available globally for LayerPanel
-  (window as any).colorCycleAnimationHandlers = handlers;
+  window.colorCycleAnimationHandlers = handlers;
 };
 
 export const getColorCycleAnimationState = () => globalIsAnimating;
@@ -321,13 +327,14 @@ const BrushControls = () => {
                 // Update per-layer speed when on a CC brush layer, else update global brush setting
                 const layer = layers.find(l => l.id === activeLayerId);
                 const isCCBrushLayer = layer?.layerType === 'color-cycle' && layer?.colorCycleData?.mode !== 'recolor';
-                if (isCCBrushLayer && activeLayerId) {
+                if (isCCBrushLayer && activeLayerId && layer?.colorCycleData) {
+                  const clampedValue = Math.max(0.02, Math.min(1.0, value));
                   updateLayer(activeLayerId, {
                     colorCycleData: {
-                      ...(layer?.colorCycleData || {}),
-                      brushSpeed: Math.max(0.02, Math.min(1.0, value))
+                      ...layer.colorCycleData,
+                      brushSpeed: clampedValue
                     }
-                  } as any);
+                  });
                 } else {
                   setActiveSettings({ colorCycleSpeed: value });
                 }

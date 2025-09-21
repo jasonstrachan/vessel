@@ -114,7 +114,6 @@ describe('GradientPalette', () => {
     });
     
     it('should shift colors by offset', () => {
-      const original0 = palette.getColor(0);
       const shifted = palette.shift(0.5);
       
       // After 50% shift, color at index 0 should be what was at index 128

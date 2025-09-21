@@ -20,7 +20,7 @@ function getRotatedPixelStamp(
 ): HTMLCanvasElement {
   // Check cache first
   const fullKey = `${cacheKey}_rot${Math.round(rotation * 180 / Math.PI)}`;
-  let cached = rotatedStampCache.get(fullKey);
+  const cached = rotatedStampCache.get(fullKey);
   if (cached) return cached;
   
   // No rotation needed
@@ -226,7 +226,7 @@ export const drawShape = (
           // Create temporary canvas with proper configuration
           if (deps?.getPatternTempContext) {
             const tempCtx = deps.getPatternTempContext(sampleWidth, sampleHeight);
-            const tempCanvas = (tempCtx as any)?._canvas;
+            const tempCanvas = tempCtx.canvas;
             
             if (tempCtx && tempCanvas) {
               // Configure for high-quality pixel-perfect operations
@@ -292,11 +292,11 @@ export const drawShape = (
   if (pattern && pattern.width > 0 && pattern.height > 0 && shape === BrushShape.CUSTOM && deps?.getPatternTempContext) {
     const tempCtx = deps.getPatternTempContext(pattern.width, pattern.height);
     // Get the temp canvas from the context - it's stored as _canvas
-    const tempCanvas = (tempCtx as any)?._canvas;
-    
+    const tempCanvas = tempCtx.canvas;
+
     if (tempCtx) {
       // Ensure we have a canvas to draw to
-      const canvasToUse = tempCanvas || (tempCtx as any)._canvas;
+      const canvasToUse = tempCanvas || tempCtx.canvas;
       if (!canvasToUse) {
         targetCtx.restore();
         return;
@@ -324,7 +324,7 @@ export const drawShape = (
         
         // Check if this is a Resampler brush - it has the isResampler flag set
         // Resampler should draw at 1:1 scale since it was captured at the right size
-        const isResampler = (pattern as any).isResampler || (!isColorizable && settings?.brushSettings?.brushShape === BrushShape.RESAMPLER);
+        const isResampler = ('isResampler' in pattern && pattern.isResampler) || (!isColorizable && settings?.brushSettings?.brushShape === BrushShape.RESAMPLER);
         
         let scaledWidth, scaledHeight;
         if (isResampler) {

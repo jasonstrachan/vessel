@@ -1,3 +1,5 @@
+import { FastGradientLUT } from '../rendering/FastGradientLUT';
+
 /**
  * MemoryPool - Advanced memory management for color cycle rendering
  * 
@@ -302,10 +304,15 @@ export class MemoryPool {
    */
   forceGC(): void {
     // Try different GC methods
-    if ('gc' in window) {
-      (window as any).gc();
-    } else if ('gc' in globalThis) {
-      (globalThis as any).gc();
+    const maybeWindow = window as unknown as { gc?: () => void };
+    if (typeof maybeWindow.gc === 'function') {
+      maybeWindow.gc();
+      return;
+    }
+
+    const maybeGlobal = globalThis as { gc?: () => void };
+    if (typeof maybeGlobal.gc === 'function') {
+      maybeGlobal.gc();
     }
   }
   
@@ -332,7 +339,6 @@ export class MemoryPool {
       this.canvasPool.clear();
       
       // Clear gradient LUT cache
-      const { FastGradientLUT } = require('../rendering/FastGradientLUT');
       FastGradientLUT.clearCache();
       
       // Force garbage collection
@@ -367,7 +373,7 @@ export class MemoryPool {
         this.gcObserver.observe({ entryTypes: ['measure'] });
       } catch (error) {
         // GC monitoring not supported
-        console.warn('[MemoryPool] GC monitoring not supported');
+        console.warn('[MemoryPool] GC monitoring not supported', error);
       }
     }
   }

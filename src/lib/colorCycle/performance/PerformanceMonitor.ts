@@ -1,3 +1,6 @@
+import { MemoryPool } from '../memory/MemoryPool';
+import { CacheManager } from '../memory/CacheManager';
+
 /**
  * PerformanceMonitor - Comprehensive performance tracking for color cycle rendering
  * 
@@ -122,6 +125,14 @@ class RingBuffer<T> {
 /**
  * Main performance monitoring system
  */
+interface PerformanceMemoryInfo {
+  jsHeapSizeLimit: number;
+  totalJSHeapSize: number;
+  usedJSHeapSize: number;
+}
+
+type PerformanceWithMemory = Performance & { memory?: PerformanceMemoryInfo };
+
 export class PerformanceMonitor {
   private static instance: PerformanceMonitor | null = null;
   
@@ -151,7 +162,7 @@ export class PerformanceMonitor {
   
   // System monitoring
   private observer: PerformanceObserver | null = null;
-  private memoryInfo: any = null;
+  private memoryInfo: PerformanceMemoryInfo | null = null;
   
   // Callbacks
   private issueCallbacks: Set<(issue: PerformanceReport['issues'][0]) => void> = new Set();
@@ -299,25 +310,24 @@ export class PerformanceMonitor {
     let gcCount = 0;
     
     // Get memory info if available
-    if ('memory' in performance) {
-      const memInfo = (performance as any).memory;
+    const perfWithMemory = performance as PerformanceWithMemory;
+    const memInfo = perfWithMemory.memory;
+    if (memInfo) {
       nativeMemory = memInfo.usedJSHeapSize || 0;
-      
+
       // Try to detect GC events
       if (this.memoryInfo && memInfo.usedJSHeapSize < this.memoryInfo.usedJSHeapSize) {
         gcCount = this.gcStartCount + 1;
       }
-      
+
       this.memoryInfo = memInfo;
     }
-    
+
     // Get pooled memory from MemoryPool
-    const { MemoryPool } = require('../memory/MemoryPool');
     const memoryPool = MemoryPool.getInstance();
     const poolStats = memoryPool.getStats();
     
     // Get cache memory from CacheManager
-    const { CacheManager } = require('../memory/CacheManager');
     const cacheManager = CacheManager.getInstance();
     const cacheStats = cacheManager.getStats();
     
@@ -340,7 +350,6 @@ export class PerformanceMonitor {
   recordCacheMetrics(): void {
     if (!this.isEnabled) return;
     
-    const { CacheManager } = require('../memory/CacheManager');
     const cacheManager = CacheManager.getInstance();
     const stats = cacheManager.getStats();
     
@@ -418,6 +427,7 @@ export class PerformanceMonitor {
   private processPerformanceEntry(entry: PerformanceEntry): void {
     // This could be extended to collect more detailed metrics
     // from the browser's performance API
+    void entry;
   }
   
   /**

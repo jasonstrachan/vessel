@@ -10,13 +10,18 @@ import { PerformanceBenchmark } from '../testing/PerformanceBenchmark';
 import { VisualQualityComparison } from '../testing/VisualQualityComparison';
 import { MemoryAnalysis } from '../testing/MemoryAnalysis';
 
+type FullSuiteResults = Awaited<ReturnType<MasterTestRunner['runAllTests']>>;
+type TestRunnerResults = Partial<FullSuiteResults>;
+
+type TestSelection = 'all' | 'parity' | 'performance' | 'visual' | 'memory';
+
 export const TestRunner: React.FC = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [currentTest, setCurrentTest] = useState('');
   const [progress, setProgress] = useState(0);
-  const [results, setResults] = useState<any>(null);
+  const [results, setResults] = useState<TestRunnerResults | null>(null);
   const [reportHtml, setReportHtml] = useState('');
-  const [selectedTest, setSelectedTest] = useState('all');
+  const [selectedTest, setSelectedTest] = useState<TestSelection>('all');
   
   const runTests = async () => {
     setIsRunning(true);
@@ -59,34 +64,35 @@ export const TestRunner: React.FC = () => {
       } else if (selectedTest === 'performance') {
         setCurrentTest('Running performance benchmarks...');
         const benchmark = new PerformanceBenchmark();
-        const results = await benchmark.runAllBenchmarks();
+        const performanceResults = await benchmark.runAllBenchmarks();
         const report = benchmark.generateReport();
         setReportHtml(report);
-        setResults({ performance: results });
+        setResults({ performance: performanceResults });
         
       } else if (selectedTest === 'visual') {
         setCurrentTest('Running visual quality comparison...');
         const comparison = new VisualQualityComparison();
-        const results = await comparison.runAllTests();
+        const visualResults = await comparison.runAllTests();
         const report = comparison.generateReport();
         setReportHtml(report);
-        setResults({ visual: results });
+        setResults({ visual: visualResults });
         
       } else if (selectedTest === 'memory') {
         setCurrentTest('Running memory analysis...');
         const analysis = new MemoryAnalysis();
-        const results = await analysis.runAllTests();
+        const memoryResults = await analysis.runAllTests();
         const report = analysis.generateReport();
         setReportHtml(report);
-        setResults({ memory: results });
+        setResults({ memory: memoryResults });
       }
       
       setProgress(100);
       setCurrentTest('Complete!');
       
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Test error:', error);
-      setCurrentTest(`Error: ${error}`);
+      const message = error instanceof Error ? error.message : String(error);
+      setCurrentTest(`Error: ${message}`);
     } finally {
       setIsRunning(false);
     }
@@ -146,7 +152,7 @@ export const TestRunner: React.FC = () => {
         </label>
         <select
           value={selectedTest}
-          onChange={(e) => setSelectedTest(e.target.value)}
+          onChange={(e) => setSelectedTest(e.target.value as TestSelection)}
           disabled={isRunning}
           style={{
             padding: '10px 15px',
@@ -224,7 +230,7 @@ export const TestRunner: React.FC = () => {
           {results.parity && (
             <div style={{ marginBottom: '15px' }}>
               <strong>Feature Parity:</strong> {
-                results.parity.filter((r: any) => r.parity).length
+                results.parity.filter(result => result.parity).length
               }/{results.parity.length} tests passed
             </div>
           )}

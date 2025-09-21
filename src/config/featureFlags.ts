@@ -28,7 +28,6 @@ const notify = (key: FeatureFlagKey) => {
       callback();
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
         console.error('[featureFlags] subscriber callback failed', error);
       }
     }
@@ -58,7 +57,6 @@ const readFromStorage = (key: FeatureFlagKey) => {
     }
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
-      // eslint-disable-next-line no-console
       console.warn('[featureFlags] failed to read storage', error);
     }
   }
@@ -83,7 +81,6 @@ export const setFeatureFlag = (key: FeatureFlagKey, value: boolean): void => {
       window.localStorage.setItem(STORAGE_KEYS[key], value ? 'true' : 'false');
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
         console.warn('[featureFlags] failed to persist storage', error);
       }
     }
@@ -105,7 +102,6 @@ export const resetFeatureFlags = (): void => {
           window.localStorage.setItem(STORAGE_KEYS[key], value ? 'true' : 'false');
         } catch (error) {
           if (process.env.NODE_ENV !== 'production') {
-            // eslint-disable-next-line no-console
             console.warn('[featureFlags] failed to persist storage', error);
           }
         }

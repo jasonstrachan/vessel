@@ -339,6 +339,13 @@ export class RecolorAnimationController {
     this.updateTicksPerFrame(animatedLayer.layer);
     return true;
   }
+
+  /**
+   * Recompute ticks-per-frame for a given layer after settings change.
+   */
+  recalculateTicksForLayer(layer: Layer): void {
+    this.updateTicksPerFrame(layer);
+  }
   
   /**
    * Main animation loop
@@ -351,7 +358,7 @@ export class RecolorAnimationController {
     
     // Only render if enough time has passed (frame rate limiting)
     if (deltaTime >= this.frameInterval) {
-      this.updateFrame(deltaTime);
+      this.updateFrame();
       this.lastFrameTime = frameStart;
       
       // Track performance
@@ -369,7 +376,7 @@ export class RecolorAnimationController {
   /**
    * Update all enabled layers for current frame
    */
-  private updateFrame(deltaTime: number): void {
+  private updateFrame(): void {
     const activeLayers: AnimatedLayer[] = [];
     
     for (const animatedLayer of Array.from(this.animatedLayers.values())) {

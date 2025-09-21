@@ -3,12 +3,11 @@
  * Shows how to integrate pressure-sensitive dithering with TinyBrush
  */
 
-import { 
+import {
   applyPressureDither,
   DitherSettings,
   APPLE_II_PALETTE,
-  createGrayscalePalette,
-  calculatePressureDitherThreshold
+  createGrayscalePalette
 } from '../utils/ditherAlgorithms';
 
 /**
@@ -108,7 +107,7 @@ export class DitherBrushEngine {
     this.lastPoint = pos;
   }
   
-  private handlePointerUp(event: MouseEvent | TouchEvent | PointerEvent): void {
+  private handlePointerUp(): void {
     this.isDrawing = false;
     this.lastPoint = null;
   }
@@ -121,8 +120,8 @@ export class DitherBrushEngine {
     this.handlePointerMove(event);
   }
   
-  private handleTouchEnd(event: TouchEvent): void {
-    this.handlePointerUp(event);
+  private handleTouchEnd(): void {
+    this.handlePointerUp();
   }
   
   private interpolateStroke(from: { x: number; y: number; pressure: number }, to: { x: number; y: number; pressure: number }): void {
@@ -185,27 +184,51 @@ export class DitherBrushEngine {
   }
 }
 
+type DemoAlgorithmPreset = {
+  name: string;
+  settings: Partial<DitherSettings> & { algorithm: DitherSettings['algorithm'] };
+};
+
+type DemoPalettePreset = {
+  name: string;
+  palette: DitherSettings['palette'];
+};
+
+export type DitherBrushDemoEngine = DitherBrushEngine & {
+  demoAlgorithms: DemoAlgorithmPreset[];
+  demoPalettes: DemoPalettePreset[];
+};
+
+export interface DitherBenchmarkResult {
+  settings: DitherSettings;
+  averageTimeMs: number;
+}
+
 /**
  * Example usage and integration patterns
  */
-export const createDitherBrushDemo = (canvasElement: HTMLCanvasElement): DitherBrushEngine => {
+export const createDitherBrushDemo = (
+  canvasElement: HTMLCanvasElement
+): DitherBrushDemoEngine => {
   const engine = new DitherBrushEngine(canvasElement);
-  
-  // Example: Set up different dithering algorithms
-  const algorithms = [
-    { name: 'Bayer Matrix', settings: { algorithm: 'bayer' as const, bayerMatrixSize: 8 as const } },
-    { name: 'Floyd-Steinberg', settings: { algorithm: 'floyd-steinberg' as const } },
-    { name: 'Sierra Lite', settings: { algorithm: 'sierra-lite' as const } }
+
+  const algorithms: DemoAlgorithmPreset[] = [
+    { name: 'Bayer Matrix', settings: { algorithm: 'bayer', bayerMatrixSize: 8 as const } },
+    { name: 'Floyd-Steinberg', settings: { algorithm: 'floyd-steinberg' } },
+    { name: 'Sierra Lite', settings: { algorithm: 'sierra-lite' } }
   ];
-  
-  // Example: Set up different palettes
-  const palettes = [
+
+  const palettes: DemoPalettePreset[] = [
     { name: 'Apple II', palette: APPLE_II_PALETTE },
     { name: 'B&W', palette: createGrayscalePalette(2) },
     { name: 'Grayscale', palette: createGrayscalePalette(8) }
   ];
-  
-  return engine;
+
+  const engineWithPresets = engine as DitherBrushDemoEngine;
+  engineWithPresets.demoAlgorithms = algorithms;
+  engineWithPresets.demoPalettes = palettes;
+
+  return engineWithPresets;
 };
 
 /**
@@ -275,20 +298,21 @@ export const integrateWithBrushEngine = () => {
 /**
  * Performance benchmarking for different algorithms
  */
-export const benchmarkDitherAlgorithms = (canvas: HTMLCanvasElement): Promise<void> => {
+export const benchmarkDitherAlgorithms = (
+  canvas: HTMLCanvasElement
+): Promise<DitherBenchmarkResult[]> => {
   return new Promise((resolve) => {
     const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
     const testSize = 100;
-    
-    // Create test image
+
     const imageData = ctx.createImageData(testSize, testSize);
     for (let i = 0; i < imageData.data.length; i += 4) {
-      imageData.data[i] = Math.random() * 255;     // R
-      imageData.data[i + 1] = Math.random() * 255; // G
-      imageData.data[i + 2] = Math.random() * 255; // B
-      imageData.data[i + 3] = 255;                 // A
+      imageData.data[i] = Math.random() * 255;
+      imageData.data[i + 1] = Math.random() * 255;
+      imageData.data[i + 2] = Math.random() * 255;
+      imageData.data[i + 3] = 255;
     }
-    
+
     const algorithms: DitherSettings[] = [
       { algorithm: 'bayer', pressure: 0.5, intensity: 0.8, bayerMatrixSize: 2, palette: APPLE_II_PALETTE },
       { algorithm: 'bayer', pressure: 0.5, intensity: 0.8, bayerMatrixSize: 4, palette: APPLE_II_PALETTE },
@@ -296,21 +320,26 @@ export const benchmarkDitherAlgorithms = (canvas: HTMLCanvasElement): Promise<vo
       { algorithm: 'floyd-steinberg', pressure: 0.5, intensity: 0.8, bayerMatrixSize: 8, palette: APPLE_II_PALETTE },
       { algorithm: 'sierra-lite', pressure: 0.5, intensity: 0.8, bayerMatrixSize: 8, palette: APPLE_II_PALETTE }
     ];
-    
-    
-    algorithms.forEach((settings, index) => {
+
+    const results: DitherBenchmarkResult[] = [];
+
+    algorithms.forEach((settings) => {
       const start = performance.now();
-      
-      for (let i = 0; i < 10; i++) { // 10 iterations
+
+      for (let i = 0; i < 10; i++) {
         applyPressureDither(imageData, settings);
       }
-      
+
       const end = performance.now();
       const avgTime = (end - start) / 10;
-      
+
+      results.push({
+        settings,
+        averageTimeMs: avgTime
+      });
     });
-    
-    resolve();
+
+    resolve(results);
   });
 };
 

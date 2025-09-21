@@ -197,7 +197,7 @@ export const QualityControls: React.FC<QualityControlsProps> = ({
             <button
               key={value}
               type="button"
-              onClick={() => handlePerformanceChange(value as any)}
+              onClick={() => handlePerformanceChange(value as QualityControlsProps['performanceMode'])}
               disabled={disabled}
               className={`
                 px-3 py-2 text-xs font-medium rounded-lg border transition-colors

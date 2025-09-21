@@ -6,8 +6,7 @@ import { Layer } from '../types';
 import { XIcon } from './icons/XIcon';
 import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
 import PlusButton from './ui/PlusButton';
-import { BrushShape } from '../types';
-import { setColorCycleAnimationHandlers, setColorCycleAnimationState } from './toolbar/BrushControls';
+import { setColorCycleAnimationState } from './toolbar/BrushControls';
 import { RecolorManager } from '../lib/colorCycle/RecolorManager';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 
@@ -281,7 +280,7 @@ const LayerPanel = () => {
               // Brush-based color cycle (stroke/shape)
               try {
                 setColorCycleAnimationState(newIsAnimating);
-                const handlers = (window as any).colorCycleAnimationHandlers;
+              const handlers = window.colorCycleAnimationHandlers;
                 if (handlers) {
                   if (newIsAnimating) handlers.startContinuousColorCycleAnimation();
                   else handlers.stopContinuousColorCycleAnimation();
@@ -311,12 +310,11 @@ const LayerPanel = () => {
                 st.layers
                   .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor')
                   .forEach(l => {
-                    st.updateLayer(l.id, {
-                      colorCycleData: {
-                        ...l.colorCycleData,
-                        isAnimating: newIsAnimating
-                      }
-                    } as any);
+                    const colorCycleData: Layer['colorCycleData'] = {
+                      ...(l.colorCycleData ?? {}),
+                      isAnimating: newIsAnimating
+                    };
+                    st.updateLayer(l.id, { colorCycleData });
                   });
               } catch {}
             }}

@@ -1,6 +1,11 @@
 import type React from 'react';
-import type { BrushSettings, Project, Layer, BrushShape } from '../../../types';
+import type { BrushSettings, Project, Layer } from '../../../types';
 import type { InteractionState } from '../../useCanvasInteraction';
+import type { CanvasStateMachine } from '@/hooks/useCanvasStateMachine';
+import type { DrawingHandlers } from '@/hooks/useDrawingHandlers';
+import type { SimplePan } from '@/hooks/useSimplePan';
+import type { ToolStateMachine } from '@/hooks/useToolStateMachine';
+import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
 
 // Type definitions for dependencies (avoiding circular imports)
 export interface FloatingPaste {
@@ -85,7 +90,7 @@ export interface EventHandlerDependencies {
   // Hooks
   interaction: {
     state: InteractionState;
-    dispatch: React.Dispatch<any>;
+    dispatch: React.Dispatch<unknown>;
     refs: {
       selectionStart: React.MutableRefObject<{ x: number; y: number } | null>;
       drawAnimationFrame: React.MutableRefObject<number | null>;
@@ -95,16 +100,16 @@ export interface EventHandlerDependencies {
       isCapturing: React.MutableRefObject<boolean>;
     };
   };
-  stateMachine: any; // Avoiding circular import
-  pan: any; // Avoiding circular import
-  toolStateMachine: any; // Avoiding circular import
-  drawingHandlers: any; // Avoiding circular import
-  brushEngine: any; // Avoiding circular import
+  stateMachine: CanvasStateMachine;
+  pan: SimplePan;
+  toolStateMachine: ToolStateMachine;
+  drawingHandlers: DrawingHandlers;
+  brushEngine: BrushEngine | null;
   
   // Helper functions
   sampleColorAtPosition: (x: number, y: number) => string;
   sampleColorsAlongLine: (startX: number, startY: number, endX: number, endY: number, numSamples: number) => string[];
-  getMousePos: (event: React.MouseEvent | React.PointerEvent) => { x: number; y: number };
+  getMousePos: (event: React.MouseEvent | React.PointerEvent | React.WheelEvent) => { x: number; y: number };
   
   // Drawing state management
   compositeCanvasDirtyRef: React.MutableRefObject<boolean>;

@@ -9,7 +9,7 @@ import { ColorCycleBrushCanvas2D } from '../hooks/brushEngine/ColorCycleBrushCan
 import { ColorCycleBrushCanvas2D as ColorCycleBrush } from '../hooks/brushEngine/ColorCycleBrushCanvas2D';
 import { GradientStop } from '../lib/GradientPalette';
 
-interface BenchmarkResult {
+export interface BenchmarkResult {
   name: string;
   canvas2dTime: number;
   webglTime: number;
@@ -22,6 +22,34 @@ interface MemorySnapshot {
   totalJSHeapSize?: number;
   jsHeapSizeLimit?: number;
 }
+
+
+interface BenchmarkBrush {
+  paint: (x: number, y: number, layerId?: string) => void;
+  render: () => void;
+  setGradient: (stops: GradientStop[], layerId?: string) => void;
+  clear?: () => void;
+  batchPaint?: (points: Array<{ x: number; y: number }>) => void;
+  fillRect?: (x: number, y: number, width: number, height: number) => void;
+  fill?: (x: number, y: number, width: number, height: number) => void;
+  updateAnimation?: () => void;
+  dispose?: () => void;
+}
+
+type PerformanceMemoryInfo = {
+  usedJSHeapSize: number;
+  totalJSHeapSize: number;
+  jsHeapSizeLimit: number;
+};
+
+interface PerformanceWithMemory extends Performance {
+  memory?: PerformanceMemoryInfo;
+}
+
+type GarbageCollectableGlobal = typeof globalThis & {
+  gc?: () => void;
+};
+
 
 export class PerformanceBenchmark {
   private canvas: HTMLCanvasElement;
@@ -46,6 +74,25 @@ export class PerformanceBenchmark {
       fps: 30
     });
   }
+
+  private getPerformanceMemory(): PerformanceMemoryInfo | null {
+    if (!('performance' in globalThis)) {
+      return null;
+    }
+
+    const perf = (globalThis as { performance?: Performance }).performance;
+    if (!perf) {
+      return null;
+    }
+
+    const perfWithMemory: PerformanceWithMemory = perf;
+    return perfWithMemory.memory ?? null;
+  }
+
+  private getGlobalWithGC(): GarbageCollectableGlobal {
+    return globalThis as GarbageCollectableGlobal;
+  }
+
   
   /**
    * Run a benchmark test
@@ -53,7 +100,7 @@ export class PerformanceBenchmark {
   private async runTest(
     name: string,
     iterations: number,
-    testFn: (brush: any) => void
+    testFn: (brush: BenchmarkBrush) => void
   ): Promise<BenchmarkResult> {
     // Warm up both implementations
     for (let i = 0; i < 10; i++) {
@@ -209,8 +256,8 @@ export class PerformanceBenchmark {
       { position: 1, color: 'rgb(255, 0, 0)' }
     ];
     
-    this.canvas2dBrush.setGradient(gradient as any);
-    this.webglBrush.setGradient(gradient as any);
+    this.canvas2dBrush.setGradient(gradient);
+    this.webglBrush.setGradient(gradient);
     
     // Pre-paint content
     for (let i = 0; i < 5000; i++) {
@@ -221,14 +268,9 @@ export class PerformanceBenchmark {
     }
     
     return this.runTest('Animation Frame (with 5000 pixels)', 60, (brush) => {
-      if (brush === this.canvas2dBrush) {
-        // Simulate animation frame for Canvas2D
-        const palette = (brush as any).palette;
-        if (palette) palette.shift(0.01);
-        brush.render();
+      if (brush.updateAnimation) {
+        brush.updateAnimation();
       } else {
-        // WebGL animation frame
-        (brush as any).offset = ((brush as any).offset || 0) + 0.01;
         brush.render();
       }
     });
@@ -245,82 +287,83 @@ export class PerformanceBenchmark {
       canvas2d: {} as MemorySnapshot,
       webgl: {} as MemorySnapshot
     };
-    
-    // Force garbage collection if available
-    if ((global as any).gc) {
-      (global as any).gc();
-    }
-    
+
+    const triggerGC = () => {
+      const gcContext = this.getGlobalWithGC();
+      if (typeof gcContext.gc === 'function') {
+        gcContext.gc();
+      }
+    };
+
+    triggerGC();
+
     // Measure Canvas2D memory
     const canvas2dCanvas = document.createElement('canvas');
     canvas2dCanvas.width = 2048;
     canvas2dCanvas.height = 2048;
-    
+
     const canvas2dBrush = new ColorCycleBrushCanvas2D(canvas2dCanvas, {
       brushSize: 20,
       fps: 30
     });
-    
-    // Paint a lot of content
+
     for (let i = 0; i < 10000; i++) {
       canvas2dBrush.paint(
         Math.random() * canvas2dCanvas.width,
         Math.random() * canvas2dCanvas.height
       );
     }
-    
-    if ((performance as any).memory) {
+
+    const canvas2dMemory = this.getPerformanceMemory();
+    if (canvas2dMemory) {
       results.canvas2d = {
-        usedJSHeapSize: (performance as any).memory.usedJSHeapSize,
-        totalJSHeapSize: (performance as any).memory.totalJSHeapSize,
-        jsHeapSizeLimit: (performance as any).memory.jsHeapSizeLimit
+        usedJSHeapSize: canvas2dMemory.usedJSHeapSize,
+        totalJSHeapSize: canvas2dMemory.totalJSHeapSize,
+        jsHeapSizeLimit: canvas2dMemory.jsHeapSizeLimit
       };
     }
-    
-    // Clean up
+
     if ('dispose' in canvas2dBrush && typeof canvas2dBrush.dispose === 'function') {
       canvas2dBrush.dispose();
     }
-    
-    // Force garbage collection
-    if ((global as any).gc) {
-      (global as any).gc();
-    }
-    
+
+    triggerGC();
+
     // Measure WebGL memory
     const webglCanvas = document.createElement('canvas');
     webglCanvas.width = 2048;
     webglCanvas.height = 2048;
-    
+
     const webglBrush = new ColorCycleBrush(webglCanvas, {
       brushSize: 20,
       fps: 30
     });
-    
-    // Paint same amount of content
+
     for (let i = 0; i < 10000; i++) {
       webglBrush.paint(
         Math.random() * webglCanvas.width,
         Math.random() * webglCanvas.height
       );
     }
-    
-    if ((performance as any).memory) {
+
+    const webglMemory = this.getPerformanceMemory();
+    if (webglMemory) {
       results.webgl = {
-        usedJSHeapSize: (performance as any).memory.usedJSHeapSize,
-        totalJSHeapSize: (performance as any).memory.totalJSHeapSize,
-        jsHeapSizeLimit: (performance as any).memory.jsHeapSizeLimit
+        usedJSHeapSize: webglMemory.usedJSHeapSize,
+        totalJSHeapSize: webglMemory.totalJSHeapSize,
+        jsHeapSizeLimit: webglMemory.jsHeapSizeLimit
       };
     }
-    
-    // Clean up
+
     if ('dispose' in webglBrush && typeof webglBrush.dispose === 'function') {
       webglBrush.dispose();
     }
-    
+
+    triggerGC();
+
     return results;
   }
-  
+    
   /**
    * Run all benchmarks
    */

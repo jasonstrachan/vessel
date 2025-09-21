@@ -40,7 +40,10 @@ import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
 describe('ColorCycleBrushCanvas2D paintCustomStamp', () => {
   beforeAll(() => {
     if (typeof ImageData === 'undefined') {
-      (global as any).ImageData = class {
+      type ImageDataConstructor = typeof ImageData;
+      const globalWithImageData = globalThis as typeof globalThis & { ImageData: ImageDataConstructor };
+
+      class ImageDataPolyfill {
         width: number;
         height: number;
         data: Uint8ClampedArray;
@@ -50,7 +53,9 @@ describe('ColorCycleBrushCanvas2D paintCustomStamp', () => {
           this.height = height;
           this.data = new Uint8ClampedArray(width * height * 4);
         }
-      } as unknown as typeof ImageData;
+      }
+
+      globalWithImageData.ImageData = ImageDataPolyfill as unknown as ImageDataConstructor;
     }
 
     Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {

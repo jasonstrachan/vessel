@@ -25,6 +25,64 @@ export default function FileBackupSettings({ className = '' }: FileBackupSetting
     setIsSupported(fileBackupService.isFileBackupSupported());
   }, []);
 
+  const handleSelectFile = useCallback(async () => {
+    if (!isSupported) {
+      alert('File backup is not supported in this browser. Please use Chrome or Edge.');
+      return;
+    }
+
+    setIsSelecting(true);
+    try {
+      const result = await fileBackupService.selectBackupFile();
+      
+      if (result.success && result.path) {
+        // Get the file handle from the service
+        const file = fileBackupService.getBackupFile();
+        if (file) {
+          setFileBackupFile(file.handle, result.path);
+          // File selected: result.path
+        }
+      } else if (result.error && !result.error.includes('cancelled')) {
+        console.error('[FileBackupSettings] File selection failed:', result.error);
+        alert(`Failed to select file: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('[FileBackupSettings] File selection error:', error);
+      alert('Failed to select backup file. Please try again.');
+    } finally {
+      setIsSelecting(false);
+    }
+  }, [isSupported, setFileBackupFile]);
+
+  const handleSelectDirectory = useCallback(async () => {
+    if (!isSupported) {
+      alert('File backup is not supported in this browser. Please use Chrome or Edge.');
+      return;
+    }
+
+    setIsSelecting(true);
+    try {
+      const result = await fileBackupService.selectBackupDirectory();
+      
+      if (result.success && result.path) {
+        // Get the directory handle from the service
+        const directory = fileBackupService.getBackupDirectory();
+        if (directory) {
+          setFileBackupDirectory(directory.handle, result.path);
+          // Directory selected: result.path
+        }
+      } else if (result.error && !result.error.includes('cancelled')) {
+        console.error('[FileBackupSettings] Directory selection failed:', result.error);
+        alert(`Failed to select directory: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('[FileBackupSettings] Directory selection error:', error);
+      alert('Failed to select backup directory. Please try again.');
+    } finally {
+      setIsSelecting(false);
+    }
+  }, [isSupported, setFileBackupDirectory]);
+
   const handleToggleFileBackup = useCallback(async () => {
     if (!fileBackup.enabled) {
       // Enabling file backup - check if we need to select file/directory
@@ -57,65 +115,15 @@ export default function FileBackupSettings({ className = '' }: FileBackupSetting
       // Disabling file backup
       setFileBackupEnabled(false);
     }
-  }, [fileBackup.enabled, fileBackup.mode, fileBackup.fileHandle, fileBackup.directoryHandle, setFileBackupEnabled]);
-
-  const handleSelectFile = useCallback(async () => {
-    if (!isSupported) {
-      alert('File backup is not supported in this browser. Please use Chrome or Edge.');
-      return;
-    }
-
-    setIsSelecting(true);
-    try {
-      const result = await fileBackupService.selectBackupFile();
-      
-      if (result.success && result.path) {
-        // Get the file handle from the service
-        const file = fileBackupService.getBackupFile();
-        if (file) {
-          setFileBackupFile(file.handle, result.path);
-          // File selected: result.path
-        }
-      } else if (result.error && !result.error.includes('cancelled')) {
-        console.error('[FileBackupSettings] File selection failed:', result.error);
-        alert(`Failed to select file: ${result.error}`);
-      }
-    } catch (error) {
-      console.error('[FileBackupSettings] File selection error:', error);
-      alert('Failed to select backup file. Please try again.');
-    } finally {
-      setIsSelecting(false);
-    }
-  }, [setFileBackupFile]);
-
-  const handleSelectDirectory = useCallback(async () => {
-    if (!isSupported) {
-      alert('File backup is not supported in this browser. Please use Chrome or Edge.');
-      return;
-    }
-
-    setIsSelecting(true);
-    try {
-      const result = await fileBackupService.selectBackupDirectory();
-      
-      if (result.success && result.path) {
-        // Get the directory handle from the service
-        const directory = fileBackupService.getBackupDirectory();
-        if (directory) {
-          setFileBackupDirectory(directory.handle, result.path);
-          // Directory selected: result.path
-        }
-      } else if (result.error && !result.error.includes('cancelled')) {
-        console.error('[FileBackupSettings] Directory selection failed:', result.error);
-        alert(`Failed to select directory: ${result.error}`);
-      }
-    } catch (error) {
-      console.error('[FileBackupSettings] Directory selection error:', error);
-      alert('Failed to select backup directory. Please try again.');
-    } finally {
-      setIsSelecting(false);
-    }
-  }, [setFileBackupDirectory]);
+  }, [
+    fileBackup.directoryHandle,
+    fileBackup.enabled,
+    fileBackup.fileHandle,
+    fileBackup.mode,
+    handleSelectDirectory,
+    handleSelectFile,
+    setFileBackupEnabled
+  ]);
 
   const handleClear = useCallback(() => {
     if (fileBackup.mode === 'single-file') {

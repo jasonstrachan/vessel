@@ -119,6 +119,7 @@ export class SpatialColorHash {
       
       return result;
     } catch (error) {
+      console.warn('[SpatialColorHash] Falling back to linear search due to error:', error);
       return this.fallbackLinearSearch(r, g, b);
     }
   }

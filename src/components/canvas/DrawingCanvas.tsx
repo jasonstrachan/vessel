@@ -3,16 +3,14 @@ import { useAppStore } from '../../stores/useAppStore';
 import { useBrushEngineSimplified } from '../../hooks/useBrushEngineSimplified';
 import { useCanvasInteraction } from '../../hooks/useCanvasInteraction';
 import { useCanvasStateMachine } from '../../hooks/useCanvasStateMachine';
-import { debugLog } from '../../utils/debug';
 import { useSimplePan } from '../../hooks/useSimplePan';
 import { useToolStateMachine } from '../../hooks/useToolStateMachine';
 import { useComprehensiveKeyboard } from '../../hooks/useComprehensiveKeyboard';
 import { useDrawingHandlers } from '../../hooks/useDrawingHandlers';
 import { useCanvasEventHandlers } from '../../hooks/canvas/useCanvasEventHandlers';
 import { BrushShape } from '../../types';
-import type { Layer } from '../../types';
-import { floodFill } from '../../utils/floodFill';
-import { detectWacomIssues, testWacomPressure } from '../../utils/detectWacom';
+import type { CanvasSnapshot, Layer, Tool } from '../../types';
+import type { FloatingPaste as FloatingPasteState } from '../../hooks/canvas/utils/types';
 import BrushCursor from './BrushCursor';
 import { setColorCycleAnimationHandlers, getColorCycleAnimationState } from '../toolbar/BrushControls';
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
@@ -29,6 +27,8 @@ type ColorCycleSnapshotData = NonNullable<Layer['colorCycleData']> & {
   canvasHeight?: number;
   canvasImageData?: ImageData;
 };
+
+type SerializedLayer = Layer & { colorCycleData?: ColorCycleSnapshotData };
 
 interface DrawingCanvasProps {
   showFeedback?: (message: string) => void;
@@ -76,11 +76,47 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     updateLayer,
     setLayersNeedRecomposition,
   } = useAppStore();
+
+  const setCurrentToolById = useCallback(
+    (toolId: string) => {
+      setCurrentTool(toolId as Tool);
+    },
+    [setCurrentTool]
+  );
+
+  const saveCanvasStateForHandlers = useCallback(
+    (canvasElement: HTMLCanvasElement, actionType: string, description: string) => {
+      saveCanvasState(canvasElement, actionType as CanvasSnapshot['actionType'], description);
+    },
+    [saveCanvasState]
+  );
+
+  const setFloatingPasteFromHandlers = useCallback(
+    (paste: FloatingPasteState | null) => {
+      if (!paste || !paste.imageData) {
+        setFloatingPaste(null);
+        return;
+      }
+
+      setFloatingPaste({
+        imageData: paste.imageData,
+        position: paste.position,
+        width: paste.width,
+        height: paste.height
+      });
+    },
+    [setFloatingPaste]
+  );
   
   // Mouse position for brush cursor
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [showBrushCursor, setShowBrushCursor] = useState(false);
   const [marchingAntsOffset, setMarchingAntsOffset] = useState(0);
+  const mousePositionRef = useRef(mousePosition);
+
+  useEffect(() => {
+    mousePositionRef.current = mousePosition;
+  }, [mousePosition]);
 
   const isPointerInsideCanvas = useCallback(() => {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -277,8 +313,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         // Strictly avoid overlaying CC animation frames above the stack.
         // Skip drawing the overlay when ANY brush-based Color Cycle layer is animating
         // or when the animation manager is playing.
-        const anyCCAnimating = layers.some(l => (
-          l.visible && l.layerType === 'color-cycle' && (l as any).colorCycleData?.mode !== 'recolor' && !!(l as any).colorCycleData?.isAnimating
+        const anyCCAnimating = layers.some(layer => (
+          layer.visible &&
+          layer.layerType === 'color-cycle' &&
+          layer.colorCycleData?.mode !== 'recolor' &&
+          Boolean(layer.colorCycleData?.isAnimating)
         ));
         const isManagerPlaying = colorCycleManagerRef.current?.isPlaying() || false;
 
@@ -391,12 +430,23 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         ctx.restore();
       }
     }
-  }, [project, layers, tools.brushSettings.brushShape, selectionStart, selectionEnd, marchingAntsOffset, floatingPaste]);
+  }, [
+    project,
+    layers,
+    tools.brushSettings.brushShape,
+    tools.brushSettings.antialiasing,
+    tools.currentTool,
+    selectionStart,
+    selectionEnd,
+    marchingAntsOffset,
+    floatingPaste
+  ]);
   
   // Use custom hooks
   const interaction = useCanvasInteraction();
   const stateMachine = useCanvasStateMachine();
   const pan = useSimplePan({ scale: canvas?.zoom || 1 });
+  const { setPan } = pan;
   // const prevStateRef = useRef(stateMachine.state);
   const panOffsetX = pan.panState.offsetX;
   const panOffsetY = pan.panState.offsetY;
@@ -595,12 +645,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       st.layers
         .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor' && l.colorCycleData?.isAnimating)
         .forEach(l => {
-          st.updateLayer(l.id, {
-            colorCycleData: {
-              ...l.colorCycleData,
-              isAnimating: false
-            }
-          } as any);
+          const colorCycleData: Layer['colorCycleData'] = {
+            ...(l.colorCycleData ?? {}),
+            isAnimating: false
+          };
+          st.updateLayer(l.id, { colorCycleData });
         });
     } catch {}
     // Mark as stopped so this effect doesn't run repeatedly from its own updates
@@ -646,9 +695,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       }
     };
     
-    const handleColorCycleFrameUpdate = (event: CustomEvent) => {
+    const handleColorCycleFrameUpdate = () => {
       // debug log removed
-      
+
       // Mark composite canvas as dirty
       compositeCanvasDirtyRef.current = true;
       
@@ -668,11 +717,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     };
     
     window.addEventListener('colorCycleFrameReady', handleColorCycleFrame);
-    window.addEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate as EventListener);
-    
+    window.addEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate);
+
     return () => {
       window.removeEventListener('colorCycleFrameReady', handleColorCycleFrame);
-      window.removeEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate as EventListener);
+      window.removeEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate);
     };
   }, [project, compositeLayersToCanvas]);
   
@@ -694,7 +743,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       setCursorStyle(defaultCursorStyle);
       setShowBrushCursor(isPointerInsideCanvas());
     }
-  }, [defaultCursorStyle, isPointerInsideCanvas, setCursorStyle]);
+  }, [defaultCursorStyle, isPointerInsideCanvas, setCursorStyle, setShowBrushCursor, stateMachine]);
 
 
   // Direct DOM keyboard handling for instant panning response
@@ -734,8 +783,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         setCursorStyleRef.current('grab');
         
         // Start panning immediately if mouse is down
-        if (isMouseDownRef.current && mousePosition.x !== undefined && mousePosition.y !== undefined) {
-          panRef.current.startPan(mousePosition.x, mousePosition.y);
+        const { x: pointerX, y: pointerY } = mousePositionRef.current;
+        if (isMouseDownRef.current) {
+          panRef.current.startPan(pointerX, pointerY);
           setCursorStyleRef.current('grabbing');
           // quiet
         }
@@ -771,12 +821,14 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       }
     };
     
-    window.addEventListener('keydown', handleKeyDown, { capture: true });
-    window.addEventListener('keyup', handleKeyUp, { capture: true });
-    
+    const listenerOptions: AddEventListenerOptions = { capture: true };
+
+    window.addEventListener('keydown', handleKeyDown, listenerOptions);
+    window.addEventListener('keyup', handleKeyUp, listenerOptions);
+
     return () => {
-      window.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
-      window.removeEventListener('keyup', handleKeyUp, { capture: true } as any);
+      window.removeEventListener('keydown', handleKeyDown, listenerOptions);
+      window.removeEventListener('keyup', handleKeyUp, listenerOptions);
     };
   }, [defaultCursorStyle]); // Only defaultCursorStyle as it's a string constant
 
@@ -794,15 +846,16 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   }, []);
 
   // Comprehensive keyboard handling (for other keys)
-  const keyboard = useComprehensiveKeyboard({
+  useComprehensiveKeyboard({
     onSpacePressed: () => {
       // Fallback: ensure space press is honored even if our direct handler missed it
       if (!isSpacePressedRef.current) {
         isSpacePressedRef.current = true;
         setShowBrushCursorRef.current(false);
         setCursorStyleRef.current('grab');
-        if (isMouseDownRef.current && mousePosition.x !== undefined && mousePosition.y !== undefined) {
-          panRef.current.startPan(mousePosition.x, mousePosition.y);
+        const { x: pointerX, y: pointerY } = mousePositionRef.current;
+        if (isMouseDownRef.current) {
+          panRef.current.startPan(pointerX, pointerY);
           setCursorStyleRef.current('grabbing');
           // quiet
         }
@@ -846,8 +899,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       if (snapshot) {
         if (snapshot.layers && snapshot.activeLayerId) {
           // Reconstruct layers with proper type preservation
-          const restoredLayers = snapshot.layers.map((rawLayer: any) => {
-            const layer = rawLayer as Layer & { colorCycleData?: ColorCycleSnapshotData };
+          const restoredLayers = (snapshot.layers as SerializedLayer[]).map((layer) => {
             const existingLayer = layers.find(l => l.id === layer.id) as Layer | undefined;
 
             const baseProps = {
@@ -919,7 +971,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
               layerType: 'normal' as const,
               colorCycleData: undefined
             } as Layer;
-          }) as Layer[];
+          });
           
           setLayers(restoredLayers);
           setActiveLayer(snapshot.activeLayerId);
@@ -1017,8 +1069,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       if (snapshot) {
         if (snapshot.layers && snapshot.activeLayerId) {
           // Reconstruct layers with proper type preservation
-          const restoredLayers = snapshot.layers.map((rawLayer: any) => {
-            const layer = rawLayer as Layer & { colorCycleData?: ColorCycleSnapshotData };
+          const restoredLayers = (snapshot.layers as SerializedLayer[]).map((layer) => {
             const existingLayer = layers.find(l => l.id === layer.id) as Layer | undefined;
 
             const baseProps = {
@@ -1195,13 +1246,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
           
           if (isColorCycleLayer && tools.shapeMode) {
-            
-            if (activeLayer.colorCycleData?.canvas) {
-              // Log what we're saving
-              const ctx = activeLayer.colorCycleData.canvas.getContext('2d', { willReadFrequently: true });
-              const imageData = ctx?.getImageData(0, 0, 100, 100); // Sample corner
-            }
-            
             // Don't save here - it will be saved in finalizeDrawing
             // This prevents duplicate undo entries for color cycle shapes
             
@@ -1247,9 +1291,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           
           drawingHandlers.finalizeDrawing().then(() => {
             
-            
-            // Check if another save happened during finalization
-            const stackLength = useAppStore.getState().history.undoStack.length;
             
             // Signal that finalization is complete
             stateMachine.finalizationComplete();
@@ -1342,19 +1383,19 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     activeLayerId,
     selectionStart,
     selectionEnd,
-    floatingPaste: floatingPaste as any,
-    
+    floatingPaste,
+
     // Store actions
     setSelectionBounds,
     clearSelection,
-    setCurrentTool: setCurrentTool as any,
+    setCurrentTool: setCurrentToolById,
     setCurrentOffscreenCanvas,
     compositeLayersToCanvas,
-    saveCanvasState: saveCanvasState as any,
+    saveCanvasState: saveCanvasStateForHandlers,
     updateLayer,
-    
+
     // Floating paste
-    setFloatingPaste: setFloatingPaste as any,
+    setFloatingPaste: setFloatingPasteFromHandlers,
     updateFloatingPastePosition: (x: number, y: number) => updateFloatingPastePosition({ x, y }),
     commitFloatingPaste,
     cancelFloatingPaste,
@@ -1381,7 +1422,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     // Helper functions
     sampleColorAtPosition,
     sampleColorsAlongLine,
-    getMousePos: getMousePos as any,
+    getMousePos,
     
     // Drawing state management
     compositeCanvasDirtyRef,
@@ -1422,7 +1463,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     if (stateMachine.state.mode !== 'AWAITING_PAN' && stateMachine.state.mode !== 'PANNING' && !isDraggingFloatingPaste) {
       setCursorStyle(defaultCursorStyle);
     }
-  }, [defaultCursorStyle, isDraggingFloatingPaste, setCursorStyle]);
+  }, [defaultCursorStyle, isDraggingFloatingPaste, setCursorStyle, stateMachine.state.mode]);
   
   // Regenerate composite canvas when layers change
   useEffect(() => {
@@ -1507,10 +1548,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         animationId = null;
       }
     };
-  // FIX: Removed `draw` from dependencies to break circular dependency
-  // The animation only needs to know when to start/stop, not when draw changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectionStart, selectionEnd, floatingPaste, viewTransformRef]);
+  }, [draw, floatingPaste, selectionEnd, selectionStart, viewTransformRef]);
   
   // Handle wheel events for zooming and panning
   useEffect(() => {
@@ -1549,7 +1587,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         // Set state and let React handle the redraw
         setZoom(newScale);
         // Update pan to keep zoom centered on cursor
-        pan.setPan(newOffsetX, newOffsetY);
+        setPan(newOffsetX, newOffsetY);
 
       } else if (e.deltaX !== 0) {
         // Horizontal scroll - no action
@@ -1566,7 +1604,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       }
     };
     // The ref handles stale data, so dependencies can be minimal and stable.
-  }, [setZoom, viewTransformRef, pan]);
+  }, [setZoom, setPan, viewTransformRef]);
   
   // Consolidated safety net for resetting interaction state
   useEffect(() => {
@@ -1606,7 +1644,13 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     };
     
     // Dependencies ensure the handler has the correct functions/values if they ever change.
-  }, [defaultCursorStyle, isPointerInsideCanvas, setCursorStyle, setShowBrushCursor]);
+  }, [
+    defaultCursorStyle,
+    isPointerInsideCanvas,
+    setCursorStyle,
+    setShowBrushCursor,
+    stateMachine.state.isSpacePressed
+  ]);
   
   // Center canvas on mount and focus
   useEffect(() => {
@@ -1615,7 +1659,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     if (wrapperRef.current) {
       wrapperRef.current.focus();
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
   
   // Save initial state
   useEffect(() => {
@@ -1736,7 +1780,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     return () => {
       document.removeEventListener('paste', handlePaste);
     };
-  }, [project, layers, activeLayerId, saveCanvasState, draw]);
+  }, [project, layers, activeLayerId, saveCanvasState, draw, setFloatingPaste]);
 
   // Handle canvas resizing - run only once on mount
   useEffect(() => {
@@ -1785,7 +1829,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           const offsetY = Math.floor((height - contentHeight) / 2);
 
           // Apply pan and update transform immediately to avoid visual lag
-          pan.setPan(offsetX, offsetY);
+          setPan(offsetX, offsetY);
           viewTransformRef.current.offsetX = offsetX;
           viewTransformRef.current.offsetY = offsetY;
 
@@ -1808,7 +1852,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     handleResize();
     
     return () => resizeObserver.disconnect();
-  }, []); // Empty dependency array - run only once
+  }, [project, setCanvasDimensions, setPan]);
   
   // Color cycle animation frames are now handled by SimplifiedColorCycleManager
   // No need for separate event listeners
@@ -1828,7 +1872,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     const offsetX = Math.floor((width - contentWidth) / 2);
     const offsetY = Math.floor((height - contentHeight) / 2);
 
-    pan.setPan(offsetX, offsetY);
+    setPan(offsetX, offsetY);
     viewTransformRef.current.offsetX = offsetX;
     viewTransformRef.current.offsetY = offsetY;
 
@@ -1838,9 +1882,35 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     }
 
     hasCenteredRef.current = true;
-  }, [project, pan.setPan]);
+  }, [project, setPan]);
 
   
+  const shouldForcePixelated = (canvas?.zoom || 1) > 3 || (
+    tools.brushSettings.rotationEnabled &&
+    (
+      tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
+      (!tools.brushSettings.antialiasing && tools.brushSettings.brushShape === BrushShape.SQUARE)
+    )
+  );
+
+  const canvasStyle: React.CSSProperties = {
+    display: 'block',
+    width: '100%',
+    height: '100%',
+    touchAction: 'none',
+    userSelect: 'none',
+    cursor: cursorStyle,
+    imageRendering: shouldForcePixelated ? 'pixelated' : 'auto'
+  };
+
+  if (shouldForcePixelated) {
+    Object.assign(canvasStyle, {
+      WebkitImageRendering: 'pixelated',
+      MozImageRendering: 'crisp-edges',
+      msImageRendering: 'pixelated'
+    } as React.CSSProperties);
+  }
+
   return (
     <div
       ref={wrapperRef}
@@ -1863,27 +1933,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         onPointerCancel={handlePointerCancel}
         onContextMenu={(e) => e.preventDefault()}
         tabIndex={-1}
-        style={{ 
-          display: 'block', 
-          width: '100%', 
-          height: '100%',
-          // Force nearest-neighbor for pixel brushes with rotation
-          ...(((canvas?.zoom || 1) > 3 || 
-            (tools.brushSettings.rotationEnabled && 
-             (tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND || 
-              (!tools.brushSettings.antialiasing && tools.brushSettings.brushShape === BrushShape.SQUARE)))) 
-            ? {
-                imageRendering: 'pixelated',
-                // Fallbacks for different browsers
-                WebkitImageRendering: 'pixelated',
-                MozImageRendering: 'crisp-edges',
-                msImageRendering: 'pixelated',
-              } as any
-            : { imageRendering: 'auto' }),
-          touchAction: 'none', // Prevent scrolling/zooming on touch devices
-          userSelect: 'none', // Prevent text selection
-          cursor: cursorStyle,
-        }}
+        style={canvasStyle}
       />
       
       {/* Overlay canvas for previews - no interaction events */}

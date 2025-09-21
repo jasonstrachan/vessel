@@ -4,16 +4,12 @@ import type { EventHandlerDependencies } from '../../utils/types';
 import { BrushShape } from '@/types';
 import { snapPointToAngle } from '@/utils/angleSnap';
 import {
-  calculateLineSpacingFromPointer,
   computeLines2Defaults,
-  computeLines2ProjectionStats,
   generateContourLines,
   generateLines2Paths,
-  getLines2SideMidpoint,
   MAX_LINE_SPACING,
   MIN_LINE_SPACING,
   prepareContourLinesBasis,
-  projectPointOntoLines2Side,
 } from '@/utils/contourLines';
 
 export interface ShapeToolHandlerContext {
@@ -68,10 +64,7 @@ export const createShapeToolHandler = (
     stateMachine,
     setNeedsRedraw,
     viewTransformRef,
-    draw,
     sampleColorAtPosition,
-    sampleColorsAlongLine,
-    getMousePos,
     previewAnimationFrameRef,
     layers,
     activeLayerId,
@@ -116,7 +109,6 @@ export const createShapeToolHandler = (
   const clampCrosshatchSpacing = (value: number) => Math.max(2, Math.min(50, value));
 
   const contourFillSpacingClickArmedRef = { current: false };
-  type ContourBasis = NonNullable<ReturnType<typeof prepareContourLinesBasis>>;
   const MIN_POLYGON_POINT_SPACING = 5;
 
   const computePolygonCentroid = (vertices: Array<{ x: number; y: number }>) => {
@@ -214,8 +206,6 @@ export const createShapeToolHandler = (
 
     drawingHandlers.drawingCanvasHasContent.current = true;
   };
-
-  const clampContourSpacing = (value: number) => Math.min(MAX_LINE_SPACING, Math.max(MIN_LINE_SPACING, value));
 
   type PreviewStrokePalette = {
     inner: string;
@@ -365,7 +355,7 @@ export const createShapeToolHandler = (
     if (toolsState.brushSettings.shapeFillUseSampledColor) {
       if (points && points.length > 0) {
         for (const point of points) {
-          const candidate = (point as any)?.color;
+          const candidate = point.color;
           if (candidate) return candidate;
         }
       }
@@ -509,139 +499,6 @@ export const createShapeToolHandler = (
     }
 
     overlayCtx.restore();
-  };
-
-  const finalizeContourLinesStroke = (spacingStart: number, spacingEnd: number) => {
-    const state = useAppStore.getState();
-    const { contourLinesState } = state;
-    const { shapePoints, fillColor, basis } = contourLinesState;
-
-    if (!brushEngine || !basis || !shapePoints || shapePoints.length < 3) {
-      state.resetContourLinesState();
-      clearOverlayCanvas();
-      return;
-    }
-
-    drawingHandlers.initDrawingCanvas();
-    const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
-    if (!drawCtx) {
-      state.resetContourLinesState();
-      clearOverlayCanvas();
-      return;
-    }
-
-    brushEngine.drawContourPolygon(
-      drawCtx,
-      {
-        vertices: shapePoints,
-        fillColor,
-      },
-      false,
-      {
-        lineSpacingA: spacingStart,
-        lineSpacingB: spacingEnd,
-        lineBasis: basis,
-      }
-    );
-
-    drawingHandlers.drawingCanvasHasContent.current = true;
-    compositeCanvasDirtyRef.current = true;
-
-    drawingHandlers.finalizeDrawing(false).then(() => {
-      stateMachine.finalizationComplete();
-      requestAnimationFrame(() => {
-        if (compositeCanvasRef.current && project) {
-          compositeLayersToCanvas(compositeCanvasRef.current);
-          setCurrentOffscreenCanvas(compositeCanvasRef.current);
-          compositeCanvasDirtyRef.current = false;
-
-          const canvasEl = canvasRef.current;
-          const ctx = canvasEl?.getContext('2d', { willReadFrequently: true });
-          if (ctx) {
-            draw(ctx, viewTransformRef.current);
-          }
-        }
-      });
-
-      if (restartColorCycleAnimation) {
-        restartColorCycleAnimation();
-      }
-    });
-
-    resetPolygonAdjustmentState();
-    state.resetContourLinesState();
-    clearOverlayCanvas();
-    contourFillSpacingClickArmedRef.current = false;
-  };
-
-  const finalizeLines2Stroke = (
-    angle: number,
-    convergenceA: { x: number; y: number },
-    convergenceB: { x: number; y: number }
-  ) => {
-    const state = useAppStore.getState();
-    const { contourLinesState } = state;
-    const { shapePoints, fillColor, basis, centroid } = contourLinesState;
-
-    if (!brushEngine || !shapePoints || shapePoints.length < 3) {
-      state.resetContourLinesState();
-      clearOverlayCanvas();
-      return;
-    }
-
-    drawingHandlers.initDrawingCanvas();
-    const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
-    if (!drawCtx) {
-      state.resetContourLinesState();
-      clearOverlayCanvas();
-      return;
-    }
-
-    const spacingSetting = tools.brushSettings.contourLines2Spacing ?? 8;
-    const densitySetting = tools.brushSettings.contourLines2Density ?? 5;
-    const alternateSetting = tools.brushSettings.contourLines2Alternate ?? true;
-
-    brushEngine.drawContourPolygon(
-      drawCtx,
-      {
-        vertices: shapePoints,
-        fillColor,
-      },
-      false,
-      {
-        variant: 'lines2',
-        lineBasis: basis,
-        lines2Angle: angle,
-        lines2ConvergenceA: convergenceA,
-        lines2ConvergenceB: convergenceB,
-        lines2Spacing: spacingSetting,
-        lines2Density: densitySetting,
-        lines2Alternate: alternateSetting,
-        centroid,
-      }
-    );
-
-    drawingHandlers.drawingCanvasHasContent.current = true;
-    compositeCanvasDirtyRef.current = true;
-
-    drawingHandlers.finalizeDrawing(false).then(() => {
-      stateMachine.finalizationComplete();
-      requestAnimationFrame(() => {
-        if (compositeCanvasRef.current && project) {
-          compositeLayersToCanvas(compositeCanvasRef.current);
-          setCurrentOffscreenCanvas(compositeCanvasRef.current);
-          compositeCanvasDirtyRef.current = false;
-        }
-      });
-
-      if (restartColorCycleAnimation) {
-        restartColorCycleAnimation();
-      }
-    });
-
-    resetPolygonAdjustmentState();
-    state.resetContourLinesState();
-    clearOverlayCanvas();
   };
 
   const handleCrosshatchPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -1473,7 +1330,7 @@ export const createShapeToolHandler = (
     return true;
   };
 
-  const handleTrianglePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handleTrianglePointerUp = () => {
     const polygonState = useAppStore.getState().polygonGradientState;
     if (polygonState.mode !== 'triangle') {
       return false;

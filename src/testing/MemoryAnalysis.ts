@@ -17,7 +17,7 @@ interface MemoryMetrics {
   timestamp: number;
 }
 
-interface MemoryTestResult {
+export interface MemoryTestResult {
   testName: string;
   canvas2d: {
     initial: MemoryMetrics;
@@ -41,6 +41,35 @@ interface MemoryTestResult {
   };
 }
 
+
+type PerformanceMemoryInfo = {
+  usedJSHeapSize: number;
+  totalJSHeapSize: number;
+  jsHeapSizeLimit: number;
+};
+
+interface PerformanceWithMemory extends Performance {
+  memory?: PerformanceMemoryInfo;
+}
+
+type GarbageCollectableGlobal = typeof globalThis & {
+  gc?: () => void;
+};
+
+interface MemoryTestBrush {
+  paint: (x: number, y: number, layerId?: string) => void;
+  setGradient: (stops: GradientStop[], layerId?: string) => void;
+  startAnimation: () => void;
+  stopAnimation: () => void;
+  dispose: () => void;
+}
+
+type MemoryBrushConstructor = new (
+  canvas: HTMLCanvasElement,
+  options?: { brushSize?: number; fps?: number }
+) => MemoryTestBrush;
+
+
 export class MemoryAnalysis {
   private results: MemoryTestResult[] = [];
   
@@ -58,34 +87,55 @@ export class MemoryAnalysis {
         arrayBuffers: usage.arrayBuffers || 0,
         timestamp: Date.now()
       };
-    } else if ((performance as any).memory) {
-      // Chrome browser with --enable-precise-memory-info
+    }
+
+    const performanceMemory = this.getPerformanceMemoryInfo();
+    if (performanceMemory) {
       return {
-        heapUsed: (performance as any).memory.usedJSHeapSize,
-        heapTotal: (performance as any).memory.totalJSHeapSize,
-        external: 0,
-        arrayBuffers: 0,
-        timestamp: Date.now()
-      };
-    } else {
-      // Fallback - estimate based on canvas size
-      return {
-        heapUsed: 0,
-        heapTotal: 0,
+        heapUsed: performanceMemory.usedJSHeapSize,
+        heapTotal: performanceMemory.totalJSHeapSize,
         external: 0,
         arrayBuffers: 0,
         timestamp: Date.now()
       };
     }
+
+    // Fallback - estimate based on canvas size
+    return {
+      heapUsed: 0,
+      heapTotal: 0,
+      external: 0,
+      arrayBuffers: 0,
+      timestamp: Date.now()
+    };
   }
   
   /**
    * Force garbage collection if available
    */
   private forceGC(): void {
-    if ((global as any).gc) {
-      (global as any).gc();
+    const globalWithGC = this.getGlobalWithGC();
+    if (typeof globalWithGC.gc === 'function') {
+      globalWithGC.gc();
     }
+  }
+
+  private getPerformanceMemoryInfo(): PerformanceMemoryInfo | null {
+    if (!('performance' in globalThis)) {
+      return null;
+    }
+
+    const perf = (globalThis as { performance?: Performance }).performance;
+    if (!perf) {
+      return null;
+    }
+
+    const perfWithMemory: PerformanceWithMemory = perf;
+    return perfWithMemory.memory ?? null;
+  }
+
+  private getGlobalWithGC(): GarbageCollectableGlobal {
+    return globalThis as GarbageCollectableGlobal;
   }
   
   /**
@@ -101,9 +151,9 @@ export class MemoryAnalysis {
    * Test memory usage for a single implementation
    */
   private async testImplementation(
-    ImplementationClass: any,
+    ImplementationClass: MemoryBrushConstructor,
     canvasSize: { width: number; height: number },
-    operations: (brush: any) => Promise<void>
+    operations: (brush: MemoryTestBrush) => Promise<void>
   ): Promise<{
     initial: MemoryMetrics;
     afterCreate: MemoryMetrics;
@@ -172,7 +222,7 @@ export class MemoryAnalysis {
   async testSmallCanvas(): Promise<MemoryTestResult> {
     const canvasSize = { width: 256, height: 256 };
     
-    const operations = async (brush: any) => {
+    const operations = async (brush: MemoryTestBrush) => {
       // Paint some content
       for (let i = 0; i < 100; i++) {
         brush.paint(
@@ -217,7 +267,7 @@ export class MemoryAnalysis {
   async testMediumCanvas(): Promise<MemoryTestResult> {
     const canvasSize = { width: 1024, height: 768 };
     
-    const operations = async (brush: any) => {
+    const operations = async (brush: MemoryTestBrush) => {
       // Paint more content
       for (let i = 0; i < 1000; i++) {
         brush.paint(
@@ -270,7 +320,7 @@ export class MemoryAnalysis {
   async testLargeCanvas(): Promise<MemoryTestResult> {
     const canvasSize = { width: 2048, height: 2048 };
     
-    const operations = async (brush: any) => {
+    const operations = async (brush: MemoryTestBrush) => {
       // Paint lots of content
       for (let i = 0; i < 5000; i++) {
         brush.paint(
@@ -325,7 +375,7 @@ export class MemoryAnalysis {
   async testMultiLayer(): Promise<MemoryTestResult> {
     const canvasSize = { width: 1024, height: 1024 };
     
-    const operations = async (brush: any) => {
+    const operations = async (brush: MemoryTestBrush) => {
       // Create multiple layers
       const layers = ['layer1', 'layer2', 'layer3', 'layer4', 'layer5'];
       
@@ -407,6 +457,7 @@ export class MemoryAnalysis {
    * Generate memory analysis report
    */
   generateReport(): string {
+    const performanceMemory = this.getPerformanceMemoryInfo();
     let html = `
 <!DOCTYPE html>
 <html>
@@ -552,13 +603,13 @@ export class MemoryAnalysis {
     <div class="metadata">
       <strong>Test Date:</strong> ${new Date().toLocaleString()}<br>
       <strong>Test Environment:</strong> ${typeof process !== 'undefined' ? 'Node.js' : 'Browser'}<br>
-      <strong>Memory API Available:</strong> ${(performance as any).memory ? 'Yes' : 'Limited'}<br>
+      <strong>Memory API Available:</strong> ${performanceMemory ? 'Yes' : 'Limited'}<br>
       <strong>User Agent:</strong> ${typeof navigator !== 'undefined' ? navigator.userAgent : 'N/A'}
     </div>
     `;
     
     // Check if memory API is available
-    if (!(performance as any).memory && typeof process === 'undefined') {
+    if (!performanceMemory && typeof process === 'undefined') {
       html += `
       <div class="warning">
         <strong>⚠️ Limited Memory Information</strong><br>

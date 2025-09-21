@@ -6,6 +6,26 @@
 import { ColorQuantizer } from '../../ColorQuantizer';
 import { BayerDithering } from '../../dithering/BayerDithering';
 
+type PerformanceMemoryStats = {
+  jsHeapSizeLimit: number;
+  totalJSHeapSize: number;
+  usedJSHeapSize: number;
+};
+
+const getPerformanceMemory = (): PerformanceMemoryStats | null => {
+  const perf = performance as Performance & { memory?: PerformanceMemoryStats };
+  const { memory } = perf;
+  if (
+    memory &&
+    typeof memory.jsHeapSizeLimit === 'number' &&
+    typeof memory.totalJSHeapSize === 'number' &&
+    typeof memory.usedJSHeapSize === 'number'
+  ) {
+    return memory;
+  }
+  return null;
+};
+
 export interface BrowserCapabilities {
   name: string;
   version: string;
@@ -151,7 +171,7 @@ export class CrossBrowserTest {
         result.version = gl.getParameter(gl.VERSION);
         result.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
       }
-    } catch (e) {
+    } catch {
       // WebGL not supported
     }
 
@@ -169,11 +189,12 @@ export class CrossBrowserTest {
       usedJSHeapSize: undefined as number | undefined
     };
 
-    if ((performance as any).memory) {
+    const memory = getPerformanceMemory();
+    if (memory) {
       result.supported = true;
-      result.jsHeapSizeLimit = (performance as any).memory.jsHeapSizeLimit;
-      result.totalJSHeapSize = (performance as any).memory.totalJSHeapSize;
-      result.usedJSHeapSize = (performance as any).memory.usedJSHeapSize;
+      result.jsHeapSizeLimit = memory.jsHeapSizeLimit;
+      result.totalJSHeapSize = memory.totalJSHeapSize;
+      result.usedJSHeapSize = memory.usedJSHeapSize;
     }
 
     return result;
@@ -213,7 +234,7 @@ export class CrossBrowserTest {
       
       // Good performance threshold: < 50ms for 256x256 RGBA manipulation
       result.performanceGood = duration < 50;
-    } catch (e) {
+    } catch {
       // TypedArray not supported
     }
 
@@ -245,7 +266,7 @@ export class CrossBrowserTest {
         // Estimate precision based on reasonable expectations
         result.nowPrecision = duration > 0 ? Math.floor(Math.log10(1 / duration)) : 0;
       }
-    } catch (e) {
+    } catch {
       // Performance API not supported
     }
 
@@ -357,8 +378,9 @@ export class CrossBrowserTest {
       if (!result.quantizationWorks) {
         result.issues.push('Color quantization failed');
       }
-    } catch (e) {
-      result.issues.push(`Quantization error: ${e}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      result.issues.push(`Quantization error: ${message}`);
     }
 
     try {
@@ -376,8 +398,9 @@ export class CrossBrowserTest {
       if (!result.ditheringWorks) {
         result.issues.push('Dithering failed');
       }
-    } catch (e) {
-      result.issues.push(`Dithering error: ${e}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      result.issues.push(`Dithering error: ${message}`);
     }
 
     try {
@@ -406,8 +429,9 @@ export class CrossBrowserTest {
       if (!result.animationWorks) {
         result.issues.push('Animation system failed');
       }
-    } catch (e) {
-      result.issues.push(`Animation error: ${e}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      result.issues.push(`Animation error: ${message}`);
     }
 
     return result;
@@ -478,10 +502,10 @@ export class CrossBrowserTest {
           version = userAgent.match(/(?:Opera|OPR)\/([0-9.]+)/)?.[1] || 'Unknown';
           break;
       }
-    } catch (e) {
+    } catch {
       // Version detection failed
     }
-    
+
     return version;
   }
 

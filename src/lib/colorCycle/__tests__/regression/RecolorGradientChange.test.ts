@@ -6,10 +6,23 @@ describe('Recolor gradient change preserves image data', () => {
     const manager = RecolorManager.getInstance();
 
     // Patch internals to avoid heavy engine/canvas work
-    (manager as any).engine = {
+    const managerProxy = manager as unknown as {
+      engine: {
+        updateGradient: (layer: Layer, gradient: Array<{ position: number; color: string }>) => boolean;
+      };
+      animationController: {
+        updateLayer: (layer: Layer) => void;
+        getLayers: () => Layer[];
+        isAnimating: () => boolean;
+        getStats: () => Record<string, unknown>;
+      };
+      updateGradient: (layer: Layer, gradient: Array<{ position: number; color: string }>) => boolean;
+    };
+
+    managerProxy.engine = {
       updateGradient: jest.fn().mockReturnValue(true)
     };
-    (manager as any).animationController = {
+    managerProxy.animationController = {
       updateLayer: jest.fn((layer: Layer) => {
         if (!layer.imageData) {
           layer.imageData = new ImageData(1, 1);
@@ -64,7 +77,7 @@ describe('Recolor gradient change preserves image data', () => {
       }
     };
 
-    const ok = manager.updateGradient(layer, [
+    const ok = managerProxy.updateGradient(layer, [
       { position: 0, color: '#ff0000' },
       { position: 1, color: '#00ff00' }
     ]);
@@ -73,4 +86,3 @@ describe('Recolor gradient change preserves image data', () => {
     expect(layer.imageData).not.toBeNull();
   });
 });
-

@@ -603,3 +603,5 @@ export function useCanvasStateMachine() {
     isIdle: state.mode === 'IDLE',
   };
 }
+
+export type CanvasStateMachine = ReturnType<typeof useCanvasStateMachine>;

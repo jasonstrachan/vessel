@@ -25,6 +25,10 @@ export interface GLRendererConfig {
 
 type GL = WebGLRenderingContext | WebGL2RenderingContext;
 
+type LoseContextExtension = {
+  loseContext?: () => void;
+};
+
 export class WebGLColorCycleRenderer {
   private canvas: HTMLCanvasElement;
   private gl: GL;
@@ -56,7 +60,7 @@ export class WebGLColorCycleRenderer {
   private fillMaxVerts: number = 128; // runtime-adaptive max based on uniform limits
 
   private static _supportCached: boolean | null = null;
-  
+
   /**
    * Detect WebGL support once and cache the result.
    * Uses WEBGL_lose_context to immediately release any probe context to avoid
@@ -73,13 +77,19 @@ export class WebGLColorCycleRenderer {
       // Prefer WebGL2
       const gl2 = canvas.getContext('webgl2') as WebGL2RenderingContext | null;
       if (gl2) {
-        try { (gl2.getExtension('WEBGL_lose_context') as any)?.loseContext?.(); } catch {}
+        try {
+          const loseContext = gl2.getExtension('WEBGL_lose_context') as LoseContextExtension | null;
+          loseContext?.loseContext?.();
+        } catch {}
         this._supportCached = true;
         return true;
       }
       const gl = (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')) as WebGLRenderingContext | null;
       if (gl) {
-        try { (gl.getExtension('WEBGL_lose_context') as any)?.loseContext?.(); } catch {}
+        try {
+          const loseContext = gl.getExtension('WEBGL_lose_context') as LoseContextExtension | null;
+          loseContext?.loseContext?.();
+        } catch {}
         this._supportCached = true;
         return true;
       }
@@ -127,14 +137,22 @@ export class WebGLColorCycleRenderer {
     try {
       // Prefer querying in vec4 units
       let maxVec4 = 64;
-      // @ts-ignore
-      const v1 = (this.gl as any).MAX_FRAGMENT_UNIFORM_VECTORS;
-      if (v1) {
-        maxVec4 = this.gl.getParameter(v1) as number;
-      } else {
-        // @ts-ignore WebGL2
-        const comps = (this.gl as any).MAX_FRAGMENT_UNIFORM_COMPONENTS ? this.gl.getParameter((this.gl as any).MAX_FRAGMENT_UNIFORM_COMPONENTS) : 256;
-        maxVec4 = Math.floor((comps || 256) / 4);
+      const gl = this.gl;
+      if ('MAX_FRAGMENT_UNIFORM_VECTORS' in gl) {
+        const uniformVecEnum = (gl as WebGLRenderingContext).MAX_FRAGMENT_UNIFORM_VECTORS;
+        const reported = gl.getParameter(uniformVecEnum);
+        if (typeof reported === 'number') {
+          maxVec4 = reported;
+        }
+      }
+
+      if (this.isWebGL2) {
+        const gl2 = gl as WebGL2RenderingContext;
+        const componentsEnum = gl2.MAX_FRAGMENT_UNIFORM_COMPONENTS;
+        const components = gl2.getParameter(componentsEnum);
+        if (typeof components === 'number') {
+          maxVec4 = Math.floor(components / 4);
+        }
       }
       // Reserve some headroom for other uniforms; each vec2 consumes 1 vec4 slot on many drivers
       const reserve = 24;
@@ -476,7 +494,6 @@ export class WebGLColorCycleRenderer {
     // No need for depth/stencil
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
-      // eslint-disable-next-line no-console
       console.warn('[WebGLColorCycleRenderer] Fill FBO incomplete:', status.toString(16));
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -558,11 +575,9 @@ export class WebGLColorCycleRenderer {
     const pixels = new Uint8Array(bw * bh * 4);
     gl.readPixels(0, 0, bw, bh, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     const out = new Uint8Array(bw * bh);
-    let nonZero = 0;
     for (let i = 0, j = 0; i < out.length; i++, j += 4) {
       const r = pixels[j];
       out[i] = r;
-      if (r !== 0) nonZero++;
     }
     // quiet
 

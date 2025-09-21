@@ -6,6 +6,9 @@
 import { ColorCycleAnimator } from '../ColorCycleAnimator';
 import { AnimationController } from '../AnimationController';
 
+const GRADIENT_PRESETS = ['rainbow', 'fire', 'ocean', 'sunset', 'grayscale'] as const;
+type GradientPresetName = typeof GRADIENT_PRESETS[number];
+
 export class ColorCycleDemo {
   private animator: ColorCycleAnimator;
   private container: HTMLElement;
@@ -95,14 +98,15 @@ export class ColorCycleDemo {
     const presetLabel = document.createElement('label');
     presetLabel.textContent = ' Gradient: ';
     const presetSelect = document.createElement('select');
-    ['rainbow', 'fire', 'ocean', 'sunset', 'grayscale'].forEach(preset => {
+    GRADIENT_PRESETS.forEach(preset => {
       const option = document.createElement('option');
       option.value = preset;
       option.textContent = preset.charAt(0).toUpperCase() + preset.slice(1);
       presetSelect.appendChild(option);
     });
     presetSelect.onchange = () => {
-      this.animator.setPresetGradient(presetSelect.value as any);
+      const preset = presetSelect.value as GradientPresetName;
+      this.animator.setPresetGradient(preset);
     };
     presetLabel.appendChild(presetSelect);
     this.controlsContainer.appendChild(presetLabel);
@@ -203,7 +207,6 @@ export class ColorCycleDemo {
     const maxRadius = Math.min(width, height) / 3;
     
     for (let r = maxRadius; r > 0; r -= 20) {
-      const angle = (r / maxRadius) * Math.PI * 2;
       const colorIndex = Math.floor((r / maxRadius) * 255);
       
       // Draw circle outline

@@ -394,7 +394,7 @@ export class BayerDithering {
     const sampleImage = new ImageData(sampleData, regionWidth, regionHeight);
     
     // Create simple palette from sample
-    const palette = this.createPreviewPalette(sampleImage);
+    const palette = this.createPreviewPalette();
     
     // Apply dithering to sample
     return this.dither(sampleImage, palette).imageData;
@@ -403,7 +403,7 @@ export class BayerDithering {
   /**
    * Create a simple preview palette from image sample
    */
-  private createPreviewPalette(imageData: ImageData): Uint32Array {
+  private createPreviewPalette(): Uint32Array {
     // Simple RGB332 palette for preview
     const palette = new Uint32Array(256 * 4);
     

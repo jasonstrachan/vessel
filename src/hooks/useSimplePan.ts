@@ -90,3 +90,5 @@ export function useSimplePan(options: SimplePanOptions = {}) {
     worldToScreen
   };
 }
+
+export type SimplePan = ReturnType<typeof useSimplePan>;

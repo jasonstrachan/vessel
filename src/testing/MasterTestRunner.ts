@@ -7,6 +7,10 @@ import { ColorCycleFeatureParityTest } from './ColorCycleFeatureParityTest';
 import { PerformanceBenchmark } from './PerformanceBenchmark';
 import { VisualQualityComparison } from './VisualQualityComparison';
 import { MemoryAnalysis } from './MemoryAnalysis';
+import type { TestResult } from './ColorCycleFeatureParityTest';
+import type { BenchmarkResult } from './PerformanceBenchmark';
+import type { ComparisonResult } from './VisualQualityComparison';
+import type { MemoryTestResult } from './MemoryAnalysis';
 
 export class MasterTestRunner {
   private parityTest: ColorCycleFeatureParityTest;
@@ -61,10 +65,10 @@ export class MasterTestRunner {
    * Run all tests
    */
   async runAllTests(): Promise<{
-    parity: any;
-    performance: any;
-    visual: any;
-    memory: any;
+    parity: TestResult[];
+    performance: BenchmarkResult[];
+    visual: ComparisonResult[];
+    memory: MemoryTestResult[];
   }> {
     console.log('🚀 Starting comprehensive Canvas2D vs WebGL testing...\n');
     
@@ -101,21 +105,21 @@ export class MasterTestRunner {
    * Generate master report
    */
   generateMasterReport(results: {
-    parity: any;
-    performance: any;
-    visual: any;
-    memory: any;
+    parity: TestResult[];
+    performance: BenchmarkResult[];
+    visual: ComparisonResult[];
+    memory: MemoryTestResult[];
   }): string {
     // Calculate summary metrics
-    const parityRate = (results.parity.filter((r: any) => r.parity).length / results.parity.length) * 100;
+    const parityRate = (results.parity.filter(result => result.parity).length / results.parity.length) * 100;
     
-    const performanceRatio = results.performance.reduce((sum: number, r: any) => sum + r.ratio, 0) / results.performance.length;
+    const performanceRatio = results.performance.reduce((sum, result) => sum + result.ratio, 0) / results.performance.length;
     const performanceWinner = performanceRatio < 1 ? 'Canvas2D' : 'WebGL';
     
-    const visualDifference = results.visual.reduce((sum: number, r: any) => sum + r.difference, 0) / results.visual.length;
+    const visualDifference = results.visual.reduce((sum, result) => sum + result.difference, 0) / results.visual.length;
     const visualScore = Math.round((1 - visualDifference) * 100);
     
-    const memorySavings = results.memory.reduce((sum: number, r: any) => sum + r.savings.percentSaved, 0) / results.memory.length;
+    const memorySavings = results.memory.reduce((sum, result) => sum + result.savings.percentSaved, 0) / results.memory.length;
     
     // Determine overall recommendation
     let recommendation = '';
@@ -335,7 +339,7 @@ export class MasterTestRunner {
           ${parityRate.toFixed(1)}%
         </div>
         <div class="card-subtitle">
-          ${results.parity.filter((r: any) => r.parity).length}/${results.parity.length} tests passed
+          ${results.parity.filter((r: TestResult) => r.parity).length}/${results.parity.length} tests passed
         </div>
       </div>
       
@@ -531,15 +535,15 @@ export class MasterTestRunner {
       const results = await this.runAllTests();
       const report = this.generateMasterReport(results);
       
-      // Save individual reports if needed
-      const parityReport = this.parityTest.generateHTMLReport();
-      const performanceReport = this.performanceBenchmark.generateReport();
-      const visualReport = this.visualComparison.generateReport();
-      const memoryReport = this.memoryAnalysis.generateReport();
+      // Generate individual reports so downstream consumers can access cached markup without rerunning tests.
+      void this.parityTest.generateHTMLReport();
+      void this.performanceBenchmark.generateReport();
+      void this.visualComparison.generateReport();
+      void this.memoryAnalysis.generateReport();
       
       console.log('✅ All tests completed successfully!');
       console.log('\n📊 Summary:');
-      console.log(`- Feature Parity: ${(results.parity.filter((r: any) => r.parity).length / results.parity.length * 100).toFixed(1)}%`);
+      console.log(`- Feature Parity: ${(results.parity.filter((r: TestResult) => r.parity).length / results.parity.length * 100).toFixed(1)}%`);
       console.log(`- Performance: ${results.performance.length} benchmarks completed`);
       console.log(`- Visual Quality: ${results.visual.length} comparisons made`);
       console.log(`- Memory Analysis: ${results.memory.length} scenarios tested`);

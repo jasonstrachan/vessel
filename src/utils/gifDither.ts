@@ -22,9 +22,9 @@ function nearestIndexRGBA(
   const hasAlpha = palette.length > 0 && palette[0].length >= 4;
   for (let i = 0; i < palette.length; i++) {
     const p = palette[i];
-    let dr = p[0] - r;
-    let dg = p[1] - g;
-    let db = p[2] - b;
+    const dr = p[0] - r;
+    const dg = p[1] - g;
+    const db = p[2] - b;
     let dist = dr * dr + dg * dg + db * db;
     if (hasAlpha) {
       const da = (p[3] ?? 255) - a;
@@ -82,9 +82,9 @@ export function ditherFloydSteinberg(
       const pb = palette[idx][2];
 
       // Quantization error
-      let er = (r0 - pr) * strength;
-      let eg = (g0 - pg) * strength;
-      let eb = (b0 - pb) * strength;
+      const er = (r0 - pr) * strength;
+      const eg = (g0 - pg) * strength;
+      const eb = (b0 - pb) * strength;
 
       // Distribute error (Floyd–Steinberg)
       // Right
@@ -186,4 +186,3 @@ export function mapToIndexedWithDithering(
       return out;
   }
 }
-

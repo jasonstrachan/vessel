@@ -11,31 +11,11 @@ export default function ZoomControls() {
 
   // Zoom at center of canvas since we don't have reliable cursor position from buttons
   const zoomAtCenter = (newZoom: number) => {
-    // Get canvas element
-    const canvasElement = document.querySelector('canvas') as HTMLCanvasElement;
+    const canvasElement = document.querySelector('canvas') as HTMLCanvasElement | null;
     if (!canvasElement) {
       return;
     }
 
-    // Get canvas bounds
-    const rect = canvasElement.getBoundingClientRect();
-    
-    // Calculate center of canvas in canvas coordinates
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
-    
-    // Scale to canvas drawing buffer coordinates
-    const scaleX = canvasElement.width / rect.width;
-    const scaleY = canvasElement.height / rect.height;
-    
-    const canvasCenterX = centerX * scaleX;
-    const canvasCenterY = centerY * scaleY;
-    
-    
-    // Calculate world coordinates of center point
-    const worldX = canvasCenterX / canvas.zoom;
-    const worldY = canvasCenterY / canvas.zoom;
-    
     // Just set the zoom - panning is handled elsewhere
     setZoom(newZoom);
   };

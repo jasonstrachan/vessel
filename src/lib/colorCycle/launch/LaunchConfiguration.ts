@@ -45,6 +45,8 @@ export interface SystemHealth {
   lastCheck: number;
 }
 
+type ErrorContext = Record<string, unknown>;
+
 export interface ErrorReport {
   id: string;
   timestamp: number;
@@ -56,8 +58,25 @@ export interface ErrorReport {
   url: string;
   userId?: string;
   sessionId: string;
-  context: Record<string, any>;
+  context: ErrorContext;
 }
+
+type DiagnosticsExport = {
+  config: LaunchConfig;
+  health: SystemHealth;
+  errors: ErrorReport[];
+  performance: ReturnType<PerformanceProfiler['exportData']>;
+  browser: {
+    userAgent: string;
+    compatibility: ReturnType<BrowserCompat['getConfig']>;
+    features: {
+      canvas2d: boolean;
+      webgl: boolean;
+      memoryAPI: boolean;
+      highResTimer: boolean;
+    };
+  };
+};
 
 export class LaunchConfiguration {
   private static instance: LaunchConfiguration;
@@ -209,13 +228,7 @@ export class LaunchConfiguration {
   /**
    * Export system diagnostics
    */
-  exportDiagnostics(): {
-    config: LaunchConfig;
-    health: SystemHealth;
-    errors: ErrorReport[];
-    performance: any;
-    browser: any;
-  } {
+  exportDiagnostics(): DiagnosticsExport {
     return {
       config: this.config,
       health: this.health,
@@ -448,7 +461,7 @@ export class LaunchConfiguration {
     component: string,
     message: string,
     stack?: string,
-    context: Record<string, any> = {}
+    context: ErrorContext = {}
   ): void {
     const error: ErrorReport = {
       id: this.generateId(),
@@ -478,7 +491,7 @@ export class LaunchConfiguration {
   /**
    * Report an event
    */
-  private reportEvent(level: 'error' | 'warning' | 'info', component: string, message: string, context: Record<string, any> = {}): void {
+  private reportEvent(level: 'error' | 'warning' | 'info', component: string, message: string, context: ErrorContext = {}): void {
     this.reportError(level, component, message, undefined, context);
   }
 

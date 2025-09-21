@@ -3,16 +3,20 @@
  * Run with: npm test -- performance.benchmark.ts
  */
 
+import { renderHook } from '@testing-library/react';
 import { useBrushEngineSimplified } from '../../useBrushEngineSimplified';
-import { createBrushEngineFacade } from '../BrushEngineFacade';
+import { applyDithering } from '../dithering';
+import { parseColor } from '../colorUtils';
+import { snapToGridPure } from '../utilities';
 import type { BrushSettings } from '@/types';
+import type { MutableRefObject } from 'react';
 
 // Mock React hooks for testing
 jest.mock('react', () => ({
   ...jest.requireActual('react'),
-  useCallback: (fn: any) => fn,
-  useMemo: (fn: any) => fn(),
-  useRef: (val: any) => ({ current: val }),
+  useCallback: <T extends (...args: unknown[]) => unknown>(fn: T) => fn,
+  useMemo: <T>(factory: () => T) => factory(),
+  useRef: <T>(value: T) => ({ current: value }) as MutableRefObject<T>,
   useEffect: () => {}
 }));
 
@@ -36,7 +40,7 @@ const mockBrushSettings: BrushSettings = {
   size: 10,
   opacity: 100,
   color: '#000000',
-  blendMode: 'normal' as any,
+  blendMode: 'source-over',
   spacing: 0.1,
   pressure: 1,
   rotation: 0,
@@ -84,26 +88,30 @@ describe('Performance Benchmarks', () => {
     return { total: time, perIteration };
   };
 
+  const createBenchmarkBrushEngine = () => {
+    const { result, unmount } = renderHook(() => useBrushEngineSimplified());
+    return { engine: result.current, cleanup: unmount };
+  };
+
   test('Stroke rendering performance', () => {
     const from = { x: 100, y: 100 };
     const to = { x: 200, y: 200 };
     const cursor = { pressure: 0.8 };
-    
+
     // Test the current implementation
-    const engine = useBrushEngineSimplified();
+    const { engine, cleanup } = createBenchmarkBrushEngine();
     const result = runBenchmark('Brush Engine - Stroke', () => {
       engine.drawBrush(ctx, from, to, cursor);
     }, 100);
-    
+
+    cleanup();
+
     // Should complete quickly
     expect(result.perIteration).toBeLessThan(5); // Under 5ms per stroke
   });
 
   test('Color utilities performance', () => {
     const colors = ['#FF0000', '#00FF00', '#0000FF', 'rgb(128, 128, 128)', 'rgba(255, 255, 255, 0.5)'];
-    
-    // Import modules directly for micro-benchmarks
-    const { parseColor } = require('../colorUtils');
     
     const result = runBenchmark('parseColor', () => {
       for (const color of colors) {
@@ -116,8 +124,6 @@ describe('Performance Benchmarks', () => {
   });
 
   test('Grid snapping performance', () => {
-    const { snapToGridPure } = require('../utilities');
-    
     const points = [
       { x: 15, y: 15 },
       { x: 123, y: 456 },
@@ -145,8 +151,6 @@ describe('Performance Benchmarks', () => {
       imageData.data[i + 3] = 255;
     }
     
-    const { applyDithering } = require('../dithering');
-    
     const result = runBenchmark('Dithering', () => {
       applyDithering(imageData, 8, 'sierra-lite');
     }, 10);
@@ -156,9 +160,11 @@ describe('Performance Benchmarks', () => {
   });
 
   test('Memory usage comparison', () => {
-    if (typeof (global as any).gc === 'function') {
+    const globalWithGc = globalThis as typeof globalThis & { gc?: () => void };
+
+    if (typeof globalWithGc.gc === 'function') {
       // Run with --expose-gc flag to enable manual GC
-      (global as any).gc();
+      globalWithGc.gc();
       
       const getMemoryUsage = () => {
         if (typeof process !== 'undefined' && process.memoryUsage) {
@@ -169,17 +175,20 @@ describe('Performance Benchmarks', () => {
       
       // Measure engine memory
       const before = getMemoryUsage();
-      const engines = [];
+      const engines: Array<{ cleanup: () => void }> = [];
       for (let i = 0; i < 10; i++) {
-        engines.push(useBrushEngineSimplified());
+        const instance = createBenchmarkBrushEngine();
+        engines.push({ cleanup: instance.cleanup });
       }
       const after = getMemoryUsage();
       const memory = after - before;
       
       console.log(`Engine memory: ${(memory / 1024 / 1024).toFixed(2)}MB`);
-      
+
       // Should use reasonable memory
       expect(memory).toBeLessThan(50 * 1024 * 1024); // Under 50MB for 10 instances
+
+      engines.forEach(({ cleanup }) => cleanup());
     } else {
       console.log('Memory test skipped - run with --expose-gc flag');
     }

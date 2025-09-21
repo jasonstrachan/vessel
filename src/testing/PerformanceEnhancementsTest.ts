@@ -6,16 +6,93 @@
 import { ColorCycleBrushOptimized } from '../hooks/brushEngine/ColorCycleBrushOptimized';
 import { ColorCycleBrushCanvas2D } from '../hooks/brushEngine/ColorCycleBrushCanvas2D';
 
+
+type PerformanceFeatureStats = ReturnType<ColorCycleBrushOptimized['getPerformanceStats']>;
+
+type RenderingPerformanceDetails = {
+  iterations: number;
+  totalBaselineTime: number;
+  totalOptimizedTime: number;
+  performanceFeatures: PerformanceFeatureStats;
+};
+
+type PaintPerformanceDetails = {
+  operations: number;
+  brushSize: number;
+  totalBaselineTime: number;
+  totalOptimizedTime: number;
+};
+
+type AnimationPerformanceDetails = {
+  duration: number;
+  baselineFrames: number;
+  optimizedFrames: number;
+  targetFPS: number;
+};
+
+type MemoryUsageDetails = {
+  baselineBytes: number;
+  optimizedBytes: number;
+  paintOperations: number;
+};
+
+type GradientUpdateDetails = {
+  updates: number;
+  totalBaselineTime: number;
+  totalOptimizedTime: number;
+  gradientCount: number;
+};
+
+type PerformanceTestDetails =
+  | RenderingPerformanceDetails
+  | PaintPerformanceDetails
+  | AnimationPerformanceDetails
+  | MemoryUsageDetails
+  | GradientUpdateDetails;
+
+type PerformanceMemoryInfo = {
+  usedJSHeapSize: number;
+  totalJSHeapSize: number;
+  jsHeapSizeLimit: number;
+};
+
+interface PerformanceWithMemory extends Performance {
+  memory?: PerformanceMemoryInfo;
+}
+
+type GarbageCollectableGlobal = typeof globalThis & {
+  gc?: () => void;
+};
+
+
 export interface PerformanceTestResult {
   testName: string;
   baseline: number;
   optimized: number;
   improvement: number;
-  details: any;
+  details: PerformanceTestDetails;
 }
 
 export class PerformanceEnhancementsTest {
   private results: PerformanceTestResult[] = [];
+
+  private getPerformanceMemoryInfo(): PerformanceMemoryInfo | null {
+    if (!('performance' in globalThis)) {
+      return null;
+    }
+
+    const perf = (globalThis as { performance?: Performance }).performance;
+    if (!perf) {
+      return null;
+    }
+
+    const perfWithMemory: PerformanceWithMemory = perf;
+    return perfWithMemory.memory ?? null;
+  }
+
+  private getGarbageCollectableGlobal(): GarbageCollectableGlobal {
+    return globalThis as GarbageCollectableGlobal;
+  }
 
   /**
    * Run all performance tests
@@ -268,24 +345,22 @@ export class PerformanceEnhancementsTest {
    */
   private async testMemoryUsage(canvas1: HTMLCanvasElement, canvas2: HTMLCanvasElement) {
     // Get initial memory if available
-    const getMemory = () => {
-      if ('memory' in performance) {
-        return (performance as any).memory.usedJSHeapSize;
-      }
-      return 0;
+    const readHeapUsage = () => {
+      const memoryInfo = this.getPerformanceMemoryInfo();
+      return memoryInfo?.usedJSHeapSize ?? 0;
     };
-    
-    // Force garbage collection if available
-    const gc = () => {
-      if ('gc' in window) {
-        (window as any).gc();
+
+    const triggerGC = () => {
+      const gcContext = this.getGarbageCollectableGlobal();
+      if (typeof gcContext.gc === 'function') {
+        gcContext.gc();
       }
     };
-    
-    gc();
+
+    triggerGC();
     await new Promise(resolve => setTimeout(resolve, 100));
     
-    const initialMemory = getMemory();
+    const initialMemory = readHeapUsage();
     
     // Baseline
     const baseline = new ColorCycleBrushCanvas2D(canvas1);
@@ -303,10 +378,10 @@ export class PerformanceEnhancementsTest {
     }
     
     await baseline.render();
-    const baselineMemory = getMemory() - initialMemory;
+    const baselineMemory = readHeapUsage() - initialMemory;
     baseline.dispose();
     
-    gc();
+    triggerGC();
     await new Promise(resolve => setTimeout(resolve, 100));
     
     // Optimized
@@ -331,7 +406,7 @@ export class PerformanceEnhancementsTest {
     }
     
     await optimized.render();
-    const optimizedMemory = getMemory() - initialMemory;
+    const optimizedMemory = readHeapUsage() - initialMemory;
     optimized.dispose();
     
     const improvement = ((baselineMemory - optimizedMemory) / baselineMemory) * 100;

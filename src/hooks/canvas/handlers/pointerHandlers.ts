@@ -4,7 +4,6 @@ import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
 import type { EventHandlerDependencies, PointerHandlers } from '../utils/types';
 import { BrushShape } from '../../../types';
 import type { ContourLinesStage } from '../../../types';
-import { buildPreviewVertices } from '../../../utils/shapeMaker';
 import { snapPointToAngle } from '../../../utils/angleSnap';
 import { floodFill } from '../../../utils/floodFill';
 import { detectWacomIssues, testWacomPressure } from '../../../utils/detectWacom';
@@ -36,7 +35,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     isMouseDownRef,
     isSpacePressedRef,
     drawAnimationFrameRef,
-    pointerMoveThrottled,
     project,
     canvas,
     tools,
@@ -70,11 +68,21 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     setNeedsRedraw
   } = deps;
 
+  type Point = { x: number; y: number };
+
+  const ensurePointRef = (
+    ref: React.MutableRefObject<Point | null> | undefined
+  ): React.MutableRefObject<Point | null> => {
+    if (ref) return ref;
+    const fallback: React.MutableRefObject<Point | null> = { current: null };
+    return fallback;
+  };
+
+  const strokeStartWorldPosRef = ensurePointRef(deps.snapStrokeStartRef);
+  const shiftAnchorWorldPosRef = ensurePointRef(deps.snapShiftAnchorRef);
+  const lastBrushSampleWorldPosRef = ensurePointRef(deps.snapLastBrushSampleRef);
 
   // Track stroke start to support Shift-based angle snapping for freehand drawing (persist via refs)
-  const strokeStartWorldPosRef = (deps.snapStrokeStartRef ?? ({ current: null } as any));
-  const shiftAnchorWorldPosRef = (deps.snapShiftAnchorRef ?? ({ current: null } as any));
-  const lastBrushSampleWorldPosRef = (deps.snapLastBrushSampleRef ?? ({ current: null } as any)); // last point sent to continueDrawing
   const contourFillSpacingClickArmedRef = { current: false };
 
   const { setContourLinesState, resetContourLinesState } = useAppStore.getState();
@@ -477,7 +485,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // Test Wacom functionality
     const wacomTest = testWacomPressure(event);
     if (!wacomTest.isWorking && tools.brushSettings.pressureEnabled) {
-      const issues = detectWacomIssues();
+      detectWacomIssues();
       // Intentionally silent to avoid console noise
     }
     
@@ -1363,14 +1371,12 @@ function cssColorToHex(color: string): string {
               const pts = drawingHandlers.shapePointsRef?.current || [];
               if (pts.length >= 1) {
                 const anchor = pts[pts.length - 1];
-                const before = coalescedWorldPos;
                 coalescedWorldPos = snapPointToAngle(anchor, coalescedWorldPos, 45);
                 // quiet
               }
             } else if (!tools.shapeMode) {
               const anchor = shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current;
               if (anchor) {
-                const before = coalescedWorldPos;
                 coalescedWorldPos = snapPointToAngle(anchor, coalescedWorldPos, 45);
                 // quiet
               }
@@ -1444,9 +1450,12 @@ function cssColorToHex(color: string): string {
       // If Shift is pressed, snap preview direction to 45° increments relative to shape center
       let dirWorld = worldPos;
       if (event.shiftKey) {
-        const pts = drawingHandlers.shapePointsRef?.current || [];
+        const pts = drawingHandlers.shapePointsRef.current;
         if (pts.length >= 3) {
-          const center = pts.reduce((acc: any, p: any) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
+          const center = pts.reduce<Point>(
+            (acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }),
+            { x: 0, y: 0 }
+          );
           center.x /= pts.length;
           center.y /= pts.length;
           dirWorld = snapPointToAngle(center, dirWorld, 45);
@@ -1717,7 +1726,6 @@ function cssColorToHex(color: string): string {
         if (event.shiftKey && toolStateMachine.rectangleBrushState.drawingState === 'definingLength') {
           const start = toolStateMachine.rectangleBrushState.startPos;
           if (start) {
-            const before = rgWorld;
             rgWorld = snapPointToAngle(start, worldPos, 45);
           }
         }
@@ -1867,8 +1875,8 @@ function cssColorToHex(color: string): string {
                 }
               }
               if (deps.previewAnimationFrameRef) {
-            deps.previewAnimationFrameRef.current = null;
-          }
+                deps.previewAnimationFrameRef.current = null;
+              }
             });
           }
         }
@@ -1882,7 +1890,6 @@ function cssColorToHex(color: string): string {
           const pts = drawingHandlers.shapePointsRef?.current || [];
           if (pts.length >= 1) {
             const anchor = pts[pts.length - 1];
-            const before = shapeWorld;
             shapeWorld = snapPointToAngle(anchor, shapeWorld, 45);
           }
         }
@@ -1897,7 +1904,6 @@ function cssColorToHex(color: string): string {
           }
           const anchor = shiftAnchorWorldPosRef.current || strokeStartWorldPosRef.current;
           if (anchor) {
-            const before = brushWorld;
             brushWorld = snapPointToAngle(anchor, brushWorld, 45);
           }
         }
@@ -1963,9 +1969,6 @@ function cssColorToHex(color: string): string {
     // Clear overlay canvas
     const linesStateOnPointerUp = useAppStore.getState().contourLinesState;
     const overlayCanvas = overlayCanvasRef.current;
-    const normalizedShapeMode = tools.brushSettings.shapeGradientMode === 'mesh'
-      ? 'lines'
-      : (tools.brushSettings.shapeGradientMode || 'contour');
     const isLines2Previewing =
       linesStateOnPointerUp.variant === 'lines2' &&
       (linesStateOnPointerUp.stage === 'awaitingAngle' ||
@@ -2190,8 +2193,8 @@ function cssColorToHex(color: string): string {
       
       if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
         // Guard: require at least 3 points to finalize a polygon
-        const ptsLen = (drawingHandlers as any).shapePointsRef?.current?.length || 0;
-        if (ptsLen < 3) {
+        const shapePointCount = drawingHandlers.shapePointsRef.current.length;
+        if (shapePointCount < 3) {
           // Keep collecting vertices with subsequent clicks
           return;
         }
@@ -2273,7 +2276,7 @@ function cssColorToHex(color: string): string {
     // Keep handler minimal; batch work to next animation frame
     // Never drop updates while drawing shapes; RAF will still run at display rate
     // Persist the synthetic event just in case (React 17+ no-ops)
-    (event as any).persist?.();
+    event.persist();
     lastMoveEvent = event;
     if (scheduledMoveRAF == null) {
       scheduledMoveRAF = requestAnimationFrame(() => {

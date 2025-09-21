@@ -7,13 +7,11 @@
 import { BrushShape } from '@/types';
 import type { BrushSettings } from '@/types';
 import type { PixelQueue, RenderSettings } from './types';
-import { 
-  calculateRotation, 
-  createDirectionState, 
-  createDefaultRotationConfig,
-  type DirectionState,
+import {
+  calculateRotation,
+  createDirectionState,
   type RotationConfig,
-  type RotationInput 
+  type RotationInput
 } from './rotation';
 
 // Performance: Pre-calculated constants
@@ -113,108 +111,6 @@ export const calculateSmoothDirection = (
   return direction;
 };
 
-/**
- * Legacy direction calculation - keeping for reference
- * @deprecated
- */
-const legacyCalculateSmoothDirection = (
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-  directionHistory: number[],
-  lastDirection: number,
-  cursorPressure: number = 1.0
-): number => {
-  const deltaX = to.x - from.x;
-  const deltaY = to.y - from.y;
-  const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-  
-  // Detect stylus vs mouse input
-  const isStylusInput = cursorPressure < 0.98; // Stylus typically has variable pressure
-  
-  // Adaptive smoothing based on input type
-  const minDistance = isStylusInput ? 1.5 : 3; // Stylus: more responsive, Mouse: more filtered
-  const historySize = isStylusInput ? 4 : 7; // Stylus: shorter history, Mouse: longer history
-  
-  // If movement is very small, keep last direction to avoid jitter
-  if (distance < minDistance) {
-    return lastDirection;
-  }
-  
-  // Calculate direction angle (radians)
-  // Note: atan2 returns angle from -PI to PI
-  const direction = Math.atan2(deltaY, deltaX);
-  
-  // Add to history for smoothing
-  directionHistory.push(direction);
-  
-  // Keep adaptive history size
-  if (directionHistory.length > historySize) {
-    directionHistory.shift();
-  }
-  
-  // Smooth direction using weighted average with adaptive weights
-  let smoothedDirection = direction;
-  if (directionHistory.length > 1) {
-    // Adaptive weight distribution based on input type
-    const weights = isStylusInput 
-      ? [0.45, 0.30, 0.20, 0.05] // Stylus: more emphasis on recent directions
-      : [0.25, 0.20, 0.18, 0.15, 0.12, 0.07, 0.03]; // Mouse: gradual smoothing
-    
-    let weightSum = 0;
-    let sinSum = 0;
-    let cosSum = 0;
-    
-    // Use circular averaging to handle angle wraparound properly
-    for (let i = 0; i < directionHistory.length; i++) {
-      const weight = weights[directionHistory.length - 1 - i] || 0.02;
-      const angle = directionHistory[i];
-      sinSum += Math.sin(angle) * weight;
-      cosSum += Math.cos(angle) * weight;
-      weightSum += weight;
-    }
-    
-    // Convert back to angle using atan2 for proper quadrant
-    // Only update if we have valid sum values
-    if (weightSum > 0 && (Math.abs(sinSum) > 0.001 || Math.abs(cosSum) > 0.001)) {
-      smoothedDirection = Math.atan2(sinSum / weightSum, cosSum / weightSum);
-    }
-  }
-  
-  // Apply final smoothing only if we have a valid last direction
-  if (directionHistory.length > 1 && !isNaN(lastDirection)) {
-    // Calculate shortest angular distance between angles
-    let angleDiff = smoothedDirection - lastDirection;
-    
-    // Normalize to [-PI, PI] for shortest rotation path
-    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-    
-    // Define thresholds
-    const minAngleThreshold = Math.PI / 180 * 1; // 1 degree minimum to prevent micro-jitter
-    const maxRotation = Math.PI / 12; // 15 degrees max per frame (significantly reduced)
-    
-    // Apply smoothing based on angle difference
-    if (Math.abs(angleDiff) < minAngleThreshold) {
-      // Too small - use previous direction to prevent jitter
-      smoothedDirection = lastDirection;
-    } else {
-      // Clamp the angle difference to maximum allowed
-      const clampedDiff = Math.max(-maxRotation, Math.min(maxRotation, angleDiff));
-      
-      // Apply smoothing factor - REDUCED to fix double rotation appearance
-      // The visual rotation appears doubled because the brush stamp itself might be asymmetric
-      // Halving the rotation response compensates for this
-      const smoothingFactor = isStylusInput ? 0.25 : 0.15; // Halved to fix double rotation
-      smoothedDirection = lastDirection + clampedDiff * smoothingFactor;
-      
-      // Normalize result to [-PI, PI]
-      while (smoothedDirection > Math.PI) smoothedDirection -= 2 * Math.PI;
-      while (smoothedDirection < -Math.PI) smoothedDirection += 2 * Math.PI;
-    }
-  }
-  
-  return smoothedDirection;
-};
 
 /**
  * Determine if a stamp should be drawn based on dash settings
@@ -497,7 +393,7 @@ export const perfectPixels = (
       x: number,
       y: number,
       size: number,
-      shape: any,
+      shape: BrushShape,
       antiAliasing: boolean,
       rotation: number,
       risographIntensity: number,
@@ -531,7 +427,7 @@ export const drawPixelPerfectLine = (
       x: number,
       y: number,
       size: number,
-      shape: any,
+      shape: BrushShape,
       antiAliasing: boolean,
       rotation: number,
       risographIntensity: number,

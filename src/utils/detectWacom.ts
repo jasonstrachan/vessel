@@ -42,8 +42,6 @@ export function detectWacomIssues(): {
   const isChrome = userAgent.includes('chrome');
   const isFirefox = userAgent.includes('firefox');
   const isSafari = userAgent.includes('safari') && !isChrome;
-  const isEdge = userAgent.includes('edg');
-  
   const solutions: string[] = [];
   
   if (isWindows) {

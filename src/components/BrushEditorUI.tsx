@@ -553,12 +553,14 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown, { capture: true });
-    window.addEventListener('keyup', handleKeyUp, { capture: true });
+    const listenerOptions: AddEventListenerOptions = { capture: true };
+
+    window.addEventListener('keydown', handleKeyDown, listenerOptions);
+    window.addEventListener('keyup', handleKeyUp, listenerOptions);
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
-      window.removeEventListener('keyup', handleKeyUp, { capture: true } as any);
+      window.removeEventListener('keydown', handleKeyDown, listenerOptions);
+      window.removeEventListener('keyup', handleKeyUp, listenerOptions);
     };
   }, [spacePressed]);
 

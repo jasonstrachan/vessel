@@ -80,13 +80,6 @@ export class ColorCycleErrorBoundary extends Component<Props, State> {
   };
 
   private handleReportBug = () => {
-    const errorDetails = {
-      error: this.state.error?.message,
-      stack: this.state.error?.stack,
-      component: this.state.errorInfo?.componentStack,
-      errorId: this.state.errorId
-    };
-
     const issueBody = `
 ## Error Report
 

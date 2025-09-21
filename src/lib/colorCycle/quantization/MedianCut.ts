@@ -101,7 +101,7 @@ export class MedianCut {
    * Build color histogram with frequency counting
    */
   private buildHistogram(imageData: ImageData): Map<number, ColorPoint> {
-    const { data, width, height } = imageData;
+    const { data } = imageData;
     const histogram = new Map<number, ColorPoint>();
     
     for (let i = 0; i < data.length; i += 4) {

@@ -163,18 +163,20 @@ class AdaptiveCache<T> {
    */
   private evictAdaptive(candidates: CacheEntry<T>[]): void {
     // Score based on: access frequency, recency, size, and compute time
-    candidates.forEach(entry => {
+    type ScoredEntry = CacheEntry<T> & { score: number };
+    const scoredCandidates: ScoredEntry[] = candidates.map(entry => {
       const age = Date.now() - entry.lastAccess;
       const frequency = entry.accessCount;
       const benefit = entry.computeTime; // Higher compute time = more valuable
       const cost = entry.size; // Larger size = higher cost
       
       // Lower score = more likely to be evicted
-      (entry as any).score = (frequency * benefit) / (age * cost + 1);
+      const score = (frequency * benefit) / (age * cost + 1);
+      return { ...entry, score };
     });
     
-    candidates.sort((a, b) => (a as any).score - (b as any).score);
-    this.evictEntries(candidates, 0.3); // Evict lowest scoring 30%
+    scoredCandidates.sort((a, b) => a.score - b.score);
+    this.evictEntries(scoredCandidates, 0.3); // Evict lowest scoring 30%
   }
   
   /**

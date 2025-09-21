@@ -21,7 +21,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [dragging, setDragging] = useState(false);
   const dragOffset = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  const saveSettings = () => {
+  const saveSettings = React.useCallback(() => {
     // Get fresh state from store to ensure we have the latest values
     const currentState = useAppStore.getState();
     const settings = {
@@ -37,12 +37,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       },
     };
     localStorage.setItem('tinybrush-settings', JSON.stringify(settings));
-  };
+  }, []);
 
-  const handleClose = () => {
+  const handleClose = React.useCallback(() => {
     saveSettings();
     onClose();
-  };
+  }, [onClose, saveSettings]);
 
   const handleAutosaveToggle = (enabled: boolean) => {
     setAutosaveEnabled(enabled);

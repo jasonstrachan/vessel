@@ -59,6 +59,27 @@ interface SerializedCustomBrush {
   createdAt: number;
 }
 
+interface SerializedBrushLayerState {
+  layerId: string;
+  data: unknown;
+  strokeData?: {
+    hasContent?: boolean;
+    strokeCounter?: number;
+    paintBuffer?: ArrayBufferLike;
+  };
+}
+
+interface ColorCycleBrushState {
+  layers?: SerializedBrushLayerState[];
+  cycleSpeed?: number;
+  fps?: number;
+  brushSize?: number;
+}
+
+type SerializedColorCycleWebGLState = NonNullable<SerializedLayer['colorCycleData']>['webGLState'];
+
+const savedWebGLStates = new WeakMap<Layer, SerializedColorCycleWebGLState | undefined>();
+
 // Convert ImageData to base64 encoded raw pixel data (lossless)
 function imageDataToDataUrl(imageData: ImageData): string {
   // Serialize ImageData as raw RGBA pixel data to preserve exact values
@@ -123,16 +144,6 @@ function dataUrlToImageData(dataUrl: string): Promise<ImageData> {
   });
 }
 
-// Helper to convert ArrayBuffer to base64
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
 // Helper to convert base64 to ArrayBuffer
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64);
@@ -175,26 +186,23 @@ function serializeLayer(layer: Layer): SerializedLayer {
     };
     
     // If color cycle brush exists, serialize its WebGL state
-    if (layer.colorCycleData.colorCycleBrush) {
+    if (layer.colorCycleData.colorCycleBrush && serialized.colorCycleData) {
       const brush = layer.colorCycleData.colorCycleBrush;
-      const fullState = brush.getFullState();
-      
-      // Canvas2D version has different structure
-      if (serialized.colorCycleData) {
-        serialized.colorCycleData.webGLState = {
-          gradients: [],
-          animationState: {
-            cycleOffset: 0,
-            speed: fullState.cycleSpeed || 1,
-            fps: fullState.fps || 30,
-            isPaused: false
-          },
-          layerSnapshots: (fullState.layers || []).map((layer: any) => ({
-            layerId: layer.layerId,
-            data: '' // Canvas2D doesn't expose raw buffer
-          }))
-        };
-      }
+      const fullState = brush.getFullState() as ColorCycleBrushState;
+
+      serialized.colorCycleData.webGLState = {
+        gradients: [],
+        animationState: {
+          cycleOffset: 0,
+          speed: fullState.cycleSpeed ?? 1,
+          fps: fullState.fps ?? 30,
+          isPaused: false
+        },
+        layerSnapshots: (fullState.layers ?? []).map(layerState => ({
+          layerId: layerState.layerId,
+          data: '' // Canvas2D doesn't expose raw buffer
+        }))
+      };
     }
   }
   
@@ -248,7 +256,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
     
     // Store WebGL state for later restoration
     if (serializedLayer.colorCycleData.webGLState) {
-      (layer as any).__savedWebGLState = serializedLayer.colorCycleData.webGLState;
+      savedWebGLStates.set(layer, serializedLayer.colorCycleData.webGLState);
     }
   }
   
@@ -516,7 +524,7 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
   for (const layer of layers) {
     if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
       // Check if we have saved WebGL state
-      const savedState = (layer as any).__savedWebGLState;
+      const savedState = savedWebGLStates.get(layer);
       if (savedState) {
         // Create new color cycle brush
         const colorCycleBrush = createColorCycleBrush(layer.colorCycleData.canvas!);
@@ -537,7 +545,7 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
         layer.colorCycleData.colorCycleBrush = colorCycleBrush;
         
         // Clean up the temporary saved state
-        delete (layer as any).__savedWebGLState;
+        savedWebGLStates.delete(layer);
         
         // Start animation if it was animating
         if (layer.colorCycleData.isAnimating) {

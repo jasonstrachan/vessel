@@ -90,7 +90,7 @@ const Dropdown: React.FC<DropdownProps> = ({
             return (
               <div
                 key={option.value}
-                onClick={(e) => {
+                onClick={() => {
                   // Let the click handler work unless explicitly stopped
                   handleSelect(option.value, option.isAction);
                 }}

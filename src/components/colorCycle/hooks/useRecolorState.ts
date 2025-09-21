@@ -8,8 +8,17 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../../../types';
 import { useAppStore } from '../../../stores/useAppStore';
-import { RecolorManager, RecolorOptions } from '../../../lib/colorCycle/RecolorManager';
+import { RecolorManager, RecolorOptions, RecolorPerformanceStats } from '../../../lib/colorCycle/RecolorManager';
 import { setColorCycleAnimationState } from '../../toolbar/BrushControls';
+
+declare global {
+  interface Window {
+    colorCycleAnimationHandlers?: {
+      startContinuousColorCycleAnimation: () => void;
+      stopContinuousColorCycleAnimation: () => void;
+    };
+  }
+}
 
 export interface RecolorState {
   mode: 'brush' | 'recolor';
@@ -58,7 +67,7 @@ export interface UseRecolorStateReturn {
   updateGlobalFPS: (fps: number) => void;
   
   // Performance monitoring
-  performanceStats: any;
+  performanceStats: RecolorPerformanceStats | null;
   
   // Success feedback
   successMessage: string | null;
@@ -89,11 +98,14 @@ export function useRecolorState(
   });
 
   // Performance stats (updated periodically)
-  const [performanceStats, setPerformanceStats] = useState<any>(null);
+  const [performanceStats, setPerformanceStats] = useState<RecolorPerformanceStats | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Access layers from the global store if needed by future logic
-  const layers = useAppStore((state) => state.layers);
+  const showSuccess = useCallback((message: string) => {
+    setSuccessMessage(message);
+    setTimeout(() => setSuccessMessage(null), 3000);
+  }, []);
 
   // Actions
   const actions = useMemo<RecolorActions>(() => ({
@@ -155,7 +167,7 @@ export function useRecolorState(
     } finally {
       actions.setProcessing(false);
     }
-  }, [recolorManager, actions]);
+  }, [recolorManager, actions, showSuccess]);
 
   const convertToNormal = useCallback(async (layer: Layer): Promise<boolean> => {
     actions.setProcessing(true);
@@ -179,7 +191,7 @@ export function useRecolorState(
     } finally {
       actions.setProcessing(false);
     }
-  }, [recolorManager, actions]);
+  }, [recolorManager, actions, showSuccess]);
 
   // Animation controls
   const lastToggleAtRef = useRef<number>(0);
@@ -198,7 +210,7 @@ export function useRecolorState(
       // 1) Brush-based Color Cycle (stroke/shape) — update global state + start/stop loop
       try {
         setColorCycleAnimationState(newIsAnimating);
-        const handlers = (window as any).colorCycleAnimationHandlers;
+        const handlers = window.colorCycleAnimationHandlers;
         if (handlers) {
           if (newIsAnimating) handlers.startContinuousColorCycleAnimation();
           else handlers.stopContinuousColorCycleAnimation();
@@ -227,12 +239,13 @@ export function useRecolorState(
         st.layers
           .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor')
           .forEach(l => {
+            if (!l.colorCycleData) return;
             st.updateLayer(l.id, {
               colorCycleData: {
                 ...l.colorCycleData,
                 isAnimating: newIsAnimating
               }
-            } as any);
+            });
           });
       } catch {}
 
@@ -310,7 +323,7 @@ export function useRecolorState(
         }
       } catch {}
     };
-    window.addEventListener('colorCycleAnimationState', handler as EventListener);
+    window.addEventListener('colorCycleAnimationState', handler);
 
     const interval = setInterval(() => {
       const animating = recolorManager.isAnimating();
@@ -320,7 +333,7 @@ export function useRecolorState(
     }, 500);
 
     return () => {
-      window.removeEventListener('colorCycleAnimationState', handler as EventListener);
+      window.removeEventListener('colorCycleAnimationState', handler);
       clearInterval(interval);
     };
   }, [recolorManager, isAnimating]);
@@ -349,12 +362,12 @@ export function useRecolorState(
 
   // Setup RecolorManager callbacks for real-time updates
   useEffect(() => {
-    const handleLayerUpdate = (layer: Layer) => {
+    const handleLayerUpdate = () => {
       // Layer was updated, could trigger re-render in parent component
       // debug log removed
     };
 
-    const handleStatsUpdate = (stats: any) => {
+    const handleStatsUpdate = (stats: RecolorPerformanceStats) => {
       setPerformanceStats(stats);
     };
 
@@ -379,15 +392,6 @@ export function useRecolorState(
       return () => clearTimeout(timeout);
     }
   }, [state.error, actions]);
-
-  // Success feedback state
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  // Show success feedback for completed operations
-  const showSuccess = useCallback((message: string) => {
-    setSuccessMessage(message);
-    setTimeout(() => setSuccessMessage(null), 3000);
-  }, []);
 
   // Sync mode with active layer
   useEffect(() => {

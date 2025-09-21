@@ -12,9 +12,7 @@ export function analyzeLayerColors(
   maxSwatches: number = 6,
   sampleRate: number = 10
 ): ColorSwatch[] {
-  // Use willReadFrequently to avoid browser warnings and improve getImageData perf
-  const ctx = (canvas as any).getContext?.('2d', { willReadFrequently: true })
-    || canvas.getContext('2d');
+  const ctx = get2dContext(canvas);
   if (!ctx) return [];
 
   const width = canvas.width;
@@ -57,10 +55,21 @@ export function analyzeLayerColors(
       .map(([color, count]) => ({ color, count }));
     
     return sortedColors;
-  } catch (error) {
+  } catch {
     // Canvas might be tainted or empty
     return [];
   }
+}
+
+type CanvasLike = OffscreenCanvas | HTMLCanvasElement;
+type Canvas2DContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
+function get2dContext(canvas: CanvasLike): Canvas2DContext | null {
+  if (canvas instanceof HTMLCanvasElement) {
+    return canvas.getContext('2d', { willReadFrequently: true });
+  }
+
+  return canvas.getContext('2d', { willReadFrequently: true } as OffscreenCanvasRenderingContext2DSettings);
 }
 
 /**

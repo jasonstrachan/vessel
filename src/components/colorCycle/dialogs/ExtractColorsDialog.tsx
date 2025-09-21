@@ -25,6 +25,22 @@ export interface ExtractOptions {
   preserveOriginalColors: boolean;
 }
 
+type OKLabSortMode = Parameters<typeof OKLabConverter.sortColors>[1];
+
+const mapSortMode = (mode: ExtractOptions['sortBy']): OKLabSortMode => {
+  switch (mode) {
+    case 'luminance':
+      return 'lightness';
+    case 'saturation':
+      return 'chroma';
+    case 'hue':
+      return 'hue';
+    case 'perceptual':
+    default:
+      return 'perceptual';
+  }
+};
+
 export const ExtractColorsDialog: React.FC<ExtractColorsDialogProps> = ({
   layer,
   isOpen,
@@ -43,7 +59,6 @@ export const ExtractColorsDialog: React.FC<ExtractColorsDialogProps> = ({
   const [isExtracting, setIsExtracting] = useState(false);
   const [previewGradient, setPreviewGradient] = useState<Array<{ position: number; color: string }> | null>(null);
   const [colorAnalysis, setColorAnalysis] = useState<ColorAnalysis | null>(null);
-  const [extractedColors, setExtractedColors] = useState<OKLabColor[]>([]);
   const [processingStats, setProcessingStats] = useState<{
     originalColors: number;
     extractedColors: number;
@@ -174,10 +189,12 @@ export const ExtractColorsDialog: React.FC<ExtractColorsDialogProps> = ({
       }
       
       // Analyze colors using OKLab if selected
+      let extractedCount = 0;
+
       if (options.colorSpace === 'oklab' || options.method === 'oklab') {
         const analysis = OKLabConverter.analyzeImageColors(layer.imageData, 2000);
         setColorAnalysis(analysis);
-        
+
         // Extract dominant colors
         let colors = analysis.dominantColors;
         
@@ -194,41 +211,38 @@ export const ExtractColorsDialog: React.FC<ExtractColorsDialogProps> = ({
         }
         
         // Sort colors perceptually
-        if (options.sortBy === 'perceptual') {
-          colors = OKLabConverter.sortColors(colors, 'perceptual');
-        } else {
-          colors = OKLabConverter.sortColors(colors, options.sortBy as any);
-        }
-        
-        setExtractedColors(colors);
+        const sortMode = mapSortMode(options.sortBy);
+        colors = OKLabConverter.sortColors(colors, sortMode);
         
         // Convert to gradient format
         const rgbColors = OKLabConverter.batchOKLabToRGB(colors);
         const gradient = buildGradientFromColors(rgbColors);
         setPreviewGradient(gradient);
+        extractedCount = gradient.length;
       } else {
         // Use existing RGB-based extraction
         const gradient = await recolorManager.extractColors(layer, options);
         setPreviewGradient(gradient);
+        extractedCount = gradient.length;
       }
-      
+
       // Calculate processing statistics
       const processingTime = performance.now() - startTime;
       const originalColors = countUniqueColors(layer.imageData!);
-      
+
       setProcessingStats({
         originalColors,
-        extractedColors: previewGradient?.length || 0,
-        compressionRatio: originalColors / (previewGradient?.length || 1),
+        extractedColors: extractedCount,
+        compressionRatio: originalColors / Math.max(extractedCount, 1),
         processingTime
       });
-      
+
     } catch (error) {
       console.error('Failed to extract colors:', error);
     } finally {
       setIsExtracting(false);
     }
-  }, [layer, options, recolorManager, previewGradient, extractFullRangeColors, buildGradientFromColors, countUniqueColors]);
+  }, [layer, options, recolorManager, extractFullRangeColors, buildGradientFromColors, countUniqueColors]);
 
   // Apply gradient
   const handleApply = useCallback(() => {
@@ -302,15 +316,15 @@ export const ExtractColorsDialog: React.FC<ExtractColorsDialogProps> = ({
               Extraction Method
             </label>
             <div className="grid grid-cols-3 gap-2">
-              {[
+              {([
                 { value: 'fast', label: 'Fast', desc: 'Quick RGB sampling' },
                 { value: 'quality', label: 'Quality', desc: 'Advanced clustering' },
                 { value: 'oklab', label: 'OKLab', desc: 'Perceptual uniform' }
-              ].map(({ value, label, desc }) => (
+              ] as Array<{ value: ExtractOptions['method']; label: string; desc: string }>).map(({ value, label, desc }) => (
                 <button
                   key={value}
                   type="button"
-                  onClick={() => updateOptions('method', value as any)}
+                  onClick={() => updateOptions('method', value)}
                   className={`
                     p-2 text-left rounded-lg border transition-colors
                     ${options.method === value
@@ -383,7 +397,7 @@ export const ExtractColorsDialog: React.FC<ExtractColorsDialogProps> = ({
             </label>
             <select
               value={options.buildMode}
-              onChange={(e) => updateOptions('buildMode', e.target.value as any)}
+              onChange={(e) => updateOptions('buildMode', e.target.value as ExtractOptions['buildMode'])}
               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm"
             >
               <option value="dominant">Dominant Colors</option>
@@ -404,7 +418,7 @@ export const ExtractColorsDialog: React.FC<ExtractColorsDialogProps> = ({
             </label>
             <select
               value={options.sortBy}
-              onChange={(e) => updateOptions('sortBy', e.target.value as any)}
+              onChange={(e) => updateOptions('sortBy', e.target.value as ExtractOptions['sortBy'])}
               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm"
             >
               <option value="hue">Hue</option>

@@ -12,7 +12,13 @@ export default function PerformanceTestPage() {
   const canvas1Ref = useRef<HTMLCanvasElement>(null);
   const canvas2Ref = useRef<HTMLCanvasElement>(null);
   const [isRunning, setIsRunning] = useState(false);
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<Array<{
+    testName: string;
+    improvement: number;
+    baseline: number;
+    optimized: number;
+    details?: unknown;
+  }>>([]);
   const [reportHTML, setReportHTML] = useState('');
 
   const runTests = async () => {

@@ -7,6 +7,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import type { Layer } from '@/types';
 import { useAppStore } from '../../../stores/useAppStore';
 import { AppIntegration } from '../../../lib/colorCycle/integration/AppIntegration';
+import type { RecolorOptions } from '../../../lib/colorCycle/RecolorManager';
 import { RecolorPanel } from '../RecolorPanel';
 import { ColorCycleErrorBoundary } from '../error/ColorCycleErrorBoundary';
 import { AccessibilityProvider } from '../accessibility/AccessibilityProvider';
@@ -20,7 +21,6 @@ export const ColorCycleUI: React.FC<ColorCycleUIProps> = ({
   isVisible = false, 
   onToggleVisibility 
 }) => {
-  const [integration, setIntegration] = useState<AppIntegration | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isBrowser, setIsBrowser] = useState(false);
@@ -44,7 +44,6 @@ export const ColorCycleUI: React.FC<ColorCycleUIProps> = ({
     const initializeIntegration = async () => {
       try {
         const appIntegration = AppIntegration.getInstance();
-        setIntegration(appIntegration);
         await appIntegration.initialize();
         setInitialized(true);
         setError(null);
@@ -169,7 +168,7 @@ export const ColorCycleToggle: React.FC<ColorCycleToggleProps> = ({
   const layers = useAppStore((state) => state.layers);
   const activeLayer = layers.find(layer => layer.id === activeLayerId);
   
-  const hasRecolorCapability = activeLayer && (activeLayer as any).canvas;
+  const hasRecolorCapability = Boolean(activeLayer?.colorCycleData?.canvas);
 
   return (
     <button
@@ -266,7 +265,7 @@ export const useColorCycleIntegration = () => {
     init();
   }, [integration]);
 
-  const convertLayer = useCallback(async (layer: Layer, options?: any) => {
+  const convertLayer = useCallback(async (layer: Layer, options?: Partial<RecolorOptions>) => {
     if (!initialized) throw new Error('Integration not initialized');
     return integration.convertLayerOptimized(layer, options);
   }, [integration, initialized]);

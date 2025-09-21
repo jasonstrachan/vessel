@@ -5,8 +5,8 @@
  */
 
 import { RecolorEngine } from './RecolorEngine';
-import { RecolorAnimationController } from './RecolorAnimationController';
-import { GradientBuilder, GradientOptions } from './gradients/GradientBuilder';
+import { RecolorAnimationController, AnimationStats } from './RecolorAnimationController';
+import { GradientBuilder, GradientOptions, GradientAnalysis } from './gradients/GradientBuilder';
 import { OKLabConverter, ColorAnalysis } from './colorSpace/OKLabConverter';
 import type { Layer } from '../../types';
 
@@ -29,6 +29,19 @@ export interface ExtractColorsOptions {
   gradientOptions?: Partial<GradientOptions>;
 }
 
+export interface RecolorExtractionStats {
+  processingTimeMs: number;
+  gradientStops: number;
+  method: ExtractColorsOptions['method'];
+  gradientAnalysis: GradientAnalysis;
+  colorAnalysis?: ColorAnalysis;
+  timestamp: number;
+}
+
+export type RecolorPerformanceStats = AnimationStats & {
+  lastExtraction?: RecolorExtractionStats;
+};
+
 /**
  * Main manager class for the Recolor & Animate feature
  * Singleton pattern - use RecolorManager.getInstance()
@@ -39,10 +52,22 @@ export class RecolorManager {
   private engine: RecolorEngine;
   private animationController: RecolorAnimationController;
   private gradientBuilder: GradientBuilder = new GradientBuilder();
+  private lastExtractionStats: RecolorExtractionStats | null = null;
   
   // UI callbacks
   private layerUpdateCallbacks: Set<(layer: Layer) => void> = new Set();
-  private statsCallbacks: Set<(stats: any) => void> = new Set();
+  private statsCallbacks: Set<(stats: RecolorPerformanceStats) => void> = new Set();
+
+  private emitStatsUpdate(baseStats?: AnimationStats): void {
+    const stats: RecolorPerformanceStats = {
+      ...(baseStats ?? this.animationController.getStats()),
+      ...(this.lastExtractionStats ? { lastExtraction: this.lastExtractionStats } : {})
+    };
+
+    this.statsCallbacks.forEach(callback => {
+      callback(stats);
+    });
+  }
   
   // Broadcast helpers
   private broadcastAnimationState() {
@@ -66,9 +91,7 @@ export class RecolorManager {
       });
       
       // Notify UI of stats updates
-      this.statsCallbacks.forEach(callback => {
-        callback(stats);
-      });
+      this.emitStatsUpdate(stats);
     });
   }
   
@@ -141,7 +164,7 @@ export class RecolorManager {
                 } catch {}
               }
             }
-          } catch (e) {}
+          } catch {}
         }
         // As a last resort, if imageData exists (even empty), allow processing to continue
         // so recolor can set up its buffers and accept gradients.
@@ -167,7 +190,7 @@ export class RecolorManager {
         // Draw one frame so the user sees recoloring even before animation starts
         try {
           this.animationController.updateLayer(layer);
-        } catch (e) {}
+        } catch {}
         
         // Notify UI
         this.layerUpdateCallbacks.forEach(callback => callback(layer));
@@ -193,6 +216,7 @@ export class RecolorManager {
       }
 
       const startTime = performance.now();
+      let okLabColorAnalysis: ColorAnalysis | undefined;
       
       // Configure gradient builder based on options
       if (options.gradientOptions) {
@@ -204,7 +228,8 @@ export class RecolorManager {
       if (options.method === 'oklab' || options.colorSpace === 'oklab') {
         // Use OKLab-based extraction for perceptual accuracy
         const analysis = OKLabConverter.analyzeImageColors(layer.imageData, 2000);
-        
+        okLabColorAnalysis = analysis;
+
         if (options.buildMode === 'perceptual') {
           // Generate perceptually uniform palette
           const oklabPalette = OKLabConverter.generatePalette(
@@ -249,10 +274,21 @@ export class RecolorManager {
       const gradientStops = this.gradientBuilder.buildGradient(extractedColors, options.gradientStops);
       
       const processingTime = performance.now() - startTime;
-      
+
       // Analyze gradient quality
-      const analysis = this.gradientBuilder.analyzeGradient(gradientStops);
-      
+      const gradientAnalysis = this.gradientBuilder.analyzeGradient(gradientStops);
+
+      this.lastExtractionStats = {
+        processingTimeMs: processingTime,
+        gradientStops: gradientStops.length,
+        method: options.method,
+        gradientAnalysis,
+        colorAnalysis: okLabColorAnalysis,
+        timestamp: Date.now()
+      };
+
+      this.emitStatsUpdate();
+
       // Convert to the expected format
       return gradientStops.map(stop => ({
         position: stop.position,
@@ -472,7 +508,7 @@ export class RecolorManager {
     if (animatedLayer?.layer.colorCycleData?.recolorSettings) {
       animatedLayer.layer.colorCycleData.recolorSettings.cycleColors = cycleColors;
       // Recompute ticks-per-frame since cycleColors affects speed per frame
-      try { this.animationController['updateTicksPerFrame'](animatedLayer.layer as any); } catch {}
+      try { this.animationController.recalculateTicksForLayer(animatedLayer.layer); } catch {}
       // Render a frame immediately so band count change is visible
       try { this.animationController.updateLayer(animatedLayer.layer); } catch {}
       return true;
@@ -523,8 +559,11 @@ export class RecolorManager {
   /**
    * Get performance statistics
    */
-  getStats(): any {
-    return this.animationController.getStats();
+  getStats(): RecolorPerformanceStats {
+    return {
+      ...this.animationController.getStats(),
+      ...(this.lastExtractionStats ? { lastExtraction: this.lastExtractionStats } : {})
+    };
   }
 
   /**
@@ -589,7 +628,7 @@ export class RecolorManager {
 
     target.colorCycleData.recolorSettings.flowMapping = mapping;
     // Drop any existing phase map so it gets rebuilt appropriately
-    delete (target.colorCycleData.recolorSettings as any).phaseMap;
+    target.colorCycleData.recolorSettings.phaseMap = undefined;
     // Render immediately to reflect change
     try { this.animationController.updateLayer(target); } catch {}
     return true;
@@ -607,7 +646,7 @@ export class RecolorManager {
     s.directionAngle = angleDeg;
     s.bandWidthPx = bandWidthPx;
     // Force rebuild of phase map on next frame
-    delete (s as any).phaseMap;
+    s.phaseMap = undefined;
     try { this.animationController.updateLayer(target); } catch {}
     return true;
   }
@@ -772,7 +811,7 @@ export class RecolorManager {
       const animatedLayer = layers.find(l => l.layer.id === layerId);
       const target = animatedLayer?.layer;
       if (!target?.colorCycleData?.recolorSettings) return false;
-      delete (target.colorCycleData.recolorSettings as any).indexPhaseMap;
+      target.colorCycleData.recolorSettings.indexPhaseMap = undefined;
       try { this.animationController.updateLayer(target); } catch {}
       return true;
     } catch (e) {
@@ -822,11 +861,11 @@ export class RecolorManager {
     this.layerUpdateCallbacks.delete(callback);
   }
   
-  onStatsUpdate(callback: (stats: any) => void): void {
+  onStatsUpdate(callback: (stats: RecolorPerformanceStats) => void): void {
     this.statsCallbacks.add(callback);
   }
   
-  offStatsUpdate(callback: (stats: any) => void): void {
+  offStatsUpdate(callback: (stats: RecolorPerformanceStats) => void): void {
     this.statsCallbacks.delete(callback);
   }
   

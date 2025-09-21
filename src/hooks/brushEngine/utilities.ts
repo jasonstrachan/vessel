@@ -9,7 +9,7 @@ import { calculatePressureSize as calculatePressureSizeCurve } from '@/utils/pre
 /**
  * Calculate grid spacing from brush settings
  */
-export const calculateGridSpacing = (brushSettings: BrushSettings): number => {
+export const calculateGridSpacing = (): number => {
   const defaultSpacing = 16;
   // Grid size is not in BrushSettings, using default
   const gridSize = defaultSpacing;
@@ -43,8 +43,7 @@ export const snapToGridPure = (
  * Calculate spacing between brush stamps
  */
 export const calculateBrushSpacing = (
-  brushSettings: BrushSettings,
-  baseSize: number
+  brushSettings: BrushSettings
 ): number => {
   // Spacing value from settings is 1-40, representing pixels between stamps
   // spacing = 1 means stamps are drawn 1 pixel apart

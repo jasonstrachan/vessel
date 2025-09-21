@@ -3,6 +3,8 @@
  * Provides detailed timing, memory usage, and performance recommendations
  */
 
+type ProfileMetadata = Record<string, unknown>;
+
 export interface ProfileResult {
   name: string;
   startTime: number;
@@ -11,7 +13,7 @@ export interface ProfileResult {
   memoryBefore: number;
   memoryAfter: number;
   memoryDelta: number;
-  metadata: Record<string, any>;
+  metadata: ProfileMetadata;
 }
 
 export interface PerformanceReport {
@@ -28,9 +30,17 @@ export interface PerformanceReport {
   timestamp: number;
 }
 
+interface PerformanceMemoryInfo {
+  jsHeapSizeLimit: number;
+  totalJSHeapSize: number;
+  usedJSHeapSize: number;
+}
+
+type PerformanceWithMemory = Performance & { memory?: PerformanceMemoryInfo };
+
 export class PerformanceProfiler {
   private static instance: PerformanceProfiler;
-  private activeProfiles = new Map<string, { startTime: number; memoryBefore: number; metadata: Record<string, any> }>();
+  private activeProfiles = new Map<string, { startTime: number; memoryBefore: number; metadata: ProfileMetadata }>();
   private completedProfiles: ProfileResult[] = [];
   private maxProfileHistory = 1000;
 
@@ -46,7 +56,7 @@ export class PerformanceProfiler {
   /**
    * Start profiling an operation
    */
-  start(profileId: string, metadata: Record<string, any> = {}): void {
+  start(profileId: string, metadata: ProfileMetadata = {}): void {
     const startTime = performance.now();
     const memoryBefore = this.getMemoryUsage();
 
@@ -60,7 +70,7 @@ export class PerformanceProfiler {
   /**
    * End profiling an operation
    */
-  end(profileId: string, additionalMetadata: Record<string, any> = {}): ProfileResult | null {
+  end(profileId: string, additionalMetadata: ProfileMetadata = {}): ProfileResult | null {
     const activeProfile = this.activeProfiles.get(profileId);
     if (!activeProfile) {
       console.warn(`No active profile found for ID: ${profileId}`);
@@ -93,7 +103,7 @@ export class PerformanceProfiler {
   async profileFunction<T>(
     name: string,
     fn: () => Promise<T> | T,
-    metadata: Record<string, any> = {}
+    metadata: ProfileMetadata = {}
   ): Promise<{ result: T; profile: ProfileResult }> {
     const profileId = `${name}_${Date.now()}_${Math.random()}`;
     
@@ -104,7 +114,7 @@ export class PerformanceProfiler {
       const profile = this.end(profileId, { success: true });
       return { result, profile: profile! };
     } catch (error) {
-      const profile = this.end(profileId, { 
+      this.end(profileId, { 
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
@@ -242,8 +252,9 @@ export class PerformanceProfiler {
    * Get memory usage
    */
   private getMemoryUsage(): number {
-    if ((performance as any).memory) {
-      return (performance as any).memory.usedJSHeapSize;
+    const perfWithMemory = performance as PerformanceWithMemory;
+    if (perfWithMemory.memory) {
+      return perfWithMemory.memory.usedJSHeapSize;
     }
     return 0; // Not available
   }

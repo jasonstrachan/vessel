@@ -5,12 +5,25 @@
  * optimization, load balancing, and performance monitoring integration.
  */
 
-import { HotPathRenderer, RenderingContext } from '../rendering/HotPathRenderer';
+import { HotPathRenderer } from '../rendering/HotPathRenderer';
 import { FastGradientLUT } from '../rendering/FastGradientLUT';
 import { MemoryPool } from '../memory/MemoryPool';
 import { CacheManager } from '../memory/CacheManager';
 import { PerformanceMonitor } from './PerformanceMonitor';
 import type { Layer } from '../../../types';
+import type { PerformanceReport as MonitorReport } from './PerformanceMonitor';
+import type { MemoryStats } from '../memory/MemoryPool';
+
+type RendererStats = ReturnType<HotPathRenderer['getStats']>;
+type CacheMetricsSnapshot = ReturnType<CacheManager['getStats']>;
+
+interface PipelinePerformanceSnapshot {
+  pipeline: PipelineStats;
+  renderer: RendererStats;
+  memory: MemoryStats;
+  cache: CacheMetricsSnapshot;
+  performance: MonitorReport;
+}
 
 export interface PipelineConfig {
   enableAdaptiveQuality: boolean;
@@ -178,6 +191,9 @@ class BatchProcessor {
    * Process a compatible group of requests
    */
   private async processGroup(group: RenderRequest[]): Promise<void> {
+    if (group.length === 0) {
+      return;
+    }
     // Implementation would coordinate actual rendering
     // This is a placeholder for the actual rendering logic
   }
@@ -499,15 +515,18 @@ export class OptimizedPipeline {
   /**
    * Update pipeline statistics from performance report
    */
-  private updateStatsFromReport(report: any): void {
-    this.stats.averageFrameTime = report.metrics.frames
-      .slice(-30)
-      .reduce((sum: number, frame: any) => sum + frame.frameTime, 0) / Math.min(30, report.metrics.frames.length);
-    
+  private updateStatsFromReport(report: MonitorReport): void {
+    const recentFrames = report.metrics.frames.slice(-30);
+    if (recentFrames.length > 0) {
+      const totalFrameTime = recentFrames.reduce((sum, frame) => sum + frame.frameTime, 0);
+      this.stats.averageFrameTime = totalFrameTime / recentFrames.length;
+    } else {
+      this.stats.averageFrameTime = 0;
+    }
+
     this.stats.cacheHitRate = report.summary.cacheEfficiency;
-    this.stats.memoryUsage = report.metrics.memory.length > 0 
-      ? report.metrics.memory[report.metrics.memory.length - 1].totalUsed 
-      : 0;
+    const { memory } = report.metrics;
+    this.stats.memoryUsage = memory.length > 0 ? memory[memory.length - 1].totalUsed : 0;
   }
   
   /**
@@ -534,7 +553,7 @@ export class OptimizedPipeline {
   /**
    * Get comprehensive performance metrics
    */
-  getPerformanceMetrics(): any {
+  getPerformanceMetrics(): PipelinePerformanceSnapshot {
     return {
       pipeline: this.getStats(),
       renderer: this.hotPathRenderer.getStats(),

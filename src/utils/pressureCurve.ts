@@ -47,8 +47,7 @@ function cubicBezier(t: number, p1x: number, p1y: number, p2x: number, p2y: numb
   const t3 = t2 * t;
   const mt = 1 - t;
   const mt2 = mt * mt;
-  const mt3 = mt2 * mt;
-  
+
   // Calculate Y position on the curve
   // B(t) = (1-t)³·P0 + 3(1-t)²t·P1 + 3(1-t)t²·P2 + t³·P3
   // Since P0 = (0,0) and P3 = (1,1), this simplifies to:

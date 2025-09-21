@@ -185,7 +185,7 @@ export class ColorCycleBrushOptimized {
   /**
    * Animate color cycling
    */
-  private async animate(deltaTime: number) {
+  private async animate() {
     this.cycleOffset += (this.options.cycleSpeed || 0.01);
     if (this.cycleOffset > 1) this.cycleOffset -= 1;
     
@@ -227,6 +227,7 @@ export class ColorCycleBrushOptimized {
         const pixels = await this.workerManager.applyToBuffer(indexData, this.cycleOffset);
         imageData = new ImageData(pixels, this.width, this.height);
       } catch (error) {
+        console.warn('ColorCycleBrushOptimized worker rendering failed, falling back to local rendering', error);
         // Fallback to regular rendering
         imageData = this.renderFallback(indexData);
       }
@@ -294,11 +295,12 @@ export class ColorCycleBrushOptimized {
     // Use Worker for gradient update if available
     if (this.useWorkers && this.workerManager) {
       try {
-        const palette = await this.workerManager.updateGradient(stops);
+        await this.workerManager.updateGradient(stops);
         this.gradientPalette = new GradientPalette();
         // Update the internal palette data
         this.gradientPalette.updateFromGradient(stops);
       } catch (error) {
+        console.warn('ColorCycleBrushOptimized worker gradient update failed, falling back to local update', error);
         // Fallback to regular update
         this.gradientPalette.updateFromGradient(stops);
       }

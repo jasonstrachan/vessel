@@ -22,8 +22,13 @@ import { applyDithering as applyDitheringImport, applyDitheringWithFillResolutio
 import { debugLog } from '@/utils/debug';
 import { canvasPool } from '../utils/canvasPool';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
-import { createColorCycleBrush, type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
-import { featureFlags } from '../config/featureFlags';
+import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
+
+declare global {
+  interface Window {
+    transparencyLockEnabled?: boolean;
+  }
+}
 
 /**
  * Simplified brush engine hook with facade pattern
@@ -74,7 +79,8 @@ export const useBrushEngineSimplified = () => {
     const ctx = canvas.getContext('2d');
     // Store canvas on context for easy access
     if (ctx) {
-      (ctx as any)._canvas = canvas;
+      const contextWithCanvas = ctx as CanvasRenderingContext2D & { _canvas?: HTMLCanvasElement };
+      contextWithCanvas._canvas = canvas;
     }
     return ctx;
   }, []);
@@ -223,7 +229,7 @@ export const useBrushEngineSimplified = () => {
   const brushEngine = useMemo(() => {
     const config: BrushEngineConfig = {
       brushSettings: tools.brushSettings,
-      transparencyLockEnabled: typeof window !== 'undefined' ? (window as any).transparencyLockEnabled : false,
+      transparencyLockEnabled: typeof window !== 'undefined' ? (window as unknown).transparencyLockEnabled : false,
       getPatternTempContext,
       brushStampCache: brushStampCacheRef.current,
       createPixelCircleStamp,
@@ -233,13 +239,13 @@ export const useBrushEngineSimplified = () => {
     };
     
     return createBrushEngineFacade(config);
-  }, [project?.customBrushes, getPatternTempContext, createPixelCircleStamp, createPixelSquareStamp, getRotationTempContext]);
+  }, [tools.brushSettings, project?.customBrushes, getPatternTempContext, createPixelCircleStamp, createPixelSquareStamp, getRotationTempContext]);
 
   // Update engine config when settings change
   useEffect(() => {
     brushEngine.updateConfig({
       brushSettings: tools.brushSettings,
-      transparencyLockEnabled: typeof window !== 'undefined' ? (window as any).transparencyLockEnabled : false,
+      transparencyLockEnabled: typeof window !== 'undefined' ? (window as unknown).transparencyLockEnabled : false,
       getPatternTempContext,
       brushStampCache: brushStampCacheRef.current,
       getRotationTempContext
@@ -565,7 +571,7 @@ export const useBrushEngineSimplified = () => {
     
     // Restore context state
     ctx.restore();
-  }, [tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.antialiasing, tools.brushSettings.opacity, tools.brushSettings.blendMode, isPixelBrush]);
+  }, [tools.brushSettings.color, tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.opacity, tools.brushSettings.blendMode, isPixelBrush]);
 
   // Helper function to apply risograph effect
   const applyRisographEffect = useCallback((
@@ -609,7 +615,7 @@ export const useBrushEngineSimplified = () => {
       // Restore state
       ctx.restore();
     }
-  }, [tools.brushSettings.risographIntensity]);
+  }, []);
 
   /**
    * Draw polygon with gradient - DEBUG VERSION
@@ -927,7 +933,7 @@ export const useBrushEngineSimplified = () => {
     
     // Restore context state
     ctx.restore();
-  }, [tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.blendMode, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect, isPixelBrush]);
+  }, [tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.blendMode, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect]);
 
 
   /**
@@ -1059,86 +1065,6 @@ export const useBrushEngineSimplified = () => {
     return { field: distanceField, cols, rows, resolution, peakX, peakY, extension };
   }, [distanceToPolygonSDF, isPointInPolygonSDF]);
 
-  /**
-   * Build a distance field measured from a set of seed edges (segments) only.
-   * Positive inside the polygon = distance to the nearest seed edge.
-   * Negative outside = -distance to the polygon boundary (for robust marching squares at edges).
-   */
-  const createEdgeDistanceField = useCallback((
-    vertices: Array<{ x: number; y: number }>,
-    seedEdges: Array<{ a: { x: number; y: number }; b: { x: number; y: number } }>,
-    canvasWidth: number,
-    canvasHeight: number,
-    resolution: number = 2,
-    useInfiniteLines: boolean = false
-  ) => {
-    const extension = 300;
-    const extendedWidth = canvasWidth + extension * 2;
-    const extendedHeight = canvasHeight + extension * 2;
-    const cols = Math.ceil(extendedWidth / resolution);
-    const rows = Math.ceil(extendedHeight / resolution);
-    const field: number[][] = [];
-
-    const distToSeg = (p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) => {
-      const vx = b.x - a.x, vy = b.y - a.y;
-      const wx = p.x - a.x, wy = p.y - a.y;
-      const len2 = vx * vx + vy * vy || 1e-5;
-      let t = (wx * vx + wy * vy) / len2;
-      t = Math.max(0, Math.min(1, t));
-      const cx = a.x + vx * t;
-      const cy = a.y + vy * t;
-      return Math.hypot(p.x - cx, p.y - cy);
-    };
-    const distToInfLine = (p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) => {
-      const vx = b.x - a.x, vy = b.y - a.y;
-      const len = Math.hypot(vx, vy) || 1e-5;
-      // area of parallelogram divided by base length = distance to infinite line
-      const cross = Math.abs((p.x - a.x) * vy - (p.y - a.y) * vx);
-      return cross / len;
-    };
-
-    for (let y = 0; y < rows; y++) {
-      field[y] = [];
-      for (let x = 0; x < cols; x++) {
-        const px = x * resolution - extension;
-        const py = y * resolution - extension;
-        const point = { x: px, y: py };
-        const inside = isPointInPolygonSDF(point, vertices);
-        if (inside) {
-          let d = Infinity;
-          for (const e of seedEdges) {
-            const de = useInfiniteLines ? distToInfLine(point, e.a, e.b) : distToSeg(point, e.a, e.b);
-            if (de < d) d = de;
-          }
-          field[y][x] = isFinite(d) ? d : 0;
-        } else {
-          field[y][x] = -distanceToPolygonSDF(point, vertices);
-        }
-      }
-    }
-
-    return { field, cols, rows, resolution, extension };
-  }, [isPointInPolygonSDF, distanceToPolygonSDF]);
-
-  /**
-   * Extract polygon edges with angle and length
-   */
-  const getPolygonEdges = useCallback((
-    vertices: Array<{ x: number; y: number }>
-  ) => {
-    const edges: Array<{ a: { x: number; y: number }; b: { x: number; y: number }; angle: number; length: number; index: number }> = [];
-    for (let i = 0; i < vertices.length; i++) {
-      const a = vertices[i];
-      const b = vertices[(i + 1) % vertices.length];
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const angle = Math.atan2(dy, dx);
-      const length = Math.hypot(dx, dy);
-      edges.push({ a, b, angle, length, index: i });
-    }
-    return edges;
-  }, []);
-  
   /**
    * Extract contour using marching squares
    */
@@ -1310,47 +1236,6 @@ export const useBrushEngineSimplified = () => {
   }, []);
   
   /**
-   * Gaussian smooth for natural contour lines
-   */
-  const gaussianSmooth = useCallback((
-    points: Array<{ x: number; y: number }>,
-    sigma: number = 1.5,
-    iterations: number = 2
-  ): Array<{ x: number; y: number }> => {
-    let smooth = [...points];
-    const actualIterations = Math.ceil(iterations * (sigma / 1.5));
-    
-    for (let iter = 0; iter < actualIterations; iter++) {
-      const newPoints: Array<{ x: number; y: number }> = [];
-      const n = smooth.length;
-      const kernelRadius = Math.min(Math.ceil(sigma * 2), 10);
-      
-      for (let i = 0; i < n; i++) {
-        let x = 0, y = 0;
-        let weightSum = 0;
-        
-        for (let k = -kernelRadius; k <= kernelRadius; k++) {
-          const idx = (i + k + n * 10) % n;
-          const weight = Math.exp(-(k * k) / (2 * sigma * sigma));
-          
-          x += smooth[idx].x * weight;
-          y += smooth[idx].y * weight;
-          weightSum += weight;
-        }
-        
-        newPoints.push({
-          x: x / weightSum,
-          y: y / weightSum
-        });
-      }
-      
-      smooth = newPoints;
-    }
-    
-    return smooth;
-  }, []);
-
-  /**
    * Draw contour polygon - creates contour lines like a topographic map using distance fields
    */
   const drawContourPolygon = useCallback((
@@ -1415,7 +1300,7 @@ export const useBrushEngineSimplified = () => {
         ctx.fillStyle = fillStyle;
         ctx.globalAlpha = tools.brushSettings.opacity;
         ctx.fill();
-        ctx.fillStyle = prevStyle as any;
+        ctx.fillStyle = prevStyle;
         ctx.globalAlpha = prevAlpha;
         ctx.restore();
       }
@@ -1602,16 +1487,6 @@ export const useBrushEngineSimplified = () => {
       let seedValue = Math.floor((polygonCentroid.x + polygonCentroid.y) * 9973) ^ Math.floor(cellSize * 131) ^ Math.floor(rotationDeg * 53);
       seedValue = (seedValue ^ (seedValue >>> 13)) >>> 0;
 
-      const random = (row: number, col: number, variant: number): number => {
-        let s = seedValue;
-        s ^= Math.imul(row + 2048, 374761393);
-        s ^= Math.imul(col + 4096, 668265263);
-        s ^= Math.imul(variant + 12289, 2246822519);
-        s = (s ^ (s >>> 15)) >>> 0;
-        s = Math.imul(s, 3266489917) >>> 0;
-        return (s & 0xffffffff) / 0xffffffff;
-      };
-
       const randomScalar = (token: number) => {
         let s = seedValue ^ Math.imul(token + 8192, 2246822519);
         s = (s ^ (s >>> 15)) >>> 0;
@@ -1635,18 +1510,6 @@ export const useBrushEngineSimplified = () => {
         const scale = 0.65 + randomScalar(4096 + i) * 0.7;
         rowPositions[i] = rowPositions[i - 1] + cellSize * scale;
       }
-
-      const getHorizontalSpan = (index: number) => {
-        const prev = index > 0 ? columnPositions[index] - columnPositions[index - 1] : columnPositions[index + 1] - columnPositions[index];
-        const next = index + 1 < columnPositions.length ? columnPositions[index + 1] - columnPositions[index] : prev;
-        return Math.max(4, (prev + next) * 0.5);
-      };
-
-      const getVerticalSpan = (index: number) => {
-        const prev = index > 0 ? rowPositions[index] - rowPositions[index - 1] : rowPositions[index + 1] - rowPositions[index];
-        const next = index + 1 < rowPositions.length ? rowPositions[index + 1] - rowPositions[index] : prev;
-        return Math.max(4, (prev + next) * 0.5);
-      };
 
       const isPointInside = (x: number, y: number): boolean => {
         let inside = false;
@@ -2242,9 +2105,12 @@ export const useBrushEngineSimplified = () => {
     ctx.restore();
   }, [
     tools.brushSettings.contourSpacing,
-    tools.brushSettings.contourSmoothness,
     tools.brushSettings.shapeGradientMode,
     tools.brushSettings.contourVariance,
+    tools.brushSettings.brushShape,
+    tools.brushSettings.contourLines2Spacing,
+    tools.brushSettings.contourLines2Density,
+    tools.brushSettings.contourLines2Alternate,
     tools.brushSettings.risographIntensity,
     tools.brushSettings.opacity,
     tools.brushSettings.blendMode,
@@ -2256,7 +2122,6 @@ export const useBrushEngineSimplified = () => {
     createSignedDistanceField,
     extractContour,
     connectSegments,
-    gaussianSmooth
   ]);
 
   /**
@@ -2268,7 +2133,9 @@ export const useBrushEngineSimplified = () => {
     isPreview: boolean = false
   ) => {
     const { vertices, fillColor } = polygonData || {};
-    
+    void fillColor;
+    void isPreview;
+
     if (!vertices || !Array.isArray(vertices) || vertices.length < 3) return;
     
     // Validate all vertices
@@ -2447,20 +2314,20 @@ export const useBrushEngineSimplified = () => {
         colorCycleBrush.setGradientBands(tools.brushSettings.gradientBands);
       }
       if (tools.brushSettings.spacing) {
-        (colorCycleBrush as any).setBandSpacing(tools.brushSettings.spacing);
+        colorCycleBrush.setBandSpacing(tools.brushSettings.spacing);
       }
       // Set pressure enabled state and min/max values
       // quiet
       try {
         // Force enable pressure for COLOR_CYCLE - the UI toggle isn't working correctly
         const shouldEnablePressure = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ? true : (tools.brushSettings.pressureEnabled || false);
-        (colorCycleBrush as any).setPressureEnabled(shouldEnablePressure);
+        colorCycleBrush.setPressureEnabled(shouldEnablePressure);
         // quiet
         // Always set pressure values, using sensible defaults if not specified
-        (colorCycleBrush as any).setMinPressure(tools.brushSettings.minPressure || 50);
-        (colorCycleBrush as any).setMaxPressure(tools.brushSettings.maxPressure || 200);
-      } catch (e) {
-        console.error('[CC Init] Failed to set pressure settings:', e);
+        colorCycleBrush.setMinPressure(tools.brushSettings.minPressure || 50);
+        colorCycleBrush.setMaxPressure(tools.brushSettings.maxPressure || 200);
+      } catch (error) {
+        console.error('[CC Init] Failed to set pressure settings:', error);
       }
       
       // Apply gradient - prioritize layer's stored gradient over brush settings
@@ -2488,7 +2355,22 @@ export const useBrushEngineSimplified = () => {
       console.error('[ColorCycle] Error initializing brush:', error);
       return null;
     }
-  }, [tools.brushSettings.size, tools.brushSettings.colorCycleFPS, tools.brushSettings.colorCycleSpeed, tools.brushSettings.colorCycleGradient, project?.width, project?.height, activeLayerId]);
+  }, [
+    tools.brushSettings.size,
+    tools.brushSettings.colorCycleFPS,
+    tools.brushSettings.colorCycleSpeed,
+    tools.brushSettings.colorCycleGradient,
+    tools.brushSettings.gradientBands,
+    tools.brushSettings.spacing,
+    tools.brushSettings.pressureEnabled,
+    tools.brushSettings.minPressure,
+    tools.brushSettings.maxPressure,
+    tools.brushSettings.brushShape,
+    project?.width,
+    project?.height,
+    activeLayerId,
+    getActiveLayerColorCycleBrush
+  ]);
   
   /**
    * Draw with Color Cycle Brush - only paints to Canvas2D buffer, no immediate rendering
@@ -2534,13 +2416,13 @@ export const useBrushEngineSimplified = () => {
       try {
         // Force enable pressure for COLOR_CYCLE - the UI toggle isn't working correctly
         const shouldEnablePressure = effectivePressureEnabled;
-        (colorCycleBrush as any).setPressureEnabled(shouldEnablePressure);
+        colorCycleBrush.setPressureEnabled(shouldEnablePressure);
         // quiet
         // Always set pressure values, using sensible defaults if not specified
-        (colorCycleBrush as any).setMinPressure(effectiveMin);
-        (colorCycleBrush as any).setMaxPressure(effectiveMax);
-      } catch (e) {
-        console.error('[CC DrawCycle] Error setting pressure:', e);
+        colorCycleBrush.setMinPressure(effectiveMin);
+        colorCycleBrush.setMaxPressure(effectiveMax);
+      } catch (error) {
+        console.error('[CC DrawCycle] Error setting pressure:', error);
       }
       
       let brushSizeSetting = tools.brushSettings.size || 1;
@@ -2562,7 +2444,7 @@ export const useBrushEngineSimplified = () => {
       
       // Paint to the Canvas2D buffer only - AFTER setting pressure
       // Convert canvas coordinates to internal canvas coordinates
-      const internalCanvas = (colorCycleBrush as any).getCanvas();
+      const internalCanvas = colorCycleBrush.getCanvas();
       if (!internalCanvas || !internalCanvas.width || !internalCanvas.height) {
         console.error('[ColorCycle] Invalid internal canvas');
         return;
@@ -2579,8 +2461,8 @@ export const useBrushEngineSimplified = () => {
       if (paintX >= 0 && paintX < internalCanvas.width && 
           paintY >= 0 && paintY < internalCanvas.height) {
         // THEN paint with pressure and rotation
-        if (options?.customStamp && typeof (colorCycleBrush as any).paintCustomStamp === 'function') {
-          (colorCycleBrush as any).paintCustomStamp(
+        if (options?.customStamp && typeof colorCycleBrush.paintCustomStamp === 'function') {
+          colorCycleBrush.paintCustomStamp(
             options.customStamp,
             paintX,
             paintY,
@@ -2604,8 +2486,8 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.minPressure,
     tools.brushSettings.maxPressure,
     tools.brushSettings.brushShape,
-    tools.currentTool,
-    activeLayerId
+    activeLayerId,
+    getActiveLayerColorCycleBrush
   ]);
   
   /**
@@ -2649,7 +2531,7 @@ export const useBrushEngineSimplified = () => {
       ctx.globalCompositeOperation = prevComposite;
       ctx.globalAlpha = prevAlpha;
     }
-  }, [tools.brushSettings.blendMode, tools.brushSettings.opacity, activeLayerId]);
+  }, [tools.brushSettings.blendMode, tools.brushSettings.opacity, activeLayerId, getActiveLayerColorCycleBrush]);
   
   /**
    * Reset Color Cycle - starts a new stroke with the existing brush
@@ -2670,45 +2552,41 @@ export const useBrushEngineSimplified = () => {
           const layer = state.layers.find(l => l.id === state.activeLayerId);
           const layerCanvas = layer?.colorCycleData?.canvas || null;
           if (layer && layer.layerType === 'color-cycle' && layerCanvas && activeLayerId) {
-            const internal = (brush as any).getCanvas?.();
-            const ictx = internal?.getContext?.('2d');
+            const internal = brush.getCanvas();
+            const ictx = internal.getContext?.('2d');
             let hasAlpha = false;
-            if (internal && ictx) {
-              try {
-                const img = ictx.getImageData(0, 0, Math.min(8, internal.width), Math.min(8, internal.height));
-                const data = img.data;
+            try {
+              const img = ictx?.getImageData(0, 0, Math.min(8, internal.width), Math.min(8, internal.height));
+              const data = img?.data ?? null;
+              if (data) {
                 for (let i = 3; i < data.length; i += 4) {
                   if (data[i] > 0) { hasAlpha = true; break; }
                 }
-              } catch {}
-            }
+              }
+            } catch {}
             if (hasAlpha) {
               // quiet
-              if (typeof (brush as any).commitCurrentStroke === 'function') {
-                (brush as any).commitCurrentStroke(activeLayerId);
-              }
-              if (typeof (brush as any).commitToLayer === 'function') {
-                (brush as any).commitToLayer(layerCanvas, activeLayerId);
+              brush.commitCurrentStroke?.(activeLayerId);
+              if (typeof brush.commitToLayer === 'function') {
+                brush.commitToLayer(layerCanvas, activeLayerId);
               } else {
-                (brush as any).renderDirectToCanvas?.(layerCanvas, activeLayerId);
+                brush.renderDirectToCanvas?.(layerCanvas, activeLayerId);
               }
-              if (typeof (brush as any).clearPaintBuffer === 'function') {
-                (brush as any).clearPaintBuffer(activeLayerId);
-              }
+              brush.clearPaintBuffer?.(activeLayerId);
             }
           }
-        } catch (e) {
+        } catch {
           // quiet
         }
 
         // Ensure any in-progress stroke is finalized before starting a new one
         try {
-          if (typeof (brush as any).finalizeCurrentStroke === 'function') {
-            (brush as any).finalizeCurrentStroke(activeLayerId || undefined);
+          if (typeof brush.finalizeCurrentStroke === 'function') {
+            brush.finalizeCurrentStroke(activeLayerId || undefined);
           } else if (typeof brush.endStroke === 'function') {
             brush.endStroke(activeLayerId || undefined);
           }
-        } catch (e) {
+        } catch {
           // quiet
         }
 
@@ -2716,7 +2594,7 @@ export const useBrushEngineSimplified = () => {
         // Start a new stroke with the existing brush, passing layer ID and clearBuffer flag
         brush.startStroke(activeLayerId || undefined, clearBuffer);
       }
-    } catch (error) {
+    } catch {
       // quiet
       // Fail gracefully - don't crash the app
     }
@@ -2730,7 +2608,7 @@ export const useBrushEngineSimplified = () => {
     if (colorCycleBrush) {
       colorCycleBrush.endStroke(activeLayerId || undefined);
     }
-  }, [activeLayerId]);
+  }, [activeLayerId, getActiveLayerColorCycleBrush]);
   
   /**
    * Fill a shape with linear color cycle gradient in specified direction
@@ -2743,7 +2621,8 @@ export const useBrushEngineSimplified = () => {
     
     if (brush && activeLayerId) {
       // Ensure we have a layer by setting the gradient if needed
-      if ((brush as any).currentLayerIndex < 0) {
+      const currentBrushLayerId = brush.getLayerId();
+      if (!currentBrushLayerId || currentBrushLayerId !== activeLayerId) {
         // quiet
         const currentGradient = tools.brushSettings.colorCycleGradient || [
           { position: 0, color: '#ff0000' },
@@ -2759,7 +2638,7 @@ export const useBrushEngineSimplified = () => {
       
       // quiet
       // Fill the shape with linear gradient
-      (brush as any).fillShapeLinear(vertices, direction, activeLayerId);
+      brush.fillShapeLinear(vertices, direction, activeLayerId);
 
       // quiet
       // End the stroke to ensure texture is updated
@@ -2786,7 +2665,8 @@ export const useBrushEngineSimplified = () => {
       // This was causing the double startStroke issue that accumulated shapes
       
       // Ensure we have a layer by setting the gradient if needed
-      if ((brush as any).currentLayerIndex < 0) {
+      const currentBrushLayerId = brush.getLayerId();
+      if (!currentBrushLayerId || currentBrushLayerId !== activeLayerId) {
         // quiet
         // Set the gradient to create a layer
         const currentGradient = tools.brushSettings.colorCycleGradient || [
@@ -2807,7 +2687,7 @@ export const useBrushEngineSimplified = () => {
       
       // quiet
       // Fill the shape with layer ID and spacing
-      (brush as any).fillShape(vertices, activeLayerId, tools.brushSettings.spacing);
+      brush.fillShape(vertices, activeLayerId, tools.brushSettings.spacing);
 
       // quiet
       // End the stroke to ensure texture is updated
@@ -2817,7 +2697,7 @@ export const useBrushEngineSimplified = () => {
       // Force a render to ensure the shape is visible
       brush.render(true);
     }
-  }, [initializeColorCycleBrush, activeLayerId, project?.width, project?.height, tools.brushSettings.colorCycleGradient, tools.brushSettings.spacing, tools.brushSettings.gradientBands]);
+  }, [initializeColorCycleBrush, activeLayerId, tools.brushSettings.colorCycleGradient, tools.brushSettings.spacing, tools.brushSettings.gradientBands]);
 
   // Color cycle functions removed - now defined inline in return object to avoid stale closures
   
@@ -2838,7 +2718,7 @@ export const useBrushEngineSimplified = () => {
     if (colorCycleBrush && tools.brushSettings.colorCycleFPS) {
       colorCycleBrush.setFPS(tools.brushSettings.colorCycleFPS);
     }
-  }, [tools.brushSettings.colorCycleFPS, activeLayerId]);
+  }, [tools.brushSettings.colorCycleFPS, activeLayerId, getActiveLayerColorCycleBrush]);
   
   // Update gradient bands when it changes
   useEffect(() => {
@@ -2873,31 +2753,32 @@ export const useBrushEngineSimplified = () => {
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
     if (colorCycleBrush && tools.brushSettings.spacing) {
-      (colorCycleBrush as any).setBandSpacing(tools.brushSettings.spacing);
+      colorCycleBrush.setBandSpacing(tools.brushSettings.spacing);
     }
-  }, [tools.brushSettings.spacing, activeLayerId]);
+  }, [tools.brushSettings.spacing, activeLayerId, getActiveLayerColorCycleBrush]);
 
   // Update dithering toggle for color-cycle shape fills
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
     if (colorCycleBrush) {
       try {
-        (colorCycleBrush as any).setDitherEnabled(!!tools.brushSettings.ditherEnabled);
-      } catch (e) {
+        colorCycleBrush.setDitherEnabled(!!tools.brushSettings.ditherEnabled);
+      } catch (error) {
+        void error;
         // Non-fatal; older brushes may not support dithering
       }
     }
-  }, [tools.brushSettings.ditherEnabled, activeLayerId]);
+  }, [tools.brushSettings.ditherEnabled, activeLayerId, getActiveLayerColorCycleBrush]);
 
   // Update dither pixel size (fillResolution) for color-cycle shape fills
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
     if (colorCycleBrush && tools.brushSettings.fillResolution) {
       try {
-        (colorCycleBrush as any).setDitherPixelSize(Math.max(1, Math.floor(tools.brushSettings.fillResolution)));
+        colorCycleBrush.setDitherPixelSize(Math.max(1, Math.floor(tools.brushSettings.fillResolution)));
       } catch {}
     }
-  }, [tools.brushSettings.fillResolution, activeLayerId]);
+  }, [tools.brushSettings.fillResolution, activeLayerId, getActiveLayerColorCycleBrush]);
 
   // Perceptual dithering removed
   
@@ -2906,43 +2787,44 @@ export const useBrushEngineSimplified = () => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
     if (colorCycleBrush) {
       try {
-        (colorCycleBrush as any).setPressureEnabled(tools.brushSettings.pressureEnabled || false);
-      } catch (e) {
-        console.error('[CC Effect] Failed to set pressure enabled:', e);
+        colorCycleBrush.setPressureEnabled(tools.brushSettings.pressureEnabled || false);
+      } catch (error) {
+        console.error('[CC Effect] Failed to set pressure enabled:', error);
       }
     }
-  }, [tools.brushSettings.pressureEnabled, activeLayerId]);
+  }, [tools.brushSettings.pressureEnabled, activeLayerId, getActiveLayerColorCycleBrush]);
   
   // Update min pressure when it changes
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
     if (colorCycleBrush && tools.brushSettings.minPressure) {
       try {
-        (colorCycleBrush as any).setMinPressure(tools.brushSettings.minPressure);
-      } catch (e) {
-        console.error('[CC Effect] Failed to set min pressure:', e);
+        colorCycleBrush.setMinPressure(tools.brushSettings.minPressure);
+      } catch (error) {
+        console.error('[CC Effect] Failed to set min pressure:', error);
       }
     }
-  }, [tools.brushSettings.minPressure, activeLayerId]);
+  }, [tools.brushSettings.minPressure, activeLayerId, getActiveLayerColorCycleBrush]);
   
   // Update max pressure when it changes
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
     if (colorCycleBrush && tools.brushSettings.maxPressure) {
       try {
-        (colorCycleBrush as any).setMaxPressure(tools.brushSettings.maxPressure);
-      } catch (e) {
-        console.error('[CC Effect] Failed to set max pressure:', e);
+        colorCycleBrush.setMaxPressure(tools.brushSettings.maxPressure);
+      } catch (error) {
+        console.error('[CC Effect] Failed to set max pressure:', error);
       }
     }
-  }, [tools.brushSettings.maxPressure, activeLayerId]);
+  }, [tools.brushSettings.maxPressure, activeLayerId, getActiveLayerColorCycleBrush]);
 
   // Clean up resources
   useEffect(() => {
+    const cache = brushStampCacheRef.current;
     return () => {
       // Clear brush stamp cache on unmount
-      brushStampCacheRef.current.clear();
-      
+      cache.clear();
+
       // DON'T cleanup color cycle brush when switching layers!
       // This was causing the crash - the brush was being destroyed
       // but the layer still thought it had a CC brush.
@@ -2973,7 +2855,7 @@ export const useBrushEngineSimplified = () => {
     fillColorCycleShapeLinear,
     
     // Force immediate texture update for color cycle brush
-    updateColorCycleTexture: (_layerId: string) => {
+    updateColorCycleTexture: () => {
       const colorCycleBrush = getActiveLayerColorCycleBrush();
       if (colorCycleBrush) {
         // Force a render to update the texture
@@ -2997,8 +2879,8 @@ export const useBrushEngineSimplified = () => {
       try {
         if (typeof colorCycleBrush.render === 'function') {
           colorCycleBrush.render(true);
-        } else if (typeof (colorCycleBrush as any).forceRender === 'function') {
-          (colorCycleBrush as any).forceRender();
+        } else if (typeof (colorCycleBrush as unknown).forceRender === 'function') {
+          (colorCycleBrush as unknown).forceRender();
         }
       } catch (error) {
         console.warn('[ColorCycle] Failed to force render after gradient update:', error);

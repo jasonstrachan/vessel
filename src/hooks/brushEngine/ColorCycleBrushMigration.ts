@@ -34,7 +34,7 @@ export function createColorCycleBrush(
  * Migration helper to detect which implementation is being used
  * Always returns 'canvas2d' now since WebGL has been removed
  */
-export function getImplementationType(brush: ColorCycleBrushImplementation): 'canvas2d' {
+export function getImplementationType(): 'canvas2d' {
   return 'canvas2d';
 }
 

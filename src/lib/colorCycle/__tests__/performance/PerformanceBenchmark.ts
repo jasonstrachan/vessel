@@ -4,12 +4,37 @@
  */
 
 import { ColorQuantizer } from '../../ColorQuantizer';
-import { RecolorEngine } from '../../RecolorEngine';
 import { RecolorAnimationController } from '../../RecolorAnimationController';
 import { MedianCut } from '../../quantization/MedianCut';
 import { SpatialColorHash } from '../../optimization/SpatialColorHash';
 import { BayerDithering } from '../../dithering/BayerDithering';
 import { OKLabConverter } from '../../colorSpace/OKLabConverter';
+
+type BenchmarkDetails = Record<string, unknown>;
+
+type PerformanceMemoryStats = {
+  jsHeapSizeLimit: number;
+  totalJSHeapSize: number;
+  usedJSHeapSize: number;
+};
+
+const getPerformanceMemory = (): PerformanceMemoryStats | null => {
+  const perf = performance as Performance & { memory?: PerformanceMemoryStats };
+  const { memory } = perf;
+  if (
+    memory &&
+    typeof memory.jsHeapSizeLimit === 'number' &&
+    typeof memory.totalJSHeapSize === 'number' &&
+    typeof memory.usedJSHeapSize === 'number'
+  ) {
+    return memory;
+  }
+  return null;
+};
+
+type RecolorAnimationControllerInternal = RecolorAnimationController & {
+  updateFrame: (...args: unknown[]) => void;
+};
 
 export interface BenchmarkResult {
   name: string;
@@ -20,7 +45,7 @@ export interface BenchmarkResult {
   minTime: number;
   maxTime: number;
   throughput?: number;
-  details?: Record<string, any>;
+  details?: BenchmarkDetails;
 }
 
 export interface BenchmarkSuite {
@@ -30,7 +55,7 @@ export interface BenchmarkSuite {
     userAgent: string;
     canvas2DSupport: boolean;
     webGLSupport: boolean;
-    memoryInfo?: any;
+    memoryInfo: PerformanceMemoryStats | null;
   };
 }
 
@@ -317,6 +342,7 @@ export class PerformanceBenchmark {
     });
 
     const controller = new RecolorAnimationController();
+    const controllerInternal = controller as RecolorAnimationControllerInternal;
 
     const gradient = [
       { position: 0, color: '#ff0000' },
@@ -330,7 +356,7 @@ export class PerformanceBenchmark {
 
     for (let i = 0; i < iterations; i++) {
       const start = performance.now();
-      (controller as any).updateFrame(quantized.indices, quantized.palette, gradient, imageData);
+      controllerInternal.updateFrame(quantized.indices, quantized.palette, gradient, imageData);
       const end = performance.now();
       times.push(end - start);
     }
@@ -363,6 +389,7 @@ export class PerformanceBenchmark {
     const memorySnapshots: number[] = [];
 
     const startMemory = this.getMemoryUsage();
+    const globalWithGC = globalThis as typeof globalThis & { gc?: () => void };
     memorySnapshots.push(startMemory);
 
     for (let i = 0; i < iterations; i++) {
@@ -370,14 +397,14 @@ export class PerformanceBenchmark {
       
       // Simulate heavy memory usage
       const imageData = this.generateTestImage(512, 512);
-      const quantized = ColorQuantizer.quantize(imageData, {
+      ColorQuantizer.quantize(imageData, {
         method: 'rgb332',
         maxColors: 256
       });
       
       // Force garbage collection opportunity
-      if (i % 10 === 0 && (globalThis as any).gc) {
-        (globalThis as any).gc();
+      if (i % 10 === 0 && typeof globalWithGC.gc === 'function') {
+        globalWithGC.gc();
       }
       
       const end = performance.now();
@@ -398,7 +425,7 @@ export class PerformanceBenchmark {
       details: {
         peakMemory: Math.max(...memorySnapshots),
         memoryVariance: this.calculateVariance(memorySnapshots),
-        gcAvailable: typeof (globalThis as any).gc !== 'undefined'
+        gcAvailable: typeof globalWithGC.gc === 'function'
       }
     };
   }
@@ -424,6 +451,7 @@ export class PerformanceBenchmark {
       });
       
       const controller = new RecolorAnimationController();
+      const controllerInternal = controller as RecolorAnimationControllerInternal;
       
       const gradient = [
         { position: 0, color: '#ff0000' },
@@ -432,7 +460,7 @@ export class PerformanceBenchmark {
       
       // Simulate 10 animation frames
       for (let frame = 0; frame < 10; frame++) {
-        (controller as any).updateFrame(quantized.indices, quantized.palette, gradient, imageData);
+        controllerInternal.updateFrame(quantized.indices, quantized.palette, gradient, imageData);
       }
       
       const end = performance.now();
@@ -495,8 +523,9 @@ export class PerformanceBenchmark {
    * Get memory usage (approximate)
    */
   private getMemoryUsage(): number {
-    if ((performance as any).memory) {
-      return (performance as any).memory.usedJSHeapSize;
+    const memory = getPerformanceMemory();
+    if (memory) {
+      return memory.usedJSHeapSize;
     }
     return Date.now(); // Fallback for timing-based approximation
   }
@@ -515,16 +544,13 @@ export class PerformanceBenchmark {
   private getSystemInfo() {
     const canvas = document.createElement('canvas');
     const gl = canvas.getContext('webgl');
-    
+    const memory = getPerformanceMemory();
+
     return {
       userAgent: navigator.userAgent,
       canvas2DSupport: !!canvas.getContext('2d'),
       webGLSupport: !!gl,
-      memoryInfo: (performance as any).memory ? {
-        jsHeapSizeLimit: (performance as any).memory.jsHeapSizeLimit,
-        totalJSHeapSize: (performance as any).memory.totalJSHeapSize,
-        usedJSHeapSize: (performance as any).memory.usedJSHeapSize
-      } : null
+      memoryInfo: memory
     };
   }
 

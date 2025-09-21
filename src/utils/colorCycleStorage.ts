@@ -8,7 +8,6 @@ import type { ColorCycleSnapshot } from '../types';
 // Constants for memory management
 const MAX_SNAPSHOT_MEMORY = 50 * 1024 * 1024; // 50MB max for snapshots
 const MAX_SNAPSHOTS_PER_LAYER = 30; // Limit history depth per layer
-const COMPRESSION_THRESHOLD = 1024; // Minimum size for compression (1KB)
 
 /**
  * Gradient pool for deduplication
@@ -251,15 +250,17 @@ export class DeltaCompressor {
 /**
  * Memory-managed storage for color cycle snapshots
  */
+type SnapshotRecord = {
+  timestamp: number;
+  gradientIds: string[];
+  animationState: ColorCycleSnapshot['animationState'];
+  strokeDeltas: Map<string, ArrayBuffer>;
+  baseSnapshot?: Map<string, Uint8Array>;
+};
+
 export class OptimizedColorCycleStorage {
   private gradientPool = new GradientPool();
-  private snapshots: Map<string, Array<{
-    timestamp: number;
-    gradientIds: string[];
-    animationState: any;
-    strokeDeltas: Map<string, ArrayBuffer>;
-    baseSnapshot?: Map<string, Uint8Array>;
-  }>> = new Map();
+  private snapshots: Map<string, SnapshotRecord[]> = new Map();
   
   private totalMemoryUsage = 0;
   

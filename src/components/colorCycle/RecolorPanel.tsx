@@ -5,7 +5,7 @@
  * keyboard shortcuts, and real-time performance monitoring.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Layer } from '../../types';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
@@ -26,14 +26,12 @@ import { ConfirmationDialog } from './dialogs/ConfirmationDialog';
 export interface RecolorPanelProps {
   activeLayer: Layer | null;
   isVisible: boolean;
-  onClose?: () => void;
   onError?: (error: string) => void;
 }
 
 export const RecolorPanel: React.FC<RecolorPanelProps> = ({
   activeLayer,
   isVisible,
-  onClose,
   onError
 }) => {
   // Use custom state management hook
@@ -41,7 +39,6 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     state,
     actions,
     processLayer,
-    convertToNormal,
     toggleAnimation,
     isAnimating,
     updateLayerSpeed,
@@ -50,7 +47,6 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     updateLayerMappingMode,
     updateGradient,
     updateGlobalFPS,
-    performanceStats,
     successMessage
   } = useRecolorState(activeLayer, {
     initialMode: 'brush',
@@ -85,17 +81,17 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
 
   // Keep planned settings synced with active recolor layer when available
   useEffect(() => {
-    if (recolorSettings) {
-      setPlannedSettings({
-        speed: recolorSettings.animation.speed ?? 0.1,
-        fps: recolorSettings.animation.fps ?? 30,
-        cycleColors: recolorSettings.cycleColors ?? 16,
-        flowDirection: recolorSettings.animation.flowDirection ?? 'forward',
-        mappingMode: recolorSettings.mappingMode ?? 'banded',
-        flowMapping: recolorSettings.flowMapping ?? 'palette'
-      });
-    }
-  }, [recolorSettings?.animation.speed, recolorSettings?.animation.fps, recolorSettings?.cycleColors, recolorSettings?.animation.flowDirection, recolorSettings?.mappingMode, recolorSettings?.flowMapping]);
+    if (!recolorSettings) return;
+
+    setPlannedSettings({
+      speed: recolorSettings.animation.speed ?? 0.1,
+      fps: recolorSettings.animation.fps ?? 30,
+      cycleColors: recolorSettings.cycleColors ?? 16,
+      flowDirection: recolorSettings.animation.flowDirection ?? 'forward',
+      mappingMode: recolorSettings.mappingMode ?? 'banded',
+      flowMapping: recolorSettings.flowMapping ?? 'palette'
+    });
+  }, [recolorSettings]);
 
   // Gradient presets for shortcuts (memoized to avoid dependency issues)
   const gradientPresets = useMemo(() => [
@@ -191,7 +187,6 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     activeLayer,
     state.mode,
     processLayer,
-    convertToNormal,
     actions,
     recolorSettings,
     updateLayerSpeed,
@@ -213,51 +208,6 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     message: string;
     action?: () => void;
   }>({ isOpen: false, title: '', message: '' });
-
-  // Event handlers
-  const handleModeChange = useCallback(async (newMode: 'brush' | 'recolor') => {
-    if (!activeLayer) return;
-    
-    // Show confirmation for destructive actions
-    if (newMode === 'brush' && activeLayer.colorCycleData?.mode === 'recolor') {
-      setConfirmationDialog({
-        isOpen: true,
-        title: 'Convert to Brush Mode',
-        message: 'This will remove the recolor animation and convert the layer back to normal mode. This action cannot be undone.',
-        action: async () => {
-          await convertToNormal(activeLayer);
-          setConfirmationDialog((prev) => ({ ...prev, isOpen: false }));
-        }
-      });
-      return;
-    }
-    
-    if (newMode === 'recolor') {
-      // If already in recolor mode, treat this button as a quick toggle for animation
-      if (activeLayer.colorCycleData?.mode === 'recolor') {
-        toggleAnimation();
-      } else {
-        // Convert layer using any planned pre-conversion settings
-        const ok = await processLayer(activeLayer, {
-          quantizationMode: 'rgb332',
-          ditherMode: 'off',
-          cycleColors: plannedSettings.cycleColors,
-          gradientPreset: 'rainbow'
-        });
-        if (ok) {
-          // Apply planned runtime settings immediately post-conversion
-          updateLayerSpeed(activeLayer.id, plannedSettings.speed);
-          updateGlobalFPS(plannedSettings.fps);
-          updateLayerFlowDirection(activeLayer.id, plannedSettings.flowDirection);
-          updateLayerMappingMode(activeLayer.id, plannedSettings.mappingMode);
-          // Auto-start animation after successful conversion
-          toggleAnimation();
-        }
-      }
-    } else {
-      await convertToNormal(activeLayer);
-    }
-  }, [activeLayer, processLayer, convertToNormal, toggleAnimation]);
 
   // Extract colors workflow removed from UI
 

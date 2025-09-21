@@ -7,9 +7,21 @@ export interface GradientStop {
   color: string;
 }
 
+type WorkerMessageType = 'updateGradient' | 'shiftPalette' | 'applyToBuffer';
+
+interface WorkerPayloadMap {
+  updateGradient: { stops: GradientStop[] };
+  shiftPalette: { offset: number };
+  applyToBuffer: { indexData: Uint8Array; offset: number };
+}
+
+type WorkerResponseMessage =
+  | { id: number; type: 'success'; result: Uint8ClampedArray }
+  | { id: number; type: 'error'; error: string };
+
 interface WorkerRequest {
-  resolve: (value: any) => void;
-  reject: (error: any) => void;
+  resolve: (value: Uint8ClampedArray) => void;
+  reject: (error: Error) => void;
 }
 
 export class GradientWorkerManager {
@@ -31,62 +43,107 @@ export class GradientWorkerManager {
         this.worker.onmessage = this.handleMessage.bind(this);
         this.worker.onerror = this.handleError.bind(this);
       } catch (error) {
+        console.error('Failed to initialize gradient worker:', error);
         this.isSupported = false;
         this.worker = null;
       }
     }
   }
 
-  private handleMessage(e: MessageEvent) {
-    const { id, type, result, error } = e.data;
-    const request = this.pendingRequests.get(id);
-    
+  private parseColor(color: string): { r: number; g: number; b: number; a: number } {
+    const rgbMatch = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+    if (rgbMatch) {
+      return {
+        r: parseInt(rgbMatch[1], 10),
+        g: parseInt(rgbMatch[2], 10),
+        b: parseInt(rgbMatch[3], 10),
+        a: 255
+      };
+    }
+
+    if (color.startsWith('#')) {
+      const hex = color.slice(1);
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      return { r, g, b, a: 255 };
+    }
+
+    return { r: 0, g: 0, b: 0, a: 255 };
+  }
+
+  private interpolateColor(
+    color1: { r: number; g: number; b: number; a: number },
+    color2: { r: number; g: number; b: number; a: number },
+    t: number
+  ) {
+    return {
+      r: Math.round(color1.r + (color2.r - color1.r) * t),
+      g: Math.round(color1.g + (color2.g - color1.g) * t),
+      b: Math.round(color1.b + (color2.b - color1.b) * t),
+      a: Math.round(color1.a + (color2.a - color1.a) * t)
+    };
+  }
+
+  private handleMessage(event: MessageEvent<WorkerResponseMessage>) {
+    const message = event.data;
+    const request = this.pendingRequests.get(message.id);
+
     if (!request) return;
-    
-    this.pendingRequests.delete(id);
-    
-    if (type === 'error') {
-      request.reject(new Error(error));
+
+    this.pendingRequests.delete(message.id);
+
+    if (message.type === 'error') {
+      request.reject(new Error(message.error));
     } else {
-      request.resolve(result);
+      request.resolve(message.result);
     }
   }
 
   private handleError(error: ErrorEvent) {
     console.error('Gradient worker error:', error);
     // Reject all pending requests
-    for (const [id, request] of this.pendingRequests) {
-      request.reject(error);
+    for (const [, request] of this.pendingRequests) {
+      request.reject(new Error(error.message));
     }
     this.pendingRequests.clear();
   }
 
-  private sendMessage(type: string, data: any): Promise<any> {
+  private sendMessage<T extends WorkerMessageType>(
+    type: T,
+    data: WorkerPayloadMap[T],
+    transferables: Transferable[] = []
+  ): Promise<Uint8ClampedArray> {
     const worker = this.worker;
     if (!worker) {
       return Promise.reject(new Error('Worker not available'));
     }
-    
-    return new Promise((resolve, reject) => {
+
+    return new Promise<Uint8ClampedArray>((resolve, reject) => {
       const id = this.requestId++;
-      this.pendingRequests.set(id, { resolve, reject });
-      
-      // Set timeout for worker response
-      const timeout = setTimeout(() => {
+      const timeoutId: ReturnType<typeof setTimeout> = setTimeout(() => {
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id);
           reject(new Error('Worker timeout'));
         }
       }, 5000);
-      
-      // Override resolve to clear timeout
-      const originalResolve = resolve;
-      resolve = (value: any) => {
-        clearTimeout(timeout);
-        originalResolve(value);
+
+      const resolveWithCleanup = (value: Uint8ClampedArray) => {
+        clearTimeout(timeoutId);
+        resolve(value);
       };
-      
-      worker.postMessage({ type, data, id });
+
+      const rejectWithCleanup = (workerError: Error) => {
+        clearTimeout(timeoutId);
+        reject(workerError);
+      };
+
+      this.pendingRequests.set(id, {
+        resolve: resolveWithCleanup,
+        reject: rejectWithCleanup
+      });
+
+      worker.postMessage({ type, data, id }, transferables);
     });
   }
 
@@ -123,10 +180,14 @@ export class GradientWorkerManager {
     
     // Transfer indexData to worker (zero-copy)
     const transferable = indexData.buffer.slice(0);
-    return await this.sendMessage('applyToBuffer', {
-      indexData: new Uint8Array(transferable),
-      offset
-    });
+    return await this.sendMessage(
+      'applyToBuffer',
+      {
+        indexData: new Uint8Array(transferable),
+        offset
+      },
+      [transferable]
+    );
   }
 
   /**
@@ -135,19 +196,46 @@ export class GradientWorkerManager {
   private updateGradientSync(stops: GradientStop[]): Uint8ClampedArray {
     const paletteSize = 256;
     const colors = new Uint8ClampedArray(paletteSize * 4);
+    if (stops.length === 0) {
+      return colors;
+    }
+
+    const normalizedStops = [...stops].sort((a, b) => a.position - b.position);
+    if (normalizedStops[0].position > 0) {
+      normalizedStops.unshift({ position: 0, color: normalizedStops[0].color });
+    }
+    const lastIndex = normalizedStops.length - 1;
+    if (normalizedStops[lastIndex].position < 1) {
+      normalizedStops.push({ position: 1, color: normalizedStops[lastIndex].color });
+    }
     
     // Simplified gradient generation
     for (let i = 0; i < paletteSize; i++) {
       const position = i / (paletteSize - 1);
-      // Simple linear interpolation between first and last stop
-      const firstStop = stops[0];
-      const lastStop = stops[stops.length - 1];
-      
+
+      let leftStop = normalizedStops[0];
+      let rightStop = normalizedStops[normalizedStops.length - 1];
+      for (let j = 0; j < normalizedStops.length - 1; j++) {
+        const current = normalizedStops[j];
+        const next = normalizedStops[j + 1];
+        if (position >= current.position && position <= next.position) {
+          leftStop = current;
+          rightStop = next;
+          break;
+        }
+      }
+
+      const leftColor = this.parseColor(leftStop.color);
+      const rightColor = this.parseColor(rightStop.color);
+      const range = rightStop.position - leftStop.position;
+      const t = range === 0 ? 0 : (position - leftStop.position) / range;
+      const color = this.interpolateColor(leftColor, rightColor, t);
+
       const idx = i * 4;
-      colors[idx] = Math.floor(255 * position);     // R
-      colors[idx + 1] = Math.floor(255 * position); // G  
-      colors[idx + 2] = Math.floor(255 * position); // B
-      colors[idx + 3] = 255;                        // A
+      colors[idx] = color.r;
+      colors[idx + 1] = color.g;
+      colors[idx + 2] = color.b;
+      colors[idx + 3] = color.a;
     }
     
     return colors;
@@ -159,7 +247,7 @@ export class GradientWorkerManager {
   dispose() {
     if (this.worker) {
       // Reject all pending requests
-      for (const [id, request] of this.pendingRequests) {
+      for (const [, request] of this.pendingRequests) {
         request.reject(new Error('Worker terminated'));
       }
       this.pendingRequests.clear();

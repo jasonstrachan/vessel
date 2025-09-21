@@ -204,11 +204,7 @@ const MinimalLayerList = () => {
   
   // Store subscriptions
   const layers = useAppStore(state => state.layers);
-  const brushShape = useAppStore(state => state.tools?.brushSettings?.brushShape);
-  
   const activeLayerId = useAppStore(state => state.activeLayerId);
-  const project = useAppStore(state => state.project);
-  
   // Actions
   const addLayer = useAppStore(state => state.addLayer);
   const updateLayer = useAppStore(state => state.updateLayer);
@@ -232,17 +228,16 @@ const MinimalLayerList = () => {
   
   const handleAddCCLayer = () => {
     // Unconditional trace to verify handler fires even when TB_DEBUG isn't set
-    // eslint-disable-next-line no-console
     // quiet
     recordBreadcrumb('layers', { event: 'ui-add-cc-click', count: layers.length, activeLayerId });
     // quiet
     // Helper to create a framebuffer that works across browsers
-    const makeFramebuffer = (_w: number, _h: number): OffscreenCanvas | HTMLCanvasElement => {
+    const makeFramebuffer = (): OffscreenCanvas | HTMLCanvasElement => {
       // Allocate tiny placeholder; resize lazily on first capture
-      const c = document.createElement('canvas');
-      c.width = 1;
-      c.height = 1;
-      return c;
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      return canvas;
     };
     
     // Get current gradient from brush settings or use default rainbow
@@ -264,9 +259,7 @@ const MinimalLayerList = () => {
       blendMode: 'source-over',
       locked: false,
       imageData: null,
-      framebuffer: project
-        ? makeFramebuffer(project.width, project.height)
-        : makeFramebuffer(1920, 1080),
+      framebuffer: makeFramebuffer(),
       layerType: 'color-cycle', // Color-cycle layer - cannot be converted to normal
       colorCycleData: {
         gradient: currentGradient,
@@ -305,16 +298,15 @@ const MinimalLayerList = () => {
   
   const handleAddRegularLayer = () => {
     // Unconditional trace to verify handler fires even when TB_DEBUG isn't set
-    // eslint-disable-next-line no-console
     // quiet
     recordBreadcrumb('layers', { event: 'ui-add-regular-click', count: layers.length, activeLayerId });
     // quiet
-    const makeFramebuffer = (_w: number, _h: number): OffscreenCanvas | HTMLCanvasElement => {
+    const makeFramebuffer = (): OffscreenCanvas | HTMLCanvasElement => {
       // Allocate tiny placeholder; resize lazily on first capture
-      const c = document.createElement('canvas');
-      c.width = 1;
-      c.height = 1;
-      return c;
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      return canvas;
     };
     
     // Create a regular layer
@@ -325,16 +317,12 @@ const MinimalLayerList = () => {
       blendMode: 'source-over',
       locked: false,
       imageData: null,
-      framebuffer: project
-        ? makeFramebuffer(project.width, project.height)
-        : makeFramebuffer(1920, 1080),
+      framebuffer: makeFramebuffer(),
       layerType: 'normal' // Regular layer - cannot be converted to CC
     };
     // quiet
     // Execute synchronously to avoid race conditions with CC layers
     // Fetch fresh state before mutating
-    const preState = useAppStore.getState();
-    // eslint-disable-next-line no-console
     // quiet
     const newLayerId = addLayer(newLayer);
     // quiet
@@ -343,12 +331,11 @@ const MinimalLayerList = () => {
     if (newLayerId) {
       // Use fresh state to avoid stale closures during fast interactions
       const freshState = useAppStore.getState();
-      // eslint-disable-next-line no-console
       // quiet
       try {
         freshState.setActiveLayer(newLayerId);
         // quiet
-      } catch (e) {
+      } catch {
         // quiet
       }
       
@@ -360,7 +347,7 @@ const MinimalLayerList = () => {
           finalState.setBrushSettings({ brushShape: BrushShape.ROUND });
           // quiet
         }
-      } catch (e) {
+      } catch {
         // As a last resort, force a safe brush shape
         try { useAppStore.getState().setBrushSettings({ brushShape: BrushShape.ROUND }); } catch {}
       }
@@ -584,7 +571,7 @@ const MinimalLayerList = () => {
             // Brush-based color cycle (stroke/shape)
             try {
               setColorCycleAnimationState(newIsAnimating);
-              const handlers = (window as any).colorCycleAnimationHandlers;
+              const handlers = window.colorCycleAnimationHandlers;
               if (handlers) {
                 if (newIsAnimating) handlers.startContinuousColorCycleAnimation();
                 else handlers.stopContinuousColorCycleAnimation();
@@ -612,12 +599,11 @@ const MinimalLayerList = () => {
               st.layers
                 .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor')
                 .forEach(l => {
-                  st.updateLayer(l.id, {
-                    colorCycleData: {
-                      ...l.colorCycleData,
-                      isAnimating: newIsAnimating
-                    }
-                  } as any);
+                  const colorCycleData: Layer['colorCycleData'] = {
+                    ...(l.colorCycleData ?? {}),
+                    isAnimating: newIsAnimating
+                  };
+                  st.updateLayer(l.id, { colorCycleData });
                 });
             } catch {}
           }}

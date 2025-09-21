@@ -4,27 +4,36 @@
  */
 
 import { PerformanceBenchmark } from '../performance/PerformanceBenchmark';
+import type { BenchmarkSuite } from '../performance/PerformanceBenchmark';
 import { CrossBrowserTest } from '../performance/CrossBrowserTest';
+import type { BrowserCapabilities } from '../performance/CrossBrowserTest';
 import { PerformanceProfiler } from '../../monitoring/PerformanceProfiler';
+import type { ProfileResult } from '../../monitoring/PerformanceProfiler';
 import { ColorQuantizer } from '../../ColorQuantizer';
 import { RecolorManager } from '../../RecolorManager';
 import { BrowserCompat } from '../../compatibility/BrowserCompat';
 import type { Layer } from '@/types';
 import { createMockLayer } from '../testUtils/layerFactory';
 
+type IntegrationTestDetails = Record<string, unknown>;
+type ColorCycleCompatibilityResult = Awaited<ReturnType<CrossBrowserTest['testColorCycleCompatibility']>>;
+
 export interface IntegrationTestResult {
   testName: string;
   success: boolean;
   duration: number;
   error?: string;
-  details?: Record<string, any>;
+  details?: {
+    result: IntegrationTestDetails;
+    profile: ProfileResult | null;
+  };
 }
 
 export interface IntegrationTestSuite {
   name: string;
   results: IntegrationTestResult[];
-  performance: any;
-  compatibility: any;
+  performance: BenchmarkSuite;
+  compatibility: BrowserCapabilities;
   recommendations: string[];
   timestamp: number;
 }
@@ -114,34 +123,39 @@ export class ColorCycleIntegrationTest {
   /**
    * Run individual test with error handling and profiling
    */
-  private async runTest(testName: string, testFunction: () => Promise<any>): Promise<IntegrationTestResult> {
+  private async runTest(
+    testName: string,
+    testFunction: () => Promise<IntegrationTestDetails>
+  ): Promise<IntegrationTestResult> {
     const profileId = `integration_test_${testName.replace(/\s+/g, '_').toLowerCase()}`;
-    
+    const startTime = performance.now();
+
     console.log(`🔍 Running: ${testName}`);
-    
+
+    this.profiler.start(profileId, { testName });
+
     try {
-      this.profiler.start(profileId, { testName });
-      
-      const startTime = performance.now();
       const result = await testFunction();
       const duration = performance.now() - startTime;
-      
-      const profile = this.profiler.end(profileId, { success: true });
-      
+      const profileResult = this.profiler.end(profileId, { success: true });
+
       console.log(`✅ ${testName} - ${duration.toFixed(2)}ms`);
-      
+
       return {
         testName,
         success: true,
         duration,
-        details: { result, profile }
+        details: { result, profile: profileResult }
       };
     } catch (error) {
-      const duration = performance.now();
-      this.profiler.end(profileId, { success: false, error: error instanceof Error ? error.message : 'Unknown error' });
-      
+      const duration = performance.now() - startTime;
+      this.profiler.end(profileId, {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+
       console.error(`❌ ${testName} - Failed:`, error);
-      
+
       return {
         testName,
         success: false,
@@ -154,7 +168,7 @@ export class ColorCycleIntegrationTest {
   /**
    * Test layer creation and setup
    */
-  private async testLayerCreation(): Promise<any> {
+  private async testLayerCreation(): Promise<IntegrationTestDetails> {
     const canvas = document.createElement('canvas');
     canvas.width = 256;
     canvas.height = 256;
@@ -183,7 +197,7 @@ export class ColorCycleIntegrationTest {
   /**
    * Test color quantization pipeline
    */
-  private async testQuantizationPipeline(): Promise<any> {
+  private async testQuantizationPipeline(): Promise<IntegrationTestDetails> {
     const canvas = document.createElement('canvas');
     canvas.width = 128;
     canvas.height = 128;
@@ -233,7 +247,7 @@ export class ColorCycleIntegrationTest {
   /**
    * Test animation system
    */
-  private async testAnimationSystem(): Promise<any> {
+  private async testAnimationSystem(): Promise<IntegrationTestDetails> {
     const manager = RecolorManager.getInstance();
     const canvas = document.createElement('canvas');
     canvas.width = 64;
@@ -256,7 +270,7 @@ export class ColorCycleIntegrationTest {
     });
 
     // Test animation for several frames
-    const frameResults = [];
+    const frameResults: Array<{ frame: number; duration: number }> = [];
     for (let i = 0; i < 10; i++) {
       const startTime = performance.now();
       manager.updateAnimation(layer);
@@ -278,7 +292,7 @@ export class ColorCycleIntegrationTest {
   /**
    * Test memory management
    */
-  private async testMemoryManagement(): Promise<any> {
+  private async testMemoryManagement(): Promise<IntegrationTestDetails> {
     const startMemory = this.browserCompat.getMemoryUsage();
     const manager = RecolorManager.getInstance();
     const layers: Layer[] = [];
@@ -312,8 +326,9 @@ export class ColorCycleIntegrationTest {
     }
 
     // Force garbage collection if available
-    if ((globalThis as any).gc) {
-      (globalThis as any).gc();
+    const globalWithGC = globalThis as typeof globalThis & { gc?: () => void };
+    if (typeof globalWithGC.gc === 'function') {
+      globalWithGC.gc();
     }
 
     const endMemory = this.browserCompat.getMemoryUsage();
@@ -331,15 +346,15 @@ export class ColorCycleIntegrationTest {
   /**
    * Test error handling
    */
-  private async testErrorHandling(): Promise<any> {
+  private async testErrorHandling(): Promise<IntegrationTestDetails> {
     const manager = RecolorManager.getInstance();
-    const errorTests = [];
+    const errorTests: Array<{ test: string; handled: boolean }> = [];
 
     // Test invalid layer
     try {
-      await manager.convertToRecolorMode(null as any, {});
+      await manager.convertToRecolorMode(null as unknown as Layer, {});
       errorTests.push({ test: 'null layer', handled: false });
-    } catch (e) {
+    } catch {
       errorTests.push({ test: 'null layer', handled: true });
     }
 
@@ -352,7 +367,7 @@ export class ColorCycleIntegrationTest {
       });
       await manager.convertToRecolorMode(badLayer, {});
       errorTests.push({ test: 'null canvas', handled: false });
-    } catch (e) {
+    } catch {
       errorTests.push({ test: 'null canvas', handled: true });
     }
 
@@ -362,9 +377,9 @@ export class ColorCycleIntegrationTest {
         id: 'invalid-options',
         name: 'Invalid Options',
       });
-      await manager.convertToRecolorMode(invalidOptionsLayer, { maxColors: -1 } as any);
+      await manager.convertToRecolorMode(invalidOptionsLayer, { cycleColors: -1 });
       errorTests.push({ test: 'invalid options', handled: false });
-    } catch (e) {
+    } catch {
       errorTests.push({ test: 'invalid options', handled: true });
     }
 
@@ -378,7 +393,7 @@ export class ColorCycleIntegrationTest {
   /**
    * Test performance benchmarks
    */
-  private async testPerformanceBenchmarks(): Promise<any> {
+  private async testPerformanceBenchmarks(): Promise<IntegrationTestDetails> {
     const results = await this.benchmarker.runFullSuite();
     
     // Check if results meet performance criteria
@@ -408,9 +423,9 @@ export class ColorCycleIntegrationTest {
   /**
    * Test browser compatibility
    */
-  private async testBrowserCompatibility(): Promise<any> {
+  private async testBrowserCompatibility(): Promise<IntegrationTestDetails> {
     const capabilities = await this.browserTest.runCompatibilityTest();
-    const colorCycleCompat = await this.browserTest.testColorCycleCompatibility();
+    const colorCycleCompat: ColorCycleCompatibilityResult = await this.browserTest.testColorCycleCompatibility();
 
     return {
       browserName: capabilities.name,
@@ -427,7 +442,7 @@ export class ColorCycleIntegrationTest {
   /**
    * Test complete workflow
    */
-  private async testCompleteWorkflow(): Promise<any> {
+  private async testCompleteWorkflow(): Promise<IntegrationTestDetails> {
     const manager = RecolorManager.getInstance();
     
     // Create test layer with complex image
@@ -506,7 +521,7 @@ export class ColorCycleIntegrationTest {
   /**
    * Test large image handling
    */
-  private async testLargeImageHandling(): Promise<any> {
+  private async testLargeImageHandling(): Promise<IntegrationTestDetails> {
     const manager = RecolorManager.getInstance();
     const optimalSize = this.browserCompat.getOptimalCanvasSize({ width: 2048, height: 2048 });
     
@@ -556,7 +571,7 @@ export class ColorCycleIntegrationTest {
   /**
    * Test multiple concurrent layers
    */
-  private async testMultipleLayers(): Promise<any> {
+  private async testMultipleLayers(): Promise<IntegrationTestDetails> {
     const manager = RecolorManager.getInstance();
     const maxLayers = this.browserCompat.getRecommendedSettings().maxConcurrentLayers;
     const layers: Layer[] = [];
@@ -618,8 +633,8 @@ export class ColorCycleIntegrationTest {
    */
   private generateRecommendations(
     results: IntegrationTestResult[],
-    performance: any,
-    compatibility: any
+    performance: BenchmarkSuite,
+    compatibility: BrowserCapabilities
   ): string[] {
     const recommendations: string[] = [];
     
@@ -634,21 +649,21 @@ export class ColorCycleIntegrationTest {
       recommendations.push(`${slowTests.length} test(s) were slow. Consider performance optimizations.`);
     }
     
-    if (!compatibility.canvas2DSupported) {
+    if (!compatibility.canvas2d.supported) {
       recommendations.push('Canvas2D not supported. Color cycling will not work.');
     }
-    
-    if (!compatibility.memoryAPISupported) {
+
+    if (!compatibility.memory.supported) {
       recommendations.push('Memory API not available. Use conservative memory settings.');
     }
-    
-    if (compatibility.issues && compatibility.issues.length > 0) {
+
+    if (compatibility.issues.length > 0) {
       recommendations.push('Browser compatibility issues detected. See compatibility report.');
     }
-    
+
     // Performance-based recommendations
-    const avgBenchmarkTime = performance.results 
-      ? performance.results.reduce((sum: number, r: any) => sum + r.averageTime, 0) / performance.results.length
+    const avgBenchmarkTime = performance.results.length > 0
+      ? performance.results.reduce((sum, benchmark) => sum + benchmark.averageTime, 0) / performance.results.length
       : 0;
       
     if (avgBenchmarkTime > 100) {

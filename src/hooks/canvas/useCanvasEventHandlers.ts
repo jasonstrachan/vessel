@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, type FocusEvent } from 'react';
 import type { EventHandlerDependencies, EventHandlers } from './utils/types';
 import { createPointerHandlers } from './handlers/pointerHandlers';
 
@@ -23,24 +23,29 @@ export const useCanvasEventHandlers = (deps: EventHandlerDependencies): EventHan
   
   // Keyboard handlers (to be extracted)
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
+    void event;
     // TODO: Extract keyboard handler logic from DrawingCanvas
   }, []);
-  
+
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
+    void event;
     // TODO: Extract keyboard handler logic from DrawingCanvas
   }, []);
-  
-  const handleBlur = useCallback((event: React.FocusEvent) => {
+
+  const handleBlur = useCallback((event: FocusEvent) => {
+    void event;
     // TODO: Extract blur handler logic from DrawingCanvas
   }, []);
-  
+
   // Wheel handlers (to be extracted)
   const handleWheel = useCallback((event: WheelEvent) => {
+    void event;
     // TODO: Extract wheel handler logic from DrawingCanvas
   }, []);
-  
+
   // Clipboard handlers (to be extracted)
   const handlePaste = useCallback(async (event: ClipboardEvent) => {
+    void event;
     // TODO: Extract paste handler logic from DrawingCanvas
   }, []);
   

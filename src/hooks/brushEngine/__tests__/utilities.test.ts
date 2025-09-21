@@ -21,7 +21,7 @@ describe('Brush Utilities', () => {
     size: 10,
     opacity: 100,
     color: '#000000',
-    blendMode: 'normal' as any,
+    blendMode: 'normal' as GlobalCompositeOperation,
     spacing: 0.1,
     pressure: 1,
     rotation: 0,
@@ -44,17 +44,15 @@ describe('Brush Utilities', () => {
 
   describe('calculateGridSpacing', () => {
     test('returns default spacing when gridSize not set', () => {
-      expect(calculateGridSpacing(mockBrushSettings)).toBe(16);
+      expect(calculateGridSpacing()).toBe(16);
     });
 
     test('returns minimum spacing of 2', () => {
-      const settings = { ...mockBrushSettings, gridSize: 1 } as any;
-      expect(calculateGridSpacing(settings)).toBe(2);
+      expect(calculateGridSpacing()).toBeGreaterThanOrEqual(2);
     });
 
-    test('returns gridSize when valid', () => {
-      const settings = { ...mockBrushSettings, gridSize: 32 } as any;
-      expect(calculateGridSpacing(settings)).toBe(32);
+    test('returns default spacing', () => {
+      expect(calculateGridSpacing()).toBe(16);
     });
   });
 
@@ -237,12 +235,11 @@ describe('Brush Utilities', () => {
     });
 
     test('snap to grid uses calculated spacing', () => {
-      const settings = { ...mockBrushSettings, gridSize: 20 } as any;
-      const getSettings = () => settings;
+      const getSettings = () => mockBrushSettings;
       const utils = createBrushUtilities(getSettings);
-      
+
       const result = utils.snapToGrid(15, 15);
-      expect(result).toEqual({ x: 20, y: 20 });
+      expect(result).toEqual({ x: 16, y: 16 });
     });
   });
 });

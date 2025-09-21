@@ -2,11 +2,37 @@
  * Web Worker for offloading gradient calculations
  */
 
-interface GradientWorkerMessage {
-  type: 'updateGradient' | 'shiftPalette' | 'applyToBuffer';
-  data: any;
+type UpdateGradientMessage = {
+  type: 'updateGradient';
+  data: { stops: GradientStop[] };
   id: number;
-}
+};
+
+type ShiftPaletteMessage = {
+  type: 'shiftPalette';
+  data: { offset: number };
+  id: number;
+};
+
+type ApplyToBufferMessage = {
+  type: 'applyToBuffer';
+  data: { indexData: Uint8Array; offset?: number };
+  id: number;
+};
+
+type GradientWorkerMessage = UpdateGradientMessage | ShiftPaletteMessage | ApplyToBufferMessage;
+
+type WorkerSuccessMessage = {
+  id: number;
+  type: 'success';
+  result: Uint8ClampedArray;
+};
+
+type WorkerErrorMessage = {
+  id: number;
+  type: 'error';
+  error: string;
+};
 
 interface GradientStop {
   position: number;
@@ -178,33 +204,35 @@ class GradientProcessor {
 // Worker message handler
 const processor = new GradientProcessor();
 
+const dedicatedWorkerScope = self as unknown as DedicatedWorkerGlobalScope;
+
 self.onmessage = (e: MessageEvent<GradientWorkerMessage>) => {
   const { type, data, id } = e.data;
   
   try {
-    let result: any;
+    let result: Uint8ClampedArray;
     
     switch (type) {
       case 'updateGradient':
         result = processor.updateGradient(data.stops);
-        (self as unknown as DedicatedWorkerGlobalScope).postMessage(
-          { id, type: 'success', result }, 
+        dedicatedWorkerScope.postMessage(
+          { id, type: 'success', result } satisfies WorkerSuccessMessage,
           [result.buffer]
         );
         break;
         
       case 'shiftPalette':
         result = processor.shiftPalette(data.offset);
-        (self as unknown as DedicatedWorkerGlobalScope).postMessage(
-          { id, type: 'success', result }, 
+        dedicatedWorkerScope.postMessage(
+          { id, type: 'success', result } satisfies WorkerSuccessMessage,
           [result.buffer]
         );
         break;
         
       case 'applyToBuffer':
         result = processor.applyToBuffer(data.indexData, data.offset);
-        (self as unknown as DedicatedWorkerGlobalScope).postMessage(
-          { id, type: 'success', result }, 
+        dedicatedWorkerScope.postMessage(
+          { id, type: 'success', result } satisfies WorkerSuccessMessage,
           [result.buffer]
         );
         break;
@@ -213,11 +241,11 @@ self.onmessage = (e: MessageEvent<GradientWorkerMessage>) => {
         throw new Error(`Unknown message type: ${type}`);
     }
   } catch (error) {
-    (self as unknown as DedicatedWorkerGlobalScope).postMessage({ 
+    dedicatedWorkerScope.postMessage({ 
       id, 
       type: 'error', 
       error: error instanceof Error ? error.message : 'Unknown error' 
-    });
+    } satisfies WorkerErrorMessage);
   }
 };
 

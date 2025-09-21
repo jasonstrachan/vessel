@@ -3,6 +3,26 @@
  * Provides polyfills and workarounds for browser-specific issues
  */
 
+type PerformanceMemoryStats = {
+  jsHeapSizeLimit: number;
+  totalJSHeapSize: number;
+  usedJSHeapSize: number;
+};
+
+const getPerformanceMemory = (): PerformanceMemoryStats | null => {
+  const perf = performance as Performance & { memory?: PerformanceMemoryStats };
+  const { memory } = perf;
+  if (
+    memory &&
+    typeof memory.jsHeapSizeLimit === 'number' &&
+    typeof memory.totalJSHeapSize === 'number' &&
+    typeof memory.usedJSHeapSize === 'number'
+  ) {
+    return memory;
+  }
+  return null;
+};
+
 export interface CompatibilityConfig {
   enableSafariWorkarounds: boolean;
   enableFirefoxWorkarounds: boolean;
@@ -54,7 +74,7 @@ export class BrowserCompat {
         try {
           const canvas = document.createElement('canvas');
           return !!(canvas.getContext('webgl') || canvas.getContext('experimental-webgl'));
-        } catch (e) {
+        } catch {
           return false;
         }
       case 'memory-api':
@@ -67,7 +87,7 @@ export class BrowserCompat {
         try {
           const ctx = document.createElement('canvas').getContext('2d');
           return !!(ctx && ctx.createImageData);
-        } catch (e) {
+        } catch {
           return false;
         }
       default:
@@ -110,15 +130,13 @@ export class BrowserCompat {
     const baseLimitMB = this.config.memoryLimitMB;
     
     if (this.browserInfo.hasMemoryAPI) {
-      try {
-        const memory = (performance as any).memory;
+      const memory = getPerformanceMemory();
+      if (memory) {
         const availableMB = (memory.jsHeapSizeLimit - memory.usedJSHeapSize) / 1024 / 1024;
         return Math.min(baseLimitMB, Math.floor(availableMB * 0.5)); // Use 50% of available
-      } catch (e) {
-        // Fall back to base limit
       }
     }
-    
+
     return baseLimitMB;
   }
 
@@ -129,7 +147,7 @@ export class BrowserCompat {
     try {
       // Modern method
       return new ImageData(width, height);
-    } catch (e) {
+    } catch {
       // Fallback for older browsers
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
@@ -167,9 +185,8 @@ export class BrowserCompat {
   now(): number {
     if (this.browserInfo.hasHighResTimer) {
       return performance.now();
-    } else {
-      return Date.now();
     }
+    return Date.now();
   }
 
   /**
@@ -177,13 +194,12 @@ export class BrowserCompat {
    */
   getMemoryUsage(): number {
     if (this.browserInfo.hasMemoryAPI) {
-      try {
-        return (performance as any).memory.usedJSHeapSize;
-      } catch (e) {
-        // Fall through to fallback
+      const memory = getPerformanceMemory();
+      if (memory) {
+        return memory.usedJSHeapSize;
       }
     }
-    
+
     // Fallback: use timestamp as approximate indicator
     return Date.now();
   }
@@ -215,7 +231,7 @@ export class BrowserCompat {
       name,
       version,
       isMobile: /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent),
-      hasMemoryAPI: !!(performance as any).memory,
+      hasMemoryAPI: getPerformanceMemory() !== null,
       hasHighResTimer: typeof performance.now === 'function'
     };
   }
@@ -279,7 +295,7 @@ export class BrowserCompat {
   private applyPolyfills(): void {
     // ImageData constructor polyfill
     if (typeof ImageData === 'undefined') {
-      (window as any).ImageData = class {
+      (window as typeof window & { ImageData: typeof ImageData }).ImageData = class {
         data: Uint8ClampedArray;
         width: number;
         height: number;
@@ -307,7 +323,7 @@ export class BrowserCompat {
 
     // requestAnimationFrame polyfill
     if (typeof requestAnimationFrame === 'undefined') {
-      (window as any).requestAnimationFrame = (callback: FrameRequestCallback) => {
+      (window as typeof window & { requestAnimationFrame: typeof requestAnimationFrame }).requestAnimationFrame = (callback: FrameRequestCallback) => {
         return setTimeout(() => callback(Date.now()), 1000 / 60);
       };
     }
@@ -348,7 +364,7 @@ export class BrowserCompat {
       } else {
         ctx.putImageData(imageData, dx, dy);
       }
-    } catch (e) {
+    } catch {
       // Fallback to standard method
       ctx.putImageData(imageData, dx, dy);
     }
@@ -368,7 +384,7 @@ export class BrowserCompat {
       ctx.save();
       ctx.putImageData(imageData, dx, dy);
       ctx.restore();
-    } catch (e) {
+    } catch {
       // Fallback to standard method
       ctx.putImageData(imageData, dx, dy);
     }

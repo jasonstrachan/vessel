@@ -9,7 +9,7 @@ import { ColorCycleBrushCanvas2D } from '../hooks/brushEngine/ColorCycleBrushCan
 import { ColorCycleBrushCanvas2D as ColorCycleBrush } from '../hooks/brushEngine/ColorCycleBrushCanvas2D';
 import { GradientStop } from '../lib/GradientPalette';
 
-interface ComparisonResult {
+export interface ComparisonResult {
   testName: string;
   canvas2dImage: string; // base64
   webglImage: string; // base64
@@ -117,7 +117,7 @@ export class VisualQualityComparison {
    */
   private async runTest(
     testName: string,
-    setupFn: (brush: any) => void
+    setupFn: (brush: ColorCycleBrushCanvas2D) => void
   ): Promise<ComparisonResult> {
     // Create canvases for each implementation
     const canvas2dCanvas = this.createCanvas();

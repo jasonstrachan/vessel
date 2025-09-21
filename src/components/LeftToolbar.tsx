@@ -6,7 +6,7 @@ import ExportIcon from './icons/ExportIcon';
 
 const LeftToolbar = () => {
   // Force refresh - toolbar black background fix
-  const { tools: toolState, setCurrentTool, saveProject, loadProject, exportProject, toggleModal } = useAppStore();
+  const { tools: toolState, setCurrentTool, saveProject, loadProject, toggleModal } = useAppStore();
   
   const toolGroups = [
     [

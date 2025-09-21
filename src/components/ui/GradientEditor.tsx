@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Dropdown from './Dropdown';
 import { useAppStore } from '../../stores/useAppStore';
-import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 
 interface GradientStop {
@@ -25,6 +24,9 @@ interface GradientEditorProps {
   // 'recolor' updates the active recolor layer; 'brush' updates the brush gradient.
   sampleTarget?: 'recolor' | 'brush';
 }
+
+const normalizeStops = (stops: GradientStop[]): GradientStop[] =>
+  stops.map((s) => ({ ...s, opacity: s.opacity ?? 1 }));
 
 const defaultGradients: SavedGradient[] = [
   {
@@ -120,10 +122,6 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   const pendingSampleAddRef = useRef<boolean>(false);
   const sampleStartSigRef = useRef<string>('');
   const prevAutoSampleRef = useRef<boolean>(autoSampleEnabled);
-  // Ensure all stops have opacity
-  const normalizeStops = (stops: GradientStop[]) => 
-    stops.map(s => ({ ...s, opacity: s.opacity ?? 1 }));
-  
   const [stops, setStops] = useState<GradientStop[]>(normalizeStops(initialStops));
   const [selectedStop, setSelectedStop] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -196,8 +194,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       sampleStartSigRef.current = stopsSignature(normalizeStops(initialStops));
     }
     prevAutoSampleRef.current = autoSampleEnabled;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoSampleEnabled, sampleTarget]);
+  }, [autoSampleEnabled, initialStops, sampleTarget, stopsSignature]);
 
   // Update internal state when props meaningfully change (content-based),
   // preserving selection whenever possible.
@@ -245,7 +242,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         }
       }
     }
-  }, [initialStops]);
+  }, [initialStops, sampleTarget, stops, stopsSignature]);
   
   // Update saved gradient when stops change without triggering recursive renders
   useEffect(() => {
@@ -299,13 +296,13 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     setSelectedStop(index);
     // Keep focus on container so Delete works immediately
     containerRef.current?.focus();
-  }, [stops]);
+  }, []);
 
   const handleStopDoubleClick = useCallback((index: number, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedStop(index);
     openColorPicker(index);
-  }, [openColorPicker, stops]);
+  }, [openColorPicker]);
 
   const handleColorChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (selectedStop === null) return;

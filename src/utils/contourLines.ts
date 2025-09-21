@@ -97,30 +97,6 @@ const computeCentroid = (vertices: Point[]): Point => {
   return { x: x / vertices.length, y: y / vertices.length };
 };
 
-const lerpPoint = (a: Point, b: Point, t: number): Point => ({
-  x: a.x + (b.x - a.x) * t,
-  y: a.y + (b.y - a.y) * t
-});
-
-const cubicBezierPoint = (
-  p0: Point,
-  p1: Point,
-  p2: Point,
-  p3: Point,
-  t: number
-): Point => {
-  const mt = 1 - t;
-  const mt2 = mt * mt;
-  const t2 = t * t;
-  const a = mt2 * mt;
-  const b = 3 * mt2 * t;
-  const c = 3 * mt * t2;
-  const d = t * t2;
-  return {
-    x: a * p0.x + b * p1.x + c * p2.x + d * p3.x,
-    y: a * p0.y + b * p1.y + c * p2.y + d * p3.y
-  };
-};
 
 export type Lines2Side = 'min' | 'max';
 
@@ -578,8 +554,6 @@ export function generateLines2Paths(
   const centroid = stats.centroid;
   const dir = stats.dir;
   const normal = stats.normal;
-  const minProj = stats.normalMin;
-  const maxProj = stats.normalMax;
   const range = Math.max(EPSILON, stats.normalRange);
   const dirRange = stats.dirRange;
 

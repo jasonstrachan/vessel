@@ -6,6 +6,12 @@ import React, { useState, useEffect } from 'react';
 import { featureFlags, setFeatureFlag, resetFeatureFlags } from '../../config/featureFlags';
 import CustomSwitch from './CustomSwitch';
 
+declare global {
+  interface WindowEventMap {
+    'feature-flag-changed': CustomEvent;
+  }
+}
+
 interface FeatureFlagToggleProps {
   className?: string;
   showDebugFlags?: boolean;
@@ -20,13 +26,13 @@ export const FeatureFlagToggle: React.FC<FeatureFlagToggleProps> = ({
 
   // Listen for feature flag changes
   useEffect(() => {
-    const handleFlagChange = (event: CustomEvent) => {
+    const handleFlagChange = () => {
       setFlags({ ...featureFlags });
     };
 
-    window.addEventListener('feature-flag-changed' as any, handleFlagChange);
+    window.addEventListener('feature-flag-changed', handleFlagChange);
     return () => {
-      window.removeEventListener('feature-flag-changed' as any, handleFlagChange);
+      window.removeEventListener('feature-flag-changed', handleFlagChange);
     };
   }, []);
 

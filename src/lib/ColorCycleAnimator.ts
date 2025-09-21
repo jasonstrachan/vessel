@@ -76,7 +76,7 @@ export class ColorCycleAnimator {
       this.ctx.imageSmoothingEnabled = false;
       
       // Defer image data creation until first use
-      this.imageData = null as any; // Will be created on first paint
+      this.imageData = null as unknown; // Will be created on first paint
       
       // Try to prepare GPU renderer lazily
       if (typeof window !== 'undefined' && WebGLColorCycleRenderer.isSupported()) {
@@ -157,7 +157,7 @@ export class ColorCycleAnimator {
   /**
    * Handle animation frame
    */
-  private handleAnimationFrame(deltaTime: number, totalTime: number) {
+  private handleAnimationFrame() {
     // Get current animation offset
     const offset = this.animationController.getOffset();
     
@@ -253,7 +253,7 @@ export class ColorCycleAnimator {
       let hasContent = false;
       for (let i = 0; i < result.length; i++) { if (result[i] !== 0) { hasContent = true; break; } }
       return hasContent;
-    } catch (e) {
+    } catch {
       // quiet
       return false;
     }
@@ -261,15 +261,13 @@ export class ColorCycleAnimator {
 
   /** Return runtime GPU vertex limit for fill shader (if available) */
   getGLFillMaxVerts(): number | null {
-    try { return (this.glRenderer as any)?.getFillMaxVerts?.() ?? null; } catch { return null; }
+    try { return (this.glRenderer as unknown)?.getFillMaxVerts?.() ?? null; } catch { return null; }
   }
   
   /**
    * Render a single frame with directional flow
    */
   private renderFrame(offset: number = 0) {
-    const perfStart = performance.now();
-    
     try {
       // GPU path if available
       if (this.glRenderer && this.glCanvas) {
@@ -306,12 +304,7 @@ export class ColorCycleAnimator {
             this.ctx.drawImage(this.glCanvas, 0, 0);
             const w = Math.min(4, this.canvas.width);
             const h = Math.min(4, this.canvas.height);
-            const sample = this.ctx.getImageData(0, 0, w, h).data;
-            let anyAlpha = false; let anyRGB = false;
-            for (let i = 0; i < sample.length; i += 4) {
-              if (sample[i+3] > 0) anyAlpha = true;
-              if (sample[i] || sample[i+1] || sample[i+2]) anyRGB = true;
-            }
+            this.ctx.getImageData(0, 0, w, h);
             // quiet
           } catch {}
           this._renderSampledOnce = true;
@@ -424,7 +417,7 @@ export class ColorCycleAnimator {
     try {
       this.indexBuffer.setPixel(x, y, colorIndex);
       this._glIndexDirty = true;
-    } catch (e) {
+    } catch {
       // Fail silently for out-of-bounds or transient states
     }
   }
@@ -491,7 +484,9 @@ export class ColorCycleAnimator {
   /**
    * Start new stroke
    */
-  startStroke(x?: number, y?: number) {
+  startStroke() {
+    void _x;
+    void _y;
     // Don't reset stroke index, let it accumulate for proper flow
   }
   
@@ -620,7 +615,7 @@ export class ColorCycleAnimator {
     this.animationController.setOffset(newOffset);
     
     // Trigger frame render
-    this.handleAnimationFrame(deltaTime, 0);
+    this.handleAnimationFrame();
   }
 
   /**
@@ -857,7 +852,6 @@ export class ColorCycleAnimator {
       const colorIndex = Math.floor(startIndex + progress * indexRange);
       
       for (let px = 0; px < width; px++) {
-        const color = this.gradientPalette.getColorString(colorIndex);
         this.indexBuffer.setPixel(x + px, y + py, colorIndex);
       }
     }

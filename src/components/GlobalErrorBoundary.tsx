@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { ErrorInfo } from 'react';
 
 type Props = { children: React.ReactNode };
 type State = { hasError: boolean; message?: string };
@@ -8,14 +8,14 @@ type State = { hasError: boolean; message?: string };
 export default class GlobalErrorBoundary extends React.Component<Props, State> {
   state: State = { hasError: false };
 
-  static getDerivedStateFromError(error: any): State {
-    return { hasError: true, message: String(error?.message || error) };
+  static getDerivedStateFromError(error: unknown): State {
+    const message = error instanceof Error ? error.message : String(error);
+    return { hasError: true, message };
   }
 
-  componentDidCatch(error: any, info: any) {
+  componentDidCatch(error: Error, info: ErrorInfo) {
     try {
       // Best-effort logging without depending on store/state
-      // eslint-disable-next-line no-console
       console.error('[global-error-boundary] Caught error', error, info);
     } catch {}
   }
@@ -40,4 +40,3 @@ export default class GlobalErrorBoundary extends React.Component<Props, State> {
     return this.props.children;
   }
 }
-

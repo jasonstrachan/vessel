@@ -12,6 +12,19 @@ export const __DEV__ = process.env.NODE_ENV !== 'production';
 
 type DebugConfig = { all?: boolean; [scope: string]: boolean | undefined };
 
+type Breadcrumb = { t: number; scope: string; data: unknown };
+
+type DebugWindow = Window & {
+  __TB_DEBUG?: DebugConfig;
+  __TB_DEBUG_FORCE?: string | string[];
+  __TB_DEBUG_EXCLUDE?: string | string[];
+  __TB_BREADCRUMBS?: Breadcrumb[];
+};
+
+const getDebugWindow = (): DebugWindow | undefined => {
+  return typeof window === 'undefined' ? undefined : (window as DebugWindow);
+};
+
 // Optional exclusion list to suppress noisy scopes even when `all` is enabled
 let __cachedExclude: Set<string> | null = null;
 let __lastExcludeRead = 0;
@@ -30,7 +43,7 @@ function readExcludeSet(): Set<string> {
   if (__cachedExclude && now - __lastExcludeRead < __EXCLUDE_CACHE_MS) return __cachedExclude;
   const out = new Set<string>(DEFAULT_EXCLUDED_SCOPES);
   try {
-    const w: any = typeof window !== 'undefined' ? window : undefined;
+    const w = getDebugWindow();
     // If forced scopes are defined, we temporarily ignore default excludes for those
     // (but keep other excludes). Accepts 'all' or comma-separated list.
     let forceSet: Set<string> | null = null;
@@ -42,23 +55,23 @@ function readExcludeSet(): Set<string> {
           // Clear all default excludes
           forceSet = new Set<string>(['*ALL*']);
         } else if (val) {
-          forceSet = new Set<string>(val.split(',').map((s: string) => s.trim()).filter(Boolean));
+          forceSet = new Set<string>(val.split(',').map((s) => s.trim()).filter(Boolean));
         }
       } else if (Array.isArray(w?.__TB_DEBUG_FORCE)) {
-        forceSet = new Set<string>(w.__TB_DEBUG_FORCE.map((s: any) => String(s)));
+        forceSet = new Set<string>(w.__TB_DEBUG_FORCE.map((s) => s.toString()));
       }
     } catch {}
 
     // window.__TB_DEBUG_EXCLUDE can be array or comma string
     if (w && w.__TB_DEBUG_EXCLUDE) {
       const val = w.__TB_DEBUG_EXCLUDE;
-      if (Array.isArray(val)) val.forEach((s: string) => s && out.add(String(s)));
-      else if (typeof val === 'string') val.split(',').map((s: string) => s.trim()).filter(Boolean).forEach((s: string) => out.add(s));
+      if (Array.isArray(val)) val.forEach((s) => s && out.add(String(s)));
+      else if (typeof val === 'string') val.split(',').map((s) => s.trim()).filter(Boolean).forEach((s) => out.add(s));
     }
     // localStorage TB_DEBUG_EXCLUDE: comma separated scopes
     if (w && w.localStorage) {
       const raw = w.localStorage.getItem('TB_DEBUG_EXCLUDE');
-      if (raw) raw.split(',').map((s: string) => s.trim()).filter(Boolean).forEach((s: string) => out.add(s));
+      if (raw) raw.split(',').map((s) => s.trim()).filter(Boolean).forEach((s) => out.add(s));
     }
 
     // If forcing, remove matching entries from the exclusion set
@@ -88,10 +101,9 @@ function readConfig(): DebugConfig {
     return __cachedDebugConfig;
   }
   try {
-    // @ts-ignore
-    const w = typeof window !== 'undefined' ? (window as any) : undefined;
+    const w = getDebugWindow();
     if (w && w.__TB_DEBUG && typeof w.__TB_DEBUG === 'object') {
-      __cachedDebugConfig = w.__TB_DEBUG as DebugConfig;
+      __cachedDebugConfig = { ...w.__TB_DEBUG };
       __lastConfigRead = now;
       return __cachedDebugConfig;
     }
@@ -105,9 +117,9 @@ function readConfig(): DebugConfig {
         } else {
           const cfg: DebugConfig = {};
           raw.split(',')
-            .map((s: string) => s.trim())
-            .filter((s: string) => !!s)
-            .forEach((s: string) => {
+            .map((s) => s.trim())
+            .filter((s) => !!s)
+            .forEach((s) => {
               if (s.toLowerCase() === 'all') cfg.all = true; else cfg[s] = true;
             });
           __cachedDebugConfig = cfg;
@@ -131,45 +143,40 @@ export function isDebugEnabled(scope: string): boolean {
   return !!cfg.all || !!cfg[scope];
 }
 
-export function debugLog(scope: string, ...args: any[]) {
+export function debugLog(scope: string, ...args: unknown[]) {
   if (!__DEV__) return; // Stripped in production builds
   if (isDebugEnabled(scope)) {
-    // Small, consistent prefix
-    // eslint-disable-next-line no-console
     console.log(`[${scope}]`, ...args);
   }
 }
 
-export function debugWarn(scope: string, ...args: any[]) {
+export function debugWarn(scope: string, ...args: unknown[]) {
   if (!__DEV__) return; // Stripped in production builds
   if (isDebugEnabled(scope)) {
-    // eslint-disable-next-line no-console
     console.warn(`[${scope}]`, ...args);
   }
 }
 
 // Always-on error log for unexpected failures (kept in production)
-export function logError(...args: any[]) {
-  // eslint-disable-next-line no-console
+export function logError(...args: unknown[]) {
   console.error(...args);
 }
 
 // Lightweight persistent breadcrumbs to survive page reloads/crashes
 // Stores last ~200 events in memory and mirrors to localStorage
-type Breadcrumb = { t: number; scope: string; data: any };
 const BC_WIN_KEY = '__TB_BREADCRUMBS';
 const BC_LS_KEY = 'TB_BREADCRUMBS';
 const BC_MAX = 200;
 
-export function recordBreadcrumb(scope: string, data: any) {
+export function recordBreadcrumb(scope: string, data: unknown) {
   if (!__DEV__) return; // Dev-only breadcrumbs
   try {
-    const w: any = typeof window !== 'undefined' ? window : undefined;
+    const w = getDebugWindow();
     const entry: Breadcrumb = { t: Date.now(), scope, data };
     if (w) {
       if (!Array.isArray(w[BC_WIN_KEY])) w[BC_WIN_KEY] = [];
-      w[BC_WIN_KEY].push(entry);
-      if (w[BC_WIN_KEY].length > BC_MAX) w[BC_WIN_KEY].splice(0, w[BC_WIN_KEY].length - BC_MAX);
+      w[BC_WIN_KEY]!.push(entry);
+      if (w[BC_WIN_KEY]!.length > BC_MAX) w[BC_WIN_KEY]!.splice(0, w[BC_WIN_KEY]!.length - BC_MAX);
       try {
         const existing: Breadcrumb[] = JSON.parse(w.localStorage.getItem(BC_LS_KEY) || '[]');
         existing.push(entry);
@@ -184,12 +191,12 @@ export function recordBreadcrumb(scope: string, data: any) {
 export function setDebugScopes(scopes: string | string[] | DebugConfig) {
   if (!__DEV__) return;
   try {
-    const w: any = typeof window !== 'undefined' ? window : undefined;
+    const w = getDebugWindow();
     let cfg: DebugConfig = {};
     if (typeof scopes === 'string') {
-      scopes.split(',').map(s => s.trim()).filter(Boolean).forEach(s => { if (s === 'all') cfg.all = true; else cfg[s] = true; });
+      scopes.split(',').map((s) => s.trim()).filter(Boolean).forEach((s) => { if (s === 'all') cfg.all = true; else cfg[s] = true; });
     } else if (Array.isArray(scopes)) {
-      scopes.forEach(s => { if (s === 'all') cfg.all = true; else cfg[s] = true; });
+      scopes.forEach((s) => { if (s === 'all') cfg.all = true; else cfg[s] = true; });
     } else {
       cfg = { ...scopes };
     }
@@ -198,7 +205,9 @@ export function setDebugScopes(scopes: string | string[] | DebugConfig) {
       const value = cfg.all ? 'all' : keys.join(',');
       w.localStorage.setItem('TB_DEBUG', value);
     }
-    w.__TB_DEBUG = cfg;
+    if (w) {
+      w.__TB_DEBUG = cfg;
+    }
   } catch {}
   // Reset caches
   __cachedDebugConfig = null;

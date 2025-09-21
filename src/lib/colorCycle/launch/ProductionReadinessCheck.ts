@@ -13,7 +13,7 @@ export interface ProductionCheck {
   category: 'security' | 'performance' | 'compatibility' | 'reliability' | 'monitoring';
   status: 'pass' | 'fail' | 'warning';
   message: string;
-  details?: any;
+  details?: unknown;
   blocker: boolean; // If true, this must pass for production deployment
 }
 

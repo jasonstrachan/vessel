@@ -2,6 +2,32 @@
  * WASM Accelerator for critical path operations
  */
 
+type AcceleratorExports = {
+  applyPaletteToBuffer?: (
+    indexPtr: number,
+    indexLength: number,
+    palettePtr: number,
+    paletteSize: number,
+    outputPtr: number,
+    offset: number
+  ) => void;
+  shiftPalette?: (
+    palettePtr: number,
+    paletteSize: number,
+    outputPtr: number,
+    offset: number
+  ) => void;
+  paintCircle?: (
+    bufferPtr: number,
+    width: number,
+    height: number,
+    x: number,
+    y: number,
+    radius: number,
+    colorIndex: number
+  ) => void;
+};
+
 export class WASMAccelerator {
   private wasmModule: WebAssembly.Module | null = null;
   private wasmInstance: WebAssembly.Instance | null = null;
@@ -9,7 +35,7 @@ export class WASMAccelerator {
   private isInitialized = false;
   
   // Exported functions from WASM
-  private exports: any = null;
+  private exports: AcceleratorExports | null = null;
 
   async initialize(): Promise<boolean> {
     if (this.isInitialized) return true;
@@ -36,11 +62,12 @@ export class WASMAccelerator {
       
       this.wasmModule = await WebAssembly.compile(wasmCode);
       this.wasmInstance = await WebAssembly.instantiate(this.wasmModule, importObject);
-      this.exports = this.wasmInstance.exports;
+      this.exports = this.wasmInstance.exports as AcceleratorExports;
       
       this.isInitialized = true;
       return true;
     } catch (error) {
+      console.error('Failed to initialize WASM module:', error);
       this.isInitialized = false;
       return false;
     }
@@ -71,7 +98,7 @@ export class WASMAccelerator {
       memoryView.set(palette, palettePtr);
       
       // Call WASM function
-      if (this.exports.applyPaletteToBuffer) {
+      if (this.exports?.applyPaletteToBuffer) {
         this.exports.applyPaletteToBuffer(
           indexPtr,
           indexData.length,
@@ -112,7 +139,7 @@ export class WASMAccelerator {
       memoryView.set(palette, palettePtr);
       
       // Call WASM function
-      if (this.exports.shiftPalette) {
+      if (this.exports?.shiftPalette) {
         this.exports.shiftPalette(
           palettePtr,
           256, // palette size
@@ -156,7 +183,7 @@ export class WASMAccelerator {
       memoryView.set(buffer, bufferPtr);
       
       // Call WASM function
-      if (this.exports.paintCircle) {
+      if (this.exports?.paintCircle) {
         this.exports.paintCircle(
           bufferPtr,
           width,

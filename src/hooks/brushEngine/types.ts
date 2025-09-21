@@ -73,7 +73,7 @@ export interface RenderSettings {
 export interface BrushComponent {
   name: string;
   enabled: boolean;
-  params: Record<string, any>;
+  params: Record<string, unknown>;
 }
 
 /**

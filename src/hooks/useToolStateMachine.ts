@@ -223,3 +223,5 @@ export function useToolStateMachine({
     isContourPolygon,
   };
 }
+
+export type ToolStateMachine = ReturnType<typeof useToolStateMachine>;

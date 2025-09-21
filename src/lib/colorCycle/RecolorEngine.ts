@@ -4,10 +4,12 @@
  * Based on the color cycling recolor feature specification
  */
 
-import { ColorQuantizer, QuantizedResult, QuantizationOptions } from './ColorQuantizer';
+import { ColorQuantizer, QuantizationOptions } from './ColorQuantizer';
 import { WebGLColorCycleRenderer } from './rendering/WebGLColorCycleRenderer';
 import { GradientPalette } from '../GradientPalette';
 import type { Layer } from '../../types';
+
+type RecolorSettings = NonNullable<NonNullable<Layer['colorCycleData']>['recolorSettings']>;
 
 export interface RecolorEngineConfig {
   canvas?: HTMLCanvasElement | OffscreenCanvas;
@@ -56,7 +58,7 @@ export class RecolorEngine {
     } else {
       // Create offscreen canvas for processing
       if (typeof OffscreenCanvas !== 'undefined') {
-        this.canvas = new OffscreenCanvas(1, 1) as any;
+        this.canvas = new OffscreenCanvas(1, 1);
       } else {
         // Fallback to regular canvas element
         this.canvas = document.createElement('canvas');
@@ -282,7 +284,7 @@ export class RecolorEngine {
             const paletteRGBA = gp.getPaletteColors();
             this.glRenderer.setPaletteColors(paletteRGBA);
             this.lastPaletteHash = gradientKey;
-          } catch (e) {
+          } catch {
             // If palette upload fails, fallback to CPU path below
           }
         }
@@ -299,7 +301,7 @@ export class RecolorEngine {
 
         // Expose GPU canvas to layer for composition
         colorCycleData.mode = 'recolor';
-        (colorCycleData as any).canvas = this.glRenderer.getCanvas();
+        colorCycleData.canvas = this.glRenderer.getCanvas();
 
         // Return null to indicate GPU path updated canvas (no ImageData copy)
         return null;
@@ -420,14 +422,14 @@ export class RecolorEngine {
    * Build gradient lookup table (LUT) for current animation frame
    * Maps each of the 256 palette indices to final RGBA colors
    */
-  private buildGradientLUT(settings: any, tick: number): Uint32Array {
+  private buildGradientLUT(settings: RecolorSettings, tick: number): Uint32Array {
     const lut = new Uint32Array(256);
-    const gradient: Array<{ position: number; color: string }> = settings?.gradient || [];
-    const bands: number = Math.max(1, Math.floor(settings?.cycleColors || 16));
-    const mappingMode: 'banded' | 'continuous' = settings?.mappingMode || 'banded';
+    const gradient = settings.gradient;
+    const bands: number = Math.max(1, Math.floor(settings.cycleColors));
+    const mappingMode: 'banded' | 'continuous' = settings.mappingMode ?? 'banded';
 
     // Direction handling
-    const flow: 'forward' | 'reverse' | 'pingpong' | 'bounce' = settings?.animation?.flowDirection || 'forward';
+    const flow: 'forward' | 'reverse' | 'pingpong' | 'bounce' = settings.animation.flowDirection;
     const dirSign = flow === 'reverse' ? -1 : 1;
     const normalizedShift = dirSign * (tick / Math.max(1, bands)); // linear shift in cycles
 
@@ -439,7 +441,7 @@ export class RecolorEngine {
       return t <= 1 ? t : (two - t);
     };
 
-    const indexPhaseMap: Uint8Array | undefined = settings?.indexPhaseMap;
+    const indexPhaseMap: Uint8Array | undefined = settings.indexPhaseMap;
     for (let i = 0; i < 256; i++) {
 
       // Map palette index into gradient position
@@ -695,8 +697,8 @@ export class RecolorEngine {
   private resizeCanvas(width: number, height: number): void {
     const { canvas } = this.ensureCanvas();
     if (canvas.width !== width || canvas.height !== height) {
-      (canvas as any).width = width;
-      (canvas as any).height = height;
+      canvas.width = width;
+      canvas.height = height;
     }
   }
   

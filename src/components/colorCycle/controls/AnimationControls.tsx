@@ -5,6 +5,20 @@
 import React, { useCallback } from 'react';
 import LabeledSlider from '../../ui/LabeledSlider';
 import ButtonGroup from '../../ui/ButtonGroup';
+import Button from '../../ui/Button';
+
+const MAPPING_MODES = ['banded', 'continuous'] as const;
+const FLOW_MAPPINGS = ['palette', 'directional', 'luminance'] as const;
+type MappingMode = typeof MAPPING_MODES[number];
+type FlowMapping = typeof FLOW_MAPPINGS[number];
+
+const isMappingMode = (value: string): value is MappingMode => (
+  MAPPING_MODES.includes(value as MappingMode)
+);
+
+const isFlowMapping = (value: string): value is FlowMapping => (
+  FLOW_MAPPINGS.includes(value as FlowMapping)
+);
 
 export interface AnimationControlsProps {
   isPlaying: boolean;
@@ -21,7 +35,6 @@ export interface AnimationControlsProps {
   onFlowDirectionChange: (direction: 'forward' | 'reverse' | 'pingpong' | 'bounce') => void;
   onMappingModeChange?: (mode: 'banded' | 'continuous') => void;
   onFlowMappingChange?: (mode: 'palette' | 'directional' | 'luminance') => void;
-  disabled?: boolean;
 }
 
 export const AnimationControls: React.FC<AnimationControlsProps> = ({
@@ -38,17 +51,39 @@ export const AnimationControls: React.FC<AnimationControlsProps> = ({
   onCycleColorsChange,
   onFlowDirectionChange,
   onMappingModeChange,
-  onFlowMappingChange,
-  disabled = false
+  onFlowMappingChange
 }) => {
   // FPS preset handler
   const handleFPSChange = useCallback((newFPS: number) => {
     onFPSChange(newFPS);
   }, [onFPSChange]);
 
+  const handleFlowDirectionChange = useCallback((value: string) => {
+    onFlowDirectionChange(value as AnimationControlsProps['flowDirection']);
+  }, [onFlowDirectionChange]);
+
+  const handleMappingModeChange = useCallback((value: string) => {
+    if (!onMappingModeChange || !isMappingMode(value)) return;
+    onMappingModeChange(value);
+  }, [onMappingModeChange]);
+
+  const handleFlowMappingChange = useCallback((value: string) => {
+    if (!onFlowMappingChange || !isFlowMapping(value)) return;
+    onFlowMappingChange(value);
+  }, [onFlowMappingChange]);
+
   return (
     <div className="animation-controls space-y-4">
-      <label className="block text-sm font-medium text-gray-300">Animation</label>
+      <div className="flex items-center justify-between">
+        <label className="block text-sm font-medium text-gray-300">Animation</label>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={onToggleAnimation}
+        >
+          {isPlaying ? 'Pause' : 'Play'}
+        </Button>
+      </div>
 
       {/* Speed */}
       <LabeledSlider
@@ -99,7 +134,7 @@ export const AnimationControls: React.FC<AnimationControlsProps> = ({
             { label: 'Bounce', value: 'bounce' }
           ]}
           value={flowDirection}
-          onChange={(value) => onFlowDirectionChange(value as any)}
+          onChange={handleFlowDirectionChange}
           className="w-full"
           size="sm"
         />
@@ -114,7 +149,7 @@ export const AnimationControls: React.FC<AnimationControlsProps> = ({
               { value: 'continuous', label: 'Continuous' }
             ]}
             value={mappingMode}
-            onChange={(value) => onMappingModeChange(value as any)}
+            onChange={handleMappingModeChange}
             className="w-full"
             size="sm"
           />
@@ -131,7 +166,7 @@ export const AnimationControls: React.FC<AnimationControlsProps> = ({
               { value: 'luminance', label: 'Luminance' }
             ]}
             value={flowMapping}
-            onChange={(value) => onFlowMappingChange(value as any)}
+            onChange={handleFlowMappingChange}
             className="w-full"
             size="sm"
           />

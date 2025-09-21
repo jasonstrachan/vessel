@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useUserBrushEngine } from '../hooks/useUserBrushEngine';
 import { useAppStore } from '../stores/useAppStore';
 import type { BrushPreset } from '@/types';
+import type { BrushMetadata } from '@/brushes/BrushPlugin';
 
 /**
  * Test component for the modular brush plugin system
@@ -13,7 +14,7 @@ export function TestPluginBrushes() {
   const userBrushEngine = useUserBrushEngine();
   const currentBrushPreset = useAppStore(state => state.currentBrushPreset);
   const setBrushPreset = useAppStore(state => state.setBrushPreset);
-  const [pluginBrushes, setPluginBrushes] = useState<any[]>([]);
+  const [pluginBrushes, setPluginBrushes] = useState<BrushMetadata[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [testCanvas, setTestCanvas] = useState<HTMLCanvasElement | null>(null);
   const attachCanvasRef = useCallback((el: HTMLDivElement | null) => {

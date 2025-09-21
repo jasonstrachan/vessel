@@ -7,6 +7,9 @@ import { AppIntegration } from '../../integration/AppIntegration';
 import { ColorCycleIntegrationTest } from './ColorCycleIntegrationTest';
 import { BrowserCompat } from '../../compatibility/BrowserCompat';
 import type { Layer } from '@/types';
+import type { IntegrationTestSuite } from './ColorCycleIntegrationTest';
+import type { BenchmarkSuite } from '../performance/PerformanceBenchmark';
+import type { BrowserCapabilities } from '../performance/CrossBrowserTest';
 import { createMockLayer } from '../testUtils/layerFactory';
 
 interface IntegrationIssue {
@@ -23,8 +26,8 @@ interface AppIntegrationReport {
   testsFailed: number;
   issues: IntegrationIssue[];
   fixes: string[];
-  performanceMetrics: any;
-  compatibilityReport: any;
+  performanceMetrics: BenchmarkSuite | null;
+  compatibilityReport: BrowserCapabilities | null;
   recommendations: string[];
 }
 
@@ -46,7 +49,6 @@ export class AppIntegrationTest {
   async runAppIntegrationTests(): Promise<AppIntegrationReport> {
     console.log('🔍 Starting App Integration Tests...');
     
-    const startTime = Date.now();
     let testsPassed = 0;
     let testsFailed = 0;
 
@@ -117,7 +119,7 @@ export class AppIntegrationTest {
     }
 
     // Run comprehensive color cycle tests
-    let colorCycleReport;
+    let colorCycleReport: IntegrationTestSuite | undefined;
     try {
       colorCycleReport = await this.colorCycleTest.runIntegrationTests();
       if (colorCycleReport.results.some(r => !r.success)) {
@@ -320,8 +322,8 @@ export class AppIntegrationTest {
       for (const layer of layers) {
         try {
           this.integration.cleanupLayer(layer.id);
-        } catch (e) {
-          // Ignore cleanup errors
+        } catch {
+          // Ignore cleanup errors in test cleanup path
         }
       }
     }
@@ -444,7 +446,7 @@ export class AppIntegrationTest {
     
     // Test with null layer
     try {
-      await this.integration.convertLayerOptimized(null as any);
+      await this.integration.convertLayerOptimized(null as unknown as Layer);
       throw new Error('Should have thrown error for null layer');
     } catch (error) {
       if (error instanceof Error && error.message.includes('null layer')) {
@@ -471,7 +473,7 @@ export class AppIntegrationTest {
 
     try {
       await this.integration.convertLayerOptimized(layer, {
-        quantizationMode: 'invalid-mode' as any,
+        quantizationMode: 'invalid-mode',
         cycleColors: -1
       });
       throw new Error('Should have thrown error for invalid options');
@@ -487,8 +489,9 @@ export class AppIntegrationTest {
       this.integration.cleanupLayer('non-existent-layer');
       // Should not throw - cleanup should be safe
     } catch (error) {
+      const details = error instanceof Error ? `: ${error.message}` : '';
       this.addIssue('warning', 'ErrorHandling', 
-        'Cleanup of non-existent layer throws error', 
+        `Cleanup of non-existent layer throws error${details}`, 
         'Make cleanup more defensive');
     }
   }

@@ -36,7 +36,7 @@ export class ImageBitmapTransfer {
       });
       
       return bitmap;
-    } catch (error) {
+    } catch {
       return imageData;
     }
   }
@@ -60,7 +60,7 @@ export class ImageBitmapTransfer {
       });
       
       return bitmap;
-    } catch (error) {
+    } catch {
       return canvas;
     }
   }

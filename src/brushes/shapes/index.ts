@@ -34,8 +34,7 @@ export function drawRoundShape(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
-  size: number,
-  _antialiasing: boolean = true
+  size: number
 ): void {
   ctx.beginPath();
   ctx.arc(x, y, size / 2, 0, Math.PI * 2);
@@ -49,8 +48,7 @@ export function drawTriangleShape(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
-  size: number,
-  _antialiasing: boolean = true
+  size: number
 ): void {
   const radius = size / 2;
   ctx.beginPath();

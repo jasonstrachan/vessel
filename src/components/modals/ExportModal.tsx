@@ -27,6 +27,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     }
     return p.map((c) => [c[0] | 0, c[1] | 0, c[2] | 0] as RGB) as RGB[];
   };
+
+  const toRgbaEntries = (entries: number[][]): number[][] => (
+    entries.map((entry) => (
+      entry.length === 4 ? entry.slice(0, 4) : [entry[0], entry[1], entry[2], 255]
+    ))
+  );
   // Suspend global/canvas shortcuts while modal is open
   useKeyboardScope('modal', isOpen);
 
@@ -141,12 +147,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       const fps = Math.max(1, Math.floor(gifFps / Math.max(1, gifFrameStep)));
       const targetFrames = Math.max(1, Math.round(gifDuration * fps));
       const store = useAppStore.getState();
-      const recolorSpeeds: number[] = store.layers
+      const recolorSpeeds: number[] = layers
         .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode === 'recolor' && l.colorCycleData?.recolorSettings)
         .map(l => l.colorCycleData!.recolorSettings!.animation.speed || 0.1)
         .filter(s => Number.isFinite(s) && s > 0);
       // Gather per-layer speeds for brush-mode CC layers (fallback to current UI speed if undefined)
-      const brushSpeeds: number[] = store.layers
+      const brushSpeeds: number[] = layers
         .filter(l => l.layerType === 'color-cycle' && (l.colorCycleData?.mode !== 'recolor'))
         .map(l => (l.colorCycleData?.brushSpeed ?? store.tools?.brushSettings?.colorCycleSpeed ?? 0.1))
         .filter(s => Number.isFinite(s) && s > 0);
@@ -294,10 +300,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                 if (layer.layerType === 'color-cycle' && layer.colorCycleData && layer.colorCycleData.mode !== 'recolor') {
                   const brush = store2.getLayerColorCycleBrush(layer.id);
                   if (brush) {
-                    if (useAbsolutePhase && phase !== null && (brush as any).setPhase) {
-                      (brush as any).setPhase(phase);
-                    } else if ((brush as any).updateAnimation) {
-                      (brush as any).updateAnimation();
+                    if (useAbsolutePhase && phase !== null) {
+                      brush.setPhase(phase);
+                    } else {
+                      brush.updateAnimation();
                     }
                   }
                 }
@@ -350,8 +356,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
             }
           }
           const sampleBuf = w ? buf.slice(0, w) : new Uint8Array([0,0,0,255]);
-          const q = quantize(sampleBuf, Math.max(1, target), { format: 'rgb565' });
-          palette = needTransparentSlot ? [[0,0,0,0], ...q] : (q as any);
+          const q = quantize(sampleBuf, Math.max(1, target), { format: 'rgb565' }) as number[][];
+          const quantizedPalette = toRgbaEntries(q);
+          palette = needTransparentSlot ? [[0, 0, 0, 0], ...quantizedPalette] : quantizedPalette;
           // If user selected a manual size, force exact palette length
           if (!gifAutoColors) {
             const desired = targetSize;
@@ -359,7 +366,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               const fill = palette.find((c) => c.length < 4 || c[3] !== 0) || [0, 0, 0, 255];
               while (palette.length < desired) {
                 const f = fill.length === 3 ? [fill[0], fill[1], fill[2], 255] : fill.slice(0, 4);
-                palette.push(f as number[]);
+                palette.push(f);
               }
             } else if (palette.length > desired) {
               palette = palette.slice(0, desired);
@@ -408,8 +415,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       }
     }, 250);
 
+    const cancelToken = estimateCancelRef.current;
     return () => {
-      estimateCancelRef.current.cancelled = true;
+      cancelToken.cancelled = true;
       clearTimeout(handle);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -531,11 +539,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           const wasAnimating = !!layer.colorCycleData.isAnimating;
           originalStates.push({ layerId: layer.id, wasPlaying, wasAnimating });
           // Ensure recolor-mode layers advance deterministically
-          if (!wasAnimating) store.updateLayer(layer.id, { colorCycleData: { ...layer.colorCycleData, isAnimating: true } } as any);
+          if (!wasAnimating) {
+            store.updateLayer(layer.id, {
+              colorCycleData: {
+                ...layer.colorCycleData,
+                isAnimating: true
+              }
+            });
+          }
           // Sync brush FPS and pause internal RAF; we'll step it manually per captured frame
           try {
-            if (brush && (brush as any).setFPS) {
-              (brush as any).setFPS(effectiveFps);
+            if (brush) {
+              brush.setFPS(effectiveFps);
             }
           } catch {}
           if (brush && brush.setPlaying) brush.setPlaying(false);
@@ -574,10 +589,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           if (layer.layerType === 'color-cycle' && layer.colorCycleData && layer.colorCycleData.mode !== 'recolor') {
             const brush = store.getLayerColorCycleBrush(layer.id);
             if (!brush) continue;
-            if (useAbsolutePhase && phase !== null && (brush as any).setPhase) {
-              (brush as any).setPhase(phase);
-            } else if ((brush as any).updateAnimation) {
-              (brush as any).updateAnimation();
+            if (useAbsolutePhase && phase !== null) {
+              brush.setPhase(phase);
+            } else {
+              brush.updateAnimation();
             }
           }
         }
@@ -621,7 +636,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     const colorCountCandidate = usedRGB.size + (needTransparentSlot ? 1 : 0);
     const MAX_GIF_COLORS = 256;
 
-    const buildSampleBuffer = (limitColors: number): Uint8Array => {
+    const buildSampleBuffer = (): Uint8Array => {
       // Build a sampling buffer across frames to feed into quantize()
       // Aim for up to ~500k samples to keep perf reasonable
       const targetSamples = 500_000;
@@ -680,25 +695,27 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
         setGifPaletteCount(fixedPalette.length);
       } else {
         // Too many colors for GIF; quantize across all frames to 256
-        const sample = buildSampleBuffer(MAX_GIF_COLORS);
+        const sample = buildSampleBuffer();
         const target = needTransparentSlot ? MAX_GIF_COLORS - 1 : MAX_GIF_COLORS;
-        const q = quantize(sample, target, { format: 'rgb565' });
-        fixedPalette = needTransparentSlot ? [[0, 0, 0, 0], ...q] : q as any;
+        const q = quantize(sample, target, { format: 'rgb565' }) as number[][];
+        const quantizedPalette = toRgbaEntries(q);
+        fixedPalette = needTransparentSlot ? [[0, 0, 0, 0], ...quantizedPalette] : quantizedPalette;
         setGifPaletteCount(fixedPalette.length);
       }
     } else {
       // Manual size selected: quantize across all frames to requested size
-      const sample = buildSampleBuffer(gifMaxColors);
+      const sample = buildSampleBuffer();
       const target = needTransparentSlot ? gifMaxColors - 1 : gifMaxColors;
-      const q = quantize(sample, target, { format: 'rgb565' });
-      fixedPalette = needTransparentSlot ? [[0, 0, 0, 0], ...q] : (q as any);
+      const q = quantize(sample, target, { format: 'rgb565' }) as number[][];
+      const quantizedPalette = toRgbaEntries(q);
+      fixedPalette = needTransparentSlot ? [[0, 0, 0, 0], ...quantizedPalette] : quantizedPalette;
       // Force exact palette length to the user-selected size
       const desired = gifMaxColors;
       if (fixedPalette.length < desired) {
         const fill = fixedPalette.find((c) => c.length < 4 || c[3] !== 0) || [0, 0, 0, 255];
         while (fixedPalette.length < desired) {
           const f = fill.length === 3 ? [fill[0], fill[1], fill[2], 255] : fill.slice(0, 4);
-          fixedPalette.push(f as number[]);
+          fixedPalette.push(f);
         }
       } else if (fixedPalette.length > desired) {
         fixedPalette = fixedPalette.slice(0, desired);
@@ -747,13 +764,20 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       for (const st of originalStates) {
         const layer = store.layers.find((l) => l.id === st.layerId);
         if (!layer) continue;
-        if (!st.wasAnimating) store.updateLayer(layer.id, { colorCycleData: { ...layer.colorCycleData!, isAnimating: false } } as any);
+        if (!st.wasAnimating && layer.colorCycleData) {
+          store.updateLayer(layer.id, {
+            colorCycleData: {
+              ...layer.colorCycleData,
+              isAnimating: false
+            }
+          });
+        }
         const brush = store.getLayerColorCycleBrush(layer.id);
         // Restore brush FPS to configured setting
         try {
           const fps0 = store.tools?.brushSettings?.colorCycleFPS || 30;
-          if (brush && (brush as any).setFPS) {
-            (brush as any).setFPS(fps0);
+          if (brush) {
+            brush.setFPS(fps0);
           }
         } catch {}
         if (brush && brush.setPlaying) brush.setPlaying(st.wasPlaying);
@@ -789,22 +813,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       'video/webm'
     ];
     let mime: string | undefined;
+    const mediaRecorderCtor = (window as typeof window & { MediaRecorder?: typeof MediaRecorder }).MediaRecorder;
     for (const t of preferredTypes) {
-      if ((window as any).MediaRecorder && (window as any).MediaRecorder.isTypeSupported && (window as any).MediaRecorder.isTypeSupported(t)) {
+      if (mediaRecorderCtor && typeof mediaRecorderCtor.isTypeSupported === 'function' && mediaRecorderCtor.isTypeSupported(t)) {
         mime = t;
         break;
       }
     }
     if (!mime) mime = 'video/webm;codecs=vp8';
 
-    const stream = (scaled as any).captureStream ? (scaled as any).captureStream(videoFps) : null;
+    const stream = typeof scaled.captureStream === 'function' ? scaled.captureStream(videoFps) : null;
     if (!stream) throw new Error('Canvas captureStream not supported');
 
     const chunks: BlobPart[] = [];
     const recorder = new MediaRecorder(stream, {
       mimeType: mime,
       videoBitsPerSecond: Math.max(1000, videoBitrate * 1000),
-    } as any);
+    } as MediaRecorderOptions);
 
     recorder.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) chunks.push(e.data);
@@ -824,11 +849,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           const wasPlaying = !!(brush && brush.isPlaying && brush.isPlaying());
           const wasAnimating = !!layer.colorCycleData.isAnimating;
           originalStates.push({ layerId: layer.id, wasPlaying, wasAnimating });
-          if (!wasAnimating) store.updateLayer(layer.id, { colorCycleData: { ...layer.colorCycleData, isAnimating: true } } as any);
+          if (!wasAnimating) {
+            store.updateLayer(layer.id, {
+              colorCycleData: {
+                ...layer.colorCycleData,
+                isAnimating: true
+              }
+            });
+          }
           // Sync brush FPS to video FPS during export
           try {
-            if (brush && (brush as any).setFPS) {
-              (brush as any).setFPS(videoFps);
+            if (brush) {
+              brush.setFPS(videoFps);
             }
           } catch {}
           // Let MediaRecorder loop drive timing; pause internal RAF for determinism
@@ -864,8 +896,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           for (const layer of store.layers) {
             if (layer.layerType === 'color-cycle' && layer.colorCycleData && layer.colorCycleData.mode !== 'recolor') {
               const brush = store.getLayerColorCycleBrush(layer.id);
-              if (brush && (brush as any).updateAnimation) {
-                (brush as any).updateAnimation();
+              if (brush) {
+                brush.updateAnimation();
               }
             }
           }
@@ -889,13 +921,20 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       for (const st of originalStates) {
         const layer = store.layers.find((l) => l.id === st.layerId);
         if (!layer) continue;
-        if (!st.wasAnimating) store.updateLayer(layer.id, { colorCycleData: { ...layer.colorCycleData!, isAnimating: false } } as any);
+        if (!st.wasAnimating && layer.colorCycleData) {
+          store.updateLayer(layer.id, {
+            colorCycleData: {
+              ...layer.colorCycleData,
+              isAnimating: false
+            }
+          });
+        }
         const brush = store.getLayerColorCycleBrush(layer.id);
         // Restore brush FPS to configured setting
         try {
           const fps0 = store.tools?.brushSettings?.colorCycleFPS || 30;
-          if (brush && (brush as any).setFPS) {
-            (brush as any).setFPS(fps0);
+          if (brush) {
+            brush.setFPS(fps0);
           }
         } catch {}
         if (brush && brush.setPlaying) brush.setPlaying(st.wasPlaying);
@@ -1153,7 +1192,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                 <select
                   className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
                   value={videoMime}
-                  onChange={(e) => setVideoMime(e.target.value as any)}
+                  onChange={(e) => setVideoMime(e.target.value as 'video/mp4' | 'video/webm')}
                 >
                   <option value="video/webm">WebM</option>
                   <option value="video/mp4">MP4 (best-effort)</option>

@@ -5,14 +5,14 @@
  * Compare Canvas2D vs WebGL implementations
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { MasterTestRunner } from '@/testing/MasterTestRunner';
 
 export default function MigrationTestPage() {
   const [isRunning, setIsRunning] = useState(false);
   const [currentTest, setCurrentTest] = useState('');
   const [progress, setProgress] = useState(0);
-  const [results, setResults] = useState<any>(null);
+  const [results, setResults] = useState<Record<string, unknown> | null>(null);
   const [reportHtml, setReportHtml] = useState('');
   const [selectedTest, setSelectedTest] = useState('all');
   const reportRef = useRef<HTMLIFrameElement>(null);

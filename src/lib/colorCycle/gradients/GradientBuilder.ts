@@ -530,8 +530,8 @@ export class GradientBuilder {
       return oklch.h;
     });
     
-    const harmony = this.determineColorHarmony(hues);
-    
+    this.determineColorHarmony(hues);
+
     // Apply minor adjustments based on harmony type
     return stops; // For now, return as-is
   }

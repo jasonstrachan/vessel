@@ -16,15 +16,11 @@ export default function ConsoleSilencer() {
 
       // No-op console logging in the client runtime
       // Keep console.error intact for surfaced errors
-      // eslint-disable-next-line no-console
-      console.log = () => {};
-      // eslint-disable-next-line no-console
-      console.warn = () => {};
+      console.log = () => undefined;
+      console.warn = () => undefined;
       // Optionally silence info/debug if used
-      // eslint-disable-next-line no-console
-      if ('info' in console) console.info = (..._args: any[]) => {};
-      // eslint-disable-next-line no-console
-      if ('debug' in console) console.debug = (..._args: any[]) => {};
+      if ('info' in console) console.info = () => undefined;
+      if ('debug' in console) console.debug = () => undefined;
     } catch {}
   }, []);
   return null;

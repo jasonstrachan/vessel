@@ -18,7 +18,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
           inputRef.current.value = newValue;
         }
       }
-    }, [value]);
+    }, [value, inputRef]);
 
     const dragState = useRef({
       isDragging: false,
@@ -80,7 +80,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         // Only update the visual value, no expensive state updates during drag
         inputRef.current.value = Math.round(clampedValue).toString();
       }
-    }, [dragSensitivity, type]);
+    }, [dragSensitivity, type, inputRef]);
 
     const handlePointerUp = useCallback((e: React.PointerEvent<HTMLInputElement>) => {
       if (!dragState.current.pointerDown) return;
@@ -100,7 +100,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         const event = { target: inputRef.current } as React.ChangeEvent<HTMLInputElement>;
         onChange(event);
       }
-    }, [onChange]);
+    }, [onChange, inputRef]);
 
     // Base classes for all inputs
     const baseClasses = 'border-2 border-[#D9D9D9] text-[#D9D9D9] focus:outline-none focus:border-[#88888A] transition-colors touch-none';

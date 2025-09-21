@@ -9,18 +9,16 @@ import { createShapeDrawer, type DrawShapeSettings, type ShapeDrawingDependencie
 import { createBrushUtilities } from './utilities';
 import { applyThrottledColorJitter, parseColor } from './colorUtils';
 import { DEFAULT_COLOR_CYCLE_GRADIENT } from '@/utils/colorCycleGradients';
-import { applyDithering, applySierraLiteDither } from './dithering';
+import { applyDithering } from './dithering';
 import { getGridPositionsBetween } from '@/utils/gridSnap';
 import { isStrokeBrush } from '@/utils/brushCategories';
-import { 
-  calculateRotation, 
-  createDirectionState, 
-  createDefaultRotationConfig,
+import {
+  calculateRotation,
+  createDirectionState,
   type DirectionState,
-  type RotationConfig,
-  type RotationInput 
+  type RotationInput
 } from './rotation';
-import type { PixelQueue, RenderSettings, StrokeInput } from './types';
+import type { PixelQueue, RenderSettings } from './types';
 
 /**
  * Configuration for the brush engine facade
@@ -98,9 +96,7 @@ export class BrushEngineFacade {
 
     // Initialize shape drawer
     const shapeSettings: DrawShapeSettings = {
-      get transparencyLockEnabled() {
-        return config.transparencyLockEnabled;
-      },
+      transparencyLockEnabled: config.transparencyLockEnabled,
       brushSettings: config.brushSettings
     };
 
@@ -132,12 +128,9 @@ export class BrushEngineFacade {
     this.config = { ...this.config, ...config };
     
     // Always re-create shape drawer to ensure deps are updated
-    const self = this;
     const shapeSettings: DrawShapeSettings = {
-      get transparencyLockEnabled() {
-        return self.config.transparencyLockEnabled;
-      },
-      brushSettings: self.config.brushSettings
+      transparencyLockEnabled: this.config.transparencyLockEnabled,
+      brushSettings: this.config.brushSettings
     };
 
     const shapeDeps: ShapeDrawingDependencies = {
@@ -545,7 +538,7 @@ export class BrushEngineFacade {
     return this._shapeDrawer;
   }
   
-  private set shapeDrawer(value: any) {
+  private set shapeDrawer(value: ReturnType<typeof createShapeDrawer>) {
     this._shapeDrawer = value;
   }
 

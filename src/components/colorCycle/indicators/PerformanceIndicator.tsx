@@ -3,19 +3,19 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
+import { RecolorManager, RecolorPerformanceStats } from '../../../lib/colorCycle/RecolorManager';
 
 export interface PerformanceIndicatorProps {
   recolorManager: RecolorManager | null;
   compact?: boolean;
-  performanceStats?: any;
+  performanceStats?: RecolorPerformanceStats;
 }
 
 interface PerformanceData {
   fps: number;
   frameTime: number;
-  memoryUsage: number;
-  cacheHitRate: number;
+  memoryUsageMb: number;
+  gradientQuality: number;
   activeLayers: number;
 }
 
@@ -26,8 +26,8 @@ export const PerformanceIndicator: React.FC<PerformanceIndicatorProps> = ({
   const [perfData, setPerfData] = useState<PerformanceData>({
     fps: 0,
     frameTime: 0,
-    memoryUsage: 0,
-    cacheHitRate: 0,
+    memoryUsageMb: 0,
+    gradientQuality: 0,
     activeLayers: 0
   });
   
@@ -42,10 +42,12 @@ export const PerformanceIndicator: React.FC<PerformanceIndicatorProps> = ({
       const layers = recolorManager.getRecolorLayers();
       
       setPerfData({
-        fps: Math.round(stats.averageFPS || 0),
-        frameTime: Math.round(stats.frameTimeP95 || 0),
-        memoryUsage: Math.round(stats.memoryEfficiency * 100),
-        cacheHitRate: Math.round(stats.cacheEfficiency * 100),
+        fps: Math.round(stats.fps || 0),
+        frameTime: Math.round(stats.frameTime || 0),
+        memoryUsageMb: Math.round((stats.memoryUsage || 0) / (1024 * 1024)),
+        gradientQuality: Math.round(
+          Math.min(1, Math.max(0, stats.lastExtraction?.gradientAnalysis.quality ?? 0)) * 100
+        ),
         activeLayers: layers.length
       });
     } catch (error) {
@@ -99,8 +101,12 @@ export const PerformanceIndicator: React.FC<PerformanceIndicatorProps> = ({
     if (frameTime <= 33) return 'text-yellow-400';
     return 'text-red-400';
   };
-  const getCacheColor = (hitRate: number) => getMetricColor(hitRate, [70, 90]);
-  const getMemoryColor = (efficiency: number) => getMetricColor(efficiency, [60, 80]);
+  const getQualityColor = (quality: number) => getMetricColor(quality, [60, 85]);
+  const getMemoryColor = (usageMb: number) => {
+    if (usageMb <= 32) return 'text-green-400';
+    if (usageMb <= 64) return 'text-yellow-400';
+    return 'text-red-400';
+  };
 
   if (compact) {
     return (
@@ -112,8 +118,8 @@ export const PerformanceIndicator: React.FC<PerformanceIndicatorProps> = ({
               <span className={getFPSColor(perfData.fps)}>
                 {perfData.fps} FPS
               </span>
-              <span className={getCacheColor(perfData.cacheHitRate)}>
-                {perfData.cacheHitRate}% Cache
+              <span className={getQualityColor(perfData.gradientQuality)}>
+                {perfData.gradientQuality}% Quality
               </span>
               {perfData.activeLayers > 0 && (
                 <span className="text-blue-400">
@@ -153,19 +159,19 @@ export const PerformanceIndicator: React.FC<PerformanceIndicatorProps> = ({
             </div>
           </div>
 
-          {/* Cache Hit Rate */}
+          {/* Gradient Quality */}
           <div className="flex justify-between items-center">
-            <span className="text-xs text-gray-400">Cache</span>
-            <span className={`text-xs font-medium ${getCacheColor(perfData.cacheHitRate)}`}>
-              {perfData.cacheHitRate}% hits
+            <span className="text-xs text-gray-400">Gradient</span>
+            <span className={`text-xs font-medium ${getQualityColor(perfData.gradientQuality)}`}>
+              {perfData.gradientQuality}% quality
             </span>
           </div>
 
-          {/* Memory Efficiency */}
+          {/* Memory Usage */}
           <div className="flex justify-between items-center">
             <span className="text-xs text-gray-400">Memory</span>
-            <span className={`text-xs font-medium ${getMemoryColor(perfData.memoryUsage)}`}>
-              {perfData.memoryUsage}% efficient
+            <span className={`text-xs font-medium ${getMemoryColor(perfData.memoryUsageMb)}`}>
+              {perfData.memoryUsageMb} MB
             </span>
           </div>
 

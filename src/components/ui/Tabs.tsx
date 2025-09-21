@@ -15,7 +15,6 @@ const Tabs: React.FC<TabsProps> = ({ tabs, activeTab, onTabChange, className = '
       {tabs.map((tab, index) => {
         const isActive = tab.value === activeTab;
         const isFirst = index === 0;
-        const isLast = index === tabs.length - 1;
         
         return (
           <button

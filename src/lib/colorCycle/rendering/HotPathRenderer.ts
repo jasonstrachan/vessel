@@ -191,8 +191,7 @@ export class HotPathRenderer {
     flowDirection: 'forward' | 'reverse' = 'forward'
   ): void {
     const { pixels32 } = context;
-    const len = indices.length;
-    
+
     // Pre-calculate animation parameters
     const animOffset = Math.floor(animationOffset * cycleColors);
     const isReverse = flowDirection === 'reverse';

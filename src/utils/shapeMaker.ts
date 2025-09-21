@@ -101,8 +101,22 @@ export function buildPreviewVertices(
   points: Array<ShapePoint | { x?: number; y?: number } | number>,
   current: ShapePoint
 ): ShapePoint[] {
-  const normalized = points.map((p: any) => ({ x: p?.x ?? p, y: p?.y ?? p })) as ShapePoint[];
+  const normalized = points.map(normalizePoint);
   return [...normalized, current];
+}
+
+function normalizePoint(point: ShapePoint | { x?: number; y?: number } | number): ShapePoint {
+  if (typeof point === 'number') {
+    return { x: point, y: point };
+  }
+
+  if (typeof point === 'object' && point !== null) {
+    const xValue = typeof point.x === 'number' ? point.x : 0;
+    const yValue = typeof point.y === 'number' ? point.y : 0;
+    return { x: xValue, y: yValue };
+  }
+
+  return { x: 0, y: 0 };
 }
 
 /**

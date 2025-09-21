@@ -33,7 +33,7 @@ export interface BrushDrawContext {
  * Configuration options for brush plugins
  */
 export interface BrushConfig {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 /**
@@ -120,7 +120,7 @@ export abstract class BaseBrushPlugin implements BrushPlugin {
 
   abstract draw(context: BrushDrawContext): void;
 
-  initialize?(_config?: BrushConfig): Promise<void> | void {
+  initialize?(): Promise<void> | void {
     // Override in subclass if needed
   }
 

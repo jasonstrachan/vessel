@@ -70,6 +70,17 @@ interface CachedGradient {
   canvasGradient?: CanvasGradient; // Cached CanvasGradient object
 }
 
+interface SerializedPathSegmentData {
+  gradientIndex: number;
+  strokeWidth: number;
+  points: Point[];
+}
+
+interface SerializedLayerData {
+  gradientStops: Array<{ position: number; color: string }>;
+  pathSegments: SerializedPathSegmentData[];
+}
+
 /**
  * High-performance Canvas 2D Path implementation
  */
@@ -664,7 +675,7 @@ export class ColorCycleBrushPath2D {
       
       // Apply animated gradient with caching
       const cacheKey = this.getGradientKey(layer.gradientStops) + '_' + Math.floor(this.animationState.cycleOffset * 100);
-      let cachedGradient = this.gradientCache.get(cacheKey);
+      const cachedGradient = this.gradientCache.get(cacheKey);
       
       if (!cachedGradient || cachedGradient.lastCycleOffset !== this.animationState.cycleOffset) {
         layer.gradientStops.forEach(stop => {
@@ -902,7 +913,7 @@ export class ColorCycleBrushPath2D {
     }
     
     const decoder = new TextDecoder();
-    const pathData = JSON.parse(decoder.decode(snapshot));
+    const pathData = JSON.parse(decoder.decode(snapshot)) as SerializedLayerData;
     
     if (!this.layerIdToIndex.has(layerId)) {
       this.addNewLayer(pathData.gradientStops, layerId);
@@ -915,7 +926,7 @@ export class ColorCycleBrushPath2D {
     layer.gradientStops = pathData.gradientStops;
     
     // Restore paths
-    layer.pathSegments = pathData.pathSegments.map((seg: any) => {
+    layer.pathSegments = pathData.pathSegments.map((seg: SerializedPathSegmentData) => {
       const path = new Path2D();
       if (seg.points.length > 0) {
         path.moveTo(seg.points[0].x, seg.points[0].y);

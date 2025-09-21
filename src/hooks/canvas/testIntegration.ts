@@ -1,42 +1,24 @@
 /**
- * Test integration file to verify the modular handlers work correctly
- * This demonstrates how DrawingCanvas would use the new architecture
+ * Type-only integration checks to ensure the modular handler hook stays
+ * aligned with the expected EventHandlers contract without invoking React
+ * hooks in an invalid context.
  */
+import type { useCanvasEventHandlers } from './useCanvasEventHandlers';
+import type { EventHandlerDependencies, EventHandlers } from './utils/types';
 
-import { useCanvasEventHandlers } from './useCanvasEventHandlers';
-import type { EventHandlerDependencies } from './utils/types';
+type CanvasEventHandlers = ReturnType<typeof useCanvasEventHandlers>;
 
-export function testModularHandlers() {
-  // This is a mock test to verify types compile correctly
-  // In real usage, DrawingCanvas would gather all these dependencies
-  const mockDeps: EventHandlerDependencies = {} as any;
-  
-  // Get all event handlers from the orchestrator hook
-  const eventHandlers = useCanvasEventHandlers(mockDeps);
-  
-  // Verify all expected handlers are present
-  const {
-    handlePointerDown,
-    handlePointerMove,
-    handlePointerUp,
-    handlePointerEnter,
-    handlePointerLeave,
-    handlePointerCancel,
-    handleKeyDown,
-    handleKeyUp,
-    handleBlur,
-    handleWheel,
-    handlePaste,
-  } = eventHandlers;
-  
-  // These would be attached to the canvas element
-  return {
-    onPointerDown: handlePointerDown,
-    onPointerMove: handlePointerMove,
-    onPointerUp: handlePointerUp,
-    onPointerEnter: handlePointerEnter,
-    onPointerLeave: handlePointerLeave,
-    onPointerCancel: handlePointerCancel,
-    // Keyboard and other handlers would be attached via useEffect
-  };
-}
+type MissingHandlers = Exclude<keyof EventHandlers, keyof CanvasEventHandlers>;
+type ExtraHandlers = Exclude<keyof CanvasEventHandlers, keyof EventHandlers>;
+
+export type AssertCanvasEventHandlersShape = MissingHandlers extends never
+  ? (ExtraHandlers extends never ? true : never)
+  : never;
+
+export type UseCanvasEventHandlersSignature = (
+  deps: EventHandlerDependencies
+) => CanvasEventHandlers;
+
+export type VerifyUseCanvasEventHandlersSignature = typeof useCanvasEventHandlers extends UseCanvasEventHandlersSignature
+  ? true
+  : never;

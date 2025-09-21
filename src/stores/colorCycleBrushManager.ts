@@ -3,7 +3,36 @@
  * Manages lifecycle and resources for ColorCycleBrush instances
  */
 
-import type { ColorCycleBrushImplementation } from '../hooks/brushEngine/ColorCycleBrushMigration';
+import { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
+import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import { defaultBrushSettings } from '@/presets/brushPresets';
+import type { BrushSettings, Layer } from '@/types';
+import type { AppState } from '@/stores/useAppStore';
+
+type BrushWithOptionalControls = ColorCycleBrushImplementation & {
+  usesWebGL?: boolean;
+  cleanup?: () => void;
+  destroy?: () => void;
+  setIsolated?: (isolated: boolean) => void;
+  setLayerId?: (layerId: string) => void;
+  setSpeed?: (speed: number) => void;
+};
+
+type StoreSlice = Pick<AppState, 'tools' | 'layers'>;
+
+let storeStateGetter: (() => StoreSlice) | null = null;
+
+export function setColorCycleStoreStateGetter(getter: () => StoreSlice): void {
+  storeStateGetter = getter;
+}
+
+const getBrushSettings = (): BrushSettings => {
+  return storeStateGetter?.().tools.brushSettings ?? defaultBrushSettings;
+};
+
+const getLayers = (): Layer[] => {
+  return storeStateGetter?.().layers ?? [];
+};
 
 export interface ColorCycleBrushMetadata {
   layerId: string;
@@ -56,62 +85,51 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
     createBrush(layerId: string, width: number, height: number, gradient?: Uint8Array) {
       // Clean up existing brush if any
       this.deleteBrush(layerId);
-      
-      // Import dynamically to avoid circular dependencies
-      const { ColorCycleBrushCanvas2D } = require('../hooks/brushEngine/ColorCycleBrushCanvas2D');
-      
+
       // Create canvas for the brush
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
-      
-      // Get current brush settings from store to apply to new brush
-      const { useAppStore } = require('../stores/useAppStore');
-      const currentSettings = useAppStore.getState().tools.brushSettings;
-      
+
+      const currentSettings = getBrushSettings();
       const brush = new ColorCycleBrushCanvas2D(canvas, {
-        brushSize: currentSettings.size || 20,
-        fps: currentSettings.colorCycleFPS || 30
+        brushSize: currentSettings.size ?? defaultBrushSettings.size,
+        fps: currentSettings.colorCycleFPS ?? 30
       });
 
       // Apply all current settings to the new brush instance
-      if (currentSettings.gradientBands) {
+      if (typeof currentSettings.gradientBands === 'number') {
         brush.setGradientBands(currentSettings.gradientBands);
       }
-      if (currentSettings.spacing) {
-        (brush as any).setBandSpacing(currentSettings.spacing);
+      if (typeof currentSettings.spacing === 'number') {
+        brush.setBandSpacing(currentSettings.spacing);
       }
-      if (currentSettings.pressureEnabled !== undefined) {
-        (brush as any).setPressureEnabled(currentSettings.pressureEnabled);
+      if (typeof currentSettings.pressureEnabled === 'boolean') {
+        brush.setPressureEnabled(currentSettings.pressureEnabled);
       }
-      if (currentSettings.minPressure) {
-        (brush as any).setMinPressure(currentSettings.minPressure);
+      if (typeof currentSettings.minPressure === 'number') {
+        brush.setMinPressure(currentSettings.minPressure);
       }
-      if (currentSettings.maxPressure) {
-        (brush as any).setMaxPressure(currentSettings.maxPressure);
+      if (typeof currentSettings.maxPressure === 'number') {
+        brush.setMaxPressure(currentSettings.maxPressure);
       }
-      if (currentSettings.ditherEnabled !== undefined) {
-        (brush as any).setDitherEnabled(!!currentSettings.ditherEnabled);
+      if (typeof currentSettings.ditherEnabled === 'boolean') {
+        brush.setDitherEnabled(currentSettings.ditherEnabled);
       }
-      if (currentSettings.fillResolution) {
-        (brush as any).setDitherPixelSize(Math.max(1, Math.floor(currentSettings.fillResolution)));
-      }
-      
-      // Set layer ID if method exists
-      if ('setLayerId' in brush && typeof brush.setLayerId === 'function') {
-        brush.setLayerId(layerId);
+      if (typeof currentSettings.fillResolution === 'number') {
+        brush.setDitherPixelSize(Math.max(1, Math.floor(currentSettings.fillResolution)));
       }
 
+      const brushWithOptionalControls: BrushWithOptionalControls = brush;
+      brushWithOptionalControls.setLayerId?.(layerId);
+
       // Apply per-layer speed if available
-      try {
-        const state = require('../stores/useAppStore').useAppStore.getState();
-        const layer = state.layers.find((l: any) => l.id === layerId);
-        const perLayerSpeed = layer?.colorCycleData?.brushSpeed;
-        if (perLayerSpeed && 'setSpeed' in brush && typeof (brush as any).setSpeed === 'function') {
-          (brush as any).setSpeed(perLayerSpeed);
-        }
-      } catch {}
-      
+      const layer = getLayers().find(candidate => candidate.id === layerId);
+      const perLayerSpeed = layer?.colorCycleData?.brushSpeed;
+      if (typeof perLayerSpeed === 'number') {
+        brushWithOptionalControls.setSpeed?.(perLayerSpeed);
+      }
+
       // Store brush and metadata
       brushes.set(layerId, brush);
       brushMetadata.set(layerId, {
@@ -153,17 +171,15 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
     },
     
     deleteBrush(layerId: string) {
-      const brush = brushes.get(layerId);
+      const brush = brushes.get(layerId) as BrushWithOptionalControls | undefined;
       if (brush) {
         // Cleanup brush resources
-        if ('cleanup' in brush && typeof brush.cleanup === 'function') {
-          brush.cleanup();
-        }
-        
+        brush.cleanup?.();
+
         brushes.delete(layerId);
         brushMetadata.delete(layerId);
         activeResources.delete(layerId);
-        
+
         
       }
     },
@@ -184,6 +200,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
     cleanupInactive(maxInactiveMs: number = 60000) {
       const now = Date.now();
       const toDelete: string[] = [];
+      const layers = getLayers();
 
       brushMetadata.forEach((metadata, layerId) => {
         if (metadata.isActive) {
@@ -195,20 +212,15 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
         }
 
         let shouldPreserve = false;
-        try {
-          // Keep brushes alive for layers that still own Color Cycle canvases so
-          // previously painted animations remain playable when users hit "Play" later.
-          const store = require('../stores/useAppStore').useAppStore.getState();
-          const layer = store.layers.find((l: any) => l.id === layerId);
-          if (layer && layer.layerType === 'color-cycle' && layer.colorCycleData?.mode !== 'recolor') {
-            const hasCanvas = !!layer.colorCycleData?.canvas;
-            const isAnimating = !!layer.colorCycleData?.isAnimating;
-            if (hasCanvas || isAnimating) {
-              shouldPreserve = true;
-            }
+        // Keep brushes alive for layers that still own Color Cycle canvases so
+        // previously painted animations remain playable when users hit "Play" later.
+        const layer = layers.find(candidate => candidate.id === layerId);
+        if (layer && layer.layerType === 'color-cycle' && layer.colorCycleData?.mode !== 'recolor') {
+          const hasCanvas = Boolean(layer.colorCycleData?.canvas);
+          const isAnimating = Boolean(layer.colorCycleData?.isAnimating);
+          if (hasCanvas || isAnimating) {
+            shouldPreserve = true;
           }
-        } catch (error) {
-          // If state lookup fails, fall back to default cleanup behaviour
         }
 
         if (shouldPreserve) {
@@ -227,11 +239,9 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
     },
     
     cleanupAll() {
-      const count = brushes.size;
-      brushes.forEach((brush, layerId) => {
+      brushes.forEach((_, layerId) => {
         this.deleteBrush(layerId);
       });
-      
     },
     
     // Enhanced lifecycle methods
@@ -240,37 +250,34 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       if (brushes.has(layerId)) {
         // Validate existing brush
         if (this.validateColorCycleBrush(layerId)) {
-          
-          
           // Apply current settings to existing brush to ensure it's up to date
-          const { useAppStore } = require('../stores/useAppStore');
-          const currentSettings = useAppStore.getState().tools.brushSettings;
+          const currentSettings = getBrushSettings();
           const existingBrush = brushes.get(layerId);
-          
+
           if (existingBrush) {
-            if (currentSettings.gradientBands) {
-              (existingBrush as any).setGradientBands(currentSettings.gradientBands);
+            if (typeof currentSettings.gradientBands === 'number') {
+              existingBrush.setGradientBands(currentSettings.gradientBands);
             }
-            if (currentSettings.spacing) {
-              (existingBrush as any).setBandSpacing(currentSettings.spacing);
+            if (typeof currentSettings.spacing === 'number') {
+              existingBrush.setBandSpacing(currentSettings.spacing);
             }
-            if (currentSettings.pressureEnabled !== undefined) {
-              (existingBrush as any).setPressureEnabled(currentSettings.pressureEnabled);
+            if (typeof currentSettings.pressureEnabled === 'boolean') {
+              existingBrush.setPressureEnabled(currentSettings.pressureEnabled);
             }
-            if (currentSettings.minPressure) {
-              (existingBrush as any).setMinPressure(currentSettings.minPressure);
+            if (typeof currentSettings.minPressure === 'number') {
+              existingBrush.setMinPressure(currentSettings.minPressure);
             }
-            if (currentSettings.maxPressure) {
-              (existingBrush as any).setMaxPressure(currentSettings.maxPressure);
+            if (typeof currentSettings.maxPressure === 'number') {
+              existingBrush.setMaxPressure(currentSettings.maxPressure);
             }
-            if (currentSettings.ditherEnabled !== undefined) {
-              (existingBrush as any).setDitherEnabled(!!currentSettings.ditherEnabled);
+            if (typeof currentSettings.ditherEnabled === 'boolean') {
+              existingBrush.setDitherEnabled(currentSettings.ditherEnabled);
             }
-            if (currentSettings.fillResolution) {
-              (existingBrush as any).setDitherPixelSize(Math.max(1, Math.floor(currentSettings.fillResolution)));
+            if (typeof currentSettings.fillResolution === 'number') {
+              existingBrush.setDitherPixelSize(Math.max(1, Math.floor(currentSettings.fillResolution)));
             }
           }
-          
+
           return true;
         }
         // Invalid brush - cleanup before creating new
@@ -280,15 +287,13 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       
       try {
         // Create new isolated brush instance
-        const brush = this.createBrush(layerId, width, height, gradient);
-        
+        const brush = this.createBrush(layerId, width, height, gradient) as BrushWithOptionalControls;
+
         // Mark as isolated if method exists
-        if ('setIsolated' in brush && typeof brush.setIsolated === 'function') {
-          brush.setIsolated(true);
-        }
-        
+        brush.setIsolated?.(true);
+
         // Track WebGL resources if applicable
-        if ('usesWebGL' in brush && brush.usesWebGL) {
+        if (brush.usesWebGL) {
           activeResources.add(`webgl_${layerId}`);
         }
         activeResources.add(`canvas_${layerId}`);
@@ -371,36 +376,36 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
     },
     
     removeColorCycleBrush(layerId: string): void {
-      const brush = brushes.get(layerId);
-      
+      const brush = brushes.get(layerId) as BrushWithOptionalControls | undefined;
+
       if (brush) {
         // Call destroy method if available
-        if ('destroy' in brush && typeof brush.destroy === 'function') {
+        if (typeof brush.destroy === 'function') {
           try {
             brush.destroy();
           } catch (error) {
             console.error(`Error destroying brush for layer ${layerId}:`, error);
           }
         }
-        
+
         // Call cleanup method if available
-        if ('cleanup' in brush && typeof brush.cleanup === 'function') {
+        if (typeof brush.cleanup === 'function') {
           try {
             brush.cleanup();
           } catch (error) {
             console.error(`Error cleaning up brush for layer ${layerId}:`, error);
           }
         }
-        
+
         // Clear from maps
         brushes.delete(layerId);
         brushMetadata.delete(layerId);
-        
+
         // Clean up tracked resources
         activeResources.delete(layerId);
         activeResources.delete(`canvas_${layerId}`);
         activeResources.delete(`webgl_${layerId}`);
-        
+
         
       }
     },
@@ -422,7 +427,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
     },
     
     transferColorCycleBrush(fromLayerId: string, toLayerId: string): boolean {
-      const sourceBrush = brushes.get(fromLayerId);
+      const sourceBrush = brushes.get(fromLayerId) as BrushWithOptionalControls | undefined;
       const sourceMetadata = brushMetadata.get(fromLayerId);
       
       if (!sourceBrush || !sourceMetadata) {
@@ -442,9 +447,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       }
       
       // Update layer ID in brush if possible
-      if ('setLayerId' in sourceBrush && typeof sourceBrush.setLayerId === 'function') {
-        sourceBrush.setLayerId(toLayerId);
-      }
+      sourceBrush.setLayerId?.(toLayerId);
       
       // Transfer to new layer
       brushes.set(toLayerId, sourceBrush);

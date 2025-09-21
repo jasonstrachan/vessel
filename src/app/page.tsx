@@ -17,7 +17,6 @@ import { ExportModal } from '../components/modals/ExportModal';
 import { SettingsModal } from '../components/modals/SettingsModal';
 import { useAppStore } from '../stores/useAppStore';
 import { autosaveService } from '../utils/autosave';
-import { debugLog } from '../utils/debug';
 import { preloadRisographTexture } from '../utils/risographTexture';
 // import TestPluginBrushes from '../components/TestPluginBrushes'; // TEST COMPONENT - Disabled due to render loop
 
@@ -25,13 +24,10 @@ import { preloadRisographTexture } from '../utils/risographTexture';
 export default function Home() {
   // Global mouse tracking removed - now handled directly in canvas
   // Use individual selectors to avoid unstable object references
-  const saveProject = useAppStore(state => state.saveProject);
-  const loadProject = useAppStore(state => state.loadProject);
   const toggleModal = useAppStore(state => state.toggleModal);
   const ui = useAppStore(state => state.ui);
   const autosave = useAppStore(state => state.autosave);
   // const currentTool = useAppStore(state => state.tools.currentTool);
-  const project = useAppStore(state => state.project);
   const newProject = useAppStore(state => state.newProject);
   
   // Feedback strip state
@@ -53,7 +49,7 @@ export default function Home() {
     
     // Preload risograph texture to avoid lag on first use
     preloadRisographTexture();
-  }, []); // Run once on mount only
+  }, [newProject]); // Include newProject dependency
 
   // Load settings from localStorage on initial mount only
   useEffect(() => {
@@ -82,7 +78,7 @@ export default function Home() {
             store.setHistorySize(settings.history.maxHistorySize);
           }
         }
-      } catch (error) {}
+      } catch {}
     }
   }, []); // Only run once on mount
 

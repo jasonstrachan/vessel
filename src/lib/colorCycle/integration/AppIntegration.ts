@@ -4,7 +4,7 @@
  */
 
 import { useAppStore } from '../../../stores/useAppStore';
-import { RecolorManager } from '../RecolorManager';
+import { RecolorManager, RecolorOptions } from '../RecolorManager';
 import { BrowserCompat } from '../compatibility/BrowserCompat';
 import { PerformanceProfiler } from '../monitoring/PerformanceProfiler';
 import { Layer } from '../../../types';
@@ -149,7 +149,7 @@ export class AppIntegration {
   /**
    * Convert layer with automatic optimization
    */
-  async convertLayerOptimized(layer: Layer, options: any = {}): Promise<void> {
+  async convertLayerOptimized(layer: Layer, options: Partial<RecolorOptions> = {}): Promise<void> {
     const compatibility = this.canConvertLayer(layer);
     if (!compatibility.canConvert) {
       throw new Error(`Cannot convert layer: ${compatibility.reason}`);
@@ -157,11 +157,11 @@ export class AppIntegration {
 
     // Get recommended settings and merge with user options
     const recommended = this.getRecommendedSettings();
-    const optimizedOptions = {
-      quantizationMode: recommended.preferredQuantization,
-      ditherMode: recommended.enableDithering ? 'bayer4' : 'off',
-      cycleColors: Math.min(options.cycleColors || 16, 32), // Cap for performance
-      ...options
+    const optimizedOptions: RecolorOptions = {
+      ...options,
+      quantizationMode: options.quantizationMode ?? recommended.preferredQuantization,
+      ditherMode: options.ditherMode ?? (recommended.enableDithering ? 'bayer4' : 'off'),
+      cycleColors: Math.min(options.cycleColors ?? 16, 32) // Cap for performance
     };
 
     // Profile the conversion
@@ -312,12 +312,13 @@ export class AppIntegration {
   private updateAppStore(layer: Layer): void {
     // Trigger a state update to reflect the layer changes
     const appState = useAppStore.getState();
-    const updatedLayers = appState.layers.map(l => 
+    const updatedLayers = appState.layers.map(l =>
       l.id === layer.id ? layer : l
     );
-    
-    // This would normally call a store action to update layers
-    // quiet
+
+    if (appState.setLayers) {
+      appState.setLayers(updatedLayers);
+    }
   }
 
   /**

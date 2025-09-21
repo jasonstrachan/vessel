@@ -86,7 +86,7 @@ export function generateBrushThumbnail(
       break;
     case BrushShape.ROUND:
     default:
-      generateRoundThumbnail(ctx, opts, isAntialiased);
+      generateRoundThumbnail(ctx, opts);
       break;
   }
 
@@ -100,9 +100,8 @@ export function generateBrushThumbnail(
 }
 
 function generateRoundThumbnail(
-  ctx: CanvasRenderingContext2D, 
-  opts: Required<ThumbnailOptions>,
-  isAntialiased: boolean
+  ctx: CanvasRenderingContext2D,
+  opts: Required<ThumbnailOptions>
 ) {
   const center = opts.size / 2;
   const radius = opts.size * 0.35;
@@ -166,12 +165,13 @@ function generateTriangleThumbnail(
   const center = opts.size / 2;
   const size = opts.size * 0.6;
   const height = size * 0.866; // Equilateral triangle height
+  const adjust = (value: number): number => (isAntialiased ? value : Math.round(value));
   
   ctx.globalAlpha = 1;
   ctx.beginPath();
-  ctx.moveTo(center, center - height / 2);
-  ctx.lineTo(center - size / 2, center + height / 2);
-  ctx.lineTo(center + size / 2, center + height / 2);
+  ctx.moveTo(adjust(center), adjust(center - height / 2));
+  ctx.lineTo(adjust(center - size / 2), adjust(center + height / 2));
+  ctx.lineTo(adjust(center + size / 2), adjust(center + height / 2));
   ctx.closePath();
   ctx.fill();
 }

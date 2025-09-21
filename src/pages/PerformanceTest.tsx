@@ -3,14 +3,14 @@
  * Demonstrates the performance enhancements
  */
 
-import React, { useRef, useState, useEffect } from 'react';
-import { PerformanceEnhancementsTest } from '../testing/PerformanceEnhancementsTest';
+import React, { useRef, useState } from 'react';
+import { PerformanceEnhancementsTest, PerformanceTestResult } from '../testing/PerformanceEnhancementsTest';
 
 export default function PerformanceTestPage() {
   const canvas1Ref = useRef<HTMLCanvasElement>(null);
   const canvas2Ref = useRef<HTMLCanvasElement>(null);
   const [isRunning, setIsRunning] = useState(false);
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<PerformanceTestResult[]>([]);
   const [reportHTML, setReportHTML] = useState('');
 
   const runTests = async () => {

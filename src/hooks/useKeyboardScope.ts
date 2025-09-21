@@ -19,6 +19,6 @@ export function useKeyboardScope(scope: KeyboardScope, enabled: boolean = true) 
         setKeyboardScope(prevRef.current);
       }
     };
-  }, [enabled, scope, setKeyboardScope]);
+  }, [enabled, scope, setKeyboardScope, getScope]);
 }
 

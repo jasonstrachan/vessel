@@ -36,8 +36,12 @@ class MockImageData {
   }
 }
 
+declare global {
+  var ImageData: typeof MockImageData;
+}
+
 // Override global ImageData for tests
-(global as any).ImageData = MockImageData;
+globalThis.ImageData = MockImageData as unknown as typeof ImageData;
 
 describe('Dithering Algorithms', () => {
   
@@ -57,7 +61,7 @@ describe('Dithering Algorithms', () => {
       }
     }
     
-    return new (global as any).ImageData(data, width, height);
+    return new globalThis.ImageData(data, width, height);
   };
   
   describe('calculatePressureDitherThreshold', () => {
@@ -294,13 +298,13 @@ describe('Dithering Algorithms', () => {
     
     it('should handle unknown algorithm gracefully', () => {
       const imageData = createTestImageData(4, 4);
-      const invalidSettings: DitherSettings = {
-        algorithm: 'unknown' as any,
+      const invalidSettings = {
+        algorithm: 'unknown',
         pressure: 0.5,
         intensity: 0.8,
         bayerMatrixSize: 8,
         palette: createGrayscalePalette(2)
-      };
+      } as unknown as DitherSettings;
       
       // Should not throw, should return original data
       const result = applyPressureDither(imageData, invalidSettings);
