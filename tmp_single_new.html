@@ -1,3 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TinyBrush WebGL Bundle Viewer</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+        cursor: default;
+        user-select: none;
+      }
+      canvas {
+        display: block;
+        background: #000;
+        image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="preview-canvas" aria-hidden="true"></canvas>
+    <input id="file-input" type="file" accept="application/json" hidden />
+
+    <script type="module">
 const loadImage = (src) => {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -7,54 +42,21 @@ const loadImage = (src) => {
   });
 };
 
-const toFinite = (value, fallback = 0) => {
-  const numeric = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(numeric) ? numeric : fallback;
-};
-
 const applyLayer = (ctx, img, layer, scale) => {
-  if (!img) {
-    return false;
-  }
-
-  const frame = layer?.frame ?? {};
-  const transform = layer?.transform ?? {};
-  const sourceSize = layer?.sourceSize ?? {};
-  const width = Math.max(1, toFinite(sourceSize.width, img.naturalWidth || img.width || 1));
-  const height = Math.max(1, toFinite(sourceSize.height, img.naturalHeight || img.height || 1));
-
-  const frameX = toFinite(frame.x, 0);
-  const frameY = toFinite(frame.y, 0);
-  const translateX = toFinite(transform.translateX, 0);
-  const translateY = toFinite(transform.translateY, 0);
-  const scaleX = toFinite(transform.scaleX, 1);
-  const scaleY = toFinite(transform.scaleY, 1);
-  const rotation = toFinite(transform.rotation, 0);
+  const frame = layer.frame;
+  const transform = layer.transform;
+  const sourceSize = layer.sourceSize;
 
   ctx.save();
   ctx.scale(scale, scale);
-  ctx.globalAlpha = Math.max(0, Math.min(1, layer?.opacity ?? 1));
-  ctx.globalCompositeOperation = layer?.blendMode || 'source-over';
-  ctx.translate(frameX + translateX, frameY + translateY);
-  if (rotation !== 0) {
-    ctx.rotate(rotation);
-  }
-  ctx.scale(scaleX, scaleY);
-  console.log('[DEBUG] Drawing with:', {
-    opacity: layer?.opacity,
-    blendMode: layer?.blendMode,
-    frameX,
-    frameY,
-    width,
-    height,
-    hasImage: Boolean(img)
-  });
-  ctx.drawImage(img, 0, 0, width, height);
+  ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity ?? 1));
+  ctx.globalCompositeOperation = layer.blendMode || 'source-over';
+  ctx.translate(frame.x, frame.y);
+  ctx.translate(transform.translateX, transform.translateY);
+  ctx.scale(transform.scaleX, transform.scaleY);
+  ctx.drawImage(img, 0, 0, sourceSize.width, sourceSize.height);
   ctx.restore();
-  return true;
 };
-
-const normalizeBlend = (mode) => (mode === 'normal' || !mode ? 'source-over' : mode);
 
 const validateMetadata = (metadata) => {
   if (!metadata || metadata.format !== 'tinybrush-webgl') {
@@ -108,10 +110,6 @@ const parseColor = (input) => {
   const value = input.trim();
   if (!value) {
     return { r: 255, g: 255, b: 255, a: 255 };
-  }
-
-  if (value.toLowerCase() === 'transparent') {
-    return { r: 0, g: 0, b: 0, a: 0 };
   }
 
   const hexMatch = value.match(/^#([0-9a-f]{3,8})$/i);
@@ -190,11 +188,6 @@ const normalizeGradientStops = (stops) => {
     result.push({ position: 1, rgba: result[0].rgba });
   }
   return result;
-};
-
-const rgbaToCss = ({ r, g, b, a }) => {
-  const alpha = Math.max(0, Math.min(1, a / 255));
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
 const sampleGradient = (gradient, position) => {
@@ -607,7 +600,6 @@ class TinyBrushBundleRenderer {
     this.dynamicPlayers = [];
     this.rafId = null;
     this.lastTimestamp = 0;
-    this.lastAnimationDebugAt = 0;
     this.isDestroyed = false;
     this.summary = {
       viewport: metadata.viewport,
@@ -652,22 +644,10 @@ class TinyBrushBundleRenderer {
       let player = null;
       const hasRecolorBuffers = Boolean(layer.colorCycle?.recolorSettings?.indexBuffer?.length);
       const hasBrushBuffers = Boolean(layer.colorCycle?.brushState?.indexBuffer?.length);
-      if (layer.colorCycle) {
-        console.log('[DEBUG] Color cycle layer check:', {
-          layerId: layer.id,
-          hasColorCycle: true,
-          hasRecolorBuffers,
-          hasBrushBuffers,
-          brushStateExists: !!layer.colorCycle.brushState,
-          indexBufferExists: !!layer.colorCycle.brushState?.indexBuffer,
-          indexBufferLength: layer.colorCycle.brushState?.indexBuffer?.length
-        });
-      }
       if (hasRecolorBuffers || hasBrushBuffers) {
         try {
           player = new ColorCycleLayerPlayer(layer, image);
           player.initialize();
-          console.log('[DEBUG] Created player for', layer.id);
         } catch (error) {
           console.warn(`[viewer] Failed to initialize color cycle animation for layer ${layer.id}`, error);
           player = null;
@@ -679,81 +659,10 @@ class TinyBrushBundleRenderer {
       return { layer, image, player };
     }));
 
-    entries.forEach((entry) => {
-      entry.layer.blendMode = normalizeBlend(entry.layer.blendMode);
-    });
-
     this.layers = entries;
     this.dynamicPlayers = entries
       .map((entry) => entry.player)
       .filter((player) => player && player.hasAnimation());
-
-    const layerDiagnostics = entries.map((entry) => {
-      const { layer, image, player } = entry;
-      const layerSummary = {
-        id: layer.id,
-        name: layer.name,
-        type: layer.type || layer.layerType,
-        visible: layer.visible !== false,
-        opacity: Number.isFinite(layer.opacity) ? layer.opacity : 1,
-        blendMode: layer.blendMode || 'source-over',
-        hasTexture: Boolean(layer.assets && layer.assets.texture),
-        textureSample: layer.assets && layer.assets.texture ? String(layer.assets.texture).slice(0, 48) : null,
-        hasPlayer: Boolean(player),
-        imageSize: image ? { width: image.naturalWidth || image.width || 0, height: image.naturalHeight || image.height || 0 } : null,
-        sourceSize: layer.sourceSize,
-        transform: layer.transform,
-        frame: layer.frame
-      };
-
-      if (!layerSummary.hasTexture) {
-        layerSummary.textureMissingReason = layer.assets?.texture ? 'Texture string present but empty' : 'Texture asset missing';
-      }
-
-      return layerSummary;
-    });
-    try {
-      console.info('[viewer] Layer diagnostics', JSON.parse(JSON.stringify(layerDiagnostics)));
-    } catch {
-      console.info('[viewer] Layer diagnostics', layerDiagnostics);
-    }
-
-    const flattenedDiagnostics = layerDiagnostics.map((entry) => ({
-      id: entry.id,
-      name: entry.name,
-      type: entry.type,
-      visible: entry.visible,
-      opacity: entry.opacity,
-      blendMode: entry.blendMode,
-      hasTexture: entry.hasTexture,
-      texturePreview: entry.textureSample,
-      player: entry.hasPlayer,
-      imageWidth: entry.imageSize?.width ?? null,
-      imageHeight: entry.imageSize?.height ?? null,
-      sourceWidth: entry.sourceSize?.width ?? null,
-      sourceHeight: entry.sourceSize?.height ?? null,
-      frameX: entry.frame?.x ?? null,
-      frameY: entry.frame?.y ?? null,
-      frameWidth: entry.frame?.width ?? null,
-      frameHeight: entry.frame?.height ?? null,
-      scaleX: entry.transform?.scaleX ?? null,
-      scaleY: entry.transform?.scaleY ?? null,
-      translateX: entry.transform?.translateX ?? null,
-      translateY: entry.transform?.translateY ?? null
-    }));
-
-    if (flattenedDiagnostics.length) {
-      console.table(flattenedDiagnostics);
-    }
-
-    const texturelessLayers = layerDiagnostics.filter((entry) => entry.hasTexture === false);
-    if (texturelessLayers.length > 0) {
-      try {
-        console.warn('[viewer] Some layers are missing textures:', JSON.parse(JSON.stringify(texturelessLayers)));
-      } catch {
-        console.warn('[viewer] Some layers are missing textures:', texturelessLayers);
-      }
-    }
   }
 
   renderOnce() {
@@ -765,90 +674,18 @@ class TinyBrushBundleRenderer {
     const height = this.canvas.height;
     ctx.save();
     ctx.clearRect(0, 0, width, height);
-    if (this.metadata?.project?.backgroundColor) {
-      const parsedBackground = parseColor(this.metadata.project.backgroundColor);
-      ctx.fillStyle = rgbaToCss(parsedBackground);
-      ctx.fillRect(0, 0, width, height);
-    }
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
 
-    const metadataLayerCount = Array.isArray(this.metadata?.layers) ? this.metadata.layers.length : 0;
-    console.log('[DEBUG] Starting to render layers, count:', metadataLayerCount);
-
-    const paintOrder = [...this.layers];
-    const hasStackIndex = paintOrder.some((entry) => typeof entry?.layer?.stackIndex === 'number');
-    if (hasStackIndex) {
-      paintOrder.sort((a, b) => {
-        const aIndex = typeof a?.layer?.stackIndex === 'number' ? a.layer.stackIndex : Number.MAX_SAFE_INTEGER;
-        const bIndex = typeof b?.layer?.stackIndex === 'number' ? b.layer.stackIndex : Number.MAX_SAFE_INTEGER;
-        if (aIndex !== bIndex) {
-          return aIndex - bIndex;
-        }
-        return 0;
-      });
-      console.log('[DEBUG] Paint order derived from stackIndex.');
-    } else {
-      paintOrder.reverse();
-      console.log('[DEBUG] Paint order reversed to approximate bottom-to-top rendering.');
-    }
-
-    let paintedLayers = 0;
-    for (let index = 0; index < paintOrder.length; index += 1) {
-      const entry = paintOrder[index];
-      const { layer } = entry;
-      console.log(`[DEBUG] Processing layer ${index}:`, {
-        id: layer.id,
-        stackIndex: layer.stackIndex,
-        visible: layer.visible !== false,
-        opacity: layer.opacity,
-        hasTexture: Boolean(layer.assets?.texture),
-        willRender: layer.visible !== false && (Boolean(layer.assets?.texture) || Boolean(layer.colorCycle))
-      });
-
-      if (layer.visible === false) {
+    for (const entry of this.layers) {
+      if (entry.layer.visible === false) {
         continue;
       }
       const source = entry.player ? entry.player.getCanvas() : entry.image;
       if (!source) {
         continue;
       }
-      console.log(`[DEBUG] About to draw layer ${index} at position`, layer.frame);
-
-      if (layer.colorCycle?.brushState) {
-        const texture = layer.assets?.texture;
-        console.log('Rendering color cycle layer:', {
-          layerId: layer.id,
-          hasTexture: Boolean(texture),
-          texturePreview: typeof texture === 'string' ? texture.substring(0, 50) : null,
-          opacity: layer.opacity,
-          visible: layer.visible !== false
-        });
-      }
-      const canvasTransform = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
-      console.log(`[DEBUG] Canvas state before layer ${index}:`, {
-        globalAlpha: ctx.globalAlpha,
-        globalCompositeOperation: ctx.globalCompositeOperation,
-        transform: canvasTransform ? {
-          a: canvasTransform.a,
-          b: canvasTransform.b,
-          c: canvasTransform.c,
-          d: canvasTransform.d,
-          e: canvasTransform.e,
-          f: canvasTransform.f
-        } : null
-      });
-      const painted = applyLayer(ctx, source, layer, this.scale);
-      console.log(`[DEBUG] Finished drawing layer ${index}`);
-      if (painted) {
-        paintedLayers++;
-      }
-    }
-
-    console.log('[DEBUG] Finished rendering all layers');
-
-    if (paintedLayers === 0 && paintOrder.length > 0) {
-      console.warn('[viewer] Render completed but no layers produced pixels.');
+      applyLayer(ctx, source, entry.layer, this.scale);
     }
 
     ctx.restore();
@@ -900,24 +737,13 @@ class TinyBrushBundleRenderer {
     this.lastTimestamp = timestamp;
 
     let needsRender = false;
-    let advancedPlayers = 0;
     for (const player of this.dynamicPlayers) {
       if (player && player.advance(deltaSeconds)) {
         needsRender = true;
-        advancedPlayers++;
       }
     }
 
     if (needsRender) {
-      const shouldLog = timestamp - this.lastAnimationDebugAt >= 1000;
-      if (shouldLog) {
-        console.log('[DEBUG] Rendering animation frame', {
-          timestamp: Number(timestamp.toFixed(1)),
-          advancedPlayers,
-          totalPlayers: this.dynamicPlayers.length
-        });
-        this.lastAnimationDebugAt = timestamp;
-      }
       this.renderOnce();
     }
 
@@ -925,7 +751,7 @@ class TinyBrushBundleRenderer {
   }
 }
 
-export const renderTinyBrushWebGL = async (metadata, canvas, options = {}) => {
+const renderTinyBrushWebGL = async (metadata, canvas, options = {}) => {
   validateMetadata(metadata);
   if (!(canvas instanceof HTMLCanvasElement)) {
     throw new Error('A target canvas element is required');
@@ -961,3 +787,118 @@ export const renderTinyBrushWebGL = async (metadata, canvas, options = {}) => {
 
   return renderer.getSummary();
 };
+
+
+const canvas = document.getElementById('preview-canvas');
+      const fileInput = document.getElementById('file-input');
+      let isRendering = false;
+      let pendingMetadata = null;
+      let lastMetadata = null;
+
+      const computeScale = (metadata) => {
+        const { width, height } = metadata.viewport ?? {};
+        if (!width || !height) {
+          return 1;
+        }
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const scale = Math.min(viewportWidth / width, viewportHeight / height, 1);
+        return scale > 0 ? scale : 1;
+      };
+
+      const drawMetadata = async (metadata) => {
+        if (!metadata) {
+          return;
+        }
+        pendingMetadata = metadata;
+        if (isRendering) {
+          return;
+        }
+        isRendering = true;
+        while (pendingMetadata) {
+          const current = pendingMetadata;
+          pendingMetadata = null;
+          try {
+            const scale = computeScale(current);
+            await renderTinyBrushWebGL(current, canvas, { scale });
+            lastMetadata = current;
+          } catch (error) {
+            console.error('Failed to render TinyBrush bundle', error);
+            break;
+          }
+        }
+        isRendering = false;
+      };
+
+      const renderBundle = async (file) => {
+        if (!file) {
+          return;
+        }
+        try {
+          const text = await file.text();
+          const metadata = JSON.parse(text);
+          void drawMetadata(metadata);
+        } catch (error) {
+          console.error('Failed to load TinyBrush bundle', error);
+        }
+      };
+
+      const handleFileSelection = (event) => {
+        const file = event?.target?.files?.[0];
+        if (file) {
+          void renderBundle(file);
+        }
+        if (event?.target) {
+          event.target.value = '';
+        }
+      };
+
+      fileInput.addEventListener('change', handleFileSelection);
+
+      window.addEventListener('dragover', (event) => {
+        event.preventDefault();
+      });
+
+      window.addEventListener('drop', (event) => {
+        event.preventDefault();
+        const file = event.dataTransfer?.files?.[0];
+        if (file) {
+          void renderBundle(file);
+        }
+      });
+
+      window.addEventListener('keydown', (event) => {
+        const isOpenShortcut = (event.key === 'o' || event.key === 'O') && (event.metaKey || event.ctrlKey);
+        if (isOpenShortcut) {
+          event.preventDefault();
+          fileInput.click();
+        }
+      });
+
+      window.addEventListener('resize', () => {
+        // Re-render with updated scale when viewport changes.
+        if (lastMetadata) {
+          void drawMetadata(lastMetadata);
+        }
+      });
+
+      console.info('TinyBrush WebGL Viewer ready. Drop a bundle or use Ctrl/Cmd+O to open a file.');
+    
+      const packagedMetadata = JSON.parse("{\n  \"format\": \"tinybrush-webgl\",\n  \"project\": {\n    \"name\": \"Test\",\n    \"width\": 100,\n    \"height\": 100,\n    \"backgroundColor\": \"#000\",\n    \"id\": \"1\"\n  },\n  \"viewport\": {\n    \"width\": 100,\n    \"height\": 100\n  },\n  \"container\": {},\n  \"animation\": {\n    \"fps\": 30,\n    \"totalFrames\": 1,\n    \"durationSeconds\": 1,\n    \"perfectLoop\": false\n  },\n  \"settings\": {\n    \"includeHiddenLayers\": false,\n    \"embedCanvasFallback\": false,\n    \"minifyOutput\": false,\n    \"perfectLoop\": false,\n    \"bundleFormat\": \"single-html\"\n  },\n  \"layers\": []\n}");
+      const renderPackagedBundle = async () => {
+        try {
+          const projectName = packagedMetadata?.project?.name ?? 'packaged bundle';
+          setStatus('Rendering packaged bundle…');
+          const scale = computeScale(packagedMetadata);
+          const renderResult = await renderTinyBrushWebGL(packagedMetadata, canvas, { scale });
+          summarizeMetadata(packagedMetadata, renderResult);
+          setStatus('Rendered ' + projectName);
+        } catch (error) {
+          console.error('Failed to render packaged bundle', error);
+          setStatus(error instanceof Error ? error.message : 'Failed to render bundle', 'error');
+        }
+      };
+      void renderPackagedBundle();
+</script>
+  </body>
+</html>
