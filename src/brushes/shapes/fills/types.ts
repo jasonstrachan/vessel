@@ -14,6 +14,7 @@ export type ContourLineOptions = {
   lines2Density?: number;
   lines2Alternate?: boolean;
   centroid?: Point | null;
+  contourSpacingOverride?: number;
 };
 
 export type ShapeFillDependencies = {
@@ -52,6 +53,7 @@ export interface PolygonFillBase {
 export interface ContourFillParams extends PolygonFillBase {
   isPreview?: boolean;
   dependencies: ShapeFillDependencies;
+  spacingOverride?: number;
 }
 
 export interface LinesFillParams extends PolygonFillBase {

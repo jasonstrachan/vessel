@@ -141,8 +141,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     overlayCtx.translate(deps.viewTransformRef.current.offsetX, deps.viewTransformRef.current.offsetY);
     overlayCtx.scale(deps.viewTransformRef.current.scale, deps.viewTransformRef.current.scale);
     const safeScale = Math.max(deps.viewTransformRef.current.scale, 0.001);
+
+    const currentTools = useAppStore.getState().tools;
     overlayCtx.lineWidth = Math.max(0.2, 0.45 / safeScale);
-    overlayCtx.strokeStyle = tools.brushSettings.color;
+    overlayCtx.strokeStyle = currentTools.brushSettings.color;
     overlayCtx.imageSmoothingEnabled = false;
 
     const maxDistance = Math.max(0.001, basis.maxDistance || spacingStart);
@@ -150,6 +152,28 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const constrainedEnd = spacingEnd == null
       ? undefined
       : Math.min(Math.max(MIN_LINE_SPACING, spacingEnd), maxDistance);
+
+    const activeMode = currentTools.brushSettings.shapeGradientMode || 'contour';
+
+    if (activeMode === 'contour') {
+      if (brushEngine) {
+        brushEngine.drawContourPolygon(
+          overlayCtx,
+          {
+            vertices: shapePoints,
+            fillColor: undefined,
+          },
+          true,
+          {
+            contourSpacingOverride: constrainedEnd ?? constrainedStart,
+          }
+        );
+      }
+
+      overlayCtx.restore();
+      overlayCtx.restore();
+      return;
+    }
 
     const paths = generateContourLines(shapePoints, basis, constrainedStart, constrainedEnd);
 
@@ -292,6 +316,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         lineSpacingA: spacingStart,
         lineSpacingB: spacingEnd,
         lineBasis: basis,
+        contourSpacingOverride: spacingEnd ?? spacingStart,
       }
     );
 

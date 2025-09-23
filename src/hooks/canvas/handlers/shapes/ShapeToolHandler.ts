@@ -406,6 +406,32 @@ export const createShapeToolHandler = (
       ? undefined
       : Math.min(Math.max(MIN_LINE_SPACING, spacingEnd), maxDistance);
 
+    const shapeMode = tools.brushSettings.shapeGradientMode || 'contour';
+
+    if (shapeMode === 'contour') {
+      if (!brushEngine) {
+        overlayCtx.restore();
+        overlayCtx.restore();
+        return;
+      }
+
+      brushEngine.drawContourPolygon(
+        overlayCtx,
+        {
+          vertices: shapePoints,
+          fillColor: undefined,
+        },
+        true,
+        {
+          contourSpacingOverride: constrainedEnd ?? constrainedStart,
+        }
+      );
+
+      overlayCtx.restore();
+      overlayCtx.restore();
+      return;
+    }
+
     const paths = generateContourLines(shapePoints, basis, constrainedStart, constrainedEnd);
 
     overlayCtx.save();

@@ -147,34 +147,34 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
   const paddingClasses = isComfortable ? 'px-1 py-3' : 'px-1 py-2';
   const rootClasses = [paddingClasses, className].filter(Boolean).join(' ').trim();
 
-  const titleClass = 'text-[12px] font-medium text-[#F1F1F6]';
+  const titleClass = 'text-sm font-medium text-[#F1F1F6]';
 
-  const helperClass = 'text-[12px] text-[#8F8FA3]';
+  const helperClass = 'text-sm text-[#8F8FA3]';
 
   const toTitleCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
   const summaryText = alignment
     ? `${(fitOptions.find(option => option.value === alignment.fit)?.label ?? alignment.fit)} • ${toTitleCase(alignment.horizontal)} / ${toTitleCase(alignment.vertical)}`
     : 'Select a layer to configure';
 
-  const labelClass = 'text-[12px] font-medium text-[#D3D3DC]';
-  const controlGapClass = 'gap-2';
+  const labelClass = 'text-sm font-medium text-[#D3D3DC]';
+  const controlGapClass = 'gap-1';
 
   const fieldClass = [
     'w-full rounded-none border border-[#4A4A4A] bg-[#4A4A4A] text-[#F3F3F7] placeholder:text-[#C6C6D0]',
     'transition-colors focus:border-[#8E8EFF]',
     'disabled:cursor-not-allowed disabled:opacity-50',
-    'h-8 px-2 text-[12px]'
+    'h-7 px-2 text-sm'
   ].join(' ');
 
   const segmentedButtonBase = [
     'flex-1 rounded-none border border-[#3D3D46] transition-colors',
-    'h-8 text-[12px]'
+    'h-8 text-sm'
   ].join(' ');
 
   const segmentedActiveClass = 'bg-[#E6E6F2] text-[#1C1C24] border-[#E6E6F2]';
   const segmentedInactiveClass = 'bg-[#2F2F36] text-[#D9D9E8] hover:bg-[#3A3A42]';
 
-  const contentSpacingClass = isComfortable ? 'mt-4 space-y-4' : 'mt-3 space-y-3';
+  const contentSpacingClass = isComfortable ? 'mt-3 space-y-2' : 'mt-2 space-y-2';
 
   const handleToggleExpanded = useCallback(() => {
     setIsExpanded(prev => !prev);
@@ -288,7 +288,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
           </div>
 
           <div className={`grid grid-cols-2 ${controlGapClass}`}>
-            <label className={`${labelClass} flex flex-col gap-2`}>
+            <label className={`${labelClass} flex flex-col gap-1`}>
               Offset X
               <input
                 type="number"
@@ -298,7 +298,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
                 disabled={disabled}
               />
             </label>
-            <label className={`${labelClass} flex flex-col gap-2`}>
+            <label className={`${labelClass} flex flex-col gap-1`}>
               Offset Y
               <input
                 type="number"
@@ -377,26 +377,28 @@ export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ den
   const paddingClasses = density === 'comfortable' ? 'px-1 py-3' : 'px-1 py-2';
   const rootClasses = [paddingClasses, className].filter(Boolean).join(' ').trim();
 
-  const titleClass = 'text-[12px] font-medium text-[#F1F1F6]';
+  const titleClass = 'text-sm font-medium text-[#F1F1F6]';
 
-  const helperClass = 'text-[12px] text-[#8F8FA3]';
+  const helperClass = 'text-sm text-[#8F8FA3]';
 
-  const labelClass = 'text-[12px] font-medium text-[#D3D3DC]';
-  const subLabelClass = 'text-[12px] text-[#A5A5BA]';
-  const controlGapClass = 'gap-2';
-  const contentSpacingClass = 'mt-3 space-y-3';
+  const labelClass = 'text-sm font-medium text-[#D3D3DC]';
+  const subLabelClass = 'text-sm text-[#A5A5BA]';
+  const controlGapClass = 'gap-1';
+  const contentSpacingClass = density === 'comfortable' ? 'mt-3 space-y-2' : 'mt-2 space-y-2';
 
   const fieldClass = [
     'w-full rounded-none border border-[#4A4A4A] bg-[#4A4A4A] text-[#F3F3F7] placeholder:text-[#C6C6D0]',
     'transition-colors focus:border-[#8E8EFF]',
     'disabled:cursor-not-allowed disabled:opacity-50',
-    'h-8 px-2 text-[12px]'
+    'h-7 px-2 text-sm'
   ].join(' ');
 
   const segmentedButtonBase = [
     'rounded-none border border-[#3D3D46] transition-colors',
-    'h-8 text-[12px]'
+    'h-8 text-sm'
   ].join(' ');
+
+  const flowButtonExtraClass = 'h-10 px-3';
 
   const segmentedActiveClass = 'bg-[#E6E6F2] text-[#1C1C24] border-[#E6E6F2]';
   const segmentedInactiveClass = 'bg-[#2F2F36] text-[#D9D9E8] hover:bg-[#3A3A42]';
@@ -449,17 +451,16 @@ export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ den
                   key={option.value}
                   type="button"
                   onClick={() => handleLayoutChange({ flow: option.value })}
-                  className={`${segmentedButtonBase} flex flex-col items-center justify-center ${layout.flow === option.value ? segmentedActiveClass : segmentedInactiveClass}`}
+                  className={`${segmentedButtonBase} ${flowButtonExtraClass} flex items-center justify-center ${layout.flow === option.value ? segmentedActiveClass : segmentedInactiveClass}`}
                 >
-                  <span className="text-base leading-none">{option.short}</span>
-                  <span className={`${subLabelClass} mt-1`}>{option.label}</span>
+                  <span className={subLabelClass}>{option.label}</span>
                 </button>
               ))}
             </div>
           </div>
 
           <div className={`grid grid-cols-2 ${controlGapClass}`}>
-            <label className={`${labelClass} flex flex-col gap-2`}>
+            <label className={`${labelClass} flex flex-col gap-1`}>
               Justify
               <div className="relative">
                 <select
@@ -476,7 +477,7 @@ export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ den
                 <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8F8FA3]" aria-hidden />
               </div>
             </label>
-            <label className={`${labelClass} flex flex-col gap-2`}>
+            <label className={`${labelClass} flex flex-col gap-1`}>
               Align
               <div className="relative">
                 <select
@@ -521,7 +522,7 @@ export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ den
             <span className={`${labelClass} block mb-2`}>Padding</span>
             <div className={`grid grid-cols-2 ${controlGapClass}`}>
               {(['top', 'right', 'bottom', 'left'] as const).map(side => (
-                <label key={side} className={`${labelClass} flex flex-col gap-2`}>
+                <label key={side} className={`${labelClass} flex flex-col gap-1`}>
                   {side[0].toUpperCase() + side.slice(1)}
                   <input
                     type="number"
@@ -555,7 +556,7 @@ export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ den
           </div>
 
           <div className={`grid grid-cols-2 ${controlGapClass}`}>
-            <label className={`${labelClass} flex flex-col gap-2`}>
+            <label className={`${labelClass} flex flex-col gap-1`}>
               Width
               <input
                 type="number"
@@ -565,7 +566,7 @@ export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ den
                 disabled={layout.sizeMode !== 'fixed'}
               />
             </label>
-            <label className={`${labelClass} flex flex-col gap-2`}>
+            <label className={`${labelClass} flex flex-col gap-1`}>
               Height
               <input
                 type="number"

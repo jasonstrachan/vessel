@@ -32,6 +32,16 @@ type DrawColorCycleOptions = {
   customStamp?: CustomBrushStrokeData;
 };
 
+type SignedDistanceFieldResult = {
+  field: number[][];
+  cols: number;
+  rows: number;
+  resolution: number;
+  peakX: number;
+  peakY: number;
+  extension: number;
+};
+
 const isTransparencyLockEnabled = () =>
   typeof window !== 'undefined' && window.transparencyLockEnabled === true;
 
@@ -53,6 +63,7 @@ export const useBrushEngineSimplified = () => {
   const brushStampCacheRef = useRef(new Map<string, HTMLCanvasElement>());
   const patternTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const contourFieldCacheRef = useRef<{ key: string; field: SignedDistanceFieldResult } | null>(null);
   
   // Get color cycle brush from active layer instead of single instance
   const getActiveLayerColorCycleBrush = useCallback((): ColorCycleBrushImplementation | null => {
@@ -1020,7 +1031,16 @@ export const useBrushEngineSimplified = () => {
     canvasWidth: number,
     canvasHeight: number,
     resolution: number = 2
-  ) => {
+  ): SignedDistanceFieldResult => {
+    const roundedKey = vertices
+      .map(v => `${Math.round(v.x)}:${Math.round(v.y)}`)
+      .join('|');
+    const cacheKey = `${canvasWidth}x${canvasHeight}@${resolution}:${roundedKey}`;
+
+    if (contourFieldCacheRef.current?.key === cacheKey) {
+      return contourFieldCacheRef.current.field;
+    }
+
     // Extend field beyond canvas boundaries to allow contours to go off-screen
     const extension = 300; // Pixels to extend beyond each edge
     const extendedWidth = canvasWidth + extension * 2;
@@ -1085,7 +1105,9 @@ export const useBrushEngineSimplified = () => {
       }
     }
     
-    return { field: distanceField, cols, rows, resolution, peakX, peakY, extension };
+    const result: SignedDistanceFieldResult = { field: distanceField, cols, rows, resolution, peakX, peakY, extension };
+    contourFieldCacheRef.current = { key: cacheKey, field: result };
+    return result;
   }, [distanceToPolygonSDF, isPointInPolygonSDF]);
 
   /**

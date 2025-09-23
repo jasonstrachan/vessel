@@ -2725,6 +2725,9 @@ export class ColorCycleBrushCanvas2D {
       currentGradientIndex: 0,
       stampCounter: 0
     };
+    if (strokeData.paintBuffer.length !== expectedSize) {
+      strokeData.paintBuffer = new Uint8Array(expectedSize);
+    }
     // Copy buffer (best-effort): if sizes differ, copy the overlapping region
     if (incoming.length > 0) {
       if (incoming.length === expectedSize) {

@@ -7,6 +7,7 @@ export const drawContourFill = ({
   brushSettings,
   dependencies,
   isPreview = false,
+  spacingOverride,
 }: ContourFillParams): void => {
   const {
     createSignedDistanceField,
@@ -25,9 +26,18 @@ export const drawContourFill = ({
 
   const fieldData = createSignedDistanceField(vertices, ctx.canvas.width, ctx.canvas.height, 2);
 
-  const maxDistance = Math.max(...fieldData.field.flat()) || 0;
+  let maxDistance = 0;
+  for (let y = 0; y < fieldData.rows; y++) {
+    const row = fieldData.field[y];
+    for (let x = 0; x < row.length; x++) {
+      if (row[x] > maxDistance) {
+        maxDistance = row[x];
+      }
+    }
+  }
   const safeMinStep = Math.max(0.5, maxDistance * 0.02);
-  const spacing = (brushSettings.contourSpacing || 5) * 2;
+  const spacingSetting = spacingOverride ?? brushSettings.contourSpacing ?? 5;
+  const spacing = spacingSetting * 2;
   const variancePercent = (brushSettings.contourVariance ?? 5) / 10;
 
   const maxStartDistance = Math.min(maxDistance * 0.95, Math.max(spacing * 2, safeMinStep * 6));
@@ -173,7 +183,7 @@ export const drawContourFill = ({
     }
   }
 
-  if (Math.random() < 0.1) {
+  if (!isPreview && Math.random() < 0.1) {
     ctx.save();
     ctx.imageSmoothingEnabled = false;
 

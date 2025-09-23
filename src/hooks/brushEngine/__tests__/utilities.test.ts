@@ -108,6 +108,11 @@ describe('Brush Utilities', () => {
       expect(calculateBrushSpacing(settings, 20)).toBe(2);
       expect(calculateBrushSpacing(settings, 50)).toBe(5);
     });
+
+    test('treats spacing value of 1 as absolute pixels', () => {
+      const settings = { ...mockBrushSettings, spacing: 1 };
+      expect(calculateBrushSpacing(settings, 100)).toBe(1);
+    });
   });
 
   describe('calculatePressureSize', () => {

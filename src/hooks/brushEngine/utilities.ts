@@ -44,7 +44,7 @@ export const calculateBrushSpacing = (
 ): number => {
   const rawSpacing = typeof brushSettings.spacing === 'number' ? brushSettings.spacing : 0.1;
   const effectiveBaseSize = baseSize || brushSettings.size || 1;
-  const isRatio = rawSpacing > 0 && rawSpacing <= 1;
+  const isRatio = rawSpacing > 0 && rawSpacing < 1;
   const calculated = isRatio ? effectiveBaseSize * rawSpacing : rawSpacing;
   return Math.max(0.5, calculated || 0);
 };

@@ -124,12 +124,15 @@ export const drawContourPolygon = ({
       return;
     }
 
+    const spacingOverride = lineOptions?.contourSpacingOverride ?? lineOptions?.lineSpacingA ?? lineOptions?.lineSpacingB;
+
     drawContourFill({
       ctx,
       vertices,
       brushSettings,
       dependencies,
       isPreview,
+      spacingOverride,
     });
   } finally {
     ctx.restore();
