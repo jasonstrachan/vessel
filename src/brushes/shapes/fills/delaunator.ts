@@ -13,6 +13,7 @@ export const drawDelaunayFill = ({
   brushSettings,
   boundWidth,
   boundHeight,
+  isPreview = false,
 }: DelaunayFillParams): void => {
   if (vertices.length < 3) {
     return;
@@ -248,18 +249,20 @@ export const drawDelaunayFill = ({
   }
 
   ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(snapToPixel(vertices[0].x), snapToPixel(vertices[0].y));
-  for (let i = 1; i < vertices.length; i++) {
-    ctx.lineTo(snapToPixel(vertices[i].x), snapToPixel(vertices[i].y));
+  if (isPreview) {
+    ctx.beginPath();
+    ctx.moveTo(snapToPixel(vertices[0].x), snapToPixel(vertices[0].y));
+    for (let i = 1; i < vertices.length; i++) {
+      ctx.lineTo(snapToPixel(vertices[i].x), snapToPixel(vertices[i].y));
+    }
+    ctx.closePath();
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1;
+    ctx.lineJoin = 'miter';
+    ctx.lineCap = 'butt';
+    ctx.imageSmoothingEnabled = false;
+    ctx.stroke();
   }
-  ctx.closePath();
-  ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 1;
-  ctx.lineJoin = 'miter';
-  ctx.lineCap = 'butt';
-  ctx.imageSmoothingEnabled = false;
-  ctx.stroke();
 
   const drawnEdges = new Set<string>();
   const drawnVertices = new Set<string>();

@@ -609,7 +609,6 @@ export interface PolygonGradientState {
 export type ContourLinesStage =
   | 'idle'
   | 'awaitingAnchorA'
-  | 'awaitingAnchorB'
   | 'awaitingAngle'
   | 'awaitingConvergenceA'
   | 'awaitingConvergenceB';
@@ -638,4 +637,5 @@ export interface ContourLinesState {
   centroid?: { x: number; y: number } | null;
   spacingReferenceDistance?: number | null;
   spacingReferenceSpacing?: number | null;
+  randomSeed?: number | null;
 }

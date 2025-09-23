@@ -8,6 +8,7 @@ export const drawContourFill = ({
   dependencies,
   isPreview = false,
   spacingOverride,
+  randomSeed,
 }: ContourFillParams): void => {
   const {
     createSignedDistanceField,
@@ -26,6 +27,19 @@ export const drawContourFill = ({
 
   const fieldData = createSignedDistanceField(vertices, ctx.canvas.width, ctx.canvas.height, 2);
 
+  const createRandomGenerator = (seed?: number) => {
+    if (seed == null) {
+      return Math.random;
+    }
+    let value = seed >>> 0;
+    return () => {
+      value = (value * 1664525 + 1013904223) >>> 0;
+      return value / 0x100000000;
+    };
+  };
+
+  const random = createRandomGenerator(randomSeed);
+
   let maxDistance = 0;
   for (let y = 0; y < fieldData.rows; y++) {
     const row = fieldData.field[y];
@@ -36,8 +50,9 @@ export const drawContourFill = ({
     }
   }
   const safeMinStep = Math.max(0.5, maxDistance * 0.02);
-  const spacingSetting = spacingOverride ?? brushSettings.contourSpacing ?? 5;
-  const spacing = spacingSetting * 2;
+  const hasSpacingOverride = spacingOverride != null;
+  const spacingBase = spacingOverride ?? brushSettings.contourSpacing ?? 5;
+  const spacing = Math.max(0.5, hasSpacingOverride ? spacingBase : spacingBase * 2);
   const variancePercent = (brushSettings.contourVariance ?? 5) / 10;
 
   const maxStartDistance = Math.min(maxDistance * 0.95, Math.max(spacing * 2, safeMinStep * 6));
@@ -53,9 +68,9 @@ export const drawContourFill = ({
   const maxElevation = Math.max(maxDistance * 36, 200);
   const snapElevation = (value: number) => Math.max(1, Math.round((value / maxElevation) * 1000) / 2);
 
-  const baseNoise = (Math.random() * 2 - 1) * variancePercent;
-  let randomWalk = (Math.random() * 2 - 1) * variancePercent * 0.5;
-  let clusterPhase = Math.random() * Math.PI * 2;
+  const baseNoise = (random() * 2 - 1) * variancePercent;
+  let randomWalk = (random() * 2 - 1) * variancePercent * 0.5;
+  let clusterPhase = random() * Math.PI * 2;
   const clusterStrength = variancePercent * 0.5;
   const clusterFreq = 0.2 + variancePercent * 0.4;
   const walkSpeed = 0.05 + variancePercent * 0.2;
@@ -91,8 +106,8 @@ export const drawContourFill = ({
       drewAnyContours = true;
 
       const elevation = snapElevation(currentDistance * 100);
-      if (Math.random() < 0.08) {
-        const labelIndex = Math.floor(loop.length * 0.25 + Math.random() * loop.length * 0.5);
+      if (random() < 0.08) {
+        const labelIndex = Math.floor(loop.length * 0.25 + random() * loop.length * 0.5);
         const point = loop[Math.min(loop.length - 1, Math.max(0, labelIndex))];
         const text = `${Math.round(elevation)}m`;
 
@@ -121,8 +136,8 @@ export const drawContourFill = ({
 
     const clusterEffect = Math.sin(clusterPhase) * clusterStrength;
     const jumpChance = 0.15 * variancePercent;
-    const jump = Math.random() < jumpChance ? (Math.random() * 2 - 0.5) : 0;
-    const localNoise = (Math.random() * 2 - 1) * noiseScale;
+    const jump = random() < jumpChance ? (random() * 2 - 0.5) : 0;
+    const localNoise = (random() * 2 - 1) * noiseScale;
     const totalVariance = (
       randomWalk * 0.4 +
       clusterEffect * 0.3 +
@@ -138,7 +153,7 @@ export const drawContourFill = ({
     currentDistance += Math.max(minSpacing, Math.min(maxSpacingAdjusted, baseSpacing));
     level++;
     clusterPhase += clusterFreq;
-    randomWalk += (Math.random() * 2 - 1) * walkSpeed;
+    randomWalk += (random() * 2 - 1) * walkSpeed;
     randomWalk = Math.max(-1, Math.min(1, randomWalk));
   }
 
@@ -183,7 +198,7 @@ export const drawContourFill = ({
     }
   }
 
-  if (!isPreview && Math.random() < 0.1) {
+  if (!isPreview && random() < 0.1) {
     ctx.save();
     ctx.imageSmoothingEnabled = false;
 

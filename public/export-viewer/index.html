@@ -81,13 +81,19 @@
       const setStatus = (message, level = 'info') => {
         const text = typeof message === 'string' ? message.trim() : '';
         const severity = level === 'error' ? 'error' : 'info';
-        statusElement.dataset.level = severity;
+
+        if (severity === 'info') {
+          statusElement.textContent = '';
+          statusElement.dataset.visible = 'false';
+          statusElement.dataset.level = 'info';
+          return;
+        }
+
+        statusElement.dataset.level = 'error';
         if (text) {
           statusElement.textContent = text;
           statusElement.dataset.visible = 'true';
-          if (severity === 'error') {
-            console.error('[TinyBrush Viewer]', text);
-          }
+          console.error('[TinyBrush Viewer]', text);
         } else {
           statusElement.textContent = '';
           statusElement.dataset.visible = 'false';
@@ -138,22 +144,6 @@
         try {
           const text = await file.text();
           const metadata = JSON.parse(text);
-          metadata?.layers?.forEach((layer, idx) => {
-            const brushState = layer?.colorCycle?.brushState;
-            const indexBuffer = brushState?.indexBuffer;
-            if (indexBuffer) {
-              console.log(`[DEBUG] Layer ${idx} indexBuffer type:`, typeof indexBuffer);
-              console.log(`[DEBUG] Layer ${idx} indexBuffer sample:`,
-                typeof indexBuffer === 'string'
-                  ? indexBuffer.slice(0, 50)
-                  : Array.isArray(indexBuffer)
-                    ? `Array(${indexBuffer.length})`
-                    : indexBuffer instanceof Uint8Array
-                      ? `Uint8Array(${indexBuffer.length})`
-                      : 'unknown'
-              );
-            }
-          });
           void drawMetadata(metadata);
         } catch (error) {
           console.error('Failed to load TinyBrush bundle', error);

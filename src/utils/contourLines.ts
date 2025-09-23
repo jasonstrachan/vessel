@@ -403,29 +403,6 @@ const findEdgeIndexForSegment = (vertices: Point[], segment: { a: Point; b: Poin
   return 0;
 };
 
-export function calculateLineSpacingFromPointer(
-  basis: ContourLinesBasis,
-  pointer: Point,
-  stage: ContourLinesStage,
-  minSpacing: number = MIN_LINE_SPACING,
-  maxSpacing: number = MAX_LINE_SPACING
-): number {
-  // Project the pointer onto the normal direction from the base edge
-  // to determine how far the pointer is from the base
-  const basePoint = basis.baseEdge.a;
-  const pointerVector = subtract(pointer, basePoint);
-  const projection = dot(pointerVector, basis.normal);
-  
-  // Calculate spacing based on the projection distance
-  // Closer to base = smaller spacing (denser lines)
-  // Further from base = larger spacing (sparser lines)
-  const normalizedDistance = Math.abs(projection) / (basis.maxDistance || 100);
-  const spacingRange = maxSpacing - minSpacing;
-  const spacing = minSpacing + normalizedDistance * spacingRange * 0.5;
-  
-  return Math.min(maxSpacing, Math.max(minSpacing, spacing));
-}
-
 export function generateContourLines(
   vertices: Array<{ x: number; y: number }>,
   basis: ContourLinesBasis,

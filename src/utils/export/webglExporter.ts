@@ -1055,14 +1055,6 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
       brushState.flowDirection = flowDirection;
     }
 
-    console.log('[webglExporter] Brush state extracted from animator fallback', {
-      layerId: layer.id,
-      width,
-      height,
-      indices: indexBufferData.length,
-      paletteSize: palette?.length ?? null
-    });
-
     return brushState;
   } catch (error) {
     console.warn('[webglExporter] Failed to extract brush state from animator for layer', layer.id, error);
@@ -1072,13 +1064,8 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
 
 const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefined => {
   const brush = layer.colorCycleData?.colorCycleBrush as { serialize?: () => unknown } | undefined;
-  const brushDescriptor = brush && typeof brush === 'object'
-    ? Object.keys(brush as Record<string, unknown>)
-    : 'no brush';
-  console.log('[DEBUG] Brush object keys:', brushDescriptor);
 
   if (!brush?.serialize) {
-    console.log('[DEBUG] No serialize method on brush');
     return undefined;
   }
 
@@ -1102,29 +1089,10 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
       }>;
     } | undefined;
 
-    console.log('[DEBUG] Raw serialize output structure:', {
-      hasLayers: !!raw?.layers,
-      layerCount: raw?.layers?.length,
-      firstLayer: raw?.layers?.[0] && typeof raw.layers[0] === 'object'
-        ? Object.keys(raw.layers[0] as Record<string, unknown>)
-        : 'no layers'
-    });
-
     if (raw?.layers && raw.layers.length > 0) {
       const entry = raw.layers.find((candidate) => candidate?.layerId === layer.id);
 
       if (entry) {
-        console.log('[DEBUG] Entry structure:', {
-          hasData: !!entry.data,
-          dataKeys: entry.data && typeof entry.data === 'object'
-            ? Object.keys(entry.data as Record<string, unknown>)
-            : 'no data',
-          hasIndexBuffer: !!entry.data?.indexBuffer,
-          indexBufferKeys: entry.data?.indexBuffer && typeof entry.data.indexBuffer === 'object'
-            ? Object.keys(entry.data.indexBuffer as Record<string, unknown>)
-            : 'no indexBuffer'
-        });
-
         const indexBuffer = entry.data?.indexBuffer;
         if (indexBuffer) {
           const ib = indexBuffer;
@@ -1134,64 +1102,16 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
           const fallbackHeight = layer.imageData?.height ?? layer.colorCycleData?.canvas?.height ?? 1;
 
           if (ib.data) {
-            console.log('[DEBUG] IndexBuffer details:', {
-              width: ib.width,
-              height: ib.height,
-              dataType: (ib.data as { constructor?: { name?: string } })?.constructor?.name ?? 'unknown',
-              dataLength: (ib.data as { length?: number })?.length ?? 0,
-              dataSample: (() => {
-                try {
-                  const arrayLike = ib.data as ArrayLike<number>;
-                  return Array.prototype.slice.call(arrayLike, 0, 10);
-                } catch {
-                  return 'no data';
-                }
-              })()
-            });
-
             let indexArray: number[] = [];
             try {
               indexArray = Array.from(ib.data as ArrayLike<number>);
             } catch (conversionError) {
-              console.warn('[DEBUG] Failed to convert indexBuffer data via Array.from, falling back to normalizeIndexBufferValues', conversionError);
+              console.warn('[webglExporter] Failed to convert indexBuffer data via Array.from; falling back to normalizeIndexBufferValues', conversionError);
               indexArray = normalizeIndexBufferValues(ib.data);
             }
 
             if (indexArray.length === 0) {
               indexArray = normalizeIndexBufferValues(ib.data);
-            }
-
-            console.log('[DEBUG] Converted to array:', {
-              length: indexArray.length,
-              sample: indexArray.slice(0, 10)
-            });
-
-            const totalLength = indexArray.length;
-            const nonZeroIndices = totalLength > 0 ? indexArray.filter((value) => value !== 0) : [];
-            const uniqueValuesSet = totalLength > 0 ? new Set<number>(indexArray) : new Set<number>();
-            const middleStart = totalLength > 500010
-              ? 500000
-              : totalLength > 0
-                ? Math.max(0, Math.floor(totalLength / 2) - 5)
-                : 0;
-            const endSampleStart = totalLength > 10 ? totalLength - 10 : 0;
-
-            console.log('[DEBUG] Index buffer analysis:', {
-              totalLength,
-              nonZeroCount: nonZeroIndices.length,
-              nonZeroPercentage: totalLength > 0 ? `${((nonZeroIndices.length / totalLength) * 100).toFixed(2)}%` : 'n/a',
-              uniqueValues: uniqueValuesSet.size,
-              uniqueValuesList: Array.from(uniqueValuesSet).slice(0, 20),
-              startSample: indexArray.slice(0, 10),
-              middleSample: indexArray.slice(middleStart, middleStart + 10),
-              endSample: indexArray.slice(endSampleStart)
-            });
-
-            if (totalLength > 0) {
-              const firstNonZeroIndex = indexArray.findIndex((value) => value !== 0);
-              if (firstNonZeroIndex !== -1) {
-                console.log('[DEBUG] First non-zero value at index:', firstNonZeroIndex, 'value:', indexArray[firstNonZeroIndex]);
-              }
             }
 
             if (indexArray.length === 0) {
@@ -1234,16 +1154,6 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
               result.flowDirection = flowDirection;
             }
 
-            console.log('[DEBUG] Gradient stops:', {
-              count: gradientStops.length,
-              stops: gradientStops
-            });
-
-            console.log('[DEBUG] Final brushState object:', {
-              ...result,
-              indexBuffer: `Array(${result.indexBuffer.length})`
-            });
-
             return result;
           }
         }
@@ -1263,7 +1173,6 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
     return animatorState;
   }
 
-  console.log('[DEBUG] Failed to extract brush state');
   return undefined;
 };
 

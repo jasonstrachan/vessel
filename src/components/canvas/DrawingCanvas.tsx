@@ -1331,10 +1331,47 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       }
     },
     onEscapePressed: () => {
+      const store = useAppStore.getState();
+      const contourState = store.contourLinesState;
+      const polygonState = store.polygonGradientState;
+      const rectangleState = store.rectangleBrushState;
+
+      const overlayCanvas = overlayCanvasRef.current;
+      const clearOverlay = () => {
+        if (!overlayCanvas) return;
+        const overlayCtx = overlayCanvas.getContext('2d');
+        overlayCtx?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+      };
+
+      if (contourState.stage !== 'idle') {
+        store.resetContourLinesState();
+        clearOverlay();
+        interaction.dispatch({ type: 'DRAWING_END' });
+        toolStateMachine.resetPolygonGradient();
+        setNeedsRedraw(prev => prev + 1);
+        return;
+      }
+
+      if (polygonState.drawingState !== 'idle') {
+        toolStateMachine.resetPolygonGradient();
+        clearOverlay();
+        interaction.dispatch({ type: 'DRAWING_END' });
+        setNeedsRedraw(prev => prev + 1);
+        return;
+      }
+
+      if (rectangleState.drawingState !== 'idle') {
+        toolStateMachine.resetRectangleGradient();
+        clearOverlay();
+        interaction.dispatch({ type: 'DRAWING_END' });
+        setNeedsRedraw(prev => prev + 1);
+        return;
+      }
+
       // Cancel floating paste when Escape is pressed
       if (floatingPaste) {
         cancelFloatingPaste();
-        // Trigger redraw
+        clearOverlay();
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d', { willReadFrequently: true });
         if (ctx) {

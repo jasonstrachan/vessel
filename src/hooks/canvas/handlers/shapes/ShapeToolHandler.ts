@@ -11,6 +11,7 @@ import {
   MIN_LINE_SPACING,
   prepareContourLinesBasis,
 } from '@/utils/contourLines';
+import { computeDragScaledValue } from '@/utils/dragScale';
 
 export interface ShapeToolHandlerContext {
   deps: EventHandlerDependencies;
@@ -41,6 +42,9 @@ export interface ShapeToolHandler {
 }
 
 export const clampTriangleSize = (value: number) => Math.min(200, Math.max(8, value));
+
+const TRIANGLE_SIZE_EXPONENT = 1.1;
+const CROSSHATCH_SPACING_EXPONENT = 1.05;
 
 export const createShapeToolHandler = (
   context: ShapeToolHandlerContext,
@@ -424,6 +428,7 @@ export const createShapeToolHandler = (
         true,
         {
           contourSpacingOverride: constrainedEnd ?? constrainedStart,
+          randomSeed: contourState.randomSeed ?? undefined,
         }
       );
 
@@ -635,8 +640,16 @@ export const createShapeToolHandler = (
                 tools.brushSettings.crossHatchSpacing ??
                 10
             );
-            const ratio = pointerDistance / Math.max(referenceDistance, 1e-3);
-            const newSpacing = clampCrosshatchSpacing(referenceSpacing * ratio);
+            const newSpacing = clampCrosshatchSpacing(
+              computeDragScaledValue({
+                startDistance: Math.max(referenceDistance, 1e-3),
+                currentDistance: Math.max(pointerDistance, 1e-3),
+                startValue: referenceSpacing,
+                min: 2,
+                max: 50,
+                exponent: CROSSHATCH_SPACING_EXPONENT,
+              })
+            );
 
             useAppStore.getState().setPolygonGradientState({ tempSpacing: newSpacing });
 
@@ -657,8 +670,16 @@ export const createShapeToolHandler = (
           tools.brushSettings.crossHatchSpacing ??
           10
       );
-      const ratio = pointerDistance / Math.max(referenceDistance, 1e-3);
-      const newSpacing = clampCrosshatchSpacing(referenceSpacing * ratio);
+      const newSpacing = clampCrosshatchSpacing(
+        computeDragScaledValue({
+          startDistance: Math.max(referenceDistance, 1e-3),
+          currentDistance: Math.max(pointerDistance, 1e-3),
+          startValue: referenceSpacing,
+          min: 2,
+          max: 50,
+          exponent: CROSSHATCH_SPACING_EXPONENT,
+        })
+      );
 
       useAppStore.getState().setPolygonGradientState({ tempSpacing: newSpacing });
 
@@ -682,32 +703,39 @@ export const createShapeToolHandler = (
 
     const pointerWorldPos = computeWorldPointer(event);
 
-    if (polygonState.drawingState === 'adjustingRotation') {
+    if (polygonState.drawingState === 'adjustingSpacing') {
       const setBrushSettings = useAppStore.getState().setBrushSettings;
-      const vertices = polygonState.vertices;
-      const centroid = computePolygonCentroid(vertices);
-      const distance = Math.max(1, Math.hypot(pointerWorldPos.x - centroid.x, pointerWorldPos.y - centroid.y));
-      const lockedRotation = polygonState.tempRotation ?? tools.brushSettings.crossHatchRotation ?? 45;
-      const spacingSeed = clampCrosshatchSpacing(
+      const finalSpacing = clampCrosshatchSpacing(
         polygonState.tempSpacing ?? tools.brushSettings.crossHatchSpacing ?? 10
       );
+      const rotationSeed = polygonState.tempRotation ?? tools.brushSettings.crossHatchRotation ?? 45;
 
-      setBrushSettings({ crossHatchRotation: lockedRotation });
+      setBrushSettings({ crossHatchSpacing: finalSpacing });
+
+      const vertices = polygonState.vertices;
+      let nextRotation = rotationSeed;
+      if (vertices && vertices.length) {
+        const centroid = computePolygonCentroid(vertices);
+        const angleRad = Math.atan2(pointerWorldPos.y - centroid.y, pointerWorldPos.x - centroid.x);
+        nextRotation = ((angleRad * 180) / Math.PI + 360) % 360;
+      }
 
       useAppStore.getState().setPolygonGradientState({
-        drawingState: 'adjustingSpacing',
-        tempRotation: lockedRotation,
-        tempSpacing: spacingSeed,
-        spacingReferenceDistance: distance,
-        spacingReferenceSpacing: spacingSeed,
+        drawingState: 'adjustingRotation',
+        tempRotation: nextRotation,
+        tempSpacing: finalSpacing,
+        rotationInitialRotation: nextRotation,
+        rotationReferenceAngle: undefined,
+        spacingReferenceDistance: polygonState.spacingReferenceDistance,
+        spacingReferenceSpacing: finalSpacing,
       });
 
-      drawCrosshatchPreview(lockedRotation, spacingSeed);
+      drawCrosshatchPreview(nextRotation, finalSpacing);
       context.deps.compositeCanvasDirtyRef.current = true;
       return true;
     }
 
-    if (polygonState.drawingState === 'adjustingSpacing') {
+    if (polygonState.drawingState === 'adjustingRotation') {
       const setBrushSettings = useAppStore.getState().setBrushSettings;
       const finalSpacing = clampCrosshatchSpacing(
         polygonState.tempSpacing ?? tools.brushSettings.crossHatchSpacing ?? 10
@@ -719,9 +747,24 @@ export const createShapeToolHandler = (
       drawCrosshatchPreview(finalRotation, finalSpacing);
       context.deps.compositeCanvasDirtyRef.current = true;
 
-      drawingHandlers.finalizeStroke();
+      drawingHandlers.finalizeShapeDrawing().then(() => {
+        stateMachine.finalizationComplete();
+
+        if (compositeCanvasRef.current && project) {
+          compositeLayersToCanvas(compositeCanvasRef.current);
+          setCurrentOffscreenCanvas(compositeCanvasRef.current);
+          compositeCanvasDirtyRef.current = false;
+        }
+
+        setNeedsRedraw(prev => prev + 1);
+
+        if (restartColorCycleAnimation) {
+          restartColorCycleAnimation();
+        }
+      });
 
       resetPolygonAdjustmentState();
+      interaction.dispatch({ type: 'DRAWING_END' });
       return true;
     }
 
@@ -748,6 +791,15 @@ export const createShapeToolHandler = (
     const isCCShape = isColorCycleShapeBrush();
 
     if (!isPolygonGradient && !isContourPolygon && !isCCShape) {
+      return false;
+    }
+
+    const polygonState = useAppStore.getState().polygonGradientState;
+    if (
+      polygonState.drawingState === 'adjustingSize' ||
+      polygonState.drawingState === 'adjustingRotation' ||
+      polygonState.drawingState === 'adjustingSpacing'
+    ) {
       return false;
     }
 
@@ -1027,20 +1079,24 @@ export const createShapeToolHandler = (
       const basis = prepareContourLinesBasis(vertices);
       const defaults = computeLines2Defaults(vertices, basis);
 
-      useAppStore.getState().setContourLinesState({
-        stage: 'awaitingAngle',
-        variant: 'lines2',
-        shapePoints: vertices,
-        fillColor: undefined,
-        basis: defaults.basis ?? basis ?? undefined,
-        spacingA: null,
-        spacingB: null,
-        previewSpacing: null,
-        lineAngle: defaults.defaultAngle,
-        convergenceA: defaults.convergenceA,
-        convergenceB: defaults.convergenceB,
-        centroid: defaults.centroid,
-      });
+        const contourSeed = Math.floor(Math.random() * 0xffffffff);
+        useAppStore.getState().setContourLinesState({
+          stage: 'awaitingAngle',
+          variant: 'lines2',
+          shapePoints: vertices,
+          fillColor: undefined,
+          basis: defaults.basis ?? basis ?? undefined,
+          spacingA: null,
+          spacingB: null,
+          previewSpacing: null,
+          lineAngle: defaults.defaultAngle,
+          convergenceA: defaults.convergenceA,
+          convergenceB: defaults.convergenceB,
+          centroid: defaults.centroid,
+          spacingReferenceDistance: null,
+          spacingReferenceSpacing: null,
+          randomSeed: contourSeed,
+        });
 
       drawLines2Preview(defaults.defaultAngle, defaults.convergenceA, defaults.convergenceB);
 
@@ -1059,6 +1115,7 @@ export const createShapeToolHandler = (
           Math.max(MIN_LINE_SPACING, defaultSpacingSetting)
         );
 
+        const contourSeed = Math.floor(Math.random() * 0xffffffff);
         useAppStore.getState().setContourLinesState({
           stage: 'awaitingAnchorA',
           variant: 'legacy',
@@ -1068,6 +1125,9 @@ export const createShapeToolHandler = (
           spacingA: null,
           spacingB: null,
           previewSpacing: initialSpacing,
+          spacingReferenceDistance: null,
+          spacingReferenceSpacing: initialSpacing,
+          randomSeed: contourSeed,
         });
 
         contourFillSpacingClickArmedRef.current = false;
@@ -1095,7 +1155,7 @@ export const createShapeToolHandler = (
           clearOverlayCanvas();
 
           useAppStore.getState().setPolygonGradientState({
-            drawingState: 'adjustingRotation',
+            drawingState: 'adjustingSpacing',
             mode: 'crosshatch',
             vertices,
             fillColor,
@@ -1108,7 +1168,7 @@ export const createShapeToolHandler = (
             sizeReferenceDistance: undefined,
             sizeInitialSize: undefined,
             spacingReferenceDistance: undefined,
-            spacingReferenceSpacing: undefined,
+            spacingReferenceSpacing: tools.brushSettings.crossHatchSpacing || 10,
           });
 
           brushEngine.drawCrossHatchPolygon(
@@ -1243,8 +1303,27 @@ export const createShapeToolHandler = (
       }
 
       drawingHandlers.drawingCanvasHasContent.current = true;
-      drawingHandlers.finalizeStroke();
     }
+
+    compositeCanvasDirtyRef.current = true;
+
+    drawingHandlers.finalizeShapeDrawing().then(() => {
+      stateMachine.finalizationComplete();
+
+      if (compositeCanvasRef.current && project) {
+        compositeLayersToCanvas(compositeCanvasRef.current);
+        setCurrentOffscreenCanvas(compositeCanvasRef.current);
+        compositeCanvasDirtyRef.current = false;
+      }
+
+      setNeedsRedraw(prev => prev + 1);
+
+      if (restartColorCycleAnimation) {
+        restartColorCycleAnimation();
+      }
+    });
+
+    interaction.dispatch({ type: 'DRAWING_END' });
 
     resetPolygonAdjustmentState();
   };
@@ -1314,22 +1393,19 @@ export const createShapeToolHandler = (
     const centerY = sumY / polygonState.vertices.length;
 
     const pointerDistance = Math.hypot(worldPos.x - centerX, worldPos.y - centerY);
-    const referenceDistance = polygonState.sizeReferenceDistance && polygonState.sizeReferenceDistance > 1e-3
-      ? polygonState.sizeReferenceDistance
-      : Math.max(pointerDistance, 1);
+    const referenceDistance = polygonState.sizeReferenceDistance ?? Math.max(pointerDistance, 1);
     const initialSize = polygonState.sizeInitialSize ?? (tools.brushSettings.triangleFillSize ?? 36);
 
-    let newSize = initialSize;
-    if (referenceDistance > 1e-3) {
-      let scaleFactor = pointerDistance / referenceDistance;
-      const enlargeExponent = 1.35;
-      if (scaleFactor >= 1) {
-        scaleFactor = Math.pow(scaleFactor, enlargeExponent);
-      } else {
-        scaleFactor = Math.pow(scaleFactor, 1 / enlargeExponent);
-      }
-      newSize = clampTriangleSize(initialSize * scaleFactor);
-    }
+    const newSize = clampTriangleSize(
+      computeDragScaledValue({
+        startDistance: Math.max(referenceDistance, 1e-3),
+        currentDistance: Math.max(pointerDistance, 1e-3),
+        startValue: initialSize,
+        min: 8,
+        max: 200,
+        exponent: TRIANGLE_SIZE_EXPONENT,
+      })
+    );
 
     useAppStore.getState().setPolygonGradientState({ tempSize: newSize });
 

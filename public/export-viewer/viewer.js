@@ -165,21 +165,6 @@ const applyLayer = (ctx, img, layer, scale) => {
     || bounds.x >= canvasWidth
     || bounds.y >= canvasHeight
   );
-  console.log('[DEBUG] applyLayer positioning:', {
-    id: layer?.id,
-    frameX,
-    frameY,
-    translateX,
-    translateY,
-    scaleX,
-    scaleY,
-    rotationDegrees: rotation * (180 / Math.PI),
-    canvasWidth,
-    canvasHeight,
-    bounds,
-    offscreen
-  });
-
   ctx.save();
   ctx.scale(scale, scale);
   ctx.globalAlpha = Math.max(0, Math.min(1, layer?.opacity ?? 1));
@@ -856,16 +841,6 @@ class ColorCycleLayerPlayer {
       }
     }
 
-    console.log('[DEBUG] ColorCycleLayerPlayer init summary:', {
-      mode: this.mode,
-      speed: this.speed,
-      isAnimating: this.isAnimating,
-      cycleColors: this.cycleColors,
-      hasAnimation: this.hasAnimation(),
-      width: this.width,
-      height: this.height
-    });
-
     this.renderFrame();
 
     const canvas = this.getCanvas();
@@ -880,14 +855,8 @@ class ColorCycleLayerPlayer {
       }
       const totalPixels = canvas.width * canvas.height || 1;
       const percentFilled = (nonTransparentPixels / totalPixels) * 100;
-      console.log('[DEBUG] Player canvas check:', {
-        width: canvas.width,
-        height: canvas.height,
-        nonTransparentPixels,
-        percentFilled: `${percentFilled.toFixed(2)}%`
-      });
     } else {
-      console.warn('[DEBUG] Player canvas check skipped: 2D context unavailable');
+      console.warn('TinyBrush Viewer: 2D context unavailable during player canvas check');
     }
   }
 
@@ -914,15 +883,8 @@ class ColorCycleLayerPlayer {
 
   renderFrame() {
     if (!this.indexBuffer) {
-      console.log('[DEBUG] renderFrame: No indexBuffer!');
       return;
     }
-    console.log('[DEBUG] renderFrame called:', {
-      indexBufferLength: this.indexBuffer.length,
-      width: this.width,
-      height: this.height,
-      mode: this.mode
-    });
     const lut = buildGradientLUT({
       gradient: this.gradient,
       cycleColors: this.cycleColors,
@@ -942,8 +904,6 @@ class ColorCycleLayerPlayer {
     }
 
     this.ctx.putImageData(this.imageData, 0, 0);
-    const testPixel = this.ctx.getImageData(0, 0, 1, 1).data;
-    console.log('[DEBUG] First pixel after render:', Array.from(testPixel));
   }
 
   getCanvas() {
@@ -1015,21 +975,11 @@ class TinyBrushBundleRenderer {
       let player = null;
       const hasRecolorBuffers = hasNumericPayload(layer.colorCycle?.recolorSettings?.indexBuffer);
       const hasBrushBuffers = hasNumericPayload(layer.colorCycle?.brushState?.indexBuffer);
-      console.log(`[DEBUG] Layer ${layer.id}:`, {
-        hasColorCycle: !!layer.colorCycle,
-        hasRecolorBuffers,
-        hasBrushBuffers,
-        mode: layer.colorCycle?.mode,
-        willCreatePlayer: hasRecolorBuffers || hasBrushBuffers
-      });
       if (hasRecolorBuffers || hasBrushBuffers) {
         try {
           player = new ColorCycleLayerPlayer(layer, image);
-          console.log('[DEBUG] Player created, initializing...');
           await player.initialize();
-          console.log('[DEBUG] Player initialized successfully');
         } catch (error) {
-          console.error('[DEBUG] Player init failed:', error);
           console.warn(`[viewer] Failed to initialize color cycle animation for layer ${layer.id}`, error);
           player = null;
         }
@@ -1099,34 +1049,19 @@ class TinyBrushBundleRenderer {
       }
       const source = entry.player ? entry.player.getCanvas() : entry.image;
       if (!source) {
-        if (entry.player) {
-          console.log('[DEBUG] Skipping color cycle layer with no canvas source:', layer.id);
-        }
         continue;
       }
       const painted = applyLayer(ctx, source, layer, this.scale);
       if (painted) {
         paintedLayers++;
-        if (entry.player) {
-          console.log('[DEBUG] Painted color cycle layer:', {
-            id: layer.id,
-            blendMode: layer.blendMode,
-            opacity: layer.opacity,
-            width: source.width,
-            height: source.height
-          });
-        }
       } else if (entry.player) {
-        console.log('[DEBUG] Failed to paint color cycle layer:', layer.id);
+        console.warn(`[viewer] Failed to paint color cycle layer ${layer.id}`);
       }
     }
 
     if (paintedLayers === 0 && paintOrder.length > 0) {
       console.warn('[viewer] Render completed but no layers produced pixels.');
     }
-
-    const composedPixel = ctx.getImageData(0, 0, 1, 1).data;
-    console.log('[DEBUG] Composite canvas first pixel:', Array.from(composedPixel));
 
     ctx.restore();
   }

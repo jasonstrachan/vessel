@@ -120,6 +120,7 @@ export const drawContourPolygon = ({
         brushSettings,
         boundWidth,
         boundHeight,
+        isPreview,
       });
       return;
     }
@@ -133,6 +134,7 @@ export const drawContourPolygon = ({
       dependencies,
       isPreview,
       spacingOverride,
+      randomSeed: lineOptions?.randomSeed,
     });
   } finally {
     ctx.restore();

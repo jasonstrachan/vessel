@@ -3,12 +3,11 @@ import { useAppStore } from '../../../stores/useAppStore';
 import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
 import type { EventHandlerDependencies, PointerHandlers } from '../utils/types';
 import { BrushShape } from '../../../types';
-import type { ContourLinesStage } from '../../../types';
+import type { ContourLinesStage, ContourLinesBasis, ContourLinesState } from '../../../types';
 import { snapPointToAngle } from '../../../utils/angleSnap';
 import { floodFill } from '../../../utils/floodFill';
 import { detectWacomIssues, testWacomPressure } from '../../../utils/detectWacom';
 import {
-  calculateLineSpacingFromPointer,
   generateContourLines,
   generateLines2Paths,
   computeLines2Defaults,
@@ -82,8 +81,67 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   const shiftAnchorWorldPosRef = ensurePointRef(deps.snapShiftAnchorRef);
   const lastBrushSampleWorldPosRef = ensurePointRef(deps.snapLastBrushSampleRef);
 
-  // Track stroke start to support Shift-based angle snapping for freehand drawing (persist via refs)
-  const contourFillSpacingClickArmedRef = { current: false };
+  // Each full step beyond the polygon height (above/below) relaxes spacing by this many pixels.
+  const CONTOUR_DISTANCE_TO_SPACING_SCALE = 18;
+
+  const computePolygonCentroid = (points: Array<{ x: number; y: number }>): Point => {
+    if (!points.length) {
+      return { x: 0, y: 0 };
+    }
+
+    let sumX = 0;
+    let sumY = 0;
+    for (const point of points) {
+      sumX += point.x;
+      sumY += point.y;
+    }
+
+    return {
+      x: sumX / points.length,
+      y: sumY / points.length,
+    };
+  };
+
+  const resolveContourSpacing = (
+    _basis: ContourLinesBasis,
+    pointer: Point,
+    state: ContourLinesState,
+    defaultSpacing: number
+  ) => {
+    const points = state.shapePoints;
+    if (!points || points.length === 0) {
+      return {
+        spacing: defaultSpacing,
+        pointerDistance: 0,
+        referenceDistance: 0,
+        referenceSpacing: defaultSpacing,
+      };
+    }
+
+    const centroid = computePolygonCentroid(points);
+    let minY = points[0].y;
+    let maxY = points[0].y;
+    for (let i = 1; i < points.length; i++) {
+      const y = points[i].y;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+
+    const halfHeight = Math.max(1, (maxY - minY) * 0.5);
+    const pointerDistance = Math.abs(pointer.y - centroid.y);
+    // Treat distance inside the polygon as the baseline spacing and only expand once we move past the bounds.
+    const overshoot = Math.max(0, pointerDistance - halfHeight);
+    const normalizedDistance = overshoot / halfHeight;
+    const baseSpacing = clampContourSpacing(defaultSpacing);
+    const spacing = clampContourSpacing(baseSpacing + normalizedDistance * CONTOUR_DISTANCE_TO_SPACING_SCALE);
+
+    return {
+      spacing,
+      pointerDistance,
+      referenceDistance: pointerDistance,
+      referenceSpacing: spacing,
+    };
+  };
 
   const { setContourLinesState, resetContourLinesState } = useAppStore.getState();
 
@@ -166,6 +224,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           true,
           {
             contourSpacingOverride: constrainedEnd ?? constrainedStart,
+            randomSeed: contourState.randomSeed ?? undefined,
           }
         );
       }
@@ -317,6 +376,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         lineSpacingB: spacingEnd,
         lineBasis: basis,
         contourSpacingOverride: spacingEnd ?? spacingStart,
+        randomSeed: contourLinesState.randomSeed ?? undefined,
       }
     );
 
@@ -347,7 +407,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     toolStateMachine.resetPolygonGradient();
     resetContourLinesState();
     clearOverlayCanvas();
-    contourFillSpacingClickArmedRef.current = false;
   };
 
   const finalizeLines2Stroke = (
@@ -424,7 +483,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     toolStateMachine.resetPolygonGradient();
     resetContourLinesState();
     clearOverlayCanvas();
-    contourFillSpacingClickArmedRef.current = false;
   };
 
   // Track whether the pointer is currently within the canvas bounds. This stays accurate
@@ -615,104 +673,40 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       }
     }
 
-    if (contourLinesState.stage === 'awaitingAnchorA' || contourLinesState.stage === 'awaitingAnchorB') {
+    if (contourLinesState.stage === 'awaitingAnchorA') {
       const { basis } = contourLinesState;
-      if (basis) {
-        const stage = contourLinesState.stage;
-        const rawSpacing = contourLinesState.previewSpacing ?? calculateLineSpacingFromPointer(basis, worldPos, stage);
-        const spacingValue = clampContourSpacing(rawSpacing);
-
-        if (contourFillSpacingClickArmedRef.current) {
-          const spacingA = stage === 'awaitingAnchorB'
-            ? clampContourSpacing(contourLinesState.spacingA ?? spacingValue)
-            : spacingValue;
-
-          setContourLinesState({ previewSpacing: spacingValue });
-
-          if (stage === 'awaitingAnchorB') {
-            drawContourLinesPreview(spacingA, spacingValue, {
-              shapePoints: contourLinesState.shapePoints,
-              basis: basis as ContourBasis,
-              stage,
-            });
-            finalizeContourLinesStroke(spacingA, spacingValue);
-            logContourFillDebug('spacing-finalized', {
-              mode: tools.brushSettings.shapeGradientMode || 'contour',
-              spacingA,
-              spacingB: spacingValue,
-            });
-          } else {
-            drawContourLinesPreview(spacingValue, spacingValue, {
-              shapePoints: contourLinesState.shapePoints,
-              basis: basis as ContourBasis,
-              stage,
-            });
-            finalizeContourLinesStroke(spacingValue, spacingValue);
-            logContourFillDebug('spacing-finalized', {
-              mode: tools.brushSettings.shapeGradientMode || 'contour',
-              spacing: spacingValue,
-            });
-          }
-
-          contourFillSpacingClickArmedRef.current = false;
-
-          isMouseDownRef.current = false;
-          (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
-          return;
-        }
-
-        if (stage === 'awaitingAnchorA') {
-          const wantsSecondAnchor = event.altKey || event.metaKey;
-
-          if (wantsSecondAnchor) {
-            setContourLinesState({
-              spacingA: spacingValue,
-              previewSpacing: null,
-              stage: 'awaitingAnchorB'
-            });
-            contourFillSpacingClickArmedRef.current = false;
-            drawContourLinesPreview(spacingValue, spacingValue, {
-              shapePoints: contourLinesState.shapePoints,
-              basis: basis as ContourBasis,
-              stage: 'awaitingAnchorB',
-            });
-            logContourFillDebug('first-anchor-fixed', {
-              mode: tools.brushSettings.shapeGradientMode || 'contour',
-              spacingA: spacingValue,
-            });
-          } else {
-            contourFillSpacingClickArmedRef.current = true;
-            setContourLinesState({ previewSpacing: spacingValue });
-            drawContourLinesPreview(spacingValue, spacingValue, {
-              shapePoints: contourLinesState.shapePoints,
-              basis: basis as ContourBasis,
-              stage,
-            });
-            logContourFillDebug('spacing-preview-armed', {
-              mode: tools.brushSettings.shapeGradientMode || 'contour',
-              spacing: spacingValue,
-            });
-          }
-        } else {
-          const spacingA = clampContourSpacing(contourLinesState.spacingA ?? spacingValue);
-          contourFillSpacingClickArmedRef.current = true;
-          setContourLinesState({ previewSpacing: spacingValue });
-          drawContourLinesPreview(spacingA, spacingValue, {
-            shapePoints: contourLinesState.shapePoints,
-            basis: basis as ContourBasis,
-            stage,
-          });
-          logContourFillDebug('second-anchor-preview', {
-            mode: tools.brushSettings.shapeGradientMode || 'contour',
-            spacingA,
-            spacingB: spacingValue,
-          });
-        }
-      } else {
+      if (!basis) {
         resetContourLinesState();
         clearOverlayCanvas();
         logContourFillDebug('spacing-reset-missing-basis');
+        return;
       }
+
+      const brushDefaultSpacing = clampContourSpacing((tools.brushSettings.contourSpacing || 5) * 2);
+      const { spacing, pointerDistance } = resolveContourSpacing(
+        basis,
+        worldPos,
+        contourLinesState,
+        brushDefaultSpacing
+      );
+      const spacingValue = clampContourSpacing(spacing);
+
+      setContourLinesState({
+        previewSpacing: spacingValue,
+        spacingReferenceDistance: pointerDistance,
+        spacingReferenceSpacing: spacingValue,
+      });
+
+      drawContourLinesPreview(spacingValue, spacingValue, {
+        shapePoints: contourLinesState.shapePoints,
+        basis: basis as ContourBasis,
+        stage: 'awaitingAnchorA',
+      });
+
+      logContourFillDebug('spacing-preview', {
+        mode: tools.brushSettings.shapeGradientMode || 'contour',
+        spacing: spacingValue,
+      });
 
       return;
     }
@@ -1693,7 +1687,7 @@ function cssColorToHex(color: string): string {
     }
 
     if (
-      (contourLinesPreviewState.stage === 'awaitingAnchorA' || contourLinesPreviewState.stage === 'awaitingAnchorB') &&
+      contourLinesPreviewState.stage === 'awaitingAnchorA' &&
       deps.previewAnimationFrameRef &&
       !interaction.state.isDrawing
     ) {
@@ -1706,7 +1700,7 @@ function cssColorToHex(color: string): string {
         deps.previewAnimationFrameRef.current = requestAnimationFrame(() => {
           lastOverlayPreviewTs = performance.now();
           const currentState = useAppStore.getState().contourLinesState;
-          const { basis, stage } = currentState;
+          const { basis } = currentState;
 
           if (!basis) {
             resetContourLinesState();
@@ -1715,26 +1709,27 @@ function cssColorToHex(color: string): string {
             return;
           }
 
-          const spacing = clampContourSpacing(calculateLineSpacingFromPointer(basis, worldPos, stage));
-          setContourLinesState({ previewSpacing: spacing });
-          if (stage === 'awaitingAnchorB' || contourFillSpacingClickArmedRef.current) {
-            contourFillSpacingClickArmedRef.current = true;
-          }
+          const brushDefaultSpacing = clampContourSpacing((tools.brushSettings.contourSpacing || 5) * 2);
+          const { spacing, pointerDistance } = resolveContourSpacing(
+            basis,
+            worldPos,
+            currentState,
+            brushDefaultSpacing
+          );
 
-          if (stage === 'awaitingAnchorA') {
-            drawContourLinesPreview(spacing, spacing, {
-              shapePoints: currentState.shapePoints,
-              basis: basis as ContourBasis,
-              stage,
-            });
-          } else {
-            const spacingA = clampContourSpacing(currentState.spacingA ?? spacing);
-            drawContourLinesPreview(spacingA, spacing, {
-              shapePoints: currentState.shapePoints,
-              basis: basis as ContourBasis,
-              stage,
-            });
-          }
+          const spacingValue = clampContourSpacing(spacing);
+
+          setContourLinesState({
+            previewSpacing: spacingValue,
+            spacingReferenceDistance: pointerDistance,
+            spacingReferenceSpacing: spacingValue,
+          });
+
+          drawContourLinesPreview(spacingValue, spacingValue, {
+            shapePoints: currentState.shapePoints,
+            basis: basis as ContourBasis,
+            stage: 'awaitingAnchorA',
+          });
 
           if (deps.previewAnimationFrameRef) deps.previewAnimationFrameRef.current = null;
         });
@@ -2003,7 +1998,7 @@ function cssColorToHex(color: string): string {
     if (
       overlayCanvas &&
       !isLines2Previewing &&
-      !(linesStateOnPointerUp.stage === 'awaitingAnchorA' || linesStateOnPointerUp.stage === 'awaitingAnchorB')
+      linesStateOnPointerUp.stage !== 'awaitingAnchorA'
     ) {
       const overlayCtx = overlayCanvas.getContext('2d');
       if (overlayCtx) {
@@ -2015,52 +2010,39 @@ function cssColorToHex(color: string): string {
     const pointerWorldPos = pan.screenToWorld(mousePos.x, mousePos.y, canvas?.zoom || 1);
 
     const contourStateOnUp = useAppStore.getState().contourLinesState;
-    if (contourStateOnUp.stage === 'awaitingAnchorA' || contourStateOnUp.stage === 'awaitingAnchorB') {
+    if (contourStateOnUp.stage === 'awaitingAnchorA') {
       const { basis } = contourStateOnUp;
       if (!basis) {
-        contourFillSpacingClickArmedRef.current = false;
         resetContourLinesState();
         clearOverlayCanvas();
         return;
       }
 
-      const stage = contourStateOnUp.stage;
-      const rawSpacing = contourStateOnUp.previewSpacing ?? calculateLineSpacingFromPointer(basis, pointerWorldPos, stage);
-      const spacingValue = clampContourSpacing(rawSpacing);
+      const brushDefaultSpacing = clampContourSpacing((tools.brushSettings.contourSpacing || 5) * 2);
+      const { spacing, pointerDistance } = resolveContourSpacing(
+        basis,
+        pointerWorldPos,
+        contourStateOnUp,
+        brushDefaultSpacing
+      );
 
-      setContourLinesState({ previewSpacing: spacingValue });
-      contourFillSpacingClickArmedRef.current = true;
+      const spacingValue = clampContourSpacing(spacing);
+      setContourLinesState({
+        previewSpacing: spacingValue,
+        spacingReferenceDistance: pointerDistance,
+        spacingReferenceSpacing: spacingValue,
+      });
 
-      const spacingA = stage === 'awaitingAnchorB'
-        ? clampContourSpacing(contourStateOnUp.spacingA ?? spacingValue)
-        : spacingValue;
-
-      if (stage === 'awaitingAnchorB') {
-        drawContourLinesPreview(spacingA, spacingValue, {
-          shapePoints: contourStateOnUp.shapePoints,
-          basis: basis as ContourBasis,
-          stage,
-        });
-        logContourFillDebug('spacing-preview', {
-          mode: tools.brushSettings.shapeGradientMode || 'contour',
-          spacingA,
-          spacingB: spacingValue,
-        });
-        return;
-      }
-
-      // stage === 'awaitingAnchorA': finalize immediately on pointer release for single-anchor workflow
       drawContourLinesPreview(spacingValue, spacingValue, {
         shapePoints: contourStateOnUp.shapePoints,
         basis: basis as ContourBasis,
-        stage,
+        stage: 'awaitingAnchorA',
       });
       logContourFillDebug('spacing-preview', {
         mode: tools.brushSettings.shapeGradientMode || 'contour',
         spacing: spacingValue,
       });
 
-      contourFillSpacingClickArmedRef.current = false;
       finalizeContourLinesStroke(spacingValue, spacingValue);
       logContourFillDebug('spacing-finalized', {
         mode: tools.brushSettings.shapeGradientMode || 'contour',
