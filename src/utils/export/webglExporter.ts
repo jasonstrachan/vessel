@@ -26,11 +26,102 @@ interface WebGLLayerAsset {
   texture?: string;
 }
 
+type CanvasExportMimeType = 'image/avif' | 'image/webp' | 'image/png';
+
+type SerializedGradientStops = Array<{ position: number; color: string }>;
+
+interface CanvasExportFormatOption {
+  type: CanvasExportMimeType;
+  quality?: number;
+}
+
+const CANVAS_EXPORT_FORMATS: readonly CanvasExportFormatOption[] = [
+  { type: 'image/avif', quality: 0.6 },
+  { type: 'image/webp', quality: 0.75 },
+  { type: 'image/png' }
+];
+
+const PROPERTY_MINIFY_MAP = {
+  format: 'f',
+  version: 'v',
+  exportedAt: 'e',
+  project: 'p',
+  viewport: 'vp',
+  container: 'c',
+  animation: 'an',
+  settings: 's',
+  layers: 'l',
+  gradients: 'grl',
+  fallback: 'fb',
+  id: 'i',
+  name: 'n',
+  type: 't',
+  visible: 'vi',
+  opacity: 'o',
+  blendMode: 'bm',
+  alignment: 'al',
+  frame: 'fr',
+  transform: 'tr',
+  sourceSize: 'ss',
+  assets: 'as',
+  colorCycle: 'cc',
+  stackIndex: 'si',
+  width: 'w',
+  height: 'h',
+  x: 'x',
+  y: 'y',
+  translateX: 'tx',
+  translateY: 'ty',
+  scaleX: 'sx',
+  scaleY: 'sy',
+  texture: 'txr',
+  mode: 'md',
+  isAnimating: 'ia',
+  brushState: 'bs',
+  gradientStops: 'gs',
+  indexBuffer: 'ib',
+  palette: 'pl',
+  animationOffset: 'ao',
+  targetFPS: 'tf',
+  flowDirection: 'fd',
+  recolorSettings: 'rs',
+  gradient: 'gr',
+  gradientRef: 'grf',
+  brushSpeed: 'spd',
+  bundleFormat: 'bf',
+  includeHiddenLayers: 'ihl',
+  embedCanvasFallback: 'ecf',
+  minifyOutput: 'mo',
+  perfectLoop: 'plp',
+  fps: 'fps',
+  totalFrames: 'tfm',
+  durationSeconds: 'ds',
+  phaseMap: 'pm'
+} as const;
+
+type PropertyMinifyKey = keyof typeof PROPERTY_MINIFY_MAP;
+
+const minifyProperties = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((entry) => minifyProperties(entry));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const result: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    const mappedKey = PROPERTY_MINIFY_MAP[key as PropertyMinifyKey] ?? key;
+    result[mappedKey] = minifyProperties(nested);
+  }
+  return result;
+};
+
 interface WebGLSerializedBrushState {
   width: number;
   height: number;
   indexBuffer: number[] | string;
-  gradientStops: Array<{ position: number; color: string }>;
+  gradientStops: SerializedGradientStops;
   palette?: Array<string | number>;
   animationOffset: number;
   targetFPS?: number;
@@ -39,7 +130,8 @@ interface WebGLSerializedBrushState {
 
 interface WebGLSerializedColorCycle {
   mode: NonNullable<Layer['colorCycleData']>['mode'] | 'brush';
-  gradient?: Array<{ position: number; color: string }>;
+  gradient?: SerializedGradientStops;
+  gradientRef?: number;
   brushSpeed?: number | null;
   isAnimating: boolean;
   recolorSettings?: Record<string, unknown>;
@@ -50,15 +142,16 @@ export interface WebGLLayerMetadata {
   id: string;
   name: string;
   type: Layer['layerType'];
-  visible: boolean;
-  opacity: number;
-  blendMode: Layer['blendMode'];
-  alignment: Layer['alignment'];
+  visible?: boolean;
+  opacity?: number;
+  blendMode?: Layer['blendMode'];
+  alignment?: Layer['alignment'];
   frame: ResolvedLayerLayout['frame'];
-  transform: LayerTransform;
+  transform?: Partial<LayerTransform>;
   sourceSize: { width: number; height: number };
-  assets: WebGLLayerAsset;
+  assets?: WebGLLayerAsset;
   colorCycle?: WebGLSerializedColorCycle;
+  stackIndex?: number;
   version?: number;
 }
 
@@ -91,8 +184,9 @@ export interface WebGLExportMetadata {
     bundleFormat: WebGLExportBundleFormat;
   };
   layers: WebGLLayerMetadata[];
+  gradients?: SerializedGradientStops[];
   fallback?: {
-    type: 'image/png';
+    type: CanvasExportMimeType;
     dataUrl: string;
   };
 }
@@ -157,6 +251,135 @@ const normalizeBrushFlowDirection = (direction: unknown): 'forward' | 'reverse' 
   }
 
   return undefined;
+};
+
+const DEFAULT_LAYER_OPACITY = 1;
+const DEFAULT_LAYER_VISIBILITY = true;
+const DEFAULT_BLEND_MODES = new Set<Layer['blendMode'] | 'normal'>(['source-over', 'normal']);
+
+const isSerializedGradient = (value: unknown): value is SerializedGradientStops => {
+  if (!Array.isArray(value) || value.length === 0) {
+    return false;
+  }
+  return value.every((stop) => {
+    if (!stop || typeof stop !== 'object') {
+      return false;
+    }
+    const entry = stop as { position?: unknown; color?: unknown };
+    const hasColor = typeof entry.color === 'string';
+    const position = entry.position;
+    const hasPosition = typeof position === 'number' && Number.isFinite(position);
+    return hasColor && hasPosition;
+  });
+};
+
+const buildGradientKey = (gradient: SerializedGradientStops): string => {
+  return gradient
+    .map((stop) => {
+      const position = Number.isFinite(stop.position) ? Number(stop.position.toFixed(6)) : 0;
+      return `${position}:${stop.color}`;
+    })
+    .join('|');
+};
+
+const deduplicateGradients = (metadata: WebGLExportMetadata): void => {
+  if (!metadata || !Array.isArray(metadata.layers) || metadata.layers.length === 0) {
+    return;
+  }
+
+  const gradientMap = new Map<string, number>();
+  const gradients: SerializedGradientStops[] = [];
+
+  metadata.layers.forEach((layer) => {
+    if (!layer?.colorCycle) {
+      return;
+    }
+    const gradient = layer.colorCycle.gradient;
+    if (!isSerializedGradient(gradient)) {
+      return;
+    }
+
+    const key = buildGradientKey(gradient);
+    let index = gradientMap.get(key);
+    if (typeof index === 'undefined') {
+      index = gradients.length;
+      gradientMap.set(key, index);
+      gradients.push(gradient);
+    }
+
+    layer.colorCycle.gradientRef = index;
+    delete layer.colorCycle.gradient;
+  });
+
+  if (gradients.length > 0) {
+    metadata.gradients = gradients;
+  } else if ('gradients' in metadata) {
+    delete metadata.gradients;
+  }
+};
+
+const stripLayerDefaults = (layer: WebGLLayerMetadata): WebGLLayerMetadata => {
+  const stripped: WebGLLayerMetadata = {
+    id: layer.id,
+    name: layer.name,
+    type: layer.type,
+    frame: layer.frame,
+    sourceSize: layer.sourceSize
+  };
+
+  if (layer.alignment) {
+    stripped.alignment = layer.alignment;
+  }
+
+  if (layer.visible === false && DEFAULT_LAYER_VISIBILITY) {
+    stripped.visible = false;
+  }
+
+  if (typeof layer.opacity === 'number' && layer.opacity !== DEFAULT_LAYER_OPACITY) {
+    stripped.opacity = layer.opacity;
+  }
+
+  const blendMode = layer.blendMode;
+  if (blendMode && !DEFAULT_BLEND_MODES.has(blendMode)) {
+    stripped.blendMode = blendMode;
+  }
+
+  if (layer.transform) {
+    const trimmedTransform: Partial<LayerTransform> = {};
+    if (layer.transform.translateX !== 0) {
+      trimmedTransform.translateX = layer.transform.translateX;
+    }
+    if (layer.transform.translateY !== 0) {
+      trimmedTransform.translateY = layer.transform.translateY;
+    }
+    if (layer.transform.scaleX !== 1) {
+      trimmedTransform.scaleX = layer.transform.scaleX;
+    }
+    if (layer.transform.scaleY !== 1) {
+      trimmedTransform.scaleY = layer.transform.scaleY;
+    }
+    if (Object.keys(trimmedTransform).length > 0) {
+      stripped.transform = trimmedTransform;
+    }
+  }
+
+  if (layer.assets && Object.keys(layer.assets).length > 0) {
+    stripped.assets = layer.assets;
+  }
+
+  if (layer.colorCycle) {
+    stripped.colorCycle = layer.colorCycle;
+  }
+
+  if (typeof layer.stackIndex === 'number') {
+    stripped.stackIndex = layer.stackIndex;
+  }
+
+  if (layer.version !== undefined) {
+    stripped.version = layer.version;
+  }
+
+  return stripped;
 };
 
 const detectFlowDirectionFromAnimator = (animator: unknown): 'forward' | 'reverse' | undefined => {
@@ -281,29 +504,75 @@ const detectBrushFlowDirection = (brush: unknown, layerId: string): 'forward' | 
   return undefined;
 };
 
-const canvasToDataURL = async (canvas: HTMLCanvasElement | OffscreenCanvas): Promise<string> => {
+const encodeCanvasToBlob = async (
+  canvas: HTMLCanvasElement | OffscreenCanvas,
+  format: CanvasExportFormatOption
+): Promise<Blob | null> => {
   if (isHTMLCanvas(canvas)) {
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((b) => {
-        if (!b) {
-          reject(new Error('Failed to create PNG blob from canvas'));
-          return;
+    try {
+      const blob = await new Promise<Blob | null>((resolve) => {
+        const callback = (b: Blob | null) => resolve(b && b.size > 0 ? b : null);
+        if (typeof format.quality === 'number') {
+          canvas.toBlob(callback, format.type, format.quality);
+        } else {
+          canvas.toBlob(callback, format.type);
         }
-        resolve(b);
-      }, 'image/png');
-    });
-    return blobToDataURL(blob);
+      });
+      if (blob) {
+        return blob;
+      }
+    } catch (error) {
+      console.debug(`[webglExporter] HTMLCanvas toBlob failed for ${format.type}`, error);
+    }
   }
 
   if ('convertToBlob' in canvas && typeof canvas.convertToBlob === 'function') {
-    const blob = await canvas.convertToBlob({ type: 'image/png' });
-    return blobToDataURL(blob);
+    try {
+      const options: { type: string; quality?: number } = { type: format.type };
+      if (typeof format.quality === 'number') {
+        options.quality = format.quality;
+      }
+      const blob = await canvas.convertToBlob(options);
+      if (blob && blob.size > 0) {
+        return blob;
+      }
+    } catch (error) {
+      console.debug(`[webglExporter] OffscreenCanvas convertToBlob failed for ${format.type}`, error);
+    }
+  }
+
+  return null;
+};
+
+const canvasToDataURL = async (
+  canvas: HTMLCanvasElement | OffscreenCanvas
+): Promise<{ dataUrl: string; format: CanvasExportMimeType }> => {
+  for (const format of CANVAS_EXPORT_FORMATS) {
+    try {
+      const blob = await encodeCanvasToBlob(canvas, format);
+      if (!blob) {
+        continue;
+      }
+      const dataUrl = await blobToDataURL(blob);
+      return { dataUrl, format: format.type };
+    } catch (error) {
+      console.debug(`[webglExporter] Failed to encode canvas as ${format.type}`, error);
+    }
+  }
+
+  if (isHTMLCanvas(canvas)) {
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
+      return { dataUrl, format: 'image/png' };
+    } catch (error) {
+      console.debug('[webglExporter] Final HTMLCanvas toDataURL fallback failed', error);
+    }
   }
 
   throw new Error('Unsupported canvas instance for export');
 };
 
-const imageDataToDataURL = (imageData: ImageData): string => {
+const imageDataToDataURL = async (imageData: ImageData): Promise<string> => {
   if (typeof document === 'undefined') {
     throw new Error('ImageData serialization requires a browser environment');
   }
@@ -315,7 +584,8 @@ const imageDataToDataURL = (imageData: ImageData): string => {
     throw new Error('Unable to obtain 2D context for ImageData serialization');
   }
   ctx.putImageData(imageData, 0, 0);
-  return canvas.toDataURL('image/png');
+  const { dataUrl } = await canvasToDataURL(canvas);
+  return dataUrl;
 };
 
 const getCanvasDimensions = (canvas: HTMLCanvasElement | OffscreenCanvas | undefined | null) => {
@@ -997,24 +1267,125 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
   return undefined;
 };
 
+const toFiniteNumber = (value: unknown): number | null => {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const hasNonZeroMagnitude = (value: unknown): boolean => {
+  const numeric = toFiniteNumber(value);
+  return numeric !== null && Math.abs(numeric) > 0;
+};
+
+const isBrushInstanceAnimating = (brush: unknown): boolean => {
+  if (!brush || typeof brush !== 'object') {
+    return false;
+  }
+
+  const candidate = brush as {
+    isPlaying?: () => unknown;
+    isAnimating?: () => unknown;
+    animationState?: { isAnimating?: unknown; isPaused?: unknown };
+  };
+
+  if (typeof candidate.isPlaying === 'function') {
+    try {
+      const playing = candidate.isPlaying();
+      if (playing === true) {
+        return true;
+      }
+    } catch (error) {
+      console.debug('[webglExporter] Failed to inspect brush.isPlaying()', error);
+    }
+  }
+
+  if (typeof candidate.isAnimating === 'function') {
+    try {
+      const animating = candidate.isAnimating();
+      if (animating === true) {
+        return true;
+      }
+    } catch (error) {
+      console.debug('[webglExporter] Failed to inspect brush.isAnimating()', error);
+    }
+  }
+
+  const state = candidate.animationState;
+  if (state && typeof state === 'object') {
+    const { isAnimating, isPaused } = state as { isAnimating?: unknown; isPaused?: unknown };
+    if (isAnimating === true && isPaused !== true) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const shouldExportLayerAsAnimating = (layer: Layer): boolean => {
+  const data = layer.colorCycleData;
+  if (!data) {
+    return false;
+  }
+
+  if (data.isAnimating) {
+    return true;
+  }
+
+  if (isBrushInstanceAnimating(data.colorCycleBrush)) {
+    return true;
+  }
+
+  if (hasNonZeroMagnitude(data.brushSpeed)) {
+    return true;
+  }
+
+  const recolor = data.recolorSettings;
+  if (recolor) {
+    const animation = recolor.animation;
+    if (animation) {
+      if (animation.isPlaying) {
+        return true;
+      }
+      if (hasNonZeroMagnitude(animation.speed)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+};
+
 const serializeColorCycleData = async (layer: Layer): Promise<WebGLSerializedColorCycle | undefined> => {
   const data = layer.colorCycleData;
   if (!data) {
     return undefined;
   }
 
+  const shouldAnimate = shouldExportLayerAsAnimating(layer);
   const serialized: WebGLSerializedColorCycle = {
     mode: data.mode ?? 'brush',
     gradient: data.gradient,
     brushSpeed: data.brushSpeed ?? null,
-    isAnimating: data.isAnimating !== false
+    isAnimating: shouldAnimate
   };
+
+  console.log('[webglExporter] Animation inference for layer', layer.id, {
+    inputIsAnimating: data.isAnimating,
+    brushSpeed: data.brushSpeed,
+    recolorSpeed: data.recolorSettings?.animation?.speed,
+    animationWasPlaying: data.recolorSettings?.animation?.isPlaying,
+    exportedIsAnimating: shouldAnimate
+  });
 
   if (data.recolorSettings) {
     const { recolorSettings } = data;
     const animation = { ...recolorSettings.animation };
-    if (animation && typeof animation.isPlaying === 'undefined') {
-      animation.isPlaying = serialized.isAnimating;
+    if (animation) {
+      if (typeof animation.isPlaying !== 'boolean') {
+        animation.isPlaying = shouldAnimate;
+      } else if (shouldAnimate && animation.isPlaying === false) {
+        animation.isPlaying = true;
+      }
     }
 
     const serializedIndexBuffer = await packNumericArrayForExport(recolorSettings.indexBuffer ?? undefined);
@@ -1109,7 +1480,7 @@ const serializeColorCycleData = async (layer: Layer): Promise<WebGLSerializedCol
 const captureLayerTexture = async (layer: Layer): Promise<string | undefined> => {
   try {
     if (layer.framebuffer) {
-      const dataUrl = await canvasToDataURL(layer.framebuffer as HTMLCanvasElement | OffscreenCanvas);
+      const { dataUrl } = await canvasToDataURL(layer.framebuffer as HTMLCanvasElement | OffscreenCanvas);
       const normalized = normalizeImageDataUrl(dataUrl);
       if (!normalized) {
         console.error('[webglExporter] Invalid data URL generated from framebuffer for layer', layer.id);
@@ -1118,7 +1489,7 @@ const captureLayerTexture = async (layer: Layer): Promise<string | undefined> =>
       return normalized;
     }
     if (layer.imageData) {
-      const dataUrl = imageDataToDataURL(layer.imageData);
+      const dataUrl = await imageDataToDataURL(layer.imageData);
       const normalized = normalizeImageDataUrl(dataUrl);
       if (!normalized) {
         console.error('[webglExporter] Invalid data URL generated from ImageData for layer', layer.id);
@@ -1127,7 +1498,7 @@ const captureLayerTexture = async (layer: Layer): Promise<string | undefined> =>
       return normalized;
     }
     if (layer.colorCycleData?.canvas) {
-      const dataUrl = await canvasToDataURL(layer.colorCycleData.canvas as HTMLCanvasElement | OffscreenCanvas);
+      const { dataUrl } = await canvasToDataURL(layer.colorCycleData.canvas as HTMLCanvasElement | OffscreenCanvas);
       const normalized = normalizeImageDataUrl(dataUrl);
       if (!normalized) {
         console.error('[webglExporter] Invalid data URL generated from color cycle canvas for layer', layer.id);
@@ -1278,20 +1649,38 @@ const encodeMetadataForInlineScript = (metadataJson: string): string => {
 const appendZipAutoloadSnippet = (scriptContent: string, bundleFilename: string, metadataJson: string): string => {
   const metadataLiteral = encodeMetadataForInlineScript(metadataJson);
   const snippet = `
-      const packagedMetadata = JSON.parse(\`${metadataLiteral}\`);
+      const expandPackagedMetadata = (raw) => {
+        if (typeof expandTinyBrushMetadata === 'function') {
+          try {
+            return expandTinyBrushMetadata(raw);
+          } catch (error) {
+            console.warn('Failed to expand minified metadata via module helper', error);
+          }
+        }
+        if (typeof window !== 'undefined' && typeof window.expandTinyBrushMetadata === 'function') {
+          try {
+            return window.expandTinyBrushMetadata(raw);
+          } catch (error) {
+            console.warn('Failed to expand minified metadata via viewer helper', error);
+          }
+        }
+        return raw;
+      };
+      const packagedMetadataRaw = JSON.parse(\`${metadataLiteral}\`);
+      const packagedMetadata = expandPackagedMetadata(packagedMetadataRaw);
       const autoBundleName = ${JSON.stringify(bundleFilename)};
       const renderPackagedMetadata = async (metadata) => {
-        const projectName = metadata?.project?.name ?? 'packaged bundle';
+        const normalizedMetadata = expandPackagedMetadata(metadata);
         setStatus('Rendering packaged bundle…');
-        console.info('[TinyBrush Viewer] Loaded metadata for auto-render:', metadata);
+        console.info('[TinyBrush Viewer] Loaded metadata for auto-render:', normalizedMetadata);
         console.info('[TinyBrush Viewer] Canvas element reference:', canvas);
         if (!(canvas instanceof HTMLCanvasElement)) {
           throw new Error('Preview canvas element is unavailable');
         }
-        const scale = computeScale(metadata);
-        const renderResult = await renderTinyBrushWebGL(metadata, canvas, { scale });
-        summarizeMetadata(metadata, renderResult);
-        setStatus('Rendered ' + projectName);
+        const scale = computeScale(normalizedMetadata);
+        const renderResult = await renderTinyBrushWebGL(normalizedMetadata, canvas, { scale });
+        summarizeMetadata(normalizedMetadata, renderResult);
+        setStatus('Packaged bundle rendered.');
       };
       const autoLoadPackagedBundle = async () => {
         try {
@@ -1339,7 +1728,25 @@ const buildSingleFileScript = (scriptContent: string, viewerRuntime: string, inf
   const runtime = `\n${inlineInflate}\n${runtimeWithoutInflateImport}\n`;
   const metadataLiteral = encodeMetadataForInlineScript(metadataJson);
   const snippet = `
-      const packagedMetadata = JSON.parse(\`${metadataLiteral}\`);
+      const expandPackagedMetadata = (raw) => {
+        if (typeof expandTinyBrushMetadata === 'function') {
+          try {
+            return expandTinyBrushMetadata(raw);
+          } catch (error) {
+            console.warn('Failed to expand minified metadata via module helper', error);
+          }
+        }
+        if (typeof window !== 'undefined' && typeof window.expandTinyBrushMetadata === 'function') {
+          try {
+            return window.expandTinyBrushMetadata(raw);
+          } catch (error) {
+            console.warn('Failed to expand minified metadata via viewer helper', error);
+          }
+        }
+        return raw;
+      };
+      const packagedMetadataRaw = JSON.parse(\`${metadataLiteral}\`);
+      const packagedMetadata = expandPackagedMetadata(packagedMetadataRaw);
       // Force output to console
       console.log('[DEBUG] Checking parsed metadata:');
       packagedMetadata.layers.forEach((layer) => {
@@ -1370,12 +1777,11 @@ const buildSingleFileScript = (scriptContent: string, viewerRuntime: string, inf
           if (!(canvas instanceof HTMLCanvasElement)) {
             throw new Error('Preview canvas element is unavailable');
           }
-          const projectName = packagedMetadata?.project?.name ?? 'packaged bundle';
           setStatus('Rendering packaged bundle…');
           const scale = computeScale(packagedMetadata);
           const renderResult = await renderTinyBrushWebGL(packagedMetadata, canvas, { scale });
           summarizeMetadata(packagedMetadata, renderResult);
-          setStatus('Rendered ' + projectName);
+          setStatus('Packaged bundle rendered.');
         } catch (error) {
           console.error('Failed to render packaged bundle', error);
           setStatus(error instanceof Error ? error.message : 'Failed to render bundle', 'error');
@@ -1469,7 +1875,7 @@ export const exportProjectAsWebGL = async (
       });
     }
 
-    metadataLayers.push({
+    const baseLayerMetadata: WebGLLayerMetadata = {
       id: layer.id,
       name: layer.name,
       type: layer.layerType,
@@ -1480,10 +1886,13 @@ export const exportProjectAsWebGL = async (
       frame: clampedFrame,
       transform: placement.transform,
       sourceSize,
-      assets: texture ? { texture } : {},
+      assets: texture ? { texture } : undefined,
       colorCycle,
+      stackIndex: Number.isFinite(layer.order) ? layer.order : metadataLayers.length,
       version: layer.version
-    });
+    };
+
+    metadataLayers.push(stripLayerDefaults(baseLayerMetadata));
   }
 
   let fallback: WebGLExportMetadata['fallback'];
@@ -1493,13 +1902,13 @@ export const exportProjectAsWebGL = async (
       fallbackCanvas.width = Math.max(1, options.project.width);
       fallbackCanvas.height = Math.max(1, options.project.height);
       options.compositeLayersToCanvas(fallbackCanvas);
-      const dataUrl = await canvasToDataURL(fallbackCanvas);
+      const { dataUrl, format } = await canvasToDataURL(fallbackCanvas);
       const normalized = normalizeImageDataUrl(dataUrl);
       if (!normalized) {
-        console.error('[webglExporter] Invalid data URL generated for PNG fallback');
+        console.error(`[webglExporter] Invalid data URL generated for ${format} fallback`);
       } else {
         fallback = {
-          type: 'image/png',
+          type: format,
           dataUrl: normalized
         };
       }
@@ -1543,6 +1952,8 @@ export const exportProjectAsWebGL = async (
     metadata.fallback = fallback;
   }
 
+  deduplicateGradients(metadata);
+
   metadata.layers.forEach((layer, index) => {
     const brushPayload = layer.colorCycle?.brushState?.indexBuffer;
     const brushStateIndexLength = Array.isArray(brushPayload)
@@ -1556,7 +1967,8 @@ export const exportProjectAsWebGL = async (
     });
   });
 
-  const json = JSON.stringify(metadata, null, options.minify ? undefined : 2);
+  const metadataPayload = options.minify ? minifyProperties(metadata) : metadata;
+  const json = JSON.stringify(metadataPayload, null, options.minify ? undefined : 2);
   console.log('[DEBUG] JSON size after stringify:', json.length);
   const jsonFilename = `${options.filenameBase}-webgl.json`;
 

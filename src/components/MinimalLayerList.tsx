@@ -10,8 +10,8 @@ import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
 import { recordBreadcrumb } from '../utils/debug';
 // Removed floating color cycle panel integration; panel now lives in Brush Settings
 
-// Component to display color swatches for a layer
-const LayerColorSwatches = memo<{ 
+export const LAYER_TAG_CLASS = 'px-1 rounded text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9] border border-[#545454]';
+export const LayerColorSwatches = memo<{ 
   layer: Layer;
   visible: boolean;
 }>(({ layer, visible }) => {
@@ -138,40 +138,39 @@ export const LayerAlignmentControls = memo<DensityProps>(({ density = 'compact',
   const isComfortable = density === 'comfortable';
 
   const containerClasses = [
-    'border-b border-[#424242]',
-    isComfortable ? 'p-3 space-y-3 rounded-md bg-[#1F1F28] border-[#2F2F39]' : 'p-2 space-y-2',
+    isComfortable ? 'p-3 space-y-3 border border-[#2E2E2E] bg-[#2C2C2C]' : 'p-2 space-y-2 border border-[#2E2E2E] bg-[#2C2C2C]',
     className
   ].filter(Boolean).join(' ');
 
   const headingClass = isComfortable
-    ? 'text-base font-semibold text-[#E8E8FF]'
+    ? 'text-base font-semibold text-[#E5E5E5]'
     : 'text-[10px] font-semibold tracking-[0.08em] text-[#D9D9D9]';
 
   const subtitleClass = isComfortable
-    ? 'text-xs text-[#8F8FA9]'
-    : 'text-[9px] text-[#808080]';
+    ? 'text-xs text-[#8C8C8C]'
+    : 'text-[9px] text-[#7A7A7A]';
 
-  const labelClass = isComfortable ? 'text-sm text-[#B8B8D8]' : 'text-[9px] text-[#A5A5A5]';
+  const labelClass = isComfortable ? 'text-sm text-[#B0B0B0]' : 'text-[9px] text-[#A0A0A0]';
   const selectClass = isComfortable
-    ? 'w-full bg-[#242432] text-[#E8E8FF] text-sm px-3 py-2 rounded-md border border-[#3F3F49] outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#58586D] disabled:bg-[#1B1B24]'
-    : 'w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#666] disabled:bg-[#2C2C2C]';
+    ? 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-sm px-3 py-2 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9] disabled:text-[#5C5C5C] disabled:bg-[#151515]'
+    : 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-[10px] px-2 py-1 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9] disabled:text-[#666] disabled:bg-[#151515]';
 
   const buttonBaseClass = isComfortable
-    ? 'flex-1 py-2 text-sm rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6F6FFF] focus-visible:ring-offset-0'
-    : 'flex-1 py-1 text-[9px] rounded transition-colors';
+    ? 'flex-1 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D9D9D9] focus-visible:ring-offset-0'
+    : 'flex-1 py-1 text-[9px] transition-colors';
 
-  const buttonActiveClass = 'bg-[#6F6FFF] text-white';
+  const buttonActiveClass = 'bg-[#D9D9D9] text-[#1B1B1B]';
   const buttonInactiveClass = isComfortable
-    ? 'bg-[#242432] text-[#E8E8FF] hover:bg-[#2E2E3C]'
-    : 'bg-[#2F2F2F] text-[#D9D9D9] hover:bg-[#3A3A3A]';
+    ? 'bg-[#2A2A2A] text-[#E5E5E5] hover:bg-[#343434]'
+    : 'bg-[#2A2A2A] text-[#D9D9D9] hover:bg-[#343434]';
 
   const disabledButtonClass = isComfortable
-    ? '!bg-[#1B1B24] !text-[#58586D]'
-    : '!bg-[#2C2C2C] !text-[#666]';
+    ? '!bg-[#1A1A1A] !text-[#5C5C5C]'
+    : '!bg-[#1A1A1A] !text-[#5C5C5C]';
 
   const inputClass = isComfortable
-    ? 'w-full bg-[#242432] text-[#E8E8FF] text-sm px-3 py-2 rounded-md border border-[#3F3F49] outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#58586D] disabled:bg-[#1B1B24]'
-    : 'w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#666] disabled:bg-[#2C2C2C]';
+    ? 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-sm px-3 py-2 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9] disabled:text-[#5C5C5C] disabled:bg-[#151515]'
+    : 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-[10px] px-2 py-1 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9] disabled:text-[#5C5C5C] disabled:bg-[#151515]';
 
   const handleAlignmentChange = useCallback(
     (partial: Partial<LayerAlignmentSettings>) => {
@@ -342,34 +341,33 @@ export const ContainerLayoutControls = memo<DensityProps>(({ density = 'compact'
   const isComfortable = density === 'comfortable';
 
   const containerClasses = [
-    'border-b border-[#424242]',
-    isComfortable ? 'p-3 space-y-3 rounded-md bg-[#1F1F28] border-[#2F2F39]' : 'p-2 space-y-2',
+    isComfortable ? 'p-3 space-y-3 border border-[#2E2E2E] bg-[#2C2C2C]' : 'p-2 space-y-2 border border-[#2E2E2E] bg-[#2C2C2C]',
     className
   ].filter(Boolean).join(' ');
 
   const headingClass = isComfortable
-    ? 'text-base font-semibold text-[#E8E8FF]'
+    ? 'text-base font-semibold text-[#E5E5E5]'
     : 'text-[10px] font-semibold tracking-[0.08em] text-[#D9D9D9]';
 
-  const labelClass = isComfortable ? 'text-sm text-[#B8B8D8]' : 'text-[9px] text-[#A5A5A5]';
-  const subLabelClass = isComfortable ? 'text-xs text-[#8F8FA9]' : 'text-[8px] opacity-80';
+  const labelClass = isComfortable ? 'text-sm text-[#B0B0B0]' : 'text-[9px] text-[#A0A0A0]';
+  const subLabelClass = isComfortable ? 'text-xs text-[#8C8C8C]' : 'text-[8px] text-[#7A7A7A]';
 
   const controlButtonBase = isComfortable
-    ? 'py-2 text-sm rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6F6FFF] focus-visible:ring-offset-0'
-    : 'py-1 text-[9px] rounded transition-colors';
+    ? 'py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D9D9D9] focus-visible:ring-offset-0'
+    : 'py-1 text-[9px] transition-colors';
 
-  const controlButtonActive = 'bg-[#6F6FFF] text-white';
+  const controlButtonActive = 'bg-[#D9D9D9] text-[#1B1B1B]';
   const controlButtonInactive = isComfortable
-    ? 'bg-[#242432] text-[#E8E8FF] hover:bg-[#2E2E3C]'
-    : 'bg-[#2F2F2F] text-[#D9D9D9] hover:bg-[#3A3A3A]';
+    ? 'bg-[#2A2A2A] text-[#E5E5E5] hover:bg-[#343434]'
+    : 'bg-[#2A2A2A] text-[#DADADA] hover:bg-[#343434]';
 
   const selectClass = isComfortable
-    ? 'w-full bg-[#242432] text-[#E8E8FF] text-sm px-3 py-2 rounded-md border border-[#3F3F49] outline-none focus:ring-1 focus:ring-[#6F6FFF]'
-    : 'w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF]';
+    ? 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-sm px-3 py-2 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9]'
+    : 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-[10px] px-2 py-1 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9]';
 
   const inputClass = isComfortable
-    ? 'w-full bg-[#242432] text-[#E8E8FF] text-sm px-3 py-2 rounded-md border border-[#3F3F49] outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#58586D] disabled:bg-[#1B1B24]'
-    : 'w-full bg-[#353535] text-[#E5E5E5] text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-[#6F6FFF] disabled:text-[#666] disabled:bg-[#2C2C2C]';
+    ? 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-sm px-3 py-2 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9] disabled:text-[#5C5C5C] disabled:bg-[#151515]'
+    : 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-[10px] px-2 py-1 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9] disabled:text-[#5C5C5C] disabled:bg-[#151515]';
 
   return (
     <div className={containerClasses}>
@@ -584,14 +582,26 @@ const LayerItem = memo<{
             );
           } else if (layer.layerType === 'normal') {
             return <LayerColorSwatches layer={layer} visible={layer.visible} />;
-          } else {
-            return (
-              <span className="text-[#D9D9D9] text-xs flex-1 truncate">
-                {layer.name}
-              </span>
-            );
           }
+          return (
+            <span className="text-[#D9D9D9] text-xs flex-1 truncate">
+              {layer.name}
+            </span>
+          );
         })()}
+
+        {layer.layerType === 'color-cycle' ? (
+          <div className="ml-1 flex items-center gap-1">
+            <span className={LAYER_TAG_CLASS}>CC</span>
+            <span className={LAYER_TAG_CLASS}>
+              {layer.colorCycleData?.mode === 'recolor' ? 'Recolor' : 'Brush'}
+            </span>
+          </div>
+        ) : (
+          <div className="ml-1 flex items-center gap-1">
+            <span className={LAYER_TAG_CLASS}>Layer</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -976,14 +986,16 @@ const MinimalLayerList = () => {
                   })()}
 
                   {/* CC badges */}
-                  {layer.layerType === 'color-cycle' && (
+                  {layer.layerType === 'color-cycle' ? (
                     <div className="ml-1 flex items-center gap-1">
-                      <span className="px-1 rounded text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9] border border-[#545454]">CC</span>
-                      {layer.colorCycleData?.mode === 'recolor' ? (
-                        <span className="px-1 rounded text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9] border border-[#545454]">Recolor</span>
-                      ) : (
-                        <span className="px-1 rounded text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9] border border-[#545454]">Brush</span>
-                      )}
+                      <span className={LAYER_TAG_CLASS}>CC</span>
+                      <span className={LAYER_TAG_CLASS}>
+                        {layer.colorCycleData?.mode === 'recolor' ? 'Recolor' : 'Brush'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="ml-1 flex items-center gap-1">
+                      <span className={LAYER_TAG_CLASS}>Layer</span>
                     </div>
                   )}
                 </div>

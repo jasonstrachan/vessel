@@ -880,26 +880,37 @@ export const useBrushEngineSimplified = () => {
         
         // Put the dithered result back
         tempCtx.putImageData(ditheredData, 0, 0);
-        
-        // Set up clipping path with antialiasing for smooth edges
-        ctx.save();
-        ctx.imageSmoothingEnabled = true; // Ensure antialiasing is on
-        ctx.beginPath();
-        ctx.moveTo(validVertices[0].x, validVertices[0].y);
-        validVertices.slice(1).forEach(vertex => ctx.lineTo(vertex.x, vertex.y));
-        ctx.closePath();
-        ctx.clip();
-        
-        // Draw the dithered pattern (will be clipped to polygon shape)
-        ctx.imageSmoothingEnabled = false; // Don't smooth the dither pattern itself
+
+        // Mask gradient to polygon locally so edges stay pixel sharp when drawn later
+        const localVertices = validVertices.map(vertex => ({
+          x: Math.round(vertex.x - minX + padding),
+          y: Math.round(vertex.y - minY + padding),
+        }));
+
+        if (localVertices.length >= 3) {
+          tempCtx.save();
+          tempCtx.imageSmoothingEnabled = false;
+          tempCtx.globalCompositeOperation = 'destination-in';
+          tempCtx.lineJoin = 'miter';
+          tempCtx.lineCap = 'butt';
+          tempCtx.fillStyle = '#fff';
+          tempCtx.beginPath();
+          tempCtx.moveTo(localVertices[0].x, localVertices[0].y);
+          for (let i = 1; i < localVertices.length; i++) {
+            tempCtx.lineTo(localVertices[i].x, localVertices[i].y);
+          }
+          tempCtx.closePath();
+          tempCtx.fill();
+          tempCtx.restore();
+        }
+
+        // Draw the already-masked dithered pattern without additional smoothing
+        ctx.imageSmoothingEnabled = false;
         ctx.drawImage(tempCanvas, minX - padding, minY - padding);
-        
-        // Restore clipping
-        ctx.restore();
-        
+
         // Release temp canvas
         canvasPool.release(tempCanvas);
-        
+
         // Apply risograph effect if enabled
         const risographIntensity = tools.brushSettings.risographIntensity || 0;
         if (risographIntensity > 0 && !isPreview) {

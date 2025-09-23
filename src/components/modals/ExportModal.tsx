@@ -9,10 +9,11 @@ import Button from '../ui/Button';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { mapToIndexedWithDithering, type DitherMethod } from '@/utils/gifDither';
-import { ContainerLayoutControls, LayerAlignmentControls } from '@/components/MinimalLayerList';
+import { ContainerLayoutControls, LayerAlignmentControls, LayerColorSwatches, LAYER_TAG_CLASS } from '@/components/MinimalLayerList';
+import { Eye, EyeOff } from 'lucide-react';
 import { createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
-import type { WebGLExportBundleFormat } from '@/types';
+import type { Layer, WebGLExportBundleFormat } from '@/types';
 
 type ExportKind = 'png' | 'gif' | 'mp4' | 'webgl';
 
@@ -28,15 +29,15 @@ const BUNDLE_FORMAT_LABELS: Record<WebGLExportBundleFormat, string> = {
   json: 'JSON bundle'
 };
 
-const MODAL_PANEL_CLASS = 'bg-[#1F1F28] border border-[#2F2F39]';
-const MODAL_SURFACE_CLASS = 'bg-[#242432] border border-[#3F3F49]';
-const MODAL_TEXT_PRIMARY = 'text-[#E8E8FF]';
-const MODAL_TEXT_SECONDARY = 'text-[#A8A8C6]';
-const TOGGLE_BASE_CLASS = 'px-3 py-2 text-sm font-medium rounded-md border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6F6FFF] focus-visible:ring-offset-0 disabled:opacity-50 disabled:cursor-not-allowed';
-const TOGGLE_ACTIVE_CLASS = 'bg-[#6F6FFF] border-[#6F6FFF] text-white';
-const TOGGLE_INACTIVE_CLASS = 'bg-[#242432] border-[#3F3F49] text-[#E0E0F5] hover:bg-[#2E2E3C] hover:text-white';
-const INLINE_FIELD_CLASS = 'bg-[#242432] border border-[#3F3F49] text-sm text-[#E8E8FF] px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-[#6F6FFF] disabled:text-[#58586D] disabled:bg-[#1B1B24]';
-const INPUT_OVERRIDE_CLASS = '!bg-[#242432] !border-[#3F3F49] !text-[#E8E8FF] !px-3 !py-2 !h-9 focus:!border-[#6F6FFF] focus:!ring-0 focus:!outline-none disabled:!text-[#58586D] disabled:!bg-[#1B1B24]';
+const MODAL_PANEL_CLASS = 'bg-[#2C2C2C] border border-[#2A2A2A]';
+const MODAL_SURFACE_CLASS = 'border-t border-[#424242] pt-4';
+const MODAL_TEXT_PRIMARY = 'text-[#E5E5E5]';
+const MODAL_TEXT_SECONDARY = 'text-[#9C9C9C]';
+const TOGGLE_BASE_CLASS = 'px-3 py-2 text-sm font-medium border border-[#424242] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D9D9D9] focus-visible:ring-offset-0 disabled:opacity-50 disabled:cursor-not-allowed';
+const TOGGLE_ACTIVE_CLASS = 'bg-[#D9D9D9] border-[#D9D9D9] text-[#1B1B1B]';
+const TOGGLE_INACTIVE_CLASS = 'bg-[#1F1F1F] text-[#D4D4D4] hover:bg-[#2A2A2A] hover:text-white';
+const INLINE_FIELD_CLASS = 'bg-[#4a4a4a] border border-[#343434] text-sm text-[#E5E5E5] px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#D9D9D9] disabled:text-[#5C5C5C] disabled:bg-[#151515]';
+const INPUT_OVERRIDE_CLASS = '!bg-[#4a4a4a] !border-[#343434] !text-[#E5E5E5] !px-3 !py-2 !h-9 focus:!border-[#D9D9D9] focus:!ring-0 focus:!outline-none disabled:!text-[#5C5C5C] disabled:!bg-[#151515]';
 
 const WEBGL_VIEWPORT_PRESETS = [
   { value: 'project', label: 'Project' },
@@ -46,6 +47,70 @@ const WEBGL_VIEWPORT_PRESETS = [
 ] as const;
 
 type WebglViewportPreset = typeof WEBGL_VIEWPORT_PRESETS[number]['value'];
+
+interface CollapsibleSectionProps {
+  id: string;
+  title: string;
+  summary?: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+  contentClassName?: string;
+}
+
+const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
+  id,
+  title,
+  summary,
+  isOpen,
+  onToggle,
+  children,
+  contentClassName = ''
+}) => {
+  const contentClasses = ['px-6 pb-4', contentClassName].filter(Boolean).join(' ');
+
+  return (
+    <div className={`${MODAL_SURFACE_CLASS}`}>
+      <button
+        type="button"
+        className="w-full flex items-center justify-between gap-3 px-6 py-3 text-left"
+        aria-expanded={isOpen}
+        aria-controls={`${id}-content`}
+        onClick={onToggle}
+      >
+        <div className="flex-1">
+          <span className={`${MODAL_TEXT_PRIMARY} text-base font-semibold block`}>{title}</span>
+          {summary && (
+            <span className={`${MODAL_TEXT_SECONDARY} text-xs mt-1 block`}>{summary}</span>
+          )}
+        </div>
+        <svg
+          className={`w-4 h-4 text-[#9C9C9C] transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`}
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M6 9l6 6 6-6"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+      <div id={`${id}-content`} className={isOpen ? contentClasses : 'hidden'}>
+        {children}
+      </div>
+    </div>
+  );
+};
+
+const formatLabel = (value: string): string => (
+  value.split(/[-_\s]+/).map((part) => (
+    part ? part[0].toUpperCase() + part.slice(1) : ''
+  )).join(' ')
+);
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -87,8 +152,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const [dragging, setDragging] = useState(false);
   const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  const [exportKind, setExportKind] = useState<ExportKind>('png');
+  const [exportKind, setExportKind] = useState<ExportKind>('webgl');
   const [scale, setScale] = useState<1 | 2 | 3 | 4>(1);
+
+  const [containerLayoutOpen, setContainerLayoutOpen] = useState(false);
+  const [layerAlignmentOpen, setLayerAlignmentOpen] = useState(false);
 
   // PNG options
   const [pngIncludeBg, setPngIncludeBg] = useState(true);
@@ -147,6 +215,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     } else {
       setIsVisible(false);
       setTimeout(() => setShouldRender(false), 300);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setContainerLayoutOpen(false);
+      setLayerAlignmentOpen(false);
     }
   }, [isOpen]);
 
@@ -365,7 +440,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     webglAutoFrames ? webglFrameSuggestion.duration : Math.max(0.5, webglDuration)
   ), [webglAutoFrames, webglDuration, webglFrameSuggestion.duration]);
 
-  const layerAlignmentSummary = useMemo(() => layers.map(layer => ({
+  const orderedLayers = useMemo(() => layers.slice().reverse(), [layers]);
+
+  const layerAlignmentSummary = useMemo(() => orderedLayers.map(layer => ({
     id: layer.id,
     name: layer.name,
     visible: layer.visible,
@@ -378,7 +455,83 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     },
     isActive: layer.id === activeLayerId,
     kind: layer.layerType
-  })), [activeLayerId, layers]);
+  })), [activeLayerId, orderedLayers]);
+
+  const containerLayoutSummary = useMemo(() => {
+    const layout = project?.exportLayout ?? createDefaultExportLayout();
+    const parts = [
+      formatLabel(layout.flow),
+      `${formatLabel(layout.justify)} / ${formatLabel(layout.align)}`,
+      layout.wrap ? 'Wrap on' : 'Wrap off'
+    ];
+    if (layout.gap) {
+      parts.push(`Gap ${layout.gap}px`);
+    }
+    if (layout.sizeMode === 'fixed') {
+      parts.push(`Fixed ${layout.width ?? 0}×${layout.height ?? 0}`);
+    } else {
+      parts.push('Hug content');
+    }
+    return parts.join(' • ');
+  }, [project?.exportLayout]);
+
+  const activeLayerSummary = useMemo(() => {
+    if (layerAlignmentSummary.length === 0) {
+      return 'No layers available';
+    }
+    const activeLayer = layerAlignmentSummary.find((layer) => layer.isActive);
+    if (!activeLayer) {
+      return 'Select a layer to adjust alignment';
+    }
+    const alignment = [
+      formatLabel(activeLayer.fit),
+      `${formatLabel(activeLayer.horizontal)} / ${formatLabel(activeLayer.vertical)}`
+    ];
+    if (activeLayer.offset.x || activeLayer.offset.y) {
+      alignment.push(`Offset ${activeLayer.offset.x}, ${activeLayer.offset.y}`);
+    }
+    if (!activeLayer.visible) {
+      alignment.push('Hidden');
+    }
+    return alignment.join(' • ');
+  }, [layerAlignmentSummary]);
+
+  const getColorCycleGradient = useCallback((layer: Layer) => {
+    const gradient = layer.colorCycleData?.gradient ?? layer.colorCycleData?.recolorSettings?.gradient;
+    if (gradient && gradient.length > 0) {
+      const stops = gradient
+        .map((stop) => `${stop.color} ${stop.position * 100}%`)
+        .join(', ');
+      return `linear-gradient(90deg, ${stops})`;
+    }
+    return '#555';
+  }, []);
+
+  const renderLayerPreview = useCallback((layer: Layer) => {
+    if (layer.layerType === 'color-cycle') {
+      return (
+        <div
+          className="flex-1 h-4 rounded mr-1"
+          style={{
+            background: getColorCycleGradient(layer),
+            minWidth: '30px',
+            opacity: layer.visible ? 1 : 0.5
+          }}
+          title={`${layer.name}${layer.colorCycleData?.gradient ? ` – ${layer.colorCycleData.gradient.length} stops` : ''}`}
+        />
+      );
+    }
+
+    if (layer.layerType === 'normal') {
+          return <LayerColorSwatches layer={layer} visible={layer.visible} />;
+    }
+
+    return (
+      <span className="text-[#D9D9D9] text-xs flex-1 truncate" title={layer.name}>
+        {layer.name}
+      </span>
+    );
+  }, [getColorCycleGradient]);
 
   const handleCustomViewportChange = useCallback((dimension: 'width' | 'height', raw: string) => {
     if (raw === '') {
@@ -1194,31 +1347,31 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       onClick={() => { if (!isExporting) onClose(); }}
     >
       <div
-        className={`${MODAL_PANEL_CLASS} rounded-xl w-[580px] max-w-full mx-4 shadow-xl flex flex-col overflow-hidden`}
+        className={`${MODAL_PANEL_CLASS} w-[580px] max-w-full mx-4 shadow-xl flex flex-col overflow-hidden`}
         style={{ position: 'fixed', left: pos.x, top: pos.y, maxHeight: 'calc(100vh - 48px)' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div
-          className="flex items-center justify-between px-6 pt-4 pb-3 border-b border-[#353542] cursor-move shrink-0"
+          className="flex items-center justify-between px-6 pt-4 pb-3 border-b border-[#2A2A2A] cursor-move shrink-0"
           onMouseDown={onDragStart}
         >
-          <h2 className="text-[#F0F0FF] text-lg font-semibold tracking-tight">Export</h2>
+          <h2 className="text-[#F0F0F0] text-lg font-semibold tracking-tight">Export</h2>
           <button
             onClick={() => { if (!isExporting) onClose(); }}
-            className="text-[#8F90A6] hover:text-white transition-colors p-1"
+            className="text-[#9C9C9C] hover:text-white transition-colors p-1"
             disabled={isExporting}
           >
             <XIcon className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="space-y-6 p-6 pt-4 flex-1 overflow-y-auto text-sm text-[#D9DAF5]">
+        <div className="space-y-6 p-6 pt-4 flex-1 overflow-y-auto text-sm text-[#E0E0E0]">
           {/* Type & Scale */}
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-3">
               <label className={`${MODAL_TEXT_PRIMARY} text-sm font-semibold uppercase tracking-[0.08em]`}>Type</label>
               <div className="flex flex-wrap gap-2">
-                {(['png','gif','mp4','webgl'] as ExportKind[]).map((kind) => (
+                {(['webgl','gif','mp4','png'] as ExportKind[]).map((kind) => (
                   <button
                     key={kind}
                     onClick={() => setExportKind(kind)}
@@ -1293,7 +1446,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               <div className="flex items-center justify-between">
                 <label className="text-base text-[#888]">Repeat</label>
                 <select
-                  className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
+                  className="bg-[#4a4a4a] text-[#E5E5E5] px-3 py-1 border border-[#343434] text-base"
                   value={gifRepeat}
                   onChange={(e) => setGifRepeat(parseInt(e.target.value))}
                 >
@@ -1317,7 +1470,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               <div className="flex items-center justify-between">
                 <label className="text-base text-[#888]">Dithering</label>
                 <select
-                  className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
+                  className="bg-[#4a4a4a] text-[#E5E5E5] px-3 py-1 border border-[#343434] text-base"
                   value={gifDitherMethod}
                   onChange={(e) => setGifDitherMethod(e.target.value as DitherMethod)}
                 >
@@ -1342,7 +1495,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               <div className="flex items-center justify-between">
                 <label className="text-base text-[#888]">Palette Size</label>
                 <select
-                  className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
+                  className="bg-[#4a4a4a] text-[#E5E5E5] px-3 py-1 border border-[#343434] text-base"
                   value={gifAutoColors ? 'auto' : String(gifMaxColors)}
                   onChange={(e) => {
                     const v = e.target.value;
@@ -1376,7 +1529,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               <div className="flex items-center justify-between">
                 <label className="text-base text-[#888]">Frame Step</label>
                 <select
-                  className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
+                  className="bg-[#4a4a4a] text-[#E5E5E5] px-3 py-1 border border-[#343434] text-base"
                   value={gifFrameStep}
                   onChange={(e) => setGifFrameStep(Math.max(1, Math.min(4, parseInt(e.target.value))) as 1|2|3|4)}
                 >
@@ -1401,38 +1554,65 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
           {exportKind === 'webgl' && (
             <div className="space-y-5">
-              <div className={`${MODAL_SURFACE_CLASS} rounded-lg p-4`}>
+              <CollapsibleSection
+                id="export-container-layout"
+                title="Container layout"
+                summary={containerLayoutSummary}
+                isOpen={containerLayoutOpen}
+                onToggle={() => setContainerLayoutOpen((prev) => !prev)}
+                contentClassName="space-y-4"
+              >
                 <ContainerLayoutControls density="comfortable" className="border-none p-0 bg-transparent space-y-4" />
-              </div>
+              </CollapsibleSection>
 
-              <div className={`${MODAL_SURFACE_CLASS} rounded-lg p-4 space-y-4`}>
+              <CollapsibleSection
+                id="export-layer-alignment"
+                title="Layer alignment"
+                summary={activeLayerSummary}
+                isOpen={layerAlignmentOpen}
+                onToggle={() => setLayerAlignmentOpen((prev) => !prev)}
+                contentClassName="space-y-4"
+              >
                 <LayerAlignmentControls density="comfortable" className="border-none p-0 bg-transparent space-y-4" />
-                <div className="border border-[#3F3F49] rounded-md overflow-hidden divide-y divide-[#3F3F49]">
-                  {layerAlignmentSummary.length === 0 && (
-                    <div className="px-4 py-3 text-sm text-[#9F9FB2]">No layers available</div>
+                <div className="border border-[#424242] overflow-hidden divide-y divide-[#424242]">
+                  {orderedLayers.length === 0 && (
+                    <div className="px-4 py-3 text-sm text-[#9C9C9C]">No layers available</div>
                   )}
-                  {layerAlignmentSummary.map((layer) => (
-                    <button
-                      key={layer.id}
-                      type="button"
-                      onClick={() => setActiveLayer(layer.id)}
-                      className={`w-full text-left px-4 py-3 transition-colors text-sm ${layer.isActive ? 'bg-[#3B3B4A] text-white' : 'hover:bg-[#32323F] text-[#E8E8FF]'}`}
-                      disabled={isExporting}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className={`font-medium ${layer.isActive ? 'text-white' : 'text-[#E5E5FF]'}`}>{layer.name}</span>
-                        <span className="text-xs uppercase tracking-wide text-[#9F9FB2]">{layer.fit}</span>
-                      </div>
-                      <div className="text-xs text-[#9F9FB2] mt-1">
-                        {layer.horizontal}/{layer.vertical} • offset ({layer.offset.x}, {layer.offset.y})
-                        {!layer.visible ? ' • hidden' : ''}
-                      </div>
-                    </button>
-                  ))}
+                  {orderedLayers.map((layer) => {
+                    const isActiveLayer = layer.id === activeLayerId;
+                    return (
+                      <button
+                        key={layer.id}
+                        type="button"
+                        onClick={() => setActiveLayer(layer.id)}
+                        className={`w-full text-left transition-colors ${isActiveLayer ? 'bg-[#4A4A4A] text-white' : 'hover:bg-[#353535] text-[#E0E0E0]'}`}
+                        disabled={isExporting}
+                      >
+                        <div className="flex items-center h-7 px-2">
+                          <div className={`w-4 h-4 mr-2 flex items-center justify-center ${layer.visible ? 'text-[#D9D9D9]' : 'text-[#666]'}`}>
+                            {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+                          </div>
+                          {renderLayerPreview(layer)}
+                          {layer.layerType === 'color-cycle' ? (
+                            <div className="ml-1 flex items-center gap-1">
+                              <span className={LAYER_TAG_CLASS}>CC</span>
+                              <span className={LAYER_TAG_CLASS}>
+                                {layer.colorCycleData?.mode === 'recolor' ? 'Recolor' : 'Brush'}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="ml-1 flex items-center gap-1">
+                              <span className={LAYER_TAG_CLASS}>Layer</span>
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
-              </div>
+              </CollapsibleSection>
 
-              <div className={`${MODAL_SURFACE_CLASS} rounded-lg p-4 space-y-4`}>
+              <div className={`${MODAL_SURFACE_CLASS} p-4 space-y-4`}>
                 <div>
                   <h3 className={`${MODAL_TEXT_PRIMARY} text-base font-semibold mb-3`}>Viewport preset</h3>
                   <div className="flex flex-wrap gap-2">
@@ -1450,7 +1630,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   </div>
                   {webglViewportPreset === 'custom' && (
                     <div className="mt-4 grid grid-cols-2 gap-3">
-                      <label className="flex flex-col gap-2 text-sm text-[#C3C3DD]">
+                    <label className="flex flex-col gap-2 text-sm text-[#B0B0B0]">
                         <span>Width</span>
                         <Input
                           type="number"
@@ -1461,7 +1641,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                           disabled={isExporting}
                         />
                       </label>
-                      <label className="flex flex-col gap-2 text-sm text-[#C3C3DD]">
+                      <label className="flex flex-col gap-2 text-sm text-[#B0B0B0]">
                         <span>Height</span>
                         <Input
                           type="number"
@@ -1507,11 +1687,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <label className="flex items-center justify-between gap-3 text-sm text-[#E8E8FF]">
+                  <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
                     <span className="font-medium">Perfect loop</span>
                     <input
                       type="checkbox"
-                      className="accent-[#6F6FFF]"
+                      className="accent-[#D9D9D9]"
                       checked={webglAutoFrames}
                       onChange={(event) => setWebglAutoFrames(event.target.checked)}
                       disabled={isExporting}
@@ -1528,33 +1708,33 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                 </div>
               </div>
 
-              <div className={`${MODAL_SURFACE_CLASS} rounded-lg p-4 space-y-4`}>
+              <div className={`${MODAL_SURFACE_CLASS} p-4 space-y-4`}>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label className="flex items-center justify-between gap-3 text-sm text-[#E8E8FF]">
+                  <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
                     <span>Include hidden layers</span>
                     <input
                       type="checkbox"
-                      className="accent-[#6F6FFF]"
+                      className="accent-[#D9D9D9]"
                       checked={webglIncludeHidden}
                       onChange={(event) => updateWebglExportSettings({ includeHiddenLayers: event.target.checked })}
                       disabled={isExporting}
                     />
                   </label>
-                  <label className="flex items-center justify-between gap-3 text-sm text-[#E8E8FF]">
+                  <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
                     <span>Embed Canvas2D fallback</span>
                     <input
                       type="checkbox"
-                      className="accent-[#6F6FFF]"
+                      className="accent-[#D9D9D9]"
                       checked={webglEmbedFallback}
                       onChange={(event) => updateWebglExportSettings({ embedCanvasFallback: event.target.checked })}
                       disabled={isExporting}
                     />
                   </label>
-                  <label className="flex items-center justify-between gap-3 text-sm text-[#E8E8FF]">
+                  <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
                     <span>Minify bundle output</span>
                     <input
                       type="checkbox"
-                      className="accent-[#6F6FFF]"
+                      className="accent-[#D9D9D9]"
                       checked={webglMinify}
                       onChange={(event) => updateWebglExportSettings({ minifyOutput: event.target.checked })}
                       disabled={isExporting}
@@ -1595,7 +1775,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               <div className="flex items-center justify-between">
                 <label className="text-base text-[#888]">Format</label>
                 <select
-                  className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
+                  className="bg-[#4a4a4a] text-[#E5E5E5] px-3 py-1 border border-[#343434] text-base"
                   value={videoMime}
                   onChange={(e) => setVideoMime(e.target.value as 'video/mp4' | 'video/webm')}
                 >
@@ -1613,7 +1793,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
           {/* Progress */}
           {isExporting && (
-            <div className="w-full bg-[#444] h-2 rounded overflow-hidden">
+            <div className="w-full bg-[#353535] h-2 overflow-hidden">
               <div className="bg-[#D9D9D9] h-full transition-all" style={{ width: `${progress}%` }} />
             </div>
           )}

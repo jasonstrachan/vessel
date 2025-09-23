@@ -124,7 +124,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       onClick={handleClose}
     >
       <div 
-        className="bg-[#31313A] rounded-lg w-96 max-w-full mx-4 shadow-xl"
+        className="bg-[#2C2C2C] rounded-lg w-96 max-w-full mx-4 shadow-xl"
         style={{ position: 'fixed', left: pos.x, top: pos.y }}
         onClick={(e) => e.stopPropagation()}
       >

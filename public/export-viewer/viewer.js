@@ -9,6 +9,120 @@ const loadImage = (src) => {
   });
 };
 
+const PROPERTY_UNMINIFY_MAP = {
+  f: 'format',
+  v: 'version',
+  e: 'exportedAt',
+  p: 'project',
+  vp: 'viewport',
+  c: 'container',
+  an: 'animation',
+  s: 'settings',
+  l: 'layers',
+  fb: 'fallback',
+  i: 'id',
+  n: 'name',
+  t: 'type',
+  vi: 'visible',
+  o: 'opacity',
+  bm: 'blendMode',
+  al: 'alignment',
+  fr: 'frame',
+  tr: 'transform',
+  ss: 'sourceSize',
+  as: 'assets',
+  cc: 'colorCycle',
+  w: 'width',
+  h: 'height',
+  x: 'x',
+  y: 'y',
+  tx: 'translateX',
+  ty: 'translateY',
+  sx: 'scaleX',
+  sy: 'scaleY',
+  txr: 'texture',
+  md: 'mode',
+  ia: 'isAnimating',
+  bs: 'brushState',
+  gs: 'gradientStops',
+  ib: 'indexBuffer',
+  pl: 'palette',
+  ao: 'animationOffset',
+  tf: 'targetFPS',
+  fd: 'flowDirection',
+  rs: 'recolorSettings',
+  gr: 'gradient',
+  grf: 'gradientRef',
+  grl: 'gradients',
+  spd: 'brushSpeed',
+  si: 'stackIndex',
+  bf: 'bundleFormat',
+  ihl: 'includeHiddenLayers',
+  ecf: 'embedCanvasFallback',
+  mo: 'minifyOutput',
+  plp: 'perfectLoop',
+  tfm: 'totalFrames',
+  ds: 'durationSeconds',
+  pm: 'phaseMap'
+};
+
+const expandMinifiedProperties = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((entry) => expandMinifiedProperties(entry));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  const expanded = {};
+  for (const [key, nested] of Object.entries(value)) {
+    const restoredKey = PROPERTY_UNMINIFY_MAP[key] || key;
+    expanded[restoredKey] = expandMinifiedProperties(nested);
+  }
+  return expanded;
+};
+
+const expandTinyBrushMetadata = (metadata) => {
+  if (!metadata || typeof metadata !== 'object') {
+    return metadata;
+  }
+  if ('format' in metadata) {
+    return metadata;
+  }
+  if (!('f' in metadata)) {
+    return metadata;
+  }
+  try {
+    return expandMinifiedProperties(metadata);
+  } catch (error) {
+    console.warn('[viewer] Failed to expand minified metadata', error);
+    return metadata;
+  }
+};
+
+if (typeof window !== 'undefined') {
+  window.expandTinyBrushMetadata = expandTinyBrushMetadata;
+}
+
+const restoreSharedGradients = (metadata) => {
+  if (!metadata || !Array.isArray(metadata.layers) || !Array.isArray(metadata.gradients)) {
+    return metadata;
+  }
+
+  const shared = metadata.gradients;
+  metadata.layers.forEach((layer) => {
+    const colorCycle = layer?.colorCycle;
+    if (!colorCycle || typeof colorCycle.gradientRef !== 'number') {
+      return;
+    }
+    const gradient = shared[colorCycle.gradientRef];
+    if (Array.isArray(gradient)) {
+      colorCycle.gradient = gradient;
+    }
+  });
+
+  return metadata;
+};
+
 const toFinite = (value, fallback = 0) => {
   const numeric = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
@@ -46,10 +160,10 @@ const applyLayer = (ctx, img, layer, scale) => {
     height: scaledHeight
   };
   const offscreen = (
-    bounds.x + bounds.width <= 0 ||
-    bounds.y + bounds.height <= 0 ||
-    bounds.x >= canvasWidth ||
-    bounds.y >= canvasHeight
+    bounds.x + bounds.width <= 0
+    || bounds.y + bounds.height <= 0
+    || bounds.x >= canvasWidth
+    || bounds.y >= canvasHeight
   );
   console.log('[DEBUG] applyLayer positioning:', {
     id: layer?.id,
@@ -1080,7 +1194,8 @@ class TinyBrushBundleRenderer {
 }
 
 export const renderTinyBrushWebGL = async (metadata, canvas, options = {}) => {
-  validateMetadata(metadata);
+  const normalizedMetadata = restoreSharedGradients(expandTinyBrushMetadata(metadata));
+  validateMetadata(normalizedMetadata);
   if (!(canvas instanceof HTMLCanvasElement)) {
     throw new Error('A target canvas element is required');
   }
@@ -1090,7 +1205,7 @@ export const renderTinyBrushWebGL = async (metadata, canvas, options = {}) => {
     previous.destroy();
   }
 
-  const renderer = new TinyBrushBundleRenderer(metadata, canvas, options);
+  const renderer = new TinyBrushBundleRenderer(normalizedMetadata, canvas, options);
   await renderer.initialize();
   renderer.start();
   canvas[RENDERER_KEY] = renderer;

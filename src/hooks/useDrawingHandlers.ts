@@ -12,6 +12,7 @@ import { logError, debugWarn } from '../utils/debug';
 import { RecolorManager } from '../lib/colorCycle/RecolorManager';
 import { getColorCycleAnimationState } from '../components/toolbar/BrushControls';
 import { setSharedColorCycleGradient } from '../utils/colorCycleGradients';
+import { toggleGlobalColorCyclePlayback } from '../utils/colorCyclePlayback';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 
@@ -124,9 +125,6 @@ export function useDrawingHandlers({
   // Continuous animation for color cycle when play button is pressed
   const continuousColorCycleAnimationRef = useRef<number | null>(null);
   const continuousColorCycleAnimationActiveRef = useRef(false);
-
-  // Track whether continuous CC animation was playing before a stroke/shape
-  const wasCCPlayingBeforeInteractionRef = useRef<boolean>(false);
 
   // Stable refs to call start/stop CC animation from early hooks
   const startCCRef = useRef<() => void>(() => {});
@@ -357,6 +355,8 @@ export function useDrawingHandlers({
   }, []);
 
   // Helper: resume previously paused brush-based CC layers
+  // NOTE: This is no longer used since we don't auto-resume animations
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const resumePausedBrushCCAnimations = useCallback(() => {
     const state = useAppStore.getState();
     const mgr = getColorCycleBrushManager();
@@ -576,12 +576,26 @@ export function useDrawingHandlers({
     if (brushEngine.resetStroke) {
       brushEngine.resetStroke();
     }
-    
+
+    // Only pause animations for NON-CC brushes
+    // CC brushes should auto-start animations instead
+    if (ccFlags.isAny) {
+      // AUTO-START animations when using a CC brush
+      if (!getColorCycleAnimationState()) {
+        toggleGlobalColorCyclePlayback(true);
+      }
+    } else {
+      // Pause animations for non-CC brushes only
+      pauseAllBrushCCAnimationsNow();
+
+      // Use the global playback utility to pause ALL animations properly
+      if (getColorCycleAnimationState()) {
+        toggleGlobalColorCyclePlayback(false);
+      }
+    }
+
     // Reset color cycle brush for new stroke and start animation
     if (ccFlags.isAny) {
-      // Pause all CC playback while drawing a CC stroke
-      const hadAnyPlaying = pauseAllBrushCCAnimationsNow();
-      wasCCPlayingBeforeInteractionRef.current = hadAnyPlaying;
       // Don't set up callback here - let startContinuousColorCycleAnimation handle it
       const shouldAnimateLive = true;
 
@@ -1365,11 +1379,8 @@ export function useDrawingHandlers({
           st.setBrushSettings({ autoSampleGradient: false });
         }
       } catch {}
-      // Resume previously paused CC animations (all affected layers)
-      if (wasCCPlayingBeforeInteractionRef.current) {
-        resumePausedBrushCCAnimations();
-        wasCCPlayingBeforeInteractionRef.current = false;
-      }
+      // DO NOT auto-resume animations - they stay paused after drawing
+      // User must manually press play to restart
       if (isBusyRef) isBusyRef.current = false;
     }
   }, [
@@ -1381,8 +1392,7 @@ export function useDrawingHandlers({
     brushEngine,
     processBatchedStrokes,
     equidistantPointsOnPolyline,
-    sampleHexAt,
-    resumePausedBrushCCAnimations
+    sampleHexAt
   ]);
 
   const finalizeStroke = useCallback(() => {
@@ -1406,16 +1416,23 @@ export function useDrawingHandlers({
     }
 
     if (tools.shapeMode) {
-      // If this is a Color Cycle Shape, pause all CC animations during preview
-      try {
-        const state = useAppStore.getState();
-        const isCCShape = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-        if (isCCShape && !ccShapePreviewPauseStartedRef.current) {
-          const hadAnyPlaying = pauseAllBrushCCAnimationsNow();
-          wasCCPlayingBeforeInteractionRef.current = hadAnyPlaying;
-          ccShapePreviewPauseStartedRef.current = true;
+      const state = useAppStore.getState();
+      const isCCShape = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+
+      if (isCCShape) {
+        // AUTO-START animations when using CC shape brush
+        if (!getColorCycleAnimationState()) {
+          toggleGlobalColorCyclePlayback(true);
         }
-      } catch {}
+      } else {
+        // Only pause for non-CC shape brushes
+        pauseAllBrushCCAnimationsNow();
+
+        // Use the global playback utility to pause ALL animations properly
+        if (getColorCycleAnimationState()) {
+          toggleGlobalColorCyclePlayback(false);
+        }
+      }
       // quiet
       // Avoid allocating the full-size drawing canvas at the first vertex for
       // Color Cycle Shape previews. We render previews on the lightweight overlay
@@ -1452,16 +1469,25 @@ export function useDrawingHandlers({
   }, [tools.shapeMode, initDrawingCanvas, startDrawing, pauseAllBrushCCAnimationsNow, updateAutoSampledGradient]);
   
   const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }) => {
-    // Ensure CC animations remain paused during CC shape preview even if the preview starts from a move
-    try {
+    // Handle animations based on brush type
+    if (tools.shapeMode && !ccShapePreviewPauseStartedRef.current) {
       const state = useAppStore.getState();
       const isCCShape = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-      if (tools.shapeMode && isCCShape && !ccShapePreviewPauseStartedRef.current) {
-        const hadAnyPlaying = pauseAllBrushCCAnimationsNow();
-        wasCCPlayingBeforeInteractionRef.current = wasCCPlayingBeforeInteractionRef.current || hadAnyPlaying;
-        ccShapePreviewPauseStartedRef.current = true;
+
+      if (isCCShape) {
+        // AUTO-START for CC shapes
+        if (!getColorCycleAnimationState()) {
+          toggleGlobalColorCyclePlayback(true);
+        }
+      } else {
+        // Only pause for non-CC shapes
+        pauseAllBrushCCAnimationsNow();
+        if (getColorCycleAnimationState()) {
+          toggleGlobalColorCyclePlayback(false);
+        }
       }
-    } catch {}
+      ccShapePreviewPauseStartedRef.current = true;
+    }
     // Check if layer is still visible before continuing shape drawing
     const currentState = useAppStore.getState();
     const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
@@ -1609,18 +1635,7 @@ export function useDrawingHandlers({
         shapePointsRef.current = [];
         isDrawingShapeRef.current = false;
         
-        // Restart color cycle animation if it was playing before direction selection
-        if (wasCCPlayingBeforeInteractionRef.current) {
-          // Resume previously paused per-layer anims
-          resumePausedBrushCCAnimations();
-          // Also respect global play state and kick the continuous loop if needed
-          try {
-            if (typeof getColorCycleAnimationState === 'function' && getColorCycleAnimationState()) {
-              startCCRef.current?.();
-            }
-          } catch {}
-          wasCCPlayingBeforeInteractionRef.current = false;
-        }
+        // DO NOT auto-resume animations - they stay paused after drawing
         ccShapePreviewPauseStartedRef.current = false;
         
         if (isBusyRef) isBusyRef.current = false;
@@ -2029,11 +2044,7 @@ export function useDrawingHandlers({
           // For CC layers, the save already happened after drawing the shape
           // No need to save again here
           
-          // Resume continuous animation if it was playing before starting the shape
-          if (wasCCPlayingBeforeInteractionRef.current) {
-            try { startCCRef.current(); } catch {}
-            wasCCPlayingBeforeInteractionRef.current = false;
-          }
+          // DO NOT auto-resume animations - they stay paused after drawing
           // Reset auto-sample state after shape ends
           autoSamplePointsRef.current = [];
           autoSampleLastUpdateRef.current = 0;
@@ -2043,17 +2054,7 @@ export function useDrawingHandlers({
         
         if (isBusyRef) isBusyRef.current = false;
         await finalizeDrawing();
-        // If animations were paused before the shape, resume them now
-        if (wasCCPlayingBeforeInteractionRef.current) {
-          // Resume per-layer and, if global play button on, start continuous loop
-          resumePausedBrushCCAnimations();
-          try {
-            if (typeof getColorCycleAnimationState === 'function' && getColorCycleAnimationState()) {
-              startCCRef.current?.();
-            }
-          } catch {}
-          wasCCPlayingBeforeInteractionRef.current = false;
-        }
+        // DO NOT auto-resume animations - they stay paused after drawing
         ccShapePreviewPauseStartedRef.current = false;
         return;
       } else if (isDrawingShapeRef.current) {
@@ -2065,7 +2066,7 @@ export function useDrawingHandlers({
     } finally {
       if (isBusyRef) isBusyRef.current = false;
     }
-  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef, saveCanvasState, activeLayerId, initDrawingCanvas, equidistantPointsOnPolyline, sampleHexAt, resumePausedBrushCCAnimations]);
+  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef, saveCanvasState, activeLayerId, initDrawingCanvas, equidistantPointsOnPolyline, sampleHexAt]);
   
   // Helper function to render all visible color cycle layers
   const renderAllColorCycleLayers = useCallback((targetCtx: CanvasRenderingContext2D, onlyActiveLayer: boolean = false) => {
@@ -2251,11 +2252,8 @@ export function useDrawingHandlers({
   
   // Stop continuous color cycle animation AND pause it (applies to all brush-based CC layers)
   const stopContinuousColorCycleAnimation = useCallback(() => {
-    const hadAny = pauseAllBrushCCAnimationsNow();
-    // Mark that we should resume after this interaction if anything was playing
-    if (hadAny) {
-      wasCCPlayingBeforeInteractionRef.current = true;
-    }
+    pauseAllBrushCCAnimationsNow();
+    // DO NOT track for auto-resume - animations stay paused
 
     continuousColorCycleAnimationActiveRef.current = false;
     if (continuousColorCycleAnimationRef.current) {
