@@ -636,4 +636,6 @@ export interface ContourLinesState {
   convergenceA?: { x: number; y: number } | null;
   convergenceB?: { x: number; y: number } | null;
   centroid?: { x: number; y: number } | null;
+  spacingReferenceDistance?: number | null;
+  spacingReferenceSpacing?: number | null;
 }

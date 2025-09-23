@@ -189,6 +189,25 @@ type SerializedColorCycleWebGLState = NonNullable<SerializedLayer['colorCycleDat
 const savedWebGLStates = new WeakMap<Layer, SerializedColorCycleWebGLState | undefined>();
 const savedBrushStates = new WeakMap<Layer, PersistedColorCycleBrushState | undefined>();
 
+function imageDataHasVisiblePixels(imageData: ImageData | null | undefined): boolean {
+  if (!imageData) return false;
+  const { data } = imageData;
+  const length = data.length;
+  // Sample every 4th pixel by default, but bail fast if we find anything opaque
+  for (let i = 3; i < length; i += 16) {
+    if (data[i] > 0) {
+      return true;
+    }
+  }
+  // If coarse sampling did not find anything, perform a final sparse check to avoid false negatives
+  for (let i = 3; i < length; i += Math.max(4, Math.floor(length / 4096))) {
+    if (data[i] > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Convert ImageData to base64 encoded raw pixel data (lossless)
 function imageDataToDataUrl(imageData: ImageData): string {
   // Serialize ImageData as raw RGBA pixel data to preserve exact values
@@ -934,6 +953,20 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
           colorCycleBrush.setGradient(layer.colorCycleData.gradient);
         }
         layer.colorCycleData.colorCycleBrush = colorCycleBrush;
+
+        if (imageDataHasVisiblePixels(layer.imageData)) {
+          if (layer.imageData) {
+            try {
+              const ctx = layer.colorCycleData.canvas?.getContext('2d', { willReadFrequently: true });
+              ctx?.putImageData(layer.imageData, 0, 0);
+            } catch {}
+          }
+          if (typeof colorCycleBrush.markLayerHasExternalBase === 'function') {
+            try {
+              colorCycleBrush.markLayerHasExternalBase(layer.id);
+            } catch {}
+          }
+        }
       }
     }
   }

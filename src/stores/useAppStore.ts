@@ -559,7 +559,9 @@ const createDefaultContourLinesState = (): ContourLinesState => ({
   lineAngle: null,
   convergenceA: null,
   convergenceB: null,
-  centroid: null
+  centroid: null,
+  spacingReferenceDistance: null,
+  spacingReferenceSpacing: null
 });
 
 export const useAppStore = create<AppState>()(

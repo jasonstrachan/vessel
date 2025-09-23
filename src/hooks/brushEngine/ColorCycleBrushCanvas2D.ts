@@ -31,6 +31,7 @@ type LayerStrokeState = {
   gradientLayerIndices: number[];
   currentGradientIndex: number;
   stampCounter: number;
+  hasExternalBase?: boolean;
 };
 
 type AnimatorSerializedState = ReturnType<ColorCycleAnimator['serialize']>;
@@ -193,7 +194,31 @@ export class ColorCycleBrushCanvas2D {
     this.minPressure = 1;
     this.maxPressure = 200; // Default to 2x size at max pressure
   }
-  
+
+  private ensureStrokeState(layerId: string): LayerStrokeState {
+    let strokeData = this.layerStrokes.get(layerId);
+    if (!strokeData) {
+      strokeData = {
+        paintBuffer: new Uint8Array(this.width * this.height),
+        hasContent: false,
+        strokeCounter: 0,
+        strokeLength: 0,
+        lastPoint: null,
+        gradientLayerIndices: [],
+        currentGradientIndex: 0,
+        stampCounter: 0,
+        hasExternalBase: false
+      };
+      this.layerStrokes.set(layerId, strokeData);
+    }
+    return strokeData;
+  }
+
+  markLayerHasExternalBase(layerId: string) {
+    const strokeData = this.ensureStrokeState(layerId);
+    strokeData.hasExternalBase = true;
+  }
+
   /**
    * Get or create animator for a layer
    */
@@ -277,7 +302,8 @@ export class ColorCycleBrushCanvas2D {
           lastPoint: null,
           gradientLayerIndices: [],
           currentGradientIndex: 0,
-          stampCounter: 0
+          stampCounter: 0,
+          hasExternalBase: false
         });
       }
       // quiet
@@ -322,7 +348,8 @@ export class ColorCycleBrushCanvas2D {
         lastPoint: null,
         gradientLayerIndices: [],
         currentGradientIndex: 0,
-        stampCounter: 0
+        stampCounter: 0,
+        hasExternalBase: false
       };
       this.layerStrokes.set(id, strokeData);
     } else if (!strokeData.hasContent) {
@@ -1957,6 +1984,22 @@ export class ColorCycleBrushCanvas2D {
     const prevSmoothing = ctx.imageSmoothingEnabled;
 
     try {
+      const strokeData = this.layerStrokes.get(layerId);
+
+      if (strokeData?.hasExternalBase) {
+        const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
+        if (srcCtx) {
+          const prevMode = srcCtx.globalCompositeOperation;
+          try {
+            srcCtx.globalCompositeOperation = 'destination-over';
+            srcCtx.drawImage(targetCanvas, 0, 0);
+          } finally {
+            srcCtx.globalCompositeOperation = prevMode;
+          }
+        }
+        strokeData.hasExternalBase = false;
+      }
+
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1.0;
       try {
@@ -1964,8 +2007,10 @@ export class ColorCycleBrushCanvas2D {
       } catch {}
       ctx.imageSmoothingEnabled = false;
 
-      // Clear before drawing so stale pixels from previous gradients cannot persist.
-      ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      // Clear before drawing when animator owns the full contents of the layer.
+      if (!strokeData?.hasExternalBase) {
+        ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      }
       ctx.drawImage(srcCanvas, 0, 0);
     } finally {
       ctx.globalCompositeOperation = prevComposite;
@@ -2029,6 +2074,21 @@ export class ColorCycleBrushCanvas2D {
 
     const srcCanvas = animator.getCanvas();
 
+    const strokeData = this.layerStrokes.get(layerId);
+    if (strokeData?.hasExternalBase) {
+      const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
+      if (srcCtx) {
+        const prevMode = srcCtx.globalCompositeOperation;
+        try {
+          srcCtx.globalCompositeOperation = 'destination-over';
+          srcCtx.drawImage(targetCanvas, 0, 0);
+        } finally {
+          srcCtx.globalCompositeOperation = prevMode;
+        }
+      }
+      strokeData.hasExternalBase = false;
+    }
+
     // If the target is the same canvas as the animator's internal canvas,
     // do not draw onto itself. forceRender() already updated pixels.
     if (srcCanvas === targetCanvas) {
@@ -2048,6 +2108,10 @@ export class ColorCycleBrushCanvas2D {
       // Ensure no stray transforms affect placement
       try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch {}
       ctx.imageSmoothingEnabled = false;
+
+      if (!strokeData?.hasExternalBase) {
+        ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      }
 
       // Handle potential size mismatches defensively
       if (srcCanvas.width !== targetCanvas.width || srcCanvas.height !== targetCanvas.height) {
@@ -2723,7 +2787,8 @@ export class ColorCycleBrushCanvas2D {
       lastPoint: null,
       gradientLayerIndices: [],
       currentGradientIndex: 0,
-      stampCounter: 0
+      stampCounter: 0,
+      hasExternalBase: false
     };
     if (strokeData.paintBuffer.length !== expectedSize) {
       strokeData.paintBuffer = new Uint8Array(expectedSize);
@@ -2787,6 +2852,9 @@ export class ColorCycleBrushCanvas2D {
     }
 
     strokeData.hasContent = hasLayerContent;
+    if (hasLayerContent) {
+      strokeData.hasExternalBase = false;
+    }
     strokeData.strokeCounter = snapshot.strokeCounter || 0;
     strokeData.strokeLength = 0;
     strokeData.lastPoint = null;
