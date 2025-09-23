@@ -138,6 +138,22 @@
         try {
           const text = await file.text();
           const metadata = JSON.parse(text);
+          metadata?.layers?.forEach((layer, idx) => {
+            const brushState = layer?.colorCycle?.brushState;
+            const indexBuffer = brushState?.indexBuffer;
+            if (indexBuffer) {
+              console.log(`[DEBUG] Layer ${idx} indexBuffer type:`, typeof indexBuffer);
+              console.log(`[DEBUG] Layer ${idx} indexBuffer sample:`,
+                typeof indexBuffer === 'string'
+                  ? indexBuffer.slice(0, 50)
+                  : Array.isArray(indexBuffer)
+                    ? `Array(${indexBuffer.length})`
+                    : indexBuffer instanceof Uint8Array
+                      ? `Uint8Array(${indexBuffer.length})`
+                      : 'unknown'
+              );
+            }
+          });
           void drawMetadata(metadata);
         } catch (error) {
           console.error('Failed to load TinyBrush bundle', error);

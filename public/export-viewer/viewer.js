@@ -1,3 +1,5 @@
+import { inflateRaw } from './fflate-inflate.js';
+
 const loadImage = (src) => {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -31,6 +33,39 @@ const applyLayer = (ctx, img, layer, scale) => {
   const scaleY = toFinite(transform.scaleY, 1);
   const rotation = toFinite(transform.rotation, 0);
 
+  const canvasWidth = ctx.canvas?.width ?? 0;
+  const canvasHeight = ctx.canvas?.height ?? 0;
+  const destX = (frameX + translateX) * scale;
+  const destY = (frameY + translateY) * scale;
+  const scaledWidth = width * scaleX * scale;
+  const scaledHeight = height * scaleY * scale;
+  const bounds = {
+    x: destX,
+    y: destY,
+    width: scaledWidth,
+    height: scaledHeight
+  };
+  const offscreen = (
+    bounds.x + bounds.width <= 0 ||
+    bounds.y + bounds.height <= 0 ||
+    bounds.x >= canvasWidth ||
+    bounds.y >= canvasHeight
+  );
+  console.log('[DEBUG] applyLayer positioning:', {
+    id: layer?.id,
+    frameX,
+    frameY,
+    translateX,
+    translateY,
+    scaleX,
+    scaleY,
+    rotationDegrees: rotation * (180 / Math.PI),
+    canvasWidth,
+    canvasHeight,
+    bounds,
+    offscreen
+  });
+
   ctx.save();
   ctx.scale(scale, scale);
   ctx.globalAlpha = Math.max(0, Math.min(1, layer?.opacity ?? 1));
@@ -58,6 +93,145 @@ const validateMetadata = (metadata) => {
     throw new Error('Layers array missing or invalid');
   }
 };
+
+const B64Z_PREFIX = 'b64z:';
+
+const decodeBase64ToUint8 = (base64) => {
+  if (typeof base64 !== 'string') {
+    throw new Error('Expected base64 string');
+  }
+  const normalized = base64.trim();
+  const binary = atob(normalized);
+  const length = binary.length;
+  const bytes = new Uint8Array(length);
+  for (let i = 0; i < length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+};
+
+const decompressWithStream = async (compressed) => {
+  const DecompressionStreamCtor = typeof DecompressionStream === 'function' ? DecompressionStream : null;
+  if (!DecompressionStreamCtor) {
+    return null;
+  }
+  try {
+    const sourceStream = typeof Blob !== 'undefined' && typeof Blob.prototype?.stream === 'function'
+      ? new Blob([compressed]).stream()
+      : new Response(compressed).body;
+    if (!sourceStream) {
+      return null;
+    }
+    const stream = sourceStream.pipeThrough(new DecompressionStreamCtor('deflate-raw'));
+    const buffer = await new Response(stream).arrayBuffer();
+    return new Uint8Array(buffer);
+  } catch (error) {
+    console.warn('[viewer] DecompressionStream fallback failed', error);
+    return null;
+  }
+};
+
+const inflateRawFallback = (compressed) => {
+  try {
+    const result = inflateRaw(compressed);
+    return result && result.length ? result : null;
+  } catch (error) {
+    console.warn('[viewer] inflateRaw fallback failed', error);
+    return null;
+  }
+};
+
+const decompressB64ZPayload = async (payload) => {
+  if (typeof payload !== 'string' || !payload.startsWith(B64Z_PREFIX)) {
+    return null;
+  }
+
+  const base64Part = payload.slice(B64Z_PREFIX.length);
+  const compressed = decodeBase64ToUint8(base64Part);
+
+  const streamResult = await decompressWithStream(compressed);
+  if (streamResult && streamResult.length) {
+    return streamResult;
+  }
+
+  const fallbackResult = inflateRawFallback(compressed);
+  if (fallbackResult && fallbackResult.length) {
+    return fallbackResult;
+  }
+
+  throw new Error('Failed to decompress b64z payload');
+};
+
+const hasNumericPayload = (value) => {
+  if (!value) {
+    return false;
+  }
+  if (typeof value === 'string') {
+    return value.startsWith(B64Z_PREFIX);
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (value instanceof Uint8Array) {
+    return value.length > 0;
+  }
+  if (ArrayBuffer.isView(value)) {
+    return value.length > 0;
+  }
+  return false;
+};
+
+const DEFAULT_ANIMATION_SPEED = 0.1;
+
+const resolveAnimationSpeed = (rawExportedSpeed, rawFallbackSpeed, shouldAnimate) => {
+  const exportedSpeed = Number.isFinite(rawExportedSpeed) ? Number(rawExportedSpeed) : null;
+  const fallbackSpeed = Number.isFinite(rawFallbackSpeed) ? Number(rawFallbackSpeed) : null;
+  if (exportedSpeed !== null && exportedSpeed > 0) {
+    return exportedSpeed;
+  }
+  if (shouldAnimate) {
+    if (fallbackSpeed !== null && fallbackSpeed > 0) {
+      return fallbackSpeed;
+    }
+    return DEFAULT_ANIMATION_SPEED;
+  }
+  if (exportedSpeed !== null) {
+    return Math.max(0, exportedSpeed);
+  }
+  if (fallbackSpeed !== null) {
+    return Math.max(0, fallbackSpeed);
+  }
+  return 0;
+};
+
+const resolveNumericBuffer = async (value) => {
+  if (!value) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    if (value.startsWith(B64Z_PREFIX)) {
+      return await decompressB64ZPayload(value);
+    }
+    return null;
+  }
+  if (value instanceof Uint8Array) {
+    return value.length ? value.slice() : new Uint8Array(0);
+  }
+  if (ArrayBuffer.isView(value)) {
+    const view = value;
+    return new Uint8Array(view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength));
+  }
+  if (Array.isArray(value)) {
+    const buffer = new Uint8Array(value.length);
+    for (let i = 0; i < value.length; i += 1) {
+      const entry = value[i];
+      buffer[i] = Number.isFinite(entry) && entry >= 0 ? entry & 0xff : 0;
+    }
+    return buffer;
+  }
+  return null;
+};
+
 
 const RENDERER_KEY = Symbol('TinyBrushRenderer');
 
@@ -90,6 +264,25 @@ const reflect01 = (value) => {
   let t = value % two;
   if (t < 0) t += two;
   return t <= 1 ? t : (two - t);
+};
+
+const normalizeFlowDirection = (direction, fallback = 'forward') => {
+  if (typeof direction !== 'string') {
+    return fallback;
+  }
+
+  const value = direction.trim().toLowerCase();
+  if (value === 'forward') {
+    return 'forward';
+  }
+  if (value === 'reverse' || value === 'backward') {
+    return 'reverse';
+  }
+  if (value === 'pingpong' || value === 'bounce') {
+    return value;
+  }
+
+  return fallback;
 };
 
 const parseColor = (input) => {
@@ -227,9 +420,10 @@ const buildGradientLUT = ({
   const lut = new Uint32Array(256);
   const bands = Math.max(1, Math.floor(Number.isFinite(cycleColors) ? cycleColors : 16));
   const mode = mappingMode === 'continuous' ? 'continuous' : 'banded';
-  const direction = flowDirection === 'reverse' ? -1 : 1;
-  const pingpong = flowDirection === 'pingpong' || flowDirection === 'bounce';
-  const normalizedShift = direction * (Number.isFinite(tick) ? tick : 0) / bands;
+  const normalizedDirection = normalizeFlowDirection(flowDirection);
+  const directionSign = normalizedDirection === 'reverse' ? -1 : 1;
+  const pingpong = normalizedDirection === 'pingpong' || normalizedDirection === 'bounce';
+  const normalizedShift = directionSign * (Number.isFinite(tick) ? tick : 0) / bands;
 
   for (let i = 0; i < 256; i++) {
     let phaseBase;
@@ -391,7 +585,7 @@ class ColorCycleLayerPlayer {
     this.pixels32 = new Uint32Array(this.imageData.data.buffer);
   }
 
-  initialize() {
+  async initialize() {
     const colorCycle = this.layer.colorCycle;
     if (!colorCycle) {
       throw new Error('Layer missing color cycle metadata');
@@ -399,8 +593,8 @@ class ColorCycleLayerPlayer {
 
     const recolorSettings = colorCycle.recolorSettings;
     const brushState = colorCycle.brushState;
-    const hasRecolor = Boolean(recolorSettings && Array.isArray(recolorSettings.indexBuffer) && recolorSettings.indexBuffer.length > 0);
-    const hasBrush = Boolean(brushState && Array.isArray(brushState.indexBuffer) && brushState.indexBuffer.length > 0);
+    const hasRecolor = Boolean(recolorSettings && hasNumericPayload(recolorSettings.indexBuffer));
+    const hasBrush = Boolean(brushState && hasNumericPayload(brushState.indexBuffer));
 
     if (hasRecolor && (!colorCycle.mode || colorCycle.mode === 'recolor')) {
       this.mode = 'recolor';
@@ -409,11 +603,18 @@ class ColorCycleLayerPlayer {
         throw new Error('Color cycle settings missing');
       }
 
+      const indexBuffer = await resolveNumericBuffer(settings.indexBuffer);
+      if (!indexBuffer || indexBuffer.length === 0) {
+        throw new Error('Color cycle settings missing index buffer');
+      }
+
       this.zeroTransparent = false;
       this.subtractIndexOffset = false;
-      this.indexBuffer = Uint8Array.from(settings.indexBuffer);
-      this.indexPhaseMap = settings.indexPhaseMap ? Uint8Array.from(settings.indexPhaseMap) : null;
-      this.phaseMap = settings.phaseMap ? Uint8Array.from(settings.phaseMap) : null;
+      this.indexBuffer = indexBuffer;
+      const indexPhaseMap = await resolveNumericBuffer(settings.indexPhaseMap);
+      this.indexPhaseMap = indexPhaseMap && indexPhaseMap.length ? indexPhaseMap : null;
+      const phaseMap = await resolveNumericBuffer(settings.phaseMap);
+      this.phaseMap = phaseMap && phaseMap.length ? phaseMap : null;
       this.gradient = normalizeGradientStops(settings.gradient);
       this.cycleColors = Math.max(1, Math.floor(Number.isFinite(settings.cycleColors) ? settings.cycleColors : 16));
       this.mappingMode = settings.mappingMode === 'continuous' ? 'continuous' : 'banded';
@@ -421,11 +622,12 @@ class ColorCycleLayerPlayer {
 
       const animation = settings.animation || {};
       const exportedSpeed = Number.isFinite(animation.speed) ? animation.speed : null;
-      this.speed = exportedSpeed !== null ? Math.max(0, exportedSpeed) : Math.max(0, colorCycle?.brushSpeed ?? 0.1);
+      const fallbackSpeed = Number.isFinite(colorCycle?.brushSpeed) ? colorCycle.brushSpeed : null;
+      const shouldAnimate = (animation.isPlaying ?? colorCycle?.isAnimating) !== false;
+      this.speed = resolveAnimationSpeed(exportedSpeed, fallbackSpeed, shouldAnimate);
       this.currentTick = Number.isFinite(animation.currentTick) ? animation.currentTick : 0;
-      this.flowDirection = animation.flowDirection || 'forward';
-      const defaultAnimating = animation.isPlaying ?? colorCycle?.isAnimating;
-      this.isAnimating = defaultAnimating !== false;
+      this.flowDirection = normalizeFlowDirection(animation.flowDirection, 'forward');
+      this.isAnimating = shouldAnimate;
     } else if (hasBrush) {
       this.mode = 'brush';
       const state = brushState;
@@ -435,10 +637,14 @@ class ColorCycleLayerPlayer {
         this.createSurface(stateWidth, stateHeight);
       }
 
-      this.indexBuffer = new Uint8Array(state.indexBuffer.length);
-      this.indexBuffer.set(state.indexBuffer);
+      const indexBuffer = await resolveNumericBuffer(state.indexBuffer);
+      if (!indexBuffer || indexBuffer.length === 0) {
+        throw new Error('Brush state missing index buffer');
+      }
+      this.indexBuffer = indexBuffer;
       this.indexPhaseMap = null;
       this.phaseMap = null;
+
       const gradientStops = state.gradientStops && state.gradientStops.length > 0
         ? state.gradientStops
         : (colorCycle.gradient ?? []);
@@ -452,13 +658,15 @@ class ColorCycleLayerPlayer {
       this.zeroTransparent = true;
       this.subtractIndexOffset = true;
 
-      const exportedSpeed = Number.isFinite(colorCycle.brushSpeed) ? Number(colorCycle.brushSpeed) : null;
-      this.speed = exportedSpeed !== null ? Math.max(0, exportedSpeed) : 0.1;
+      const exportedSpeed = Number.isFinite(state?.animationSpeed) ? state.animationSpeed : null;
+      const fallbackSpeed = Number.isFinite(colorCycle.brushSpeed) ? colorCycle.brushSpeed : null;
+      const shouldAnimate = colorCycle.isAnimating !== false;
+      this.speed = resolveAnimationSpeed(exportedSpeed, fallbackSpeed, shouldAnimate);
       const offset = Number.isFinite(state.animationOffset) ? Number(state.animationOffset) : 0;
       const normalizedOffset = ((offset % 1) + 1) % 1;
       this.currentTick = normalizedOffset * this.cycleColors;
-      this.flowDirection = 'forward';
-      this.isAnimating = colorCycle.isAnimating !== false;
+      this.flowDirection = normalizeFlowDirection(state.flowDirection, 'reverse');
+      this.isAnimating = shouldAnimate;
 
       const expectedLength = this.width * this.height;
       if (this.indexBuffer.length !== expectedLength) {
@@ -468,14 +676,19 @@ class ColorCycleLayerPlayer {
         this.indexBuffer = resized;
       }
     } else if (hasRecolor) {
-      // Fallback: treat as recolor even if mode not explicitly specified
       this.mode = 'recolor';
       const settings = recolorSettings;
+      const indexBuffer = await resolveNumericBuffer(settings.indexBuffer);
+      if (!indexBuffer || indexBuffer.length === 0) {
+        throw new Error('Color cycle settings missing index buffer');
+      }
       this.zeroTransparent = false;
       this.subtractIndexOffset = false;
-      this.indexBuffer = Uint8Array.from(settings.indexBuffer);
-      this.indexPhaseMap = settings.indexPhaseMap ? Uint8Array.from(settings.indexPhaseMap) : null;
-      this.phaseMap = settings.phaseMap ? Uint8Array.from(settings.phaseMap) : null;
+      this.indexBuffer = indexBuffer;
+      const indexPhaseMap = await resolveNumericBuffer(settings.indexPhaseMap);
+      this.indexPhaseMap = indexPhaseMap && indexPhaseMap.length ? indexPhaseMap : null;
+      const phaseMap = await resolveNumericBuffer(settings.phaseMap);
+      this.phaseMap = phaseMap && phaseMap.length ? phaseMap : null;
       this.gradient = normalizeGradientStops(settings.gradient);
       this.cycleColors = Math.max(1, Math.floor(Number.isFinite(settings.cycleColors) ? settings.cycleColors : 16));
       this.mappingMode = settings.mappingMode === 'continuous' ? 'continuous' : 'banded';
@@ -483,13 +696,18 @@ class ColorCycleLayerPlayer {
 
       const animation = settings.animation || {};
       const exportedSpeed = Number.isFinite(animation.speed) ? animation.speed : null;
-      this.speed = exportedSpeed !== null ? Math.max(0, exportedSpeed) : Math.max(0, colorCycle?.brushSpeed ?? 0.1);
+      const fallbackSpeed = Number.isFinite(colorCycle?.brushSpeed) ? colorCycle.brushSpeed : null;
+      const shouldAnimate = (animation.isPlaying ?? colorCycle?.isAnimating) !== false;
+      this.speed = resolveAnimationSpeed(exportedSpeed, fallbackSpeed, shouldAnimate);
       this.currentTick = Number.isFinite(animation.currentTick) ? animation.currentTick : 0;
-      this.flowDirection = animation.flowDirection || 'forward';
-      const defaultAnimating = animation.isPlaying ?? colorCycle?.isAnimating;
-      this.isAnimating = defaultAnimating !== false;
+      this.flowDirection = normalizeFlowDirection(animation.flowDirection, 'forward');
+      this.isAnimating = shouldAnimate;
     } else {
       throw new Error('Color cycle settings missing index buffer');
+    }
+
+    if (this.indexBuffer instanceof Uint8Array && this.indexBuffer.length === 0) {
+      throw new Error('Color cycle index buffer is empty');
     }
 
     if (this.image) {
@@ -524,7 +742,39 @@ class ColorCycleLayerPlayer {
       }
     }
 
+    console.log('[DEBUG] ColorCycleLayerPlayer init summary:', {
+      mode: this.mode,
+      speed: this.speed,
+      isAnimating: this.isAnimating,
+      cycleColors: this.cycleColors,
+      hasAnimation: this.hasAnimation(),
+      width: this.width,
+      height: this.height
+    });
+
     this.renderFrame();
+
+    const canvas = this.getCanvas();
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      let nonTransparentPixels = 0;
+      for (let i = 3; i < imageData.data.length; i += 4) {
+        if (imageData.data[i] > 0) {
+          nonTransparentPixels += 1;
+        }
+      }
+      const totalPixels = canvas.width * canvas.height || 1;
+      const percentFilled = (nonTransparentPixels / totalPixels) * 100;
+      console.log('[DEBUG] Player canvas check:', {
+        width: canvas.width,
+        height: canvas.height,
+        nonTransparentPixels,
+        percentFilled: `${percentFilled.toFixed(2)}%`
+      });
+    } else {
+      console.warn('[DEBUG] Player canvas check skipped: 2D context unavailable');
+    }
   }
 
   hasAnimation() {
@@ -550,8 +800,15 @@ class ColorCycleLayerPlayer {
 
   renderFrame() {
     if (!this.indexBuffer) {
+      console.log('[DEBUG] renderFrame: No indexBuffer!');
       return;
     }
+    console.log('[DEBUG] renderFrame called:', {
+      indexBufferLength: this.indexBuffer.length,
+      width: this.width,
+      height: this.height,
+      mode: this.mode
+    });
     const lut = buildGradientLUT({
       gradient: this.gradient,
       cycleColors: this.cycleColors,
@@ -571,6 +828,8 @@ class ColorCycleLayerPlayer {
     }
 
     this.ctx.putImageData(this.imageData, 0, 0);
+    const testPixel = this.ctx.getImageData(0, 0, 1, 1).data;
+    console.log('[DEBUG] First pixel after render:', Array.from(testPixel));
   }
 
   getCanvas() {
@@ -640,13 +899,23 @@ class TinyBrushBundleRenderer {
       }
 
       let player = null;
-      const hasRecolorBuffers = Boolean(layer.colorCycle?.recolorSettings?.indexBuffer?.length);
-      const hasBrushBuffers = Boolean(layer.colorCycle?.brushState?.indexBuffer?.length);
+      const hasRecolorBuffers = hasNumericPayload(layer.colorCycle?.recolorSettings?.indexBuffer);
+      const hasBrushBuffers = hasNumericPayload(layer.colorCycle?.brushState?.indexBuffer);
+      console.log(`[DEBUG] Layer ${layer.id}:`, {
+        hasColorCycle: !!layer.colorCycle,
+        hasRecolorBuffers,
+        hasBrushBuffers,
+        mode: layer.colorCycle?.mode,
+        willCreatePlayer: hasRecolorBuffers || hasBrushBuffers
+      });
       if (hasRecolorBuffers || hasBrushBuffers) {
         try {
           player = new ColorCycleLayerPlayer(layer, image);
-          player.initialize();
+          console.log('[DEBUG] Player created, initializing...');
+          await player.initialize();
+          console.log('[DEBUG] Player initialized successfully');
         } catch (error) {
+          console.error('[DEBUG] Player init failed:', error);
           console.warn(`[viewer] Failed to initialize color cycle animation for layer ${layer.id}`, error);
           player = null;
         }
@@ -716,17 +985,34 @@ class TinyBrushBundleRenderer {
       }
       const source = entry.player ? entry.player.getCanvas() : entry.image;
       if (!source) {
+        if (entry.player) {
+          console.log('[DEBUG] Skipping color cycle layer with no canvas source:', layer.id);
+        }
         continue;
       }
       const painted = applyLayer(ctx, source, layer, this.scale);
       if (painted) {
         paintedLayers++;
+        if (entry.player) {
+          console.log('[DEBUG] Painted color cycle layer:', {
+            id: layer.id,
+            blendMode: layer.blendMode,
+            opacity: layer.opacity,
+            width: source.width,
+            height: source.height
+          });
+        }
+      } else if (entry.player) {
+        console.log('[DEBUG] Failed to paint color cycle layer:', layer.id);
       }
     }
 
     if (paintedLayers === 0 && paintOrder.length > 0) {
       console.warn('[viewer] Render completed but no layers produced pixels.');
     }
+
+    const composedPixel = ctx.getImageData(0, 0, 1, 1).data;
+    console.log('[DEBUG] Composite canvas first pixel:', Array.from(composedPixel));
 
     ctx.restore();
   }
