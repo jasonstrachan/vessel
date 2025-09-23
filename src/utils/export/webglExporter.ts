@@ -6,15 +6,15 @@ import {
 } from '@/utils/layerAlignment';
 import type { ExportContainerLayout, Layer, Project, WebGLExportBundleFormat } from '@/types';
 
-type JSZipConstructor = any;
+type JSZipModule = typeof import('jszip');
 
-let jszipCtorPromise: Promise<JSZipConstructor> | null = null;
+let jszipCtorPromise: Promise<JSZipModule> | null = null;
 
-const loadJSZip = async (): Promise<JSZipConstructor> => {
+const loadJSZip = async (): Promise<JSZipModule> => {
   if (!jszipCtorPromise) {
     jszipCtorPromise = import('jszip').then((mod) => {
-      const namespace = mod as unknown as { default?: JSZipConstructor };
-      return namespace.default ?? (mod as unknown as JSZipConstructor);
+      const candidate = mod as { default?: JSZipModule };
+      return candidate.default ?? (mod as JSZipModule);
     });
   }
   return jszipCtorPromise;
@@ -47,6 +47,14 @@ interface WebGLSerializedColorCycle {
   recolorSettings?: Record<string, unknown>;
   brushState?: WebGLSerializedBrushState;
 }
+
+type ExportableColorCycleBrush = {
+  render?: () => void;
+  renderDirectToCanvas?: (targetCanvas: HTMLCanvasElement, layerId: string) => void;
+  commitCurrentStroke?: (layerId?: string) => void;
+  compositeCanvas?: HTMLCanvasElement | OffscreenCanvas;
+  webglCanvas?: HTMLCanvasElement | OffscreenCanvas;
+} | undefined;
 
 export interface WebGLLayerMetadata {
   id: string;
@@ -446,12 +454,6 @@ const extractBrushStateFromBrushProperties = (brush: unknown, layer: Layer): Web
     animationOffset: 0
   };
 
-  console.log('[webglExporter] Created brush state from direct properties', {
-    layerId: layer.id,
-    width,
-    height,
-    indices: indexBuffer.length
-  });
   return brushState;
 };
 
@@ -546,14 +548,6 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
       targetFPS
     };
 
-    console.log('[webglExporter] Brush state extracted from animator fallback', {
-      layerId: layer.id,
-      width,
-      height,
-      indices: indexBufferData.length,
-      paletteSize: palette?.length ?? null
-    });
-
     return brushState;
   } catch (error) {
     console.warn('[webglExporter] Failed to extract brush state from animator for layer', layer.id, error);
@@ -563,13 +557,7 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
 
 const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefined => {
   const brush = layer.colorCycleData?.colorCycleBrush as { serialize?: () => unknown } | undefined;
-  const brushDescriptor = brush && typeof brush === 'object'
-    ? Object.keys(brush as Record<string, unknown>)
-    : 'no brush';
-  console.log('[DEBUG] Brush object keys:', brushDescriptor);
-
   if (!brush?.serialize) {
-    console.log('[DEBUG] No serialize method on brush');
     return undefined;
   }
 
@@ -593,29 +581,10 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
       }>;
     } | undefined;
 
-    console.log('[DEBUG] Raw serialize output structure:', {
-      hasLayers: !!raw?.layers,
-      layerCount: raw?.layers?.length,
-      firstLayer: raw?.layers?.[0] && typeof raw.layers[0] === 'object'
-        ? Object.keys(raw.layers[0] as Record<string, unknown>)
-        : 'no layers'
-    });
-
     if (raw?.layers && raw.layers.length > 0) {
       const entry = raw.layers.find((candidate) => candidate?.layerId === layer.id);
 
       if (entry) {
-        console.log('[DEBUG] Entry structure:', {
-          hasData: !!entry.data,
-          dataKeys: entry.data && typeof entry.data === 'object'
-            ? Object.keys(entry.data as Record<string, unknown>)
-            : 'no data',
-          hasIndexBuffer: !!entry.data?.indexBuffer,
-          indexBufferKeys: entry.data?.indexBuffer && typeof entry.data.indexBuffer === 'object'
-            ? Object.keys(entry.data.indexBuffer as Record<string, unknown>)
-            : 'no indexBuffer'
-        });
-
         const indexBuffer = entry.data?.indexBuffer;
         if (indexBuffer) {
           const ib = indexBuffer;
@@ -625,64 +594,16 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
           const fallbackHeight = layer.imageData?.height ?? layer.colorCycleData?.canvas?.height ?? 1;
 
           if (ib.data) {
-            console.log('[DEBUG] IndexBuffer details:', {
-              width: ib.width,
-              height: ib.height,
-              dataType: (ib.data as { constructor?: { name?: string } })?.constructor?.name ?? 'unknown',
-              dataLength: (ib.data as { length?: number })?.length ?? 0,
-              dataSample: (() => {
-                try {
-                  const arrayLike = ib.data as ArrayLike<number>;
-                  return Array.prototype.slice.call(arrayLike, 0, 10);
-                } catch {
-                  return 'no data';
-                }
-              })()
-            });
-
             let indexArray: number[] = [];
             try {
               indexArray = Array.from(ib.data as ArrayLike<number>);
             } catch (conversionError) {
-              console.warn('[DEBUG] Failed to convert indexBuffer data via Array.from, falling back to normalizeIndexBufferValues', conversionError);
+              console.warn('[webglExporter] Failed to convert indexBuffer data via Array.from, falling back to normalizeIndexBufferValues', conversionError);
               indexArray = normalizeIndexBufferValues(ib.data);
             }
 
             if (indexArray.length === 0) {
               indexArray = normalizeIndexBufferValues(ib.data);
-            }
-
-            console.log('[DEBUG] Converted to array:', {
-              length: indexArray.length,
-              sample: indexArray.slice(0, 10)
-            });
-
-            const totalLength = indexArray.length;
-            const nonZeroIndices = totalLength > 0 ? indexArray.filter((value) => value !== 0) : [];
-            const uniqueValuesSet = totalLength > 0 ? new Set<number>(indexArray) : new Set<number>();
-            const middleStart = totalLength > 500010
-              ? 500000
-              : totalLength > 0
-                ? Math.max(0, Math.floor(totalLength / 2) - 5)
-                : 0;
-            const endSampleStart = totalLength > 10 ? totalLength - 10 : 0;
-
-            console.log('[DEBUG] Index buffer analysis:', {
-              totalLength,
-              nonZeroCount: nonZeroIndices.length,
-              nonZeroPercentage: totalLength > 0 ? `${((nonZeroIndices.length / totalLength) * 100).toFixed(2)}%` : 'n/a',
-              uniqueValues: uniqueValuesSet.size,
-              uniqueValuesList: Array.from(uniqueValuesSet).slice(0, 20),
-              startSample: indexArray.slice(0, 10),
-              middleSample: indexArray.slice(middleStart, middleStart + 10),
-              endSample: indexArray.slice(endSampleStart)
-            });
-
-            if (totalLength > 0) {
-              const firstNonZeroIndex = indexArray.findIndex((value) => value !== 0);
-              if (firstNonZeroIndex !== -1) {
-                console.log('[DEBUG] First non-zero value at index:', firstNonZeroIndex, 'value:', indexArray[firstNonZeroIndex]);
-              }
             }
 
             if (indexArray.length === 0) {
@@ -715,16 +636,6 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
               targetFPS
             };
 
-            console.log('[DEBUG] Gradient stops:', {
-              count: gradientStops.length,
-              stops: gradientStops
-            });
-
-            console.log('[DEBUG] Final brushState object:', {
-              ...result,
-              indexBuffer: `Array(${result.indexBuffer.length})`
-            });
-
             return result;
           }
         }
@@ -744,7 +655,6 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
     return animatorState;
   }
 
-  console.log('[DEBUG] Failed to extract brush state');
   return undefined;
 };
 
@@ -789,53 +699,13 @@ const serializeColorCycleData = (layer: Layer): WebGLSerializedColorCycle | unde
   if (!data.recolorSettings) {
     const brushState = serializeBrushState(layer);
     if (brushState) {
-      console.log('[DEBUG] BrushState attached to colorCycle:', {
-        hasIndexBuffer: !!brushState.indexBuffer,
-        indexBufferLength: brushState.indexBuffer?.length,
-        width: brushState.width,
-        height: brushState.height
-      });
       serialized.brushState = brushState;
-      console.log('[webglExporter] Brush state included for layer', layer.id, {
-        width: brushState.width,
-        height: brushState.height,
-        indices: brushState.indexBuffer.length,
-        paletteSize: brushState.palette?.length ?? null,
-        sample: brushState.indexBuffer.slice(0, 16)
-      });
-      console.log(`[webglExporter] Brush state included: ${brushState.indexBuffer.length} indices`);
       if (!serialized.gradient || serialized.gradient.length === 0) {
         serialized.gradient = brushState.gradientStops;
       }
     } else {
       console.warn('[webglExporter] No brush state could be extracted for layer', layer.id);
     }
-  }
-
-  try {
-    const recolorIndexLength = Array.isArray(serialized.recolorSettings?.indexBuffer)
-      ? serialized.recolorSettings!.indexBuffer!.length
-      : undefined;
-    const brushIndexLength = Array.isArray(serialized.brushState?.indexBuffer)
-      ? serialized.brushState!.indexBuffer.length
-      : undefined;
-    console.log('[webglExporter] Serialized color cycle layer', layer.id, {
-      mode: serialized.mode,
-      isAnimating: serialized.isAnimating,
-      brushSpeed: serialized.brushSpeed,
-      hasRecolor: Boolean(serialized.recolorSettings),
-      recolorIndexLength,
-      recolorPhaseLength: Array.isArray(serialized.recolorSettings?.phaseMap)
-        ? serialized.recolorSettings!.phaseMap!.length
-        : undefined,
-      recolorPaletteLength: Array.isArray(serialized.recolorSettings?.palette)
-        ? serialized.recolorSettings!.palette!.length
-        : undefined,
-      brushIndexLength,
-      gradientStops: serialized.gradient?.length ?? 0
-    });
-  } catch (diagnosticError) {
-    console.warn('[webglExporter] Failed to log color cycle serialization diagnostics', diagnosticError);
   }
 
   return serialized;
@@ -862,13 +732,7 @@ const captureLayerTexture = async (layer: Layer): Promise<string | undefined> =>
       return normalized;
     }
     if (layer.colorCycleData) {
-      const brush = layer.colorCycleData.colorCycleBrush as {
-        render?: () => void;
-        renderDirectToCanvas?: (targetCanvas: HTMLCanvasElement, layerId: string) => void;
-        commitCurrentStroke?: (layerId?: string) => void;
-        compositeCanvas?: HTMLCanvasElement;
-        webglCanvas?: HTMLCanvasElement;
-      } | undefined;
+      const brush = layer.colorCycleData.colorCycleBrush as ExportableColorCycleBrush;
 
       const primaryCanvas = layer.colorCycleData.canvas as HTMLCanvasElement | OffscreenCanvas | undefined;
 
@@ -895,8 +759,8 @@ const captureLayerTexture = async (layer: Layer): Promise<string | undefined> =>
       }
 
       const candidateCanvases: Array<{ source: string; canvas?: HTMLCanvasElement | OffscreenCanvas }> = [
-        { source: 'compositeCanvas', canvas: (brush as any)?.compositeCanvas },
-        { source: 'webglCanvas', canvas: (brush as any)?.webglCanvas },
+        { source: 'compositeCanvas', canvas: brush?.compositeCanvas },
+        { source: 'webglCanvas', canvas: brush?.webglCanvas },
         { source: 'colorCycleData.canvas', canvas: primaryCanvas }
       ];
 
@@ -908,7 +772,6 @@ const captureLayerTexture = async (layer: Layer): Promise<string | undefined> =>
           const dataUrl = await canvasToDataURL(canvas);
           const normalized = normalizeImageDataUrl(dataUrl);
           if (normalized) {
-            console.log('[webglExporter] Using', source, 'for layer', layer.id);
             return normalized;
           }
         } catch (captureError) {
@@ -1077,8 +940,6 @@ const appendZipAutoloadSnippet = (scriptContent: string, bundleFilename: string,
       const renderPackagedMetadata = async (metadata) => {
         const projectName = metadata?.project?.name ?? 'packaged bundle';
         setStatus('Rendering packaged bundle…');
-        console.info('[TinyBrush Viewer] Loaded metadata for auto-render:', metadata);
-        console.info('[TinyBrush Viewer] Canvas element reference:', canvas);
         if (!(canvas instanceof HTMLCanvasElement)) {
           throw new Error('Preview canvas element is unavailable');
         }
@@ -1123,33 +984,8 @@ const buildSingleFileScript = (scriptContent: string, viewerRuntime: string, met
   const metadataLiteral = encodeMetadataForInlineScript(metadataJson);
   const snippet = `
       const packagedMetadata = JSON.parse(\`${metadataLiteral}\`);
-      // Force output to console
-      console.log('[DEBUG] Checking parsed metadata:');
-      packagedMetadata.layers.forEach((layer) => {
-        if (layer.colorCycle?.brushState) {
-          const bs = layer.colorCycle.brushState;
-          console.log(
-            '[DEBUG] Layer ' + layer.id + ' brushState indexBuffer:',
-            'exists=' + (!!bs.indexBuffer),
-            'type=' + typeof bs.indexBuffer,
-            'isArray=' + Array.isArray(bs.indexBuffer),
-            'length=' + (bs.indexBuffer?.length || 0),
-            'first5=' + (bs.indexBuffer
-              ? [
-                  bs.indexBuffer[0],
-                  bs.indexBuffer[1],
-                  bs.indexBuffer[2],
-                  bs.indexBuffer[3],
-                  bs.indexBuffer[4]
-                ].join(',')
-              : 'missing')
-          );
-        }
-      });
       const renderPackagedBundle = async () => {
         try {
-          console.info('[TinyBrush Viewer] Loaded packaged metadata:', packagedMetadata);
-          console.info('[TinyBrush Viewer] Canvas element reference:', canvas);
           if (!(canvas instanceof HTMLCanvasElement)) {
             throw new Error('Preview canvas element is unavailable');
           }
@@ -1183,25 +1019,6 @@ const createSingleFileViewerHtml = (
   viewerJs: string,
   metadataJson: string
 ): string => {
-  console.log('[webglExporter] Template length:', template.length);
-  console.log('[webglExporter] ViewerJS length:', viewerJs.length);
-  console.log('[webglExporter] Metadata JSON length:', metadataJson.length);
-
-  try {
-    const metadata = JSON.parse(metadataJson) as { layers?: Array<{ id: string; assets?: { texture?: string } }> };
-    const layers = Array.isArray(metadata.layers) ? metadata.layers : [];
-    console.log('[webglExporter] Layer count:', layers.length);
-    layers.forEach((layer) => {
-      const texture = layer?.assets?.texture;
-      if (typeof texture === 'string' && texture.length > 0) {
-        const preview = `${texture.slice(0, 50)}...`;
-        console.log(`[webglExporter] Layer ${layer.id} texture:`, preview);
-      }
-    });
-  } catch (error) {
-    console.warn('[webglExporter] Failed to parse metadata JSON for debug logging', error);
-  }
-
   const runtime = stripViewerExports(viewerJs);
   return transformModuleScript(template, (script) => buildSingleFileScript(script, runtime, metadataJson));
 };
@@ -1319,17 +1136,7 @@ export const exportProjectAsWebGL = async (
     metadata.fallback = fallback;
   }
 
-  metadata.layers.forEach((layer, index) => {
-    console.log(`[DEBUG] Layer ${index} in metadata:`, {
-      id: layer.id,
-      hasColorCycle: !!layer.colorCycle,
-      hasBrushState: !!layer.colorCycle?.brushState,
-      brushStateIndexLength: layer.colorCycle?.brushState?.indexBuffer?.length
-    });
-  });
-
   const json = JSON.stringify(metadata, null, options.minify ? undefined : 2);
-  console.log('[DEBUG] JSON size after stringify:', json.length);
   const jsonFilename = `${options.filenameBase}-webgl.json`;
 
   if (bundleFormat === 'json') {

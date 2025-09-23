@@ -85,39 +85,16 @@
         if (text) {
           statusElement.textContent = text;
           statusElement.dataset.visible = 'true';
-          const log = severity === 'error' ? console.error : console.info;
-          log('[TinyBrush Viewer]', text);
+          if (severity === 'error') {
+            console.error('[TinyBrush Viewer]', text);
+          }
         } else {
           statusElement.textContent = '';
           statusElement.dataset.visible = 'false';
         }
       };
 
-      const summarizeMetadata = (metadata, renderSummary) => {
-        if (!metadata) {
-          return;
-        }
-        const projectName = metadata?.project?.name ?? 'Untitled bundle';
-        const viewport = metadata?.viewport ?? renderSummary?.viewport ?? null;
-        const animation = renderSummary?.animation ?? metadata?.animation ?? null;
-        const layerCount = typeof renderSummary?.layers === 'number'
-          ? renderSummary.layers
-          : Array.isArray(metadata.layers)
-            ? metadata.layers.length
-            : 0;
-
-        console.groupCollapsed(`[TinyBrush Viewer] ${projectName}`);
-        if (viewport) {
-          console.log('Viewport', viewport);
-        }
-        if (animation) {
-          console.log('Animation', animation);
-        }
-        console.log('Layers', layerCount);
-        console.log('Render summary', renderSummary);
-        console.log('Metadata', metadata);
-        console.groupEnd();
-      };
+      const summarizeMetadata = () => {};
 
       const computeScale = (metadata) => {
         const { width, height } = metadata.viewport ?? {};
@@ -208,7 +185,6 @@
 
       const readyMessage = 'Viewer ready. Drop a bundle or use Ctrl/Cmd+O to open a file.';
       setStatus(readyMessage);
-      console.info('TinyBrush WebGL Viewer ready. Drop a bundle or use Ctrl/Cmd+O to open a file.');
     </script>
   </body>
 </html>

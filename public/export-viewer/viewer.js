@@ -40,15 +40,6 @@ const applyLayer = (ctx, img, layer, scale) => {
     ctx.rotate(rotation);
   }
   ctx.scale(scaleX, scaleY);
-  console.log('[DEBUG] Drawing with:', {
-    opacity: layer?.opacity,
-    blendMode: layer?.blendMode,
-    frameX,
-    frameY,
-    width,
-    height,
-    hasImage: Boolean(img)
-  });
   ctx.drawImage(img, 0, 0, width, height);
   ctx.restore();
   return true;
@@ -607,7 +598,6 @@ class TinyBrushBundleRenderer {
     this.dynamicPlayers = [];
     this.rafId = null;
     this.lastTimestamp = 0;
-    this.lastAnimationDebugAt = 0;
     this.isDestroyed = false;
     this.summary = {
       viewport: metadata.viewport,
@@ -652,22 +642,10 @@ class TinyBrushBundleRenderer {
       let player = null;
       const hasRecolorBuffers = Boolean(layer.colorCycle?.recolorSettings?.indexBuffer?.length);
       const hasBrushBuffers = Boolean(layer.colorCycle?.brushState?.indexBuffer?.length);
-      if (layer.colorCycle) {
-        console.log('[DEBUG] Color cycle layer check:', {
-          layerId: layer.id,
-          hasColorCycle: true,
-          hasRecolorBuffers,
-          hasBrushBuffers,
-          brushStateExists: !!layer.colorCycle.brushState,
-          indexBufferExists: !!layer.colorCycle.brushState?.indexBuffer,
-          indexBufferLength: layer.colorCycle.brushState?.indexBuffer?.length
-        });
-      }
       if (hasRecolorBuffers || hasBrushBuffers) {
         try {
           player = new ColorCycleLayerPlayer(layer, image);
           player.initialize();
-          console.log('[DEBUG] Created player for', layer.id);
         } catch (error) {
           console.warn(`[viewer] Failed to initialize color cycle animation for layer ${layer.id}`, error);
           player = null;
@@ -688,71 +666,11 @@ class TinyBrushBundleRenderer {
       .map((entry) => entry.player)
       .filter((player) => player && player.hasAnimation());
 
-    const layerDiagnostics = entries.map((entry) => {
-      const { layer, image, player } = entry;
-      const layerSummary = {
-        id: layer.id,
-        name: layer.name,
-        type: layer.type || layer.layerType,
-        visible: layer.visible !== false,
-        opacity: Number.isFinite(layer.opacity) ? layer.opacity : 1,
-        blendMode: layer.blendMode || 'source-over',
-        hasTexture: Boolean(layer.assets && layer.assets.texture),
-        textureSample: layer.assets && layer.assets.texture ? String(layer.assets.texture).slice(0, 48) : null,
-        hasPlayer: Boolean(player),
-        imageSize: image ? { width: image.naturalWidth || image.width || 0, height: image.naturalHeight || image.height || 0 } : null,
-        sourceSize: layer.sourceSize,
-        transform: layer.transform,
-        frame: layer.frame
-      };
-
-      if (!layerSummary.hasTexture) {
-        layerSummary.textureMissingReason = layer.assets?.texture ? 'Texture string present but empty' : 'Texture asset missing';
-      }
-
-      return layerSummary;
-    });
-    try {
-      console.info('[viewer] Layer diagnostics', JSON.parse(JSON.stringify(layerDiagnostics)));
-    } catch {
-      console.info('[viewer] Layer diagnostics', layerDiagnostics);
-    }
-
-    const flattenedDiagnostics = layerDiagnostics.map((entry) => ({
-      id: entry.id,
-      name: entry.name,
-      type: entry.type,
-      visible: entry.visible,
-      opacity: entry.opacity,
-      blendMode: entry.blendMode,
-      hasTexture: entry.hasTexture,
-      texturePreview: entry.textureSample,
-      player: entry.hasPlayer,
-      imageWidth: entry.imageSize?.width ?? null,
-      imageHeight: entry.imageSize?.height ?? null,
-      sourceWidth: entry.sourceSize?.width ?? null,
-      sourceHeight: entry.sourceSize?.height ?? null,
-      frameX: entry.frame?.x ?? null,
-      frameY: entry.frame?.y ?? null,
-      frameWidth: entry.frame?.width ?? null,
-      frameHeight: entry.frame?.height ?? null,
-      scaleX: entry.transform?.scaleX ?? null,
-      scaleY: entry.transform?.scaleY ?? null,
-      translateX: entry.transform?.translateX ?? null,
-      translateY: entry.transform?.translateY ?? null
-    }));
-
-    if (flattenedDiagnostics.length) {
-      console.table(flattenedDiagnostics);
-    }
-
-    const texturelessLayers = layerDiagnostics.filter((entry) => entry.hasTexture === false);
+    const texturelessLayers = entries
+      .filter((entry) => entry.layer.visible !== false)
+      .filter((entry) => !entry.layer.assets?.texture && !entry.layer.colorCycle);
     if (texturelessLayers.length > 0) {
-      try {
-        console.warn('[viewer] Some layers are missing textures:', JSON.parse(JSON.stringify(texturelessLayers)));
-      } catch {
-        console.warn('[viewer] Some layers are missing textures:', texturelessLayers);
-      }
+      console.warn('[viewer] Some layers are missing textures:', texturelessLayers.map((entry) => entry.layer.id));
     }
   }
 
@@ -773,9 +691,6 @@ class TinyBrushBundleRenderer {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
 
-    const metadataLayerCount = Array.isArray(this.metadata?.layers) ? this.metadata.layers.length : 0;
-    console.log('[DEBUG] Starting to render layers, count:', metadataLayerCount);
-
     const paintOrder = [...this.layers];
     const hasStackIndex = paintOrder.some((entry) => typeof entry?.layer?.stackIndex === 'number');
     if (hasStackIndex) {
@@ -787,24 +702,14 @@ class TinyBrushBundleRenderer {
         }
         return 0;
       });
-      console.log('[DEBUG] Paint order derived from stackIndex.');
     } else {
       paintOrder.reverse();
-      console.log('[DEBUG] Paint order reversed to approximate bottom-to-top rendering.');
     }
 
     let paintedLayers = 0;
     for (let index = 0; index < paintOrder.length; index += 1) {
       const entry = paintOrder[index];
       const { layer } = entry;
-      console.log(`[DEBUG] Processing layer ${index}:`, {
-        id: layer.id,
-        stackIndex: layer.stackIndex,
-        visible: layer.visible !== false,
-        opacity: layer.opacity,
-        hasTexture: Boolean(layer.assets?.texture),
-        willRender: layer.visible !== false && (Boolean(layer.assets?.texture) || Boolean(layer.colorCycle))
-      });
 
       if (layer.visible === false) {
         continue;
@@ -813,39 +718,11 @@ class TinyBrushBundleRenderer {
       if (!source) {
         continue;
       }
-      console.log(`[DEBUG] About to draw layer ${index} at position`, layer.frame);
-
-      if (layer.colorCycle?.brushState) {
-        const texture = layer.assets?.texture;
-        console.log('Rendering color cycle layer:', {
-          layerId: layer.id,
-          hasTexture: Boolean(texture),
-          texturePreview: typeof texture === 'string' ? texture.substring(0, 50) : null,
-          opacity: layer.opacity,
-          visible: layer.visible !== false
-        });
-      }
-      const canvasTransform = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
-      console.log(`[DEBUG] Canvas state before layer ${index}:`, {
-        globalAlpha: ctx.globalAlpha,
-        globalCompositeOperation: ctx.globalCompositeOperation,
-        transform: canvasTransform ? {
-          a: canvasTransform.a,
-          b: canvasTransform.b,
-          c: canvasTransform.c,
-          d: canvasTransform.d,
-          e: canvasTransform.e,
-          f: canvasTransform.f
-        } : null
-      });
       const painted = applyLayer(ctx, source, layer, this.scale);
-      console.log(`[DEBUG] Finished drawing layer ${index}`);
       if (painted) {
         paintedLayers++;
       }
     }
-
-    console.log('[DEBUG] Finished rendering all layers');
 
     if (paintedLayers === 0 && paintOrder.length > 0) {
       console.warn('[viewer] Render completed but no layers produced pixels.');
@@ -909,15 +786,6 @@ class TinyBrushBundleRenderer {
     }
 
     if (needsRender) {
-      const shouldLog = timestamp - this.lastAnimationDebugAt >= 1000;
-      if (shouldLog) {
-        console.log('[DEBUG] Rendering animation frame', {
-          timestamp: Number(timestamp.toFixed(1)),
-          advancedPlayers,
-          totalPlayers: this.dynamicPlayers.length
-        });
-        this.lastAnimationDebugAt = timestamp;
-      }
       this.renderOnce();
     }
 
