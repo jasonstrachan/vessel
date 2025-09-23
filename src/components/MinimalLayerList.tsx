@@ -4,7 +4,7 @@ import React, { useState, useCallback, memo, useEffect, useRef, useMemo } from '
 import { useAppStore } from '../stores/useAppStore';
 import { Layer, BrushShape, type LayerAlignmentSettings, type ExportContainerLayout } from '../types';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
-import { Eye, EyeOff, Plus } from 'lucide-react';
+import { Eye, EyeOff, Plus, ChevronRight, ChevronDown } from 'lucide-react';
 import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
 import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
 import { recordBreadcrumb } from '../utils/debug';
@@ -122,7 +122,12 @@ interface DensityProps {
   className?: string;
 }
 
-export const LayerAlignmentControls = memo<DensityProps>(({ density = 'compact', className = '' }) => {
+interface LayerAlignmentControlsProps extends DensityProps {
+  appearance?: 'panel' | 'plain';
+  defaultExpanded?: boolean;
+}
+
+export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ density = 'compact', className = '', appearance = 'panel', defaultExpanded = false }) => {
   const activeLayerId = useAppStore(state => state.activeLayerId);
   const alignment = useAppStore(state => {
     if (!state.activeLayerId) {
@@ -133,44 +138,47 @@ export const LayerAlignmentControls = memo<DensityProps>(({ density = 'compact',
   });
   const updateLayerAlignment = useAppStore(state => state.updateLayerAlignment);
 
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+
   const disabled = !alignment || !activeLayerId;
   const offset = alignment?.offsetPx ?? { x: 0, y: 0 };
   const isComfortable = density === 'comfortable';
 
-  const containerClasses = [
-    isComfortable ? 'p-3 space-y-3 border border-[#2E2E2E] bg-[#2C2C2C]' : 'p-2 space-y-2 border border-[#2E2E2E] bg-[#2C2C2C]',
-    className
-  ].filter(Boolean).join(' ');
+  const paddingClasses = isComfortable ? 'px-1 py-3' : 'px-1 py-2';
+  const rootClasses = [paddingClasses, className].filter(Boolean).join(' ').trim();
 
-  const headingClass = isComfortable
-    ? 'text-base font-semibold text-[#E5E5E5]'
-    : 'text-[10px] font-semibold tracking-[0.08em] text-[#D9D9D9]';
+  const titleClass = 'text-[12px] font-medium text-[#F1F1F6]';
 
-  const subtitleClass = isComfortable
-    ? 'text-xs text-[#8C8C8C]'
-    : 'text-[9px] text-[#7A7A7A]';
+  const helperClass = 'text-[12px] text-[#8F8FA3]';
 
-  const labelClass = isComfortable ? 'text-sm text-[#B0B0B0]' : 'text-[9px] text-[#A0A0A0]';
-  const selectClass = isComfortable
-    ? 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-sm px-3 py-2 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9] disabled:text-[#5C5C5C] disabled:bg-[#151515]'
-    : 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-[10px] px-2 py-1 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9] disabled:text-[#666] disabled:bg-[#151515]';
+  const toTitleCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+  const summaryText = alignment
+    ? `${(fitOptions.find(option => option.value === alignment.fit)?.label ?? alignment.fit)} • ${toTitleCase(alignment.horizontal)} / ${toTitleCase(alignment.vertical)}`
+    : 'Select a layer to configure';
 
-  const buttonBaseClass = isComfortable
-    ? 'flex-1 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D9D9D9] focus-visible:ring-offset-0'
-    : 'flex-1 py-1 text-[9px] transition-colors';
+  const labelClass = 'text-[12px] font-medium text-[#D3D3DC]';
+  const controlGapClass = 'gap-2';
 
-  const buttonActiveClass = 'bg-[#D9D9D9] text-[#1B1B1B]';
-  const buttonInactiveClass = isComfortable
-    ? 'bg-[#2A2A2A] text-[#E5E5E5] hover:bg-[#343434]'
-    : 'bg-[#2A2A2A] text-[#D9D9D9] hover:bg-[#343434]';
+  const fieldClass = [
+    'w-full rounded-none border border-[#4A4A4A] bg-[#4A4A4A] text-[#F3F3F7] placeholder:text-[#C6C6D0]',
+    'transition-colors focus:border-[#8E8EFF]',
+    'disabled:cursor-not-allowed disabled:opacity-50',
+    'h-8 px-2 text-[12px]'
+  ].join(' ');
 
-  const disabledButtonClass = isComfortable
-    ? '!bg-[#1A1A1A] !text-[#5C5C5C]'
-    : '!bg-[#1A1A1A] !text-[#5C5C5C]';
+  const segmentedButtonBase = [
+    'flex-1 rounded-none border border-[#3D3D46] transition-colors',
+    'h-8 text-[12px]'
+  ].join(' ');
 
-  const inputClass = isComfortable
-    ? 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-sm px-3 py-2 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9] disabled:text-[#5C5C5C] disabled:bg-[#151515]'
-    : 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-[10px] px-2 py-1 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9] disabled:text-[#5C5C5C] disabled:bg-[#151515]';
+  const segmentedActiveClass = 'bg-[#E6E6F2] text-[#1C1C24] border-[#E6E6F2]';
+  const segmentedInactiveClass = 'bg-[#2F2F36] text-[#D9D9E8] hover:bg-[#3A3A42]';
+
+  const contentSpacingClass = isComfortable ? 'mt-4 space-y-4' : 'mt-3 space-y-3';
+
+  const handleToggleExpanded = useCallback(() => {
+    setIsExpanded(prev => !prev);
+  }, []);
 
   const handleAlignmentChange = useCallback(
     (partial: Partial<LayerAlignmentSettings>) => {
@@ -203,98 +211,126 @@ export const LayerAlignmentControls = memo<DensityProps>(({ density = 'compact',
   );
 
   return (
-    <div className={containerClasses}>
-      <div className={`flex items-center justify-between ${isComfortable ? 'mb-3' : 'mb-2'}`}>
-        <span className={headingClass}>Layer alignment</span>
-        {!alignment && <span className={subtitleClass}>Select a layer</span>}
-      </div>
-      <div className={isComfortable ? 'space-y-3' : 'space-y-2'}>
-        <div>
-          <label className={`${labelClass} block mb-1`}>Fit</label>
-          <select
-            className={selectClass}
-            value={alignment?.fit ?? 'contain'}
-            onChange={(event) => handleAlignmentChange({ fit: event.target.value as LayerAlignmentSettings['fit'] })}
-            disabled={disabled}
-          >
-            {fitOptions.map(option => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+    <div className={rootClasses}>
+      <button
+        type="button"
+        className={[
+          'w-full bg-transparent flex items-center justify-between text-left cursor-pointer select-none gap-2 transition-colors',
+          isComfortable ? 'py-1.5' : 'py-1'
+        ].filter(Boolean).join(' ')}
+        onClick={handleToggleExpanded}
+        aria-expanded={isExpanded}
+      >
+        <div className="flex flex-col">
+          <span className={titleClass}>Layer alignment</span>
+          <span className={`${helperClass} ${alignment ? '' : 'text-[#A5A5BA]'}`}>
+            {summaryText}
+          </span>
         </div>
-
-        <div>
-          <span className={`${labelClass} block mb-1`}>Horizontal</span>
-          <div className={`flex ${isComfortable ? 'gap-2' : 'gap-1'}`}>
-            {axisOptions.map(option => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => handleAlignmentChange({ horizontal: option.value })}
+        <ChevronRight
+          className={`h-4 w-4 text-[#8F8FA3] transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+          aria-hidden
+        />
+      </button>
+      {isExpanded && (
+        <div className={contentSpacingClass}>
+          <div>
+            <label className={`${labelClass} block mb-2`}>Fit</label>
+            <div className="relative">
+              <select
+                className={`${fieldClass} appearance-none pr-8`}
+                value={alignment?.fit ?? 'contain'}
+                onChange={(event) => handleAlignmentChange({ fit: event.target.value as LayerAlignmentSettings['fit'] })}
                 disabled={disabled}
-                className={`${buttonBaseClass} ${alignment?.horizontal === option.value ? buttonActiveClass : buttonInactiveClass} ${disabled ? disabledButtonClass : ''}`}
               >
-                {option.label}
-              </button>
-            ))}
+                {fitOptions.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8F8FA3]" aria-hidden />
+            </div>
+          </div>
+
+          <div>
+            <span className={`${labelClass} block mb-2`}>Horizontal</span>
+            <div className={`flex ${controlGapClass}`}>
+              {axisOptions.map(option => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => handleAlignmentChange({ horizontal: option.value })}
+                  disabled={disabled}
+                  className={`${segmentedButtonBase} ${alignment?.horizontal === option.value ? segmentedActiveClass : segmentedInactiveClass} ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <span className={`${labelClass} block mb-2`}>Vertical</span>
+            <div className={`flex ${controlGapClass}`}>
+              {axisOptions.map(option => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => handleAlignmentChange({ vertical: option.value })}
+                  disabled={disabled}
+                  className={`${segmentedButtonBase} ${alignment?.vertical === option.value ? segmentedActiveClass : segmentedInactiveClass} ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className={`grid grid-cols-2 ${controlGapClass}`}>
+            <label className={`${labelClass} flex flex-col gap-2`}>
+              Offset X
+              <input
+                type="number"
+                className={`${fieldClass} text-center`}
+                value={alignment ? offset.x : 0}
+                onChange={(event) => handleOffsetChange('x', Number(event.target.value))}
+                disabled={disabled}
+              />
+            </label>
+            <label className={`${labelClass} flex flex-col gap-2`}>
+              Offset Y
+              <input
+                type="number"
+                className={`${fieldClass} text-center`}
+                value={alignment ? offset.y : 0}
+                onChange={(event) => handleOffsetChange('y', Number(event.target.value))}
+                disabled={disabled}
+              />
+            </label>
           </div>
         </div>
-
-        <div>
-          <span className={`${labelClass} block mb-1`}>Vertical</span>
-          <div className={`flex ${isComfortable ? 'gap-2' : 'gap-1'}`}>
-            {axisOptions.map(option => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => handleAlignmentChange({ vertical: option.value })}
-                disabled={disabled}
-                className={`${buttonBaseClass} ${alignment?.vertical === option.value ? buttonActiveClass : buttonInactiveClass} ${disabled ? disabledButtonClass : ''}`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className={`grid grid-cols-2 ${isComfortable ? 'gap-3' : 'gap-2'}`}>
-          <label className={`${labelClass} flex flex-col gap-1`}>
-            Offset X
-            <input
-              type="number"
-              className={inputClass}
-              value={alignment ? offset.x : 0}
-              onChange={(event) => handleOffsetChange('x', Number(event.target.value))}
-              disabled={disabled}
-            />
-          </label>
-          <label className={`${labelClass} flex flex-col gap-1`}>
-            Offset Y
-            <input
-              type="number"
-              className={inputClass}
-              value={alignment ? offset.y : 0}
-              onChange={(event) => handleOffsetChange('y', Number(event.target.value))}
-              disabled={disabled}
-            />
-          </label>
-        </div>
-      </div>
+      )}
     </div>
   );
 });
 
 LayerAlignmentControls.displayName = 'LayerAlignmentControls';
 
-export const ContainerLayoutControls = memo<DensityProps>(({ density = 'compact', className = '' }) => {
+interface ContainerLayoutControlsProps extends DensityProps {
+  appearance?: 'panel' | 'plain';
+  defaultExpanded?: boolean;
+}
+
+export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ density = 'compact', className = '', appearance = 'panel', defaultExpanded = false }) => {
   const exportLayoutFromStore = useAppStore(state => state.project?.exportLayout);
   const layout = useMemo(
     () => exportLayoutFromStore ?? createDefaultExportLayout(),
     [exportLayoutFromStore]
   );
   const setExportLayout = useAppStore(state => state.setExportLayout);
+
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   const handleLayoutChange = useCallback(
     (partial: Partial<ExportContainerLayout>) => {
@@ -338,172 +374,210 @@ export const ContainerLayoutControls = memo<DensityProps>(({ density = 'compact'
     [handleLayoutChange, layout.sizeMode]
   );
 
-  const isComfortable = density === 'comfortable';
+  const paddingClasses = density === 'comfortable' ? 'px-1 py-3' : 'px-1 py-2';
+  const rootClasses = [paddingClasses, className].filter(Boolean).join(' ').trim();
 
-  const containerClasses = [
-    isComfortable ? 'p-3 space-y-3 border border-[#2E2E2E] bg-[#2C2C2C]' : 'p-2 space-y-2 border border-[#2E2E2E] bg-[#2C2C2C]',
-    className
-  ].filter(Boolean).join(' ');
+  const titleClass = 'text-[12px] font-medium text-[#F1F1F6]';
 
-  const headingClass = isComfortable
-    ? 'text-base font-semibold text-[#E5E5E5]'
-    : 'text-[10px] font-semibold tracking-[0.08em] text-[#D9D9D9]';
+  const helperClass = 'text-[12px] text-[#8F8FA3]';
 
-  const labelClass = isComfortable ? 'text-sm text-[#B0B0B0]' : 'text-[9px] text-[#A0A0A0]';
-  const subLabelClass = isComfortable ? 'text-xs text-[#8C8C8C]' : 'text-[8px] text-[#7A7A7A]';
+  const labelClass = 'text-[12px] font-medium text-[#D3D3DC]';
+  const subLabelClass = 'text-[12px] text-[#A5A5BA]';
+  const controlGapClass = 'gap-2';
+  const contentSpacingClass = 'mt-3 space-y-3';
 
-  const controlButtonBase = isComfortable
-    ? 'py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D9D9D9] focus-visible:ring-offset-0'
-    : 'py-1 text-[9px] transition-colors';
+  const fieldClass = [
+    'w-full rounded-none border border-[#4A4A4A] bg-[#4A4A4A] text-[#F3F3F7] placeholder:text-[#C6C6D0]',
+    'transition-colors focus:border-[#8E8EFF]',
+    'disabled:cursor-not-allowed disabled:opacity-50',
+    'h-8 px-2 text-[12px]'
+  ].join(' ');
 
-  const controlButtonActive = 'bg-[#D9D9D9] text-[#1B1B1B]';
-  const controlButtonInactive = isComfortable
-    ? 'bg-[#2A2A2A] text-[#E5E5E5] hover:bg-[#343434]'
-    : 'bg-[#2A2A2A] text-[#DADADA] hover:bg-[#343434]';
+  const segmentedButtonBase = [
+    'rounded-none border border-[#3D3D46] transition-colors',
+    'h-8 text-[12px]'
+  ].join(' ');
 
-  const selectClass = isComfortable
-    ? 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-sm px-3 py-2 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9]'
-    : 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-[10px] px-2 py-1 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9]';
+  const segmentedActiveClass = 'bg-[#E6E6F2] text-[#1C1C24] border-[#E6E6F2]';
+  const segmentedInactiveClass = 'bg-[#2F2F36] text-[#D9D9E8] hover:bg-[#3A3A42]';
 
-  const inputClass = isComfortable
-    ? 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-sm px-3 py-2 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9] disabled:text-[#5C5C5C] disabled:bg-[#151515]'
-    : 'w-full bg-[#1A1A1A] text-[#E5E5E5] text-[10px] px-2 py-1 border border-[#343434] outline-none focus:ring-1 focus:ring-[#D9D9D9] disabled:text-[#5C5C5C] disabled:bg-[#151515]';
+  const summaryParts: string[] = [];
+  const flowSummary = flowOptions.find(option => option.value === layout.flow)?.label ?? layout.flow;
+  summaryParts.push(flowSummary);
+  summaryParts.push(layout.wrap ? 'Wrap on' : 'Wrap off');
+  summaryParts.push(`Gap ${layout.gap}px`);
+  if (layout.sizeMode === 'fixed') {
+    const widthText = Number.isFinite(layout.width) ? `${layout.width}px` : 'auto';
+    const heightText = Number.isFinite(layout.height) ? `${layout.height}px` : 'auto';
+    summaryParts.push(`Fixed ${widthText} × ${heightText}`);
+  } else {
+    summaryParts.push('Hug content');
+  }
+  const summaryText = summaryParts.join(' • ');
+
+  const handleToggleExpanded = useCallback(() => {
+    setIsExpanded(prev => !prev);
+  }, []);
 
   return (
-    <div className={containerClasses}>
-      <span className={`${headingClass} block`}>Container layout</span>
+    <div className={rootClasses}>
+      <button
+        type="button"
+        className={[
+          'w-full bg-transparent flex items-center justify-between text-left cursor-pointer select-none gap-2 transition-colors',
+          density === 'comfortable' ? 'py-1.5' : 'py-1'
+        ].filter(Boolean).join(' ')}
+        onClick={handleToggleExpanded}
+        aria-expanded={isExpanded}
+      >
+        <div className="flex flex-col">
+          <span className={titleClass}>Container layout</span>
+          <span className={helperClass}>{summaryText}</span>
+        </div>
+        <ChevronRight
+          className={`h-4 w-4 text-[#8F8FA3] transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+          aria-hidden
+        />
+      </button>
+      {isExpanded && (
+        <div className={contentSpacingClass}>
+          <div>
+            <span className={`${labelClass} block mb-2`}>Flow</span>
+            <div className={`grid grid-cols-4 ${controlGapClass}`}>
+              {flowOptions.map(option => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => handleLayoutChange({ flow: option.value })}
+                  className={`${segmentedButtonBase} flex flex-col items-center justify-center ${layout.flow === option.value ? segmentedActiveClass : segmentedInactiveClass}`}
+                >
+                  <span className="text-base leading-none">{option.short}</span>
+                  <span className={`${subLabelClass} mt-1`}>{option.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
-      <div className={isComfortable ? 'space-y-3' : 'space-y-2'}>
-        <div>
-          <span className={`${labelClass} block mb-1`}>Flow</span>
-          <div className={`grid grid-cols-4 ${isComfortable ? 'gap-2' : 'gap-1'}`}>
-            {flowOptions.map(option => (
+          <div className={`grid grid-cols-2 ${controlGapClass}`}>
+            <label className={`${labelClass} flex flex-col gap-2`}>
+              Justify
+              <div className="relative">
+                <select
+                  className={`${fieldClass} appearance-none pr-8`}
+                  value={layout.justify}
+                  onChange={(event) => handleLayoutChange({ justify: event.target.value as ExportContainerLayout['justify'] })}
+                >
+                  {justifyOptions.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8F8FA3]" aria-hidden />
+              </div>
+            </label>
+            <label className={`${labelClass} flex flex-col gap-2`}>
+              Align
+              <div className="relative">
+                <select
+                  className={`${fieldClass} appearance-none pr-8`}
+                  value={layout.align}
+                  onChange={(event) => handleLayoutChange({ align: event.target.value as ExportContainerLayout['align'] })}
+                >
+                  {alignOptions.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8F8FA3]" aria-hidden />
+              </div>
+            </label>
+          </div>
+
+          <div className={`grid grid-cols-[auto,1fr] items-center ${controlGapClass}`}>
+            <span className={labelClass}>Wrap</span>
+            <button
+              type="button"
+              onClick={() => handleLayoutChange({ wrap: !layout.wrap })}
+              className={`${segmentedButtonBase} ${layout.wrap ? segmentedActiveClass : segmentedInactiveClass}`}
+            >
+              {layout.wrap ? 'Enabled' : 'Disabled'}
+            </button>
+          </div>
+
+          <div className={`grid grid-cols-[auto,1fr] items-center ${controlGapClass}`}>
+            <span className={labelClass}>Gap</span>
+            <input
+              type="number"
+              min={0}
+              className={`${fieldClass} text-center`}
+              value={layout.gap}
+              onChange={(event) => handleLayoutChange({ gap: Math.max(0, Number(event.target.value) || 0) })}
+            />
+          </div>
+
+          <div>
+            <span className={`${labelClass} block mb-2`}>Padding</span>
+            <div className={`grid grid-cols-2 ${controlGapClass}`}>
+              {(['top', 'right', 'bottom', 'left'] as const).map(side => (
+                <label key={side} className={`${labelClass} flex flex-col gap-2`}>
+                  {side[0].toUpperCase() + side.slice(1)}
+                  <input
+                    type="number"
+                    className={`${fieldClass} text-center`}
+                    value={layout.padding[side]}
+                    onChange={(event) => handlePaddingChange(side, Number(event.target.value))}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <span className={`${labelClass} block mb-2`}>Size mode</span>
+            <div className={`flex ${controlGapClass}`}>
               <button
-                key={option.value}
                 type="button"
-                onClick={() => handleLayoutChange({ flow: option.value })}
-                className={`${controlButtonBase} ${layout.flow === option.value ? controlButtonActive : controlButtonInactive}`}
+                onClick={() => handleLayoutChange({ sizeMode: 'hug', width: undefined, height: undefined })}
+                className={`${segmentedButtonBase} flex-1 ${layout.sizeMode === 'hug' ? segmentedActiveClass : segmentedInactiveClass}`}
               >
-                <span className="block leading-none">{option.short}</span>
-                <span className={`${subLabelClass} block mt-1`}>{option.label}</span>
+                Hug content
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={() => handleLayoutChange({ sizeMode: 'fixed', width: layout.width ?? layout.padding.left + layout.padding.right, height: layout.height ?? layout.padding.top + layout.padding.bottom })}
+                className={`${segmentedButtonBase} flex-1 ${layout.sizeMode === 'fixed' ? segmentedActiveClass : segmentedInactiveClass}`}
+              >
+                Fixed size
+              </button>
+            </div>
+          </div>
+
+          <div className={`grid grid-cols-2 ${controlGapClass}`}>
+            <label className={`${labelClass} flex flex-col gap-2`}>
+              Width
+              <input
+                type="number"
+                className={`${fieldClass} text-center`}
+                value={layout.width ?? ''}
+                onChange={(event) => handleDimensionChange('width', event.target.value)}
+                disabled={layout.sizeMode !== 'fixed'}
+              />
+            </label>
+            <label className={`${labelClass} flex flex-col gap-2`}>
+              Height
+              <input
+                type="number"
+                className={`${fieldClass} text-center`}
+                value={layout.height ?? ''}
+                onChange={(event) => handleDimensionChange('height', event.target.value)}
+                disabled={layout.sizeMode !== 'fixed'}
+              />
+            </label>
           </div>
         </div>
-
-        <div className={`grid grid-cols-2 ${isComfortable ? 'gap-3' : 'gap-2'}`}>
-          <label className={`${labelClass} flex flex-col gap-1`}>
-            Justify
-            <select
-              className={selectClass}
-              value={layout.justify}
-              onChange={(event) => handleLayoutChange({ justify: event.target.value as ExportContainerLayout['justify'] })}
-            >
-              {justifyOptions.map(option => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className={`${labelClass} flex flex-col gap-1`}>
-            Align
-            <select
-              className={selectClass}
-              value={layout.align}
-              onChange={(event) => handleLayoutChange({ align: event.target.value as ExportContainerLayout['align'] })}
-            >
-              {alignOptions.map(option => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <div className={`grid grid-cols-[auto,1fr] items-center ${isComfortable ? 'gap-3' : 'gap-2'}`}>
-          <span className={labelClass}>Wrap</span>
-          <button
-            type="button"
-            onClick={() => handleLayoutChange({ wrap: !layout.wrap })}
-            className={`${controlButtonBase} ${layout.wrap ? controlButtonActive : controlButtonInactive}`}
-          >
-            {layout.wrap ? 'Enabled' : 'Disabled'}
-          </button>
-        </div>
-
-        <div className={`grid grid-cols-[auto,1fr] items-center ${isComfortable ? 'gap-3' : 'gap-2'}`}>
-          <span className={labelClass}>Gap</span>
-          <input
-            type="number"
-            min={0}
-            className={inputClass}
-            value={layout.gap}
-            onChange={(event) => handleLayoutChange({ gap: Math.max(0, Number(event.target.value) || 0) })}
-          />
-        </div>
-
-        <div>
-          <span className={`${labelClass} block mb-1`}>Padding</span>
-          <div className={`grid grid-cols-2 ${isComfortable ? 'gap-3' : 'gap-2'}`}>
-            {(['top', 'right', 'bottom', 'left'] as const).map(side => (
-              <label key={side} className={`${labelClass} flex flex-col gap-1`}>
-                {side[0].toUpperCase() + side.slice(1)}
-                <input
-                  type="number"
-                  className={inputClass}
-                  value={layout.padding[side]}
-                  onChange={(event) => handlePaddingChange(side, Number(event.target.value))}
-                />
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <span className={`${labelClass} block mb-1`}>Size Mode</span>
-          <div className={`flex ${isComfortable ? 'gap-2' : 'gap-1'}`}>
-            <button
-              type="button"
-              onClick={() => handleLayoutChange({ sizeMode: 'hug', width: undefined, height: undefined })}
-              className={`${controlButtonBase} ${layout.sizeMode === 'hug' ? controlButtonActive : controlButtonInactive}`}
-            >
-              Hug Content
-            </button>
-            <button
-              type="button"
-              onClick={() => handleLayoutChange({ sizeMode: 'fixed', width: layout.width ?? layout.padding.left + layout.padding.right, height: layout.height ?? layout.padding.top + layout.padding.bottom })}
-              className={`${controlButtonBase} ${layout.sizeMode === 'fixed' ? controlButtonActive : controlButtonInactive}`}
-            >
-              Fixed
-            </button>
-          </div>
-        </div>
-
-        <div className={`grid grid-cols-2 ${isComfortable ? 'gap-3' : 'gap-2'}`}>
-          <label className={`${labelClass} flex flex-col gap-1`}>
-            Width
-            <input
-              type="number"
-              className={inputClass}
-              value={layout.width ?? ''}
-              onChange={(event) => handleDimensionChange('width', event.target.value)}
-              disabled={layout.sizeMode !== 'fixed'}
-            />
-          </label>
-          <label className={`${labelClass} flex flex-col gap-1`}>
-            Height
-            <input
-              type="number"
-              className={inputClass}
-              value={layout.height ?? ''}
-              onChange={(event) => handleDimensionChange('height', event.target.value)}
-              disabled={layout.sizeMode !== 'fixed'}
-            />
-          </label>
-        </div>
-      </div>
+      )}
     </div>
   );
 });

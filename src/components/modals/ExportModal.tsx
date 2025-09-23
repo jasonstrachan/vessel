@@ -1562,7 +1562,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                 onToggle={() => setContainerLayoutOpen((prev) => !prev)}
                 contentClassName="space-y-4"
               >
-                <ContainerLayoutControls density="comfortable" className="border-none p-0 bg-transparent space-y-4" />
+                <ContainerLayoutControls
+                  density="comfortable"
+                  appearance="plain"
+                  defaultExpanded
+                  className="border-none p-0 bg-transparent space-y-4"
+                />
               </CollapsibleSection>
 
               <CollapsibleSection
@@ -1573,7 +1578,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                 onToggle={() => setLayerAlignmentOpen((prev) => !prev)}
                 contentClassName="space-y-4"
               >
-                <LayerAlignmentControls density="comfortable" className="border-none p-0 bg-transparent space-y-4" />
+                <LayerAlignmentControls
+                  density="comfortable"
+                  appearance="plain"
+                  defaultExpanded
+                  className="p-0 bg-transparent space-y-4"
+                />
                 <div className="border border-[#424242] overflow-hidden divide-y divide-[#424242]">
                   {orderedLayers.length === 0 && (
                     <div className="px-4 py-3 text-sm text-[#9C9C9C]">No layers available</div>
