@@ -135,15 +135,6 @@ export const computeLayerTransform = (
     }
   }
 
-  if (alignment.fit !== 'percent' && alignment.offsetPercent) {
-    const percentXRaw = Number.isFinite(alignment.offsetPercent.x) ? alignment.offsetPercent.x : 0;
-    const percentYRaw = Number.isFinite(alignment.offsetPercent.y) ? alignment.offsetPercent.y : 0;
-    const percentX = Math.max(-100, Math.min(100, percentXRaw));
-    const percentY = Math.max(-100, Math.min(100, percentYRaw));
-    translateX += extraX * (percentX / 100);
-    translateY += extraY * (percentY / 100);
-  }
-
   if (alignment.fit === 'percent') {
     const percent = alignment.offsetPercent ?? { x: 0, y: 0 };
     const percentX = Math.max(-100, Math.min(100, percent.x));

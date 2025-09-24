@@ -125,4 +125,35 @@ describe('useAppStore updateLayerAlignment percent offsets', () => {
     const updatedLayer = useAppStore.getState().layers[0];
     expect(updatedLayer.alignment.offsetPercent).toEqual(customPercent);
   });
+
+  it('clears percent offsets when leaving percent fit', () => {
+    const layer = createLayer();
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      project: state.project
+        ? {
+            ...state.project,
+            width,
+            height,
+            layers: [layer]
+          }
+        : state.project,
+      layersNeedRecomposition: false
+    }));
+
+    const { updateLayerAlignment } = useAppStore.getState();
+    updateLayerAlignment(layer.id, { ...layer.alignment, fit: 'percent' });
+
+    const currentAlignment = useAppStore.getState().layers[0].alignment;
+    updateLayerAlignment(layer.id, {
+      ...currentAlignment,
+      fit: 'none'
+    });
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    expect(updatedLayer.alignment.fit).toBe('none');
+    expect(updatedLayer.alignment.offsetPercent).toBeUndefined();
+  });
 });

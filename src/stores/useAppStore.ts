@@ -2177,6 +2177,13 @@ export const useAppStore = create<AppState>()(
           }
         }
 
+        if (nextAlignment.fit !== 'percent') {
+          nextAlignment = {
+            ...nextAlignment,
+            offsetPercent: undefined
+          };
+        }
+
         const updatedLayers = state.layers.map(layer => (
           layer.id === layerId
             ? { ...layer, alignment: nextAlignment }

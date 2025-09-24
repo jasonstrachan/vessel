@@ -1,7 +1,5 @@
 import { BrushShape } from '@/types';
 
-import { drawAntialiasedLine } from './antialiasedLine';
-import { drawPixelPerfectLine } from './pixelPerfectLine';
 import { drawRoundShape } from './round';
 import { drawSquareShape } from './square';
 import type { ShapeDrawFunction } from './types';

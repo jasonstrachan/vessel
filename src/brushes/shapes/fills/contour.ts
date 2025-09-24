@@ -9,6 +9,7 @@ export const drawContourFill = ({
   isPreview = false,
   spacingOverride,
   randomSeed,
+  previewDetail,
 }: ContourFillParams): void => {
   const {
     createSignedDistanceField,
@@ -43,6 +44,7 @@ export const drawContourFill = ({
   };
 
   const random = createRandomGenerator(randomSeed);
+  const allowFullDetail = !isPreview || previewDetail === 'full';
 
   let maxDistance = 0;
   for (let y = 0; y < fieldData.rows; y++) {
@@ -64,7 +66,6 @@ export const drawContourFill = ({
   const startDistance = Math.min(maxStartDistance, Math.max(minStartDistance, spacing * 1.5));
 
   let currentDistance = startDistance;
-  let level = 0;
   let drewAnyContours = false;
   const actualPeakX = fieldData.peakX;
   const actualPeakY = fieldData.peakY;
@@ -92,7 +93,6 @@ export const drawContourFill = ({
 
     if (!contourSegments || contourSegments.length === 0) {
       currentDistance += spacing;
-      level++;
       continue;
     }
 
@@ -155,7 +155,6 @@ export const drawContourFill = ({
     const maxSpacingAdjusted = spacing * (1.5 + variancePercent * 3.5);
 
     currentDistance += Math.max(minSpacing, Math.min(maxSpacingAdjusted, baseSpacing));
-    level++;
     clusterPhase += clusterFreq;
     randomWalk += (random() * 2 - 1) * walkSpeed;
     randomWalk = Math.max(-1, Math.min(1, randomWalk));
@@ -202,7 +201,7 @@ export const drawContourFill = ({
     }
   }
 
-  if (!isPreview && random() < 0.1) {
+  if (allowFullDetail && random() < 0.1) {
     ctx.save();
     ctx.imageSmoothingEnabled = !pixelMode;
 
@@ -246,7 +245,7 @@ export const drawContourFill = ({
   }
 
   const risographIntensity = brushSettings.risographIntensity || 0;
-  if (risographIntensity > 0 && !isPreview) {
+  if (risographIntensity > 0 && allowFullDetail) {
     applyRisographEffect(ctx, vertices, risographIntensity);
   }
 };

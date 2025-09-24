@@ -11,12 +11,21 @@ export const withTemporaryBrushSettings = <T>(
   patch: Partial<BrushSettings>,
   callback: (settings: BrushSettings) => T
 ): T => {
+  const mutableTarget = target as Record<BrushSettingsKey, BrushSettings[BrushSettingsKey] | undefined>;
   const originalValues = new Map<BrushSettingsKey, BrushSettings[BrushSettingsKey] | undefined>();
 
   (Object.keys(patch) as BrushSettingsKey[]).forEach((key) => {
-    originalValues.set(key, target[key]);
-    if (Object.prototype.hasOwnProperty.call(patch, key)) {
-      target[key] = patch[key] as BrushSettings[BrushSettingsKey];
+    if (!Object.prototype.hasOwnProperty.call(patch, key)) {
+      return;
+    }
+
+    const nextValue = patch[key];
+    originalValues.set(key, mutableTarget[key]);
+
+    if (nextValue === undefined) {
+      delete mutableTarget[key];
+    } else {
+      mutableTarget[key] = nextValue as BrushSettings[BrushSettingsKey];
     }
   });
 
@@ -25,11 +34,10 @@ export const withTemporaryBrushSettings = <T>(
   } finally {
     originalValues.forEach((value, key) => {
       if (value === undefined) {
-        delete target[key];
+        delete mutableTarget[key];
       } else {
-        target[key] = value;
+        mutableTarget[key] = value;
       }
     });
   }
 };
-

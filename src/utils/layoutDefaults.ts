@@ -4,7 +4,6 @@ import type {
   LayerAlignmentSettings,
   LayerHorizontalAlignment,
   LayerVerticalAlignment,
-  LayerAlignmentPercentOffset,
   Project
 } from '@/types';
 
@@ -46,7 +45,7 @@ export const createDefaultLayerAlignment = (): LayerAlignmentSettings => ({
   horizontal: 'center',
   vertical: 'center',
   offsetPx: { x: 0, y: 0 },
-  offsetPercent: { x: 0, y: 0 }
+  offsetPercent: undefined
 });
 
 export const cloneLayerAlignment = (alignment?: LayerAlignmentSettings): LayerAlignmentSettings => {
@@ -56,9 +55,9 @@ export const cloneLayerAlignment = (alignment?: LayerAlignmentSettings): LayerAl
     horizontal: normalizeHorizontalAxis(base.horizontal),
     vertical: normalizeVerticalAxis(base.vertical),
     offsetPx: base.offsetPx ? { ...base.offsetPx } : { x: 0, y: 0 },
-    offsetPercent: base.offsetPercent
+    offsetPercent: base.fit === 'percent' && base.offsetPercent
       ? { ...base.offsetPercent }
-      : { x: 0, y: 0 }
+      : undefined
   };
 };
 

@@ -311,12 +311,6 @@ function base64ToUint8Array(base64?: string): Uint8Array | undefined {
   return new Uint8Array(base64ToArrayBuffer(base64));
 }
 
-function base64ToUint32Array(base64?: string): Uint32Array | undefined {
-  if (!base64) {
-    return undefined;
-  }
-  return new Uint32Array(base64ToArrayBuffer(base64));
-}
 
 // Serialize a layer for saving
 function serializeLayer(layer: Layer): SerializedLayer {

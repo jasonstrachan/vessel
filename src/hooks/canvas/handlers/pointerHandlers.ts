@@ -225,6 +225,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           {
             contourSpacingOverride: constrainedEnd ?? constrainedStart,
             randomSeed: contourState.randomSeed ?? undefined,
+            previewDetail: 'full',
           }
         );
       }

@@ -444,7 +444,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   
   // Use custom hooks
   const interaction = useCanvasInteraction();
+  const interactionDispatch = interaction.dispatch;
   const stateMachine = useCanvasStateMachine();
+  const setCanvasStateMachineTool = stateMachine.setTool;
+  const forceCanvasIdle = stateMachine.forceIdle;
   const pan = useSimplePan({ scale: canvas?.zoom || 1 });
   const { setPan } = pan;
   // const prevStateRef = useRef(stateMachine.state);
@@ -465,6 +468,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   setCursorStyleRef.current = setCursorStyle;
   const setShowBrushCursorRef = useRef(setShowBrushCursor);
   setShowBrushCursorRef.current = setShowBrushCursor;
+  const previousToolRef = useRef<Tool | null>(tools.currentTool);
   
   // View transform ref for zoom
   const viewTransformRef = useRef({ 
@@ -489,6 +493,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const toolStateMachine = useToolStateMachine({
     sampleColorAtPosition
   });
+  const resetRectangleGradient = toolStateMachine.resetRectangleGradient;
+  const resetPolygonGradient = toolStateMachine.resetPolygonGradient;
   const drawingHandlers = useDrawingHandlers({
     project,
     screenToWorld: pan.screenToWorld,
@@ -496,6 +502,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     canvasRef: canvasRef as React.RefObject<HTMLCanvasElement>,
     isBusyRef, // Pass the lock ref
   });
+  const clearDrawingCanvas = drawingHandlers.clearDrawingCanvas;
+  const shapePointsRef = drawingHandlers.shapePointsRef;
+  const isDrawingShapeRef = drawingHandlers.isDrawingShapeRef;
+  const isSelectingDirectionRef = drawingHandlers.isSelectingDirectionRef;
   
   // Refs for event handlers (moved up from line 1228)
   const drawingAnimationFrameRef = useRef<number | null>(null);
@@ -503,6 +513,79 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   // Run initial centering once after sizing
   const hasCenteredRef = useRef(false);
+
+  type CancelOptions = {
+    includeFloatingPaste?: boolean;
+    dispatchInteractionEnd?: boolean;
+  };
+
+  const cancelActiveOperations = useCallback(
+    ({ includeFloatingPaste = false, dispatchInteractionEnd = true }: CancelOptions = {}) => {
+      const store = useAppStore.getState();
+      let didCancel = false;
+
+      if (store.contourLinesState.stage !== 'idle') {
+        store.resetContourLinesState();
+        didCancel = true;
+      }
+
+      if (store.polygonGradientState.drawingState !== 'idle') {
+        resetPolygonGradient();
+        didCancel = true;
+      }
+
+      if (store.rectangleBrushState.drawingState !== 'idle') {
+        resetRectangleGradient();
+        didCancel = true;
+      }
+
+      const hasShapeDrawing =
+        store.shapeState.isDrawing ||
+        store.shapeState.points.length > 0 ||
+        isDrawingShapeRef.current ||
+        shapePointsRef.current.length > 0 ||
+        isSelectingDirectionRef.current;
+
+      if (hasShapeDrawing) {
+        store.setShapeDrawing(false);
+        store.clearShapePoints();
+        shapePointsRef.current = [];
+        isDrawingShapeRef.current = false;
+        isSelectingDirectionRef.current = false;
+        didCancel = true;
+      }
+
+      if (includeFloatingPaste && store.floatingPaste) {
+        store.cancelFloatingPaste();
+        didCancel = true;
+      }
+
+      if (didCancel) {
+        const overlayCanvas = overlayCanvasRef.current;
+        if (overlayCanvas) {
+          overlayCanvas.getContext('2d')?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+        }
+        clearDrawingCanvas();
+        if (dispatchInteractionEnd) {
+          interactionDispatch({ type: 'DRAWING_END' });
+        }
+        setNeedsRedraw(prev => prev + 1);
+      }
+
+      return didCancel;
+    },
+    [
+      clearDrawingCanvas,
+      interactionDispatch,
+      isDrawingShapeRef,
+      isSelectingDirectionRef,
+      overlayCanvasRef,
+      resetPolygonGradient,
+      resetRectangleGradient,
+      setNeedsRedraw,
+      shapePointsRef
+    ]
+  );
   
   // Extract the color cycle animation functions for use by BrushControls
   const { startContinuousColorCycleAnimation, stopContinuousColorCycleAnimation, setFeedbackCallback } = drawingHandlers;
@@ -1331,47 +1414,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       }
     },
     onEscapePressed: () => {
-      const store = useAppStore.getState();
-      const contourState = store.contourLinesState;
-      const polygonState = store.polygonGradientState;
-      const rectangleState = store.rectangleBrushState;
+      const cancelled = cancelActiveOperations({ includeFloatingPaste: true, dispatchInteractionEnd: true });
 
-      const overlayCanvas = overlayCanvasRef.current;
-      const clearOverlay = () => {
-        if (!overlayCanvas) return;
-        const overlayCtx = overlayCanvas.getContext('2d');
-        overlayCtx?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-      };
-
-      if (contourState.stage !== 'idle') {
-        store.resetContourLinesState();
-        clearOverlay();
-        interaction.dispatch({ type: 'DRAWING_END' });
-        toolStateMachine.resetPolygonGradient();
-        setNeedsRedraw(prev => prev + 1);
-        return;
-      }
-
-      if (polygonState.drawingState !== 'idle') {
-        toolStateMachine.resetPolygonGradient();
-        clearOverlay();
-        interaction.dispatch({ type: 'DRAWING_END' });
-        setNeedsRedraw(prev => prev + 1);
-        return;
-      }
-
-      if (rectangleState.drawingState !== 'idle') {
-        toolStateMachine.resetRectangleGradient();
-        clearOverlay();
-        interaction.dispatch({ type: 'DRAWING_END' });
-        setNeedsRedraw(prev => prev + 1);
-        return;
-      }
-
-      // Cancel floating paste when Escape is pressed
-      if (floatingPaste) {
-        cancelFloatingPaste();
-        clearOverlay();
+      if (cancelled) {
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d', { willReadFrequently: true });
         if (ctx) {
@@ -1381,6 +1426,34 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     },
     enabled: true // Always enable keyboard shortcuts
   });
+
+  useEffect(() => {
+    setCanvasStateMachineTool(tools.currentTool);
+
+    const previousTool = previousToolRef.current;
+    if (previousTool && previousTool !== tools.currentTool) {
+      const cancelled = cancelActiveOperations({ includeFloatingPaste: false, dispatchInteractionEnd: false });
+      interactionDispatch({ type: 'RESET' });
+      forceCanvasIdle();
+
+      if (cancelled) {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          draw(ctx, viewTransformRef.current);
+        }
+      }
+    }
+
+    previousToolRef.current = tools.currentTool;
+  }, [
+    cancelActiveOperations,
+    draw,
+    forceCanvasIdle,
+    interactionDispatch,
+    setCanvasStateMachineTool,
+    tools.currentTool
+  ]);
   
   // Helper to get mouse position
   const getMousePos = useCallback((event: React.MouseEvent<Element> | React.WheelEvent<Element>) => {

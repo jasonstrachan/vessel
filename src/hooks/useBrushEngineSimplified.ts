@@ -9,7 +9,6 @@ import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams
 import { BrushShape } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
-import { debugLog } from '@/utils/debug';
 import { canvasPool } from '../utils/canvasPool';
 import {
   drawContourPolygon as drawContourPolygonFill,
@@ -1303,21 +1302,7 @@ export const useBrushEngineSimplified = () => {
       },
     });
   }, [
-    tools.brushSettings.contourSpacing,
-    tools.brushSettings.shapeGradientMode,
-    tools.brushSettings.contourVariance,
-    tools.brushSettings.brushShape,
-    tools.brushSettings.contourLines2Spacing,
-    tools.brushSettings.contourLines2Density,
-    tools.brushSettings.contourLines2Alternate,
-    tools.brushSettings.risographIntensity,
-    tools.brushSettings.opacity,
-    tools.brushSettings.blendMode,
-    tools.brushSettings.color,
-    tools.brushSettings.shapeFillLineWidth,
-    tools.brushSettings.triangleFillRotation,
-    tools.brushSettings.triangleFillSize,
-    tools.brushSettings.triangleFillJitter,
+    tools.brushSettings,
     applyRisographEffect,
     createSignedDistanceField,
     extractContour,

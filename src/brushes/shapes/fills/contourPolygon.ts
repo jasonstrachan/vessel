@@ -135,6 +135,7 @@ export const drawContourPolygon = ({
       isPreview,
       spacingOverride,
       randomSeed: lineOptions?.randomSeed,
+      previewDetail: lineOptions?.previewDetail,
     });
   } finally {
     ctx.restore();

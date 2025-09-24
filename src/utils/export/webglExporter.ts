@@ -30,7 +30,7 @@ const viewerDebugWarn = (...args: Array<unknown>) => {
   }
 };
 
-type JSZipConstructor = any;
+type JSZipConstructor = typeof import('jszip');
 
 let jszipCtorPromise: Promise<JSZipConstructor> | null = null;
 
@@ -69,6 +69,17 @@ const CANVAS_EXPORT_FORMATS: readonly CanvasExportFormatOption[] = [
   { type: 'image/webp', quality: 0.75 },
   { type: 'image/png' }
 ];
+
+const getLayerSurfaceSize = (layer: Layer, project?: Project | null) => {
+  const framebuffer = layer.framebuffer;
+  const fallbackWidth = project?.width ?? layer.imageData?.width ?? 1;
+  const fallbackHeight = project?.height ?? layer.imageData?.height ?? 1;
+
+  const width = Math.max(1, framebuffer?.width ?? fallbackWidth);
+  const height = Math.max(1, framebuffer?.height ?? fallbackHeight);
+
+  return { width, height };
+};
 
 const PROPERTY_MINIFY_MAP = {
   format: 'f',

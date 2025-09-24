@@ -212,13 +212,13 @@ export const createShapeToolHandler = (
         brushEngine.drawCrossHatchPolygon(
           drawCtx,
           {
-          vertices,
-          fillColor: polygonGradientState.fillColor,
-          rotationOverride: tempSettings.crossHatchRotation,
-          spacingOverride: tempSettings.crossHatchSpacing,
-          lineWidthOverride: tempSettings.crossHatchLineWidth,
-        },
-        false
+            vertices,
+            fillColor: polygonGradientState.fillColor,
+            rotationOverride: tempSettings.crossHatchRotation,
+            spacingOverride: tempSettings.crossHatchSpacing,
+            lineWidthOverride: tempSettings.crossHatchLineWidth,
+          },
+          false
         );
       }
     );
@@ -344,19 +344,13 @@ export const createShapeToolHandler = (
 
   const shapeFillUsesSampledColor = () => {
     const { brushSettings } = useAppStore.getState().tools;
-    if (brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
-      return true;
-    }
     return !!brushSettings.shapeFillUseSampledColor;
   };
 
   const resolvePolygonPointColor = (worldPos: { x: number; y: number }) => {
     const { tools: toolsState } = useAppStore.getState();
     const { brushSettings } = toolsState;
-    if (
-      brushSettings.brushShape === BrushShape.POLYGON_GRADIENT ||
-      brushSettings.shapeFillUseSampledColor
-    ) {
+    if (brushSettings.shapeFillUseSampledColor) {
       return sampleColorAtPosition(worldPos.x, worldPos.y);
     }
     return brushSettings.color;
@@ -434,16 +428,25 @@ export const createShapeToolHandler = (
         return;
       }
 
-      brushEngine.drawContourPolygon(
-        overlayCtx,
+      withTemporaryBrushSettings(
+        useAppStore.getState().tools.brushSettings,
         {
-          vertices: shapePoints,
-          fillColor: undefined,
+          contourSpacing: constrainedEnd ?? constrainedStart,
         },
-        true,
-        {
-          contourSpacingOverride: constrainedEnd ?? constrainedStart,
-          randomSeed: contourState.randomSeed ?? undefined,
+        () => {
+          brushEngine.drawContourPolygon(
+            overlayCtx,
+            {
+              vertices: shapePoints,
+              fillColor: undefined,
+            },
+            true,
+            {
+              contourSpacingOverride: constrainedEnd ?? constrainedStart,
+              randomSeed: contourState.randomSeed ?? undefined,
+              previewDetail: 'full',
+            }
+          );
         }
       );
 
@@ -1221,20 +1224,20 @@ export const createShapeToolHandler = (
             sizeInitialSize: initialSize,
           });
 
-          const originalSize = tools.brushSettings.triangleFillSize;
-          try {
-            tools.brushSettings.triangleFillSize = initialSize;
-            brushEngine.drawContourPolygon(
-              drawCtx,
-              {
-                vertices,
-                fillColor,
-              },
-              false
-            );
-          } finally {
-            tools.brushSettings.triangleFillSize = originalSize;
-          }
+          withTemporaryBrushSettings(
+            useAppStore.getState().tools.brushSettings,
+            { triangleFillSize: initialSize },
+            () => {
+              brushEngine.drawContourPolygon(
+                drawCtx,
+                {
+                  vertices,
+                  fillColor,
+                },
+                false
+              );
+            }
+          );
 
           drawingHandlers.drawingCanvasHasContent.current = true;
 
@@ -1300,22 +1303,23 @@ export const createShapeToolHandler = (
 
     const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
     if (drawCtx && brushEngine && polygonState.vertices) {
+      const vertices = polygonState.vertices;
       drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
 
-      const originalSize = tools.brushSettings.triangleFillSize;
-      try {
-        tools.brushSettings.triangleFillSize = finalSize;
-        brushEngine.drawContourPolygon(
-          drawCtx,
-          {
-            vertices: polygonState.vertices,
-            fillColor: polygonState.fillColor,
-          },
-          false
-        );
-      } finally {
-        tools.brushSettings.triangleFillSize = originalSize;
-      }
+      withTemporaryBrushSettings(
+        useAppStore.getState().tools.brushSettings,
+        { triangleFillSize: finalSize },
+        () => {
+          brushEngine.drawContourPolygon(
+            drawCtx,
+            {
+              vertices,
+              fillColor: polygonState.fillColor,
+            },
+            false
+          );
+        }
+      );
 
       drawingHandlers.drawingCanvasHasContent.current = true;
     }
@@ -1352,22 +1356,23 @@ export const createShapeToolHandler = (
 
     const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
     if (drawCtx && brushEngine && polygonState.vertices) {
+      const vertices = polygonState.vertices;
       drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
 
-      const originalRotation = tools.brushSettings.triangleFillRotation;
-      try {
-        tools.brushSettings.triangleFillRotation = finalRotation;
-        brushEngine.drawContourPolygon(
-          drawCtx,
-          {
-            vertices: polygonState.vertices,
-            fillColor: polygonState.fillColor,
-          },
-          false
-        );
-      } finally {
-        tools.brushSettings.triangleFillRotation = originalRotation;
-      }
+      withTemporaryBrushSettings(
+        useAppStore.getState().tools.brushSettings,
+        { triangleFillRotation: finalRotation },
+        () => {
+          brushEngine.drawContourPolygon(
+            drawCtx,
+            {
+              vertices,
+              fillColor: polygonState.fillColor,
+            },
+            false
+          );
+        }
+      );
 
       drawingHandlers.drawingCanvasHasContent.current = true;
       drawingHandlers.finalizeStroke();
@@ -1392,20 +1397,21 @@ export const createShapeToolHandler = (
 
   const handleTrianglePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const polygonState = useAppStore.getState().polygonGradientState;
+    const vertices = polygonState.vertices;
     if (
       polygonState.drawingState !== 'adjustingSize' ||
       polygonState.mode !== 'triangle' ||
-      !polygonState.vertices ||
-      polygonState.vertices.length === 0
+      !vertices ||
+      vertices.length === 0
     ) {
       return false;
     }
 
     const worldPos = computeWorldPointer(event);
-    const sumX = polygonState.vertices.reduce((sum: number, vertex) => sum + vertex.x, 0);
-    const sumY = polygonState.vertices.reduce((sum: number, vertex) => sum + vertex.y, 0);
-    const centerX = sumX / polygonState.vertices.length;
-    const centerY = sumY / polygonState.vertices.length;
+    const sumX = vertices.reduce((sum: number, vertex) => sum + vertex.x, 0);
+    const sumY = vertices.reduce((sum: number, vertex) => sum + vertex.y, 0);
+    const centerX = sumX / vertices.length;
+    const centerY = sumY / vertices.length;
 
     const pointerDistance = Math.hypot(worldPos.x - centerX, worldPos.y - centerY);
     const referenceDistance = polygonState.sizeReferenceDistance ?? Math.max(pointerDistance, 1);
@@ -1428,20 +1434,20 @@ export const createShapeToolHandler = (
     if (drawCtx && brushEngine) {
       drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
 
-      const originalSize = tools.brushSettings.triangleFillSize;
-      try {
-        tools.brushSettings.triangleFillSize = newSize;
-        brushEngine.drawContourPolygon(
-          drawCtx,
-          {
-            vertices: polygonState.vertices,
-            fillColor: polygonState.fillColor,
-          },
-          false
-        );
-      } finally {
-        tools.brushSettings.triangleFillSize = originalSize;
-      }
+      withTemporaryBrushSettings(
+        useAppStore.getState().tools.brushSettings,
+        { triangleFillSize: newSize },
+        () => {
+          brushEngine.drawContourPolygon(
+            drawCtx,
+            {
+              vertices,
+              fillColor: polygonState.fillColor,
+            },
+            false
+          );
+        }
+      );
     }
 
     return true;

@@ -1,4 +1,4 @@
-import type { ContourLinesBasis, ContourLinesStage } from '@/types';
+import type { ContourLinesBasis } from '@/types';
 
 export interface ContourLinePath {
   points: Array<{ x: number; y: number }>;

@@ -33,8 +33,8 @@ describe('computeLayerTransform', () => {
     expect(transform.scaleY).toBeCloseTo(0.5);
   });
 
-  test('percent offsets shift within remaining space', () => {
-    const transform = computeLayerTransform(
+  test('percent offsets are ignored unless fit is percent', () => {
+    const containTransform = computeLayerTransform(
       { width: 50, height: 50 },
       { width: 100, height: 100 },
       {
@@ -44,22 +44,38 @@ describe('computeLayerTransform', () => {
       }
     );
 
-    // contain gives scale 2, leaving no extra space (50*2=100), percent should have no effect
-    expect(transform.translateX).toBeCloseTo(0);
-    expect(transform.translateY).toBeCloseTo(0);
+    expect(containTransform.translateX).toBeCloseTo(0);
+    expect(containTransform.translateY).toBeCloseTo(0);
 
-    const stretched = computeLayerTransform(
+    const noneTransform = computeLayerTransform(
       { width: 50, height: 50 },
       { width: 150, height: 150 },
       {
         ...baseAlignment,
+        horizontal: 'left',
+        vertical: 'top',
         fit: 'none',
         offsetPercent: { x: 50, y: 50 }
       }
     );
 
-    expect(stretched.translateX).toBeCloseTo(100);
-    expect(stretched.translateY).toBeCloseTo(100);
+    expect(noneTransform.translateX).toBeCloseTo(0);
+    expect(noneTransform.translateY).toBeCloseTo(0);
+
+    const percentTransform = computeLayerTransform(
+      { width: 100, height: 100 },
+      { width: 200, height: 200 },
+      {
+        ...baseAlignment,
+        horizontal: 'left',
+        vertical: 'top',
+        fit: 'percent',
+        offsetPercent: { x: 25, y: 75 }
+      }
+    );
+
+    expect(percentTransform.translateX).toBeCloseTo(50);
+    expect(percentTransform.translateY).toBeCloseTo(150);
   });
 
   test('offsets are applied after alignment', () => {

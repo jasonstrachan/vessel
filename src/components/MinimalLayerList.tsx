@@ -135,7 +135,7 @@ interface LayerAlignmentControlsProps extends DensityProps {
   defaultExpanded?: boolean;
 }
 
-export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ density = 'compact', className = '', appearance = 'panel', defaultExpanded = false }) => {
+export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ density = 'compact', className = '', defaultExpanded = false }) => {
   const activeLayerId = useAppStore(state => state.activeLayerId);
   const alignment = useAppStore(state => {
     if (!state.activeLayerId) {
@@ -175,7 +175,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
         y: percent.y.toString()
       });
     }
-  }, [alignment?.fit, alignment?.offsetPercent]);
+  }, [alignment, alignment?.fit, alignment?.offsetPercent]);
   const isComfortable = density === 'comfortable';
 
   const paddingClasses = isComfortable ? 'px-1 py-3' : 'px-1 py-2';
@@ -440,7 +440,7 @@ interface ContainerLayoutControlsProps extends DensityProps {
   defaultExpanded?: boolean;
 }
 
-export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ density = 'compact', className = '', appearance = 'panel', defaultExpanded = false }) => {
+export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ density = 'compact', className = '', defaultExpanded = false }) => {
   const exportLayoutFromStore = useAppStore(state => state.project?.exportLayout);
   const layout = useMemo(
     () => exportLayoutFromStore ?? createDefaultExportLayout(),
