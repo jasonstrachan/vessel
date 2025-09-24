@@ -10,6 +10,7 @@ export const drawContourFill = ({
   spacingOverride,
   randomSeed,
   previewDetail,
+  strokeColorOverride,
 }: ContourFillParams): void => {
   const {
     createSignedDistanceField,
@@ -26,7 +27,8 @@ export const drawContourFill = ({
     return;
   }
 
-  ctx.strokeStyle = brushSettings.color;
+  const strokeColor = strokeColorOverride ?? brushSettings.color;
+  ctx.strokeStyle = strokeColor;
   ctx.lineWidth = lineWidth;
   ctx.imageSmoothingEnabled = !pixelMode;
 
@@ -130,7 +132,7 @@ export const drawContourFill = ({
           10
         );
         ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
-        ctx.fillStyle = brushSettings.color;
+        ctx.fillStyle = strokeColor;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(text, textX, textY);
@@ -205,7 +207,7 @@ export const drawContourFill = ({
     ctx.save();
     ctx.imageSmoothingEnabled = !pixelMode;
 
-    ctx.strokeStyle = brushSettings.color;
+    ctx.strokeStyle = strokeColor;
     ctx.lineWidth = lineWidth;
 
     const snappedPeakX = snap(actualPeakX);
@@ -236,7 +238,7 @@ export const drawContourFill = ({
     );
 
     ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
-    ctx.fillStyle = brushSettings.color;
+    ctx.fillStyle = strokeColor;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(peakText, snappedPeakX, snap(snappedPeakY + 15));

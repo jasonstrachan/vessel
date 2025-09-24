@@ -44,9 +44,12 @@ const loadJSZip = async (): Promise<JSZipConstructor> => {
   return jszipCtorPromise;
 };
 
+type WebGLViewportMode = 'project' | 'fill' | 'square' | 'widescreen' | 'custom';
+
 interface WebGLViewport {
   width: number;
   height: number;
+  mode?: WebGLViewportMode;
 }
 
 interface WebGLLayerAsset {
@@ -240,6 +243,7 @@ export interface WebGLExportRequest {
   layers: Layer[];
   layout: ExportContainerLayout;
   viewport: WebGLViewport;
+  viewportMode?: WebGLViewportMode;
   fps: number;
   totalFrames: number;
   durationSeconds: number;
@@ -2122,6 +2126,10 @@ export const exportProjectAsWebGL = async (
 
   const bundleFormat: WebGLExportBundleFormat = options.bundleFormat ?? 'zip';
 
+  const viewport: WebGLViewport = options.viewportMode
+    ? { ...options.viewport, mode: options.viewportMode }
+    : { ...options.viewport };
+
   const metadata: WebGLExportMetadata = {
     format: 'tinybrush-webgl',
     version: 1,
@@ -2133,7 +2141,7 @@ export const exportProjectAsWebGL = async (
       height: options.project.height,
       backgroundColor: options.project.backgroundColor
     },
-    viewport: { ...options.viewport },
+    viewport,
     container: containerLayout,
     animation: {
       fps: options.fps,

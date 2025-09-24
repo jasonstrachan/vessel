@@ -1349,13 +1349,17 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             
           } else if (toolStateMachine.isContourPolygon) {
             // Check if it's a contour polygon
+            const sampledStrokeColor = tools.brushSettings.shapeFillUseSampledColor
+              ? toolStateMachine.polygonGradientState.points.find((p) => p.color)?.color
+              : undefined;
             brushEngine.drawContourPolygon(
               drawCtx,
               {
                 vertices: toolStateMachine.polygonGradientState.points.map(p => ({ x: p.x, y: p.y })),
                 fillColor: toolStateMachine.polygonGradientState.points[0]?.color
               },
-              false
+              false,
+              sampledStrokeColor ? { strokeColorOverride: sampledStrokeColor } : undefined
             );
           } else if (toolStateMachine.polygonGradientState.points.length >= 3) {
             // Standard polygon gradient - only if we have valid points

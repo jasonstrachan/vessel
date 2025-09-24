@@ -409,8 +409,11 @@ export const createShapeToolHandler = (
     overlayCtx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
     overlayCtx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
     const safeScale = Math.max(viewTransformRef.current.scale, 0.001);
+    const strokeColorOverride = tools.brushSettings.shapeFillUseSampledColor && contourState.fillColor
+      ? contourState.fillColor
+      : tools.brushSettings.color;
     overlayCtx.lineWidth = Math.max(0.2, 0.45 / safeScale);
-    overlayCtx.strokeStyle = tools.brushSettings.color;
+    overlayCtx.strokeStyle = strokeColorOverride;
     overlayCtx.imageSmoothingEnabled = !(tools.brushSettings.shapeFillPixelMode ?? true);
 
     const maxDistance = Math.max(0.001, basis.maxDistance || spacingStart);
@@ -432,6 +435,7 @@ export const createShapeToolHandler = (
         useAppStore.getState().tools.brushSettings,
         {
           contourSpacing: constrainedEnd ?? constrainedStart,
+          color: strokeColorOverride,
         },
         () => {
           brushEngine.drawContourPolygon(
@@ -444,6 +448,7 @@ export const createShapeToolHandler = (
             {
               contourSpacingOverride: constrainedEnd ?? constrainedStart,
               randomSeed: contourState.randomSeed ?? undefined,
+              strokeColorOverride,
               previewDetail: 'full',
             }
           );
@@ -1168,6 +1173,8 @@ export const createShapeToolHandler = (
       if (isContourPolygon) {
         const shapeMode = tools.brushSettings.shapeGradientMode || 'contour';
 
+        const strokeColorOverride = shapeFillUsesSampledColor() && fillColor ? fillColor : undefined;
+
         if (shapeMode === 'crosshatch') {
           useAppStore.getState().resetContourLinesState();
           clearOverlayCanvas();
@@ -1234,7 +1241,8 @@ export const createShapeToolHandler = (
                   vertices,
                   fillColor,
                 },
-                false
+                false,
+                strokeColorOverride ? { strokeColorOverride } : undefined
               );
             }
           );
@@ -1250,7 +1258,8 @@ export const createShapeToolHandler = (
             vertices,
             fillColor,
           },
-          false
+          false,
+          strokeColorOverride ? { strokeColorOverride } : undefined
         );
       } else {
         const useSampledFill = shapeFillUsesSampledColor();
@@ -1306,9 +1315,18 @@ export const createShapeToolHandler = (
       const vertices = polygonState.vertices;
       drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
 
+      const strokeColorOverride = shapeFillUsesSampledColor() && polygonState.fillColor
+        ? polygonState.fillColor
+        : undefined;
+
+      const patch: Partial<BrushSettings> = { triangleFillSize: finalSize };
+      if (strokeColorOverride) {
+        patch.color = strokeColorOverride;
+      }
+
       withTemporaryBrushSettings(
         useAppStore.getState().tools.brushSettings,
-        { triangleFillSize: finalSize },
+        patch,
         () => {
           brushEngine.drawContourPolygon(
             drawCtx,
@@ -1316,7 +1334,8 @@ export const createShapeToolHandler = (
               vertices,
               fillColor: polygonState.fillColor,
             },
-            false
+            false,
+            strokeColorOverride ? { strokeColorOverride } : undefined
           );
         }
       );
@@ -1359,9 +1378,18 @@ export const createShapeToolHandler = (
       const vertices = polygonState.vertices;
       drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
 
+      const strokeColorOverride = shapeFillUsesSampledColor() && polygonState.fillColor
+        ? polygonState.fillColor
+        : undefined;
+
+      const patch: Partial<BrushSettings> = { triangleFillRotation: finalRotation };
+      if (strokeColorOverride) {
+        patch.color = strokeColorOverride;
+      }
+
       withTemporaryBrushSettings(
         useAppStore.getState().tools.brushSettings,
-        { triangleFillRotation: finalRotation },
+        patch,
         () => {
           brushEngine.drawContourPolygon(
             drawCtx,
@@ -1369,7 +1397,8 @@ export const createShapeToolHandler = (
               vertices,
               fillColor: polygonState.fillColor,
             },
-            false
+            false,
+            strokeColorOverride ? { strokeColorOverride } : undefined
           );
         }
       );
@@ -1434,9 +1463,18 @@ export const createShapeToolHandler = (
     if (drawCtx && brushEngine) {
       drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
 
+      const strokeColorOverride = shapeFillUsesSampledColor() && polygonState.fillColor
+        ? polygonState.fillColor
+        : undefined;
+
+      const patch: Partial<BrushSettings> = { triangleFillSize: newSize };
+      if (strokeColorOverride) {
+        patch.color = strokeColorOverride;
+      }
+
       withTemporaryBrushSettings(
         useAppStore.getState().tools.brushSettings,
-        { triangleFillSize: newSize },
+        patch,
         () => {
           brushEngine.drawContourPolygon(
             drawCtx,
@@ -1444,7 +1482,8 @@ export const createShapeToolHandler = (
               vertices,
               fillColor: polygonState.fillColor,
             },
-            false
+            false,
+            strokeColorOverride ? { strokeColorOverride } : undefined
           );
         }
       );

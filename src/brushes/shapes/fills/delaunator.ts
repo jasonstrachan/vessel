@@ -22,6 +22,7 @@ export const drawDelaunayFill = ({
   const pixelMode = brushSettings.shapeFillPixelMode ?? true;
   const snap = resolveCoordinateSnap(pixelMode);
   const lineWidth = Math.max(0.2, brushSettings.shapeFillLineWidth ?? 1);
+  const strokeColor = brushSettings.color ?? '#000000';
 
   const clampValue = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
   const rotationDeg = brushSettings.triangleFillRotation ?? 0;
@@ -260,7 +261,7 @@ export const drawDelaunayFill = ({
       ctx.lineTo(snap(vertices[i].x), snap(vertices[i].y));
     }
     ctx.closePath();
-    ctx.strokeStyle = '#000000';
+    ctx.strokeStyle = strokeColor;
     ctx.lineWidth = lineWidth;
     ctx.lineJoin = 'miter';
     ctx.lineCap = 'butt';
@@ -324,7 +325,7 @@ export const drawDelaunayFill = ({
       ctx.beginPath();
       ctx.moveTo(snap(p1World.x), snap(p1World.y));
       ctx.lineTo(snap(p2World.x), snap(p2World.y));
-      ctx.strokeStyle = '#000000';
+      ctx.strokeStyle = strokeColor;
       ctx.stroke();
 
       drawnVertices.add(vertexKey(p1World));

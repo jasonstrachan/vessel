@@ -121,6 +121,7 @@ export const drawContourPolygon = ({
         boundWidth,
         boundHeight,
         isPreview,
+        strokeColorOverride: lineOptions?.strokeColorOverride,
       });
       return;
     }
@@ -136,6 +137,7 @@ export const drawContourPolygon = ({
       spacingOverride,
       randomSeed: lineOptions?.randomSeed,
       previewDetail: lineOptions?.previewDetail,
+      strokeColorOverride: lineOptions?.strokeColorOverride,
     });
   } finally {
     ctx.restore();

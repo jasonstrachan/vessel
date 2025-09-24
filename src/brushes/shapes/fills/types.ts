@@ -17,6 +17,7 @@ export type ContourLineOptions = {
   contourSpacingOverride?: number;
   randomSeed?: number;
   previewDetail?: 'minimal' | 'full';
+  strokeColorOverride?: string;
 };
 
 export type ShapeFillDependencies = {
@@ -58,6 +59,7 @@ export interface ContourFillParams extends PolygonFillBase {
   spacingOverride?: number;
   randomSeed?: number;
   previewDetail?: 'minimal' | 'full';
+  strokeColorOverride?: string;
 }
 
 export interface LinesFillParams extends PolygonFillBase {
@@ -70,4 +72,5 @@ export interface DelaunayFillParams extends PolygonFillBase {
   boundWidth: number;
   boundHeight: number;
   isPreview?: boolean;
+  strokeColorOverride?: string;
 }

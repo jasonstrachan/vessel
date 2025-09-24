@@ -1157,6 +1157,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       layers,
       layout: layoutConfig,
       viewport: resolvedWebglViewport,
+      viewportMode: webglViewportPreset,
       fps,
       totalFrames: webglTotalFrames,
       durationSeconds: webglEffectiveDuration,

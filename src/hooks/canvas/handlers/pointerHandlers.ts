@@ -201,8 +201,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const safeScale = Math.max(deps.viewTransformRef.current.scale, 0.001);
 
     const currentTools = useAppStore.getState().tools;
+    const sampledStrokeColor = currentTools.brushSettings.shapeFillUseSampledColor && contourState.fillColor
+      ? contourState.fillColor
+      : currentTools.brushSettings.color;
     overlayCtx.lineWidth = Math.max(0.2, 0.45 / safeScale);
-    overlayCtx.strokeStyle = currentTools.brushSettings.color;
+    overlayCtx.strokeStyle = sampledStrokeColor;
     overlayCtx.imageSmoothingEnabled = false;
 
     const maxDistance = Math.max(0.001, basis.maxDistance || spacingStart);
@@ -225,6 +228,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           {
             contourSpacingOverride: constrainedEnd ?? constrainedStart,
             randomSeed: contourState.randomSeed ?? undefined,
+            strokeColorOverride: sampledStrokeColor,
             previewDetail: 'full',
           }
         );
@@ -365,6 +369,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return;
     }
 
+    const strokeColorOverride = state.tools.brushSettings.shapeFillUseSampledColor
+      ? (fillColor ?? contourLinesState.fillColor ?? state.tools.brushSettings.color)
+      : undefined;
+
     brushEngine.drawContourPolygon(
       drawCtx,
       {
@@ -378,6 +386,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         lineBasis: basis,
         contourSpacingOverride: spacingEnd ?? spacingStart,
         randomSeed: contourLinesState.randomSeed ?? undefined,
+        strokeColorOverride,
       }
     );
 
@@ -433,9 +442,15 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return;
     }
 
-    const spacingSetting = tools.brushSettings.contourLines2Spacing ?? 8;
-    const densitySetting = tools.brushSettings.contourLines2Density ?? 5;
-    const alternateSetting = tools.brushSettings.contourLines2Alternate ?? true;
+    const spacingSetting = state.tools.brushSettings.contourLines2Spacing ?? 8;
+    const densitySetting = state.tools.brushSettings.contourLines2Density ?? 5;
+    const alternateSetting = state.tools.brushSettings.contourLines2Alternate ?? true;
+
+    const strokeColorOverride = state.tools.brushSettings.shapeFillUseSampledColor && fillColor
+      ? fillColor
+      : (state.tools.brushSettings.shapeFillUseSampledColor
+        ? contourLinesState.fillColor ?? state.tools.brushSettings.color
+        : undefined);
 
     brushEngine.drawContourPolygon(
       drawCtx,
@@ -454,6 +469,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         lines2Density: densitySetting,
         lines2Alternate: alternateSetting,
         centroid,
+        strokeColorOverride,
       }
     );
 
