@@ -3,7 +3,7 @@ import { computeLayerTransform, resolveContainerLayout } from '../layerAlignment
 
 describe('computeLayerTransform', () => {
   const baseAlignment: LayerAlignmentSettings = {
-    fit: 'contain',
+    fit: 'none',
     horizontal: 'center',
     vertical: 'center',
     offsetPx: { x: 0, y: 0 }
@@ -13,7 +13,7 @@ describe('computeLayerTransform', () => {
     const transform = computeLayerTransform(
       { width: 100, height: 50 },
       { width: 200, height: 200 },
-      baseAlignment
+      { ...baseAlignment, fit: 'contain' }
     );
 
     expect(transform.scaleX).toBeCloseTo(2);
@@ -33,11 +33,40 @@ describe('computeLayerTransform', () => {
     expect(transform.scaleY).toBeCloseTo(0.5);
   });
 
+  test('percent offsets shift within remaining space', () => {
+    const transform = computeLayerTransform(
+      { width: 50, height: 50 },
+      { width: 100, height: 100 },
+      {
+        ...baseAlignment,
+        fit: 'contain',
+        offsetPercent: { x: 50, y: 50 }
+      }
+    );
+
+    // contain gives scale 2, leaving no extra space (50*2=100), percent should have no effect
+    expect(transform.translateX).toBeCloseTo(0);
+    expect(transform.translateY).toBeCloseTo(0);
+
+    const stretched = computeLayerTransform(
+      { width: 50, height: 50 },
+      { width: 150, height: 150 },
+      {
+        ...baseAlignment,
+        fit: 'none',
+        offsetPercent: { x: 50, y: 50 }
+      }
+    );
+
+    expect(stretched.translateX).toBeCloseTo(100);
+    expect(stretched.translateY).toBeCloseTo(100);
+  });
+
   test('offsets are applied after alignment', () => {
     const transform = computeLayerTransform(
       { width: 100, height: 100 },
       { width: 200, height: 200 },
-      { ...baseAlignment, offsetPx: { x: 10, y: -5 } }
+      { ...baseAlignment, fit: 'contain', offsetPx: { x: 10, y: -5 } }
     );
 
     expect(transform.translateX).toBeCloseTo(10);

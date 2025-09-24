@@ -30,7 +30,8 @@ const DEFAULT_RAINBOW_STOPS = [
   { position: 1.0, color: '#9400d3' }
 ];
 
-const DEFAULT_CROSS_HATCH_LINE_WIDTH = 1.25;
+const DEFAULT_SHAPE_FILL_LINE_WIDTH = 1;
+const DEFAULT_CROSS_HATCH_LINE_WIDTH = 1;
 
 // Get access to drawing handlers via a context or ref - we'll need to create this
 export interface ColorCycleAnimationContext {
@@ -149,7 +150,14 @@ const BrushControls = () => {
   const setActiveSettings =
     currentTool === "eraser" ? setEraserSettings : setBrushSettings;
 
-  const crossHatchLineWidth = activeSettings.crossHatchLineWidth ?? DEFAULT_CROSS_HATCH_LINE_WIDTH;
+  const shapeFillLineWidth = activeSettings.shapeFillLineWidth ?? DEFAULT_SHAPE_FILL_LINE_WIDTH;
+  const shapeFillLineWidthLabel = Number.isFinite(shapeFillLineWidth)
+    ? (Number.isInteger(shapeFillLineWidth) ? shapeFillLineWidth.toString() : shapeFillLineWidth.toFixed(1))
+    : DEFAULT_SHAPE_FILL_LINE_WIDTH.toFixed(1);
+
+  const crossHatchLineWidth = activeSettings.crossHatchLineWidth
+    ?? activeSettings.shapeFillLineWidth
+    ?? DEFAULT_CROSS_HATCH_LINE_WIDTH;
   const crossHatchLineWidthLabel = Number.isFinite(crossHatchLineWidth)
     ? (Number.isInteger(crossHatchLineWidth) ? crossHatchLineWidth.toString() : crossHatchLineWidth.toFixed(1))
     : DEFAULT_CROSS_HATCH_LINE_WIDTH.toFixed(1);
@@ -1172,6 +1180,30 @@ const BrushControls = () => {
           </div>
         </div>
 
+        {activeSettings.shapeGradientMode !== 'crosshatch' && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                Line
+              </label>
+              <ProgressSlider
+                value={shapeFillLineWidth}
+                min={0.5}
+                max={10}
+                step={0.5}
+                onChange={(value) =>
+                  setActiveSettings({ shapeFillLineWidth: value })
+                }
+                aria-label="Fill Line Width"
+                className="flex-1"
+              />
+              <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                {shapeFillLineWidthLabel}px
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Contour controls */}
         {(activeSettings.shapeGradientMode || 'contour') === 'contour' && (
           <>
@@ -1427,7 +1459,10 @@ const BrushControls = () => {
                   max={10}
                   step={0.5}
                   onChange={(value) =>
-                    setActiveSettings({ crossHatchLineWidth: value })
+                    setActiveSettings({
+                      crossHatchLineWidth: value,
+                      shapeFillLineWidth: value,
+                    })
                   }
                   aria-label="Hatch Line Width"
                   className="flex-1"

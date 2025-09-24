@@ -79,13 +79,14 @@ export const LayerColorSwatches = memo<{
 LayerColorSwatches.displayName = 'LayerColorSwatches';
 
 const fitOptions: Array<{ value: LayerAlignmentSettings['fit']; label: string }> = [
-  { value: 'contain', label: 'Contain' },
-  { value: 'cover', label: 'Cover' },
+  { value: 'none', label: 'None' },
+  { value: 'contain', label: 'Contain fill' },
+  { value: 'cover', label: 'Cover fill' },
   { value: 'fill', label: 'Fill' },
-  { value: 'fit-width', label: 'Fit Width' },
-  { value: 'fit-height', label: 'Fit Height' },
-  { value: 'scale-down', label: 'Scale Down' },
-  { value: 'none', label: 'None' }
+  { value: 'percent', label: 'Percent' },
+  { value: 'fit-width', label: 'Fit width' },
+  { value: 'fit-height', label: 'Fit height' },
+  { value: 'scale-down', label: 'Scale down' }
 ];
 
 const horizontalAxisOptions: Array<{ value: LayerAlignmentSettings['horizontal']; label: string }> = [
@@ -149,6 +150,32 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
 
   const disabled = !alignment || !activeLayerId;
   const offset = alignment?.offsetPx ?? { x: 0, y: 0 };
+  const offsetPercent = alignment?.offsetPercent ?? { x: 0, y: 0 };
+
+  const [percentDraft, setPercentDraft] = useState<{ x: string; y: string }>({
+    x: offsetPercent.x.toString(),
+    y: offsetPercent.y.toString()
+  });
+
+  useEffect(() => {
+    setPercentDraft({
+      x: offsetPercent.x.toString(),
+      y: offsetPercent.y.toString()
+    });
+  }, [offsetPercent.x, offsetPercent.y]);
+
+  useEffect(() => {
+    if (!alignment) {
+      return;
+    }
+    if (alignment.fit === 'percent') {
+      const percent = alignment.offsetPercent ?? { x: 0, y: 0 };
+      setPercentDraft({
+        x: percent.x.toString(),
+        y: percent.y.toString()
+      });
+    }
+  }, [alignment?.fit, alignment?.offsetPercent]);
   const isComfortable = density === 'comfortable';
 
   const paddingClasses = isComfortable ? 'px-1 py-3' : 'px-1 py-2';
@@ -159,16 +186,24 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
   const helperClass = 'text-sm text-[#8F8FA3]';
 
   const toTitleCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
-  const summaryText = alignment
-    ? `${(fitOptions.find(option => option.value === alignment.fit)?.label ?? alignment.fit)} • ${toTitleCase(alignment.horizontal)} / ${toTitleCase(alignment.vertical)}`
-    : 'Select a layer to configure';
+  const summaryText = (() => {
+    if (!alignment) {
+      return 'Select a layer to configure';
+    }
+    const fitLabel = fitOptions.find(option => option.value === alignment.fit)?.label ?? alignment.fit;
+    if (alignment.fit === 'percent') {
+      const percent = alignment.offsetPercent ?? { x: 0, y: 0 };
+      return `${fitLabel} • Left ${percent.x}% / Top ${percent.y}%`;
+    }
+    return `${fitLabel} • ${toTitleCase(alignment.horizontal)} / ${toTitleCase(alignment.vertical)}`;
+  })();
 
   const labelClass = 'text-sm font-medium text-[#D3D3DC]';
   const controlGapClass = 'gap-1';
 
   const fieldClass = [
     'w-full rounded-none border border-[#4A4A4A] bg-[#4A4A4A] text-[#F3F3F7] placeholder:text-[#C6C6D0]',
-    'transition-colors focus:border-[#8E8EFF]',
+    'transition-colors focus:border-[#8E8EFF] focus:outline-none focus:ring-0',
     'disabled:cursor-not-allowed disabled:opacity-50',
     'h-7 px-2 text-sm'
   ].join(' ');
@@ -217,6 +252,37 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
     [alignment, activeLayerId, updateLayerAlignment]
   );
 
+  const commitPercentChange = useCallback((axis: 'x' | 'y', value: string) => {
+    if (!alignment || !activeLayerId) {
+      return;
+    }
+    const parsed = Number.parseFloat(value);
+    if (!Number.isFinite(parsed)) {
+      const basePercent = alignment.offsetPercent ?? { x: 0, y: 0 };
+      updateLayerAlignment(activeLayerId, {
+        ...alignment,
+        offsetPercent: { ...basePercent, [axis]: 0 }
+      });
+      setPercentDraft((prev) => ({ ...prev, [axis]: '0' }));
+      return;
+    }
+    const clamped = Math.max(-100, Math.min(100, parsed));
+    const basePercent = alignment.offsetPercent ?? { x: 0, y: 0 };
+    updateLayerAlignment(activeLayerId, {
+      ...alignment,
+      offsetPercent: { ...basePercent, [axis]: clamped }
+    });
+    setPercentDraft((prev) => ({ ...prev, [axis]: clamped.toString() }));
+  }, [alignment, activeLayerId, updateLayerAlignment]);
+
+  const handlePercentInputChange = useCallback((axis: 'x' | 'y', raw: string) => {
+    setPercentDraft((prev) => ({ ...prev, [axis]: raw }));
+  }, []);
+
+  const handlePercentCommit = useCallback((axis: 'x' | 'y') => {
+    commitPercentChange(axis, percentDraft[axis]);
+  }, [commitPercentChange, percentDraft]);
+
   return (
     <div className={rootClasses}>
       <button
@@ -260,62 +326,107 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
             </div>
           </div>
 
-          <div>
-            <span className={`${labelClass} block mb-2`}>Horizontal</span>
-            <div className={`flex ${controlGapClass}`}>
-            {horizontalAxisOptions.map(option => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => handleAlignmentChange({ horizontal: option.value })}
-                  disabled={disabled}
-                  className={`${segmentedButtonBase} ${alignment?.horizontal === option.value ? segmentedActiveClass : segmentedInactiveClass} ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          {alignment?.fit !== 'percent' && (
+            <>
+              <div>
+                <span className={`${labelClass} block mb-2`}>Horizontal</span>
+                <div className={`flex ${controlGapClass}`}>
+                {horizontalAxisOptions.map(option => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => handleAlignmentChange({ horizontal: option.value })}
+                      disabled={disabled}
+                      className={`${segmentedButtonBase} ${alignment?.horizontal === option.value ? segmentedActiveClass : segmentedInactiveClass} ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-          <div>
-            <span className={`${labelClass} block mb-2`}>Vertical</span>
-            <div className={`flex ${controlGapClass}`}>
-            {verticalAxisOptions.map(option => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => handleAlignmentChange({ vertical: option.value })}
-                  disabled={disabled}
-                  className={`${segmentedButtonBase} ${alignment?.vertical === option.value ? segmentedActiveClass : segmentedInactiveClass} ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
+              <div>
+                <span className={`${labelClass} block mb-2`}>Vertical</span>
+                <div className={`flex ${controlGapClass}`}>
+                {verticalAxisOptions.map(option => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => handleAlignmentChange({ vertical: option.value })}
+                      disabled={disabled}
+                      className={`${segmentedButtonBase} ${alignment?.vertical === option.value ? segmentedActiveClass : segmentedInactiveClass} ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
 
-          <div className={`grid grid-cols-2 ${controlGapClass}`}>
-            <label className={`${labelClass} flex flex-col gap-1`}>
-              Offset X
-              <input
-                type="number"
-                className={`${fieldClass} text-center`}
-                value={alignment ? offset.x : 0}
-                onChange={(event) => handleOffsetChange('x', Number(event.target.value))}
-                disabled={disabled}
-              />
-            </label>
-            <label className={`${labelClass} flex flex-col gap-1`}>
-              Offset Y
-              <input
-                type="number"
-                className={`${fieldClass} text-center`}
-                value={alignment ? offset.y : 0}
-                onChange={(event) => handleOffsetChange('y', Number(event.target.value))}
-                disabled={disabled}
-              />
-            </label>
-          </div>
+          {alignment?.fit === 'percent' && (
+            <div className={`grid grid-cols-2 ${controlGapClass}`}>
+              <label className={`${labelClass} flex flex-col gap-1`}>
+                Left %
+                <input
+                  type="number"
+                  step="any"
+                  className={`${fieldClass} text-center`}
+                  value={percentDraft.x}
+                  onChange={(event) => handlePercentInputChange('x', event.target.value)}
+                  onBlur={() => handlePercentCommit('x')}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.currentTarget.blur();
+                    }
+                  }}
+                  disabled={disabled}
+                />
+              </label>
+              <label className={`${labelClass} flex flex-col gap-1`}>
+                Top %
+                <input
+                  type="number"
+                  step="any"
+                  className={`${fieldClass} text-center`}
+                  value={percentDraft.y}
+                  onChange={(event) => handlePercentInputChange('y', event.target.value)}
+                  onBlur={() => handlePercentCommit('y')}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.currentTarget.blur();
+                    }
+                  }}
+                  disabled={disabled}
+                />
+              </label>
+            </div>
+          )}
+
+          {alignment?.fit !== 'percent' && (
+            <div className={`grid grid-cols-2 ${controlGapClass}`}>
+              <label className={`${labelClass} flex flex-col gap-1`}>
+                Offset X
+                <input
+                  type="number"
+                  className={`${fieldClass} text-center`}
+                  value={alignment ? offset.x : 0}
+                  onChange={(event) => handleOffsetChange('x', Number(event.target.value))}
+                  disabled={disabled}
+                />
+              </label>
+              <label className={`${labelClass} flex flex-col gap-1`}>
+                Offset Y
+                <input
+                  type="number"
+                  className={`${fieldClass} text-center`}
+                  value={alignment ? offset.y : 0}
+                  onChange={(event) => handleOffsetChange('y', Number(event.target.value))}
+                  disabled={disabled}
+                />
+              </label>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -419,8 +530,10 @@ export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ den
     const widthText = Number.isFinite(layout.width) ? `${layout.width}px` : 'auto';
     const heightText = Number.isFinite(layout.height) ? `${layout.height}px` : 'auto';
     summaryParts.push(`Fixed ${widthText} × ${heightText}`);
+  } else if (layout.sizeMode === 'hug') {
+    summaryParts.push('Hug');
   } else {
-    summaryParts.push('Hug content');
+    summaryParts.push('Fill');
   }
   const summaryText = summaryParts.join(' • ');
 
@@ -547,9 +660,9 @@ export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ den
             <div className={`grid grid-cols-3 ${controlGapClass}`}>
               {(
                 [
-                  { value: 'fill', label: 'Fill viewport' },
-                  { value: 'hug', label: 'Hug content' },
-                  { value: 'fixed', label: 'Fixed size' }
+                  { value: 'fill', label: 'Fill' },
+                  { value: 'hug', label: 'Hug' },
+                  { value: 'fixed', label: 'Fixed' }
                 ] satisfies Array<{ value: ExportContainerLayout['sizeMode']; label: string }>
               ).map(option => (
                 <button

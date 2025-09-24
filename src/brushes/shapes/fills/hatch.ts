@@ -52,7 +52,7 @@ type HatchContext = {
   cy: number;
 };
 
-const DEFAULT_LINE_WIDTH = 1.25;
+const DEFAULT_LINE_WIDTH = 1;
 const DEFAULT_ORGANIC = 0.75;
 const DEFAULT_HIGHLIGHT_SCALE = 1.05;
 
@@ -81,9 +81,12 @@ export const drawCrossHatchPolygon = ({
 
   const angle = (((polygonData?.rotationOverride ?? brushSettings.crossHatchRotation) ?? 45) * Math.PI) / 180;
   const spacing = Math.max(2, polygonData?.spacingOverride ?? brushSettings.crossHatchSpacing ?? 10);
+  const baseLineWidth = brushSettings.shapeFillLineWidth
+    ?? brushSettings.crossHatchLineWidth
+    ?? DEFAULT_LINE_WIDTH;
   const lineWidth = Math.max(
     0.2,
-    polygonData?.lineWidthOverride ?? brushSettings.crossHatchLineWidth ?? DEFAULT_LINE_WIDTH
+    polygonData?.lineWidthOverride ?? baseLineWidth
   );
   const cross = true;
   const highlightScale = DEFAULT_HIGHLIGHT_SCALE;

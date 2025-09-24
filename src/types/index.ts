@@ -1,7 +1,7 @@
 // Core type definitions for TinyBrush
 // Based on /docs/02_System_Architecture/Data_Model.md
 
-export type LayerAlignmentFit = 'contain' | 'cover' | 'fill' | 'fit-width' | 'fit-height' | 'scale-down' | 'none';
+export type LayerAlignmentFit = 'contain' | 'cover' | 'fill' | 'fit-width' | 'fit-height' | 'scale-down' | 'percent' | 'none';
 
 export type LayerHorizontalAlignment = 'left' | 'center' | 'right';
 
@@ -12,11 +12,17 @@ export interface LayerAlignmentOffset {
   y: number;
 }
 
+export interface LayerAlignmentPercentOffset {
+  x: number;
+  y: number;
+}
+
 export interface LayerAlignmentSettings {
   fit: LayerAlignmentFit;
   horizontal: LayerHorizontalAlignment;
   vertical: LayerVerticalAlignment;
   offsetPx?: LayerAlignmentOffset;
+  offsetPercent?: LayerAlignmentPercentOffset;
 }
 
 export interface ContentBounds {
@@ -436,6 +442,7 @@ export interface BrushSettings {
   crossHatchRotation?: number; // 0-360 degrees
   crossHatchSpacing?: number; // 2-50 pixels
   crossHatchLineWidth?: number; // 1-10 pixels
+  shapeFillLineWidth?: number; // Stroke width for contour/lines fills (px)
   shapeFillPixelMode?: boolean; // true = snap fill vertices to pixel centers
   shapeFillUseSampledColor?: boolean; // true = sample canvas color, false = use selected brush color
   // Color cycle flow direction

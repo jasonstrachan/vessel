@@ -1,7 +1,15 @@
 import { cloneExportLayout, cloneLayerAlignment } from '@/utils/layoutDefaults';
 import { resolveContainerLayout, type LayerTransform, type ResolvedLayerLayout } from '@/utils/layerAlignment';
-import { computeContentBoundsFromImageData } from '@/utils/imageBounds';
-import type { ContentBounds, ExportContainerLayout, Layer, Project, WebGLExportBundleFormat } from '@/types';
+import { clampPercent, computeLayerContentMetrics, computePercentOffsetFromMetrics } from '@/utils/layerMetrics';
+import type { LayerContentMetrics } from '@/utils/layerMetrics';
+import type {
+  ContentBounds,
+  ExportContainerLayout,
+  Layer,
+  LayerAlignmentSettings,
+  Project,
+  WebGLExportBundleFormat
+} from '@/types';
 import { packArrayToB64Z } from '@/utils/export/b64z';
 
 const viewerDiagnosticsDefault =
@@ -45,10 +53,7 @@ interface WebGLLayerAsset {
   texture?: string;
 }
 
-interface LayerExportMetrics {
-  surfaceSize: { width: number; height: number };
-  contentBounds: ContentBounds;
-}
+type LayerExportMetrics = LayerContentMetrics;
 
 type CanvasExportMimeType = 'image/avif' | 'image/webp' | 'image/png';
 
@@ -84,6 +89,8 @@ const PROPERTY_MINIFY_MAP = {
   opacity: 'o',
   blendMode: 'bm',
   alignment: 'al',
+  offsetPx: 'opx',
+  offsetPercent: 'opc',
   frame: 'fr',
   transform: 'tr',
   sourceSize: 'ss',
@@ -355,7 +362,21 @@ const stripLayerDefaults = (layer: WebGLLayerMetadata): WebGLLayerMetadata => {
   };
 
   if (layer.alignment) {
-    stripped.alignment = layer.alignment;
+    const alignment = { ...layer.alignment } as LayerAlignmentSettings;
+    const percent = alignment.offsetPercent;
+    if (percent) {
+      const clamped = {
+        x: clampPercent(percent.x ?? 0),
+        y: clampPercent(percent.y ?? 0)
+      };
+      const isZero = clamped.x === 0 && clamped.y === 0;
+      if (isZero) {
+        delete alignment.offsetPercent;
+      } else {
+        alignment.offsetPercent = clamped;
+      }
+    }
+    stripped.alignment = alignment;
   }
 
   if (layer.contentBounds) {
@@ -627,125 +648,8 @@ const imageDataToDataURL = async (imageData: ImageData): Promise<string> => {
   return dataUrl;
 };
 
-const getCanvasDimensions = (canvas: HTMLCanvasElement | OffscreenCanvas | undefined | null) => {
-  if (!canvas) {
-    return null;
-  }
-  const width = 'width' in canvas ? (canvas.width ?? 0) : 0;
-  const height = 'height' in canvas ? (canvas.height ?? 0) : 0;
-  if (!Number.isFinite(width) || !Number.isFinite(height)) {
-    return null;
-  }
-  return {
-    width: Math.max(1, Math.floor(width)),
-    height: Math.max(1, Math.floor(height))
-  };
-};
-
-const getLayerSurfaceSize = (layer: Layer, project: Project) => {
-  const framebufferDims = getCanvasDimensions(layer.framebuffer as HTMLCanvasElement | OffscreenCanvas | null);
-  if (framebufferDims) {
-    return framebufferDims;
-  }
-  if (layer.imageData) {
-    return {
-      width: Math.max(1, layer.imageData.width),
-      height: Math.max(1, layer.imageData.height)
-    };
-  }
-  const colorCycleCanvas = getCanvasDimensions(layer.colorCycleData?.canvas as HTMLCanvasElement | OffscreenCanvas | null);
-  if (colorCycleCanvas) {
-    return colorCycleCanvas;
-  }
-  return {
-    width: Math.max(1, project.width),
-    height: Math.max(1, project.height)
-  };
-};
-
-const normalizeContentBounds = (
-  bounds: ContentBounds | null,
-  surface: { width: number; height: number }
-): ContentBounds => {
-  const defaultBounds: ContentBounds = {
-    x: 0,
-    y: 0,
-    width: Math.max(1, surface.width),
-    height: Math.max(1, surface.height)
-  };
-
-  if (!bounds) {
-    return defaultBounds;
-  }
-
-  const clampedX = Math.max(0, Math.min(Math.floor(bounds.x), Math.max(0, surface.width - 1)));
-  const clampedY = Math.max(0, Math.min(Math.floor(bounds.y), Math.max(0, surface.height - 1)));
-  const maxWidth = Math.max(1, surface.width - clampedX);
-  const maxHeight = Math.max(1, surface.height - clampedY);
-  const width = Math.min(Math.max(1, Math.floor(bounds.width)), maxWidth);
-  const height = Math.min(Math.max(1, Math.floor(bounds.height)), maxHeight);
-
-  return {
-    x: clampedX,
-    y: clampedY,
-    width,
-    height
-  };
-};
-
-const computeCanvasContentBounds = (
-  canvas: HTMLCanvasElement | OffscreenCanvas | null
-): ContentBounds | null => {
-  if (!canvas) {
-    return null;
-  }
-
-  const dimensions = getCanvasDimensions(canvas);
-  if (!dimensions) {
-    return null;
-  }
-
-  try {
-    const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: true } as CanvasRenderingContext2DSettings);
-    if (!ctx) {
-      return null;
-    }
-    const imageData = ctx.getImageData(0, 0, dimensions.width, dimensions.height);
-    return computeContentBoundsFromImageData(imageData);
-  } catch (error) {
-    console.warn('[webglExporter] Failed to compute canvas content bounds', error);
-    return null;
-  }
-};
-
-const computeLayerExportMetrics = (layer: Layer, project: Project): LayerExportMetrics => {
-  const surfaceSize = getLayerSurfaceSize(layer, project);
-
-  let bounds: ContentBounds | null = null;
-
-  if (layer.imageData) {
-    try {
-      bounds = computeContentBoundsFromImageData(layer.imageData);
-    } catch (error) {
-      console.warn('[webglExporter] Failed to compute bounds from layer.imageData', error);
-    }
-  }
-
-  if (!bounds) {
-    bounds = computeCanvasContentBounds(layer.framebuffer as HTMLCanvasElement | OffscreenCanvas | null);
-  }
-
-  if (!bounds && layer.colorCycleData?.canvas) {
-    bounds = computeCanvasContentBounds(layer.colorCycleData.canvas as HTMLCanvasElement | OffscreenCanvas | null);
-  }
-
-  const normalizedBounds = normalizeContentBounds(bounds, surfaceSize);
-
-  return {
-    surfaceSize,
-    contentBounds: normalizedBounds
-  };
-};
+const computeLayerExportMetrics = (layer: Layer, project: Project): LayerExportMetrics =>
+  computeLayerContentMetrics(layer, project);
 
 const clampFrameToViewport = (
   frame: { x: number; y: number; width: number; height: number },
@@ -2152,6 +2056,16 @@ export const exportProjectAsWebGL = async (
       });
     }
 
+    const alignment = cloneLayerAlignment(layer.alignment);
+    const percentOffset = computePercentOffsetFromMetrics(metrics);
+    alignment.offsetPercent = percentOffset;
+
+    if (alignment.fit === 'percent') {
+      alignment.horizontal = 'left';
+      alignment.vertical = 'top';
+      alignment.offsetPx = { x: 0, y: 0 };
+    }
+
     const baseLayerMetadata: WebGLLayerMetadata = {
       id: layer.id,
       name: layer.name,
@@ -2159,7 +2073,7 @@ export const exportProjectAsWebGL = async (
       visible: layer.visible,
       opacity: layer.opacity,
       blendMode: layer.blendMode,
-      alignment: cloneLayerAlignment(layer.alignment),
+      alignment,
       frame: clampedFrame,
       transform: placement.transform,
       sourceSize,

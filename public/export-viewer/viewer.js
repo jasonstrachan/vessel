@@ -101,6 +101,8 @@ const PROPERTY_UNMINIFY_MAP = {
   o: 'opacity',
   bm: 'blendMode',
   al: 'alignment',
+  opx: 'offsetPx',
+  opc: 'offsetPercent',
   fr: 'frame',
   tr: 'transform',
   ss: 'sourceSize',

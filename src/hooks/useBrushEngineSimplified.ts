@@ -1314,6 +1314,7 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.opacity,
     tools.brushSettings.blendMode,
     tools.brushSettings.color,
+    tools.brushSettings.shapeFillLineWidth,
     tools.brushSettings.triangleFillRotation,
     tools.brushSettings.triangleFillSize,
     tools.brushSettings.triangleFillJitter,

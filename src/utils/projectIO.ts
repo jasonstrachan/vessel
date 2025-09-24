@@ -504,8 +504,19 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
     layerType: rawLayerType || (
       console.warn('🟡 Layer missing layerType during load, defaulting to normal:', serializedLayer.id?.substring(0, 20)),
       'normal' as const
-    )
+    ),
+    version: Date.now()
   };
+
+  if (imageData) {
+    try {
+      const fbCtx = framebuffer.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null);
+      fbCtx?.clearRect(0, 0, framebuffer.width, framebuffer.height);
+      fbCtx?.putImageData(imageData, 0, 0);
+    } catch (error) {
+      console.warn('[projectIO] Failed to hydrate layer framebuffer from image data during load:', error);
+    }
+  }
 
   // Restore color cycle data if present (including legacy files without layerType set)
   if (serializedLayer.colorCycleData) {

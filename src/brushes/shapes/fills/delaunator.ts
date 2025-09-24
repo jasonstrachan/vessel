@@ -21,6 +21,7 @@ export const drawDelaunayFill = ({
 
   const pixelMode = brushSettings.shapeFillPixelMode ?? true;
   const snap = resolveCoordinateSnap(pixelMode);
+  const lineWidth = Math.max(0.2, brushSettings.shapeFillLineWidth ?? 1);
 
   const clampValue = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
   const rotationDeg = brushSettings.triangleFillRotation ?? 0;
@@ -260,7 +261,7 @@ export const drawDelaunayFill = ({
     }
     ctx.closePath();
     ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = lineWidth;
     ctx.lineJoin = 'miter';
     ctx.lineCap = 'butt';
     ctx.imageSmoothingEnabled = !pixelMode;

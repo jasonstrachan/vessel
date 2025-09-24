@@ -19,13 +19,14 @@ export const drawContourFill = ({
 
   const pixelMode = brushSettings.shapeFillPixelMode ?? true;
   const snap = resolveCoordinateSnap(pixelMode);
+  const lineWidth = Math.max(0.2, brushSettings.shapeFillLineWidth ?? 1);
 
   if (vertices.length < 3) {
     return;
   }
 
   ctx.strokeStyle = brushSettings.color;
-  ctx.lineWidth = 1;
+  ctx.lineWidth = lineWidth;
   ctx.imageSmoothingEnabled = !pixelMode;
 
   const fieldData = createSignedDistanceField(vertices, ctx.canvas.width, ctx.canvas.height, 2);
@@ -206,7 +207,7 @@ export const drawContourFill = ({
     ctx.imageSmoothingEnabled = !pixelMode;
 
     ctx.strokeStyle = brushSettings.color;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = lineWidth;
 
     const snappedPeakX = snap(actualPeakX);
     const snappedPeakY = snap(actualPeakY);

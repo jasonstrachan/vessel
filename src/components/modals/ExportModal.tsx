@@ -41,6 +41,7 @@ const INPUT_OVERRIDE_CLASS = '!bg-[#4a4a4a] !border-[#343434] !text-[#E5E5E5] !p
 
 const WEBGL_VIEWPORT_PRESETS = [
   { value: 'project', label: 'Project' },
+  { value: 'fill', label: 'Fill window' },
   { value: 'square', label: 'Square' },
   { value: 'widescreen', label: 'Widescreen' },
   { value: 'custom', label: 'Custom' }
@@ -351,6 +352,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     switch (webglViewportPreset) {
       case 'project':
         return { width: fallbackWidth, height: fallbackHeight };
+      case 'fill': {
+        if (typeof window !== 'undefined') {
+          return {
+            width: Math.max(1, Math.round(window.innerWidth || fallbackWidth)),
+            height: Math.max(1, Math.round(window.innerHeight || fallbackHeight))
+          };
+        }
+        return { width: fallbackWidth, height: fallbackHeight };
+      }
       case 'square': {
         const side = Math.max(fallbackWidth, fallbackHeight);
         return { width: side, height: side };
@@ -471,9 +481,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     if (layout.sizeMode === 'fixed') {
       parts.push(`Fixed ${layout.width ?? 0}×${layout.height ?? 0}`);
     } else if (layout.sizeMode === 'hug') {
-      parts.push('Hug content');
+      parts.push('Hug');
     } else {
-      parts.push('Fill viewport');
+      parts.push('Fill');
     }
     return parts.join(' • ');
   }, [project?.exportLayout]);

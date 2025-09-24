@@ -1,7 +1,7 @@
 import type React from 'react';
 import { useAppStore } from '../../../../stores/useAppStore';
 import type { EventHandlerDependencies } from '../../utils/types';
-import { BrushShape } from '@/types';
+import { BrushShape, type BrushSettings } from '@/types';
 import { snapPointToAngle } from '@/utils/angleSnap';
 import {
   computeLines2Defaults,
@@ -12,6 +12,7 @@ import {
   prepareContourLinesBasis,
 } from '@/utils/contourLines';
 import { computeDragScaledValue } from '@/utils/dragScale';
+import { withTemporaryBrushSettings } from '@/utils/withTemporaryBrushSettings';
 
 export interface ShapeToolHandlerContext {
   deps: EventHandlerDependencies;
@@ -180,7 +181,8 @@ export const createShapeToolHandler = (
   };
 
   const drawCrosshatchPreview = (rotation: number, spacing: number) => {
-    const { polygonGradientState } = useAppStore.getState();
+    const currentState = useAppStore.getState();
+    const { polygonGradientState } = currentState;
     const vertices = polygonGradientState.vertices;
     if (!vertices || vertices.length < 3 || !brushEngine) return;
 
@@ -189,24 +191,37 @@ export const createShapeToolHandler = (
 
     drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
 
-    const originalRotation = tools.brushSettings.crossHatchRotation;
-    const originalSpacing = tools.brushSettings.crossHatchSpacing;
+    const brushSettings = currentState.tools.brushSettings;
+    const lineWidthOverride = brushSettings.shapeFillLineWidth
+      ?? brushSettings.crossHatchLineWidth;
 
-    try {
-      tools.brushSettings.crossHatchRotation = rotation;
-      tools.brushSettings.crossHatchSpacing = spacing;
-      brushEngine.drawCrossHatchPolygon(
-        drawCtx,
-        {
+    const patch: Partial<BrushSettings> = {
+      crossHatchRotation: rotation,
+      crossHatchSpacing: spacing,
+    };
+
+    if (lineWidthOverride !== undefined) {
+      patch.crossHatchLineWidth = lineWidthOverride;
+      patch.shapeFillLineWidth = lineWidthOverride;
+    }
+
+    withTemporaryBrushSettings(
+      currentState.tools.brushSettings,
+      patch,
+      (tempSettings) => {
+        brushEngine.drawCrossHatchPolygon(
+          drawCtx,
+          {
           vertices,
           fillColor: polygonGradientState.fillColor,
+          rotationOverride: tempSettings.crossHatchRotation,
+          spacingOverride: tempSettings.crossHatchSpacing,
+          lineWidthOverride: tempSettings.crossHatchLineWidth,
         },
         false
-      );
-    } finally {
-      tools.brushSettings.crossHatchRotation = originalRotation;
-      tools.brushSettings.crossHatchSpacing = originalSpacing;
-    }
+        );
+      }
+    );
 
     drawingHandlers.drawingCanvasHasContent.current = true;
   };

@@ -127,6 +127,7 @@ import {
   normalizeLayers,
   normalizeProject
 } from '@/utils/layoutDefaults';
+import { computeLayerPercentOffset } from '@/utils/layerMetrics';
 
 // Helper function to get serializable brush settings for persistence
 const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSettings> => {
@@ -2150,9 +2151,35 @@ export const useAppStore = create<AppState>()(
         set({ layers: normalizeLayers(fixedLayers) });
       },
       updateLayerAlignment: (layerId, alignment) => set((state) => {
+        const targetLayer = state.layers.find(layer => layer.id === layerId);
+
+        if (!targetLayer) {
+          return { layers: state.layers };
+        }
+
+        let nextAlignment = cloneLayerAlignment(alignment);
+
+        const previousAlignment = targetLayer.alignment;
+        const fitChangedToPercent = nextAlignment.fit === 'percent' && previousAlignment.fit !== 'percent';
+        const previousPercent = previousAlignment.offsetPercent ?? { x: 0, y: 0 };
+        const nextPercent = nextAlignment.offsetPercent ?? { x: 0, y: 0 };
+        const offsetPercentChanged = previousPercent.x !== nextPercent.x || previousPercent.y !== nextPercent.y;
+
+        if (fitChangedToPercent && !offsetPercentChanged && state.project) {
+          try {
+            const percentOffset = computeLayerPercentOffset(targetLayer, state.project);
+            nextAlignment = {
+              ...nextAlignment,
+              offsetPercent: percentOffset
+            };
+          } catch (error) {
+            console.warn('[useAppStore] Failed to compute percent offset during alignment update', error);
+          }
+        }
+
         const updatedLayers = state.layers.map(layer => (
           layer.id === layerId
-            ? { ...layer, alignment: cloneLayerAlignment(alignment) }
+            ? { ...layer, alignment: nextAlignment }
             : layer
         ));
 
@@ -3489,23 +3516,23 @@ export const useAppStore = create<AppState>()(
       
       captureCanvasToActiveLayer: async (sourceCanvas?: HTMLCanvasElement) => {
         const state = get();
-        
+
         // Skip if we're in the middle of a history operation
         if (state.history.isCapturing) {
           return;
         }
-        
+
         if (!state.project || state.layers.length === 0) {
           return;
         }
-        
+
         // Try to get the source canvas (offscreen canvas with the drawing)
         const canvas = sourceCanvas;
-        
+
         if (!canvas) {
           return;
         }
-        
+
         const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
         if (!ctx) {
           return;
@@ -3611,14 +3638,10 @@ export const useAppStore = create<AppState>()(
           return;
         }
         
-        if (!sourceCanvas) {
-          return;
-        }
-        
         if (!targetLayerId) {
           return;
         }
-        
+
         const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
         if (!ctx) {
           return;

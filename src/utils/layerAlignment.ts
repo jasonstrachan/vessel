@@ -87,6 +87,11 @@ export const computeLayerTransform = (
       scaleY = scale;
       break;
     }
+    case 'percent':
+    case 'none':
+      scaleX = 1;
+      scaleY = 1;
+      break;
     case 'none':
     default:
       scaleX = 1;
@@ -102,30 +107,49 @@ export const computeLayerTransform = (
   let translateX = 0;
   let translateY = 0;
 
-  switch (alignment.horizontal) {
-    case 'center':
-      translateX = extraX / 2;
-      break;
-    case 'right':
-      translateX = extraX;
-      break;
-    case 'left':
-    default:
-      translateX = 0;
-      break;
+  if (alignment.fit !== 'percent') {
+    switch (alignment.horizontal) {
+      case 'center':
+        translateX = extraX / 2;
+        break;
+      case 'right':
+        translateX = extraX;
+        break;
+      case 'left':
+      default:
+        translateX = 0;
+        break;
+    }
+
+    switch (alignment.vertical) {
+      case 'center':
+        translateY = extraY / 2;
+        break;
+      case 'bottom':
+        translateY = extraY;
+        break;
+      case 'top':
+      default:
+        translateY = 0;
+        break;
+    }
   }
 
-  switch (alignment.vertical) {
-    case 'center':
-      translateY = extraY / 2;
-      break;
-    case 'bottom':
-      translateY = extraY;
-      break;
-    case 'top':
-    default:
-      translateY = 0;
-      break;
+  if (alignment.fit !== 'percent' && alignment.offsetPercent) {
+    const percentXRaw = Number.isFinite(alignment.offsetPercent.x) ? alignment.offsetPercent.x : 0;
+    const percentYRaw = Number.isFinite(alignment.offsetPercent.y) ? alignment.offsetPercent.y : 0;
+    const percentX = Math.max(-100, Math.min(100, percentXRaw));
+    const percentY = Math.max(-100, Math.min(100, percentYRaw));
+    translateX += extraX * (percentX / 100);
+    translateY += extraY * (percentY / 100);
+  }
+
+  if (alignment.fit === 'percent') {
+    const percent = alignment.offsetPercent ?? { x: 0, y: 0 };
+    const percentX = Math.max(-100, Math.min(100, percent.x));
+    const percentY = Math.max(-100, Math.min(100, percent.y));
+    translateX = viewportWidth * (percentX / 100);
+    translateY = viewportHeight * (percentY / 100);
   }
 
   if (alignment.offsetPx) {

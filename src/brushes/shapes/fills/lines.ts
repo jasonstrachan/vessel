@@ -29,9 +29,10 @@ export const drawLinesFill = ({
 
   const pixelMode = brushSettings.shapeFillPixelMode ?? true;
   const snap = resolveCoordinateSnap(pixelMode);
+  const lineWidth = Math.max(0.2, brushSettings.shapeFillLineWidth ?? 1);
 
   ctx.strokeStyle = brushSettings.color;
-  ctx.lineWidth = 1;
+  ctx.lineWidth = lineWidth;
   ctx.imageSmoothingEnabled = !pixelMode;
 
   const lines = generateContourLines(vertices, basis, spacingA, spacingB);

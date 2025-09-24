@@ -39,9 +39,10 @@ export function analyzeLayerColors(
         if (a < 10) continue;
         
         // Create hex color (with some quantization for grouping similar colors)
-        const qr = Math.round(r / 8) * 8;
-        const qg = Math.round(g / 8) * 8;
-        const qb = Math.round(b / 8) * 8;
+        const quantize = (value: number) => Math.min(255, Math.round(value / 8) * 8);
+        const qr = quantize(r);
+        const qg = quantize(g);
+        const qb = quantize(b);
         const color = `#${((1 << 24) + (qr << 16) + (qg << 8) + qb).toString(16).slice(1)}`;
         
         colorMap.set(color, (colorMap.get(color) || 0) + 1);
