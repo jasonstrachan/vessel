@@ -469,6 +469,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const setShowBrushCursorRef = useRef(setShowBrushCursor);
   setShowBrushCursorRef.current = setShowBrushCursor;
   const previousToolRef = useRef<Tool | null>(tools.currentTool);
+  const lastStateMachineToolRef = useRef<Tool | null>(tools.currentTool);
   
   // View transform ref for zoom
   const viewTransformRef = useRef({ 
@@ -1432,7 +1433,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   });
 
   useEffect(() => {
-    setCanvasStateMachineTool(tools.currentTool);
+    if (lastStateMachineToolRef.current !== tools.currentTool) {
+      setCanvasStateMachineTool(tools.currentTool);
+      lastStateMachineToolRef.current = tools.currentTool;
+    }
 
     const previousTool = previousToolRef.current;
     if (previousTool && previousTool !== tools.currentTool) {

@@ -74,6 +74,36 @@ if (typeof window !== 'undefined') {
   window.tinybrushViewerSetDiagnostics = (value) => setViewerDiagnosticsEnabled(value);
 }
 
+const ACTIVE_CANVASES = new Map();
+let resizeListenerAttached = false;
+
+const computeResponsiveScale = (metadata) => {
+  if (typeof window === 'undefined' || !metadata || !metadata.viewport) {
+    return 1;
+  }
+  const viewport = metadata.viewport ?? {};
+  const width = Number(viewport.width) || 0;
+  const height = Number(viewport.height) || 0;
+  if (!width || !height) {
+    return 1;
+  }
+  const viewportWidth = window.innerWidth || width;
+  const viewportHeight = window.innerHeight || height;
+  const widthRatio = viewportWidth / width;
+  const heightRatio = viewportHeight / height;
+  if (!Number.isFinite(widthRatio) || !Number.isFinite(heightRatio) || widthRatio <= 0 || heightRatio <= 0) {
+    return 1;
+  }
+  if (viewport.mode === 'fill') {
+    return {
+      x: widthRatio,
+      y: heightRatio
+    };
+  }
+  const baseScale = Math.min(widthRatio, heightRatio, 1);
+  return baseScale > 0 ? baseScale : 1;
+};
+
 const loadImage = (src) => {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -205,7 +235,165 @@ const toFinite = (value, fallback = 0) => {
   return Number.isFinite(numeric) ? numeric : fallback;
 };
 
-const applyLayer = (ctx, img, layer, scale) => {
+const normalizeScaleOption = (scaleOption) => {
+  if (typeof scaleOption === 'number') {
+    const numeric = scaleOption > 0 ? scaleOption : 1;
+    return { x: numeric, y: numeric };
+  }
+  if (scaleOption && typeof scaleOption === 'object') {
+    const rawX = typeof scaleOption.x === 'number' ? scaleOption.x : 1;
+    const rawY = typeof scaleOption.y === 'number' ? scaleOption.y : 1;
+    const x = rawX > 0 ? rawX : 1;
+    const y = rawY > 0 ? rawY : 1;
+    return { x, y };
+  }
+  return { x: 1, y: 1 };
+};
+
+const MIN_DIMENSION = 1e-3;
+
+const clampDimension = (value) => {
+  if (!Number.isFinite(value) || value <= 0) {
+    return MIN_DIMENSION;
+  }
+  return value;
+};
+
+const buildLayoutLines = (items, flow, wrap, gap, availableMain) => {
+  const lines = [];
+  const safeGap = Math.max(0, typeof gap === 'number' ? gap : 0);
+  const limit = wrap && availableMain > 0 ? availableMain : Number.POSITIVE_INFINITY;
+
+  let currentLine = null;
+
+  const ensureCurrentLine = () => {
+    if (!currentLine) {
+      currentLine = { items: [], mainSize: 0, crossSize: 0 };
+      lines.push(currentLine);
+    }
+    return currentLine;
+  };
+
+  for (const layer of items) {
+    if (!layer || layer.hidden) {
+      continue;
+    }
+
+    const main = flow === 'row'
+      ? clampDimension(layer.surface?.width)
+      : clampDimension(layer.surface?.height);
+    const cross = flow === 'row'
+      ? clampDimension(layer.surface?.height)
+      : clampDimension(layer.surface?.width);
+
+    let activeLine = ensureCurrentLine();
+    const prospective = activeLine.mainSize === 0
+      ? main
+      : activeLine.mainSize + safeGap + main;
+
+    if (wrap && activeLine.items.length > 0 && prospective > limit) {
+      currentLine = null;
+      activeLine = ensureCurrentLine();
+    }
+
+    activeLine.items.push({ layer, main, cross });
+    activeLine.crossSize = Math.max(activeLine.crossSize, cross);
+    activeLine.mainSize = activeLine.mainSize === 0
+      ? main
+      : activeLine.mainSize + safeGap + main;
+  }
+
+  return lines;
+};
+
+const computeLineOffsets = (line, contentMain, gap, justify, reverse) => {
+  const count = line.items.length;
+  if (count === 0) {
+    return { start: 0, gap };
+  }
+
+  const safeGap = Math.max(0, typeof gap === 'number' ? gap : 0);
+  const rawMain = line.items.reduce((acc, item) => acc + item.main, 0);
+  const totalBase = rawMain + safeGap * (count - 1);
+  const available = contentMain;
+  const leftover = available - totalBase;
+  const freeSpace = leftover > 0 ? leftover : 0;
+
+  if (justify === 'space-between' && count > 1) {
+    return {
+      start: reverse ? freeSpace : 0,
+      gap: safeGap + freeSpace / (count - 1)
+    };
+  }
+
+  if (justify === 'space-around' && count > 0) {
+    const extra = freeSpace / count;
+    return {
+      start: extra / 2,
+      gap: safeGap + extra
+    };
+  }
+
+  let offset = 0;
+  if (justify === 'center') {
+    offset = freeSpace / 2;
+  } else if (justify === 'end') {
+    offset = freeSpace;
+  }
+
+  return {
+    start: offset,
+    gap: safeGap
+  };
+};
+
+const computeLineCrossSizes = (lines, contentCross, gap, align) => {
+  if (lines.length === 0) {
+    return { sizes: [], offset: 0 };
+  }
+
+  const safeGap = Math.max(0, typeof gap === 'number' ? gap : 0);
+  const baseSizes = lines.map((line) => line.crossSize);
+  const baseTotal = baseSizes.reduce((acc, size) => acc + size, 0) + safeGap * (lines.length - 1);
+  const free = contentCross - baseTotal;
+
+  if (align === 'stretch' && lines.length > 0) {
+    const extraPerLine = free > 0 ? free / lines.length : 0;
+    const stretched = baseSizes.map((size) => size + extraPerLine);
+    return { sizes: stretched, offset: 0 };
+  }
+
+  const total = baseTotal;
+  const leftover = contentCross - total;
+  const positiveLeftover = leftover > 0 ? leftover : 0;
+
+  let offset = 0;
+  if (align === 'center') {
+    offset = positiveLeftover / 2;
+  } else if (align === 'end') {
+    offset = positiveLeftover;
+  }
+
+  return { sizes: baseSizes, offset };
+};
+
+const computeCrossOffsetWithinLine = (lineSize, itemSize, align) => {
+  if (align === 'stretch') {
+    return 0;
+  }
+
+  if (align === 'center') {
+    return (lineSize - itemSize) / 2;
+  }
+
+  if (align === 'end') {
+    return lineSize - itemSize;
+  }
+
+  return 0;
+};
+
+const applyLayer = (ctx, img, layer, globalScale) => {
   if (!img) {
     return false;
   }
@@ -225,16 +413,67 @@ const applyLayer = (ctx, img, layer, scale) => {
   const frameY = toFinite(frame.y, 0);
   const translateX = toFinite(transform.translateX, 0);
   const translateY = toFinite(transform.translateY, 0);
-  const scaleX = toFinite(transform.scaleX, 1);
-  const scaleY = toFinite(transform.scaleY, 1);
+  const layerScaleX = toFinite(transform.scaleX, 1);
+  const layerScaleY = toFinite(transform.scaleY, 1);
   const rotation = toFinite(transform.rotation, 0);
+
+  const globalScaleX = toFinite(globalScale?.x ?? globalScale, 1);
+  const globalScaleY = toFinite(globalScale?.y ?? globalScale, 1);
+  const normalizedScaleX = globalScaleX > 0 ? globalScaleX : 1;
+  const normalizedScaleY = globalScaleY > 0 ? globalScaleY : 1;
+
+  // If the layer has alignment settings and has been through layout calculation,
+  // its transform already includes the necessary scaling
+  const layerAlignment = layer?.alignment;
+  const hasCalculatedTransform = layer?._hasCalculatedTransform === true
+    && layer.frame
+    && layer.transform;
+
+  // Don't apply global scale if layer has its own calculated transform
+  const effectiveGlobalScaleX = hasCalculatedTransform ? 1 : normalizedScaleX;
+  const effectiveGlobalScaleY = hasCalculatedTransform ? 1 : normalizedScaleY;
 
   const canvasWidth = ctx.canvas?.width ?? 0;
   const canvasHeight = ctx.canvas?.height ?? 0;
-  const destX = (frameX + translateX) * scale;
-  const destY = (frameY + translateY) * scale;
-  const scaledWidth = cropWidth * scaleX * scale;
-  const scaledHeight = cropHeight * scaleY * scale;
+
+  let destX;
+  let destY;
+  let scaledWidth;
+  let scaledHeight;
+
+  if (hasCalculatedTransform) {
+    const calcFrame = layer.frame || { x: 0, y: 0 };
+    const calcTransform = layer.transform || { translateX: 0, translateY: 0, scaleX: 1, scaleY: 1 };
+    const calcTranslateX = toFinite(calcTransform.translateX, 0);
+    const calcTranslateY = toFinite(calcTransform.translateY, 0);
+    const calcScaleX = toFinite(calcTransform.scaleX, 1);
+    const calcScaleY = toFinite(calcTransform.scaleY, 1);
+
+    destX = calcFrame.x + calcTranslateX;
+    destY = calcFrame.y + calcTranslateY;
+    scaledWidth = cropWidth * calcScaleX;
+    scaledHeight = cropHeight * calcScaleY;
+  } else {
+    destX = (frameX + translateX) * effectiveGlobalScaleX;
+    destY = (frameY + translateY) * effectiveGlobalScaleY;
+    scaledWidth = cropWidth * layerScaleX * effectiveGlobalScaleX;
+    scaledHeight = cropHeight * layerScaleY * effectiveGlobalScaleY;
+  }
+
+  if (viewerDiagnosticsEnabled && layerAlignment?.fit) {
+    console.log('[LAYER DEBUG] Layer with alignment fit:', layerAlignment.fit, {
+      layerId: layer?.id,
+      fit: layerAlignment?.fit,
+      hasCalculatedTransform,
+      globalScale: { x: normalizedScaleX, y: normalizedScaleY },
+      effectiveScale: { x: effectiveGlobalScaleX, y: effectiveGlobalScaleY },
+      frame: hasCalculatedTransform ? layer.frame : { x: frameX, y: frameY },
+      transform: hasCalculatedTransform ? layer.transform : { translateX, translateY, scaleX: layerScaleX, scaleY: layerScaleY },
+      finalDest: { x: destX, y: destY },
+      finalSize: { width: scaledWidth, height: scaledHeight },
+      alignment: layerAlignment
+    });
+  }
   const bounds = {
     x: destX,
     y: destY,
@@ -253,8 +492,8 @@ const applyLayer = (ctx, img, layer, scale) => {
     frameY,
     translateX,
     translateY,
-    scaleX,
-    scaleY,
+    layerScaleX,
+    layerScaleY,
     rotationDegrees: rotation * (180 / Math.PI),
     canvasWidth,
     canvasHeight,
@@ -262,15 +501,25 @@ const applyLayer = (ctx, img, layer, scale) => {
     offscreen
   });
   ctx.save();
-  ctx.scale(scale, scale);
   ctx.globalAlpha = Math.max(0, Math.min(1, layer?.opacity ?? 1));
   ctx.globalCompositeOperation = layer?.blendMode || 'source-over';
-  ctx.translate(frameX + translateX, frameY + translateY);
-  if (rotation !== 0) {
-    ctx.rotate(rotation);
+
+  if (hasCalculatedTransform) {
+    ctx.translate(destX, destY);
+    if (rotation !== 0) {
+      ctx.rotate(rotation);
+    }
+    ctx.drawImage(img, sourceX, sourceY, cropWidth, cropHeight, 0, 0, scaledWidth, scaledHeight);
+  } else {
+    // Only use global scale for layers without alignment settings
+    ctx.scale(normalizedScaleX, normalizedScaleY);
+    ctx.translate(frameX + translateX, frameY + translateY);
+    if (rotation !== 0) {
+      ctx.rotate(rotation);
+    }
+    ctx.scale(layerScaleX, layerScaleY);
+    ctx.drawImage(img, sourceX, sourceY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
   }
-  ctx.scale(scaleX, scaleY);
-  ctx.drawImage(img, sourceX, sourceY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
   ctx.restore();
   return true;
 };
@@ -1048,28 +1297,539 @@ class ColorCycleLayerPlayer {
 }
 
 class TinyBrushBundleRenderer {
-  constructor(metadata, canvas, options) {
+  constructor(metadata, canvas, options, sourceMetadata) {
     this.metadata = metadata;
+    if (!this.metadata.exportLayout) {
+      this.metadata.exportLayout = {
+        sizeMode: 'viewport',
+        padding: { top: 0, right: 0, bottom: 0, left: 0 }
+      };
+    }
     this.canvas = canvas;
     this.options = options || {};
-    this.scale = this.options.scale && this.options.scale > 0 ? this.options.scale : 1;
+    const { x, y } = normalizeScaleOption(this.options.scale);
+    this.scaleX = x;
+    this.scaleY = y;
     this.ctx = null;
     this.layers = [];
     this.dynamicPlayers = [];
     this.rafId = null;
     this.lastTimestamp = 0;
     this.isDestroyed = false;
+    this.sourceMetadata = sourceMetadata ?? metadata;
     this.summary = {
       viewport: metadata.viewport,
       animation: metadata.animation,
-      layers: metadata.layers.length
+      layers: metadata.layers.length,
+      scale: { x: this.scaleX, y: this.scaleY }
     };
     this.handleAnimationFrame = this.handleAnimationFrame.bind(this);
+
+    // Store original layer data RIGHT AWAY, before any modifications
+    this.originalLayerData = new Map();
+    this.originalLayerAlignments = new Map(); // Keep for backward compatibility
+    if (metadata && metadata.layers) {
+      metadata.layers.forEach(layer => {
+        this.originalLayerData.set(layer.id, {
+          alignment: layer.alignment ? { ...layer.alignment } : null,
+          frame: layer.frame ? { ...layer.frame } : null,
+          transform: layer.transform ? { ...layer.transform } : null,
+          sourceSize: layer.sourceSize ? { ...layer.sourceSize } : null
+        });
+
+        // Also store in the old format for backward compatibility
+        if (layer.alignment) {
+          this.originalLayerAlignments.set(layer.id, { ...layer.alignment });
+        }
+      });
+    }
+
+    // Flag to prevent recalculation during initialization
+    this.isInitialized = false;
+  }
+
+  setSourceMetadata(metadata) {
+    this.sourceMetadata = metadata;
+  }
+
+  getSourceMetadata() {
+    return this.sourceMetadata;
+  }
+
+  updateScale(scaleOption) {
+    const { x, y } = normalizeScaleOption(scaleOption);
+    const hasChanged = Math.abs(x - this.scaleX) > 1e-6 || Math.abs(y - this.scaleY) > 1e-6;
+    this.scaleX = x;
+    this.scaleY = y;
+    this.options.scale = scaleOption;
+    this.summary.scale = { x: this.scaleX, y: this.scaleY };
+
+    const width = Math.max(1, Math.round(this.metadata.viewport.width * this.scaleX));
+    const height = Math.max(1, Math.round(this.metadata.viewport.height * this.scaleY));
+
+    if (this.canvas.width !== width || this.canvas.height !== height) {
+      this.canvas.width = width;
+      this.canvas.height = height;
+      this.canvas.style.width = `${width}px`;
+      this.canvas.style.height = `${height}px`;
+      if (this.ctx) {
+        this.ctx.imageSmoothingEnabled = false;
+      }
+    }
+
+    if (viewerDiagnosticsEnabled) {
+      debugLog('[DEBUG] updateScale applied', {
+        scaleX: this.scaleX,
+        scaleY: this.scaleY,
+        canvasWidth: this.canvas.width,
+        canvasHeight: this.canvas.height,
+        widthTarget: width,
+        heightTarget: height
+      });
+    }
+
+    // Only recalculate if we're actually initialized AND there's a real change
+    if (hasChanged && this.isInitialized) {
+      this.recalculateLayerTransforms(width, height);
+      if (this.ctx) {
+        this.renderOnce();
+      }
+    }
+  }
+
+  recalculateLayerTransforms(canvasWidth, canvasHeight) {
+    console.log('[RESIZE DEBUG] recalculateLayerTransforms CALLED!', {
+      canvasSize: { width: canvasWidth, height: canvasHeight },
+      hasMetadata: !!this.metadata,
+      hasExportLayout: !!this.metadata?.exportLayout,
+      hasLayers: !!this.layers,
+      layerCount: this.layers?.length || 0
+    });
+
+    if (!this.metadata || !this.layers) {
+      console.log('[RESIZE DEBUG] recalculateLayerTransforms ABORTED - missing basic data');
+      return;
+    }
+
+    const layout = this.metadata.exportLayout;
+    if (!layout) {
+      console.error('[RESIZE DEBUG] Missing exportLayout - aborting recalculation');
+      return;
+    }
+    const resolvedWidth = Number.isFinite(canvasWidth) && canvasWidth > 0
+      ? canvasWidth
+      : (this.canvas?.width ?? this.metadata.viewport?.width ?? 1);
+    const resolvedHeight = Number.isFinite(canvasHeight) && canvasHeight > 0
+      ? canvasHeight
+      : (this.canvas?.height ?? this.metadata.viewport?.height ?? 1);
+
+    const viewport = {
+      width: Math.max(1, Math.round(resolvedWidth)),
+      height: Math.max(1, Math.round(resolvedHeight))
+    };
+
+    if (viewerDiagnosticsEnabled) {
+      debugLog('[DEBUG] Recalculating with viewport', {
+        viewportMode: this.metadata.viewportMode,
+        originalViewport: this.metadata.viewport,
+        currentViewport: viewport,
+        windowSize: typeof window !== 'undefined'
+          ? { width: window.innerWidth, height: window.innerHeight }
+          : null,
+        storedAlignments: Array.from(this.originalLayerAlignments.entries())
+      });
+    }
+
+    // Recreate layout inputs for each layer using ORIGINAL alignment settings
+    const inputs = this.layers.map(entry => {
+      const layer = entry.layer;
+      if (!layer || !layer.id) {
+        console.warn('[DEBUG] Invalid layer in entry:', { entry, hasLayer: !!layer, layerId: layer?.id });
+        return null;
+      }
+
+      const originalData = this.originalLayerData.get(layer.id);
+      const originalAlignment = originalData?.alignment || this.originalLayerAlignments.get(layer.id);
+      const alignment = layer.alignment || originalAlignment || {
+        fit: 'none',
+        horizontal: 'left',
+        vertical: 'top'
+      };
+
+      const originalSourceSize = originalData?.sourceSize || layer.sourceSize;
+
+      if (viewerDiagnosticsEnabled) {
+        debugLog('[DEBUG] Layer alignment data', {
+          layerId: layer.id,
+          alignment,
+          sourceSize: originalSourceSize,
+          contentBounds: layer.contentBounds
+        });
+      }
+
+      return {
+        layerId: layer.id,
+        surface: {
+          width: originalSourceSize?.width || 1,
+          height: originalSourceSize?.height || 1
+        },
+        content: layer.contentBounds ? {
+          width: layer.contentBounds.width,
+          height: layer.contentBounds.height
+        } : undefined,
+        alignment,
+        hidden: false
+      };
+    });
+
+    // Filter out invalid entries and recalculate layout using the same logic as the exporter
+    const validInputs = inputs.filter(input => input !== null);
+    const resolved = this.resolveContainerLayout(validInputs, layout, viewport);
+
+    // Reset calculated flags before applying new transforms
+    this.layers.forEach((entry) => {
+      if (entry?.layer) {
+        entry.layer._hasCalculatedTransform = false;
+      }
+    });
+
+    // Update layer metadata with new transforms
+    resolved.forEach(resolvedLayer => {
+      const entry = this.layers.find(e => e.layer && e.layer.id === resolvedLayer.layerId);
+      if (entry && entry.layer) {
+        const newFrame = {
+          x: resolvedLayer.frame.x,
+          y: resolvedLayer.frame.y,
+          width: resolvedLayer.frame.width,
+          height: resolvedLayer.frame.height
+        };
+        const newTransform = {
+          scaleX: resolvedLayer.transform.scaleX,
+          scaleY: resolvedLayer.transform.scaleY,
+          translateX: resolvedLayer.transform.translateX,
+          translateY: resolvedLayer.transform.translateY
+        };
+
+        if (viewerDiagnosticsEnabled) {
+          debugLog('[DEBUG] Updating layer transforms on resize', {
+            layerId: entry.layer.id,
+            originalAlignment: entry.layer.alignment,
+            originalTransform: entry.layer.transform,
+            newFrame,
+            newTransform
+          });
+        }
+        entry.layer.frame = newFrame;
+        entry.layer.transform = newTransform;
+
+        const alignmentFit = (entry.layer.alignment?.fit
+          || this.originalLayerAlignments.get(entry.layer.id)?.fit
+          || 'none');
+        entry.layer._hasCalculatedTransform = alignmentFit !== 'none';
+      } else {
+        console.warn('[DEBUG] Could not find entry or entry.layer for layerId:', resolvedLayer.layerId, {
+          entryFound: !!entry,
+          layersStructure: this.layers.map(e => ({
+            hasLayer: !!e.layer,
+            layerId: e.layer?.id,
+            keys: Object.keys(e)
+          }))
+        });
+      }
+    });
+
+    if (viewerDiagnosticsEnabled) {
+      debugLog('[DEBUG] recalculateLayerTransforms completed', {
+        canvasWidth,
+        canvasHeight,
+        layerCount: resolved.length,
+        resolved: resolved.map(r => ({
+          id: r.layerId,
+          frame: r.frame,
+          transform: r.transform
+        }))
+      });
+    }
+  }
+
+  // Layer alignment calculation methods (ported from TypeScript)
+  computeLayerTransform(surface, viewport, alignment) {
+    const contentWidth = clampDimension(surface.width);
+    const contentHeight = clampDimension(surface.height);
+    const viewportWidth = clampDimension(viewport.width);
+    const viewportHeight = clampDimension(viewport.height);
+
+    const widthRatio = viewportWidth / contentWidth;
+    const heightRatio = viewportHeight / contentHeight;
+
+    let scaleX = 1;
+    let scaleY = 1;
+
+    switch (alignment.fit) {
+      case 'contain': {
+        const scale = Math.min(widthRatio, heightRatio);
+        scaleX = scale;
+        scaleY = scale;
+        break;
+      }
+      case 'cover': {
+        const scale = Math.max(widthRatio, heightRatio);
+        scaleX = scale;
+        scaleY = scale;
+        break;
+      }
+      case 'fill':
+        scaleX = widthRatio;
+        scaleY = heightRatio;
+        break;
+      case 'fit-width': {
+        const scale = widthRatio;
+        scaleX = scale;
+        scaleY = scale;
+        break;
+      }
+      case 'fit-height': {
+        const scale = heightRatio;
+        scaleX = scale;
+        scaleY = scale;
+        break;
+      }
+      case 'scale-down': {
+        const containScale = Math.min(widthRatio, heightRatio);
+        const scale = containScale < 1 ? containScale : 1;
+        scaleX = scale;
+        scaleY = scale;
+        break;
+      }
+      case 'percent':
+      case 'none':
+      default:
+        scaleX = 1;
+        scaleY = 1;
+        break;
+    }
+
+    const scaledWidth = contentWidth * scaleX;
+    const scaledHeight = contentHeight * scaleY;
+    const extraX = viewportWidth - scaledWidth;
+    const extraY = viewportHeight - scaledHeight;
+
+    let translateX = 0;
+    let translateY = 0;
+
+    if (alignment.fit !== 'percent') {
+      switch (alignment.horizontal) {
+        case 'center':
+          translateX = extraX / 2;
+          break;
+        case 'right':
+          translateX = extraX;
+          break;
+        case 'left':
+        default:
+          translateX = 0;
+          break;
+      }
+
+      switch (alignment.vertical) {
+        case 'center':
+          translateY = extraY / 2;
+          break;
+        case 'bottom':
+          translateY = extraY;
+          break;
+        case 'top':
+        default:
+          translateY = 0;
+          break;
+      }
+    }
+
+    if (alignment.fit === 'percent') {
+      const percent = alignment.offsetPercent ?? { x: 0, y: 0 };
+      const percentX = Math.max(-100, Math.min(100, percent.x));
+      const percentY = Math.max(-100, Math.min(100, percent.y));
+      translateX = viewportWidth * (percentX / 100);
+      translateY = viewportHeight * (percentY / 100);
+    }
+
+    if (alignment.offsetPx) {
+      translateX += alignment.offsetPx.x;
+      translateY += alignment.offsetPx.y;
+    }
+
+    return {
+      scaleX,
+      scaleY,
+      translateX,
+      translateY
+    };
+  }
+
+  resolveContainerLayout(layers, layout, viewport) {
+    if (!Array.isArray(layers) || !layout || !viewport) {
+      return [];
+    }
+
+    const containerWidth = clampDimension(viewport.width ?? 0);
+    const containerHeight = clampDimension(viewport.height ?? 0);
+
+    const padding = layout.padding || { top: 0, right: 0, bottom: 0, left: 0 };
+    const innerWidth = Math.max(0, containerWidth - padding.left - padding.right);
+    const innerHeight = Math.max(0, containerHeight - padding.top - padding.bottom);
+
+    const flowValue = layout.flow || 'row';
+    const flowAxis = flowValue === 'row' || flowValue === 'row-reverse' ? 'row' : 'column';
+    const reverse = flowValue === 'row-reverse' || flowValue === 'column-reverse';
+    const wrap = Boolean(layout.wrap);
+    const gap = typeof layout.gap === 'number' ? layout.gap : 0;
+    const align = layout.align || 'start';
+    const justify = layout.justify || 'start';
+
+    const availableMain = flowAxis === 'row' ? innerWidth : innerHeight;
+
+    const lines = buildLayoutLines(layers, flowAxis, wrap, gap, availableMain);
+
+    const contentMain = flowAxis === 'row' ? innerWidth : innerHeight;
+    const contentCross = flowAxis === 'row' ? innerHeight : innerWidth;
+
+    const { sizes: lineCrossSizes, offset: crossOffset } = computeLineCrossSizes(
+      lines,
+      contentCross,
+      gap,
+      align
+    );
+
+    const placements = new Map();
+
+    let crossCursor = crossOffset;
+    lines.forEach((line, lineIndex) => {
+      const lineCrossSize = lineCrossSizes[lineIndex] ?? 0;
+      const { start: lineStart, gap: lineGap } = computeLineOffsets(
+        line,
+        contentMain,
+        gap,
+        justify,
+        reverse
+      );
+
+      const items = reverse ? [...line.items].reverse() : line.items;
+
+      let mainCursor = lineStart;
+      items.forEach((item) => {
+        const layer = item.layer;
+        if (!layer) {
+          return;
+        }
+
+        const mainSize = item.main;
+        const crossSize = align === 'stretch' ? lineCrossSize : item.cross;
+        const crossAdjust = computeCrossOffsetWithinLine(lineCrossSize, crossSize, align);
+
+        const frameWidth = flowAxis === 'row' ? mainSize : crossSize;
+        const frameHeight = flowAxis === 'row' ? crossSize : mainSize;
+
+        let frameX = flowAxis === 'row' ? mainCursor : crossCursor + crossAdjust;
+        let frameY = flowAxis === 'row' ? crossCursor + crossAdjust : mainCursor;
+
+        if (reverse) {
+          if (flowAxis === 'row') {
+            frameX = contentMain - mainCursor - mainSize;
+          } else {
+            frameY = contentMain - mainCursor - mainSize;
+          }
+        }
+
+        frameX += padding.left;
+        frameY += padding.top;
+
+        const contentSize = layer.content ?? layer.surface ?? { width: 1, height: 1 };
+        const viewportForLayer = { width: frameWidth, height: frameHeight };
+        const alignment = layer.alignment || {
+          fit: 'none',
+          horizontal: 'left',
+          vertical: 'top'
+        };
+        const transform = this.computeLayerTransform(contentSize, viewportForLayer, alignment);
+
+        placements.set(layer.layerId, {
+          layerId: layer.layerId,
+          frame: {
+            x: frameX,
+            y: frameY,
+            width: frameWidth,
+            height: frameHeight
+          },
+          transform
+        });
+
+        mainCursor += mainSize + lineGap;
+      });
+
+      crossCursor += lineCrossSize + Math.max(0, gap);
+    });
+
+    const results = [];
+    layers.forEach((layer) => {
+      if (!layer || layer.hidden) {
+        return;
+      }
+      const placement = placements.get(layer.layerId);
+      if (!placement) {
+        if (layer.alignment && layer.alignment.fit === 'none') {
+          const originalData = this.originalLayerData.get(layer.layerId);
+          if (originalData) {
+            results.push({
+              layerId: layer.layerId,
+              frame: originalData.frame || {
+                x: 0,
+                y: 0,
+                width: layer.surface?.width ?? 0,
+                height: layer.surface?.height ?? 0
+              },
+              transform: originalData.transform || {
+                scaleX: 1,
+                scaleY: 1,
+                translateX: 0,
+                translateY: 0
+              }
+            });
+          }
+        }
+        return;
+      }
+
+      if (layer.alignment && layer.alignment.fit === 'none') {
+        const originalData = this.originalLayerData.get(layer.layerId);
+        if (originalData) {
+          results.push({
+            layerId: layer.layerId,
+            frame: originalData.frame || {
+              x: placement.frame.x ?? 0,
+              y: placement.frame.y ?? 0,
+              width: layer.surface?.width ?? placement.frame.width,
+              height: layer.surface?.height ?? placement.frame.height
+            },
+            transform: originalData.transform || {
+              scaleX: 1,
+              scaleY: 1,
+              translateX: 0,
+              translateY: 0
+            }
+          });
+          return;
+        }
+      }
+
+      results.push(placement);
+    });
+
+    return results;
   }
 
   async initialize() {
-    const width = Math.max(1, Math.round(this.metadata.viewport.width * this.scale));
-    const height = Math.max(1, Math.round(this.metadata.viewport.height * this.scale));
+    const width = Math.max(1, Math.round(this.metadata.viewport.width * this.scaleX));
+    const height = Math.max(1, Math.round(this.metadata.viewport.height * this.scaleY));
 
     this.canvas.width = width;
     this.canvas.height = height;
@@ -1085,6 +1845,7 @@ class TinyBrushBundleRenderer {
     this.ctx = ctx;
 
     await this.loadLayers();
+    this.isInitialized = true;  // Set this AFTER loadLayers
     this.renderOnce();
   }
 
@@ -1129,9 +1890,13 @@ class TinyBrushBundleRenderer {
 
     entries.forEach((entry) => {
       entry.layer.blendMode = normalizeBlend(entry.layer.blendMode);
+      entry.layer._hasCalculatedTransform = false;
     });
 
     this.layers = entries;
+
+    // Original layer data is already stored in constructor before any modifications
+
     this.dynamicPlayers = entries
       .map((entry) => entry.player)
       .filter((player) => player && player.hasAnimation());
@@ -1192,7 +1957,7 @@ class TinyBrushBundleRenderer {
         }
         continue;
       }
-      const painted = applyLayer(ctx, source, layer, this.scale);
+      const painted = applyLayer(ctx, source, layer, { x: this.scaleX, y: this.scaleY });
       if (painted) {
         paintedLayers++;
         if (entry.player) {
@@ -1291,21 +2056,44 @@ export const renderTinyBrushWebGL = async (metadata, canvas, options = {}) => {
     throw new Error('A target canvas element is required');
   }
 
-  debugLog('renderTinyBrushWebGL invoked', {
-    viewport: normalizedMetadata.viewport,
-    layerCount: normalizedMetadata.layers.length,
-    options
-  });
-
   const previous = canvas[RENDERER_KEY];
+  if (viewerDiagnosticsEnabled && previous && typeof previous.getSourceMetadata === 'function') {
+    const cachedSource = previous.getSourceMetadata();
+    debugLog('[DEBUG] renderTinyBrushWebGL reuse check', {
+      hasRenderer: true,
+      sameMetadataReference: cachedSource === metadata
+    });
+  }
+  if (previous
+    && typeof previous.updateScale === 'function'
+    && typeof previous.getSourceMetadata === 'function'
+    && previous.getSourceMetadata() === metadata) {
+    if (viewerDiagnosticsEnabled) {
+      debugLog('[DEBUG] renderTinyBrushWebGL reusing renderer', {
+        scaleOption: options.scale
+      });
+    }
+    canvas.__tinybrushSourceMetadata = metadata;
+    ACTIVE_CANVASES.set(canvas, metadata);
+    ensureResizeListener();
+    previous.updateScale(options.scale);
+    previous.ensureRunning?.();
+    return previous.getSummary();
+  }
   if (previous && typeof previous.destroy === 'function') {
     previous.destroy();
   }
 
-  const renderer = new TinyBrushBundleRenderer(normalizedMetadata, canvas, options);
+  const renderer = new TinyBrushBundleRenderer(normalizedMetadata, canvas, options, metadata);
+  if (typeof renderer.setSourceMetadata === 'function') {
+    renderer.setSourceMetadata(metadata);
+  }
   await renderer.initialize();
   renderer.start();
   canvas[RENDERER_KEY] = renderer;
+  canvas.__tinybrushSourceMetadata = metadata;
+  ACTIVE_CANVASES.set(canvas, metadata);
+  ensureResizeListener();
 
   const POINTER_GUARD_KEY = Symbol.for('TinyBrushPointerGuard');
   if (!canvas[POINTER_GUARD_KEY]) {
@@ -1327,3 +2115,48 @@ export const renderTinyBrushWebGL = async (metadata, canvas, options = {}) => {
 
   return renderer.getSummary();
 };
+
+export function resizeTinyBrushWebGL(canvas, scaleOption) {
+  if (!(canvas instanceof HTMLCanvasElement)) {
+    throw new Error('A target canvas element is required');
+  }
+  const renderer = canvas[RENDERER_KEY];
+  if (!renderer || typeof renderer.updateScale !== 'function') {
+    return null;
+  }
+  renderer.updateScale(scaleOption);
+  renderer.ensureRunning?.();
+  return renderer.getSummary?.() ?? null;
+}
+
+function handleWindowResize() {
+  console.log('[RESIZE DEBUG] Window resize triggered!', {
+    windowSize: { width: window.innerWidth, height: window.innerHeight },
+    canvasCount: ACTIVE_CANVASES.size,
+    diagnosticsEnabled: viewerDiagnosticsEnabled
+  });
+
+  ACTIVE_CANVASES.forEach((metadata, canvas) => {
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      ACTIVE_CANVASES.delete(canvas);
+      return;
+    }
+    const scaleOption = computeResponsiveScale(metadata);
+    if (viewerDiagnosticsEnabled) {
+      debugLog('[DEBUG] handleWindowResize processing canvas', {
+        canvasId: canvas.id,
+        scaleOption,
+        metadata: { viewport: metadata?.viewport, viewportMode: metadata?.viewportMode }
+      });
+    }
+    resizeTinyBrushWebGL(canvas, scaleOption);
+  });
+}
+
+function ensureResizeListener() {
+  if (resizeListenerAttached || typeof window === 'undefined') {
+    return;
+  }
+  window.addEventListener('resize', handleWindowResize);
+  resizeListenerAttached = true;
+}

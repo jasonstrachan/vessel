@@ -1785,8 +1785,22 @@ const appendZipAutoloadSnippet = (
           throw new Error('Preview canvas element is unavailable');
         }
         const scale = computeScale(normalizedMetadata);
+        if (normalizedMetadata?.viewport?.mode) {
+          document.body.dataset.viewportMode = normalizedMetadata.viewport.mode;
+        } else {
+          delete document.body.dataset.viewportMode;
+        }
         const renderResult = await renderTinyBrushWebGL(normalizedMetadata, canvas, { scale });
         summarizeMetadata(normalizedMetadata, renderResult);
+        lastMetadata = normalizedMetadata;
+        const rendererHandle = canvas && canvas[Symbol.for('TinyBrushRenderer')];
+        if (rendererHandle && typeof rendererHandle.setSourceMetadata === 'function') {
+          rendererHandle.setSourceMetadata(normalizedMetadata);
+        }
+        emitLog('[DEBUG] packaged viewer stored metadata', {
+          hasMetadata: Boolean(lastMetadata),
+          scale
+        });
         if (enableDiagnostics) {
           emitLog('Render summary:', {
             scale,

@@ -62,6 +62,7 @@
     <script type="module">
       import {
         renderTinyBrushWebGL,
+        resizeTinyBrushWebGL,
         debugLog,
         isViewerDiagnosticsEnabled,
         setViewerDiagnosticsEnabled
@@ -128,12 +129,15 @@
           return 1;
         }
 
-        const baseScale = Math.min(widthRatio, heightRatio);
         if (viewport.mode === 'fill') {
-          return baseScale > 0 ? baseScale : 1;
+          return {
+            x: widthRatio,
+            y: heightRatio
+          };
         }
 
-        return Math.min(baseScale, 1);
+        const baseScale = Math.min(widthRatio, heightRatio, 1);
+        return baseScale > 0 ? baseScale : 1;
       };
 
       const drawMetadata = async (metadata) => {
@@ -150,12 +154,18 @@
           pendingMetadata = null;
           try {
             const scale = computeScale(current);
+            debugLog('[DEBUG] drawMetadata computed scale', {
+              scale,
+              viewport: current?.viewport,
+              windowSize: { width: window.innerWidth, height: window.innerHeight }
+            });
             if (current?.viewport?.mode) {
               document.body.dataset.viewportMode = current.viewport.mode;
             } else {
               delete document.body.dataset.viewportMode;
             }
-            await renderTinyBrushWebGL(current, canvas, { scale });
+            const summary = await renderTinyBrushWebGL(current, canvas, { scale });
+            debugLog('[DEBUG] drawMetadata render summary', summary);
             lastMetadata = current;
           } catch (error) {
             console.error('Failed to render TinyBrush bundle', error);
@@ -230,12 +240,6 @@
         }
       });
 
-      window.addEventListener('resize', () => {
-        // Re-render with updated scale when viewport changes.
-        if (lastMetadata) {
-          void drawMetadata(lastMetadata);
-        }
-      });
 
       const readyMessage = 'Viewer ready. Drop a bundle or use Ctrl/Cmd+O to open a file.';
       setStatus(readyMessage);

@@ -442,6 +442,12 @@ export interface BrushSettings {
   crossHatchRotation?: number; // 0-360 degrees
   crossHatchSpacing?: number; // 2-50 pixels
   crossHatchLineWidth?: number; // 1-10 pixels
+  // Flow fill settings
+  flowSeedSpacing?: number; // 4-80 pixels between streamline seeds
+  flowStepSize?: number; // 0.5-20 pixels per integration step
+  flowMaxSteps?: number; // 1-500 integration steps per streamline direction
+  flowUseOrthogonal?: boolean; // true = use orthogonal gradient for flow direction
+  flowFieldResolution?: number; // 2-32 pixel spacing for SDF grid sampling
   shapeFillLineWidth?: number; // Stroke width for contour/lines fills (px)
   shapeFillPixelMode?: boolean; // true = snap fill vertices to pixel centers
   shapeFillUseSampledColor?: boolean; // true = sample canvas color, false = use selected brush color
@@ -472,7 +478,7 @@ export interface BrushSettings {
   spamCustomText?: string; // Custom text to use instead of preset content
   
   // Shape gradient mode settings
-  shapeGradientMode?: 'contour' | 'lines' | 'lines2' | 'mesh' | 'triangle' | 'crosshatch'; // Mode for shape gradient brushes ('mesh' kept for legacy projects)
+  shapeGradientMode?: 'contour' | 'lines' | 'lines2' | 'mesh' | 'triangle' | 'crosshatch' | 'flow'; // Mode for shape gradient brushes ('mesh' kept for legacy projects)
 }
 
 export interface ComponentParams {
@@ -608,7 +614,7 @@ export interface PolygonGradientState {
   drawingState: 'idle' | 'drawing' | 'completed' | 'adjustingRotation' | 'adjustingSpacing' | 'adjustingSize';
   points: PolygonGradientPoint[];
   previewPath?: Path2D;
-  // For cross-hatch interactive adjustment
+  // For cross-hatch / flow interactive adjustment
   vertices?: Array<{ x: number; y: number }>;
   fillColor?: string;
   adjustmentStartPos?: { x: number; y: number };
@@ -616,12 +622,13 @@ export interface PolygonGradientState {
   tempSpacing?: number;
   spacingReferenceDistance?: number;
   spacingReferenceSpacing?: number;
-  mode?: 'crosshatch' | 'triangle';
+  mode?: 'crosshatch' | 'triangle' | 'flow';
   rotationReferenceAngle?: number;
   rotationInitialRotation?: number;
   tempSize?: number;
   sizeReferenceDistance?: number;
   sizeInitialSize?: number;
+  flowRandomSeed?: number;
 }
 
 export type ContourLinesStage =

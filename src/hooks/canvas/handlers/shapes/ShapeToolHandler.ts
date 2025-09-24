@@ -46,6 +46,7 @@ export const clampTriangleSize = (value: number) => Math.min(200, Math.max(8, va
 
 const TRIANGLE_SIZE_EXPONENT = 1.1;
 const CROSSHATCH_SPACING_EXPONENT = 1.05;
+const FLOW_SPACING_EXPONENT = 1.05;
 
 export const createShapeToolHandler = (
   context: ShapeToolHandlerContext,
@@ -108,10 +109,12 @@ export const createShapeToolHandler = (
       sizeInitialSize: undefined,
       spacingReferenceDistance: undefined,
       spacingReferenceSpacing: undefined,
+      flowRandomSeed: undefined,
     });
   };
 
   const clampCrosshatchSpacing = (value: number) => Math.max(2, Math.min(50, value));
+  const clampFlowSeedSpacing = (value: number) => Math.max(4, Math.min(80, value));
 
   const contourFillSpacingClickArmedRef = { current: false };
   const MIN_POLYGON_POINT_SPACING = 5;
@@ -154,6 +157,7 @@ export const createShapeToolHandler = (
       sizeInitialSize: undefined,
       spacingReferenceDistance: undefined,
       spacingReferenceSpacing: undefined,
+      flowRandomSeed: undefined,
     });
   };
 
@@ -224,6 +228,102 @@ export const createShapeToolHandler = (
     );
 
     drawingHandlers.drawingCanvasHasContent.current = true;
+  };
+
+  const drawFlowPreview = (seedSpacing: number, options?: { isPreview?: boolean }) => {
+    const currentState = useAppStore.getState();
+    const { polygonGradientState } = currentState;
+    const vertices = polygonGradientState.vertices;
+
+    if (!vertices || vertices.length < 3 || !brushEngine) {
+      return;
+    }
+
+    const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
+    if (!drawCtx) {
+      return;
+    }
+
+    drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+
+    const strokeColorOverride = shapeFillUsesSampledColor() && polygonGradientState.fillColor
+      ? polygonGradientState.fillColor
+      : undefined;
+
+    const patch: Partial<BrushSettings> = {
+      flowSeedSpacing: seedSpacing,
+    };
+
+    if (strokeColorOverride) {
+      patch.color = strokeColorOverride;
+    }
+
+    const lineOptions = {
+      randomSeed: polygonGradientState.flowRandomSeed,
+      strokeColorOverride,
+    };
+
+    const isPreview = options?.isPreview ?? false;
+
+    withTemporaryBrushSettings(
+      currentState.tools.brushSettings,
+      patch,
+      () => {
+        brushEngine.drawContourPolygon(
+          drawCtx,
+          {
+            vertices,
+            fillColor: polygonGradientState.fillColor,
+          },
+          isPreview,
+          lineOptions
+        );
+      }
+    );
+
+    drawingHandlers.drawingCanvasHasContent.current = true;
+  };
+
+  const applyFlowSpacingFromPointer = (
+    pointer: { x: number; y: number },
+    polygonStateOverride?: ReturnType<typeof useAppStore.getState>['polygonGradientState']
+  ) => {
+    const store = useAppStore.getState();
+    const polygonState = polygonStateOverride ?? store.polygonGradientState;
+    const vertices = polygonState.vertices;
+
+    if (!vertices || vertices.length < 3) {
+      return;
+    }
+
+    const centroid = computePolygonCentroid(vertices);
+    const pointerDistance = Math.max(1e-3, Math.hypot(pointer.x - centroid.x, pointer.y - centroid.y));
+    const referenceDistance = polygonState.spacingReferenceDistance ?? pointerDistance;
+
+    const baseSpacing = clampFlowSeedSpacing(
+      polygonState.spacingReferenceSpacing ??
+        polygonState.tempSpacing ??
+        (store.tools.brushSettings.flowSeedSpacing ?? 18)
+    );
+
+    const newSpacing = clampFlowSeedSpacing(
+      computeDragScaledValue({
+        startDistance: Math.max(referenceDistance, 1e-3),
+        currentDistance: pointerDistance,
+        startValue: baseSpacing,
+        min: 4,
+        max: 80,
+        exponent: FLOW_SPACING_EXPONENT,
+      })
+    );
+
+    useAppStore.getState().setPolygonGradientState({
+      tempSpacing: newSpacing,
+      spacingReferenceDistance: referenceDistance,
+      spacingReferenceSpacing: baseSpacing,
+    });
+
+    drawFlowPreview(newSpacing, { isPreview: true });
   };
 
   type PreviewStrokePalette = {
@@ -794,6 +894,116 @@ export const createShapeToolHandler = (
     return false;
   };
 
+  const handleFlowPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event.button !== 0) {
+      return false;
+    }
+
+    const polygonState = useAppStore.getState().polygonGradientState;
+    if (
+      polygonState.mode !== 'flow' ||
+      polygonState.drawingState !== 'adjustingSpacing' ||
+      !polygonState.vertices ||
+      polygonState.vertices.length < 3
+    ) {
+      return false;
+    }
+
+    const worldPos = computeWorldPointer(event);
+    applyFlowSpacingFromPointer(worldPos, polygonState);
+    return true;
+  };
+
+  const handleFlowPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const polygonState = useAppStore.getState().polygonGradientState;
+    if (
+      polygonState.mode !== 'flow' ||
+      polygonState.drawingState !== 'adjustingSpacing' ||
+      !polygonState.vertices ||
+      polygonState.vertices.length < 3
+    ) {
+      return false;
+    }
+
+    const worldPos = computeWorldPointer(event);
+    const previewRef = context.deps.previewAnimationFrameRef;
+
+    if (previewRef) {
+      const previewWorld = { x: worldPos.x, y: worldPos.y };
+      if (!previewRef.current) {
+        const nowTs = performance.now();
+        if (nowTs - context.getLastOverlayPreviewTs() < context.overlayPreviewFrameMs) {
+          return true;
+        }
+
+        previewRef.current = requestAnimationFrame(() => {
+          context.setLastOverlayPreviewTs(performance.now());
+          const currentState = useAppStore.getState().polygonGradientState;
+          if (
+            currentState.mode !== 'flow' ||
+            currentState.drawingState !== 'adjustingSpacing' ||
+            !currentState.vertices ||
+            currentState.vertices.length < 3
+          ) {
+            previewRef.current = null;
+            return;
+          }
+
+          applyFlowSpacingFromPointer(previewWorld, currentState);
+          previewRef.current = null;
+        });
+      }
+      return true;
+    }
+
+    applyFlowSpacingFromPointer(worldPos, polygonState);
+    return true;
+  };
+
+  const handleFlowPointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const polygonState = useAppStore.getState().polygonGradientState;
+    if (
+      polygonState.mode !== 'flow' ||
+      polygonState.drawingState !== 'adjustingSpacing' ||
+      !polygonState.vertices ||
+      polygonState.vertices.length < 3
+    ) {
+      return false;
+    }
+
+    const pointerWorld = computeWorldPointer(event);
+    applyFlowSpacingFromPointer(pointerWorld);
+
+    const latestState = useAppStore.getState().polygonGradientState;
+    const finalSpacing = clampFlowSeedSpacing(
+      latestState.tempSpacing ?? tools.brushSettings.flowSeedSpacing ?? 18
+    );
+
+    useAppStore.getState().setBrushSettings({ flowSeedSpacing: finalSpacing });
+    drawFlowPreview(finalSpacing, { isPreview: false });
+    context.deps.compositeCanvasDirtyRef.current = true;
+
+    drawingHandlers.finalizeShapeDrawing().then(() => {
+      stateMachine.finalizationComplete();
+
+      if (compositeCanvasRef.current && project) {
+        compositeLayersToCanvas(compositeCanvasRef.current);
+        setCurrentOffscreenCanvas(compositeCanvasRef.current);
+        compositeCanvasDirtyRef.current = false;
+      }
+
+      setNeedsRedraw(prev => prev + 1);
+
+      if (restartColorCycleAnimation) {
+        restartColorCycleAnimation();
+      }
+    });
+
+    resetPolygonAdjustmentState();
+    interaction.dispatch({ type: 'DRAWING_END' });
+    return true;
+  };
+
   const computePointerPressure = (event: React.PointerEvent<HTMLCanvasElement>) => {
     let pressure = event.pressure || 0.5;
     if (event.pointerType === 'mouse' && tools.brushSettings.pressureEnabled) {
@@ -1208,6 +1418,29 @@ export const createShapeToolHandler = (
           return true;
         }
 
+        if (shapeMode === 'flow') {
+          useAppStore.getState().resetContourLinesState();
+          clearOverlayCanvas();
+
+          const initialSpacing = clampFlowSeedSpacing(tools.brushSettings.flowSeedSpacing ?? 18);
+          const randomSeed = Math.floor(Math.random() * 0xffffffff);
+
+          useAppStore.getState().setPolygonGradientState({
+            drawingState: 'adjustingSpacing',
+            mode: 'flow',
+            vertices,
+            fillColor,
+            tempSpacing: initialSpacing,
+            spacingReferenceDistance: undefined,
+            spacingReferenceSpacing: initialSpacing,
+            flowRandomSeed: randomSeed,
+          });
+
+          drawFlowPreview(initialSpacing, { isPreview: false });
+
+          return true;
+        }
+
         if (shapeMode === 'triangle') {
           const vertexCount = vertices.length;
           const centroid = vertexCount > 0
@@ -1516,6 +1749,9 @@ export const createShapeToolHandler = (
 
   return {
     handlePointerDown(event) {
+      if (handleFlowPointerDown(event)) {
+        return true;
+      }
       if (handleCrosshatchPointerDown(event)) {
         return true;
       }
@@ -1528,6 +1764,9 @@ export const createShapeToolHandler = (
       return safeDelegate.pointerDown?.(event, context) ?? false;
     },
     handlePointerMove(event) {
+      if (handleFlowPointerMove(event)) {
+        return true;
+      }
       if (handleCrosshatchPointerMove(event)) {
         return true;
       }
@@ -1540,6 +1779,9 @@ export const createShapeToolHandler = (
       return safeDelegate.pointerMove?.(event, context) ?? false;
     },
     handlePointerUp(event) {
+      if (handleFlowPointerUp(event)) {
+        return true;
+      }
       if (handleCrosshatchPointerUp(event)) {
         return true;
       }

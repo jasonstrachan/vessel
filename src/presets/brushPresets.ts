@@ -41,6 +41,11 @@ export const pixelBrushSettings: BrushSettings = {
   triangleFillSize: 36,
   triangleFillJitter: 35,
   triangleFillRotation: 0,
+  flowSeedSpacing: 18,
+  flowStepSize: 4,
+  flowMaxSteps: 120,
+  flowUseOrthogonal: false,
+  flowFieldResolution: 8,
   shapeFillLineWidth: 1,
   shapeFillPixelMode: true,
   shapeFillUseSampledColor: false
@@ -98,6 +103,11 @@ export const defaultBrushSettings: BrushSettings = {
   triangleFillSize: 36,
   triangleFillJitter: 35,
   triangleFillRotation: 0,
+  flowSeedSpacing: 18,
+  flowStepSize: 4,
+  flowMaxSteps: 120,
+  flowUseOrthogonal: false,
+  flowFieldResolution: 8,
   shapeFillLineWidth: 1,
   shapeFillPixelMode: true,
   shapeFillUseSampledColor: false

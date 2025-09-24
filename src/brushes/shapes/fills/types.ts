@@ -74,3 +74,15 @@ export interface DelaunayFillParams extends PolygonFillBase {
   isPreview?: boolean;
   strokeColorOverride?: string;
 }
+
+export interface FlowFillParams extends PolygonFillBase {
+  dependencies: ShapeFillDependencies;
+  seedSpacing?: number;
+  stepSize?: number;
+  maxSteps?: number;
+  useOrthogonal?: boolean;
+  fieldResolution?: number;
+  randomSeed?: number;
+  strokeColorOverride?: string;
+  isPreview?: boolean;
+}

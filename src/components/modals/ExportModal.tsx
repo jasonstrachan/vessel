@@ -353,12 +353,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       case 'project':
         return { width: fallbackWidth, height: fallbackHeight };
       case 'fill': {
-        if (typeof window !== 'undefined') {
-          return {
-            width: Math.max(1, Math.round(window.innerWidth || fallbackWidth)),
-            height: Math.max(1, Math.round(window.innerHeight || fallbackHeight))
-          };
-        }
         return { width: fallbackWidth, height: fallbackHeight };
       }
       case 'square': {

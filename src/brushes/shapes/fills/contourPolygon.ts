@@ -4,6 +4,7 @@ import { drawContourFill } from './contour';
 import { drawDelaunayFill } from './delaunator';
 import { drawLinesFill } from './lines';
 import { drawLines2Fill } from './lines2';
+import { drawFlowFill } from './flow';
 import type {
   ContourLineOptions,
   ShapeFillDependencies,
@@ -26,7 +27,7 @@ const shouldFillPolygon = (
   mode: string,
   fillColor: string | undefined,
   vertexCount: number
-) => fillColor !== undefined && vertexCount >= 3 && !['contour', 'lines', 'lines2', 'triangle'].includes(mode);
+) => fillColor !== undefined && vertexCount >= 3 && !['contour', 'lines', 'lines2', 'triangle', 'flow'].includes(mode);
 
 export const drawContourPolygon = ({
   ctx,
@@ -109,6 +110,19 @@ export const drawContourPolygon = ({
         vertices,
         brushSettings,
         lineOptions,
+      });
+      return;
+    }
+
+    if (mode === 'flow') {
+      drawFlowFill({
+        ctx,
+        vertices,
+        brushSettings,
+        dependencies,
+        isPreview,
+        randomSeed: lineOptions?.randomSeed,
+        strokeColorOverride: lineOptions?.strokeColorOverride,
       });
       return;
     }

@@ -1142,6 +1142,7 @@ const BrushControls = () => {
               { label: 'Contour', value: 'contour' },
               { label: 'Lines', value: 'lines' },
               { label: 'Lines 2', value: 'lines2' },
+              { label: 'Flow', value: 'flow' },
               { label: 'Delaunator', value: 'triangle' },
               { label: 'Hatch', value: 'crosshatch' }
             ]}
@@ -1149,7 +1150,7 @@ const BrushControls = () => {
               ? 'lines'
               : activeSettings.shapeGradientMode) || 'contour'}
             onChange={(value) => setActiveSettings({ 
-              shapeGradientMode: value as 'contour' | 'lines' | 'lines2' | 'triangle' | 'crosshatch' 
+              shapeGradientMode: value as 'contour' | 'lines' | 'lines2' | 'triangle' | 'crosshatch' | 'flow' 
             })}
             className="w-full"
           />
@@ -1326,6 +1327,112 @@ const BrushControls = () => {
               />
               <span className="text-[#9FA0A4]" style={{ fontSize: '12px' }}>
                 Toggle offset direction every other line group.
+              </span>
+            </div>
+          </>
+        )}
+
+        {activeSettings.shapeGradientMode === 'flow' && (
+          <>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Seed Spacing
+                </label>
+                <ProgressSlider
+                  value={activeSettings.flowSeedSpacing ?? 18}
+                  min={4}
+                  max={80}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ flowSeedSpacing: Math.round(value) })
+                  }
+                  aria-label="Flow Seed Spacing"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                  {Math.round(activeSettings.flowSeedSpacing ?? 18)}px
+                </span>
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Step Length
+                </label>
+                <ProgressSlider
+                  value={activeSettings.flowStepSize ?? 4}
+                  min={0.5}
+                  max={20}
+                  step={0.5}
+                  onChange={(value) =>
+                    setActiveSettings({ flowStepSize: Number(value.toFixed(1)) })
+                  }
+                  aria-label="Flow Step Length"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                  {(activeSettings.flowStepSize ?? 4).toFixed(1)}px
+                </span>
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Max Steps
+                </label>
+                <ProgressSlider
+                  value={activeSettings.flowMaxSteps ?? 120}
+                  min={10}
+                  max={400}
+                  step={10}
+                  onChange={(value) =>
+                    setActiveSettings({ flowMaxSteps: Math.round(value) })
+                  }
+                  aria-label="Flow Max Steps"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                  {Math.round(activeSettings.flowMaxSteps ?? 120)}
+                </span>
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Field Step
+                </label>
+                <ProgressSlider
+                  value={activeSettings.flowFieldResolution ?? 8}
+                  min={2}
+                  max={32}
+                  step={2}
+                  onChange={(value) =>
+                    setActiveSettings({ flowFieldResolution: Math.round(value) })
+                  }
+                  aria-label="Flow Field Resolution"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                  {Math.round(activeSettings.flowFieldResolution ?? 8)}px
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                Orthogonal
+              </label>
+              <CustomSwitch
+                id="flow-orthogonal-toggle"
+                checked={activeSettings.flowUseOrthogonal ?? false}
+                onChange={(checked) => setActiveSettings({ flowUseOrthogonal: checked })}
+              />
+              <span className="text-[#9FA0A4]" style={{ fontSize: '12px' }}>
+                Rotate streamlines 90° for cross-flow patterns.
               </span>
             </div>
           </>

@@ -14,6 +14,7 @@ export const drawDelaunayFill = ({
   boundWidth,
   boundHeight,
   isPreview = false,
+  strokeColorOverride,
 }: DelaunayFillParams): void => {
   if (vertices.length < 3) {
     return;
@@ -22,7 +23,7 @@ export const drawDelaunayFill = ({
   const pixelMode = brushSettings.shapeFillPixelMode ?? true;
   const snap = resolveCoordinateSnap(pixelMode);
   const lineWidth = Math.max(0.2, brushSettings.shapeFillLineWidth ?? 1);
-  const strokeColor = brushSettings.color ?? '#000000';
+  const strokeColor = strokeColorOverride ?? brushSettings.color ?? '#000000';
 
   const clampValue = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
   const rotationDeg = brushSettings.triangleFillRotation ?? 0;
