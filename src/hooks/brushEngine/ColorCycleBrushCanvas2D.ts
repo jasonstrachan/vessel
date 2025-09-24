@@ -96,6 +96,7 @@ export class ColorCycleBrushCanvas2D {
   private webglCanvas: HTMLCanvasElement; // Keep name for compatibility
   private compositeCanvas: HTMLCanvasElement;
   private compositeCtx: CanvasRenderingContext2D;
+  private forceCanvas2D: boolean = false;
   
   // Core settings (match original API)
   private brushSize: number;
@@ -153,6 +154,7 @@ export class ColorCycleBrushCanvas2D {
   constructor(canvas: HTMLCanvasElement, options: {
     brushSize?: number;
     fps?: number;
+    forceCanvas2D?: boolean;
   } = {}) {
     
     // Validate canvas
@@ -186,6 +188,8 @@ export class ColorCycleBrushCanvas2D {
     this.compositeCtx = ctx;
     this.compositeCtx.imageSmoothingEnabled = false;
     
+    this.forceCanvas2D = options.forceCanvas2D ?? false;
+
     // Core settings
     this.brushSize = options.brushSize || 20;
     this.cycleSpeed = 0.1;
@@ -247,7 +251,8 @@ export class ColorCycleBrushCanvas2D {
         fps: this.fps,
         speed: this.cycleSpeed,
         autoStart: false,
-        lazyInit: true  // Add flag to defer heavy initialization
+        lazyInit: true,
+        forceCanvas2D: this.forceCanvas2D
       });
       // quiet
       
@@ -2462,6 +2467,40 @@ export class ColorCycleBrushCanvas2D {
    */
   getCanvas(): HTMLCanvasElement {
     return this.webglCanvas;
+  }
+
+  setUseCanvas2D(useCanvas2D: boolean): void {
+    if (this.forceCanvas2D === useCanvas2D) {
+      return;
+    }
+
+    this.forceCanvas2D = useCanvas2D;
+
+    this.animators.forEach((animator) => {
+      try {
+        animator.setForceCanvas2D(useCanvas2D);
+        animator.forceRender();
+      } catch {}
+    });
+
+    // Re-render composite canvas to reflect the active rendering path
+    try {
+      this.render(false);
+    } catch {}
+  }
+
+  isUsingWebGL(): boolean {
+    if (this.forceCanvas2D) {
+      return false;
+    }
+
+    for (const animator of this.animators.values()) {
+      if (animator.hasWebGL()) {
+        return true;
+      }
+    }
+
+    return false;
   }
   
   /**

@@ -3,7 +3,9 @@
 
 export type LayerAlignmentFit = 'contain' | 'cover' | 'fill' | 'fit-width' | 'fit-height' | 'scale-down' | 'none';
 
-export type LayerAlignmentAxis = 'start' | 'center' | 'end';
+export type LayerHorizontalAlignment = 'left' | 'center' | 'right';
+
+export type LayerVerticalAlignment = 'top' | 'center' | 'bottom';
 
 export interface LayerAlignmentOffset {
   x: number;
@@ -12,9 +14,16 @@ export interface LayerAlignmentOffset {
 
 export interface LayerAlignmentSettings {
   fit: LayerAlignmentFit;
-  horizontal: LayerAlignmentAxis;
-  vertical: LayerAlignmentAxis;
+  horizontal: LayerHorizontalAlignment;
+  vertical: LayerVerticalAlignment;
   offsetPx?: LayerAlignmentOffset;
+}
+
+export interface ContentBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export type ExportContainerFlow = 'row' | 'row-reverse' | 'column' | 'column-reverse';
@@ -30,7 +39,7 @@ export interface ExportContainerPadding {
   left: number;
 }
 
-export type ExportContainerSizeMode = 'hug' | 'fixed';
+export type ExportContainerSizeMode = 'fill' | 'hug' | 'fixed';
 
 export interface ExportContainerLayout {
   flow: ExportContainerFlow;
@@ -51,6 +60,7 @@ export interface WebGLExportSettings {
   embedCanvasFallback: boolean;
   minifyOutput: boolean;
   bundleFormat: WebGLExportBundleFormat;
+  enableViewerDiagnostics: boolean;
 }
 
 export interface Project {
@@ -426,6 +436,7 @@ export interface BrushSettings {
   crossHatchRotation?: number; // 0-360 degrees
   crossHatchSpacing?: number; // 2-50 pixels
   crossHatchLineWidth?: number; // 1-10 pixels
+  shapeFillPixelMode?: boolean; // true = snap fill vertices to pixel centers
   shapeFillUseSampledColor?: boolean; // true = sample canvas color, false = use selected brush color
   // Color cycle flow direction
   colorCycleFlowForward?: boolean; // true = forward flow, false = backward flow

@@ -596,7 +596,8 @@ export const useAppStore = create<AppState>()(
         includeHiddenLayers: true,
         embedCanvasFallback: false,
         minifyOutput: true,
-        bundleFormat: 'single-html'
+        bundleFormat: 'single-html',
+        enableViewerDiagnostics: process.env.NODE_ENV !== 'production'
       },
       setProject: (project) => set(() => ({
         project: normalizeProject(project)

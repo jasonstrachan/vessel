@@ -4,7 +4,13 @@ import type { Point } from './types';
 
 export type DrawCrossHatchPolygonParams = {
   ctx: CanvasRenderingContext2D;
-  polygonData: { vertices: Point[]; fillColor?: string };
+  polygonData: {
+    vertices: Point[];
+    fillColor?: string;
+    spacingOverride?: number;
+    rotationOverride?: number;
+    lineWidthOverride?: number;
+  };
   brushSettings: BrushSettings;
   isPreview?: boolean;
 };
@@ -73,9 +79,12 @@ export const drawCrossHatchPolygon = ({
   tracePolygonPath(ctx, vertices);
   ctx.clip('nonzero');
 
-  const angle = ((brushSettings.crossHatchRotation ?? 45) * Math.PI) / 180;
-  const spacing = Math.max(2, brushSettings.crossHatchSpacing ?? 10);
-  const lineWidth = Math.max(0.2, brushSettings.crossHatchLineWidth ?? DEFAULT_LINE_WIDTH);
+  const angle = (((polygonData?.rotationOverride ?? brushSettings.crossHatchRotation) ?? 45) * Math.PI) / 180;
+  const spacing = Math.max(2, polygonData?.spacingOverride ?? brushSettings.crossHatchSpacing ?? 10);
+  const lineWidth = Math.max(
+    0.2,
+    polygonData?.lineWidthOverride ?? brushSettings.crossHatchLineWidth ?? DEFAULT_LINE_WIDTH
+  );
   const cross = true;
   const highlightScale = DEFAULT_HIGHLIGHT_SCALE;
   const organic = clamp01(DEFAULT_ORGANIC);

@@ -1,5 +1,79 @@
 import { inflateRaw } from './fflate-inflate.js';
 
+let viewerDiagnosticsEnabled = false;
+
+const computeInitialDiagnostics = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  if (window.__TINYBRUSH_VIEWER_DEBUG__ === true) {
+    return true;
+  }
+  try {
+    if (typeof window.location?.search === 'string' && window.location.search.includes('debug=1')) {
+      return true;
+    }
+    if (window.localStorage && window.localStorage.getItem('tinybrushViewerDebug') === 'true') {
+      return true;
+    }
+  } catch {
+    // ignore resolution errors (e.g., file:// without localStorage)
+  }
+  return false;
+};
+
+const applyDiagnosticsFlag = (value) => {
+  viewerDiagnosticsEnabled = Boolean(value);
+  if (typeof window !== 'undefined') {
+    window.__TINYBRUSH_VIEWER_DEBUG__ = viewerDiagnosticsEnabled;
+  }
+  return viewerDiagnosticsEnabled;
+};
+
+applyDiagnosticsFlag(computeInitialDiagnostics());
+
+export const isViewerDiagnosticsEnabled = () => {
+  if (typeof window !== 'undefined') {
+    return window.__TINYBRUSH_VIEWER_DEBUG__ === true;
+  }
+  return viewerDiagnosticsEnabled;
+};
+
+export const setViewerDiagnosticsEnabled = (value, options = {}) => {
+  const { persist = true } = options;
+  const next = applyDiagnosticsFlag(value);
+  if (persist && typeof window !== 'undefined') {
+    try {
+      window.localStorage?.setItem('tinybrushViewerDebug', next ? 'true' : 'false');
+    } catch {
+      // ignore persistence failures (e.g., file:// without localStorage)
+    }
+  }
+  return next;
+};
+
+export const debugLog = (...args) => {
+  if (isViewerDiagnosticsEnabled()) {
+    console.log('[DEBUG]', ...args);
+  }
+};
+
+export const debugWarn = (...args) => {
+  if (isViewerDiagnosticsEnabled()) {
+    console.warn('[DEBUG]', ...args);
+  }
+};
+
+export const debugError = (...args) => {
+  if (isViewerDiagnosticsEnabled()) {
+    console.error('[DEBUG]', ...args);
+  }
+};
+
+if (typeof window !== 'undefined') {
+  window.tinybrushViewerSetDiagnostics = (value) => setViewerDiagnosticsEnabled(value);
+}
+
 const loadImage = (src) => {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -30,6 +104,7 @@ const PROPERTY_UNMINIFY_MAP = {
   fr: 'frame',
   tr: 'transform',
   ss: 'sourceSize',
+  cb: 'contentBounds',
   as: 'assets',
   cc: 'colorCycle',
   w: 'width',
@@ -138,6 +213,11 @@ const applyLayer = (ctx, img, layer, scale) => {
   const sourceSize = layer?.sourceSize ?? {};
   const width = Math.max(1, toFinite(sourceSize.width, img.naturalWidth || img.width || 1));
   const height = Math.max(1, toFinite(sourceSize.height, img.naturalHeight || img.height || 1));
+  const contentBounds = layer?.contentBounds ?? null;
+  const sourceX = Math.max(0, toFinite(contentBounds?.x, 0));
+  const sourceY = Math.max(0, toFinite(contentBounds?.y, 0));
+  const cropWidth = Math.max(1, Math.min(toFinite(contentBounds?.width, width), width - sourceX));
+  const cropHeight = Math.max(1, Math.min(toFinite(contentBounds?.height, height), height - sourceY));
 
   const frameX = toFinite(frame.x, 0);
   const frameY = toFinite(frame.y, 0);
@@ -151,8 +231,8 @@ const applyLayer = (ctx, img, layer, scale) => {
   const canvasHeight = ctx.canvas?.height ?? 0;
   const destX = (frameX + translateX) * scale;
   const destY = (frameY + translateY) * scale;
-  const scaledWidth = width * scaleX * scale;
-  const scaledHeight = height * scaleY * scale;
+  const scaledWidth = cropWidth * scaleX * scale;
+  const scaledHeight = cropHeight * scaleY * scale;
   const bounds = {
     x: destX,
     y: destY,
@@ -165,6 +245,20 @@ const applyLayer = (ctx, img, layer, scale) => {
     || bounds.x >= canvasWidth
     || bounds.y >= canvasHeight
   );
+  debugLog('applyLayer positioning', {
+    id: layer?.id,
+    frameX,
+    frameY,
+    translateX,
+    translateY,
+    scaleX,
+    scaleY,
+    rotationDegrees: rotation * (180 / Math.PI),
+    canvasWidth,
+    canvasHeight,
+    bounds,
+    offscreen
+  });
   ctx.save();
   ctx.scale(scale, scale);
   ctx.globalAlpha = Math.max(0, Math.min(1, layer?.opacity ?? 1));
@@ -174,7 +268,7 @@ const applyLayer = (ctx, img, layer, scale) => {
     ctx.rotate(rotation);
   }
   ctx.scale(scaleX, scaleY);
-  ctx.drawImage(img, 0, 0, width, height);
+  ctx.drawImage(img, sourceX, sourceY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
   ctx.restore();
   return true;
 };
@@ -841,21 +935,40 @@ class ColorCycleLayerPlayer {
       }
     }
 
+    debugLog('ColorCycleLayerPlayer init summary', {
+      mode: this.mode,
+      speed: this.speed,
+      isAnimating: this.isAnimating,
+      cycleColors: this.cycleColors,
+      hasAnimation: this.hasAnimation(),
+      width: this.width,
+      height: this.height
+    });
+
     this.renderFrame();
 
     const canvas = this.getCanvas();
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      let nonTransparentPixels = 0;
-      for (let i = 3; i < imageData.data.length; i += 4) {
-        if (imageData.data[i] > 0) {
-          nonTransparentPixels += 1;
+      if (viewerDiagnosticsEnabled) {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        let nonTransparentPixels = 0;
+        for (let i = 3; i < imageData.data.length; i += 4) {
+          if (imageData.data[i] > 0) {
+            nonTransparentPixels += 1;
+          }
         }
+        const totalPixels = canvas.width * canvas.height || 1;
+        const percentFilled = (nonTransparentPixels / totalPixels) * 100;
+        debugLog('Player canvas check', {
+          width: canvas.width,
+          height: canvas.height,
+          nonTransparentPixels,
+          percentFilled: `${percentFilled.toFixed(2)}%`
+        });
       }
-      const totalPixels = canvas.width * canvas.height || 1;
-      const percentFilled = (nonTransparentPixels / totalPixels) * 100;
     } else {
+      debugWarn('Player canvas check skipped: 2D context unavailable');
       console.warn('TinyBrush Viewer: 2D context unavailable during player canvas check');
     }
   }
@@ -883,8 +996,16 @@ class ColorCycleLayerPlayer {
 
   renderFrame() {
     if (!this.indexBuffer) {
+      debugLog('renderFrame: No indexBuffer');
       return;
     }
+    debugLog('renderFrame invoked', {
+      indexBufferLength: this.indexBuffer.length,
+      width: this.width,
+      height: this.height,
+      mode: this.mode,
+      flowMapping: this.flowMapping
+    });
     const lut = buildGradientLUT({
       gradient: this.gradient,
       cycleColors: this.cycleColors,
@@ -904,6 +1025,10 @@ class ColorCycleLayerPlayer {
     }
 
     this.ctx.putImageData(this.imageData, 0, 0);
+    if (viewerDiagnosticsEnabled) {
+      const testPixel = this.ctx.getImageData(0, 0, 1, 1).data;
+      debugLog('First pixel after render', Array.from(testPixel));
+    }
   }
 
   getCanvas() {
@@ -975,11 +1100,21 @@ class TinyBrushBundleRenderer {
       let player = null;
       const hasRecolorBuffers = hasNumericPayload(layer.colorCycle?.recolorSettings?.indexBuffer);
       const hasBrushBuffers = hasNumericPayload(layer.colorCycle?.brushState?.indexBuffer);
+      debugLog(`Layer ${layer.id} diagnostics`, {
+        hasColorCycle: Boolean(layer.colorCycle),
+        hasRecolorBuffers,
+        hasBrushBuffers,
+        mode: layer.colorCycle?.mode,
+        willCreatePlayer: hasRecolorBuffers || hasBrushBuffers
+      });
       if (hasRecolorBuffers || hasBrushBuffers) {
         try {
           player = new ColorCycleLayerPlayer(layer, image);
+          debugLog('Player created, initializing…');
           await player.initialize();
+          debugLog('Player initialized successfully');
         } catch (error) {
+          debugError('Player init failed', error);
           console.warn(`[viewer] Failed to initialize color cycle animation for layer ${layer.id}`, error);
           player = null;
         }
@@ -1049,18 +1184,37 @@ class TinyBrushBundleRenderer {
       }
       const source = entry.player ? entry.player.getCanvas() : entry.image;
       if (!source) {
+        if (entry.player) {
+          debugLog('Skipping color cycle layer with no canvas source', layer.id);
+          console.warn(`[viewer] Failed to paint color cycle layer ${layer.id}`);
+        }
         continue;
       }
       const painted = applyLayer(ctx, source, layer, this.scale);
       if (painted) {
         paintedLayers++;
+        if (entry.player) {
+          debugLog('Painted color cycle layer', {
+            id: layer.id,
+            blendMode: layer.blendMode,
+            opacity: layer.opacity,
+            width: source.width,
+            height: source.height
+          });
+        }
       } else if (entry.player) {
+        debugWarn('Failed to paint color cycle layer', layer.id);
         console.warn(`[viewer] Failed to paint color cycle layer ${layer.id}`);
       }
     }
 
     if (paintedLayers === 0 && paintOrder.length > 0) {
       console.warn('[viewer] Render completed but no layers produced pixels.');
+    }
+
+    if (viewerDiagnosticsEnabled) {
+      const composedPixel = ctx.getImageData(0, 0, 1, 1).data;
+      debugLog('Composite canvas first pixel', Array.from(composedPixel));
     }
 
     ctx.restore();
@@ -1134,6 +1288,12 @@ export const renderTinyBrushWebGL = async (metadata, canvas, options = {}) => {
   if (!(canvas instanceof HTMLCanvasElement)) {
     throw new Error('A target canvas element is required');
   }
+
+  debugLog('renderTinyBrushWebGL invoked', {
+    viewport: normalizedMetadata.viewport,
+    layerCount: normalizedMetadata.layers.length,
+    options
+  });
 
   const previous = canvas[RENDERER_KEY];
   if (previous && typeof previous.destroy === 'function') {

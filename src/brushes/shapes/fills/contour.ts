@@ -1,4 +1,4 @@
-import { snapToPixel } from './common';
+import { resolveCoordinateSnap } from './common';
 import type { ContourFillParams } from './types';
 
 export const drawContourFill = ({
@@ -17,13 +17,16 @@ export const drawContourFill = ({
     applyRisographEffect,
   } = dependencies;
 
+  const pixelMode = brushSettings.shapeFillPixelMode ?? true;
+  const snap = resolveCoordinateSnap(pixelMode);
+
   if (vertices.length < 3) {
     return;
   }
 
   ctx.strokeStyle = brushSettings.color;
   ctx.lineWidth = 1;
-  ctx.imageSmoothingEnabled = false;
+  ctx.imageSmoothingEnabled = !pixelMode;
 
   const fieldData = createSignedDistanceField(vertices, ctx.canvas.width, ctx.canvas.height, 2);
 
@@ -97,11 +100,11 @@ export const drawContourFill = ({
     loops.forEach(loop => {
       if (loop.length < 2) return;
       ctx.beginPath();
-      ctx.moveTo(snapToPixel(loop[0].x), snapToPixel(loop[0].y));
+      ctx.moveTo(snap(loop[0].x), snap(loop[0].y));
       for (let i = 1; i < loop.length; i++) {
-        ctx.lineTo(snapToPixel(loop[i].x), snapToPixel(loop[i].y));
+        ctx.lineTo(snap(loop[i].x), snap(loop[i].y));
       }
-      ctx.lineTo(snapToPixel(loop[0].x), snapToPixel(loop[0].y));
+      ctx.lineTo(snap(loop[0].x), snap(loop[0].y));
       ctx.stroke();
       drewAnyContours = true;
 
@@ -117,8 +120,8 @@ export const drawContourFill = ({
         const metrics = ctx.measureText(text);
         const textWidth = metrics.width;
         const padding = 2;
-        const textX = snapToPixel(point.x);
-        const textY = snapToPixel(point.y);
+        const textX = snap(point.x);
+        const textY = snap(point.y);
         ctx.fillRect(
           Math.floor(textX - textWidth / 2 - padding),
           Math.floor(textY - 5),
@@ -179,19 +182,19 @@ export const drawContourFill = ({
     fallbackLoops.forEach(loop => {
       if (loop.length < 2) return;
       ctx.beginPath();
-      ctx.moveTo(snapToPixel(loop[0].x), snapToPixel(loop[0].y));
+      ctx.moveTo(snap(loop[0].x), snap(loop[0].y));
       for (let i = 1; i < loop.length; i++) {
-        ctx.lineTo(snapToPixel(loop[i].x), snapToPixel(loop[i].y));
+        ctx.lineTo(snap(loop[i].x), snap(loop[i].y));
       }
-      ctx.lineTo(snapToPixel(loop[0].x), snapToPixel(loop[0].y));
+      ctx.lineTo(snap(loop[0].x), snap(loop[0].y));
       ctx.stroke();
     });
 
     if (!drewAnyContours && vertices.length >= 2) {
       ctx.beginPath();
-      ctx.moveTo(snapToPixel(vertices[0].x), snapToPixel(vertices[0].y));
+      ctx.moveTo(snap(vertices[0].x), snap(vertices[0].y));
       for (let i = 1; i < vertices.length; i++) {
-        ctx.lineTo(snapToPixel(vertices[i].x), snapToPixel(vertices[i].y));
+        ctx.lineTo(snap(vertices[i].x), snap(vertices[i].y));
       }
       ctx.closePath();
       ctx.stroke();
@@ -200,13 +203,13 @@ export const drawContourFill = ({
 
   if (!isPreview && random() < 0.1) {
     ctx.save();
-    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = !pixelMode;
 
     ctx.strokeStyle = brushSettings.color;
     ctx.lineWidth = 1;
 
-    const snappedPeakX = snapToPixel(actualPeakX);
-    const snappedPeakY = snapToPixel(actualPeakY);
+    const snappedPeakX = snap(actualPeakX);
+    const snappedPeakY = snap(actualPeakY);
 
     ctx.beginPath();
     ctx.moveTo(snappedPeakX, snappedPeakY - 6);
@@ -236,7 +239,7 @@ export const drawContourFill = ({
     ctx.fillStyle = brushSettings.color;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(peakText, snappedPeakX, snapToPixel(snappedPeakY + 15));
+    ctx.fillText(peakText, snappedPeakX, snap(snappedPeakY + 15));
 
     ctx.restore();
   }

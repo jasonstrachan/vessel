@@ -19,6 +19,7 @@ export interface ColorCycleAnimatorConfig {
   speed?: number;
   autoStart?: boolean;
   lazyInit?: boolean; // Support deferred heavy initialization
+  forceCanvas2D?: boolean; // Force CPU rendering even if WebGL is available
 }
 
 export class ColorCycleAnimator {
@@ -40,6 +41,8 @@ export class ColorCycleAnimator {
   private _renderSampledOnce: boolean = false;
   // Track when index buffer changed to avoid re-uploading every frame
   private _glIndexDirty: boolean = true;
+  // Rendering mode flag
+  private forceCanvas2D: boolean = false;
   
   // Stroke tracking for directional flow
   private strokeOrder: Uint16Array; // Store order each pixel was painted (0 = not painted)
@@ -54,6 +57,8 @@ export class ColorCycleAnimator {
   private cachedPalette32: Uint32Array | null = null;
   
   constructor(config: ColorCycleAnimatorConfig) {
+    this.forceCanvas2D = Boolean(config.forceCanvas2D);
+
     // If lazy init, defer heavy initialization
     if (config.lazyInit) {
       // Create minimal buffers first
@@ -79,7 +84,7 @@ export class ColorCycleAnimator {
       this.imageData = null; // Will be created on first paint
       
       // Try to prepare GPU renderer lazily
-      if (typeof window !== 'undefined' && WebGLColorCycleRenderer.isSupported()) {
+      if (!this.forceCanvas2D && typeof window !== 'undefined' && WebGLColorCycleRenderer.isSupported()) {
         try {
           this.glRenderer = new WebGLColorCycleRenderer({ width: config.width, height: config.height });
           this.glCanvas = this.glRenderer.getCanvas();
@@ -127,7 +132,7 @@ export class ColorCycleAnimator {
       this.imageData = ctx.createImageData(config.width, config.height);
       
       // Initialize GPU renderer if possible
-      if (typeof window !== 'undefined' && WebGLColorCycleRenderer.isSupported()) {
+      if (!this.forceCanvas2D && typeof window !== 'undefined' && WebGLColorCycleRenderer.isSupported()) {
         try {
           this.glRenderer = new WebGLColorCycleRenderer({ width: config.width, height: config.height });
           this.glCanvas = this.glRenderer.getCanvas();
@@ -183,12 +188,14 @@ export class ColorCycleAnimator {
     // Invalidate cached palette when gradient changes
     this.cachedPalette32 = null;
     // If GPU renderer exists, upload palette once (as base palette)
-    if (this.glRenderer) {
+    if (!this.forceCanvas2D && this.glRenderer) {
       try {
         const paletteRGBA = this.gradientPalette.getPaletteColors();
         this.glRenderer.setPaletteColors(paletteRGBA);
         this._glPaletteReady = true;
       } catch {}
+    } else {
+      this._glPaletteReady = false;
     }
   }
 
@@ -196,8 +203,47 @@ export class ColorCycleAnimator {
    * Whether GPU renderer is available
    */
   hasWebGL(): boolean {
-    const ok = !!this.glRenderer;
-    return ok;
+    return !this.forceCanvas2D && !!this.glRenderer;
+  }
+
+  setForceCanvas2D(force: boolean) {
+    if (this.forceCanvas2D === force) {
+      return;
+    }
+
+    this.forceCanvas2D = force;
+
+    if (force) {
+      if (this.glRenderer) {
+        try {
+          this.glRenderer.dispose();
+        } catch {}
+      }
+      this.glRenderer = null;
+      this.glCanvas = null;
+      this._glPaletteReady = false;
+      this._glIndexDirty = true;
+      this._renderSampledOnce = false;
+    } else if (!this.glRenderer && typeof window !== 'undefined' && WebGLColorCycleRenderer.isSupported()) {
+      try {
+        this.glRenderer = new WebGLColorCycleRenderer({ width: this.canvas.width, height: this.canvas.height });
+        this.glCanvas = this.glRenderer.getCanvas();
+        this._glPaletteReady = false;
+        this._glIndexDirty = true;
+        this._renderSampledOnce = false;
+      } catch {
+        // Failed to initialize WebGL; fall back to Canvas2D
+        this.forceCanvas2D = true;
+        this.glRenderer = null;
+        this.glCanvas = null;
+        this._renderSampledOnce = false;
+      }
+    }
+
+    // Force a redraw so consumers see the updated rendering mode
+    try {
+      this.forceRender();
+    } catch {}
   }
 
   /**
@@ -213,7 +259,7 @@ export class ColorCycleAnimator {
     maxDist: number,
     bbox: { minX: number; minY: number; width: number; height: number }
   ): boolean {
-    if (!this.glRenderer || vertices.length < 3) {
+    if (this.forceCanvas2D || !this.glRenderer || vertices.length < 3) {
       return false;
     }
     try {
@@ -265,6 +311,9 @@ export class ColorCycleAnimator {
 
   /** Return runtime GPU vertex limit for fill shader (if available) */
   getGLFillMaxVerts(): number | null {
+    if (this.forceCanvas2D) {
+      return null;
+    }
     try { return this.glRenderer?.getFillMaxVerts?.() ?? null; } catch { return null; }
   }
   
@@ -274,7 +323,7 @@ export class ColorCycleAnimator {
   private renderFrame(offset: number = 0) {
     try {
       // GPU path if available
-      if (this.glRenderer && this.glCanvas) {
+      if (!this.forceCanvas2D && this.glRenderer && this.glCanvas) {
         // Ensure palette is available on GPU (lazy init can defer initial upload)
         if (!this._glPaletteReady) {
           try {
@@ -742,7 +791,7 @@ export class ColorCycleAnimator {
     this.imageData = this.ctx.createImageData(width, height);
 
     // Resize GPU renderer
-    if (this.glRenderer) {
+    if (!this.forceCanvas2D && this.glRenderer) {
       try {
         this.glRenderer.resize(width, height);
         this.glCanvas = this.glRenderer.getCanvas();

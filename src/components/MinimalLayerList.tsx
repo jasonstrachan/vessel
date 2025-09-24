@@ -5,6 +5,7 @@ import { useAppStore } from '../stores/useAppStore';
 import { Layer, BrushShape, type LayerAlignmentSettings, type ExportContainerLayout } from '../types';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { Eye, EyeOff, Plus, ChevronRight, ChevronDown } from 'lucide-react';
+import ProgressSlider from './ui/ProgressSlider';
 import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
 import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
 import { recordBreadcrumb } from '../utils/debug';
@@ -87,10 +88,16 @@ const fitOptions: Array<{ value: LayerAlignmentSettings['fit']; label: string }>
   { value: 'none', label: 'None' }
 ];
 
-const axisOptions: Array<{ value: LayerAlignmentSettings['horizontal']; label: string }> = [
-  { value: 'start', label: 'Start' },
+const horizontalAxisOptions: Array<{ value: LayerAlignmentSettings['horizontal']; label: string }> = [
+  { value: 'left', label: 'Left' },
   { value: 'center', label: 'Center' },
-  { value: 'end', label: 'End' }
+  { value: 'right', label: 'Right' }
+];
+
+const verticalAxisOptions: Array<{ value: LayerAlignmentSettings['vertical']; label: string }> = [
+  { value: 'top', label: 'Top' },
+  { value: 'center', label: 'Center' },
+  { value: 'bottom', label: 'Bottom' }
 ];
 
 const flowOptions: Array<{ value: ExportContainerLayout['flow']; label: string; short: string }> = [
@@ -256,7 +263,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
           <div>
             <span className={`${labelClass} block mb-2`}>Horizontal</span>
             <div className={`flex ${controlGapClass}`}>
-              {axisOptions.map(option => (
+            {horizontalAxisOptions.map(option => (
                 <button
                   key={option.value}
                   type="button"
@@ -273,7 +280,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
           <div>
             <span className={`${labelClass} block mb-2`}>Vertical</span>
             <div className={`flex ${controlGapClass}`}>
-              {axisOptions.map(option => (
+            {verticalAxisOptions.map(option => (
                 <button
                   key={option.value}
                   type="button"
@@ -537,46 +544,50 @@ export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ den
 
           <div>
             <span className={`${labelClass} block mb-2`}>Size mode</span>
-            <div className={`flex ${controlGapClass}`}>
-              <button
-                type="button"
-                onClick={() => handleLayoutChange({ sizeMode: 'hug', width: undefined, height: undefined })}
-                className={`${segmentedButtonBase} flex-1 ${layout.sizeMode === 'hug' ? segmentedActiveClass : segmentedInactiveClass}`}
-              >
-                Hug content
-              </button>
-              <button
-                type="button"
-                onClick={() => handleLayoutChange({ sizeMode: 'fixed', width: layout.width ?? layout.padding.left + layout.padding.right, height: layout.height ?? layout.padding.top + layout.padding.bottom })}
-                className={`${segmentedButtonBase} flex-1 ${layout.sizeMode === 'fixed' ? segmentedActiveClass : segmentedInactiveClass}`}
-              >
-                Fixed size
-              </button>
+            <div className={`grid grid-cols-3 ${controlGapClass}`}>
+              {(
+                [
+                  { value: 'fill', label: 'Fill viewport' },
+                  { value: 'hug', label: 'Hug content' },
+                  { value: 'fixed', label: 'Fixed size' }
+                ] satisfies Array<{ value: ExportContainerLayout['sizeMode']; label: string }>
+              ).map(option => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => handleLayoutChange({ sizeMode: option.value, width: option.value === 'fixed' ? layout.width : undefined, height: option.value === 'fixed' ? layout.height : undefined })}
+                  className={`${segmentedButtonBase} ${layout.sizeMode === option.value ? segmentedActiveClass : segmentedInactiveClass}`}
+                >
+                  {option.label}
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className={`grid grid-cols-2 ${controlGapClass}`}>
-            <label className={`${labelClass} flex flex-col gap-1`}>
-              Width
-              <input
-                type="number"
-                className={`${fieldClass} text-center`}
-                value={layout.width ?? ''}
-                onChange={(event) => handleDimensionChange('width', event.target.value)}
-                disabled={layout.sizeMode !== 'fixed'}
-              />
-            </label>
-            <label className={`${labelClass} flex flex-col gap-1`}>
-              Height
-              <input
-                type="number"
-                className={`${fieldClass} text-center`}
-                value={layout.height ?? ''}
-                onChange={(event) => handleDimensionChange('height', event.target.value)}
-                disabled={layout.sizeMode !== 'fixed'}
-              />
-            </label>
-          </div>
+          {layout.sizeMode === 'fixed' && (
+            <div className={`grid grid-cols-2 ${controlGapClass}`}>
+              <label className={`${labelClass} flex flex-col gap-1`}>
+                Width
+                <input
+                  type="number"
+                  className={`${fieldClass} text-center`}
+                  value={Number.isFinite(layout.width) ? layout.width : ''}
+                  placeholder="px"
+                  onChange={(event) => handleDimensionChange('width', event.target.value)}
+                />
+              </label>
+              <label className={`${labelClass} flex flex-col gap-1`}>
+                Height
+                <input
+                  type="number"
+                  className={`${fieldClass} text-center`}
+                  value={Number.isFinite(layout.height) ? layout.height : ''}
+                  placeholder="px"
+                  onChange={(event) => handleDimensionChange('height', event.target.value)}
+                />
+              </label>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -726,11 +737,19 @@ const MinimalLayerList = () => {
   // Store subscriptions
   const layers = useAppStore(state => state.layers);
   const activeLayerId = useAppStore(state => state.activeLayerId);
+  const globalColorCycleSpeed = useAppStore(state => state.tools.brushSettings.colorCycleSpeed || 0.1);
+  const setBrushSettings = useAppStore(state => state.setBrushSettings);
   // Actions
   const addLayer = useAppStore(state => state.addLayer);
   const updateLayer = useAppStore(state => state.updateLayer);
   const setActiveLayer = useAppStore(state => state.setActiveLayer);
   const reorderLayers = useAppStore(state => state.reorderLayers);
+
+  const activeLayer = useMemo(() => layers.find(l => l.id === activeLayerId), [layers, activeLayerId]);
+  const isCCBrushLayer = activeLayer?.layerType === 'color-cycle' && activeLayer?.colorCycleData?.mode !== 'recolor';
+  const colorCycleSpeedValue = isCCBrushLayer && typeof activeLayer?.colorCycleData?.brushSpeed === 'number'
+    ? activeLayer.colorCycleData.brushSpeed
+    : globalColorCycleSpeed;
   
   // Remove local overrides; animation state comes from store + unified event
   
@@ -1090,6 +1109,38 @@ const MinimalLayerList = () => {
       <div className="border-t border-[#424242]">
         <LayerAlignmentControls />
         <ContainerLayoutControls />
+
+        {/* Color Cycle speed slider duplicated from brush controls for quick access */}
+        <div className="border-t border-[#424242] px-2 py-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
+              speed
+            </span>
+            <ProgressSlider
+              value={colorCycleSpeedValue}
+              min={0.02}
+              max={1.0}
+              step={0.01}
+              onChange={(value) => {
+                const clampedValue = Math.max(0.02, Math.min(1.0, value));
+                setBrushSettings({ colorCycleSpeed: clampedValue });
+
+                if (isCCBrushLayer && activeLayerId && activeLayer?.colorCycleData) {
+                  if (activeLayer.colorCycleData.brushSpeed !== clampedValue) {
+                    updateLayer(activeLayerId, {
+                      colorCycleData: {
+                        ...activeLayer.colorCycleData,
+                        brushSpeed: clampedValue
+                      }
+                    });
+                  }
+                }
+              }}
+              aria-label="Color Cycle Speed"
+              className="flex-1"
+            />
+          </div>
+        </div>
 
         {/* Bottom Controls: Play/Pause for Color Cycle animation only */}
         <div className="border-t border-[#424242] p-2">

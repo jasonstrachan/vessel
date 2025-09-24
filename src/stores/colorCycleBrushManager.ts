@@ -3,6 +3,7 @@
  * Manages lifecycle and resources for ColorCycleBrush instances
  */
 
+import { featureFlags } from '@/config/featureFlags';
 import { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import { defaultBrushSettings } from '@/presets/brushPresets';
@@ -16,6 +17,8 @@ type BrushWithOptionalControls = ColorCycleBrushImplementation & {
   setIsolated?: (isolated: boolean) => void;
   setLayerId?: (layerId: string) => void;
   setSpeed?: (speed: number) => void;
+  setUseCanvas2D?: (useCanvas2D: boolean) => void;
+  isUsingWebGL?: () => boolean;
 };
 
 type StoreSlice = Pick<AppState, 'tools' | 'layers'>;
@@ -70,12 +73,29 @@ export interface ColorCycleBrushManager {
   removeColorCycleBrush: (layerId: string) => void;
   cleanupOrphanedBrushes: (validLayerIds: Set<string>) => void;
   transferColorCycleBrush: (fromLayerId: string, toLayerId: string) => boolean;
+  setCanvasImplementation: (useCanvas2D: boolean) => void;
 }
 
 export function createColorCycleBrushManager(): ColorCycleBrushManager {
   const brushes = new Map<string, ColorCycleBrushImplementation>();
   const brushMetadata = new Map<string, ColorCycleBrushMetadata>();
   const activeResources = new Set<string>();
+  
+  const updateBrushWebGLState = (
+    layerId: string,
+    brush: BrushWithOptionalControls,
+    useCanvas2DOverride?: boolean
+  ) => {
+    const wantsCanvas2D = useCanvas2DOverride ?? featureFlags.useCanvas2DColorCycle;
+    const usingWebGL = !wantsCanvas2D && (brush.isUsingWebGL?.() ?? brush.usesWebGL ?? false);
+    brush.usesWebGL = usingWebGL;
+
+    if (usingWebGL) {
+      activeResources.add(`webgl_${layerId}`);
+    } else {
+      activeResources.delete(`webgl_${layerId}`);
+    }
+  };
   
   return {
     brushes,
@@ -94,7 +114,8 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       const currentSettings = getBrushSettings();
       const brush = new ColorCycleBrushCanvas2D(canvas, {
         brushSize: currentSettings.size ?? defaultBrushSettings.size,
-        fps: currentSettings.colorCycleFPS ?? 30
+        fps: currentSettings.colorCycleFPS ?? 30,
+        forceCanvas2D: featureFlags.useCanvas2DColorCycle
       });
 
       // Apply all current settings to the new brush instance
@@ -144,9 +165,8 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
       
       // Track resources
       activeResources.add(layerId);
-      
-      
-      
+      updateBrushWebGLState(layerId, brushWithOptionalControls);
+
       return brush;
     },
     
@@ -179,6 +199,8 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
         brushes.delete(layerId);
         brushMetadata.delete(layerId);
         activeResources.delete(layerId);
+        activeResources.delete(`canvas_${layerId}`);
+        activeResources.delete(`webgl_${layerId}`);
 
         
       }
@@ -243,7 +265,15 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
         this.deleteBrush(layerId);
       });
     },
-    
+
+    setCanvasImplementation(useCanvas2D: boolean) {
+      brushes.forEach((brush, layerId) => {
+        const brushControls = brush as BrushWithOptionalControls;
+        brushControls.setUseCanvas2D?.(useCanvas2D);
+        updateBrushWebGLState(layerId, brushControls, useCanvas2D);
+      });
+    },
+
     // Enhanced lifecycle methods
     initColorCycleForLayer(layerId: string, width: number, height: number, gradient?: Uint8Array): boolean {
       // Check if brush already exists
@@ -276,6 +306,9 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
             if (typeof currentSettings.fillResolution === 'number') {
               existingBrush.setDitherPixelSize(Math.max(1, Math.floor(currentSettings.fillResolution)));
             }
+
+            updateBrushWebGLState(layerId, existingBrush as BrushWithOptionalControls);
+            activeResources.add(`canvas_${layerId}`);
           }
 
           return true;
@@ -292,10 +325,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
         // Mark as isolated if method exists
         brush.setIsolated?.(true);
 
-        // Track WebGL resources if applicable
-        if (brush.usesWebGL) {
-          activeResources.add(`webgl_${layerId}`);
-        }
+        updateBrushWebGLState(layerId, brush);
         activeResources.add(`canvas_${layerId}`);
         
         return true;
@@ -523,6 +553,15 @@ export function getColorCycleBrushManager(): ColorCycleBrushManager {
     }
   }
   return globalManager;
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('tinybrush:featureFlagChange', (event) => {
+    const detail = (event as CustomEvent<{ key?: string; value?: boolean }>).detail;
+    if (detail?.key === 'useCanvas2DColorCycle' && typeof detail.value === 'boolean') {
+      globalManager?.setCanvasImplementation(detail.value);
+    }
+  });
 }
 
 // Export types

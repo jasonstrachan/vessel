@@ -60,7 +60,12 @@
     <input id="file-input" type="file" accept="application/json" hidden />
 
     <script type="module">
-      import { renderTinyBrushWebGL } from './viewer.js';
+      import {
+        renderTinyBrushWebGL,
+        debugLog,
+        isViewerDiagnosticsEnabled,
+        setViewerDiagnosticsEnabled
+      } from './viewer.js';
 
       const canvas = document.getElementById('preview-canvas');
       const fileInput = document.getElementById('file-input');
@@ -77,6 +82,10 @@
         document.body.appendChild(element);
         return element;
       })();
+
+      const isDiagnosticsEnabled = () => isViewerDiagnosticsEnabled();
+
+      window.tinybrushViewerSetDiagnostics = (value) => setViewerDiagnosticsEnabled(value);
 
       const setStatus = (message, level = 'info') => {
         const text = typeof message === 'string' ? message.trim() : '';
@@ -144,6 +153,26 @@
         try {
           const text = await file.text();
           const metadata = JSON.parse(text);
+          if (isDiagnosticsEnabled()) {
+            metadata?.layers?.forEach((layer, idx) => {
+              const brushState = layer?.colorCycle?.brushState;
+              const indexBuffer = brushState?.indexBuffer;
+              if (indexBuffer) {
+                debugLog('[DEBUG] Layer index buffer summary', {
+                  index: idx,
+                  layerId: layer?.id,
+                  type: typeof indexBuffer,
+                  isArray: Array.isArray(indexBuffer),
+                  length: typeof indexBuffer === 'string' ? indexBuffer.length : indexBuffer?.length,
+                  preview: Array.isArray(indexBuffer)
+                    ? indexBuffer.slice(0, 16)
+                    : typeof indexBuffer === 'string'
+                      ? indexBuffer.slice(0, 64)
+                      : null
+                });
+              }
+            });
+          }
           void drawMetadata(metadata);
         } catch (error) {
           console.error('Failed to load TinyBrush bundle', error);

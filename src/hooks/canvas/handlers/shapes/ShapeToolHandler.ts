@@ -402,7 +402,7 @@ export const createShapeToolHandler = (
     const safeScale = Math.max(viewTransformRef.current.scale, 0.001);
     overlayCtx.lineWidth = Math.max(0.2, 0.45 / safeScale);
     overlayCtx.strokeStyle = tools.brushSettings.color;
-    overlayCtx.imageSmoothingEnabled = false;
+    overlayCtx.imageSmoothingEnabled = !(tools.brushSettings.shapeFillPixelMode ?? true);
 
     const maxDistance = Math.max(0.001, basis.maxDistance || spacingStart);
     const constrainedStart = Math.min(Math.max(MIN_LINE_SPACING, spacingStart), maxDistance);
@@ -486,7 +486,7 @@ export const createShapeToolHandler = (
     const safeScale = Math.max(viewTransformRef.current.scale, 0.001);
     overlayCtx.lineWidth = Math.max(0.2, 0.45 / safeScale);
     overlayCtx.strokeStyle = tools.brushSettings.color;
-    overlayCtx.imageSmoothingEnabled = false;
+    overlayCtx.imageSmoothingEnabled = !(tools.brushSettings.shapeFillPixelMode ?? true);
 
     const spacingSetting = tools.brushSettings.contourLines2Spacing ?? 8;
     const densitySetting = tools.brushSettings.contourLines2Density ?? 5;
@@ -887,7 +887,7 @@ export const createShapeToolHandler = (
             overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
             overlayCtx.save();
-            overlayCtx.imageSmoothingEnabled = false;
+            overlayCtx.imageSmoothingEnabled = !(tools.brushSettings.shapeFillPixelMode ?? true);
             overlayCtx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
             overlayCtx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
 

@@ -2,8 +2,40 @@ import type {
   ExportContainerLayout,
   Layer,
   LayerAlignmentSettings,
+  LayerHorizontalAlignment,
+  LayerVerticalAlignment,
   Project
 } from '@/types';
+
+const normalizeHorizontalAxis = (value?: string): LayerHorizontalAlignment => {
+  switch (value) {
+    case 'left':
+    case 'center':
+    case 'right':
+      return value;
+    case 'start':
+      return 'left';
+    case 'end':
+      return 'right';
+    default:
+      return 'center';
+  }
+};
+
+const normalizeVerticalAxis = (value?: string): LayerVerticalAlignment => {
+  switch (value) {
+    case 'top':
+    case 'center':
+    case 'bottom':
+      return value;
+    case 'start':
+      return 'top';
+    case 'end':
+      return 'bottom';
+    default:
+      return 'center';
+  }
+};
 
 /**
  * Factory for layer alignment defaults so new layers start with predictable transforms.
@@ -19,10 +51,20 @@ export const cloneLayerAlignment = (alignment?: LayerAlignmentSettings): LayerAl
   const base = alignment ?? createDefaultLayerAlignment();
   return {
     fit: base.fit,
-    horizontal: base.horizontal,
-    vertical: base.vertical,
+    horizontal: normalizeHorizontalAxis(base.horizontal),
+    vertical: normalizeVerticalAxis(base.vertical),
     offsetPx: base.offsetPx ? { ...base.offsetPx } : { x: 0, y: 0 }
   };
+};
+
+const normalizeSizeMode = (value?: string): ExportContainerLayout['sizeMode'] => {
+  if (value === 'fixed' || value === 'hug' || value === 'fill') {
+    return value;
+  }
+  if (value === 'auto') {
+    return 'fill';
+  }
+  return 'fill';
 };
 
 export const createDefaultExportLayout = (): ExportContainerLayout => ({
@@ -32,7 +74,7 @@ export const createDefaultExportLayout = (): ExportContainerLayout => ({
   wrap: false,
   gap: 0,
   padding: { top: 0, right: 0, bottom: 0, left: 0 },
-  sizeMode: 'hug'
+  sizeMode: 'fill'
 });
 
 export const cloneExportLayout = (layout?: ExportContainerLayout): ExportContainerLayout => {
@@ -44,7 +86,7 @@ export const cloneExportLayout = (layout?: ExportContainerLayout): ExportContain
     wrap: base.wrap,
     gap: base.gap,
     padding: { ...base.padding },
-    sizeMode: base.sizeMode,
+    sizeMode: normalizeSizeMode(base.sizeMode),
     width: base.width,
     height: base.height
   };

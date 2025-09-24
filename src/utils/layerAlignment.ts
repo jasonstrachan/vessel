@@ -15,6 +15,7 @@ export interface LayerTransform {
 export interface LayoutLayerInput {
   layerId: string;
   surface: Size2D;
+  content?: Size2D;
   alignment: LayerAlignmentSettings;
   hidden?: boolean;
 }
@@ -105,10 +106,10 @@ export const computeLayerTransform = (
     case 'center':
       translateX = extraX / 2;
       break;
-    case 'end':
+    case 'right':
       translateX = extraX;
       break;
-    case 'start':
+    case 'left':
     default:
       translateX = 0;
       break;
@@ -118,10 +119,10 @@ export const computeLayerTransform = (
     case 'center':
       translateY = extraY / 2;
       break;
-    case 'end':
+    case 'bottom':
       translateY = extraY;
       break;
-    case 'start':
+    case 'top':
     default:
       translateY = 0;
       break;
@@ -385,7 +386,8 @@ export const resolveContainerLayout = (
         height: frameHeight
       };
 
-      const transform = computeLayerTransform(layer.surface, viewportForLayer, layer.alignment);
+      const contentSize = layer.content ?? layer.surface;
+      const transform = computeLayerTransform(contentSize, viewportForLayer, layer.alignment);
 
       placements.set(layer.layerId, {
         layerId: layer.layerId,

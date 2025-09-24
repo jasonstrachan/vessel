@@ -1,6 +1,6 @@
 import { computeLines2Defaults, generateLines2Paths } from '@/utils/contourLines';
 
-import { snapToPixel } from './common';
+import { resolveCoordinateSnap } from './common';
 import type { Lines2FillParams } from './types';
 
 export const drawLines2Fill = ({
@@ -22,9 +22,12 @@ export const drawLines2Fill = ({
   const alternateSetting = lineOptions?.lines2Alternate ?? brushSettings.contourLines2Alternate ?? true;
   const centroidOverride = lineOptions?.centroid ?? defaults.centroid;
 
+  const pixelMode = brushSettings.shapeFillPixelMode ?? true;
+  const snap = resolveCoordinateSnap(pixelMode);
+
   ctx.strokeStyle = brushSettings.color;
   ctx.lineWidth = 1;
-  ctx.imageSmoothingEnabled = false;
+  ctx.imageSmoothingEnabled = !pixelMode;
 
   const lines = generateLines2Paths(
     vertices,
@@ -51,9 +54,9 @@ export const drawLines2Fill = ({
   for (const path of lines) {
     if (!path.points || path.points.length < 2) continue;
     ctx.beginPath();
-    ctx.moveTo(snapToPixel(path.points[0].x), snapToPixel(path.points[0].y));
+    ctx.moveTo(snap(path.points[0].x), snap(path.points[0].y));
     for (let i = 1; i < path.points.length; i++) {
-      ctx.lineTo(snapToPixel(path.points[i].x), snapToPixel(path.points[i].y));
+      ctx.lineTo(snap(path.points[i].x), snap(path.points[i].y));
     }
     ctx.stroke();
   }

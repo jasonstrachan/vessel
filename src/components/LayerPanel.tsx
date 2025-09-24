@@ -7,6 +7,7 @@ import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { XIcon } from './icons/XIcon';
 import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
 import PlusButton from './ui/PlusButton';
+import ProgressSlider from './ui/ProgressSlider';
 import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
 
@@ -26,11 +27,13 @@ const LayerPanel = () => {
   const activeLayerId = useAppStore(state => state.activeLayerId);
   const project = useAppStore(state => state.project);
   const brushShape = useAppStore(state => state.tools.brushSettings.brushShape);
+  const globalColorCycleSpeed = useAppStore(state => state.tools.brushSettings.colorCycleSpeed || 0.1);
 
   // Actions (stable references)
   const addLayer = useAppStore(state => state.addLayer);
   const removeLayer = useAppStore(state => state.removeLayer);
   const updateLayer = useAppStore(state => state.updateLayer);
+  const setBrushSettings = useAppStore(state => state.setBrushSettings);
   const setActiveLayer = useAppStore(state => state.setActiveLayer);
   const reorderLayers = useAppStore(state => state.reorderLayers);
 
@@ -149,8 +152,8 @@ const LayerPanel = () => {
   // No local overrides; animation state comes from store + unified event
 
   return (
-    <div className="">
-      <div className="flex items-center justify-between px-4 py-2">
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex-shrink-0 flex items-center justify-between px-4 py-2">
         <h3 className="font-medium text-[#D9D9D9]" style={{ fontSize: '14px' }}>Layers</h3>
         <PlusButton
           onClick={handleAddLayer}
@@ -158,7 +161,7 @@ const LayerPanel = () => {
         />
       </div>
       
-      <div className="">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {layers.slice().reverse().map((layer) => (
           <div
             key={layer.id}
@@ -267,12 +270,51 @@ const LayerPanel = () => {
       
       {/* Play/Pause Button for Color Cycle Brush - placed at bottom of layers column */}
       {/* Debug: Show current brush shape */}
-      <div className="px-4 py-1 text-[10px] text-[#666]">
+      <div className="flex-shrink-0 px-4 py-1 text-[10px] text-[#666]">
         Current brush: {brushShape || 'none'}
       </div>
+      {/* Color Cycle speed slider duplicated from brush controls for quick access */}
+      <div className="flex-shrink-0 px-4 py-2 border-t border-[#404040]">
+        <div className="flex items-center gap-2">
+          <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            Speed
+          </label>
+          <ProgressSlider
+            value={(function() {
+              const activeLayer = layers.find(l => l.id === activeLayerId);
+              const isCCBrushLayer = activeLayer?.layerType === 'color-cycle' && activeLayer?.colorCycleData?.mode !== 'recolor';
+              if (isCCBrushLayer && typeof activeLayer?.colorCycleData?.brushSpeed === 'number') {
+                return activeLayer.colorCycleData.brushSpeed;
+              }
+              return globalColorCycleSpeed;
+            })()}
+            min={0.02}
+            max={1.0}
+            step={0.01}
+            onChange={(value) => {
+              const clampedValue = Math.max(0.02, Math.min(1.0, value));
+              setBrushSettings({ colorCycleSpeed: clampedValue });
+
+              const activeLayer = layers.find(l => l.id === activeLayerId);
+              const isCCBrushLayer = activeLayer?.layerType === 'color-cycle' && activeLayer?.colorCycleData?.mode !== 'recolor';
+              if (isCCBrushLayer && activeLayerId && activeLayer?.colorCycleData) {
+                updateLayer(activeLayerId, {
+                  colorCycleData: {
+                    ...activeLayer.colorCycleData,
+                    brushSpeed: clampedValue
+                  }
+                });
+              }
+            }}
+            aria-label="Color Cycle Speed"
+            className="flex-1"
+          />
+        </div>
+      </div>
+
       {/* Consolidated Color Cycle play/pause: controls brush and recolor animations */}
       {true && (
-        <div className="px-4 py-2 border-t border-[#404040]">
+        <div className="flex-shrink-0 px-4 py-2 border-t border-[#404040]">
           <button
             onClick={async () => {
               const newIsAnimating = !isAnimating;

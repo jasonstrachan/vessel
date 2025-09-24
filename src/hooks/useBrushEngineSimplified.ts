@@ -1328,7 +1328,13 @@ export const useBrushEngineSimplified = () => {
    */
   const drawCrossHatchPolygon = useCallback((
     ctx: CanvasRenderingContext2D,
-    polygonData: { vertices: Array<{ x: number; y: number }>; fillColor?: string },
+    polygonData: {
+      vertices: Array<{ x: number; y: number }>;
+      fillColor?: string;
+      spacingOverride?: number;
+      rotationOverride?: number;
+      lineWidthOverride?: number;
+    },
     isPreview: boolean = false
   ) => {
     drawCrossHatchPolygonFill({

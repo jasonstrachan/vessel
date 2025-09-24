@@ -2,6 +2,12 @@ import type { Point } from './types';
 
 export const snapToPixel = (value: number): number => Math.floor(value) + 0.5;
 
+const identity = (value: number): number => value;
+
+export const resolveCoordinateSnap = (pixelMode?: boolean) => (
+  pixelMode ? snapToPixel : identity
+);
+
 export const isPointInPolygonSDF = (point: Point, vertices: Point[]): boolean => {
   let inside = false;
   for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {

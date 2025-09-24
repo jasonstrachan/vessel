@@ -5,7 +5,7 @@ import {
   prepareContourLinesBasis,
 } from '@/utils/contourLines';
 
-import { snapToPixel } from './common';
+import { resolveCoordinateSnap } from './common';
 import type { LinesFillParams } from './types';
 
 export const drawLinesFill = ({
@@ -27,17 +27,20 @@ export const drawLinesFill = ({
     return;
   }
 
+  const pixelMode = brushSettings.shapeFillPixelMode ?? true;
+  const snap = resolveCoordinateSnap(pixelMode);
+
   ctx.strokeStyle = brushSettings.color;
   ctx.lineWidth = 1;
-  ctx.imageSmoothingEnabled = false;
+  ctx.imageSmoothingEnabled = !pixelMode;
 
   const lines = generateContourLines(vertices, basis, spacingA, spacingB);
 
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(snapToPixel(vertices[0].x), snapToPixel(vertices[0].y));
+  ctx.moveTo(snap(vertices[0].x), snap(vertices[0].y));
   for (let i = 1; i < vertices.length; i++) {
-    ctx.lineTo(snapToPixel(vertices[i].x), snapToPixel(vertices[i].y));
+    ctx.lineTo(snap(vertices[i].x), snap(vertices[i].y));
   }
   ctx.closePath();
   ctx.clip();
@@ -45,9 +48,9 @@ export const drawLinesFill = ({
   for (const path of lines) {
     if (!path.points || path.points.length < 2) continue;
     ctx.beginPath();
-    ctx.moveTo(snapToPixel(path.points[0].x), snapToPixel(path.points[0].y));
+    ctx.moveTo(snap(path.points[0].x), snap(path.points[0].y));
     for (let i = 1; i < path.points.length; i++) {
-      ctx.lineTo(snapToPixel(path.points[i].x), snapToPixel(path.points[i].y));
+      ctx.lineTo(snap(path.points[i].x), snap(path.points[i].y));
     }
     ctx.stroke();
   }

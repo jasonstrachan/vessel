@@ -1,7 +1,26 @@
 import { cloneExportLayout, cloneLayerAlignment } from '@/utils/layoutDefaults';
 import { resolveContainerLayout, type LayerTransform, type ResolvedLayerLayout } from '@/utils/layerAlignment';
-import type { ExportContainerLayout, Layer, Project, WebGLExportBundleFormat } from '@/types';
+import { computeContentBoundsFromImageData } from '@/utils/imageBounds';
+import type { ContentBounds, ExportContainerLayout, Layer, Project, WebGLExportBundleFormat } from '@/types';
 import { packArrayToB64Z } from '@/utils/export/b64z';
+
+const viewerDiagnosticsDefault =
+  process.env.NEXT_PUBLIC_TINYBRUSH_VIEWER_DEBUG === 'true'
+  || process.env.NODE_ENV !== 'production';
+
+let viewerDiagnosticsActive = viewerDiagnosticsDefault;
+
+const viewerDebugLog = (...args: Array<unknown>) => {
+  if (viewerDiagnosticsActive) {
+    console.log(...args);
+  }
+};
+
+const viewerDebugWarn = (...args: Array<unknown>) => {
+  if (viewerDiagnosticsActive) {
+    console.warn(...args);
+  }
+};
 
 type JSZipConstructor = any;
 
@@ -24,6 +43,11 @@ interface WebGLViewport {
 
 interface WebGLLayerAsset {
   texture?: string;
+}
+
+interface LayerExportMetrics {
+  surfaceSize: { width: number; height: number };
+  contentBounds: ContentBounds;
 }
 
 type CanvasExportMimeType = 'image/avif' | 'image/webp' | 'image/png';
@@ -63,6 +87,7 @@ const PROPERTY_MINIFY_MAP = {
   frame: 'fr',
   transform: 'tr',
   sourceSize: 'ss',
+  contentBounds: 'cb',
   assets: 'as',
   colorCycle: 'cc',
   stackIndex: 'si',
@@ -149,6 +174,7 @@ export interface WebGLLayerMetadata {
   frame: ResolvedLayerLayout['frame'];
   transform?: Partial<LayerTransform>;
   sourceSize: { width: number; height: number };
+  contentBounds?: ContentBounds;
   assets?: WebGLLayerAsset;
   colorCycle?: WebGLSerializedColorCycle;
   stackIndex?: number;
@@ -205,6 +231,7 @@ export interface WebGLExportRequest {
   minify: boolean;
   filenameBase: string;
   bundleFormat?: WebGLExportBundleFormat;
+  enableViewerDiagnostics?: boolean;
   assetPrefix?: string;
   compositeLayersToCanvas?: (targetCanvas: HTMLCanvasElement) => void;
 }
@@ -329,6 +356,18 @@ const stripLayerDefaults = (layer: WebGLLayerMetadata): WebGLLayerMetadata => {
 
   if (layer.alignment) {
     stripped.alignment = layer.alignment;
+  }
+
+  if (layer.contentBounds) {
+    const bounds = layer.contentBounds;
+    const source = layer.sourceSize;
+    const matchesSurface = bounds.x === 0
+      && bounds.y === 0
+      && bounds.width === source.width
+      && bounds.height === source.height;
+    if (!matchesSurface) {
+      stripped.contentBounds = bounds;
+    }
   }
 
   if (layer.visible === false && DEFAULT_LAYER_VISIBILITY) {
@@ -621,6 +660,90 @@ const getLayerSurfaceSize = (layer: Layer, project: Project) => {
   return {
     width: Math.max(1, project.width),
     height: Math.max(1, project.height)
+  };
+};
+
+const normalizeContentBounds = (
+  bounds: ContentBounds | null,
+  surface: { width: number; height: number }
+): ContentBounds => {
+  const defaultBounds: ContentBounds = {
+    x: 0,
+    y: 0,
+    width: Math.max(1, surface.width),
+    height: Math.max(1, surface.height)
+  };
+
+  if (!bounds) {
+    return defaultBounds;
+  }
+
+  const clampedX = Math.max(0, Math.min(Math.floor(bounds.x), Math.max(0, surface.width - 1)));
+  const clampedY = Math.max(0, Math.min(Math.floor(bounds.y), Math.max(0, surface.height - 1)));
+  const maxWidth = Math.max(1, surface.width - clampedX);
+  const maxHeight = Math.max(1, surface.height - clampedY);
+  const width = Math.min(Math.max(1, Math.floor(bounds.width)), maxWidth);
+  const height = Math.min(Math.max(1, Math.floor(bounds.height)), maxHeight);
+
+  return {
+    x: clampedX,
+    y: clampedY,
+    width,
+    height
+  };
+};
+
+const computeCanvasContentBounds = (
+  canvas: HTMLCanvasElement | OffscreenCanvas | null
+): ContentBounds | null => {
+  if (!canvas) {
+    return null;
+  }
+
+  const dimensions = getCanvasDimensions(canvas);
+  if (!dimensions) {
+    return null;
+  }
+
+  try {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: true } as CanvasRenderingContext2DSettings);
+    if (!ctx) {
+      return null;
+    }
+    const imageData = ctx.getImageData(0, 0, dimensions.width, dimensions.height);
+    return computeContentBoundsFromImageData(imageData);
+  } catch (error) {
+    console.warn('[webglExporter] Failed to compute canvas content bounds', error);
+    return null;
+  }
+};
+
+const computeLayerExportMetrics = (layer: Layer, project: Project): LayerExportMetrics => {
+  const surfaceSize = getLayerSurfaceSize(layer, project);
+
+  let bounds: ContentBounds | null = null;
+
+  if (layer.imageData) {
+    try {
+      bounds = computeContentBoundsFromImageData(layer.imageData);
+    } catch (error) {
+      console.warn('[webglExporter] Failed to compute bounds from layer.imageData', error);
+    }
+  }
+
+  if (!bounds) {
+    bounds = computeCanvasContentBounds(layer.framebuffer as HTMLCanvasElement | OffscreenCanvas | null);
+  }
+
+  if (!bounds && layer.colorCycleData?.canvas) {
+    bounds = computeCanvasContentBounds(layer.colorCycleData.canvas as HTMLCanvasElement | OffscreenCanvas | null);
+  }
+
+  const normalizedBounds = normalizeContentBounds(bounds, surfaceSize);
+
+  return {
+    surfaceSize,
+    contentBounds: normalizedBounds
   };
 };
 
@@ -949,12 +1072,16 @@ const extractBrushStateFromBrushProperties = (brush: unknown, layer: Layer): Web
     brushState.flowDirection = flowDirection;
   }
 
-  console.log('[webglExporter] Created brush state from direct properties', {
-    layerId: layer.id,
-    width,
-    height,
-    indices: indexBuffer.length
-  });
+  if (viewerDiagnosticsActive) {
+    viewerDebugLog('[webglExporter] Created brush state from direct properties', {
+      layerId: layer.id,
+      width,
+      height,
+      indices: indexBuffer.length,
+      gradientStops: gradientStops.length
+    });
+  }
+
   return brushState;
 };
 
@@ -1039,6 +1166,16 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
     const paletteValues = indexBuffer.palette ? toSerializablePaletteArray(indexBuffer.palette) : undefined;
     const palette = paletteValues && paletteValues.length > 0 ? paletteValues : undefined;
 
+    if (viewerDiagnosticsActive) {
+      viewerDebugLog('[webglExporter] Animator-derived index buffer', {
+        layerId: layer.id,
+        width,
+        height,
+        paletteSize: palette?.length ?? null,
+        dataSample: indexBufferData.slice(0, 16)
+      });
+    }
+
     const brushState: WebGLSerializedBrushState = {
       width,
       height,
@@ -1053,6 +1190,18 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
       ?? detectBrushFlowDirection(brush, layer.id);
     if (flowDirection) {
       brushState.flowDirection = flowDirection;
+    }
+
+    if (viewerDiagnosticsActive) {
+      viewerDebugLog('[webglExporter] Brush state extracted from animator fallback', {
+        layerId: layer.id,
+        width,
+        height,
+        indices: indexBufferData.length,
+        paletteSize: palette?.length ?? null,
+        targetFPS,
+        hasFlowDirection: Boolean(brushState.flowDirection)
+      });
     }
 
     return brushState;
@@ -1102,6 +1251,26 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
           const fallbackHeight = layer.imageData?.height ?? layer.colorCycleData?.canvas?.height ?? 1;
 
           if (ib.data) {
+            if (viewerDiagnosticsActive) {
+              const dataType = (ib.data as { constructor?: { name?: string } })?.constructor?.name ?? 'unknown';
+              const sample = (() => {
+                try {
+                  const arrayLike = ib.data as ArrayLike<number>;
+                  return Array.prototype.slice.call(arrayLike, 0, 16);
+                } catch {
+                  return 'unavailable';
+                }
+              })();
+              viewerDebugLog('[webglExporter] Brush serialize() indexBuffer payload', {
+                layerId: layer.id,
+                width: ib.width,
+                height: ib.height,
+                dataType,
+                dataLength: (ib.data as { length?: number })?.length ?? 0,
+                sample
+              });
+            }
+
             let indexArray: number[] = [];
             try {
               indexArray = Array.from(ib.data as ArrayLike<number>);
@@ -1117,6 +1286,21 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
             if (indexArray.length === 0) {
               console.warn(`[webglExporter] Brush serialize() returned an empty index buffer for layer ${layer.id}`);
               return undefined;
+            }
+
+            if (viewerDiagnosticsActive) {
+              const totalLength = indexArray.length;
+              const uniqueValues = new Set(indexArray);
+              const firstNonZeroIndex = indexArray.findIndex((value) => value !== 0);
+              viewerDebugLog('[webglExporter] Brush serialize() index analysis', {
+                layerId: layer.id,
+                totalLength,
+                nonZeroCount: indexArray.filter((value) => value !== 0).length,
+                uniqueValues: Array.from(uniqueValues).slice(0, 20),
+                firstNonZeroIndex,
+                startSample: indexArray.slice(0, 16),
+                endSample: indexArray.slice(totalLength > 16 ? totalLength - 16 : 0)
+              });
             }
 
             const width = Math.max(1, Math.round(Number.isFinite(widthRaw) ? widthRaw : fallbackWidth));
@@ -1152,6 +1336,18 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
 
             if (flowDirection) {
               result.flowDirection = flowDirection;
+            }
+
+            if (viewerDiagnosticsActive) {
+              viewerDebugLog('[webglExporter] Brush serialize() final state', {
+                layerId: layer.id,
+                width,
+                height,
+                indices: indexArray.length,
+                gradientStops: gradientStops.length,
+                paletteSize: palette?.length ?? null,
+                targetFPS
+              });
             }
 
             return result;
@@ -1278,13 +1474,15 @@ const serializeColorCycleData = async (layer: Layer): Promise<WebGLSerializedCol
     isAnimating: shouldAnimate
   };
 
-  console.log('[webglExporter] Animation inference for layer', layer.id, {
-    inputIsAnimating: data.isAnimating,
-    brushSpeed: data.brushSpeed,
-    recolorSpeed: data.recolorSettings?.animation?.speed,
-    animationWasPlaying: data.recolorSettings?.animation?.isPlaying,
-    exportedIsAnimating: shouldAnimate
-  });
+  if (viewerDiagnosticsActive) {
+    viewerDebugLog('[webglExporter] Animation inference for layer', layer.id, {
+      inputIsAnimating: data.isAnimating,
+      brushSpeed: data.brushSpeed,
+      recolorSpeed: data.recolorSettings?.animation?.speed,
+      animationWasPlaying: data.recolorSettings?.animation?.isPlaying,
+      exportedIsAnimating: shouldAnimate
+    });
+  }
 
   if (data.recolorSettings) {
     const { recolorSettings } = data;
@@ -1322,65 +1520,60 @@ const serializeColorCycleData = async (layer: Layer): Promise<WebGLSerializedCol
   if (!data.recolorSettings) {
     const brushState = serializeBrushState(layer);
     if (brushState) {
-      const originalIndexLength = Array.isArray(brushState.indexBuffer) ? brushState.indexBuffer.length : 0;
       const encodedIndexBuffer = await packNumericArrayForExport(brushState.indexBuffer);
       const preparedBrushState: WebGLSerializedBrushState = {
         ...brushState,
         indexBuffer: encodedIndexBuffer ?? []
       };
 
-      const summary = summarizeEncodedBuffer(preparedBrushState.indexBuffer, originalIndexLength);
-      console.log('[DEBUG] BrushState attached to colorCycle:', {
-        hasIndexBuffer: summary.encoding !== 'none',
-        indexEncoding: summary.encoding,
-        indexLength: summary.length,
-        width: preparedBrushState.width,
-        height: preparedBrushState.height
-      });
       serialized.brushState = preparedBrushState;
-      console.log('[webglExporter] Brush state included for layer', layer.id, {
-        width: preparedBrushState.width,
-        height: preparedBrushState.height,
-        indices: summary.length,
-        encoding: summary.encoding,
-        paletteSize: preparedBrushState.palette?.length ?? null,
-        sample: summary.preview
-      });
-      console.log(`[webglExporter] Brush state included (${summary.encoding}) with ${summary.length ?? 0} indices`);
       if (!serialized.gradient || serialized.gradient.length === 0) {
         serialized.gradient = preparedBrushState.gradientStops;
+      }
+      if (viewerDiagnosticsActive) {
+        const summary = summarizeEncodedBuffer(preparedBrushState.indexBuffer, Array.isArray(brushState.indexBuffer) ? brushState.indexBuffer.length : 0);
+        viewerDebugLog('[webglExporter] Brush state included for layer via serialize()', {
+          layerId: layer.id,
+          width: preparedBrushState.width,
+          height: preparedBrushState.height,
+          indices: summary.length,
+          encoding: summary.encoding,
+          paletteSize: preparedBrushState.palette?.length ?? null,
+          sample: summary.preview
+        });
       }
     } else {
       console.warn('[webglExporter] No brush state could be extracted for layer', layer.id);
     }
   }
 
-  try {
+  if (viewerDiagnosticsActive) {
     const recolorIndexPayload = serialized.recolorSettings?.indexBuffer;
-    const recolorIndexLength = Array.isArray(recolorIndexPayload)
-      ? recolorIndexPayload.length
-      : (typeof recolorIndexPayload === 'string' ? 'b64z' : undefined);
     const brushIndexPayload = serialized.brushState?.indexBuffer;
-    const brushIndexLength = Array.isArray(brushIndexPayload)
-      ? brushIndexPayload.length
-      : (typeof brushIndexPayload === 'string' ? 'b64z' : undefined);
-    console.log('[webglExporter] Serialized color cycle layer', layer.id, {
+    const recolorIndexSummary = summarizeEncodedBuffer(
+      Array.isArray(recolorIndexPayload) || typeof recolorIndexPayload === 'string' ? recolorIndexPayload : undefined,
+      Array.isArray(data.recolorSettings?.indexBuffer) ? data.recolorSettings!.indexBuffer!.length : 0
+    );
+    const brushIndexSummary = summarizeEncodedBuffer(
+      Array.isArray(brushIndexPayload) || typeof brushIndexPayload === 'string' ? brushIndexPayload : undefined,
+      typeof brushIndexPayload === 'string' ? 0 : Array.isArray(brushIndexPayload) ? brushIndexPayload.length : 0
+    );
+
+    viewerDebugLog('[webglExporter] Serialized color cycle layer', layer.id, {
       mode: serialized.mode,
       isAnimating: serialized.isAnimating,
       brushSpeed: serialized.brushSpeed,
       hasRecolor: Boolean(serialized.recolorSettings),
-      recolorIndexLength,
+      recolorIndexSummary,
       recolorPhaseLength: Array.isArray(serialized.recolorSettings?.phaseMap)
         ? serialized.recolorSettings!.phaseMap!.length
         : undefined,
       recolorPaletteLength: Array.isArray(serialized.recolorSettings?.palette)
         ? serialized.recolorSettings!.palette!.length
         : undefined,
-      brushIndexLength,
+      brushIndexSummary,
       gradientStops: serialized.gradient?.length ?? 0
     });
-  } catch (diagnosticError) {
-    console.warn('[webglExporter] Failed to log color cycle serialization diagnostics', diagnosticError);
   }
 
   return serialized;
@@ -1424,19 +1617,32 @@ const captureLayerTexture = async (layer: Layer): Promise<string | undefined> =>
 
 const collectLayout = (
   layers: Layer[],
+  metricsMap: Map<string, LayerExportMetrics>,
   layout: ExportContainerLayout,
   viewport: WebGLViewport,
-  includeHiddenLayers: boolean,
-  project: Project
+  includeHiddenLayers: boolean
 ) => {
   const inputs = layers
     .filter((layer) => includeHiddenLayers || layer.visible)
-    .map((layer) => ({
-      layerId: layer.id,
-      surface: getLayerSurfaceSize(layer, project),
-      alignment: layer.alignment,
-      hidden: false
-    }));
+    .map((layer) => {
+      const metrics = metricsMap.get(layer.id);
+      if (!metrics) {
+        throw new Error(`[webglExporter] Missing layout metrics for layer ${layer.id}`);
+      }
+      return {
+        layerId: layer.id,
+        surface: {
+          width: Math.max(1, Math.round(metrics.surfaceSize.width)),
+          height: Math.max(1, Math.round(metrics.surfaceSize.height))
+        },
+        content: {
+          width: Math.max(1, Math.round(metrics.contentBounds.width)),
+          height: Math.max(1, Math.round(metrics.contentBounds.height))
+        },
+        alignment: layer.alignment,
+        hidden: false
+      };
+    });
 
   return resolveContainerLayout(inputs, layout, viewport);
 };
@@ -1555,40 +1761,119 @@ const encodeMetadataForInlineScript = (metadataJson: string): string => {
     .replace(/\$/g, '\\$');
 };
 
-const appendZipAutoloadSnippet = (scriptContent: string, bundleFilename: string, metadataJson: string): string => {
+const stripViewerImport = (content: string): string => {
+  return content.replace(/\s*import\s+\{[\s\S]*?\}\s+from\s+'\.\/viewer\.js';?\s*/g, '\n');
+};
+
+const appendZipAutoloadSnippet = (
+  scriptContent: string,
+  bundleFilename: string,
+  metadataJson: string,
+  diagnosticsEnabled: boolean
+): string => {
   const metadataLiteral = encodeMetadataForInlineScript(metadataJson);
+  const diagnosticsLiteral = diagnosticsEnabled ? 'true' : 'false';
   const snippet = `
+      const diagnosticsDefault = ${diagnosticsLiteral};
+      let enableDiagnostics = diagnosticsDefault;
+      if (diagnosticsDefault) {
+        try {
+          if (typeof window !== 'undefined') {
+            if (window.__TINYBRUSH_VIEWER_DEBUG__ === true) {
+              enableDiagnostics = true;
+            } else if (typeof window.location?.search === 'string' && window.location.search.includes('debug=1')) {
+              enableDiagnostics = true;
+            } else if (window.localStorage && window.localStorage.getItem('tinybrushViewerDebug') === 'true') {
+              enableDiagnostics = true;
+            }
+          }
+        } catch {
+          // ignore resolution errors (e.g., file:// without localStorage)
+        }
+      }
+      if (typeof window !== 'undefined') {
+        window.__TINYBRUSH_VIEWER_DEBUG__ = enableDiagnostics;
+        window.tinybrushViewerSetDiagnostics = diagnosticsDefault
+          ? (value) => {
+              try {
+                window.localStorage?.setItem('tinybrushViewerDebug', value ? 'true' : 'false');
+              } catch {
+                // ignore persistence failures in readonly contexts (e.g., file://)
+              }
+              enableDiagnostics = Boolean(value);
+              window.__TINYBRUSH_VIEWER_DEBUG__ = enableDiagnostics;
+            }
+          : () => {
+              console.warn('Viewer diagnostics are disabled in this build.');
+            };
+      }
+      const emitLog = enableDiagnostics
+        ? (...args) => {
+            console.log('[TinyBrush Viewer]', ...args);
+          }
+        : () => {};
+      const emitWarn = enableDiagnostics
+        ? (...args) => {
+            console.warn('[TinyBrush Viewer]', ...args);
+          }
+        : () => {};
       const expandPackagedMetadata = (raw) => {
         if (typeof expandTinyBrushMetadata === 'function') {
           try {
             return expandTinyBrushMetadata(raw);
           } catch (error) {
-            console.warn('Failed to expand minified metadata via module helper', error);
+            emitWarn('Failed to expand minified metadata via module helper', error);
           }
         }
         if (typeof window !== 'undefined' && typeof window.expandTinyBrushMetadata === 'function') {
           try {
             return window.expandTinyBrushMetadata(raw);
           } catch (error) {
-            console.warn('Failed to expand minified metadata via viewer helper', error);
+            emitWarn('Failed to expand minified metadata via viewer helper', error);
           }
         }
         return raw;
       };
       const packagedMetadataRaw = JSON.parse(\`${metadataLiteral}\`);
       const packagedMetadata = expandPackagedMetadata(packagedMetadataRaw);
+      if (enableDiagnostics) {
+        emitLog('[DEBUG] Checking parsed metadata:');
+        packagedMetadata.layers?.forEach((layer) => {
+          if (layer.colorCycle?.brushState) {
+            const bs = layer.colorCycle.brushState;
+            emitLog('[DEBUG] Layer diagnostics', {
+              id: layer.id,
+              hasIndexBuffer: Boolean(bs.indexBuffer),
+              indexBufferType: typeof bs.indexBuffer,
+              indexBufferIsArray: Array.isArray(bs.indexBuffer),
+              indexBufferLength: typeof bs.indexBuffer === 'string' ? bs.indexBuffer.length : bs.indexBuffer?.length,
+              preview: Array.isArray(bs.indexBuffer)
+                ? bs.indexBuffer.slice(0, 6)
+                : typeof bs.indexBuffer === 'string'
+                  ? bs.indexBuffer.slice(0, 48)
+                  : null
+            });
+          }
+        });
+      }
       const autoBundleName = ${JSON.stringify(bundleFilename)};
       const renderPackagedMetadata = async (metadata) => {
         const normalizedMetadata = expandPackagedMetadata(metadata);
         setStatus('Rendering packaged bundle…');
-        console.info('[TinyBrush Viewer] Loaded metadata for auto-render:', normalizedMetadata);
-        console.info('[TinyBrush Viewer] Canvas element reference:', canvas);
+        emitLog('Loaded metadata for auto-render:', normalizedMetadata);
+        emitLog('Canvas element reference:', canvas);
         if (!(canvas instanceof HTMLCanvasElement)) {
           throw new Error('Preview canvas element is unavailable');
         }
         const scale = computeScale(normalizedMetadata);
         const renderResult = await renderTinyBrushWebGL(normalizedMetadata, canvas, { scale });
         summarizeMetadata(normalizedMetadata, renderResult);
+        if (enableDiagnostics) {
+          emitLog('Render summary:', {
+            scale,
+            layerCount: normalizedMetadata.layers?.length ?? 0
+          });
+        }
         setStatus('Packaged bundle rendered.');
       };
       const autoLoadPackagedBundle = async () => {
@@ -1603,14 +1888,14 @@ const appendZipAutoloadSnippet = (scriptContent: string, bundleFilename: string,
           return;
         } catch (error) {
           if (error instanceof Error) {
-            console.warn('Automatic bundle load failed', error);
+            emitWarn('Automatic bundle load failed', error);
           }
           if (packagedMetadata) {
             try {
               await renderPackagedMetadata(packagedMetadata);
               return;
             } catch (secondaryError) {
-              console.error('Failed to render embedded metadata', secondaryError);
+              emitWarn('Failed to render embedded metadata', secondaryError);
             }
           }
           setStatus('Viewer ready. Drop a bundle to preview.');
@@ -1630,59 +1915,100 @@ const buildInlineInflateRuntime = (inflateJs: string): string => {
   return `const inflateRaw = (() => {\n${sanitized}\nreturn inflateRaw;\n})();`;
 };
 
-const buildSingleFileScript = (scriptContent: string, viewerRuntime: string, inflateRuntime: string, metadataJson: string): string => {
-  const withoutImport = scriptContent.replace(/\s*import\s+\{\s*renderTinyBrushWebGL\s*\}\s+from\s+'\.\/viewer\.js';?\s*/, '\n');
+const buildSingleFileScript = (
+  scriptContent: string,
+  viewerRuntime: string,
+  inflateRuntime: string,
+  metadataJson: string,
+  diagnosticsEnabled: boolean
+): string => {
+  const withoutImport = stripViewerImport(scriptContent);
   const runtimeWithoutInflateImport = viewerRuntime.replace(/\s*import\s+\{\s*inflateRaw\s*\}\s+from\s+'\.\/fflate-inflate\.js';?\s*/, '\n');
   const inlineInflate = buildInlineInflateRuntime(inflateRuntime);
   const runtime = `\n${inlineInflate}\n${runtimeWithoutInflateImport}\n`;
   const metadataLiteral = encodeMetadataForInlineScript(metadataJson);
+  const diagnosticsLiteral = diagnosticsEnabled ? 'true' : 'false';
   const snippet = `
+      const diagnosticsDefault = ${diagnosticsLiteral};
+      const resolveDiagnostics = () => {
+        if (!diagnosticsDefault) {
+          return false;
+        }
+        try {
+          if (typeof window !== 'undefined') {
+            if (window.__TINYBRUSH_VIEWER_DEBUG__ === true) {
+              return true;
+            }
+            if (typeof window.location?.search === 'string' && window.location.search.includes('debug=1')) {
+              return true;
+            }
+            if (window.localStorage && window.localStorage.getItem('tinybrushViewerDebug') === 'true') {
+              return true;
+            }
+          }
+        } catch {
+          // ignore resolution errors (e.g., file:// without localStorage)
+        }
+        return diagnosticsDefault;
+      };
+      let enableDiagnostics = resolveDiagnostics();
+      if (typeof window !== 'undefined') {
+        window.__TINYBRUSH_VIEWER_DEBUG__ = enableDiagnostics;
+        window.tinybrushViewerSetDiagnostics = diagnosticsDefault
+          ? (value) => {
+              try {
+                window.localStorage?.setItem('tinybrushViewerDebug', value ? 'true' : 'false');
+              } catch {
+                // ignore persistence failures in readonly contexts (e.g., file://)
+              }
+              enableDiagnostics = Boolean(value);
+              window.__TINYBRUSH_VIEWER_DEBUG__ = enableDiagnostics;
+            }
+          : () => {
+              console.warn('Viewer diagnostics are disabled in this build.');
+            };
+      }
+      const emitLog = diagnosticsDefault
+        ? (...args) => {
+            if (enableDiagnostics) {
+              console.log('[TinyBrush Viewer]', ...args);
+            }
+          }
+        : () => {};
+      const emitWarn = diagnosticsDefault
+        ? (...args) => {
+            if (enableDiagnostics) {
+              console.warn('[TinyBrush Viewer]', ...args);
+            }
+          }
+        : () => {};
       const expandPackagedMetadata = (raw) => {
         if (typeof expandTinyBrushMetadata === 'function') {
           try {
             return expandTinyBrushMetadata(raw);
           } catch (error) {
-            console.warn('Failed to expand minified metadata via module helper', error);
+            emitWarn('Failed to expand minified metadata via module helper', error);
           }
         }
         if (typeof window !== 'undefined' && typeof window.expandTinyBrushMetadata === 'function') {
           try {
             return window.expandTinyBrushMetadata(raw);
           } catch (error) {
-            console.warn('Failed to expand minified metadata via viewer helper', error);
+            emitWarn('Failed to expand minified metadata via viewer helper', error);
           }
         }
         return raw;
       };
       const packagedMetadataRaw = JSON.parse(\`${metadataLiteral}\`);
       const packagedMetadata = expandPackagedMetadata(packagedMetadataRaw);
-      // Force output to console
-      console.log('[DEBUG] Checking parsed metadata:');
-      packagedMetadata.layers.forEach((layer) => {
-        if (layer.colorCycle?.brushState) {
-          const bs = layer.colorCycle.brushState;
-          console.log(
-            '[DEBUG] Layer ' + layer.id + ' brushState indexBuffer:',
-            'exists=' + (!!bs.indexBuffer),
-            'type=' + typeof bs.indexBuffer,
-            'isArray=' + Array.isArray(bs.indexBuffer),
-            'length=' + (bs.indexBuffer?.length || 0),
-            'first5=' + (bs.indexBuffer
-              ? [
-                  bs.indexBuffer[0],
-                  bs.indexBuffer[1],
-                  bs.indexBuffer[2],
-                  bs.indexBuffer[3],
-                  bs.indexBuffer[4]
-                ].join(',')
-              : 'missing')
-          );
-        }
-      });
+      if (enableDiagnostics) {
+        emitLog('[DEBUG] Prepared packaged metadata for single-file viewer', {
+          layerCount: packagedMetadata.layers?.length ?? 0,
+          hasFallback: Boolean(packagedMetadata.fallback)
+        });
+      }
       const renderPackagedBundle = async () => {
         try {
-          console.info('[TinyBrush Viewer] Loaded packaged metadata:', packagedMetadata);
-          console.info('[TinyBrush Viewer] Canvas element reference:', canvas);
           if (!(canvas instanceof HTMLCanvasElement)) {
             throw new Error('Preview canvas element is unavailable');
           }
@@ -1690,9 +2016,15 @@ const buildSingleFileScript = (scriptContent: string, viewerRuntime: string, inf
           const scale = computeScale(packagedMetadata);
           const renderResult = await renderTinyBrushWebGL(packagedMetadata, canvas, { scale });
           summarizeMetadata(packagedMetadata, renderResult);
+          if (enableDiagnostics) {
+            emitLog('Single-file viewer render summary:', {
+              scale,
+              layers: packagedMetadata.layers?.length ?? 0
+            });
+          }
           setStatus('Packaged bundle rendered.');
         } catch (error) {
-          console.error('Failed to render packaged bundle', error);
+          emitWarn('Failed to render packaged bundle', error);
           setStatus(error instanceof Error ? error.message : 'Failed to render bundle', 'error');
         }
       };
@@ -1701,12 +2033,17 @@ const buildSingleFileScript = (scriptContent: string, viewerRuntime: string, inf
   return `${runtime}${withoutImport}${snippet}`;
 };
 
-const createZipViewerHtml = (template: string, bundleFilename: string, metadataJson: string): string => {
-  return transformModuleScript(template, (script) => appendZipAutoloadSnippet(script, bundleFilename, metadataJson));
+const createZipViewerHtml = (
+  template: string,
+  bundleFilename: string,
+  metadataJson: string,
+  diagnosticsEnabled: boolean
+): string => {
+  return transformModuleScript(template, (script) => appendZipAutoloadSnippet(script, bundleFilename, metadataJson, diagnosticsEnabled));
 };
 
 const stripViewerExports = (viewerJs: string): string => {
-  return viewerJs.replace(/export\s+const\s+renderTinyBrushWebGL/, 'const renderTinyBrushWebGL')
+  return viewerJs.replace(/export\s+const\s+/g, 'const ')
     .replace(/export\s+\{[^}]*\};?/g, '');
 };
 
@@ -1714,29 +2051,33 @@ const createSingleFileViewerHtml = (
   template: string,
   viewerJs: string,
   inflateJs: string,
-  metadataJson: string
+  metadataJson: string,
+  diagnosticsEnabled: boolean
 ): string => {
-  console.log('[webglExporter] Template length:', template.length);
-  console.log('[webglExporter] ViewerJS length:', viewerJs.length);
-  console.log('[webglExporter] Metadata JSON length:', metadataJson.length);
-
-  try {
-    const metadata = JSON.parse(metadataJson) as { layers?: Array<{ id: string; assets?: { texture?: string } }> };
-    const layers = Array.isArray(metadata.layers) ? metadata.layers : [];
-    console.log('[webglExporter] Layer count:', layers.length);
-    layers.forEach((layer) => {
-      const texture = layer?.assets?.texture;
-      if (typeof texture === 'string' && texture.length > 0) {
-        const preview = `${texture.slice(0, 50)}...`;
-        console.log(`[webglExporter] Layer ${layer.id} texture:`, preview);
-      }
+  if (diagnosticsEnabled) {
+    viewerDebugLog('[webglExporter] Building single-file viewer', {
+      templateLength: template.length,
+      viewerRuntimeLength: viewerJs.length,
+      inflateRuntimeLength: inflateJs.length,
+      metadataLength: metadataJson.length
     });
-  } catch (error) {
-    console.warn('[webglExporter] Failed to parse metadata JSON for debug logging', error);
+    try {
+      const metadata = JSON.parse(metadataJson) as { layers?: Array<{ id: string; assets?: { texture?: string } }> };
+      const layers = Array.isArray(metadata.layers) ? metadata.layers : [];
+      viewerDebugLog('[webglExporter] Metadata summary', {
+        layerCount: layers.length,
+        textures: layers
+          .filter((layer) => typeof layer?.assets?.texture === 'string')
+          .slice(0, 8)
+          .map((layer) => ({ id: layer.id, texturePreview: layer.assets!.texture!.slice(0, 48) }))
+      });
+    } catch (error) {
+      viewerDebugWarn('[webglExporter] Failed to parse metadata JSON for diagnostics', error);
+    }
   }
 
   const runtime = stripViewerExports(viewerJs);
-  return transformModuleScript(template, (script) => buildSingleFileScript(script, runtime, inflateJs, metadataJson));
+  return transformModuleScript(template, (script) => buildSingleFileScript(script, runtime, inflateJs, metadataJson, diagnosticsEnabled));
 };
 
 export const exportProjectAsWebGL = async (
@@ -1746,13 +2087,38 @@ export const exportProjectAsWebGL = async (
     throw new Error('WebGL export is only available in the browser');
   }
 
+  const diagnosticsEnabled = options.enableViewerDiagnostics ?? viewerDiagnosticsDefault;
+  const previousDiagnostics = viewerDiagnosticsActive;
+  viewerDiagnosticsActive = diagnosticsEnabled;
+
+  try {
+
+  const metricsMap = new Map<string, LayerExportMetrics>();
+  options.layers.forEach((layer) => {
+    try {
+      metricsMap.set(layer.id, computeLayerExportMetrics(layer, options.project));
+    } catch (error) {
+      console.warn('[webglExporter] Failed to compute export metrics for layer', layer.id, error);
+      const fallbackSurface = getLayerSurfaceSize(layer, options.project);
+      metricsMap.set(layer.id, {
+        surfaceSize: fallbackSurface,
+        contentBounds: {
+          x: 0,
+          y: 0,
+          width: Math.max(1, fallbackSurface.width),
+          height: Math.max(1, fallbackSurface.height)
+        }
+      });
+    }
+  });
+
   const containerLayout = cloneExportLayout(options.layout);
   const placements = collectLayout(
     options.layers,
+    metricsMap,
     containerLayout,
     options.viewport,
-    options.includeHiddenLayers,
-    options.project
+    options.includeHiddenLayers
   );
 
   const placementMap = new Map<string, ResolvedLayerLayout>();
@@ -1768,7 +2134,9 @@ export const exportProjectAsWebGL = async (
       continue;
     }
 
-    const sourceSize = getLayerSurfaceSize(layer, options.project);
+    const metrics = metricsMap.get(layer.id) ?? computeLayerExportMetrics(layer, options.project);
+    const sourceSize = metrics.surfaceSize;
+    const contentBounds = metrics.contentBounds;
     const texture = await captureLayerTexture(layer);
 
     const colorCycle = await serializeColorCycleData(layer);
@@ -1795,6 +2163,7 @@ export const exportProjectAsWebGL = async (
       frame: clampedFrame,
       transform: placement.transform,
       sourceSize,
+      contentBounds,
       assets: texture ? { texture } : undefined,
       colorCycle,
       stackIndex: Number.isFinite(layer.order) ? layer.order : metadataLayers.length,
@@ -1863,22 +2232,31 @@ export const exportProjectAsWebGL = async (
 
   deduplicateGradients(metadata);
 
-  metadata.layers.forEach((layer, index) => {
-    const brushPayload = layer.colorCycle?.brushState?.indexBuffer;
-    const brushStateIndexLength = Array.isArray(brushPayload)
-      ? brushPayload.length
-      : (typeof brushPayload === 'string' ? 'b64z' : undefined);
-    console.log(`[DEBUG] Layer ${index} in metadata:`, {
-      id: layer.id,
-      hasColorCycle: !!layer.colorCycle,
-      hasBrushState: !!layer.colorCycle?.brushState,
-      brushStateIndexLength
+  if (viewerDiagnosticsActive) {
+    metadata.layers.forEach((layer, index) => {
+      const brushPayload = layer.colorCycle?.brushState?.indexBuffer;
+      const brushStateSummary = summarizeEncodedBuffer(
+        Array.isArray(brushPayload) || typeof brushPayload === 'string' ? brushPayload : undefined,
+        Array.isArray(brushPayload) ? brushPayload.length : 0
+      );
+      viewerDebugLog('[webglExporter] Layer export summary', {
+        index,
+        id: layer.id,
+        visible: layer.visible,
+        hasColorCycle: Boolean(layer.colorCycle),
+        brushStateSummary
+      });
     });
-  });
+  }
 
   const metadataPayload = options.minify ? minifyProperties(metadata) : metadata;
   const json = JSON.stringify(metadataPayload, null, options.minify ? undefined : 2);
-  console.log('[DEBUG] JSON size after stringify:', json.length);
+  if (viewerDiagnosticsActive) {
+    viewerDebugLog('[webglExporter] JSON size after stringify', {
+      bytes: json.length,
+      minified: options.minify
+    });
+  }
   const jsonFilename = `${options.filenameBase}-webgl.json`;
 
   if (bundleFormat === 'json') {
@@ -1902,7 +2280,7 @@ export const exportProjectAsWebGL = async (
   }
 
   if (bundleFormat === 'single-html') {
-    const singleFileHtml = createSingleFileViewerHtml(indexHtml, viewerJs, inflateJs, json);
+    const singleFileHtml = createSingleFileViewerHtml(indexHtml, viewerJs, inflateJs, json, diagnosticsEnabled);
     const htmlBlob = new Blob([singleFileHtml], { type: 'text/html' });
     downloadBlob(htmlBlob, `${options.filenameBase}-webgl.html`);
     return metadata;
@@ -1911,7 +2289,7 @@ export const exportProjectAsWebGL = async (
   if (bundleFormat === 'zip') {
     const JSZip = await loadJSZip();
     const zip = new JSZip();
-    zip.file('index.html', createZipViewerHtml(indexHtml, jsonFilename, json));
+    zip.file('index.html', createZipViewerHtml(indexHtml, jsonFilename, json, diagnosticsEnabled));
     zip.file('viewer.js', viewerJs);
     zip.file('fflate-inflate.js', inflateJs);
     zip.file(jsonFilename, json);
@@ -1931,4 +2309,7 @@ export const exportProjectAsWebGL = async (
   downloadBlob(fallbackBlob, jsonFilename);
 
   return metadata;
+  } finally {
+    viewerDiagnosticsActive = previousDiagnostics;
+  }
 };

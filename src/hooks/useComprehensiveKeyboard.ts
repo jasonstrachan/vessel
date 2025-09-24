@@ -2,6 +2,32 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushShape, Tool } from '../types';
 
+// Treat these input types as text entry fields so we don't hijack shortcuts while typing.
+const TEXTUAL_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'password', 'tel', 'number', 'color']);
+
+const isTextEntryTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (
+    target instanceof HTMLTextAreaElement ||
+    target.isContentEditable ||
+    target.getAttribute('contenteditable')?.toLowerCase() === 'true'
+  ) {
+    return true;
+  }
+
+  if (target instanceof HTMLInputElement) {
+    const type = (target.type || 'text').toLowerCase();
+    return TEXTUAL_INPUT_TYPES.has(type);
+  }
+
+  return false;
+};
+
+export const __keyboardTestUtils = { isTextEntryTarget };
+
 interface KeyboardState {
   isSpacePressed: boolean;
   isShiftPressed: boolean;
@@ -116,16 +142,24 @@ export function useComprehensiveKeyboard({
       }
     } catch {}
 
-    // Ignore if typing in inputs or editable elements
+    // Ignore if typing in text-focused inputs or editable elements
     const target = event.target as HTMLElement | null;
-    if (target && (
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      target.isContentEditable
-    )) {
-      // Still allow Space to initiate panning even when focus is on inputs
-      if (event.code !== 'Space') return;
+    if (target instanceof HTMLInputElement) {
+      if (isTextEntryTarget(target)) {
+        if (event.code !== 'Space') {
+          return;
+        }
+      } else if (event.code !== 'Space' && !isBracketShortcut) {
+        return;
+      }
+    } else if (isTextEntryTarget(target)) {
+      if (event.code !== 'Space') {
+        return;
+      }
+    } else if (target instanceof HTMLSelectElement) {
+      if (event.code !== 'Space' && !isBracketShortcut) {
+        return;
+      }
     }
 
 

@@ -12,7 +12,7 @@ const STORAGE_KEYS: Record<FeatureFlagKey, string> = {
 };
 
 const defaultState: FeatureFlagState = {
-  useCanvas2DColorCycle: true,
+  useCanvas2DColorCycle: false,
   logColorCycleOperations: false,
 };
 

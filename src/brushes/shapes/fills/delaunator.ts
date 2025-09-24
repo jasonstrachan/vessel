@@ -2,7 +2,7 @@ import Delaunator from 'delaunator';
 
 import { debugLog } from '@/utils/debug';
 
-import { isPointInPolygonSDF, snapToPixel } from './common';
+import { isPointInPolygonSDF, resolveCoordinateSnap } from './common';
 import type { DelaunayFillParams } from './types';
 
 type Point = { x: number; y: number };
@@ -18,6 +18,9 @@ export const drawDelaunayFill = ({
   if (vertices.length < 3) {
     return;
   }
+
+  const pixelMode = brushSettings.shapeFillPixelMode ?? true;
+  const snap = resolveCoordinateSnap(pixelMode);
 
   const clampValue = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
   const rotationDeg = brushSettings.triangleFillRotation ?? 0;
@@ -251,23 +254,23 @@ export const drawDelaunayFill = ({
   ctx.save();
   if (isPreview) {
     ctx.beginPath();
-    ctx.moveTo(snapToPixel(vertices[0].x), snapToPixel(vertices[0].y));
+    ctx.moveTo(snap(vertices[0].x), snap(vertices[0].y));
     for (let i = 1; i < vertices.length; i++) {
-      ctx.lineTo(snapToPixel(vertices[i].x), snapToPixel(vertices[i].y));
+      ctx.lineTo(snap(vertices[i].x), snap(vertices[i].y));
     }
     ctx.closePath();
     ctx.strokeStyle = '#000000';
     ctx.lineWidth = 1;
     ctx.lineJoin = 'miter';
     ctx.lineCap = 'butt';
-    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = !pixelMode;
     ctx.stroke();
   }
 
   const drawnEdges = new Set<string>();
   const drawnVertices = new Set<string>();
-  const edgeKey = (p1: Point, p2: Point) => `${snapToPixel(p1.x)}-${snapToPixel(p1.y)}_${snapToPixel(p2.x)}-${snapToPixel(p2.y)}`;
-  const vertexKey = (p: Point) => `${snapToPixel(p.x)}-${snapToPixel(p.y)}`;
+  const edgeKey = (p1: Point, p2: Point) => `${snap(p1.x)}-${snap(p1.y)}_${snap(p2.x)}-${snap(p2.y)}`;
+  const vertexKey = (p: Point) => `${snap(p.x)}-${snap(p.y)}`;
 
   for (let i = 0; i < vertices.length; i++) {
     const current = vertices[i];
@@ -318,8 +321,8 @@ export const drawDelaunayFill = ({
       drawnEdges.add(key);
 
       ctx.beginPath();
-      ctx.moveTo(snapToPixel(p1World.x), snapToPixel(p1World.y));
-      ctx.lineTo(snapToPixel(p2World.x), snapToPixel(p2World.y));
+      ctx.moveTo(snap(p1World.x), snap(p1World.y));
+      ctx.lineTo(snap(p2World.x), snap(p2World.y));
       ctx.strokeStyle = '#000000';
       ctx.stroke();
 

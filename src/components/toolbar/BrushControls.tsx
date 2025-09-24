@@ -1148,15 +1148,27 @@ const BrushControls = () => {
         </div>
 
         <div className="mb-3">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-24" style={{ fontSize: '14px' }}>
-              Sample
-            </label>
-            <CustomSwitch
-              id="shape-fill-sample-toggle"
-              checked={activeSettings.shapeFillUseSampledColor ?? false}
-              onChange={(checked) => setActiveSettings({ shapeFillUseSampledColor: checked })}
-            />
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                Sample
+              </label>
+              <CustomSwitch
+                id="shape-fill-sample-toggle"
+                checked={activeSettings.shapeFillUseSampledColor ?? false}
+                onChange={(checked) => setActiveSettings({ shapeFillUseSampledColor: checked })}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                Pixel
+              </label>
+              <CustomSwitch
+                id="shape-fill-pixel-toggle"
+                checked={activeSettings.shapeFillPixelMode ?? true}
+                onChange={(checked) => setActiveSettings({ shapeFillPixelMode: checked })}
+              />
+            </div>
           </div>
         </div>
 

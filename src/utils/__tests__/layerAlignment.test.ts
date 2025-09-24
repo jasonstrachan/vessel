@@ -59,12 +59,12 @@ describe('resolveContainerLayout', () => {
     ...overrides
   });
 
-  const alignment: LayerAlignmentSettings = {
-    fit: 'none',
-    horizontal: 'start',
-    vertical: 'start',
-    offsetPx: { x: 0, y: 0 }
-  };
+    const alignment: LayerAlignmentSettings = {
+      fit: 'none',
+      horizontal: 'left',
+      vertical: 'top',
+      offsetPx: { x: 0, y: 0 }
+    };
 
   test('lays out layers horizontally with gaps', () => {
     const layout = createLayout();

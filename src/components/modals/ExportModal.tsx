@@ -189,6 +189,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const webglEmbedFallback = webglExportSettings.embedCanvasFallback;
   const webglMinify = webglExportSettings.minifyOutput;
   const webglBundleFormat = webglExportSettings.bundleFormat;
+  const webglEnableDiagnostics = webglExportSettings.enableViewerDiagnostics;
   const [webglViewportPreset, setWebglViewportPreset] = useState<WebglViewportPreset>('project');
   const [webglCustomViewport, setWebglCustomViewport] = useState<{ width: number; height: number }>(() => ({
     width: project?.width ?? 1024,
@@ -469,8 +470,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     }
     if (layout.sizeMode === 'fixed') {
       parts.push(`Fixed ${layout.width ?? 0}×${layout.height ?? 0}`);
-    } else {
+    } else if (layout.sizeMode === 'hug') {
       parts.push('Hug content');
+    } else {
+      parts.push('Fill viewport');
     }
     return parts.join(' • ');
   }, [project?.exportLayout]);
@@ -1153,6 +1156,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       minify: webglMinify,
       filenameBase,
       bundleFormat: webglBundleFormat,
+      enableViewerDiagnostics: webglEnableDiagnostics,
       compositeLayersToCanvas
     });
 
@@ -1750,7 +1754,21 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                       disabled={isExporting}
                     />
                   </label>
+                  <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
+                    <span>Embed diagnostics helpers</span>
+                    <input
+                      type="checkbox"
+                      className="accent-[#D9D9D9]"
+                      checked={webglEnableDiagnostics}
+                      onChange={(event) => updateWebglExportSettings({ enableViewerDiagnostics: event.target.checked })}
+                      disabled={isExporting}
+                    />
+                  </label>
                 </div>
+                <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
+                  Diagnostics helpers log viewer state to the console and expose `tinybrushViewerSetDiagnostics(true)` at runtime.
+                  Disable for production hand-offs.
+                </p>
                 <div className="flex flex-col gap-2">
                   <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Packaging</label>
                   <select
