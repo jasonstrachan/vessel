@@ -5,7 +5,9 @@ import React, { ErrorInfo } from 'react';
 type Props = { children: React.ReactNode };
 type State = { hasError: boolean; message?: string };
 
-export default class GlobalErrorBoundary extends React.Component<Props, State> {
+const isProduction = process.env.NODE_ENV === 'production';
+
+class ProductionErrorBoundary extends React.Component<Props, State> {
   state: State = { hasError: false };
 
   static getDerivedStateFromError(error: unknown): State {
@@ -39,4 +41,15 @@ export default class GlobalErrorBoundary extends React.Component<Props, State> {
     }
     return this.props.children;
   }
+}
+
+function DevelopmentPassThrough({ children }: Props) {
+  return <>{children}</>;
+}
+
+export default function GlobalErrorBoundary(props: Props) {
+  if (isProduction) {
+    return <ProductionErrorBoundary {...props} />;
+  }
+  return <DevelopmentPassThrough {...props} />;
 }

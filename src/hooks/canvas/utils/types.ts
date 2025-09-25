@@ -15,6 +15,7 @@ export interface FloatingPaste {
   originalPosition: { x: number; y: number };
   width: number;
   height: number;
+  sourceLayerId?: string | null;
 }
 
 export interface CanvasState {
@@ -73,7 +74,7 @@ export interface EventHandlerDependencies {
   // Floating paste actions
   setFloatingPaste: (paste: FloatingPaste | null) => void;
   updateFloatingPastePosition: (x: number, y: number) => void;
-  commitFloatingPaste: () => void;
+  commitFloatingPaste: () => Promise<void>;
   cancelFloatingPaste: () => void;
   
   // Drawing state

@@ -238,12 +238,15 @@ export interface AppState {
     originalPosition: { x: number; y: number };
     width: number;
     height: number;
+    sourceLayerId?: string | null;
   } | null;
   setFloatingPaste: (paste: {
     imageData: ImageData;
     position: { x: number; y: number };
     width: number;
     height: number;
+    originalPosition?: { x: number; y: number };
+    sourceLayerId?: string | null;
   } | null) => void;
   updateFloatingPastePosition: (position: { x: number; y: number }) => void;
   commitFloatingPaste: () => Promise<void>;
@@ -916,9 +919,10 @@ export const useAppStore = create<AppState>()(
           active: true,
           imageData: paste.imageData,
           position: paste.position,
-          originalPosition: paste.position,
+          originalPosition: paste.originalPosition ?? paste.position,
           width: paste.width,
-          height: paste.height
+          height: paste.height,
+          sourceLayerId: paste.sourceLayerId ?? null
         } : null 
       }),
       updateFloatingPastePosition: (position) => set((state) => ({
@@ -976,7 +980,64 @@ export const useAppStore = create<AppState>()(
         // Clear floating paste
         set({ floatingPaste: null });
       },
-      cancelFloatingPaste: () => set({ floatingPaste: null }),
+      cancelFloatingPaste: () => {
+        const state = get();
+        const floatingPaste = state.floatingPaste;
+
+        if (floatingPaste && floatingPaste.imageData && floatingPaste.sourceLayerId) {
+          const targetLayer = state.layers.find(l => l.id === floatingPaste.sourceLayerId);
+          let layerImageData = targetLayer?.imageData || null;
+
+          if (!layerImageData && targetLayer?.framebuffer) {
+            try {
+              const tempCanvas = document.createElement('canvas');
+              tempCanvas.width = targetLayer.framebuffer.width;
+              tempCanvas.height = targetLayer.framebuffer.height;
+              const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+              if (tempCtx) {
+                tempCtx.drawImage(targetLayer.framebuffer, 0, 0);
+                layerImageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+              }
+            } catch {
+              layerImageData = null;
+            }
+          }
+
+          if (layerImageData) {
+            const restoredLayerData = new Uint8ClampedArray(layerImageData.data);
+            const pasteData = floatingPaste.imageData.data;
+            const pasteWidth = floatingPaste.imageData.width;
+            const pasteHeight = floatingPaste.imageData.height;
+            const baseX = Math.max(0, Math.min(layerImageData.width, Math.round(floatingPaste.originalPosition.x)));
+            const baseY = Math.max(0, Math.min(layerImageData.height, Math.round(floatingPaste.originalPosition.y)));
+
+            for (let y = 0; y < pasteHeight; y++) {
+              const targetY = baseY + y;
+              if (targetY < 0 || targetY >= layerImageData.height) continue;
+
+              for (let x = 0; x < pasteWidth; x++) {
+                const targetX = baseX + x;
+                if (targetX < 0 || targetX >= layerImageData.width) continue;
+
+                const destIndex = (targetY * layerImageData.width + targetX) * 4;
+                const srcIndex = (y * pasteWidth + x) * 4;
+
+                restoredLayerData[destIndex] = pasteData[srcIndex];
+                restoredLayerData[destIndex + 1] = pasteData[srcIndex + 1];
+                restoredLayerData[destIndex + 2] = pasteData[srcIndex + 2];
+                restoredLayerData[destIndex + 3] = pasteData[srcIndex + 3];
+              }
+            }
+
+            const restoredImage = new ImageData(restoredLayerData, layerImageData.width, layerImageData.height);
+            state.updateLayer(floatingPaste.sourceLayerId, { imageData: restoredImage });
+            set({ floatingPaste: null, layersNeedRecomposition: true });
+            return;
+          }
+        }
+
+        set({ floatingPaste: null });
+      },
       
       // Tool State
       tools: (() => {
@@ -2172,19 +2233,38 @@ export const useAppStore = create<AppState>()(
         const nextPercent = nextAlignment.offsetPercent ?? { x: 0, y: 0 };
         const offsetPercentChanged = previousPercent.x !== nextPercent.x || previousPercent.y !== nextPercent.y;
 
-        if (fitChangedToPercent && !offsetPercentChanged && state.project) {
-          try {
-            const percentOffset = computeLayerPercentOffset(targetLayer, state.project);
+        if (state.project) {
+          if (fitChangedToPercent && !offsetPercentChanged) {
+            try {
+              const percentOffset = computeLayerPercentOffset(targetLayer, state.project);
+              nextAlignment = {
+                ...nextAlignment,
+                offsetPercent: percentOffset
+              };
+            } catch (error) {
+              console.warn('[useAppStore] Failed to compute percent offset during alignment update', error);
+            }
+          }
+
+          if (nextAlignment.fit === 'percent') {
+            const percent = nextAlignment.offsetPercent ?? { x: 0, y: 0 };
+            const width = Math.max(1, state.project.width);
+            const height = Math.max(1, state.project.height);
             nextAlignment = {
               ...nextAlignment,
-              offsetPercent: percentOffset
+              offsetPercent: percent,
+              offsetPx: {
+                x: Math.round((percent.x / 100) * width),
+                y: Math.round((percent.y / 100) * height)
+              }
             };
-          } catch (error) {
-            console.warn('[useAppStore] Failed to compute percent offset during alignment update', error);
+          } else {
+            nextAlignment = {
+              ...nextAlignment,
+              offsetPercent: undefined
+            };
           }
-        }
-
-        if (nextAlignment.fit !== 'percent') {
+        } else if (nextAlignment.fit !== 'percent') {
           nextAlignment = {
             ...nextAlignment,
             offsetPercent: undefined

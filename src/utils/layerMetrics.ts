@@ -177,6 +177,33 @@ export const computeLayerPercentOffset = (
   layer: Layer,
   project: Project
 ): LayerAlignmentPercentOffset => {
+  const projectWidth = Math.max(1, project.width);
+  const projectHeight = Math.max(1, project.height);
+
+  const explicitPercent = layer.alignment?.offsetPercent;
+  if (explicitPercent) {
+    return {
+      x: clampPercent(explicitPercent.x),
+      y: clampPercent(explicitPercent.y)
+    };
+  }
+
+  const offsetPx = layer.alignment?.offsetPx;
+  if (offsetPx) {
+    return {
+      x: clampPercent((offsetPx.x / projectWidth) * 100),
+      y: clampPercent((offsetPx.y / projectHeight) * 100)
+    };
+  }
+
+  const frame = (layer as { frame?: { x?: number; y?: number } }).frame;
+  if (frame) {
+    return {
+      x: clampPercent((Number(frame.x ?? 0) / projectWidth) * 100),
+      y: clampPercent((Number(frame.y ?? 0) / projectHeight) * 100)
+    };
+  }
+
   const metrics = computeLayerContentMetrics(layer, project);
   return computePercentOffsetFromMetrics(metrics);
 };

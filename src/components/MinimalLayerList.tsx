@@ -4,7 +4,8 @@ import React, { useState, useCallback, memo, useEffect, useRef, useMemo } from '
 import { useAppStore } from '../stores/useAppStore';
 import { Layer, BrushShape, type LayerAlignmentSettings, type ExportContainerLayout } from '../types';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
-import { Eye, EyeOff, Plus, ChevronRight, ChevronDown } from 'lucide-react';
+import { computeLayerPercentOffset } from '@/utils/layerMetrics';
+import { Eye, EyeOff, Plus, ChevronRight, ChevronDown, X } from 'lucide-react';
 import ProgressSlider from './ui/ProgressSlider';
 import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
 import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
@@ -101,27 +102,13 @@ const verticalAxisOptions: Array<{ value: LayerAlignmentSettings['vertical']; la
   { value: 'bottom', label: 'Bottom' }
 ];
 
-const flowOptions: Array<{ value: ExportContainerLayout['flow']; label: string; short: string }> = [
-  { value: 'row', label: 'Row', short: '→' },
-  { value: 'row-reverse', label: 'Row Reverse', short: '←' },
-  { value: 'column', label: 'Column', short: '↓' },
-  { value: 'column-reverse', label: 'Column Reverse', short: '↑' }
-];
+const segmentedButtonBase = [
+  'flex-1 rounded-none border border-[#3D3D46] transition-colors',
+  'h-8 text-sm'
+].join(' ');
 
-const justifyOptions: Array<{ value: ExportContainerLayout['justify']; label: string }> = [
-  { value: 'start', label: 'Start' },
-  { value: 'center', label: 'Center' },
-  { value: 'end', label: 'End' },
-  { value: 'space-between', label: 'Space Between' },
-  { value: 'space-around', label: 'Space Around' }
-];
-
-const alignOptions: Array<{ value: ExportContainerLayout['align']; label: string }> = [
-  { value: 'start', label: 'Start' },
-  { value: 'center', label: 'Center' },
-  { value: 'end', label: 'End' },
-  { value: 'stretch', label: 'Stretch' }
-];
+const segmentedActiveClass = 'bg-[#E6E6F2] text-[#1C1C24] border-[#E6E6F2]';
+const segmentedInactiveClass = 'bg-[#2F2F36] text-[#D9D9E8] hover:bg-[#3A3A42]';
 
 type ControlDensity = 'compact' | 'comfortable';
 
@@ -137,45 +124,42 @@ interface LayerAlignmentControlsProps extends DensityProps {
 
 export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ density = 'compact', className = '', defaultExpanded = false }) => {
   const activeLayerId = useAppStore(state => state.activeLayerId);
-  const alignment = useAppStore(state => {
-    if (!state.activeLayerId) {
-      return null;
-    }
-    const layer = state.layers.find(l => l.id === state.activeLayerId);
-    return layer?.alignment ?? null;
-  });
+  const activeLayer = useAppStore(state => state.layers.find(l => l.id === activeLayerId) ?? null);
+  const alignment = activeLayer?.alignment ?? null;
+  const project = useAppStore(state => state.project);
   const updateLayerAlignment = useAppStore(state => state.updateLayerAlignment);
 
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   const disabled = !alignment || !activeLayerId;
   const offset = alignment?.offsetPx ?? { x: 0, y: 0 };
-  const offsetPercent = alignment?.offsetPercent ?? { x: 0, y: 0 };
 
-  const [percentDraft, setPercentDraft] = useState<{ x: string; y: string }>({
-    x: offsetPercent.x.toString(),
-    y: offsetPercent.y.toString()
-  });
+  const derivedPercent = useMemo(() => {
+    if (!alignment || alignment.fit !== 'percent') {
+      return { x: 0, y: 0 };
+    }
+    if (activeLayer && project) {
+      try {
+        return computeLayerPercentOffset(activeLayer, project);
+      } catch (error) {
+        console.warn('[LayerAlignmentControls] Failed to compute percent offset', error);
+      }
+    }
+    return alignment.offsetPercent ?? { x: 0, y: 0 };
+  }, [alignment, activeLayer, project]);
+
+  const [percentDraft, setPercentDraft] = useState<{ x: string; y: string }>({ x: '0', y: '0' });
 
   useEffect(() => {
-    setPercentDraft({
-      x: offsetPercent.x.toString(),
-      y: offsetPercent.y.toString()
-    });
-  }, [offsetPercent.x, offsetPercent.y]);
-
-  useEffect(() => {
-    if (!alignment) {
+    if (!alignment || alignment.fit !== 'percent') {
       return;
     }
-    if (alignment.fit === 'percent') {
-      const percent = alignment.offsetPercent ?? { x: 0, y: 0 };
-      setPercentDraft({
-        x: percent.x.toString(),
-        y: percent.y.toString()
-      });
-    }
-  }, [alignment, alignment?.fit, alignment?.offsetPercent]);
+    setPercentDraft({
+      x: derivedPercent.x.toString(),
+      y: derivedPercent.y.toString()
+    });
+  }, [alignment, derivedPercent.x, derivedPercent.y]);
+
   const isComfortable = density === 'comfortable';
 
   const paddingClasses = isComfortable ? 'px-1 py-3' : 'px-1 py-2';
@@ -192,8 +176,11 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
     }
     const fitLabel = fitOptions.find(option => option.value === alignment.fit)?.label ?? alignment.fit;
     if (alignment.fit === 'percent') {
-      const percent = alignment.offsetPercent ?? { x: 0, y: 0 };
+      const percent = derivedPercent;
       return `${fitLabel} • Left ${percent.x}% / Top ${percent.y}%`;
+    }
+    if (alignment.fit === 'none') {
+      return `${fitLabel} • Manual placement`;
     }
     return `${fitLabel} • ${toTitleCase(alignment.horizontal)} / ${toTitleCase(alignment.vertical)}`;
   })();
@@ -208,14 +195,6 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
     'h-7 px-2 text-sm'
   ].join(' ');
 
-  const segmentedButtonBase = [
-    'flex-1 rounded-none border border-[#3D3D46] transition-colors',
-    'h-8 text-sm'
-  ].join(' ');
-
-  const segmentedActiveClass = 'bg-[#E6E6F2] text-[#1C1C24] border-[#E6E6F2]';
-  const segmentedInactiveClass = 'bg-[#2F2F36] text-[#D9D9E8] hover:bg-[#3A3A42]';
-
   const contentSpacingClass = isComfortable ? 'mt-3 space-y-2' : 'mt-2 space-y-2';
 
   const handleToggleExpanded = useCallback(() => {
@@ -228,11 +207,29 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
         return;
       }
       const baseOffset = alignment.offsetPx ?? { x: 0, y: 0 };
-      updateLayerAlignment(activeLayerId, {
+      const basePercent = alignment.offsetPercent ?? { x: 0, y: 0 };
+      const nextAlignment: LayerAlignmentSettings = {
         ...alignment,
         ...partial,
-        offsetPx: partial.offsetPx ? { ...partial.offsetPx } : baseOffset
-      });
+        offsetPx: partial.offsetPx ? { ...partial.offsetPx } : baseOffset,
+        offsetPercent: alignment.fit === 'percent' ? { ...basePercent } : undefined
+      };
+
+      if (partial.fit === 'percent') {
+        nextAlignment.offsetPercent = { ...(partial.offsetPercent ?? basePercent) };
+        nextAlignment.horizontal = 'left';
+        nextAlignment.vertical = 'top';
+      } else if (partial.fit) {
+        nextAlignment.offsetPercent = undefined;
+      }
+
+      if (partial.offsetPercent) {
+        nextAlignment.offsetPercent = { ...partial.offsetPercent };
+      } else if (nextAlignment.fit === 'percent' && !nextAlignment.offsetPercent) {
+        nextAlignment.offsetPercent = { ...basePercent };
+      }
+
+      updateLayerAlignment(activeLayerId, nextAlignment);
     },
     [alignment, activeLayerId, updateLayerAlignment]
   );
@@ -258,7 +255,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
     }
     const parsed = Number.parseFloat(value);
     if (!Number.isFinite(parsed)) {
-      const basePercent = alignment.offsetPercent ?? { x: 0, y: 0 };
+      const basePercent = alignment.offsetPercent ?? derivedPercent;
       updateLayerAlignment(activeLayerId, {
         ...alignment,
         offsetPercent: { ...basePercent, [axis]: 0 }
@@ -267,13 +264,13 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
       return;
     }
     const clamped = Math.max(-100, Math.min(100, parsed));
-    const basePercent = alignment.offsetPercent ?? { x: 0, y: 0 };
+    const basePercent = alignment.offsetPercent ?? derivedPercent;
     updateLayerAlignment(activeLayerId, {
       ...alignment,
       offsetPercent: { ...basePercent, [axis]: clamped }
     });
     setPercentDraft((prev) => ({ ...prev, [axis]: clamped.toString() }));
-  }, [alignment, activeLayerId, updateLayerAlignment]);
+  }, [alignment, activeLayerId, derivedPercent, updateLayerAlignment]);
 
   const handlePercentInputChange = useCallback((axis: 'x' | 'y', raw: string) => {
     setPercentDraft((prev) => ({ ...prev, [axis]: raw }));
@@ -326,7 +323,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
             </div>
           </div>
 
-          {alignment?.fit !== 'percent' && (
+          {alignment?.fit && !['percent', 'none'].includes(alignment.fit) && (
             <>
               <div>
                 <span className={`${labelClass} block mb-2`}>Horizontal</span>
@@ -403,7 +400,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
             </div>
           )}
 
-          {alignment?.fit !== 'percent' && (
+          {alignment?.fit && !['percent', 'none'].includes(alignment.fit) && (
             <div className={`grid grid-cols-2 ${controlGapClass}`}>
               <label className={`${labelClass} flex flex-col gap-1`}>
                 Offset X
@@ -462,19 +459,6 @@ export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ den
     [layout, setExportLayout]
   );
 
-  const handlePaddingChange = useCallback(
-    (side: keyof ExportContainerLayout['padding'], raw: number) => {
-      const value = Number.isFinite(raw) ? raw : 0;
-      handleLayoutChange({
-        padding: {
-          ...layout.padding,
-          [side]: value
-        }
-      });
-    },
-    [handleLayoutChange, layout.padding]
-  );
-
   const handleDimensionChange = useCallback(
     (dimension: 'width' | 'height', raw: string) => {
       if (layout.sizeMode !== 'fixed') {
@@ -500,7 +484,6 @@ export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ den
   const helperClass = 'text-sm text-[#8F8FA3]';
 
   const labelClass = 'text-sm font-medium text-[#D3D3DC]';
-  const subLabelClass = 'text-sm text-[#A5A5BA]';
   const controlGapClass = 'gap-1';
   const contentSpacingClass = density === 'comfortable' ? 'mt-3 space-y-2' : 'mt-2 space-y-2';
 
@@ -511,21 +494,14 @@ export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ den
     'h-7 px-2 text-sm'
   ].join(' ');
 
-  const segmentedButtonBase = [
-    'rounded-none border border-[#3D3D46] transition-colors',
+  const sizeButtonBase = [
+    'flex-1 rounded-none border border-[#3D3D46] transition-colors',
     'h-8 text-sm'
   ].join(' ');
-
-  const flowButtonExtraClass = 'h-10 px-3';
-
-  const segmentedActiveClass = 'bg-[#E6E6F2] text-[#1C1C24] border-[#E6E6F2]';
-  const segmentedInactiveClass = 'bg-[#2F2F36] text-[#D9D9E8] hover:bg-[#3A3A42]';
+  const sizeButtonActive = 'bg-[#E6E6F2] text-[#1C1C24] border-[#E6E6F2]';
+  const sizeButtonInactive = 'bg-[#2F2F36] text-[#D9D9E8] hover:bg-[#3A3A42]';
 
   const summaryParts: string[] = [];
-  const flowSummary = flowOptions.find(option => option.value === layout.flow)?.label ?? layout.flow;
-  summaryParts.push(flowSummary);
-  summaryParts.push(layout.wrap ? 'Wrap on' : 'Wrap off');
-  summaryParts.push(`Gap ${layout.gap}px`);
   if (layout.sizeMode === 'fixed') {
     const widthText = Number.isFinite(layout.width) ? `${layout.width}px` : 'auto';
     const heightText = Number.isFinite(layout.height) ? `${layout.height}px` : 'auto';
@@ -564,98 +540,6 @@ export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ den
       {isExpanded && (
         <div className={contentSpacingClass}>
           <div>
-            <span className={`${labelClass} block mb-2`}>Flow</span>
-            <div className={`grid grid-cols-4 ${controlGapClass}`}>
-              {flowOptions.map(option => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => handleLayoutChange({ flow: option.value })}
-                  className={`${segmentedButtonBase} ${flowButtonExtraClass} flex items-center justify-center ${layout.flow === option.value ? segmentedActiveClass : segmentedInactiveClass}`}
-                >
-                  <span className={subLabelClass}>{option.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className={`grid grid-cols-2 ${controlGapClass}`}>
-            <label className={`${labelClass} flex flex-col gap-1`}>
-              Justify
-              <div className="relative">
-                <select
-                  className={`${fieldClass} appearance-none pr-8`}
-                  value={layout.justify}
-                  onChange={(event) => handleLayoutChange({ justify: event.target.value as ExportContainerLayout['justify'] })}
-                >
-                  {justifyOptions.map(option => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8F8FA3]" aria-hidden />
-              </div>
-            </label>
-            <label className={`${labelClass} flex flex-col gap-1`}>
-              Align
-              <div className="relative">
-                <select
-                  className={`${fieldClass} appearance-none pr-8`}
-                  value={layout.align}
-                  onChange={(event) => handleLayoutChange({ align: event.target.value as ExportContainerLayout['align'] })}
-                >
-                  {alignOptions.map(option => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8F8FA3]" aria-hidden />
-              </div>
-            </label>
-          </div>
-
-          <div className={`grid grid-cols-[auto,1fr] items-center ${controlGapClass}`}>
-            <span className={labelClass}>Wrap</span>
-            <button
-              type="button"
-              onClick={() => handleLayoutChange({ wrap: !layout.wrap })}
-              className={`${segmentedButtonBase} ${layout.wrap ? segmentedActiveClass : segmentedInactiveClass}`}
-            >
-              {layout.wrap ? 'Enabled' : 'Disabled'}
-            </button>
-          </div>
-
-          <div className={`grid grid-cols-[auto,1fr] items-center ${controlGapClass}`}>
-            <span className={labelClass}>Gap</span>
-            <input
-              type="number"
-              min={0}
-              className={`${fieldClass} text-center`}
-              value={layout.gap}
-              onChange={(event) => handleLayoutChange({ gap: Math.max(0, Number(event.target.value) || 0) })}
-            />
-          </div>
-
-          <div>
-            <span className={`${labelClass} block mb-2`}>Padding</span>
-            <div className={`grid grid-cols-2 ${controlGapClass}`}>
-              {(['top', 'right', 'bottom', 'left'] as const).map(side => (
-                <label key={side} className={`${labelClass} flex flex-col gap-1`}>
-                  {side[0].toUpperCase() + side.slice(1)}
-                  <input
-                    type="number"
-                    className={`${fieldClass} text-center`}
-                    value={layout.padding[side]}
-                    onChange={(event) => handlePaddingChange(side, Number(event.target.value))}
-                  />
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div>
             <span className={`${labelClass} block mb-2`}>Size mode</span>
             <div className={`grid grid-cols-3 ${controlGapClass}`}>
               {(
@@ -669,7 +553,7 @@ export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ den
                   key={option.value}
                   type="button"
                   onClick={() => handleLayoutChange({ sizeMode: option.value, width: option.value === 'fixed' ? layout.width : undefined, height: option.value === 'fixed' ? layout.height : undefined })}
-                  className={`${segmentedButtonBase} ${layout.sizeMode === option.value ? segmentedActiveClass : segmentedInactiveClass}`}
+                  className={`${sizeButtonBase} ${layout.sizeMode === option.value ? sizeButtonActive : sizeButtonInactive}`}
                 >
                   {option.label}
                 </button>
@@ -857,12 +741,14 @@ const MinimalLayerList = () => {
   const updateLayer = useAppStore(state => state.updateLayer);
   const setActiveLayer = useAppStore(state => state.setActiveLayer);
   const reorderLayers = useAppStore(state => state.reorderLayers);
+  const removeLayer = useAppStore(state => state.removeLayer);
 
   const activeLayer = useMemo(() => layers.find(l => l.id === activeLayerId), [layers, activeLayerId]);
   const isCCBrushLayer = activeLayer?.layerType === 'color-cycle' && activeLayer?.colorCycleData?.mode !== 'recolor';
   const colorCycleSpeedValue = isCCBrushLayer && typeof activeLayer?.colorCycleData?.brushSpeed === 'number'
     ? activeLayer.colorCycleData.brushSpeed
     : globalColorCycleSpeed;
+  const canDeleteLayer = layers.length > 1;
   
   // Remove local overrides; animation state comes from store + unified event
   
@@ -1094,6 +980,10 @@ const MinimalLayerList = () => {
   const handleLayerClick = (layerId: string) => {
     setActiveLayer(layerId);
   };
+
+  const handleRemoveLayer = (layerId: string) => {
+    removeLayer(layerId);
+  };
   
   
   return (
@@ -1205,6 +1095,32 @@ const MinimalLayerList = () => {
                       <span className={LAYER_TAG_CLASS}>Layer</span>
                     </div>
                   )}
+
+                  <button
+                    type="button"
+                    className={`
+                      ml-2 flex items-center justify-center rounded p-1 text-[#8F8FA3]
+                      transition-opacity duration-150
+                      opacity-0 group-hover:opacity-100 group-focus-within:opacity-100
+                      hover:text-white focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-[#8F8FA3]
+                      ${canDeleteLayer ? '' : 'cursor-not-allowed opacity-0'}
+                    `}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!canDeleteLayer) {
+                        return;
+                      }
+                      handleRemoveLayer(layer.id);
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onDragStart={(e) => e.preventDefault()}
+                    draggable={false}
+                    disabled={!canDeleteLayer}
+                    aria-label={`Remove ${layer.name}`}
+                  >
+                    <X size={12} />
+                  </button>
                 </div>
               </div>
             );
@@ -1221,6 +1137,7 @@ const MinimalLayerList = () => {
       
       <div className="border-t border-[#424242]">
         <LayerAlignmentControls />
+        <div className="mx-1 border-t border-[#424242]" aria-hidden />
         <ContainerLayoutControls />
 
         {/* Color Cycle speed slider duplicated from brush controls for quick access */}

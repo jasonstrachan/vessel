@@ -55,6 +55,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     setShowBrushCursor,
     setMousePosition,
     updateFloatingPastePosition,
+    setFloatingPaste,
+    commitFloatingPaste,
+    cancelFloatingPaste,
     interaction,
     stateMachine,
     pan,
@@ -164,6 +167,100 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     };
 
     debugLog('[ContourFill]', message, contextData);
+  };
+
+  const extractSelectionAsFloatingPaste = (): { imageData: ImageData; position: Point; width: number; height: number; layerId: string } | null => {
+    if (!selectionStart || !selectionEnd || !project || !activeLayerId) {
+      return null;
+    }
+
+    const activeLayer = layers.find((layer) => layer.id === activeLayerId);
+    if (!activeLayer) {
+      return null;
+    }
+
+    let layerImageData = activeLayer.imageData || null;
+    if (!layerImageData && activeLayer.framebuffer) {
+      try {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = activeLayer.framebuffer.width;
+        tempCanvas.height = activeLayer.framebuffer.height;
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+        if (tempCtx) {
+          tempCtx.drawImage(activeLayer.framebuffer, 0, 0);
+          layerImageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+        }
+      } catch {
+        layerImageData = null;
+      }
+    }
+
+    if (!layerImageData) {
+      return null;
+    }
+
+    const rawMinX = Math.min(selectionStart.x, selectionEnd.x);
+    const rawMinY = Math.min(selectionStart.y, selectionEnd.y);
+    const rawMaxX = Math.max(selectionStart.x, selectionEnd.x);
+    const rawMaxY = Math.max(selectionStart.y, selectionEnd.y);
+
+    const clampedMinX = Math.max(0, Math.min(project.width, Math.floor(rawMinX)));
+    const clampedMinY = Math.max(0, Math.min(project.height, Math.floor(rawMinY)));
+    const clampedMaxX = Math.max(0, Math.min(project.width, Math.ceil(rawMaxX)));
+    const clampedMaxY = Math.max(0, Math.min(project.height, Math.ceil(rawMaxY)));
+
+    const width = clampedMaxX - clampedMinX;
+    const height = clampedMaxY - clampedMinY;
+
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
+
+    const safeWidth = Math.min(width, layerImageData.width - clampedMinX);
+    const safeHeight = Math.min(height, layerImageData.height - clampedMinY);
+
+    if (safeWidth <= 0 || safeHeight <= 0) {
+      return null;
+    }
+
+    const selectionBuffer = new Uint8ClampedArray(safeWidth * safeHeight * 4);
+    const updatedLayerBuffer = new Uint8ClampedArray(layerImageData.data);
+
+    for (let y = 0; y < safeHeight; y++) {
+      const sourceY = clampedMinY + y;
+      if (sourceY < 0 || sourceY >= layerImageData.height) continue;
+
+      for (let x = 0; x < safeWidth; x++) {
+        const sourceX = clampedMinX + x;
+        if (sourceX < 0 || sourceX >= layerImageData.width) continue;
+
+        const sourceIndex = (sourceY * layerImageData.width + sourceX) * 4;
+        const destIndex = (y * safeWidth + x) * 4;
+
+        selectionBuffer[destIndex] = layerImageData.data[sourceIndex];
+        selectionBuffer[destIndex + 1] = layerImageData.data[sourceIndex + 1];
+        selectionBuffer[destIndex + 2] = layerImageData.data[sourceIndex + 2];
+        selectionBuffer[destIndex + 3] = layerImageData.data[sourceIndex + 3];
+
+        updatedLayerBuffer[sourceIndex] = 0;
+        updatedLayerBuffer[sourceIndex + 1] = 0;
+        updatedLayerBuffer[sourceIndex + 2] = 0;
+        updatedLayerBuffer[sourceIndex + 3] = 0;
+      }
+    }
+
+    const selectionImageData = new ImageData(selectionBuffer, safeWidth, safeHeight);
+    const updatedLayerImageData = new ImageData(updatedLayerBuffer, layerImageData.width, layerImageData.height);
+
+    updateLayer(activeLayerId, { imageData: updatedLayerImageData });
+
+    return {
+      imageData: selectionImageData,
+      position: { x: clampedMinX, y: clampedMinY },
+      width: safeWidth,
+      height: safeHeight,
+      layerId: activeLayerId
+    };
   };
 
   const clearOverlayCanvas = () => {
@@ -812,6 +909,94 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         floatingPasteOriginalPos.current = { ...floatingPaste.position };
         setCursorStyle('move');
         return; // Do not start drawing/selection when dragging paste
+      }
+
+      const clickInsidePaste =
+        worldPos.x >= pasteX && worldPos.x <= pasteX + pasteWidth &&
+        worldPos.y >= pasteY && worldPos.y <= pasteY + pasteHeight;
+
+      if (!clickInsidePaste) {
+        commitFloatingPaste().then(() => {
+          compositeCanvasDirtyRef.current = true;
+          requestAnimationFrame(() => {
+            if (compositeCanvasRef.current && project) {
+              compositeLayersToCanvas(compositeCanvasRef.current);
+              setCurrentOffscreenCanvas(compositeCanvasRef.current);
+              compositeCanvasDirtyRef.current = false;
+              const canvasEl = canvasRef.current;
+              const ctx = canvasEl?.getContext('2d', { willReadFrequently: true });
+              if (ctx) {
+                deps.draw(ctx, deps.viewTransformRef.current);
+              }
+            }
+          });
+        }).catch(() => {
+          cancelFloatingPaste();
+        });
+        isMouseDownRef.current = false;
+        if ((event.target as HTMLCanvasElement).hasPointerCapture?.(event.pointerId)) {
+          (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+        }
+        setCursorStyle(deps.defaultCursorStyle || 'none');
+        updateBrushCursorVisibility();
+        return;
+      }
+    }
+
+    if (
+      event.button === 0 &&
+      !floatingPaste &&
+      tools.currentTool === 'selection' &&
+      selectionStart &&
+      selectionEnd
+    ) {
+      const minX = Math.min(selectionStart.x, selectionEnd.x);
+      const maxX = Math.max(selectionStart.x, selectionEnd.x);
+      const minY = Math.min(selectionStart.y, selectionEnd.y);
+      const maxY = Math.max(selectionStart.y, selectionEnd.y);
+
+      const isInsideSelection =
+        worldPos.x >= minX && worldPos.x <= maxX &&
+        worldPos.y >= minY && worldPos.y <= maxY;
+
+      if (isInsideSelection) {
+        const floatingData = extractSelectionAsFloatingPaste();
+
+        if (floatingData) {
+          setFloatingPaste({
+            active: true,
+            imageData: floatingData.imageData,
+            position: floatingData.position,
+            width: floatingData.width,
+            height: floatingData.height,
+            originalPosition: floatingData.position,
+            sourceLayerId: floatingData.layerId
+          });
+
+          clearSelection();
+          setIsDraggingFloatingPaste(true);
+          floatingPasteDragStart.current = worldPos;
+          floatingPasteOriginalPos.current = { ...floatingData.position };
+          setCursorStyle('move');
+          setShowBrushCursor(false);
+
+          compositeCanvasDirtyRef.current = true;
+          requestAnimationFrame(() => {
+            if (compositeCanvasRef.current && project) {
+              compositeLayersToCanvas(compositeCanvasRef.current);
+              setCurrentOffscreenCanvas(compositeCanvasRef.current);
+              compositeCanvasDirtyRef.current = false;
+              const canvasEl = canvasRef.current;
+              const ctx = canvasEl?.getContext('2d', { willReadFrequently: true });
+              if (ctx) {
+                deps.draw(ctx, deps.viewTransformRef.current);
+              }
+            }
+          });
+
+          setNeedsRedraw((value) => value + 1);
+          return;
+        }
       }
     }
 

@@ -102,7 +102,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         imageData: paste.imageData,
         position: paste.position,
         width: paste.width,
-        height: paste.height
+        height: paste.height,
+        originalPosition: paste.originalPosition ?? paste.position,
+        sourceLayerId: paste.sourceLayerId ?? null
       });
     },
     [setFloatingPaste]

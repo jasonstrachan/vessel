@@ -41,11 +41,11 @@ const normalizeVerticalAxis = (value?: string): LayerVerticalAlignment => {
  * Factory for layer alignment defaults so new layers start with predictable transforms.
  */
 export const createDefaultLayerAlignment = (): LayerAlignmentSettings => ({
-  fit: 'none',
-  horizontal: 'center',
-  vertical: 'center',
+  fit: 'percent',
+  horizontal: 'left',
+  vertical: 'top',
   offsetPx: { x: 0, y: 0 },
-  offsetPercent: undefined
+  offsetPercent: { x: 0, y: 0 }
 });
 
 export const cloneLayerAlignment = (alignment?: LayerAlignmentSettings): LayerAlignmentSettings => {
@@ -55,8 +55,8 @@ export const cloneLayerAlignment = (alignment?: LayerAlignmentSettings): LayerAl
     horizontal: normalizeHorizontalAxis(base.horizontal),
     vertical: normalizeVerticalAxis(base.vertical),
     offsetPx: base.offsetPx ? { ...base.offsetPx } : { x: 0, y: 0 },
-    offsetPercent: base.fit === 'percent' && base.offsetPercent
-      ? { ...base.offsetPercent }
+    offsetPercent: base.fit === 'percent'
+      ? { ...(base.offsetPercent ?? { x: 0, y: 0 }) }
       : undefined
   };
 };

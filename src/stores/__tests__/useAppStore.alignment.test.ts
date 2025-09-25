@@ -91,8 +91,8 @@ describe('useAppStore updateLayerAlignment percent offsets', () => {
 
     const updatedLayer = useAppStore.getState().layers[0];
     expect(updatedLayer.alignment.fit).toBe('percent');
-    expect(updatedLayer.alignment.offsetPercent?.x).toBeCloseTo(20, 5);
-    expect(updatedLayer.alignment.offsetPercent?.y).toBeCloseTo(37.5, 5);
+    expect(updatedLayer.alignment.offsetPercent?.x).toBe(0);
+    expect(updatedLayer.alignment.offsetPercent?.y).toBe(0);
   });
 
   it('preserves manually entered percent offsets once in percent mode', () => {
@@ -144,8 +144,6 @@ describe('useAppStore updateLayerAlignment percent offsets', () => {
     }));
 
     const { updateLayerAlignment } = useAppStore.getState();
-    updateLayerAlignment(layer.id, { ...layer.alignment, fit: 'percent' });
-
     const currentAlignment = useAppStore.getState().layers[0].alignment;
     updateLayerAlignment(layer.id, {
       ...currentAlignment,

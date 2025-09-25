@@ -1,5 +1,5 @@
 import { cloneExportLayout, cloneLayerAlignment } from '@/utils/layoutDefaults';
-import { resolveContainerLayout, type LayerTransform, type ResolvedLayerLayout } from '@/utils/layerAlignment';
+import { computeLayerTransform, type LayerTransform } from '@/utils/layerAlignment';
 import { clampPercent, computeLayerContentMetrics, computePercentOffsetFromMetrics } from '@/utils/layerMetrics';
 import type { LayerContentMetrics } from '@/utils/layerMetrics';
 import type {
@@ -192,7 +192,7 @@ export interface WebGLLayerMetadata {
   opacity?: number;
   blendMode?: Layer['blendMode'];
   alignment?: Layer['alignment'];
-  frame: ResolvedLayerLayout['frame'];
+  frame: { x: number; y: number; width: number; height: number };
   transform?: Partial<LayerTransform>;
   sourceSize: { width: number; height: number };
   contentBounds?: ContentBounds;
@@ -668,12 +668,22 @@ const computeLayerExportMetrics = (layer: Layer, project: Project): LayerExportM
 
 const clampFrameToViewport = (
   frame: { x: number; y: number; width: number; height: number },
-  viewport: { width: number; height: number }
+  viewport: WebGLViewport
 ) => {
-  const viewportWidth = Math.max(1, Math.round(viewport.width));
-  const viewportHeight = Math.max(1, Math.round(viewport.height));
   const width = Math.max(1, Math.round(frame.width));
   const height = Math.max(1, Math.round(frame.height));
+
+  if (viewport.mode === 'project') {
+    return {
+      x: Math.round(frame.x),
+      y: Math.round(frame.y),
+      width,
+      height
+    };
+  }
+
+  const viewportWidth = Math.max(1, Math.round(viewport.width));
+  const viewportHeight = Math.max(1, Math.round(viewport.height));
   const maxX = Math.max(0, viewportWidth - width);
   const maxY = Math.max(0, viewportHeight - height);
   const clampedX = Math.min(Math.max(Math.round(frame.x), 0), maxX);
@@ -1534,38 +1544,6 @@ const captureLayerTexture = async (layer: Layer): Promise<string | undefined> =>
   }
 };
 
-const collectLayout = (
-  layers: Layer[],
-  metricsMap: Map<string, LayerExportMetrics>,
-  layout: ExportContainerLayout,
-  viewport: WebGLViewport,
-  includeHiddenLayers: boolean
-) => {
-  const inputs = layers
-    .filter((layer) => includeHiddenLayers || layer.visible)
-    .map((layer) => {
-      const metrics = metricsMap.get(layer.id);
-      if (!metrics) {
-        throw new Error(`[webglExporter] Missing layout metrics for layer ${layer.id}`);
-      }
-      return {
-        layerId: layer.id,
-        surface: {
-          width: Math.max(1, Math.round(metrics.surfaceSize.width)),
-          height: Math.max(1, Math.round(metrics.surfaceSize.height))
-        },
-        content: {
-          width: Math.max(1, Math.round(metrics.contentBounds.width)),
-          height: Math.max(1, Math.round(metrics.contentBounds.height))
-        },
-        alignment: layer.alignment,
-        hidden: false
-      };
-    });
-
-  return resolveContainerLayout(inputs, layout, viewport);
-};
-
 const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -1754,6 +1732,12 @@ const appendZipAutoloadSnippet = (
         return raw;
       };
       const packagedMetadataRaw = JSON.parse(\`${metadataLiteral}\`);
+      console.log('Parsed metadata layers (raw):', packagedMetadataRaw.layers || packagedMetadataRaw.l);
+      console.log('Layer details (raw):', (packagedMetadataRaw.layers || packagedMetadataRaw.l)?.map((layer) => ({
+        id: layer?.id ?? layer?.i,
+        hasTexture: Boolean(layer?.assets?.texture ?? layer?.as?.txr),
+        visible: layer?.visible ?? layer?.vi
+      })));
       const packagedMetadata = expandPackagedMetadata(packagedMetadataRaw);
       if (enableDiagnostics) {
         emitLog('[DEBUG] Checking parsed metadata:');
@@ -1777,7 +1761,9 @@ const appendZipAutoloadSnippet = (
       }
       const autoBundleName = ${JSON.stringify(bundleFilename)};
       const renderPackagedMetadata = async (metadata) => {
+        console.log('Incoming metadata layers (pre-expand):', metadata.layers || metadata.l);
         const normalizedMetadata = expandPackagedMetadata(metadata);
+        console.log('Expanded metadata layers:', normalizedMetadata.layers);
         setStatus('Rendering packaged bundle…');
         emitLog('Loaded metadata for auto-render:', normalizedMetadata);
         emitLog('Canvas element reference:', canvas);
@@ -1933,6 +1919,12 @@ const buildSingleFileScript = (
         return raw;
       };
       const packagedMetadataRaw = JSON.parse(\`${metadataLiteral}\`);
+      console.log('Parsed metadata layers (raw):', packagedMetadataRaw.layers || packagedMetadataRaw.l);
+      console.log('Layer details (raw):', (packagedMetadataRaw.layers || packagedMetadataRaw.l)?.map((layer) => ({
+        id: layer?.id ?? layer?.i,
+        hasTexture: Boolean(layer?.assets?.texture ?? layer?.as?.txr),
+        visible: layer?.visible ?? layer?.vi
+      })));
       const packagedMetadata = expandPackagedMetadata(packagedMetadataRaw);
       if (enableDiagnostics) {
         emitLog('[DEBUG] Prepared packaged metadata for single-file viewer', {
@@ -1946,6 +1938,7 @@ const buildSingleFileScript = (
             throw new Error('Preview canvas element is unavailable');
           }
           setStatus('Rendering packaged bundle…');
+          console.log('Expanded metadata layers (single-file):', packagedMetadata.layers);
           const scale = computeScale(packagedMetadata);
           const renderResult = await renderTinyBrushWebGL(packagedMetadata, canvas, { scale });
           summarizeMetadata(packagedMetadata, renderResult);
@@ -1995,11 +1988,21 @@ const createSingleFileViewerHtml = (
       metadataLength: metadataJson.length
     });
     try {
-      const metadata = JSON.parse(metadataJson) as { layers?: Array<{ id: string; assets?: { texture?: string } }> };
-      const layers = Array.isArray(metadata.layers) ? metadata.layers : [];
+      const metadata = JSON.parse(metadataJson) as {
+        layers?: Array<{ id: string; assets?: { texture?: string } }>;
+        l?: Array<{ i?: string; as?: { txr?: string } }>;
+      };
+      const layersRaw = Array.isArray(metadata.layers)
+        ? metadata.layers
+        : Array.isArray(metadata.l)
+          ? metadata.l.map((layer) => ({
+              id: (layer as { id?: string; i?: string }).id ?? (layer as { i?: string }).i ?? 'unknown',
+              assets: layer.as?.txr ? { texture: layer.as.txr } : undefined
+            }))
+          : [];
       viewerDebugLog('[webglExporter] Metadata summary', {
-        layerCount: layers.length,
-        textures: layers
+        layerCount: layersRaw.length,
+        textures: layersRaw
           .filter((layer) => typeof layer?.assets?.texture === 'string')
           .slice(0, 8)
           .map((layer) => ({ id: layer.id, texturePreview: layer.assets!.texture!.slice(0, 48) }))
@@ -2046,44 +2049,22 @@ export const exportProjectAsWebGL = async (
   });
 
   const containerLayout = cloneExportLayout(options.layout);
-  const placements = collectLayout(
-    options.layers,
-    metricsMap,
-    containerLayout,
-    options.viewport,
-    options.includeHiddenLayers
-  );
 
-  const placementMap = new Map<string, ResolvedLayerLayout>();
-  placements.forEach((placement) => placementMap.set(placement.layerId, placement));
+  const resolvedViewport: WebGLViewport = options.viewportMode
+    ? { ...options.viewport, mode: options.viewportMode }
+    : { ...options.viewport };
 
   const metadataLayers: WebGLLayerMetadata[] = [];
   for (const layer of options.layers) {
     if (!options.includeHiddenLayers && !layer.visible) {
       continue;
     }
-    const placement = placementMap.get(layer.id);
-    if (!placement) {
-      continue;
-    }
-
     const metrics = metricsMap.get(layer.id) ?? computeLayerExportMetrics(layer, options.project);
     const sourceSize = metrics.surfaceSize;
     const contentBounds = metrics.contentBounds;
     const texture = await captureLayerTexture(layer);
 
     const colorCycle = await serializeColorCycleData(layer);
-
-    const clampedFrame = clampFrameToViewport(placement.frame, options.viewport);
-    if (clampedFrame.x !== Math.round(placement.frame.x)
-      || clampedFrame.y !== Math.round(placement.frame.y)) {
-      console.warn('[webglExporter] Layer frame clamped to viewport bounds', {
-        layerId: layer.id,
-        originalFrame: placement.frame,
-        clampedFrame,
-        viewport: options.viewport
-      });
-    }
 
     const alignment = cloneLayerAlignment(layer.alignment);
     const percentOffset = computePercentOffsetFromMetrics(metrics);
@@ -2095,6 +2076,24 @@ export const exportProjectAsWebGL = async (
       alignment.offsetPx = { x: 0, y: 0 };
     }
 
+    const frameBase = {
+      x: Math.round(alignment.offsetPx?.x ?? 0),
+      y: Math.round(alignment.offsetPx?.y ?? 0),
+      width: Math.max(1, Math.round(sourceSize.width)),
+      height: Math.max(1, Math.round(sourceSize.height))
+    };
+
+    const clampedFrame = clampFrameToViewport(frameBase, resolvedViewport);
+
+    const transform = computeLayerTransform(
+      {
+        width: Math.max(1, Math.round(contentBounds.width)),
+        height: Math.max(1, Math.round(contentBounds.height))
+      },
+      { width: clampedFrame.width, height: clampedFrame.height },
+      alignment
+    );
+
     const baseLayerMetadata: WebGLLayerMetadata = {
       id: layer.id,
       name: layer.name,
@@ -2104,7 +2103,7 @@ export const exportProjectAsWebGL = async (
       blendMode: layer.blendMode,
       alignment,
       frame: clampedFrame,
-      transform: placement.transform,
+      transform,
       sourceSize,
       contentBounds,
       assets: texture ? { texture } : undefined,
@@ -2140,10 +2139,6 @@ export const exportProjectAsWebGL = async (
 
   const bundleFormat: WebGLExportBundleFormat = options.bundleFormat ?? 'zip';
 
-  const viewport: WebGLViewport = options.viewportMode
-    ? { ...options.viewport, mode: options.viewportMode }
-    : { ...options.viewport };
-
   const metadata: WebGLExportMetadata = {
     format: 'tinybrush-webgl',
     version: 1,
@@ -2155,7 +2150,7 @@ export const exportProjectAsWebGL = async (
       height: options.project.height,
       backgroundColor: options.project.backgroundColor
     },
-    viewport,
+    viewport: resolvedViewport,
     container: containerLayout,
     animation: {
       fps: options.fps,
