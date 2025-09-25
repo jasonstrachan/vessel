@@ -347,8 +347,12 @@ const LayoutEngine = (() => {
     let translateY = alignment.offsetPx.y;
 
     if (alignment.fit === 'percent') {
-      translateX += viewportWidth * clamp(alignment.offsetPercent.x / 100, -1, 1);
-      translateY += viewportHeight * clamp(alignment.offsetPercent.y / 100, -1, 1);
+      const percentX = clamp(alignment.offsetPercent.x / 100, -1, 1);
+      const percentY = clamp(alignment.offsetPercent.y / 100, -1, 1);
+      const availableX = viewportWidth - scaledWidth;
+      const availableY = viewportHeight - scaledHeight;
+      translateX += availableX * percentX;
+      translateY += availableY * percentY;
     } else {
       const extraX = viewportWidth - scaledWidth;
       const extraY = viewportHeight - scaledHeight;
@@ -1059,6 +1063,18 @@ const applyLayerToContext = (ctx, source, layer, globalScale) => {
     return false;
   }
 
+  console.log('[RENDER] Applying layer:', {
+    layerId: layer.id,
+    alignment: layer.alignment,
+    frame: layer.frame,
+    transform: layer.transform,
+    globalScale,
+    sourceSize: { width: source.width, height: source.height },
+    sourceNaturalSize: source.naturalWidth
+      ? { width: source.naturalWidth, height: source.naturalHeight }
+      : null
+  });
+
   const frame = layer.frame ?? { x: 0, y: 0, width: source.width, height: source.height };
   const transform = layer.transform ?? { translateX: 0, translateY: 0, scaleX: 1, scaleY: 1, rotation: 0 };
   const bounds = layer.contentBounds ?? { x: 0, y: 0, width: layer.sourceSize?.width ?? source.width, height: layer.sourceSize?.height ?? source.height };
@@ -1068,8 +1084,14 @@ const applyLayerToContext = (ctx, source, layer, globalScale) => {
   const cropWidth = Math.max(1, toFinite(bounds.width, source.width));
   const cropHeight = Math.max(1, toFinite(bounds.height, source.height));
 
-  const scaleX = globalScale?.x ?? globalScale ?? 1;
-  const scaleY = globalScale?.y ?? globalScale ?? 1;
+  const isPercentAligned = layer.alignment?.fit === 'percent';
+  let scaleX = globalScale?.x ?? globalScale ?? 1;
+  let scaleY = globalScale?.y ?? globalScale ?? 1;
+  if (isPercentAligned) {
+    const uniformScale = Math.min(scaleX, scaleY);
+    scaleX = uniformScale;
+    scaleY = uniformScale;
+  }
 
   const destX = (toFinite(frame.x, 0) + toFinite(transform.translateX, 0)) * scaleX;
   const destY = (toFinite(frame.y, 0) + toFinite(transform.translateY, 0)) * scaleY;
@@ -1242,6 +1264,13 @@ class TinyBrushViewer {
       mode: this.metadata.viewport.mode
     };
 
+    console.log('[VIEWER] applyResolvedLayout called:', {
+      canvasSize: { width: this.canvas.width, height: this.canvas.height },
+      scale: this.scale,
+      computedViewport: viewport,
+      metadataViewport: this.metadata.viewport
+    });
+
     this.layerEntries.forEach((entry) => {
       const layer = entry.layer;
       const original = this.originalLayers.get(layer.id);
@@ -1252,6 +1281,17 @@ class TinyBrushViewer {
         offsetPx: { x: 0, y: 0 }
       };
 
+      console.log('[VIEWER] Processing layer:', {
+        layerId: layer.id,
+        alignment,
+        originalFrame: original?.frame,
+        currentFrame: layer.frame,
+        sourceSize: layer.sourceSize,
+        originalSourceSize: original?.sourceSize,
+        contentBounds: layer.contentBounds,
+        originalContentBounds: original?.contentBounds
+      });
+
       const frameSource = layer.frame || original?.frame || {
         x: alignment.offsetPx?.x ?? 0,
         y: alignment.offsetPx?.y ?? 0,
@@ -1259,7 +1299,22 @@ class TinyBrushViewer {
         height: layer.sourceSize?.height ?? original?.sourceSize?.height ?? viewport.height
       };
 
+      console.log('[VIEWER] Frame source computed:', {
+        frameSource,
+        usedLayerFrame: Boolean(layer.frame),
+        usedOriginalFrame: Boolean(original?.frame),
+        fellBackToViewport: !layer.frame && !original?.frame
+      });
+
       const clampedFrame = LayoutEngine.clampFrameToViewport(frameSource, viewport);
+
+      console.log('[VIEWER] After clamping:', {
+        beforeClamp: frameSource,
+        afterClamp: clampedFrame,
+        alignmentFit: alignment.fit,
+        viewportMode: viewport.mode
+      });
+
       layer.frame = clampedFrame;
 
       const alignmentFit = alignment.fit ?? 'none';
@@ -1279,6 +1334,7 @@ class TinyBrushViewer {
         };
         layer._hasCalculatedTransform = true;
         layer._transformIsViewportScaled = false;
+        console.log('[VIEWER] No-fit alignment, transform:', layer.transform);
         return;
       }
 
@@ -1287,11 +1343,24 @@ class TinyBrushViewer {
         height: Math.max(1, clampedFrame.height)
       };
 
+      const viewportForTransform = alignmentFit === 'percent'
+        ? { width: viewport.width, height: viewport.height }
+        : { width: clampedFrame.width, height: clampedFrame.height };
+
       layer.transform = LayoutEngine.computeLayerTransform(
         contentSize,
-        { width: clampedFrame.width, height: clampedFrame.height },
+        viewportForTransform,
         alignment
       );
+
+      console.log('[VIEWER] Computed transform:', {
+        layerId: layer.id,
+        alignmentFit,
+        contentSize,
+        viewportForTransform,
+        resultTransform: layer.transform
+      });
+
       layer._hasCalculatedTransform = true;
       layer._transformIsViewportScaled = true;
     });
@@ -1408,9 +1477,19 @@ class TinyBrushViewer {
 
   updateScale(scaleOption) {
     const { x, y } = normalizeScaleOption(scaleOption ?? this.scale);
+    const oldScale = { ...this.scale };
     this.scale = { x, y };
     const width = Math.max(1, Math.round(this.metadata.viewport.width * x));
     const height = Math.max(1, Math.round(this.metadata.viewport.height * y));
+
+    console.log('[VIEWER] updateScale called:', {
+      oldScale,
+      newScale: this.scale,
+      oldCanvasSize: { width: this.canvas.width, height: this.canvas.height },
+      newCanvasSize: { width, height },
+      viewportMode: this.metadata.viewport.mode
+    });
+
     this.summary.scale = { ...this.scale };
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width;
@@ -1418,6 +1497,7 @@ class TinyBrushViewer {
       if (this.ctx) {
         this.ctx.imageSmoothingEnabled = false;
       }
+      console.log('[VIEWER] Canvas resized, calling applyResolvedLayout');
       this.applyResolvedLayout();
       this.renderOnce();
     }
@@ -1450,12 +1530,22 @@ const ensureResizeListener = () => {
     return;
   }
   window.addEventListener('resize', () => {
+    console.log('[RESIZE] Window resized:', {
+      windowSize: { width: window.innerWidth, height: window.innerHeight },
+      activeCanvases: ACTIVE_CANVASES.size
+    });
+
     ACTIVE_CANVASES.forEach((metadata, canvas) => {
       if (!(canvas instanceof HTMLCanvasElement)) {
         ACTIVE_CANVASES.delete(canvas);
         return;
       }
       const scale = computeResponsiveScale(metadata);
+      console.log('[RESIZE] Computed scale for canvas:', {
+        viewport: metadata.viewport,
+        computedScale: scale,
+        canvasId: canvas.id
+      });
       resizeTinyBrushWebGL(canvas, scale);
     });
   });

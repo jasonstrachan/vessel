@@ -139,8 +139,10 @@ export const computeLayerTransform = (
     const percent = alignment.offsetPercent ?? { x: 0, y: 0 };
     const percentX = Math.max(-100, Math.min(100, percent.x));
     const percentY = Math.max(-100, Math.min(100, percent.y));
-    translateX = viewportWidth * (percentX / 100);
-    translateY = viewportHeight * (percentY / 100);
+    const availableX = viewportWidth - scaledWidth;
+    const availableY = viewportHeight - scaledHeight;
+    translateX = availableX * (percentX / 100);
+    translateY = availableY * (percentY / 100);
   }
 
   if (alignment.offsetPx) {

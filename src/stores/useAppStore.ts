@@ -32,6 +32,114 @@ const trackLayerChanges = (..._args: unknown[]): void => {
   // Debug tracking disabled
 };
 
+const syncPercentOffsetsFromPixels = (layers: Layer[], project: Project | null): Layer[] => {
+  if (!project) {
+    return layers;
+  }
+
+  let didChange = false;
+
+  const syncedLayers = layers.map(layer => {
+    const alignment = layer.alignment;
+    if (!alignment || alignment.fit !== 'percent') {
+      return layer;
+    }
+
+    const percentFromPx = computePercentOffsetFromPixels(alignment.offsetPx, project);
+
+    const alignmentWithoutOffsets: LayerAlignmentSettings = {
+      ...alignment,
+      offsetPercent: undefined,
+      offsetPx: undefined
+    };
+
+    const layerWithoutOffsets: Layer = {
+      ...layer,
+      alignment: alignmentWithoutOffsets
+    };
+
+    const percentFromFrameOrMetrics = computeLayerPercentOffset(layerWithoutOffsets, project);
+
+    const frame = (layer as { frame?: { x?: number; y?: number } }).frame;
+    const framePx = frame
+      ? {
+          x: Math.round(Number(frame.x ?? 0)),
+          y: Math.round(Number(frame.y ?? 0))
+        }
+      : null;
+
+    const offsetPx = alignment.offsetPx;
+
+    const pxMatchesFrame = Boolean(
+      framePx &&
+      offsetPx &&
+      Math.round(offsetPx.x ?? 0) === framePx.x &&
+      Math.round(offsetPx.y ?? 0) === framePx.y
+    );
+
+    const shouldUseFrame = Boolean(framePx && !pxMatchesFrame);
+
+    let nextPercent = percentFromPx ?? percentFromFrameOrMetrics;
+
+    if (shouldUseFrame && percentFromFrameOrMetrics) {
+      nextPercent = percentFromFrameOrMetrics;
+    }
+
+    const storedPercent = alignment.offsetPercent;
+    const usingPxAsSource = !shouldUseFrame && Boolean(percentFromPx);
+
+    if (usingPxAsSource && storedPercent && offsetPx && nextPercent) {
+      const width = Math.max(1, project.width);
+      const height = Math.max(1, project.height);
+
+      const expectedPxX = Math.round(((storedPercent.x ?? 0) / 100) * width);
+      const expectedPxY = Math.round(((storedPercent.y ?? 0) / 100) * height);
+
+      if (expectedPxX === (offsetPx.x ?? 0)) {
+        nextPercent = {
+          ...nextPercent,
+          x: storedPercent.x
+        };
+      }
+
+      if (expectedPxY === (offsetPx.y ?? 0)) {
+        nextPercent = {
+          ...nextPercent,
+          y: storedPercent.y
+        };
+      }
+    }
+
+    const currentPercent = alignment.offsetPercent;
+    if (currentPercent && currentPercent.x === nextPercent.x && currentPercent.y === nextPercent.y) {
+      return layer;
+    }
+
+    didChange = true;
+    if (__DEV__) {
+      console.groupCollapsed(`[alignment.percentSync] ${layer.id}`);
+      console.log('previousPercent', currentPercent);
+      console.log('nextPercent', nextPercent);
+      console.log('percentFromPx', percentFromPx);
+      console.log('percentFromFrameOrMetrics', percentFromFrameOrMetrics);
+      console.log('offsetPx', offsetPx);
+      console.log('framePx', framePx);
+      console.log('usingPxAsSource', usingPxAsSource);
+      console.log('shouldUseFrame', shouldUseFrame);
+      console.groupEnd();
+    }
+    return {
+      ...layer,
+      alignment: {
+        ...alignment,
+        offsetPercent: nextPercent
+      }
+    };
+  });
+
+  return didChange ? syncedLayers : layers;
+};
+
 // Global watcher to detect unexpected layer mutations
 if (typeof window !== 'undefined') {
   const tinyWindow = getTinyBrushWindow();
@@ -127,7 +235,7 @@ import {
   normalizeLayers,
   normalizeProject
 } from '@/utils/layoutDefaults';
-import { computeLayerPercentOffset } from '@/utils/layerMetrics';
+import { computeLayerPercentOffset, computePercentOffsetFromPixels } from '@/utils/layerMetrics';
 
 // Helper function to get serializable brush settings for persistence
 const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSettings> => {
@@ -832,9 +940,11 @@ export const useAppStore = create<AppState>()(
         
         // Reset zoom to default value
         
+        const syncedLayers = syncPercentOffsetsFromPixels(resizedLayers, updatedProject);
+
         return {
           project: updatedProject,
-          layers: resizedLayers,
+          layers: syncedLayers,
           canvas: { 
             ...state.canvas,
             zoom: 1,         // Reset to default zoom
@@ -1791,8 +1901,10 @@ export const useAppStore = create<AppState>()(
             }))
           }); */
           
+          const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
+
           return {
-            layers: updatedLayers
+            layers: syncedLayers
           };
         });
         
@@ -1836,8 +1948,9 @@ export const useAppStore = create<AppState>()(
             state.activeLayerId;
           
           trackLayerChanges('removeLayer RETURN', updatedLayers);
+          const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
           return {
-            layers: updatedLayers,
+            layers: syncedLayers,
             activeLayerId: newActiveLayerId
             // Remove the project update entirely - only update top-level layers
           };
@@ -2000,9 +2113,10 @@ export const useAppStore = create<AppState>()(
         } catch {}
 
         trackLayerChanges('updateLayer RETURN', updatedLayers);
+        const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
 
         return {
-          layers: updatedLayers,
+          layers: syncedLayers,
           layersNeedRecomposition: needsRecomposition || state.layersNeedRecomposition
           // Remove the project update entirely - only update top-level layers
         };
@@ -2216,7 +2330,9 @@ export const useAppStore = create<AppState>()(
         }
         
         trackLayerChanges('setLayers CALLED', fixedLayers);
-        set({ layers: normalizeLayers(fixedLayers) });
+        const normalizedLayers = normalizeLayers(fixedLayers);
+        const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, state.project ?? null);
+        set({ layers: syncedLayers });
       },
       updateLayerAlignment: (layerId, alignment) => set((state) => {
         const targetLayer = state.layers.find(layer => layer.id === layerId);
@@ -2277,8 +2393,10 @@ export const useAppStore = create<AppState>()(
             : layer
         ));
 
+        const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
+
         return {
-          layers: updatedLayers,
+          layers: syncedLayers,
           layersNeedRecomposition: true
         };
       }),
@@ -2296,8 +2414,10 @@ export const useAppStore = create<AppState>()(
           
           // Layer order changed - triggering recomposition
           
+          const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
+
           return {
-            layers: updatedLayers,
+            layers: syncedLayers,
             layersNeedRecomposition: true
             // Remove the project update entirely - only update top-level layers
           };
@@ -2361,7 +2481,8 @@ export const useAppStore = create<AppState>()(
               };
             });
             trackLayerChanges('initColorCycleForLayer (hydrate existing)', updatedLayers);
-            return { layers: updatedLayers };
+            const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
+            return { layers: syncedLayers };
           }
           
           // Validate dimensions
@@ -2443,8 +2564,9 @@ export const useAppStore = create<AppState>()(
         );
         
         trackLayerChanges('initColorCycleForLayer RETURN', updatedLayers);
+        const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
         return {
-          layers: updatedLayers
+          layers: syncedLayers
           // Remove the project update entirely - only update top-level layers
         };
         } catch (error) {
@@ -2476,8 +2598,9 @@ export const useAppStore = create<AppState>()(
             : l
         );
         
+        const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
         return {
-          layers: updatedLayers
+          layers: syncedLayers
         };
       }),
       
@@ -3163,11 +3286,13 @@ export const useAppStore = create<AppState>()(
             // quiet: remove cc-history diagnostics
           }
           
+          const syncedLayersCopy = syncPercentOffsetsFromPixels(layersCopy, state.project ?? null);
+
           const snapshot: CanvasSnapshot = {
             id: `snapshot_${Date.now()}_${Math.random()}`,
             timestamp: Date.now(),
             imageData,
-            layers: layersCopy,  // Deep copy of all layers with cloned ImageData
+            layers: syncedLayersCopy,  // Deep copy of all layers with cloned ImageData
             activeLayerId: overrideActiveLayerId || state.activeLayerId || state.layers[0]?.id || '',  // Current active layer or fallback
             actionType,
             description,
@@ -3362,10 +3487,14 @@ export const useAppStore = create<AppState>()(
             hasColorCycleData: !!l.colorCycleData
           })));
           
+          const normalizedProject = normalizeProject(loadedProject);
+          const normalizedLayers = normalizeLayers(finalLayers);
+          const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, normalizedProject);
+
           // Update the store with the loaded project and restored layers
           set({
-            project: normalizeProject(loadedProject),
-            layers: normalizeLayers(finalLayers),
+            project: normalizedProject,
+            layers: syncedLayers,
             activeLayerId: loadedProject.layers[0]?.id || null,
             layersNeedRecomposition: true,
             // Restore view state if available
@@ -3488,9 +3617,13 @@ export const useAppStore = create<AppState>()(
           exportLayout: createDefaultExportLayout()
         };
 
+        const normalizedProject = normalizeProject(newProject);
+        const normalizedLayers = normalizeLayers([defaultLayer]);
+        const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, normalizedProject);
+
         set({
-          project: normalizeProject(newProject),
-          layers: normalizeLayers([defaultLayer]), // Only set top-level layers
+          project: normalizedProject,
+          layers: syncedLayers, // Only set top-level layers
           activeLayerId: defaultLayerId,
           canvas: {
             ...get().canvas,
@@ -3675,11 +3808,40 @@ export const useAppStore = create<AppState>()(
                     framebufferCtx.clearRect(0, 0, fb.width, fb.height);
                     framebufferCtx.putImageData(imageData, 0, 0);
                   }
+                  let nextAlignment = layer.alignment;
+                  const project = currentState.project;
+                  if (project && nextAlignment?.fit === 'percent') {
+                    try {
+                      const layerForMetrics: Layer = {
+                        ...layer,
+                        imageData,
+                        alignment: {
+                          ...nextAlignment,
+                          offsetPercent: undefined,
+                          offsetPx: undefined
+                        }
+                      };
+                      const percentOffset = computeLayerPercentOffset(layerForMetrics, project);
+                      const projectWidth = Math.max(1, project.width);
+                      const projectHeight = Math.max(1, project.height);
+                      nextAlignment = {
+                        ...nextAlignment,
+                        offsetPercent: percentOffset,
+                        offsetPx: {
+                          x: Math.round((percentOffset.x / 100) * projectWidth),
+                          y: Math.round((percentOffset.y / 100) * projectHeight)
+                        }
+                      };
+                    } catch (error) {
+                      console.warn('[captureCanvasToActiveLayer] Failed to sync percent alignment', error);
+                    }
+                  }
                   // CRITICAL: Preserve ALL layer properties including layerType and colorCycleData
                   // Use spread operator first to preserve everything, then override only imageData
                   const updatedLayer = { 
                     ...layer, 
                     imageData,
+                    alignment: nextAlignment,
                     version: (layer.version || 0) + 1 // Increment version for color swatch updates
                     // Don't explicitly set layerType and colorCycleData - they're already in ...layer
                   };
@@ -3701,8 +3863,9 @@ export const useAppStore = create<AppState>()(
               });
               
               // CRITICAL: Set both layers AND recomposition flag in the same update
+              const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, currentState.project ?? null);
               return {
-                layers: updatedLayers,
+                layers: syncedLayers,
                 layersNeedRecomposition: true
               };
             });
@@ -3773,8 +3936,9 @@ export const useAppStore = create<AppState>()(
                 imageData
               };
             });
+            const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, currentState.project ?? null);
             return {
-              layers: updatedLayers,
+              layers: syncedLayers,
               layersNeedRecomposition: true
             };
           });

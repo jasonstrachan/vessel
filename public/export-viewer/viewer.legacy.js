@@ -114,8 +114,10 @@ const createLayoutRuntimeFallback = () => {
       const percent = safeAlignment.offsetPercent ?? { x: 0, y: 0 };
       const percentX = Math.max(-100, Math.min(100, Number(percent.x) || 0));
       const percentY = Math.max(-100, Math.min(100, Number(percent.y) || 0));
-      translateX = viewportWidth * (percentX / 100);
-      translateY = viewportHeight * (percentY / 100);
+      const availableX = viewportWidth - scaledWidth;
+      const availableY = viewportHeight - scaledHeight;
+      translateX = availableX * (percentX / 100);
+      translateY = availableY * (percentY / 100);
     }
 
     if (safeAlignment.offsetPx) {
@@ -1705,9 +1707,14 @@ class TinyBrushBundleRenderer {
       return;
     }
 
-    const fallbackViewport = {
-      width: this.canvas?.width ?? this.metadata?.viewport?.width ?? 1,
-      height: this.canvas?.height ?? this.metadata?.viewport?.height ?? 1
+    const scaledViewport = {
+      width: Math.max(1, Math.round(toFinite(this.canvas?.width, toFinite(this.metadata?.viewport?.width, 1)))),
+      height: Math.max(1, Math.round(toFinite(this.canvas?.height, toFinite(this.metadata?.viewport?.height, 1))))
+    };
+
+    const originalViewport = {
+      width: Math.max(1, Math.round(toFinite(this.metadata?.viewport?.width, scaledViewport.width))),
+      height: Math.max(1, Math.round(toFinite(this.metadata?.viewport?.height, scaledViewport.height)))
     };
 
     this.layers.forEach((entry) => {
@@ -1742,7 +1749,29 @@ class TinyBrushBundleRenderer {
           height: Math.max(1, toFinite(sourceSize?.height, 1))
         };
       }
-      layer.frame = clampFrameToViewport(frameCandidate, fallbackViewport);
+      const alignmentSettings = layer?.alignment
+        || original?.alignment
+        || {
+          fit: 'none',
+          horizontal: 'left',
+          vertical: 'top'
+        };
+      const alignmentFit = alignmentSettings?.fit || 'none';
+
+      let resolvedFrame;
+      if (alignmentFit === 'percent') {
+        const sourceSize = layer?.sourceSize || original?.sourceSize || {};
+        resolvedFrame = {
+          x: Math.round(toFinite(frameCandidate.x, 0)),
+          y: Math.round(toFinite(frameCandidate.y, 0)),
+          width: Math.max(1, Math.round(toFinite(sourceSize?.width, frameCandidate.width))),
+          height: Math.max(1, Math.round(toFinite(sourceSize?.height, frameCandidate.height)))
+        };
+      } else {
+        resolvedFrame = clampFrameToViewport(frameCandidate, scaledViewport);
+      }
+
+      layer.frame = resolvedFrame;
 
       if (original?.transform) {
         layer.transform = {
@@ -1764,14 +1793,6 @@ class TinyBrushBundleRenderer {
         layer._transformIsViewportScaled = false;
       }
 
-      const alignmentSettings = layer?.alignment
-        || original?.alignment
-        || {
-          fit: 'none',
-          horizontal: 'left',
-          vertical: 'top'
-        };
-      const alignmentFit = alignmentSettings?.fit || 'none';
       const hasOriginalTransform = Boolean(original?.transform);
 
       if (alignmentFit !== 'none' && !hasOriginalTransform) {
@@ -1787,15 +1808,20 @@ class TinyBrushBundleRenderer {
           width: contentWidth,
           height: contentHeight
         };
-        const viewport = {
-          width: Math.max(1, toFinite(frameData.width, contentWidth)),
-          height: Math.max(1, toFinite(frameData.height, contentHeight))
-        };
+        const viewportForTransform = alignmentFit === 'percent'
+          ? {
+              width: Math.max(1, toFinite(originalViewport.width, contentWidth)),
+              height: Math.max(1, toFinite(originalViewport.height, contentHeight))
+            }
+          : {
+              width: Math.max(1, toFinite(frameData.width, contentWidth)),
+              height: Math.max(1, toFinite(frameData.height, contentHeight))
+            };
 
         try {
           const computed = computeLayerTransform(
             { width: contentWidth, height: contentHeight },
-            viewport,
+            viewportForTransform,
             alignmentSettings
           );
 

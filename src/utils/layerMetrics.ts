@@ -1,6 +1,7 @@
 import type {
   ContentBounds,
   Layer,
+  LayerAlignmentOffset,
   LayerAlignmentPercentOffset,
   Project
 } from '@/types';
@@ -206,4 +207,21 @@ export const computeLayerPercentOffset = (
 
   const metrics = computeLayerContentMetrics(layer, project);
   return computePercentOffsetFromMetrics(metrics);
+};
+
+export const computePercentOffsetFromPixels = (
+  offsetPx: LayerAlignmentOffset | undefined | null,
+  project: Project
+): LayerAlignmentPercentOffset | null => {
+  if (!offsetPx) {
+    return null;
+  }
+
+  const projectWidth = Math.max(1, project.width);
+  const projectHeight = Math.max(1, project.height);
+
+  return {
+    x: clampPercent(((offsetPx.x ?? 0) / projectWidth) * 100),
+    y: clampPercent(((offsetPx.y ?? 0) / projectHeight) * 100)
+  };
 };

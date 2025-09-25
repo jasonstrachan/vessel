@@ -5,6 +5,7 @@ import { drawDelaunayFill } from './delaunator';
 import { drawLinesFill } from './lines';
 import { drawLines2Fill } from './lines2';
 import { drawFlowFill } from './flow';
+import { drawInkRibbonsFill } from './inkRibbons';
 import type {
   ContourLineOptions,
   ShapeFillDependencies,
@@ -27,7 +28,7 @@ const shouldFillPolygon = (
   mode: string,
   fillColor: string | undefined,
   vertexCount: number
-) => fillColor !== undefined && vertexCount >= 3 && !['contour', 'lines', 'lines2', 'triangle', 'flow'].includes(mode);
+) => fillColor !== undefined && vertexCount >= 3 && !['contour', 'lines', 'lines2', 'triangle', 'flow', 'inkRibbons'].includes(mode);
 
 export const drawContourPolygon = ({
   ctx,
@@ -116,6 +117,19 @@ export const drawContourPolygon = ({
 
     if (mode === 'flow') {
       drawFlowFill({
+        ctx,
+        vertices,
+        brushSettings,
+        dependencies,
+        isPreview,
+        randomSeed: lineOptions?.randomSeed,
+        strokeColorOverride: lineOptions?.strokeColorOverride,
+      });
+      return;
+    }
+
+    if (mode === 'inkRibbons') {
+      drawInkRibbonsFill({
         ctx,
         vertices,
         brushSettings,

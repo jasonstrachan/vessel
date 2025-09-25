@@ -448,6 +448,19 @@ export interface BrushSettings {
   flowMaxSteps?: number; // 1-500 integration steps per streamline direction
   flowUseOrthogonal?: boolean; // true = use orthogonal gradient for flow direction
   flowFieldResolution?: number; // 2-32 pixel spacing for SDF grid sampling
+  ribbonSdfStep?: number; // Grid resolution for ink ribbon SDF sampling
+  ribbonSeedSpacing?: number; // Poisson spacing between ribbon anchors
+  ribbonStepSize?: number; // Step length for ribbon integration
+  ribbonMaxSteps?: number; // Maximum integration steps per direction
+  ribbonTangentWeight?: number; // Blend between gradient tangent and global bias
+  ribbonBiasAngle?: number; // Bias angle in degrees controlling global flow
+  ribbonNoiseStrength?: number; // Strength of rotational noise applied to direction
+  ribbonNoiseScale?: number; // Spatial scale for noise sampling
+  ribbonNoiseOctaves?: number; // Number of FBM octaves for noise sampling
+  ribbonLineWidth?: number; // Stroke width override for ribbons
+  ribbonJitter?: number; // Seed jitter fraction for variation
+  ribbonAnchorFalloff?: number; // How strongly anchors influence step size
+  ribbonSeed?: number; // Deterministic seed for ribbon noise / distribution
   shapeFillLineWidth?: number; // Stroke width for contour/lines fills (px)
   shapeFillPixelMode?: boolean; // true = snap fill vertices to pixel centers
   shapeFillUseSampledColor?: boolean; // true = sample canvas color, false = use selected brush color
@@ -478,7 +491,7 @@ export interface BrushSettings {
   spamCustomText?: string; // Custom text to use instead of preset content
   
   // Shape gradient mode settings
-  shapeGradientMode?: 'contour' | 'lines' | 'lines2' | 'mesh' | 'triangle' | 'crosshatch' | 'flow'; // Mode for shape gradient brushes ('mesh' kept for legacy projects)
+  shapeGradientMode?: 'contour' | 'lines' | 'lines2' | 'mesh' | 'triangle' | 'crosshatch' | 'flow' | 'inkRibbons'; // Mode for shape gradient brushes ('mesh' kept for legacy projects)
 }
 
 export interface ComponentParams {
@@ -622,7 +635,7 @@ export interface PolygonGradientState {
   tempSpacing?: number;
   spacingReferenceDistance?: number;
   spacingReferenceSpacing?: number;
-  mode?: 'crosshatch' | 'triangle' | 'flow';
+  mode?: 'crosshatch' | 'triangle' | 'flow' | 'inkRibbons';
   rotationReferenceAngle?: number;
   rotationInitialRotation?: number;
   tempSize?: number;

@@ -2060,7 +2060,7 @@ export const exportProjectAsWebGL = async (
       continue;
     }
     const metrics = metricsMap.get(layer.id) ?? computeLayerExportMetrics(layer, options.project);
-    const sourceSize = metrics.surfaceSize;
+    let sourceSize = metrics.surfaceSize;
     const contentBounds = metrics.contentBounds;
     const texture = await captureLayerTexture(layer);
 
@@ -2068,12 +2068,22 @@ export const exportProjectAsWebGL = async (
 
     const alignment = cloneLayerAlignment(layer.alignment);
     const percentOffset = computePercentOffsetFromMetrics(metrics);
-    alignment.offsetPercent = percentOffset;
+    if (alignment.fit === 'percent') {
+      alignment.offsetPercent = alignment.offsetPercent ?? percentOffset;
+    } else {
+      alignment.offsetPercent = percentOffset;
+    }
 
     if (alignment.fit === 'percent') {
       alignment.horizontal = 'left';
       alignment.vertical = 'top';
       alignment.offsetPx = { x: 0, y: 0 };
+      if (contentBounds) {
+        sourceSize = {
+          width: Math.max(1, Math.round(contentBounds.width)),
+          height: Math.max(1, Math.round(contentBounds.height))
+        };
+      }
     }
 
     const frameBase = {
@@ -2085,14 +2095,38 @@ export const exportProjectAsWebGL = async (
 
     const clampedFrame = clampFrameToViewport(frameBase, resolvedViewport);
 
+    const viewportForTransform = alignment.fit === 'percent'
+      ? {
+          width: Math.max(1, Math.round(resolvedViewport.width)),
+          height: Math.max(1, Math.round(resolvedViewport.height))
+        }
+      : {
+          width: Math.max(1, Math.round(clampedFrame.width)),
+          height: Math.max(1, Math.round(clampedFrame.height))
+        };
+
     const transform = computeLayerTransform(
       {
         width: Math.max(1, Math.round(contentBounds.width)),
         height: Math.max(1, Math.round(contentBounds.height))
       },
-      { width: clampedFrame.width, height: clampedFrame.height },
+      viewportForTransform,
       alignment
     );
+
+    if (alignment.fit === 'percent') {
+      console.log('[EXPORTER] Percent-aligned layer:', {
+        layerId: layer.id,
+        alignment,
+        sourceSize,
+        contentBounds,
+        frameBeforeClamping: frameBase,
+        frameAfterClamping: clampedFrame,
+        viewportForTransform,
+        computedTransform: transform,
+        resolvedViewport
+      });
+    }
 
     const baseLayerMetadata: WebGLLayerMetadata = {
       id: layer.id,

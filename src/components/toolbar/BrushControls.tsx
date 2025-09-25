@@ -1143,6 +1143,7 @@ const BrushControls = () => {
               { label: 'Lines', value: 'lines' },
               { label: 'Lines 2', value: 'lines2' },
               { label: 'Flow', value: 'flow' },
+              { label: 'Ribbons', value: 'inkRibbons' },
               { label: 'Delaunator', value: 'triangle' },
               { label: 'Hatch', value: 'crosshatch' }
             ]}
@@ -1150,7 +1151,7 @@ const BrushControls = () => {
               ? 'lines'
               : activeSettings.shapeGradientMode) || 'contour'}
             onChange={(value) => setActiveSettings({ 
-              shapeGradientMode: value as 'contour' | 'lines' | 'lines2' | 'triangle' | 'crosshatch' | 'flow' 
+              shapeGradientMode: value as 'contour' | 'lines' | 'lines2' | 'triangle' | 'crosshatch' | 'flow' | 'inkRibbons' 
             })}
             className="w-full"
           />
@@ -1181,7 +1182,7 @@ const BrushControls = () => {
           </div>
         </div>
 
-        {activeSettings.shapeGradientMode !== 'crosshatch' && (
+        {activeSettings.shapeGradientMode !== 'crosshatch' && activeSettings.shapeGradientMode !== 'inkRibbons' && (
           <div className="mb-2">
             <div className="flex items-center gap-2">
               <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
@@ -1434,6 +1435,258 @@ const BrushControls = () => {
               <span className="text-[#9FA0A4]" style={{ fontSize: '12px' }}>
                 Rotate streamlines 90° for cross-flow patterns.
               </span>
+            </div>
+          </>
+        )}
+
+        {activeSettings.shapeGradientMode === 'inkRibbons' && (
+          <>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Field Step
+                </label>
+                <ProgressSlider
+                  value={activeSettings.ribbonSdfStep ?? 8}
+                  min={4}
+                  max={64}
+                  step={2}
+                  onChange={(value) =>
+                    setActiveSettings({ ribbonSdfStep: Math.round(value) })
+                  }
+                  aria-label="Ribbon Field Step"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Seed Spacing
+                </label>
+                <ProgressSlider
+                  value={activeSettings.ribbonSeedSpacing ?? 26}
+                  min={6}
+                  max={140}
+                  step={2}
+                  onChange={(value) =>
+                    setActiveSettings({ ribbonSeedSpacing: Math.round(value) })
+                  }
+                  aria-label="Ribbon Seed Spacing"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Step Length
+                </label>
+                <ProgressSlider
+                  value={activeSettings.ribbonStepSize ?? 3}
+                  min={0.4}
+                  max={10}
+                  step={0.1}
+                  onChange={(value) =>
+                    setActiveSettings({ ribbonStepSize: Number(value.toFixed(1)) })
+                  }
+                  aria-label="Ribbon Step Length"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Max Steps
+                </label>
+                <ProgressSlider
+                  value={activeSettings.ribbonMaxSteps ?? 620}
+                  min={50}
+                  max={1000}
+                  step={10}
+                  onChange={(value) =>
+                    setActiveSettings({ ribbonMaxSteps: Math.round(value) })
+                  }
+                  aria-label="Ribbon Max Steps"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Tangent
+                </label>
+                <ProgressSlider
+                  value={activeSettings.ribbonTangentWeight ?? 0.78}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  onChange={(value) =>
+                    setActiveSettings({ ribbonTangentWeight: Number(value.toFixed(2)) })
+                  }
+                  aria-label="Ribbon Tangent Weight"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Bias Angle
+                </label>
+                <ProgressSlider
+                  value={activeSettings.ribbonBiasAngle ?? 92}
+                  min={0}
+                  max={360}
+                  step={5}
+                  onChange={(value) =>
+                    setActiveSettings({ ribbonBiasAngle: Math.round(value) })
+                  }
+                  aria-label="Ribbon Bias Angle"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Noise Amt
+                </label>
+                <ProgressSlider
+                  value={activeSettings.ribbonNoiseStrength ?? 0.18}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  onChange={(value) =>
+                    setActiveSettings({ ribbonNoiseStrength: Number(value.toFixed(2)) })
+                  }
+                  aria-label="Ribbon Noise Strength"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Noise Scale
+                </label>
+                <ProgressSlider
+                  value={activeSettings.ribbonNoiseScale ?? 220}
+                  min={10}
+                  max={400}
+                  step={10}
+                  onChange={(value) =>
+                    setActiveSettings({ ribbonNoiseScale: Math.round(value) })
+                  }
+                  aria-label="Ribbon Noise Scale"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Octaves
+                </label>
+                <ProgressSlider
+                  value={activeSettings.ribbonNoiseOctaves ?? 3}
+                  min={1}
+                  max={6}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ ribbonNoiseOctaves: Math.round(value) })
+                  }
+                  aria-label="Ribbon Noise Octaves"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Line Width
+                </label>
+                <ProgressSlider
+                  value={activeSettings.ribbonLineWidth ?? activeSettings.shapeFillLineWidth ?? 1.55}
+                  min={0.5}
+                  max={6}
+                  step={0.1}
+                  onChange={(value) =>
+                    setActiveSettings({ ribbonLineWidth: Number(value.toFixed(2)) })
+                  }
+                  aria-label="Ribbon Line Width"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Seed Jitter
+                </label>
+                <ProgressSlider
+                  value={activeSettings.ribbonJitter ?? 0.25}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  onChange={(value) =>
+                    setActiveSettings({ ribbonJitter: Number(value.toFixed(2)) })
+                  }
+                  aria-label="Ribbon Seed Jitter"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Anchor Ease
+                </label>
+                <ProgressSlider
+                  value={activeSettings.ribbonAnchorFalloff ?? 0.28}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  onChange={(value) =>
+                    setActiveSettings({ ribbonAnchorFalloff: Number(value.toFixed(2)) })
+                  }
+                  aria-label="Ribbon Anchor Falloff"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Seed
+                </label>
+                <Input
+                  type="number"
+                  variant="compact"
+                  value={Math.round(activeSettings.ribbonSeed ?? 2025)}
+                  min="0"
+                  max="4294967295"
+                  onChange={(e) => {
+                    const parsed = parseInt(e.target.value, 10);
+                    setActiveSettings({ ribbonSeed: Number.isFinite(parsed) ? parsed : 2025 });
+                  }}
+                  className="w-24 bg-[#4a4a4a] border-none focus:outline-none h-6 text-[#D9D9D9]"
+                />
+              </div>
             </div>
           </>
         )}

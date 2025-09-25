@@ -154,4 +154,105 @@ describe('useAppStore updateLayerAlignment percent offsets', () => {
     expect(updatedLayer.alignment.fit).toBe('none');
     expect(updatedLayer.alignment.offsetPercent).toBeUndefined();
   });
+
+  it('recomputes percent offsets from pixel offsets when layers are replaced', () => {
+    const layer = createLayer();
+    const layerWithOffsets: Layer = {
+      ...layer,
+      alignment: {
+        ...layer.alignment,
+        fit: 'percent',
+        offsetPx: { x: 5, y: 2 },
+        offsetPercent: { x: 0, y: 0 }
+      }
+    };
+
+    useAppStore.setState((state) => ({
+      layers: [],
+      activeLayerId: layerWithOffsets.id,
+      project: state.project
+        ? {
+            ...state.project,
+            width,
+            height,
+            layers: [layerWithOffsets]
+          }
+        : state.project,
+      layersNeedRecomposition: false
+    }));
+
+    useAppStore.getState().setLayers([layerWithOffsets]);
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    expect(updatedLayer.alignment.offsetPercent).toEqual({ x: 50, y: 25 });
+  });
+
+  it('derives percent offsets from frame data when pixels are stale', () => {
+    const layer = createLayer();
+    const layerWithFrame = {
+      ...layer,
+      alignment: {
+        ...layer.alignment,
+        fit: 'percent',
+        offsetPx: { x: 0, y: 0 },
+        offsetPercent: { x: 0, y: 0 }
+      },
+      frame: {
+        x: 3,
+        y: 2
+      }
+    } as Layer & { frame: { x: number; y: number } };
+
+    useAppStore.setState((state) => ({
+      layers: [],
+      activeLayerId: layerWithFrame.id,
+      project: state.project
+        ? {
+            ...state.project,
+            width,
+            height,
+            layers: [layerWithFrame]
+          }
+        : state.project,
+      layersNeedRecomposition: false
+    }));
+
+    useAppStore.getState().setLayers([layerWithFrame]);
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    expect(updatedLayer.alignment.offsetPercent).toEqual({ x: 30, y: 25 });
+  });
+
+  it('keeps percent offsets in sync after updateLayer modifies pixel offsets', () => {
+    const layer = createLayer();
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      project: state.project
+        ? {
+            ...state.project,
+            width,
+            height,
+            layers: [layer]
+          }
+        : state.project,
+      layersNeedRecomposition: false
+    }));
+
+    const { updateLayerAlignment, updateLayer } = useAppStore.getState();
+    updateLayerAlignment(layer.id, { ...layer.alignment, fit: 'percent' });
+
+    const targetLayer = useAppStore.getState().layers[0];
+    updateLayer(layer.id, {
+      alignment: {
+        ...targetLayer.alignment,
+        offsetPx: { x: 3, y: 4 },
+        offsetPercent: { x: 0, y: 0 }
+      }
+    });
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    expect(updatedLayer.alignment.offsetPercent).toEqual({ x: 30, y: 50 });
+  });
 });

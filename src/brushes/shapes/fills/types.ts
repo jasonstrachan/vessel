@@ -86,3 +86,10 @@ export interface FlowFillParams extends PolygonFillBase {
   strokeColorOverride?: string;
   isPreview?: boolean;
 }
+
+export interface InkRibbonsFillParams extends PolygonFillBase {
+  dependencies: ShapeFillDependencies;
+  randomSeed?: number;
+  strokeColorOverride?: string;
+  isPreview?: boolean;
+}
