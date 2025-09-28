@@ -144,6 +144,17 @@ describe('useAppStore updateLayerAlignment percent offsets', () => {
     }));
 
     const { updateLayerAlignment } = useAppStore.getState();
+    updateLayerAlignment(layer.id, {
+      ...layer.alignment,
+      positioning: 'anchor'
+    });
+
+    const anchorAligned = useAppStore.getState().layers[0].alignment;
+    updateLayerAlignment(layer.id, {
+      ...anchorAligned,
+      fit: 'percent'
+    });
+
     const currentAlignment = useAppStore.getState().layers[0].alignment;
     updateLayerAlignment(layer.id, {
       ...currentAlignment,
@@ -153,6 +164,37 @@ describe('useAppStore updateLayerAlignment percent offsets', () => {
     const updatedLayer = useAppStore.getState().layers[0];
     expect(updatedLayer.alignment.fit).toBe('none');
     expect(updatedLayer.alignment.offsetPercent).toBeUndefined();
+  });
+
+  it('keeps percent offsets when positioning is auto with non-percent fit', () => {
+    const layer = createLayer();
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      project: state.project
+        ? {
+            ...state.project,
+            width,
+            height,
+            layers: [layer]
+          }
+        : state.project,
+      layersNeedRecomposition: false
+    }));
+
+    const { updateLayerAlignment } = useAppStore.getState();
+    const baseAlignment = useAppStore.getState().layers[0].alignment;
+    updateLayerAlignment(layer.id, {
+      ...baseAlignment,
+      positioning: 'auto',
+      fit: 'contain'
+    });
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    expect(updatedLayer.alignment.positioning).toBe('auto');
+    expect(updatedLayer.alignment.fit).toBe('contain');
+    expect(updatedLayer.alignment.offsetPercent).toBeDefined();
   });
 
   it('recomputes percent offsets from pixel offsets when layers are replaced', () => {

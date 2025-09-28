@@ -41,7 +41,7 @@ const syncPercentOffsetsFromPixels = (layers: Layer[], project: Project | null):
 
   const syncedLayers = layers.map(layer => {
     const alignment = layer.alignment;
-    if (!alignment || alignment.fit !== 'percent') {
+    if (!alignment || (alignment.fit !== 'percent' && alignment.positioning !== 'auto')) {
       return layer;
     }
 
@@ -434,6 +434,7 @@ export interface AppState {
   // Layer Management
   layers: Layer[];
   activeLayerId: string | null;
+  selectedLayerIds: string[];
   currentLayer: number;
   addLayer: (layer: Omit<Layer, 'id' | 'order'>) => string;
   removeLayer: (id: string) => void;
@@ -442,6 +443,7 @@ export interface AppState {
   setLayers: (layers: Layer[]) => void;
   updateLayerAlignment: (layerId: string, alignment: LayerAlignmentSettings) => void;
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
+  setSelectedLayerIds: (layerIds: string[]) => void;
   
   // Color Cycle Layer Management
   initColorCycleForLayer: (layerId: string, width: number, height: number) => void;
@@ -1787,6 +1789,7 @@ export const useAppStore = create<AppState>()(
       // Layer Management - Start empty for SSR compatibility
       layers: [],
       activeLayerId: null,
+      selectedLayerIds: [],
       currentLayer: 0,
       addLayer: (layer) => {
         if (__DEV__) {
@@ -1946,12 +1949,23 @@ export const useAppStore = create<AppState>()(
           const newActiveLayerId = state.activeLayerId === id ? 
             updatedLayers.find(l => l.id !== id)?.id || null : 
             state.activeLayerId;
+
+          const filteredSelection = state.selectedLayerIds.filter(selectedId => {
+            if (selectedId === id) {
+              return false;
+            }
+            return updatedLayers.some(layer => layer.id === selectedId);
+          });
+          const nextSelection = filteredSelection.length > 0
+            ? filteredSelection
+            : (newActiveLayerId ? [newActiveLayerId] : []);
           
           trackLayerChanges('removeLayer RETURN', updatedLayers);
           const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
           return {
             layers: syncedLayers,
-            activeLayerId: newActiveLayerId
+            activeLayerId: newActiveLayerId,
+            selectedLayerIds: nextSelection
             // Remove the project update entirely - only update top-level layers
           };
         });
@@ -2121,6 +2135,15 @@ export const useAppStore = create<AppState>()(
           // Remove the project update entirely - only update top-level layers
         };
       }),
+      setSelectedLayerIds: (layerIds) => set((state) => {
+        const validIds = layerIds.filter((layerId, index, list) => {
+          return list.indexOf(layerId) === index && state.layers.some(layer => layer.id === layerId);
+        });
+
+        return {
+          selectedLayerIds: validIds
+        };
+      }),
       setActiveLayer: (id) => set((state) => {
         const layer = state.layers.find(l => l.id === id);
         if (!layer) {
@@ -2232,6 +2255,7 @@ export const useAppStore = create<AppState>()(
 
           const result = {
             activeLayerId: id,
+            selectedLayerIds: [id],
             tools: {
               ...state.tools,
               lastRegularTool: savedRegularTool,
@@ -2283,6 +2307,7 @@ export const useAppStore = create<AppState>()(
 
         const result = {
           activeLayerId: id,
+          selectedLayerIds: [id],
           tools: nextTools
           // DO NOT return layers unless we're actually changing them
         };
@@ -2332,7 +2357,20 @@ export const useAppStore = create<AppState>()(
         trackLayerChanges('setLayers CALLED', fixedLayers);
         const normalizedLayers = normalizeLayers(fixedLayers);
         const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, state.project ?? null);
-        set({ layers: syncedLayers });
+        const validSelection = state.selectedLayerIds.filter(id => syncedLayers.some(layer => layer.id === id));
+        const ensuredActiveId = state.activeLayerId && syncedLayers.some(layer => layer.id === state.activeLayerId)
+          ? state.activeLayerId
+          : syncedLayers[0]?.id ?? null;
+        const nextSelection = validSelection.length > 0
+          ? validSelection
+          : ensuredActiveId
+            ? [ensuredActiveId]
+            : [];
+
+        set({
+          layers: syncedLayers,
+          selectedLayerIds: nextSelection
+        });
       },
       updateLayerAlignment: (layerId, alignment) => set((state) => {
         const targetLayer = state.layers.find(layer => layer.id === layerId);
@@ -2344,13 +2382,14 @@ export const useAppStore = create<AppState>()(
         let nextAlignment = cloneLayerAlignment(alignment);
 
         const previousAlignment = targetLayer.alignment;
+        const becameAuto = nextAlignment.positioning === 'auto' && previousAlignment.positioning !== 'auto';
         const fitChangedToPercent = nextAlignment.fit === 'percent' && previousAlignment.fit !== 'percent';
         const previousPercent = previousAlignment.offsetPercent ?? { x: 0, y: 0 };
         const nextPercent = nextAlignment.offsetPercent ?? { x: 0, y: 0 };
         const offsetPercentChanged = previousPercent.x !== nextPercent.x || previousPercent.y !== nextPercent.y;
 
         if (state.project) {
-          if (fitChangedToPercent && !offsetPercentChanged) {
+          if ((becameAuto || fitChangedToPercent) && !offsetPercentChanged) {
             try {
               const percentOffset = computeLayerPercentOffset(targetLayer, state.project);
               nextAlignment = {
@@ -2362,7 +2401,7 @@ export const useAppStore = create<AppState>()(
             }
           }
 
-          if (nextAlignment.fit === 'percent') {
+          if (nextAlignment.positioning === 'auto' || nextAlignment.fit === 'percent') {
             const percent = nextAlignment.offsetPercent ?? { x: 0, y: 0 };
             const width = Math.max(1, state.project.width);
             const height = Math.max(1, state.project.height);
@@ -2380,7 +2419,7 @@ export const useAppStore = create<AppState>()(
               offsetPercent: undefined
             };
           }
-        } else if (nextAlignment.fit !== 'percent') {
+        } else if (nextAlignment.positioning !== 'auto' && nextAlignment.fit !== 'percent') {
           nextAlignment = {
             ...nextAlignment,
             offsetPercent: undefined
@@ -3496,6 +3535,7 @@ export const useAppStore = create<AppState>()(
             project: normalizedProject,
             layers: syncedLayers,
             activeLayerId: loadedProject.layers[0]?.id || null,
+            selectedLayerIds: loadedProject.layers[0]?.id ? [loadedProject.layers[0].id] : [],
             layersNeedRecomposition: true,
             // Restore view state if available
             canvas: loadedProject.viewState ? {
@@ -3625,6 +3665,7 @@ export const useAppStore = create<AppState>()(
           project: normalizedProject,
           layers: syncedLayers, // Only set top-level layers
           activeLayerId: defaultLayerId,
+          selectedLayerIds: defaultLayerId ? [defaultLayerId] : [],
           canvas: {
             ...get().canvas,
             canvasWidth: width,
@@ -3810,7 +3851,7 @@ export const useAppStore = create<AppState>()(
                   }
                   let nextAlignment = layer.alignment;
                   const project = currentState.project;
-                  if (project && nextAlignment?.fit === 'percent') {
+                  if (project && nextAlignment && (nextAlignment.positioning === 'auto' || nextAlignment.fit === 'percent')) {
                     try {
                       const layerForMetrics: Layer = {
                         ...layer,

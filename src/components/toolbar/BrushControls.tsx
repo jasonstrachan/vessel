@@ -1466,7 +1466,7 @@ const BrushControls = () => {
                   Seed Spacing
                 </label>
                 <ProgressSlider
-                  value={activeSettings.ribbonSeedSpacing ?? 26}
+                  value={activeSettings.ribbonSeedSpacing ?? 18}
                   min={6}
                   max={140}
                   step={2}
@@ -1485,7 +1485,7 @@ const BrushControls = () => {
                   Step Length
                 </label>
                 <ProgressSlider
-                  value={activeSettings.ribbonStepSize ?? 3}
+                  value={activeSettings.ribbonStepSize ?? 1.7}
                   min={0.4}
                   max={10}
                   step={0.1}
@@ -1504,7 +1504,7 @@ const BrushControls = () => {
                   Max Steps
                 </label>
                 <ProgressSlider
-                  value={activeSettings.ribbonMaxSteps ?? 620}
+                  value={activeSettings.ribbonMaxSteps ?? 370}
                   min={50}
                   max={1000}
                   step={10}
@@ -1523,7 +1523,7 @@ const BrushControls = () => {
                   Tangent
                 </label>
                 <ProgressSlider
-                  value={activeSettings.ribbonTangentWeight ?? 0.78}
+                  value={activeSettings.ribbonTangentWeight ?? 0.6}
                   min={0}
                   max={1}
                   step={0.05}
@@ -1542,7 +1542,7 @@ const BrushControls = () => {
                   Bias Angle
                 </label>
                 <ProgressSlider
-                  value={activeSettings.ribbonBiasAngle ?? 92}
+                  value={activeSettings.ribbonBiasAngle ?? 80}
                   min={0}
                   max={360}
                   step={5}
@@ -1561,7 +1561,7 @@ const BrushControls = () => {
                   Noise Amt
                 </label>
                 <ProgressSlider
-                  value={activeSettings.ribbonNoiseStrength ?? 0.18}
+                  value={activeSettings.ribbonNoiseStrength ?? 0.45}
                   min={0}
                   max={1}
                   step={0.05}
@@ -1618,7 +1618,7 @@ const BrushControls = () => {
                   Line Width
                 </label>
                 <ProgressSlider
-                  value={activeSettings.ribbonLineWidth ?? activeSettings.shapeFillLineWidth ?? 1.55}
+                  value={activeSettings.ribbonLineWidth ?? activeSettings.shapeFillLineWidth ?? 1.6}
                   min={0.5}
                   max={6}
                   step={0.1}
@@ -1656,7 +1656,7 @@ const BrushControls = () => {
                   Anchor Ease
                 </label>
                 <ProgressSlider
-                  value={activeSettings.ribbonAnchorFalloff ?? 0.28}
+                  value={activeSettings.ribbonAnchorFalloff ?? 0.3}
                   min={0}
                   max={1}
                   step={0.05}

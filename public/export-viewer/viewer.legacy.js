@@ -15,6 +15,7 @@ const createLayoutRuntimeFallback = () => {
       fit: alignment.fit || 'none',
       horizontal: alignment.horizontal || 'left',
       vertical: alignment.vertical || 'top',
+      positioning: alignment.positioning || 'anchor',
       offsetPx: alignment.offsetPx,
       offsetPercent: alignment.offsetPercent
     };
@@ -79,10 +80,13 @@ const createLayoutRuntimeFallback = () => {
     const extraX = viewportWidth - scaledWidth;
     const extraY = viewportHeight - scaledHeight;
 
+    const usesPercentFit = safeAlignment.fit === 'percent';
+    const usesAutoPositioning = safeAlignment.positioning === 'auto';
+
     let translateX = 0;
     let translateY = 0;
 
-    if (safeAlignment.fit !== 'percent') {
+    if (!usesPercentFit && !usesAutoPositioning) {
       switch (safeAlignment.horizontal) {
         case 'center':
           translateX = extraX / 2;
@@ -110,17 +114,22 @@ const createLayoutRuntimeFallback = () => {
       }
     }
 
-    if (safeAlignment.fit === 'percent') {
+    if (usesPercentFit || usesAutoPositioning) {
       const percent = safeAlignment.offsetPercent ?? { x: 0, y: 0 };
       const percentX = Math.max(-100, Math.min(100, Number(percent.x) || 0));
       const percentY = Math.max(-100, Math.min(100, Number(percent.y) || 0));
-      const availableX = viewportWidth - scaledWidth;
-      const availableY = viewportHeight - scaledHeight;
-      translateX = availableX * (percentX / 100);
-      translateY = availableY * (percentY / 100);
+
+      if (usesPercentFit) {
+        translateX = viewportWidth * (percentX / 100);
+        translateY = viewportHeight * (percentY / 100);
+      } else {
+        translateX += extraX * (percentX / 100);
+        translateY += extraY * (percentY / 100);
+      }
     }
 
-    if (safeAlignment.offsetPx) {
+    const hasOffsetPx = safeAlignment.offsetPx && !usesPercentFit && !usesAutoPositioning;
+    if (hasOffsetPx) {
       translateX += Number(safeAlignment.offsetPx.x) || 0;
       translateY += Number(safeAlignment.offsetPx.y) || 0;
     }

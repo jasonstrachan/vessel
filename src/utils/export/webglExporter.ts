@@ -1,5 +1,5 @@
 import { cloneExportLayout, cloneLayerAlignment } from '@/utils/layoutDefaults';
-import { computeLayerTransform, type LayerTransform } from '@/utils/layerAlignment';
+import type { LayerTransform } from '@/utils/layerAlignment';
 import { clampPercent, computeLayerContentMetrics, computePercentOffsetFromMetrics } from '@/utils/layerMetrics';
 import type { LayerContentMetrics } from '@/utils/layerMetrics';
 import type {
@@ -44,7 +44,7 @@ const loadJSZip = async (): Promise<JSZipConstructor> => {
   return jszipCtorPromise;
 };
 
-type WebGLViewportMode = 'project' | 'fill' | 'square' | 'widescreen' | 'custom';
+type WebGLViewportMode = 'project' | 'fill';
 
 interface WebGLViewport {
   width: number;
@@ -191,6 +191,7 @@ export interface WebGLLayerMetadata {
   visible?: boolean;
   opacity?: number;
   blendMode?: Layer['blendMode'];
+  layoutMode?: LayerAlignmentSettings['fit'];
   alignment?: Layer['alignment'];
   frame: { x: number; y: number; width: number; height: number };
   transform?: Partial<LayerTransform>;
@@ -212,6 +213,7 @@ interface WebGLExportAnimationMetadata {
 export interface WebGLExportMetadata {
   format: 'tinybrush-webgl';
   version: 1;
+  transformStrategy: 'pre-computed' | 'dynamic';
   exportedAt: string;
   project: {
     id: string;
@@ -303,7 +305,6 @@ const normalizeBrushFlowDirection = (direction: unknown): 'forward' | 'reverse' 
 };
 
 const DEFAULT_LAYER_OPACITY = 1;
-const DEFAULT_LAYER_VISIBILITY = true;
 const DEFAULT_BLEND_MODES = new Set<Layer['blendMode'] | 'normal'>(['source-over', 'normal']);
 
 const isSerializedGradient = (value: unknown): value is SerializedGradientStops => {
@@ -376,23 +377,13 @@ const stripLayerDefaults = (layer: WebGLLayerMetadata): WebGLLayerMetadata => {
     sourceSize: layer.sourceSize
   };
 
-  if (layer.alignment) {
-    const alignment = { ...layer.alignment } as LayerAlignmentSettings;
-    const percent = alignment.offsetPercent;
-    if (percent) {
-      const clamped = {
-        x: clampPercent(percent.x ?? 0),
-        y: clampPercent(percent.y ?? 0)
-      };
-      const isZero = clamped.x === 0 && clamped.y === 0;
-      if (isZero) {
-        delete alignment.offsetPercent;
-      } else {
-        alignment.offsetPercent = clamped;
-      }
-    }
-    stripped.alignment = alignment;
-  }
+  const alignment = cloneLayerAlignment(layer.alignment);
+  const percent = alignment.offsetPercent ?? { x: 0, y: 0 };
+  alignment.offsetPercent = {
+    x: clampPercent(percent.x ?? 0),
+    y: clampPercent(percent.y ?? 0)
+  };
+  stripped.alignment = alignment;
 
   if (layer.contentBounds) {
     const bounds = layer.contentBounds;
@@ -406,8 +397,10 @@ const stripLayerDefaults = (layer: WebGLLayerMetadata): WebGLLayerMetadata => {
     }
   }
 
-  if (layer.visible === false && DEFAULT_LAYER_VISIBILITY) {
-    stripped.visible = false;
+  stripped.visible = layer.visible !== undefined ? Boolean(layer.visible) : true;
+
+  if (layer.layoutMode && layer.layoutMode !== 'none') {
+    stripped.layoutMode = layer.layoutMode;
   }
 
   if (typeof layer.opacity === 'number' && layer.opacity !== DEFAULT_LAYER_OPACITY) {
@@ -668,8 +661,18 @@ const computeLayerExportMetrics = (layer: Layer, project: Project): LayerExportM
 
 const clampFrameToViewport = (
   frame: { x: number; y: number; width: number; height: number },
-  viewport: WebGLViewport
+  viewport: WebGLViewport,
+  alignmentFit?: LayerAlignmentSettings['fit']
 ) => {
+  if (alignmentFit === 'percent') {
+    return {
+      x: Math.round(frame.x),
+      y: Math.round(frame.y),
+      width: Math.max(1, Math.round(frame.width)),
+      height: Math.max(1, Math.round(frame.height))
+    };
+  }
+
   const width = Math.max(1, Math.round(frame.width));
   const height = Math.max(1, Math.round(frame.height));
 
@@ -2060,7 +2063,7 @@ export const exportProjectAsWebGL = async (
       continue;
     }
     const metrics = metricsMap.get(layer.id) ?? computeLayerExportMetrics(layer, options.project);
-    let sourceSize = metrics.surfaceSize;
+    const sourceSize = metrics.surfaceSize;
     const contentBounds = metrics.contentBounds;
     const texture = await captureLayerTexture(layer);
 
@@ -2068,62 +2071,39 @@ export const exportProjectAsWebGL = async (
 
     const alignment = cloneLayerAlignment(layer.alignment);
     const percentOffset = computePercentOffsetFromMetrics(metrics);
-    if (alignment.fit === 'percent') {
+    if (alignment.positioning === 'auto' || alignment.fit === 'percent') {
       alignment.offsetPercent = alignment.offsetPercent ?? percentOffset;
     } else {
       alignment.offsetPercent = percentOffset;
     }
 
-    if (alignment.fit === 'percent') {
-      alignment.horizontal = 'left';
-      alignment.vertical = 'top';
-      alignment.offsetPx = { x: 0, y: 0 };
-      if (contentBounds) {
-        sourceSize = {
-          width: Math.max(1, Math.round(contentBounds.width)),
-          height: Math.max(1, Math.round(contentBounds.height))
-        };
-      }
-    }
-
     const frameBase = {
-      x: Math.round(alignment.offsetPx?.x ?? 0),
-      y: Math.round(alignment.offsetPx?.y ?? 0),
+      x: 0,
+      y: 0,
       width: Math.max(1, Math.round(sourceSize.width)),
       height: Math.max(1, Math.round(sourceSize.height))
     };
 
-    const clampedFrame = clampFrameToViewport(frameBase, resolvedViewport);
-
-    const viewportForTransform = alignment.fit === 'percent'
+    const frameForViewport = alignment.fit === 'percent'
       ? {
-          width: Math.max(1, Math.round(resolvedViewport.width)),
-          height: Math.max(1, Math.round(resolvedViewport.height))
+          x: Math.round(frameBase.x),
+          y: Math.round(frameBase.y),
+          width: Math.max(1, Math.round(frameBase.width)),
+          height: Math.max(1, Math.round(frameBase.height))
         }
-      : {
-          width: Math.max(1, Math.round(clampedFrame.width)),
-          height: Math.max(1, Math.round(clampedFrame.height))
-        };
+      : clampFrameToViewport(frameBase, resolvedViewport, alignment.fit);
 
-    const transform = computeLayerTransform(
-      {
-        width: Math.max(1, Math.round(contentBounds.width)),
-        height: Math.max(1, Math.round(contentBounds.height))
-      },
-      viewportForTransform,
-      alignment
-    );
 
-    if (alignment.fit === 'percent') {
+    const finalFrame = frameForViewport;
+
+    if (alignment.positioning === 'auto' || alignment.fit === 'percent') {
       console.log('[EXPORTER] Percent-aligned layer:', {
         layerId: layer.id,
         alignment,
         sourceSize,
         contentBounds,
         frameBeforeClamping: frameBase,
-        frameAfterClamping: clampedFrame,
-        viewportForTransform,
-        computedTransform: transform,
+        frameAfterClamping: frameForViewport,
         resolvedViewport
       });
     }
@@ -2135,9 +2115,9 @@ export const exportProjectAsWebGL = async (
       visible: layer.visible,
       opacity: layer.opacity,
       blendMode: layer.blendMode,
+      layoutMode: alignment.fit ?? 'none',
       alignment,
-      frame: clampedFrame,
-      transform,
+      frame: finalFrame,
       sourceSize,
       contentBounds,
       assets: texture ? { texture } : undefined,
@@ -2176,6 +2156,7 @@ export const exportProjectAsWebGL = async (
   const metadata: WebGLExportMetadata = {
     format: 'tinybrush-webgl',
     version: 1,
+    transformStrategy: 'dynamic',
     exportedAt: new Date().toISOString(),
     project: {
       id: options.project.id,

@@ -195,6 +195,9 @@ const expandMinifiedProperties = (value) => {
   const expanded = {};
   Object.entries(value).forEach(([key, nested]) => {
     const restoredKey = PROPERTY_UNMINIFY_MAP[key] || key;
+    if (restoredKey in expanded && restoredKey !== key) {
+      return;
+    }
     expanded[restoredKey] = expandMinifiedProperties(nested);
   });
   return expanded;
@@ -266,6 +269,7 @@ const LayoutEngine = (() => {
     fit: 'none',
     horizontal: 'left',
     vertical: 'top',
+    positioning: 'anchor',
     offsetPx: { x: 0, y: 0 },
     offsetPercent: { x: 0, y: 0 }
   });
@@ -342,27 +346,22 @@ const LayoutEngine = (() => {
 
     const scaledWidth = contentWidth * scaleX;
     const scaledHeight = contentHeight * scaleY;
+    const extraX = viewportWidth - scaledWidth;
+    const extraY = viewportHeight - scaledHeight;
 
-    let translateX = alignment.offsetPx.x;
-    let translateY = alignment.offsetPx.y;
+    const usesPercentFit = alignment.fit === 'percent';
+    const usesAutoPositioning = alignment.positioning === 'auto';
 
-    if (alignment.fit === 'percent') {
-      const percentX = clamp(alignment.offsetPercent.x / 100, -1, 1);
-      const percentY = clamp(alignment.offsetPercent.y / 100, -1, 1);
-      const availableX = viewportWidth - scaledWidth;
-      const availableY = viewportHeight - scaledHeight;
-      translateX += availableX * percentX;
-      translateY += availableY * percentY;
-    } else {
-      const extraX = viewportWidth - scaledWidth;
-      const extraY = viewportHeight - scaledHeight;
+    let translateX = 0;
+    let translateY = 0;
 
+    if (!usesPercentFit && !usesAutoPositioning) {
       switch (alignment.horizontal) {
         case 'center':
-          translateX += extraX / 2;
+          translateX = extraX / 2;
           break;
         case 'right':
-          translateX += extraX;
+          translateX = extraX;
           break;
         default:
           break;
@@ -370,14 +369,33 @@ const LayoutEngine = (() => {
 
       switch (alignment.vertical) {
         case 'center':
-          translateY += extraY / 2;
+          translateY = extraY / 2;
           break;
         case 'bottom':
-          translateY += extraY;
+          translateY = extraY;
           break;
         default:
           break;
       }
+    }
+
+    if (usesPercentFit || usesAutoPositioning) {
+      const percent = alignment.offsetPercent || { x: 0, y: 0 };
+      const percentX = clamp(percent.x / 100, -1, 1);
+      const percentY = clamp(percent.y / 100, -1, 1);
+
+      if (usesPercentFit) {
+        translateX = viewportWidth * percentX;
+        translateY = viewportHeight * percentY;
+      } else {
+        translateX += extraX * percentX;
+        translateY += extraY * percentY;
+      }
+    }
+
+    if (!usesPercentFit && !usesAutoPositioning) {
+      translateX += alignment.offsetPx.x;
+      translateY += alignment.offsetPx.y;
     }
 
     return {
@@ -389,7 +407,16 @@ const LayoutEngine = (() => {
     };
   };
 
-  const clampFrameToViewport = (frame, viewport) => {
+  const clampFrameToViewport = (frame, viewport, alignmentFit) => {
+    if (alignmentFit === 'percent') {
+      return {
+        x: Math.round(frame?.x ?? 0),
+        y: Math.round(frame?.y ?? 0),
+        width: Math.max(1, Math.round(frame?.width ?? 1)),
+        height: Math.max(1, Math.round(frame?.height ?? 1))
+      };
+    }
+
     const width = Math.max(1, Math.round(frame?.width ?? 1));
     const height = Math.max(1, Math.round(frame?.height ?? 1));
 
@@ -1063,7 +1090,7 @@ const applyLayerToContext = (ctx, source, layer, globalScale) => {
     return false;
   }
 
-  console.log('[RENDER] Applying layer:', {
+  diagnostics.log('[RENDER] Applying layer:', {
     layerId: layer.id,
     alignment: layer.alignment,
     frame: layer.frame,
@@ -1084,17 +1111,24 @@ const applyLayerToContext = (ctx, source, layer, globalScale) => {
   const cropWidth = Math.max(1, toFinite(bounds.width, source.width));
   const cropHeight = Math.max(1, toFinite(bounds.height, source.height));
 
-  const isPercentAligned = layer.alignment?.fit === 'percent';
-  let scaleX = globalScale?.x ?? globalScale ?? 1;
-  let scaleY = globalScale?.y ?? globalScale ?? 1;
+  const layoutMode = layer.layoutMode ?? layer.alignment?.fit;
+  const isPercentAligned = layoutMode === 'percent';
+  const isScaleObject = typeof globalScale === 'object' && globalScale !== null;
+  const resolvedScaleX = toFinite(isScaleObject ? globalScale?.x : globalScale, 1);
+  const resolvedScaleY = toFinite(
+    isScaleObject ? (globalScale?.y ?? globalScale?.x) : globalScale,
+    resolvedScaleX
+  );
+  let scaleX = resolvedScaleX;
+  let scaleY = resolvedScaleY;
   if (isPercentAligned) {
     const uniformScale = Math.min(scaleX, scaleY);
     scaleX = uniformScale;
     scaleY = uniformScale;
   }
 
-  const destX = (toFinite(frame.x, 0) + toFinite(transform.translateX, 0)) * scaleX;
-  const destY = (toFinite(frame.y, 0) + toFinite(transform.translateY, 0)) * scaleY;
+  const destX = toFinite(transform.translateX, toFinite(frame.x, 0)) * scaleX;
+  const destY = toFinite(transform.translateY, toFinite(frame.y, 0)) * scaleY;
   const destWidth = cropWidth * toFinite(transform.scaleX, 1) * scaleX;
   const destHeight = cropHeight * toFinite(transform.scaleY, 1) * scaleY;
   const rotation = toFinite(transform.rotation, 0);
@@ -1121,6 +1155,7 @@ const applyLayerToContext = (ctx, source, layer, globalScale) => {
 const RENDERER_KEY = Symbol('TinyBrushRenderer');
 const ACTIVE_CANVASES = new Map();
 let resizeListenerAttached = false;
+const POINTER_GUARD_EVENTS = ['mouseenter', 'mousemove', 'pointerdown', 'pointerup', 'focus'];
 
 const computeResponsiveScale = (metadata) => {
   if (typeof window === 'undefined' || !metadata?.viewport) {
@@ -1129,21 +1164,32 @@ const computeResponsiveScale = (metadata) => {
   const viewport = metadata.viewport;
   const width = Number(viewport.width) || 0;
   const height = Number(viewport.height) || 0;
-  if (!width || !height || viewport.mode === 'project') {
+  if (!width || !height) {
     return { x: 1, y: 1 };
   }
+  if (viewport.mode === 'project') {
+    return { x: 1, y: 1 };
+  }
+
   const viewportWidth = window.innerWidth || width;
   const viewportHeight = window.innerHeight || height;
-  const widthRatio = viewportWidth / width;
-  const heightRatio = viewportHeight / height;
-  if (viewport.mode === 'fill') {
-    return {
-      x: Number.isFinite(widthRatio) && widthRatio > 0 ? widthRatio : 1,
-      y: Number.isFinite(heightRatio) && heightRatio > 0 ? heightRatio : 1
-    };
+  if (!viewportWidth || !viewportHeight) {
+    return { x: 1, y: 1 };
   }
-  const base = Math.min(widthRatio, heightRatio, 1);
-  return { x: base > 0 ? base : 1, y: base > 0 ? base : 1 };
+
+  if (viewport.mode === 'fill') {
+    const windowAspect = viewportWidth / viewportHeight;
+    const contentAspect = width / height;
+    const coverScale = windowAspect > contentAspect
+      ? viewportWidth / width
+      : viewportHeight / height;
+    const safeCover = Number.isFinite(coverScale) && coverScale > 0 ? coverScale : 1;
+    return { x: safeCover, y: safeCover };
+  }
+
+  const containScale = Math.min(viewportWidth / width, viewportHeight / height);
+  const safeContain = Number.isFinite(containScale) && containScale > 0 ? containScale : 1;
+  return { x: safeContain, y: safeContain };
 };
 
 class TinyBrushViewer {
@@ -1176,7 +1222,8 @@ class TinyBrushViewer {
         frame: layer.frame ? deepClone(layer.frame) : null,
         transform: layer.transform ? deepClone(layer.transform) : null,
         sourceSize: layer.sourceSize ? deepClone(layer.sourceSize) : null,
-        contentBounds: layer.contentBounds ? deepClone(layer.contentBounds) : null
+        contentBounds: layer.contentBounds ? deepClone(layer.contentBounds) : null,
+        layoutMode: layer.layoutMode ?? null
       });
     });
 
@@ -1264,7 +1311,10 @@ class TinyBrushViewer {
       mode: this.metadata.viewport.mode
     };
 
-    console.log('[VIEWER] applyResolvedLayout called:', {
+    const declaredStrategy = this.metadata.transformStrategy;
+    const transformStrategy = declaredStrategy ?? 'legacy';
+
+    diagnostics.log('[VIEWER] applyResolvedLayout called:', {
       canvasSize: { width: this.canvas.width, height: this.canvas.height },
       scale: this.scale,
       computedViewport: viewport,
@@ -1274,14 +1324,37 @@ class TinyBrushViewer {
     this.layerEntries.forEach((entry) => {
       const layer = entry.layer;
       const original = this.originalLayers.get(layer.id);
-      const alignment = layer.alignment || original?.alignment || {
-        fit: 'none',
-        horizontal: 'left',
-        vertical: 'top',
-        offsetPx: { x: 0, y: 0 }
-      };
+      const rawAlignment = layer.alignment || original?.alignment;
+      const hasRawAlignment = Boolean(rawAlignment);
+      const usesDynamicLayout = transformStrategy === 'dynamic' || hasRawAlignment;
+      const alignment = rawAlignment
+        ? {
+            ...rawAlignment,
+            fit: rawAlignment.fit ?? 'none',
+            horizontal: rawAlignment.horizontal ?? 'left',
+            vertical: rawAlignment.vertical ?? 'top',
+            positioning: rawAlignment.positioning ?? 'auto',
+            offsetPx: {
+              x: toFinite(rawAlignment.offsetPx?.x, 0),
+              y: toFinite(rawAlignment.offsetPx?.y, 0)
+            },
+            offsetPercent: rawAlignment.offsetPercent
+              ? {
+                  x: toFinite(rawAlignment.offsetPercent.x, 0),
+                  y: toFinite(rawAlignment.offsetPercent.y, 0)
+                }
+              : { x: 0, y: 0 }
+          }
+        : {
+            fit: 'none',
+            horizontal: 'left',
+            vertical: 'top',
+            positioning: 'auto',
+            offsetPx: { x: 0, y: 0 },
+            offsetPercent: { x: 0, y: 0 }
+          };
 
-      console.log('[VIEWER] Processing layer:', {
+      diagnostics.log('[VIEWER] Processing layer:', {
         layerId: layer.id,
         alignment,
         originalFrame: original?.frame,
@@ -1292,92 +1365,129 @@ class TinyBrushViewer {
         originalContentBounds: original?.contentBounds
       });
 
-      const offsetPx = {
-        x: toFinite(alignment?.offsetPx?.x, 0),
-        y: toFinite(alignment?.offsetPx?.y, 0)
-      };
+      const alignmentFit = alignment.fit ?? 'none';
+      if (!layer.layoutMode) {
+        layer.layoutMode = alignmentFit;
+      }
 
-      const frameSource = layer.frame || original?.frame || {
-        x: offsetPx.x,
-        y: offsetPx.y,
+      const offsetPx = alignment.offsetPx ?? { x: 0, y: 0 };
+
+      const fallbackFrame = {
+        x: 0,
+        y: 0,
         width: layer.sourceSize?.width ?? original?.sourceSize?.width ?? viewport.width,
         height: layer.sourceSize?.height ?? original?.sourceSize?.height ?? viewport.height
       };
 
-      console.log('[VIEWER] Frame source computed:', {
-        frameSource,
-        usedLayerFrame: Boolean(layer.frame),
-        usedOriginalFrame: Boolean(original?.frame),
-        fellBackToViewport: !layer.frame && !original?.frame
-      });
+      const frameSource = layer.frame || original?.frame || fallbackFrame;
+      const sanitizedFrame = {
+        x: Math.round(toFinite(frameSource.x, 0)),
+        y: Math.round(toFinite(frameSource.y, 0)),
+        width: Math.max(1, Math.round(toFinite(frameSource.width, fallbackFrame.width))),
+        height: Math.max(1, Math.round(toFinite(frameSource.height, fallbackFrame.height)))
+      };
 
-      const clampedFrame = LayoutEngine.clampFrameToViewport(frameSource, viewport);
+      const zeroedFrame = {
+        x: 0,
+        y: 0,
+        width: sanitizedFrame.width,
+        height: sanitizedFrame.height
+      };
 
-      console.log('[VIEWER] After clamping:', {
-        beforeClamp: frameSource,
-        afterClamp: clampedFrame,
-        alignmentFit: alignment.fit,
-        viewportMode: viewport.mode
-      });
+      const frameOffset = {
+        x: sanitizedFrame.x,
+        y: sanitizedFrame.y
+      };
 
-      layer.frame = clampedFrame;
+      const source = entry.player ? entry.player.getCanvas() : entry.source;
+      const fallbackWidth = layer.sourceSize?.width
+        ?? original?.sourceSize?.width
+        ?? source?.width
+        ?? viewport.width;
+      const fallbackHeight = layer.sourceSize?.height
+        ?? original?.sourceSize?.height
+        ?? source?.height
+        ?? viewport.height;
 
-      const alignmentFit = alignment.fit ?? 'none';
+      const contentSize = layer.contentBounds
+        || original?.contentBounds
+        || {
+          x: 0,
+          y: 0,
+          width: Math.max(1, fallbackWidth),
+          height: Math.max(1, fallbackHeight)
+        };
 
-      if (alignmentFit === 'none') {
+      const computeTransformFromAlignment = () => {
+        const viewportForTransform = alignmentFit === 'percent'
+          ? { width: viewport.width, height: viewport.height }
+          : { width: sanitizedFrame.width, height: sanitizedFrame.height };
+
+        const computedTransform = LayoutEngine.computeLayerTransform(
+          {
+            width: Math.max(1, contentSize.width),
+            height: Math.max(1, contentSize.height)
+          },
+          viewportForTransform,
+          alignment
+        );
+
         const rotation = Number.isFinite(original?.transform?.rotation)
           ? original.transform.rotation
           : Number.isFinite(layer.transform?.rotation)
             ? layer.transform.rotation
             : 0;
+
+        const translateX = toFinite(computedTransform.translateX, 0)
+          + (alignmentFit === 'percent' ? 0 : frameOffset.x);
+        const translateY = toFinite(computedTransform.translateY, 0)
+          + (alignmentFit === 'percent' ? 0 : frameOffset.y);
+
         layer.transform = {
-          scaleX: 1,
-          scaleY: 1,
-          translateX: 0,
-          translateY: 0,
+          scaleX: toFinite(computedTransform.scaleX, 1) || 1,
+          scaleY: toFinite(computedTransform.scaleY, 1) || 1,
+          translateX,
+          translateY,
           rotation
         };
+
+        layer.frame = zeroedFrame;
+
+        diagnostics.log('[VIEWER] Computed transform (dynamic):', {
+          layerId: layer.id,
+          alignmentFit,
+          contentSize,
+          viewportForTransform,
+          frameOffset,
+          resultTransform: layer.transform
+        });
+
         layer._hasCalculatedTransform = true;
         layer._transformIsViewportScaled = false;
-        console.log('[VIEWER] No-fit alignment, transform:', layer.transform);
+      };
+
+      if (usesDynamicLayout) {
+        computeTransformFromAlignment();
         return;
       }
 
-      const contentSize = layer.contentBounds || original?.contentBounds || {
-        width: Math.max(1, clampedFrame.width),
-        height: Math.max(1, clampedFrame.height)
-      };
-
-      const viewportForTransform = alignmentFit === 'percent'
-        ? { width: viewport.width, height: viewport.height }
-        : { width: clampedFrame.width, height: clampedFrame.height };
-
-      const computedTransform = LayoutEngine.computeLayerTransform(
-        contentSize,
-        viewportForTransform,
-        alignment
-      );
-
-      if (alignmentFit !== 'percent') {
-        computedTransform.translateX = toFinite(computedTransform.translateX, 0) - offsetPx.x;
-        computedTransform.translateY = toFinite(computedTransform.translateY, 0) - offsetPx.y;
-      } else {
-        computedTransform.translateX = toFinite(computedTransform.translateX, 0);
-        computedTransform.translateY = toFinite(computedTransform.translateY, 0);
+      if (layer.transform) {
+        const legacyTransform = layer.transform;
+        layer.frame = sanitizedFrame;
+        layer.transform = {
+          scaleX: toFinite(legacyTransform.scaleX, 1) || 1,
+          scaleY: toFinite(legacyTransform.scaleY, 1) || 1,
+          translateX: toFinite(legacyTransform.translateX, 0),
+          translateY: toFinite(legacyTransform.translateY, 0),
+          rotation: toFinite(legacyTransform.rotation, 0)
+        };
+        layer._hasCalculatedTransform = true;
+        layer._transformIsViewportScaled = true;
+        console.warn('[VIEWER] Using legacy pre-computed transform for', layer.id);
+        return;
       }
 
-      layer.transform = computedTransform;
-
-      console.log('[VIEWER] Computed transform:', {
-        layerId: layer.id,
-        alignmentFit,
-        contentSize,
-        viewportForTransform,
-        resultTransform: layer.transform
-      });
-
-      layer._hasCalculatedTransform = true;
-      layer._transformIsViewportScaled = true;
+      computeTransformFromAlignment();
     });
   }
 
@@ -1392,6 +1502,9 @@ class TinyBrushViewer {
       }
       if (original.transform) {
         entry.layer.transform = deepClone(original.transform);
+      }
+      if (original.layoutMode) {
+        entry.layer.layoutMode = original.layoutMode;
       }
     });
   }
@@ -1426,7 +1539,7 @@ class TinyBrushViewer {
       sorted.reverse();
     }
 
-    console.log('Layer render order:', sorted.map((entry) => ({
+    diagnostics.log('Layer render order:', sorted.map((entry) => ({
       id: entry.layer.id,
       visible: entry.layer.visible,
       hasSource: Boolean(entry.source || entry.player),
@@ -1445,7 +1558,7 @@ class TinyBrushViewer {
       }
       if (applyLayerToContext(ctx, source, entry.layer, this.scale)) {
         painted += 1;
-        console.log(`Rendered layer ${entry.layer.id} at`, entry.layer.frame);
+        diagnostics.log(`Rendered layer ${entry.layer.id} at`, entry.layer.frame);
       }
     });
 
@@ -1478,6 +1591,21 @@ class TinyBrushViewer {
     this.dynamicPlayers.forEach((player) => player?.destroy());
     this.layerEntries = [];
     this.dynamicPlayers = [];
+
+    if (this.canvas) {
+      const guard = this.canvas[POINTER_GUARD_KEY];
+      if (guard && Array.isArray(guard.events) && typeof guard.handler === 'function') {
+        guard.events.forEach((eventName) => {
+          this.canvas.removeEventListener(eventName, guard.handler);
+        });
+      }
+      delete this.canvas[POINTER_GUARD_KEY];
+
+      if (this.canvas[RENDERER_KEY] === this) {
+        delete this.canvas[RENDERER_KEY];
+      }
+      ACTIVE_CANVASES.delete(this.canvas);
+    }
   }
 
   ensureRunning() {
@@ -1497,7 +1625,7 @@ class TinyBrushViewer {
     const width = Math.max(1, Math.round(this.metadata.viewport.width * x));
     const height = Math.max(1, Math.round(this.metadata.viewport.height * y));
 
-    console.log('[VIEWER] updateScale called:', {
+    diagnostics.log('[VIEWER] updateScale called:', {
       oldScale,
       newScale: this.scale,
       oldCanvasSize: { width: this.canvas.width, height: this.canvas.height },
@@ -1512,7 +1640,7 @@ class TinyBrushViewer {
       if (this.ctx) {
         this.ctx.imageSmoothingEnabled = false;
       }
-      console.log('[VIEWER] Canvas resized, calling applyResolvedLayout');
+      diagnostics.log('[VIEWER] Canvas resized, calling applyResolvedLayout');
       this.applyResolvedLayout();
       this.renderOnce();
     }
@@ -1545,7 +1673,7 @@ const ensureResizeListener = () => {
     return;
   }
   window.addEventListener('resize', () => {
-    console.log('[RESIZE] Window resized:', {
+    diagnostics.log('[RESIZE] Window resized:', {
       windowSize: { width: window.innerWidth, height: window.innerHeight },
       activeCanvases: ACTIVE_CANVASES.size
     });
@@ -1556,7 +1684,7 @@ const ensureResizeListener = () => {
         return;
       }
       const scale = computeResponsiveScale(metadata);
-      console.log('[RESIZE] Computed scale for canvas:', {
+      diagnostics.log('[RESIZE] Computed scale for canvas:', {
         viewport: metadata.viewport,
         computedScale: scale,
         canvasId: canvas.id
@@ -1602,11 +1730,12 @@ export const renderTinyBrushWebGL = async (metadata, canvas, options = {}) => {
       const active = canvas[RENDERER_KEY];
       active?.ensureRunning();
     };
-    ['mouseenter', 'mousemove', 'pointerdown', 'pointerup', 'focus'].forEach((eventName) => {
+    POINTER_GUARD_EVENTS.forEach((eventName) => {
       canvas.addEventListener(eventName, ensureRunning, { passive: true });
     });
     canvas[POINTER_GUARD_KEY] = {
-      handler: ensureRunning
+      handler: ensureRunning,
+      events: [...POINTER_GUARD_EVENTS]
     };
   }
 

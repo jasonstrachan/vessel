@@ -17,10 +17,13 @@ export interface LayerAlignmentPercentOffset {
   y: number;
 }
 
+export type LayerPositioningMode = 'anchor' | 'auto';
+
 export interface LayerAlignmentSettings {
   fit: LayerAlignmentFit;
   horizontal: LayerHorizontalAlignment;
   vertical: LayerVerticalAlignment;
+  positioning: LayerPositioningMode;
   offsetPx?: LayerAlignmentOffset;
   offsetPercent?: LayerAlignmentPercentOffset;
 }

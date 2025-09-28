@@ -10,6 +10,7 @@ export interface LayerTransform {
   scaleY: number;
   translateX: number;
   translateY: number;
+  rotation?: number;
 }
 
 export interface LayoutLayerInput {
@@ -104,17 +105,22 @@ export const computeLayerTransform = (
   const extraX = viewportWidth - scaledWidth;
   const extraY = viewportHeight - scaledHeight;
 
+  const usesPercentFit = alignment.fit === 'percent';
+  const usesAutoPositioning = alignment.positioning === 'auto';
+
   let translateX = 0;
   let translateY = 0;
 
-  if (alignment.fit !== 'percent') {
+  if (!usesPercentFit && !usesAutoPositioning) {
     switch (alignment.horizontal) {
-      case 'center':
+      case 'center': {
         translateX = extraX / 2;
         break;
-      case 'right':
+      }
+      case 'right': {
         translateX = extraX;
         break;
+      }
       case 'left':
       default:
         translateX = 0;
@@ -122,12 +128,14 @@ export const computeLayerTransform = (
     }
 
     switch (alignment.vertical) {
-      case 'center':
+      case 'center': {
         translateY = extraY / 2;
         break;
-      case 'bottom':
+      }
+      case 'bottom': {
         translateY = extraY;
         break;
+      }
       case 'top':
       default:
         translateY = 0;
@@ -135,17 +143,24 @@ export const computeLayerTransform = (
     }
   }
 
-  if (alignment.fit === 'percent') {
+  if (usesPercentFit || usesAutoPositioning) {
     const percent = alignment.offsetPercent ?? { x: 0, y: 0 };
     const percentX = Math.max(-100, Math.min(100, percent.x));
     const percentY = Math.max(-100, Math.min(100, percent.y));
-    const availableX = viewportWidth - scaledWidth;
-    const availableY = viewportHeight - scaledHeight;
-    translateX = availableX * (percentX / 100);
-    translateY = availableY * (percentY / 100);
+
+    if (usesPercentFit) {
+      translateX = viewportWidth * (percentX / 100);
+      translateY = viewportHeight * (percentY / 100);
+    } else {
+      const availableX = viewportWidth - scaledWidth;
+      const availableY = viewportHeight - scaledHeight;
+      translateX += availableX * (percentX / 100);
+      translateY += availableY * (percentY / 100);
+    }
   }
 
-  if (alignment.offsetPx) {
+  const shouldApplyOffsetPx = Boolean(alignment.offsetPx) && !usesPercentFit && !usesAutoPositioning;
+  if (shouldApplyOffsetPx && alignment.offsetPx) {
     translateX += alignment.offsetPx.x;
     translateY += alignment.offsetPx.y;
   }

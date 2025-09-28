@@ -9,7 +9,7 @@ import Button from '../ui/Button';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { mapToIndexedWithDithering, type DitherMethod } from '@/utils/gifDither';
-import { ContainerLayoutControls, LayerAlignmentControls, LayerColorSwatches, LAYER_TAG_CLASS } from '@/components/MinimalLayerList';
+import { LayerAlignmentControls, LayerColorSwatches, LAYER_TAG_CLASS } from '@/components/MinimalLayerList';
 import { Eye, EyeOff } from 'lucide-react';
 import { createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
@@ -40,11 +40,8 @@ const INLINE_FIELD_CLASS = 'bg-[#4a4a4a] border border-[#343434] text-sm text-[#
 const INPUT_OVERRIDE_CLASS = '!bg-[#4a4a4a] !border-[#343434] !text-[#E5E5E5] !px-3 !py-2 !h-9 focus:!border-[#D9D9D9] focus:!ring-0 focus:!outline-none disabled:!text-[#5C5C5C] disabled:!bg-[#151515]';
 
 const WEBGL_VIEWPORT_PRESETS = [
-  { value: 'project', label: 'Project' },
   { value: 'fill', label: 'Fill window' },
-  { value: 'square', label: 'Square' },
-  { value: 'widescreen', label: 'Widescreen' },
-  { value: 'custom', label: 'Custom' }
+  { value: 'project', label: 'Project' }
 ] as const;
 
 type WebglViewportPreset = typeof WEBGL_VIEWPORT_PRESETS[number]['value'];
@@ -156,7 +153,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const [exportKind, setExportKind] = useState<ExportKind>('webgl');
   const [scale, setScale] = useState<1 | 2 | 3 | 4>(1);
 
-  const [containerLayoutOpen, setContainerLayoutOpen] = useState(false);
   const [layerAlignmentOpen, setLayerAlignmentOpen] = useState(false);
 
   // PNG options
@@ -191,11 +187,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const webglMinify = webglExportSettings.minifyOutput;
   const webglBundleFormat = webglExportSettings.bundleFormat;
   const webglEnableDiagnostics = webglExportSettings.enableViewerDiagnostics;
-  const [webglViewportPreset, setWebglViewportPreset] = useState<WebglViewportPreset>('project');
-  const [webglCustomViewport, setWebglCustomViewport] = useState<{ width: number; height: number }>(() => ({
-    width: project?.width ?? 1024,
-    height: project?.height ?? 1024
-  }));
+  const [webglViewportPreset, setWebglViewportPreset] = useState<WebglViewportPreset>('fill');
 
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -222,7 +214,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
   useEffect(() => {
     if (isOpen) {
-      setContainerLayoutOpen(false);
       setLayerAlignmentOpen(false);
     }
   }, [isOpen]);
@@ -349,26 +340,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const resolvedWebglViewport = useMemo(() => {
     const fallbackWidth = project?.width ?? 1024;
     const fallbackHeight = project?.height ?? 1024;
-    switch (webglViewportPreset) {
-      case 'project':
-        return { width: fallbackWidth, height: fallbackHeight };
-      case 'fill': {
-        return { width: fallbackWidth, height: fallbackHeight };
-      }
-      case 'square': {
-        const side = Math.max(fallbackWidth, fallbackHeight);
-        return { width: side, height: side };
-      }
-      case 'widescreen':
-        return { width: 1920, height: 1080 };
-      case 'custom':
-      default:
-        return {
-          width: Math.max(1, Math.round(webglCustomViewport.width)),
-          height: Math.max(1, Math.round(webglCustomViewport.height))
-        };
-    }
-  }, [project?.height, project?.width, webglCustomViewport.height, webglCustomViewport.width, webglViewportPreset]);
+    return { width: fallbackWidth, height: fallbackHeight };
+  }, [project?.height, project?.width]);
 
   const webglFrameSuggestion = useMemo(() => {
     try {
@@ -462,26 +435,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     kind: layer.layerType
   })), [activeLayerId, orderedLayers]);
 
-  const containerLayoutSummary = useMemo(() => {
-    const layout = project?.exportLayout ?? createDefaultExportLayout();
-    const parts = [
-      formatLabel(layout.flow),
-      `${formatLabel(layout.justify)} / ${formatLabel(layout.align)}`,
-      layout.wrap ? 'Wrap on' : 'Wrap off'
-    ];
-    if (layout.gap) {
-      parts.push(`Gap ${layout.gap}px`);
-    }
-    if (layout.sizeMode === 'fixed') {
-      parts.push(`Fixed ${layout.width ?? 0}×${layout.height ?? 0}`);
-    } else if (layout.sizeMode === 'hug') {
-      parts.push('Hug');
-    } else {
-      parts.push('Fill');
-    }
-    return parts.join(' • ');
-  }, [project?.exportLayout]);
-
   const activeLayerSummary = useMemo(() => {
     if (layerAlignmentSummary.length === 0) {
       return 'No layers available';
@@ -539,21 +492,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       </span>
     );
   }, [getColorCycleGradient]);
-
-  const handleCustomViewportChange = useCallback((dimension: 'width' | 'height', raw: string) => {
-    if (raw === '') {
-      setWebglCustomViewport(prev => ({ ...prev, [dimension]: 1 }));
-      return;
-    }
-    const numeric = Number(raw);
-    if (!Number.isFinite(numeric)) {
-      return;
-    }
-    setWebglCustomViewport(prev => ({
-      ...prev,
-      [dimension]: Math.max(1, Math.round(numeric))
-    }));
-  }, []);
 
   const filenameBase = useMemo(() => {
     const name = project?.name || 'TinyBrush';
@@ -1564,22 +1502,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           {exportKind === 'webgl' && (
             <div className="space-y-5">
               <CollapsibleSection
-                id="export-container-layout"
-                title="Container layout"
-                summary={containerLayoutSummary}
-                isOpen={containerLayoutOpen}
-                onToggle={() => setContainerLayoutOpen((prev) => !prev)}
-                contentClassName="space-y-4"
-              >
-                <ContainerLayoutControls
-                  density="comfortable"
-                  appearance="plain"
-                  defaultExpanded
-                  className="border-none p-0 bg-transparent space-y-4"
-                />
-              </CollapsibleSection>
-
-              <CollapsibleSection
                 id="export-layer-alignment"
                 title="Layer alignment"
                 summary={activeLayerSummary}
@@ -1647,32 +1569,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                       </button>
                     ))}
                   </div>
-                  {webglViewportPreset === 'custom' && (
-                    <div className="mt-4 grid grid-cols-2 gap-3">
-                    <label className="flex flex-col gap-2 text-sm text-[#B0B0B0]">
-                        <span>Width</span>
-                        <Input
-                          type="number"
-                          min={1}
-                          value={webglCustomViewport.width}
-                          onChange={(event) => handleCustomViewportChange('width', event.target.value)}
-                          className={`${INPUT_OVERRIDE_CLASS} w-full text-right`}
-                          disabled={isExporting}
-                        />
-                      </label>
-                      <label className="flex flex-col gap-2 text-sm text-[#B0B0B0]">
-                        <span>Height</span>
-                        <Input
-                          type="number"
-                          min={1}
-                          value={webglCustomViewport.height}
-                          onChange={(event) => handleCustomViewportChange('height', event.target.value)}
-                          className={`${INPUT_OVERRIDE_CLASS} w-full text-right`}
-                          disabled={isExporting}
-                        />
-                      </label>
-                    </div>
-                  )}
                   <p className={`${MODAL_TEXT_SECONDARY} text-xs mt-3`}>
                     Using {resolvedWebglViewport.width} × {resolvedWebglViewport.height} px
                   </p>

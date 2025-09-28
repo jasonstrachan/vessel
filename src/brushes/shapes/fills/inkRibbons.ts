@@ -298,17 +298,17 @@ export const drawInkRibbonsFill = ({
   const strokeColor = strokeColorOverride ?? brushSettings.color ?? '#0d1d71';
 
   const sdfStep = Math.max(4, Math.round(brushSettings.ribbonSdfStep ?? 8));
-  const baseSpacing = Math.max(6, brushSettings.ribbonSeedSpacing ?? 26);
-  const baseStepSize = Math.max(0.4, brushSettings.ribbonStepSize ?? 3);
-  const baseMaxSteps = clampInt(brushSettings.ribbonMaxSteps ?? 620, 8, 6000);
-  const tangentWeight = clamp01(brushSettings.ribbonTangentWeight ?? 0.78);
-  const biasAngle = ((brushSettings.ribbonBiasAngle ?? 92) * Math.PI) / 180;
-  const noiseStrength = clamp01(brushSettings.ribbonNoiseStrength ?? 0.18);
+  const baseSpacing = Math.max(6, brushSettings.ribbonSeedSpacing ?? 18);
+  const baseStepSize = Math.max(0.4, brushSettings.ribbonStepSize ?? 1.7);
+  const baseMaxSteps = clampInt(brushSettings.ribbonMaxSteps ?? 370, 8, 6000);
+  const tangentWeight = clamp01(brushSettings.ribbonTangentWeight ?? 0.6);
+  const biasAngle = ((brushSettings.ribbonBiasAngle ?? 80) * Math.PI) / 180;
+  const noiseStrength = clamp01(brushSettings.ribbonNoiseStrength ?? 0.45);
   const noiseScale = Math.max(10, brushSettings.ribbonNoiseScale ?? 220);
   const noiseOctaves = clampInt(brushSettings.ribbonNoiseOctaves ?? 3, 1, 6);
-  const lineWidth = Math.max(0.6, brushSettings.ribbonLineWidth ?? brushSettings.shapeFillLineWidth ?? 1.55);
+  const lineWidth = Math.max(0.6, brushSettings.ribbonLineWidth ?? brushSettings.shapeFillLineWidth ?? 1.6);
   const jitterAmount = clamp01(brushSettings.ribbonJitter ?? 0.25);
-  const anchorFalloff = clamp01(brushSettings.ribbonAnchorFalloff ?? 0.28);
+  const anchorFalloff = clamp01(brushSettings.ribbonAnchorFalloff ?? 0.3);
   const seedValue = clampInt(Math.round(brushSettings.ribbonSeed ?? randomSeed ?? 2025), 0, 0xffffffff);
 
   const spacing = isPreview ? baseSpacing * 1.35 : baseSpacing;

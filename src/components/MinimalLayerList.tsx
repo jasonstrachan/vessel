@@ -2,10 +2,10 @@
 
 import React, { useState, useCallback, memo, useEffect, useRef, useMemo } from 'react';
 import { useAppStore } from '../stores/useAppStore';
-import { Layer, BrushShape, type LayerAlignmentSettings, type ExportContainerLayout } from '../types';
-import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
+import { Layer, BrushShape, type LayerAlignmentSettings } from '../types';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { computeLayerPercentOffset } from '@/utils/layerMetrics';
-import { Eye, EyeOff, Plus, ChevronRight, ChevronDown, X } from 'lucide-react';
+import { Eye, EyeOff, Plus, ChevronRight, X } from 'lucide-react';
 import ProgressSlider from './ui/ProgressSlider';
 import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
 import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
@@ -79,36 +79,81 @@ export const LayerColorSwatches = memo<{
 
 LayerColorSwatches.displayName = 'LayerColorSwatches';
 
-const fitOptions: Array<{ value: LayerAlignmentSettings['fit']; label: string }> = [
-  { value: 'none', label: 'None' },
-  { value: 'contain', label: 'Contain fill' },
-  { value: 'cover', label: 'Cover fill' },
-  { value: 'fill', label: 'Fill' },
-  { value: 'percent', label: 'Percent' },
-  { value: 'fit-width', label: 'Fit width' },
-  { value: 'fit-height', label: 'Fit height' },
-  { value: 'scale-down', label: 'Scale down' }
+type AnchorKey = 'tl' | 'tc' | 'tr' | 'ml' | 'mc' | 'mr' | 'bl' | 'bc' | 'br';
+type AnchorSelection = AnchorKey | 'auto';
+
+const ANCHOR_CONFIG: Record<AnchorKey, {
+  horizontal: LayerAlignmentSettings['horizontal'];
+  vertical: LayerAlignmentSettings['vertical'];
+}> = {
+  tl: { horizontal: 'left', vertical: 'top' },
+  tc: { horizontal: 'center', vertical: 'top' },
+  tr: { horizontal: 'right', vertical: 'top' },
+  ml: { horizontal: 'left', vertical: 'center' },
+  mc: { horizontal: 'center', vertical: 'center' },
+  mr: { horizontal: 'right', vertical: 'center' },
+  bl: { horizontal: 'left', vertical: 'bottom' },
+  bc: { horizontal: 'center', vertical: 'bottom' },
+  br: { horizontal: 'right', vertical: 'bottom' }
+};
+
+const ANCHOR_GRID: AnchorKey[][] = [
+  ['tl', 'tc', 'tr'],
+  ['ml', 'mc', 'mr'],
+  ['bl', 'bc', 'br']
 ];
 
-const horizontalAxisOptions: Array<{ value: LayerAlignmentSettings['horizontal']; label: string }> = [
-  { value: 'left', label: 'Left' },
-  { value: 'center', label: 'Center' },
-  { value: 'right', label: 'Right' }
-];
+const ANCHOR_SUMMARY: Record<AnchorSelection, string> = {
+  tl: 'Top Left',
+  tc: 'Top Center',
+  tr: 'Top Right',
+  ml: 'Middle Left',
+  mc: 'Middle Center',
+  mr: 'Middle Right',
+  bl: 'Bottom Left',
+  bc: 'Bottom Center',
+  br: 'Bottom Right',
+  auto: 'Auto'
+};
 
-const verticalAxisOptions: Array<{ value: LayerAlignmentSettings['vertical']; label: string }> = [
-  { value: 'top', label: 'Top' },
-  { value: 'center', label: 'Center' },
-  { value: 'bottom', label: 'Bottom' }
-];
-
-const segmentedButtonBase = [
-  'flex-1 rounded-none border border-[#3D3D46] transition-colors',
-  'h-8 text-sm'
+const anchorButtonBase = [
+  'h-7 border transition-colors',
+  'flex items-center justify-center'
 ].join(' ');
 
-const segmentedActiveClass = 'bg-[#E6E6F2] text-[#1C1C24] border-[#E6E6F2]';
-const segmentedInactiveClass = 'bg-[#2F2F36] text-[#D9D9E8] hover:bg-[#3A3A42]';
+const anchorActiveClass = 'border-[#3D3D46] bg-[#5A5A68]';
+const anchorInactiveClass = 'border-[#3D3D46] bg-transparent hover:bg-[#5A5A68]';
+
+const fitOptions: Array<{ value: Exclude<LayerAlignmentSettings['fit'], 'percent' | 'fit-width' | 'fit-height'>; label: string }> = [
+  { value: 'none', label: 'None' },
+  { value: 'contain', label: 'Contain' },
+  { value: 'cover', label: 'Cover' },
+  { value: 'fill', label: 'Fill' },
+  { value: 'scale-down', label: 'Scale Down' }
+];
+
+const fitButtonBase = [
+  'w-full flex items-center gap-2.5',
+  'px-1.5 py-1 text-sm transition-colors text-left'
+].join(' ');
+
+const fitButtonActive = 'text-[#F3F3F7] font-semibold';
+const fitButtonInactive = 'text-[#D9D9E8] hover:text-white';
+
+const resolveAnchorSelection = (alignment: LayerAlignmentSettings | null): AnchorSelection => {
+  if (!alignment) {
+    return 'auto';
+  }
+
+  if (alignment.positioning === 'auto') {
+    return 'auto';
+  }
+
+  const match = (Object.entries(ANCHOR_CONFIG) as Array<[AnchorKey, (typeof ANCHOR_CONFIG)[AnchorKey]]>)
+    .find(([, config]) => config.horizontal === alignment.horizontal && config.vertical === alignment.vertical);
+
+  return match ? match[0] : 'mc';
+};
 
 type ControlDensity = 'compact' | 'comfortable';
 
@@ -122,9 +167,10 @@ interface LayerAlignmentControlsProps extends DensityProps {
   defaultExpanded?: boolean;
 }
 
-export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ density = 'compact', className = '', defaultExpanded = false }) => {
+export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ density = 'compact', className = '', defaultExpanded = true }) => {
   const activeLayerId = useAppStore(state => state.activeLayerId);
   const activeLayer = useAppStore(state => state.layers.find(l => l.id === activeLayerId) ?? null);
+  const selectedLayerIds = useAppStore(state => state.selectedLayerIds);
   const alignment = activeLayer?.alignment ?? null;
   const project = useAppStore(state => state.project);
   const updateLayerAlignment = useAppStore(state => state.updateLayerAlignment);
@@ -135,9 +181,10 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
   const offset = alignment?.offsetPx ?? { x: 0, y: 0 };
 
   const derivedPercent = useMemo(() => {
-    if (!alignment || alignment.fit !== 'percent') {
+    if (!alignment) {
       return { x: 0, y: 0 };
     }
+
     if (activeLayer && project) {
       try {
         return computeLayerPercentOffset(activeLayer, project);
@@ -145,57 +192,51 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
         console.warn('[LayerAlignmentControls] Failed to compute percent offset', error);
       }
     }
-    return alignment.offsetPercent ?? { x: 0, y: 0 };
+
+    if (alignment.offsetPercent) {
+      return alignment.offsetPercent;
+    }
+
+    return { x: 0, y: 0 };
   }, [alignment, activeLayer, project]);
 
-  const [percentDraft, setPercentDraft] = useState<{ x: string; y: string }>({ x: '0', y: '0' });
-
-  useEffect(() => {
-    if (!alignment || alignment.fit !== 'percent') {
-      return;
-    }
-    setPercentDraft({
-      x: derivedPercent.x.toString(),
-      y: derivedPercent.y.toString()
-    });
-  }, [alignment, derivedPercent.x, derivedPercent.y]);
+  const selectedAnchor = resolveAnchorSelection(alignment);
+  const isAuto = alignment?.positioning === 'auto';
+  const effectiveFit: LayerAlignmentSettings['fit'] = alignment?.fit ?? 'contain';
 
   const isComfortable = density === 'comfortable';
 
-  const paddingClasses = isComfortable ? 'px-1 py-3' : 'px-1 py-2';
+  const paddingClasses = isComfortable ? 'px-1 py-2' : 'px-1 py-1';
   const rootClasses = [paddingClasses, className].filter(Boolean).join(' ').trim();
 
   const titleClass = 'text-sm font-medium text-[#F1F1F6]';
 
   const helperClass = 'text-sm text-[#8F8FA3]';
 
-  const toTitleCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
   const summaryText = (() => {
     if (!alignment) {
       return 'Select a layer to configure';
     }
+    if (isAuto) {
+      const fitLabel = fitOptions.find(option => option.value === alignment.fit)?.label ?? alignment.fit;
+      return `Auto • ${fitLabel} • Left ${Math.round(derivedPercent.x)}% / Top ${Math.round(derivedPercent.y)}%`;
+    }
     const fitLabel = fitOptions.find(option => option.value === alignment.fit)?.label ?? alignment.fit;
-    if (alignment.fit === 'percent') {
-      const percent = derivedPercent;
-      return `${fitLabel} • Left ${percent.x}% / Top ${percent.y}%`;
-    }
-    if (alignment.fit === 'none') {
-      return `${fitLabel} • Manual placement`;
-    }
-    return `${fitLabel} • ${toTitleCase(alignment.horizontal)} / ${toTitleCase(alignment.vertical)}`;
+    return `${fitLabel} • ${ANCHOR_SUMMARY[selectedAnchor]}`;
   })();
 
   const labelClass = 'text-sm font-medium text-[#D3D3DC]';
-  const controlGapClass = 'gap-1';
 
   const fieldClass = [
     'w-full rounded-none border border-[#4A4A4A] bg-[#4A4A4A] text-[#F3F3F7] placeholder:text-[#C6C6D0]',
-    'transition-colors focus:border-[#8E8EFF] focus:outline-none focus:ring-0',
+    'transition-colors focus:border-[#A5A5BA] focus:outline-none focus:ring-0',
     'disabled:cursor-not-allowed disabled:opacity-50',
     'h-7 px-2 text-sm'
   ].join(' ');
 
-  const contentSpacingClass = isComfortable ? 'mt-3 space-y-2' : 'mt-2 space-y-2';
+  const contentSpacingClass = 'px-2';
+
+  const offsetDisabled = disabled || isAuto;
 
   const handleToggleExpanded = useCallback(() => {
     setIsExpanded(prev => !prev);
@@ -208,77 +249,88 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
       }
       const baseOffset = alignment.offsetPx ?? { x: 0, y: 0 };
       const basePercent = alignment.offsetPercent ?? { x: 0, y: 0 };
+
+      const nextFit = partial.fit ?? alignment.fit;
+      const nextPositioning = partial.positioning ?? alignment.positioning;
+
       const nextAlignment: LayerAlignmentSettings = {
         ...alignment,
         ...partial,
+        fit: nextFit,
+        positioning: nextPositioning,
         offsetPx: partial.offsetPx ? { ...partial.offsetPx } : baseOffset,
-        offsetPercent: alignment.fit === 'percent' ? { ...basePercent } : undefined
+        offsetPercent: nextPositioning === 'auto' || nextFit === 'percent'
+          ? { ...(partial.offsetPercent ?? basePercent) }
+          : undefined
       };
 
-      if (partial.fit === 'percent') {
-        nextAlignment.offsetPercent = { ...(partial.offsetPercent ?? basePercent) };
-        nextAlignment.horizontal = 'left';
-        nextAlignment.vertical = 'top';
-      } else if (partial.fit) {
-        nextAlignment.offsetPercent = undefined;
-      }
+      const targetLayerIds = selectedLayerIds.length > 1 && selectedLayerIds.includes(activeLayerId)
+        ? selectedLayerIds
+        : [activeLayerId];
 
-      if (partial.offsetPercent) {
-        nextAlignment.offsetPercent = { ...partial.offsetPercent };
-      } else if (nextAlignment.fit === 'percent' && !nextAlignment.offsetPercent) {
-        nextAlignment.offsetPercent = { ...basePercent };
-      }
-
-      updateLayerAlignment(activeLayerId, nextAlignment);
+      targetLayerIds.forEach((layerId) => {
+        updateLayerAlignment(layerId, nextAlignment);
+      });
     },
-    [alignment, activeLayerId, updateLayerAlignment]
+    [alignment, activeLayerId, selectedLayerIds, updateLayerAlignment]
   );
+
+  const handleAnchorSelect = useCallback((selection: AnchorSelection) => {
+    if (!alignment || !activeLayerId) {
+      return;
+    }
+
+    if (selection === 'auto') {
+      let nextPercent = derivedPercent;
+      if (activeLayer && project) {
+        try {
+          nextPercent = computeLayerPercentOffset(activeLayer, project);
+        } catch (error) {
+          console.warn('[LayerAlignmentControls] Failed to compute percent offset for auto mode', error);
+        }
+      }
+
+      handleAlignmentChange({
+        positioning: 'auto',
+        offsetPercent: nextPercent
+      });
+      return;
+    }
+
+    const config = ANCHOR_CONFIG[selection];
+
+    handleAlignmentChange({
+      positioning: 'anchor',
+      horizontal: config.horizontal,
+      vertical: config.vertical,
+      offsetPercent: undefined
+    });
+  }, [activeLayer, activeLayerId, alignment, derivedPercent, handleAlignmentChange, project]);
+
+  const handleFitSelect = useCallback((fit: LayerAlignmentSettings['fit']) => {
+    handleAlignmentChange({ fit });
+  }, [handleAlignmentChange]);
 
   const handleOffsetChange = useCallback(
     (axis: 'x' | 'y', raw: number) => {
-      if (!alignment || !activeLayerId) {
+      if (!alignment || !activeLayerId || alignment.positioning === 'auto') {
         return;
       }
       const baseOffset = alignment.offsetPx ?? { x: 0, y: 0 };
       const value = Number.isFinite(raw) ? raw : 0;
-      updateLayerAlignment(activeLayerId, {
-        ...alignment,
-        offsetPx: { ...baseOffset, [axis]: value }
+      const targetLayerIds = selectedLayerIds.length > 1 && selectedLayerIds.includes(activeLayerId)
+        ? selectedLayerIds
+        : [activeLayerId];
+
+      targetLayerIds.forEach((layerId) => {
+        updateLayerAlignment(layerId, {
+          ...alignment,
+          offsetPx: { ...baseOffset, [axis]: value }
+        });
       });
     },
-    [alignment, activeLayerId, updateLayerAlignment]
+    [alignment, activeLayerId, selectedLayerIds, updateLayerAlignment]
   );
-
-  const commitPercentChange = useCallback((axis: 'x' | 'y', value: string) => {
-    if (!alignment || !activeLayerId) {
-      return;
-    }
-    const parsed = Number.parseFloat(value);
-    if (!Number.isFinite(parsed)) {
-      const basePercent = alignment.offsetPercent ?? derivedPercent;
-      updateLayerAlignment(activeLayerId, {
-        ...alignment,
-        offsetPercent: { ...basePercent, [axis]: 0 }
-      });
-      setPercentDraft((prev) => ({ ...prev, [axis]: '0' }));
-      return;
-    }
-    const clamped = Math.max(-100, Math.min(100, parsed));
-    const basePercent = alignment.offsetPercent ?? derivedPercent;
-    updateLayerAlignment(activeLayerId, {
-      ...alignment,
-      offsetPercent: { ...basePercent, [axis]: clamped }
-    });
-    setPercentDraft((prev) => ({ ...prev, [axis]: clamped.toString() }));
-  }, [alignment, activeLayerId, derivedPercent, updateLayerAlignment]);
-
-  const handlePercentInputChange = useCallback((axis: 'x' | 'y', raw: string) => {
-    setPercentDraft((prev) => ({ ...prev, [axis]: raw }));
-  }, []);
-
-  const handlePercentCommit = useCallback((axis: 'x' | 'y') => {
-    commitPercentChange(axis, percentDraft[axis]);
-  }, [commitPercentChange, percentDraft]);
 
   return (
     <div className={rootClasses}>
@@ -305,125 +357,103 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
       {isExpanded && (
         <div className={contentSpacingClass}>
           <div>
-            <label className={`${labelClass} block mb-2`}>Fit</label>
-            <div className="relative">
-              <select
-                className={`${fieldClass} appearance-none pr-8`}
-                value={alignment?.fit ?? 'contain'}
-                onChange={(event) => handleAlignmentChange({ fit: event.target.value as LayerAlignmentSettings['fit'] })}
-                disabled={disabled}
-              >
-                {fitOptions.map(option => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8F8FA3]" aria-hidden />
+            <span className={`${labelClass} block`}>Anchor</span>
+            <div className="grid grid-cols-3 bg-[#4A4A4A]">
+              {ANCHOR_GRID.map((row, rowIndex) => (
+                <React.Fragment key={rowIndex}>
+                  {row.map((key) => {
+                    const isSelected = selectedAnchor === key;
+                    const buttonClass = [
+                      anchorButtonBase,
+                      isSelected ? anchorActiveClass : anchorInactiveClass,
+                      disabled ? 'cursor-not-allowed opacity-60' : ''
+                    ].filter(Boolean).join(' ');
+
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        className={buttonClass}
+                        onClick={() => handleAnchorSelect(key)}
+                        disabled={disabled}
+                      >
+                        <span className={`h-1.5 w-1.5 ${isSelected ? 'bg-[#F3F3F7]' : 'bg-[#9A9AB3]'} block`} aria-hidden />
+                      </button>
+                    );
+                  })}
+                </React.Fragment>
+              ))}
+            </div>
+            <button
+              type="button"
+              className={[
+                anchorButtonBase,
+                'w-full text-[#D9D9E8] border-[#3D3D46]',
+                selectedAnchor === 'auto' ? 'bg-[#5A5A68]' : 'bg-[#4A4A4A]',
+                disabled ? 'cursor-not-allowed opacity-60' : ''
+              ].filter(Boolean).join(' ')}
+              onClick={() => handleAnchorSelect('auto')}
+              disabled={disabled}
+            >
+              Auto
+            </button>
+          </div>
+
+          <div className="mt-2">
+            <span className={`${labelClass} block`}>Fit</span>
+            <div>
+              {fitOptions.map(option => {
+                const isSelected = effectiveFit === option.value;
+                const buttonClass = [
+                  fitButtonBase,
+                  isSelected ? fitButtonActive : fitButtonInactive,
+                  disabled ? 'cursor-not-allowed opacity-60' : ''
+                ].filter(Boolean).join(' ');
+
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={buttonClass}
+                    onClick={() => handleFitSelect(option.value)}
+                    disabled={disabled}
+                  >
+                    <span
+                      className={`h-3 w-3 ${isSelected ? 'bg-[#F3F3F7]' : 'bg-[#5C5C6A]'} block`}
+                      aria-hidden
+                    />
+                    <span>{option.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {alignment?.fit && !['percent', 'none'].includes(alignment.fit) && (
-            <>
-              <div>
-                <span className={`${labelClass} block mb-2`}>Horizontal</span>
-                <div className={`flex ${controlGapClass}`}>
-                {horizontalAxisOptions.map(option => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => handleAlignmentChange({ horizontal: option.value })}
-                      disabled={disabled}
-                      className={`${segmentedButtonBase} ${alignment?.horizontal === option.value ? segmentedActiveClass : segmentedInactiveClass} ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <span className={`${labelClass} block mb-2`}>Vertical</span>
-                <div className={`flex ${controlGapClass}`}>
-                {verticalAxisOptions.map(option => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => handleAlignmentChange({ vertical: option.value })}
-                      disabled={disabled}
-                      className={`${segmentedButtonBase} ${alignment?.vertical === option.value ? segmentedActiveClass : segmentedInactiveClass} ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-
-          {alignment?.fit === 'percent' && (
-            <div className={`grid grid-cols-2 ${controlGapClass}`}>
-              <label className={`${labelClass} flex flex-col gap-1`}>
-                Left %
-                <input
-                  type="number"
-                  step="any"
-                  className={`${fieldClass} text-center`}
-                  value={percentDraft.x}
-                  onChange={(event) => handlePercentInputChange('x', event.target.value)}
-                  onBlur={() => handlePercentCommit('x')}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.currentTarget.blur();
-                    }
-                  }}
-                  disabled={disabled}
-                />
-              </label>
-              <label className={`${labelClass} flex flex-col gap-1`}>
-                Top %
-                <input
-                  type="number"
-                  step="any"
-                  className={`${fieldClass} text-center`}
-                  value={percentDraft.y}
-                  onChange={(event) => handlePercentInputChange('y', event.target.value)}
-                  onBlur={() => handlePercentCommit('y')}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.currentTarget.blur();
-                    }
-                  }}
-                  disabled={disabled}
-                />
-              </label>
-            </div>
-          )}
-
-          {alignment?.fit && !['percent', 'none'].includes(alignment.fit) && (
-            <div className={`grid grid-cols-2 ${controlGapClass}`}>
-              <label className={`${labelClass} flex flex-col gap-1`}>
-                Offset X
+          <div className="mt-2">
+            <span className={`${labelClass} block`}>Offset</span>
+            <div className="grid grid-cols-2 gap-2">
+              <label className={`${labelClass} flex flex-col`}>
+                X (px)
                 <input
                   type="number"
                   className={`${fieldClass} text-center`}
                   value={alignment ? offset.x : 0}
                   onChange={(event) => handleOffsetChange('x', Number(event.target.value))}
-                  disabled={disabled}
+                  disabled={offsetDisabled}
                 />
               </label>
-              <label className={`${labelClass} flex flex-col gap-1`}>
-                Offset Y
+              <label className={`${labelClass} flex flex-col`}>
+                Y (px)
                 <input
                   type="number"
                   className={`${fieldClass} text-center`}
                   value={alignment ? offset.y : 0}
                   onChange={(event) => handleOffsetChange('y', Number(event.target.value))}
-                  disabled={disabled}
+                  disabled={offsetDisabled}
                 />
               </label>
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>
@@ -437,159 +467,7 @@ interface ContainerLayoutControlsProps extends DensityProps {
   defaultExpanded?: boolean;
 }
 
-export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(({ density = 'compact', className = '', defaultExpanded = false }) => {
-  const exportLayoutFromStore = useAppStore(state => state.project?.exportLayout);
-  const layout = useMemo(
-    () => exportLayoutFromStore ?? createDefaultExportLayout(),
-    [exportLayoutFromStore]
-  );
-  const setExportLayout = useAppStore(state => state.setExportLayout);
-
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-
-  const handleLayoutChange = useCallback(
-    (partial: Partial<ExportContainerLayout>) => {
-      const next: ExportContainerLayout = {
-        ...layout,
-        ...partial,
-        padding: partial.padding ? { ...partial.padding } : { ...layout.padding }
-      };
-      setExportLayout(next);
-    },
-    [layout, setExportLayout]
-  );
-
-  const handleDimensionChange = useCallback(
-    (dimension: 'width' | 'height', raw: string) => {
-      if (layout.sizeMode !== 'fixed') {
-        return;
-      }
-      if (raw === '') {
-        handleLayoutChange({ [dimension]: undefined } as Partial<ExportContainerLayout>);
-        return;
-      }
-      const numeric = Number(raw);
-      if (Number.isFinite(numeric)) {
-        handleLayoutChange({ [dimension]: Math.max(0, numeric) } as Partial<ExportContainerLayout>);
-      }
-    },
-    [handleLayoutChange, layout.sizeMode]
-  );
-
-  const paddingClasses = density === 'comfortable' ? 'px-1 py-3' : 'px-1 py-2';
-  const rootClasses = [paddingClasses, className].filter(Boolean).join(' ').trim();
-
-  const titleClass = 'text-sm font-medium text-[#F1F1F6]';
-
-  const helperClass = 'text-sm text-[#8F8FA3]';
-
-  const labelClass = 'text-sm font-medium text-[#D3D3DC]';
-  const controlGapClass = 'gap-1';
-  const contentSpacingClass = density === 'comfortable' ? 'mt-3 space-y-2' : 'mt-2 space-y-2';
-
-  const fieldClass = [
-    'w-full rounded-none border border-[#4A4A4A] bg-[#4A4A4A] text-[#F3F3F7] placeholder:text-[#C6C6D0]',
-    'transition-colors focus:border-[#8E8EFF]',
-    'disabled:cursor-not-allowed disabled:opacity-50',
-    'h-7 px-2 text-sm'
-  ].join(' ');
-
-  const sizeButtonBase = [
-    'flex-1 rounded-none border border-[#3D3D46] transition-colors',
-    'h-8 text-sm'
-  ].join(' ');
-  const sizeButtonActive = 'bg-[#E6E6F2] text-[#1C1C24] border-[#E6E6F2]';
-  const sizeButtonInactive = 'bg-[#2F2F36] text-[#D9D9E8] hover:bg-[#3A3A42]';
-
-  const summaryParts: string[] = [];
-  if (layout.sizeMode === 'fixed') {
-    const widthText = Number.isFinite(layout.width) ? `${layout.width}px` : 'auto';
-    const heightText = Number.isFinite(layout.height) ? `${layout.height}px` : 'auto';
-    summaryParts.push(`Fixed ${widthText} × ${heightText}`);
-  } else if (layout.sizeMode === 'hug') {
-    summaryParts.push('Hug');
-  } else {
-    summaryParts.push('Fill');
-  }
-  const summaryText = summaryParts.join(' • ');
-
-  const handleToggleExpanded = useCallback(() => {
-    setIsExpanded(prev => !prev);
-  }, []);
-
-  return (
-    <div className={rootClasses}>
-      <button
-        type="button"
-        className={[
-          'w-full bg-transparent flex items-center justify-between text-left cursor-pointer select-none gap-2 transition-colors',
-          density === 'comfortable' ? 'py-1.5' : 'py-1'
-        ].filter(Boolean).join(' ')}
-        onClick={handleToggleExpanded}
-        aria-expanded={isExpanded}
-      >
-        <div className="flex flex-col">
-          <span className={titleClass}>Container layout</span>
-          <span className={helperClass}>{summaryText}</span>
-        </div>
-        <ChevronRight
-          className={`h-4 w-4 text-[#8F8FA3] transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-          aria-hidden
-        />
-      </button>
-      {isExpanded && (
-        <div className={contentSpacingClass}>
-          <div>
-            <span className={`${labelClass} block mb-2`}>Size mode</span>
-            <div className={`grid grid-cols-3 ${controlGapClass}`}>
-              {(
-                [
-                  { value: 'fill', label: 'Fill' },
-                  { value: 'hug', label: 'Hug' },
-                  { value: 'fixed', label: 'Fixed' }
-                ] satisfies Array<{ value: ExportContainerLayout['sizeMode']; label: string }>
-              ).map(option => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => handleLayoutChange({ sizeMode: option.value, width: option.value === 'fixed' ? layout.width : undefined, height: option.value === 'fixed' ? layout.height : undefined })}
-                  className={`${sizeButtonBase} ${layout.sizeMode === option.value ? sizeButtonActive : sizeButtonInactive}`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {layout.sizeMode === 'fixed' && (
-            <div className={`grid grid-cols-2 ${controlGapClass}`}>
-              <label className={`${labelClass} flex flex-col gap-1`}>
-                Width
-                <input
-                  type="number"
-                  className={`${fieldClass} text-center`}
-                  value={Number.isFinite(layout.width) ? layout.width : ''}
-                  placeholder="px"
-                  onChange={(event) => handleDimensionChange('width', event.target.value)}
-                />
-              </label>
-              <label className={`${labelClass} flex flex-col gap-1`}>
-                Height
-                <input
-                  type="number"
-                  className={`${fieldClass} text-center`}
-                  value={Number.isFinite(layout.height) ? layout.height : ''}
-                  placeholder="px"
-                  onChange={(event) => handleDimensionChange('height', event.target.value)}
-                />
-              </label>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-});
+export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(() => null);
 
 ContainerLayoutControls.displayName = 'ContainerLayoutControls';
 
@@ -734,6 +612,7 @@ const MinimalLayerList = () => {
   // Store subscriptions
   const layers = useAppStore(state => state.layers);
   const activeLayerId = useAppStore(state => state.activeLayerId);
+  const selectedLayerIds = useAppStore(state => state.selectedLayerIds);
   const globalColorCycleSpeed = useAppStore(state => state.tools.brushSettings.colorCycleSpeed || 0.1);
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
   // Actions
@@ -742,6 +621,7 @@ const MinimalLayerList = () => {
   const setActiveLayer = useAppStore(state => state.setActiveLayer);
   const reorderLayers = useAppStore(state => state.reorderLayers);
   const removeLayer = useAppStore(state => state.removeLayer);
+  const setSelectedLayerIds = useAppStore(state => state.setSelectedLayerIds);
 
   const activeLayer = useMemo(() => layers.find(l => l.id === activeLayerId), [layers, activeLayerId]);
   const isCCBrushLayer = activeLayer?.layerType === 'color-cycle' && activeLayer?.colorCycleData?.mode !== 'recolor';
@@ -898,10 +778,21 @@ const MinimalLayerList = () => {
   
   const handleToggleVisibility = (e: React.MouseEvent, layerId: string) => {
     e.stopPropagation();
-    const layer = layers.find(l => l.id === layerId);
-    if (layer) {
-      updateLayer(layerId, { visible: !layer.visible });
+    const targetLayer = layers.find(l => l.id === layerId);
+    if (!targetLayer) {
+      return;
     }
+
+    const shouldApplyToSelection = selectedLayerIds.includes(layerId) && selectedLayerIds.length > 1;
+    const layerIdsToUpdate = shouldApplyToSelection ? selectedLayerIds : [layerId];
+    const nextVisible = !targetLayer.visible;
+
+    layerIdsToUpdate.forEach((id) => {
+      const layer = layers.find(l => l.id === id);
+      if (layer && layer.visible !== nextVisible) {
+        updateLayer(id, { visible: nextVisible });
+      }
+    });
   };
   
   // Handle drag start
@@ -977,8 +868,24 @@ const MinimalLayerList = () => {
     setDragOverLayerId(null);
   };
   
-  const handleLayerClick = (layerId: string) => {
+  const handleLayerClick = (event: React.MouseEvent, layerId: string) => {
+    if (event.shiftKey && activeLayerId) {
+      const anchorIndex = layers.findIndex(l => l.id === activeLayerId);
+      const targetIndex = layers.findIndex(l => l.id === layerId);
+
+      if (anchorIndex !== -1 && targetIndex !== -1) {
+        const start = Math.min(anchorIndex, targetIndex);
+        const end = Math.max(anchorIndex, targetIndex);
+        const rangeSelection = layers.slice(start, end + 1).map(layer => layer.id);
+
+        setActiveLayer(layerId);
+        setSelectedLayerIds(rangeSelection);
+        return;
+      }
+    }
+
     setActiveLayer(layerId);
+    setSelectedLayerIds([layerId]);
   };
 
   const handleRemoveLayer = (layerId: string) => {
@@ -1011,18 +918,19 @@ const MinimalLayerList = () => {
       <div className="flex-1 overflow-y-auto" key={`${layers.length}-${layers.map(l => `${l.id}-${l.layerType}-${!!l.colorCycleData}`).join(',')}`}>
         <div className="py-1">
           {layers.slice().reverse().map((layer) => {
-            
+            const isSelected = selectedLayerIds.includes(layer.id);
+            const isActive = activeLayerId === layer.id;
             return (
               <div
                 key={layer.id}
                 className={`
                   relative group cursor-move select-none
-                  ${activeLayerId === layer.id ? 'bg-[#4A4A4A]' : 'hover:bg-[#353535]'}
+                  ${isActive ? 'bg-[#4A4A4A]' : isSelected ? 'bg-[#3F3F3F]' : 'hover:bg-[#353535]'}
                   ${dragOverLayerId === layer.id ? 'border-t-2 border-blue-400' : ''}
                   transition-all duration-150
                 `}
                 draggable
-                onClick={() => handleLayerClick(layer.id)}
+                onClick={(event) => handleLayerClick(event, layer.id)}
                 onDragStart={(e) => handleDragStart(e, layer.id)}
                 onDragEnd={handleDragEnd}
                 onDragOver={(e) => handleDragOver(e, layer.id)}
@@ -1137,8 +1045,6 @@ const MinimalLayerList = () => {
       
       <div className="border-t border-[#424242]">
         <LayerAlignmentControls />
-        <div className="mx-1 border-t border-[#424242]" aria-hidden />
-        <ContainerLayoutControls />
 
         {/* Color Cycle speed slider duplicated from brush controls for quick access */}
         <div className="border-t border-[#424242] px-2 py-2">
@@ -1156,14 +1062,23 @@ const MinimalLayerList = () => {
                 setBrushSettings({ colorCycleSpeed: clampedValue });
 
                 if (isCCBrushLayer && activeLayerId && activeLayer?.colorCycleData) {
-                  if (activeLayer.colorCycleData.brushSpeed !== clampedValue) {
-                    updateLayer(activeLayerId, {
-                      colorCycleData: {
-                        ...activeLayer.colorCycleData,
-                        brushSpeed: clampedValue
+                  const targetLayerIds = selectedLayerIds.length > 1 && activeLayerId && selectedLayerIds.includes(activeLayerId)
+                    ? selectedLayerIds
+                    : [activeLayerId];
+
+                  targetLayerIds.forEach((layerId) => {
+                    const targetLayer = layers.find(l => l.id === layerId);
+                    if (targetLayer?.layerType === 'color-cycle' && targetLayer.colorCycleData) {
+                      if (targetLayer.colorCycleData.brushSpeed !== clampedValue) {
+                        updateLayer(layerId, {
+                          colorCycleData: {
+                            ...targetLayer.colorCycleData,
+                            brushSpeed: clampedValue
+                          }
+                        });
                       }
-                    });
-                  }
+                    }
+                  });
                 }
               }}
               aria-label="Color Cycle Speed"

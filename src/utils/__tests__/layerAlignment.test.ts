@@ -6,6 +6,7 @@ describe('computeLayerTransform', () => {
     fit: 'none',
     horizontal: 'center',
     vertical: 'center',
+    positioning: 'anchor',
     offsetPx: { x: 0, y: 0 }
   };
 
@@ -70,12 +71,30 @@ describe('computeLayerTransform', () => {
         horizontal: 'left',
         vertical: 'top',
         fit: 'percent',
+        positioning: 'anchor',
         offsetPercent: { x: 25, y: 75 }
       }
     );
 
     expect(percentTransform.translateX).toBeCloseTo(50);
     expect(percentTransform.translateY).toBeCloseTo(150);
+  });
+
+  test('auto positioning uses percent offsets with any fit', () => {
+    const autoAlignment: LayerAlignmentSettings = {
+      ...baseAlignment,
+      positioning: 'auto',
+      offsetPercent: { x: 30, y: 20 }
+    };
+
+    const transform = computeLayerTransform(
+      { width: 50, height: 50 },
+      { width: 200, height: 200 },
+      autoAlignment
+    );
+
+    expect(transform.translateX).toBeCloseTo(45);
+    expect(transform.translateY).toBeCloseTo(30);
   });
 
   test('offsets are applied after alignment', () => {
@@ -104,12 +123,13 @@ describe('resolveContainerLayout', () => {
     ...overrides
   });
 
-    const alignment: LayerAlignmentSettings = {
-      fit: 'none',
-      horizontal: 'left',
-      vertical: 'top',
-      offsetPx: { x: 0, y: 0 }
-    };
+  const alignment: LayerAlignmentSettings = {
+    fit: 'none',
+    horizontal: 'left',
+    vertical: 'top',
+    positioning: 'anchor',
+    offsetPx: { x: 0, y: 0 }
+  };
 
   test('lays out layers horizontally with gaps', () => {
     const layout = createLayout();
