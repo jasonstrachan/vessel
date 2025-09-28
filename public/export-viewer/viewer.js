@@ -1292,9 +1292,14 @@ class TinyBrushViewer {
         originalContentBounds: original?.contentBounds
       });
 
+      const offsetPx = {
+        x: toFinite(alignment?.offsetPx?.x, 0),
+        y: toFinite(alignment?.offsetPx?.y, 0)
+      };
+
       const frameSource = layer.frame || original?.frame || {
-        x: alignment.offsetPx?.x ?? 0,
-        y: alignment.offsetPx?.y ?? 0,
+        x: offsetPx.x,
+        y: offsetPx.y,
         width: layer.sourceSize?.width ?? original?.sourceSize?.width ?? viewport.width,
         height: layer.sourceSize?.height ?? original?.sourceSize?.height ?? viewport.height
       };
@@ -1347,11 +1352,21 @@ class TinyBrushViewer {
         ? { width: viewport.width, height: viewport.height }
         : { width: clampedFrame.width, height: clampedFrame.height };
 
-      layer.transform = LayoutEngine.computeLayerTransform(
+      const computedTransform = LayoutEngine.computeLayerTransform(
         contentSize,
         viewportForTransform,
         alignment
       );
+
+      if (alignmentFit !== 'percent') {
+        computedTransform.translateX = toFinite(computedTransform.translateX, 0) - offsetPx.x;
+        computedTransform.translateY = toFinite(computedTransform.translateY, 0) - offsetPx.y;
+      } else {
+        computedTransform.translateX = toFinite(computedTransform.translateX, 0);
+        computedTransform.translateY = toFinite(computedTransform.translateY, 0);
+      }
+
+      layer.transform = computedTransform;
 
       console.log('[VIEWER] Computed transform:', {
         layerId: layer.id,
