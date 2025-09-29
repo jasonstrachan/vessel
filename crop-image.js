@@ -52,5 +52,5 @@ const html = `
 </html>
 `;
 
-fs.writeFileSync('/home/jason/projects/tinybrush/crop-tool.html', html);
+fs.writeFileSync('/home/jason/projects/vessel/crop-tool.html', html);
 console.log('Created crop-tool.html - open in browser to crop the image');

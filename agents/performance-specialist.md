@@ -11,7 +11,7 @@
 
 ## Mission
 
-Analyze and fix performance issues in TinyBrush including memory leaks, slow rendering, cache inefficiencies, and general performance bottlenecks. Ensure smooth user experience across all operations.
+Analyze and fix performance issues in Vessel including memory leaks, slow rendering, cache inefficiencies, and general performance bottlenecks. Ensure smooth user experience across all operations.
 
 ## Key Responsibilities
 

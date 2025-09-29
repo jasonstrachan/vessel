@@ -7,8 +7,8 @@ export type FeatureFlagKey =
 type FeatureFlagState = Record<FeatureFlagKey, boolean>;
 
 const STORAGE_KEYS: Record<FeatureFlagKey, string> = {
-  useCanvas2DColorCycle: 'tinybrush:flag:useCanvas2DColorCycle',
-  logColorCycleOperations: 'tinybrush:flag:logColorCycleOperations',
+  useCanvas2DColorCycle: 'vessel:flag:useCanvas2DColorCycle',
+  logColorCycleOperations: 'vessel:flag:logColorCycleOperations',
 };
 
 const defaultState: FeatureFlagState = {
@@ -85,7 +85,7 @@ export const setFeatureFlag = (key: FeatureFlagKey, value: boolean): void => {
       }
     }
     const detail = { key, value };
-    window.dispatchEvent(new CustomEvent('tinybrush:featureFlagChange', { detail }));
+    window.dispatchEvent(new CustomEvent('vessel:featureFlagChange', { detail }));
     window.dispatchEvent(new CustomEvent('feature-flag-changed', { detail } as CustomEventInit));
   }
 

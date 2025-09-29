@@ -1,6 +1,6 @@
-# TinyBrush Specialized Agent System
+# Vessel Specialized Agent System
 
-This directory contains specialized agent definitions for automated issue triage and assignment in the TinyBrush project.
+This directory contains specialized agent definitions for automated issue triage and assignment in the Vessel project.
 
 ## How It Works
 

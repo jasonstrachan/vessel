@@ -1,7 +1,7 @@
-# TinyBrush Performance Optimization
+# Vessel Performance Optimization
 
 ## Overview
-This document details performance bottlenecks identified in TinyBrush and the optimization strategies implemented to address them.
+This document details performance bottlenecks identified in Vessel and the optimization strategies implemented to address them.
 
 ## Key Performance Issues
 

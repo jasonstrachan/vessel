@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TinyBrush WebGL Bundle Viewer</title>
+    <title>Vessel Goblet Bundle Viewer</title>
     <style>
       :root {
         color-scheme: dark;
@@ -33,7 +33,7 @@
     <input id="file-input" type="file" accept="application/json" hidden />
 
     <script type="module">
-      import { renderTinyBrushWebGL } from './viewer.js';
+      import { renderVesselWebGL } from './goblet.js';
 
       const canvas = document.getElementById('preview-canvas');
       const fileInput = document.getElementById('file-input');
@@ -66,10 +66,10 @@
           pendingMetadata = null;
           try {
             const scale = computeScale(current);
-            await renderTinyBrushWebGL(current, canvas, { scale });
+            await renderVesselWebGL(current, canvas, { scale });
             lastMetadata = current;
           } catch (error) {
-            console.error('Failed to render TinyBrush bundle', error);
+            console.error('Failed to render Vessel bundle', error);
             break;
           }
         }
@@ -85,7 +85,7 @@
           const metadata = JSON.parse(text);
           void drawMetadata(metadata);
         } catch (error) {
-          console.error('Failed to load TinyBrush bundle', error);
+          console.error('Failed to load Vessel bundle', error);
         }
       };
 
@@ -128,7 +128,7 @@
         }
       });
 
-      console.info('TinyBrush WebGL Viewer ready. Drop a bundle or use Ctrl/Cmd+O to open a file.');
+      console.info('Vessel Goblet Viewer ready. Drop a bundle or use Ctrl/Cmd+O to open a file.');
     
       const packagedMetadata = JSON.parse(JSON.parse("{\"html\":\"<div>test<\\/div>\"}"));
       const autoBundleName = "bundle.json";

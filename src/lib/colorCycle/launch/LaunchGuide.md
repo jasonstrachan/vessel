@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide provides complete instructions for launching the TinyBrush Color Cycle system in production. The system implements advanced recolor and animation functionality with browser optimization, performance monitoring, and error tracking.
+This guide provides complete instructions for launching the Vessel Color Cycle system in production. The system implements advanced recolor and animation functionality with browser optimization, performance monitoring, and error tracking.
 
 ## Pre-Launch Checklist
 

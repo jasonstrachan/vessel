@@ -1,6 +1,6 @@
 /**
  * Pressure-Sensitive Dithering Brush Component
- * Integrates with TinyBrush engine for real-time dithered drawing
+ * Integrates with Vessel engine for real-time dithered drawing
  */
 
 import React from 'react';

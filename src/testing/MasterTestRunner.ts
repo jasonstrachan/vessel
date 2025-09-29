@@ -140,7 +140,7 @@ export class MasterTestRunner {
 <!DOCTYPE html>
 <html>
 <head>
-  <title>TinyBrush Canvas2D Migration - Master Test Report</title>
+  <title>Vessel Canvas2D Migration - Master Test Report</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -323,7 +323,7 @@ export class MasterTestRunner {
 </head>
 <body>
   <div class="header">
-    <h1>🎨 TinyBrush Canvas2D Migration Report</h1>
+    <h1>🎨 Vessel Canvas2D Migration Report</h1>
     <p>Comprehensive Testing Results: Canvas2D vs WebGL Implementation</p>
     <p style="color: #999; font-size: 0.9em;">${new Date().toLocaleString()}</p>
   </div>

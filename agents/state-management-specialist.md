@@ -11,7 +11,7 @@
 
 ## Mission
 
-Analyze and fix issues related to application state management, settings persistence, and component state synchronization in TinyBrush. Ensure reliable state handling across sessions.
+Analyze and fix issues related to application state management, settings persistence, and component state synchronization in Vessel. Ensure reliable state handling across sessions.
 
 ## Key Responsibilities
 

@@ -105,7 +105,7 @@ export const TestRunner: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `tinybrush-${selectedTest}-report-${Date.now()}.html`;
+    a.download = `vessel-${selectedTest}-report-${Date.now()}.html`;
     a.click();
     URL.revokeObjectURL(url);
   };

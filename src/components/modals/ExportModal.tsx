@@ -9,7 +9,8 @@ import Button from '../ui/Button';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { mapToIndexedWithDithering, type DitherMethod } from '@/utils/gifDither';
-import { LayerAlignmentControls, LayerColorSwatches, LAYER_TAG_CLASS } from '@/components/MinimalLayerList';
+import { LayerAlignmentControls } from '@/components/panels/AlignmentPanel';
+import { LayerColorSwatches, LAYER_TAG_CLASS } from '@/components/MinimalLayerList';
 import { Eye, EyeOff } from 'lucide-react';
 import { createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
@@ -18,15 +19,15 @@ import type { Layer, WebGLExportBundleFormat } from '@/types';
 type ExportKind = 'png' | 'gif' | 'mp4' | 'webgl';
 
 const BUNDLE_FORMAT_DESCRIPTIONS: Record<WebGLExportBundleFormat, string> = {
-  zip: 'Bundles the viewer, runtime, and JSON into a single zip.',
-  'single-html': 'Produces a self-contained HTML viewer for instant sharing.',
-  json: 'Downloads only the raw TinyBrush JSON bundle.'
+  zip: 'Bundles the Goblet viewer shell, runtime, and JSON into a single zip.',
+  'single-html': 'Produces a self-contained Goblet page for instant sharing.',
+  json: 'Downloads only the raw Goblet metadata JSON bundle.'
 };
 
 const BUNDLE_FORMAT_LABELS: Record<WebGLExportBundleFormat, string> = {
-  zip: 'viewer bundle zip',
-  'single-html': 'single-file viewer',
-  json: 'JSON bundle'
+  zip: 'Goblet bundle zip',
+  'single-html': 'single-file Goblet',
+  json: 'Goblet JSON bundle'
 };
 
 const MODAL_PANEL_CLASS = 'bg-[#2C2C2C] border border-[#2A2A2A]';
@@ -41,7 +42,7 @@ const INPUT_OVERRIDE_CLASS = '!bg-[#4a4a4a] !border-[#343434] !text-[#E5E5E5] !p
 
 const WEBGL_VIEWPORT_PRESETS = [
   { value: 'fill', label: 'Fill window' },
-  { value: 'project', label: 'Project' }
+  { value: 'fixed', label: 'Design size' }
 ] as const;
 
 type WebglViewportPreset = typeof WEBGL_VIEWPORT_PRESETS[number]['value'];
@@ -186,7 +187,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const webglEmbedFallback = webglExportSettings.embedCanvasFallback;
   const webglMinify = webglExportSettings.minifyOutput;
   const webglBundleFormat = webglExportSettings.bundleFormat;
-  const webglEnableDiagnostics = webglExportSettings.enableViewerDiagnostics;
+  const webglEnableDiagnostics = webglExportSettings.enableGobletDiagnostics;
   const [webglViewportPreset, setWebglViewportPreset] = useState<WebglViewportPreset>('fill');
 
   const [isExporting, setIsExporting] = useState(false);
@@ -340,7 +341,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const resolvedWebglViewport = useMemo(() => {
     const fallbackWidth = project?.width ?? 1024;
     const fallbackHeight = project?.height ?? 1024;
-    return { width: fallbackWidth, height: fallbackHeight };
+    return { designWidth: fallbackWidth, designHeight: fallbackHeight };
   }, [project?.height, project?.width]);
 
   const webglFrameSuggestion = useMemo(() => {
@@ -494,7 +495,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   }, [getColorCycleGradient]);
 
   const filenameBase = useMemo(() => {
-    const name = project?.name || 'TinyBrush';
+    const name = project?.name || 'Vessel';
     return name.replace(/\s+/g, '_');
   }, [project?.name]);
 
@@ -1084,12 +1085,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     const layoutConfig = project.exportLayout ?? createDefaultExportLayout();
     const fps = Math.max(1, Math.floor(webglFps));
 
+    const viewportMode: 'fill' | 'fixed' = webglViewportPreset === 'fill' ? 'fill' : 'fixed';
+    const viewport = {
+      designWidth: project?.width ?? 1024,
+      designHeight: project?.height ?? 1024,
+      mode: viewportMode
+    };
+
     const metadata = await exportProjectAsWebGL({
       project,
       layers,
       layout: layoutConfig,
-      viewport: resolvedWebglViewport,
-      viewportMode: webglViewportPreset,
+      viewport,
       fps,
       totalFrames: webglTotalFrames,
       durationSeconds: webglEffectiveDuration,
@@ -1099,14 +1106,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       minify: webglMinify,
       filenameBase,
       bundleFormat: webglBundleFormat,
-      enableViewerDiagnostics: webglEnableDiagnostics,
+      enableGobletDiagnostics: webglEnableDiagnostics,
       compositeLayersToCanvas
     });
 
     setProgress(100);
     addNotification({
       type: 'success',
-      title: 'WebGL bundle saved',
+      title: 'Goblet bundle saved',
       message: `Exported ${metadata.layers.length} layer${metadata.layers.length === 1 ? '' : 's'} to ${BUNDLE_FORMAT_LABELS[webglBundleFormat]}`,
       timestamp: new Date(),
       duration: 5000
@@ -1325,7 +1332,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                     className={`${TOGGLE_BASE_CLASS} ${exportKind === kind ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
                     disabled={isExporting}
                   >
-                    {kind === 'png' ? 'PNG' : kind === 'gif' ? 'GIF' : kind === 'mp4' ? 'Video' : 'WebGL'}
+                    {kind === 'png' ? 'PNG' : kind === 'gif' ? 'GIF' : kind === 'mp4' ? 'Video' : 'Goblet'}
                   </button>
                 ))}
               </div>
@@ -1570,7 +1577,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                     ))}
                   </div>
                   <p className={`${MODAL_TEXT_SECONDARY} text-xs mt-3`}>
-                    Using {resolvedWebglViewport.width} × {resolvedWebglViewport.height} px
+                  Using {resolvedWebglViewport.designWidth} × {resolvedWebglViewport.designHeight} px
                   </p>
                 </div>
 
@@ -1661,13 +1668,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                       type="checkbox"
                       className="accent-[#D9D9D9]"
                       checked={webglEnableDiagnostics}
-                      onChange={(event) => updateWebglExportSettings({ enableViewerDiagnostics: event.target.checked })}
+                      onChange={(event) => updateWebglExportSettings({ enableGobletDiagnostics: event.target.checked })}
                       disabled={isExporting}
                     />
                   </label>
                 </div>
                 <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
-                  Diagnostics helpers log viewer state to the console and expose `tinybrushViewerSetDiagnostics(true)` at runtime.
+                  Diagnostics helpers log Goblet runtime state to the console and expose `vesselGobletSetDiagnostics(true)` at runtime.
                   Disable for production hand-offs.
                 </p>
                 <div className="flex flex-col gap-2">
@@ -1678,9 +1685,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                     onChange={(event) => updateWebglExportSettings({ bundleFormat: event.target.value as WebGLExportBundleFormat })}
                     disabled={isExporting}
                   >
-                    <option value="zip">Viewer zip (HTML + runtime + JSON)</option>
-                    <option value="single-html">Single HTML (self-contained)</option>
-                    <option value="json">Raw JSON only</option>
+                    <option value="zip">Goblet bundle (HTML + runtime + JSON)</option>
+                    <option value="single-html">Single Goblet HTML (self-contained)</option>
+                    <option value="json">Goblet JSON only</option>
                   </select>
                   <p className={`${MODAL_TEXT_SECONDARY} text-xs`}>
                     {BUNDLE_FORMAT_DESCRIPTIONS[webglBundleFormat]}

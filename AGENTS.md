@@ -1,4 +1,4 @@
-# AGENTS.md — TinyBrush
+# AGENTS.md — Vessel
 
 Purpose
 
@@ -11,7 +11,7 @@ Scope
 
 Project Overview
 
-- Tech: Next.js + TypeScript. Static export for GitHub Pages with `basePath='/tinybrush'`.
+- Tech: Next.js + TypeScript. Static export for GitHub Pages with `basePath='/vessel'`.
 - Path alias: `@/*` (see `tsconfig.json`).
 - Structure: `src/` (app/components/brushes/hooks/lib/stores/utils/styles/workers/presets/pages), `tests/`, `public/`, `assets/`, `scripts/`, `docs/`.
 
@@ -230,7 +230,7 @@ Coding Conventions
 
 Build & Config Notes
 
-- `next.config.ts` sets `basePath`/`assetPrefix` for GH Pages; do not remove or change `/tinybrush` without explicit task scope.
+- `next.config.ts` sets `basePath`/`assetPrefix` for GH Pages; do not remove or change `/vessel` without explicit task scope.
 - `env.BUILD_TIMESTAMP` is injected at build; preserve this behavior.
 - Dev port defaults to `3000`. Dev scripts may kill stale processes—avoid running duplicate dev servers.
 
@@ -295,7 +295,7 @@ Decision Heuristics
 
 File‑Specific Guardrails
 
-- `next.config.ts`: Keep `basePath='/tinybrush'` and related `assetPrefix` unless task requests changes.
+- `next.config.ts`: Keep `basePath='/vessel'` and related `assetPrefix` unless task requests changes.
 - `tsconfig.json`: Preserve `paths` for `@/*` and compiler options unless justified.
 - Next pages (`src/pages/**`): default exports required; other modules should use named exports.
 

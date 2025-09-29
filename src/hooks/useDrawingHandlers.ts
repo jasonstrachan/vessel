@@ -297,6 +297,7 @@ export function useDrawingHandlers({
   // Track which CC layers were animating so we can resume them after interaction
   const pausedCCLayerIdsRef = useRef<string[]>([]);
   const recolorWasAnimatingRef = useRef<boolean>(false);
+  const shouldResumeColorCycleAfterInteractionRef = useRef<boolean>(false);
   // Tracks if we've already paused for the current CC shape preview
   const ccShapePreviewPauseStartedRef = useRef<boolean>(false);
 
@@ -354,8 +355,34 @@ export function useDrawingHandlers({
     return toResume.length > 0 || globalShouldResume || recolorWasAnimatingRef.current;
   }, []);
 
+  const pauseColorCycleForNonCCInteraction = useCallback(() => {
+    if (shouldResumeColorCycleAfterInteractionRef.current) {
+      return;
+    }
+
+    const wasPlaying = getColorCycleAnimationState();
+    pauseAllBrushCCAnimationsNow();
+
+    if (wasPlaying) {
+      shouldResumeColorCycleAfterInteractionRef.current = true;
+      void toggleGlobalColorCyclePlayback(false);
+    }
+  }, [pauseAllBrushCCAnimationsNow]);
+
+  const resumeColorCycleAfterInteraction = useCallback(async () => {
+    if (!shouldResumeColorCycleAfterInteractionRef.current) {
+      return;
+    }
+
+    shouldResumeColorCycleAfterInteractionRef.current = false;
+
+    if (!getColorCycleAnimationState()) {
+      await toggleGlobalColorCyclePlayback(true);
+    }
+  }, []);
+
   // Helper: resume previously paused brush-based CC layers
-  // NOTE: This is no longer used since we don't auto-resume animations
+  // NOTE: Currently unused because global playback flow handles resume/restoration.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const resumePausedBrushCCAnimations = useCallback(() => {
     const state = useAppStore.getState();
@@ -586,12 +613,7 @@ export function useDrawingHandlers({
       }
     } else {
       // Pause animations for non-CC brushes only
-      pauseAllBrushCCAnimationsNow();
-
-      // Use the global playback utility to pause ALL animations properly
-      if (getColorCycleAnimationState()) {
-        toggleGlobalColorCyclePlayback(false);
-      }
+      pauseColorCycleForNonCCInteraction();
     }
 
     // Reset color cycle brush for new stroke and start animation
@@ -862,7 +884,7 @@ export function useDrawingHandlers({
     userBrushEngine,
     project,
     drawEraserSegment,
-    pauseAllBrushCCAnimationsNow,
+    pauseColorCycleForNonCCInteraction,
     updateAutoSampledGradient
   ]);
 
@@ -1379,8 +1401,7 @@ export function useDrawingHandlers({
           st.setBrushSettings({ autoSampleGradient: false });
         }
       } catch {}
-      // DO NOT auto-resume animations - they stay paused after drawing
-      // User must manually press play to restart
+      await resumeColorCycleAfterInteraction();
       if (isBusyRef) isBusyRef.current = false;
     }
   }, [
@@ -1392,7 +1413,8 @@ export function useDrawingHandlers({
     brushEngine,
     processBatchedStrokes,
     equidistantPointsOnPolyline,
-    sampleHexAt
+    sampleHexAt,
+    resumeColorCycleAfterInteraction
   ]);
 
   const finalizeStroke = useCallback(() => {
@@ -1426,12 +1448,7 @@ export function useDrawingHandlers({
         }
       } else {
         // Only pause for non-CC shape brushes
-        pauseAllBrushCCAnimationsNow();
-
-        // Use the global playback utility to pause ALL animations properly
-        if (getColorCycleAnimationState()) {
-          toggleGlobalColorCyclePlayback(false);
-        }
+        pauseColorCycleForNonCCInteraction();
       }
       // quiet
       // Avoid allocating the full-size drawing canvas at the first vertex for
@@ -1466,7 +1483,7 @@ export function useDrawingHandlers({
     } else {
       startDrawing(worldPos, pressure);
     }
-  }, [tools.shapeMode, initDrawingCanvas, startDrawing, pauseAllBrushCCAnimationsNow, updateAutoSampledGradient]);
+  }, [tools.shapeMode, initDrawingCanvas, startDrawing, pauseColorCycleForNonCCInteraction, updateAutoSampledGradient]);
   
   const continueShapeDrawing = useCallback((worldPos: { x: number; y: number }) => {
     // Handle animations based on brush type
@@ -1481,10 +1498,7 @@ export function useDrawingHandlers({
         }
       } else {
         // Only pause for non-CC shapes
-        pauseAllBrushCCAnimationsNow();
-        if (getColorCycleAnimationState()) {
-          toggleGlobalColorCyclePlayback(false);
-        }
+        pauseColorCycleForNonCCInteraction();
       }
       ccShapePreviewPauseStartedRef.current = true;
     }
@@ -1563,7 +1577,7 @@ export function useDrawingHandlers({
     } else if (!tools.shapeMode) {
       continueDrawing(worldPos);
     }
-  }, [tools.shapeMode, continueDrawing, pauseAllBrushCCAnimationsNow, updateAutoSampledGradient, initDrawingCanvas]);
+  }, [tools.shapeMode, continueDrawing, pauseColorCycleForNonCCInteraction, updateAutoSampledGradient, initDrawingCanvas]);
   
   const finalizeShapeDrawing = useCallback(async () => {
     if (!tools.shapeMode) {
@@ -1635,9 +1649,9 @@ export function useDrawingHandlers({
         shapePointsRef.current = [];
         isDrawingShapeRef.current = false;
         
-        // DO NOT auto-resume animations - they stay paused after drawing
         ccShapePreviewPauseStartedRef.current = false;
-        
+
+        await resumeColorCycleAfterInteraction();
         if (isBusyRef) isBusyRef.current = false;
         return;
     } catch (error) {
@@ -2043,19 +2057,19 @@ export function useDrawingHandlers({
         if (isColorCycleLayer && drawingCanvasHasContent.current) {
           // For CC layers, the save already happened after drawing the shape
           // No need to save again here
-          
-          // DO NOT auto-resume animations - they stay paused after drawing
+
           // Reset auto-sample state after shape ends
           autoSamplePointsRef.current = [];
           autoSampleLastUpdateRef.current = 0;
+          await resumeColorCycleAfterInteraction();
           if (isBusyRef) isBusyRef.current = false;
           return;
         }
-        
+
         if (isBusyRef) isBusyRef.current = false;
         await finalizeDrawing();
-        // DO NOT auto-resume animations - they stay paused after drawing
         ccShapePreviewPauseStartedRef.current = false;
+        await resumeColorCycleAfterInteraction();
         return;
       } else if (isDrawingShapeRef.current) {
         shapePointsRef.current = [];
@@ -2066,7 +2080,7 @@ export function useDrawingHandlers({
     } finally {
       if (isBusyRef) isBusyRef.current = false;
     }
-  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef, saveCanvasState, activeLayerId, initDrawingCanvas, equidistantPointsOnPolyline, sampleHexAt]);
+  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef, saveCanvasState, activeLayerId, initDrawingCanvas, equidistantPointsOnPolyline, sampleHexAt, resumeColorCycleAfterInteraction]);
   
   // Helper function to render all visible color cycle layers
   const renderAllColorCycleLayers = useCallback((targetCtx: CanvasRenderingContext2D, onlyActiveLayer: boolean = false) => {

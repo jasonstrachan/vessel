@@ -8,8 +8,8 @@ const nextConfig: NextConfig = {
   ...(isProd && {
     output: 'export',
     trailingSlash: true,
-    basePath: '/tinybrush',
-    assetPrefix: '/tinybrush/',
+    basePath: '/vessel',
+    assetPrefix: '/vessel/',
   }),
   images: {
     unoptimized: true,

@@ -1,5 +1,5 @@
 /**
- * Automated integration testing for TinyBrush app integration
+ * Automated integration testing for Vessel app integration
  * Tests all integration points, compatibility, and identifies issues
  */
 
@@ -569,7 +569,7 @@ export class AppIntegrationTest {
    * Format integration test report
    */
   static formatReport(report: AppIntegrationReport): string {
-    let output = `# TinyBrush Color Cycle Integration Report\n\n`;
+    let output = `# Vessel Color Cycle Integration Report\n\n`;
     output += `**Generated:** ${new Date(report.timestamp).toLocaleString()}\n`;
     output += `**Tests:** ${report.testsPassed} passed, ${report.testsFailed} failed\n\n`;
 

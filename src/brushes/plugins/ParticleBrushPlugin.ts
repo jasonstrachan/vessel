@@ -11,7 +11,7 @@ export class ParticleBrushPlugin extends BaseBrushPlugin {
     id: 'particle-brush',
     name: 'Particle Brush',
     description: 'Scatters particles for spray paint and texture effects',
-    author: 'TinyBrush Team',
+    author: 'Vessel Team',
     version: '1.0.0',
     category: 'Artistic',
     tags: ['particle', 'spray', 'texture', 'scatter'],

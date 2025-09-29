@@ -1,6 +1,6 @@
 # Canvas Performance Optimization Plan
 
-Based on analysis of the TinyBrush codebase, implementing canvas performance optimizations using MDN best practices. Current implementation has bottlenecks limiting drawing performance to 15-25fps instead of target 60fps.
+Based on analysis of the Vessel codebase, implementing canvas performance optimizations using MDN best practices. Current implementation has bottlenecks limiting drawing performance to 15-25fps instead of target 60fps.
 
 ## Phase 1: Immediate Performance Improvements
 

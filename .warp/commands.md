@@ -1,4 +1,4 @@
-﻿# TinyBrush Warp Commands
+﻿# Vessel Warp Commands
 
 ## Quick Development Commands
 dev: npm run dev
@@ -11,8 +11,8 @@ clean: npm run clean
 commit: npm run cc
 
 ## Project Scripts
-start-app: ./start-tinybrush.sh
-stop-app: ./stop-tinybrush.sh
+start-app: ./start-vessel.sh
+stop-app: ./stop-vessel.sh
 
 ## Common Git Operations
 status: git status --porcelain

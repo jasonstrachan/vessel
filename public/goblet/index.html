@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TinyBrush WebGL Bundle Viewer</title>
+    <title>Vessel Goblet Viewer</title>
     <style>
       :root {
         color-scheme: dark;
@@ -26,7 +26,7 @@
         background: #000;
         image-rendering: pixelated;
       }
-      #viewer-status {
+      #goblet-status {
         position: fixed;
         bottom: 16px;
         left: 50%;
@@ -47,10 +47,10 @@
         text-overflow: ellipsis;
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
       }
-      #viewer-status[data-visible='true'] {
+      #goblet-status[data-visible='true'] {
         opacity: 1;
       }
-      #viewer-status[data-level='error'] {
+      #goblet-status[data-level='error'] {
         color: #ff8686;
       }
     </style>
@@ -61,12 +61,12 @@
 
     <script type="module">
       import {
-        renderTinyBrushWebGL,
-        resizeTinyBrushWebGL,
+        renderVesselWebGL,
+        resizeVesselWebGL,
         debugLog,
-        isViewerDiagnosticsEnabled,
-        setViewerDiagnosticsEnabled
-      } from './viewer.js';
+        isGobletDiagnosticsEnabled,
+        setGobletDiagnosticsEnabled
+      } from './goblet.js';
 
       const canvas = document.getElementById('preview-canvas');
       const fileInput = document.getElementById('file-input');
@@ -76,7 +76,7 @@
 
       const statusElement = (() => {
         const element = document.createElement('div');
-        element.id = 'viewer-status';
+        element.id = 'goblet-status';
         element.setAttribute('role', 'status');
         element.dataset.visible = 'false';
         element.dataset.level = 'info';
@@ -84,9 +84,9 @@
         return element;
       })();
 
-      const isDiagnosticsEnabled = () => isViewerDiagnosticsEnabled();
+      const isDiagnosticsEnabled = () => isGobletDiagnosticsEnabled();
 
-      window.tinybrushViewerSetDiagnostics = (value) => setViewerDiagnosticsEnabled(value);
+      window.vesselGobletSetDiagnostics = (value) => setGobletDiagnosticsEnabled(value);
 
       const setStatus = (message, level = 'info') => {
         const text = typeof message === 'string' ? message.trim() : '';
@@ -103,7 +103,7 @@
         if (text) {
           statusElement.textContent = text;
           statusElement.dataset.visible = 'true';
-          console.error('[TinyBrush Viewer]', text);
+          console.error('[Vessel Goblet]', text);
         } else {
           statusElement.textContent = '';
           statusElement.dataset.visible = 'false';
@@ -114,8 +114,8 @@
 
       const computeScale = (metadata) => {
         const viewport = metadata?.viewport ?? {};
-        const width = Number(viewport.width) || 0;
-        const height = Number(viewport.height) || 0;
+        const width = Number(viewport.designWidth ?? viewport.width) || 0;
+        const height = Number(viewport.designHeight ?? viewport.height) || 0;
         if (!width || !height) {
           return 1;
         }
@@ -129,11 +129,8 @@
           return 1;
         }
 
-        if (viewport.mode === 'fill') {
-          return {
-            x: widthRatio,
-            y: heightRatio
-          };
+        if (viewport.mode === 'fill' || viewport.mode === 'fit') {
+          return 1;
         }
 
         const baseScale = Math.min(widthRatio, heightRatio, 1);
@@ -164,11 +161,11 @@
             } else {
               delete document.body.dataset.viewportMode;
             }
-            const summary = await renderTinyBrushWebGL(current, canvas, { scale });
+            const summary = await renderVesselWebGL(current, canvas, { scale });
             debugLog('[DEBUG] drawMetadata render summary', summary);
             lastMetadata = current;
           } catch (error) {
-            console.error('Failed to render TinyBrush bundle', error);
+            console.error('Failed to render Goblet bundle', error);
             break;
           }
         }
@@ -204,7 +201,7 @@
           }
           void drawMetadata(metadata);
         } catch (error) {
-          console.error('Failed to load TinyBrush bundle', error);
+          console.error('Failed to load Goblet bundle', error);
         }
       };
 
@@ -241,7 +238,7 @@
       });
 
 
-      const readyMessage = 'Viewer ready. Drop a bundle or use Ctrl/Cmd+O to open a file.';
+      const readyMessage = 'Goblet ready. Drop a bundle or use Ctrl/Cmd+O to open a file.';
       setStatus(readyMessage);
     </script>
   </body>

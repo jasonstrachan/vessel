@@ -221,7 +221,7 @@ const args = process.argv.slice(2);
 const monitorMode = args.includes('--monitor') || args.includes('-m');
 
 // Start the server
-console.log('🎨 TinyBrush Development Server Manager');
+console.log('🎨 Vessel Development Server Manager');
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 console.log('This wrapper provides:');
 console.log('  • Auto-recovery from crashes');

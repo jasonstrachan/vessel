@@ -1,6 +1,6 @@
-# TinyBrush Documentation
+# Vessel Documentation
 
-Welcome to the comprehensive documentation for TinyBrush, a sophisticated web-based drawing application.
+Welcome to the comprehensive documentation for Vessel, a sophisticated web-based drawing application.
 
 ## Documentation Structure
 

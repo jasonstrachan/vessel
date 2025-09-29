@@ -556,7 +556,7 @@ export function getColorCycleBrushManager(): ColorCycleBrushManager {
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('tinybrush:featureFlagChange', (event) => {
+  window.addEventListener('vessel:featureFlagChange', (event) => {
     const detail = (event as CustomEvent<{ key?: string; value?: boolean }>).detail;
     if (detail?.key === 'useCanvas2DColorCycle' && typeof detail.value === 'boolean') {
       globalManager?.setCanvasImplementation(detail.value);

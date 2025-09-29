@@ -1,5 +1,5 @@
 /**
- * TinyBrush Color Cycle Animation Library
+ * Vessel Color Cycle Animation Library
  * Efficient indexed color drawing with animated gradients
  */
 

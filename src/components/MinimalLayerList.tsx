@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useState, useCallback, memo, useEffect, useRef, useMemo } from 'react';
+import { Eye, EyeOff, X } from 'lucide-react';
 import { useAppStore } from '../stores/useAppStore';
-import { Layer, BrushShape, type LayerAlignmentSettings } from '../types';
+import { Layer, BrushShape } from '../types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
-import { computeLayerPercentOffset } from '@/utils/layerMetrics';
-import { Eye, EyeOff, Plus, ChevronRight, X } from 'lucide-react';
+import { LayerAlignmentControls } from '@/components/panels/AlignmentPanel';
 import ProgressSlider from './ui/ProgressSlider';
 import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
 import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
@@ -43,11 +43,10 @@ export const LayerColorSwatches = memo<{
   
   if (swatches.length === 0) {
     return (
-      <div 
-        className="flex-1 h-4 rounded mr-1"
+      <div
+        className="h-4 w-full"
         style={{
           backgroundColor: '#444',
-          minWidth: '30px',
           opacity: visible ? 1 : 0.5
         }}
         title={layer.name}
@@ -65,11 +64,10 @@ export const LayerColorSwatches = memo<{
     .join(', ');
   
   return (
-    <div 
-      className="flex-1 h-4 rounded mr-1"
+    <div
+      className="h-4 w-full"
       style={{
         background: `linear-gradient(90deg, ${gradientStops})`,
-        minWidth: '30px',
         opacity: visible ? 1 : 0.5
       }}
       title={layer.name}
@@ -78,399 +76,6 @@ export const LayerColorSwatches = memo<{
 });
 
 LayerColorSwatches.displayName = 'LayerColorSwatches';
-
-type AnchorKey = 'tl' | 'tc' | 'tr' | 'ml' | 'mc' | 'mr' | 'bl' | 'bc' | 'br';
-type AnchorSelection = AnchorKey | 'auto';
-
-const ANCHOR_CONFIG: Record<AnchorKey, {
-  horizontal: LayerAlignmentSettings['horizontal'];
-  vertical: LayerAlignmentSettings['vertical'];
-}> = {
-  tl: { horizontal: 'left', vertical: 'top' },
-  tc: { horizontal: 'center', vertical: 'top' },
-  tr: { horizontal: 'right', vertical: 'top' },
-  ml: { horizontal: 'left', vertical: 'center' },
-  mc: { horizontal: 'center', vertical: 'center' },
-  mr: { horizontal: 'right', vertical: 'center' },
-  bl: { horizontal: 'left', vertical: 'bottom' },
-  bc: { horizontal: 'center', vertical: 'bottom' },
-  br: { horizontal: 'right', vertical: 'bottom' }
-};
-
-const ANCHOR_GRID: AnchorKey[][] = [
-  ['tl', 'tc', 'tr'],
-  ['ml', 'mc', 'mr'],
-  ['bl', 'bc', 'br']
-];
-
-const ANCHOR_SUMMARY: Record<AnchorSelection, string> = {
-  tl: 'Top Left',
-  tc: 'Top Center',
-  tr: 'Top Right',
-  ml: 'Middle Left',
-  mc: 'Middle Center',
-  mr: 'Middle Right',
-  bl: 'Bottom Left',
-  bc: 'Bottom Center',
-  br: 'Bottom Right',
-  auto: 'Auto'
-};
-
-const anchorButtonBase = [
-  'h-7 border transition-colors',
-  'flex items-center justify-center'
-].join(' ');
-
-const anchorActiveClass = 'border-[#3D3D46] bg-[#5A5A68]';
-const anchorInactiveClass = 'border-[#3D3D46] bg-transparent hover:bg-[#5A5A68]';
-
-const fitOptions: Array<{ value: Exclude<LayerAlignmentSettings['fit'], 'percent' | 'fit-width' | 'fit-height'>; label: string }> = [
-  { value: 'none', label: 'None' },
-  { value: 'contain', label: 'Contain' },
-  { value: 'cover', label: 'Cover' },
-  { value: 'fill', label: 'Fill' },
-  { value: 'scale-down', label: 'Scale Down' }
-];
-
-const fitButtonBase = [
-  'w-full flex items-center gap-2.5',
-  'px-1.5 py-1 text-sm transition-colors text-left'
-].join(' ');
-
-const fitButtonActive = 'text-[#F3F3F7] font-semibold';
-const fitButtonInactive = 'text-[#D9D9E8] hover:text-white';
-
-const resolveAnchorSelection = (alignment: LayerAlignmentSettings | null): AnchorSelection => {
-  if (!alignment) {
-    return 'auto';
-  }
-
-  if (alignment.positioning === 'auto') {
-    return 'auto';
-  }
-
-  const match = (Object.entries(ANCHOR_CONFIG) as Array<[AnchorKey, (typeof ANCHOR_CONFIG)[AnchorKey]]>)
-    .find(([, config]) => config.horizontal === alignment.horizontal && config.vertical === alignment.vertical);
-
-  return match ? match[0] : 'mc';
-};
-
-type ControlDensity = 'compact' | 'comfortable';
-
-interface DensityProps {
-  density?: ControlDensity;
-  className?: string;
-}
-
-interface LayerAlignmentControlsProps extends DensityProps {
-  appearance?: 'panel' | 'plain';
-  defaultExpanded?: boolean;
-}
-
-export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ density = 'compact', className = '', defaultExpanded = true }) => {
-  const activeLayerId = useAppStore(state => state.activeLayerId);
-  const activeLayer = useAppStore(state => state.layers.find(l => l.id === activeLayerId) ?? null);
-  const selectedLayerIds = useAppStore(state => state.selectedLayerIds);
-  const alignment = activeLayer?.alignment ?? null;
-  const project = useAppStore(state => state.project);
-  const updateLayerAlignment = useAppStore(state => state.updateLayerAlignment);
-
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-
-  const disabled = !alignment || !activeLayerId;
-  const offset = alignment?.offsetPx ?? { x: 0, y: 0 };
-
-  const derivedPercent = useMemo(() => {
-    if (!alignment) {
-      return { x: 0, y: 0 };
-    }
-
-    if (activeLayer && project) {
-      try {
-        return computeLayerPercentOffset(activeLayer, project);
-      } catch (error) {
-        console.warn('[LayerAlignmentControls] Failed to compute percent offset', error);
-      }
-    }
-
-    if (alignment.offsetPercent) {
-      return alignment.offsetPercent;
-    }
-
-    return { x: 0, y: 0 };
-  }, [alignment, activeLayer, project]);
-
-  const selectedAnchor = resolveAnchorSelection(alignment);
-  const isAuto = alignment?.positioning === 'auto';
-  const effectiveFit: LayerAlignmentSettings['fit'] = alignment?.fit ?? 'contain';
-
-  const isComfortable = density === 'comfortable';
-
-  const paddingClasses = isComfortable ? 'px-1 py-2' : 'px-1 py-1';
-  const rootClasses = [paddingClasses, className].filter(Boolean).join(' ').trim();
-
-  const titleClass = 'text-sm font-medium text-[#F1F1F6]';
-
-  const helperClass = 'text-sm text-[#8F8FA3]';
-
-  const summaryText = (() => {
-    if (!alignment) {
-      return 'Select a layer to configure';
-    }
-    if (isAuto) {
-      const fitLabel = fitOptions.find(option => option.value === alignment.fit)?.label ?? alignment.fit;
-      return `Auto • ${fitLabel} • Left ${Math.round(derivedPercent.x)}% / Top ${Math.round(derivedPercent.y)}%`;
-    }
-    const fitLabel = fitOptions.find(option => option.value === alignment.fit)?.label ?? alignment.fit;
-    return `${fitLabel} • ${ANCHOR_SUMMARY[selectedAnchor]}`;
-  })();
-
-  const labelClass = 'text-sm font-medium text-[#D3D3DC]';
-
-  const fieldClass = [
-    'w-full rounded-none border border-[#4A4A4A] bg-[#4A4A4A] text-[#F3F3F7] placeholder:text-[#C6C6D0]',
-    'transition-colors focus:border-[#A5A5BA] focus:outline-none focus:ring-0',
-    'disabled:cursor-not-allowed disabled:opacity-50',
-    'h-7 px-2 text-sm'
-  ].join(' ');
-
-  const contentSpacingClass = 'px-2';
-
-  const offsetDisabled = disabled || isAuto;
-
-  const handleToggleExpanded = useCallback(() => {
-    setIsExpanded(prev => !prev);
-  }, []);
-
-  const handleAlignmentChange = useCallback(
-    (partial: Partial<LayerAlignmentSettings>) => {
-      if (!alignment || !activeLayerId) {
-        return;
-      }
-      const baseOffset = alignment.offsetPx ?? { x: 0, y: 0 };
-      const basePercent = alignment.offsetPercent ?? { x: 0, y: 0 };
-
-      const nextFit = partial.fit ?? alignment.fit;
-      const nextPositioning = partial.positioning ?? alignment.positioning;
-
-      const nextAlignment: LayerAlignmentSettings = {
-        ...alignment,
-        ...partial,
-        fit: nextFit,
-        positioning: nextPositioning,
-        offsetPx: partial.offsetPx ? { ...partial.offsetPx } : baseOffset,
-        offsetPercent: nextPositioning === 'auto' || nextFit === 'percent'
-          ? { ...(partial.offsetPercent ?? basePercent) }
-          : undefined
-      };
-
-      const targetLayerIds = selectedLayerIds.length > 1 && selectedLayerIds.includes(activeLayerId)
-        ? selectedLayerIds
-        : [activeLayerId];
-
-      targetLayerIds.forEach((layerId) => {
-        updateLayerAlignment(layerId, nextAlignment);
-      });
-    },
-    [alignment, activeLayerId, selectedLayerIds, updateLayerAlignment]
-  );
-
-  const handleAnchorSelect = useCallback((selection: AnchorSelection) => {
-    if (!alignment || !activeLayerId) {
-      return;
-    }
-
-    if (selection === 'auto') {
-      let nextPercent = derivedPercent;
-      if (activeLayer && project) {
-        try {
-          nextPercent = computeLayerPercentOffset(activeLayer, project);
-        } catch (error) {
-          console.warn('[LayerAlignmentControls] Failed to compute percent offset for auto mode', error);
-        }
-      }
-
-      handleAlignmentChange({
-        positioning: 'auto',
-        offsetPercent: nextPercent
-      });
-      return;
-    }
-
-    const config = ANCHOR_CONFIG[selection];
-
-    handleAlignmentChange({
-      positioning: 'anchor',
-      horizontal: config.horizontal,
-      vertical: config.vertical,
-      offsetPercent: undefined
-    });
-  }, [activeLayer, activeLayerId, alignment, derivedPercent, handleAlignmentChange, project]);
-
-  const handleFitSelect = useCallback((fit: LayerAlignmentSettings['fit']) => {
-    handleAlignmentChange({ fit });
-  }, [handleAlignmentChange]);
-
-  const handleOffsetChange = useCallback(
-    (axis: 'x' | 'y', raw: number) => {
-      if (!alignment || !activeLayerId || alignment.positioning === 'auto') {
-        return;
-      }
-      const baseOffset = alignment.offsetPx ?? { x: 0, y: 0 };
-      const value = Number.isFinite(raw) ? raw : 0;
-      const targetLayerIds = selectedLayerIds.length > 1 && selectedLayerIds.includes(activeLayerId)
-        ? selectedLayerIds
-        : [activeLayerId];
-
-      targetLayerIds.forEach((layerId) => {
-        updateLayerAlignment(layerId, {
-          ...alignment,
-          offsetPx: { ...baseOffset, [axis]: value }
-        });
-      });
-    },
-    [alignment, activeLayerId, selectedLayerIds, updateLayerAlignment]
-  );
-
-  return (
-    <div className={rootClasses}>
-      <button
-        type="button"
-        className={[
-          'w-full bg-transparent flex items-center justify-between text-left cursor-pointer select-none gap-2 transition-colors',
-          isComfortable ? 'py-1.5' : 'py-1'
-        ].filter(Boolean).join(' ')}
-        onClick={handleToggleExpanded}
-        aria-expanded={isExpanded}
-      >
-        <div className="flex flex-col">
-          <span className={titleClass}>Layer alignment</span>
-          <span className={`${helperClass} ${alignment ? '' : 'text-[#A5A5BA]'}`}>
-            {summaryText}
-          </span>
-        </div>
-        <ChevronRight
-          className={`h-4 w-4 text-[#8F8FA3] transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-          aria-hidden
-        />
-      </button>
-      {isExpanded && (
-        <div className={contentSpacingClass}>
-          <div>
-            <span className={`${labelClass} block`}>Anchor</span>
-            <div className="grid grid-cols-3 bg-[#4A4A4A]">
-              {ANCHOR_GRID.map((row, rowIndex) => (
-                <React.Fragment key={rowIndex}>
-                  {row.map((key) => {
-                    const isSelected = selectedAnchor === key;
-                    const buttonClass = [
-                      anchorButtonBase,
-                      isSelected ? anchorActiveClass : anchorInactiveClass,
-                      disabled ? 'cursor-not-allowed opacity-60' : ''
-                    ].filter(Boolean).join(' ');
-
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        className={buttonClass}
-                        onClick={() => handleAnchorSelect(key)}
-                        disabled={disabled}
-                      >
-                        <span className={`h-1.5 w-1.5 ${isSelected ? 'bg-[#F3F3F7]' : 'bg-[#9A9AB3]'} block`} aria-hidden />
-                      </button>
-                    );
-                  })}
-                </React.Fragment>
-              ))}
-            </div>
-            <button
-              type="button"
-              className={[
-                anchorButtonBase,
-                'w-full text-[#D9D9E8] border-[#3D3D46]',
-                selectedAnchor === 'auto' ? 'bg-[#5A5A68]' : 'bg-[#4A4A4A]',
-                disabled ? 'cursor-not-allowed opacity-60' : ''
-              ].filter(Boolean).join(' ')}
-              onClick={() => handleAnchorSelect('auto')}
-              disabled={disabled}
-            >
-              Auto
-            </button>
-          </div>
-
-          <div className="mt-2">
-            <span className={`${labelClass} block`}>Fit</span>
-            <div>
-              {fitOptions.map(option => {
-                const isSelected = effectiveFit === option.value;
-                const buttonClass = [
-                  fitButtonBase,
-                  isSelected ? fitButtonActive : fitButtonInactive,
-                  disabled ? 'cursor-not-allowed opacity-60' : ''
-                ].filter(Boolean).join(' ');
-
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={buttonClass}
-                    onClick={() => handleFitSelect(option.value)}
-                    disabled={disabled}
-                  >
-                    <span
-                      className={`h-3 w-3 ${isSelected ? 'bg-[#F3F3F7]' : 'bg-[#5C5C6A]'} block`}
-                      aria-hidden
-                    />
-                    <span>{option.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="mt-2">
-            <span className={`${labelClass} block`}>Offset</span>
-            <div className="grid grid-cols-2 gap-2">
-              <label className={`${labelClass} flex flex-col`}>
-                X (px)
-                <input
-                  type="number"
-                  className={`${fieldClass} text-center`}
-                  value={alignment ? offset.x : 0}
-                  onChange={(event) => handleOffsetChange('x', Number(event.target.value))}
-                  disabled={offsetDisabled}
-                />
-              </label>
-              <label className={`${labelClass} flex flex-col`}>
-                Y (px)
-                <input
-                  type="number"
-                  className={`${fieldClass} text-center`}
-                  value={alignment ? offset.y : 0}
-                  onChange={(event) => handleOffsetChange('y', Number(event.target.value))}
-                  disabled={offsetDisabled}
-                />
-              </label>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-});
-
-LayerAlignmentControls.displayName = 'LayerAlignmentControls';
-
-interface ContainerLayoutControlsProps extends DensityProps {
-  appearance?: 'panel' | 'plain';
-  defaultExpanded?: boolean;
-}
-
-export const ContainerLayoutControls = memo<ContainerLayoutControlsProps>(() => null);
-
-ContainerLayoutControls.displayName = 'ContainerLayoutControls';
-
 
 // Memoized layer item component to prevent unnecessary re-renders
 const LayerItem = memo<{
@@ -899,19 +504,17 @@ const MinimalLayerList = () => {
       <div className="border-b border-[#424242] bg-[#2C2C2C] flex">
         <button
           onClick={handleAddRegularLayer}
-          className="flex-1 flex items-center justify-center py-3 hover:bg-[#353535] transition-colors border-r border-[#424242]"
+          className="flex-1 flex items-center justify-center py-3 hover:bg-[#353535] transition-colors border-r border-[#424242] text-[11px] text-[#D9D9D9]"
           title="Add Regular Layer"
         >
-          <Plus size={16} className="text-[#D9D9D9]" />
-          <span className="ml-1 text-[11px] text-[#D9D9D9]">Regular</span>
+          +Regular
         </button>
         <button
           onClick={handleAddCCLayer}
-          className="flex-1 flex items-center justify-center py-3 hover:bg-[#353535] transition-colors"
+          className="flex-1 flex items-center justify-center py-3 hover:bg-[#353535] transition-colors text-[11px] text-[#D9D9D9]"
           title="Add Color Cycle Layer"
         >
-          <Plus size={16} className="text-[#D9D9D9]" />
-          <span className="ml-1 text-[11px] text-[#D9D9D9]">CC</span>
+          +Color cycle
         </button>
       </div>
       

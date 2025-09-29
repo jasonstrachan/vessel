@@ -1,10 +1,10 @@
-# TinyBrush
+# Vessel
 
 A sophisticated web-based drawing application with animation capabilities, advanced brush tools, and layer management.
 
 ## Overview
 
-TinyBrush is built with Next.js 15 and P5.js, providing a high-performance drawing experience with pixel-perfect rendering, custom brushes, and comprehensive animation tools. The application features a dark theme design with professional-grade drawing capabilities.
+Vessel is built with Next.js 15 and P5.js, providing a high-performance drawing experience with pixel-perfect rendering, custom brushes, and comprehensive animation tools. The application features a dark theme design with professional-grade drawing capabilities.
 
 ## Key Features
 
@@ -76,8 +76,8 @@ TinyBrush is built with Next.js 15 and P5.js, providing a high-performance drawi
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/tinybrush.git
-   cd tinybrush
+   git clone https://github.com/yourusername/vessel.git
+   cd vessel
    ```
 
 2. **Install dependencies**

@@ -11,7 +11,7 @@ export default function TestsPage() {
   return (
     <div className="min-h-screen bg-gray-100 py-8">
       <div className="container mx-auto px-4">
-        <h1 className="text-4xl font-bold mb-8 text-center">🧪 TinyBrush Test Suite</h1>
+        <h1 className="text-4xl font-bold mb-8 text-center">🧪 Vessel Test Suite</h1>
         
         <div className="max-w-4xl mx-auto">
           <div className="bg-white rounded-lg shadow-md p-6 mb-6">

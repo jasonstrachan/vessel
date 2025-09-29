@@ -11,7 +11,7 @@
 
 ## Mission
 
-Analyze the TinyBrush codebase and propose well-architected new features that:
+Analyze the Vessel codebase and propose well-architected new features that:
 - Enhance the drawing experience
 - Are technically feasible given current architecture
 - Follow established patterns in the codebase
@@ -47,7 +47,7 @@ Analyze the TinyBrush codebase and propose well-architected new features that:
 
 ## Focus Areas
 
-Prioritize features that would make TinyBrush more compelling:
+Prioritize features that would make Vessel more compelling:
 - Advanced drawing tools and brushes
 - Animation capabilities
 - Layer effects and blending modes

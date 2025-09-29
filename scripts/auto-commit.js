@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Auto-commit script for TinyBrush
+ * Auto-commit script for Vessel
  * Automatically creates git commits when features are completed
  * Triggered by console clear or explicit command
  */

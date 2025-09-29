@@ -109,7 +109,7 @@ ${this.state.errorInfo?.componentStack}
 [Any additional information about the problem]
     `.trim();
 
-    const githubURL = `https://github.com/user/tinybrush/issues/new?` +
+    const githubURL = `https://github.com/user/vessel/issues/new?` +
       `title=${encodeURIComponent(`Color Cycle Error: ${this.state.error?.message}`)}&` +
       `body=${encodeURIComponent(issueBody)}`;
 

@@ -4,7 +4,7 @@ Auto-commits all changes with an automatic descriptive message (runs in backgrou
 
 ```bash:background
 # Stage all changes
-cd /home/jason/projects/tinybrush && git add -A
+cd /home/jason/projects/vessel && git add -A
 
 # Check if there are changes to commit
 if git diff --cached --quiet; then

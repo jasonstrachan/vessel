@@ -1,7 +1,7 @@
 # Zustand Subscription Optimization Analysis
 
 ## Current Task
-Analyze TinyBrush codebase for components using broad Zustand subscriptions that could benefit from selective subscriptions to reduce unnecessary re-renders.
+Analyze Vessel codebase for components using broad Zustand subscriptions that could benefit from selective subscriptions to reduce unnecessary re-renders.
 
 ## Findings
 

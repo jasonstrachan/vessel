@@ -36,7 +36,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         maxHistorySize: currentState.history.maxHistorySize,
       },
     };
-    localStorage.setItem('tinybrush-settings', JSON.stringify(settings));
+    localStorage.setItem('vessel-settings', JSON.stringify(settings));
   }, []);
 
   const handleClose = React.useCallback(() => {

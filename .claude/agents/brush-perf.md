@@ -42,7 +42,7 @@ When invoked, I both diagnose AND fix performance issues:
    - Memory usage tracking
    - Cache efficiency monitoring
 
-### TinyBrush-Specific Knowledge
+### Vessel-Specific Knowledge
 - Understands the throttled color jitter system (jitterState with recalcFrequency)
 - Knows the pattern caching system using patternTempCanvas
 - Familiar with grid snapping optimizations

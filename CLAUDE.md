@@ -1,4 +1,4 @@
-# TinyBrush
+# Vessel
 
 Web-based drawing application for high-quality digital artwork with pixel-perfect and antialiased drawing capabilities.
 

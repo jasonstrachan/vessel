@@ -1,6 +1,6 @@
 /**
  * Dithering Brush Demo and Integration Example
- * Shows how to integrate pressure-sensitive dithering with TinyBrush
+ * Shows how to integrate pressure-sensitive dithering with Vessel
  */
 
 import {
@@ -232,7 +232,7 @@ export const createDitherBrushDemo = (
 };
 
 /**
- * Integration with existing TinyBrush hook system
+ * Integration with existing Vessel hook system
  * This shows how to integrate dithering into useBrushEngine.ts
  */
 export const integrateWithBrushEngine = () => {

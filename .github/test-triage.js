@@ -63,7 +63,7 @@ function analyzeIssue(title, body) {
   return scores;
 }
 
-// Test cases based on TinyBrush issue patterns
+// Test cases based on Vessel issue patterns
 const testCases = [
   {
     title: "Cursor offset when drawing after zoom",
@@ -92,7 +92,7 @@ const testCases = [
   }
 ];
 
-console.log("🧪 Testing TinyBrush Issue Triage Logic\n");
+console.log("🧪 Testing Vessel Issue Triage Logic\n");
 
 testCases.forEach((testCase, index) => {
   console.log(`Test ${index + 1}: ${testCase.title}`);

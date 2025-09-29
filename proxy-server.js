@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * WSL2-Friendly Proxy Server for TinyBrush
+ * WSL2-Friendly Proxy Server for Vessel
  * 
  * This Express proxy server solves WSL2 networking issues by:
  * 1. Running a stable Express server that WSL2 can handle
@@ -22,7 +22,7 @@ const NEXT_PORT = 3000;   // Next.js dev server port (internal)
 const { execSync } = require('child_process');
 const WSL_IP = execSync('hostname -I').toString().trim().split(' ')[0];
 
-console.log('🚀 TinyBrush WSL2-Friendly Proxy Server');
+console.log('🚀 Vessel WSL2-Friendly Proxy Server');
 console.log('=======================================');
 
 // Enable CORS for all routes
@@ -88,7 +88,7 @@ const server = app.listen(PROXY_PORT, '0.0.0.0', () => {
   console.log(`🌐 Network Access: http://${WSL_IP}:${PROXY_PORT}`);
   console.log(`🎯 Next.js Target: http://localhost:${NEXT_PORT}`);
   console.log('');
-  console.log('🎨 TinyBrush with optimized pixel drawing ready!');
+  console.log('🎨 Vessel with optimized pixel drawing ready!');
   console.log('');
   console.log('📋 Quick Commands:');
   console.log('   Health Check: curl http://localhost:8080/health');

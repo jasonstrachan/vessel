@@ -11,7 +11,7 @@
 
 ## Mission
 
-Analyze and fix issues related to the brush engine, drawing algorithms, and stroke rendering in TinyBrush. Ensure smooth, accurate, and performant drawing experience.
+Analyze and fix issues related to the brush engine, drawing algorithms, and stroke rendering in Vessel. Ensure smooth, accurate, and performant drawing experience.
 
 ## Key Responsibilities
 

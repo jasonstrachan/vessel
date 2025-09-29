@@ -1,4 +1,4 @@
-# TinyBrush Brush Performance Optimization Plan
+# Vessel Brush Performance Optimization Plan
 
 ## Performance Analysis Summary
 

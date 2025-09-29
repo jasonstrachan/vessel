@@ -1,31 +1,31 @@
 import { cloneExportLayout, cloneLayerAlignment } from '@/utils/layoutDefaults';
-import type { LayerTransform } from '@/utils/layerAlignment';
-import { clampPercent, computeLayerContentMetrics, computePercentOffsetFromMetrics } from '@/utils/layerMetrics';
+import { computeLayerContentMetrics, computePercentOffsetFromMetrics } from '@/utils/layerMetrics';
+import { resolveContainerLayout } from '@/utils/layerAlignment';
+import type { LayoutLayerInput, ResolvedLayerLayout } from '@/utils/layerAlignment';
 import type { LayerContentMetrics } from '@/utils/layerMetrics';
 import type {
   ContentBounds,
   ExportContainerLayout,
   Layer,
-  LayerAlignmentSettings,
   Project,
   WebGLExportBundleFormat
 } from '@/types';
 import { packArrayToB64Z } from '@/utils/export/b64z';
 
-const viewerDiagnosticsDefault =
-  process.env.NEXT_PUBLIC_TINYBRUSH_VIEWER_DEBUG === 'true'
+const gobletDiagnosticsDefault =
+  process.env.NEXT_PUBLIC_VESSEL_GOBLET_DEBUG === 'true'
   || process.env.NODE_ENV !== 'production';
 
-let viewerDiagnosticsActive = viewerDiagnosticsDefault;
+let gobletDiagnosticsActive = gobletDiagnosticsDefault;
 
-const viewerDebugLog = (...args: Array<unknown>) => {
-  if (viewerDiagnosticsActive) {
+const gobletDebugLog = (...args: Array<unknown>) => {
+  if (gobletDiagnosticsActive) {
     console.log(...args);
   }
 };
 
-const viewerDebugWarn = (...args: Array<unknown>) => {
-  if (viewerDiagnosticsActive) {
+const gobletDebugWarn = (...args: Array<unknown>) => {
+  if (gobletDiagnosticsActive) {
     console.warn(...args);
   }
 };
@@ -44,12 +44,12 @@ const loadJSZip = async (): Promise<JSZipConstructor> => {
   return jszipCtorPromise;
 };
 
-type WebGLViewportMode = 'project' | 'fill';
+type WebGLViewportMode = 'fixed' | 'fill' | 'fit';
 
 interface WebGLViewport {
-  width: number;
-  height: number;
-  mode?: WebGLViewportMode;
+  mode: WebGLViewportMode;
+  designWidth: number;
+  designHeight: number;
 }
 
 interface WebGLLayerAsset {
@@ -102,12 +102,16 @@ const PROPERTY_MINIFY_MAP = {
   visible: 'vi',
   opacity: 'o',
   blendMode: 'bm',
+  source: 'src',
+  bounds: 'bnd',
+  anchor: 'anc',
   alignment: 'al',
+  fit: 'ft',
+  horizontal: 'hz',
+  vertical: 'vt',
+  positioning: 'ps',
   offsetPx: 'opx',
   offsetPercent: 'opc',
-  frame: 'fr',
-  transform: 'tr',
-  sourceSize: 'ss',
   contentBounds: 'cb',
   assets: 'as',
   colorCycle: 'cc',
@@ -116,10 +120,8 @@ const PROPERTY_MINIFY_MAP = {
   height: 'h',
   x: 'x',
   y: 'y',
-  translateX: 'tx',
-  translateY: 'ty',
-  scaleX: 'sx',
-  scaleY: 'sy',
+  designWidth: 'dw',
+  designHeight: 'dh',
   texture: 'txr',
   mode: 'md',
   isAnimating: 'ia',
@@ -184,6 +186,28 @@ interface WebGLSerializedColorCycle {
   brushState?: WebGLSerializedBrushState;
 }
 
+export interface WebGLLayerSource {
+  width: number;
+  height: number;
+}
+
+/**
+ * Rectangle describing a layer in design-space coordinates.
+ */
+export interface WebGLLayerBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /**
+   * Controls how scaling should treat this layer relative to its design rect.
+   * - 'top-left' keeps the origin pinned and allows non-uniform scaling.
+   * - 'center' keeps the rect centered when applying uniform scaling.
+   * - 'stretch' signals that the rect can stretch independently per axis.
+   */
+  anchor?: 'top-left' | 'center' | 'stretch';
+}
+
 export interface WebGLLayerMetadata {
   id: string;
   name: string;
@@ -191,11 +215,9 @@ export interface WebGLLayerMetadata {
   visible?: boolean;
   opacity?: number;
   blendMode?: Layer['blendMode'];
-  layoutMode?: LayerAlignmentSettings['fit'];
-  alignment?: Layer['alignment'];
-  frame: { x: number; y: number; width: number; height: number };
-  transform?: Partial<LayerTransform>;
-  sourceSize: { width: number; height: number };
+  source: WebGLLayerSource;
+  bounds: WebGLLayerBounds;
+  alignment: Layer['alignment'];
   contentBounds?: ContentBounds;
   assets?: WebGLLayerAsset;
   colorCycle?: WebGLSerializedColorCycle;
@@ -211,9 +233,8 @@ interface WebGLExportAnimationMetadata {
 }
 
 export interface WebGLExportMetadata {
-  format: 'tinybrush-webgl';
+  format: 'vessel-goblet';
   version: 1;
-  transformStrategy: 'pre-computed' | 'dynamic';
   exportedAt: string;
   project: {
     id: string;
@@ -244,8 +265,13 @@ export interface WebGLExportRequest {
   project: Project;
   layers: Layer[];
   layout: ExportContainerLayout;
-  viewport: WebGLViewport;
-  viewportMode?: WebGLViewportMode;
+  viewport: Partial<WebGLViewport> & {
+    mode?: WebGLViewportMode;
+    designWidth?: number;
+    designHeight?: number;
+    width?: number;
+    height?: number;
+  };
   fps: number;
   totalFrames: number;
   durationSeconds: number;
@@ -255,7 +281,7 @@ export interface WebGLExportRequest {
   minify: boolean;
   filenameBase: string;
   bundleFormat?: WebGLExportBundleFormat;
-  enableViewerDiagnostics?: boolean;
+  enableGobletDiagnostics?: boolean;
   assetPrefix?: string;
   compositeLayersToCanvas?: (targetCanvas: HTMLCanvasElement) => void;
 }
@@ -264,6 +290,19 @@ const isHTMLCanvas = (canvas: unknown): canvas is HTMLCanvasElement => {
   return typeof window !== 'undefined'
     && typeof HTMLCanvasElement !== 'undefined'
     && canvas instanceof HTMLCanvasElement;
+};
+
+const isOffscreenCanvas = (canvas: unknown): canvas is OffscreenCanvas => {
+  return typeof OffscreenCanvas !== 'undefined'
+    && canvas instanceof OffscreenCanvas;
+};
+
+const isCanvasLike = (canvas: unknown): canvas is HTMLCanvasElement | OffscreenCanvas => {
+  return isHTMLCanvas(canvas) || isOffscreenCanvas(canvas);
+};
+
+const isImageBitmapLike = (value: unknown): value is ImageBitmap => {
+  return typeof ImageBitmap !== 'undefined' && value instanceof ImageBitmap;
 };
 
 const blobToDataURL = (blob: Blob): Promise<string> => {
@@ -302,6 +341,22 @@ const normalizeBrushFlowDirection = (direction: unknown): 'forward' | 'reverse' 
   }
 
   return undefined;
+};
+
+const toFiniteValue = (value: unknown, fallback = 0): number => {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+};
+
+const roundPlacementValue = (value: number): number => {
+  const numeric = toFiniteValue(value, 0);
+  return Math.round(numeric * 1000) / 1000;
+};
+
+const sanitizePositiveDimension = (value: unknown, fallback: number): number => {
+  const numeric = toFiniteValue(value, fallback);
+  const safe = Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
+  return Math.max(1, Math.round(safe));
 };
 
 const DEFAULT_LAYER_OPACITY = 1;
@@ -369,38 +424,45 @@ const deduplicateGradients = (metadata: WebGLExportMetadata): void => {
 };
 
 const stripLayerDefaults = (layer: WebGLLayerMetadata): WebGLLayerMetadata => {
+  const designBounds: WebGLLayerBounds = {
+    x: layer.bounds.x,
+    y: layer.bounds.y,
+    width: layer.bounds.width,
+    height: layer.bounds.height
+  };
+
+  if (layer.bounds.anchor && layer.bounds.anchor !== 'top-left') {
+    designBounds.anchor = layer.bounds.anchor;
+  }
+
   const stripped: WebGLLayerMetadata = {
     id: layer.id,
     name: layer.name,
     type: layer.type,
-    frame: layer.frame,
-    sourceSize: layer.sourceSize
-  };
-
-  const alignment = cloneLayerAlignment(layer.alignment);
-  const percent = alignment.offsetPercent ?? { x: 0, y: 0 };
-  alignment.offsetPercent = {
-    x: clampPercent(percent.x ?? 0),
-    y: clampPercent(percent.y ?? 0)
-  };
-  stripped.alignment = alignment;
-
-  if (layer.contentBounds) {
-    const bounds = layer.contentBounds;
-    const source = layer.sourceSize;
-    const matchesSurface = bounds.x === 0
-      && bounds.y === 0
-      && bounds.width === source.width
-      && bounds.height === source.height;
-    if (!matchesSurface) {
-      stripped.contentBounds = bounds;
+    visible: layer.visible !== false,
+    source: { ...layer.source },
+    bounds: designBounds,
+    alignment: {
+      fit: layer.alignment.fit,
+      horizontal: layer.alignment.horizontal,
+      vertical: layer.alignment.vertical,
+      positioning: layer.alignment.positioning,
+      offsetPx: layer.alignment.offsetPx ? { ...layer.alignment.offsetPx } : { x: 0, y: 0 },
+      offsetPercent: layer.alignment.offsetPercent
+        ? { ...layer.alignment.offsetPercent }
+        : undefined
     }
-  }
+  };
 
-  stripped.visible = layer.visible !== undefined ? Boolean(layer.visible) : true;
-
-  if (layer.layoutMode && layer.layoutMode !== 'none') {
-    stripped.layoutMode = layer.layoutMode;
+  const bounds = layer.contentBounds;
+  if (bounds) {
+    const matchesSource = bounds.x === 0
+      && bounds.y === 0
+      && bounds.width === layer.source.width
+      && bounds.height === layer.source.height;
+    if (!matchesSource) {
+      stripped.contentBounds = { ...bounds };
+    }
   }
 
   if (typeof layer.opacity === 'number' && layer.opacity !== DEFAULT_LAYER_OPACITY) {
@@ -410,25 +472,6 @@ const stripLayerDefaults = (layer: WebGLLayerMetadata): WebGLLayerMetadata => {
   const blendMode = layer.blendMode;
   if (blendMode && !DEFAULT_BLEND_MODES.has(blendMode)) {
     stripped.blendMode = blendMode;
-  }
-
-  if (layer.transform) {
-    const trimmedTransform: Partial<LayerTransform> = {};
-    if (layer.transform.translateX !== 0) {
-      trimmedTransform.translateX = layer.transform.translateX;
-    }
-    if (layer.transform.translateY !== 0) {
-      trimmedTransform.translateY = layer.transform.translateY;
-    }
-    if (layer.transform.scaleX !== 1) {
-      trimmedTransform.scaleX = layer.transform.scaleX;
-    }
-    if (layer.transform.scaleY !== 1) {
-      trimmedTransform.scaleY = layer.transform.scaleY;
-    }
-    if (Object.keys(trimmedTransform).length > 0) {
-      stripped.transform = trimmedTransform;
-    }
   }
 
   if (layer.assets && Object.keys(layer.assets).length > 0) {
@@ -658,46 +701,6 @@ const imageDataToDataURL = async (imageData: ImageData): Promise<string> => {
 
 const computeLayerExportMetrics = (layer: Layer, project: Project): LayerExportMetrics =>
   computeLayerContentMetrics(layer, project);
-
-const clampFrameToViewport = (
-  frame: { x: number; y: number; width: number; height: number },
-  viewport: WebGLViewport,
-  alignmentFit?: LayerAlignmentSettings['fit']
-) => {
-  if (alignmentFit === 'percent') {
-    return {
-      x: Math.round(frame.x),
-      y: Math.round(frame.y),
-      width: Math.max(1, Math.round(frame.width)),
-      height: Math.max(1, Math.round(frame.height))
-    };
-  }
-
-  const width = Math.max(1, Math.round(frame.width));
-  const height = Math.max(1, Math.round(frame.height));
-
-  if (viewport.mode === 'project') {
-    return {
-      x: Math.round(frame.x),
-      y: Math.round(frame.y),
-      width,
-      height
-    };
-  }
-
-  const viewportWidth = Math.max(1, Math.round(viewport.width));
-  const viewportHeight = Math.max(1, Math.round(viewport.height));
-  const maxX = Math.max(0, viewportWidth - width);
-  const maxY = Math.max(0, viewportHeight - height);
-  const clampedX = Math.min(Math.max(Math.round(frame.x), 0), maxX);
-  const clampedY = Math.min(Math.max(Math.round(frame.y), 0), maxY);
-  return {
-    x: clampedX,
-    y: clampedY,
-    width,
-    height
-  };
-};
 
 const toSerializableGradientStops = (
   stops: Array<{ position?: number; color?: string }> | undefined,
@@ -1004,8 +1007,8 @@ const extractBrushStateFromBrushProperties = (brush: unknown, layer: Layer): Web
     brushState.flowDirection = flowDirection;
   }
 
-  if (viewerDiagnosticsActive) {
-    viewerDebugLog('[webglExporter] Created brush state from direct properties', {
+  if (gobletDiagnosticsActive) {
+    gobletDebugLog('[webglExporter] Created brush state from direct properties', {
       layerId: layer.id,
       width,
       height,
@@ -1098,8 +1101,8 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
     const paletteValues = indexBuffer.palette ? toSerializablePaletteArray(indexBuffer.palette) : undefined;
     const palette = paletteValues && paletteValues.length > 0 ? paletteValues : undefined;
 
-    if (viewerDiagnosticsActive) {
-      viewerDebugLog('[webglExporter] Animator-derived index buffer', {
+    if (gobletDiagnosticsActive) {
+      gobletDebugLog('[webglExporter] Animator-derived index buffer', {
         layerId: layer.id,
         width,
         height,
@@ -1124,8 +1127,8 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
       brushState.flowDirection = flowDirection;
     }
 
-    if (viewerDiagnosticsActive) {
-      viewerDebugLog('[webglExporter] Brush state extracted from animator fallback', {
+    if (gobletDiagnosticsActive) {
+      gobletDebugLog('[webglExporter] Brush state extracted from animator fallback', {
         layerId: layer.id,
         width,
         height,
@@ -1183,7 +1186,7 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
           const fallbackHeight = layer.imageData?.height ?? layer.colorCycleData?.canvas?.height ?? 1;
 
           if (ib.data) {
-            if (viewerDiagnosticsActive) {
+            if (gobletDiagnosticsActive) {
               const dataType = (ib.data as { constructor?: { name?: string } })?.constructor?.name ?? 'unknown';
               const sample = (() => {
                 try {
@@ -1193,7 +1196,7 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
                   return 'unavailable';
                 }
               })();
-              viewerDebugLog('[webglExporter] Brush serialize() indexBuffer payload', {
+              gobletDebugLog('[webglExporter] Brush serialize() indexBuffer payload', {
                 layerId: layer.id,
                 width: ib.width,
                 height: ib.height,
@@ -1220,11 +1223,11 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
               return undefined;
             }
 
-            if (viewerDiagnosticsActive) {
+            if (gobletDiagnosticsActive) {
               const totalLength = indexArray.length;
               const uniqueValues = new Set(indexArray);
               const firstNonZeroIndex = indexArray.findIndex((value) => value !== 0);
-              viewerDebugLog('[webglExporter] Brush serialize() index analysis', {
+              gobletDebugLog('[webglExporter] Brush serialize() index analysis', {
                 layerId: layer.id,
                 totalLength,
                 nonZeroCount: indexArray.filter((value) => value !== 0).length,
@@ -1270,8 +1273,8 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
               result.flowDirection = flowDirection;
             }
 
-            if (viewerDiagnosticsActive) {
-              viewerDebugLog('[webglExporter] Brush serialize() final state', {
+            if (gobletDiagnosticsActive) {
+              gobletDebugLog('[webglExporter] Brush serialize() final state', {
                 layerId: layer.id,
                 width,
                 height,
@@ -1406,8 +1409,8 @@ const serializeColorCycleData = async (layer: Layer): Promise<WebGLSerializedCol
     isAnimating: shouldAnimate
   };
 
-  if (viewerDiagnosticsActive) {
-    viewerDebugLog('[webglExporter] Animation inference for layer', layer.id, {
+  if (gobletDiagnosticsActive) {
+    gobletDebugLog('[webglExporter] Animation inference for layer', layer.id, {
       inputIsAnimating: data.isAnimating,
       brushSpeed: data.brushSpeed,
       recolorSpeed: data.recolorSettings?.animation?.speed,
@@ -1462,9 +1465,9 @@ const serializeColorCycleData = async (layer: Layer): Promise<WebGLSerializedCol
       if (!serialized.gradient || serialized.gradient.length === 0) {
         serialized.gradient = preparedBrushState.gradientStops;
       }
-      if (viewerDiagnosticsActive) {
+      if (gobletDiagnosticsActive) {
         const summary = summarizeEncodedBuffer(preparedBrushState.indexBuffer, Array.isArray(brushState.indexBuffer) ? brushState.indexBuffer.length : 0);
-        viewerDebugLog('[webglExporter] Brush state included for layer via serialize()', {
+        gobletDebugLog('[webglExporter] Brush state included for layer via serialize()', {
           layerId: layer.id,
           width: preparedBrushState.width,
           height: preparedBrushState.height,
@@ -1479,7 +1482,7 @@ const serializeColorCycleData = async (layer: Layer): Promise<WebGLSerializedCol
     }
   }
 
-  if (viewerDiagnosticsActive) {
+  if (gobletDiagnosticsActive) {
     const recolorIndexPayload = serialized.recolorSettings?.indexBuffer;
     const brushIndexPayload = serialized.brushState?.indexBuffer;
     const recolorIndexSummary = summarizeEncodedBuffer(
@@ -1491,7 +1494,7 @@ const serializeColorCycleData = async (layer: Layer): Promise<WebGLSerializedCol
       typeof brushIndexPayload === 'string' ? 0 : Array.isArray(brushIndexPayload) ? brushIndexPayload.length : 0
     );
 
-    viewerDebugLog('[webglExporter] Serialized color cycle layer', layer.id, {
+    gobletDebugLog('[webglExporter] Serialized color cycle layer', layer.id, {
       mode: serialized.mode,
       isAnimating: serialized.isAnimating,
       brushSpeed: serialized.brushSpeed,
@@ -1511,13 +1514,146 @@ const serializeColorCycleData = async (layer: Layer): Promise<WebGLSerializedCol
   return serialized;
 };
 
+const KNOWN_LAYER_CANVAS_KEYS = [
+  'canvas',
+  'webglCanvas',
+  'compositeCanvas',
+  'renderCanvas',
+  'drawingCanvas',
+  'displayCanvas',
+  'bufferCanvas',
+  'targetCanvas',
+  'scratchCanvas'
+] as const;
+
+const extractCanvasFromValue = (value: unknown): HTMLCanvasElement | OffscreenCanvas | undefined => {
+  if (isCanvasLike(value)) {
+    return value;
+  }
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const nested = record.canvas ?? record.framebuffer;
+  if (isCanvasLike(nested)) {
+    return nested;
+  }
+  return undefined;
+};
+
+const resolveLayerCanvasSurface = (layer: Layer): HTMLCanvasElement | OffscreenCanvas | undefined => {
+  if (isCanvasLike(layer.framebuffer)) {
+    return layer.framebuffer;
+  }
+
+  const colorCycleCanvas = layer.colorCycleData?.canvas;
+  if (isCanvasLike(colorCycleCanvas)) {
+    return colorCycleCanvas;
+  }
+
+  const layerRecord = layer as unknown as Record<string, unknown>;
+  for (const key of KNOWN_LAYER_CANVAS_KEYS) {
+    const candidate = layerRecord[key];
+    const resolved = extractCanvasFromValue(candidate);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  for (const value of Object.values(layerRecord)) {
+    const resolved = extractCanvasFromValue(value);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  return undefined;
+};
+
+const resolveLayerImageBitmap = (layer: Layer): ImageBitmap | undefined => {
+  const layerRecord = layer as unknown as Record<string, unknown>;
+
+  const direct = layerRecord.imageBitmap ?? layerRecord.bitmap;
+  if (isImageBitmapLike(direct)) {
+    return direct;
+  }
+
+  const colorCycleData = layer.colorCycleData as unknown as Record<string, unknown> | undefined;
+  if (colorCycleData) {
+    const colorCycleBitmap = colorCycleData.bitmap ?? colorCycleData.imageBitmap;
+    if (isImageBitmapLike(colorCycleBitmap)) {
+      return colorCycleBitmap;
+    }
+  }
+
+  for (const value of Object.values(layerRecord)) {
+    if (isImageBitmapLike(value)) {
+      return value;
+    }
+    if (!value || typeof value !== 'object') {
+      continue;
+    }
+    const nestedRecord = value as Record<string, unknown>;
+    const nestedBitmap = nestedRecord.imageBitmap ?? nestedRecord.bitmap;
+    if (isImageBitmapLike(nestedBitmap)) {
+      return nestedBitmap;
+    }
+  }
+
+  return undefined;
+};
+
+const imageBitmapToDataURL = async (bitmap: ImageBitmap): Promise<string | undefined> => {
+  try {
+    const width = Math.max(1, bitmap.width || (bitmap as { width?: number }).width || 1);
+    const height = Math.max(1, bitmap.height || (bitmap as { height?: number }).height || 1);
+
+    let canvas: HTMLCanvasElement | OffscreenCanvas | undefined;
+    if (typeof OffscreenCanvas !== 'undefined') {
+      canvas = new OffscreenCanvas(width, height);
+    } else if (typeof document !== 'undefined') {
+      const htmlCanvas = document.createElement('canvas');
+      htmlCanvas.width = width;
+      htmlCanvas.height = height;
+      canvas = htmlCanvas;
+    }
+
+    if (!canvas) {
+      return undefined;
+    }
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return undefined;
+    }
+
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(bitmap, 0, 0, width, height);
+
+    const { dataUrl } = await canvasToDataURL(canvas);
+    return normalizeImageDataUrl(dataUrl);
+  } catch (error) {
+    console.warn('[webglExporter] Failed to serialize ImageBitmap for layer export', error);
+    return undefined;
+  } finally {
+    try {
+      if (typeof bitmap.close === 'function') {
+        bitmap.close();
+      }
+    } catch {
+      // ignore
+    }
+  }
+};
+
 const captureLayerTexture = async (layer: Layer): Promise<string | undefined> => {
   try {
-    if (layer.framebuffer) {
-      const { dataUrl } = await canvasToDataURL(layer.framebuffer as HTMLCanvasElement | OffscreenCanvas);
+    const surface = resolveLayerCanvasSurface(layer);
+    if (surface) {
+      const { dataUrl } = await canvasToDataURL(surface);
       const normalized = normalizeImageDataUrl(dataUrl);
       if (!normalized) {
-        console.error('[webglExporter] Invalid data URL generated from framebuffer for layer', layer.id);
+        console.error('[webglExporter] Invalid data URL generated from canvas surface for layer', layer.id);
         return undefined;
       }
       return normalized;
@@ -1531,14 +1667,12 @@ const captureLayerTexture = async (layer: Layer): Promise<string | undefined> =>
       }
       return normalized;
     }
-    if (layer.colorCycleData?.canvas) {
-      const { dataUrl } = await canvasToDataURL(layer.colorCycleData.canvas as HTMLCanvasElement | OffscreenCanvas);
-      const normalized = normalizeImageDataUrl(dataUrl);
-      if (!normalized) {
-        console.error('[webglExporter] Invalid data URL generated from color cycle canvas for layer', layer.id);
-        return undefined;
+    const bitmap = resolveLayerImageBitmap(layer);
+    if (bitmap) {
+      const normalized = await imageBitmapToDataURL(bitmap);
+      if (normalized) {
+        return normalized;
       }
-      return normalized;
     }
     return undefined;
   } catch (error) {
@@ -1558,9 +1692,9 @@ const downloadBlob = (blob: Blob, filename: string) => {
   URL.revokeObjectURL(url);
 };
 
-type ViewerAssetName = 'index.html' | 'viewer.js' | 'fflate-inflate.js';
+type GobletAssetName = 'index.html' | 'goblet.js' | 'fflate-inflate.js';
 
-const viewerAssetCache = new Map<string, Promise<string>>();
+const gobletAssetCache = new Map<string, Promise<string>>();
 
 const getDefaultAssetPrefix = (): string => {
   if (typeof window === 'undefined') {
@@ -1598,10 +1732,10 @@ const getDefaultAssetPrefix = (): string => {
   return '';
 };
 
-const resolveViewerAssetUrl = (asset: ViewerAssetName, assetPrefix?: string): string => {
+const resolveGobletAssetUrl = (asset: GobletAssetName, assetPrefix?: string): string => {
   const prefix = assetPrefix ?? getDefaultAssetPrefix();
   const normalizedAsset = asset.startsWith('/') ? asset.slice(1) : asset;
-  const assetPath = `export-viewer/${normalizedAsset}`;
+  const assetPath = `goblet/${normalizedAsset}`;
 
   if (!prefix) {
     return `/${assetPath}`;
@@ -1617,23 +1751,23 @@ const resolveViewerAssetUrl = (asset: ViewerAssetName, assetPrefix?: string): st
   return `${ensuredPrefix}/${assetPath}`;
 };
 
-const fetchViewerAsset = (asset: ViewerAssetName, assetPrefix?: string): Promise<string> => {
+const fetchGobletAsset = (asset: GobletAssetName, assetPrefix?: string): Promise<string> => {
   const cacheKey = `${assetPrefix ?? '__default__'}::${asset}`;
-  const cached = viewerAssetCache.get(cacheKey);
+  const cached = gobletAssetCache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
   const promise = (async () => {
-    const url = resolveViewerAssetUrl(asset, assetPrefix);
+    const url = resolveGobletAssetUrl(asset, assetPrefix);
     const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) {
-      throw new Error(`Failed to load viewer asset ${asset} from ${url} (${response.status})`);
+      throw new Error(`Failed to load Goblet asset ${asset} from ${url} (${response.status})`);
     }
     return await response.text();
   })();
 
-  viewerAssetCache.set(cacheKey, promise);
+  gobletAssetCache.set(cacheKey, promise);
   return promise;
 };
 
@@ -1641,12 +1775,12 @@ const transformModuleScript = (html: string, transform: (scriptContent: string) 
   const scriptOpen = '<script type="module">';
   const scriptStart = html.indexOf(scriptOpen);
   if (scriptStart === -1) {
-    throw new Error('Viewer template missing module script tag');
+    throw new Error('Goblet template missing module script tag');
   }
   const contentStart = scriptStart + scriptOpen.length;
   const scriptEnd = html.indexOf('</script>', contentStart);
   if (scriptEnd === -1) {
-    throw new Error('Viewer template missing module script closing tag');
+    throw new Error('Goblet template missing module script closing tag');
   }
 
   const originalContent = html.slice(contentStart, scriptEnd);
@@ -1661,8 +1795,8 @@ const encodeMetadataForInlineScript = (metadataJson: string): string => {
     .replace(/\$/g, '\\$');
 };
 
-const stripViewerImport = (content: string): string => {
-  return content.replace(/\s*import\s+\{[\s\S]*?\}\s+from\s+'\.\/viewer\.js';?\s*/g, '\n');
+const stripGobletImport = (content: string): string => {
+  return content.replace(/\s*import\s+\{[\s\S]*?\}\s+from\s+'\.\/goblet\.js';?\s*/g, '\n');
 };
 
 const appendZipAutoloadSnippet = (
@@ -1679,11 +1813,11 @@ const appendZipAutoloadSnippet = (
       if (diagnosticsDefault) {
         try {
           if (typeof window !== 'undefined') {
-            if (window.__TINYBRUSH_VIEWER_DEBUG__ === true) {
+            if (window.__VESSEL_GOBLET_DEBUG__ === true) {
               enableDiagnostics = true;
             } else if (typeof window.location?.search === 'string' && window.location.search.includes('debug=1')) {
               enableDiagnostics = true;
-            } else if (window.localStorage && window.localStorage.getItem('tinybrushViewerDebug') === 'true') {
+            } else if (window.localStorage && window.localStorage.getItem('vesselGobletDebug') === 'true') {
               enableDiagnostics = true;
             }
           }
@@ -1692,44 +1826,44 @@ const appendZipAutoloadSnippet = (
         }
       }
       if (typeof window !== 'undefined') {
-        window.__TINYBRUSH_VIEWER_DEBUG__ = enableDiagnostics;
-        window.tinybrushViewerSetDiagnostics = diagnosticsDefault
+        window.__VESSEL_GOBLET_DEBUG__ = enableDiagnostics;
+        window.vesselGobletSetDiagnostics = diagnosticsDefault
           ? (value) => {
               try {
-                window.localStorage?.setItem('tinybrushViewerDebug', value ? 'true' : 'false');
+                window.localStorage?.setItem('vesselGobletDebug', value ? 'true' : 'false');
               } catch {
                 // ignore persistence failures in readonly contexts (e.g., file://)
               }
               enableDiagnostics = Boolean(value);
-              window.__TINYBRUSH_VIEWER_DEBUG__ = enableDiagnostics;
+              window.__VESSEL_GOBLET_DEBUG__ = enableDiagnostics;
             }
           : () => {
-              console.warn('Viewer diagnostics are disabled in this build.');
+              console.warn('Goblet diagnostics are disabled in this build.');
             };
       }
       const emitLog = enableDiagnostics
         ? (...args) => {
-            console.log('[TinyBrush Viewer]', ...args);
+            console.log('[Vessel Goblet]', ...args);
           }
         : () => {};
       const emitWarn = enableDiagnostics
         ? (...args) => {
-            console.warn('[TinyBrush Viewer]', ...args);
+            console.warn('[Vessel Goblet]', ...args);
           }
         : () => {};
       const expandPackagedMetadata = (raw) => {
-        if (typeof expandTinyBrushMetadata === 'function') {
+        if (typeof expandVesselMetadata === 'function') {
           try {
-            return expandTinyBrushMetadata(raw);
+            return expandVesselMetadata(raw);
           } catch (error) {
             emitWarn('Failed to expand minified metadata via module helper', error);
           }
         }
-        if (typeof window !== 'undefined' && typeof window.expandTinyBrushMetadata === 'function') {
+        if (typeof window !== 'undefined' && typeof window.expandVesselMetadata === 'function') {
           try {
-            return window.expandTinyBrushMetadata(raw);
+            return window.expandVesselMetadata(raw);
           } catch (error) {
-            emitWarn('Failed to expand minified metadata via viewer helper', error);
+            emitWarn('Failed to expand minified metadata via Goblet helper', error);
           }
         }
         return raw;
@@ -1779,14 +1913,14 @@ const appendZipAutoloadSnippet = (
         } else {
           delete document.body.dataset.viewportMode;
         }
-        const renderResult = await renderTinyBrushWebGL(normalizedMetadata, canvas, { scale });
+        const renderResult = await renderVesselWebGL(normalizedMetadata, canvas, { scale });
         summarizeMetadata(normalizedMetadata, renderResult);
         lastMetadata = normalizedMetadata;
-        const rendererHandle = canvas && canvas[Symbol.for('TinyBrushRenderer')];
+        const rendererHandle = canvas && canvas[Symbol.for('VesselRenderer')];
         if (rendererHandle && typeof rendererHandle.setSourceMetadata === 'function') {
           rendererHandle.setSourceMetadata(normalizedMetadata);
         }
-        emitLog('[DEBUG] packaged viewer stored metadata', {
+        emitLog('[DEBUG] packaged Goblet stored metadata', {
           hasMetadata: Boolean(lastMetadata),
           scale
         });
@@ -1820,7 +1954,7 @@ const appendZipAutoloadSnippet = (
               emitWarn('Failed to render embedded metadata', secondaryError);
             }
           }
-          setStatus('Viewer ready. Drop a bundle to preview.');
+          setStatus('Goblet ready. Drop a bundle to preview.');
         }
       };
       void autoLoadPackagedBundle();
@@ -1839,13 +1973,13 @@ const buildInlineInflateRuntime = (inflateJs: string): string => {
 
 const buildSingleFileScript = (
   scriptContent: string,
-  viewerRuntime: string,
+  gobletRuntime: string,
   inflateRuntime: string,
   metadataJson: string,
   diagnosticsEnabled: boolean
 ): string => {
-  const withoutImport = stripViewerImport(scriptContent);
-  const runtimeWithoutInflateImport = viewerRuntime.replace(/\s*import\s+\{\s*inflateRaw\s*\}\s+from\s+'\.\/fflate-inflate\.js';?\s*/, '\n');
+  const withoutImport = stripGobletImport(scriptContent);
+  const runtimeWithoutInflateImport = gobletRuntime.replace(/\s*import\s+\{\s*inflateRaw\s*\}\s+from\s+'\.\/fflate-inflate\.js';?\s*/, '\n');
   const inlineInflate = buildInlineInflateRuntime(inflateRuntime);
   const runtime = `\n${inlineInflate}\n${runtimeWithoutInflateImport}\n`;
   const metadataLiteral = encodeMetadataForInlineScript(metadataJson);
@@ -1858,13 +1992,13 @@ const buildSingleFileScript = (
         }
         try {
           if (typeof window !== 'undefined') {
-            if (window.__TINYBRUSH_VIEWER_DEBUG__ === true) {
+            if (window.__VESSEL_GOBLET_DEBUG__ === true) {
               return true;
             }
             if (typeof window.location?.search === 'string' && window.location.search.includes('debug=1')) {
               return true;
             }
-            if (window.localStorage && window.localStorage.getItem('tinybrushViewerDebug') === 'true') {
+            if (window.localStorage && window.localStorage.getItem('vesselGobletDebug') === 'true') {
               return true;
             }
           }
@@ -1875,48 +2009,48 @@ const buildSingleFileScript = (
       };
       let enableDiagnostics = resolveDiagnostics();
       if (typeof window !== 'undefined') {
-        window.__TINYBRUSH_VIEWER_DEBUG__ = enableDiagnostics;
-        window.tinybrushViewerSetDiagnostics = diagnosticsDefault
+        window.__VESSEL_GOBLET_DEBUG__ = enableDiagnostics;
+        window.vesselGobletSetDiagnostics = diagnosticsDefault
           ? (value) => {
               try {
-                window.localStorage?.setItem('tinybrushViewerDebug', value ? 'true' : 'false');
+                window.localStorage?.setItem('vesselGobletDebug', value ? 'true' : 'false');
               } catch {
                 // ignore persistence failures in readonly contexts (e.g., file://)
               }
               enableDiagnostics = Boolean(value);
-              window.__TINYBRUSH_VIEWER_DEBUG__ = enableDiagnostics;
+              window.__VESSEL_GOBLET_DEBUG__ = enableDiagnostics;
             }
           : () => {
-              console.warn('Viewer diagnostics are disabled in this build.');
+              console.warn('Goblet diagnostics are disabled in this build.');
             };
       }
       const emitLog = diagnosticsDefault
         ? (...args) => {
             if (enableDiagnostics) {
-              console.log('[TinyBrush Viewer]', ...args);
+              console.log('[Vessel Goblet]', ...args);
             }
           }
         : () => {};
       const emitWarn = diagnosticsDefault
         ? (...args) => {
             if (enableDiagnostics) {
-              console.warn('[TinyBrush Viewer]', ...args);
+              console.warn('[Vessel Goblet]', ...args);
             }
           }
         : () => {};
       const expandPackagedMetadata = (raw) => {
-        if (typeof expandTinyBrushMetadata === 'function') {
+        if (typeof expandVesselMetadata === 'function') {
           try {
-            return expandTinyBrushMetadata(raw);
+            return expandVesselMetadata(raw);
           } catch (error) {
             emitWarn('Failed to expand minified metadata via module helper', error);
           }
         }
-        if (typeof window !== 'undefined' && typeof window.expandTinyBrushMetadata === 'function') {
+        if (typeof window !== 'undefined' && typeof window.expandVesselMetadata === 'function') {
           try {
-            return window.expandTinyBrushMetadata(raw);
+            return window.expandVesselMetadata(raw);
           } catch (error) {
-            emitWarn('Failed to expand minified metadata via viewer helper', error);
+            emitWarn('Failed to expand minified metadata via Goblet helper', error);
           }
         }
         return raw;
@@ -1930,29 +2064,46 @@ const buildSingleFileScript = (
       })));
       const packagedMetadata = expandPackagedMetadata(packagedMetadataRaw);
       if (enableDiagnostics) {
-        emitLog('[DEBUG] Prepared packaged metadata for single-file viewer', {
+        emitLog('[DEBUG] Prepared Goblet metadata for single-file bundle', {
           layerCount: packagedMetadata.layers?.length ?? 0,
           hasFallback: Boolean(packagedMetadata.fallback)
         });
       }
       const renderPackagedBundle = async () => {
         try {
+          console.log('[goblet] Starting render, metadata:', packagedMetadata);
           if (!(canvas instanceof HTMLCanvasElement)) {
             throw new Error('Preview canvas element is unavailable');
           }
           setStatus('Rendering packaged bundle…');
           console.log('Expanded metadata layers (single-file):', packagedMetadata.layers);
+          if (Array.isArray(packagedMetadata.layers)) {
+            console.log('[goblet] Full layer data:', packagedMetadata.layers.map((layer) => ({
+              id: layer.id,
+              bounds: layer.bounds,
+              source: layer.source,
+              contentBounds: layer.contentBounds,
+              opacity: layer.opacity,
+              visible: layer.visible,
+              hasTexture: Boolean(layer.assets?.texture),
+              textureStart: typeof layer.assets?.texture === 'string' ? layer.assets.texture.substring(0, 50) : undefined
+            })));
+          }
           const scale = computeScale(packagedMetadata);
-          const renderResult = await renderTinyBrushWebGL(packagedMetadata, canvas, { scale });
+          console.log('[goblet] Computed scale:', scale);
+          const renderResult = await renderVesselWebGL(packagedMetadata, canvas, { scale });
+          console.log('[goblet] Render complete:', renderResult);
           summarizeMetadata(packagedMetadata, renderResult);
           if (enableDiagnostics) {
-            emitLog('Single-file viewer render summary:', {
+            emitLog('Goblet render summary:', {
               scale,
               layers: packagedMetadata.layers?.length ?? 0
             });
           }
           setStatus('Packaged bundle rendered.');
         } catch (error) {
+          console.error('[goblet] Render failed:', error);
+          console.error('[goblet] Stack trace:', error?.stack);
           emitWarn('Failed to render packaged bundle', error);
           setStatus(error instanceof Error ? error.message : 'Failed to render bundle', 'error');
         }
@@ -1962,7 +2113,7 @@ const buildSingleFileScript = (
   return `${runtime}${withoutImport}${snippet}`;
 };
 
-const createZipViewerHtml = (
+const createZipGobletHtml = (
   template: string,
   bundleFilename: string,
   metadataJson: string,
@@ -1971,22 +2122,22 @@ const createZipViewerHtml = (
   return transformModuleScript(template, (script) => appendZipAutoloadSnippet(script, bundleFilename, metadataJson, diagnosticsEnabled));
 };
 
-const stripViewerExports = (viewerJs: string): string => {
-  return viewerJs.replace(/export\s+const\s+/g, 'const ')
+const stripGobletExports = (gobletJs: string): string => {
+  return gobletJs.replace(/export\s+const\s+/g, 'const ')
     .replace(/export\s+\{[^}]*\};?/g, '');
 };
 
-const createSingleFileViewerHtml = (
+const createSingleFileGobletHtml = (
   template: string,
-  viewerJs: string,
+  gobletJs: string,
   inflateJs: string,
   metadataJson: string,
   diagnosticsEnabled: boolean
 ): string => {
   if (diagnosticsEnabled) {
-    viewerDebugLog('[webglExporter] Building single-file viewer', {
+    gobletDebugLog('[webglExporter] Building single-file Goblet bundle', {
       templateLength: template.length,
-      viewerRuntimeLength: viewerJs.length,
+      gobletRuntimeLength: gobletJs.length,
       inflateRuntimeLength: inflateJs.length,
       metadataLength: metadataJson.length
     });
@@ -2003,7 +2154,7 @@ const createSingleFileViewerHtml = (
               assets: layer.as?.txr ? { texture: layer.as.txr } : undefined
             }))
           : [];
-      viewerDebugLog('[webglExporter] Metadata summary', {
+      gobletDebugLog('[webglExporter] Metadata summary', {
         layerCount: layersRaw.length,
         textures: layersRaw
           .filter((layer) => typeof layer?.assets?.texture === 'string')
@@ -2011,11 +2162,11 @@ const createSingleFileViewerHtml = (
           .map((layer) => ({ id: layer.id, texturePreview: layer.assets!.texture!.slice(0, 48) }))
       });
     } catch (error) {
-      viewerDebugWarn('[webglExporter] Failed to parse metadata JSON for diagnostics', error);
+      gobletDebugWarn('[webglExporter] Failed to parse metadata JSON for diagnostics', error);
     }
   }
 
-  const runtime = stripViewerExports(viewerJs);
+  const runtime = stripGobletExports(gobletJs);
   return transformModuleScript(template, (script) => buildSingleFileScript(script, runtime, inflateJs, metadataJson, diagnosticsEnabled));
 };
 
@@ -2026,9 +2177,9 @@ export const exportProjectAsWebGL = async (
     throw new Error('WebGL export is only available in the browser');
   }
 
-  const diagnosticsEnabled = options.enableViewerDiagnostics ?? viewerDiagnosticsDefault;
-  const previousDiagnostics = viewerDiagnosticsActive;
-  viewerDiagnosticsActive = diagnosticsEnabled;
+  const diagnosticsEnabled = options.enableGobletDiagnostics ?? gobletDiagnosticsDefault;
+  const previousDiagnostics = gobletDiagnosticsActive;
+  gobletDiagnosticsActive = diagnosticsEnabled;
 
   try {
 
@@ -2053,76 +2204,159 @@ export const exportProjectAsWebGL = async (
 
   const containerLayout = cloneExportLayout(options.layout);
 
-  const resolvedViewport: WebGLViewport = options.viewportMode
-    ? { ...options.viewport, mode: options.viewportMode }
-    : { ...options.viewport };
+  const resolveViewportMode = (mode: unknown): WebGLViewportMode => {
+    if (mode === 'fill') {
+      return 'fill';
+    }
+    if (mode === 'fit') {
+      return 'fit';
+    }
+    return 'fixed';
+  };
+
+  const resolvedViewport: WebGLViewport = {
+    mode: resolveViewportMode(options.viewport?.mode),
+    designWidth: sanitizePositiveDimension(
+      options.viewport?.designWidth ?? options.viewport?.width ?? options.project.width,
+      options.project.width
+    ),
+    designHeight: sanitizePositiveDimension(
+      options.viewport?.designHeight ?? options.viewport?.height ?? options.project.height,
+      options.project.height
+    )
+  };
+
+  const alignmentByLayerId = new Map<string, Layer['alignment']>();
+  const layoutInputs: LayoutLayerInput[] = [];
+  options.layers.forEach((layer) => {
+    const metrics = metricsMap.get(layer.id) ?? computeLayerExportMetrics(layer, options.project);
+    const alignment = cloneLayerAlignment(layer.alignment);
+    const alignmentPercent = computePercentOffsetFromMetrics(metrics);
+    if (alignment.positioning === 'auto' || alignment.fit === 'percent') {
+      alignment.offsetPercent = alignment.offsetPercent ?? alignmentPercent;
+    } else {
+      alignment.offsetPercent = alignmentPercent;
+    }
+
+    alignmentByLayerId.set(layer.id, alignment);
+
+    layoutInputs.push({
+      layerId: layer.id,
+      surface: {
+        width: Math.max(1, metrics.surfaceSize.width),
+        height: Math.max(1, metrics.surfaceSize.height)
+      },
+      content: {
+        width: Math.max(1, metrics.contentBounds.width),
+        height: Math.max(1, metrics.contentBounds.height)
+      },
+      alignment,
+      hidden: !options.includeHiddenLayers && !layer.visible
+    });
+  });
+
+  let placementByLayerId: Map<string, ResolvedLayerLayout> | null = null;
+  try {
+    const resolvedPlacements = resolveContainerLayout(layoutInputs, containerLayout, {
+      width: resolvedViewport.designWidth,
+      height: resolvedViewport.designHeight
+    });
+    placementByLayerId = new Map<string, ResolvedLayerLayout>();
+    resolvedPlacements.forEach((placement) => {
+      placementByLayerId!.set(placement.layerId, placement);
+    });
+  } catch (error) {
+    gobletDebugWarn('[webglExporter] Failed to resolve container layout', error);
+  }
 
   const metadataLayers: WebGLLayerMetadata[] = [];
-  for (const layer of options.layers) {
+  for (let index = 0; index < options.layers.length; index += 1) {
+    const layer = options.layers[index];
     if (!options.includeHiddenLayers && !layer.visible) {
       continue;
     }
+
     const metrics = metricsMap.get(layer.id) ?? computeLayerExportMetrics(layer, options.project);
     const sourceSize = metrics.surfaceSize;
-    const contentBounds = metrics.contentBounds;
+    let contentBounds = metrics.contentBounds;
+
+    if (!contentBounds || contentBounds.width <= 0 || contentBounds.height <= 0) {
+      contentBounds = {
+        x: 0,
+        y: 0,
+        width: Math.max(1, sourceSize.width),
+        height: Math.max(1, sourceSize.height)
+      };
+    }
     const texture = await captureLayerTexture(layer);
-
     const colorCycle = await serializeColorCycleData(layer);
+    const alignment = alignmentByLayerId.get(layer.id) ?? cloneLayerAlignment(layer.alignment);
 
-    const alignment = cloneLayerAlignment(layer.alignment);
-    const percentOffset = computePercentOffsetFromMetrics(metrics);
-    if (alignment.positioning === 'auto' || alignment.fit === 'percent') {
-      alignment.offsetPercent = alignment.offsetPercent ?? percentOffset;
-    } else {
-      alignment.offsetPercent = percentOffset;
-    }
+    const layoutPlacement = placementByLayerId?.get(layer.id);
 
-    const frameBase = {
-      x: 0,
-      y: 0,
-      width: Math.max(1, Math.round(sourceSize.width)),
-      height: Math.max(1, Math.round(sourceSize.height))
-    };
+    const anchor = alignment.horizontal === 'center' && alignment.vertical === 'center'
+      ? 'center'
+      : 'top-left';
 
-    const frameForViewport = alignment.fit === 'percent'
-      ? {
-          x: Math.round(frameBase.x),
-          y: Math.round(frameBase.y),
-          width: Math.max(1, Math.round(frameBase.width)),
-          height: Math.max(1, Math.round(frameBase.height))
-        }
-      : clampFrameToViewport(frameBase, resolvedViewport, alignment.fit);
+    const boundsRect = (() => {
+      if (!layoutPlacement) {
+        return {
+          x: 0,
+          y: 0,
+          width: roundPlacementValue(contentBounds.width),
+          height: roundPlacementValue(contentBounds.height),
+          anchor
+        } as WebGLLayerBounds;
+      }
 
+      const frame = layoutPlacement.frame;
+      const transform = layoutPlacement.transform;
+      const translateX = toFiniteValue(transform?.translateX, 0);
+      const translateY = toFiniteValue(transform?.translateY, 0);
+      const scaleX = toFiniteValue(transform?.scaleX, 1);
+      const scaleY = toFiniteValue(transform?.scaleY, 1);
+      const contentWidth = Math.max(1, contentBounds.width * scaleX);
+      const contentHeight = Math.max(1, contentBounds.height * scaleY);
 
-    const finalFrame = frameForViewport;
+      return {
+        x: roundPlacementValue((frame?.x ?? 0) + translateX),
+        y: roundPlacementValue((frame?.y ?? 0) + translateY),
+        width: roundPlacementValue(contentWidth),
+        height: roundPlacementValue(contentHeight),
+        anchor
+      } as WebGLLayerBounds;
+    })();
 
-    if (alignment.positioning === 'auto' || alignment.fit === 'percent') {
-      console.log('[EXPORTER] Percent-aligned layer:', {
-        layerId: layer.id,
-        alignment,
-        sourceSize,
-        contentBounds,
-        frameBeforeClamping: frameBase,
-        frameAfterClamping: frameForViewport,
-        resolvedViewport
-      });
-    }
+    gobletDebugLog('[webglExporter] Layer bounds calculation', {
+      layerId: layer.id,
+      layoutPlacement,
+      boundsRect,
+      alignment,
+      contentBounds
+    });
 
     const baseLayerMetadata: WebGLLayerMetadata = {
       id: layer.id,
       name: layer.name,
       type: layer.layerType,
-      visible: layer.visible,
+      visible: layer.visible !== false,
       opacity: layer.opacity,
       blendMode: layer.blendMode,
-      layoutMode: alignment.fit ?? 'none',
+      source: {
+        width: Math.max(1, Math.round(sourceSize.width)),
+        height: Math.max(1, Math.round(sourceSize.height))
+      },
+      bounds: boundsRect,
       alignment,
-      frame: finalFrame,
-      sourceSize,
-      contentBounds,
+      contentBounds: {
+        x: contentBounds.x,
+        y: contentBounds.y,
+        width: contentBounds.width,
+        height: contentBounds.height
+      },
       assets: texture ? { texture } : undefined,
       colorCycle,
-      stackIndex: Number.isFinite(layer.order) ? layer.order : metadataLayers.length,
+      stackIndex: Number.isFinite(layer.order) ? layer.order : index,
       version: layer.version
     };
 
@@ -2154,9 +2388,8 @@ export const exportProjectAsWebGL = async (
   const bundleFormat: WebGLExportBundleFormat = options.bundleFormat ?? 'zip';
 
   const metadata: WebGLExportMetadata = {
-    format: 'tinybrush-webgl',
+    format: 'vessel-goblet',
     version: 1,
-    transformStrategy: 'dynamic',
     exportedAt: new Date().toISOString(),
     project: {
       id: options.project.id,
@@ -2189,14 +2422,14 @@ export const exportProjectAsWebGL = async (
 
   deduplicateGradients(metadata);
 
-  if (viewerDiagnosticsActive) {
+  if (gobletDiagnosticsActive) {
     metadata.layers.forEach((layer, index) => {
       const brushPayload = layer.colorCycle?.brushState?.indexBuffer;
       const brushStateSummary = summarizeEncodedBuffer(
         Array.isArray(brushPayload) || typeof brushPayload === 'string' ? brushPayload : undefined,
         Array.isArray(brushPayload) ? brushPayload.length : 0
       );
-      viewerDebugLog('[webglExporter] Layer export summary', {
+      gobletDebugLog('[webglExporter] Layer export summary', {
         index,
         id: layer.id,
         visible: layer.visible,
@@ -2208,13 +2441,13 @@ export const exportProjectAsWebGL = async (
 
   const metadataPayload = options.minify ? minifyProperties(metadata) : metadata;
   const json = JSON.stringify(metadataPayload, null, options.minify ? undefined : 2);
-  if (viewerDiagnosticsActive) {
-    viewerDebugLog('[webglExporter] JSON size after stringify', {
+  if (gobletDiagnosticsActive) {
+    gobletDebugLog('[webglExporter] JSON size after stringify', {
       bytes: json.length,
       minified: options.minify
     });
   }
-  const jsonFilename = `${options.filenameBase}-webgl.json`;
+  const jsonFilename = `${options.filenameBase}-goblet.json`;
 
   if (bundleFormat === 'json') {
     const blob = new Blob([json], { type: 'application/json' });
@@ -2223,31 +2456,31 @@ export const exportProjectAsWebGL = async (
   }
 
   let indexHtml: string;
-  let viewerJs: string;
+  let gobletJs: string;
   let inflateJs: string;
   try {
-    [indexHtml, viewerJs, inflateJs] = await Promise.all([
-      fetchViewerAsset('index.html', options.assetPrefix),
-      fetchViewerAsset('viewer.js', options.assetPrefix),
-      fetchViewerAsset('fflate-inflate.js', options.assetPrefix)
+    [indexHtml, gobletJs, inflateJs] = await Promise.all([
+      fetchGobletAsset('index.html', options.assetPrefix),
+      fetchGobletAsset('goblet.js', options.assetPrefix),
+      fetchGobletAsset('fflate-inflate.js', options.assetPrefix)
     ]);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error ?? 'Unknown error');
-    throw new Error(`[webglExporter] Failed to load viewer assets: ${message}`);
+    throw new Error(`[webglExporter] Failed to load Goblet assets: ${message}`);
   }
 
   if (bundleFormat === 'single-html') {
-    const singleFileHtml = createSingleFileViewerHtml(indexHtml, viewerJs, inflateJs, json, diagnosticsEnabled);
+    const singleFileHtml = createSingleFileGobletHtml(indexHtml, gobletJs, inflateJs, json, diagnosticsEnabled);
     const htmlBlob = new Blob([singleFileHtml], { type: 'text/html' });
-    downloadBlob(htmlBlob, `${options.filenameBase}-webgl.html`);
+    downloadBlob(htmlBlob, `${options.filenameBase}-goblet.html`);
     return metadata;
   }
 
   if (bundleFormat === 'zip') {
     const JSZip = await loadJSZip();
     const zip = new JSZip();
-    zip.file('index.html', createZipViewerHtml(indexHtml, jsonFilename, json, diagnosticsEnabled));
-    zip.file('viewer.js', viewerJs);
+    zip.file('index.html', createZipGobletHtml(indexHtml, jsonFilename, json, diagnosticsEnabled));
+    zip.file('goblet.js', gobletJs);
     zip.file('fflate-inflate.js', inflateJs);
     zip.file(jsonFilename, json);
     const zipBlob = await zip.generateAsync({
@@ -2257,7 +2490,7 @@ export const exportProjectAsWebGL = async (
         level: options.minify ? 9 : 6
       }
     });
-    downloadBlob(zipBlob, `${options.filenameBase}-webgl-viewer.zip`);
+    downloadBlob(zipBlob, `${options.filenameBase}-goblet.zip`);
     return metadata;
   }
 
@@ -2267,6 +2500,6 @@ export const exportProjectAsWebGL = async (
 
   return metadata;
   } finally {
-    viewerDiagnosticsActive = previousDiagnostics;
+    gobletDiagnosticsActive = previousDiagnostics;
   }
 };

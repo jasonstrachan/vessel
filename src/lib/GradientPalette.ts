@@ -284,9 +284,6 @@ export class GradientPalette {
       
       // Map index to palette color
       let paletteIndex = colorIndex - 1;
-      if (colorIndex >= 255 && this.paletteSize >= 256) {
-        paletteIndex = this.paletteSize - 1;
-      }
       if (paletteIndex < 0) {
         paletteIndex = 0;
       } else if (paletteIndex >= this.paletteSize) {
@@ -294,11 +291,14 @@ export class GradientPalette {
       }
       const colorIdx = paletteIndex * 4;
       const pixelIdx = i * 4;
-      
+
       pixels[pixelIdx] = shifted[colorIdx];
       pixels[pixelIdx + 1] = shifted[colorIdx + 1];
       pixels[pixelIdx + 2] = shifted[colorIdx + 2];
       pixels[pixelIdx + 3] = shifted[colorIdx + 3];
+      if (process.env.DEBUG_PALETTE === 'true') {
+        console.log('apply', { i, colorIndex, paletteIndex, values: [shifted[colorIdx], shifted[colorIdx + 1], shifted[colorIdx + 2], shifted[colorIdx + 3]] });
+      }
     }
   }
   

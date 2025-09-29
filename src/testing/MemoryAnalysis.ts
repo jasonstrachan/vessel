@@ -462,7 +462,7 @@ export class MemoryAnalysis {
 <!DOCTYPE html>
 <html>
 <head>
-  <title>TinyBrush Memory Usage Analysis Report</title>
+  <title>Vessel Memory Usage Analysis Report</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -598,7 +598,7 @@ export class MemoryAnalysis {
 </head>
 <body>
   <div class="container">
-    <h1>💾 TinyBrush Memory Usage Analysis Report</h1>
+    <h1>💾 Vessel Memory Usage Analysis Report</h1>
     
     <div class="metadata">
       <strong>Test Date:</strong> ${new Date().toLocaleString()}<br>

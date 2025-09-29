@@ -1,6 +1,6 @@
-# TinyBrush Issues and Resolutions
+# Vessel Issues and Resolutions
 
-This document tracks all critical issues encountered during TinyBrush development, their analysis, and resolutions. Use this as the primary reference for debugging and preventing similar issues.
+This document tracks all critical issues encountered during Vessel development, their analysis, and resolutions. Use this as the primary reference for debugging and preventing similar issues.
 
 ## Table of Contents
 
@@ -562,7 +562,7 @@ After fix:
 **Severity**: Critical (Complete Drawing System Failure)  
 
 ### Problem Summary
-The tinybrush application had multiple coordinate system alignment issues causing painting actions to be offset from cursor positions, making the application completely unusable for drawing.
+The vessel application had multiple coordinate system alignment issues causing painting actions to be offset from cursor positions, making the application completely unusable for drawing.
 
 ### Root Causes Identified
 

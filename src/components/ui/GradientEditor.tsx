@@ -87,7 +87,7 @@ const defaultGradients: SavedGradient[] = [
 const loadGradients = (): SavedGradient[] => {
   const defaults = defaultGradients.map(g => ({ ...g, isDefault: true }));
   try {
-    const stored = localStorage.getItem('tinybrush_custom_gradients');
+    const stored = localStorage.getItem('vessel_custom_gradients');
     if (stored) {
       const customGradients = JSON.parse(stored);
       return [...defaults, ...customGradients];
@@ -102,7 +102,7 @@ const loadGradients = (): SavedGradient[] => {
 const saveCustomGradients = (allGradients: SavedGradient[]) => {
   try {
     const customGradients = allGradients.filter(g => !g.isDefault);
-    localStorage.setItem('tinybrush_custom_gradients', JSON.stringify(customGradients));
+    localStorage.setItem('vessel_custom_gradients', JSON.stringify(customGradients));
   } catch (e) {
     console.error('Failed to save gradients:', e);
   }

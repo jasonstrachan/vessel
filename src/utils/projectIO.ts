@@ -1,4 +1,4 @@
-// Project input/output utilities for TinyBrush
+// Project input/output utilities for Vessel
 // Handles serialization, deserialization, and file operations
 
 import type {
@@ -11,10 +11,10 @@ import type {
 } from '../types';
 import { cloneExportLayout, cloneLayerAlignment } from './layoutDefaults';
 
-// TinyBrush project file format version
+// Vessel project file format version
 const PROJECT_VERSION = '1.0.0';
 
-export interface TinyBrushProject {
+export interface VesselProject {
   version: string;
   metadata: {
     name: string;
@@ -689,7 +689,7 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
     thumbnail = generateProjectThumbnail(project, layers);
   }
   
-  const tinyBrushProject: TinyBrushProject = {
+  const vesselProject: VesselProject = {
     version: PROJECT_VERSION,
     metadata: {
       name: project.name,
@@ -712,27 +712,27 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
     }
   };
   
-  return JSON.stringify(tinyBrushProject, null, 2);
+  return JSON.stringify(vesselProject, null, 2);
 }
 
 // Deserialize a project from saved data
 export async function deserializeProject(projectData: string): Promise<Project> {
-  let tinyBrushProject: TinyBrushProject;
+  let vesselProject: VesselProject;
   
   try {
-    tinyBrushProject = JSON.parse(projectData);
+    vesselProject = JSON.parse(projectData);
   } catch {
     throw new Error('Invalid project file format');
   }
   
   // Validate project format
-  if (!tinyBrushProject.version || !tinyBrushProject.project) {
-    throw new Error('Invalid TinyBrush project file');
+  if (!vesselProject.version || !vesselProject.project) {
+    throw new Error('Invalid Vessel project file');
   }
   
   // TODO: Add version migration logic here if needed
   
-  const serializedProject = tinyBrushProject.project;
+  const serializedProject = vesselProject.project;
   
   // Deserialize layers
   const layers = await Promise.all(
@@ -754,8 +754,8 @@ export async function deserializeProject(projectData: string): Promise<Project> 
     backgroundColor: serializedProject.backgroundColor,
     layers,
     customBrushes,
-    createdAt: new Date(tinyBrushProject.metadata.created),
-    updatedAt: new Date(tinyBrushProject.metadata.modified),
+    createdAt: new Date(vesselProject.metadata.created),
+    updatedAt: new Date(vesselProject.metadata.modified),
     brushSpecificSettings: serializedProject.brushSpecificSettings as Record<string, Partial<BrushSettings>> | undefined,
     globalBrushSize: serializedProject.globalBrushSize,
     exportLayout: cloneExportLayout(serializedProject.exportLayout)
@@ -778,7 +778,7 @@ export async function saveProjectToFile(project: Project, filename?: string, lay
       }).showSaveFilePicker!({
         suggestedName: fileName,
         types: [{
-          description: 'TinyBrush Project Files',
+          description: 'Vessel Project Files',
           accept: { 'application/json': ['.tb'] }
         }]
       });
@@ -816,7 +816,7 @@ export async function loadProjectFromFile(): Promise<Project> {
         }) => Promise<FileSystemFileHandle[]>;
       }).showOpenFilePicker!({
         types: [{
-          description: 'TinyBrush Project Files',
+          description: 'Vessel Project Files',
           accept: { 'application/json': ['.tb'] }
         }],
         multiple: false

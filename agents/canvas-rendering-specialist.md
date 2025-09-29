@@ -11,7 +11,7 @@
 
 ## Mission
 
-Analyze and fix issues related to canvas rendering, coordinate systems, and cursor alignment in TinyBrush. Focus on ensuring pixel-perfect drawing experience and accurate cursor positioning.
+Analyze and fix issues related to canvas rendering, coordinate systems, and cursor alignment in Vessel. Focus on ensuring pixel-perfect drawing experience and accurate cursor positioning.
 
 ## Key Responsibilities
 

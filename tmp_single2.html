@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TinyBrush WebGL Bundle Viewer</title>
+    <title>Vessel Goblet Bundle Viewer</title>
     <style>
       :root {
         color-scheme: dark;
@@ -59,7 +59,7 @@ const applyLayer = (ctx, img, layer, scale) => {
 };
 
 const validateMetadata = (metadata) => {
-  if (!metadata || metadata.format !== 'tinybrush-webgl') {
+  if (!metadata || metadata.format !== 'vessel-goblet') {
     throw new Error('Unsupported bundle format');
   }
   if (!metadata.viewport || !metadata.viewport.width || !metadata.viewport.height) {
@@ -70,7 +70,7 @@ const validateMetadata = (metadata) => {
   }
 };
 
-const RENDERER_KEY = Symbol('TinyBrushRenderer');
+const RENDERER_KEY = Symbol('VesselRenderer');
 
 const clamp01 = (value) => {
   if (!Number.isFinite(value)) {
@@ -589,7 +589,7 @@ class ColorCycleLayerPlayer {
   }
 }
 
-class TinyBrushBundleRenderer {
+class VesselBundleRenderer {
   constructor(metadata, canvas, options) {
     this.metadata = metadata;
     this.canvas = canvas;
@@ -751,7 +751,7 @@ class TinyBrushBundleRenderer {
   }
 }
 
-const renderTinyBrushWebGL = async (metadata, canvas, options = {}) => {
+const renderVesselWebGL = async (metadata, canvas, options = {}) => {
   validateMetadata(metadata);
   if (!(canvas instanceof HTMLCanvasElement)) {
     throw new Error('A target canvas element is required');
@@ -762,12 +762,12 @@ const renderTinyBrushWebGL = async (metadata, canvas, options = {}) => {
     previous.destroy();
   }
 
-  const renderer = new TinyBrushBundleRenderer(metadata, canvas, options);
+  const renderer = new VesselBundleRenderer(metadata, canvas, options);
   await renderer.initialize();
   renderer.start();
   canvas[RENDERER_KEY] = renderer;
 
-  const POINTER_GUARD_KEY = Symbol.for('TinyBrushPointerGuard');
+  const POINTER_GUARD_KEY = Symbol.for('VesselPointerGuard');
   if (!canvas[POINTER_GUARD_KEY]) {
     const ensureRunning = () => {
       const active = canvas[RENDERER_KEY];
@@ -820,10 +820,10 @@ const canvas = document.getElementById('preview-canvas');
           pendingMetadata = null;
           try {
             const scale = computeScale(current);
-            await renderTinyBrushWebGL(current, canvas, { scale });
+            await renderVesselWebGL(current, canvas, { scale });
             lastMetadata = current;
           } catch (error) {
-            console.error('Failed to render TinyBrush bundle', error);
+            console.error('Failed to render Vessel bundle', error);
             break;
           }
         }
@@ -839,7 +839,7 @@ const canvas = document.getElementById('preview-canvas');
           const metadata = JSON.parse(text);
           void drawMetadata(metadata);
         } catch (error) {
-          console.error('Failed to load TinyBrush bundle', error);
+          console.error('Failed to load Vessel bundle', error);
         }
       };
 
@@ -882,7 +882,7 @@ const canvas = document.getElementById('preview-canvas');
         }
       });
 
-      console.info('TinyBrush WebGL Viewer ready. Drop a bundle or use Ctrl/Cmd+O to open a file.');
+      console.info('Vessel Goblet Viewer ready. Drop a bundle or use Ctrl/Cmd+O to open a file.');
     
       const packagedMetadata = JSON.parse("{\"x\":\"<\\/script>\"}");
       void packagedMetadata;

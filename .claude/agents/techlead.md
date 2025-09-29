@@ -7,7 +7,7 @@ model: claude-opus-4-1
 
 # Technical Lead Agent
 
-I'm the technical lead coordinator for TinyBrush. I break down complex tasks, manage dependencies, and coordinate specialized agents.
+I'm the technical lead coordinator for Vessel. I break down complex tasks, manage dependencies, and coordinate specialized agents.
 
 ## My Role
 
@@ -131,7 +131,7 @@ If complexity > 7, I split by:
 
 ## Agent Assignment
 
-### TinyBrush Specialized Agents:
+### Vessel Specialized Agents:
 - **@expert** - Architecture, algorithms, technical decisions
 - **@canvas** - Canvas rendering, drawing ops, pixels
 - **@state** - Zustand store, state architecture

@@ -1,4 +1,4 @@
-// Core type definitions for TinyBrush
+// Core type definitions for Vessel
 // Based on /docs/02_System_Architecture/Data_Model.md
 
 export type LayerAlignmentFit = 'contain' | 'cover' | 'fill' | 'fit-width' | 'fit-height' | 'scale-down' | 'percent' | 'none';
@@ -69,7 +69,7 @@ export interface WebGLExportSettings {
   embedCanvasFallback: boolean;
   minifyOutput: boolean;
   bundleFormat: WebGLExportBundleFormat;
-  enableViewerDiagnostics: boolean;
+  enableGobletDiagnostics: boolean;
 }
 
 export interface Project {

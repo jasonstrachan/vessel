@@ -1,4 +1,4 @@
-// Autosave service for TinyBrush
+// Autosave service for Vessel
 // Implements 2-minute interval autosave with change detection
 // Now uses background storage for silent, non-blocking saves
 

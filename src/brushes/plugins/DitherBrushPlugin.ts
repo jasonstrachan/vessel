@@ -19,7 +19,7 @@ export class DitherBrushPlugin extends BaseBrushPlugin {
     id: 'dither-brush',
     name: 'Dither Brush',
     description: 'Creates retro dithered drawing effects with various algorithms',
-    author: 'TinyBrush Team',
+    author: 'Vessel Team',
     version: '1.0.0',
     category: 'Artistic',
     tags: ['dither', 'retro', 'pixel', 'artistic'],

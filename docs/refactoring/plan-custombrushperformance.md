@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-TinyBrush's custom brush system experiences significant performance degradation at larger brush sizes, dropping from acceptable 30-45 FPS to nearly unusable 5-15 FPS. The primary bottlenecks are redundant scaling operations and uncached calculations, while the existing spacing and pressure curve systems remain robust.
+Vessel's custom brush system experiences significant performance degradation at larger brush sizes, dropping from acceptable 30-45 FPS to nearly unusable 5-15 FPS. The primary bottlenecks are redundant scaling operations and uncached calculations, while the existing spacing and pressure curve systems remain robust.
 
 ## Current Architecture Analysis
 

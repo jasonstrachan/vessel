@@ -335,7 +335,7 @@ export class VisualQualityComparison {
 <!DOCTYPE html>
 <html>
 <head>
-  <title>TinyBrush Visual Quality Comparison Report</title>
+  <title>Vessel Visual Quality Comparison Report</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -464,7 +464,7 @@ export class VisualQualityComparison {
 </head>
 <body>
   <div class="container">
-    <h1>🎨 TinyBrush Visual Quality Comparison Report</h1>
+    <h1>🎨 Vessel Visual Quality Comparison Report</h1>
     
     <div class="metadata">
       <strong>Test Date:</strong> ${new Date().toLocaleString()}<br>

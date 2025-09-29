@@ -20,7 +20,7 @@ interface SessionRecord {
 }
 
 class BackgroundStorageService {
-  private readonly DB_NAME = 'tinybrush-autosave';
+  private readonly DB_NAME = 'vessel-autosave';
   private readonly DB_VERSION = 1;
   private readonly PROJECTS_STORE = 'projects';
   private readonly SESSION_STORE = 'session';

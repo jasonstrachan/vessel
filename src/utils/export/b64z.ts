@@ -17,6 +17,20 @@ const toUint8Array = (value: Uint8Array | number[]): Uint8Array => {
   return value instanceof Uint8Array ? value : Uint8Array.from(value);
 };
 
+const toConsumableArrayBuffer = (view: Uint8Array): ArrayBuffer => {
+  const { buffer, byteOffset, byteLength } = view;
+  if (buffer instanceof ArrayBuffer) {
+    if (byteOffset === 0 && byteLength === buffer.byteLength) {
+      return buffer;
+    }
+    return buffer.slice(byteOffset, byteOffset + byteLength);
+  }
+
+  const copy = new Uint8Array(byteLength);
+  copy.set(view);
+  return copy.buffer;
+};
+
 type CompressionStreamConstructor = new (format: 'deflate' | 'deflate-raw' | 'gzip') => {
   readonly readable: ReadableStream<Uint8Array>;
   readonly writable: WritableStream<Uint8Array>;
@@ -35,9 +49,10 @@ const compressWithStream = async (bytes: Uint8Array): Promise<Uint8Array | null>
 
   try {
     const compressor = new CompressionStreamCtor('deflate-raw');
+    const arrayBuffer = toConsumableArrayBuffer(bytes);
     const sourceStream = typeof Blob !== 'undefined' && typeof Blob.prototype.stream === 'function'
-      ? new Blob([bytes]).stream()
-      : new Response(bytes).body;
+      ? new Blob([arrayBuffer]).stream()
+      : new Response(arrayBuffer).body;
     if (!sourceStream) {
       return null;
     }

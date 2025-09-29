@@ -2,13 +2,16 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import LeftToolbar from '../components/LeftToolbar';
-import BrushLibrary from '../components/BrushLibrary';
-import ControlsPanel from '../components/ControlsPanel';
 import ColorPickerPanel from '../components/panels/ColorPickerPanel';
+import LayersPanel from '../components/panels/LayersPanel';
+import AlignmentPanel from '../components/panels/AlignmentPanel';
+import AnimationControlsPanel from '../components/panels/AnimationControlsPanel';
+import BrushLibraryPanel from '../components/panels/BrushLibraryPanel';
+import BrushSettingsPanel from '../components/panels/BrushSettingsPanel';
+import ColorAdjustmentsPanel from '../components/panels/ColorAdjustmentsPanel';
 import DrawingCanvas from '../components/canvas/DrawingCanvas';
 import BrushEditorUI from '../components/BrushEditorUI';
 import ConsoleSilencer from '../components/dev/ConsoleSilencer';
-import MinimalLayerList from '../components/MinimalLayerList';
 import FeedbackStrip from '../components/FeedbackStrip';
 import FPSMeter from '../components/dev/FPSMeter';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
@@ -53,7 +56,7 @@ export default function Home() {
 
   // Load settings from localStorage on initial mount only
   useEffect(() => {
-    const savedSettings = localStorage.getItem('tinybrush-settings');
+    const savedSettings = localStorage.getItem('vessel-settings');
     if (savedSettings) {
       try {
         const settings = JSON.parse(savedSettings);
@@ -108,12 +111,9 @@ export default function Home() {
       
       {/* Left Toolbar */}
       <LeftToolbar />
-      
-      {/* Separator */}
-      <div className="w-[2px] bg-[#424242] h-screen flex-shrink-0" />
-      
+
       {/* Main Canvas Area */}
-      <div 
+      <div
         className="flex-1 bg-[#141514] relative"
         style={{
           overflow: 'hidden',
@@ -121,36 +121,35 @@ export default function Home() {
         }}
       >
         <DrawingCanvas showFeedback={showFeedback} />
-        <MinimalLayerList />
         {feedbackMessage && (
-          <FeedbackStrip 
-            message={feedbackMessage} 
-            onClose={() => setFeedbackMessage(null)} 
+          <FeedbackStrip
+            message={feedbackMessage}
+            onClose={() => setFeedbackMessage(null)}
           />
         )}
       </div>
-      
-      {/* Separator */}
-      {/* <div className="w-[2px] bg-[#424242] h-screen flex-shrink-0" /> */}
-      
-      {/* RHC1 - Color Controls + Layers - HIDDEN */}
-      {/* <RHC1Panel /> */}
-      
-      {/* Separator */}
-      {/* <div className="w-[2px] bg-[#424242] h-screen flex-shrink-0" /> */}
-      
-      {/* RHC2 - ColorPickerPanel + BrushLibrary + ControlsPanel */}
-      <div className="flex flex-col h-screen flex-shrink-0" style={{ width: '240px', minWidth: '240px', maxWidth: '240px' }}>
+
+      {/* Layers / Alignment Column */}
+      <div className="flex flex-col h-screen flex-shrink-0 bg-[#2C2C2C]" style={{ width: '260px', minWidth: '260px', maxWidth: '260px' }}>
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <LayersPanel />
+        </div>
+        <AlignmentPanel />
+        <AnimationControlsPanel />
+      </div>
+
+      {/* Right Panel Column */}
+      <div className="flex flex-col h-screen flex-shrink-0 bg-[#2C2C2C]" style={{ width: '260px', minWidth: '260px', maxWidth: '260px' }}>
         <div className="flex-shrink-0">
           <ColorPickerPanel />
         </div>
-        <div className="flex-[2] min-h-0 overflow-y-auto">
-          <BrushLibrary />
+        <ColorAdjustmentsPanel />
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <BrushLibraryPanel />
         </div>
-        {/* Separator */}
         <div className="h-[2px] bg-[#424242] w-full flex-shrink-0" />
-        <div className="flex-[3] min-h-0 overflow-y-auto">
-          <ControlsPanel />
+        <div className="flex-[1.2] min-h-0 overflow-hidden">
+          <BrushSettingsPanel />
         </div>
       </div>
       

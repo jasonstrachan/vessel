@@ -33,7 +33,7 @@ export class FileBackupService {
       }).showSaveFilePicker!({
         suggestedName: 'autosave.tb',
         types: [{
-          description: 'TinyBrush files',
+          description: 'Vessel files',
           accept: { 'application/json': ['.tb'] }
         }],
         startIn: 'documents'

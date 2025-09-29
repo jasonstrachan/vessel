@@ -1,6 +1,6 @@
 /**
  * UI integration component for color cycle functionality
- * Integrates RecolorPanel with existing TinyBrush UI structure
+ * Integrates RecolorPanel with existing Vessel UI structure
  */
 
 import React, { useEffect, useState, useCallback } from 'react';

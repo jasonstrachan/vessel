@@ -1,5 +1,5 @@
 /**
- * Integration layer for color cycle system with TinyBrush application
+ * Integration layer for color cycle system with Vessel application
  * Handles app store integration, UI coordination, and feature compatibility
  */
 

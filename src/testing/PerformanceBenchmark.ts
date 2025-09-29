@@ -389,7 +389,7 @@ export class PerformanceBenchmark {
 <!DOCTYPE html>
 <html>
 <head>
-  <title>TinyBrush Performance Benchmark Report</title>
+  <title>Vessel Performance Benchmark Report</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -492,7 +492,7 @@ export class PerformanceBenchmark {
 </head>
 <body>
   <div class="container">
-    <h1>🎨 TinyBrush Performance Benchmark Report</h1>
+    <h1>🎨 Vessel Performance Benchmark Report</h1>
     
     <div class="metadata">
       <strong>Test Date:</strong> ${new Date().toLocaleString()}<br>

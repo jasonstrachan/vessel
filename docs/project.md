@@ -1,4 +1,4 @@
-# TinyBrush Consolidated Documentation
+# Vessel Consolidated Documentation
 
 ## Table of Contents
 
@@ -477,7 +477,7 @@
 ## Rendering Pipeline Architecture
 
 ### Overview
-TinyBrush uses a **real-time compositing pipeline** with a multi-canvas architecture for optimal performance and flexibility. The system separates layer management, active drawing, and display rendering into distinct stages.
+Vessel uses a **real-time compositing pipeline** with a multi-canvas architecture for optimal performance and flexibility. The system separates layer management, active drawing, and display rendering into distinct stages.
 
 ### Three-Canvas Architecture
 

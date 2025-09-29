@@ -1,5 +1,5 @@
 ﻿{
-  "name": "TinyBrush Drawing App",
+  "name": "Vessel Drawing App",
   "description": "Next.js-based drawing application with P5.js canvas",
   "version": "3.0.0",
   "framework": "Next.js 15",

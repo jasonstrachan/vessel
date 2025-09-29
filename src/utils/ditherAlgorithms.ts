@@ -1,5 +1,5 @@
 /**
- * Pressure-sensitive dithering algorithms for TinyBrush
+ * Pressure-sensitive dithering algorithms for Vessel
  * Implements Floyd-Steinberg and Bayer matrix dithering with pressure control
  */
 

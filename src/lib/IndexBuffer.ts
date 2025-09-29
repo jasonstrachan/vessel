@@ -126,6 +126,9 @@ export class IndexBuffer {
         // Check if pixel is within circle
         if (dx * dx + dy * dy <= radiusSq) {
           const index = py * this.width + px;
+          if (process.env.DEBUG_INDEX === 'true') {
+            console.log('paint hit', { px, py, index, colorIndex, dx, dy, radiusSq });
+          }
           this.data[index] = colorIndex;
         }
       }

@@ -136,7 +136,7 @@ process.on('SIGTERM', () => {
 
 // Start the monitor
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log('🎨 TinyBrush Dev Server Monitor');
+console.log('🎨 Vessel Dev Server Monitor');
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 console.log('Features:');
 console.log('  • Auto-restart on crash');

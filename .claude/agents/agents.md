@@ -1,4 +1,4 @@
-# TinyBrush Core Agents
+# Vessel Core Agents
 
 ## Canvas Agent (`@canvas`)
 **Handles**: All drawing, rendering, pixel operations

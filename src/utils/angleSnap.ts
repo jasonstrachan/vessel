@@ -16,7 +16,9 @@ export function snapPointToAngle(
 
   const stepRad = (stepDegrees * Math.PI) / 180;
   const angle = Math.atan2(dy, dx);
-  const snapped = Math.round(angle / stepRad) * stepRad;
+  const ratio = angle / stepRad;
+  const snappedIndex = ratio >= 0 ? Math.round(ratio) : Math.floor(ratio);
+  const snapped = snappedIndex * stepRad;
   return {
     x: origin.x + Math.cos(snapped) * length,
     y: origin.y + Math.sin(snapped) * length,
@@ -28,6 +30,8 @@ export function snapPointToAngle(
  */
 export function snapAngle(angleRad: number, stepDegrees: number = 45): number {
   const stepRad = (stepDegrees * Math.PI) / 180;
-  return Math.round(angleRad / stepRad) * stepRad;
+  const ratio = angleRad / stepRad;
+  const snappedIndex = ratio >= 0 ? Math.round(ratio) : Math.floor(ratio);
+  return snappedIndex * stepRad;
 }
 

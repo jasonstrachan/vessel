@@ -1,7 +1,7 @@
-﻿# Warp Rules for TinyBrush Project
+﻿# Warp Rules for Vessel Project
 
 ## Project Overview
-TinyBrush is a sophisticated web-based drawing application built with Next.js 15, React 19, TypeScript, and P5.js. It features advanced brush tools, layer management, animation capabilities, and pixel-perfect rendering.
+Vessel is a sophisticated web-based drawing application built with Next.js 15, React 19, TypeScript, and P5.js. It features advanced brush tools, layer management, animation capabilities, and pixel-perfect rendering.
 
 ## Development Workflow
 
@@ -100,8 +100,8 @@ pm run cc
 ## Scripts & Automation
 
 ### Available Scripts
-- ./start-tinybrush.sh - Project startup script
-- ./stop-tinybrush.sh - Project shutdown script
+- ./start-vessel.sh - Project startup script
+- ./stop-vessel.sh - Project shutdown script
 - crop-image.js - Image processing utility
 - emove_bg.py - Background removal tool
 

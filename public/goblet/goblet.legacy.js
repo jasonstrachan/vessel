@@ -443,24 +443,24 @@ if (shouldAttemptDynamicLayoutImport) {
       resolveContainerLayout = runtime.resolveContainerLayout;
     }
   }).catch((error) => {
-    console.warn('[viewer] Failed to load layout-runtime.js, using inline fallback', error);
+    console.warn('[goblet] Failed to load layout-runtime.js, using inline fallback', error);
   });
 }
 
-let viewerDiagnosticsEnabled = false;
+let gobletDiagnosticsEnabled = false;
 
 const computeInitialDiagnostics = () => {
   if (typeof window === 'undefined') {
     return false;
   }
-  if (window.__TINYBRUSH_VIEWER_DEBUG__ === true) {
+  if (window.__VESSEL_GOBLET_DEBUG__ === true) {
     return true;
   }
   try {
     if (typeof window.location?.search === 'string' && window.location.search.includes('debug=1')) {
       return true;
     }
-    if (window.localStorage && window.localStorage.getItem('tinybrushViewerDebug') === 'true') {
+    if (window.localStorage && window.localStorage.getItem('vesselGobletDebug') === 'true') {
       return true;
     }
   } catch {
@@ -470,28 +470,28 @@ const computeInitialDiagnostics = () => {
 };
 
 const applyDiagnosticsFlag = (value) => {
-  viewerDiagnosticsEnabled = Boolean(value);
+  gobletDiagnosticsEnabled = Boolean(value);
   if (typeof window !== 'undefined') {
-    window.__TINYBRUSH_VIEWER_DEBUG__ = viewerDiagnosticsEnabled;
+    window.__VESSEL_GOBLET_DEBUG__ = gobletDiagnosticsEnabled;
   }
-  return viewerDiagnosticsEnabled;
+  return gobletDiagnosticsEnabled;
 };
 
 applyDiagnosticsFlag(computeInitialDiagnostics());
 
-export const isViewerDiagnosticsEnabled = () => {
+export const isGobletDiagnosticsEnabled = () => {
   if (typeof window !== 'undefined') {
-    return window.__TINYBRUSH_VIEWER_DEBUG__ === true;
+    return window.__VESSEL_GOBLET_DEBUG__ === true;
   }
-  return viewerDiagnosticsEnabled;
+  return gobletDiagnosticsEnabled;
 };
 
-export const setViewerDiagnosticsEnabled = (value, options = {}) => {
+export const setGobletDiagnosticsEnabled = (value, options = {}) => {
   const { persist = true } = options;
   const next = applyDiagnosticsFlag(value);
   if (persist && typeof window !== 'undefined') {
     try {
-      window.localStorage?.setItem('tinybrushViewerDebug', next ? 'true' : 'false');
+      window.localStorage?.setItem('vesselGobletDebug', next ? 'true' : 'false');
     } catch {
       // ignore persistence failures (e.g., file:// without localStorage)
     }
@@ -500,25 +500,25 @@ export const setViewerDiagnosticsEnabled = (value, options = {}) => {
 };
 
 export const debugLog = (...args) => {
-  if (isViewerDiagnosticsEnabled()) {
+  if (isGobletDiagnosticsEnabled()) {
     console.log('[DEBUG]', ...args);
   }
 };
 
 export const debugWarn = (...args) => {
-  if (isViewerDiagnosticsEnabled()) {
+  if (isGobletDiagnosticsEnabled()) {
     console.warn('[DEBUG]', ...args);
   }
 };
 
 export const debugError = (...args) => {
-  if (isViewerDiagnosticsEnabled()) {
+  if (isGobletDiagnosticsEnabled()) {
     console.error('[DEBUG]', ...args);
   }
 };
 
 if (typeof window !== 'undefined') {
-  window.tinybrushViewerSetDiagnostics = (value) => setViewerDiagnosticsEnabled(value);
+  window.vesselGobletSetDiagnostics = (value) => setGobletDiagnosticsEnabled(value);
 }
 
 const ACTIVE_CANVASES = new Map();
@@ -638,7 +638,7 @@ const expandMinifiedProperties = (value) => {
   return expanded;
 };
 
-const expandTinyBrushMetadata = (metadata) => {
+const expandVesselMetadata = (metadata) => {
   if (!metadata || typeof metadata !== 'object') {
     return metadata;
   }
@@ -651,13 +651,13 @@ const expandTinyBrushMetadata = (metadata) => {
   try {
     return expandMinifiedProperties(metadata);
   } catch (error) {
-    console.warn('[viewer] Failed to expand minified metadata', error);
+    console.warn('[goblet] Failed to expand minified metadata', error);
     return metadata;
   }
 };
 
 if (typeof window !== 'undefined') {
-  window.expandTinyBrushMetadata = expandTinyBrushMetadata;
+  window.expandVesselMetadata = expandVesselMetadata;
 }
 
 const restoreSharedGradients = (metadata) => {
@@ -783,7 +783,7 @@ const applyLayer = (ctx, img, layer, globalScale) => {
     scaledHeight = cropHeight * layerScaleY * effectiveGlobalScaleY;
   }
 
-  if (viewerDiagnosticsEnabled && layerAlignment?.fit) {
+  if (gobletDiagnosticsEnabled && layerAlignment?.fit) {
     console.log('[LAYER DEBUG] Layer with alignment fit:', layerAlignment.fit, {
       layerId: layer?.id,
       fit: layerAlignment?.fit,
@@ -827,7 +827,7 @@ const applyLayer = (ctx, img, layer, globalScale) => {
   ctx.globalAlpha = Math.max(0, Math.min(1, layer?.opacity ?? 1));
   ctx.globalCompositeOperation = layer?.blendMode || 'source-over';
 
-  if (viewerDiagnosticsEnabled && typeof HTMLCanvasElement !== 'undefined' && img instanceof HTMLCanvasElement) {
+  if (gobletDiagnosticsEnabled && typeof HTMLCanvasElement !== 'undefined' && img instanceof HTMLCanvasElement) {
     try {
       const testCtx = img.getContext('2d', { willReadFrequently: true });
       if (testCtx) {
@@ -882,7 +882,7 @@ const applyLayer = (ctx, img, layer, globalScale) => {
 const normalizeBlend = (mode) => (mode === 'normal' || !mode ? 'source-over' : mode);
 
 const validateMetadata = (metadata) => {
-  if (!metadata || metadata.format !== 'tinybrush-webgl') {
+  if (!metadata || metadata.format !== 'vessel-goblet') {
     throw new Error('Unsupported bundle format');
   }
   if (!metadata.viewport || !metadata.viewport.width || !metadata.viewport.height) {
@@ -925,7 +925,7 @@ const decompressWithStream = async (compressed) => {
     const buffer = await new Response(stream).arrayBuffer();
     return new Uint8Array(buffer);
   } catch (error) {
-    console.warn('[viewer] DecompressionStream fallback failed', error);
+    console.warn('[goblet] DecompressionStream fallback failed', error);
     return null;
   }
 };
@@ -935,7 +935,7 @@ const inflateRawFallback = (compressed) => {
     const result = inflateRaw(compressed);
     return result && result.length ? result : null;
   } catch (error) {
-    console.warn('[viewer] inflateRaw fallback failed', error);
+    console.warn('[goblet] inflateRaw fallback failed', error);
     return null;
   }
 };
@@ -1032,7 +1032,7 @@ const resolveNumericBuffer = async (value) => {
 };
 
 
-const RENDERER_KEY = Symbol('TinyBrushRenderer');
+const RENDERER_KEY = Symbol('VesselRenderer');
 
 const clamp01 = (value) => {
   if (!Number.isFinite(value)) {
@@ -1556,7 +1556,7 @@ class ColorCycleLayerPlayer {
     const canvas = this.getCanvas();
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      if (viewerDiagnosticsEnabled) {
+      if (gobletDiagnosticsEnabled) {
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         let nonTransparentPixels = 0;
         for (let i = 3; i < imageData.data.length; i += 4) {
@@ -1575,7 +1575,7 @@ class ColorCycleLayerPlayer {
       }
     } else {
       debugWarn('Player canvas check skipped: 2D context unavailable');
-      console.warn('TinyBrush Viewer: 2D context unavailable during player canvas check');
+      console.warn('Vessel Goblet: 2D context unavailable during player canvas check');
     }
   }
 
@@ -1631,7 +1631,7 @@ class ColorCycleLayerPlayer {
     }
 
     this.ctx.putImageData(this.imageData, 0, 0);
-    if (viewerDiagnosticsEnabled) {
+    if (gobletDiagnosticsEnabled) {
       const testPixel = this.ctx.getImageData(0, 0, 1, 1).data;
       debugLog('First pixel after render', Array.from(testPixel));
     }
@@ -1651,7 +1651,7 @@ class ColorCycleLayerPlayer {
   }
 }
 
-class TinyBrushBundleRenderer {
+class VesselBundleRenderer {
   constructor(metadata, canvas, options, sourceMetadata) {
     this.metadata = metadata;
     if (!this.metadata.exportLayout) {
@@ -1848,7 +1848,7 @@ class TinyBrushBundleRenderer {
           layer._hasCalculatedTransform = true;
           layer._transformIsViewportScaled = true;
         } catch (error) {
-          console.warn('[viewer] Failed to recompute alignment transform', {
+          console.warn('[goblet] Failed to recompute alignment transform', {
             layerId: layer.id,
             alignment: alignmentSettings,
             contentBounds,
@@ -1877,7 +1877,7 @@ class TinyBrushBundleRenderer {
       }
     });
 
-    if (viewerDiagnosticsEnabled) {
+    if (gobletDiagnosticsEnabled) {
       debugLog('[DEBUG] Falling back to original layer transforms', {
         layerCount: this.layers.length,
         originalLayerDataSize: this.originalLayerData?.size ?? 0
@@ -1906,7 +1906,7 @@ class TinyBrushBundleRenderer {
       }
     }
 
-    if (viewerDiagnosticsEnabled) {
+    if (gobletDiagnosticsEnabled) {
       debugLog('[DEBUG] updateScale applied', {
         scaleX: this.scaleX,
         scaleY: this.scaleY,
@@ -1964,7 +1964,7 @@ class TinyBrushBundleRenderer {
       mode: viewportMode
     };
 
-    if (viewerDiagnosticsEnabled) {
+    if (gobletDiagnosticsEnabled) {
       debugLog('[DEBUG] Recalculating with viewport', {
         viewportMode: this.metadata.viewportMode,
         originalViewport: this.metadata.viewport,
@@ -1994,7 +1994,7 @@ class TinyBrushBundleRenderer {
 
       const originalSourceSize = originalData?.sourceSize || layer.sourceSize;
 
-      if (viewerDiagnosticsEnabled) {
+      if (gobletDiagnosticsEnabled) {
         debugLog('[DEBUG] Layer alignment data', {
           layerId: layer.id,
           alignment,
@@ -2041,7 +2041,7 @@ class TinyBrushBundleRenderer {
           || 'none');
 
         if (alignmentFit === 'none') {
-          if (viewerDiagnosticsEnabled) {
+          if (gobletDiagnosticsEnabled) {
             debugLog('[DEBUG] Preserving original transform for fixed-fit layer', {
               layerId: entry.layer.id,
               originalFrame: originalData?.frame,
@@ -2096,7 +2096,7 @@ class TinyBrushBundleRenderer {
           translateY: resolvedLayer.transform.translateY
         };
 
-        if (viewerDiagnosticsEnabled) {
+        if (gobletDiagnosticsEnabled) {
           debugLog('[DEBUG] Updating layer transforms on resize', {
             layerId: entry.layer.id,
             originalAlignment: entry.layer.alignment,
@@ -2123,7 +2123,7 @@ class TinyBrushBundleRenderer {
       }
     });
 
-    if (viewerDiagnosticsEnabled) {
+    if (gobletDiagnosticsEnabled) {
       debugLog('[DEBUG] recalculateLayerTransforms completed', {
         canvasWidth,
         canvasHeight,
@@ -2171,7 +2171,7 @@ class TinyBrushBundleRenderer {
         try {
           image = await loadImage(layer.assets.texture);
         } catch (error) {
-          console.warn(`[viewer] Failed to load texture for layer ${layer.id}`, error);
+          console.warn(`[goblet] Failed to load texture for layer ${layer.id}`, error);
         }
       }
 
@@ -2193,11 +2193,11 @@ class TinyBrushBundleRenderer {
           debugLog('Player initialized successfully');
         } catch (error) {
           debugError('Player init failed', error);
-          console.warn(`[viewer] Failed to initialize color cycle animation for layer ${layer.id}`, error);
+          console.warn(`[goblet] Failed to initialize color cycle animation for layer ${layer.id}`, error);
           player = null;
         }
       } else if (layer.colorCycle?.isAnimating) {
-        console.warn(`[viewer] Color cycle mode "${layer.colorCycle.mode}" not yet supported for animation playback (layer ${layer.id}).`);
+        console.warn(`[goblet] Color cycle mode "${layer.colorCycle.mode}" not yet supported for animation playback (layer ${layer.id}).`);
       }
 
       return { layer, image, player };
@@ -2221,7 +2221,7 @@ class TinyBrushBundleRenderer {
       .filter((entry) => entry.layer.visible !== false)
       .filter((entry) => !entry.layer.assets?.texture && !entry.layer.colorCycle);
     if (texturelessLayers.length > 0) {
-      console.warn('[viewer] Some layers are missing textures:', texturelessLayers.map((entry) => entry.layer.id));
+      console.warn('[goblet] Some layers are missing textures:', texturelessLayers.map((entry) => entry.layer.id));
     }
   }
 
@@ -2253,8 +2253,6 @@ class TinyBrushBundleRenderer {
         }
         return 0;
       });
-    } else {
-      paintOrder.reverse();
     }
 
     let paintedLayers = 0;
@@ -2269,7 +2267,7 @@ class TinyBrushBundleRenderer {
       if (!source) {
         if (entry.player) {
           debugLog('Skipping color cycle layer with no canvas source', layer.id);
-          console.warn(`[viewer] Failed to paint color cycle layer ${layer.id}`);
+          console.warn(`[goblet] Failed to paint color cycle layer ${layer.id}`);
         }
         continue;
       }
@@ -2287,15 +2285,15 @@ class TinyBrushBundleRenderer {
         }
       } else if (entry.player) {
         debugWarn('Failed to paint color cycle layer', layer.id);
-        console.warn(`[viewer] Failed to paint color cycle layer ${layer.id}`);
+        console.warn(`[goblet] Failed to paint color cycle layer ${layer.id}`);
       }
     }
 
     if (paintedLayers === 0 && paintOrder.length > 0) {
-      console.warn('[viewer] Render completed but no layers produced pixels.');
+      console.warn('[goblet] Render completed but no layers produced pixels.');
     }
 
-    if (viewerDiagnosticsEnabled) {
+    if (gobletDiagnosticsEnabled) {
       const composedPixel = ctx.getImageData(0, 0, 1, 1).data;
       debugLog('Composite canvas first pixel', Array.from(composedPixel));
     }
@@ -2365,17 +2363,17 @@ class TinyBrushBundleRenderer {
   }
 }
 
-export const renderTinyBrushWebGL = async (metadata, canvas, options = {}) => {
-  const normalizedMetadata = restoreSharedGradients(expandTinyBrushMetadata(metadata));
+export const renderVesselWebGL = async (metadata, canvas, options = {}) => {
+  const normalizedMetadata = restoreSharedGradients(expandVesselMetadata(metadata));
   validateMetadata(normalizedMetadata);
   if (!(canvas instanceof HTMLCanvasElement)) {
     throw new Error('A target canvas element is required');
   }
 
   const previous = canvas[RENDERER_KEY];
-  if (viewerDiagnosticsEnabled && previous && typeof previous.getSourceMetadata === 'function') {
+  if (gobletDiagnosticsEnabled && previous && typeof previous.getSourceMetadata === 'function') {
     const cachedSource = previous.getSourceMetadata();
-    debugLog('[DEBUG] renderTinyBrushWebGL reuse check', {
+    debugLog('[DEBUG] renderVesselWebGL reuse check', {
       hasRenderer: true,
       sameMetadataReference: cachedSource === metadata
     });
@@ -2384,12 +2382,12 @@ export const renderTinyBrushWebGL = async (metadata, canvas, options = {}) => {
     && typeof previous.updateScale === 'function'
     && typeof previous.getSourceMetadata === 'function'
     && previous.getSourceMetadata() === metadata) {
-    if (viewerDiagnosticsEnabled) {
-      debugLog('[DEBUG] renderTinyBrushWebGL reusing renderer', {
+    if (gobletDiagnosticsEnabled) {
+      debugLog('[DEBUG] renderVesselWebGL reusing renderer', {
         scaleOption: options.scale
       });
     }
-    canvas.__tinybrushSourceMetadata = metadata;
+    canvas.__vesselSourceMetadata = metadata;
     ACTIVE_CANVASES.set(canvas, metadata);
     ensureResizeListener();
     previous.updateScale(options.scale);
@@ -2400,18 +2398,18 @@ export const renderTinyBrushWebGL = async (metadata, canvas, options = {}) => {
     previous.destroy();
   }
 
-  const renderer = new TinyBrushBundleRenderer(normalizedMetadata, canvas, options, metadata);
+  const renderer = new VesselBundleRenderer(normalizedMetadata, canvas, options, metadata);
   if (typeof renderer.setSourceMetadata === 'function') {
     renderer.setSourceMetadata(metadata);
   }
   await renderer.initialize();
   renderer.start();
   canvas[RENDERER_KEY] = renderer;
-  canvas.__tinybrushSourceMetadata = metadata;
+  canvas.__vesselSourceMetadata = metadata;
   ACTIVE_CANVASES.set(canvas, metadata);
   ensureResizeListener();
 
-  const POINTER_GUARD_KEY = Symbol.for('TinyBrushPointerGuard');
+  const POINTER_GUARD_KEY = Symbol.for('VesselPointerGuard');
   if (!canvas[POINTER_GUARD_KEY]) {
     const ensureRunning = () => {
       const active = canvas[RENDERER_KEY];
@@ -2432,7 +2430,7 @@ export const renderTinyBrushWebGL = async (metadata, canvas, options = {}) => {
   return renderer.getSummary();
 };
 
-export function resizeTinyBrushWebGL(canvas, scaleOption) {
+export function resizeVesselWebGL(canvas, scaleOption) {
   if (!(canvas instanceof HTMLCanvasElement)) {
     throw new Error('A target canvas element is required');
   }
@@ -2449,7 +2447,7 @@ function handleWindowResize() {
   console.log('[RESIZE DEBUG] Window resize triggered!', {
     windowSize: { width: window.innerWidth, height: window.innerHeight },
     canvasCount: ACTIVE_CANVASES.size,
-    diagnosticsEnabled: viewerDiagnosticsEnabled
+    diagnosticsEnabled: gobletDiagnosticsEnabled
   });
 
   ACTIVE_CANVASES.forEach((metadata, canvas) => {
@@ -2458,14 +2456,14 @@ function handleWindowResize() {
       return;
     }
     const scaleOption = computeResponsiveScale(metadata);
-    if (viewerDiagnosticsEnabled) {
+    if (gobletDiagnosticsEnabled) {
       debugLog('[DEBUG] handleWindowResize processing canvas', {
         canvasId: canvas.id,
         scaleOption,
         metadata: { viewport: metadata?.viewport, viewportMode: metadata?.viewportMode }
       });
     }
-    resizeTinyBrushWebGL(canvas, scaleOption);
+    resizeVesselWebGL(canvas, scaleOption);
   });
 }
 

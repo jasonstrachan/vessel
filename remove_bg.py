@@ -49,8 +49,8 @@ def remove_background(input_path, output_path, threshold=30):
     print(f"Background removed and saved to: {output_path}")
 
 if __name__ == "__main__":
-    input_file = "/home/jason/projects/tinybrush/screenshots/image copy.png"
-    output_file = "/home/jason/projects/tinybrush/screenshots/image copy - no bg.png"
+    input_file = "/home/jason/projects/vessel/screenshots/image copy.png"
+    output_file = "/home/jason/projects/vessel/screenshots/image copy - no bg.png"
     
     try:
         remove_background(input_file, output_file)

@@ -1,4 +1,4 @@
-// Crash recovery service for TinyBrush
+// Crash recovery service for Vessel
 // Detects and recovers unsaved work after browser crashes or unexpected closes
 
 import { backgroundStorageService } from './backgroundStorage';
@@ -12,7 +12,7 @@ interface RecoveryData {
 }
 
 export class CrashRecoveryService {
-  private readonly RECOVERY_KEY = 'tinybrush-recovery';
+  private readonly RECOVERY_KEY = 'vessel-recovery';
   
   async checkForUnsavedWork(): Promise<RecoveryData | null> {
     try {

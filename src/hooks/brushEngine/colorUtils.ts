@@ -34,12 +34,31 @@ export const parseColor = (color: string): [number, number, number] => {
 /**
  * Convert sRGB color channel (0-255) to linear space (0-1)
  */
-export const srgbToLinear = (c: number): number => Math.pow(c / 255.0, 2.2);
+const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
+export const srgbToLinear = (c: number): number => {
+  if (!Number.isFinite(c)) {
+    return 0;
+  }
+  const normalized = clamp01(c / 255.0);
+  return normalized <= 0.04045
+    ? normalized / 12.92
+    : Math.pow((normalized + 0.055) / 1.055, 2.4);
+};
 
 /**
  * Convert linear color channel (0-1) back to sRGB (0-255)
  */
-export const linearToSrgb = (c: number): number => Math.round(Math.pow(c, 1.0 / 2.2) * 255.0);
+export const linearToSrgb = (c: number): number => {
+  if (!Number.isFinite(c)) {
+    return 0;
+  }
+  const normalized = clamp01(c);
+  const srgb = normalized <= 0.0031308
+    ? normalized * 12.92
+    : 1.055 * Math.pow(normalized, 1 / 2.4) - 0.055;
+  return Math.round(clamp01(srgb) * 255);
+};
 
 /**
  * Snap colors close to black or white to exact values
@@ -102,50 +121,61 @@ export const createJitterState = (): JitterState => ({
   nextJitterColor: [0, 0, 0]
 });
 
+const deterministicRandom = (seed: number): number => {
+  const x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+};
+
 export const applyThrottledColorJitter = (
   baseColor: string, 
   jitterAmount: number,
   jitterState: JitterState
 ): string => {
   if (jitterAmount === 0) {
-    jitterState.counter = 0; // Reset counter when jitter is off
+    jitterState.counter = 0;
+    jitterState.lastJitterColor = jitterState.lastJitterColor ?? parseColor(baseColor);
+    jitterState.nextJitterColor = jitterState.nextJitterColor ?? parseColor(baseColor);
     return baseColor;
   }
 
-  // Every N points, calculate a new target jitter color
-  if (jitterState.counter % jitterState.recalcFrequency === 0) {
-    jitterState.lastJitterColor = jitterState.nextJitterColor;
-    
-    const [r, g, b] = parseColor(baseColor);
-    
-    // Simplified, faster RGB-based jitter
-    const jitter = (jitterAmount / 100) * 128; // Scale jitter amount
-    const r_j = r + (Math.random() - 0.5) * jitter;
-    const g_j = g + (Math.random() - 0.5) * jitter;
-    const b_j = b + (Math.random() - 0.5) * jitter;
+  const cycleLength = Math.max(1, jitterState.recalcFrequency || 1);
+  const currentStep = jitterState.counter % cycleLength;
+  const seedColor = parseColor(baseColor);
 
-    jitterState.nextJitterColor = [
-      Math.max(0, Math.min(255, r_j)),
-      Math.max(0, Math.min(255, g_j)),
-      Math.max(0, Math.min(255, b_j)),
+  const makeJitterColor = (seed: number): [number, number, number] => {
+    const jitter = (jitterAmount / 100) * 128;
+    const r = seedColor[0] + (deterministicRandom(seed + 1) - 0.5) * jitter;
+    const g = seedColor[1] + (deterministicRandom(seed + 2) - 0.5) * jitter;
+    const b = seedColor[2] + (deterministicRandom(seed + 3) - 0.5) * jitter;
+    return [
+      Math.max(0, Math.min(255, r)),
+      Math.max(0, Math.min(255, g)),
+      Math.max(0, Math.min(255, b))
     ];
+  };
 
-    // If it's the very first point, use the target color immediately
-    if (jitterState.counter === 0) {
-      jitterState.lastJitterColor = jitterState.nextJitterColor;
-    }
+  if (jitterState.counter === 0 && jitterState.nextJitterColor.every((value) => value === 0)) {
+    const initialSeed = seedColor[0] + seedColor[1] + seedColor[2] + jitterAmount;
+    const initial = makeJitterColor(initialSeed);
+    jitterState.lastJitterColor = initial;
+    jitterState.nextJitterColor = initial;
   }
 
-  // Interpolate between the last and next jitter color for smooth transitions
-  const progress = (jitterState.counter % jitterState.recalcFrequency) / jitterState.recalcFrequency;
-  
-  const r_interp = jitterState.lastJitterColor[0] + (jitterState.nextJitterColor[0] - jitterState.lastJitterColor[0]) * progress;
-  const g_interp = jitterState.lastJitterColor[1] + (jitterState.nextJitterColor[1] - jitterState.lastJitterColor[1]) * progress;
-  const b_interp = jitterState.lastJitterColor[2] + (jitterState.nextJitterColor[2] - jitterState.lastJitterColor[2]) * progress;
-  
-  jitterState.counter++;
-  
-  return `rgb(${Math.round(r_interp)}, ${Math.round(g_interp)}, ${Math.round(b_interp)})`;
+  const progress = currentStep / cycleLength;
+  const rInterp = jitterState.lastJitterColor[0] + (jitterState.nextJitterColor[0] - jitterState.lastJitterColor[0]) * progress;
+  const gInterp = jitterState.lastJitterColor[1] + (jitterState.nextJitterColor[1] - jitterState.lastJitterColor[1]) * progress;
+  const bInterp = jitterState.lastJitterColor[2] + (jitterState.nextJitterColor[2] - jitterState.lastJitterColor[2]) * progress;
+
+  const nextCounter = jitterState.counter + 1;
+  if (nextCounter % cycleLength === 0) {
+    jitterState.lastJitterColor = jitterState.nextJitterColor;
+    const seed = nextCounter + seedColor[0] + seedColor[1] + seedColor[2] + jitterAmount;
+    jitterState.nextJitterColor = makeJitterColor(seed);
+  }
+
+  jitterState.counter = nextCounter;
+
+  return `rgb(${Math.round(rInterp)}, ${Math.round(gInterp)}, ${Math.round(bInterp)})`;
 };
 
 /**

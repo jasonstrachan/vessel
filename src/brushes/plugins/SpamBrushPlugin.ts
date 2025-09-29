@@ -56,7 +56,7 @@ export class SpamBrushPlugin extends BaseBrushPlugin {
     id: 'spam-brush',
     name: 'Spam Brush',
     description: 'Paint with spam email text in fixed-width fonts',
-    author: 'TinyBrush Team',
+    author: 'Vessel Team',
     version: '1.0.0',
     category: 'Text',
     tags: ['spam', 'text', 'typography', 'artistic'],

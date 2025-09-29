@@ -1,6 +1,6 @@
-# Tinybrush Maintainability and Performance Guide
+# Vessel Maintainability and Performance Guide
 
-This document captures prioritized, actionable recommendations to make Tinybrush easier to maintain and faster in practice. It’s organized so you can apply improvements incrementally.
+This document captures prioritized, actionable recommendations to make Vessel easier to maintain and faster in practice. It’s organized so you can apply improvements incrementally.
 
 ## High‑Impact Performance
 - Reuse floating‑paste canvas: In `src/components/canvas/DrawingCanvas.tsx`, don’t create a canvas per frame for floating paste. Keep a single `pasteCanvas` in a ref, resize as needed.
@@ -39,7 +39,7 @@ This document captures prioritized, actionable recommendations to make Tinybrush
 ## Next.js & Build
 - Production logging strip: Wrap debug usage with `process.env.NODE_ENV !== 'production'` or a static flag so SWC eliminates it in prod.
 - Bundle analysis: Add `@next/bundle-analyzer` to inspect bundle; use tree‑shaken imports (lucide icons, `@heroui/*`) to prevent pulling unused code.
-- Static export compatibility: Keep test/demo pages out of production export or guard them as dev‑only. Validate `basePath`/`assetPrefix` under `/tinybrush`.
+- Static export compatibility: Keep test/demo pages out of production export or guard them as dev‑only. Validate `basePath`/`assetPrefix` under `/vessel`.
 
 ## Testing
 - Store invariants tests: Validate that color‑cycle layers retain `layerType` and `colorCycleData` across add/update/remove/undo/redo.

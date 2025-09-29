@@ -31,7 +31,7 @@ class ProductionErrorBoundary extends React.Component<Props, State> {
           zIndex: 999999
         }}>
           <div style={{ maxWidth: 560, padding: 16, border: '1px solid #933', borderRadius: 8, background: '#1b0f0f' }}>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>TinyBrush crashed</div>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Vessel crashed</div>
             <div style={{ opacity: 0.9, marginBottom: 8 }}>An error occurred and was caught by the global error boundary.</div>
             <code style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{this.state.message || 'Unknown error'}</code>
             <div style={{ marginTop: 12, opacity: 0.8, fontSize: 12 }}>Check the console for details tagged with [global-error-boundary] or [global-error].</div>

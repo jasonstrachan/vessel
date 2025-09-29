@@ -1,4 +1,4 @@
-# TinyBrush v3 Development Plan
+# Vessel v3 Development Plan
 
 **Current State**: Placeholder app with comprehensive documentation, zero implementation  
 **Strategy**: Foundation-first approach, prove performance early, add complexity incrementally
@@ -8,7 +8,7 @@
 ### Current Status
 - **Framework**: Next.js 15 + React 19 + TypeScript + Tailwind CSS
 - **State Management**: Zustand (configured but not implemented)
-- **Implementation**: Basic layout with "TinyBrush v3" placeholder only
+- **Implementation**: Basic layout with "Vessel v3" placeholder only
 - **Documentation**: Comprehensive and well-structured specifications
 
 ### Target Application
@@ -240,7 +240,7 @@ Professional web-based pixel art and digital painting application with:
 - [x] Performance optimized and stable
 - [x] Full feature set operational
 
-## Current Status: TinyBrush v3 is FEATURE COMPLETE! 🎉
+## Current Status: Vessel v3 is FEATURE COMPLETE! 🎉
 
 All core functionality has been implemented:
 - ✅ Complete UI layout with all panels
@@ -327,7 +327,7 @@ Potential issues to investigate:
 ### Step 3: Testing Protocol
 1. Open browser console
 2. Copy an image to clipboard
-3. Focus on TinyBrush canvas
+3. Focus on Vessel canvas
 4. Press Ctrl+V
 5. Check console logs for:
    - "🔧 Adding paste event listener" (on load)

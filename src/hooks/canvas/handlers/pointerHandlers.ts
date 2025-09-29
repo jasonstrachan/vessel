@@ -2485,6 +2485,11 @@ function cssColorToHex(color: string): string {
     // Keep handler minimal; batch work to next animation frame
     // Never drop updates while drawing shapes; RAF will still run at display rate
     // Persist the synthetic event just in case (React 17+ no-ops)
+    if (isSpacePressedRef.current && isMouseDownRef.current && !pan.panState.isPanning) {
+      processPointerMove(event);
+      return;
+    }
+
     event.persist();
     lastMoveEvent = event;
     if (scheduledMoveRAF == null) {

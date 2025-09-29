@@ -100,6 +100,7 @@ export function useComprehensiveKeyboard({
     polygonGradientState,
     setGlobalBrushSize,
     deleteSelectedPixels,
+    selectAllActiveLayerPixels,
     selectionStart,
     selectionEnd
   } = useAppStore();
@@ -223,6 +224,13 @@ export function useComprehensiveKeyboard({
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') {
       event.preventDefault();
       onOpenRef.current?.();
+      return;
+    }
+
+    // Handle Select All (Ctrl/Cmd + A)
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+      event.preventDefault();
+      selectAllActiveLayerPixels();
       return;
     }
 
@@ -365,7 +373,7 @@ export function useComprehensiveKeyboard({
   }, [enabled, allowedScopes, onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
       onPolygonCancel, onEnterPressed, onEscapePressed,
       tools, polygonGradientState, setCurrentTool, setGlobalBrushSize,
-      deleteSelectedPixels, selectionStart, selectionEnd]);
+      deleteSelectedPixels, selectAllActiveLayerPixels, selectionStart, selectionEnd]);
 
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
     if (!enabled) return;

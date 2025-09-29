@@ -1,4 +1,4 @@
-// Subtle autosave indicator for TinyBrush
+// Subtle autosave indicator for Vessel
 // Shows autosave status and last save time
 
 import React, { useState, useEffect } from 'react';

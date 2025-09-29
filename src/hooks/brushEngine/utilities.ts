@@ -4,7 +4,6 @@
  */
 
 import type { BrushSettings } from '@/types';
-import { calculatePressureSize as calculatePressureSizeCurve } from '@/utils/pressureCurve';
 
 /**
  * Calculate grid spacing from brush settings
@@ -29,9 +28,12 @@ export const snapToGridPure = (
   y: number,
   gridSpacing: number
 ): { x: number; y: number } => {
+  const safeSpacing = gridSpacing || 1;
+  const snappedX = Math.sign(x) * Math.round(Math.abs(x) / safeSpacing) * safeSpacing;
+  const snappedY = Math.sign(y) * Math.round(Math.abs(y) / safeSpacing) * safeSpacing;
   return {
-    x: Math.round(x / gridSpacing) * gridSpacing,
-    y: Math.round(y / gridSpacing) * gridSpacing
+    x: Number.isNaN(snappedX) ? 0 : snappedX,
+    y: Number.isNaN(snappedY) ? 0 : snappedY
   };
 };
 
@@ -62,19 +64,21 @@ export const calculatePressureSize = (
   if (!pressureEnabled) {
     return baseSize;
   }
-  
-  // Use the new pressure curve function
-  // minPressure and maxPressure are percentages (1-1000)
-  const minPercent = minPressure || 100; // Default to 100% (no reduction)
-  const maxPercent = maxPressure || 100; // Default to 100% (no increase)
-  
-  return calculatePressureSizeCurve(
-    baseSize,
-    pressure,
-    minPercent,
-    maxPercent,
-    's-curve' // Use smooth S-curve by default
-  );
+
+  const clampedPressure = Math.max(0, Math.min(1, pressure));
+  const minSize = Math.max(1, Math.floor(minPressure || baseSize));
+  const maxSize = Math.max(minSize, Math.floor(maxPressure || baseSize));
+
+  if (clampedPressure <= 0.1) {
+    return minSize;
+  }
+  if (clampedPressure >= 0.99) {
+    return maxSize;
+  }
+
+  const t = (clampedPressure - 0.1) / 0.89;
+  const interpolated = minSize + (maxSize - minSize) * Math.max(0, Math.min(1, t));
+  return Math.max(1, Math.round(interpolated));
 };
 
 /**

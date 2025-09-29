@@ -119,7 +119,7 @@ export default function TestPlugins() {
 
   return (
     <div style={{ padding: '20px', background: '#1a1a1a', color: 'white', minHeight: '100vh' }}>
-      <h1>🧪 TinyBrush Plugin System Test</h1>
+      <h1>🧪 Vessel Plugin System Test</h1>
       
       <div style={{ 
         padding: '15px', 

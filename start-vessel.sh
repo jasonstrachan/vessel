@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# TinyBrush WSL2-Friendly Startup Script
+# Vessel WSL2-Friendly Startup Script
 # Starts both Next.js backend and Express proxy server
 
-echo "🎨 Starting TinyBrush with WSL2-Friendly Proxy"
+echo "🎨 Starting Vessel with WSL2-Friendly Proxy"
 echo "============================================="
 
 # Kill any existing servers
@@ -55,7 +55,7 @@ else
 fi
 
 echo ""
-echo "🎉 TinyBrush is ready!"
+echo "🎉 Vessel is ready!"
 echo "===================="
 echo "🔗 Main URL:      http://localhost:8080"
 echo "🌐 Network URL:   http://$WSL_IP:8080"
@@ -71,7 +71,7 @@ echo "📊 Server Status:"
 echo "   Next.js Backend: http://localhost:3000 (PID: $NEXT_PID)"
 echo "   Express Proxy:   http://localhost:8080 (PID: $PROXY_PID)"
 echo ""
-echo "🛑 To stop: Ctrl+C or run: ./stop-tinybrush.sh"
+echo "🛑 To stop: Ctrl+C or run: ./stop-vessel.sh"
 echo ""
 
 # Test connectivity
@@ -96,7 +96,7 @@ echo "   Proxy:   tail -f proxy.log"
 echo ""
 
 # Keep script running and handle shutdown
-trap 'echo ""; echo "🛑 Shutting down TinyBrush..."; kill $NEXT_PID $PROXY_PID 2>/dev/null; echo "✅ Stopped"; exit 0' INT TERM
+trap 'echo ""; echo "🛑 Shutting down Vessel..."; kill $NEXT_PID $PROXY_PID 2>/dev/null; echo "✅ Stopped"; exit 0' INT TERM
 
 # Wait for either process to exit
 while kill -0 $NEXT_PID 2>/dev/null && kill -0 $PROXY_PID 2>/dev/null; do

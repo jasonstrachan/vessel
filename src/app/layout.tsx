@@ -5,7 +5,7 @@ import GlobalErrorBoundary from '../components/GlobalErrorBoundary';
 import GlobalErrorHooks from '../components/GlobalErrorHooks';
 
 export const metadata: Metadata = {
-  title: 'tinybrush',
+  title: 'vessel',
   description: 'Simple pixel art editor',
 };
 

@@ -9,7 +9,7 @@ let saveCanvasStateTimer: NodeJS.Timeout | null = null;
 let lastSaveTimestamp = 0;
 const MIN_SAVE_INTERVAL = 100; // Minimum 0.1 second between saves
 
-interface TinyBrushWindow extends Window {
+interface VesselWindow extends Window {
   __checkLayerIntegrity?: () => string[];
   __TB_DEBUG?: {
     skipLayerAddSnapshot?: boolean;
@@ -19,11 +19,11 @@ interface TinyBrushWindow extends Window {
   };
 }
 
-const getTinyBrushWindow = (): TinyBrushWindow | undefined => {
+const getVesselWindow = (): VesselWindow | undefined => {
   if (typeof window === 'undefined') {
     return undefined;
   }
-  return window as TinyBrushWindow;
+  return window as VesselWindow;
 };
 
 // Detailed layer tracking for debugging
@@ -142,7 +142,7 @@ const syncPercentOffsetsFromPixels = (layers: Layer[], project: Project | null):
 
 // Global watcher to detect unexpected layer mutations
 if (typeof window !== 'undefined') {
-  const tinyWindow = getTinyBrushWindow();
+  const tinyWindow = getVesselWindow();
   if (tinyWindow) {
     tinyWindow.__checkLayerIntegrity = () => {
       const state = useAppStore.getState();
@@ -336,6 +336,7 @@ export interface AppState {
   selectionEnd: { x: number; y: number } | null;
   setSelectionBounds: (start: { x: number; y: number } | null, end: { x: number; y: number } | null) => void;
   clearSelection: () => void;
+  selectAllActiveLayerPixels: () => void;
   deleteSelectedPixels: () => void;
   
   // Floating Paste State
@@ -694,7 +695,7 @@ export const useAppStore = create<AppState>()(
       // Expose store globally for debugging and test utilities
       if (typeof window !== 'undefined') {
         setTimeout(() => {
-          (window as Window & { __tinybrushStore?: typeof useAppStore }).__tinybrushStore = useAppStore;
+          (window as Window & { __vesselStore?: typeof useAppStore }).__vesselStore = useAppStore;
         }, 0);
       }
       
@@ -718,7 +719,7 @@ export const useAppStore = create<AppState>()(
         embedCanvasFallback: false,
         minifyOutput: true,
         bundleFormat: 'single-html',
-        enableViewerDiagnostics: process.env.NODE_ENV !== 'production'
+        enableGobletDiagnostics: process.env.NODE_ENV !== 'production'
       },
       setProject: (project) => set(() => ({
         project: normalizeProject(project)
@@ -751,12 +752,18 @@ export const useAppStore = create<AppState>()(
           }
         };
       }),
-      updateWebglExportSettings: (settings) => set((state) => ({
-        webglExportSettings: {
-          ...state.webglExportSettings,
-          ...settings
-        }
-      })),
+      updateWebglExportSettings: (settings) => set((state) => {
+        const { enableViewerDiagnostics, ...rest } = settings as Partial<WebGLExportSettings> & { enableViewerDiagnostics?: boolean };
+        return {
+          webglExportSettings: {
+            ...state.webglExportSettings,
+            ...rest,
+            ...(typeof enableViewerDiagnostics === 'boolean'
+              ? { enableGobletDiagnostics: enableViewerDiagnostics }
+              : {})
+          }
+        };
+      }),
       
       // Global brush settings
       globalBrushSize: 5, // Start with default brush size (5px)
@@ -969,6 +976,30 @@ export const useAppStore = create<AppState>()(
       selectionEnd: null,
       setSelectionBounds: (start, end) => set({ selectionStart: start, selectionEnd: end }),
       clearSelection: () => set({ selectionStart: null, selectionEnd: null }),
+      selectAllActiveLayerPixels: () => {
+        const state = get();
+        const { project, layers, activeLayerId } = state;
+
+        const activeLayer = activeLayerId
+          ? layers.find(layer => layer.id === activeLayerId) ?? null
+          : null;
+
+        const width = activeLayer?.imageData?.width
+          ?? activeLayer?.framebuffer?.width
+          ?? project?.width;
+        const height = activeLayer?.imageData?.height
+          ?? activeLayer?.framebuffer?.height
+          ?? project?.height;
+
+        if (!width || !height) {
+          return;
+        }
+
+        set({
+          selectionStart: { x: 0, y: 0 },
+          selectionEnd: { x: width, y: height }
+        });
+      },
       deleteSelectedPixels: () => {
         const state = get();
         const { selectionStart, selectionEnd, layers, activeLayerId, project } = state;
@@ -1915,7 +1946,7 @@ export const useAppStore = create<AppState>()(
         // when adding layers on large canvases.
         try {
           // Allow opting out for debugging perf issues
-          const debugWindow = getTinyBrushWindow();
+          const debugWindow = getVesselWindow();
           if (debugWindow?.__TB_DEBUG?.skipLayerAddSnapshot) {
             throw new Error('skip-snapshot');
           }
@@ -1992,7 +2023,7 @@ export const useAppStore = create<AppState>()(
           console.error('Layer being corrupted:', id);
           console.error('Update that caused it:', updates);
           // Only break into debugger when explicitly opted-in
-          const debugWindow = getTinyBrushWindow();
+          const debugWindow = getVesselWindow();
           if (debugWindow?.__TB_DEBUG?.breakOnLayerErrors) {
             debugger;
           }
@@ -2006,7 +2037,7 @@ export const useAppStore = create<AppState>()(
           console.error('Stack trace:', new Error().stack);
           console.error('Layer:', id);
           // Only break into debugger when explicitly opted-in
-          const debugWindow = getTinyBrushWindow();
+          const debugWindow = getVesselWindow();
           if (debugWindow?.__TB_DEBUG?.breakOnLayerErrors) {
             debugger;
           }
@@ -3128,7 +3159,7 @@ export const useAppStore = create<AppState>()(
       saveCanvasState: (canvas, actionType, description, overrideActiveLayerId?: string) => {
         // quiet: remove diagnostics noise
         // Allow disabling history during debugging/perf triage
-        const debugWindow = getTinyBrushWindow();
+        const debugWindow = getVesselWindow();
         if (debugWindow?.__TB_DEBUG?.disableHistory) {
           return;
         }
@@ -4046,7 +4077,7 @@ export const useAppStore = create<AppState>()(
     };
     }
   // ),
-  // { name: 'tinybrush-store' }
+  // { name: 'vessel-store' }
 );
 
 setColorCycleStoreStateGetter(() => useAppStore.getState());

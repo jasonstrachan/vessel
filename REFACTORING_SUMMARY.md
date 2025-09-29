@@ -1,8 +1,8 @@
-# TinyBrush Refactoring Summary
+# Vessel Refactoring Summary
 
 ## Architecture Transformation
 
-Successfully refactored TinyBrush from a monolithic structure to a clean, maintainable architecture focused on separation of concerns, performance, and code quality.
+Successfully refactored Vessel from a monolithic structure to a clean, maintainable architecture focused on separation of concerns, performance, and code quality.
 
 ## Key Improvements
 
@@ -195,4 +195,4 @@ class DrawingService {
 4. **Scalability**: Architecture supports future features
 5. **Code Quality**: Proper separation of concerns and design patterns
 
-The refactoring transforms TinyBrush from a monolithic application into a well-architected, performant drawing application without over-engineering.
+The refactoring transforms Vessel from a monolithic application into a well-architected, performant drawing application without over-engineering.
