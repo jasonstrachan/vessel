@@ -66,6 +66,7 @@ const anchorInactiveClass = 'border-[#3D3D46] bg-transparent hover:bg-[#5A5A68]'
 
 const fitOptions: Array<{ value: Exclude<LayerAlignmentSettings['fit'], 'percent' | 'fit-width' | 'fit-height'>; label: string }> = [
   { value: 'none', label: 'None' },
+  { value: 'uniform', label: 'Uniform' },
   { value: 'contain', label: 'Contain' },
   { value: 'cover', label: 'Cover' },
   { value: 'fill', label: 'Fill' },

@@ -1,7 +1,16 @@
 // Core type definitions for Vessel
 // Based on /docs/02_System_Architecture/Data_Model.md
 
-export type LayerAlignmentFit = 'contain' | 'cover' | 'fill' | 'fit-width' | 'fit-height' | 'scale-down' | 'percent' | 'none';
+export type LayerAlignmentFit =
+  | 'contain'
+  | 'cover'
+  | 'fill'
+  | 'fit-width'
+  | 'fit-height'
+  | 'scale-down'
+  | 'percent'
+  | 'uniform'
+  | 'none';
 
 export type LayerHorizontalAlignment = 'left' | 'center' | 'right';
 

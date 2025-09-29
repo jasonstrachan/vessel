@@ -489,6 +489,32 @@ const MinimalLayerList = () => {
       }
     }
 
+    if (event.metaKey || event.ctrlKey) {
+      const isSelected = selectedLayerIds.includes(layerId);
+
+      if (isSelected) {
+        const nextSelection = selectedLayerIds.filter(id => id !== layerId);
+
+        if (nextSelection.length === 0) {
+          setActiveLayer(layerId);
+          setSelectedLayerIds([layerId]);
+          return;
+        }
+
+        if (layerId === activeLayerId) {
+          const nextActiveLayerId = nextSelection[nextSelection.length - 1] ?? nextSelection[0];
+          setActiveLayer(nextActiveLayerId);
+        }
+
+        setSelectedLayerIds(nextSelection);
+        return;
+      }
+
+      setActiveLayer(layerId);
+      setSelectedLayerIds([...selectedLayerIds, layerId]);
+      return;
+    }
+
     setActiveLayer(layerId);
     setSelectedLayerIds([layerId]);
   };

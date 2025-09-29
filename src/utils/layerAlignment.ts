@@ -59,16 +59,24 @@ export const computeLayerTransform = (
       scaleY = scale;
       break;
     }
+    case 'uniform': {
+      const scale = Math.min(widthRatio, heightRatio);
+      scaleX = scale;
+      scaleY = scale;
+      break;
+    }
     case 'cover': {
       const scale = Math.max(widthRatio, heightRatio);
       scaleX = scale;
       scaleY = scale;
       break;
     }
-    case 'fill':
+    case 'fill': {
+      // Stretch independently on each axis so the content exactly matches the viewport.
       scaleX = widthRatio;
       scaleY = heightRatio;
       break;
+    }
     case 'fit-width': {
       const scale = widthRatio;
       scaleX = scale;
@@ -88,15 +96,10 @@ export const computeLayerTransform = (
       scaleY = scale;
       break;
     }
+    // 'none' and 'percent' intentionally leave scale at 1 so only position changes.
     case 'percent':
     case 'none':
-      scaleX = 1;
-      scaleY = 1;
-      break;
-    case 'none':
     default:
-      scaleX = 1;
-      scaleY = 1;
       break;
   }
 
@@ -370,7 +373,9 @@ export const resolveContainerLayout = (
         height: innerHeight
       };
 
-      const contentSize = entry.content ?? entry.surface;
+      const contentSize = entry.alignment.fit === 'uniform'
+        ? entry.surface
+        : entry.content ?? entry.surface;
       const transform = computeLayerTransform(contentSize, viewportForLayer, entry.alignment);
 
       placements.set(entry.layerId, {
@@ -460,7 +465,9 @@ export const resolveContainerLayout = (
         height: frameHeight
       };
 
-      const contentSize = layer.content ?? layer.surface;
+      const contentSize = layer.alignment.fit === 'uniform'
+        ? layer.surface
+        : layer.content ?? layer.surface;
       const transform = computeLayerTransform(contentSize, viewportForLayer, layer.alignment);
 
       placements.set(layer.layerId, {

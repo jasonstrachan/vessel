@@ -1,6 +1,6 @@
 import { cloneExportLayout, cloneLayerAlignment } from '@/utils/layoutDefaults';
 import { computeLayerContentMetrics, computePercentOffsetFromMetrics } from '@/utils/layerMetrics';
-import { resolveContainerLayout } from '@/utils/layerAlignment';
+import { resolveContainerLayout as resolveContainerLayoutModel } from '@/utils/layerAlignment';
 import type { LayoutLayerInput, ResolvedLayerLayout } from '@/utils/layerAlignment';
 import type { LayerContentMetrics } from '@/utils/layerMetrics';
 import type {
@@ -2257,7 +2257,7 @@ export const exportProjectAsWebGL = async (
 
   let placementByLayerId: Map<string, ResolvedLayerLayout> | null = null;
   try {
-    const resolvedPlacements = resolveContainerLayout(layoutInputs, containerLayout, {
+    const resolvedPlacements = resolveContainerLayoutModel(layoutInputs, containerLayout, {
       width: resolvedViewport.designWidth,
       height: resolvedViewport.designHeight
     });

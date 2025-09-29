@@ -102,7 +102,9 @@ export function useComprehensiveKeyboard({
     deleteSelectedPixels,
     selectAllActiveLayerPixels,
     selectionStart,
-    selectionEnd
+    selectionEnd,
+    floatingPaste,
+    setFloatingPaste
   } = useAppStore();
 
   // Use refs for stable callbacks to avoid re-registering event listeners
@@ -231,6 +233,7 @@ export function useComprehensiveKeyboard({
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
       event.preventDefault();
       selectAllActiveLayerPixels();
+      setCurrentTool('selection');
       return;
     }
 
@@ -350,9 +353,15 @@ export function useComprehensiveKeyboard({
     }
 
     // Delete key for deleting selected pixels
-    if (event.key === 'Delete' && selectionStart && selectionEnd) {
+    if (event.key === 'Delete') {
       event.preventDefault();
-      deleteSelectedPixels();
+      if (floatingPaste) {
+        setFloatingPaste(null);
+        return;
+      }
+      if (selectionStart && selectionEnd) {
+        deleteSelectedPixels();
+      }
       return;
     }
 
@@ -373,7 +382,8 @@ export function useComprehensiveKeyboard({
   }, [enabled, allowedScopes, onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
       onPolygonCancel, onEnterPressed, onEscapePressed,
       tools, polygonGradientState, setCurrentTool, setGlobalBrushSize,
-      deleteSelectedPixels, selectAllActiveLayerPixels, selectionStart, selectionEnd]);
+      deleteSelectedPixels, selectAllActiveLayerPixels, selectionStart, selectionEnd,
+      floatingPaste, setFloatingPaste]);
 
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
     if (!enabled) return;

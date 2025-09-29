@@ -41,6 +41,12 @@ export const computeLayerTransform = (surface, viewport, alignment = {}) => {
       scaleY = scale;
       break;
     }
+    case 'uniform': {
+      const scale = Math.min(widthRatio, heightRatio);
+      scaleX = scale;
+      scaleY = scale;
+      break;
+    }
     case 'fill':
       scaleX = widthRatio;
       scaleY = heightRatio;
@@ -351,7 +357,9 @@ export const resolveContainerLayout = (layers, layout, viewport) => {
       frameX += padding.left;
       frameY += padding.top;
 
-      const contentSize = layer.content ?? layer.surface ?? { width: 1, height: 1 };
+      const contentSize = alignment.fit === 'uniform'
+        ? (layer.surface ?? { width: 1, height: 1 })
+        : (layer.content ?? layer.surface ?? { width: 1, height: 1 });
       const viewportForLayer = { width: frameWidth, height: frameHeight };
       const alignment = layer.alignment || {
         fit: 'none',

@@ -23,6 +23,19 @@ describe('computeLayerTransform', () => {
     expect(transform.translateY).toBeCloseTo(50);
   });
 
+  test('uniform scales using the minimum ratio between surface and viewport', () => {
+    const transform = computeLayerTransform(
+      { width: 200, height: 100 },
+      { width: 120, height: 200 },
+      { ...baseAlignment, fit: 'uniform' }
+    );
+
+    expect(transform.scaleX).toBeCloseTo(0.6);
+    expect(transform.scaleY).toBeCloseTo(0.6);
+    expect(transform.translateX).toBeCloseTo(0);
+    expect(transform.translateY).toBeCloseTo(70);
+  });
+
   test('scale-down will not upscale content', () => {
     const transform = computeLayerTransform(
       { width: 50, height: 50 },
@@ -32,6 +45,46 @@ describe('computeLayerTransform', () => {
 
     expect(transform.scaleX).toBeCloseTo(0.5);
     expect(transform.scaleY).toBeCloseTo(0.5);
+  });
+
+  test('cover scales uniformly until the frame is fully covered', () => {
+    const transform = computeLayerTransform(
+      { width: 100, height: 50 },
+      { width: 200, height: 200 },
+      { ...baseAlignment, fit: 'cover' }
+    );
+
+    expect(transform.scaleX).toBeCloseTo(4);
+    expect(transform.scaleY).toBeCloseTo(4);
+    // With cover, the horizontal overflow is centered (extra space is negative).
+    expect(transform.translateX).toBeCloseTo(-100);
+    expect(transform.translateY).toBeCloseTo(0);
+  });
+
+  test('fill stretches independently on each axis', () => {
+    const transform = computeLayerTransform(
+      { width: 100, height: 50 },
+      { width: 200, height: 200 },
+      { ...baseAlignment, fit: 'fill' }
+    );
+
+    expect(transform.scaleX).toBeCloseTo(2);
+    expect(transform.scaleY).toBeCloseTo(4);
+    expect(transform.translateX).toBeCloseTo(0);
+    expect(transform.translateY).toBeCloseTo(0);
+  });
+
+  test('none fit leaves scaling at 1 and only adjusts alignment', () => {
+    const transform = computeLayerTransform(
+      { width: 100, height: 50 },
+      { width: 200, height: 200 },
+      { ...baseAlignment, fit: 'none' }
+    );
+
+    expect(transform.scaleX).toBeCloseTo(1);
+    expect(transform.scaleY).toBeCloseTo(1);
+    expect(transform.translateX).toBeCloseTo(50);
+    expect(transform.translateY).toBeCloseTo(75);
   });
 
   test('percent offsets are ignored unless fit is percent', () => {
@@ -238,5 +291,40 @@ describe('resolveContainerLayout', () => {
       { x: 20, y: 10, width: 360, height: 180 },
       { x: 20, y: 10, width: 360, height: 180 }
     ]);
+  });
+
+  test('uniform fit scales using the layer surface when resolving layout', () => {
+    const uniformAlignment: LayerAlignmentSettings = {
+      fit: 'uniform',
+      horizontal: 'center',
+      vertical: 'center',
+      positioning: 'anchor',
+      offsetPx: { x: 0, y: 0 }
+    };
+
+    const layout = createLayout({
+      flow: 'stack',
+      sizeMode: 'fixed',
+      width: 150,
+      height: 150,
+      padding: { top: 0, right: 0, bottom: 0, left: 0 }
+    });
+
+    const result = resolveContainerLayout(
+      [
+        {
+          layerId: 'uniform',
+          surface: { width: 200, height: 100 },
+          content: { width: 80, height: 60 },
+          alignment: uniformAlignment
+        }
+      ],
+      layout,
+      { width: 150, height: 150 }
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].transform.scaleX).toBeCloseTo(0.75);
+    expect(result[0].transform.scaleY).toBeCloseTo(0.75);
   });
 });

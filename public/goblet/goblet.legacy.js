@@ -38,12 +38,18 @@ const createLayoutRuntimeFallback = () => {
         scaleY = scale;
         break;
       }
-      case 'cover': {
-        const scale = Math.max(widthRatio, heightRatio);
-        scaleX = scale;
-        scaleY = scale;
-        break;
-      }
+    case 'cover': {
+      const scale = Math.max(widthRatio, heightRatio);
+      scaleX = scale;
+      scaleY = scale;
+      break;
+    }
+    case 'uniform': {
+      const scale = Math.min(widthRatio, heightRatio);
+      scaleX = scale;
+      scaleY = scale;
+      break;
+    }
       case 'fill':
         scaleX = widthRatio;
         scaleY = heightRatio;
@@ -354,7 +360,9 @@ const createLayoutRuntimeFallback = () => {
         frameX += padding.left;
         frameY += padding.top;
 
-        const contentSize = layer.content ?? layer.surface ?? { width: 1, height: 1 };
+        const contentSize = alignment.fit === 'uniform'
+          ? (layer.surface ?? { width: 1, height: 1 })
+          : (layer.content ?? layer.surface ?? { width: 1, height: 1 });
         const viewportForLayer = { width: frameWidth, height: frameHeight };
         const alignment = layer.alignment || {
           fit: 'none',

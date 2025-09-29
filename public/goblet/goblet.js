@@ -82,6 +82,8 @@ const clamp = (value, min, max) => {
   return Math.min(max, Math.max(min, value));
 };
 
+const POINTER_GUARD_KEY = Symbol.for('VesselPointerGuard');
+
 const clamp01 = (value) => clamp(value, 0, 1);
 
 const clamp255 = (value) => clamp(Math.round(value), 0, 255);
@@ -247,6 +249,12 @@ const computeLayerTransform = (surface, viewport, alignment) => {
     }
     case 'cover': {
       const scale = Math.max(widthRatio, heightRatio);
+      scaleX = scale;
+      scaleY = scale;
+      break;
+    }
+    case 'uniform': {
+      const scale = Math.min(widthRatio, heightRatio);
       scaleX = scale;
       scaleY = scale;
       break;
@@ -507,7 +515,9 @@ const resolveContainerLayout = (layers, layout, viewport) => {
         height: innerHeight
       };
 
-      const contentSize = entry.content ?? entry.surface;
+      const contentSize = entry.alignment.fit === 'uniform'
+        ? entry.surface
+        : entry.content ?? entry.surface;
       const transform = computeLayerTransform(contentSize, viewportForLayer, entry.alignment);
 
       placements.set(entry.layerId, {
@@ -597,7 +607,9 @@ const resolveContainerLayout = (layers, layout, viewport) => {
         height: frameHeight
       };
 
-      const contentSize = layer.content ?? layer.surface;
+      const contentSize = layer.alignment.fit === 'uniform'
+        ? layer.surface
+        : layer.content ?? layer.surface;
       const transform = computeLayerTransform(contentSize, viewportForLayer, layer.alignment);
 
       placements.set(layer.layerId, {
@@ -1649,6 +1661,14 @@ const applyLayerToContext = (ctx, source, layer, mapping, destinationOverride) =
   ctx.globalCompositeOperation = blendMode;
   ctx.globalAlpha = opacity;
 
+  const maxSourceWidth = Math.max(1, sourceWidth);
+  const maxSourceHeight = Math.max(1, sourceHeight);
+
+  const sx = clamp(bounds.x, 0, maxSourceWidth - 1);
+  const sy = clamp(bounds.y, 0, maxSourceHeight - 1);
+  const sw = Math.max(1, Math.min(bounds.width, maxSourceWidth - sx));
+  const sh = Math.max(1, Math.min(bounds.height, maxSourceHeight - sy));
+
   diagnostics.log('Drawing layer attempt', {
     layerId: layer.id,
     sourceActualSize: {
@@ -1660,6 +1680,12 @@ const applyLayerToContext = (ctx, source, layer, mapping, destinationOverride) =
       y: bounds.y,
       width: bounds.width,
       height: bounds.height
+    },
+    clampedSourceRect: {
+      x: sx,
+      y: sy,
+      width: sw,
+      height: sh
     },
     drawingTo: {
       x: destination.x,
@@ -1673,10 +1699,10 @@ const applyLayerToContext = (ctx, source, layer, mapping, destinationOverride) =
 
   ctx.drawImage(
     source,
-    bounds.x,
-    bounds.y,
-    bounds.width,
-    bounds.height,
+    sx,
+    sy,
+    sw,
+    sh,
     destination.x,
     destination.y,
     destination.width,
@@ -2225,7 +2251,6 @@ export const renderVesselWebGL = async (metadata, canvas, options = {}) => {
   ACTIVE_CANVASES.set(canvas, viewer);
   ensureResizeListener();
 
-  const POINTER_GUARD_KEY = Symbol.for('VesselPointerGuard');
   if (!canvas[POINTER_GUARD_KEY]) {
     const ensureRunning = () => {
       const active = canvas[RENDERER_KEY];
