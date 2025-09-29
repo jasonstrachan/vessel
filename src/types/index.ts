@@ -35,7 +35,7 @@ export interface ContentBounds {
   height: number;
 }
 
-export type ExportContainerFlow = 'row' | 'row-reverse' | 'column' | 'column-reverse';
+export type ExportContainerFlow = 'row' | 'row-reverse' | 'column' | 'column-reverse' | 'stack';
 
 export type ExportContainerJustify = 'start' | 'center' | 'end' | 'space-between' | 'space-around';
 

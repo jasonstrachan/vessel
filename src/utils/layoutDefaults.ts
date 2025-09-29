@@ -74,7 +74,7 @@ const normalizeSizeMode = (value?: string): ExportContainerLayout['sizeMode'] =>
 };
 
 export const createDefaultExportLayout = (): ExportContainerLayout => ({
-  flow: 'row',
+  flow: 'stack',
   justify: 'start',
   align: 'start',
   wrap: false,

@@ -181,7 +181,7 @@ const normalizeAlignment = (alignment) => {
 };
 
 const createDefaultContainerLayout = () => ({
-  flow: 'row',
+  flow: 'stack',
   justify: 'start',
   align: 'start',
   wrap: false,
@@ -206,8 +206,11 @@ const normalizeContainerLayout = (layout) => {
     ? base.sizeMode
     : defaults.sizeMode;
 
+  const flowAllowed = new Set(['row', 'row-reverse', 'column', 'column-reverse', 'stack']);
+  const flow = flowAllowed.has(base.flow) ? base.flow : defaults.flow;
+
   return {
-    flow: base.flow === 'column' || base.flow === 'column-reverse' || base.flow === 'row-reverse' ? base.flow : defaults.flow,
+    flow,
     justify: base.justify === 'center' || base.justify === 'end' || base.justify === 'space-between' || base.justify === 'space-around'
       ? base.justify
       : defaults.justify,
@@ -490,6 +493,48 @@ const resolveContainerLayout = (layers, layout, viewport) => {
   const padding = layout.padding;
   const innerWidth = Math.max(0, containerWidth - padding.left - padding.right);
   const innerHeight = Math.max(0, containerHeight - padding.top - padding.bottom);
+
+  if (layout.flow === 'stack') {
+    const placements = new Map();
+
+    layers.forEach((entry) => {
+      if (entry.hidden) {
+        return;
+      }
+
+      const viewportForLayer = {
+        width: innerWidth,
+        height: innerHeight
+      };
+
+      const contentSize = entry.content ?? entry.surface;
+      const transform = computeLayerTransform(contentSize, viewportForLayer, entry.alignment);
+
+      placements.set(entry.layerId, {
+        layerId: entry.layerId,
+        frame: {
+          x: padding.left,
+          y: padding.top,
+          width: innerWidth,
+          height: innerHeight
+        },
+        transform
+      });
+    });
+
+    const results = [];
+    layers.forEach((entry) => {
+      if (entry.hidden) {
+        return;
+      }
+      const placement = placements.get(entry.layerId);
+      if (placement) {
+        results.push(placement);
+      }
+    });
+
+    return results;
+  }
 
   const flowAxis = layout.flow === 'row' || layout.flow === 'row-reverse' ? 'row' : 'column';
   const reverse = layout.flow === 'row-reverse' || layout.flow === 'column-reverse';
@@ -1637,6 +1682,14 @@ const applyLayerToContext = (ctx, source, layer, mapping, destinationOverride) =
     destination.width,
     destination.height
   );
+
+  ctx.save();
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.strokeStyle = 'red';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(destination.x, destination.y, destination.width, destination.height);
+  ctx.restore();
 
   diagnostics.log('Drew layer successfully', {
     layerId: layer.id,

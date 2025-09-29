@@ -216,4 +216,27 @@ describe('resolveContainerLayout', () => {
 
     expect(result.map((r) => r.frame.x)).toEqual([190, 300]);
   });
+
+  test('stack flow overlays layers within padded viewport', () => {
+    const layout = createLayout({
+      flow: 'stack',
+      padding: { top: 10, right: 20, bottom: 10, left: 20 }
+    });
+
+    const result = resolveContainerLayout(
+      [
+        { layerId: 'a', surface: { width: 100, height: 50 }, alignment },
+        { layerId: 'b', surface: { width: 80, height: 80 }, alignment },
+        { layerId: 'c', surface: { width: 60, height: 60 }, alignment, hidden: true }
+      ],
+      layout,
+      { width: 400, height: 200 }
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result.map((r) => r.frame)).toEqual([
+      { x: 20, y: 10, width: 360, height: 180 },
+      { x: 20, y: 10, width: 360, height: 180 }
+    ]);
+  });
 });

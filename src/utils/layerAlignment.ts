@@ -357,6 +357,48 @@ export const resolveContainerLayout = (
   const innerWidth = Math.max(0, containerWidth - padding.left - padding.right);
   const innerHeight = Math.max(0, containerHeight - padding.top - padding.bottom);
 
+  if (layout.flow === 'stack') {
+    const placements = new Map<string, ResolvedLayerLayout>();
+
+    layers.forEach((entry) => {
+      if (entry.hidden) {
+        return;
+      }
+
+      const viewportForLayer = {
+        width: innerWidth,
+        height: innerHeight
+      };
+
+      const contentSize = entry.content ?? entry.surface;
+      const transform = computeLayerTransform(contentSize, viewportForLayer, entry.alignment);
+
+      placements.set(entry.layerId, {
+        layerId: entry.layerId,
+        frame: {
+          x: padding.left,
+          y: padding.top,
+          width: innerWidth,
+          height: innerHeight
+        },
+        transform
+      });
+    });
+
+    const orderedResults: ResolvedLayerLayout[] = [];
+    layers.forEach((entry) => {
+      if (entry.hidden) {
+        return;
+      }
+      const placement = placements.get(entry.layerId);
+      if (placement) {
+        orderedResults.push(placement);
+      }
+    });
+
+    return orderedResults;
+  }
+
   const flowAxis = layout.flow === 'row' || layout.flow === 'row-reverse' ? 'row' : 'column';
   const reverse = layout.flow === 'row-reverse' || layout.flow === 'column-reverse';
 
