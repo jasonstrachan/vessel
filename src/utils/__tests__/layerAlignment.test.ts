@@ -23,17 +23,18 @@ describe('computeLayerTransform', () => {
     expect(transform.translateY).toBeCloseTo(50);
   });
 
-  test('uniform scales using the minimum ratio between surface and viewport', () => {
+  test('uniform preserves surface scale and alignment offsets', () => {
     const transform = computeLayerTransform(
       { width: 200, height: 100 },
       { width: 120, height: 200 },
       { ...baseAlignment, fit: 'uniform' }
     );
 
-    expect(transform.scaleX).toBeCloseTo(0.6);
-    expect(transform.scaleY).toBeCloseTo(0.6);
-    expect(transform.translateX).toBeCloseTo(0);
-    expect(transform.translateY).toBeCloseTo(70);
+    expect(transform.scaleX).toBeCloseTo(1);
+    expect(transform.scaleY).toBeCloseTo(1);
+    // Center alignment shifts the layer negatively when the surface exceeds the viewport.
+    expect(transform.translateX).toBeCloseTo(-40);
+    expect(transform.translateY).toBeCloseTo(50);
   });
 
   test('scale-down will not upscale content', () => {
@@ -150,6 +151,26 @@ describe('computeLayerTransform', () => {
     expect(transform.translateY).toBeCloseTo(30);
   });
 
+  test('uniform auto positioning falls back to pixel offsets when no leftover space', () => {
+    const autoUniform: LayerAlignmentSettings = {
+      fit: 'uniform',
+      horizontal: 'left',
+      vertical: 'top',
+      positioning: 'auto',
+      offsetPercent: { x: 25, y: 0 },
+      offsetPx: { x: 50, y: 0 }
+    };
+
+    const transform = computeLayerTransform(
+      { width: 200, height: 100 },
+      { width: 200, height: 300 },
+      autoUniform
+    );
+
+    expect(transform.translateX).toBeCloseTo(50);
+    expect(transform.translateY).toBeCloseTo(0);
+  });
+
   test('offsets are applied after alignment', () => {
     const transform = computeLayerTransform(
       { width: 100, height: 100 },
@@ -164,11 +185,6 @@ describe('computeLayerTransform', () => {
 
 describe('resolveContainerLayout', () => {
   const createLayout = (overrides: Partial<ExportContainerLayout> = {}): ExportContainerLayout => ({
-    flow: 'row',
-    justify: 'start',
-    align: 'start',
-    wrap: false,
-    gap: 10,
     padding: { top: 0, right: 0, bottom: 0, left: 0 },
     sizeMode: 'fixed',
     width: 400,
@@ -176,7 +192,7 @@ describe('resolveContainerLayout', () => {
     ...overrides
   });
 
-  const alignment: LayerAlignmentSettings = {
+  const baseAlignment: LayerAlignmentSettings = {
     fit: 'none',
     horizontal: 'left',
     vertical: 'top',
@@ -184,116 +200,63 @@ describe('resolveContainerLayout', () => {
     offsetPx: { x: 0, y: 0 }
   };
 
-  test('lays out layers horizontally with gaps', () => {
+  test('assigns the full inner frame to each visible layer', () => {
     const layout = createLayout();
+
     const result = resolveContainerLayout(
       [
-        { layerId: 'a', surface: { width: 100, height: 50 }, alignment },
-        { layerId: 'b', surface: { width: 100, height: 50 }, alignment },
-        { layerId: 'c', surface: { width: 100, height: 50 }, alignment }
+        { layerId: 'a', surface: { width: 120, height: 60 }, alignment: baseAlignment },
+        { layerId: 'b', surface: { width: 80, height: 40 }, alignment: baseAlignment, hidden: true },
+        { layerId: 'c', surface: { width: 160, height: 100 }, alignment: baseAlignment }
       ],
       layout,
       { width: 400, height: 200 }
     );
 
-    expect(result.map((r) => r.frame.x)).toEqual([0, 110, 220]);
-    expect(result.map((r) => r.frame.y)).toEqual([0, 0, 0]);
-    expect(result.every((r) => r.frame.width === 100 && r.frame.height === 50)).toBe(true);
+    expect(result.map((entry) => entry.layerId)).toEqual(['a', 'c']);
+    expect(result.every((entry) => entry.frame.x === 0 && entry.frame.y === 0)).toBe(true);
+    expect(result.every((entry) => entry.frame.width === 400 && entry.frame.height === 200)).toBe(true);
   });
 
-  test('centers line when justify is center', () => {
-    const layout = createLayout({ justify: 'center' });
-    const result = resolveContainerLayout(
-      [
-        { layerId: 'a', surface: { width: 100, height: 50 }, alignment },
-        { layerId: 'b', surface: { width: 100, height: 50 }, alignment },
-        { layerId: 'c', surface: { width: 100, height: 50 }, alignment }
-      ],
-      layout,
-      { width: 400, height: 200 }
-    );
-
-    expect(result.map((r) => r.frame.x)).toEqual([40, 150, 260]);
-  });
-
-  test('wraps onto multiple lines when width exceeded', () => {
-    const layout = createLayout({ width: 200, wrap: true });
-    const result = resolveContainerLayout(
-      [
-        { layerId: 'a', surface: { width: 120, height: 50 }, alignment },
-        { layerId: 'b', surface: { width: 120, height: 50 }, alignment },
-        { layerId: 'c', surface: { width: 120, height: 50 }, alignment }
-      ],
-      layout,
-      { width: 200, height: 200 }
-    );
-
-    const framesById = Object.fromEntries(result.map((entry) => [entry.layerId, entry.frame]));
-    expect(framesById.a).toEqual({ x: 0, y: 0, width: 120, height: 50 });
-    expect(framesById.b).toEqual({ x: 0, y: 60, width: 120, height: 50 });
-    expect(framesById.c).toEqual({ x: 0, y: 120, width: 120, height: 50 });
-  });
-
-  test('supports column flow with stretch alignment', () => {
+  test('honors container padding when determining the frame', () => {
     const layout = createLayout({
-      flow: 'column',
-      align: 'stretch',
-      wrap: false,
-      width: 200,
-      height: 400
+      padding: { top: 10, right: 20, bottom: 30, left: 40 },
+      width: 500,
+      height: 300
     });
 
     const result = resolveContainerLayout(
       [
-        { layerId: 'a', surface: { width: 50, height: 100 }, alignment },
-        { layerId: 'b', surface: { width: 50, height: 100 }, alignment }
+        { layerId: 'layer', surface: { width: 50, height: 50 }, alignment: baseAlignment }
       ],
       layout,
-      { width: 200, height: 400 }
+      { width: 500, height: 300 }
     );
 
-    expect(result.map((r) => r.frame.y)).toEqual([0, 110]);
-    expect(result.every((r) => r.frame.width === 200)).toBe(true);
+    expect(result).toHaveLength(1);
+    expect(result[0].frame).toEqual({ x: 40, y: 10, width: 440, height: 260 });
   });
 
-  test('places items starting at opposite edge for reverse flow', () => {
-    const layout = createLayout({ flow: 'row-reverse' });
-    const result = resolveContainerLayout(
-      [
-        { layerId: 'a', surface: { width: 100, height: 50 }, alignment },
-        { layerId: 'b', surface: { width: 100, height: 50 }, alignment }
-      ],
-      layout,
-      { width: 400, height: 200 }
-    );
-
-    expect(result.map((r) => r.frame.x)).toEqual([190, 300]);
-  });
-
-  test('stack flow overlays layers within padded viewport', () => {
-    const layout = createLayout({
-      flow: 'stack',
-      padding: { top: 10, right: 20, bottom: 10, left: 20 }
-    });
+  test('stacks every visible layer on the same inner frame', () => {
+    const layout = createLayout();
 
     const result = resolveContainerLayout(
       [
-        { layerId: 'a', surface: { width: 100, height: 50 }, alignment },
-        { layerId: 'b', surface: { width: 80, height: 80 }, alignment },
-        { layerId: 'c', surface: { width: 60, height: 60 }, alignment, hidden: true }
+        { layerId: 'a', surface: { width: 100, height: 100 }, alignment: baseAlignment },
+        { layerId: 'b', surface: { width: 80, height: 120 }, alignment: baseAlignment }
       ],
       layout,
       { width: 400, height: 200 }
     );
 
     expect(result).toHaveLength(2);
-    expect(result.map((r) => r.frame)).toEqual([
-      { x: 20, y: 10, width: 360, height: 180 },
-      { x: 20, y: 10, width: 360, height: 180 }
+    expect(result.map((entry) => entry.frame)).toEqual([
+      { x: 0, y: 0, width: 400, height: 200 },
+      { x: 0, y: 0, width: 400, height: 200 }
     ]);
   });
 
-  test('uniform fit scales using the layer surface when resolving layout', () => {
+  test('uniform fit uses surface dimensions when computing transform', () => {
     const uniformAlignment: LayerAlignmentSettings = {
       fit: 'uniform',
       horizontal: 'center',
@@ -303,11 +266,8 @@ describe('resolveContainerLayout', () => {
     };
 
     const layout = createLayout({
-      flow: 'stack',
-      sizeMode: 'fixed',
       width: 150,
-      height: 150,
-      padding: { top: 0, right: 0, bottom: 0, left: 0 }
+      height: 150
     });
 
     const result = resolveContainerLayout(
@@ -324,7 +284,8 @@ describe('resolveContainerLayout', () => {
     );
 
     expect(result).toHaveLength(1);
-    expect(result[0].transform.scaleX).toBeCloseTo(0.75);
-    expect(result[0].transform.scaleY).toBeCloseTo(0.75);
+    expect(result[0].frame).toEqual({ x: 0, y: 0, width: 150, height: 150 });
+    expect(result[0].transform.scaleX).toBeCloseTo(1);
+    expect(result[0].transform.scaleY).toBeCloseTo(1);
   });
 });

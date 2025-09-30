@@ -1,5 +1,8 @@
 import type {
   ExportContainerLayout,
+  ExportLayoutAlign,
+  ExportLayoutFlow,
+  ExportLayoutJustify,
   Layer,
   LayerAlignmentSettings,
   LayerHorizontalAlignment,
@@ -73,28 +76,75 @@ const normalizeSizeMode = (value?: string): ExportContainerLayout['sizeMode'] =>
   return 'fill';
 };
 
+const normalizeFlow = (value?: string): ExportLayoutFlow => {
+  switch (value) {
+    case 'row':
+    case 'row-reverse':
+    case 'column':
+    case 'column-reverse':
+    case 'stack':
+      return value;
+    default:
+      return 'stack';
+  }
+};
+
+const normalizeAlign = (value?: string): ExportLayoutAlign => {
+  switch (value) {
+    case 'start':
+    case 'center':
+    case 'end':
+    case 'stretch':
+      return value;
+    default:
+      return 'start';
+  }
+};
+
+const normalizeJustify = (value?: string): ExportLayoutJustify => {
+  switch (value) {
+    case 'start':
+    case 'center':
+    case 'end':
+    case 'space-between':
+    case 'space-around':
+      return value;
+    default:
+      return 'start';
+  }
+};
+
+const normalizeWrap = (value?: unknown): boolean => value === true;
+
+const normalizeGap = (value?: number): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, value);
+};
+
 export const createDefaultExportLayout = (): ExportContainerLayout => ({
+  padding: { top: 0, right: 0, bottom: 0, left: 0 },
+  sizeMode: 'fill',
   flow: 'stack',
-  justify: 'start',
-  align: 'start',
   wrap: false,
   gap: 0,
-  padding: { top: 0, right: 0, bottom: 0, left: 0 },
-  sizeMode: 'fill'
+  align: 'start',
+  justify: 'start'
 });
 
 export const cloneExportLayout = (layout?: ExportContainerLayout): ExportContainerLayout => {
   const base = layout ?? createDefaultExportLayout();
   return {
-    flow: base.flow,
-    justify: base.justify,
-    align: base.align,
-    wrap: base.wrap,
-    gap: base.gap,
     padding: { ...base.padding },
     sizeMode: normalizeSizeMode(base.sizeMode),
     width: base.width,
-    height: base.height
+    height: base.height,
+    flow: normalizeFlow(base.flow),
+    wrap: normalizeWrap(base.wrap),
+    gap: normalizeGap(base.gap),
+    align: normalizeAlign(base.align),
+    justify: normalizeJustify(base.justify)
   };
 };
 

@@ -60,9 +60,9 @@ export const computeLayerTransform = (
       break;
     }
     case 'uniform': {
-      const scale = Math.min(widthRatio, heightRatio);
-      scaleX = scale;
-      scaleY = scale;
+      // Uniform fit preserves the original surface scale and only adjusts translation.
+      scaleX = 1;
+      scaleY = 1;
       break;
     }
     case 'cover': {
@@ -109,6 +109,7 @@ export const computeLayerTransform = (
   const extraY = viewportHeight - scaledHeight;
 
   const usesPercentFit = alignment.fit === 'percent';
+  const usesUniformFit = alignment.fit === 'uniform';
   const usesAutoPositioning = alignment.positioning === 'auto';
 
   let translateX = 0;
@@ -159,6 +160,16 @@ export const computeLayerTransform = (
       const availableY = viewportHeight - scaledHeight;
       translateX += availableX * (percentX / 100);
       translateY += availableY * (percentY / 100);
+
+      if (usesUniformFit && alignment.offsetPx) {
+        const epsilon = 1e-3;
+        if (Math.abs(availableX) <= epsilon && Number.isFinite(alignment.offsetPx.x)) {
+          translateX += alignment.offsetPx.x;
+        }
+        if (Math.abs(availableY) <= epsilon && Number.isFinite(alignment.offsetPx.y)) {
+          translateY += alignment.offsetPx.y;
+        }
+      }
     }
   }
 
@@ -349,6 +360,11 @@ export const resolveContainerLayout = (
   layout: ExportContainerLayout,
   viewport: Size2D
 ): ResolvedLayerLayout[] => {
+  const flow = layout.flow ?? 'stack';
+  const wrap = layout.wrap ?? false;
+  const gap = Number.isFinite(layout.gap) ? Math.max(0, layout.gap) : 0;
+  const align = layout.align ?? 'start';
+  const justify = layout.justify ?? 'start';
   const containerWidth = layout.sizeMode === 'fixed' && typeof layout.width === 'number'
     ? layout.width
     : viewport.width;
@@ -360,7 +376,7 @@ export const resolveContainerLayout = (
   const innerWidth = Math.max(0, containerWidth - padding.left - padding.right);
   const innerHeight = Math.max(0, containerHeight - padding.top - padding.bottom);
 
-  if (layout.flow === 'stack') {
+  if (flow === 'stack') {
     const placements = new Map<string, ResolvedLayerLayout>();
 
     layers.forEach((entry) => {
@@ -404,12 +420,12 @@ export const resolveContainerLayout = (
     return orderedResults;
   }
 
-  const flowAxis = layout.flow === 'row' || layout.flow === 'row-reverse' ? 'row' : 'column';
-  const reverse = layout.flow === 'row-reverse' || layout.flow === 'column-reverse';
+  const flowAxis = flow === 'row' || flow === 'row-reverse' ? 'row' : 'column';
+  const reverse = flow === 'row-reverse' || flow === 'column-reverse';
 
   const availableMain = flowAxis === 'row' ? innerWidth : innerHeight;
 
-  const lines = buildLayoutLines(layers, flowAxis, layout.wrap, layout.gap, availableMain);
+  const lines = buildLayoutLines(layers, flowAxis, wrap, gap, availableMain);
 
   const contentMain = flowAxis === 'row' ? innerWidth : innerHeight;
   const contentCross = flowAxis === 'row' ? innerHeight : innerWidth;
@@ -417,8 +433,8 @@ export const resolveContainerLayout = (
   const { sizes: lineCrossSizes, offset: crossOffset } = computeLineCrossSizes(
     lines,
     contentCross,
-    layout.gap,
-    layout.align
+    gap,
+    align
   );
 
   const placements = new Map<string, ResolvedLayerLayout>();
@@ -429,8 +445,8 @@ export const resolveContainerLayout = (
     const { start: lineStart, gap: lineGap } = computeLineOffsets(
       line,
       contentMain,
-      layout.gap,
-      layout.justify,
+      gap,
+      justify,
       reverse
     );
 
@@ -440,8 +456,8 @@ export const resolveContainerLayout = (
     items.forEach((item) => {
       const layer = item.layer;
       const mainSize = item.main;
-      const crossSize = layout.align === 'stretch' ? lineCrossSize : item.cross;
-      const crossAdjust = computeCrossOffsetWithinLine(lineCrossSize, crossSize, layout.align);
+      const crossSize = align === 'stretch' ? lineCrossSize : item.cross;
+      const crossAdjust = computeCrossOffsetWithinLine(lineCrossSize, crossSize, align);
 
       const frameWidth = flowAxis === 'row' ? mainSize : crossSize;
       const frameHeight = flowAxis === 'row' ? crossSize : mainSize;
@@ -484,7 +500,7 @@ export const resolveContainerLayout = (
       mainCursor += mainSize + lineGap;
     });
 
-    crossCursor += lineCrossSize + Math.max(0, layout.gap);
+    crossCursor += lineCrossSize + Math.max(0, gap);
   });
 
   const orderedResults: ResolvedLayerLayout[] = [];

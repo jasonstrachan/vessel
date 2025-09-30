@@ -2299,12 +2299,16 @@ export const exportProjectAsWebGL = async (
       : 'top-left';
 
     const boundsRect = (() => {
+      const isUniformFit = alignment.fit === 'uniform';
+      const sizeBasisWidth = isUniformFit ? sourceSize.width : contentBounds.width;
+      const sizeBasisHeight = isUniformFit ? sourceSize.height : contentBounds.height;
+
       if (!layoutPlacement) {
         return {
           x: 0,
           y: 0,
-          width: roundPlacementValue(contentBounds.width),
-          height: roundPlacementValue(contentBounds.height),
+          width: roundPlacementValue(sizeBasisWidth),
+          height: roundPlacementValue(sizeBasisHeight),
           anchor
         } as WebGLLayerBounds;
       }
@@ -2315,8 +2319,8 @@ export const exportProjectAsWebGL = async (
       const translateY = toFiniteValue(transform?.translateY, 0);
       const scaleX = toFiniteValue(transform?.scaleX, 1);
       const scaleY = toFiniteValue(transform?.scaleY, 1);
-      const contentWidth = Math.max(1, contentBounds.width * scaleX);
-      const contentHeight = Math.max(1, contentBounds.height * scaleY);
+      const contentWidth = Math.max(1, sizeBasisWidth * scaleX);
+      const contentHeight = Math.max(1, sizeBasisHeight * scaleY);
 
       return {
         x: roundPlacementValue((frame?.x ?? 0) + translateX),

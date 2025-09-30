@@ -183,11 +183,6 @@ const normalizeAlignment = (alignment) => {
 };
 
 const createDefaultContainerLayout = () => ({
-  flow: 'stack',
-  justify: 'start',
-  align: 'start',
-  wrap: false,
-  gap: 0,
   padding: { top: 0, right: 0, bottom: 0, left: 0 },
   sizeMode: 'fill'
 });
@@ -208,19 +203,7 @@ const normalizeContainerLayout = (layout) => {
     ? base.sizeMode
     : defaults.sizeMode;
 
-  const flowAllowed = new Set(['row', 'row-reverse', 'column', 'column-reverse', 'stack']);
-  const flow = flowAllowed.has(base.flow) ? base.flow : defaults.flow;
-
   return {
-    flow,
-    justify: base.justify === 'center' || base.justify === 'end' || base.justify === 'space-between' || base.justify === 'space-around'
-      ? base.justify
-      : defaults.justify,
-    align: base.align === 'center' || base.align === 'end' || base.align === 'stretch'
-      ? base.align
-      : defaults.align,
-    wrap: Boolean(base.wrap),
-    gap: toFinite(base.gap, defaults.gap),
     padding,
     sizeMode,
     width: sizeMode === 'fixed' && Number.isFinite(base.width) ? Math.max(1, base.width) : undefined,
@@ -254,9 +237,8 @@ const computeLayerTransform = (surface, viewport, alignment) => {
       break;
     }
     case 'uniform': {
-      const scale = Math.min(widthRatio, heightRatio);
-      scaleX = scale;
-      scaleY = scale;
+      scaleX = 1;
+      scaleY = 1;
       break;
     }
     case 'fill':
@@ -296,6 +278,7 @@ const computeLayerTransform = (surface, viewport, alignment) => {
   const extraY = viewportHeight - scaledHeight;
 
   const usesPercentFit = alignment.fit === 'percent';
+  const usesUniformFit = alignment.fit === 'uniform';
   const usesAutoPositioning = alignment.positioning === 'auto';
 
   let translateX = 0;
@@ -342,6 +325,16 @@ const computeLayerTransform = (surface, viewport, alignment) => {
       const availableY = viewportHeight - scaledHeight;
       translateX += availableX * (percentX / 100);
       translateY += availableY * (percentY / 100);
+
+      if (usesUniformFit && alignment.offsetPx) {
+        const epsilon = 1e-3;
+        if (Math.abs(availableX) <= epsilon && Number.isFinite(alignment.offsetPx.x)) {
+          translateX += alignment.offsetPx.x;
+        }
+        if (Math.abs(availableY) <= epsilon && Number.isFinite(alignment.offsetPx.y)) {
+          translateY += alignment.offsetPx.y;
+        }
+      }
     }
   }
 
@@ -501,146 +494,39 @@ const resolveContainerLayout = (layers, layout, viewport) => {
   const padding = layout.padding;
   const innerWidth = Math.max(0, containerWidth - padding.left - padding.right);
   const innerHeight = Math.max(0, containerHeight - padding.top - padding.bottom);
+  const placements = [];
 
-  if (layout.flow === 'stack') {
-    const placements = new Map();
-
-    layers.forEach((entry) => {
-      if (entry.hidden) {
-        return;
-      }
-
-      const viewportForLayer = {
-        width: innerWidth,
-        height: innerHeight
-      };
-
-      const contentSize = entry.alignment.fit === 'uniform'
-        ? entry.surface
-        : entry.content ?? entry.surface;
-      const transform = computeLayerTransform(contentSize, viewportForLayer, entry.alignment);
-
-      placements.set(entry.layerId, {
-        layerId: entry.layerId,
-        frame: {
-          x: padding.left,
-          y: padding.top,
-          width: innerWidth,
-          height: innerHeight
-        },
-        transform
-      });
-    });
-
-    const results = [];
-    layers.forEach((entry) => {
-      if (entry.hidden) {
-        return;
-      }
-      const placement = placements.get(entry.layerId);
-      if (placement) {
-        results.push(placement);
-      }
-    });
-
-    return results;
-  }
-
-  const flowAxis = layout.flow === 'row' || layout.flow === 'row-reverse' ? 'row' : 'column';
-  const reverse = layout.flow === 'row-reverse' || layout.flow === 'column-reverse';
-
-  const availableMain = flowAxis === 'row' ? innerWidth : innerHeight;
-
-  const lines = buildLayoutLines(layers, flowAxis, layout.wrap, layout.gap, availableMain);
-
-  const contentMain = flowAxis === 'row' ? innerWidth : innerHeight;
-  const contentCross = flowAxis === 'row' ? innerHeight : innerWidth;
-
-  const { sizes: lineCrossSizes, offset: crossOffset } = computeLineCrossSizes(
-    lines,
-    contentCross,
-    layout.gap,
-    layout.align
-  );
-
-  const placements = new Map();
-
-  let crossCursor = crossOffset;
-  lines.forEach((line, lineIndex) => {
-    const lineCrossSize = lineCrossSizes[lineIndex] ?? 0;
-    const { start: lineStart, gap: lineGap } = computeLineOffsets(
-      line,
-      contentMain,
-      layout.gap,
-      layout.justify,
-      reverse
-    );
-
-    const items = reverse ? [...line.items].reverse() : line.items;
-
-    let mainCursor = lineStart;
-    items.forEach((item) => {
-      const layer = item.layer;
-      const mainSize = item.main;
-      const crossSize = layout.align === 'stretch' ? lineCrossSize : item.cross;
-      const crossAdjust = computeCrossOffsetWithinLine(lineCrossSize, crossSize, layout.align);
-
-      const frameWidth = flowAxis === 'row' ? mainSize : crossSize;
-      const frameHeight = flowAxis === 'row' ? crossSize : mainSize;
-
-      let frameX = flowAxis === 'row' ? mainCursor : crossCursor + crossAdjust;
-      let frameY = flowAxis === 'row' ? crossCursor + crossAdjust : mainCursor;
-
-      if (reverse) {
-        if (flowAxis === 'row') {
-          frameX = contentMain - mainCursor - mainSize;
-        } else {
-          frameY = contentMain - mainCursor - mainSize;
-        }
-      }
-
-      frameX += padding.left;
-      frameY += padding.top;
-
-      const viewportForLayer = {
-        width: frameWidth,
-        height: frameHeight
-      };
-
-      const contentSize = layer.alignment.fit === 'uniform'
-        ? layer.surface
-        : layer.content ?? layer.surface;
-      const transform = computeLayerTransform(contentSize, viewportForLayer, layer.alignment);
-
-      placements.set(layer.layerId, {
-        layerId: layer.layerId,
-        frame: {
-          x: frameX,
-          y: frameY,
-          width: frameWidth,
-          height: frameHeight
-        },
-        transform
-      });
-
-      mainCursor += mainSize + lineGap;
-    });
-
-    crossCursor += lineCrossSize + Math.max(0, layout.gap);
-  });
-
-  const results = [];
-  layers.forEach((layer) => {
-    if (layer.hidden) {
+  layers.forEach((entry) => {
+    if (entry.hidden) {
       return;
     }
-    const placement = placements.get(layer.layerId);
-    if (placement) {
-      results.push(placement);
-    }
+
+    const viewportForLayer = {
+      width: innerWidth,
+      height: innerHeight
+    };
+
+    const contentSize = entry.alignment.fit === 'uniform'
+      ? {
+          width: Math.max(1, entry.surface.width),
+          height: Math.max(1, entry.surface.height)
+        }
+      : entry.content ?? entry.surface;
+    const transform = computeLayerTransform(contentSize, viewportForLayer, entry.alignment);
+
+    placements.push({
+      layerId: entry.layerId,
+      frame: {
+        x: padding.left,
+        y: padding.top,
+        width: innerWidth,
+        height: innerHeight
+      },
+      transform
+    });
   });
 
-  return results;
+  return placements;
 };
 
 const applyDesignLayout = (metadata) => {
@@ -664,8 +550,12 @@ const applyDesignLayout = (metadata) => {
     if (!layer) {
       return null;
     }
-    const surfaceWidth = Math.max(1, toFinite(layer?.source?.width, 1));
-    const surfaceHeight = Math.max(1, toFinite(layer?.source?.height, 1));
+    const rawSurfaceWidth = toFinite(layer?.source?.width, NaN);
+    const rawSurfaceHeight = toFinite(layer?.source?.height, NaN);
+    const fallbackSurfaceWidth = Math.max(1, toFinite(layer?.bounds?.width, toFinite(layer?.placement?.width, 1)));
+    const fallbackSurfaceHeight = Math.max(1, toFinite(layer?.bounds?.height, toFinite(layer?.placement?.height, 1)));
+    const surfaceWidth = Math.max(1, Number.isFinite(rawSurfaceWidth) && rawSurfaceWidth > 0 ? rawSurfaceWidth : fallbackSurfaceWidth);
+    const surfaceHeight = Math.max(1, Number.isFinite(rawSurfaceHeight) && rawSurfaceHeight > 0 ? rawSurfaceHeight : fallbackSurfaceHeight);
     const contentWidth = layer.contentBounds
       ? Math.max(1, toFinite(layer.contentBounds.width, surfaceWidth))
       : surfaceWidth;
@@ -696,8 +586,12 @@ const applyDesignLayout = (metadata) => {
       const placement = placementMap.get(layer.id);
       if (!placement) {
         if (!layer.bounds) {
-          const fallbackWidth = Math.max(1, toFinite(layer?.source?.width, 1));
-          const fallbackHeight = Math.max(1, toFinite(layer?.source?.height, 1));
+          const rawFallbackWidth = toFinite(layer?.source?.width, NaN);
+          const rawFallbackHeight = toFinite(layer?.source?.height, NaN);
+          const inferredWidth = Math.max(1, toFinite(layer?.placement?.width, 1));
+          const inferredHeight = Math.max(1, toFinite(layer?.placement?.height, 1));
+          const fallbackWidth = Math.max(1, Number.isFinite(rawFallbackWidth) && rawFallbackWidth > 0 ? rawFallbackWidth : inferredWidth);
+          const fallbackHeight = Math.max(1, Number.isFinite(rawFallbackHeight) && rawFallbackHeight > 0 ? rawFallbackHeight : inferredHeight);
           layer.bounds = {
             x: 0,
             y: 0,
@@ -709,6 +603,9 @@ const applyDesignLayout = (metadata) => {
         return;
       }
 
+      const alignment = normalizeAlignment(layer.alignment);
+      const posMode = alignment.positioning ?? 'anchor';
+
       const contentWidth = layer.contentBounds
         ? Math.max(1, toFinite(layer.contentBounds.width, placement.frame.width))
         : placement.frame.width;
@@ -716,15 +613,31 @@ const applyDesignLayout = (metadata) => {
         ? Math.max(1, toFinite(layer.contentBounds.height, placement.frame.height))
         : placement.frame.height;
 
-      const translateX = placement.frame.x + toFinite(placement.transform.translateX, 0);
-      const translateY = placement.frame.y + toFinite(placement.transform.translateY, 0);
-      const width = Math.max(1, contentWidth * toFinite(placement.transform.scaleX, 1));
-      const height = Math.max(1, contentHeight * toFinite(placement.transform.scaleY, 1));
+      const isUniformFit = alignment.fit === 'uniform';
+      const uniformWidth = Math.max(1, toFinite(layer.source?.width, contentWidth));
+      const uniformHeight = Math.max(1, toFinite(layer.source?.height, contentHeight));
+      const sizeBasisWidth = isUniformFit ? uniformWidth : contentWidth;
+      const sizeBasisHeight = isUniformFit ? uniformHeight : contentHeight;
 
-      const alignment = normalizeAlignment(layer.alignment);
       const anchor = alignment.horizontal === 'center' && alignment.vertical === 'center'
         ? 'center'
         : 'top-left';
+
+      if (posMode === 'auto') {
+        layer.bounds = {
+          x: 0,
+          y: 0,
+          width: roundPlacementValue(sizeBasisWidth),
+          height: roundPlacementValue(sizeBasisHeight),
+          anchor
+        };
+        return;
+      }
+
+      const translateX = placement.frame.x + toFinite(placement.transform.translateX, 0);
+      const translateY = placement.frame.y + toFinite(placement.transform.translateY, 0);
+      const width = Math.max(1, sizeBasisWidth * toFinite(placement.transform.scaleX, 1));
+      const height = Math.max(1, sizeBasisHeight * toFinite(placement.transform.scaleY, 1));
 
       layer.bounds = {
         x: roundPlacementValue(translateX),
@@ -768,6 +681,9 @@ const computeViewportMapping = (viewport, canvasWidth, canvasHeight) => {
     scaleY = uniform;
   }
 
+  const resolvedCanvasWidth = Number.isFinite(canvasWidth) ? Math.max(0, canvasWidth) : designWidth * scaleX;
+  const resolvedCanvasHeight = Number.isFinite(canvasHeight) ? Math.max(0, canvasHeight) : designHeight * scaleY;
+
   return {
     mode,
     scaleX,
@@ -775,34 +691,220 @@ const computeViewportMapping = (viewport, canvasWidth, canvasHeight) => {
     offsetX,
     offsetY,
     designWidth,
-    designHeight
+    designHeight,
+    canvasWidth: resolvedCanvasWidth,
+    canvasHeight: resolvedCanvasHeight
+  };
+};
+
+const clampPct = (v) => Math.max(-100, Math.min(100, toFinite(v, 0)));
+
+const resolveAutoViewportSize = (mapping) => {
+  const canvasWidth = Math.max(0, toFinite(mapping?.canvasWidth, 0));
+  const canvasHeight = Math.max(0, toFinite(mapping?.canvasHeight, 0));
+  const designWidth = Math.max(0, toFinite(mapping?.designWidth, 0));
+  const designHeight = Math.max(0, toFinite(mapping?.designHeight, 0));
+  const scaleX = Math.max(0, toFinite(mapping?.scaleX, 1));
+  const scaleY = Math.max(0, toFinite(mapping?.scaleY, 1));
+
+  const viewportWidth = designWidth > 0 && scaleX > 0
+    ? designWidth * scaleX
+    : canvasWidth;
+  const viewportHeight = designHeight > 0 && scaleY > 0
+    ? designHeight * scaleY
+    : canvasHeight;
+
+  return {
+    width: viewportWidth || canvasWidth,
+    height: viewportHeight || canvasHeight
   };
 };
 
 const computeLayerDestination = (layer, mapping) => {
-  const bounds = layer?.bounds ?? layer?.placement ?? {
-    x: 0,
-    y: 0,
-    width: layer?.source?.width ?? 0,
-    height: layer?.source?.height ?? 0,
-    anchor: 'top-left'
-  };
-  const fallbackWidth = layer?.source?.width ?? 1;
-  const fallbackHeight = layer?.source?.height ?? 1;
-  const baseX = toFinite(bounds.x, 0) * mapping.scaleX;
-  const baseY = toFinite(bounds.y, 0) * mapping.scaleY;
-  const width = Math.max(1, toFinite(bounds.width, fallbackWidth) * mapping.scaleX);
-  const height = Math.max(1, toFinite(bounds.height, fallbackHeight) * mapping.scaleY);
+  const rawSrcW = toFinite(layer?.source?.width, NaN);
+  const rawSrcH = toFinite(layer?.source?.height, NaN);
+  const fallbackWidth = Math.max(1, toFinite(layer?.bounds?.width, toFinite(layer?.placement?.width, 1)));
+  const fallbackHeight = Math.max(1, toFinite(layer?.bounds?.height, toFinite(layer?.placement?.height, 1)));
+  const srcW = Math.max(1, Number.isFinite(rawSrcW) && rawSrcW > 0 ? rawSrcW : fallbackWidth);
+  const srcH = Math.max(1, Number.isFinite(rawSrcH) && rawSrcH > 0 ? rawSrcH : fallbackHeight);
+  const fallbackAnchor = layer?.bounds?.anchor ?? layer?.placement?.anchor ?? 'top-left';
 
-  const offsetX = mapping.offsetX;
-  const offsetY = mapping.offsetY;
+  const layoutBounds = layer?.bounds;
+  const hasLayoutBounds = Boolean(
+    layoutBounds && Number.isFinite(layoutBounds.width) && Number.isFinite(layoutBounds.height)
+  );
+  const offsetX = toFinite(mapping?.offsetX, 0);
+  const offsetY = toFinite(mapping?.offsetY, 0);
+  const sx0 = Math.max(0, toFinite(mapping?.scaleX, 1)) || 1;
+  const sy0 = Math.max(0, toFinite(mapping?.scaleY, 1)) || 1;
+  if (hasLayoutBounds) {
+    const bx = toFinite(layoutBounds.x, 0);
+    const by = toFinite(layoutBounds.y, 0);
+    const bw = Math.max(1, toFinite(layoutBounds.width, 1));
+    const bh = Math.max(1, toFinite(layoutBounds.height, 1));
 
-  return {
-    x: baseX + offsetX,
-    y: baseY + offsetY,
-    width,
-    height
-  };
+    const width = Math.max(1, bw * sx0);
+    const height = Math.max(1, bh * sy0);
+
+    // Anchor-aware positioning ensures scaling happens about the declared anchor
+    let x;
+    let y;
+    if (layoutBounds.anchor === 'center') {
+      const cx = bx + bw / 2;
+      const cy = by + bh / 2;
+      x = offsetX + cx * sx0 - width / 2;
+      y = offsetY + cy * sy0 - height / 2;
+    } else {
+      // 'top-left' (default) and 'stretch' behave like top-left
+      x = offsetX + bx * sx0;
+      y = offsetY + by * sy0;
+    }
+    return { x, y, width, height };
+  }
+  const fit = layer?.layoutMode ?? layer?.alignment?.fit ?? 'none';
+  const posMode = layer?.alignment?.positioning ?? 'anchor';
+  const percent = layer?.alignment?.offsetPercent ?? { x: 0, y: 0 };
+  const offsetPx = layer?.alignment?.offsetPx ?? { x: 0, y: 0 };
+
+  const axisToPercent = (a) => (a === 'center' ? 50 : (a === 'right' || a === 'bottom') ? 100 : 0);
+  let pct = percent;
+  if (posMode === 'auto' && (!pct || !Number.isFinite(pct.x) || !Number.isFinite(pct.y))) {
+    pct = {
+      x: axisToPercent(layer?.alignment?.horizontal),
+      y: axisToPercent(layer?.alignment?.vertical)
+    };
+  }
+
+  const rawBounds = hasLayoutBounds
+    ? layoutBounds
+    : layer?.placement;
+  const bounds = rawBounds
+    ? {
+        x: toFinite(rawBounds.x, 0),
+        y: toFinite(rawBounds.y, 0),
+        width: Math.max(1, toFinite(rawBounds.width, srcW)),
+        height: Math.max(1, toFinite(rawBounds.height, srcH)),
+        anchor: rawBounds.anchor ?? fallbackAnchor
+      }
+    : { x: 0, y: 0, width: srcW, height: srcH, anchor: fallbackAnchor };
+
+  // scaling used for sizing (sizeSX/SY) vs positioning (posSX/SY)
+  let sizeSX = sx0;
+  let sizeSY = sy0;
+  let posSX = sx0;
+  let posSY = sy0;
+
+  switch (fit) {
+    case 'none':
+      if (hasLayoutBounds) {
+        sizeSX = sx0;
+        sizeSY = sy0;
+      } else {
+        sizeSX = 1;
+        sizeSY = 1;
+      }
+      break;
+    case 'contain': {
+      const s = Math.min(sx0, sy0);
+      sizeSX = s;
+      sizeSY = s;
+      posSX = s;
+      posSY = s;
+      break;
+    }
+    case 'cover': {
+      const s = Math.max(sx0, sy0);
+      sizeSX = s;
+      sizeSY = s;
+      posSX = s;
+      posSY = s;
+      break;
+    }
+    case 'fit-width': {
+      const s = sx0;
+      sizeSX = s;
+      sizeSY = s;
+      posSX = s;
+      posSY = s;
+      break;
+    }
+    case 'fit-height': {
+      const s = sy0;
+      sizeSX = s;
+      sizeSY = s;
+      posSX = s;
+      posSY = s;
+      break;
+    }
+    case 'scale-down': {
+      const contain = Math.min(sx0, sy0);
+      const s = contain < 1 ? contain : 1;
+      sizeSX = s;
+      sizeSY = s;
+      posSX = s;
+      posSY = s;
+      break;
+    }
+    case 'uniform': {
+      if (!hasLayoutBounds) {
+        const u = Math.min(sx0, sy0);
+        const baseW = srcW;
+        const baseH = srcH;
+        const scaledW = baseW * u;
+        const scaledH = baseH * u;
+
+        let x = offsetX;
+        let y = offsetY;
+
+        const autoViewport = resolveAutoViewportSize(mapping);
+        if (posMode === 'auto') {
+          const availX = autoViewport.width - scaledW;
+          const availY = autoViewport.height - scaledH;
+          x += availX * (clampPct(pct?.x) / 100);
+          y += availY * (clampPct(pct?.y) / 100);
+        } else {
+          x += toFinite(bounds.x, 0) * u;
+          y += toFinite(bounds.y, 0) * u;
+        }
+
+        x += toFinite(offsetPx.x, 0);
+        y += toFinite(offsetPx.y, 0);
+
+        return { x, y, width: scaledW, height: scaledH };
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  const baseW = Math.max(1, toFinite(bounds.width, srcW));
+  const baseH = Math.max(1, toFinite(bounds.height, srcH));
+
+  const width = baseW * sizeSX;
+  const height = baseH * sizeSY;
+
+  let x = offsetX;
+  let y = offsetY;
+
+  if (posMode === 'auto') {
+    const autoViewport = resolveAutoViewportSize(mapping);
+    const availX = autoViewport.width - width;
+    const availY = autoViewport.height - height;
+    const pctX = clampPct(pct?.x);
+    const pctY = clampPct(pct?.y);
+    x += availX * (pctX / 100);
+    y += availY * (pctY / 100);
+  } else {
+    // Always scale position from design space to canvas space.
+    x = toFinite(bounds.x, 0) * posSX + offsetX;
+    y = toFinite(bounds.y, 0) * posSY + offsetY;
+  }
+
+  x += toFinite(offsetPx.x, 0);
+  y += toFinite(offsetPx.y, 0);
+
+  return { x, y, width, height };
 };
 
 // ------------------------------------------------------------
@@ -979,7 +1081,8 @@ const prepareMetadata = (metadata) => {
     }))
   });
   validateMetadata(expanded);
-  return applyDesignLayout(expanded);
+  // Bounds from the exporter are the source of truth. Do not re-layout here.
+  return expanded;
 };
 
 // ------------------------------------------------------------
@@ -1627,31 +1730,83 @@ const applyLayerToContext = (ctx, source, layer, mapping, destinationOverride) =
     return false;
   }
 
-  const boundsRaw = layer.contentBounds ?? null;
+  const fit = layer?.layoutMode ?? layer?.alignment?.fit ?? 'none';
   const sourceWidth = source instanceof HTMLImageElement
     ? source.naturalWidth || source.width
     : source.width;
   const sourceHeight = source instanceof HTMLImageElement
     ? source.naturalHeight || source.height
     : source.height;
-
-  const bounds = boundsRaw
-    ? {
-        x: clamp(boundsRaw.x, 0, Number.MAX_SAFE_INTEGER),
-        y: clamp(boundsRaw.y, 0, Number.MAX_SAFE_INTEGER),
-        width: Math.max(1, toFinite(boundsRaw.width, sourceWidth)),
-        height: Math.max(1, toFinite(boundsRaw.height, sourceHeight))
-      }
-    : {
-        x: 0,
-        y: 0,
-        width: Math.max(1, sourceWidth),
-        height: Math.max(1, sourceHeight)
-      };
+  const texW = sourceWidth;
+  const texH = sourceHeight;
 
   const destination = destinationOverride ?? computeLayerDestination(layer, mapping);
   if (!destination) {
     return false;
+  }
+
+  let sx = 0;
+  let sy = 0;
+  let sw = sourceWidth;
+  let sh = sourceHeight;
+  let sampleRegion = {
+    x: sx,
+    y: sy,
+    width: sw,
+    height: sh
+  };
+
+  if (fit === 'uniform') {
+    const declaredWidth = Math.max(1, toFinite(layer?.source?.width, sourceWidth));
+    const declaredHeight = Math.max(1, toFinite(layer?.source?.height, sourceHeight));
+    sw = Math.min(declaredWidth, sourceWidth);
+    sh = Math.min(declaredHeight, sourceHeight);
+    sampleRegion = {
+      x: sx,
+      y: sy,
+      width: sw,
+      height: sh
+    };
+    const uniformScale = destination.width / Math.max(1, declaredWidth);
+    diagnostics.log('UNIFORM MAP', {
+      layerId: layer?.id,
+      scales: {
+        viewport: { x: mapping.scaleX, y: mapping.scaleY },
+        uniform: uniformScale
+      },
+      canvas: {
+        width: mapping.canvasWidth,
+        height: mapping.canvasHeight
+      },
+      scaled: {
+        width: destination.width,
+        height: destination.height
+      },
+      leftover: {
+        x: (mapping.canvasWidth ?? 0) - destination.width,
+        y: (mapping.canvasHeight ?? 0) - destination.height
+      },
+      percent: layer?.alignment?.offsetPercent,
+      sourceDeclared: layer?.source,
+      textureActual: { texW, texH },
+      destination
+    });
+  } else if (layer?.contentBounds) {
+    const boundsRaw = layer.contentBounds;
+    const clampedX = clamp(boundsRaw.x, 0, Math.max(0, sourceWidth - 1));
+    const clampedY = clamp(boundsRaw.y, 0, Math.max(0, sourceHeight - 1));
+    const maxWidth = Math.max(1, sourceWidth - clampedX);
+    const maxHeight = Math.max(1, sourceHeight - clampedY);
+    sx = clampedX;
+    sy = clampedY;
+    sw = Math.max(1, Math.min(boundsRaw.width, maxWidth));
+    sh = Math.max(1, Math.min(boundsRaw.height, maxHeight));
+    sampleRegion = {
+      x: sx,
+      y: sy,
+      width: sw,
+      height: sh
+    };
   }
 
   ctx.save();
@@ -1661,32 +1816,14 @@ const applyLayerToContext = (ctx, source, layer, mapping, destinationOverride) =
   ctx.globalCompositeOperation = blendMode;
   ctx.globalAlpha = opacity;
 
-  const maxSourceWidth = Math.max(1, sourceWidth);
-  const maxSourceHeight = Math.max(1, sourceHeight);
-
-  const sx = clamp(bounds.x, 0, maxSourceWidth - 1);
-  const sy = clamp(bounds.y, 0, maxSourceHeight - 1);
-  const sw = Math.max(1, Math.min(bounds.width, maxSourceWidth - sx));
-  const sh = Math.max(1, Math.min(bounds.height, maxSourceHeight - sy));
-
   diagnostics.log('Drawing layer attempt', {
     layerId: layer.id,
     sourceActualSize: {
       width: source.width || source.naturalWidth,
       height: source.height || source.naturalHeight
     },
-    drawingFrom: {
-      x: bounds.x,
-      y: bounds.y,
-      width: bounds.width,
-      height: bounds.height
-    },
-    clampedSourceRect: {
-      x: sx,
-      y: sy,
-      width: sw,
-      height: sh
-    },
+    drawingFrom: sampleRegion,
+    clampedSourceRect: sampleRegion,
     drawingTo: {
       x: destination.x,
       y: destination.y,
@@ -1708,14 +1845,6 @@ const applyLayerToContext = (ctx, source, layer, mapping, destinationOverride) =
     destination.width,
     destination.height
   );
-
-  ctx.save();
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.strokeStyle = 'red';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(destination.x, destination.y, destination.width, destination.height);
-  ctx.restore();
 
   diagnostics.log('Drew layer successfully', {
     layerId: layer.id,
@@ -2026,6 +2155,8 @@ class VesselGoblet {
     })));
 
     const mapping = computeViewportMapping(this.metadata.viewport, width, height);
+    console.log('MAP', mapping);
+    console.log('BOUNDS[0]', this.metadata.layers?.[0]?.bounds);
     let painted = 0;
     sorted.forEach((entry, index) => {
       diagnostics.log(`[goblet] Processing layer ${index}:`, entry.layer.id);

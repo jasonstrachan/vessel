@@ -44,12 +44,6 @@ export interface ContentBounds {
   height: number;
 }
 
-export type ExportContainerFlow = 'row' | 'row-reverse' | 'column' | 'column-reverse' | 'stack';
-
-export type ExportContainerJustify = 'start' | 'center' | 'end' | 'space-between' | 'space-around';
-
-export type ExportContainerAlign = 'start' | 'center' | 'end' | 'stretch';
-
 export interface ExportContainerPadding {
   top: number;
   right: number;
@@ -59,16 +53,20 @@ export interface ExportContainerPadding {
 
 export type ExportContainerSizeMode = 'fill' | 'hug' | 'fixed';
 
+export type ExportLayoutFlow = 'stack' | 'row' | 'row-reverse' | 'column' | 'column-reverse';
+export type ExportLayoutAlign = 'start' | 'center' | 'end' | 'stretch';
+export type ExportLayoutJustify = 'start' | 'center' | 'end' | 'space-between' | 'space-around';
+
 export interface ExportContainerLayout {
-  flow: ExportContainerFlow;
-  justify: ExportContainerJustify;
-  align: ExportContainerAlign;
-  wrap: boolean;
-  gap: number;
   padding: ExportContainerPadding;
   sizeMode: ExportContainerSizeMode;
   width?: number;
   height?: number;
+  flow: ExportLayoutFlow;
+  wrap: boolean;
+  gap: number;
+  align: ExportLayoutAlign;
+  justify: ExportLayoutJustify;
 }
 
 export type WebGLExportBundleFormat = 'zip' | 'single-html' | 'json';
