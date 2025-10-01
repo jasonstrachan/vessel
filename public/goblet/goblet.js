@@ -333,6 +333,7 @@ const inflateRaw = (() => {
 //alignFitResolver
 const { normalizeAlignment, computeLayerTransform, computeLayerDestination } = (() => {
   // Auto-generated from src/utils/alignment/alignFitResolver.ts. Do not edit directly.
+
   const MIN_DIMENSION = 1e-3;
   const toFinite = (value, fallback = 0) => {
       if (typeof value === 'number') {
@@ -391,6 +392,22 @@ const { normalizeAlignment, computeLayerTransform, computeLayerDestination } = (
   };
   const normalizeAlignment = (alignment) => {
       return cloneAlignment(alignment);
+  };
+  const deriveAutoPercentOffset = (bounds, mapping, viewport) => {
+      const availableX = viewport.width - bounds.width;
+      const availableY = viewport.height - bounds.height;
+      const normalizedX = toFinite(bounds.x, 0) - mapping.offsetX;
+      const normalizedY = toFinite(bounds.y, 0) - mapping.offsetY;
+      const percentX = availableX > MIN_DIMENSION
+          ? clampPercent((normalizedX / availableX) * 100)
+          : 0;
+      const percentY = availableY > MIN_DIMENSION
+          ? clampPercent((normalizedY / availableY) * 100)
+          : 0;
+      return {
+          x: percentX,
+          y: percentY
+      };
   };
   const getPercentOffset = (alignment) => {
       var _a;
@@ -754,18 +771,22 @@ const { normalizeAlignment, computeLayerTransform, computeLayerDestination } = (
           const y = Number.isFinite(raw.y) ? raw.y : axisToPercent(alignment.vertical);
           return { x, y };
       })();
-      const percent = {
-          x: clampPercent(percentWithFallback.x),
-          y: clampPercent(percentWithFallback.y)
-      };
       const bounds = resolveBounds(layer, srcWidth, srcHeight, fallbackAnchor);
+      const viewportSize = resolveAutoViewportSize(mapping);
+      const normalizedMapping = { offsetX, offsetY, scaleX, scaleY };
+      const percent = posMode === 'auto'
+          ? deriveAutoPercentOffset(bounds, normalizedMapping, viewportSize)
+          : {
+              x: clampPercent(percentWithFallback.x),
+              y: clampPercent(percentWithFallback.y)
+          };
       const context = {
           alignment,
           bounds,
-          mapping: { offsetX, offsetY, scaleX, scaleY },
+          mapping: normalizedMapping,
           percent,
           posMode,
-          viewport: resolveAutoViewportSize(mapping),
+          viewport: viewportSize,
           baseWidth: bounds.width,
           baseHeight: bounds.height,
           srcWidth,
@@ -779,6 +800,45 @@ const { normalizeAlignment, computeLayerTransform, computeLayerDestination } = (
       normalizeAlignment,
       computeLayerTransform,
       computeLayerDestination,
+      deriveAutoPercentOffset,
+      clampPercent,
+      resolveAutoViewportSize
+  };
+
+
+  return { normalizeAlignment, computeLayerTransform, computeLayerDestination };
+})();
+//alignFitResolver:end
+  const bounds = resolveBounds(layer, srcWidth, srcHeight, fallbackAnchor);
+  const viewportSize = resolveAutoViewportSize(mapping);
+  const normalizedMapping = { offsetX, offsetY, scaleX, scaleY };
+  const percent = posMode === 'auto'
+      ? deriveAutoPercentOffset(bounds, normalizedMapping, viewportSize)
+      : {
+          x: clampPercent(percentWithFallback.x),
+          y: clampPercent(percentWithFallback.y)
+      };
+  const context = {
+      alignment,
+      bounds,
+      mapping: normalizedMapping,
+      percent,
+      posMode,
+      viewport: viewportSize,
+      baseWidth: bounds.width,
+      baseHeight: bounds.height,
+      srcWidth,
+      srcHeight
+  };
+      const resolver = (_q = destinationResolvers[fit]) !== null && _q !== void 0 ? _q : destinationResolvers.default;
+      const rect = resolver(context);
+      return finalizeDestination(rect);
+  };
+  const AlignFitResolver = {
+      normalizeAlignment,
+      computeLayerTransform,
+      computeLayerDestination,
+      deriveAutoPercentOffset,
       clampPercent,
       resolveAutoViewportSize
   };

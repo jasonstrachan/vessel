@@ -3,6 +3,7 @@ import { computeLayerContentMetrics, computePercentOffsetFromMetrics } from '@/u
 import { resolveContainerLayout as resolveContainerLayoutModel } from '@/utils/layerAlignment';
 import type { LayoutLayerInput, ResolvedLayerLayout } from '@/utils/layerAlignment';
 import type { LayerContentMetrics } from '@/utils/layerMetrics';
+import type { LayerBounds } from '@/utils/alignment/alignFitResolver';
 import type {
   ContentBounds,
   ExportContainerLayout,
@@ -2235,7 +2236,17 @@ export const exportProjectAsWebGL = async (
   options.layers.forEach((layer) => {
     const metrics = metricsMap.get(layer.id) ?? computeLayerExportMetrics(layer, options.project);
     const alignment = cloneLayerAlignment(layer.alignment);
-    const alignmentPercent = computePercentOffsetFromMetrics(metrics);
+    const layerBounds = (layer as { bounds?: LayerBounds | null }).bounds;
+    const frame = (layer as { frame?: { x?: number; y?: number } | null }).frame;
+    const alignmentPercent = computePercentOffsetFromMetrics(metrics, {
+      originX: toFiniteValue(layerBounds?.x ?? frame?.x, 0),
+      originY: toFiniteValue(layerBounds?.y ?? frame?.y, 0),
+      boundsWidth: toFiniteValue(layerBounds?.width ?? metrics.contentBounds.width, metrics.contentBounds.width),
+      boundsHeight: toFiniteValue(layerBounds?.height ?? metrics.contentBounds.height, metrics.contentBounds.height),
+      anchor: layerBounds?.anchor ?? 'top-left',
+      projectWidth: options.project.width,
+      projectHeight: options.project.height
+    });
     const shouldApplyPercentFallback = alignment.positioning === 'auto' || alignment.fit === 'percent';
 
     const resolvedAlignment: Layer['alignment'] = {

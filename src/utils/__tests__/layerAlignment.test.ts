@@ -1,5 +1,6 @@
 import type { ExportContainerLayout, LayerAlignmentSettings } from '@/types';
 import { computeLayerTransform, resolveContainerLayout } from '../layerAlignment';
+import { computeLayerDestination } from '@/utils/alignment/alignFitResolver';
 
 describe('computeLayerTransform', () => {
   const baseAlignment: LayerAlignmentSettings = {
@@ -180,6 +181,39 @@ describe('computeLayerTransform', () => {
 
     expect(transform.translateX).toBeCloseTo(10);
     expect(transform.translateY).toBeCloseTo(-5);
+  });
+
+  test('auto positioning derives percent from layer bounds when stored percent is neutral', () => {
+    const layer = {
+      alignment: {
+        fit: 'none',
+        horizontal: 'left',
+        vertical: 'top',
+        positioning: 'auto',
+        offsetPx: { x: 0, y: 0 },
+        offsetPercent: { x: 0, y: 0 }
+      },
+      bounds: {
+        x: 64,
+        y: 48,
+        width: 128,
+        height: 96,
+        anchor: 'top-left'
+      },
+      source: { width: 128, height: 96 }
+    } as const;
+
+    const destination = computeLayerDestination(layer, {
+      scaleX: 1,
+      scaleY: 1,
+      offsetX: 0,
+      offsetY: 0,
+      canvasWidth: 512,
+      canvasHeight: 512
+    });
+
+    expect(destination.x).toBeCloseTo(64);
+    expect(destination.y).toBeCloseTo(48);
   });
 });
 

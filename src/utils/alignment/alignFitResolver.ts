@@ -129,6 +129,38 @@ interface TranslationContext {
   scaledHeight: number;
 }
 
+export interface NormalizedViewportMapping {
+  offsetX: number;
+  offsetY: number;
+  scaleX: number;
+  scaleY: number;
+}
+
+export const deriveAutoPercentOffset = (
+  bounds: Required<LayerBounds>,
+  mapping: NormalizedViewportMapping,
+  viewport: Size2D
+): { x: number; y: number } => {
+  const availableX = viewport.width - bounds.width;
+  const availableY = viewport.height - bounds.height;
+
+  const normalizedX = toFinite(bounds.x, 0) - mapping.offsetX;
+  const normalizedY = toFinite(bounds.y, 0) - mapping.offsetY;
+
+  const percentX = availableX > MIN_DIMENSION
+    ? clampPercent((normalizedX / availableX) * 100)
+    : 0;
+
+  const percentY = availableY > MIN_DIMENSION
+    ? clampPercent((normalizedY / availableY) * 100)
+    : 0;
+
+  return {
+    x: percentX,
+    y: percentY
+  };
+};
+
 const getPercentOffset = (alignment: LayerAlignmentSettings) => {
   const percent = alignment.offsetPercent ?? { x: 0, y: 0 };
   return {
@@ -340,13 +372,6 @@ const resolveBounds = (
     anchor: raw.anchor ?? fallbackAnchor
   };
 };
-
-interface NormalizedViewportMapping {
-  offsetX: number;
-  offsetY: number;
-  scaleX: number;
-  scaleY: number;
-}
 
 interface DestinationContext {
   alignment: LayerAlignmentSettings;
@@ -594,20 +619,24 @@ export const computeLayerDestination = (layer: LayerLike, mapping: ViewportMappi
     return { x, y };
   })();
 
-  const percent = {
-    x: clampPercent(percentWithFallback.x),
-    y: clampPercent(percentWithFallback.y)
-  };
-
   const bounds = resolveBounds(layer, srcWidth, srcHeight, fallbackAnchor);
+  const viewportSize = resolveAutoViewportSize(mapping);
+  const normalizedMapping: NormalizedViewportMapping = { offsetX, offsetY, scaleX, scaleY };
+
+  const percent = posMode === 'auto'
+    ? deriveAutoPercentOffset(bounds, normalizedMapping, viewportSize)
+    : {
+        x: clampPercent(percentWithFallback.x),
+        y: clampPercent(percentWithFallback.y)
+      };
 
   const context: DestinationContext = {
     alignment,
     bounds,
-    mapping: { offsetX, offsetY, scaleX, scaleY },
+    mapping: normalizedMapping,
     percent,
     posMode,
-    viewport: resolveAutoViewportSize(mapping),
+    viewport: viewportSize,
     baseWidth: bounds.width,
     baseHeight: bounds.height,
     srcWidth,
@@ -624,6 +653,7 @@ export const AlignFitResolver = {
   normalizeAlignment,
   computeLayerTransform,
   computeLayerDestination,
+  deriveAutoPercentOffset,
   clampPercent,
   resolveAutoViewportSize
 };
