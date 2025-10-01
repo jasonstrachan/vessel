@@ -736,7 +736,7 @@ const { normalizeAlignment, computeLayerTransform, computeLayerDestination } = (
       default: fillScaleResolver
   };
   const computeLayerDestination = (layer, mapping) => {
-      var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q;
+      var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;
       const srcWidth = Math.max(1, toFinite((_a = layer === null || layer === void 0 ? void 0 : layer.source) === null || _a === void 0 ? void 0 : _a.width, toFinite((_b = layer === null || layer === void 0 ? void 0 : layer.bounds) === null || _b === void 0 ? void 0 : _b.width, toFinite((_c = layer === null || layer === void 0 ? void 0 : layer.placement) === null || _c === void 0 ? void 0 : _c.width, 1))));
       const srcHeight = Math.max(1, toFinite((_d = layer === null || layer === void 0 ? void 0 : layer.source) === null || _d === void 0 ? void 0 : _d.height, toFinite((_e = layer === null || layer === void 0 ? void 0 : layer.bounds) === null || _e === void 0 ? void 0 : _e.height, toFinite((_f = layer === null || layer === void 0 ? void 0 : layer.placement) === null || _f === void 0 ? void 0 : _f.height, 1))));
       const fallbackAnchor = (_k = (_h = (_g = layer === null || layer === void 0 ? void 0 : layer.bounds) === null || _g === void 0 ? void 0 : _g.anchor) !== null && _h !== void 0 ? _h : (_j = layer === null || layer === void 0 ? void 0 : layer.placement) === null || _j === void 0 ? void 0 : _j.anchor) !== null && _k !== void 0 ? _k : 'top-left';
@@ -771,15 +771,39 @@ const { normalizeAlignment, computeLayerTransform, computeLayerDestination } = (
           const y = Number.isFinite(raw.y) ? raw.y : axisToPercent(alignment.vertical);
           return { x, y };
       })();
+      const originalPercent = (_r = (_q = layer.alignment) === null || _q === void 0 ? void 0 : _q.offsetPercent) !== null && _r !== void 0 ? _r : null;
+      const originalPercentX = originalPercent != null ? toFinite(originalPercent.x, Number.NaN) : Number.NaN;
+      const originalPercentY = originalPercent != null ? toFinite(originalPercent.y, Number.NaN) : Number.NaN;
+      const hasOriginalPercentX = Number.isFinite(originalPercentX);
+      const hasOriginalPercentY = Number.isFinite(originalPercentY);
       const bounds = resolveBounds(layer, srcWidth, srcHeight, fallbackAnchor);
       const viewportSize = resolveAutoViewportSize(mapping);
       const normalizedMapping = { offsetX, offsetY, scaleX, scaleY };
-      const percent = posMode === 'auto'
-          ? deriveAutoPercentOffset(bounds, normalizedMapping, viewportSize)
-          : {
-              x: clampPercent(percentWithFallback.x),
-              y: clampPercent(percentWithFallback.y)
+      const hasMeaningfulBoundsX = Math.abs(bounds.x) > MIN_DIMENSION;
+      const hasMeaningfulBoundsY = Math.abs(bounds.y) > MIN_DIMENSION;
+      const percent = (() => {
+          if (posMode !== 'auto') {
+              return {
+                  x: clampPercent(percentWithFallback.x),
+                  y: clampPercent(percentWithFallback.y)
+              };
+          }
+          const autoDerived = deriveAutoPercentOffset(bounds, normalizedMapping, viewportSize);
+          const derivedX = clampPercent(autoDerived.x);
+          const derivedY = clampPercent(autoDerived.y);
+          const fallbackX = clampPercent(percentWithFallback.x);
+          const fallbackY = clampPercent(percentWithFallback.y);
+          const useOriginalX = hasOriginalPercentX && (!hasMeaningfulBoundsX || Math.abs(originalPercentX) > MIN_DIMENSION);
+          const useOriginalY = hasOriginalPercentY && (!hasMeaningfulBoundsY || Math.abs(originalPercentY) > MIN_DIMENSION);
+          return {
+              x: useOriginalX
+                  ? clampPercent(originalPercentX)
+                  : (Number.isFinite(derivedX) ? derivedX : fallbackX),
+              y: useOriginalY
+                  ? clampPercent(originalPercentY)
+                  : (Number.isFinite(derivedY) ? derivedY : fallbackY)
           };
+      })();
       const context = {
           alignment,
           bounds,
@@ -792,7 +816,7 @@ const { normalizeAlignment, computeLayerTransform, computeLayerDestination } = (
           srcWidth,
           srcHeight
       };
-      const resolver = (_q = destinationResolvers[fit]) !== null && _q !== void 0 ? _q : destinationResolvers.default;
+      const resolver = (_s = destinationResolvers[fit]) !== null && _s !== void 0 ? _s : destinationResolvers.default;
       const rect = resolver(context);
       return finalizeDestination(rect);
   };
@@ -809,41 +833,8 @@ const { normalizeAlignment, computeLayerTransform, computeLayerDestination } = (
   return { normalizeAlignment, computeLayerTransform, computeLayerDestination };
 })();
 //alignFitResolver:end
-  const bounds = resolveBounds(layer, srcWidth, srcHeight, fallbackAnchor);
-  const viewportSize = resolveAutoViewportSize(mapping);
-  const normalizedMapping = { offsetX, offsetY, scaleX, scaleY };
-  const percent = posMode === 'auto'
-      ? deriveAutoPercentOffset(bounds, normalizedMapping, viewportSize)
-      : {
-          x: clampPercent(percentWithFallback.x),
-          y: clampPercent(percentWithFallback.y)
-      };
-  const context = {
-      alignment,
-      bounds,
-      mapping: normalizedMapping,
-      percent,
-      posMode,
-      viewport: viewportSize,
-      baseWidth: bounds.width,
-      baseHeight: bounds.height,
-      srcWidth,
-      srcHeight
-  };
-      const resolver = (_q = destinationResolvers[fit]) !== null && _q !== void 0 ? _q : destinationResolvers.default;
-      const rect = resolver(context);
-      return finalizeDestination(rect);
-  };
-  const AlignFitResolver = {
-      normalizeAlignment,
-      computeLayerTransform,
-      computeLayerDestination,
-      deriveAutoPercentOffset,
-      clampPercent,
-      resolveAutoViewportSize
-  };
-  return { normalizeAlignment, computeLayerTransform, computeLayerDestination };
-})();
+
+
 
 // ------------------------------------------------------------
 // Diagnostics

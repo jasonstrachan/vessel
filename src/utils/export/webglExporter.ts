@@ -2239,8 +2239,8 @@ export const exportProjectAsWebGL = async (
     const layerBounds = (layer as { bounds?: LayerBounds | null }).bounds;
     const frame = (layer as { frame?: { x?: number; y?: number } | null }).frame;
     const alignmentPercent = computePercentOffsetFromMetrics(metrics, {
-      originX: toFiniteValue(layerBounds?.x ?? frame?.x, 0),
-      originY: toFiniteValue(layerBounds?.y ?? frame?.y, 0),
+      originX: toFiniteValue(layerBounds?.x ?? metrics.contentBounds.x ?? frame?.x, 0),
+      originY: toFiniteValue(layerBounds?.y ?? metrics.contentBounds.y ?? frame?.y, 0),
       boundsWidth: toFiniteValue(layerBounds?.width ?? metrics.contentBounds.width, metrics.contentBounds.width),
       boundsHeight: toFiniteValue(layerBounds?.height ?? metrics.contentBounds.height, metrics.contentBounds.height),
       anchor: layerBounds?.anchor ?? 'top-left',

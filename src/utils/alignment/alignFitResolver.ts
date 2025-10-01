@@ -429,6 +429,48 @@ const computeAutoPosition = (ctx: DestinationContext, width: number, height: num
   };
 };
 
+const applyHVAlignment = (
+  align: LayerAlignmentSettings,
+  viewportWidth: number,
+  viewportHeight: number,
+  width: number,
+  height: number
+) => {
+  const extraX = viewportWidth - width;
+  const extraY = viewportHeight - height;
+
+  let ax = 0;
+  let ay = 0;
+
+  switch (align.horizontal) {
+    case 'center':
+      ax = extraX / 2;
+      break;
+    case 'right':
+      ax = extraX;
+      break;
+    case 'left':
+    default:
+      ax = 0;
+      break;
+  }
+
+  switch (align.vertical) {
+    case 'center':
+      ay = extraY / 2;
+      break;
+    case 'bottom':
+      ay = extraY;
+      break;
+    case 'top':
+    default:
+      ay = 0;
+      break;
+  }
+
+  return { ax, ay };
+};
+
 const applyUniformAutoOffsets = (ctx: DestinationContext, auto: AutoPositionResult) => {
   let { x, y } = auto;
   const offset = ctx.alignment.offsetPx;
@@ -439,11 +481,13 @@ const applyUniformAutoOffsets = (ctx: DestinationContext, auto: AutoPositionResu
   const offsetX = toFinite(offset.x, 0);
   const offsetY = toFinite(offset.y, 0);
 
-  if (offsetX !== 0) {
+  const epsilon = 1e-3;
+
+  if (offsetX !== 0 && Math.abs(auto.availableX) <= epsilon) {
     x += offsetX;
   }
 
-  if (offsetY !== 0) {
+  if (offsetY !== 0 && Math.abs(auto.availableY) <= epsilon) {
     y += offsetY;
   }
 
@@ -478,9 +522,16 @@ const createScaledDestinationResolver = (getScale: (ctx: DestinationContext) => 
     }
 
     const anchor = computeAnchorPosition(ctx, posScaleX, posScaleY);
+    const { ax, ay } = applyHVAlignment(
+      ctx.alignment,
+      ctx.viewport.width,
+      ctx.viewport.height,
+      width,
+      height
+    );
     return {
-      x: anchor.x,
-      y: anchor.y,
+      x: anchor.x + ax,
+      y: anchor.y + ay,
       width,
       height
     };
@@ -504,9 +555,30 @@ const uniformDestinationResolver: DestinationResolver = (ctx) => {
   }
 
   const anchor = computeAnchorPosition(ctx, uniformScale, uniformScale);
+  const { ax, ay } = applyHVAlignment(
+    ctx.alignment,
+    ctx.viewport.width,
+    ctx.viewport.height,
+    width,
+    height
+  );
   return {
-    x: anchor.x,
-    y: anchor.y,
+    x: anchor.x + ax,
+    y: anchor.y + ay,
+    width,
+    height
+  };
+};
+
+const percentDestinationResolver: DestinationResolver = (ctx) => {
+  const width = ctx.baseWidth * ctx.mapping.scaleX;
+  const height = ctx.baseHeight * ctx.mapping.scaleY;
+  const percentX = clampPercent(ctx.percent.x) / 100;
+  const percentY = clampPercent(ctx.percent.y) / 100;
+
+  return {
+    x: ctx.mapping.offsetX + ctx.viewport.width * percentX,
+    y: ctx.mapping.offsetY + ctx.viewport.height * percentY,
     width,
     height
   };
@@ -573,7 +645,7 @@ const destinationResolvers: Record<DestinationResolverKey, DestinationResolver> 
       posScaleY: scale
     };
   }),
-  percent: fillScaleResolver,
+  percent: percentDestinationResolver,
   uniform: uniformDestinationResolver,
   default: fillScaleResolver
 };
@@ -623,12 +695,40 @@ export const computeLayerDestination = (layer: LayerLike, mapping: ViewportMappi
   const viewportSize = resolveAutoViewportSize(mapping);
   const normalizedMapping: NormalizedViewportMapping = { offsetX, offsetY, scaleX, scaleY };
 
-  const percent = posMode === 'auto'
-    ? deriveAutoPercentOffset(bounds, normalizedMapping, viewportSize)
-    : {
+  const percent = (() => {
+    if (posMode !== 'auto') {
+      return {
         x: clampPercent(percentWithFallback.x),
         y: clampPercent(percentWithFallback.y)
       };
+    }
+
+    const rawPercent = layer.alignment?.offsetPercent;
+    const rawX = rawPercent ? toFinite(rawPercent.x, NaN) : NaN;
+    const rawY = rawPercent ? toFinite(rawPercent.y, NaN) : NaN;
+    const hasRawX = Number.isFinite(rawX);
+    const hasRawY = Number.isFinite(rawY);
+
+    if (hasRawX && hasRawY) {
+      return { x: clampPercent(rawX), y: clampPercent(rawY) };
+    }
+
+    const horizontalSource = layer.alignment?.horizontal;
+    const verticalSource = layer.alignment?.vertical;
+    const hvX = typeof horizontalSource === 'string' ? axisToPercent(horizontalSource) : NaN;
+    const hvY = typeof verticalSource === 'string' ? axisToPercent(verticalSource) : NaN;
+
+    const autoDerived = deriveAutoPercentOffset(bounds, normalizedMapping, viewportSize);
+
+    return {
+      x: hasRawX
+        ? clampPercent(rawX)
+        : (Number.isFinite(hvX) ? clampPercent(hvX) : clampPercent(autoDerived.x)),
+      y: hasRawY
+        ? clampPercent(rawY)
+        : (Number.isFinite(hvY) ? clampPercent(hvY) : clampPercent(autoDerived.y))
+    };
+  })();
 
   const context: DestinationContext = {
     alignment,
