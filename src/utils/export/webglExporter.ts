@@ -1982,8 +1982,10 @@ const buildSingleFileScript = (
 ): string => {
   const withoutImport = stripGobletImport(scriptContent);
   const runtimeWithoutInflateImport = gobletRuntime.replace(/\s*import\s+\{\s*inflateRaw\s*\}\s+from\s+'\.\/fflate-inflate\.js';?\s*/, '\n');
-  const inlineInflate = buildInlineInflateRuntime(inflateRuntime);
-  const runtime = `\n${inlineInflate}\n${runtimeWithoutInflateImport}\n`;
+  const inlineInflateAlreadyPresent = /const\s+inflateRaw\s*=\s*\(\s*\(\s*\)\s*=>/.test(runtimeWithoutInflateImport);
+  const inlineInflate = inlineInflateAlreadyPresent ? '' : buildInlineInflateRuntime(inflateRuntime);
+  const runtimePrefix = inlineInflate ? `\n${inlineInflate}\n` : '\n';
+  const runtime = `${runtimePrefix}${runtimeWithoutInflateImport}\n`;
   const metadataLiteral = encodeMetadataForInlineScript(metadataJson);
   const diagnosticsLiteral = diagnosticsEnabled ? 'true' : 'false';
   const snippet = `
