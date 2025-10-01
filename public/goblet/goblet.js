@@ -720,6 +720,92 @@ const resolveAutoViewportSize = (mapping) => {
   };
 };
 
+const resolveAnchorPivot = (anchorValue) => {
+  if (!anchorValue) {
+    return { px: 0, py: 0 };
+  }
+
+  const normalized = String(anchorValue)
+    .replace(/([a-z])([A-Z])/g, '$1-$2')
+    .replace(/_/g, '-')
+    .trim()
+    .toLowerCase();
+
+  switch (normalized) {
+    case 'center':
+    case 'middle':
+      return { px: 0.5, py: 0.5 };
+    case 'top':
+    case 'top-center':
+    case 'center-top':
+    case 'top-middle':
+      return { px: 0.5, py: 0 };
+    case 'bottom':
+    case 'bottom-center':
+    case 'center-bottom':
+    case 'bottom-middle':
+      return { px: 0.5, py: 1 };
+    case 'left':
+    case 'center-left':
+    case 'left-center':
+    case 'middle-left':
+      return { px: 0, py: 0.5 };
+    case 'right':
+    case 'center-right':
+    case 'right-center':
+    case 'middle-right':
+      return { px: 1, py: 0.5 };
+    case 'top-left':
+    case 'left-top':
+      return { px: 0, py: 0 };
+    case 'top-right':
+    case 'right-top':
+      return { px: 1, py: 0 };
+    case 'bottom-left':
+    case 'left-bottom':
+      return { px: 0, py: 1 };
+    case 'bottom-right':
+    case 'right-bottom':
+      return { px: 1, py: 1 };
+    case 'stretch':
+      return { px: 0, py: 0 };
+    default: {
+      const tokens = normalized.split(/[^a-z]+/).filter(Boolean);
+      if (tokens.length === 0) {
+        return { px: 0, py: 0 };
+      }
+
+      let px;
+      let py;
+      let sawCenter = false;
+
+      for (const token of tokens) {
+        if (token === 'left') {
+          px = 0;
+        } else if (token === 'right') {
+          px = 1;
+        } else if (token === 'top') {
+          py = 0;
+        } else if (token === 'bottom') {
+          py = 1;
+        } else if (token === 'center' || token === 'middle') {
+          sawCenter = true;
+        }
+      }
+
+      if (px === undefined) {
+        px = sawCenter ? 0.5 : 0;
+      }
+
+      if (py === undefined) {
+        py = sawCenter ? 0.5 : 0;
+      }
+
+      return { px, py };
+    }
+  }
+};
+
 const computeLayerDestination = (layer, mapping) => {
   const rawSrcW = toFinite(layer?.source?.width, NaN);
   const rawSrcH = toFinite(layer?.source?.height, NaN);
@@ -743,22 +829,11 @@ const computeLayerDestination = (layer, mapping) => {
     const bw = Math.max(1, toFinite(layoutBounds.width, 1));
     const bh = Math.max(1, toFinite(layoutBounds.height, 1));
 
+    const x = offsetX + bx * sx0;
+    const y = offsetY + by * sy0;
     const width = Math.max(1, bw * sx0);
     const height = Math.max(1, bh * sy0);
 
-    // Anchor-aware positioning ensures scaling happens about the declared anchor
-    let x;
-    let y;
-    if (layoutBounds.anchor === 'center') {
-      const cx = bx + bw / 2;
-      const cy = by + bh / 2;
-      x = offsetX + cx * sx0 - width / 2;
-      y = offsetY + cy * sy0 - height / 2;
-    } else {
-      // 'top-left' (default) and 'stretch' behave like top-left
-      x = offsetX + bx * sx0;
-      y = offsetY + by * sy0;
-    }
     return { x, y, width, height };
   }
   const fit = layer?.layoutMode ?? layer?.alignment?.fit ?? 'none';
