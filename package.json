@@ -16,9 +16,10 @@
     "lint": "next lint",
     "test": "jest",
     "type-check": "tsc --noEmit",
+    "build:goblet-align": "node scripts/build-align-fit.mjs",
     "cache:clear": "rm -rf .next node_modules/.cache .turbo",
     "clean": "rm -rf .next out dist node_modules/.cache .turbo coverage",
-    "prebuild": "npm run cache:clear",
+    "prebuild": "npm run cache:clear && npm run build:goblet-align",
     "commit": "node scripts/auto-commit.js",
     "cc": "clear && node scripts/auto-commit.js"
   },

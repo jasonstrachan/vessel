@@ -12,6 +12,8 @@ export interface LayerContentMetrics {
   contentBounds: ContentBounds;
 }
 
+const MIN_DIMENSION = 1e-3;
+
 const getCanvasDimensions = (
   canvas: HTMLCanvasElement | OffscreenCanvas | undefined | null
 ): { width: number; height: number } | null => {
@@ -27,8 +29,8 @@ const getCanvasDimensions = (
   }
 
   return {
-    width: Math.max(1, Math.floor(width)),
-    height: Math.max(1, Math.floor(height))
+    width: Math.max(1, width),
+    height: Math.max(1, height)
   };
 };
 
@@ -71,24 +73,36 @@ const normalizeContentBounds = (
   const defaultBounds: ContentBounds = {
     x: 0,
     y: 0,
-    width: Math.max(1, surface.width),
-    height: Math.max(1, surface.height)
+    width: Math.max(MIN_DIMENSION, surface.width),
+    height: Math.max(MIN_DIMENSION, surface.height)
   };
 
   if (!bounds) {
     return defaultBounds;
   }
 
-  const clampedX = Math.max(0, Math.min(Math.floor(bounds.x), Math.max(0, surface.width - 1)));
-  const clampedY = Math.max(0, Math.min(Math.floor(bounds.y), Math.max(0, surface.height - 1)));
-  const maxWidth = Math.max(1, surface.width - clampedX);
-  const maxHeight = Math.max(1, surface.height - clampedY);
-  const width = Math.min(Math.max(1, Math.floor(bounds.width)), maxWidth);
-  const height = Math.min(Math.max(1, Math.floor(bounds.height)), maxHeight);
+  const safeSurfaceWidth = Math.max(MIN_DIMENSION, surface.width);
+  const safeSurfaceHeight = Math.max(MIN_DIMENSION, surface.height);
+
+  const clampValue = (value: number, min: number, max: number) => {
+    if (!Number.isFinite(value)) {
+      return min;
+    }
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+  };
+
+  const x = clampValue(bounds.x, 0, safeSurfaceWidth);
+  const y = clampValue(bounds.y, 0, safeSurfaceHeight);
+  const maxWidth = Math.max(MIN_DIMENSION, safeSurfaceWidth - x);
+  const maxHeight = Math.max(MIN_DIMENSION, safeSurfaceHeight - y);
+  const width = clampValue(bounds.width, MIN_DIMENSION, maxWidth);
+  const height = clampValue(bounds.height, MIN_DIMENSION, maxHeight);
 
   return {
-    x: clampedX,
-    y: clampedY,
+    x,
+    y,
     width,
     height
   };
@@ -122,9 +136,7 @@ export const clampPercent = (value: number): number => {
   if (!Number.isFinite(value)) {
     return 0;
   }
-
-  const clamped = Math.max(-100, Math.min(100, value));
-  return Math.round(clamped * 1000) / 1000;
+  return Math.max(-100, Math.min(100, value));
 };
 
 export const computeLayerContentMetrics = (

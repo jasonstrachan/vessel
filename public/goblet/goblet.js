@@ -1,4 +1,789 @@
-import { inflateRaw } from './fflate-inflate.js';
+// ------------------------------------------------------------
+// Inline dependencies for file:// compatibility
+// ------------------------------------------------------------
+const inflateRaw = (() => {
+  // Minimal ES module exposing fflate's inflate implementation for raw deflate streams.
+  // Derived from https://github.com/101arrowz/fflate (MIT License).
+
+  const u8 = Uint8Array;
+  const u16 = Uint16Array;
+  const i32 = Int32Array;
+
+  const fleb = new u8([0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0, 0, 0, 0]);
+  const fdeb = new u8([0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 0, 0]);
+  const clim = new u8([16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15]);
+
+  const freb = (eb, start) => {
+    const b = new u16(31);
+    for (let i = 0; i < 31; ++i) {
+      b[i] = start += 1 << eb[i - 1];
+    }
+    const r = new i32(b[30]);
+    for (let i = 1; i < 30; ++i) {
+      for (let j = b[i]; j < b[i + 1]; ++j) {
+        r[j] = ((j - b[i]) << 5) | i;
+      }
+    }
+    return { b, r };
+  };
+
+  const { b: fl } = freb(fleb, 2);
+  const { b: fd } = freb(fdeb, 0);
+
+  const rev = new u16(32768);
+  for (let i = 0; i < 32768; ++i) {
+    let x = ((i & 0xAAAA) >> 1) | ((i & 0x5555) << 1);
+    x = ((x & 0xCCCC) >> 2) | ((x & 0x3333) << 2);
+    rev[i] = (((x & 0xF0F0) >> 4) | ((x & 0x0F0F) << 4)) >> 1;
+  }
+
+  const hMap = (codeLengths, maxBits, generateMap) => {
+    const size = codeLengths.length;
+    const lengthCounts = new u16(maxBits);
+    for (let i = 0; i < size; ++i) {
+      if (codeLengths[i]) {
+        lengthCounts[codeLengths[i] - 1] += 1;
+      }
+    }
+    const offsets = new u16(maxBits);
+    for (let i = 1; i < maxBits; ++i) {
+      offsets[i] = (offsets[i - 1] + lengthCounts[i - 1]) << 1;
+    }
+
+    if (generateMap) {
+      const map = new u16(1 << maxBits);
+      const shift = 15 - maxBits;
+      for (let i = 0; i < size; ++i) {
+        const len = codeLengths[i];
+        if (!len) {
+          continue;
+        }
+        const code = offsets[len - 1]++;
+        const value = (i << 4) | len;
+        const start = code << (maxBits - len);
+        const end = start + (1 << (maxBits - len));
+        for (let j = start; j < end; ++j) {
+          map[rev[j] >> shift] = value;
+        }
+      }
+      return map;
+    }
+
+    const table = new u16(size);
+    for (let i = 0; i < size; ++i) {
+      const len = codeLengths[i];
+      if (len) {
+        table[i] = rev[offsets[len - 1]++] >> (15 - len);
+      }
+    }
+    return table;
+  };
+
+  const flt = new u8(288);
+  for (let i = 0; i < 144; ++i) flt[i] = 8;
+  for (let i = 144; i < 256; ++i) flt[i] = 9;
+  for (let i = 256; i < 280; ++i) flt[i] = 7;
+  for (let i = 280; i < 288; ++i) flt[i] = 8;
+
+  const fdt = new u8(32);
+  for (let i = 0; i < 32; ++i) fdt[i] = 5;
+
+  const flrm = hMap(flt, 9, 1);
+  const fdrm = hMap(fdt, 5, 1);
+
+  const max = (array) => {
+    let result = array[0];
+    for (let i = 1; i < array.length; ++i) {
+      if (array[i] > result) {
+        result = array[i];
+      }
+    }
+    return result;
+  };
+
+  const bits = (data, pos, mask) => {
+    const offset = (pos / 8) | 0;
+    return ((data[offset] | (data[offset + 1] << 8)) >> (pos & 7)) & mask;
+  };
+
+  const bits16 = (data, pos) => {
+    const offset = (pos / 8) | 0;
+    return (data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16)) >> (pos & 7);
+  };
+
+  const shft = (pos) => ((pos + 7) / 8) | 0;
+
+  const slc = (view, start, end) => {
+    const s = start == null || start < 0 ? 0 : start;
+    const e = end == null || end > view.length ? view.length : end;
+    return new u8(view.subarray(s, e));
+  };
+
+  const inflateError = (code) => {
+    const messages = [
+      'unexpected EOF',
+      'invalid block type',
+      'invalid length/literal',
+      'invalid distance'
+    ];
+    throw new Error(messages[code] || 'DEFLATE error');
+  };
+
+  const inflt = (dat, st, buf, dict) => {
+    const sl = dat.length;
+    const dl = dict ? dict.length : 0;
+    if (!sl || (st.f && !st.l)) {
+      return buf || new u8(0);
+    }
+
+    let out = buf;
+    let resize = false;
+    if (!out) {
+      out = new u8(sl * 3);
+      resize = true;
+    } else if (st.i !== 2) {
+      resize = true;
+    }
+
+    const ensureCapacity = (size) => {
+      if (size <= out.length) {
+        return;
+      }
+      const next = new u8(Math.max(out.length * 2, size));
+      next.set(out);
+      out = next;
+    };
+
+    let final = st.f || 0;
+    let pos = st.p || 0;
+    let bt = st.b || 0;
+    let lm = st.l;
+    let dm = st.d;
+    let lbt = st.m;
+    let dbt = st.n;
+    const totalBits = sl * 8;
+
+    do {
+      if (!lm) {
+        final = bits(dat, pos, 1);
+        const type = bits(dat, pos + 1, 3);
+        pos += 3;
+        if (!type) {
+          const s = shft(pos) + 4;
+          const length = dat[s - 4] | (dat[s - 3] << 8);
+          const end = s + length;
+          if (end > sl) {
+            inflateError(0);
+          }
+          if (resize) {
+            ensureCapacity(bt + length);
+          }
+          out.set(dat.subarray(s, end), bt);
+          bt += length;
+          st.b = bt;
+          st.p = pos = end * 8;
+          st.f = final;
+          continue;
+        } else if (type === 1) {
+          lm = flrm;
+          dm = fdrm;
+          lbt = 9;
+          dbt = 5;
+        } else if (type === 2) {
+          const hLit = bits(dat, pos, 31) + 257;
+          const hDist = bits(dat, pos + 5, 31) + 1;
+          const hCLen = bits(dat, pos + 10, 15) + 4;
+          pos += 14;
+          const ldt = new u8(hLit + hDist);
+          const clt = new u8(19);
+          for (let i = 0; i < hCLen; ++i) {
+            clt[clim[i]] = bits(dat, pos + i * 3, 7);
+          }
+          pos += hCLen * 3;
+          const clb = max(clt);
+          const clm = hMap(clt, clb || 1, 1);
+          const clMask = (1 << (clb || 1)) - 1;
+          for (let i = 0; i < ldt.length;) {
+            const entry = clm[bits(dat, pos, clMask)];
+            pos += entry & 15;
+            const symbol = entry >> 4;
+            if (symbol < 16) {
+              ldt[i++] = symbol;
+            } else {
+              let repeat = 0;
+              let value = 0;
+              if (symbol === 16) {
+                repeat = 3 + bits(dat, pos, 3);
+                pos += 2;
+                value = ldt[i - 1];
+              } else if (symbol === 17) {
+                repeat = 3 + bits(dat, pos, 7);
+                pos += 3;
+              } else {
+                repeat = 11 + bits(dat, pos, 127);
+                pos += 7;
+              }
+              while (repeat--) {
+                ldt[i++] = value;
+              }
+            }
+          }
+          const lt = ldt.subarray(0, hLit);
+          const dt = ldt.subarray(hLit);
+          lbt = max(lt) || 1;
+          dbt = max(dt) || 1;
+          lm = hMap(lt, lbt, 1);
+          dm = hMap(dt, dbt, 1);
+        } else {
+          inflateError(1);
+        }
+        if (pos > totalBits) {
+          inflateError(0);
+        }
+      }
+
+      if (resize) {
+        ensureCapacity(bt + 131072);
+      }
+      const lmsk = (1 << lbt) - 1;
+      const dmsk = (1 << dbt) - 1;
+      let lastPos = pos;
+      for (;; lastPos = pos) {
+        const entry = lm[bits16(dat, pos) & lmsk];
+        const symbol = entry >> 4;
+        pos += entry & 15;
+        if (pos > totalBits) {
+          inflateError(0);
+        }
+        if (!entry) {
+          inflateError(2);
+        }
+        if (symbol < 256) {
+          out[bt++] = symbol;
+        } else if (symbol === 256) {
+          lastPos = pos;
+          lm = null;
+          break;
+        } else {
+          let length = symbol - 254;
+          if (symbol > 264) {
+            const idx = symbol - 257;
+            const extra = fleb[idx];
+            length = bits(dat, pos, (1 << extra) - 1) + fl[idx];
+            pos += extra;
+          }
+          const distEntry = dm[bits16(dat, pos) & dmsk];
+          const distSymbol = distEntry >> 4;
+          if (!distEntry) {
+            inflateError(3);
+          }
+          pos += distEntry & 15;
+          let dist = fd[distSymbol];
+          if (distSymbol > 3) {
+            const extra = fdeb[distSymbol];
+            dist += bits16(dat, pos) & ((1 << extra) - 1);
+            pos += extra;
+          }
+          if (pos > totalBits) {
+            inflateError(0);
+          }
+          if (resize) {
+            ensureCapacity(bt + 131072);
+          }
+          const end = bt + length;
+          if (bt < dist) {
+            const shift = dl - dist;
+            const limit = Math.min(dist, end);
+            if (shift + bt < 0) {
+              inflateError(3);
+            }
+            for (; bt < limit; ++bt) {
+              out[bt] = dict[shift + bt];
+            }
+          }
+          for (; bt < end; ++bt) {
+            out[bt] = out[bt - dist];
+          }
+        }
+      }
+      st.l = lm;
+      st.p = lastPos;
+      st.b = bt;
+      st.f = final;
+      if (lm) {
+        final = 1;
+        st.m = lbt;
+        st.d = dm;
+        st.n = dbt;
+      }
+    } while (!final);
+
+    return bt !== out.length && (!buf || buf.length === 0) ? slc(out, 0, bt) : out.subarray(0, bt);
+  };
+
+  const inflateRaw = (input) => {
+    if (!(input instanceof Uint8Array)) {
+      throw new TypeError('inflateRaw expects a Uint8Array');
+    }
+    return inflt(input, { i: 2 });
+  };
+
+  return inflateRaw;
+})();
+
+const { normalizeAlignment, computeLayerTransform, computeLayerDestination } = (() => {
+  // Auto-generated from src/utils/alignment/alignFitResolver.ts. Do not edit directly.
+  const MIN_DIMENSION = 1e-3;
+  const toFinite = (value, fallback = 0) => {
+      if (typeof value === 'number') {
+          return Number.isFinite(value) ? value : fallback;
+      }
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : fallback;
+  };
+  const clamp = (value, min, max) => {
+      if (!Number.isFinite(value)) {
+          return min;
+      }
+      return Math.min(max, Math.max(min, value));
+  };
+  const clampDimension = (value) => {
+      const numeric = typeof value === 'number' ? value : Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+          return MIN_DIMENSION;
+      }
+      return numeric;
+  };
+  const roundPlacementValue = (value) => {
+      const numeric = toFinite(value, 0);
+      return Math.round(numeric * 1000) / 1000;
+  };
+  const clampPercent = (value) => Math.max(-100, Math.min(100, toFinite(value, 0)));
+  const createDefaultAlignment = () => ({
+      fit: 'none',
+      horizontal: 'left',
+      vertical: 'top',
+      positioning: 'anchor',
+      offsetPx: { x: 0, y: 0 },
+      offsetPercent: { x: 0, y: 0 }
+  });
+  const cloneAlignment = (alignment) => {
+      var _a, _b;
+      const base = alignment !== null && alignment !== void 0 ? alignment : createDefaultAlignment();
+      const positioning = typeof base.positioning === 'string' ? base.positioning : 'anchor';
+      const fit = typeof base.fit === 'string' ? base.fit : 'none';
+      const shouldIncludePercent = positioning === 'auto' || fit === 'percent';
+      return {
+          fit,
+          horizontal: typeof base.horizontal === 'string' ? base.horizontal : 'left',
+          vertical: typeof base.vertical === 'string' ? base.vertical : 'top',
+          positioning,
+          offsetPx: base.offsetPx && typeof base.offsetPx === 'object'
+              ? { x: toFinite(base.offsetPx.x, 0), y: toFinite(base.offsetPx.y, 0) }
+              : { x: 0, y: 0 },
+          offsetPercent: shouldIncludePercent
+              ? {
+                  x: toFinite((_a = base.offsetPercent) === null || _a === void 0 ? void 0 : _a.x, 0),
+                  y: toFinite((_b = base.offsetPercent) === null || _b === void 0 ? void 0 : _b.y, 0)
+              }
+              : undefined
+      };
+  };
+  const normalizeAlignment = (alignment) => {
+      return cloneAlignment(alignment);
+  };
+  const getPercentOffset = (alignment) => {
+      var _a;
+      const percent = (_a = alignment.offsetPercent) !== null && _a !== void 0 ? _a : { x: 0, y: 0 };
+      return {
+          x: clampPercent(percent.x),
+          y: clampPercent(percent.y)
+      };
+  };
+  const computeAnchorTranslation = ({ alignment, viewportWidth, viewportHeight, scaledWidth, scaledHeight }) => {
+      var _a, _b;
+      const extraX = viewportWidth - scaledWidth;
+      const extraY = viewportHeight - scaledHeight;
+      let translateX = 0;
+      let translateY = 0;
+      switch (alignment.horizontal) {
+          case 'center':
+              translateX = extraX / 2;
+              break;
+          case 'right':
+              translateX = extraX;
+              break;
+          case 'left':
+          default:
+              translateX = 0;
+              break;
+      }
+      switch (alignment.vertical) {
+          case 'center':
+              translateY = extraY / 2;
+              break;
+          case 'bottom':
+              translateY = extraY;
+              break;
+          case 'top':
+          default:
+              translateY = 0;
+              break;
+      }
+      translateX += toFinite((_a = alignment.offsetPx) === null || _a === void 0 ? void 0 : _a.x, 0);
+      translateY += toFinite((_b = alignment.offsetPx) === null || _b === void 0 ? void 0 : _b.y, 0);
+      return { translateX, translateY };
+  };
+  const computeAutoTranslation = ({ alignment, viewportWidth, viewportHeight, scaledWidth, scaledHeight }, options = {}) => {
+      const percent = getPercentOffset(alignment);
+      const extraX = viewportWidth - scaledWidth;
+      const extraY = viewportHeight - scaledHeight;
+      let translateX = extraX * (percent.x / 100);
+      let translateY = extraY * (percent.y / 100);
+      if (options.applyUniformOffsetPx && alignment.offsetPx) {
+          const epsilon = 1e-3;
+          if (Math.abs(extraX) <= epsilon && Number.isFinite(alignment.offsetPx.x)) {
+              translateX += alignment.offsetPx.x;
+          }
+          if (Math.abs(extraY) <= epsilon && Number.isFinite(alignment.offsetPx.y)) {
+              translateY += alignment.offsetPx.y;
+          }
+      }
+      return { translateX, translateY };
+  };
+  const computePercentTranslation = ({ alignment, viewportWidth, viewportHeight }) => {
+      const percent = getPercentOffset(alignment);
+      return {
+          translateX: viewportWidth * (percent.x / 100),
+          translateY: viewportHeight * (percent.y / 100)
+      };
+  };
+  const resolveScaledTransform = (context, scaleX, scaleY, options = {}) => {
+      const { alignment, viewportWidth, viewportHeight, contentWidth, contentHeight } = context;
+      const scaledWidth = contentWidth * scaleX;
+      const scaledHeight = contentHeight * scaleY;
+      const translationContext = {
+          alignment,
+          viewportWidth,
+          viewportHeight,
+          scaledWidth,
+          scaledHeight
+      };
+      const translate = options.usePercentTranslation
+          ? computePercentTranslation(translationContext)
+          : alignment.positioning === 'auto'
+              ? computeAutoTranslation(translationContext, { applyUniformOffsetPx: options.allowUniformOffsetPx })
+              : computeAnchorTranslation(translationContext);
+      return {
+          scaleX,
+          scaleY,
+          translateX: translate.translateX,
+          translateY: translate.translateY
+      };
+  };
+  const fitTransformResolvers = {
+      none: (context) => resolveScaledTransform(context, 1, 1),
+      contain: (context) => {
+          const scale = Math.min(context.widthRatio, context.heightRatio);
+          return resolveScaledTransform(context, scale, scale);
+      },
+      cover: (context) => {
+          const scale = Math.max(context.widthRatio, context.heightRatio);
+          return resolveScaledTransform(context, scale, scale);
+      },
+      fill: (context) => resolveScaledTransform(context, context.widthRatio, context.heightRatio),
+      'fit-width': (context) => {
+          const scale = context.widthRatio;
+          return resolveScaledTransform(context, scale, scale);
+      },
+      'fit-height': (context) => {
+          const scale = context.heightRatio;
+          return resolveScaledTransform(context, scale, scale);
+      },
+      'scale-down': (context) => {
+          const containScale = Math.min(context.widthRatio, context.heightRatio);
+          const scale = containScale < 1 ? containScale : 1;
+          return resolveScaledTransform(context, scale, scale);
+      },
+      percent: (context) => resolveScaledTransform(context, 1, 1, { usePercentTranslation: true }),
+      uniform: (context) => resolveScaledTransform(context, 1, 1, { allowUniformOffsetPx: true })
+  };
+  const computeLayerTransform = (surface, viewport, alignment) => {
+      var _a;
+      const normalized = normalizeAlignment(alignment);
+      const contentWidth = clampDimension(surface.width);
+      const contentHeight = clampDimension(surface.height);
+      const viewportWidth = clampDimension(viewport.width);
+      const viewportHeight = clampDimension(viewport.height);
+      const context = {
+          contentWidth,
+          contentHeight,
+          viewportWidth,
+          viewportHeight,
+          widthRatio: viewportWidth / contentWidth,
+          heightRatio: viewportHeight / contentHeight,
+          alignment: normalized
+      };
+      const resolver = (_a = fitTransformResolvers[normalized.fit]) !== null && _a !== void 0 ? _a : fitTransformResolvers.none;
+      return resolver(context);
+  };
+  const resolveAutoViewportSize = (mapping) => {
+      const canvasWidth = Math.max(0, toFinite(mapping === null || mapping === void 0 ? void 0 : mapping.canvasWidth, 0));
+      const canvasHeight = Math.max(0, toFinite(mapping === null || mapping === void 0 ? void 0 : mapping.canvasHeight, 0));
+      const designWidth = Math.max(0, toFinite(mapping === null || mapping === void 0 ? void 0 : mapping.designWidth, 0));
+      const designHeight = Math.max(0, toFinite(mapping === null || mapping === void 0 ? void 0 : mapping.designHeight, 0));
+      const scaleX = Math.max(0, toFinite(mapping === null || mapping === void 0 ? void 0 : mapping.scaleX, 1));
+      const scaleY = Math.max(0, toFinite(mapping === null || mapping === void 0 ? void 0 : mapping.scaleY, 1));
+      const viewportWidth = designWidth > 0 && scaleX > 0
+          ? designWidth * scaleX
+          : canvasWidth;
+      const viewportHeight = designHeight > 0 && scaleY > 0
+          ? designHeight * scaleY
+          : canvasHeight;
+      return {
+          width: viewportWidth || canvasWidth,
+          height: viewportHeight || canvasHeight
+      };
+  };
+  const axisToPercent = (axis) => {
+      if (axis === 'center') {
+          return 50;
+      }
+      if (axis === 'right' || axis === 'bottom') {
+          return 100;
+      }
+      return 0;
+  };
+  const resolveBounds = (layer, srcWidth, srcHeight, fallbackAnchor) => {
+      var _a, _b, _c;
+      const raw = (_b = ((_a = layer.bounds) !== null && _a !== void 0 ? _a : layer.placement)) !== null && _b !== void 0 ? _b : null;
+      if (!raw) {
+          return { x: 0, y: 0, width: srcWidth, height: srcHeight, anchor: fallbackAnchor };
+      }
+      return {
+          x: toFinite(raw.x, 0),
+          y: toFinite(raw.y, 0),
+          width: Math.max(1, toFinite(raw.width, srcWidth)),
+          height: Math.max(1, toFinite(raw.height, srcHeight)),
+          anchor: (_c = raw.anchor) !== null && _c !== void 0 ? _c : fallbackAnchor
+      };
+  };
+  const finalizeDestination = (rect) => ({
+      x: roundPlacementValue(rect.x),
+      y: roundPlacementValue(rect.y),
+      width: roundPlacementValue(rect.width),
+      height: roundPlacementValue(rect.height)
+  });
+  const computeAnchorPosition = (ctx, posScaleX, posScaleY) => {
+      var _a, _b;
+      const baseX = ctx.mapping.offsetX + ctx.bounds.x * posScaleX;
+      const baseY = ctx.mapping.offsetY + ctx.bounds.y * posScaleY;
+      return {
+          x: baseX + toFinite((_a = ctx.alignment.offsetPx) === null || _a === void 0 ? void 0 : _a.x, 0),
+          y: baseY + toFinite((_b = ctx.alignment.offsetPx) === null || _b === void 0 ? void 0 : _b.y, 0)
+      };
+  };
+  const computeAutoPosition = (ctx, width, height) => {
+      const availableX = ctx.viewport.width - width;
+      const availableY = ctx.viewport.height - height;
+      return {
+          x: ctx.mapping.offsetX + availableX * (ctx.percent.x / 100),
+          y: ctx.mapping.offsetY + availableY * (ctx.percent.y / 100),
+          availableX,
+          availableY
+      };
+  };
+  const applyUniformAutoOffsets = (ctx, auto) => {
+      let { x, y } = auto;
+      const offset = ctx.alignment.offsetPx;
+      if (!offset) {
+          return { x, y };
+      }
+      const offsetX = toFinite(offset.x, 0);
+      const offsetY = toFinite(offset.y, 0);
+      if (offsetX !== 0) {
+          x += offsetX;
+      }
+      if (offsetY !== 0) {
+          y += offsetY;
+      }
+      return { x, y };
+  };
+  const createScaledDestinationResolver = (getScale) => {
+      return (ctx) => {
+          const { sizeScaleX, sizeScaleY, posScaleX, posScaleY } = getScale(ctx);
+          const width = ctx.baseWidth * sizeScaleX;
+          const height = ctx.baseHeight * sizeScaleY;
+          if (ctx.posMode === 'auto') {
+              const auto = computeAutoPosition(ctx, width, height);
+              return {
+                  x: auto.x,
+                  y: auto.y,
+                  width,
+                  height
+              };
+          }
+          const anchor = computeAnchorPosition(ctx, posScaleX, posScaleY);
+          return {
+              x: anchor.x,
+              y: anchor.y,
+              width,
+              height
+          };
+      };
+  };
+  const uniformDestinationResolver = (ctx) => {
+      const uniformScale = Math.min(ctx.mapping.scaleX, ctx.mapping.scaleY);
+      const width = ctx.srcWidth * uniformScale;
+      const height = ctx.srcHeight * uniformScale;
+      if (ctx.posMode === 'auto') {
+          const auto = computeAutoPosition(ctx, width, height);
+          const adjusted = applyUniformAutoOffsets(ctx, auto);
+          return {
+              x: adjusted.x,
+              y: adjusted.y,
+              width,
+              height
+          };
+      }
+      const anchor = computeAnchorPosition(ctx, uniformScale, uniformScale);
+      return {
+          x: anchor.x,
+          y: anchor.y,
+          width,
+          height
+      };
+  };
+  const fillScaleResolver = createScaledDestinationResolver((ctx) => ({
+      sizeScaleX: ctx.mapping.scaleX,
+      sizeScaleY: ctx.mapping.scaleY,
+      posScaleX: ctx.mapping.scaleX,
+      posScaleY: ctx.mapping.scaleY
+  }));
+  const destinationResolvers = {
+      none: createScaledDestinationResolver((ctx) => ({
+          sizeScaleX: 1,
+          sizeScaleY: 1,
+          posScaleX: ctx.mapping.scaleX,
+          posScaleY: ctx.mapping.scaleY
+      })),
+      contain: createScaledDestinationResolver((ctx) => {
+          const scale = Math.min(ctx.mapping.scaleX, ctx.mapping.scaleY);
+          return {
+              sizeScaleX: scale,
+              sizeScaleY: scale,
+              posScaleX: scale,
+              posScaleY: scale
+          };
+      }),
+      cover: createScaledDestinationResolver((ctx) => {
+          const scale = Math.max(ctx.mapping.scaleX, ctx.mapping.scaleY);
+          return {
+              sizeScaleX: scale,
+              sizeScaleY: scale,
+              posScaleX: scale,
+              posScaleY: scale
+          };
+      }),
+      fill: fillScaleResolver,
+      'fit-width': createScaledDestinationResolver((ctx) => {
+          const scale = ctx.mapping.scaleX;
+          return {
+              sizeScaleX: scale,
+              sizeScaleY: scale,
+              posScaleX: scale,
+              posScaleY: scale
+          };
+      }),
+      'fit-height': createScaledDestinationResolver((ctx) => {
+          const scale = ctx.mapping.scaleY;
+          return {
+              sizeScaleX: scale,
+              sizeScaleY: scale,
+              posScaleX: scale,
+              posScaleY: scale
+          };
+      }),
+      'scale-down': createScaledDestinationResolver((ctx) => {
+          const contain = Math.min(ctx.mapping.scaleX, ctx.mapping.scaleY);
+          const scale = contain < 1 ? contain : 1;
+          return {
+              sizeScaleX: scale,
+              sizeScaleY: scale,
+              posScaleX: scale,
+              posScaleY: scale
+          };
+      }),
+      percent: fillScaleResolver,
+      uniform: uniformDestinationResolver,
+      default: fillScaleResolver
+  };
+  const computeLayerDestination = (layer, mapping) => {
+      var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q;
+      const srcWidth = Math.max(1, toFinite((_a = layer === null || layer === void 0 ? void 0 : layer.source) === null || _a === void 0 ? void 0 : _a.width, toFinite((_b = layer === null || layer === void 0 ? void 0 : layer.bounds) === null || _b === void 0 ? void 0 : _b.width, toFinite((_c = layer === null || layer === void 0 ? void 0 : layer.placement) === null || _c === void 0 ? void 0 : _c.width, 1))));
+      const srcHeight = Math.max(1, toFinite((_d = layer === null || layer === void 0 ? void 0 : layer.source) === null || _d === void 0 ? void 0 : _d.height, toFinite((_e = layer === null || layer === void 0 ? void 0 : layer.bounds) === null || _e === void 0 ? void 0 : _e.height, toFinite((_f = layer === null || layer === void 0 ? void 0 : layer.placement) === null || _f === void 0 ? void 0 : _f.height, 1))));
+      const fallbackAnchor = (_k = (_h = (_g = layer === null || layer === void 0 ? void 0 : layer.bounds) === null || _g === void 0 ? void 0 : _g.anchor) !== null && _h !== void 0 ? _h : (_j = layer === null || layer === void 0 ? void 0 : layer.placement) === null || _j === void 0 ? void 0 : _j.anchor) !== null && _k !== void 0 ? _k : 'top-left';
+      const layoutBounds = (_l = layer === null || layer === void 0 ? void 0 : layer.bounds) !== null && _l !== void 0 ? _l : null;
+      const hasLayoutBounds = Boolean(layoutBounds && Number.isFinite(layoutBounds.width) && Number.isFinite(layoutBounds.height));
+      const offsetX = toFinite(mapping === null || mapping === void 0 ? void 0 : mapping.offsetX, 0);
+      const offsetY = toFinite(mapping === null || mapping === void 0 ? void 0 : mapping.offsetY, 0);
+      const scaleX = Math.max(0, toFinite(mapping === null || mapping === void 0 ? void 0 : mapping.scaleX, 1)) || 1;
+      const scaleY = Math.max(0, toFinite(mapping === null || mapping === void 0 ? void 0 : mapping.scaleY, 1)) || 1;
+      if (hasLayoutBounds) {
+          const bx = toFinite(layoutBounds === null || layoutBounds === void 0 ? void 0 : layoutBounds.x, 0);
+          const by = toFinite(layoutBounds === null || layoutBounds === void 0 ? void 0 : layoutBounds.y, 0);
+          const bw = Math.max(1, toFinite(layoutBounds === null || layoutBounds === void 0 ? void 0 : layoutBounds.width, 1));
+          const bh = Math.max(1, toFinite(layoutBounds === null || layoutBounds === void 0 ? void 0 : layoutBounds.height, 1));
+          return {
+              x: offsetX + bx * scaleX,
+              y: offsetY + by * scaleY,
+              width: Math.max(1, bw * scaleX),
+              height: Math.max(1, bh * scaleY)
+          };
+      }
+      const alignment = normalizeAlignment(layer.alignment);
+      const posMode = (_m = alignment.positioning) !== null && _m !== void 0 ? _m : 'anchor';
+      const fit = (_p = (_o = layer === null || layer === void 0 ? void 0 : layer.layoutMode) !== null && _o !== void 0 ? _o : alignment.fit) !== null && _p !== void 0 ? _p : 'none';
+      const percentWithFallback = (() => {
+          var _a;
+          const raw = (_a = alignment.offsetPercent) !== null && _a !== void 0 ? _a : { x: 0, y: 0 };
+          if (posMode !== 'auto') {
+              return raw;
+          }
+          const x = Number.isFinite(raw.x) ? raw.x : axisToPercent(alignment.horizontal);
+          const y = Number.isFinite(raw.y) ? raw.y : axisToPercent(alignment.vertical);
+          return { x, y };
+      })();
+      const percent = {
+          x: clampPercent(percentWithFallback.x),
+          y: clampPercent(percentWithFallback.y)
+      };
+      const bounds = resolveBounds(layer, srcWidth, srcHeight, fallbackAnchor);
+      const context = {
+          alignment,
+          bounds,
+          mapping: { offsetX, offsetY, scaleX, scaleY },
+          percent,
+          posMode,
+          viewport: resolveAutoViewportSize(mapping),
+          baseWidth: bounds.width,
+          baseHeight: bounds.height,
+          srcWidth,
+          srcHeight
+      };
+      const resolver = (_q = destinationResolvers[fit]) !== null && _q !== void 0 ? _q : destinationResolvers.default;
+      const rect = resolver(context);
+      return finalizeDestination(rect);
+  };
+  const AlignFitResolver = {
+      normalizeAlignment,
+      computeLayerTransform,
+      computeLayerDestination,
+      clampPercent,
+      resolveAutoViewportSize
+  };
+  return { normalizeAlignment, computeLayerTransform, computeLayerDestination };
+})();
 
 // ------------------------------------------------------------
 // Diagnostics
@@ -143,45 +928,6 @@ const clampDimension = (value) => {
   return value;
 };
 
-const createDefaultAlignment = () => ({
-  fit: 'none',
-  horizontal: 'left',
-  vertical: 'top',
-  positioning: 'anchor',
-  offsetPx: { x: 0, y: 0 },
-  offsetPercent: { x: 0, y: 0 }
-});
-
-const normalizeAlignment = (alignment) => {
-  const base = alignment && typeof alignment === 'object' ? alignment : {};
-  const defaults = createDefaultAlignment();
-  const positioning = typeof base.positioning === 'string' ? base.positioning : defaults.positioning;
-  const fit = typeof base.fit === 'string' ? base.fit : defaults.fit;
-  const offsetPx = base.offsetPx && typeof base.offsetPx === 'object'
-    ? {
-        x: toFinite(base.offsetPx.x, 0),
-        y: toFinite(base.offsetPx.y, 0)
-      }
-    : { ...defaults.offsetPx };
-  const offsetPercent = base.offsetPercent && typeof base.offsetPercent === 'object'
-    ? {
-        x: toFinite(base.offsetPercent.x, 0),
-        y: toFinite(base.offsetPercent.y, 0)
-      }
-    : positioning === 'auto' || fit === 'percent'
-      ? { ...defaults.offsetPercent }
-      : undefined;
-
-  return {
-    fit,
-    horizontal: typeof base.horizontal === 'string' ? base.horizontal : defaults.horizontal,
-    vertical: typeof base.vertical === 'string' ? base.vertical : defaults.vertical,
-    positioning,
-    offsetPx,
-    offsetPercent
-  };
-};
-
 const createDefaultContainerLayout = () => ({
   padding: { top: 0, right: 0, bottom: 0, left: 0 },
   sizeMode: 'fill'
@@ -208,147 +954,6 @@ const normalizeContainerLayout = (layout) => {
     sizeMode,
     width: sizeMode === 'fixed' && Number.isFinite(base.width) ? Math.max(1, base.width) : undefined,
     height: sizeMode === 'fixed' && Number.isFinite(base.height) ? Math.max(1, base.height) : undefined
-  };
-};
-
-const computeLayerTransform = (surface, viewport, alignment) => {
-  const contentWidth = clampDimension(surface.width);
-  const contentHeight = clampDimension(surface.height);
-  const viewportWidth = clampDimension(viewport.width);
-  const viewportHeight = clampDimension(viewport.height);
-
-  const widthRatio = viewportWidth / contentWidth;
-  const heightRatio = viewportHeight / contentHeight;
-
-  let scaleX = 1;
-  let scaleY = 1;
-
-  switch (alignment.fit) {
-    case 'contain': {
-      const scale = Math.min(widthRatio, heightRatio);
-      scaleX = scale;
-      scaleY = scale;
-      break;
-    }
-    case 'cover': {
-      const scale = Math.max(widthRatio, heightRatio);
-      scaleX = scale;
-      scaleY = scale;
-      break;
-    }
-    case 'uniform': {
-      scaleX = 1;
-      scaleY = 1;
-      break;
-    }
-    case 'fill':
-      scaleX = widthRatio;
-      scaleY = heightRatio;
-      break;
-    case 'fit-width': {
-      const scale = widthRatio;
-      scaleX = scale;
-      scaleY = scale;
-      break;
-    }
-    case 'fit-height': {
-      const scale = heightRatio;
-      scaleX = scale;
-      scaleY = scale;
-      break;
-    }
-    case 'scale-down': {
-      const containScale = Math.min(widthRatio, heightRatio);
-      const scale = containScale < 1 ? containScale : 1;
-      scaleX = scale;
-      scaleY = scale;
-      break;
-    }
-    case 'percent':
-    case 'none':
-    default:
-      scaleX = 1;
-      scaleY = 1;
-      break;
-  }
-
-  const scaledWidth = contentWidth * scaleX;
-  const scaledHeight = contentHeight * scaleY;
-  const extraX = viewportWidth - scaledWidth;
-  const extraY = viewportHeight - scaledHeight;
-
-  const usesPercentFit = alignment.fit === 'percent';
-  const usesUniformFit = alignment.fit === 'uniform';
-  const usesAutoPositioning = alignment.positioning === 'auto';
-
-  let translateX = 0;
-  let translateY = 0;
-
-  if (!usesPercentFit && !usesAutoPositioning) {
-    switch (alignment.horizontal) {
-      case 'center':
-        translateX = extraX / 2;
-        break;
-      case 'right':
-        translateX = extraX;
-        break;
-      case 'left':
-      default:
-        translateX = 0;
-        break;
-    }
-
-    switch (alignment.vertical) {
-      case 'center':
-        translateY = extraY / 2;
-        break;
-      case 'bottom':
-        translateY = extraY;
-        break;
-      case 'top':
-      default:
-        translateY = 0;
-        break;
-    }
-  }
-
-  if (usesPercentFit || usesAutoPositioning) {
-    const percent = alignment.offsetPercent ?? { x: 0, y: 0 };
-    const percentX = Math.max(-100, Math.min(100, percent.x));
-    const percentY = Math.max(-100, Math.min(100, percent.y));
-
-    if (usesPercentFit) {
-      translateX = viewportWidth * (percentX / 100);
-      translateY = viewportHeight * (percentY / 100);
-    } else {
-      const availableX = viewportWidth - scaledWidth;
-      const availableY = viewportHeight - scaledHeight;
-      translateX += availableX * (percentX / 100);
-      translateY += availableY * (percentY / 100);
-
-      if (usesUniformFit && alignment.offsetPx) {
-        const epsilon = 1e-3;
-        if (Math.abs(availableX) <= epsilon && Number.isFinite(alignment.offsetPx.x)) {
-          translateX += alignment.offsetPx.x;
-        }
-        if (Math.abs(availableY) <= epsilon && Number.isFinite(alignment.offsetPx.y)) {
-          translateY += alignment.offsetPx.y;
-        }
-      }
-    }
-  }
-
-  const shouldApplyOffsetPx = Boolean(alignment.offsetPx) && !usesPercentFit && !usesAutoPositioning;
-  if (shouldApplyOffsetPx && alignment.offsetPx) {
-    translateX += alignment.offsetPx.x;
-    translateY += alignment.offsetPx.y;
-  }
-
-  return {
-    scaleX,
-    scaleY,
-    translateX,
-    translateY
   };
 };
 
@@ -697,29 +1302,6 @@ const computeViewportMapping = (viewport, canvasWidth, canvasHeight) => {
   };
 };
 
-const clampPct = (v) => Math.max(-100, Math.min(100, toFinite(v, 0)));
-
-const resolveAutoViewportSize = (mapping) => {
-  const canvasWidth = Math.max(0, toFinite(mapping?.canvasWidth, 0));
-  const canvasHeight = Math.max(0, toFinite(mapping?.canvasHeight, 0));
-  const designWidth = Math.max(0, toFinite(mapping?.designWidth, 0));
-  const designHeight = Math.max(0, toFinite(mapping?.designHeight, 0));
-  const scaleX = Math.max(0, toFinite(mapping?.scaleX, 1));
-  const scaleY = Math.max(0, toFinite(mapping?.scaleY, 1));
-
-  const viewportWidth = designWidth > 0 && scaleX > 0
-    ? designWidth * scaleX
-    : canvasWidth;
-  const viewportHeight = designHeight > 0 && scaleY > 0
-    ? designHeight * scaleY
-    : canvasHeight;
-
-  return {
-    width: viewportWidth || canvasWidth,
-    height: viewportHeight || canvasHeight
-  };
-};
-
 const resolveAnchorPivot = (anchorValue) => {
   if (!anchorValue) {
     return { px: 0, py: 0 };
@@ -804,182 +1386,6 @@ const resolveAnchorPivot = (anchorValue) => {
       return { px, py };
     }
   }
-};
-
-const computeLayerDestination = (layer, mapping) => {
-  const rawSrcW = toFinite(layer?.source?.width, NaN);
-  const rawSrcH = toFinite(layer?.source?.height, NaN);
-  const fallbackWidth = Math.max(1, toFinite(layer?.bounds?.width, toFinite(layer?.placement?.width, 1)));
-  const fallbackHeight = Math.max(1, toFinite(layer?.bounds?.height, toFinite(layer?.placement?.height, 1)));
-  const srcW = Math.max(1, Number.isFinite(rawSrcW) && rawSrcW > 0 ? rawSrcW : fallbackWidth);
-  const srcH = Math.max(1, Number.isFinite(rawSrcH) && rawSrcH > 0 ? rawSrcH : fallbackHeight);
-  const fallbackAnchor = layer?.bounds?.anchor ?? layer?.placement?.anchor ?? 'top-left';
-
-  const layoutBounds = layer?.bounds;
-  const hasLayoutBounds = Boolean(
-    layoutBounds && Number.isFinite(layoutBounds.width) && Number.isFinite(layoutBounds.height)
-  );
-  const offsetX = toFinite(mapping?.offsetX, 0);
-  const offsetY = toFinite(mapping?.offsetY, 0);
-  const sx0 = Math.max(0, toFinite(mapping?.scaleX, 1)) || 1;
-  const sy0 = Math.max(0, toFinite(mapping?.scaleY, 1)) || 1;
-  if (hasLayoutBounds) {
-    const bx = toFinite(layoutBounds.x, 0);
-    const by = toFinite(layoutBounds.y, 0);
-    const bw = Math.max(1, toFinite(layoutBounds.width, 1));
-    const bh = Math.max(1, toFinite(layoutBounds.height, 1));
-
-    const x = offsetX + bx * sx0;
-    const y = offsetY + by * sy0;
-    const width = Math.max(1, bw * sx0);
-    const height = Math.max(1, bh * sy0);
-
-    return { x, y, width, height };
-  }
-  const fit = layer?.layoutMode ?? layer?.alignment?.fit ?? 'none';
-  const posMode = layer?.alignment?.positioning ?? 'anchor';
-  const percent = layer?.alignment?.offsetPercent ?? { x: 0, y: 0 };
-  const offsetPx = layer?.alignment?.offsetPx ?? { x: 0, y: 0 };
-
-  const axisToPercent = (a) => (a === 'center' ? 50 : (a === 'right' || a === 'bottom') ? 100 : 0);
-  let pct = percent;
-  if (posMode === 'auto' && (!pct || !Number.isFinite(pct.x) || !Number.isFinite(pct.y))) {
-    pct = {
-      x: axisToPercent(layer?.alignment?.horizontal),
-      y: axisToPercent(layer?.alignment?.vertical)
-    };
-  }
-
-  const rawBounds = hasLayoutBounds
-    ? layoutBounds
-    : layer?.placement;
-  const bounds = rawBounds
-    ? {
-        x: toFinite(rawBounds.x, 0),
-        y: toFinite(rawBounds.y, 0),
-        width: Math.max(1, toFinite(rawBounds.width, srcW)),
-        height: Math.max(1, toFinite(rawBounds.height, srcH)),
-        anchor: rawBounds.anchor ?? fallbackAnchor
-      }
-    : { x: 0, y: 0, width: srcW, height: srcH, anchor: fallbackAnchor };
-
-  // scaling used for sizing (sizeSX/SY) vs positioning (posSX/SY)
-  let sizeSX = sx0;
-  let sizeSY = sy0;
-  let posSX = sx0;
-  let posSY = sy0;
-
-  switch (fit) {
-    case 'none':
-      if (hasLayoutBounds) {
-        sizeSX = sx0;
-        sizeSY = sy0;
-      } else {
-        sizeSX = 1;
-        sizeSY = 1;
-      }
-      break;
-    case 'contain': {
-      const s = Math.min(sx0, sy0);
-      sizeSX = s;
-      sizeSY = s;
-      posSX = s;
-      posSY = s;
-      break;
-    }
-    case 'cover': {
-      const s = Math.max(sx0, sy0);
-      sizeSX = s;
-      sizeSY = s;
-      posSX = s;
-      posSY = s;
-      break;
-    }
-    case 'fit-width': {
-      const s = sx0;
-      sizeSX = s;
-      sizeSY = s;
-      posSX = s;
-      posSY = s;
-      break;
-    }
-    case 'fit-height': {
-      const s = sy0;
-      sizeSX = s;
-      sizeSY = s;
-      posSX = s;
-      posSY = s;
-      break;
-    }
-    case 'scale-down': {
-      const contain = Math.min(sx0, sy0);
-      const s = contain < 1 ? contain : 1;
-      sizeSX = s;
-      sizeSY = s;
-      posSX = s;
-      posSY = s;
-      break;
-    }
-    case 'uniform': {
-      if (!hasLayoutBounds) {
-        const u = Math.min(sx0, sy0);
-        const baseW = srcW;
-        const baseH = srcH;
-        const scaledW = baseW * u;
-        const scaledH = baseH * u;
-
-        let x = offsetX;
-        let y = offsetY;
-
-        const autoViewport = resolveAutoViewportSize(mapping);
-        if (posMode === 'auto') {
-          const availX = autoViewport.width - scaledW;
-          const availY = autoViewport.height - scaledH;
-          x += availX * (clampPct(pct?.x) / 100);
-          y += availY * (clampPct(pct?.y) / 100);
-        } else {
-          x += toFinite(bounds.x, 0) * u;
-          y += toFinite(bounds.y, 0) * u;
-        }
-
-        x += toFinite(offsetPx.x, 0);
-        y += toFinite(offsetPx.y, 0);
-
-        return { x, y, width: scaledW, height: scaledH };
-      }
-      break;
-    }
-    default:
-      break;
-  }
-
-  const baseW = Math.max(1, toFinite(bounds.width, srcW));
-  const baseH = Math.max(1, toFinite(bounds.height, srcH));
-
-  const width = baseW * sizeSX;
-  const height = baseH * sizeSY;
-
-  let x = offsetX;
-  let y = offsetY;
-
-  if (posMode === 'auto') {
-    const autoViewport = resolveAutoViewportSize(mapping);
-    const availX = autoViewport.width - width;
-    const availY = autoViewport.height - height;
-    const pctX = clampPct(pct?.x);
-    const pctY = clampPct(pct?.y);
-    x += availX * (pctX / 100);
-    y += availY * (pctY / 100);
-  } else {
-    // Always scale position from design space to canvas space.
-    x = toFinite(bounds.x, 0) * posSX + offsetX;
-    y = toFinite(bounds.y, 0) * posSY + offsetY;
-  }
-
-  x += toFinite(offsetPx.x, 0);
-  y += toFinite(offsetPx.y, 0);
-
-  return { x, y, width, height };
 };
 
 // ------------------------------------------------------------

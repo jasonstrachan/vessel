@@ -189,6 +189,11 @@ describe('resolveContainerLayout', () => {
     sizeMode: 'fixed',
     width: 400,
     height: 200,
+    flow: 'stack',
+    wrap: false,
+    gap: 0,
+    align: 'start',
+    justify: 'start',
     ...overrides
   });
 

@@ -1792,7 +1792,9 @@ const encodeMetadataForInlineScript = (metadataJson: string): string => {
   return metadataJson
     .replace(/\\/g, '\\\\')
     .replace(/`/g, '\\`')
-    .replace(/\$/g, '\\$');
+    .replace(/\$/g, '\\$')
+    .replace(/</g, '\\u003C')
+    .replace(/>/g, '\\u003E');
 };
 
 const stripGobletImport = (content: string): string => {
@@ -2232,13 +2234,26 @@ export const exportProjectAsWebGL = async (
     const metrics = metricsMap.get(layer.id) ?? computeLayerExportMetrics(layer, options.project);
     const alignment = cloneLayerAlignment(layer.alignment);
     const alignmentPercent = computePercentOffsetFromMetrics(metrics);
-    if (alignment.positioning === 'auto' || alignment.fit === 'percent') {
-      alignment.offsetPercent = alignment.offsetPercent ?? alignmentPercent;
-    } else {
-      alignment.offsetPercent = alignmentPercent;
-    }
+    const shouldApplyPercentFallback = alignment.positioning === 'auto' || alignment.fit === 'percent';
 
-    alignmentByLayerId.set(layer.id, alignment);
+    const resolvedAlignment: Layer['alignment'] = {
+      ...alignment,
+      offsetPx: alignment.offsetPx ? { ...alignment.offsetPx } : undefined,
+      offsetPercent: (() => {
+        if (shouldApplyPercentFallback) {
+          const percent = alignment.offsetPercent ?? alignmentPercent;
+          return percent ? { ...percent } : undefined;
+        }
+
+        if (!alignment.offsetPercent) {
+          return undefined;
+        }
+
+        return { ...alignment.offsetPercent };
+      })()
+    };
+
+    alignmentByLayerId.set(layer.id, resolvedAlignment);
 
     layoutInputs.push({
       layerId: layer.id,
@@ -2250,7 +2265,7 @@ export const exportProjectAsWebGL = async (
         width: Math.max(1, metrics.contentBounds.width),
         height: Math.max(1, metrics.contentBounds.height)
       },
-      alignment,
+      alignment: resolvedAlignment,
       hidden: !options.includeHiddenLayers && !layer.visible
     });
   });
