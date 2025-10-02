@@ -57,7 +57,7 @@ const ANCHOR_SUMMARY: Record<AnchorSelection, string> = {
 };
 
 const anchorButtonBase = [
-  'h-7 border transition-colors',
+  'h-6 border transition-colors',
   'flex items-center justify-center'
 ].join(' ');
 
@@ -69,12 +69,13 @@ const fitOptions: Array<{ value: LayerAlignmentSettings['fit']; label: string }>
   { value: 'contain', label: 'Contain' },
   { value: 'cover', label: 'Cover' },
   { value: 'fill', label: 'Fill' },
+  { value: 'tile', label: 'Tile' },
   { value: 'contain-up', label: 'Contain Up' }
 ];
 
 const fitButtonBase = [
   'w-full flex items-center gap-2.5',
-  'px-1.5 py-1 text-sm transition-colors text-left'
+  'px-1.5 py-0.5 text-sm transition-colors text-left'
 ].join(' ');
 
 const fitButtonActive = 'text-[#F3F3F7] font-semibold';
@@ -129,7 +130,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
   const effectiveFit: LayerAlignmentSettings['fit'] = alignment?.fit ?? 'contain';
   const isComfortable = density === 'comfortable';
 
-  const paddingClasses = isComfortable ? 'px-2 py-2' : 'px-2 py-1';
+  const paddingClasses = isComfortable ? 'px-2 py-1.5' : 'px-2 py-0.5';
   const rootClasses = [paddingClasses, className].filter(Boolean).join(' ').trim();
 
   const titleClass = 'text-sm font-medium text-[#F1F1F6]';
@@ -139,10 +140,10 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
     'w-full rounded-none border border-[#4A4A4A] bg-[#4A4A4A] text-[#F3F3F7] placeholder:text-[#C6C6D0]',
     'transition-colors focus:border-[#A5A5BA] focus:outline-none focus:ring-0',
     'disabled:cursor-not-allowed disabled:opacity-50',
-    'h-7 px-2 text-sm'
+    'h-6 px-2 text-sm'
   ].join(' ');
 
-  const contentSpacingClass = 'mt-1';
+  const contentSpacingClass = 'mt-0.5';
   const offsetDisabled = disabled || isAuto;
 
   const handleToggleExpanded = useCallback(() => {
@@ -159,11 +160,18 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
       const basePercent = alignment.offsetPercent ?? { x: 0, y: 0 };
       const nextFit = partial.fit ?? alignment.fit;
       const nextPositioning = partial.positioning ?? alignment.positioning;
+      const shouldForceCenter = partial.fit === 'tile';
+      const resolvedHorizontal = partial.horizontal ?? alignment.horizontal;
+      const resolvedVertical = partial.vertical ?? alignment.vertical;
+      const nextHorizontal = shouldForceCenter ? 'center' : resolvedHorizontal;
+      const nextVertical = shouldForceCenter ? 'center' : resolvedVertical;
 
       const nextAlignment: LayerAlignmentSettings = {
         ...alignment,
         ...partial,
         fit: nextFit,
+        horizontal: nextHorizontal,
+        vertical: nextVertical,
         positioning: nextPositioning,
         offsetPx: partial.offsetPx ? { ...partial.offsetPx } : baseOffset,
         offsetPercent: nextPositioning === 'auto'
@@ -259,7 +267,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
         type="button"
         className={[
           'w-full bg-transparent flex items-center justify-between text-left cursor-pointer select-none gap-2 transition-colors',
-          isComfortable ? 'py-1.5' : 'py-1'
+          isComfortable ? 'py-1' : 'py-0.5'
         ].filter(Boolean).join(' ')}
         onClick={handleToggleExpanded}
         aria-expanded={isExpanded}
@@ -318,7 +326,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
             </button>
           </div>
 
-          <div className="mt-2">
+          <div className="mt-1.5">
             <span className={`${labelClass} block`}>Fit</span>
             <div>
               {fitOptions.map(option => {
@@ -348,9 +356,9 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
             </div>
           </div>
 
-          <div className="mt-2">
+          <div className="mt-1.5">
             <span className={`${labelClass} block`}>Offset</span>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-1.5">
               <label className={`${labelClass} flex flex-col`}>
                 X (px)
                 <input
@@ -387,7 +395,7 @@ interface AlignmentPanelProps extends DensityProps {
 
 const AlignmentPanel: React.FC<AlignmentPanelProps> = ({ density = 'comfortable', defaultExpanded = true, className = '' }) => {
   const panelClass = [
-    'bg-[#2C2C2C] border-t border-[#404040] px-2 py-3',
+    'bg-[#2C2C2C] border-t border-[#404040] px-2 py-2',
     className
   ].filter(Boolean).join(' ');
 

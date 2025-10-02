@@ -1,6 +1,14 @@
 import type { ExportContainerLayout, LayerAlignmentSettings } from '@/types';
 import { computeLayerTransform, resolveContainerLayout } from '../layerAlignment';
-import { computeLayerDestination } from '@/utils/alignment/alignFitResolver';
+import { computeLayerDestination, normalizeAlignment } from '@/utils/alignment/alignFitResolver';
+
+describe('normalizeAlignment', () => {
+  test('defaults tile fit to center anchors', () => {
+    const normalized = normalizeAlignment({ fit: 'tile' });
+    expect(normalized.horizontal).toBe('center');
+    expect(normalized.vertical).toBe('center');
+  });
+});
 
 describe('computeLayerTransform', () => {
   const baseAlignment: LayerAlignmentSettings = {
@@ -63,6 +71,25 @@ describe('computeLayerTransform', () => {
     expect(transform.scaleY).toBeCloseTo(4);
     expect(transform.translateX).toBeCloseTo(0);
     expect(transform.translateY).toBeCloseTo(0);
+  });
+
+  test('tile preserves scale and uses percent offsets for phase translation', () => {
+    const transform = computeLayerTransform(
+      { width: 120, height: 80 },
+      { width: 300, height: 200 },
+      {
+        ...baseAlignment,
+        fit: 'tile',
+        horizontal: 'left',
+        vertical: 'top',
+        offsetPercent: { x: 50, y: 25 }
+      }
+    );
+
+    expect(transform.scaleX).toBeCloseTo(1);
+    expect(transform.scaleY).toBeCloseTo(1);
+    expect(transform.translateX).toBeCloseTo((300 - 120) * 0.5);
+    expect(transform.translateY).toBeCloseTo((200 - 80) * 0.25);
   });
 
   test('none fit leaves scaling at 1 and only adjusts alignment', () => {

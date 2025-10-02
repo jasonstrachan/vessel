@@ -336,25 +336,7 @@ const inflateRaw = (() => {
 // ------------------------------------------------------------
 // Diagnostics
 // ------------------------------------------------------------
-const resolveDiagnosticsDefault = () => {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  if (window.__VESSEL_GOBLET_DEBUG__ === true) {
-    return true;
-  }
-  try {
-    if (typeof window.location?.search === 'string' && window.location.search.includes('debug=1')) {
-      return true;
-    }
-    if (window.localStorage?.getItem('vesselGobletDebug') === 'true') {
-      return true;
-    }
-  } catch {
-    // Swallow storage/query errors (e.g. file://)
-  }
-  return false;
-};
+const resolveDiagnosticsDefault = () => false;
 
 let diagnosticsEnabled = resolveDiagnosticsDefault();
 
@@ -1929,12 +1911,13 @@ class ColorCycleLayerPlayer {
 // ------------------------------------------------------------
 // Canvas rendering helpers
 // ------------------------------------------------------------
-const applyLayerToContext = (ctx, source, layer, destination, units = 'css') => {
+const applyLayerToContext = (ctx, source, layer, destination, units = 'css', phaseRect = destination) => {
   if (!(source instanceof HTMLCanvasElement) && !(source instanceof HTMLImageElement)) {
     return false;
   }
 
   const fit = layer?.alignment?.fit ?? 'none';
+  const isTile = fit === 'tile';
   const isAnchor = layer?.alignment?.positioning === 'anchor';
   const cropForAnchorOrUniform = isAnchor || fit === 'uniform';
   const cropForAutoContainUp = layer?.alignment?.positioning === 'auto' && fit === 'contain-up';
@@ -1985,6 +1968,8 @@ const applyLayerToContext = (ctx, source, layer, destination, units = 'css') => 
     height: sh
   };
 
+  const phaseTarget = phaseRect ?? destination;
+
   ctx.save();
   const blendMode = layer.blendMode ?? 'source-over';
   const opacity = Number.isFinite(layer.opacity) ? clamp(layer.opacity, 0, 1) : 1;
@@ -1992,30 +1977,85 @@ const applyLayerToContext = (ctx, source, layer, destination, units = 'css') => 
   ctx.globalCompositeOperation = blendMode;
   ctx.globalAlpha = opacity;
 
-  diagnostics.log('Drawing layer attempt', {
-    layerId: layer.id,
-    sourceActualSize: {
-      width: source.width || source.naturalWidth,
-      height: source.height || source.naturalHeight
-    },
-    drawingFrom: sampleRegion,
-    drawingTo: {
-      x: destination.x,
-      y: destination.y,
-      width: destination.width,
-      height: destination.height
-    },
-    opacity,
-    blendMode
-  });
-
   const dx = Math.round(destination.x);
   const dy = Math.round(destination.y);
   const dw = Math.round(destination.width);
   const dh = Math.round(destination.height);
 
   const drawDestination = { x: dx, y: dy, width: dw, height: dh };
-  const destinationForLog = units === 'css' ? destination : drawDestination;
+  const destinationForLog = units === 'css'
+    ? (phaseRect ?? destination)
+    : (phaseRect ?? drawDestination);
+  const fillArea = units === 'css' ? destination : drawDestination;
+
+  diagnostics.log('Drawing layer attempt', {
+    layerId: layer.id,
+    mode: isTile ? 'tile' : 'draw-image',
+    sourceActualSize: {
+      width: source.width || source.naturalWidth,
+      height: source.height || source.naturalHeight
+    },
+    drawingFrom: sampleRegion,
+    drawingTo: fillArea,
+    phase: isTile ? destinationForLog : undefined,
+    opacity,
+    blendMode
+  });
+
+  if (isTile) {
+    const tileWidth = Math.max(1, Math.floor(sw));
+    const tileHeight = Math.max(1, Math.floor(sh));
+    if (tileWidth <= 0 || tileHeight <= 0) {
+      ctx.restore();
+      return false;
+    }
+
+    const tileCanvas = document.createElement('canvas');
+    tileCanvas.width = tileWidth;
+    tileCanvas.height = tileHeight;
+    const tileCtx = tileCanvas.getContext('2d', { alpha: true });
+    if (!tileCtx) {
+      ctx.restore();
+      return false;
+    }
+
+    tileCtx.imageSmoothingEnabled = false;
+    tileCtx.drawImage(source, sx, sy, sw, sh, 0, 0, tileWidth, tileHeight);
+
+    const rawPhaseX = typeof phaseTarget?.x === 'number' ? phaseTarget.x : 0;
+    const rawPhaseY = typeof phaseTarget?.y === 'number' ? phaseTarget.y : 0;
+    const normalizedPhaseX = ((Math.round(rawPhaseX) % tileWidth) + tileWidth) % tileWidth;
+    const normalizedPhaseY = ((Math.round(rawPhaseY) % tileHeight) + tileHeight) % tileHeight;
+
+    const pattern = ctx.createPattern(tileCanvas, 'repeat');
+    if (!pattern) {
+      ctx.restore();
+      return false;
+    }
+
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = pattern;
+    ctx.translate(-normalizedPhaseX, -normalizedPhaseY);
+    ctx.fillRect(
+      Math.floor(destination.x + normalizedPhaseX),
+      Math.floor(destination.y + normalizedPhaseY),
+      Math.floor(Math.max(1, destination.width)),
+      Math.floor(Math.max(1, destination.height))
+    );
+
+    logLayerDraw(layer, tileCanvas, { x: 0, y: 0, width: tileWidth, height: tileHeight }, destinationForLog, units);
+
+    diagnostics.log('Drew layer successfully', {
+      layerId: layer.id,
+      mode: 'tile',
+      destination: fillArea,
+      phase: destinationForLog
+    });
+
+    ctx.restore();
+    return true;
+  }
+
   logLayerDraw(layer, source, sampleRegion, destinationForLog, units);
 
   const transformBeforeDraw = snapshotTransform(ctx);
@@ -2037,7 +2077,8 @@ const applyLayerToContext = (ctx, source, layer, destination, units = 'css') => 
 
   diagnostics.log('Drew layer successfully', {
     layerId: layer.id,
-    destination
+    mode: 'draw-image',
+    destination: fillArea
   });
 
   ctx.restore();
@@ -2378,34 +2419,73 @@ class VesselGoblet {
       }
       diagnostics.log(`[goblet] Have source for ${entry.layer.id}, computing destination`);
       const fit = entry.layer.alignment?.fit;
+      const isTile = fit === 'tile';
       const isUniform = fit === 'uniform';
       const isAnchor = entry.layer.alignment?.positioning === 'anchor';
-      const isAuto = entry.layer.alignment?.positioning === 'auto';
-      const isContainUp = fit === 'contain-up';
-      const uniformBounds = entry.layer.documentBoundsPx;
-      const paintedForLayout = (isUniform || isAnchor) && uniformBounds
-        ? uniformBounds
-        : {
+      const documentBounds = entry.layer.documentBoundsPx ?? null;
+      const pixelBounds = entry.layer.pixelBoundsPx ?? null;
+
+      const fallbackPaint = {
+        x: 0,
+        y: 0,
+        width: documentSize.width,
+        height: documentSize.height
+      };
+
+      const tilePaint = pixelBounds
+        ? {
             x: 0,
             y: 0,
+            width: Math.max(1, pixelBounds.width),
+            height: Math.max(1, pixelBounds.height)
+          }
+        : documentBounds
+          ? {
+              x: 0,
+              y: 0,
+              width: Math.max(1, documentBounds.width),
+              height: Math.max(1, documentBounds.height)
+            }
+          : fallbackPaint;
+
+      const paintedForLayout = isTile
+        ? tilePaint
+        : isUniform && documentBounds
+          ? documentBounds
+          : fallbackPaint;
+
+      const basisDoc = (() => {
+        if (isTile) {
+          if (isAnchor && pixelBounds) {
+            return {
+              width: Math.max(1, pixelBounds.width),
+              height: Math.max(1, pixelBounds.height)
+            };
+          }
+          if (isAnchor && documentBounds) {
+            return {
+              width: Math.max(1, documentBounds.width),
+              height: Math.max(1, documentBounds.height)
+            };
+          }
+          return {
             width: documentSize.width,
             height: documentSize.height
           };
+        }
 
-      const basisDoc = isAnchor && uniformBounds
-        ? {
-            width: Math.max(1, uniformBounds.width),
-            height: Math.max(1, uniformBounds.height)
-          }
-        : isAuto && isContainUp
-          ? {
-              width: documentSize.width,
-              height: documentSize.height
-            }
-          : {
-              width: documentSize.width,
-              height: documentSize.height
-            };
+        if (isAnchor && isUniform && documentBounds) {
+          return {
+            width: Math.max(1, documentBounds.width),
+            height: Math.max(1, documentBounds.height)
+          };
+        }
+
+        return {
+          width: documentSize.width,
+          height: documentSize.height
+        };
+      })();
 
       const destinationCSS = computeLayerDestination({
         document: basisDoc,
@@ -2418,22 +2498,40 @@ class VesselGoblet {
         return;
       }
 
+      const fillCSS = { x: 0, y: 0, width: viewportSize.width, height: viewportSize.height };
+      const drawCSS = isTile ? fillCSS : destinationCSS;
+
       const destination = isFixed
         ? {
-            x: Math.round(destinationCSS.x * dpr),
-            y: Math.round(destinationCSS.y * dpr),
-            width: Math.max(1, Math.round(destinationCSS.width * dpr)),
-            height: Math.max(1, Math.round(destinationCSS.height * dpr))
+            x: Math.round(drawCSS.x * dpr),
+            y: Math.round(drawCSS.y * dpr),
+            width: Math.max(1, Math.round(drawCSS.width * dpr)),
+            height: Math.max(1, Math.round(drawCSS.height * dpr))
           }
-        : destinationCSS;
+        : drawCSS;
+
+      const phaseCSS = isTile ? destinationCSS : drawCSS;
+      const phaseForUnits = isTile
+        ? isFixed
+          ? {
+              x: Math.round(phaseCSS.x * dpr),
+              y: Math.round(phaseCSS.y * dpr),
+              width: Math.max(1, Math.round(phaseCSS.width * dpr)),
+              height: Math.max(1, Math.round(phaseCSS.height * dpr))
+            }
+          : phaseCSS
+        : destination;
 
       diagnostics.log(`[goblet] About to draw ${entry.layer.id} at:`, {
         css: destinationCSS,
-        backing: destination
+        drawArea: drawCSS,
+        fillArea: isTile ? drawCSS : destinationCSS,
+        backing: destination,
+        phase: isTile ? phaseCSS : undefined
       });
 
       const units = isFixed ? 'backing' : 'css';
-      if (applyLayerToContext(ctx, source, entry.layer, destination, units)) {
+      if (applyLayerToContext(ctx, source, entry.layer, destination, units, phaseForUnits)) {
         painted += 1;
         diagnostics.log(`[goblet] Successfully painted layer ${entry.layer.id}`);
       } else {

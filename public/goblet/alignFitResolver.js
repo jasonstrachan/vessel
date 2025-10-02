@@ -63,6 +63,7 @@ const normalizeFit = (fit) => {
         case 'contain-up':
         case 'cover':
         case 'fill':
+        case 'tile':
         case 'none':
             return fit;
         default:
@@ -71,8 +72,11 @@ const normalizeFit = (fit) => {
 };
 export const normalizeAlignment = (alignment) => {
     var _a, _b, _c;
-    const horizontal = (_a = alignment === null || alignment === void 0 ? void 0 : alignment.horizontal) !== null && _a !== void 0 ? _a : 'left';
-    const vertical = (_b = alignment === null || alignment === void 0 ? void 0 : alignment.vertical) !== null && _b !== void 0 ? _b : 'top';
+    const desiredFit = alignment === null || alignment === void 0 ? void 0 : alignment.fit;
+    const defaultHorizontal = desiredFit === 'tile' ? 'center' : 'left';
+    const defaultVertical = desiredFit === 'tile' ? 'center' : 'top';
+    const horizontal = (_a = alignment === null || alignment === void 0 ? void 0 : alignment.horizontal) !== null && _a !== void 0 ? _a : defaultHorizontal;
+    const vertical = (_b = alignment === null || alignment === void 0 ? void 0 : alignment.vertical) !== null && _b !== void 0 ? _b : defaultVertical;
     const normalized = {
         fit: normalizeFit(alignment === null || alignment === void 0 ? void 0 : alignment.fit),
         horizontal,
@@ -149,6 +153,11 @@ export const computeLayerTransform = (document, viewport, alignment, options = {
         case 'fill': {
             scaleX = viewportWidth / documentWidth;
             scaleY = viewportHeight / documentHeight;
+            break;
+        }
+        case 'tile': {
+            scaleX = 1;
+            scaleY = 1;
             break;
         }
         case 'none':

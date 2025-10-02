@@ -14,9 +14,7 @@ import type {
 } from '@/types';
 import { packArrayToB64Z } from '@/utils/export/b64z';
 
-const gobletDiagnosticsDefault =
-  process.env.NEXT_PUBLIC_VESSEL_GOBLET_DEBUG === 'true'
-  || process.env.NODE_ENV !== 'production';
+const gobletDiagnosticsDefault = process.env.NEXT_PUBLIC_VESSEL_GOBLET_DEBUG === 'true';
 
 let gobletDiagnosticsActive = gobletDiagnosticsDefault;
 

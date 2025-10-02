@@ -566,7 +566,7 @@ const MinimalLayerList = () => {
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, layer.id)}
               >
-                <div className="flex items-center h-7 px-2">
+                <div className="relative flex items-center h-7 pl-2 pr-8">
                   {/* Visibility Toggle */}
                   <button
                     onClick={(e) => handleToggleVisibility(e, layer.id)}
@@ -636,10 +636,10 @@ const MinimalLayerList = () => {
                   <button
                     type="button"
                     className={`
-                      flex items-center justify-center rounded p-1 text-[#8F8FA3] shrink-0
-                      transform transition duration-150
-                      opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 group-hover:-translate-x-3
-                      hover:text-white focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-[#8F8FA3]
+                      pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto absolute right-1 top-1/2 -translate-y-1/2
+                      flex items-center justify-center rounded p-1 text-[#8F8FA3]
+                      transition-opacity duration-150 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100
+                      hover:text-white focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-[#8F8FA3] z-10
                       ${canDeleteLayer ? '' : 'cursor-not-allowed opacity-0'}
                     `}
                     onClick={(e) => {

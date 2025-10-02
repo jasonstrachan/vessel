@@ -107,6 +107,7 @@ const normalizeFit = (fit: LayerAlignmentSettings['fit'] | undefined): LayerAlig
     case 'contain-up':
     case 'cover':
     case 'fill':
+    case 'tile':
     case 'none':
       return fit;
     default:
@@ -117,8 +118,11 @@ const normalizeFit = (fit: LayerAlignmentSettings['fit'] | undefined): LayerAlig
 export const normalizeAlignment = (
   alignment?: Partial<LayerAlignmentSettings> | null
 ): LayerAlignmentSettings => {
-  const horizontal = alignment?.horizontal ?? 'left';
-  const vertical = alignment?.vertical ?? 'top';
+  const desiredFit = alignment?.fit;
+  const defaultHorizontal = desiredFit === 'tile' ? 'center' : 'left';
+  const defaultVertical = desiredFit === 'tile' ? 'center' : 'top';
+  const horizontal = alignment?.horizontal ?? defaultHorizontal;
+  const vertical = alignment?.vertical ?? defaultVertical;
   const normalized: LayerAlignmentSettings = {
     fit: normalizeFit(alignment?.fit),
     horizontal,
@@ -218,6 +222,12 @@ export const computeLayerTransform = (
     case 'fill': {
       scaleX = viewportWidth / documentWidth;
       scaleY = viewportHeight / documentHeight;
+      break;
+    }
+    case 'tile': {
+      // Tile maintains the source scale; translation is all that matters
+      scaleX = 1;
+      scaleY = 1;
       break;
     }
     case 'none':

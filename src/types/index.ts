@@ -6,6 +6,7 @@ export type LayerAlignmentFit =
   | 'contain-up'
   | 'cover'
   | 'fill'
+  | 'tile'
   | 'uniform'
   | 'none';
 
