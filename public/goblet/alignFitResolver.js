@@ -168,8 +168,9 @@ export const computeLayerDestination = (input) => {
     const basisHeight = normalized.fit === 'uniform' ? bounds.height : document.height;
     const width = basisWidth * transform.scaleX;
     const height = basisHeight * transform.scaleY;
-    const adjustedOffsetX = bounds.x * transform.scaleX;
-    const adjustedOffsetY = bounds.y * transform.scaleY;
+    const zeroBoundsOffset = normalized.fit === 'uniform' && (normalized.positioning === 'anchor' || normalized.positioning === 'auto');
+    const adjustedOffsetX = zeroBoundsOffset ? 0 : bounds.x * transform.scaleX;
+    const adjustedOffsetY = zeroBoundsOffset ? 0 : bounds.y * transform.scaleY;
     return {
         x: transform.translateX + adjustedOffsetX,
         y: transform.translateY + adjustedOffsetY,

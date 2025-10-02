@@ -255,8 +255,13 @@ export const computeLayerDestination = (
   const width = basisWidth * transform.scaleX;
   const height = basisHeight * transform.scaleY;
 
-  const adjustedOffsetX = bounds.x * transform.scaleX;
-  const adjustedOffsetY = bounds.y * transform.scaleY;
+  // For uniform fit the percentage positioning already accounts for the cropped bounds
+  const zeroBoundsOffset = normalized.fit === 'uniform' && (
+    normalized.positioning === 'anchor' ||
+    normalized.positioning === 'auto'
+  );
+  const adjustedOffsetX = zeroBoundsOffset ? 0 : bounds.x * transform.scaleX;
+  const adjustedOffsetY = zeroBoundsOffset ? 0 : bounds.y * transform.scaleY;
 
   return {
     x: transform.translateX + adjustedOffsetX,
