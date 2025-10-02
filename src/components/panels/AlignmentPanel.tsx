@@ -66,10 +66,10 @@ const anchorInactiveClass = 'border-[#3D3D46] bg-transparent hover:bg-[#5A5A68]'
 
 const fitOptions: Array<{ value: LayerAlignmentSettings['fit']; label: string }> = [
   { value: 'none', label: 'None' },
-  { value: 'uniform', label: 'Uniform' },
   { value: 'contain', label: 'Contain' },
   { value: 'cover', label: 'Cover' },
-  { value: 'fill', label: 'Fill' }
+  { value: 'fill', label: 'Fill' },
+  { value: 'contain-up', label: 'Contain Up' }
 ];
 
 const fitButtonBase = [
@@ -216,6 +216,18 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
   }, [activeLayer, activeLayerId, alignment, derivedPercent, handleAlignmentChange, project]);
 
   const handleFitSelect = useCallback((fit: LayerAlignmentSettings['fit']) => {
+    if (fit === 'fill') {
+      handleAlignmentChange({
+        fit,
+        positioning: 'anchor',
+        horizontal: 'left',
+        vertical: 'top',
+        offsetPercent: undefined,
+        offsetPx: { x: 0, y: 0 }
+      });
+      return;
+    }
+
     handleAlignmentChange({ fit });
   }, [handleAlignmentChange]);
 

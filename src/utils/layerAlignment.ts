@@ -79,21 +79,32 @@ export const resolveContainerLayout = (
     }
 
     const isUniformFit = entry.alignment.fit === 'uniform';
-    const paintedBounds = isUniformFit && entry.content
+    const anchorContent = entry.alignment.positioning === 'anchor';
+    const basisSize = entry.content && (isUniformFit || anchorContent)
       ? {
-          x: 0,
-          y: 0,
           width: clampDimension(entry.content.width),
           height: clampDimension(entry.content.height)
         }
       : {
-          x: 0,
-          y: 0,
           width: clampDimension(entry.document.width),
           height: clampDimension(entry.document.height)
         };
 
-    const transform = computeLayerTransform(entry.document, viewportForLayer, entry.alignment, { paintedBounds });
+    const paintedBounds = {
+      x: 0,
+      y: 0,
+      width: basisSize.width,
+      height: basisSize.height
+    };
+
+    const documentForLayer = anchorContent
+      ? {
+          width: basisSize.width,
+          height: basisSize.height
+        }
+      : entry.document;
+
+    const transform = computeLayerTransform(documentForLayer, viewportForLayer, entry.alignment, { paintedBounds });
 
     resolved.push({
       layerId: entry.layerId,

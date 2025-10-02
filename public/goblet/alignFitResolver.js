@@ -60,6 +60,7 @@ const normalizeFit = (fit) => {
     switch (fit) {
         case 'uniform':
         case 'contain':
+        case 'contain-up':
         case 'cover':
         case 'fill':
         case 'none':
@@ -89,18 +90,23 @@ const resolveDocument = (document) => ({
     width: clampDimension(document.width),
     height: clampDimension(document.height)
 });
-const resolvePaintedBounds = (bounds) => ({
-    x: toNumber(bounds === null || bounds === void 0 ? void 0 : bounds.x) || 0,
-    y: toNumber(bounds === null || bounds === void 0 ? void 0 : bounds.y) || 0,
-    width: clampDimension(bounds === null || bounds === void 0 ? void 0 : bounds.width, MIN_DIMENSION),
-    height: clampDimension(bounds === null || bounds === void 0 ? void 0 : bounds.height, MIN_DIMENSION)
-});
+const resolvePaintedBounds = (bounds, fallback) => {
+    var _a, _b;
+    const width = clampDimension(bounds === null || bounds === void 0 ? void 0 : bounds.width, (_a = fallback === null || fallback === void 0 ? void 0 : fallback.width) !== null && _a !== void 0 ? _a : MIN_DIMENSION);
+    const height = clampDimension(bounds === null || bounds === void 0 ? void 0 : bounds.height, (_b = fallback === null || fallback === void 0 ? void 0 : fallback.height) !== null && _b !== void 0 ? _b : MIN_DIMENSION);
+    return {
+        x: toNumber(bounds === null || bounds === void 0 ? void 0 : bounds.x) || 0,
+        y: toNumber(bounds === null || bounds === void 0 ? void 0 : bounds.y) || 0,
+        width,
+        height
+    };
+};
 export const computeLayerTransform = (document, viewport, alignment, options = {}) => {
     var _a, _b, _c, _d;
     const normalized = normalizeAlignment(alignment);
     const safeViewport = resolveViewport(viewport);
     const safeDocument = resolveDocument(document);
-    const bounds = resolvePaintedBounds(options.paintedBounds);
+    const bounds = resolvePaintedBounds(options.paintedBounds, safeDocument);
     const percentX = (_b = (_a = normalized.offsetPercent) === null || _a === void 0 ? void 0 : _a.x) !== null && _b !== void 0 ? _b : 0;
     const percentY = (_d = (_c = normalized.offsetPercent) === null || _c === void 0 ? void 0 : _c.y) !== null && _d !== void 0 ? _d : 0;
     const documentWidth = safeDocument.width;
@@ -120,6 +126,12 @@ export const computeLayerTransform = (document, viewport, alignment, options = {
             const uniformScale = Math.min(viewportWidth / basisWidth, viewportHeight / basisHeight);
             scaleX = uniformScale;
             scaleY = uniformScale;
+            break;
+        }
+        case 'contain-up': {
+            const scale = Math.max(1, Math.min(viewportWidth / documentWidth, viewportHeight / documentHeight));
+            scaleX = scale;
+            scaleY = scale;
             break;
         }
         case 'contain': {
@@ -161,16 +173,26 @@ export const computeLayerTransform = (document, viewport, alignment, options = {
 };
 export const computeLayerDestination = (input) => {
     const bounds = resolvePaintedBounds(input.paintedBounds);
-    const transform = computeLayerTransform(input.document, input.viewport, input.alignment, { paintedBounds: bounds });
     const normalized = normalizeAlignment(input.alignment);
-    const document = resolveDocument(input.document);
-    const basisWidth = normalized.fit === 'uniform' ? bounds.width : document.width;
-    const basisHeight = normalized.fit === 'uniform' ? bounds.height : document.height;
+    const anchorContent = normalized.positioning === 'anchor';
+    const document = anchorContent
+        ? {
+            width: Math.max(MIN_DIMENSION, bounds.width),
+            height: Math.max(MIN_DIMENSION, bounds.height)
+        }
+        : resolveDocument(input.document);
+    const transform = computeLayerTransform(document, input.viewport, normalized, { paintedBounds: bounds });
+    const basisWidth = document.width;
+    const basisHeight = document.height;
     const width = basisWidth * transform.scaleX;
     const height = basisHeight * transform.scaleY;
-    const zeroBoundsOffset = normalized.fit === 'uniform' && (normalized.positioning === 'anchor' || normalized.positioning === 'auto');
-    const adjustedOffsetX = zeroBoundsOffset ? 0 : bounds.x * transform.scaleX;
-    const adjustedOffsetY = zeroBoundsOffset ? 0 : bounds.y * transform.scaleY;
+    const addBoundsOffset = !(
+        anchorContent || (
+        normalized.fit === 'uniform' &&
+            (normalized.positioning === 'anchor' || normalized.positioning === 'auto'))
+    );
+    const adjustedOffsetX = addBoundsOffset ? bounds.x * transform.scaleX : 0;
+    const adjustedOffsetY = addBoundsOffset ? bounds.y * transform.scaleY : 0;
     return {
         x: transform.translateX + adjustedOffsetX,
         y: transform.translateY + adjustedOffsetY,

@@ -1935,6 +1935,9 @@ const applyLayerToContext = (ctx, source, layer, destination, units = 'css') => 
   }
 
   const fit = layer?.alignment?.fit ?? 'none';
+  const isAnchor = layer?.alignment?.positioning === 'anchor';
+  const cropForAnchorOrUniform = isAnchor || fit === 'uniform';
+  const cropForAutoContainUp = layer?.alignment?.positioning === 'auto' && fit === 'contain-up';
   const sourceWidth = source instanceof HTMLImageElement
     ? source.naturalWidth || source.width
     : source.width;
@@ -1951,7 +1954,9 @@ const applyLayerToContext = (ctx, source, layer, destination, units = 'css') => 
   let sw = sourceWidth;
   let sh = sourceHeight;
 
-  if (layer?.contentBounds && layer?.alignment?.fit === 'uniform') {
+  const shouldCropToContent = Boolean(layer?.contentBounds && cropForAnchorOrUniform && !cropForAutoContainUp);
+
+  if (shouldCropToContent) {
     const boundsRaw = layer.contentBounds;
     const clampedX = clamp(boundsRaw.x, 0, Math.max(0, sourceWidth - 1));
     const clampedY = clamp(boundsRaw.y, 0, Math.max(0, sourceHeight - 1));
@@ -2372,9 +2377,13 @@ class VesselGoblet {
         return;
       }
       diagnostics.log(`[goblet] Have source for ${entry.layer.id}, computing destination`);
-      const isUniform = entry.layer.alignment?.fit === 'uniform';
+      const fit = entry.layer.alignment?.fit;
+      const isUniform = fit === 'uniform';
+      const isAnchor = entry.layer.alignment?.positioning === 'anchor';
+      const isAuto = entry.layer.alignment?.positioning === 'auto';
+      const isContainUp = fit === 'contain-up';
       const uniformBounds = entry.layer.documentBoundsPx;
-      const paintedForLayout = isUniform && uniformBounds
+      const paintedForLayout = (isUniform || isAnchor) && uniformBounds
         ? uniformBounds
         : {
             x: 0,
@@ -2383,8 +2392,23 @@ class VesselGoblet {
             height: documentSize.height
           };
 
+      const basisDoc = isAnchor && uniformBounds
+        ? {
+            width: Math.max(1, uniformBounds.width),
+            height: Math.max(1, uniformBounds.height)
+          }
+        : isAuto && isContainUp
+          ? {
+              width: documentSize.width,
+              height: documentSize.height
+            }
+          : {
+              width: documentSize.width,
+              height: documentSize.height
+            };
+
       const destinationCSS = computeLayerDestination({
-        document: documentSize,
+        document: basisDoc,
         viewport: viewportSize,
         alignment: entry.layer.alignment,
         paintedBounds: paintedForLayout

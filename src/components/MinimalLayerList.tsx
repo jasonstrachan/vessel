@@ -636,9 +636,9 @@ const MinimalLayerList = () => {
                   <button
                     type="button"
                     className={`
-                      ml-1 flex items-center justify-center rounded p-1 text-[#8F8FA3]
-                      transition-opacity duration-150
-                      opacity-0 group-hover:opacity-100 group-focus-within:opacity-100
+                      flex items-center justify-center rounded p-1 text-[#8F8FA3] shrink-0
+                      transform transition duration-150
+                      opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 group-hover:-translate-x-3
                       hover:text-white focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-[#8F8FA3]
                       ${canDeleteLayer ? '' : 'cursor-not-allowed opacity-0'}
                     `}

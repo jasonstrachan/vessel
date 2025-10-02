@@ -104,6 +104,7 @@ const normalizeFit = (fit: LayerAlignmentSettings['fit'] | undefined): LayerAlig
   switch (fit) {
     case 'uniform':
     case 'contain':
+    case 'contain-up':
     case 'cover':
     case 'fill':
     case 'none':
@@ -139,12 +140,17 @@ const resolveDocument = (document: Size2D): Size2D => ({
   height: clampDimension(document.height)
 });
 
-const resolvePaintedBounds = (bounds?: Rect | null): Rect => ({
-  x: toNumber(bounds?.x) || 0,
-  y: toNumber(bounds?.y) || 0,
-  width: clampDimension(bounds?.width, MIN_DIMENSION),
-  height: clampDimension(bounds?.height, MIN_DIMENSION)
-});
+const resolvePaintedBounds = (bounds?: Rect | null, fallback?: Size2D): Rect => {
+  const width = clampDimension(bounds?.width, fallback?.width ?? MIN_DIMENSION);
+  const height = clampDimension(bounds?.height, fallback?.height ?? MIN_DIMENSION);
+
+  return {
+    x: toNumber(bounds?.x) || 0,
+    y: toNumber(bounds?.y) || 0,
+    width,
+    height
+  };
+};
 
 export interface ComputeLayerTransformOptions {
   paintedBounds?: Rect | null;
@@ -159,7 +165,7 @@ export const computeLayerTransform = (
   const normalized = normalizeAlignment(alignment);
   const safeViewport = resolveViewport(viewport);
   const safeDocument = resolveDocument(document);
-  const bounds = resolvePaintedBounds(options.paintedBounds);
+  const bounds = resolvePaintedBounds(options.paintedBounds, safeDocument);
 
   const percentX = normalized.offsetPercent?.x ?? 0;
   const percentY = normalized.offsetPercent?.y ?? 0;
@@ -186,6 +192,15 @@ export const computeLayerTransform = (
       );
       scaleX = uniformScale;
       scaleY = uniformScale;
+      break;
+    }
+    case 'contain-up': {
+      const scale = Math.max(
+        1,
+        Math.min(viewportWidth / documentWidth, viewportHeight / documentHeight)
+      );
+      scaleX = scale;
+      scaleY = scale;
       break;
     }
     case 'contain': {
@@ -240,28 +255,41 @@ export const computeLayerDestination = (
   input: ComputeLayerDestinationInput
 ): LayerDestination => {
   const bounds = resolvePaintedBounds(input.paintedBounds);
+  const normalized = normalizeAlignment(input.alignment);
+  const anchorContent = normalized.positioning === 'anchor';
+
+  const document = anchorContent
+    ? {
+        width: Math.max(MIN_DIMENSION, bounds.width),
+        height: Math.max(MIN_DIMENSION, bounds.height)
+      }
+    : resolveDocument(input.document);
+
+  // Feed the resolved document (content basis for anchors) into the transform so
+  // fit math scales relative to the anchored pixels.
   const transform = computeLayerTransform(
-    input.document,
+    document,
     input.viewport,
-    input.alignment,
+    normalized,
     { paintedBounds: bounds }
   );
 
-  const normalized = normalizeAlignment(input.alignment);
-  const document = resolveDocument(input.document);
-  const basisWidth = normalized.fit === 'uniform' ? bounds.width : document.width;
-  const basisHeight = normalized.fit === 'uniform' ? bounds.height : document.height;
+  const basisWidth = document.width;
+  const basisHeight = document.height;
 
   const width = basisWidth * transform.scaleX;
   const height = basisHeight * transform.scaleY;
 
-  // For uniform fit the percentage positioning already accounts for the cropped bounds
-  const zeroBoundsOffset = normalized.fit === 'uniform' && (
-    normalized.positioning === 'anchor' ||
-    normalized.positioning === 'auto'
+  // Skip painted-bounds offsets when anchoring content, and also for uniform
+  // fits where anchor/auto positioning already incorporates the cropped bounds.
+  const addBoundsOffset = !(
+    anchorContent || (
+      normalized.fit === 'uniform' &&
+      (normalized.positioning === 'anchor' || normalized.positioning === 'auto')
+    )
   );
-  const adjustedOffsetX = zeroBoundsOffset ? 0 : bounds.x * transform.scaleX;
-  const adjustedOffsetY = zeroBoundsOffset ? 0 : bounds.y * transform.scaleY;
+  const adjustedOffsetX = addBoundsOffset ? bounds.x * transform.scaleX : 0;
+  const adjustedOffsetY = addBoundsOffset ? bounds.y * transform.scaleY : 0;
 
   return {
     x: transform.translateX + adjustedOffsetX,
