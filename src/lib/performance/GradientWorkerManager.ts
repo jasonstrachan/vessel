@@ -2,6 +2,8 @@
  * Manager for gradient calculation Web Worker
  */
 
+import { parseCssColor } from '@/utils/color/parseCssColor';
+
 export interface GradientStop {
   position: number;
   color: string;
@@ -51,25 +53,7 @@ export class GradientWorkerManager {
   }
 
   private parseColor(color: string): { r: number; g: number; b: number; a: number } {
-    const rgbMatch = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-    if (rgbMatch) {
-      return {
-        r: parseInt(rgbMatch[1], 10),
-        g: parseInt(rgbMatch[2], 10),
-        b: parseInt(rgbMatch[3], 10),
-        a: 255
-      };
-    }
-
-    if (color.startsWith('#')) {
-      const hex = color.slice(1);
-      const r = parseInt(hex.slice(0, 2), 16);
-      const g = parseInt(hex.slice(2, 4), 16);
-      const b = parseInt(hex.slice(4, 6), 16);
-      return { r, g, b, a: 255 };
-    }
-
-    return { r: 0, g: 0, b: 0, a: 255 };
+    return parseCssColor(color, { r: 0, g: 0, b: 0, a: 255 });
   }
 
   private interpolateColor(

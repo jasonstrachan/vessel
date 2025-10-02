@@ -2,6 +2,8 @@
  * Web Worker for offloading gradient calculations
  */
 
+import { parseCssColor } from '@/utils/color/parseCssColor';
+
 type UpdateGradientMessage = {
   type: 'updateGradient';
   data: { stops: GradientStop[] };
@@ -49,27 +51,7 @@ class GradientProcessor {
   }
 
   parseColor(color: string): { r: number; g: number; b: number; a: number } {
-    // Simple RGB parser
-    const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-    if (match) {
-      return {
-        r: parseInt(match[1]),
-        g: parseInt(match[2]),
-        b: parseInt(match[3]),
-        a: 255
-      };
-    }
-    
-    // Hex color parser
-    if (color.startsWith('#')) {
-      const hex = color.slice(1);
-      const r = parseInt(hex.slice(0, 2), 16);
-      const g = parseInt(hex.slice(2, 4), 16);
-      const b = parseInt(hex.slice(4, 6), 16);
-      return { r, g, b, a: 255 };
-    }
-    
-    return { r: 0, g: 0, b: 0, a: 255 };
+    return parseCssColor(color, { r: 0, g: 0, b: 0, a: 255 });
   }
 
   interpolateColor(

@@ -1528,6 +1528,11 @@ export const useBrushEngineSimplified = () => {
       colorCycleBrush.setBrushSize(brushSizeSetting);
       
       // Paint to the Canvas2D buffer only - AFTER setting pressure
+      const layerId = activeLayerId;
+      if (!layerId) {
+        return;
+      }
+
       // Convert canvas coordinates to internal canvas coordinates
       const internalCanvas = colorCycleBrush.getCanvas();
       if (!internalCanvas || !internalCanvas.width || !internalCanvas.height) {
@@ -1551,12 +1556,12 @@ export const useBrushEngineSimplified = () => {
             options.customStamp,
             paintX,
             paintY,
-            activeLayerId || undefined,
+            layerId,
             pressure,
             rotation
           );
         } else {
-          colorCycleBrush.paint(paintX, paintY, activeLayerId || undefined, pressure, rotation);
+          colorCycleBrush.paint(paintX, paintY, layerId, pressure, rotation);
         }
       }
     } catch (error) {
@@ -1629,14 +1634,18 @@ export const useBrushEngineSimplified = () => {
       const brush = initializeColorCycleBrush();
       
       if (brush) {
+        const layerId = activeLayerId;
+        if (!layerId) {
+          return;
+        }
         // If there is visible content on the internal canvas, proactively
         // separate it by committing to the layer and clearing buffers so
         // this new stroke is stored distinctly in history.
         try {
           const state = useAppStore.getState();
-          const layer = state.layers.find(l => l.id === state.activeLayerId);
+          const layer = state.layers.find(l => l.id === layerId);
           const layerCanvas = layer?.colorCycleData?.canvas || null;
-          if (layer && layer.layerType === 'color-cycle' && layerCanvas && activeLayerId) {
+          if (layer && layer.layerType === 'color-cycle' && layerCanvas) {
             const internal = brush.getCanvas();
             const ictx = internal.getContext?.('2d');
             let hasAlpha = false;
@@ -1651,13 +1660,13 @@ export const useBrushEngineSimplified = () => {
             } catch {}
             if (hasAlpha) {
               // quiet
-              brush.commitCurrentStroke?.(activeLayerId);
+              brush.commitCurrentStroke?.(layerId);
               if (typeof brush.commitToLayer === 'function') {
-                brush.commitToLayer(layerCanvas, activeLayerId);
+                brush.commitToLayer(layerCanvas, layerId);
               } else {
-                brush.renderDirectToCanvas?.(layerCanvas, activeLayerId);
+                brush.renderDirectToCanvas?.(layerCanvas, layerId);
               }
-              brush.clearPaintBuffer?.(activeLayerId);
+              brush.clearPaintBuffer?.(layerId);
             }
           }
         } catch {
@@ -1667,9 +1676,9 @@ export const useBrushEngineSimplified = () => {
         // Ensure any in-progress stroke is finalized before starting a new one
         try {
           if (typeof brush.finalizeCurrentStroke === 'function') {
-            brush.finalizeCurrentStroke(activeLayerId || undefined);
+            brush.finalizeCurrentStroke(layerId);
           } else if (typeof brush.endStroke === 'function') {
-            brush.endStroke(activeLayerId || undefined);
+            brush.endStroke(layerId);
           }
         } catch {
           // quiet
@@ -1677,7 +1686,7 @@ export const useBrushEngineSimplified = () => {
 
         // quiet
         // Start a new stroke with the existing brush, passing layer ID and clearBuffer flag
-        brush.startStroke(activeLayerId || undefined, clearBuffer);
+        brush.startStroke(layerId, clearBuffer);
       }
     } catch {
       // quiet
@@ -1690,8 +1699,9 @@ export const useBrushEngineSimplified = () => {
    */
   const endColorCycleStroke = useCallback(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (colorCycleBrush) {
-      colorCycleBrush.endStroke(activeLayerId || undefined);
+    const layerId = activeLayerId;
+    if (colorCycleBrush && layerId) {
+      colorCycleBrush.endStroke(layerId);
     }
   }, [activeLayerId, getActiveLayerColorCycleBrush]);
   
@@ -1704,17 +1714,22 @@ export const useBrushEngineSimplified = () => {
     // Initialize brush if needed
     const brush = initializeColorCycleBrush();
     
-    if (brush && activeLayerId) {
+    const layerId = activeLayerId;
+
+    if (brush && layerId) {
+      // Ensure brush routes subsequent writes to the active layer
+      brush.setLayerId?.(layerId);
+      brush.setActiveLayer?.(layerId);
       // Ensure we have a layer by setting the gradient if needed
       const currentBrushLayerId = brush.getLayerId();
-      if (!currentBrushLayerId || currentBrushLayerId !== activeLayerId) {
+      if (!currentBrushLayerId || currentBrushLayerId !== layerId) {
         // quiet
         const currentGradient = tools.brushSettings.colorCycleGradient || [
           { position: 0, color: '#ff0000' },
           { position: 0.5, color: '#00ff00' },
           { position: 1, color: '#0000ff' }
         ];
-        brush.setGradient(currentGradient, activeLayerId);
+        brush.setGradient(currentGradient, layerId);
       }
       
       // Ensure bands are set before filling
@@ -1723,11 +1738,11 @@ export const useBrushEngineSimplified = () => {
       
       // quiet
       // Fill the shape with linear gradient
-      brush.fillShapeLinear(vertices, direction, activeLayerId);
+      brush.fillShapeLinear(vertices, direction, layerId);
 
       // quiet
       // End the stroke to ensure texture is updated
-      brush.endStroke(activeLayerId);
+      brush.endStroke(layerId);
 
       // quiet
       // Force a render to ensure the shape is visible
@@ -1744,14 +1759,19 @@ export const useBrushEngineSimplified = () => {
     // Initialize brush if needed
     const brush = initializeColorCycleBrush();
     
-    if (brush && activeLayerId) {
+    const layerId = activeLayerId;
+
+    if (brush && layerId) {
+      // Ensure brush routes subsequent writes to the active layer
+      brush.setLayerId?.(layerId);
+      brush.setActiveLayer?.(layerId);
       // quiet
       // DON'T call startStroke here - resetColorCycle() already called it
       // This was causing the double startStroke issue that accumulated shapes
       
       // Ensure we have a layer by setting the gradient if needed
       const currentBrushLayerId = brush.getLayerId();
-      if (!currentBrushLayerId || currentBrushLayerId !== activeLayerId) {
+      if (!currentBrushLayerId || currentBrushLayerId !== layerId) {
         // quiet
         // Set the gradient to create a layer
         const currentGradient = tools.brushSettings.colorCycleGradient || [
@@ -1759,7 +1779,7 @@ export const useBrushEngineSimplified = () => {
           { position: 0.5, color: '#00ff00' },
           { position: 1, color: '#0000ff' }
         ];
-        brush.setGradient(currentGradient, activeLayerId);
+        brush.setGradient(currentGradient, layerId);
       }
       
       // Ensure bands are set before filling
@@ -1772,11 +1792,11 @@ export const useBrushEngineSimplified = () => {
       
       // quiet
       // Fill the shape with layer ID and spacing
-      brush.fillShape(vertices, activeLayerId, tools.brushSettings.spacing);
+      brush.fillShape(vertices, layerId, tools.brushSettings.spacing);
 
       // quiet
       // End the stroke to ensure texture is updated
-      brush.endStroke(activeLayerId);
+      brush.endStroke(layerId);
 
       // quiet
       // Force a render to ensure the shape is visible
@@ -2083,8 +2103,9 @@ export const useBrushEngineSimplified = () => {
         colorCycleBrush = getActiveLayerColorCycleBrush();
       }
       // Make sure it's not in drawing mode for animation
-      if (colorCycleBrush && activeLayerId) {
-        colorCycleBrush.endStroke(activeLayerId || undefined);
+      const layerId = activeLayerId;
+      if (colorCycleBrush && layerId) {
+        colorCycleBrush.endStroke(layerId);
       }
     },
     

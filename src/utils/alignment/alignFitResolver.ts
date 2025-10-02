@@ -1,4 +1,5 @@
 import type { LayerAlignmentSettings } from '@/types';
+import { clamp, round3, toNum } from '@/utils/num';
 
 export interface Size2D {
   width: number;
@@ -33,7 +34,6 @@ export interface LayerDestination {
 
 const MIN_DIMENSION = 1e-6;
 const HUNDRED = 100;
-const ROUND_PRECISION = 1e3;
 
 const horizontalAnchorPercent: Record<NonNullable<LayerAlignmentSettings['horizontal']>, number> = {
   left: 0,
@@ -47,36 +47,18 @@ const verticalAnchorPercent: Record<NonNullable<LayerAlignmentSettings['vertical
   bottom: 100
 };
 
-const toNumber = (value: unknown): number => {
-  if (typeof value === 'number') {
-    return value;
-  }
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : NaN;
-};
-
 export const clampDimension = (value: unknown, fallback = MIN_DIMENSION): number => {
-  const numeric = toNumber(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) {
-    return fallback;
-  }
-  return numeric;
+  const fallbackSafe = fallback > 0 ? fallback : MIN_DIMENSION;
+  const numeric = toNum(value, fallbackSafe);
+  return numeric > 0 ? numeric : fallbackSafe;
 };
 
 export const clampPercent = (value: unknown): number => {
-  const numeric = toNumber(value);
-  if (!Number.isFinite(numeric)) {
-    return 0;
-  }
-  return Math.max(-HUNDRED, Math.min(HUNDRED, numeric));
+  return clamp(toNum(value, 0), -HUNDRED, HUNDRED);
 };
 
 export const roundPlacementValue = (value: unknown): number => {
-  const numeric = toNumber(value);
-  if (!Number.isFinite(numeric)) {
-    return 0;
-  }
-  return Math.round(numeric * ROUND_PRECISION) / ROUND_PRECISION;
+  return round3(value);
 };
 
 const normalizeOffsetPercent = (
@@ -149,8 +131,8 @@ const resolvePaintedBounds = (bounds?: Rect | null, fallback?: Size2D): Rect => 
   const height = clampDimension(bounds?.height, fallback?.height ?? MIN_DIMENSION);
 
   return {
-    x: toNumber(bounds?.x) || 0,
-    y: toNumber(bounds?.y) || 0,
+    x: toNum(bounds?.x, 0),
+    y: toNum(bounds?.y, 0),
     width,
     height
   };

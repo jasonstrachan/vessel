@@ -1,3 +1,4 @@
+import { clamp } from '@/utils/num';
 import { resolveCoordinateSnap, isPointInPolygonSDF } from './common';
 import type { FlowFillParams, Point } from './types';
 
@@ -11,8 +12,6 @@ type SignedDistanceField = FlowFillParams['dependencies']['createSignedDistanceF
 ) => infer R
   ? R
   : never;
-
-const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 
 const createRandomGenerator = (seed?: number) => {
   if (seed == null) {

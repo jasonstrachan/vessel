@@ -4,6 +4,7 @@ import type { LayerContentMetrics } from '@/utils/layerMetrics';
 import { resolveContainerLayout as resolveContainerLayoutModel } from '@/utils/layerAlignment';
 import type { LayoutLayerInput, LayerTransform, ResolvedLayerLayout } from '@/utils/layerAlignment';
 import { deriveAutoPercentOffset, derivePercentBounds, normalizeAlignment } from '@/utils/alignment/alignFitResolver';
+import { posInt, round3, toNum } from '@/utils/num';
 import type {
   ContentBounds,
   ExportContainerLayout,
@@ -13,6 +14,7 @@ import type {
   WebGLExportBundleFormat
 } from '@/types';
 import { packArrayToB64Z } from '@/utils/export/b64z';
+import { ccLog, ccWarn, ccSample } from '@/utils/colorCycle/ccDebug';
 
 const gobletDiagnosticsDefault = process.env.NEXT_PUBLIC_VESSEL_GOBLET_DEBUG === 'true';
 
@@ -82,20 +84,20 @@ const resolveDocumentBoundsPx = (
   const layerBounds = (layer as { bounds?: LegacyLayerBounds | null }).bounds;
   if (layerBounds) {
     return {
-      x: toFiniteValue(layerBounds.x, 0),
-      y: toFiniteValue(layerBounds.y, 0),
-      width: Math.max(1, toFiniteValue(layerBounds.width, metrics.contentBounds.width ?? project.width)),
-      height: Math.max(1, toFiniteValue(layerBounds.height, metrics.contentBounds.height ?? project.height))
+      x: toNum(layerBounds.x, 0),
+      y: toNum(layerBounds.y, 0),
+      width: Math.max(1, toNum(layerBounds.width, metrics.contentBounds.width ?? project.width)),
+      height: Math.max(1, toNum(layerBounds.height, metrics.contentBounds.height ?? project.height))
     };
   }
 
   const frame = (layer as { frame?: { x?: number; y?: number } | null }).frame;
-  const originX = toFiniteValue(frame?.x, 0);
-  const originY = toFiniteValue(frame?.y, 0);
+  const originX = toNum(frame?.x, 0);
+  const originY = toNum(frame?.y, 0);
 
   return {
-    x: originX + toFiniteValue(metrics.contentBounds.x, 0),
-    y: originY + toFiniteValue(metrics.contentBounds.y, 0),
+    x: originX + toNum(metrics.contentBounds.x, 0),
+    y: originY + toNum(metrics.contentBounds.y, 0),
     width: Math.max(1, metrics.contentBounds.width),
     height: Math.max(1, metrics.contentBounds.height)
   };
@@ -248,7 +250,7 @@ export interface WebGLLayerBounds {
   height: number;
 }
 
-export interface WebGLLayerBoundsPercent extends WebGLLayerBounds {}
+export type WebGLLayerBoundsPercent = WebGLLayerBounds;
 
 export interface WebGLLayerPlacement {
   frame: {
@@ -405,24 +407,12 @@ const normalizeBrushFlowDirection = (direction: unknown): 'forward' | 'reverse' 
   return undefined;
 };
 
-const toFiniteValue = (value: unknown, fallback = 0): number => {
-  const numeric = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(numeric) ? numeric : fallback;
-};
-
-const roundPlacementValue = (value: number): number => {
-  const numeric = toFiniteValue(value, 0);
-  return Math.round(numeric * 1000) / 1000;
-};
-
 const sanitizePositiveDimension = (value: unknown, fallback: number): number => {
-  const numeric = toFiniteValue(value, fallback);
-  const safe = Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
-  return Math.max(1, Math.round(safe));
+  const fallbackPositive = Math.max(1, Math.round(toNum(fallback, 1)));
+  const numeric = toNum(value, fallbackPositive);
+  const safe = numeric > 0 ? numeric : fallbackPositive;
+  return posInt(safe, fallbackPositive);
 };
-
-const DEFAULT_LAYER_OPACITY = 1;
-const DEFAULT_BLEND_MODES = new Set<Layer['blendMode'] | 'normal'>(['source-over', 'normal']);
 
 const isSerializedGradient = (value: unknown): value is SerializedGradientStops => {
   if (!Array.isArray(value) || value.length === 0) {
@@ -1021,13 +1011,21 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
     return undefined;
   }
 
+  const keys = animators instanceof Map ? Array.from(animators.keys()) : [];
+  ccLog('extractBrushStateFromAnimator.animators', { want: layer.id, keys });
+
   let animator = animators.get(layer.id);
+  if (!animator) {
+    animator = animators.get('default');
+  }
   if (!animator && animators.size === 1) {
     animator = Array.from(animators.values())[0];
   }
   if (!animator) {
     return undefined;
   }
+
+  ccLog('extractBrushStateFromAnimator.use', { used: (animator as { layerId?: string }).layerId ?? 'unknown' });
 
   try {
     const animatorAny = animator as {
@@ -1091,6 +1089,13 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
       console.warn('[webglExporter] Animator fallback produced an empty index buffer for layer', layer.id);
       return undefined;
     }
+
+    ccLog('extractBrushStateFromAnimator.index', {
+      w: widthRaw,
+      h: heightRaw,
+      len: indexBufferData.length,
+      sample: ccSample(indexBufferData, 12)
+    });
 
     const paletteValues = indexBuffer.palette ? toSerializablePaletteArray(indexBuffer.palette) : undefined;
     const palette = paletteValues && paletteValues.length > 0 ? paletteValues : undefined;
@@ -1167,8 +1172,136 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
       }>;
     } | undefined;
 
+    ccLog('serializeBrushState.raw', {
+      layerId: layer.id,
+      rawLayers: raw?.layers?.map((entry) => ({
+        id: entry?.layerId ?? null,
+        w: entry?.data?.indexBuffer?.width ?? null,
+        h: entry?.data?.indexBuffer?.height ?? null,
+        len: (entry?.data?.indexBuffer?.data as { length?: number } | undefined)?.length ?? null
+      })) ?? null
+    });
+
     if (raw?.layers && raw.layers.length > 0) {
-      const entry = raw.layers.find((candidate) => candidate?.layerId === layer.id);
+      const directMatch = raw.layers.find((candidate) => candidate?.layerId === layer.id);
+
+      type FallbackReason = 'default' | 'single' | 'dimensions' | 'density';
+      let fallbackReason: FallbackReason | undefined;
+      let entry = directMatch;
+
+      if (!entry) {
+        const defaultMatch = raw.layers.find((candidate) => candidate?.layerId === 'default');
+        if (defaultMatch) {
+          entry = defaultMatch;
+          fallbackReason = 'default';
+        } else if (raw.layers.length === 1) {
+          entry = raw.layers[0];
+          fallbackReason = 'single';
+        }
+      }
+
+      if (!entry) {
+        const toFiniteNumber = (value: unknown): number | undefined => {
+          if (typeof value === 'number' && Number.isFinite(value)) {
+            return value;
+          }
+          return undefined;
+        };
+        const resolveDimension = (...values: Array<unknown>): number | undefined => {
+          for (const value of values) {
+            const numeric = toFiniteNumber(value);
+            if (numeric !== undefined) {
+              return numeric;
+            }
+          }
+          return undefined;
+        };
+        const approx = (a?: number, b?: number) => {
+          if (typeof a !== 'number' || typeof b !== 'number') {
+            return false;
+          }
+          return Math.abs(a - b) <= 2;
+        };
+
+        const lw = resolveDimension(
+          layer.imageData?.width,
+          layer.colorCycleData?.canvas?.width,
+          (layer.framebuffer as HTMLCanvasElement | OffscreenCanvas | undefined)?.width
+        );
+        const lh = resolveDimension(
+          layer.imageData?.height,
+          layer.colorCycleData?.canvas?.height,
+          (layer.framebuffer as HTMLCanvasElement | OffscreenCanvas | undefined)?.height
+        );
+
+        entry = raw.layers.find((candidate) => {
+          if (!candidate) {
+            return false;
+          }
+          const width = resolveDimension(candidate?.data?.indexBuffer?.width);
+          const height = resolveDimension(candidate?.data?.indexBuffer?.height);
+          return approx(width, lw) && approx(height, lh);
+        });
+
+        if (entry) {
+          fallbackReason = 'dimensions';
+          ccLog('serializeBrushState.dimFallback', {
+            wanted: layer.id,
+            wantedW: lw ?? null,
+            wantedH: lh ?? null,
+            picked: entry?.layerId ?? null
+          });
+        }
+      }
+
+      if (!entry) {
+        const sorted = raw.layers
+          .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
+          .sort((a, b) => {
+            const al = (a.data?.indexBuffer?.data as ArrayLike<number> | undefined)?.length ?? 0;
+            const bl = (b.data?.indexBuffer?.data as ArrayLike<number> | undefined)?.length ?? 0;
+            return bl - al;
+          });
+        entry = sorted[0];
+
+        if (entry) {
+          fallbackReason = 'density';
+        }
+      }
+
+      if (!entry) {
+        return undefined;
+      }
+
+      ccLog('serializeBrushState.pick', {
+        wanted: layer.id,
+        picked: entry?.layerId ?? null,
+        reason: directMatch ? 'direct' : (fallbackReason ?? 'unknown')
+      });
+
+      if (!directMatch && console) {
+        const reasonDescription = (() => {
+          switch (fallbackReason) {
+            case 'default':
+              return 'default layerId match';
+            case 'single':
+              return 'single serialized layer';
+            case 'dimensions':
+              return 'dimension-based match';
+            case 'density':
+              return 'largest non-zero index buffer';
+            default:
+              return undefined;
+          }
+        })();
+        console.warn?.(
+          '[webglExporter] Falling back to brush state from layerId',
+          entry.layerId ?? 'unknown',
+          'for layer',
+          layer.id,
+          reasonDescription ? `(${reasonDescription})` : ''
+        );
+      }
 
       if (entry) {
         const indexBuffer = entry.data?.indexBuffer;
@@ -1279,6 +1412,14 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
               });
             }
 
+            ccLog('serializeBrushState.done', {
+              layerId: layer.id,
+              width,
+              height,
+              idxLen: indexArray.length,
+              idxSample: ccSample(indexArray, 12)
+            });
+
             return result;
           }
         }
@@ -1301,14 +1442,9 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
   return undefined;
 };
 
-const toFiniteNumber = (value: unknown): number | null => {
-  const numeric = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(numeric) ? numeric : null;
-};
-
 const hasNonZeroMagnitude = (value: unknown): boolean => {
-  const numeric = toFiniteNumber(value);
-  return numeric !== null && Math.abs(numeric) > 0;
+  const numeric = toNum(value, 0);
+  return Math.abs(numeric) > 0;
 };
 
 const isBrushInstanceAnimating = (brush: unknown): boolean => {
@@ -1393,6 +1529,15 @@ const serializeColorCycleData = async (layer: Layer): Promise<WebGLSerializedCol
   const data = layer.colorCycleData;
   if (!data) {
     return undefined;
+  }
+
+  const brushInstance = data.colorCycleBrush as { commitCurrentStroke?: (layerId?: string) => void } | null | undefined;
+  if (brushInstance && typeof brushInstance.commitCurrentStroke === 'function') {
+    try {
+      brushInstance.commitCurrentStroke(layer.id);
+    } catch (error) {
+      console.warn('[webglExporter] Failed to commit current color cycle stroke before export', error);
+    }
   }
 
   const shouldAnimate = shouldExportLayerAsAnimating(layer);
@@ -1686,7 +1831,7 @@ const downloadBlob = (blob: Blob, filename: string) => {
   URL.revokeObjectURL(url);
 };
 
-type GobletAssetName = 'index.html' | 'goblet.js' | 'alignFitResolver.js' | 'fflate-inflate.js';
+type GobletAssetName = 'index.html' | 'goblet.js' | 'alignFitResolver.js' | 'num.js' | 'fflate-inflate.js';
 
 const gobletAssetCache = new Map<string, Promise<string>>();
 
@@ -1791,8 +1936,19 @@ const encodeMetadataForInlineScript = (metadataJson: string): string => {
     .replace(/>/g, '\\u003E');
 };
 
+const escapeForRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\$&');
+
+const stripModuleImportStatement = (content: string, modulePath: string): string => {
+  const escaped = escapeForRegExp(modulePath);
+  const pattern = new RegExp(
+    `\\s*import\\s+(?:[\\w*$\\s{},]+?)\\s+from\\s+['\"']${escaped}['\"'];?\\s*`,
+    'g'
+  );
+  return content.replace(pattern, '\n');
+};
+
 const stripGobletImport = (content: string): string => {
-  return content.replace(/\s*import\s+\{[\s\S]*?\}\s+from\s+'\.\/goblet\.js';?\s*/g, '\n');
+  return stripModuleImportStatement(content, './goblet.js');
 };
 
 const appendZipAutoloadSnippet = (
@@ -1960,7 +2116,8 @@ const appendZipAutoloadSnippet = (
 };
 
 const buildInlineAlignRuntime = (alignJs: string): string => {
-  const sanitized = alignJs
+  const withoutImports = stripModuleImportStatement(alignJs, './num.js');
+  const sanitized = withoutImports
     .replace(/export\s+default\s+[^;\n]+;?/g, '')
     .replace(/export\s+\{[^}]*\};?/g, '')
     .replace(/export\s+const\s+/g, 'const ')
@@ -1986,21 +2143,37 @@ const buildInlineInflateRuntime = (inflateJs: string): string => {
   return `const inflateRaw = (() => {\n${sanitized}\nreturn inflateRaw;\n})();`;
 };
 
+const buildInlineNumRuntime = (numJs: string): string => {
+  const sanitized = numJs
+    .replace(/export\s+const\s+/g, 'const ')
+    .replace(/export\s+function\s+/g, 'function ')
+    .replace(/export\s+default\s+[^;\n]+;?/g, '')
+    .replace(/export\s+\{[^}]*\};?/g, '')
+    .trim();
+  return sanitized ? `${sanitized}\n` : '';
+};
+
 const buildSingleFileScript = (
   scriptContent: string,
   gobletRuntime: string,
   alignRuntime: string,
+  numRuntime: string,
   inflateRuntime: string,
   metadataJson: string,
   diagnosticsEnabled: boolean
 ): string => {
   const withoutImport = stripGobletImport(scriptContent);
-  const runtimeWithoutAlignImport = gobletRuntime.replace(/\s*import\s+\{[^}]*\}\s+from\s+'\.\/alignFitResolver\.js';?\s*/g, '\n');
-  const runtimeWithoutInflateImport = runtimeWithoutAlignImport.replace(/\s*import\s+\{\s*inflateRaw\s*\}\s+from\s+'\.\/fflate-inflate\.js';?\s*/g, '\n');
+  const runtimeWithoutAlignImport = stripModuleImportStatement(gobletRuntime, './alignFitResolver.js');
+  const runtimeWithoutNumImport = stripModuleImportStatement(runtimeWithoutAlignImport, './num.js');
+  const runtimeWithoutInflateImport = stripModuleImportStatement(runtimeWithoutNumImport, './fflate-inflate.js');
   const inlineInflateAlreadyPresent = /const\s+inflateRaw\s*=\s*\(\s*\(\s*\)\s*=>/.test(runtimeWithoutInflateImport);
   const inlineInflate = inlineInflateAlreadyPresent ? '' : buildInlineInflateRuntime(inflateRuntime);
   const inlineAlign = buildInlineAlignRuntime(alignRuntime);
+  const inlineNum = buildInlineNumRuntime(numRuntime);
   const runtimePrefixParts = [] as string[];
+  if (inlineNum) {
+    runtimePrefixParts.push(inlineNum);
+  }
   if (inlineAlign) {
     runtimePrefixParts.push(inlineAlign);
   }
@@ -2160,6 +2333,7 @@ const createSingleFileGobletHtml = (
   template: string,
   gobletJs: string,
   alignJs: string,
+  numJs: string,
   inflateJs: string,
   metadataJson: string,
   diagnosticsEnabled: boolean
@@ -2198,7 +2372,7 @@ const createSingleFileGobletHtml = (
 
   const runtime = stripGobletExports(gobletJs);
   return transformModuleScript(template, (script) =>
-    buildSingleFileScript(script, runtime, alignJs, inflateJs, metadataJson, diagnosticsEnabled)
+    buildSingleFileScript(script, runtime, alignJs, numJs, inflateJs, metadataJson, diagnosticsEnabled)
   );
 };
 
@@ -2328,6 +2502,23 @@ export const exportProjectAsWebGL = async (
     const texture = await captureLayerTexture(layer);
     const colorCycle = await serializeColorCycleData(layer);
 
+    const brushPayload = colorCycle?.brushState?.indexBuffer as ArrayLike<number> | string | undefined;
+    const brushEnc = Array.isArray(brushPayload) ? 'array' : (typeof brushPayload === 'string' ? 'b64z' : 'none');
+    const brushLen = Array.isArray(brushPayload) ? brushPayload.length : (typeof brushPayload === 'string' ? brushPayload.length : 0);
+    ccLog('EXPORT layer', {
+      id: layer.id,
+      hasTexture: Boolean(texture),
+      ccMode: colorCycle?.mode ?? null,
+      hasRecolor: Boolean(colorCycle?.recolorSettings),
+      brushEnc,
+      brushLen,
+      brushWH: colorCycle?.brushState ? { w: colorCycle.brushState.width, h: colorCycle.brushState.height } : null,
+      preview: Array.isArray(brushPayload) ? ccSample(brushPayload, 12) : undefined
+    });
+    if (!colorCycle?.recolorSettings && !colorCycle?.brushState) {
+      ccWarn('NO CC PAYLOAD FOR LAYER', layer.id);
+    }
+
     const baseLayerMetadata: WebGLLayerMetadata = {
       id: layer.id,
       name: layer.name,
@@ -2340,16 +2531,16 @@ export const exportProjectAsWebGL = async (
         height: Math.max(1, Math.round(sourceSize.height))
       },
       documentBoundsPx: {
-        x: roundPlacementValue(documentBoundsPx.x),
-        y: roundPlacementValue(documentBoundsPx.y),
-        width: roundPlacementValue(documentBoundsPx.width),
-        height: roundPlacementValue(documentBoundsPx.height)
+        x: round3(documentBoundsPx.x),
+        y: round3(documentBoundsPx.y),
+        width: round3(documentBoundsPx.width),
+        height: round3(documentBoundsPx.height)
       },
       documentBoundsPercent: {
-        x: roundPlacementValue(documentBoundsPercent.x),
-        y: roundPlacementValue(documentBoundsPercent.y),
-        width: roundPlacementValue(documentBoundsPercent.width),
-        height: roundPlacementValue(documentBoundsPercent.height)
+        x: round3(documentBoundsPercent.x),
+        y: round3(documentBoundsPercent.y),
+        width: round3(documentBoundsPercent.width),
+        height: round3(documentBoundsPercent.height)
       },
       alignment: alignmentPayload,
       contentBounds: {
@@ -2391,18 +2582,18 @@ export const exportProjectAsWebGL = async (
 
       layer.layoutPlacement = {
         frame: {
-          x: roundPlacementValue(placement.frame.x),
-          y: roundPlacementValue(placement.frame.y),
-          width: roundPlacementValue(placement.frame.width),
-          height: roundPlacementValue(placement.frame.height)
+          x: round3(placement.frame.x),
+          y: round3(placement.frame.y),
+          width: round3(placement.frame.width),
+          height: round3(placement.frame.height)
         },
         transform: {
-          scaleX: roundPlacementValue(placement.transform.scaleX),
-          scaleY: roundPlacementValue(placement.transform.scaleY),
-          translateX: roundPlacementValue(placement.transform.translateX),
-          translateY: roundPlacementValue(placement.transform.translateY),
+          scaleX: round3(placement.transform.scaleX),
+          scaleY: round3(placement.transform.scaleY),
+          translateX: round3(placement.transform.translateX),
+          translateY: round3(placement.transform.translateY),
           rotation: typeof placement.transform.rotation === 'number'
-            ? roundPlacementValue(placement.transform.rotation)
+            ? round3(placement.transform.rotation)
             : undefined
         }
       };
@@ -2510,12 +2701,14 @@ export const exportProjectAsWebGL = async (
   let indexHtml: string;
   let gobletJs: string;
   let alignJs: string;
+  let numJs: string;
   let inflateJs: string;
   try {
-    [indexHtml, gobletJs, alignJs, inflateJs] = await Promise.all([
+    [indexHtml, gobletJs, alignJs, numJs, inflateJs] = await Promise.all([
       fetchGobletAsset('index.html', options.assetPrefix),
       fetchGobletAsset('goblet.js', options.assetPrefix),
       fetchGobletAsset('alignFitResolver.js', options.assetPrefix),
+      fetchGobletAsset('num.js', options.assetPrefix),
       fetchGobletAsset('fflate-inflate.js', options.assetPrefix)
     ]);
   } catch (error) {
@@ -2528,6 +2721,7 @@ export const exportProjectAsWebGL = async (
       indexHtml,
       gobletJs,
       alignJs,
+      numJs,
       inflateJs,
       json,
       diagnosticsEnabled
@@ -2543,6 +2737,7 @@ export const exportProjectAsWebGL = async (
     zip.file('index.html', createZipGobletHtml(indexHtml, jsonFilename, json, diagnosticsEnabled));
     zip.file('goblet.js', gobletJs);
     zip.file('alignFitResolver.js', alignJs);
+    zip.file('num.js', numJs);
     zip.file('fflate-inflate.js', inflateJs);
     zip.file(jsonFilename, json);
     const zipBlob = await zip.generateAsync({

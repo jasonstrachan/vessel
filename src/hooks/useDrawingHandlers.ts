@@ -10,7 +10,7 @@ import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
 import { appendSegmentWithDynamicResampling } from '../utils/shapeMaker';
 import { logError, debugWarn } from '../utils/debug';
 import { RecolorManager } from '../lib/colorCycle/RecolorManager';
-import { getColorCycleAnimationState } from '../components/toolbar/BrushControls';
+import { getColorCycleAnimationState, setColorCycleAnimationState } from '../components/toolbar/BrushControls';
 import { setSharedColorCycleGradient } from '../utils/colorCycleGradients';
 import { toggleGlobalColorCyclePlayback } from '../utils/colorCyclePlayback';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
@@ -2061,6 +2061,8 @@ export function useDrawingHandlers({
           // Reset auto-sample state after shape ends
           autoSamplePointsRef.current = [];
           autoSampleLastUpdateRef.current = 0;
+          // Allow the next CC shape preview to restart animation helpers
+          ccShapePreviewPauseStartedRef.current = false;
           await resumeColorCycleAfterInteraction();
           if (isBusyRef) isBusyRef.current = false;
           return;
@@ -2266,8 +2268,14 @@ export function useDrawingHandlers({
   
   // Stop continuous color cycle animation AND pause it (applies to all brush-based CC layers)
   const stopContinuousColorCycleAnimation = useCallback(() => {
-    pauseAllBrushCCAnimationsNow();
-    // DO NOT track for auto-resume - animations stay paused
+    const pausedAny = pauseAllBrushCCAnimationsNow();
+
+    if (pausedAny) {
+      shouldResumeColorCycleAfterInteractionRef.current = true;
+    }
+
+    setColorCycleAnimationState(false);
+
 
     continuousColorCycleAnimationActiveRef.current = false;
     if (continuousColorCycleAnimationRef.current) {
@@ -2340,6 +2348,7 @@ export function useDrawingHandlers({
     isSelectingDirectionRef,  // Export this so DrawingCanvas knows we're in direction selection mode
     startContinuousColorCycleAnimation,
     stopContinuousColorCycleAnimation,
+    resumeColorCycleAfterInteraction,
     setFeedbackCallback
   };
 }

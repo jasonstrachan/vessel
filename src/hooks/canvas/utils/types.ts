@@ -127,6 +127,8 @@ export interface EventHandlerDependencies {
   // Optional cursor style defaults
   defaultCursorStyle?: string;
   restartColorCycleAnimation?: () => void;
+  pauseAnimationForPan?: () => void;
+  resumeAnimationAfterPan?: () => Promise<void> | void;
 
   // Optional feedback hook for surfacing errors/warnings
   feedback?: (message: string) => void;

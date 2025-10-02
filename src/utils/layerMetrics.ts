@@ -6,6 +6,7 @@ import type {
   Project
 } from '@/types';
 import { deriveAutoPercentOffset } from '@/utils/alignment/alignFitResolver';
+import { clamp, toNum } from '@/utils/num';
 import { computeContentBoundsFromImageData } from './imageBounds';
 
 export interface LayerContentMetrics {
@@ -92,21 +93,12 @@ const normalizeContentBounds = (
   const safeSurfaceWidth = Math.max(MIN_DIMENSION, surface.width);
   const safeSurfaceHeight = Math.max(MIN_DIMENSION, surface.height);
 
-  const clampValue = (value: number, min: number, max: number) => {
-    if (!Number.isFinite(value)) {
-      return min;
-    }
-    if (value < min) return min;
-    if (value > max) return max;
-    return value;
-  };
-
-  const x = clampValue(bounds.x, 0, safeSurfaceWidth);
-  const y = clampValue(bounds.y, 0, safeSurfaceHeight);
+  const x = clamp(toNum(bounds.x, 0), 0, safeSurfaceWidth);
+  const y = clamp(toNum(bounds.y, 0), 0, safeSurfaceHeight);
   const maxWidth = Math.max(MIN_DIMENSION, safeSurfaceWidth - x);
   const maxHeight = Math.max(MIN_DIMENSION, safeSurfaceHeight - y);
-  const width = clampValue(bounds.width, MIN_DIMENSION, maxWidth);
-  const height = clampValue(bounds.height, MIN_DIMENSION, maxHeight);
+  const width = clamp(toNum(bounds.width, MIN_DIMENSION), MIN_DIMENSION, maxWidth);
+  const height = clamp(toNum(bounds.height, MIN_DIMENSION), MIN_DIMENSION, maxHeight);
 
   return {
     x,
@@ -140,12 +132,7 @@ const getLayerSurfaceSize = (layer: Layer, project: Project) => {
   };
 };
 
-export const clampPercent = (value: number): number => {
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-  return Math.max(-100, Math.min(100, value));
-};
+export const clampPercent = (value: number): number => clamp(toNum(value, 0), -100, 100);
 
 export const computeLayerContentMetrics = (
   layer: Layer,
@@ -188,14 +175,6 @@ interface PercentOffsetContext {
   projectHeight?: number;
 }
 
-const toFiniteNumber = (value: unknown, fallback = 0): number => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : fallback;
-};
-
 export const computePercentOffsetFromMetrics = (
   metrics: LayerContentMetrics,
   context: PercentOffsetContext = {}
@@ -204,15 +183,15 @@ export const computePercentOffsetFromMetrics = (
   const projectHeight = Math.max(1, context.projectHeight ?? metrics.surfaceSize.height);
 
   const documentBounds = {
-    x: toFiniteNumber(context.originX, 0),
-    y: toFiniteNumber(context.originY, 0),
+    x: toNum(context.originX, 0),
+    y: toNum(context.originY, 0),
     width: Math.max(
       MIN_DIMENSION,
-      toFiniteNumber(context.boundsWidth, metrics.contentBounds.width)
+      toNum(context.boundsWidth, metrics.contentBounds.width)
     ),
     height: Math.max(
       MIN_DIMENSION,
-      toFiniteNumber(context.boundsHeight, metrics.contentBounds.height)
+      toNum(context.boundsHeight, metrics.contentBounds.height)
     )
   };
 
@@ -252,14 +231,14 @@ export const computeLayerPercentOffset = (
 
   const boundsForPercent = layerBounds
     ? {
-        x: toFiniteNumber(layerBounds.x, 0),
-        y: toFiniteNumber(layerBounds.y, 0),
-        width: Math.max(MIN_DIMENSION, toFiniteNumber(layerBounds.width, metrics.contentBounds.width)),
-        height: Math.max(MIN_DIMENSION, toFiniteNumber(layerBounds.height, metrics.contentBounds.height))
+        x: toNum(layerBounds.x, 0),
+        y: toNum(layerBounds.y, 0),
+        width: Math.max(MIN_DIMENSION, toNum(layerBounds.width, metrics.contentBounds.width)),
+        height: Math.max(MIN_DIMENSION, toNum(layerBounds.height, metrics.contentBounds.height))
       }
     : {
-        x: toFiniteNumber(frame?.x, 0) + toFiniteNumber(metrics.contentBounds.x, 0),
-        y: toFiniteNumber(frame?.y, 0) + toFiniteNumber(metrics.contentBounds.y, 0),
+        x: toNum(frame?.x, 0) + toNum(metrics.contentBounds.x, 0),
+        y: toNum(frame?.y, 0) + toNum(metrics.contentBounds.y, 0),
         width: Math.max(MIN_DIMENSION, metrics.contentBounds.width),
         height: Math.max(MIN_DIMENSION, metrics.contentBounds.height)
       };

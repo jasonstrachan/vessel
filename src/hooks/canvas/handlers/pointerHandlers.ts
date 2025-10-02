@@ -67,7 +67,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     sampleColorsAlongLine,
     getMousePos,
     compositeCanvasDirtyRef,
-    setNeedsRedraw
+    setNeedsRedraw,
+    pauseAnimationForPan,
+    resumeAnimationAfterPan
   } = deps;
 
   type Point = { x: number; y: number };
@@ -691,6 +693,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       pan.startPan(pointerPos.x, pointerPos.y);
       setCursorStyle('grabbing');
       setShowBrushCursor(false);
+      pauseAnimationForPan?.();
       // Intentionally quiet: avoid console noise for common panning
       return; // Skip everything else - we're panning
     }
@@ -1492,6 +1495,7 @@ function cssColorToHex(color: string): string {
       pan.startPan(currentPointerPos.x, currentPointerPos.y);
       setCursorStyle('grabbing');
       setShowBrushCursor(false);
+      pauseAnimationForPan?.();
       return; // Important: skip shape/brush updates on the same frame
     }
 
@@ -2325,6 +2329,7 @@ function cssColorToHex(color: string): string {
         setCursorStyle(deps.defaultCursorStyle || 'none');
         updateBrushCursorVisibility();
       }
+      void resumeAnimationAfterPan?.();
       return;
     }
     
@@ -2511,6 +2516,10 @@ function cssColorToHex(color: string): string {
   const handlePointerLeave = () => {
     pointerInsideCanvas = false;
     updateBrushCursorVisibility(false);
+    if (pan.panState.isPanning) {
+      pan.endPan();
+      void resumeAnimationAfterPan?.();
+    }
   };
 
   const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -2520,6 +2529,11 @@ function cssColorToHex(color: string): string {
 
     pointerInsideCanvas = isPointerWithinCanvas(event.clientX, event.clientY);
     updateBrushCursorVisibility();
+
+    if (pan.panState.isPanning) {
+      pan.endPan();
+      void resumeAnimationAfterPan?.();
+    }
 
     // Cancel any pending move RAF batch on cancel
     if (scheduledMoveRAF != null) {

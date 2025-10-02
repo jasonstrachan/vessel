@@ -1090,7 +1090,15 @@ export const createShapeToolHandler = (
 
     let shouldShowPreview: boolean;
     if (isCCShape) {
-      drawingHandlers.stopContinuousColorCycleAnimation?.();
+      // Pause only while the user is actively drawing, not mere hover/preview.
+      const isActivelyDrawing =
+        drawingHandlers.isDrawingShapeRef.current || (event.buttons & 1) === 1;
+      if (isActivelyDrawing) {
+        drawingHandlers.stopContinuousColorCycleAnimation?.();
+      } else {
+        // Keep animation running during hover previews for CC shapes.
+        restartColorCycleAnimation?.();
+      }
       drawingHandlers.continueShapeDrawing(previewWorld);
       shouldShowPreview = tools.shapeMode && drawingHandlers.isDrawingShapeRef.current;
     } else if (isPolygonGradient || isContourPolygon) {
@@ -1791,7 +1799,12 @@ export const createShapeToolHandler = (
       if (handleTrianglePointerUp()) {
         return true;
       }
-      return safeDelegate.pointerUp?.(event, context) ?? false;
+      const handled = safeDelegate.pointerUp?.(event, context) ?? false;
+      // Ensure color cycle animation resumes after CC shape interactions.
+      if (context.deps.tools?.brushSettings?.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
+        restartColorCycleAnimation?.();
+      }
+      return handled;
     },
   };
 };

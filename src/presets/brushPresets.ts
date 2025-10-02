@@ -652,37 +652,6 @@ export const contourPolygonBrushPreset: BrushPreset = {
   }
 };
 
-// Contour Lines 2 Brush Components (placeholder brush that will evolve later)
-const contourLines2BrushComponents: BrushComponent[] = [
-  {
-    id: 'contour-lines2-shape',
-    type: ComponentType.SHAPE_RENDERER,
-    parameters: {
-      shape: BrushShape.CONTOUR_LINES2
-    },
-    priority: 40,
-    enabled: true
-  }
-];
-
-export const contourLines2BrushPreset: BrushPreset = {
-  id: 'contour-lines2-brush',
-  name: 'Contour Lines 2',
-  category: 'Special',
-  components: contourLines2BrushComponents,
-  thumbnail: '/assets/images/Brush.png',
-  tags: ['contour', 'lines', 'special', 'experimental'],
-  isDefault: false,
-  createdAt: new Date(),
-  modifiedAt: new Date(),
-  preferredSettings: {
-    shapeGradientMode: 'lines2',
-    contourLines2Spacing: 4,
-    contourLines2Density: 5,
-    contourLines2Alternate: false
-  }
-};
-
 // Spam Brush Components
 const spamBrushComponents: BrushComponent[] = [
   {
@@ -847,7 +816,6 @@ export const brushPresets: BrushPreset[] = [
   rectangleGradientBrushPreset,
   polygonGradientBrushPreset,
   contourPolygonBrushPreset,
-  contourLines2BrushPreset,
   spamBrushPreset,
   resamplerBrushPreset,
   polygonDitherPreset

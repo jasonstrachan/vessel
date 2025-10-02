@@ -1,8 +1,8 @@
 // Auto-generated from src/utils/alignment/alignFitResolver.ts. Do not edit directly.
+import { clamp, round3, toNum } from './num.js';
 
 const MIN_DIMENSION = 1e-6;
 const HUNDRED = 100;
-const ROUND_PRECISION = 1e3;
 const horizontalAnchorPercent = {
     left: 0,
     center: 50,
@@ -13,33 +13,16 @@ const verticalAnchorPercent = {
     center: 50,
     bottom: 100
 };
-const toNumber = (value) => {
-    if (typeof value === 'number') {
-        return value;
-    }
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : NaN;
-};
 export const clampDimension = (value, fallback = MIN_DIMENSION) => {
-    const numeric = toNumber(value);
-    if (!Number.isFinite(numeric) || numeric <= 0) {
-        return fallback;
-    }
-    return numeric;
+    const fallbackSafe = fallback > 0 ? fallback : MIN_DIMENSION;
+    const numeric = toNum(value, fallbackSafe);
+    return numeric > 0 ? numeric : fallbackSafe;
 };
 export const clampPercent = (value) => {
-    const numeric = toNumber(value);
-    if (!Number.isFinite(numeric)) {
-        return 0;
-    }
-    return Math.max(-HUNDRED, Math.min(HUNDRED, numeric));
+    return clamp(toNum(value, 0), -HUNDRED, HUNDRED);
 };
 export const roundPlacementValue = (value) => {
-    const numeric = toNumber(value);
-    if (!Number.isFinite(numeric)) {
-        return 0;
-    }
-    return Math.round(numeric * ROUND_PRECISION) / ROUND_PRECISION;
+    return round3(value);
 };
 const normalizeOffsetPercent = (alignment, normalizedHorizontal, normalizedVertical) => {
     var _a, _b;
@@ -99,8 +82,8 @@ const resolvePaintedBounds = (bounds, fallback) => {
     const width = clampDimension(bounds === null || bounds === void 0 ? void 0 : bounds.width, (_a = fallback === null || fallback === void 0 ? void 0 : fallback.width) !== null && _a !== void 0 ? _a : MIN_DIMENSION);
     const height = clampDimension(bounds === null || bounds === void 0 ? void 0 : bounds.height, (_b = fallback === null || fallback === void 0 ? void 0 : fallback.height) !== null && _b !== void 0 ? _b : MIN_DIMENSION);
     return {
-        x: toNumber(bounds === null || bounds === void 0 ? void 0 : bounds.x) || 0,
-        y: toNumber(bounds === null || bounds === void 0 ? void 0 : bounds.y) || 0,
+        x: toNum(bounds === null || bounds === void 0 ? void 0 : bounds.x, 0),
+        y: toNum(bounds === null || bounds === void 0 ? void 0 : bounds.y, 0),
         width,
         height
     };

@@ -4,6 +4,7 @@ import {
   MIN_LINE_SPACING,
   prepareContourLinesBasis,
 } from '@/utils/contourLines';
+import { clamp } from '@/utils/num';
 
 import { resolveCoordinateSnap } from './common';
 import type { LinesFillParams } from './types';
@@ -18,7 +19,7 @@ export const drawLinesFill = ({
     return;
   }
 
-  const clampSpacing = (value: number) => Math.min(MAX_LINE_SPACING, Math.max(MIN_LINE_SPACING, value));
+  const clampSpacing = (value: number) => clamp(value, MIN_LINE_SPACING, MAX_LINE_SPACING);
   const spacingA = clampSpacing(lineOptions?.lineSpacingA ?? (brushSettings.contourSpacing || 5) * 2);
   const spacingB = clampSpacing(lineOptions?.lineSpacingB ?? spacingA);
   const basis = lineOptions?.lineBasis ?? prepareContourLinesBasis(vertices);

@@ -11,6 +11,7 @@ import { applyPressureCurve } from '../../utils/pressureCurve';
 import { applyDitheringWithFillResolution } from './dithering';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 import { canvasPool } from '@/utils/canvasPool';
+import { ccLog } from '@/utils/colorCycle/ccDebug';
 
 interface CustomStampInput {
   imageData: ImageData;
@@ -227,6 +228,7 @@ export class ColorCycleBrushCanvas2D {
    * Get or create animator for a layer
    */
   private getAnimator(layerId: string): ColorCycleAnimator {
+    ccLog('getAnimator()', { layerId, has: this.animators.has(layerId), size: this.animators.size });
     // Add validation
     if (!layerId) {
       throw new Error('Layer ID is required');
@@ -339,8 +341,8 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Paint at position (API compatible)
    */
-  private prepareStrokeContext(layerId?: string) {
-    const id = layerId || this.activeLayerId || 'default';
+  private prepareStrokeContext(layerId: string) {
+    const id = layerId;
     const animator = this.getAnimator(id);
 
     let strokeData = this.layerStrokes.get(id);
@@ -375,6 +377,12 @@ export class ColorCycleBrushCanvas2D {
     }
 
     return { id, animator, strokeData };
+  }
+
+  private logSetIndexSample(layerId: string, x: number, y: number) {
+    if ((x & 31) === 0 && (y & 31) === 0) {
+      ccLog('setIndex sample', { id: layerId, x, y });
+    }
   }
 
   private computeColorBandIndex(strokeData: LayerStrokeState): number {
@@ -440,7 +448,8 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
     
-    const { id, animator, strokeData } = this.prepareStrokeContext(layerId);
+    const targetLayerId = layerId || this.activeLayerId || 'default';
+    const { id, animator, strokeData } = this.prepareStrokeContext(targetLayerId);
 
     if (strokeData) {
       const colorIndex = this.computeColorBandIndex(strokeData);
@@ -510,7 +519,8 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
 
-    const { id, animator, strokeData } = this.prepareStrokeContext(layerId);
+    const targetLayerId = layerId || this.activeLayerId || 'default';
+    const { id, animator, strokeData } = this.prepareStrokeContext(targetLayerId);
     const colorIndex = this.computeColorBandIndex(strokeData);
 
     const pressureMultiplier = this.pressureEnabled
@@ -569,6 +579,7 @@ export class ColorCycleBrushCanvas2D {
         if (targetX < 0 || targetX >= this.width) continue;
         const alpha = data[(py * targetWidth + px) * 4 + 3];
         if (alpha < 16) continue;
+        this.logSetIndexSample(id, targetX, targetY);
         animator.setIndex(targetX, targetY, colorIndex);
       }
     }
@@ -636,11 +647,11 @@ export class ColorCycleBrushCanvas2D {
       strokeData.paintBuffer.fill(0);
       // IMPORTANT: Do NOT mark hasContent=false or clear the animator here.
       // We want previously committed strokes to continue animating.
-      // Only reset per-stroke counters.
+      // Only reset per-stroke counters that affect geometry, but keep counters that
+      // drive gradient progression so subsequent shapes continue smoothly.
       strokeData.strokeCounter = 0;
-      // Reset stamp counter only to delimit visual progression for the next stroke,
-      // keeping existing animator/index data intact for animation.
-      strokeData.stampCounter = 0;
+      // Preserve stampCounter to maintain gradient offset continuity across shapes
+      // (intentionally left unchanged here).
       // Ensure our composite canvas is clean for the next draw
       this.compositeCtx.clearRect(0, 0, this.width, this.height);
     }
@@ -759,11 +770,12 @@ export class ColorCycleBrushCanvas2D {
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
       if (clearBuffer) {
+        const preservedStampCounter = strokeData.stampCounter;
         strokeData.paintBuffer.fill(0);
         strokeData.hasContent = false;
         strokeData.strokeCounter = 0;
-        strokeData.stampCounter = 0; // Reset stamp counter for new shape
-      } else {
+        // Preserve stamp counter for continuous gradient flow between shapes
+        strokeData.stampCounter = preservedStampCounter;
       }
       strokeData.strokeCounter = this.strokeCounter;
       strokeData.strokeLength = 0;
@@ -812,7 +824,11 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Fill shape with linear gradient in specified direction
    */
-  fillShapeLinear(vertices: Array<{ x: number; y: number }>, direction: { x: number; y: number }, layerId?: string) {
+  fillShapeLinear(vertices: Array<{ x: number; y: number }>, direction: { x: number; y: number }, layerId: string) {
+    if (!layerId) {
+      throw new Error('fillShapeLinear requires a layerId');
+    }
+
     // Validate input
     if (!vertices || !Array.isArray(vertices)) {
       console.warn('Invalid vertices provided to fillShapeLinear');
@@ -824,7 +840,7 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
     
-    const id = layerId || this.activeLayerId || 'default';
+    const id = layerId;
     
     // Initialize stroke data BEFORE getting animator
     if (!this.layerStrokes.has(id)) {
@@ -905,6 +921,12 @@ export class ColorCycleBrushCanvas2D {
     const projectionRange = maxProjection - minProjection;
     const safeProjectionRange = Math.abs(projectionRange) < 1e-6 ? 1 : projectionRange;
     const numBands = Math.max(2, this.gradientBands || 12);
+    const baseOffset = this.stampCounter % 255;
+    const indexFromNormalized = (pos: number): number => {
+      const raw = Math.round(pos * 254);
+      const shifted = (raw + baseOffset) % 255;
+      return Math.max(1, Math.min(255, shifted + 1));
+    };
     const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
     // If using perceptual dithering, render gradient into an ImageData, dither in color space,
@@ -987,6 +1009,7 @@ export class ColorCycleBrushCanvas2D {
               const key = `${out[p]},${out[p + 1]},${out[p + 2]}`;
               const gi = mapRgbToIndex.get(key);
               if (gi !== undefined) {
+                this.logSetIndexSample(id, x, y);
                 animator.setIndex(x, y, gi);
               }
             }
@@ -1134,9 +1157,7 @@ export class ColorCycleBrushCanvas2D {
                 if (cx + 1 < cellsAcross) cErrNext[cx + 1] += err * 0.25;
               }
               cErrNext[cx] += err * 0.25;
-
-              const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
-              cached = chooseUpper ? idxFromPos(upperPos) : idxFromPos(lowerPos);
+              cached = chooseUpper ? indexFromNormalized(upperPos) : indexFromNormalized(lowerPos);
               cellOutIdx[cy][cx] = cached;
             }
 
@@ -1146,6 +1167,7 @@ export class ColorCycleBrushCanvas2D {
             const fillStart = Math.max(startX, xBlock);
             if (fillStart <= xTo) {
               for (let xx = fillStart; xx <= xTo; xx++) {
+                this.logSetIndexSample(id, xx, y);
                 animator.setIndex(xx, y, cached);
               }
             }
@@ -1158,7 +1180,6 @@ export class ColorCycleBrushCanvas2D {
           }
         } else if (this.ditherEnabled) {
           // Per-pixel Sierra Lite dithering with serpentine scanning
-          const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
           const quantLevels = Math.max(2, bands);
           const qStep = 1 / quantLevels;
 
@@ -1185,7 +1206,8 @@ export class ColorCycleBrushCanvas2D {
               if (ix + 1 < bboxW) errCurr[ix + 1] += err * 0.5;
               if (ix - 1 >= 0) errNext[ix - 1] += err * 0.25;
               errNext[ix] += err * 0.25;
-              const outIdx = chooseUpper ? idxFromPos(upperPos) : idxFromPos(lowerPos);
+              const outIdx = chooseUpper ? indexFromNormalized(upperPos) : indexFromNormalized(lowerPos);
+              this.logSetIndexSample(id, x, y);
               animator.setIndex(x, y, outIdx);
             }
           } else {
@@ -1211,7 +1233,8 @@ export class ColorCycleBrushCanvas2D {
               if (ix - 1 >= 0) errCurr[ix - 1] += err * 0.5;
               if (ix + 1 < bboxW) errNext[ix + 1] += err * 0.25;
               errNext[ix] += err * 0.25;
-              const outIdx = chooseUpper ? idxFromPos(upperPos) : idxFromPos(lowerPos);
+              const outIdx = chooseUpper ? indexFromNormalized(upperPos) : indexFromNormalized(lowerPos);
+              this.logSetIndexSample(id, x, y);
               animator.setIndex(x, y, outIdx);
             }
           }
@@ -1219,13 +1242,13 @@ export class ColorCycleBrushCanvas2D {
           // No dithering: banded quantization anchored to gradient ends
           // Respect gradientBands so the UI "Bands" slider affects linear fills.
           const quantLevels = Math.max(2, this.gradientBands || 12);
-          const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
           for (let x = startX; x <= endX; x++) {
             const r = sampleNormalized(x + 0.5);
             const scaled = r * quantLevels;
             const k = Math.min(quantLevels - 1, Math.floor(scaled)); // ensure exactly quantLevels unique bands
             const pos = k / quantLevels; // 0..1 range without duplicating endpoints
-            const outIdx = idxFromPos(pos);
+            const outIdx = indexFromNormalized(pos);
+            this.logSetIndexSample(id, x, y);
             animator.setIndex(x, y, outIdx);
           }
         }
@@ -1249,7 +1272,11 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Fill shape with smooth gradient bands from edge to center (concentric)
    */
-  fillShape(vertices: Array<{ x: number; y: number }>, layerId?: string, spacing?: number) {
+  fillShape(vertices: Array<{ x: number; y: number }>, layerId: string, spacing?: number) {
+    if (!layerId) {
+      throw new Error('fillShape requires a layerId');
+    }
+
     // Validate input
     if (!vertices || !Array.isArray(vertices)) {
       console.warn('Invalid vertices provided to fillShape');
@@ -1261,7 +1288,7 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
     
-    const id = layerId || this.activeLayerId || 'default';
+    const id = layerId;
     
     // Initialize stroke data BEFORE getting animator
     if (!this.layerStrokes.has(id)) {
@@ -1321,6 +1348,14 @@ export class ColorCycleBrushCanvas2D {
     // gradientBands represents number of color divisions
     // bandSpacing (or passed spacing) represents pixel distance between bands
     const numBands = Math.max(2, this.gradientBands);
+    // Keep gradient progression continuous across shapes by offsetting the
+    // band index using the current global stamp counter (modulo the gradient length).
+    const baseOffset = this.stampCounter % 255;
+    const indexFromNormalized = (pos: number): number => {
+      const raw = Math.round(pos * 254);
+      const shifted = (raw + baseOffset) % 255;
+      return Math.max(1, Math.min(255, shifted + 1));
+    };
 
     // Adaptive performance: for very large shapes, skip costly per-edge distance checks
     // and approximate distance using only span boundaries (left/right). This reduces
@@ -1441,7 +1476,8 @@ export class ColorCycleBrushCanvas2D {
               const p = (yy * width2 + xx) * 4; const key = `${out2[p]},${out2[p + 1]},${out2[p + 2]}`;
               const gi = mapRgbToIndex2.get(key);
               if (gi !== undefined) {
-                animator2.setIndex(x, y, gi);
+                const shifted = (gi - 1 + baseOffset) % 255;
+                animator2.setIndex(x, y, shifted + 1);
               }
             }
           }
@@ -1522,7 +1558,6 @@ export class ColorCycleBrushCanvas2D {
       const cellsAcross = Math.max(1, Math.ceil(bboxW / cellSize));
       let cErrCurr = new Float32Array(cellsAcross);
       let cErrNext = new Float32Array(cellsAcross);
-      const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
 
       for (let yb = y0, rowIdx = 0; yb <= yMax; yb += cellSize, rowIdx++) {
         const tmp = cErrCurr; cErrCurr = cErrNext; cErrNext = tmp; cErrNext.fill(0);
@@ -1621,7 +1656,7 @@ export class ColorCycleBrushCanvas2D {
               if (cx + 1 < cellsAcross) cErrNext[cx + 1] += err * 0.25;
             }
             cErrNext[cx] += err * 0.25;
-            const outIdx = chooseUpper ? idxFromPos(upperPos) : idxFromPos(lowerPos);
+            const outIdx = chooseUpper ? indexFromNormalized(upperPos) : indexFromNormalized(lowerPos);
             const xTo = Math.min(endX, xBlock + cellSize - 1);
             for (let yy = yb; yy <= yTo; yy++) {
               const clip = rowClips[yy - yb];
@@ -1630,6 +1665,7 @@ export class ColorCycleBrushCanvas2D {
               const fillEnd = Math.min(clip.end, xTo);
               if (fillStart <= fillEnd) {
                 for (let xx = fillStart; xx <= fillEnd; xx++) {
+                  this.logSetIndexSample(id, xx, yy);
                   animator.setIndex(xx, yy, outIdx);
                 }
               }
@@ -1694,6 +1730,7 @@ export class ColorCycleBrushCanvas2D {
             const bandIndex = Math.min(bands - 1, Math.floor(normalized / bandStepLinear));
             const quantized = Math.round(bandIndex * stepPerBandLinear);
             const colorIndex = Math.max(1, Math.min(255, quantized + 1));
+            this.logSetIndexSample(id, x, y);
             animator.setIndex(x, y, colorIndex);
           }
         } else {
@@ -1745,7 +1782,6 @@ export class ColorCycleBrushCanvas2D {
           const lowerPos = Math.min(1, kLower * qStep);
           const upperPos = Math.min(1, (kLower + 1) * qStep);
           const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
-          const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
 
           if (this.ditherEnabled) {
               // Sierra Lite between adjacent quantization levels
@@ -1761,12 +1797,14 @@ export class ColorCycleBrushCanvas2D {
               if (ix - 1 >= 0) errNext[ix - 1] += err * 0.25;
               errNext[ix] += err * 0.25;
 
-              const lowerIdx = idxFromPos(lowerPos);
-              const upperIdx = idxFromPos(upperPos);
+              const lowerIdx = indexFromNormalized(lowerPos);
+              const upperIdx = indexFromNormalized(upperPos);
+              this.logSetIndexSample(id, x, y);
               animator.setIndex(x, y, chooseUpper ? upperIdx : lowerIdx);
           } else {
               // No dithering: choose the quantized lower position
-              const colorIndex = idxFromPos(lowerPos);
+              const colorIndex = indexFromNormalized(lowerPos);
+              this.logSetIndexSample(id, x, y);
               animator.setIndex(x, y, colorIndex);
           }
             }
@@ -1816,7 +1854,6 @@ export class ColorCycleBrushCanvas2D {
           const lowerPos = Math.min(1, kLower * qStep);
           const upperPos = Math.min(1, (kLower + 1) * qStep);
           const frac = qStep > 0 ? Math.max(0, Math.min(1, (r - lowerPos) / qStep)) : 0;
-          const idxFromPos = (pos: number) => Math.max(1, Math.min(255, Math.round(pos * 254) + 1));
 
               if (this.ditherEnabled) {
                 const ix = x - ixBase;
@@ -1831,11 +1868,13 @@ export class ColorCycleBrushCanvas2D {
                 if (ix + 1 < bboxW) errNext[ix + 1] += err * 0.25;
                 errNext[ix] += err * 0.25;
 
-                const lowerIdx = idxFromPos(lowerPos);
-                const upperIdx = idxFromPos(upperPos);
+                const lowerIdx = indexFromNormalized(lowerPos);
+                const upperIdx = indexFromNormalized(upperPos);
+                this.logSetIndexSample(id, x, y);
                 animator.setIndex(x, y, chooseUpper ? upperIdx : lowerIdx);
               } else {
-                const colorIndex = idxFromPos(lowerPos);
+                const colorIndex = indexFromNormalized(lowerPos);
+                this.logSetIndexSample(id, x, y);
                 animator.setIndex(x, y, colorIndex);
               }
             }
@@ -2030,10 +2069,10 @@ export class ColorCycleBrushCanvas2D {
    * Finalize any pending stroke and force a render so callers can commit
    * the latest frame to a canvas.
    */
-  commitCurrentStroke(layerId?: string) {
+  commitCurrentStroke(layerId: string) {
     try {
       this.finalizeCurrentStroke(layerId);
-      const id = layerId || this.activeLayerId || 'default';
+      const id = layerId;
       const animator = this.animators.get(id);
       if (animator) {
         animator.forceRender();
@@ -2416,6 +2455,7 @@ export class ColorCycleBrushCanvas2D {
    * Set active layer ID
    */
   setActiveLayer(layerId: string) {
+    ccLog('setActiveLayer()', { layerId });
     this.activeLayerId = layerId;
   }
   
@@ -2442,6 +2482,7 @@ export class ColorCycleBrushCanvas2D {
    * Note: This overrides the deprecated setLayerId above
    */
   setLayerId(layerId: string): void {
+    ccLog('setLayerId()', { layerId });
     this.layerId = layerId;
     // Also call setActiveLayer for compatibility
     this.setActiveLayer(layerId);
@@ -2686,8 +2727,8 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Debug helper: verify that the animator canvas for a layer is cleared (alpha == 0)
    */
-  verifyPaintBufferCleared(layerId?: string): boolean {
-    const id = layerId || this.activeLayerId || 'default';
+  verifyPaintBufferCleared(layerId: string): boolean {
+    const id = layerId;
     const animator = this.animators.get(id);
     if (!animator || !animator.getCanvas) {
       console.log('[Debug] No animator/canvas exists for layer:', id);
@@ -2722,6 +2763,12 @@ export class ColorCycleBrushCanvas2D {
    * Serialize state (API compatible simplified)
    */
   serialize(): ColorCycleBrushCanvasSerialized {
+    ccLog('Brush.serialize()', {
+      layerCount: this.animators.size,
+      layerIds: Array.from(this.animators.keys()),
+      hasActive: Boolean(this.activeLayerId),
+      active: this.activeLayerId ?? null
+    });
     const layers: SerializedLayerState[] = [];
 
     this.animators.forEach((animator, layerId) => {
@@ -2909,7 +2956,10 @@ export class ColorCycleBrushCanvas2D {
    * Update gradient (async version for compatibility with tests)
    */
   async updateGradient(gradient: Array<{ position: number; color: string }>): Promise<void> {
-    this.setGradient(gradient);
+    const layerId = this.activeLayerId ?? 'default';
+    this.setLayerId(layerId);
+    this.setActiveLayer(layerId);
+    this.setGradient(gradient, layerId);
   }
 
   /**

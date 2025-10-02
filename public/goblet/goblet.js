@@ -1,4 +1,6 @@
 import { normalizeAlignment, computeLayerTransform, computeLayerDestination } from './alignFitResolver.js';
+import { clamp, posInt, round3, toNum } from './num.js';
+import { ccDebugOn, ccLog, ccSample } from './ccDebug.js';
 
 // ------------------------------------------------------------
 // Inline dependencies for file:// compatibility
@@ -385,18 +387,6 @@ export const setGobletDiagnosticsEnabled = (value) => setDiagnostics(value);
 // ------------------------------------------------------------
 // Generic helpers
 // ------------------------------------------------------------
-const toFinite = (value, fallback = 0) => {
-  const numeric = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(numeric) ? numeric : fallback;
-};
-
-const clamp = (value, min, max) => {
-  if (!Number.isFinite(value)) {
-    return min;
-  }
-  return Math.min(max, Math.max(min, value));
-};
-
 const snapshotIdentityTransform = () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 });
 
 const snapshotTransform = (ctx) => {
@@ -545,19 +535,9 @@ const deepClone = (value) => {
   return JSON.parse(JSON.stringify(value));
 };
 
-const roundPlacementValue = (value) => {
-  const numeric = toFinite(value, 0);
-  return Math.round(numeric * 1000) / 1000;
-};
-
 const MIN_DIMENSION = 1e-3;
 
-const clampDimension = (value) => {
-  if (!Number.isFinite(value) || value <= 0) {
-    return MIN_DIMENSION;
-  }
-  return value;
-};
+const clampDimension = (value) => Math.max(MIN_DIMENSION, toNum(value, MIN_DIMENSION));
 
 const createDefaultContainerLayout = () => ({
   padding: { top: 0, right: 0, bottom: 0, left: 0 },
@@ -569,10 +549,10 @@ const normalizeContainerLayout = (layout) => {
   const defaults = createDefaultContainerLayout();
   const padding = base.padding && typeof base.padding === 'object'
     ? {
-        top: toFinite(base.padding.top, 0),
-        right: toFinite(base.padding.right, 0),
-        bottom: toFinite(base.padding.bottom, 0),
-        left: toFinite(base.padding.left, 0)
+        top: toNum(base.padding.top, 0),
+        right: toNum(base.padding.right, 0),
+        bottom: toNum(base.padding.bottom, 0),
+        left: toNum(base.padding.left, 0)
       }
     : { ...defaults.padding };
 
@@ -782,8 +762,8 @@ const resolveContainerLayout = (layers, layout, viewport) => {
 const applyDesignLayout = (metadata) => normalizeLayerSpatialMetadata(metadata);
 
 const computeViewportMapping = (viewport, canvasWidth, canvasHeight) => {
-  const designWidth = Math.max(1, toFinite(viewport?.designWidth, canvasWidth || 1));
-  const designHeight = Math.max(1, toFinite(viewport?.designHeight, canvasHeight || 1));
+  const designWidth = Math.max(1, toNum(viewport?.designWidth, canvasWidth || 1));
+  const designHeight = Math.max(1, toNum(viewport?.designHeight, canvasHeight || 1));
   const mode = viewport?.mode === 'fill' || viewport?.mode === 'fit' ? viewport.mode : 'fixed';
 
   let scaleX = canvasWidth / designWidth;
@@ -1043,8 +1023,8 @@ const normalizeLayerSpatialMetadata = (metadata) => {
     return metadata;
   }
 
-  const projectWidth = Math.max(1, toFinite(metadata.project?.width, 1));
-  const projectHeight = Math.max(1, toFinite(metadata.project?.height, 1));
+  const projectWidth = Math.max(1, toNum(metadata.project?.width, 1));
+  const projectHeight = Math.max(1, toNum(metadata.project?.height, 1));
   const documentSize = {
     width: projectWidth,
     height: projectHeight
@@ -1054,13 +1034,13 @@ const normalizeLayerSpatialMetadata = (metadata) => {
     if (!rect || typeof rect !== 'object') {
       return null;
     }
-    const width = clampDimension(toFinite(rect.width, fallback.width));
-    const height = clampDimension(toFinite(rect.height, fallback.height));
+    const width = clampDimension(toNum(rect.width, fallback.width));
+    const height = clampDimension(toNum(rect.height, fallback.height));
     return {
-      x: roundPlacementValue(toFinite(rect.x, 0)),
-      y: roundPlacementValue(toFinite(rect.y, 0)),
-      width: roundPlacementValue(width),
-      height: roundPlacementValue(height)
+      x: round3(toNum(rect.x, 0)),
+      y: round3(toNum(rect.y, 0)),
+      width: round3(width),
+      height: round3(height)
     };
   };
 
@@ -1069,10 +1049,10 @@ const normalizeLayerSpatialMetadata = (metadata) => {
       return null;
     }
     return {
-      x: roundPlacementValue(toFinite(rect.x, 0)),
-      y: roundPlacementValue(toFinite(rect.y, 0)),
-      width: roundPlacementValue(toFinite(rect.width, 0)),
-      height: roundPlacementValue(toFinite(rect.height, 0))
+      x: round3(toNum(rect.x, 0)),
+      y: round3(toNum(rect.y, 0)),
+      width: round3(toNum(rect.width, 0)),
+      height: round3(toNum(rect.height, 0))
     };
   };
 
@@ -1083,10 +1063,10 @@ const normalizeLayerSpatialMetadata = (metadata) => {
     const safeWidth = Math.max(MIN_DIMENSION, document.width);
     const safeHeight = Math.max(MIN_DIMENSION, document.height);
     return {
-      x: roundPlacementValue((rect.x / safeWidth) * 100),
-      y: roundPlacementValue((rect.y / safeHeight) * 100),
-      width: roundPlacementValue((rect.width / safeWidth) * 100),
-      height: roundPlacementValue((rect.height / safeHeight) * 100)
+      x: round3((rect.x / safeWidth) * 100),
+      y: round3((rect.y / safeHeight) * 100),
+      width: round3((rect.width / safeWidth) * 100),
+      height: round3((rect.height / safeHeight) * 100)
     };
   };
 
@@ -1097,8 +1077,8 @@ const normalizeLayerSpatialMetadata = (metadata) => {
       return;
     }
 
-    const sourceWidth = Math.max(1, toFinite(layer?.source?.width, documentSize.width));
-    const sourceHeight = Math.max(1, toFinite(layer?.source?.height, documentSize.height));
+    const sourceWidth = Math.max(1, toNum(layer?.source?.width, documentSize.width));
+    const sourceHeight = Math.max(1, toNum(layer?.source?.height, documentSize.height));
     const fallbackRect = {
       x: 0,
       y: 0,
@@ -1148,8 +1128,8 @@ const normalizeLayerSpatialMetadata = (metadata) => {
   if (needsLayoutPlacement) {
     const layout = normalizeContainerLayout(metadata.container);
     const viewport = {
-      width: Math.max(1, toFinite(metadata.viewport?.designWidth ?? metadata.viewport?.width ?? metadata.project?.width, documentSize.width)),
-      height: Math.max(1, toFinite(metadata.viewport?.designHeight ?? metadata.viewport?.height ?? metadata.project?.height, documentSize.height))
+      width: Math.max(1, toNum(metadata.viewport?.designWidth ?? metadata.viewport?.width ?? metadata.project?.width, documentSize.width)),
+      height: Math.max(1, toNum(metadata.viewport?.designHeight ?? metadata.viewport?.height ?? metadata.project?.height, documentSize.height))
     };
 
     const inputs = metadata.layers
@@ -1158,13 +1138,13 @@ const normalizeLayerSpatialMetadata = (metadata) => {
           return null;
         }
 
-        const surfaceWidth = Math.max(1, toFinite(layer?.source?.width, documentSize.width));
-        const surfaceHeight = Math.max(1, toFinite(layer?.source?.height, documentSize.height));
+        const surfaceWidth = Math.max(1, toNum(layer?.source?.width, documentSize.width));
+        const surfaceHeight = Math.max(1, toNum(layer?.source?.height, documentSize.height));
         const contentWidth = layer.contentBounds
-          ? Math.max(1, toFinite(layer.contentBounds.width, surfaceWidth))
+          ? Math.max(1, toNum(layer.contentBounds.width, surfaceWidth))
           : surfaceWidth;
         const contentHeight = layer.contentBounds
-          ? Math.max(1, toFinite(layer.contentBounds.height, surfaceHeight))
+          ? Math.max(1, toNum(layer.contentBounds.height, surfaceHeight))
           : surfaceHeight;
 
         return {
@@ -1199,18 +1179,18 @@ const normalizeLayerSpatialMetadata = (metadata) => {
 
         layer.layoutPlacement = {
           frame: {
-            x: roundPlacementValue(placement.frame.x),
-            y: roundPlacementValue(placement.frame.y),
-            width: roundPlacementValue(placement.frame.width),
-            height: roundPlacementValue(placement.frame.height)
+            x: round3(placement.frame.x),
+            y: round3(placement.frame.y),
+            width: round3(placement.frame.width),
+            height: round3(placement.frame.height)
           },
           transform: {
-            scaleX: roundPlacementValue(placement.transform.scaleX),
-            scaleY: roundPlacementValue(placement.transform.scaleY),
-            translateX: roundPlacementValue(placement.transform.translateX),
-            translateY: roundPlacementValue(placement.transform.translateY),
+            scaleX: round3(placement.transform.scaleX),
+            scaleY: round3(placement.transform.scaleY),
+            translateX: round3(placement.transform.translateX),
+            translateY: round3(placement.transform.translateY),
             rotation: typeof placement.transform.rotation === 'number'
-              ? roundPlacementValue(placement.transform.rotation)
+              ? round3(placement.transform.rotation)
               : undefined
           }
         };
@@ -1241,8 +1221,8 @@ const validateMetadata = (metadata) => {
     throw new Error('Missing viewport definition');
   }
   const viewport = metadata.viewport;
-  const designWidth = toFinite(viewport.designWidth ?? viewport.width ?? metadata.project?.width, 0);
-  const designHeight = toFinite(viewport.designHeight ?? viewport.height ?? metadata.project?.height, 0);
+  const designWidth = toNum(viewport.designWidth ?? viewport.width ?? metadata.project?.width, 0);
+  const designHeight = toNum(viewport.designHeight ?? viewport.height ?? metadata.project?.height, 0);
   if (designWidth <= 0 || designHeight <= 0) {
     throw new Error('Missing viewport dimensions');
   }
@@ -1258,6 +1238,23 @@ const prepareMetadata = (metadata) => {
   const expanded = normalizeLayerSpatialMetadata(
     restoreSharedGradients(expandVesselMetadata(deepClone(metadata)))
   );
+
+  if (ccDebugOn()) {
+    expanded.layers?.forEach((ly) => {
+      const bs = ly?.colorCycle?.brushState;
+      const buffer = bs?.indexBuffer;
+      const enc = Array.isArray(buffer) ? 'array' : (typeof buffer === 'string' ? 'b64z' : 'none');
+      const len = Array.isArray(buffer) ? buffer.length : (typeof buffer === 'string' ? buffer.length : 0);
+      ccLog('VIEWER metadata CC', {
+        id: ly?.id,
+        enc,
+        len,
+        wh: bs ? { w: bs.width, h: bs.height } : null,
+        sample: Array.isArray(buffer) ? ccSample(buffer, 12) : undefined
+      });
+    });
+  }
+
   diagnostics.log('[goblet] Expanded metadata check:', {
     layerCount: expanded.layers?.length,
     layersWithTextures: expanded.layers?.map((layer) => ({
@@ -1718,6 +1715,13 @@ class ColorCycleLayerPlayer {
     const hasRecolor = Boolean(recolorSettings && hasNumericPayload(recolorSettings.indexBuffer));
     const hasBrush = Boolean(brushState && hasNumericPayload(brushState.indexBuffer));
 
+    ccLog('CCPlayer.init', {
+      layerId: this.layer?.id ?? null,
+      mode: this.mode,
+      hasBrush,
+      hasRecolor
+    });
+
     if (hasBrush) {
       await this.initializeBrushMode(colorCycle, brushState);
     } else if (hasRecolor) {
@@ -1950,8 +1954,8 @@ const applyLayerToContext = (ctx, source, layer, destination, units = 'css', pha
     sw = Math.max(1, Math.floor(Math.min(boundsRaw.width, maxWidth)));
     sh = Math.max(1, Math.floor(Math.min(boundsRaw.height, maxHeight)));
   } else if (fit === 'uniform') {
-    const declaredWidth = Math.max(1, toFinite(layer?.source?.width, sourceWidth));
-    const declaredHeight = Math.max(1, toFinite(layer?.source?.height, sourceHeight));
+    const declaredWidth = Math.max(1, toNum(layer?.source?.width, sourceWidth));
+    const declaredHeight = Math.max(1, toNum(layer?.source?.height, sourceHeight));
     sw = Math.min(declaredWidth, sourceWidth);
     sh = Math.min(declaredHeight, sourceHeight);
   } else {
@@ -2363,10 +2367,10 @@ class VesselGoblet {
     const fallbackCssWidth = Math.max(1, Math.round(width / Math.max(dpr, 1)));
     const fallbackCssHeight = Math.max(1, Math.round(height / Math.max(dpr, 1)));
     const cssW = isFixed
-      ? Math.max(1, Math.round(toFinite(this.metadata.viewport?.designWidth, fallbackCssWidth)))
+      ? posInt(this.metadata.viewport?.designWidth, fallbackCssWidth)
       : width;
     const cssH = isFixed
-      ? Math.max(1, Math.round(toFinite(this.metadata.viewport?.designHeight, fallbackCssHeight)))
+      ? posInt(this.metadata.viewport?.designHeight, fallbackCssHeight)
       : height;
 
     ctx.save();
@@ -2402,8 +2406,8 @@ class VesselGoblet {
 
     const viewportSize = { width: cssW, height: cssH };
     const documentSize = {
-      width: Math.max(1, toFinite(this.metadata.project?.width, cssW)),
-      height: Math.max(1, toFinite(this.metadata.project?.height, cssH))
+      width: Math.max(1, toNum(this.metadata.project?.width, cssW)),
+      height: Math.max(1, toNum(this.metadata.project?.height, cssH))
     };
     let painted = 0;
     sorted.forEach((entry, index) => {
@@ -2622,8 +2626,8 @@ class VesselGoblet {
     const dpr = typeof window !== 'undefined' && window.devicePixelRatio ? window.devicePixelRatio : 1;
     const fallbackCssWidth = Math.max(1, Math.round(width / Math.max(dpr, 1)));
     const fallbackCssHeight = Math.max(1, Math.round(height / Math.max(dpr, 1)));
-    const designWidth = Math.max(1, Math.round(toFinite(this.metadata?.viewport?.designWidth, fallbackCssWidth)));
-    const designHeight = Math.max(1, Math.round(toFinite(this.metadata?.viewport?.designHeight, fallbackCssHeight)));
+    const designWidth = posInt(this.metadata?.viewport?.designWidth, fallbackCssWidth);
+    const designHeight = posInt(this.metadata?.viewport?.designHeight, fallbackCssHeight);
 
     diagnostics.log('[VIEWER] updateScale called:', {
       oldScale,

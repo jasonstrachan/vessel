@@ -2279,9 +2279,16 @@ export const useAppStore = create<AppState>()(
             savedBrushShape = state.tools.brushSettings.brushShape;
           }
 
+          const layerGradientStops = layer.colorCycleData?.gradient
+            ?? layer.colorCycleData?.recolorSettings?.gradient;
+          const gradientForBrushSettings = layerGradientStops
+            ? layerGradientStops.map(stop => ({ ...stop }))
+            : undefined;
+
           const nextBrushSettings = {
             ...state.tools.brushSettings,
-            customBrushColorCycle: true
+            customBrushColorCycle: true,
+            ...(gradientForBrushSettings ? { colorCycleGradient: gradientForBrushSettings } : {})
           };
 
           const result = {

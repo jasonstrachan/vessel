@@ -76,6 +76,11 @@ export const setFeatureFlag = (key: FeatureFlagKey, value: boolean): void => {
   if (state[key] === value) return;
   state[key] = value;
 
+  if (process.env.NODE_ENV !== 'production' && key === 'useCanvas2DColorCycle') {
+    const mode = value ? 'Canvas2D' : 'WebGL';
+    console.log(`[featureFlags] useCanvas2DColorCycle set to ${mode}`);
+  }
+
   if (typeof window !== 'undefined') {
     try {
       window.localStorage.setItem(STORAGE_KEYS[key], value ? 'true' : 'false');

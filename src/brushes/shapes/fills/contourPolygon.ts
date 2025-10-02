@@ -1,5 +1,6 @@
 import { BrushShape, type BrushSettings } from '@/types';
 
+import { resolveCoordinateSnap } from './common';
 import { drawContourFill } from './contour';
 import { drawDelaunayFill } from './delaunator';
 import { drawLinesFill } from './lines';
@@ -49,9 +50,15 @@ export const drawContourPolygon = ({
 
   const rawMode = brushSettings.shapeGradientMode || 'contour';
   const mode = rawMode === 'mesh' ? 'lines' : rawMode;
+  const pixelMode = brushSettings.shapeFillPixelMode ?? true;
+  const snap = resolveCoordinateSnap(pixelMode);
+  const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
+  const minY = Math.floor(Math.min(...vertices.map(v => v.y)));
+  const maxX = Math.ceil(Math.max(...vertices.map(v => v.x)));
+  const maxY = Math.ceil(Math.max(...vertices.map(v => v.y)));
 
   ctx.save();
-  ctx.imageSmoothingEnabled = false;
+  ctx.imageSmoothingEnabled = !pixelMode;
   ctx.lineJoin = 'miter';
   ctx.lineCap = 'butt';
   ctx.globalAlpha = brushSettings.opacity;
@@ -61,17 +68,20 @@ export const drawContourPolygon = ({
     if (shouldFillPolygon(mode, polygonData?.fillColor, vertices.length)) {
       try {
         ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(Math.round(vertices[0].x), Math.round(vertices[0].y));
-        for (let i = 1; i < vertices.length; i++) {
-          ctx.lineTo(Math.round(vertices[i].x), Math.round(vertices[i].y));
-        }
-        ctx.closePath();
         const prevStyle = ctx.fillStyle;
         const prevAlpha = ctx.globalAlpha;
+
+        ctx.beginPath();
+        ctx.moveTo(snap(vertices[0].x), snap(vertices[0].y));
+        for (let i = 1; i < vertices.length; i++) {
+          ctx.lineTo(snap(vertices[i].x), snap(vertices[i].y));
+        }
+        ctx.closePath();
+
         ctx.fillStyle = polygonData?.fillColor as string;
         ctx.globalAlpha = brushSettings.opacity;
         ctx.fill();
+
         ctx.fillStyle = prevStyle;
         ctx.globalAlpha = prevAlpha;
         ctx.restore();
@@ -80,10 +90,6 @@ export const drawContourPolygon = ({
       }
     }
 
-    const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
-    const minY = Math.floor(Math.min(...vertices.map(v => v.y)));
-    const maxX = Math.ceil(Math.max(...vertices.map(v => v.x)));
-    const maxY = Math.ceil(Math.max(...vertices.map(v => v.y)));
     const boundWidth = maxX - minX;
     const boundHeight = maxY - minY;
 

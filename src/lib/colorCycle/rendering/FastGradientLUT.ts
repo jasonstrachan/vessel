@@ -5,6 +5,8 @@
  * Uses precomputed interpolation and SIMD-friendly operations.
  */
 
+import { parseCssColor } from '@/utils/color/parseCssColor';
+
 export interface GradientStop {
   position: number; // 0-1
   color: {
@@ -270,29 +272,7 @@ export class FastGradientLUT {
    * Parse CSS color string to RGBA (optimized common cases)
    */
   static parseColor(colorStr: string): GradientStop['color'] {
-    // Fast path for hex colors
-    if (colorStr.startsWith('#')) {
-      const hex = colorStr.slice(1);
-      if (hex.length === 6) {
-        return {
-          r: parseInt(hex.slice(0, 2), 16),
-          g: parseInt(hex.slice(2, 4), 16),
-          b: parseInt(hex.slice(4, 6), 16),
-          a: 255
-        };
-      } else if (hex.length === 3) {
-        return {
-          r: parseInt(hex[0] + hex[0], 16),
-          g: parseInt(hex[1] + hex[1], 16),
-          b: parseInt(hex[2] + hex[2], 16),
-          a: 255
-        };
-      }
-    }
-    
-    // Fallback for other formats (rgb(), hsl(), etc.)
-    // For now, return white - could be extended
-    return { r: 255, g: 255, b: 255, a: 255 };
+    return parseCssColor(colorStr, { r: 255, g: 255, b: 255, a: 255 });
   }
   
   /**

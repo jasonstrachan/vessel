@@ -592,6 +592,17 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   
   // Extract the color cycle animation functions for use by BrushControls
   const { startContinuousColorCycleAnimation, stopContinuousColorCycleAnimation, setFeedbackCallback } = drawingHandlers;
+
+  const startAnimationRef = useRef(startContinuousColorCycleAnimation);
+  const stopAnimationRef = useRef(stopContinuousColorCycleAnimation);
+
+  useEffect(() => {
+    startAnimationRef.current = startContinuousColorCycleAnimation;
+  }, [startContinuousColorCycleAnimation]);
+
+  useEffect(() => {
+    stopAnimationRef.current = stopContinuousColorCycleAnimation;
+  }, [stopContinuousColorCycleAnimation]);
   
   // Connect feedback callback
   useEffect(() => {
@@ -600,10 +611,23 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     }
   }, [showFeedback, setFeedbackCallback]);
   
+  const updateColorCycleGradientRef = useRef(brushEngine.updateColorCycleGradient);
+  const setColorCycleFlowDirectionRef = useRef(brushEngine.setColorCycleFlowDirection);
+
+  useEffect(() => {
+    updateColorCycleGradientRef.current = brushEngine.updateColorCycleGradient;
+  }, [brushEngine.updateColorCycleGradient]);
+
+  useEffect(() => {
+    setColorCycleFlowDirectionRef.current = brushEngine.setColorCycleFlowDirection;
+  }, [brushEngine.setColorCycleFlowDirection]);
+
   // Simplified color cycle animation manager
   const colorCycleManagerRef = useRef<SimplifiedColorCycleManager | null>(null);
   // Guard to avoid repeatedly stopping animations when already stopped
   const hasStoppedAnimationRef = useRef(false);
+  // Track when we paused CC animation specifically for panning so it can resume automatically
+  const pausedAnimationForPanRef = useRef(false);
 
   useLayoutEffect(() => {
     if (typeof window === 'undefined') {
@@ -664,42 +688,61 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   // Simplified animation control functions
   const wrappedStartAnimation = useCallback(() => {
     // Start the color cycle animation in drawing handlers
-    startContinuousColorCycleAnimation();
-    
+    startAnimationRef.current?.();
+
     // Start the animation manager
     colorCycleManagerRef.current?.start();
-  }, [startContinuousColorCycleAnimation]);
-  
+  }, []);
+
   const wrappedStopAnimation = useCallback(() => {
     // Stop the animation manager
     colorCycleManagerRef.current?.stop();
-    
+
     // Stop the color cycle animation
-    stopContinuousColorCycleAnimation();
-    
+    stopAnimationRef.current?.();
+
     // Do one final redraw to ensure clean state
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d', { willReadFrequently: true });
     if (ctx && drawRef.current) {
       drawRef.current(ctx, viewTransformRef.current);
     }
-  }, [stopContinuousColorCycleAnimation]);
-  
+  }, []);
+
+  const pauseAnimationForPan = useCallback(() => {
+    if (pausedAnimationForPanRef.current) return;
+    if (!stopAnimationRef.current) return;
+    stopAnimationRef.current();
+    pausedAnimationForPanRef.current = true;
+  }, []);
+
+  const resumeAnimationAfterPan = useCallback(async () => {
+    if (!pausedAnimationForPanRef.current) return;
+    try {
+      await drawingHandlers.resumeColorCycleAfterInteraction?.();
+    } catch (error) {
+      console.warn('Failed to resume color cycle animation after pan', error);
+    } finally {
+      pausedAnimationForPanRef.current = false;
+    }
+  }, [drawingHandlers]);
+
   // Set up the animation handlers for BrushControls
   useEffect(() => {
     setColorCycleAnimationHandlers({
       startContinuousColorCycleAnimation: wrappedStartAnimation,
       stopContinuousColorCycleAnimation: wrappedStopAnimation,
-      updateColorCycleGradient: brushEngine.updateColorCycleGradient,
-      setFlowDirection: brushEngine.setColorCycleFlowDirection,
+      updateColorCycleGradient: (stops: Array<{ position: number; color: string }>) =>
+        updateColorCycleGradientRef.current?.(stops),
+      setFlowDirection: (direction: 'forward' | 'backward') =>
+        setColorCycleFlowDirectionRef.current?.(direction),
     });
     
     // Cleanup on unmount
     return () => {
       setColorCycleAnimationHandlers(null);
-      colorCycleManagerRef.current?.stop();
     };
-  }, [wrappedStartAnimation, wrappedStopAnimation, brushEngine.updateColorCycleGradient, brushEngine.setColorCycleFlowDirection]);
+  }, [wrappedStartAnimation, wrappedStopAnimation]);
 
   // Stop all color-cycle playback when switching to a non-CC layer
   useEffect(() => {
@@ -873,6 +916,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         if (isMouseDownRef.current) {
           panRef.current.startPan(pointerX, pointerY);
           setCursorStyleRef.current('grabbing');
+          pauseAnimationForPan();
           // quiet
         }
         return;
@@ -904,9 +948,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         }
         setCursorStyleRef.current(defaultCursorStyle);
         setShowBrushCursorRef.current(true);
+        void resumeAnimationAfterPan();
       }
     };
-    
+
     const listenerOptions: AddEventListenerOptions = { capture: true };
 
     window.addEventListener('keydown', handleKeyDown, listenerOptions);
@@ -916,7 +961,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       window.removeEventListener('keydown', handleKeyDown, listenerOptions);
       window.removeEventListener('keyup', handleKeyUp, listenerOptions);
     };
-  }, [defaultCursorStyle]); // Only defaultCursorStyle as it's a string constant
+  }, [defaultCursorStyle, pauseAnimationForPan, resumeAnimationAfterPan]);
 
   // Monitor undo stack changes (quiet)
   useEffect(() => {
@@ -943,6 +988,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         if (isMouseDownRef.current) {
           panRef.current.startPan(pointerX, pointerY);
           setCursorStyleRef.current('grabbing');
+          pauseAnimationForPan();
           // quiet
         }
       }
@@ -955,6 +1001,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         }
         setCursorStyleRef.current(defaultCursorStyle);
         setShowBrushCursorRef.current(true);
+        void resumeAnimationAfterPan();
         // quiet
       }
     },
@@ -1553,7 +1600,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     draw,
     drawingAnimationFrameRef,
     previewAnimationFrameRef,
-    
+
     // Optional
     defaultCursorStyle: cursorStyle,
     restartColorCycleAnimation: () => {
@@ -1561,6 +1608,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         wrappedStartAnimation();
       }
     },
+    pauseAnimationForPan,
+    resumeAnimationAfterPan,
     // Surface errors consistently in pointer handlers too
     feedback: showFeedback
   });

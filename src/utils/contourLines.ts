@@ -1,4 +1,5 @@
 import type { ContourLinesBasis } from '@/types';
+import { clamp } from '@/utils/num';
 
 export interface ContourLinePath {
   points: Array<{ x: number; y: number }>;
@@ -15,8 +16,6 @@ export interface Lines2GenerationOptions {
   density: number;
   alternate: boolean;
 }
-
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const EPSILON = 1e-5;
 const EDGE_TOLERANCE = EPSILON * 100; // More generous tolerance for edge detection

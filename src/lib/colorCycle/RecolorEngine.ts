@@ -7,6 +7,7 @@
 import { ColorQuantizer, QuantizationOptions } from './ColorQuantizer';
 import { WebGLColorCycleRenderer } from './rendering/WebGLColorCycleRenderer';
 import { GradientPalette } from '../GradientPalette';
+import { parseCssColor } from '@/utils/color/parseCssColor';
 import type { Layer } from '../../types';
 
 type RecolorSettings = NonNullable<NonNullable<Layer['colorCycleData']>['recolorSettings']>;
@@ -530,17 +531,7 @@ export class RecolorEngine {
    * Parse CSS color string to RGBA
    */
   private parseColor(color: string): {r: number, g: number, b: number, a: number} {
-    // Simple hex color parsing (extend as needed)
-    if (color.startsWith('#')) {
-      const hex = color.slice(1);
-      const r = parseInt(hex.slice(0, 2), 16);
-      const g = parseInt(hex.slice(2, 4), 16);
-      const b = parseInt(hex.slice(4, 6), 16);
-      return { r, g, b, a: 255 };
-    }
-    
-    // Default fallback
-    return { r: 255, g: 255, b: 255, a: 255 };
+    return parseCssColor(color, { r: 255, g: 255, b: 255, a: 255 });
   }
   
   /**

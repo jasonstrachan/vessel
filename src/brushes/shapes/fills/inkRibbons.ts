@@ -1,3 +1,4 @@
+import { clamp } from '@/utils/num';
 import { resolveCoordinateSnap, isPointInPolygonSDF } from './common';
 import type { InkRibbonsFillParams, Point } from './types';
 
@@ -12,7 +13,6 @@ type SignedDistanceField = InkRibbonsFillParams['dependencies']['createSignedDis
   ? R
   : never;
 
-const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 const clamp01 = (value: number): number => clamp(Number.isFinite(value) ? value : 0, 0, 1);
 
 const clampInt = (value: number, min: number, max: number): number => {
@@ -20,7 +20,7 @@ const clampInt = (value: number, min: number, max: number): number => {
     return min;
   }
   const rounded = Math.round(value);
-  return Math.max(min, Math.min(max, rounded));
+  return clamp(rounded, min, max);
 };
 
 const computePolygonBounds = (vertices: Point[]) => {
