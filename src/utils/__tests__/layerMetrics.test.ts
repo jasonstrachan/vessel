@@ -1,6 +1,6 @@
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { computeLayerPercentOffset } from '@/utils/layerMetrics';
-import { deriveAutoPercentOffset, type LayerBounds } from '@/utils/alignment/alignFitResolver';
+import { deriveAutoPercentOffset } from '@/utils/alignment/alignFitResolver';
 import type { Layer, Project } from '@/types';
 
 const createImageData = (width: number, height: number): ImageData => {
@@ -58,8 +58,8 @@ describe('layerMetrics', () => {
 
     const offset = computeLayerPercentOffset(layer, project);
 
-    expect(offset.x).toBeCloseTo((2 / 9) * 100, 5);
-    expect(offset.y).toBeCloseTo((3 / 7) * 100, 5);
+    expect(offset.x).toBeCloseTo((2 / width) * 100, 5);
+    expect(offset.y).toBeCloseTo((3 / height) * 100, 5);
   });
 
   it('accounts for document frame when deriving auto percent offsets', () => {
@@ -75,9 +75,9 @@ describe('layerMetrics', () => {
     canvas.height = height;
 
     const frame = { x: 40, y: 30 };
-    const bounds = { x: frame.x, y: frame.y, width, height, anchor: 'top-left' } as const;
+    const bounds = { x: frame.x, y: frame.y, width, height } as const;
 
-    const layer: Layer & { frame: { x: number; y: number }; bounds: LayerBounds } = {
+    const layer: Layer & { frame: { x: number; y: number }; bounds: typeof bounds } = {
       id: 'layer-doc',
       name: 'Layer Doc',
       visible: true,
@@ -107,17 +107,10 @@ describe('layerMetrics', () => {
 
     const percent = computeLayerPercentOffset(layer, project);
 
-    const expected = deriveAutoPercentOffset(
-      {
-        x: bounds.x,
-        y: bounds.y,
-        width: bounds.width,
-        height: bounds.height,
-        anchor: bounds.anchor
-      },
-      { offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1 },
-      { width: project.width, height: project.height }
-    );
+    const expected = deriveAutoPercentOffset(bounds, {
+      width: project.width,
+      height: project.height
+    });
 
     expect(percent.x).toBeCloseTo(expected.x, 5);
     expect(percent.y).toBeCloseTo(expected.y, 5);

@@ -5,17 +5,20 @@ import type {
   LayerAlignmentPercentOffset,
   Project
 } from '@/types';
-import {
-  deriveAutoPercentOffset,
-  type LayerBounds,
-  type NormalizedViewportMapping
-} from '@/utils/alignment/alignFitResolver';
+import { deriveAutoPercentOffset } from '@/utils/alignment/alignFitResolver';
 import { computeContentBoundsFromImageData } from './imageBounds';
 
 export interface LayerContentMetrics {
   surfaceSize: { width: number; height: number };
   contentBounds: ContentBounds;
 }
+
+type LegacyLayerBounds = {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+};
 
 const MIN_DIMENSION = 1e-3;
 
@@ -181,7 +184,6 @@ interface PercentOffsetContext {
   originY?: number;
   boundsWidth?: number;
   boundsHeight?: number;
-  anchor?: LayerBounds['anchor'];
   projectWidth?: number;
   projectHeight?: number;
 }
@@ -201,7 +203,7 @@ export const computePercentOffsetFromMetrics = (
   const projectWidth = Math.max(1, context.projectWidth ?? metrics.surfaceSize.width);
   const projectHeight = Math.max(1, context.projectHeight ?? metrics.surfaceSize.height);
 
-  const documentBounds: Required<LayerBounds> = {
+  const documentBounds = {
     x: toFiniteNumber(context.originX, 0),
     y: toFiniteNumber(context.originY, 0),
     width: Math.max(
@@ -211,18 +213,10 @@ export const computePercentOffsetFromMetrics = (
     height: Math.max(
       MIN_DIMENSION,
       toFiniteNumber(context.boundsHeight, metrics.contentBounds.height)
-    ),
-    anchor: context.anchor ?? 'top-left'
+    )
   };
 
-  const mapping: NormalizedViewportMapping = {
-    offsetX: 0,
-    offsetY: 0,
-    scaleX: 1,
-    scaleY: 1
-  };
-
-  return deriveAutoPercentOffset(documentBounds, mapping, {
+  return deriveAutoPercentOffset(documentBounds, {
     width: projectWidth,
     height: projectHeight
   });
@@ -253,23 +247,21 @@ export const computeLayerPercentOffset = (
   }
 
   const metrics = computeLayerContentMetrics(layer, project);
-  const layerBounds = (layer as { bounds?: LayerBounds | null }).bounds;
+  const layerBounds = (layer as { bounds?: LegacyLayerBounds | null }).bounds;
   const frame = (layer as { frame?: { x?: number; y?: number } }).frame;
 
-  const boundsForPercent: Required<LayerBounds> = layerBounds
+  const boundsForPercent = layerBounds
     ? {
         x: toFiniteNumber(layerBounds.x, 0),
         y: toFiniteNumber(layerBounds.y, 0),
         width: Math.max(MIN_DIMENSION, toFiniteNumber(layerBounds.width, metrics.contentBounds.width)),
-        height: Math.max(MIN_DIMENSION, toFiniteNumber(layerBounds.height, metrics.contentBounds.height)),
-        anchor: layerBounds.anchor ?? 'top-left'
+        height: Math.max(MIN_DIMENSION, toFiniteNumber(layerBounds.height, metrics.contentBounds.height))
       }
     : {
         x: toFiniteNumber(frame?.x, 0) + toFiniteNumber(metrics.contentBounds.x, 0),
         y: toFiniteNumber(frame?.y, 0) + toFiniteNumber(metrics.contentBounds.y, 0),
         width: Math.max(MIN_DIMENSION, metrics.contentBounds.width),
-        height: Math.max(MIN_DIMENSION, metrics.contentBounds.height),
-        anchor: 'top-left'
+        height: Math.max(MIN_DIMENSION, metrics.contentBounds.height)
       };
 
   return computePercentOffsetFromMetrics(metrics, {
@@ -277,7 +269,6 @@ export const computeLayerPercentOffset = (
     originY: boundsForPercent.y,
     boundsWidth: boundsForPercent.width,
     boundsHeight: boundsForPercent.height,
-    anchor: boundsForPercent.anchor,
     projectWidth,
     projectHeight
   });

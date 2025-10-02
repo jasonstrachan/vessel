@@ -5,10 +5,6 @@ export type LayerAlignmentFit =
   | 'contain'
   | 'cover'
   | 'fill'
-  | 'fit-width'
-  | 'fit-height'
-  | 'scale-down'
-  | 'percent'
   | 'uniform'
   | 'none';
 

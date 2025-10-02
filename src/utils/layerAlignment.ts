@@ -17,6 +17,7 @@ export interface LayerTransform {
 export interface LayoutLayerInput {
   layerId: string;
   surface: Size2D;
+  document: Size2D;
   content?: Size2D;
   alignment: LayerAlignmentSettings;
   hidden?: boolean;
@@ -77,12 +78,22 @@ export const resolveContainerLayout = (
       return;
     }
 
-    const surface = {
-      width: clampDimension(entry.surface.width),
-      height: clampDimension(entry.surface.height)
-    };
+    const isUniformFit = entry.alignment.fit === 'uniform';
+    const paintedBounds = isUniformFit && entry.content
+      ? {
+          x: 0,
+          y: 0,
+          width: clampDimension(entry.content.width),
+          height: clampDimension(entry.content.height)
+        }
+      : {
+          x: 0,
+          y: 0,
+          width: clampDimension(entry.document.width),
+          height: clampDimension(entry.document.height)
+        };
 
-    const transform = computeLayerTransform(surface, viewportForLayer, entry.alignment);
+    const transform = computeLayerTransform(entry.document, viewportForLayer, entry.alignment, { paintedBounds });
 
     resolved.push({
       layerId: entry.layerId,

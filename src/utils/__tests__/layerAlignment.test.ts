@@ -38,17 +38,6 @@ describe('computeLayerTransform', () => {
     expect(transform.translateY).toBeCloseTo(50);
   });
 
-  test('scale-down will not upscale content', () => {
-    const transform = computeLayerTransform(
-      { width: 50, height: 50 },
-      { width: 25, height: 25 },
-      { ...baseAlignment, fit: 'scale-down' }
-    );
-
-    expect(transform.scaleX).toBeCloseTo(0.5);
-    expect(transform.scaleY).toBeCloseTo(0.5);
-  });
-
   test('cover scales uniformly until the frame is fully covered', () => {
     const transform = computeLayerTransform(
       { width: 100, height: 50 },
@@ -125,7 +114,7 @@ describe('computeLayerTransform', () => {
         ...baseAlignment,
         horizontal: 'left',
         vertical: 'top',
-        fit: 'percent',
+        fit: 'none',
         positioning: 'anchor',
         offsetPercent: { x: 25, y: 75 }
       }
@@ -203,13 +192,16 @@ describe('computeLayerTransform', () => {
       source: { width: 128, height: 96 }
     } as const;
 
-    const destination = computeLayerDestination(layer, {
-      scaleX: 1,
-      scaleY: 1,
-      offsetX: 0,
-      offsetY: 0,
-      canvasWidth: 512,
-      canvasHeight: 512
+    const destination = computeLayerDestination({
+      document: { width: 512, height: 512 },
+      viewport: { width: 512, height: 512 },
+      alignment: layer.alignment,
+      paintedBounds: {
+        x: layer.bounds.x,
+        y: layer.bounds.y,
+        width: layer.bounds.width,
+        height: layer.bounds.height
+      }
     });
 
     expect(destination.x).toBeCloseTo(64);
@@ -244,9 +236,9 @@ describe('resolveContainerLayout', () => {
 
     const result = resolveContainerLayout(
       [
-        { layerId: 'a', surface: { width: 120, height: 60 }, alignment: baseAlignment },
-        { layerId: 'b', surface: { width: 80, height: 40 }, alignment: baseAlignment, hidden: true },
-        { layerId: 'c', surface: { width: 160, height: 100 }, alignment: baseAlignment }
+        { layerId: 'a', surface: { width: 120, height: 60 }, document: { width: 400, height: 200 }, alignment: baseAlignment },
+        { layerId: 'b', surface: { width: 80, height: 40 }, document: { width: 400, height: 200 }, alignment: baseAlignment, hidden: true },
+        { layerId: 'c', surface: { width: 160, height: 100 }, document: { width: 400, height: 200 }, alignment: baseAlignment }
       ],
       layout,
       { width: 400, height: 200 }
@@ -266,7 +258,7 @@ describe('resolveContainerLayout', () => {
 
     const result = resolveContainerLayout(
       [
-        { layerId: 'layer', surface: { width: 50, height: 50 }, alignment: baseAlignment }
+        { layerId: 'layer', surface: { width: 50, height: 50 }, document: { width: 500, height: 300 }, alignment: baseAlignment }
       ],
       layout,
       { width: 500, height: 300 }
@@ -281,8 +273,8 @@ describe('resolveContainerLayout', () => {
 
     const result = resolveContainerLayout(
       [
-        { layerId: 'a', surface: { width: 100, height: 100 }, alignment: baseAlignment },
-        { layerId: 'b', surface: { width: 80, height: 120 }, alignment: baseAlignment }
+        { layerId: 'a', surface: { width: 100, height: 100 }, document: { width: 400, height: 200 }, alignment: baseAlignment },
+        { layerId: 'b', surface: { width: 80, height: 120 }, document: { width: 400, height: 200 }, alignment: baseAlignment }
       ],
       layout,
       { width: 400, height: 200 }
@@ -314,6 +306,7 @@ describe('resolveContainerLayout', () => {
         {
           layerId: 'uniform',
           surface: { width: 200, height: 100 },
+          document: { width: 150, height: 150 },
           content: { width: 80, height: 60 },
           alignment: uniformAlignment
         }

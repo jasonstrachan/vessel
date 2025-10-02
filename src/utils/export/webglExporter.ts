@@ -1,13 +1,14 @@
-import { cloneExportLayout, cloneLayerAlignment } from '@/utils/layoutDefaults';
-import { computeLayerContentMetrics, computePercentOffsetFromMetrics } from '@/utils/layerMetrics';
-import { resolveContainerLayout as resolveContainerLayoutModel } from '@/utils/layerAlignment';
-import type { LayoutLayerInput, ResolvedLayerLayout } from '@/utils/layerAlignment';
+import { cloneExportLayout } from '@/utils/layoutDefaults';
+import { computeLayerContentMetrics } from '@/utils/layerMetrics';
 import type { LayerContentMetrics } from '@/utils/layerMetrics';
-import type { LayerBounds } from '@/utils/alignment/alignFitResolver';
+import { resolveContainerLayout as resolveContainerLayoutModel } from '@/utils/layerAlignment';
+import type { LayoutLayerInput, LayerTransform, ResolvedLayerLayout } from '@/utils/layerAlignment';
+import { deriveAutoPercentOffset, derivePercentBounds, normalizeAlignment } from '@/utils/alignment/alignFitResolver';
 import type {
   ContentBounds,
   ExportContainerLayout,
   Layer,
+  LayerAlignmentSettings,
   Project,
   WebGLExportBundleFormat
 } from '@/types';
@@ -68,6 +69,40 @@ interface CanvasExportFormatOption {
   quality?: number;
 }
 
+type LegacyLayerBounds = {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+};
+
+const resolveDocumentBoundsPx = (
+  layer: Layer,
+  metrics: LayerContentMetrics,
+  project: Project
+): WebGLLayerBounds => {
+  const layerBounds = (layer as { bounds?: LegacyLayerBounds | null }).bounds;
+  if (layerBounds) {
+    return {
+      x: toFiniteValue(layerBounds.x, 0),
+      y: toFiniteValue(layerBounds.y, 0),
+      width: Math.max(1, toFiniteValue(layerBounds.width, metrics.contentBounds.width ?? project.width)),
+      height: Math.max(1, toFiniteValue(layerBounds.height, metrics.contentBounds.height ?? project.height))
+    };
+  }
+
+  const frame = (layer as { frame?: { x?: number; y?: number } | null }).frame;
+  const originX = toFiniteValue(frame?.x, 0);
+  const originY = toFiniteValue(frame?.y, 0);
+
+  return {
+    x: originX + toFiniteValue(metrics.contentBounds.x, 0),
+    y: originY + toFiniteValue(metrics.contentBounds.y, 0),
+    width: Math.max(1, metrics.contentBounds.width),
+    height: Math.max(1, metrics.contentBounds.height)
+  };
+};
+
 const CANVAS_EXPORT_FORMATS: readonly CanvasExportFormatOption[] = [
   { type: 'image/avif', quality: 0.6 },
   { type: 'image/webp', quality: 0.75 },
@@ -105,6 +140,13 @@ const PROPERTY_MINIFY_MAP = {
   blendMode: 'bm',
   source: 'src',
   bounds: 'bnd',
+  pixelBoundsPx: 'pbpx',
+  pixelBoundsPercent: 'pbpr',
+  documentBoundsPx: 'dbpx',
+  documentBoundsPercent: 'dbpr',
+  layoutPlacement: 'lp',
+  frame: 'fr',
+  transform: 'tr',
   anchor: 'anc',
   alignment: 'al',
   fit: 'ft',
@@ -166,6 +208,12 @@ const minifyProperties = (value: unknown): unknown => {
   return result;
 };
 
+const isCanvas2DContext = (
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | RenderingContext | null
+): ctx is CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D => {
+  return Boolean(ctx && typeof (ctx as CanvasRenderingContext2D).clearRect === 'function');
+};
+
 interface WebGLSerializedBrushState {
   width: number;
   height: number;
@@ -200,13 +248,26 @@ export interface WebGLLayerBounds {
   y: number;
   width: number;
   height: number;
-  /**
-   * Controls how scaling should treat this layer relative to its design rect.
-   * - 'top-left' keeps the origin pinned and allows non-uniform scaling.
-   * - 'center' keeps the rect centered when applying uniform scaling.
-   * - 'stretch' signals that the rect can stretch independently per axis.
-   */
-  anchor?: 'top-left' | 'center' | 'stretch';
+}
+
+export interface WebGLLayerBoundsPercent extends WebGLLayerBounds {}
+
+export interface WebGLLayerPlacement {
+  frame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  transform: LayerTransform;
+}
+
+export interface AlignmentExportPayload {
+  fit: LayerAlignmentSettings['fit'];
+  horizontal: LayerAlignmentSettings['horizontal'];
+  vertical: LayerAlignmentSettings['vertical'];
+  positioning: LayerAlignmentSettings['positioning'];
+  offsetPercent?: { x: number; y: number };
 }
 
 export interface WebGLLayerMetadata {
@@ -217,8 +278,10 @@ export interface WebGLLayerMetadata {
   opacity?: number;
   blendMode?: Layer['blendMode'];
   source: WebGLLayerSource;
-  bounds: WebGLLayerBounds;
-  alignment: Layer['alignment'];
+  documentBoundsPx: WebGLLayerBounds;
+  documentBoundsPercent: WebGLLayerBoundsPercent;
+  layoutPlacement?: WebGLLayerPlacement;
+  alignment: AlignmentExportPayload;
   contentBounds?: ContentBounds;
   assets?: WebGLLayerAsset;
   colorCycle?: WebGLSerializedColorCycle;
@@ -424,75 +487,7 @@ const deduplicateGradients = (metadata: WebGLExportMetadata): void => {
   }
 };
 
-const stripLayerDefaults = (layer: WebGLLayerMetadata): WebGLLayerMetadata => {
-  const designBounds: WebGLLayerBounds = {
-    x: layer.bounds.x,
-    y: layer.bounds.y,
-    width: layer.bounds.width,
-    height: layer.bounds.height
-  };
-
-  if (layer.bounds.anchor && layer.bounds.anchor !== 'top-left') {
-    designBounds.anchor = layer.bounds.anchor;
-  }
-
-  const stripped: WebGLLayerMetadata = {
-    id: layer.id,
-    name: layer.name,
-    type: layer.type,
-    visible: layer.visible !== false,
-    source: { ...layer.source },
-    bounds: designBounds,
-    alignment: {
-      fit: layer.alignment.fit,
-      horizontal: layer.alignment.horizontal,
-      vertical: layer.alignment.vertical,
-      positioning: layer.alignment.positioning,
-      offsetPx: layer.alignment.offsetPx ? { ...layer.alignment.offsetPx } : { x: 0, y: 0 },
-      offsetPercent: layer.alignment.offsetPercent
-        ? { ...layer.alignment.offsetPercent }
-        : undefined
-    }
-  };
-
-  const bounds = layer.contentBounds;
-  if (bounds) {
-    const matchesSource = bounds.x === 0
-      && bounds.y === 0
-      && bounds.width === layer.source.width
-      && bounds.height === layer.source.height;
-    if (!matchesSource) {
-      stripped.contentBounds = { ...bounds };
-    }
-  }
-
-  if (typeof layer.opacity === 'number' && layer.opacity !== DEFAULT_LAYER_OPACITY) {
-    stripped.opacity = layer.opacity;
-  }
-
-  const blendMode = layer.blendMode;
-  if (blendMode && !DEFAULT_BLEND_MODES.has(blendMode)) {
-    stripped.blendMode = blendMode;
-  }
-
-  if (layer.assets && Object.keys(layer.assets).length > 0) {
-    stripped.assets = layer.assets;
-  }
-
-  if (layer.colorCycle) {
-    stripped.colorCycle = layer.colorCycle;
-  }
-
-  if (typeof layer.stackIndex === 'number') {
-    stripped.stackIndex = layer.stackIndex;
-  }
-
-  if (layer.version !== undefined) {
-    stripped.version = layer.version;
-  }
-
-  return stripped;
-};
+const stripLayerDefaults = (layer: WebGLLayerMetadata): WebGLLayerMetadata => layer;
 
 const detectFlowDirectionFromAnimator = (animator: unknown): 'forward' | 'reverse' | undefined => {
   if (!animator || typeof animator !== 'object') {
@@ -1624,7 +1619,7 @@ const imageBitmapToDataURL = async (bitmap: ImageBitmap): Promise<string | undef
     }
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) {
+    if (!isCanvas2DContext(ctx)) {
       return undefined;
     }
 
@@ -1693,7 +1688,7 @@ const downloadBlob = (blob: Blob, filename: string) => {
   URL.revokeObjectURL(url);
 };
 
-type GobletAssetName = 'index.html' | 'goblet.js' | 'fflate-inflate.js';
+type GobletAssetName = 'index.html' | 'goblet.js' | 'alignFitResolver.js' | 'fflate-inflate.js';
 
 const gobletAssetCache = new Map<string, Promise<string>>();
 
@@ -1916,7 +1911,8 @@ const appendZipAutoloadSnippet = (
         } else {
           delete document.body.dataset.viewportMode;
         }
-        const renderResult = await renderVesselWebGL(normalizedMetadata, canvas, { scale });
+        const opts = normalizedMetadata?.viewport?.mode === 'fixed' ? {} : { scale };
+        const renderResult = await renderVesselWebGL(normalizedMetadata, canvas, opts);
         summarizeMetadata(normalizedMetadata, renderResult);
         lastMetadata = normalizedMetadata;
         const rendererHandle = canvas && canvas[Symbol.for('VesselRenderer')];
@@ -1965,6 +1961,24 @@ const appendZipAutoloadSnippet = (
   return `${scriptContent}${snippet}`;
 };
 
+const buildInlineAlignRuntime = (alignJs: string): string => {
+  const sanitized = alignJs
+    .replace(/export\s+default\s+[^;\n]+;?/g, '')
+    .replace(/export\s+\{[^}]*\};?/g, '')
+    .replace(/export\s+const\s+/g, 'const ')
+    .replace(/export\s+function\s+/g, 'function ')
+    .trim();
+
+  if (!sanitized) {
+    return '';
+  }
+
+  const exports = ['normalizeAlignment', 'computeLayerTransform', 'computeLayerDestination'];
+  const exportList = exports.join(', ');
+
+  return `const { ${exportList} } = (() => {\n${sanitized}\nreturn { ${exportList} };\n})();`;
+};
+
 const buildInlineInflateRuntime = (inflateJs: string): string => {
   let sanitized = inflateJs
     .replace(/export\s+default\s+inflateRaw;?/g, '')
@@ -1977,15 +1991,25 @@ const buildInlineInflateRuntime = (inflateJs: string): string => {
 const buildSingleFileScript = (
   scriptContent: string,
   gobletRuntime: string,
+  alignRuntime: string,
   inflateRuntime: string,
   metadataJson: string,
   diagnosticsEnabled: boolean
 ): string => {
   const withoutImport = stripGobletImport(scriptContent);
-  const runtimeWithoutInflateImport = gobletRuntime.replace(/\s*import\s+\{\s*inflateRaw\s*\}\s+from\s+'\.\/fflate-inflate\.js';?\s*/, '\n');
+  const runtimeWithoutAlignImport = gobletRuntime.replace(/\s*import\s+\{[^}]*\}\s+from\s+'\.\/alignFitResolver\.js';?\s*/g, '\n');
+  const runtimeWithoutInflateImport = runtimeWithoutAlignImport.replace(/\s*import\s+\{\s*inflateRaw\s*\}\s+from\s+'\.\/fflate-inflate\.js';?\s*/g, '\n');
   const inlineInflateAlreadyPresent = /const\s+inflateRaw\s*=\s*\(\s*\(\s*\)\s*=>/.test(runtimeWithoutInflateImport);
   const inlineInflate = inlineInflateAlreadyPresent ? '' : buildInlineInflateRuntime(inflateRuntime);
-  const runtimePrefix = inlineInflate ? `\n${inlineInflate}\n` : '\n';
+  const inlineAlign = buildInlineAlignRuntime(alignRuntime);
+  const runtimePrefixParts = [] as string[];
+  if (inlineAlign) {
+    runtimePrefixParts.push(inlineAlign);
+  }
+  if (inlineInflate) {
+    runtimePrefixParts.push(inlineInflate);
+  }
+  const runtimePrefix = runtimePrefixParts.length > 0 ? `\n${runtimePrefixParts.join('\n')}\n` : '\n';
   const runtime = `${runtimePrefix}${runtimeWithoutInflateImport}\n`;
   const metadataLiteral = encodeMetadataForInlineScript(metadataJson);
   const diagnosticsLiteral = diagnosticsEnabled ? 'true' : 'false';
@@ -2083,20 +2107,22 @@ const buildSingleFileScript = (
           setStatus('Rendering packaged bundle…');
           console.log('Expanded metadata layers (single-file):', packagedMetadata.layers);
           if (Array.isArray(packagedMetadata.layers)) {
-            console.log('[goblet] Full layer data:', packagedMetadata.layers.map((layer) => ({
-              id: layer.id,
-              bounds: layer.bounds,
-              source: layer.source,
-              contentBounds: layer.contentBounds,
-              opacity: layer.opacity,
-              visible: layer.visible,
-              hasTexture: Boolean(layer.assets?.texture),
-              textureStart: typeof layer.assets?.texture === 'string' ? layer.assets.texture.substring(0, 50) : undefined
-            })));
+          console.log('[goblet] Full layer data:', packagedMetadata.layers.map((layer) => ({
+            id: layer.id,
+            documentBoundsPx: layer.documentBoundsPx,
+            layoutPlacement: layer.layoutPlacement,
+            source: layer.source,
+            contentBounds: layer.contentBounds,
+            opacity: layer.opacity,
+            visible: layer.visible,
+            hasTexture: Boolean(layer.assets?.texture),
+            textureStart: typeof layer.assets?.texture === 'string' ? layer.assets.texture.substring(0, 50) : undefined
+          })));
           }
           const scale = computeScale(packagedMetadata);
           console.log('[goblet] Computed scale:', scale);
-          const renderResult = await renderVesselWebGL(packagedMetadata, canvas, { scale });
+          const opts = packagedMetadata?.viewport?.mode === 'fixed' ? {} : { scale };
+          const renderResult = await renderVesselWebGL(packagedMetadata, canvas, opts);
           console.log('[goblet] Render complete:', renderResult);
           summarizeMetadata(packagedMetadata, renderResult);
           if (enableDiagnostics) {
@@ -2135,6 +2161,7 @@ const stripGobletExports = (gobletJs: string): string => {
 const createSingleFileGobletHtml = (
   template: string,
   gobletJs: string,
+  alignJs: string,
   inflateJs: string,
   metadataJson: string,
   diagnosticsEnabled: boolean
@@ -2172,7 +2199,9 @@ const createSingleFileGobletHtml = (
   }
 
   const runtime = stripGobletExports(gobletJs);
-  return transformModuleScript(template, (script) => buildSingleFileScript(script, runtime, inflateJs, metadataJson, diagnosticsEnabled));
+  return transformModuleScript(template, (script) =>
+    buildSingleFileScript(script, runtime, alignJs, inflateJs, metadataJson, diagnosticsEnabled)
+  );
 };
 
 export const exportProjectAsWebGL = async (
@@ -2231,42 +2260,54 @@ export const exportProjectAsWebGL = async (
     )
   };
 
-  const alignmentByLayerId = new Map<string, Layer['alignment']>();
+  const metadataLayers: WebGLLayerMetadata[] = [];
   const layoutInputs: LayoutLayerInput[] = [];
-  options.layers.forEach((layer) => {
+  const documentSize = {
+    width: options.project.width,
+    height: options.project.height
+  };
+
+  for (let index = 0; index < options.layers.length; index += 1) {
+    const layer = options.layers[index];
+    if (!options.includeHiddenLayers && !layer.visible) {
+      continue;
+    }
+
     const metrics = metricsMap.get(layer.id) ?? computeLayerExportMetrics(layer, options.project);
-    const alignment = cloneLayerAlignment(layer.alignment);
-    const layerBounds = (layer as { bounds?: LayerBounds | null }).bounds;
-    const frame = (layer as { frame?: { x?: number; y?: number } | null }).frame;
-    const alignmentPercent = computePercentOffsetFromMetrics(metrics, {
-      originX: toFiniteValue(layerBounds?.x ?? metrics.contentBounds.x ?? frame?.x, 0),
-      originY: toFiniteValue(layerBounds?.y ?? metrics.contentBounds.y ?? frame?.y, 0),
-      boundsWidth: toFiniteValue(layerBounds?.width ?? metrics.contentBounds.width, metrics.contentBounds.width),
-      boundsHeight: toFiniteValue(layerBounds?.height ?? metrics.contentBounds.height, metrics.contentBounds.height),
-      anchor: layerBounds?.anchor ?? 'top-left',
-      projectWidth: options.project.width,
-      projectHeight: options.project.height
-    });
-    const shouldApplyPercentFallback = alignment.positioning === 'auto' || alignment.fit === 'percent';
+    const sourceSize = metrics.surfaceSize;
+    const contentBounds = metrics.contentBounds;
+    const documentBoundsPx = resolveDocumentBoundsPx(layer, metrics, options.project);
+    const documentBoundsPercent = derivePercentBounds(documentBoundsPx, documentSize);
 
-    const resolvedAlignment: Layer['alignment'] = {
-      ...alignment,
-      offsetPx: alignment.offsetPx ? { ...alignment.offsetPx } : undefined,
-      offsetPercent: (() => {
-        if (shouldApplyPercentFallback) {
-          const percent = alignment.offsetPercent ?? alignmentPercent;
-          return percent ? { ...percent } : undefined;
-        }
+    const normalizedAlignment = normalizeAlignment(layer.alignment);
+    let offsetPercent: LayerAlignmentSettings['offsetPercent'];
+    if (normalizedAlignment.positioning === 'auto') {
+      offsetPercent = deriveAutoPercentOffset(documentBoundsPx, documentSize);
+    } else if (normalizedAlignment.positioning === 'anchor') {
+      offsetPercent = undefined;
+    } else {
+      offsetPercent = {
+        x: normalizedAlignment.offsetPercent?.x ?? 0,
+        y: normalizedAlignment.offsetPercent?.y ?? 0
+      };
+    }
 
-        if (!alignment.offsetPercent) {
-          return undefined;
-        }
-
-        return { ...alignment.offsetPercent };
-      })()
+    const alignmentPayload: AlignmentExportPayload = {
+      fit: normalizedAlignment.fit,
+      horizontal: normalizedAlignment.horizontal,
+      vertical: normalizedAlignment.vertical,
+      positioning: normalizedAlignment.positioning,
+      ...(offsetPercent ? { offsetPercent } : {})
     };
 
-    alignmentByLayerId.set(layer.id, resolvedAlignment);
+    const layoutAlignment: LayerAlignmentSettings = {
+      fit: normalizedAlignment.fit,
+      horizontal: normalizedAlignment.horizontal,
+      vertical: normalizedAlignment.vertical,
+      positioning: normalizedAlignment.positioning,
+      ...(offsetPercent ? { offsetPercent } : {}),
+      offsetPx: undefined
+    };
 
     layoutInputs.push({
       layerId: layer.id,
@@ -2274,14 +2315,59 @@ export const exportProjectAsWebGL = async (
         width: Math.max(1, metrics.surfaceSize.width),
         height: Math.max(1, metrics.surfaceSize.height)
       },
-      content: {
-        width: Math.max(1, metrics.contentBounds.width),
-        height: Math.max(1, metrics.contentBounds.height)
+      document: {
+        width: Math.max(1, options.project.width),
+        height: Math.max(1, options.project.height)
       },
-      alignment: resolvedAlignment,
+      content: {
+        width: Math.max(1, documentBoundsPx.width),
+        height: Math.max(1, documentBoundsPx.height)
+      },
+      alignment: layoutAlignment,
       hidden: !options.includeHiddenLayers && !layer.visible
     });
-  });
+
+    const texture = await captureLayerTexture(layer);
+    const colorCycle = await serializeColorCycleData(layer);
+
+    const baseLayerMetadata: WebGLLayerMetadata = {
+      id: layer.id,
+      name: layer.name,
+      type: layer.layerType,
+      visible: layer.visible !== false,
+      opacity: layer.opacity,
+      blendMode: layer.blendMode,
+      source: {
+        width: Math.max(1, Math.round(sourceSize.width)),
+        height: Math.max(1, Math.round(sourceSize.height))
+      },
+      documentBoundsPx: {
+        x: roundPlacementValue(documentBoundsPx.x),
+        y: roundPlacementValue(documentBoundsPx.y),
+        width: roundPlacementValue(documentBoundsPx.width),
+        height: roundPlacementValue(documentBoundsPx.height)
+      },
+      documentBoundsPercent: {
+        x: roundPlacementValue(documentBoundsPercent.x),
+        y: roundPlacementValue(documentBoundsPercent.y),
+        width: roundPlacementValue(documentBoundsPercent.width),
+        height: roundPlacementValue(documentBoundsPercent.height)
+      },
+      alignment: alignmentPayload,
+      contentBounds: {
+        x: contentBounds.x,
+        y: contentBounds.y,
+        width: contentBounds.width,
+        height: contentBounds.height
+      },
+      assets: texture ? { texture } : undefined,
+      colorCycle,
+      stackIndex: Number.isFinite(layer.order) ? layer.order : index,
+      version: layer.version
+    };
+
+    metadataLayers.push(stripLayerDefaults(baseLayerMetadata));
+  }
 
   let placementByLayerId: Map<string, ResolvedLayerLayout> | null = null;
   try {
@@ -2297,102 +2383,32 @@ export const exportProjectAsWebGL = async (
     gobletDebugWarn('[webglExporter] Failed to resolve container layout', error);
   }
 
-  const metadataLayers: WebGLLayerMetadata[] = [];
-  for (let index = 0; index < options.layers.length; index += 1) {
-    const layer = options.layers[index];
-    if (!options.includeHiddenLayers && !layer.visible) {
-      continue;
-    }
-
-    const metrics = metricsMap.get(layer.id) ?? computeLayerExportMetrics(layer, options.project);
-    const sourceSize = metrics.surfaceSize;
-    let contentBounds = metrics.contentBounds;
-
-    if (!contentBounds || contentBounds.width <= 0 || contentBounds.height <= 0) {
-      contentBounds = {
-        x: 0,
-        y: 0,
-        width: Math.max(1, sourceSize.width),
-        height: Math.max(1, sourceSize.height)
-      };
-    }
-    const texture = await captureLayerTexture(layer);
-    const colorCycle = await serializeColorCycleData(layer);
-    const alignment = alignmentByLayerId.get(layer.id) ?? cloneLayerAlignment(layer.alignment);
-
-    const layoutPlacement = placementByLayerId?.get(layer.id);
-
-    const anchor = alignment.horizontal === 'center' && alignment.vertical === 'center'
-      ? 'center'
-      : 'top-left';
-
-    const boundsRect = (() => {
-      const isUniformFit = alignment.fit === 'uniform';
-      const sizeBasisWidth = isUniformFit ? sourceSize.width : contentBounds.width;
-      const sizeBasisHeight = isUniformFit ? sourceSize.height : contentBounds.height;
-
-      if (!layoutPlacement) {
-        return {
-          x: 0,
-          y: 0,
-          width: roundPlacementValue(sizeBasisWidth),
-          height: roundPlacementValue(sizeBasisHeight),
-          anchor
-        } as WebGLLayerBounds;
+  if (placementByLayerId) {
+    metadataLayers.forEach((layer) => {
+      const placement = placementByLayerId?.get(layer.id);
+      if (!placement) {
+        layer.layoutPlacement = undefined;
+        return;
       }
 
-      const frame = layoutPlacement.frame;
-      const transform = layoutPlacement.transform;
-      const translateX = toFiniteValue(transform?.translateX, 0);
-      const translateY = toFiniteValue(transform?.translateY, 0);
-      const scaleX = toFiniteValue(transform?.scaleX, 1);
-      const scaleY = toFiniteValue(transform?.scaleY, 1);
-      const contentWidth = Math.max(1, sizeBasisWidth * scaleX);
-      const contentHeight = Math.max(1, sizeBasisHeight * scaleY);
-
-      return {
-        x: roundPlacementValue((frame?.x ?? 0) + translateX),
-        y: roundPlacementValue((frame?.y ?? 0) + translateY),
-        width: roundPlacementValue(contentWidth),
-        height: roundPlacementValue(contentHeight),
-        anchor
-      } as WebGLLayerBounds;
-    })();
-
-    gobletDebugLog('[webglExporter] Layer bounds calculation', {
-      layerId: layer.id,
-      layoutPlacement,
-      boundsRect,
-      alignment,
-      contentBounds
+      layer.layoutPlacement = {
+        frame: {
+          x: roundPlacementValue(placement.frame.x),
+          y: roundPlacementValue(placement.frame.y),
+          width: roundPlacementValue(placement.frame.width),
+          height: roundPlacementValue(placement.frame.height)
+        },
+        transform: {
+          scaleX: roundPlacementValue(placement.transform.scaleX),
+          scaleY: roundPlacementValue(placement.transform.scaleY),
+          translateX: roundPlacementValue(placement.transform.translateX),
+          translateY: roundPlacementValue(placement.transform.translateY),
+          rotation: typeof placement.transform.rotation === 'number'
+            ? roundPlacementValue(placement.transform.rotation)
+            : undefined
+        }
+      };
     });
-
-    const baseLayerMetadata: WebGLLayerMetadata = {
-      id: layer.id,
-      name: layer.name,
-      type: layer.layerType,
-      visible: layer.visible !== false,
-      opacity: layer.opacity,
-      blendMode: layer.blendMode,
-      source: {
-        width: Math.max(1, Math.round(sourceSize.width)),
-        height: Math.max(1, Math.round(sourceSize.height))
-      },
-      bounds: boundsRect,
-      alignment,
-      contentBounds: {
-        x: contentBounds.x,
-        y: contentBounds.y,
-        width: contentBounds.width,
-        height: contentBounds.height
-      },
-      assets: texture ? { texture } : undefined,
-      colorCycle,
-      stackIndex: Number.isFinite(layer.order) ? layer.order : index,
-      version: layer.version
-    };
-
-    metadataLayers.push(stripLayerDefaults(baseLayerMetadata));
   }
 
   let fallback: WebGLExportMetadata['fallback'];
@@ -2452,6 +2468,12 @@ export const exportProjectAsWebGL = async (
     metadata.fallback = fallback;
   }
 
+  if (gobletDiagnosticsActive && placementByLayerId) {
+    placementByLayerId.forEach((placement, layerId) => {
+      gobletDebugLog('[webglExporter] Layout placement', layerId, placement);
+    });
+  }
+
   deduplicateGradients(metadata);
 
   if (gobletDiagnosticsActive) {
@@ -2489,11 +2511,13 @@ export const exportProjectAsWebGL = async (
 
   let indexHtml: string;
   let gobletJs: string;
+  let alignJs: string;
   let inflateJs: string;
   try {
-    [indexHtml, gobletJs, inflateJs] = await Promise.all([
+    [indexHtml, gobletJs, alignJs, inflateJs] = await Promise.all([
       fetchGobletAsset('index.html', options.assetPrefix),
       fetchGobletAsset('goblet.js', options.assetPrefix),
+      fetchGobletAsset('alignFitResolver.js', options.assetPrefix),
       fetchGobletAsset('fflate-inflate.js', options.assetPrefix)
     ]);
   } catch (error) {
@@ -2502,7 +2526,14 @@ export const exportProjectAsWebGL = async (
   }
 
   if (bundleFormat === 'single-html') {
-    const singleFileHtml = createSingleFileGobletHtml(indexHtml, gobletJs, inflateJs, json, diagnosticsEnabled);
+    const singleFileHtml = createSingleFileGobletHtml(
+      indexHtml,
+      gobletJs,
+      alignJs,
+      inflateJs,
+      json,
+      diagnosticsEnabled
+    );
     const htmlBlob = new Blob([singleFileHtml], { type: 'text/html' });
     downloadBlob(htmlBlob, `${options.filenameBase}-goblet.html`);
     return metadata;
@@ -2513,6 +2544,7 @@ export const exportProjectAsWebGL = async (
     const zip = new JSZip();
     zip.file('index.html', createZipGobletHtml(indexHtml, jsonFilename, json, diagnosticsEnabled));
     zip.file('goblet.js', gobletJs);
+    zip.file('alignFitResolver.js', alignJs);
     zip.file('fflate-inflate.js', inflateJs);
     zip.file(jsonFilename, json);
     const zipBlob = await zip.generateAsync({

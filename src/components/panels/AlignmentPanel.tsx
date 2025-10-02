@@ -64,13 +64,12 @@ const anchorButtonBase = [
 const anchorActiveClass = 'border-[#3D3D46] bg-[#5A5A68]';
 const anchorInactiveClass = 'border-[#3D3D46] bg-transparent hover:bg-[#5A5A68]';
 
-const fitOptions: Array<{ value: Exclude<LayerAlignmentSettings['fit'], 'percent' | 'fit-width' | 'fit-height'>; label: string }> = [
+const fitOptions: Array<{ value: LayerAlignmentSettings['fit']; label: string }> = [
   { value: 'none', label: 'None' },
   { value: 'uniform', label: 'Uniform' },
   { value: 'contain', label: 'Contain' },
   { value: 'cover', label: 'Cover' },
-  { value: 'fill', label: 'Fill' },
-  { value: 'scale-down', label: 'Scale Down' }
+  { value: 'fill', label: 'Fill' }
 ];
 
 const fitButtonBase = [
@@ -167,7 +166,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
         fit: nextFit,
         positioning: nextPositioning,
         offsetPx: partial.offsetPx ? { ...partial.offsetPx } : baseOffset,
-        offsetPercent: nextPositioning === 'auto' || nextFit === 'percent'
+        offsetPercent: nextPositioning === 'auto'
           ? { ...(partial.offsetPercent ?? basePercent) }
           : undefined
       };

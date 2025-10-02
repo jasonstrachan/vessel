@@ -30,8 +30,39 @@ The single-file mode bundles the runtime, metadata, and textures into one HTML d
 
 Goblet assets are fetched using the current Next.js `assetPrefix`/`basePath`, so packaging behaves correctly in local dev (`/`) and on GitHub Pages (`/vessel`). No manual path tweaks are required when exporting from different environments.
 
+### Alignment Runtime Source
+
+- `src/utils/alignment/alignFitResolver.ts` is the canonical implementation for layer positioning, scaling, and percent offset math.
+- The Goblet viewer embeds the same logic; run `node scripts/build-align-fit.mjs` after modifying the resolver to regenerate `public/goblet/alignFitResolver.js`.
+- Avoid hand-editing the inlined viewer copy—treat it as generated output so exporter and runtime stay in perfect sync.
+
+### Alignment Metadata Glossary
+
+| Field | Purpose |
+| ----- | ------- |
+| `documentBoundsPx` | Pixel-space rectangle the exporter resolved for the layer inside the project document; renderer uses it for destination placement. |
+| `documentBoundsPercent` | Same rectangle expressed as percentages of the project document; keeps layout stable when the viewer resizes. |
+| `alignment.offsetPercent` | Final percent offsets applied for anchor positioning and auto-fit modes; derived from bounds during export when `positioning === 'auto'`. |
+| `layoutPlacement` | Optional resolved frame + transform from the container layout engine; viewer recomputes only when this block is missing. |
+| `contentBounds` | Crop inside the layer surface that contains painted pixels; used to trim the sample region when drawing. |
+
 ### Tips
 
 - Enable **Minify bundle output** to remove whitespace from both the JSON and, for zip exports, compress the archive more aggressively.
 - Adjust **Include hidden layers** and **Embed Canvas2D fallback** before exporting—both options are preserved inside the metadata and reflected in the Goblet info panel.
 - For automation or CLI integration, call `exportProjectAsWebGL` with the `bundleFormat` option (`'zip' | 'single-html' | 'json'`).
+
+
+6) Consistent semantics recap (use this as a mental model)
+
+document (first arg to computeLayerTransform) = project doc size.
+
+paintedBounds = the content/pixels actually painted (crop inside the layer).
+
+fit='uniform' → scale to fit paintedBounds in the viewport (preserve aspect); all other fits scale against document.
+
+offsetPercent applies to leftover space (viewport - renderedSize), not to absolute pixels.
+
+positioning='auto' stores an explicit offsetPercent in exported metadata (never recompute in viewer).
+
+When the three places above follow these, fill/fit/contain/cover/uniform/none, %/anchor/auto, and pixel-snapping all line up.

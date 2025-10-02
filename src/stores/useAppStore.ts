@@ -41,7 +41,7 @@ const syncPercentOffsetsFromPixels = (layers: Layer[], project: Project | null):
 
   const syncedLayers = layers.map(layer => {
     const alignment = layer.alignment;
-    if (!alignment || (alignment.fit !== 'percent' && alignment.positioning !== 'auto')) {
+    if (!alignment || alignment.positioning !== 'auto') {
       return layer;
     }
 
@@ -2414,13 +2414,12 @@ export const useAppStore = create<AppState>()(
 
         const previousAlignment = targetLayer.alignment;
         const becameAuto = nextAlignment.positioning === 'auto' && previousAlignment.positioning !== 'auto';
-        const fitChangedToPercent = nextAlignment.fit === 'percent' && previousAlignment.fit !== 'percent';
         const previousPercent = previousAlignment.offsetPercent ?? { x: 0, y: 0 };
         const nextPercent = nextAlignment.offsetPercent ?? { x: 0, y: 0 };
         const offsetPercentChanged = previousPercent.x !== nextPercent.x || previousPercent.y !== nextPercent.y;
 
         if (state.project) {
-          if ((becameAuto || fitChangedToPercent) && !offsetPercentChanged) {
+          if (becameAuto && !offsetPercentChanged) {
             try {
               const percentOffset = computeLayerPercentOffset(targetLayer, state.project);
               nextAlignment = {
@@ -2432,7 +2431,7 @@ export const useAppStore = create<AppState>()(
             }
           }
 
-          if (nextAlignment.positioning === 'auto' || nextAlignment.fit === 'percent') {
+          if (nextAlignment.positioning === 'auto') {
             const percent = nextAlignment.offsetPercent ?? { x: 0, y: 0 };
             const width = Math.max(1, state.project.width);
             const height = Math.max(1, state.project.height);
@@ -2450,7 +2449,7 @@ export const useAppStore = create<AppState>()(
               offsetPercent: undefined
             };
           }
-        } else if (nextAlignment.positioning !== 'auto' && nextAlignment.fit !== 'percent') {
+        } else if (nextAlignment.positioning !== 'auto') {
           nextAlignment = {
             ...nextAlignment,
             offsetPercent: undefined
@@ -3882,7 +3881,7 @@ export const useAppStore = create<AppState>()(
                   }
                   let nextAlignment = layer.alignment;
                   const project = currentState.project;
-                  if (project && nextAlignment && (nextAlignment.positioning === 'auto' || nextAlignment.fit === 'percent')) {
+                  if (project && nextAlignment && nextAlignment.positioning === 'auto') {
                     try {
                       const layerForMetrics: Layer = {
                         ...layer,
