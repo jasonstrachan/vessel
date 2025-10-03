@@ -781,22 +781,33 @@ const resolveContainerLayout = (layers, layout, viewport) => {
       height: Math.max(1, entry.surface.height)
     };
 
-    const isUniform = entry.alignment?.fit === 'uniform';
-    const paintedBounds = isUniform
+    const isTile = entry.alignment?.fit === 'tile';
+    const anchorContent = entry.alignment?.positioning === 'anchor';
+    const basisSize = entry.content && (isTile || anchorContent)
       ? {
-          x: 0,
-          y: 0,
-          width: Math.max(1, entry.content?.width ?? surface.width),
-          height: Math.max(1, entry.content?.height ?? surface.height)
+          width: Math.max(1, (entry.content?.width ?? surface.width)),
+          height: Math.max(1, (entry.content?.height ?? surface.height))
         }
       : {
-          x: 0,
-          y: 0,
           width: surface.width,
           height: surface.height
         };
 
-    const transform = computeLayerTransform(entry.document, viewportForLayer, entry.alignment, { paintedBounds });
+    const paintedBounds = {
+      x: 0,
+      y: 0,
+      width: basisSize.width,
+      height: basisSize.height
+    };
+
+    const documentForLayer = anchorContent && isTile
+      ? {
+          width: basisSize.width,
+          height: basisSize.height
+        }
+      : entry.document;
+
+    const transform = computeLayerTransform(documentForLayer, viewportForLayer, entry.alignment, { paintedBounds });
 
     placements.push({
       layerId: entry.layerId,
@@ -2002,8 +2013,8 @@ const applyLayerToContext = (ctx, source, layer, destination, units = 'css', pha
   const fit = layer?.alignment?.fit ?? 'none';
   const isTile = fit === 'tile';
   const isAnchor = layer?.alignment?.positioning === 'anchor';
-  const cropForAnchorOrUniform = isAnchor || fit === 'uniform';
-  const cropForAutoContainUp = layer?.alignment?.positioning === 'auto' && fit === 'contain-up';
+  // Only crop when anchor positioning is paired with none/tile so scaling uses full content.
+  const cropForAnchor = isAnchor && (fit === 'none' || fit === 'tile');
   const sourceWidth = source instanceof HTMLImageElement
     ? source.naturalWidth || source.width
     : source.width;
@@ -2020,7 +2031,7 @@ const applyLayerToContext = (ctx, source, layer, destination, units = 'css', pha
   let sw = sourceWidth;
   let sh = sourceHeight;
 
-  const shouldCropToContent = Boolean(layer?.contentBounds && cropForAnchorOrUniform && !cropForAutoContainUp);
+  const shouldCropToContent = Boolean(layer?.contentBounds && cropForAnchor);
 
   if (shouldCropToContent) {
     const boundsRaw = layer.contentBounds;
@@ -2032,11 +2043,6 @@ const applyLayerToContext = (ctx, source, layer, destination, units = 'css', pha
     sy = Math.floor(clampedY);
     sw = Math.max(1, Math.floor(Math.min(boundsRaw.width, maxWidth)));
     sh = Math.max(1, Math.floor(Math.min(boundsRaw.height, maxHeight)));
-  } else if (fit === 'uniform') {
-    const declaredWidth = Math.max(1, toNum(layer?.source?.width, sourceWidth));
-    const declaredHeight = Math.max(1, toNum(layer?.source?.height, sourceHeight));
-    sw = Math.min(declaredWidth, sourceWidth);
-    sh = Math.min(declaredHeight, sourceHeight);
   } else {
     sx = 0;
     sy = 0;
@@ -2503,7 +2509,6 @@ class VesselGoblet {
       diagnostics.log(`[goblet] Have source for ${entry.layer.id}, computing destination`);
       const fit = entry.layer.alignment?.fit;
       const isTile = fit === 'tile';
-      const isUniform = fit === 'uniform';
       const isAnchor = entry.layer.alignment?.positioning === 'anchor';
       const documentBounds = entry.layer.documentBoundsPx ?? null;
       const pixelBounds = entry.layer.pixelBoundsPx ?? null;
@@ -2515,7 +2520,9 @@ class VesselGoblet {
         height: documentSize.height
       };
 
-      const tilePaint = pixelBounds
+      // Always size/place from visible pixels if we have them,
+      // else fall back to exported document bounds, else project/document.
+      const paintedForLayout = pixelBounds
         ? {
             x: 0,
             y: 0,
@@ -2529,12 +2536,6 @@ class VesselGoblet {
               width: Math.max(1, documentBounds.width),
               height: Math.max(1, documentBounds.height)
             }
-          : fallbackPaint;
-
-      const paintedForLayout = isTile
-        ? tilePaint
-        : isUniform && documentBounds
-          ? documentBounds
           : fallbackPaint;
 
       const basisDoc = (() => {
@@ -2554,13 +2555,6 @@ class VesselGoblet {
           return {
             width: documentSize.width,
             height: documentSize.height
-          };
-        }
-
-        if (isAnchor && isUniform && documentBounds) {
-          return {
-            width: Math.max(1, documentBounds.width),
-            height: Math.max(1, documentBounds.height)
           };
         }
 

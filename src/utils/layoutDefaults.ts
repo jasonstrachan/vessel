@@ -9,6 +9,7 @@ import type {
   LayerVerticalAlignment,
   Project
 } from '@/types';
+import { normalizeAlignment } from '@/utils/alignment/alignFitResolver';
 
 const normalizeHorizontalAxis = (value?: string): LayerHorizontalAlignment => {
   switch (value) {
@@ -44,7 +45,7 @@ const normalizeVerticalAxis = (value?: string): LayerVerticalAlignment => {
  * Factory for layer alignment defaults so new layers start with predictable transforms.
  */
 export const createDefaultLayerAlignment = (): LayerAlignmentSettings => ({
-  fit: 'none',
+  fit: 'contain',
   horizontal: 'left',
   vertical: 'top',
   positioning: 'auto',
@@ -54,14 +55,15 @@ export const createDefaultLayerAlignment = (): LayerAlignmentSettings => ({
 
 export const cloneLayerAlignment = (alignment?: LayerAlignmentSettings): LayerAlignmentSettings => {
   const base = alignment ?? createDefaultLayerAlignment();
+  const normalized = normalizeAlignment(base);
   return {
-    fit: base.fit,
-    horizontal: normalizeHorizontalAxis(base.horizontal),
-    vertical: normalizeVerticalAxis(base.vertical),
-    positioning: base.positioning ?? 'anchor',
+    fit: normalized.fit,
+    horizontal: normalizeHorizontalAxis(normalized.horizontal),
+    vertical: normalizeVerticalAxis(normalized.vertical),
+    positioning: normalized.positioning,
     offsetPx: base.offsetPx ? { ...base.offsetPx } : { x: 0, y: 0 },
-    offsetPercent: base.positioning === 'auto'
-      ? { ...(base.offsetPercent ?? { x: 0, y: 0 }) }
+    offsetPercent: normalized.positioning === 'auto'
+      ? { ...(normalized.offsetPercent ?? { x: 0, y: 0 }) }
       : undefined
   };
 };

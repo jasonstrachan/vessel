@@ -82,16 +82,16 @@ const normalizeOffsetPercent = (
   };
 };
 
-const normalizeFit = (fit: LayerAlignmentSettings['fit'] | undefined): LayerAlignmentSettings['fit'] => {
+const normalizeFit = (fit?: string): LayerAlignmentSettings['fit'] => {
   switch (fit) {
-    case 'uniform':
     case 'contain':
-    case 'contain-up':
     case 'cover':
     case 'fill':
     case 'tile':
     case 'none':
       return fit;
+    case 'uniform':
+      return 'contain';
     default:
       return 'none';
   }
@@ -138,6 +138,16 @@ const resolvePaintedBounds = (bounds?: Rect | null, fallback?: Size2D): Rect => 
   };
 };
 
+// Fit modes share a single sizing basis so contain/cover/fill behave consistently:
+// - By default we respect the full document bounds, but once painted bounds exist we
+//   scale against the visible pixels so AUTO/ANCHOR don't drift from the user's crop.
+// - Anchor never scales; it just positions the raw painted rectangle inside the viewport.
+const getBasisSize = (document: Size2D, paintedBounds?: Rect | null): { w: number; h: number } => {
+  const w = clampDimension(paintedBounds?.width ?? document.width);
+  const h = clampDimension(paintedBounds?.height ?? document.height);
+  return { w, h };
+};
+
 export interface ComputeLayerTransformOptions {
   paintedBounds?: Rect | null;
 }
@@ -146,87 +156,90 @@ export const computeLayerTransform = (
   document: Size2D,
   viewport: Size2D,
   alignment: LayerAlignmentSettings,
-  options: ComputeLayerTransformOptions = {}
+  _options: ComputeLayerTransformOptions = {}
 ): LayerTransform => {
   const normalized = normalizeAlignment(alignment);
   const safeViewport = resolveViewport(viewport);
   const safeDocument = resolveDocument(document);
-  const bounds = resolvePaintedBounds(options.paintedBounds, safeDocument);
+  const painted = _options.paintedBounds
+    ? resolvePaintedBounds(_options.paintedBounds, safeDocument)
+    : null;
 
   const percentX = normalized.offsetPercent?.x ?? 0;
   const percentY = normalized.offsetPercent?.y ?? 0;
 
-  const documentWidth = safeDocument.width;
-  const documentHeight = safeDocument.height;
+  const { w: basisWidth, h: basisHeight } = getBasisSize(safeDocument, painted);
   const viewportWidth = safeViewport.width;
   const viewportHeight = safeViewport.height;
-  const boundsWidth = bounds.width;
-  const boundsHeight = bounds.height;
-
-  let basisWidth = documentWidth;
-  let basisHeight = documentHeight;
+  const isAnchor = normalized.positioning === 'anchor';
   let scaleX = 1;
   let scaleY = 1;
 
   switch (normalized.fit) {
-    case 'uniform': {
-      basisWidth = boundsWidth;
-      basisHeight = boundsHeight;
-      const uniformScale = Math.min(
-        viewportWidth / basisWidth,
-        viewportHeight / basisHeight
-      );
-      scaleX = uniformScale;
-      scaleY = uniformScale;
-      break;
-    }
-    case 'contain-up': {
-      const scale = Math.max(
-        1,
-        Math.min(viewportWidth / documentWidth, viewportHeight / documentHeight)
-      );
-      scaleX = scale;
-      scaleY = scale;
-      break;
-    }
     case 'contain': {
-      const scale = Math.min(viewportWidth / documentWidth, viewportHeight / documentHeight);
+      // Uniform scale so the content fits within the viewport; letterboxing is fine.
+      const scale = Math.min(viewportWidth / basisWidth, viewportHeight / basisHeight);
       scaleX = scale;
       scaleY = scale;
       break;
     }
     case 'cover': {
-      const scale = Math.max(viewportWidth / documentWidth, viewportHeight / documentHeight);
+      // Uniform scale so the viewport is completely filled; excess pixels crop.
+      const scale = Math.max(viewportWidth / basisWidth, viewportHeight / basisHeight);
       scaleX = scale;
       scaleY = scale;
       break;
     }
     case 'fill': {
-      scaleX = viewportWidth / documentWidth;
-      scaleY = viewportHeight / documentHeight;
+      // Non-uniform stretch; aspect ratio may change per axis.
+      scaleX = viewportWidth / basisWidth;
+      scaleY = viewportHeight / basisHeight;
       break;
     }
     case 'tile': {
-      // Tile maintains the source scale; translation is all that matters
+      // Preserve native pixels; tiling happens through translation offsets.
       scaleX = 1;
       scaleY = 1;
       break;
     }
     case 'none':
     default: {
+      // Explicitly preserve source pixel size.
       scaleX = 1;
       scaleY = 1;
       break;
     }
   }
 
+  if (isAnchor) {
+    scaleX = 1;
+    scaleY = 1;
+  }
+
   const renderedWidth = basisWidth * scaleX;
   const renderedHeight = basisHeight * scaleY;
   const leftoverX = viewportWidth - renderedWidth;
   const leftoverY = viewportHeight - renderedHeight;
+  let translateX: number;
+  let translateY: number;
 
-  const translateX = leftoverX * (percentX / HUNDRED);
-  const translateY = leftoverY * (percentY / HUNDRED);
+  if (isAnchor) {
+    const horizontal = normalized.horizontal;
+    const vertical = normalized.vertical;
+    const fallbackPercentX = horizontalAnchorPercent[horizontal];
+    const fallbackPercentY = verticalAnchorPercent[vertical];
+    const pivotX = horizontal === 'center' ? leftoverX / 2 : horizontal === 'right' ? leftoverX : 0;
+    const pivotY = vertical === 'center' ? leftoverY / 2 : vertical === 'bottom' ? leftoverY : 0;
+    const offsetPercentX = (normalized.offsetPercent?.x ?? fallbackPercentX) - fallbackPercentX;
+    const offsetPercentY = (normalized.offsetPercent?.y ?? fallbackPercentY) - fallbackPercentY;
+    const offsetX = (offsetPercentX / HUNDRED) * leftoverX;
+    const offsetY = (offsetPercentY / HUNDRED) * leftoverY;
+    translateX = pivotX + offsetX;
+    translateY = pivotY + offsetY;
+  } else {
+    translateX = leftoverX * (percentX / HUNDRED);
+    translateY = leftoverY * (percentY / HUNDRED);
+  }
 
   return {
     scaleX,
@@ -246,48 +259,98 @@ export interface ComputeLayerDestinationInput {
 export const computeLayerDestination = (
   input: ComputeLayerDestinationInput
 ): LayerDestination => {
-  const bounds = resolvePaintedBounds(input.paintedBounds);
+  const safeDocument = resolveDocument(input.document);
+  const safeViewport = resolveViewport(input.viewport);
   const normalized = normalizeAlignment(input.alignment);
-  const anchorContent = normalized.positioning === 'anchor';
+  const painted = resolvePaintedBounds(input.paintedBounds, safeDocument);
 
-  const document = anchorContent
-    ? {
-        width: Math.max(MIN_DIMENSION, bounds.width),
-        height: Math.max(MIN_DIMENSION, bounds.height)
-      }
-    : resolveDocument(input.document);
+  const basisWidth = Math.max(MIN_DIMENSION, painted.width);
+  const basisHeight = Math.max(MIN_DIMENSION, painted.height);
 
-  // Feed the resolved document (content basis for anchors) into the transform so
-  // fit math scales relative to the anchored pixels.
-  const transform = computeLayerTransform(
-    document,
-    input.viewport,
-    normalized,
-    { paintedBounds: bounds }
-  );
+  let width: number;
+  let height: number;
 
-  const basisWidth = document.width;
-  const basisHeight = document.height;
+  switch (normalized.fit) {
+    case 'contain': {
+      const scale = Math.min(safeViewport.width / basisWidth, safeViewport.height / basisHeight);
+      width = basisWidth * scale;
+      height = basisHeight * scale;
+      break;
+    }
+    case 'cover': {
+      const scale = Math.max(safeViewport.width / basisWidth, safeViewport.height / basisHeight);
+      width = basisWidth * scale;
+      height = basisHeight * scale;
+      break;
+    }
+    case 'fill': {
+      width = safeViewport.width;
+      height = safeViewport.height;
+      break;
+    }
+    case 'tile': {
+      width = safeViewport.width;
+      height = safeViewport.height;
+      break;
+    }
+    case 'none':
+    default: {
+      width = basisWidth;
+      height = basisHeight;
+      break;
+    }
+  }
 
-  const width = basisWidth * transform.scaleX;
-  const height = basisHeight * transform.scaleY;
+  if (normalized.positioning === 'anchor') {
+    const freeX = safeViewport.width - width;
+    const freeY = safeViewport.height - height;
 
-  // Skip painted-bounds offsets when anchoring content, and also for uniform
-  // fits where anchor/auto positioning already incorporates the cropped bounds.
-  const addBoundsOffset = !(
-    anchorContent || (
-      normalized.fit === 'uniform' &&
-      (normalized.positioning === 'anchor' || normalized.positioning === 'auto')
-    )
-  );
-  const adjustedOffsetX = addBoundsOffset ? bounds.x * transform.scaleX : 0;
-  const adjustedOffsetY = addBoundsOffset ? bounds.y * transform.scaleY : 0;
+    const horizontal = normalized.horizontal ?? 'left';
+    const vertical = normalized.vertical ?? 'top';
+
+    let x = 0;
+    if (horizontal === 'center') {
+      x = freeX / 2;
+    } else if (horizontal === 'right') {
+      x = freeX;
+    }
+
+    let y = 0;
+    if (vertical === 'center') {
+      y = freeY / 2;
+    } else if (vertical === 'bottom') {
+      y = freeY;
+    }
+
+    const offsetPercent = input.alignment?.offsetPercent;
+    const offsetPercentX = clampPercent(offsetPercent?.x ?? 0);
+    const offsetPercentY = clampPercent(offsetPercent?.y ?? 0);
+
+    const offsetX = (offsetPercentX / HUNDRED) * freeX;
+    const offsetY = (offsetPercentY / HUNDRED) * freeY;
+
+    return {
+      x: Math.round(x + offsetX),
+      y: Math.round(y + offsetY),
+      width: Math.round(width),
+      height: Math.round(height)
+    };
+  }
+
+  const scaleX = width / basisWidth;
+  const scaleY = height / basisHeight;
+  const percentX = (normalized.offsetPercent?.x ?? 0) / HUNDRED;
+  const percentY = (normalized.offsetPercent?.y ?? 0) / HUNDRED;
+  const leftoverX = safeViewport.width - width;
+  const leftoverY = safeViewport.height - height;
+  const translateX = leftoverX * percentX;
+  const translateY = leftoverY * percentY;
 
   return {
-    x: transform.translateX + adjustedOffsetX,
-    y: transform.translateY + adjustedOffsetY,
-    width,
-    height
+    x: translateX + painted.x * scaleX,
+    y: translateY + painted.y * scaleY,
+    width: Math.round(width),
+    height: Math.round(height)
   };
 };
 

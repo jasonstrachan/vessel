@@ -78,10 +78,9 @@ export const resolveContainerLayout = (
       return;
     }
 
-    const isUniformFit = entry.alignment.fit === 'uniform';
     const isTileFit = entry.alignment.fit === 'tile';
     const anchorContent = entry.alignment.positioning === 'anchor';
-    const basisSize = entry.content && (isUniformFit || isTileFit || anchorContent)
+    const basisSize = entry.content && (isTileFit || anchorContent)
       ? {
           width: clampDimension(entry.content.width),
           height: clampDimension(entry.content.height)
@@ -98,7 +97,7 @@ export const resolveContainerLayout = (
       height: basisSize.height
     };
 
-    const documentForLayer = anchorContent && (isUniformFit || isTileFit)
+    const documentForLayer = anchorContent && isTileFit
       ? {
           width: basisSize.width,
           height: basisSize.height

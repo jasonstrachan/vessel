@@ -69,8 +69,7 @@ const fitOptions: Array<{ value: LayerAlignmentSettings['fit']; label: string }>
   { value: 'contain', label: 'Contain' },
   { value: 'cover', label: 'Cover' },
   { value: 'fill', label: 'Fill' },
-  { value: 'tile', label: 'Tile' },
-  { value: 'contain-up', label: 'Contain Up' }
+  { value: 'tile', label: 'Tile' }
 ];
 
 const fitButtonBase = [

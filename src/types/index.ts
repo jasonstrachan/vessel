@@ -3,11 +3,9 @@
 
 export type LayerAlignmentFit =
   | 'contain'
-  | 'contain-up'
   | 'cover'
   | 'fill'
   | 'tile'
-  | 'uniform'
   | 'none';
 
 export type LayerHorizontalAlignment = 'left' | 'center' | 'right';

@@ -8,6 +8,11 @@ describe('normalizeAlignment', () => {
     expect(normalized.horizontal).toBe('center');
     expect(normalized.vertical).toBe('center');
   });
+
+  test('coerces legacy uniform fits to contain', () => {
+    const normalized = normalizeAlignment({ fit: 'uniform' } as unknown as LayerAlignmentSettings);
+    expect(normalized.fit).toBe('contain');
+  });
 });
 
 describe('computeLayerTransform', () => {
@@ -32,19 +37,6 @@ describe('computeLayerTransform', () => {
     expect(transform.translateY).toBeCloseTo(50);
   });
 
-  test('uniform preserves surface scale and alignment offsets', () => {
-    const transform = computeLayerTransform(
-      { width: 200, height: 100 },
-      { width: 120, height: 200 },
-      { ...baseAlignment, fit: 'uniform' }
-    );
-
-    expect(transform.scaleX).toBeCloseTo(1);
-    expect(transform.scaleY).toBeCloseTo(1);
-    // Center alignment shifts the layer negatively when the surface exceeds the viewport.
-    expect(transform.translateX).toBeCloseTo(-40);
-    expect(transform.translateY).toBeCloseTo(50);
-  });
 
   test('cover scales uniformly until the frame is fully covered', () => {
     const transform = computeLayerTransform(
@@ -168,25 +160,6 @@ describe('computeLayerTransform', () => {
     expect(transform.translateY).toBeCloseTo(30);
   });
 
-  test('uniform auto positioning falls back to pixel offsets when no leftover space', () => {
-    const autoUniform: LayerAlignmentSettings = {
-      fit: 'uniform',
-      horizontal: 'left',
-      vertical: 'top',
-      positioning: 'auto',
-      offsetPercent: { x: 25, y: 0 },
-      offsetPx: { x: 50, y: 0 }
-    };
-
-    const transform = computeLayerTransform(
-      { width: 200, height: 100 },
-      { width: 200, height: 300 },
-      autoUniform
-    );
-
-    expect(transform.translateX).toBeCloseTo(50);
-    expect(transform.translateY).toBeCloseTo(0);
-  });
 
   test('offsets are applied after alignment', () => {
     const transform = computeLayerTransform(
@@ -314,37 +287,4 @@ describe('resolveContainerLayout', () => {
     ]);
   });
 
-  test('uniform fit uses surface dimensions when computing transform', () => {
-    const uniformAlignment: LayerAlignmentSettings = {
-      fit: 'uniform',
-      horizontal: 'center',
-      vertical: 'center',
-      positioning: 'anchor',
-      offsetPx: { x: 0, y: 0 }
-    };
-
-    const layout = createLayout({
-      width: 150,
-      height: 150
-    });
-
-    const result = resolveContainerLayout(
-      [
-        {
-          layerId: 'uniform',
-          surface: { width: 200, height: 100 },
-          document: { width: 150, height: 150 },
-          content: { width: 80, height: 60 },
-          alignment: uniformAlignment
-        }
-      ],
-      layout,
-      { width: 150, height: 150 }
-    );
-
-    expect(result).toHaveLength(1);
-    expect(result[0].frame).toEqual({ x: 0, y: 0, width: 150, height: 150 });
-    expect(result[0].transform.scaleX).toBeCloseTo(1);
-    expect(result[0].transform.scaleY).toBeCloseTo(1);
-  });
 });

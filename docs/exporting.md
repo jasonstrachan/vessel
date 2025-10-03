@@ -59,10 +59,10 @@ document (first arg to computeLayerTransform) = project doc size.
 
 paintedBounds = the content/pixels actually painted (crop inside the layer).
 
-fit='uniform' → scale to fit paintedBounds in the viewport (preserve aspect); all other fits scale against document.
+`fit` tokens map directly to viewer behavior: `contain` uses the document size to preserve aspect, `cover` overfills to remove letterboxing, `fill` stretches each axis independently, `tile` repeats the sampled pixels without scaling, and `none` skips scaling entirely.
 
 offsetPercent applies to leftover space (viewport - renderedSize), not to absolute pixels.
 
 positioning='auto' stores an explicit offsetPercent in exported metadata (never recompute in viewer).
 
-When the three places above follow these, fill/fit/contain/cover/uniform/none, %/anchor/auto, and pixel-snapping all line up.
+When the three places above align, fill/fit/contain/cover/none, %/anchor/auto, and pixel-snapping all line up.

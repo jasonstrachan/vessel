@@ -16,7 +16,7 @@
 - `layer`: `{ id, documentBoundsPx: { x, y, width, height }, documentBoundsPercent: { x, y, width, height }, alignment: { horizontal, vertical, offsetPercent: { x, y }, positioning }, fit }`.
   - `alignment.horizontal`/`vertical` reuse the current `LayerHorizontalAlignment` (`'left'|'center'|'right'`) and `LayerVerticalAlignment` (`'top'|'center'|'bottom'`) enums.
   - `alignment.positioning` reuses `'anchor'|'auto'`.
-  - `fit` reuses `LayerAlignmentFit` but the active set is limited to `'none'|'uniform'|'contain'|'cover'|'fill'`; legacy tokens (`'fit-width'`, `'fit-height'`, etc.) will be removed with this refactor.
+  - `fit` reuses `LayerAlignmentFit` but the active set is limited to `'none'|'contain'|'cover'|'fill'`; legacy tokens (`'fit-width'`, `'fit-height'`, etc.) will be removed with this refactor.
 - `offsetPercent` is the single source of truth for placement. Values are always expressed as `{ x: percentFromLeft, y: percentFromTop }` relative to the document origin. When `positioning === 'anchor'`, it comes directly from user input. When `positioning === 'auto'`, exporter derives it from `documentBoundsPercent` and stores the result so the viewer never recomputes it.
 - Always provide document-relative percents and raw pixel bounds so the viewer can pick whichever base is required for the chosen fit mode.
 
@@ -31,8 +31,7 @@
 
 ## Fit Rules
 - `none`: render at source pixel size (document pixels); scale = 1.
-- `uniform`: use `documentBoundsPx` as the source box. Compute `scale = min(viewportWidth / boundsWidth, viewportHeight / boundsHeight)` to preserve aspect ratio without cropping; letterboxing is expected when the aspect ratios differ.
-- `contain`: use full document dimensions as the source box. Same scaling equation as `uniform` but against `{ widthPx, heightPx }` so even untouched regions stay visible.
+- `contain`: use full document dimensions as the source box. Compute `scale = min(viewportWidth / widthPx, viewportHeight / heightPx)` so the entire document remains visible, even when untouched regions exist.
 - `cover`: use full document dimensions; compute `scale = max(viewportWidth / documentWidth, viewportHeight / documentHeight)` so the viewport is fully covered, accepting cropping on the excess axis.
 - `fill`: use full document dimensions; compute `scaleX = viewportWidth / documentWidth` and `scaleY = viewportHeight / documentHeight` independently (aspect ratio not preserved).
 - All fits return subpixel floats; no rounding until final canvas/DOM assignment.
