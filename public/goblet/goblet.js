@@ -1,6 +1,60 @@
 import { normalizeAlignment, computeLayerTransform, computeLayerDestination } from './alignFitResolver.js';
 import { clamp, posInt, round3, toNum } from './num.js';
-import { ccDebugOn, ccLog, ccSample } from './ccDebug.js';
+
+const __DEV__ = typeof process !== 'undefined' && process.env && process.env.NODE_ENV
+  ? process.env.NODE_ENV !== 'production'
+  : true;
+
+let ccDebugOn = () => false;
+let ccLog = () => {};
+let ccWarn = () => {};
+let ccSample = () => null;
+
+if (__DEV__) {
+  ccDebugOn = () => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    if (window.__CC_DEBUG__) {
+      return true;
+    }
+    try {
+      return window.localStorage.getItem('ccDebug') === '1';
+    } catch {
+      return false;
+    }
+  };
+
+  ccLog = (...args) => {
+    if (ccDebugOn()) {
+      console.log('[CC]', ...args);
+    }
+  };
+
+  ccWarn = (...args) => {
+    if (ccDebugOn()) {
+      console.warn('[CC]', ...args);
+    }
+  };
+
+  ccSample = (arr, n = 8) => {
+    if (!arr) {
+      return null;
+    }
+    try {
+      return Array.prototype.slice.call(arr, 0, n);
+    } catch {
+      return null;
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    window.ccLog = ccLog;
+    window.ccWarn = ccWarn;
+  }
+  // enable:   localStorage.setItem('ccDebug','1'); window.__CC_DEBUG__ = true;
+  // disable:  localStorage.removeItem('ccDebug'); window.__CC_DEBUG__ = false;
+}
 
 // ------------------------------------------------------------
 // Inline dependencies for file:// compatibility
@@ -1570,7 +1624,7 @@ const fillPixelsFromIndices = (indices, lut, outPixels32, alpha, options = {}) =
       const effective = subtractOne && rawIndex > 0 ? rawIndex - 1 : rawIndex;
       const capped = effective >= 0 && effective < lut.length ? effective : ((effective % lut.length) + lut.length) % lut.length;
       const rgb = lut[capped] & 0x00ffffff;
-      const a = alpha[aIdx];
+      const a = alpha[aIdx] || (effective !== 0 ? 255 : 0);
       outPixels32[i] = (a << 24) | rgb;
     }
   } else {
@@ -1592,7 +1646,7 @@ const fillPixelsFromPhaseMap = (phaseMap, lut, outPixels32, alpha) => {
   if (alpha && alpha.length >= length * 4) {
     for (let i = 0, aIdx = 3; i < length; i += 1, aIdx += 4) {
       const rgb = lut[phaseMap[i]] & 0x00ffffff;
-      const a = alpha[aIdx];
+      const a = alpha[aIdx] || 255;
       outPixels32[i] = (a << 24) | rgb;
     }
   } else {
@@ -1722,6 +1776,29 @@ class ColorCycleLayerPlayer {
       hasRecolor
     });
 
+    const probeAlphaMask = () => {
+      if (!__DEV__ || !ccDebugOn()) {
+        return;
+      }
+      if (!this.alpha) {
+        return;
+      }
+      let nonZeroA = 0;
+      for (let i = 3; i < this.alpha.length; i += 4) {
+        if (this.alpha[i]) {
+          nonZeroA += 1;
+          if (nonZeroA > 64) {
+            break;
+          }
+        }
+      }
+      ccLog('sampled alpha nonZero=', nonZeroA);
+      if (nonZeroA === 0) {
+        ccWarn('base texture alpha is empty; disabling alpha mask for brush mode');
+        this.alpha = null;
+      }
+    };
+
     if (hasBrush) {
       await this.initializeBrushMode(colorCycle, brushState);
     } else if (hasRecolor) {
@@ -1743,6 +1820,7 @@ class ColorCycleLayerPlayer {
         sampleCtx.drawImage(this.image, 0, 0, this.width, this.height);
         this.baseImageData = sampleCtx.getImageData(0, 0, this.width, this.height);
         this.alpha = this.baseImageData.data;
+        probeAlphaMask();
       }
     }
 
@@ -1751,6 +1829,7 @@ class ColorCycleLayerPlayer {
       for (let i = 3; i < this.alpha.length; i += 4) {
         this.alpha[i] = 255;
       }
+      probeAlphaMask();
     }
 
     if (this.mode === 'recolor' && this.flowMapping === 'luminance' && !this.phaseMap && this.baseImageData) {
