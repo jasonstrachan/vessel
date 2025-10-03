@@ -1,6 +1,6 @@
 // Auto-generated from src/utils/alignment/alignFitResolver.ts. Do not edit directly.
 
-import { clamp, round3, toNum } from './num.js';
+import { clamp, round3, toNum } from '@/utils/num';
 const MIN_DIMENSION = 1e-6;
 const HUNDRED = 100;
 const horizontalAnchorPercent = {
@@ -88,15 +88,18 @@ const resolvePaintedBounds = (bounds, fallback) => {
         height
     };
 };
-// Fit modes share a single sizing basis so contain/cover/fill stay consistent with
-// painted pixels; anchor positioning later decides whether scaling is applied.
+// Fit modes share a single sizing basis so contain/cover/fill behave consistently:
+// - By default we respect the full document bounds, but once painted bounds exist we
+//   scale against the visible pixels so AUTO/ANCHOR don't drift from the user's crop.
+// - Anchor never scales; it just positions the raw painted rectangle inside the viewport.
 const getBasisSize = (document, paintedBounds) => {
-    const w = clampDimension((paintedBounds === null || paintedBounds === void 0 ? void 0 : paintedBounds.width) !== null && (paintedBounds === null || paintedBounds === void 0 ? void 0 : paintedBounds.width) !== void 0 ? paintedBounds === null || paintedBounds === void 0 ? void 0 : paintedBounds.width : document.width);
-    const h = clampDimension((paintedBounds === null || paintedBounds === void 0 ? void 0 : paintedBounds.height) !== null && (paintedBounds === null || paintedBounds === void 0 ? void 0 : paintedBounds.height) !== void 0 ? paintedBounds === null || paintedBounds === void 0 ? void 0 : paintedBounds.height : document.height);
+    var _a, _b;
+    const w = clampDimension((_a = paintedBounds === null || paintedBounds === void 0 ? void 0 : paintedBounds.width) !== null && _a !== void 0 ? _a : document.width);
+    const h = clampDimension((_b = paintedBounds === null || paintedBounds === void 0 ? void 0 : paintedBounds.height) !== null && _b !== void 0 ? _b : document.height);
     return { w, h };
 };
 export const computeLayerTransform = (document, viewport, alignment, _options = {}) => {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     const normalized = normalizeAlignment(alignment);
     const safeViewport = resolveViewport(viewport);
     const safeDocument = resolveDocument(document);
@@ -157,17 +160,14 @@ export const computeLayerTransform = (document, viewport, alignment, _options = 
     let translateX;
     let translateY;
     if (isAnchor) {
-        var _g, _h;
         const horizontal = normalized.horizontal;
         const vertical = normalized.vertical;
         const fallbackPercentX = horizontalAnchorPercent[horizontal];
         const fallbackPercentY = verticalAnchorPercent[vertical];
         const pivotX = horizontal === 'center' ? leftoverX / 2 : horizontal === 'right' ? leftoverX : 0;
         const pivotY = vertical === 'center' ? leftoverY / 2 : vertical === 'bottom' ? leftoverY : 0;
-        const rawOffsetX = (_g = normalized.offsetPercent) === null || _g === void 0 ? void 0 : _g.x;
-        const rawOffsetY = (_h = normalized.offsetPercent) === null || _h === void 0 ? void 0 : _h.y;
-        const offsetPercentX = (rawOffsetX !== null && rawOffsetX !== void 0 ? rawOffsetX : fallbackPercentX) - fallbackPercentX;
-        const offsetPercentY = (rawOffsetY !== null && rawOffsetY !== void 0 ? rawOffsetY : fallbackPercentY) - fallbackPercentY;
+        const offsetPercentX = ((_f = (_e = normalized.offsetPercent) === null || _e === void 0 ? void 0 : _e.x) !== null && _f !== void 0 ? _f : fallbackPercentX) - fallbackPercentX;
+        const offsetPercentY = ((_h = (_g = normalized.offsetPercent) === null || _g === void 0 ? void 0 : _g.y) !== null && _h !== void 0 ? _h : fallbackPercentY) - fallbackPercentY;
         const offsetX = (offsetPercentX / HUNDRED) * leftoverX;
         const offsetY = (offsetPercentY / HUNDRED) * leftoverY;
         translateX = pivotX + offsetX;
@@ -185,41 +185,29 @@ export const computeLayerTransform = (document, viewport, alignment, _options = 
     };
 };
 export const computeLayerDestination = (input) => {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
     const safeDocument = resolveDocument(input.document);
     const safeViewport = resolveViewport(input.viewport);
     const normalized = normalizeAlignment(input.alignment);
     const painted = resolvePaintedBounds(input.paintedBounds, safeDocument);
-    const fitRaw = String((input.alignment?.fit ?? 'none')).trim().toLowerCase();
-    const fit = fitRaw === 'uniform'
-        ? 'contain'
-        : fitRaw === 'contain-up'
-            ? 'contain'
-            : fitRaw;
-    // Basis: always painted (visible) pixels if available
-    const basisWidth = Math.max(1, painted.width);
-    const basisHeight = Math.max(1, painted.height);
+    const basisWidth = Math.max(MIN_DIMENSION, painted.width);
+    const basisHeight = Math.max(MIN_DIMENSION, painted.height);
     let width;
     let height;
-    switch (fit) {
-        case 'none': {
-            width = basisWidth;
-            height = basisHeight;
-            break;
-        }
+    switch (normalized.fit) {
         case 'contain': {
             const scale = Math.min(safeViewport.width / basisWidth, safeViewport.height / basisHeight);
-            width = Math.max(1, Math.round(basisWidth * scale));
-            height = Math.max(1, Math.round(basisHeight * scale));
+            width = basisWidth * scale;
+            height = basisHeight * scale;
             break;
         }
         case 'cover': {
             const scale = Math.max(safeViewport.width / basisWidth, safeViewport.height / basisHeight);
-            width = Math.max(1, Math.round(basisWidth * scale));
-            height = Math.max(1, Math.round(basisHeight * scale));
+            width = basisWidth * scale;
+            height = basisHeight * scale;
             break;
         }
         case 'fill': {
-            // Non-uniform stretch to viewport (by spec)
             width = safeViewport.width;
             height = safeViewport.height;
             break;
@@ -229,41 +217,48 @@ export const computeLayerDestination = (input) => {
             height = safeViewport.height;
             break;
         }
+        case 'none':
         default: {
             width = basisWidth;
             height = basisHeight;
             break;
         }
     }
-    if (fit === 'contain' || fit === 'cover') {
-        const scaleX = width / basisWidth;
-        const scaleY = height / basisHeight;
-        if (Math.abs(scaleX - scaleY) > 1e-6) {
-            console.warn('[fit]', fit, 'is not uniform', { scaleX, scaleY, basisWidth, basisHeight, width, height });
-        }
-    }
     if (normalized.positioning === 'anchor') {
         const freeX = safeViewport.width - width;
         const freeY = safeViewport.height - height;
-        const horizontal = normalized.horizontal ?? 'left';
-        const vertical = normalized.vertical ?? 'top';
-        let x = horizontal === 'center' ? freeX / 2 : horizontal === 'right' ? freeX : 0;
-        let y = (vertical === 'middle' || vertical === 'center') ? freeY / 2 : vertical === 'bottom' ? freeY : 0;
-        const offsetPercent = input.alignment?.offsetPercent;
-        x += ((Number(offsetPercent?.x) || 0) * 0.01 * freeX);
-        y += ((Number(offsetPercent?.y) || 0) * 0.01 * freeY);
+        const horizontal = (_a = normalized.horizontal) !== null && _a !== void 0 ? _a : 'left';
+        const vertical = (_b = normalized.vertical) !== null && _b !== void 0 ? _b : 'top';
+        let x = 0;
+        if (horizontal === 'center') {
+            x = freeX / 2;
+        }
+        else if (horizontal === 'right') {
+            x = freeX;
+        }
+        let y = 0;
+        if (vertical === 'center') {
+            y = freeY / 2;
+        }
+        else if (vertical === 'bottom') {
+            y = freeY;
+        }
+        const offsetPercent = (_c = input.alignment) === null || _c === void 0 ? void 0 : _c.offsetPercent;
+        const offsetPercentX = clampPercent((_d = offsetPercent === null || offsetPercent === void 0 ? void 0 : offsetPercent.x) !== null && _d !== void 0 ? _d : 0);
+        const offsetPercentY = clampPercent((_e = offsetPercent === null || offsetPercent === void 0 ? void 0 : offsetPercent.y) !== null && _e !== void 0 ? _e : 0);
+        const offsetX = (offsetPercentX / HUNDRED) * freeX;
+        const offsetY = (offsetPercentY / HUNDRED) * freeY;
         return {
-            x: Math.round(x),
-            y: Math.round(y),
-            width,
-            height
+            x: Math.round(x + offsetX),
+            y: Math.round(y + offsetY),
+            width: Math.round(width),
+            height: Math.round(height)
         };
     }
-    // AUTO: keep existing offset logic; width/height already final.
     const scaleX = width / basisWidth;
     const scaleY = height / basisHeight;
-    const percentX = (normalized.offsetPercent?.x ?? 0) / HUNDRED;
-    const percentY = (normalized.offsetPercent?.y ?? 0) / HUNDRED;
+    const percentX = ((_g = (_f = normalized.offsetPercent) === null || _f === void 0 ? void 0 : _f.x) !== null && _g !== void 0 ? _g : 0) / HUNDRED;
+    const percentY = ((_j = (_h = normalized.offsetPercent) === null || _h === void 0 ? void 0 : _h.y) !== null && _j !== void 0 ? _j : 0) / HUNDRED;
     const leftoverX = safeViewport.width - width;
     const leftoverY = safeViewport.height - height;
     const translateX = leftoverX * percentX;

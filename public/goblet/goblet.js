@@ -1,4 +1,3 @@
-import { normalizeAlignment, computeLayerTransform, computeLayerDestination } from './alignFitResolver.js';
 import { clamp, posInt, round3, toNum } from './num.js';
 
 const __DEV__ = typeof process !== 'undefined' && process.env && process.env.NODE_ENV
@@ -507,6 +506,402 @@ const logLayerDraw = (layer, source, sample, destination, units) => {
   );
 };
 
+// ------------------------------------------------------------
+// Alignment helpers
+// ------------------------------------------------------------
+const fitClamp01 = (value) => (value <= 0 ? 0 : value >= 1 ? 1 : value);
+const fitPositive = (value, fallback = 1) => (Number.isFinite(value) && value > 0 ? value : fallback);
+
+const fitPivotFor = (horizontal, vertical) => {
+  const px = horizontal === 'center' ? 0.5 : horizontal === 'right' ? 1 : 0;
+  const py = vertical === 'center' ? 0.5 : vertical === 'bottom' ? 1 : 0;
+  return { px, py };
+};
+
+const fitPivotForAnchor = (anchor, horizontal, vertical) => {
+  if (anchor) {
+    switch (anchor) {
+      case 'center': return { px: 0.5, py: 0.5 };
+      case 'top-left': return { px: 0, py: 0 };
+      case 'top': return { px: 0.5, py: 0 };
+      case 'top-right': return { px: 1, py: 0 };
+      case 'left': return { px: 0, py: 0.5 };
+      case 'right': return { px: 1, py: 0.5 };
+      case 'bottom-left': return { px: 0, py: 1 };
+      case 'bottom': return { px: 0.5, py: 1 };
+      case 'bottom-right': return { px: 1, py: 1 };
+      default: break;
+    }
+  }
+  return fitPivotFor(horizontal, vertical);
+};
+
+const fitScaleFor = (fit, painted, frame, uniformK = 1, design) => {
+  const sw = fitPositive(painted.width);
+  const sh = fitPositive(painted.height);
+  const fw = fitPositive(frame.width);
+  const fh = fitPositive(frame.height);
+  const sx = fw / sw;
+  const sy = fh / sh;
+  const uContain = Math.min(sx, sy);
+  const uCover = Math.max(sx, sy);
+  let normalizedContain = uContain;
+  if (design) {
+    const dw = fitPositive(design.width);
+    const dh = fitPositive(design.height);
+    if (dw > 0 && dh > 0) {
+      const baseContain = Math.min(dw / sw, dh / sh) || 1;
+      if (baseContain > 0) {
+        normalizedContain = uContain / baseContain;
+      }
+    }
+  }
+
+  switch (fit) {
+    case 'fill':
+      return { sx, sy };
+    case 'contain':
+      return { sx: normalizedContain, sy: normalizedContain };
+    case 'cover':
+      return { sx: uCover, sy: uCover };
+    case 'uniform':
+      return { sx: uContain * uniformK, sy: uContain * uniformK };
+    case 'tile':
+      return { sx: 1, sy: 1 };
+    case 'none':
+    default:
+      return { sx: 1, sy: 1 };
+  }
+};
+
+const fitOriginPercent = (frame, offset) => {
+  const ox = frame.x + fitClamp01((offset?.x ?? 0) / 100) * frame.width;
+  const oy = frame.y + fitClamp01((offset?.y ?? 0) / 100) * frame.height;
+  return { ox, oy };
+};
+
+const fitOriginAnchor = (frame, destWidth, destHeight, anchor, horizontal, vertical) => {
+  const { px, py } = fitPivotForAnchor(anchor, horizontal, vertical);
+  const ax = frame.x + px * frame.width;
+  const ay = frame.y + py * frame.height;
+  return { ox: ax - px * destWidth, oy: ay - py * destHeight };
+};
+
+const computePlacement = (basis, uniformK = 1) => {
+  const painted = {
+    width: fitPositive(basis?.painted?.width),
+    height: fitPositive(basis?.painted?.height)
+  };
+  const frame = {
+    x: basis?.frame?.x ?? 0,
+    y: basis?.frame?.y ?? 0,
+    width: fitPositive(basis?.frame?.width),
+    height: fitPositive(basis?.frame?.height)
+  };
+
+  if (basis?.align?.fit === 'cover') {
+    return {
+      dest: {
+        x: Math.round(frame.x),
+        y: Math.round(frame.y),
+        width: Math.max(1, Math.round(frame.width)),
+        height: Math.max(1, Math.round(frame.height))
+      }
+    };
+  }
+
+  const sizeBasis = painted; // always size placement from painted bounds
+  const { sx, sy } = fitScaleFor(basis?.align?.fit ?? 'none', sizeBasis, frame, uniformK, basis?.design);
+  const destWidth = Math.max(1, sizeBasis.width * sx);
+  const destHeight = Math.max(1, sizeBasis.height * sy);
+
+  if (basis?.align?.fit === 'tile') {
+    return {
+      dest: {
+        x: frame.x,
+        y: frame.y,
+        width: frame.width,
+        height: frame.height
+      },
+      tile: {
+        size: {
+          width: painted.width,
+          height: painted.height
+        },
+        phase: {
+          x: Math.floor(frame.x),
+          y: Math.floor(frame.y)
+        }
+      }
+    };
+  }
+
+  let origin;
+
+  if (basis?.align?.fit === 'fill') {
+    origin = { ox: frame.x, oy: frame.y };
+  } else if (basis?.align?.positioning === 'anchor') {
+    origin = fitOriginAnchor(
+      frame,
+      destWidth,
+      destHeight,
+      basis.align.anchor,
+      basis.align.horizontal,
+      basis.align.vertical
+    );
+  } else if (basis?.align?.fit === 'contain') {
+    const px = clamp01((basis.align.offsetPercent?.x ?? 0) / 100);
+    const py = clamp01((basis.align.offsetPercent?.y ?? 0) / 100);
+    const leftoverX = frame.width - destWidth;
+    const leftoverY = frame.height - destHeight;
+    origin = {
+      ox: frame.x + leftoverX * px,
+      oy: frame.y + leftoverY * py
+    };
+  } else {
+    origin = fitOriginPercent(frame, basis?.align?.offsetPercent);
+  }
+
+  const dest = {
+    x: Math.round(origin.ox),
+    y: Math.round(origin.oy),
+    width: Math.max(1, Math.round(destWidth)),
+    height: Math.max(1, Math.round(destHeight))
+  };
+
+  return { dest };
+};
+
+const fitToNumber = (value, fallback = 0) => {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+};
+
+const normalizeAlign = (raw, autoOffsetPercent) => {
+  const fit = typeof raw?.fit === 'string' ? raw.fit : 'none';
+  const fitNormalized = (
+    fit === 'contain' ||
+    fit === 'cover' ||
+    fit === 'uniform' ||
+    fit === 'fill' ||
+    fit === 'tile' ||
+    fit === 'none'
+  ) ? fit : 'none';
+
+  const positioningRaw = raw?.positioning;
+  const positioning = positioningRaw === 'anchor' || positioningRaw === 'auto' || positioningRaw === 'percent'
+    ? positioningRaw
+    : 'percent';
+
+  const horizontal = raw?.horizontal === 'center' || raw?.horizontal === 'right'
+    ? raw.horizontal
+    : 'left';
+  const vertical = raw?.vertical === 'center' || raw?.vertical === 'bottom'
+    ? raw.vertical
+    : 'top';
+  const anchor = raw?.anchor;
+
+  const align = {
+    fit: fitNormalized,
+    positioning,
+    horizontal,
+    vertical,
+    anchor
+  };
+
+  if (positioning === 'percent') {
+    const offset = raw?.offsetPercent ?? {};
+    align.offsetPercent = {
+      x: fitToNumber(offset.x, 0),
+      y: fitToNumber(offset.y, 0)
+    };
+  } else if (positioning === 'auto' && autoOffsetPercent) {
+    align.offsetPercent = {
+      x: fitToNumber(autoOffsetPercent.x, 0),
+      y: fitToNumber(autoOffsetPercent.y, 0)
+    };
+  }
+
+  return align;
+};
+
+const fitComputeLayoutTransform = (alignment, viewport, paintedBounds) => {
+  const basisWidth = fitPositive(paintedBounds?.width, 1);
+  const basisHeight = fitPositive(paintedBounds?.height, 1);
+  const viewportWidth = fitPositive(viewport?.width, 1);
+  const viewportHeight = fitPositive(viewport?.height, 1);
+
+  let { sx, sy } = fitScaleFor(alignment?.fit ?? 'none', { width: basisWidth, height: basisHeight }, { width: viewportWidth, height: viewportHeight });
+
+  if (alignment?.positioning === 'anchor') {
+    sx = 1;
+    sy = 1;
+  }
+
+  const renderedWidth = basisWidth * sx;
+  const renderedHeight = basisHeight * sy;
+  const leftoverX = viewportWidth - renderedWidth;
+  const leftoverY = viewportHeight - renderedHeight;
+
+  if (alignment?.positioning === 'anchor') {
+    const horizontal = alignment.horizontal ?? 'left';
+    const vertical = alignment.vertical ?? 'top';
+    const fallbackPercentX = horizontal === 'center' ? 50 : horizontal === 'right' ? 100 : 0;
+    const fallbackPercentY = vertical === 'center' ? 50 : vertical === 'bottom' ? 100 : 0;
+    const offsetPercentX = (alignment.offsetPercent?.x ?? fallbackPercentX) - fallbackPercentX;
+    const offsetPercentY = (alignment.offsetPercent?.y ?? fallbackPercentY) - fallbackPercentY;
+    const pivotX = horizontal === 'center' ? leftoverX / 2 : horizontal === 'right' ? leftoverX : 0;
+    const pivotY = vertical === 'center' ? leftoverY / 2 : vertical === 'bottom' ? leftoverY : 0;
+    const translateX = pivotX + (offsetPercentX / 100) * leftoverX;
+    const translateY = pivotY + (offsetPercentY / 100) * leftoverY;
+
+    return {
+      scaleX: 1,
+      scaleY: 1,
+      translateX,
+      translateY
+    };
+  }
+
+  const percentX = (alignment?.offsetPercent?.x ?? 0) / 100;
+  const percentY = (alignment?.offsetPercent?.y ?? 0) / 100;
+  const translateX = leftoverX * percentX;
+  const translateY = leftoverY * percentY;
+
+  return {
+    scaleX: sx,
+    scaleY: sy,
+    translateX,
+    translateY
+  };
+};
+
+const drawLayerWithPlacement = (ctx, source, placement, { isFixed, dpr, paintedRect, fit }) => {
+  const toPos = (value) => (isFixed ? Math.round(value * dpr) : Math.round(value));
+  const toSize = (value) => Math.max(1, isFixed ? Math.round(value * dpr) : Math.round(value));
+  const fullSample = paintedRect ?? {
+    x: 0,
+    y: 0,
+    width: source.width,
+    height: source.height
+  };
+
+  const destCss = placement.dest;
+  let sampleRect = fullSample;
+
+  const destBacking = {
+    x: toPos(destCss.x),
+    y: toPos(destCss.y),
+    width: toSize(destCss.width),
+    height: toSize(destCss.height)
+  };
+
+  ctx.imageSmoothingEnabled = false;
+
+  if (placement.tile) {
+    const scaleFactor = isFixed ? dpr : 1;
+    const tileWidth = Math.max(1, Math.round(fullSample.width * scaleFactor));
+    const tileHeight = Math.max(1, Math.round(fullSample.height * scaleFactor));
+
+    const tileCanvas = document.createElement('canvas');
+    tileCanvas.width = tileWidth;
+    tileCanvas.height = tileHeight;
+    const tileCtx = tileCanvas.getContext('2d', { alpha: true });
+    if (!tileCtx) {
+      return { ok: false, destBacking };
+    }
+
+    tileCtx.imageSmoothingEnabled = false;
+    tileCtx.drawImage(
+      source,
+      fullSample.x,
+      fullSample.y,
+      fullSample.width,
+      fullSample.height,
+      0,
+      0,
+      tileWidth,
+      tileHeight
+    );
+
+    const pattern = ctx.createPattern(tileCanvas, 'repeat');
+    if (!pattern) {
+      return { ok: false, destBacking };
+    }
+
+    const phaseX = isFixed ? Math.round(placement.tile.phase.x * dpr) : Math.round(placement.tile.phase.x);
+    const phaseY = isFixed ? Math.round(placement.tile.phase.y * dpr) : Math.round(placement.tile.phase.y);
+
+    ctx.save();
+    ctx.translate(-phaseX, -phaseY);
+    ctx.fillStyle = pattern;
+    ctx.fillRect(destBacking.x + phaseX, destBacking.y + phaseY, destBacking.width, destBacking.height);
+    ctx.restore();
+
+    return { ok: true, destBacking, tileCanvas };
+  }
+
+  if (fit === 'cover') {
+    const fxCSS = Math.round(destCss.x);
+    const fyCSS = Math.round(destCss.y);
+    const fwCSS = Math.max(1, Math.round(destCss.width));
+    const fhCSS = Math.max(1, Math.round(destCss.height));
+
+    const scaleU = isFixed ? dpr : 1;
+    const fx = Math.round(fxCSS * scaleU);
+    const fy = Math.round(fyCSS * scaleU);
+    const fw = Math.max(1, Math.round(fwCSS * scaleU));
+    const fh = Math.max(1, Math.round(fhCSS * scaleU));
+
+    const s = paintedRect ?? { x: 0, y: 0, width: source.width, height: source.height };
+
+    const k = Math.max(fw / s.width, fh / s.height);
+
+    const dw = Math.max(1, Math.round(s.width * k));
+    const dh = Math.max(1, Math.round(s.height * k));
+    const dx = Math.round(fx + (fw - dw) / 2);
+    const dy = Math.round(fy + (fh - dh) / 2);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(fx, fy, fw, fh);
+    ctx.clip();
+    ctx.imageSmoothingEnabled = false;
+
+    console.log('[COVER]', { fw, fh, dw, dh, k, isFixed, dpr });
+
+    ctx.drawImage(
+      source,
+      s.x,
+      s.y,
+      s.width,
+      s.height,
+      dx,
+      dy,
+      dw,
+      dh
+    );
+
+    ctx.restore();
+
+    return { ok: true, destBacking: { x: dx, y: dy, width: dw, height: dh } };
+  }
+
+  ctx.drawImage(
+    source,
+    sampleRect.x,
+    sampleRect.y,
+    sampleRect.width,
+    sampleRect.height,
+    destBacking.x,
+    destBacking.y,
+    destBacking.width,
+    destBacking.height
+  );
+
+  return { ok: true, destBacking };
+};
+
 const logSummary = (painted, total, startedAt) => {
   if (typeof performance === 'undefined' || typeof performance.now !== 'function') {
     const elapsedMs = Number((Date.now() - startedAt).toFixed(2));
@@ -544,7 +939,9 @@ const warnNonIdentityTransform = (layerId, matrix) => {
 
 const POINTER_GUARD_KEY = Symbol.for('VesselPointerGuard');
 
-const clamp01 = (value) => clamp(value, 0, 1);
+function clamp01(value) {
+  return clamp(value, 0, 1);
+}
 
 const clamp255 = (value) => clamp(Math.round(value), 0, 255);
 
@@ -800,14 +1197,7 @@ const resolveContainerLayout = (layers, layout, viewport) => {
       height: basisSize.height
     };
 
-    const documentForLayer = anchorContent && isTile
-      ? {
-          width: basisSize.width,
-          height: basisSize.height
-        }
-      : entry.document;
-
-    const transform = computeLayerTransform(documentForLayer, viewportForLayer, entry.alignment, { paintedBounds });
+    const transform = fitComputeLayoutTransform(entry.alignment, viewportForLayer, paintedBounds);
 
     placements.push({
       layerId: entry.layerId,
@@ -1173,6 +1563,22 @@ const normalizeLayerSpatialMetadata = (metadata) => {
 
     layer.documentBoundsPx = resolvedRect;
 
+    const hasPaintedSize = layer.paintedSize && typeof layer.paintedSize === 'object';
+    const paintedFromPixel = layer.pixelBoundsPx && typeof layer.pixelBoundsPx === 'object';
+
+    if (hasPaintedSize) {
+      const width = Math.max(1, round3(toNum(layer.paintedSize.width, resolvedRect.width)));
+      const height = Math.max(1, round3(toNum(layer.paintedSize.height, resolvedRect.height)));
+      layer.paintedSize = { width, height };
+    } else {
+      layer.paintedSize = paintedFromPixel
+        ? { width: resolvedRect.width, height: resolvedRect.height }
+        : {
+            width: Math.max(1, layer.documentBoundsPx.width),
+            height: Math.max(1, layer.documentBoundsPx.height)
+          };
+    }
+
     const normalizedPercent = layer.documentBoundsPercent && typeof layer.documentBoundsPercent === 'object'
       ? normalizePercentRect(layer.documentBoundsPercent)
       : layer.pixelBoundsPercent && typeof layer.pixelBoundsPercent === 'object'
@@ -1191,78 +1597,9 @@ const normalizeLayerSpatialMetadata = (metadata) => {
   });
 
   if (needsLayoutPlacement) {
-    const layout = normalizeContainerLayout(metadata.container);
-    const viewport = {
-      width: Math.max(1, toNum(metadata.viewport?.designWidth ?? metadata.viewport?.width ?? metadata.project?.width, documentSize.width)),
-      height: Math.max(1, toNum(metadata.viewport?.designHeight ?? metadata.viewport?.height ?? metadata.project?.height, documentSize.height))
-    };
-
-    const inputs = metadata.layers
-      .map((layer) => {
-        if (!layer || typeof layer !== 'object') {
-          return null;
-        }
-
-        const surfaceWidth = Math.max(1, toNum(layer?.source?.width, documentSize.width));
-        const surfaceHeight = Math.max(1, toNum(layer?.source?.height, documentSize.height));
-        const contentWidth = layer.contentBounds
-          ? Math.max(1, toNum(layer.contentBounds.width, surfaceWidth))
-          : surfaceWidth;
-        const contentHeight = layer.contentBounds
-          ? Math.max(1, toNum(layer.contentBounds.height, surfaceHeight))
-          : surfaceHeight;
-
-        return {
-          layerId: layer.id,
-          surface: { width: clampDimension(surfaceWidth), height: clampDimension(surfaceHeight) },
-          content: { width: clampDimension(contentWidth), height: clampDimension(contentHeight) },
-          document: { width: documentSize.width, height: documentSize.height },
-          alignment: normalizeAlignment(layer.alignment),
-          hidden: layer.visible === false
-        };
-      })
-      .filter(Boolean);
-
-    try {
-      const placements = resolveContainerLayout(inputs, layout, viewport);
-      const placementMap = new Map();
-      placements.forEach((placement) => {
-        placementMap.set(placement.layerId, placement);
-      });
-
-      metadata.layers.forEach((layer) => {
-        if (!layer || typeof layer !== 'object') {
-          return;
-        }
-        if (layer.layoutPlacement && typeof layer.layoutPlacement === 'object') {
-          return;
-        }
-        const placement = placementMap.get(layer.id);
-        if (!placement) {
-          return;
-        }
-
-        layer.layoutPlacement = {
-          frame: {
-            x: round3(placement.frame.x),
-            y: round3(placement.frame.y),
-            width: round3(placement.frame.width),
-            height: round3(placement.frame.height)
-          },
-          transform: {
-            scaleX: round3(placement.transform.scaleX),
-            scaleY: round3(placement.transform.scaleY),
-            translateX: round3(placement.transform.translateX),
-            translateY: round3(placement.transform.translateY),
-            rotation: typeof placement.transform.rotation === 'number'
-              ? round3(placement.transform.rotation)
-              : undefined
-          }
-        };
-      });
-    } catch (error) {
-      diagnostics.warn('Failed to compute design layout in viewer', error);
-    }
+    // Viewer rendering must rely solely on computePlacement → drawLayerWithPlacement.
+    // Skip exporter layout transforms (fitComputeLayoutTransform) here to avoid
+    // injecting alternative scaling/translation paths into the viewer loop.
   }
 
   metadata.layers.forEach((layer) => {
@@ -1270,7 +1607,6 @@ const normalizeLayerSpatialMetadata = (metadata) => {
       return;
     }
     delete layer.bounds;
-    delete layer.pixelBoundsPx;
     delete layer.pixelBoundsPercent;
     delete layer.placement;
   });
@@ -2003,178 +2339,6 @@ class ColorCycleLayerPlayer {
 }
 
 // ------------------------------------------------------------
-// Canvas rendering helpers
-// ------------------------------------------------------------
-const applyLayerToContext = (ctx, source, layer, destination, units = 'css', phaseRect = destination) => {
-  if (!(source instanceof HTMLCanvasElement) && !(source instanceof HTMLImageElement)) {
-    return false;
-  }
-
-  const fit = layer?.alignment?.fit ?? 'none';
-  const isTile = fit === 'tile';
-  const isAnchor = layer?.alignment?.positioning === 'anchor';
-  // Only crop when anchor positioning is paired with none/tile so scaling uses full content.
-  const cropForAnchor = isAnchor && (fit === 'none' || fit === 'tile');
-  const sourceWidth = source instanceof HTMLImageElement
-    ? source.naturalWidth || source.width
-    : source.width;
-  const sourceHeight = source instanceof HTMLImageElement
-    ? source.naturalHeight || source.height
-    : source.height;
-
-  if (!destination) {
-    return false;
-  }
-
-  let sx = 0;
-  let sy = 0;
-  let sw = sourceWidth;
-  let sh = sourceHeight;
-
-  const shouldCropToContent = Boolean(layer?.contentBounds && cropForAnchor);
-
-  if (shouldCropToContent) {
-    const boundsRaw = layer.contentBounds;
-    const clampedX = clamp(boundsRaw.x, 0, Math.max(0, sourceWidth - 1));
-    const clampedY = clamp(boundsRaw.y, 0, Math.max(0, sourceHeight - 1));
-    const maxWidth = Math.max(1, sourceWidth - clampedX);
-    const maxHeight = Math.max(1, sourceHeight - clampedY);
-    sx = Math.floor(clampedX);
-    sy = Math.floor(clampedY);
-    sw = Math.max(1, Math.floor(Math.min(boundsRaw.width, maxWidth)));
-    sh = Math.max(1, Math.floor(Math.min(boundsRaw.height, maxHeight)));
-  } else {
-    sx = 0;
-    sy = 0;
-    sw = sourceWidth;
-    sh = sourceHeight;
-  }
-
-  const sampleRegion = {
-    x: sx,
-    y: sy,
-    width: sw,
-    height: sh
-  };
-
-  const phaseTarget = phaseRect ?? destination;
-
-  ctx.save();
-  const blendMode = layer.blendMode ?? 'source-over';
-  const opacity = Number.isFinite(layer.opacity) ? clamp(layer.opacity, 0, 1) : 1;
-
-  ctx.globalCompositeOperation = blendMode;
-  ctx.globalAlpha = opacity;
-
-  const dx = Math.round(destination.x);
-  const dy = Math.round(destination.y);
-  const dw = Math.round(destination.width);
-  const dh = Math.round(destination.height);
-
-  const drawDestination = { x: dx, y: dy, width: dw, height: dh };
-  const destinationForLog = units === 'css'
-    ? (phaseRect ?? destination)
-    : (phaseRect ?? drawDestination);
-  const fillArea = units === 'css' ? destination : drawDestination;
-
-  diagnostics.log('Drawing layer attempt', {
-    layerId: layer.id,
-    mode: isTile ? 'tile' : 'draw-image',
-    sourceActualSize: {
-      width: source.width || source.naturalWidth,
-      height: source.height || source.naturalHeight
-    },
-    drawingFrom: sampleRegion,
-    drawingTo: fillArea,
-    phase: isTile ? destinationForLog : undefined,
-    opacity,
-    blendMode
-  });
-
-  if (isTile) {
-    const tileWidth = Math.max(1, Math.floor(sw));
-    const tileHeight = Math.max(1, Math.floor(sh));
-    if (tileWidth <= 0 || tileHeight <= 0) {
-      ctx.restore();
-      return false;
-    }
-
-    const tileCanvas = document.createElement('canvas');
-    tileCanvas.width = tileWidth;
-    tileCanvas.height = tileHeight;
-    const tileCtx = tileCanvas.getContext('2d', { alpha: true });
-    if (!tileCtx) {
-      ctx.restore();
-      return false;
-    }
-
-    tileCtx.imageSmoothingEnabled = false;
-    tileCtx.drawImage(source, sx, sy, sw, sh, 0, 0, tileWidth, tileHeight);
-
-    const rawPhaseX = typeof phaseTarget?.x === 'number' ? phaseTarget.x : 0;
-    const rawPhaseY = typeof phaseTarget?.y === 'number' ? phaseTarget.y : 0;
-    const normalizedPhaseX = ((Math.round(rawPhaseX) % tileWidth) + tileWidth) % tileWidth;
-    const normalizedPhaseY = ((Math.round(rawPhaseY) % tileHeight) + tileHeight) % tileHeight;
-
-    const pattern = ctx.createPattern(tileCanvas, 'repeat');
-    if (!pattern) {
-      ctx.restore();
-      return false;
-    }
-
-    ctx.imageSmoothingEnabled = false;
-    ctx.fillStyle = pattern;
-    ctx.translate(-normalizedPhaseX, -normalizedPhaseY);
-    ctx.fillRect(
-      Math.floor(destination.x + normalizedPhaseX),
-      Math.floor(destination.y + normalizedPhaseY),
-      Math.floor(Math.max(1, destination.width)),
-      Math.floor(Math.max(1, destination.height))
-    );
-
-    logLayerDraw(layer, tileCanvas, { x: 0, y: 0, width: tileWidth, height: tileHeight }, destinationForLog, units);
-
-    diagnostics.log('Drew layer successfully', {
-      layerId: layer.id,
-      mode: 'tile',
-      destination: fillArea,
-      phase: destinationForLog
-    });
-
-    ctx.restore();
-    return true;
-  }
-
-  logLayerDraw(layer, source, sampleRegion, destinationForLog, units);
-
-  const transformBeforeDraw = snapshotTransform(ctx);
-  if (!isIdentityTransform(transformBeforeDraw)) {
-    warnNonIdentityTransform(layer?.id, transformBeforeDraw);
-  }
-
-  ctx.drawImage(
-    source,
-    sx,
-    sy,
-    sw,
-    sh,
-    dx,
-    dy,
-    dw,
-    dh
-  );
-
-  diagnostics.log('Drew layer successfully', {
-    layerId: layer.id,
-    mode: 'draw-image',
-    destination: fillArea
-  });
-
-  ctx.restore();
-  return true;
-};
-
-// ------------------------------------------------------------
 // Vessel viewer core
 // ------------------------------------------------------------
 const RENDERER_KEY = Symbol('VesselRenderer');
@@ -2494,6 +2658,10 @@ class VesselGoblet {
       width: Math.max(1, toNum(this.metadata.project?.width, cssW)),
       height: Math.max(1, toNum(this.metadata.project?.height, cssH))
     };
+    const designSize = {
+      width: Math.max(1, toNum(this.metadata.viewport?.designWidth, cssW)),
+      height: Math.max(1, toNum(this.metadata.viewport?.designHeight, cssH))
+    };
     let painted = 0;
     sorted.forEach((entry, index) => {
       diagnostics.log(`[goblet] Processing layer ${index}:`, entry.layer.id);
@@ -2506,114 +2674,175 @@ class VesselGoblet {
         diagnostics.log(`[goblet] No source for layer ${entry.layer.id}`);
         return;
       }
-      diagnostics.log(`[goblet] Have source for ${entry.layer.id}, computing destination`);
-      const fit = entry.layer.alignment?.fit;
-      const isTile = fit === 'tile';
-      const isAnchor = entry.layer.alignment?.positioning === 'anchor';
-      const documentBounds = entry.layer.documentBoundsPx ?? null;
+      diagnostics.log(`[goblet] Have source for ${entry.layer.id}, computing placement`);
       const pixelBounds = entry.layer.pixelBoundsPx ?? null;
+      const contentBounds = entry.layer.contentBounds ?? null;
 
-      const fallbackPaint = {
-        x: 0,
-        y: 0,
-        width: documentSize.width,
-        height: documentSize.height
-      };
+      const sourceWidth = source instanceof HTMLImageElement
+        ? source.naturalWidth || source.width
+        : source.width;
+      const sourceHeight = source instanceof HTMLImageElement
+        ? source.naturalHeight || source.height
+        : source.height;
 
-      // Always size/place from visible pixels if we have them,
-      // else fall back to exported document bounds, else project/document.
-      const paintedForLayout = pixelBounds
+      const paintedRect = contentBounds
         ? {
-            x: 0,
-            y: 0,
-            width: Math.max(1, pixelBounds.width),
-            height: Math.max(1, pixelBounds.height)
+            x: Math.max(0, contentBounds.x | 0),
+            y: Math.max(0, contentBounds.y | 0),
+            width: Math.max(1, contentBounds.width | 0),
+            height: Math.max(1, contentBounds.height | 0)
           }
-        : documentBounds
+        : pixelBounds
           ? {
+              x: Math.max(0, pixelBounds.x | 0),
+              y: Math.max(0, pixelBounds.y | 0),
+              width: Math.max(1, pixelBounds.width | 0),
+              height: Math.max(1, pixelBounds.height | 0)
+            }
+          : {
               x: 0,
               y: 0,
-              width: Math.max(1, documentBounds.width),
-              height: Math.max(1, documentBounds.height)
-            }
-          : fallbackPaint;
+              width: sourceWidth,
+              height: sourceHeight
+            };
 
-      const basisDoc = (() => {
-        if (isTile) {
-          if (isAnchor && pixelBounds) {
-            return {
-              width: Math.max(1, pixelBounds.width),
-              height: Math.max(1, pixelBounds.height)
-            };
-          }
-          if (isAnchor && documentBounds) {
-            return {
-              width: Math.max(1, documentBounds.width),
-              height: Math.max(1, documentBounds.height)
-            };
-          }
-          return {
-            width: documentSize.width,
-            height: documentSize.height
-          };
+      if (paintedRect.x >= sourceWidth) {
+        paintedRect.x = Math.max(0, sourceWidth - 1);
+      }
+      if (paintedRect.y >= sourceHeight) {
+        paintedRect.y = Math.max(0, sourceHeight - 1);
+      }
+      if (paintedRect.x + paintedRect.width > sourceWidth) {
+        paintedRect.width = Math.max(1, sourceWidth - paintedRect.x);
+      }
+      if (paintedRect.y + paintedRect.height > sourceHeight) {
+        paintedRect.height = Math.max(1, sourceHeight - paintedRect.y);
+      }
+
+      const paintedForLayout = {
+        width: paintedRect.width,
+        height: paintedRect.height
+      };
+
+      console.log('[SOURCE]', entry.layer.id, {
+        sourceW: source.width,
+        sourceH: source.height,
+        imageNW: source instanceof HTMLImageElement ? source.naturalWidth : undefined,
+        imageNH: source instanceof HTMLImageElement ? source.naturalHeight : undefined
+      });
+
+      if (paintedForLayout.width > sourceWidth || paintedForLayout.height > sourceHeight) {
+        console.warn('[align] painted > surface; clamping', { paintedForLayout, sourceWidth, sourceHeight });
+        paintedForLayout.width = Math.min(paintedForLayout.width, sourceWidth);
+        paintedForLayout.height = Math.min(paintedForLayout.height, sourceHeight);
+      }
+
+      const viewportFrame = {
+        x: 0,
+        y: 0,
+        width: viewportSize.width,
+        height: viewportSize.height
+      };
+
+      const autoOffsetPercent = entry.layer.alignment?.positioning === 'auto'
+        ? entry.layer.alignment?.offsetPercent
+        : undefined;
+
+      const align = normalizeAlign(entry.layer.alignment, autoOffsetPercent);
+
+      const basis = {
+        surface: { width: sourceWidth, height: sourceHeight },
+        painted: paintedForLayout,
+        frame: viewportFrame,
+        design: designSize,
+        doc: documentSize,
+        align
+      };
+
+      console.log('[BASIS]', {
+        fit: align.fit,
+        pos: align.positioning,
+        hz: align.horizontal,
+        vt: align.vertical,
+        off: align.offsetPercent,
+        surface: basis.surface,
+        painted: basis.painted,
+        frame: basis.frame
+      });
+
+      const placement = computePlacement(basis);
+
+      const units = isFixed ? 'backing' : 'css';
+      const destForLog = (() => {
+        const cssRect = placement.dest;
+        if (units === 'css') {
+          return cssRect;
         }
-
         return {
-          width: documentSize.width,
-          height: documentSize.height
+          x: Math.round(cssRect.x * dpr),
+          y: Math.round(cssRect.y * dpr),
+          width: Math.max(1, Math.round(cssRect.width * dpr)),
+          height: Math.max(1, Math.round(cssRect.height * dpr))
         };
       })();
 
-      const destinationCSS = computeLayerDestination({
-        document: basisDoc,
-        viewport: viewportSize,
-        alignment: entry.layer.alignment,
-        paintedBounds: paintedForLayout
+      diagnostics.log(`[goblet] Placement resolved for ${entry.layer.id}`, {
+        placement,
+        units,
+        destForLog
       });
-      if (!destinationCSS) {
-        diagnostics.log(`[goblet] No destination for layer ${entry.layer.id}`);
+
+      const blendMode = entry.layer.blendMode ?? 'source-over';
+      const opacity = Number.isFinite(entry.layer.opacity) ? clamp(entry.layer.opacity, 0, 1) : 1;
+
+      ctx.save();
+      ctx.globalCompositeOperation = blendMode;
+      ctx.globalAlpha = opacity;
+
+      if (__DEV__) {
+        if (!(placement.dest.width > 0 && placement.dest.height > 0)) {
+          console.warn('[align] non-positive dest size', { placement, layer: entry.layer.id });
+        }
+      }
+
+      const drawResult = drawLayerWithPlacement(
+        ctx,
+        source,
+        placement,
+        {
+          isFixed,
+          dpr,
+          paintedRect,
+          fit: align.fit
+        }
+      );
+
+      if (!drawResult.ok) {
+        ctx.restore();
+        diagnostics.log(`[goblet] Failed to paint layer ${entry.layer.id}`);
         return;
       }
 
-      const fillCSS = { x: 0, y: 0, width: viewportSize.width, height: viewportSize.height };
-      const drawCSS = isTile ? fillCSS : destinationCSS;
+      const transformBeforeDraw = snapshotTransform(ctx);
+      if (!isIdentityTransform(transformBeforeDraw)) {
+        warnNonIdentityTransform(entry.layer?.id, transformBeforeDraw);
+      }
 
-      const destination = isFixed
-        ? {
-            x: Math.round(drawCSS.x * dpr),
-            y: Math.round(drawCSS.y * dpr),
-            width: Math.max(1, Math.round(drawCSS.width * dpr)),
-            height: Math.max(1, Math.round(drawCSS.height * dpr))
-          }
-        : drawCSS;
+      const sampleForLog = drawResult.tileCanvas
+        ? { x: 0, y: 0, width: drawResult.tileCanvas.width, height: drawResult.tileCanvas.height }
+        : null;
+      const sourceForLog = drawResult.tileCanvas ?? source;
 
-      const phaseCSS = isTile ? destinationCSS : drawCSS;
-      const phaseForUnits = isTile
-        ? isFixed
-          ? {
-              x: Math.round(phaseCSS.x * dpr),
-              y: Math.round(phaseCSS.y * dpr),
-              width: Math.max(1, Math.round(phaseCSS.width * dpr)),
-              height: Math.max(1, Math.round(phaseCSS.height * dpr))
-            }
-          : phaseCSS
-        : destination;
+      logLayerDraw(entry.layer, sourceForLog, sampleForLog, destForLog, units);
 
-      diagnostics.log(`[goblet] About to draw ${entry.layer.id} at:`, {
-        css: destinationCSS,
-        drawArea: drawCSS,
-        fillArea: isTile ? drawCSS : destinationCSS,
-        backing: destination,
-        phase: isTile ? phaseCSS : undefined
+      diagnostics.log('Drew layer successfully', {
+        layerId: entry.layer.id,
+        mode: placement.tile ? 'tile' : 'draw-image',
+        destination: destForLog
       });
 
-      const units = isFixed ? 'backing' : 'css';
-      if (applyLayerToContext(ctx, source, entry.layer, destination, units, phaseForUnits)) {
-        painted += 1;
-        diagnostics.log(`[goblet] Successfully painted layer ${entry.layer.id}`);
-      } else {
-        diagnostics.log(`[goblet] Failed to paint layer ${entry.layer.id}`);
-      }
+      ctx.restore();
+      painted += 1;
     });
 
     diagnostics.log(`[goblet] Painted ${painted} of ${sorted.length} layers`);

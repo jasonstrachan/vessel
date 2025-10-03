@@ -3,7 +3,8 @@ import { computeLayerContentMetrics } from '@/utils/layerMetrics';
 import type { LayerContentMetrics } from '@/utils/layerMetrics';
 import { resolveContainerLayout as resolveContainerLayoutModel } from '@/utils/layerAlignment';
 import type { LayoutLayerInput, LayerTransform, ResolvedLayerLayout } from '@/utils/layerAlignment';
-import { deriveAutoPercentOffset, derivePercentBounds, normalizeAlignment } from '@/utils/alignment/alignFitResolver';
+import { deriveAutoPercentOffset, derivePercentBounds } from '@/utils/alignment/alignFitResolver';
+import { normalizeAlign, type RawAlignInput } from '@/utils/alignment/normalizeAlign';
 import { posInt, round3, toNum } from '@/utils/num';
 import type {
   ContentBounds,
@@ -156,6 +157,7 @@ const PROPERTY_MINIFY_MAP = {
   offsetPx: 'opx',
   offsetPercent: 'opc',
   contentBounds: 'cb',
+  paintedSize: 'psz',
   assets: 'as',
   colorCycle: 'cc',
   stackIndex: 'si',
@@ -278,11 +280,13 @@ export interface WebGLLayerMetadata {
   opacity?: number;
   blendMode?: Layer['blendMode'];
   source: WebGLLayerSource;
+  pixelBoundsPx?: WebGLLayerBounds;
   documentBoundsPx: WebGLLayerBounds;
   documentBoundsPercent: WebGLLayerBoundsPercent;
   layoutPlacement?: WebGLLayerPlacement;
   alignment: AlignmentExportPayload;
   contentBounds?: ContentBounds;
+  paintedSize?: { width: number; height: number };
   assets?: WebGLLayerAsset;
   colorCycle?: WebGLSerializedColorCycle;
   stackIndex?: number;
@@ -1947,6 +1951,11 @@ const stripModuleImportStatement = (content: string, modulePath: string): string
   return content.replace(pattern, '\n');
 };
 
+const stripAllStaticImports = (content: string): string => {
+  // Remove any remaining static import statements, including multiline named imports.
+  return content.replace(/\s*import\s+(?:[\w*$\s{},]+?\s+from\s+)?['\"][^'\"]+['\"];?\s*/g, '\n');
+};
+
 const stripGobletImport = (content: string): string => {
   return stripModuleImportStatement(content, './goblet.js');
 };
@@ -2116,7 +2125,9 @@ const appendZipAutoloadSnippet = (
 };
 
 const buildInlineAlignRuntime = (alignJs: string): string => {
-  const withoutImports = stripModuleImportStatement(alignJs, './num.js');
+  const withoutSpecificImports = stripModuleImportStatement(alignJs, './num.js');
+  const withoutAliasImports = stripModuleImportStatement(withoutSpecificImports, '@/utils/num');
+  const withoutImports = stripAllStaticImports(withoutAliasImports);
   const sanitized = withoutImports
     .replace(/export\s+default\s+[^;\n]+;?/g, '')
     .replace(/export\s+\{[^}]*\};?/g, '')
@@ -2451,32 +2462,35 @@ export const exportProjectAsWebGL = async (
     const documentBoundsPx = resolveDocumentBoundsPx(layer, metrics, options.project);
     const documentBoundsPercent = derivePercentBounds(documentBoundsPx, documentSize);
 
-    const normalizedAlignment = normalizeAlignment(layer.alignment);
-    let offsetPercent: LayerAlignmentSettings['offsetPercent'];
-    if (normalizedAlignment.positioning === 'auto') {
-      offsetPercent = deriveAutoPercentOffset(documentBoundsPx, documentSize);
-    } else if (normalizedAlignment.positioning === 'anchor') {
-      offsetPercent = undefined;
-    } else {
-      offsetPercent = {
-        x: normalizedAlignment.offsetPercent?.x ?? 0,
-        y: normalizedAlignment.offsetPercent?.y ?? 0
-      };
-    }
+    const autoOffsetPercent = deriveAutoPercentOffset(documentBoundsPx, documentSize);
+    const normalizedAlignment = normalizeAlign(
+      layer.alignment as RawAlignInput,
+      autoOffsetPercent
+    );
+
+    const positioning: LayerAlignmentSettings['positioning'] =
+      layer.alignment?.positioning === 'auto' ? 'auto' : 'anchor';
+
+    const offsetPercent: LayerAlignmentSettings['offsetPercent'] | undefined =
+      positioning === 'anchor'
+        ? undefined
+        : normalizedAlignment.offsetPercent
+            ? { x: normalizedAlignment.offsetPercent.x, y: normalizedAlignment.offsetPercent.y }
+            : undefined;
 
     const alignmentPayload: AlignmentExportPayload = {
-      fit: normalizedAlignment.fit,
-      horizontal: normalizedAlignment.horizontal,
-      vertical: normalizedAlignment.vertical,
-      positioning: normalizedAlignment.positioning,
+      fit: normalizedAlignment.fit as AlignmentExportPayload['fit'],
+      horizontal: normalizedAlignment.horizontal ?? 'left',
+      vertical: normalizedAlignment.vertical ?? 'top',
+      positioning,
       ...(offsetPercent ? { offsetPercent } : {})
     };
 
     const layoutAlignment: LayerAlignmentSettings = {
-      fit: normalizedAlignment.fit,
-      horizontal: normalizedAlignment.horizontal,
-      vertical: normalizedAlignment.vertical,
-      positioning: normalizedAlignment.positioning,
+      fit: alignmentPayload.fit,
+      horizontal: alignmentPayload.horizontal,
+      vertical: alignmentPayload.vertical,
+      positioning,
       ...(offsetPercent ? { offsetPercent } : {}),
       offsetPx: undefined
     };
@@ -2519,6 +2533,13 @@ export const exportProjectAsWebGL = async (
       ccWarn('NO CC PAYLOAD FOR LAYER', layer.id);
     }
 
+    const contentBoundsPayload = {
+      x: round3(metrics.contentBounds.x),
+      y: round3(metrics.contentBounds.y),
+      width: round3(Math.max(1, metrics.contentBounds.width)),
+      height: round3(Math.max(1, metrics.contentBounds.height))
+    };
+
     const baseLayerMetadata: WebGLLayerMetadata = {
       id: layer.id,
       name: layer.name,
@@ -2530,6 +2551,7 @@ export const exportProjectAsWebGL = async (
         width: Math.max(1, Math.round(sourceSize.width)),
         height: Math.max(1, Math.round(sourceSize.height))
       },
+      pixelBoundsPx: contentBoundsPayload,
       documentBoundsPx: {
         x: round3(documentBoundsPx.x),
         y: round3(documentBoundsPx.y),
@@ -2543,11 +2565,10 @@ export const exportProjectAsWebGL = async (
         height: round3(documentBoundsPercent.height)
       },
       alignment: alignmentPayload,
-      contentBounds: {
-        x: contentBounds.x,
-        y: contentBounds.y,
-        width: contentBounds.width,
-        height: contentBounds.height
+      contentBounds: contentBoundsPayload,
+      paintedSize: {
+        width: contentBoundsPayload.width,
+        height: contentBoundsPayload.height
       },
       assets: texture ? { texture } : undefined,
       colorCycle,
