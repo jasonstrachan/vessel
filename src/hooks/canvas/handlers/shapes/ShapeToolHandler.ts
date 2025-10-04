@@ -13,6 +13,9 @@ import {
 } from '@/utils/contourLines';
 import { computeDragScaledValue } from '@/utils/dragScale';
 import { withTemporaryBrushSettings } from '@/utils/withTemporaryBrushSettings';
+import { ShapeAdjustHelper, type ShapeAdjustHelperUpdate } from '@/lib/shapeFill/ShapeAdjustHelper';
+import { getShapeFillScheduler } from '@/lib/shapeFill/runtime';
+import { computeFlowGpuJobId } from '@/brushes/shapes/fills/flow';
 
 export interface ShapeToolHandlerContext {
   deps: EventHandlerDependencies;
@@ -80,6 +83,84 @@ export const createShapeToolHandler = (
 
   const restartColorCycleAnimation = context.deps.restartColorCycleAnimation;
 
+  let shapeAdjustHelper: ShapeAdjustHelper | null = null;
+
+  const normalizeOrientation = (value: number): number => ((value % 360) + 360) % 360;
+  const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
+  const dispatchFlowJobUpdate = (update: ShapeAdjustHelperUpdate, finalize: boolean) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const store = useAppStore.getState();
+    const jobId = store.polygonGradientState.gpuJobId;
+    if (!jobId) {
+      return;
+    }
+
+    const scheduler = getShapeFillScheduler();
+    const currentBrush = store.tools.brushSettings;
+
+    const maxSteps = update.density ?? store.polygonGradientState.tempMaxSteps ?? currentBrush.flowMaxSteps ?? 120;
+    const orientation = normalizeOrientation(update.orientation ?? store.polygonGradientState.tempOrientation ?? currentBrush.flowOrientationAngle ?? 0);
+    const noiseStrength = clamp01(update.noiseStrength ?? store.polygonGradientState.tempNoiseStrength ?? currentBrush.flowSeedJitter ?? 0.6);
+
+    scheduler.dispatchJobUpdate({
+      jobId,
+      brushSettingsPatch: {
+        flowSeedSpacing: Math.round(update.spacing),
+        flowMaxSteps: Math.round(maxSteps),
+        flowOrientationAngle: orientation,
+        flowSeedJitter: noiseStrength,
+      },
+      params: {
+        spacing: update.spacing,
+        maxSteps,
+        orientationDeg: orientation,
+        seedJitter: noiseStrength,
+        pendingGizmo: finalize ? 0 : 1,
+      },
+    });
+  };
+
+  const applyShapeAdjustPreview = (update: ShapeAdjustHelperUpdate) => {
+    const store = useAppStore.getState();
+    store.setPolygonGradientState({
+      tempSpacing: update.spacing,
+      tempMaxSteps: update.density != null ? Math.round(update.density) : update.density,
+      tempOrientation: update.orientation != null ? normalizeOrientation(update.orientation) : update.orientation,
+      tempNoiseStrength: update.noiseStrength,
+    });
+    drawFlowPreview(update.spacing, { isPreview: true });
+    dispatchFlowJobUpdate(update, false);
+  };
+
+  const commitShapeAdjustUpdate = (update: ShapeAdjustHelperUpdate) => {
+    const clampNoise = (value: number | undefined) => {
+      if (value == null) return undefined;
+      return Math.max(0, Math.min(1, value));
+    };
+
+    const patch: Partial<BrushSettings> = {
+      flowSeedSpacing: Math.round(update.spacing),
+    };
+
+    if (update.density != null) {
+      patch.flowMaxSteps = Math.round(update.density);
+    }
+    if (update.orientation != null) {
+      patch.flowOrientationAngle = normalizeOrientation(update.orientation);
+    }
+    if (update.noiseStrength != null) {
+      patch.flowSeedJitter = clampNoise(update.noiseStrength);
+    }
+
+    useAppStore.getState().setBrushSettings(patch);
+    dispatchFlowJobUpdate(update, true);
+    drawFlowPreview(update.spacing, { isPreview: false });
+  };
+
   const computeWorldPointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     const pointerPos = rect
@@ -93,6 +174,10 @@ export const createShapeToolHandler = (
   };
 
   const resetPolygonAdjustmentState = () => {
+    if (shapeAdjustHelper) {
+      shapeAdjustHelper.destroy();
+      shapeAdjustHelper = null;
+    }
     useAppStore.getState().setPolygonGradientState({
       drawingState: 'idle',
       points: [],
@@ -101,6 +186,9 @@ export const createShapeToolHandler = (
       adjustmentStartPos: undefined,
       tempRotation: undefined,
       tempSpacing: undefined,
+      tempMaxSteps: undefined,
+      tempOrientation: undefined,
+      tempNoiseStrength: undefined,
       tempSize: undefined,
       mode: undefined,
       rotationReferenceAngle: undefined,
@@ -110,6 +198,7 @@ export const createShapeToolHandler = (
       spacingReferenceDistance: undefined,
       spacingReferenceSpacing: undefined,
       flowRandomSeed: undefined,
+      gpuJobId: undefined,
     });
   };
 
@@ -254,6 +343,21 @@ export const createShapeToolHandler = (
       flowSeedSpacing: seedSpacing,
     };
 
+    const tempMaxSteps = polygonGradientState.tempMaxSteps;
+    if (tempMaxSteps != null) {
+      patch.flowMaxSteps = tempMaxSteps;
+    }
+
+    const tempOrientation = polygonGradientState.tempOrientation;
+    if (tempOrientation != null) {
+      patch.flowOrientationAngle = normalizeOrientation(tempOrientation);
+    }
+
+    const tempNoise = polygonGradientState.tempNoiseStrength;
+    if (tempNoise != null) {
+      patch.flowSeedJitter = Math.max(0, Math.min(1, tempNoise));
+    }
+
     if (strokeColorOverride) {
       patch.color = strokeColorOverride;
     }
@@ -282,48 +386,6 @@ export const createShapeToolHandler = (
     );
 
     drawingHandlers.drawingCanvasHasContent.current = true;
-  };
-
-  const applyFlowSpacingFromPointer = (
-    pointer: { x: number; y: number },
-    polygonStateOverride?: ReturnType<typeof useAppStore.getState>['polygonGradientState']
-  ) => {
-    const store = useAppStore.getState();
-    const polygonState = polygonStateOverride ?? store.polygonGradientState;
-    const vertices = polygonState.vertices;
-
-    if (!vertices || vertices.length < 3) {
-      return;
-    }
-
-    const centroid = computePolygonCentroid(vertices);
-    const pointerDistance = Math.max(1e-3, Math.hypot(pointer.x - centroid.x, pointer.y - centroid.y));
-    const referenceDistance = polygonState.spacingReferenceDistance ?? pointerDistance;
-
-    const baseSpacing = clampFlowSeedSpacing(
-      polygonState.spacingReferenceSpacing ??
-        polygonState.tempSpacing ??
-        (store.tools.brushSettings.flowSeedSpacing ?? 18)
-    );
-
-    const newSpacing = clampFlowSeedSpacing(
-      computeDragScaledValue({
-        startDistance: Math.max(referenceDistance, 1e-3),
-        currentDistance: pointerDistance,
-        startValue: baseSpacing,
-        min: 4,
-        max: 80,
-        exponent: FLOW_SPACING_EXPONENT,
-      })
-    );
-
-    useAppStore.getState().setPolygonGradientState({
-      tempSpacing: newSpacing,
-      spacingReferenceDistance: referenceDistance,
-      spacingReferenceSpacing: baseSpacing,
-    });
-
-    drawFlowPreview(newSpacing, { isPreview: true });
   };
 
   type PreviewStrokePalette = {
@@ -909,8 +971,12 @@ export const createShapeToolHandler = (
       return false;
     }
 
+    if (!shapeAdjustHelper || !shapeAdjustHelper.isActive()) {
+      return false;
+    }
+
     const worldPos = computeWorldPointer(event);
-    applyFlowSpacingFromPointer(worldPos, polygonState);
+    shapeAdjustHelper.beginDrag(worldPos, event.pointerId, { shiftKey: event.shiftKey });
     return true;
   };
 
@@ -925,38 +991,44 @@ export const createShapeToolHandler = (
       return false;
     }
 
-    const worldPos = computeWorldPointer(event);
+    if (!shapeAdjustHelper || !shapeAdjustHelper.isActive()) {
+      return false;
+    }
+
     const previewRef = context.deps.previewAnimationFrameRef;
+    const pointerId = event.pointerId;
+    const worldPos = computeWorldPointer(event);
+    const modifiers = { shiftKey: event.shiftKey } as const;
+
+    const runUpdate = () => {
+      const latestState = useAppStore.getState().polygonGradientState;
+      if (
+        latestState.mode !== 'flow' ||
+        latestState.drawingState !== 'adjustingSpacing' ||
+        !latestState.vertices ||
+        latestState.vertices.length < 3
+      ) {
+        return;
+      }
+      shapeAdjustHelper?.updateDrag({ x: worldPos.x, y: worldPos.y }, pointerId, modifiers);
+    };
 
     if (previewRef) {
-      const previewWorld = { x: worldPos.x, y: worldPos.y };
       if (!previewRef.current) {
         const nowTs = performance.now();
         if (nowTs - context.getLastOverlayPreviewTs() < context.overlayPreviewFrameMs) {
           return true;
         }
-
         previewRef.current = requestAnimationFrame(() => {
           context.setLastOverlayPreviewTs(performance.now());
-          const currentState = useAppStore.getState().polygonGradientState;
-          if (
-            currentState.mode !== 'flow' ||
-            currentState.drawingState !== 'adjustingSpacing' ||
-            !currentState.vertices ||
-            currentState.vertices.length < 3
-          ) {
-            previewRef.current = null;
-            return;
-          }
-
-          applyFlowSpacingFromPointer(previewWorld, currentState);
+          runUpdate();
           previewRef.current = null;
         });
       }
       return true;
     }
 
-    applyFlowSpacingFromPointer(worldPos, polygonState);
+    runUpdate();
     return true;
   };
 
@@ -971,16 +1043,28 @@ export const createShapeToolHandler = (
       return false;
     }
 
+    if (!shapeAdjustHelper || !shapeAdjustHelper.isActive()) {
+      return false;
+    }
+
+    const pointerId = event.pointerId;
     const pointerWorld = computeWorldPointer(event);
-    applyFlowSpacingFromPointer(pointerWorld);
 
-    const latestState = useAppStore.getState().polygonGradientState;
-    const finalSpacing = clampFlowSeedSpacing(
-      latestState.tempSpacing ?? tools.brushSettings.flowSeedSpacing ?? 18
-    );
+    if (shapeAdjustHelper.isDragging(pointerId)) {
+      shapeAdjustHelper.updateDrag(pointerWorld, pointerId, { shiftKey: event.shiftKey });
+      const committed = shapeAdjustHelper.endDrag(pointerId, true);
+      if (committed) {
+        commitShapeAdjustUpdate(committed);
+      }
+    } else {
+      const current = shapeAdjustHelper.getCurrentValues();
+      if (current) {
+        commitShapeAdjustUpdate(current);
+      }
+    }
 
-    useAppStore.getState().setBrushSettings({ flowSeedSpacing: finalSpacing });
-    drawFlowPreview(finalSpacing, { isPreview: false });
+    shapeAdjustHelper.destroy();
+    shapeAdjustHelper = null;
     context.deps.compositeCanvasDirtyRef.current = true;
 
     drawingHandlers.finalizeShapeDrawing().then(() => {
@@ -1431,7 +1515,14 @@ export const createShapeToolHandler = (
           clearOverlayCanvas();
 
           const initialSpacing = clampFlowSeedSpacing(tools.brushSettings.flowSeedSpacing ?? 18);
+          const initialMaxSteps = tools.brushSettings.flowMaxSteps ?? 120;
+          const initialOrientation = normalizeOrientation(tools.brushSettings.flowOrientationAngle ?? 0);
+          const initialNoise = Math.max(0, Math.min(1, tools.brushSettings.flowSeedJitter ?? 0.6));
           const randomSeed = Math.floor(Math.random() * 0xffffffff);
+          const centroid = computePolygonCentroid(vertices);
+          const fieldResolution = tools.brushSettings.flowFieldResolution ?? 8;
+          const pixelMode = tools.brushSettings.shapeFillPixelMode ?? true;
+          const gpuJobId = computeFlowGpuJobId(vertices, randomSeed, fieldResolution, pixelMode);
 
           useAppStore.getState().setPolygonGradientState({
             drawingState: 'adjustingSpacing',
@@ -1439,12 +1530,48 @@ export const createShapeToolHandler = (
             vertices,
             fillColor,
             tempSpacing: initialSpacing,
+            tempMaxSteps: initialMaxSteps,
+            tempOrientation: initialOrientation,
+            tempNoiseStrength: initialNoise,
             spacingReferenceDistance: undefined,
             spacingReferenceSpacing: initialSpacing,
             flowRandomSeed: randomSeed,
+            gpuJobId,
           });
 
-          drawFlowPreview(initialSpacing, { isPreview: false });
+          dispatchFlowJobUpdate({
+            spacing: initialSpacing,
+            density: initialMaxSteps,
+            orientation: initialOrientation,
+            noiseStrength: initialNoise,
+            band: 'spacing',
+          }, false);
+
+          drawFlowPreview(initialSpacing, { isPreview: true });
+
+          shapeAdjustHelper?.destroy();
+          shapeAdjustHelper = new ShapeAdjustHelper({
+            getOverlayCanvas: () => overlayCanvasRef.current,
+            getViewTransform: () => viewTransformRef.current,
+            onUpdate: applyShapeAdjustPreview,
+            onCommit: commitShapeAdjustUpdate,
+            onCancel: () => {
+              clearOverlayCanvas();
+            },
+            spacingBounds: { min: 4, max: 80, exponent: FLOW_SPACING_EXPONENT },
+            densityBounds: { min: 32, max: 320, exponent: 1.08 },
+            noiseBounds: { min: 0, max: 1 },
+            orientationSnap: 5,
+          });
+
+          shapeAdjustHelper.beginSession({
+            centroid,
+            vertices,
+            initialSpacing,
+            initialDensity: initialMaxSteps,
+            initialOrientation,
+            initialNoise,
+          });
 
           return true;
         }

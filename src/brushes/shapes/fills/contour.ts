@@ -1,7 +1,232 @@
+import {
+  computeBoundingBox,
+  ensureFloat32Vertices,
+  getStrokePipeline,
+  isWebGPUSupported,
+  type ShapeFillScheduler,
+  type StrokeJob,
+} from '@/lib/shapeFill';
+import { debugLog, debugWarn } from '@/utils/debug';
 import { resolveCoordinateSnap } from './common';
 import type { ContourFillParams } from './types';
 
-export const drawContourFill = ({
+const FNV_OFFSET = 2166136261;
+const FNV_PRIME = 16777619;
+
+const inflightGpuJobs = new Set<string>();
+
+const hashContourJob = (
+  vertices: Float32Array,
+  spacing: number,
+  variance: number,
+  smoothness: number,
+  seed: number,
+  fieldResolution: number,
+  pixelMode: boolean,
+  maxLevels: number,
+): string => {
+  let hash = (FNV_OFFSET ^ (seed >>> 0)) >>> 0;
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  hash ^= Math.round(spacing * 100);
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  hash ^= Math.round(variance * 1000);
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  hash ^= Math.round(smoothness * 1000);
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  hash ^= fieldResolution;
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  hash ^= pixelMode ? 0xf00d : 0x0bad;
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  hash ^= maxLevels;
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+
+  for (let i = 0; i < vertices.length; i++) {
+    const scaled = Math.round(vertices[i] * 16);
+    hash ^= scaled >>> 0;
+    hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  }
+
+  return `contour-${hash.toString(16)}`;
+};
+
+const enqueueContourGpuStroke = (
+  params: ContourFillParams,
+  scheduler: ShapeFillScheduler,
+  options: {
+    spacing: number;
+    variance: number;
+    smoothness: number;
+    maxLevels: number;
+    maxDistance: number;
+    fieldResolution: number;
+    strokeColor: string;
+    seed: number;
+    priority: 'preview' | 'final';
+    strokeWidth: number;
+  },
+  onFallback: () => void,
+): boolean => {
+  if (!scheduler) {
+    return false;
+  }
+
+  const { ctx, vertices, brushSettings } = params;
+  if (vertices.length < 3) {
+    return false;
+  }
+
+  const pixelMode = brushSettings.shapeFillPixelMode ?? true;
+  const vertexBuffer = ensureFloat32Vertices(vertices, pixelMode);
+  const bounds = computeBoundingBox(vertexBuffer);
+  const width = Math.max(1, Math.ceil(bounds.maxX - bounds.minX));
+  const height = Math.max(1, Math.ceil(bounds.maxY - bounds.minY));
+  const jobId = hashContourJob(
+    vertexBuffer,
+    options.spacing,
+    options.variance,
+    options.smoothness,
+    options.seed,
+    options.fieldResolution,
+    pixelMode,
+    options.maxLevels,
+  );
+
+  const inflightKey = `${jobId}:${options.priority}`;
+  if (inflightGpuJobs.has(inflightKey)) {
+    return true;
+  }
+
+  const stroke: StrokeJob = {
+    id: jobId,
+    vertices: vertexBuffer,
+    bounds,
+    brushSettings: {
+      ...brushSettings,
+      shapeFillLineWidth: options.strokeWidth,
+    },
+    seed: options.seed >>> 0,
+    previewResolution: {
+      width,
+      height,
+      scale: options.priority === 'preview' ? 0.5 : 1,
+      fieldResolution: options.fieldResolution,
+    },
+    finalResolution: {
+      width,
+      height,
+      scale: 1,
+      fieldResolution: options.fieldResolution,
+    },
+    pixelMode,
+    dynamicParams: {
+      contourSpacing: options.spacing,
+      contourVariance: options.variance,
+      contourSmoothness: options.smoothness,
+      contourMaxLevels: options.maxLevels,
+      contourMaxDistance: options.maxDistance,
+    },
+    metadata: {
+      brush: 'contour',
+      variant: params.spacingOverride != null ? 'override' : 'auto',
+    },
+  };
+
+  const pipeline = getStrokePipeline();
+  const abortFallback = { invoked: false };
+  const triggerFallback = () => {
+    if (!abortFallback.invoked) {
+      abortFallback.invoked = true;
+      onFallback();
+    }
+  };
+
+  inflightGpuJobs.add(inflightKey);
+
+  scheduler
+    .queueJob(stroke, {
+      priority: options.priority,
+      cacheResult: true,
+    })
+    .then(async result => {
+      try {
+        if (!result.fieldResult) {
+          debugWarn('shape-fill', `Contour GPU stroke skipped (${options.priority})`);
+          triggerFallback();
+          return;
+        }
+
+        const output = await pipeline.render(result.job, result.fieldResult, {
+          priority: options.priority,
+          color: options.strokeColor,
+        });
+
+        if (!output) {
+          debugWarn('shape-fill', 'Contour GPU pipeline returned no raster output.');
+          triggerFallback();
+          return;
+        }
+
+        try {
+          if (typeof ImageData === 'undefined') {
+            triggerFallback();
+            output.release();
+            return;
+          }
+
+          const imageData = new ImageData(output.pixels, output.width, output.height);
+          if (typeof createImageBitmap === 'function') {
+            const bitmap = await createImageBitmap(imageData);
+            ctx.save();
+            ctx.globalAlpha = brushSettings.opacity;
+            ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
+            ctx.imageSmoothingEnabled = !pixelMode;
+            ctx.drawImage(bitmap, output.origin.x, output.origin.y);
+            ctx.restore();
+            bitmap.close();
+          } else {
+            ctx.putImageData(imageData, output.origin.x, output.origin.y);
+          }
+
+          debugLog('shape-fill', `GPU contour stroke completed (${options.priority})`, {
+            jobId,
+            diagnostics: result.diagnostics,
+            metrics: result.fieldResult.metrics,
+          });
+        } catch (error) {
+          debugWarn('shape-fill', 'Contour GPU render failed to draw to canvas', error);
+          triggerFallback();
+        } finally {
+          output.release();
+        }
+      } catch (error) {
+        const errorName = typeof error === 'object' && error && 'name' in error
+          ? (error as { name?: string }).name
+          : undefined;
+        if (errorName !== 'AbortError') {
+          debugWarn('shape-fill', 'Contour GPU pipeline failed', error);
+        }
+        triggerFallback();
+      } finally {
+        result.release();
+      }
+    })
+    .catch(error => {
+      const errorName = typeof error === 'object' && error && 'name' in error
+        ? (error as { name?: string }).name
+        : undefined;
+      if (errorName !== 'AbortError') {
+        debugWarn('shape-fill', 'Contour GPU queue failed', error);
+      }
+      triggerFallback();
+    })
+    .finally(() => {
+      inflightGpuJobs.delete(inflightKey);
+    });
+
+  return true;
+};
+
+const drawContourFillCpu = ({
   ctx,
   vertices,
   brushSettings,
@@ -16,7 +241,6 @@ export const drawContourFill = ({
     createSignedDistanceField,
     extractContour,
     connectSegments,
-    applyRisographEffect,
   } = dependencies;
 
   const pixelMode = brushSettings.shapeFillPixelMode ?? true;
@@ -61,7 +285,7 @@ export const drawContourFill = ({
   const hasSpacingOverride = spacingOverride != null;
   const spacingBase = spacingOverride ?? brushSettings.contourSpacing ?? 5;
   const spacing = Math.max(0.5, hasSpacingOverride ? spacingBase : spacingBase * 2);
-  const variancePercent = (brushSettings.contourVariance ?? 5) / 10;
+  const variancePercent = Math.min(1, Math.max(0, (brushSettings.contourVariance ?? 5) / 10));
 
   const maxStartDistance = Math.min(maxDistance * 0.95, Math.max(spacing * 2, safeMinStep * 6));
   const minStartDistance = Math.max(safeMinStep * 1.5, spacing * 0.5);
@@ -69,8 +293,6 @@ export const drawContourFill = ({
 
   let currentDistance = startDistance;
   let drewAnyContours = false;
-  const actualPeakX = fieldData.peakX;
-  const actualPeakY = fieldData.peakY;
 
   const maxElevation = Math.max(maxDistance * 36, 200);
   const snapElevation = (value: number) => Math.max(1, Math.round((value / maxElevation) * 1000) / 2);
@@ -110,6 +332,10 @@ export const drawContourFill = ({
       ctx.lineTo(snap(loop[0].x), snap(loop[0].y));
       ctx.stroke();
       drewAnyContours = true;
+
+      if (!allowFullDetail) {
+        return;
+      }
 
       const elevation = snapElevation(currentDistance * 100);
       if (random() < 0.08) {
@@ -202,52 +428,79 @@ export const drawContourFill = ({
       ctx.stroke();
     }
   }
+};
 
-  if (allowFullDetail && random() < 0.1) {
-    ctx.save();
-    ctx.imageSmoothingEnabled = !pixelMode;
+export const drawContourFill = (params: ContourFillParams): void => {
+  const {
+    brushSettings,
+    dependencies,
+    spacingOverride,
+    isPreview = false,
+    strokeColorOverride,
+    randomSeed,
+    previewDetail,
+  } = params;
 
-    ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = lineWidth;
+  const pixelMode = brushSettings.shapeFillPixelMode ?? true;
+  const strokeColor = strokeColorOverride ?? brushSettings.color ?? '#1a1a1a';
+  const lineWidth = Math.max(0.2, brushSettings.shapeFillLineWidth ?? 1);
+  const spacingBase = spacingOverride ?? brushSettings.contourSpacing ?? 5;
+  const spacing = Math.max(0.5, spacingOverride != null ? spacingBase : spacingBase * 2);
+  const variance = Math.min(1, Math.max(0, (brushSettings.contourVariance ?? 5) / 10));
+  const smoothness = Math.min(1, Math.max(0, (brushSettings.contourSmoothness ?? 0.5) / 5));
+  const fieldResolution = Math.max(1, Math.round(brushSettings.flowFieldResolution ?? 2));
 
-    const snappedPeakX = snap(actualPeakX);
-    const snappedPeakY = snap(actualPeakY);
+  const gpuScheduler = dependencies.gpuScheduler;
+  const canUseGpu = typeof window !== 'undefined' && gpuScheduler && isWebGPUSupported();
 
-    ctx.beginPath();
-    ctx.moveTo(snappedPeakX, snappedPeakY - 6);
-    ctx.lineTo(snappedPeakX - 4, snappedPeakY + 3);
-    ctx.lineTo(snappedPeakX + 4, snappedPeakY + 3);
-    ctx.closePath();
-    ctx.stroke();
+  if (canUseGpu) {
+    const vertices = params.vertices;
+    if (vertices.length >= 3) {
+      const pixelAligned = ensureFloat32Vertices(vertices, pixelMode);
+      const bounds = computeBoundingBox(pixelAligned);
+      const width = Math.max(1, bounds.maxX - bounds.minX);
+      const height = Math.max(1, bounds.maxY - bounds.minY);
+      const maxDistance = Math.min(width, height) * 0.5;
+      const baseLevels = Math.max(3, Math.floor(maxDistance / Math.max(spacing, 0.5)));
+      const levelsCap = previewDetail === 'minimal' ? Math.max(2, Math.ceil(baseLevels * 0.5)) : baseLevels;
+      const maxLevels = Math.min(30, levelsCap);
+      const seed = (randomSeed ?? Math.floor(Math.random() * 0xffffffff)) >>> 0;
+      const priority: 'preview' | 'final' = isPreview ? 'preview' : 'final';
 
-    const peakElevation = Math.round(100 + maxElevation * 3);
-    const peakText = `${peakElevation}m`;
+      let fallbackUsed = false;
+      const fallback = () => {
+        if (!fallbackUsed) {
+          fallbackUsed = true;
+          drawContourFillCpu(params);
+        }
+      };
 
-    ctx.font = '9px monospace';
-    const metrics = ctx.measureText(peakText);
-    const textWidth = metrics.width;
-    const padding = 1;
+      const scheduled = enqueueContourGpuStroke(
+        params,
+        gpuScheduler,
+        {
+          spacing,
+          variance,
+          smoothness,
+          maxLevels,
+          maxDistance,
+          fieldResolution,
+          strokeColor,
+          seed,
+          priority,
+          strokeWidth: lineWidth,
+        },
+        fallback,
+      );
 
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.fillStyle = 'rgba(0, 0, 0, 1)';
-    ctx.fillRect(
-      Math.floor(snappedPeakX - textWidth / 2 - padding),
-      Math.floor(snappedPeakY + 10),
-      Math.ceil(textWidth + padding * 2),
-      10
-    );
+      if (scheduled) {
+        return;
+      }
 
-    ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
-    ctx.fillStyle = strokeColor;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(peakText, snappedPeakX, snap(snappedPeakY + 15));
-
-    ctx.restore();
+      fallback();
+      return;
+    }
   }
 
-  const risographIntensity = brushSettings.risographIntensity || 0;
-  if (risographIntensity > 0 && allowFullDetail) {
-    applyRisographEffect(ctx, vertices, risographIntensity);
-  }
+  drawContourFillCpu(params);
 };

@@ -117,6 +117,9 @@ export const drawContourPolygon = ({
         vertices,
         brushSettings,
         lineOptions,
+        dependencies,
+        isPreview,
+        strokeColorOverride: lineOptions?.strokeColorOverride,
       });
       return;
     }
@@ -156,6 +159,7 @@ export const drawContourPolygon = ({
         boundHeight,
         isPreview,
         strokeColorOverride: lineOptions?.strokeColorOverride,
+        dependencies,
       });
       return;
     }

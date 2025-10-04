@@ -1423,6 +1423,50 @@ const BrushControls = () => {
               </div>
             </div>
 
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Orientation
+                </label>
+                <ProgressSlider
+                  value={activeSettings.flowOrientationAngle ?? 0}
+                  min={0}
+                  max={360}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ flowOrientationAngle: Math.round(value) })
+                  }
+                  aria-label="Flow Orientation"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                  {Math.round(activeSettings.flowOrientationAngle ?? 0)}°
+                </span>
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
+                  Seed Jitter
+                </label>
+                <ProgressSlider
+                  value={Math.round((activeSettings.flowSeedJitter ?? 0.6) * 100)}
+                  min={0}
+                  max={100}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({ flowSeedJitter: Math.max(0, Math.min(1, value / 100)) })
+                  }
+                  aria-label="Flow Seed Jitter"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                  {Math.round((activeSettings.flowSeedJitter ?? 0.6) * 100)}%
+                </span>
+              </div>
+            </div>
+
             <div className="flex items-center gap-2">
               <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
                 Orthogonal

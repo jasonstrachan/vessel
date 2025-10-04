@@ -1,13 +1,51 @@
 import Delaunator from 'delaunator';
 
-import { debugLog } from '@/utils/debug';
+import {
+  computeBoundingBox,
+  ensureFloat32Vertices,
+  getStrokePipeline,
+  isWebGPUSupported,
+  type ShapeFillScheduler,
+  type StrokeJob,
+} from '@/lib/shapeFill';
+import { debugLog, debugWarn } from '@/utils/debug';
 
 import { isPointInPolygonSDF, resolveCoordinateSnap } from './common';
 import type { DelaunayFillParams } from './types';
 
 type Point = { x: number; y: number };
 
-export const drawDelaunayFill = ({
+const FNV_OFFSET = 2166136261;
+const FNV_PRIME = 16777619;
+
+const inflightTriangleJobs = new Set<string>();
+
+const hashTriangleJob = (
+  vertices: Float32Array,
+  cellSize: number,
+  jitter: number,
+  seed: number,
+  pixelMode: boolean,
+): string => {
+  let hash = (FNV_OFFSET ^ (seed >>> 0)) >>> 0;
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  hash ^= Math.round(cellSize * 100);
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  hash ^= Math.round(jitter * 1000);
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  hash ^= pixelMode ? 0xf00d : 0x0bad;
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+
+  for (let i = 0; i < vertices.length; i += 1) {
+    const scaled = Math.round(vertices[i] * 16);
+    hash ^= scaled >>> 0;
+    hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  }
+
+  return `triangle-${hash.toString(16)}`;
+};
+
+const drawDelaunayFillCpu = ({
   ctx,
   vertices,
   brushSettings,
@@ -335,4 +373,193 @@ export const drawDelaunayFill = ({
   }
 
   ctx.restore();
+};
+
+const enqueueTriangleGpuStroke = (
+  job: StrokeJob,
+  scheduler: ShapeFillScheduler,
+  priority: 'preview' | 'final',
+  ctx: CanvasRenderingContext2D,
+  strokeColor: string,
+  onFallback: () => void,
+): void => {
+  const pipeline = getStrokePipeline();
+  const inflightKey = `${job.id}:${priority}`;
+  if (inflightTriangleJobs.has(inflightKey)) {
+    return;
+  }
+  inflightTriangleJobs.add(inflightKey);
+
+  scheduler
+    .queueJob(job, {
+      priority,
+      cacheResult: true,
+    })
+    .then(async result => {
+      try {
+        if (!result.fieldResult) {
+          debugWarn('triangle-fill', `Triangle GPU stroke skipped (${priority})`);
+          onFallback();
+          return;
+        }
+
+        const output = await pipeline.render(result.job, result.fieldResult, {
+          priority,
+          color: strokeColor,
+        });
+
+        if (!output) {
+          debugWarn('triangle-fill', 'Triangle GPU pipeline returned no raster data.');
+          onFallback();
+          return;
+        }
+
+        try {
+          if (typeof ImageData === 'undefined') {
+            output.release();
+            onFallback();
+            return;
+          }
+
+          const imageData = new ImageData(output.pixels, output.width, output.height);
+          if (typeof createImageBitmap === 'function') {
+            const bitmap = await createImageBitmap(imageData);
+            ctx.save();
+            ctx.globalAlpha = job.brushSettings?.opacity ?? 1;
+            ctx.globalCompositeOperation = job.brushSettings?.blendMode || 'source-over';
+            ctx.imageSmoothingEnabled = !(job.pixelMode ?? true);
+            ctx.drawImage(bitmap, output.origin.x, output.origin.y);
+            ctx.restore();
+            bitmap.close();
+          } else {
+            ctx.putImageData(imageData, output.origin.x, output.origin.y);
+          }
+
+          debugLog('triangle-fill', `GPU triangle stroke completed (${priority})`, {
+            jobId: job.id,
+            diagnostics: result.diagnostics,
+            metrics: result.fieldResult.metrics,
+          });
+        } catch (error) {
+          debugWarn('triangle-fill', 'Triangle GPU render failed to draw to canvas', error);
+          onFallback();
+        } finally {
+          output.release();
+        }
+      } catch (error) {
+        const errorName = typeof error === 'object' && error && 'name' in error
+          ? (error as { name?: string }).name
+          : undefined;
+        if (errorName !== 'AbortError') {
+          debugWarn('triangle-fill', 'Triangle GPU pipeline failed', error);
+        }
+        onFallback();
+      } finally {
+        result.release();
+      }
+    })
+    .catch(error => {
+      const errorName = typeof error === 'object' && error && 'name' in error
+        ? (error as { name?: string }).name
+        : undefined;
+      if (errorName !== 'AbortError') {
+        debugWarn('triangle-fill', 'Triangle GPU queue failed', error);
+      }
+      onFallback();
+    })
+    .finally(() => {
+      inflightTriangleJobs.delete(inflightKey);
+    });
+};
+
+export const drawDelaunayFill = ({
+  ctx,
+  vertices,
+  brushSettings,
+  boundWidth,
+  boundHeight,
+  isPreview = false,
+  strokeColorOverride,
+  dependencies,
+}: DelaunayFillParams): void => {
+  const polygon = vertices;
+  if (polygon.length < 3) {
+    return;
+  }
+
+  const scheduler = dependencies?.gpuScheduler;
+  if (!scheduler || typeof window === 'undefined' || !isWebGPUSupported()) {
+    drawDelaunayFillCpu({ ctx, vertices, brushSettings, boundWidth, boundHeight, isPreview, strokeColorOverride });
+    return;
+  }
+
+  const pixelMode = brushSettings.shapeFillPixelMode ?? true;
+  const vertexBuffer = ensureFloat32Vertices(polygon, pixelMode);
+  const bounds = computeBoundingBox(vertexBuffer);
+  const width = Math.max(1, Math.ceil(bounds.maxX - bounds.minX));
+  const height = Math.max(1, Math.ceil(bounds.maxY - bounds.minY));
+
+  const estimatedSize = Math.max(12, Math.min(96, Math.min(boundWidth, boundHeight) / 2));
+  const baseSizeSetting = brushSettings.triangleFillSize ?? estimatedSize;
+  const cellSize = Math.max(8, Math.min(200, baseSizeSetting));
+  const jitterPct = Math.max(0, Math.min(1, (brushSettings.triangleFillJitter ?? 35) / 100));
+  const minSpacing = cellSize * (0.6 + jitterPct * 0.2);
+
+  const areaEstimate = Math.max(1, (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY));
+  const maxSeeds = Math.max(24, Math.min(480, Math.round(areaEstimate / Math.max(cellSize * cellSize * 1.5, 1))));
+  const seed = Math.floor(Math.random() * 0xffffffff) >>> 0;
+  const priority: 'preview' | 'final' = isPreview ? 'preview' : 'final';
+  const jobId = hashTriangleJob(vertexBuffer, cellSize, jitterPct, seed, pixelMode);
+
+  const strokeColor = strokeColorOverride ?? brushSettings.color ?? '#000000';
+  const lineWidth = Math.max(0.2, brushSettings.shapeFillLineWidth ?? 1);
+
+  const fieldResolution = Math.max(1, Math.round(brushSettings.flowFieldResolution ?? 3));
+
+  const stroke: StrokeJob = {
+    id: jobId,
+    vertices: vertexBuffer,
+    bounds,
+    brushSettings: {
+      ...brushSettings,
+      shapeFillLineWidth: lineWidth,
+      color: strokeColor,
+    },
+    seed,
+    previewResolution: {
+      width,
+      height,
+      scale: priority === 'preview' ? 0.6 : 1,
+      fieldResolution,
+    },
+    finalResolution: {
+      width,
+      height,
+      scale: 1,
+      fieldResolution,
+    },
+    pixelMode,
+    dynamicParams: {
+      triangleCellSize: cellSize,
+      triangleMinSpacing: minSpacing,
+      triangleJitter: jitterPct,
+      triangleMaxSeeds: maxSeeds,
+      triangleMaxTriangles: maxSeeds * 6,
+      triangleMaxEdges: maxSeeds * 8,
+    },
+    metadata: {
+      brush: 'triangle-fill',
+      mode: priority,
+    },
+  };
+
+  let fallbackUsed = false;
+  const fallback = () => {
+    if (!fallbackUsed) {
+      fallbackUsed = true;
+      drawDelaunayFillCpu({ ctx, vertices, brushSettings, boundWidth, boundHeight, isPreview, strokeColorOverride });
+    }
+  };
+
+  enqueueTriangleGpuStroke(stroke, scheduler, priority, ctx, strokeColor, fallback);
 };

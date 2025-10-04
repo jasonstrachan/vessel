@@ -1,4 +1,5 @@
 import type { BrushSettings, ContourLinesBasis } from '@/types';
+import type { ShapeFillScheduler } from '@/lib/shapeFill/ShapeFillScheduler';
 
 export type Point = { x: number; y: number };
 
@@ -45,6 +46,7 @@ export type ShapeFillDependencies = {
     extension: number
   ) => Array<[Point, Point]>;
   connectSegments: (segments: Array<[Point, Point]>) => Point[][];
+  gpuScheduler?: ShapeFillScheduler;
 };
 
 export interface PolygonFillBase {
@@ -64,6 +66,9 @@ export interface ContourFillParams extends PolygonFillBase {
 
 export interface LinesFillParams extends PolygonFillBase {
   lineOptions?: ContourLineOptions;
+  dependencies?: ShapeFillDependencies;
+  isPreview?: boolean;
+  strokeColorOverride?: string;
 }
 
 export type Lines2FillParams = LinesFillParams;
@@ -73,6 +78,7 @@ export interface DelaunayFillParams extends PolygonFillBase {
   boundHeight: number;
   isPreview?: boolean;
   strokeColorOverride?: string;
+  dependencies?: ShapeFillDependencies;
 }
 
 export interface FlowFillParams extends PolygonFillBase {

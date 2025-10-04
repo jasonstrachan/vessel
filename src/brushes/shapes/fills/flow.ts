@@ -1,28 +1,7 @@
-import { clamp } from '@/utils/num';
-import { resolveCoordinateSnap, isPointInPolygonSDF } from './common';
+import { getStrokePipeline, isWebGPUSupported } from '@/lib/shapeFill';
+import type { StrokeJob } from '@/lib/shapeFill';
+import { debugLog, debugWarn } from '@/utils/debug';
 import type { FlowFillParams, Point } from './types';
-
-type GradientSample = { gx: number; gy: number; magnitude: number };
-
-type SignedDistanceField = FlowFillParams['dependencies']['createSignedDistanceField'] extends (
-  vertices: Point[],
-  canvasWidth: number,
-  canvasHeight: number,
-  resolution?: number
-) => infer R
-  ? R
-  : never;
-
-const createRandomGenerator = (seed?: number) => {
-  if (seed == null) {
-    return Math.random;
-  }
-  let state = seed >>> 0;
-  return () => {
-    state = (state * 1664525 + 1013904223) >>> 0;
-    return state / 0x100000000;
-  };
-};
 
 const computePolygonBounds = (vertices: Point[]) => {
   let minX = Infinity;
@@ -40,73 +19,183 @@ const computePolygonBounds = (vertices: Point[]) => {
   return { minX, minY, maxX, maxY };
 };
 
-const buildGradientSampler = (fieldData: SignedDistanceField) => {
-  const { field, cols, rows, resolution, extension } = fieldData;
-  const gradX: number[][] = new Array(rows);
-  const gradY: number[][] = new Array(rows);
+const FNV_OFFSET = 2166136261;
+const FNV_PRIME = 16777619;
 
-  for (let y = 0; y < rows; y++) {
-    gradX[y] = new Array(cols);
-    gradY[y] = new Array(cols);
-    for (let x = 0; x < cols; x++) {
-      const left = field[y][x > 0 ? x - 1 : x];
-      const right = field[y][x < cols - 1 ? x + 1 : x];
-      const top = field[y > 0 ? y - 1 : y][x];
-      const bottom = field[y < rows - 1 ? y + 1 : y][x];
+const inflightGpuJobs = new Set<string>();
 
-      const denomX = x > 0 && x < cols - 1 ? 2 : 1;
-      const denomY = y > 0 && y < rows - 1 ? 2 : 1;
-      gradX[y][x] = (right - left) / (denomX * resolution);
-      gradY[y][x] = (bottom - top) / (denomY * resolution);
-    }
+export const computeFlowGpuJobId = (
+  vertices: Point[],
+  seed: number | undefined,
+  resolution: number,
+  pixelMode: boolean,
+): string => {
+  let hash = (FNV_OFFSET ^ (seed ?? 0)) >>> 0;
+  for (const { x, y } of vertices) {
+    hash ^= Math.round(x * 16);
+    hash = Math.imul(hash, FNV_PRIME) >>> 0;
+    hash ^= Math.round(y * 16);
+    hash = Math.imul(hash, FNV_PRIME) >>> 0;
   }
-
-  const originX = -extension;
-  const originY = -extension;
-
-  return (x: number, y: number): GradientSample => {
-    const gx = clamp((x - originX) / resolution, 0, cols - 1);
-    const gy = clamp((y - originY) / resolution, 0, rows - 1);
-
-    const x0 = Math.floor(gx);
-    const y0 = Math.floor(gy);
-    const x1 = clamp(x0 + 1, 0, cols - 1);
-    const y1 = clamp(y0 + 1, 0, rows - 1);
-    const tx = gx - x0;
-    const ty = gy - y0;
-
-    const g00x = gradX[y0][x0];
-    const g01x = gradX[y1][x0];
-    const g10x = gradX[y0][x1];
-    const g11x = gradX[y1][x1];
-    const g00y = gradY[y0][x0];
-    const g01y = gradY[y1][x0];
-    const g10y = gradY[y0][x1];
-    const g11y = gradY[y1][x1];
-
-    const interpX =
-      g00x * (1 - tx) * (1 - ty) +
-      g10x * tx * (1 - ty) +
-      g01x * (1 - tx) * ty +
-      g11x * tx * ty;
-    const interpY =
-      g00y * (1 - tx) * (1 - ty) +
-      g10y * tx * (1 - ty) +
-      g01y * (1 - tx) * ty +
-      g11y * tx * ty;
-
-    const magnitude = Math.hypot(interpX, interpY);
-    return { gx: interpX, gy: interpY, magnitude };
-  };
+  hash ^= Math.round(resolution * 100) ^ (pixelMode ? 1 : 0);
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  return `flow-${hash.toString(16)}`;
 };
 
-const tracePolygonPath = (ctx: CanvasRenderingContext2D, vertices: Point[], snap: (value: number) => number) => {
-  ctx.beginPath();
-  ctx.moveTo(snap(vertices[0].x), snap(vertices[0].y));
-  for (let i = 1; i < vertices.length; i++) {
-    ctx.lineTo(snap(vertices[i].x), snap(vertices[i].y));
+const enqueueGpuStroke = (
+  params: FlowFillParams,
+  bounds: ReturnType<typeof computePolygonBounds>,
+  priority: 'preview' | 'final',
+  profile: { cpuGenerationMs?: number } | undefined,
+  ctx: CanvasRenderingContext2D,
+  options: { strokeColor: string; onFallback: () => void }
+) => {
+  const scheduler = params.dependencies.gpuScheduler;
+  if (!scheduler || typeof window === 'undefined' || !isWebGPUSupported()) {
+    return;
   }
-  ctx.closePath();
+
+  const fieldResolution = params.fieldResolution ?? params.brushSettings.flowFieldResolution ?? 8;
+  const pixelMode = params.brushSettings.shapeFillPixelMode ?? true;
+  const jobId = computeFlowGpuJobId(params.vertices, params.randomSeed, fieldResolution, pixelMode);
+
+  const inflightKey = `${jobId}:${priority}`;
+  if (inflightGpuJobs.has(inflightKey)) {
+    return;
+  }
+
+  inflightGpuJobs.add(inflightKey);
+
+  const width = Math.max(1, Math.ceil(bounds.maxX - bounds.minX));
+  const height = Math.max(1, Math.ceil(bounds.maxY - bounds.minY));
+  const vertices = new Float32Array(params.vertices.length * 2);
+  for (let i = 0; i < params.vertices.length; i++) {
+    const vertex = params.vertices[i];
+    vertices[i * 2] = vertex.x;
+    vertices[i * 2 + 1] = vertex.y;
+  }
+
+  const stroke: StrokeJob = {
+    id: jobId,
+    vertices,
+    bounds: {
+      minX: bounds.minX,
+      minY: bounds.minY,
+      maxX: bounds.maxX,
+      maxY: bounds.maxY,
+    },
+    brushSettings: params.brushSettings,
+    seed: params.randomSeed,
+    previewResolution: {
+      width,
+      height,
+      scale: priority === 'preview' ? 0.5 : 1,
+      fieldResolution,
+    },
+    finalResolution: {
+      width,
+      height,
+      scale: 1,
+      fieldResolution,
+    },
+    pixelMode,
+    pendingGizmo: priority === 'preview' && Boolean(params.isPreview),
+    metadata: {
+      brush: 'flow-fill',
+      mode: priority,
+    },
+  };
+
+  const readback = priority === 'preview' ? 'all' : false;
+  const pipeline = getStrokePipeline();
+
+  scheduler
+    .queueJob(stroke, {
+      priority,
+      cacheResult: true,
+      readback,
+    })
+    .then(async result => {
+      try {
+        if (!result.fieldResult) {
+          debugWarn('shape-fill', `GPU flow stroke skipped (${priority})`);
+          options.onFallback();
+          return;
+        }
+
+        const output = await pipeline.render(stroke, result.fieldResult, {
+          priority,
+          color: options.strokeColor,
+        });
+
+        if (!output) {
+          options.onFallback();
+          return;
+        }
+
+        const drawToCanvas = async () => {
+          if (typeof ImageData === 'undefined') {
+            return false;
+          }
+
+          const imageData = new ImageData(output.pixels, output.width, output.height);
+          if (typeof createImageBitmap === 'function') {
+            const bitmap = await createImageBitmap(imageData);
+            ctx.save();
+            ctx.globalAlpha = params.brushSettings.opacity;
+            ctx.globalCompositeOperation = params.brushSettings.blendMode || 'source-over';
+            ctx.imageSmoothingEnabled = !(params.brushSettings.shapeFillPixelMode ?? true);
+            ctx.drawImage(bitmap, output.origin.x, output.origin.y);
+            ctx.restore();
+            bitmap.close();
+            return true;
+          }
+
+          ctx.putImageData(imageData, output.origin.x, output.origin.y);
+          return true;
+        };
+
+        const drawn = await drawToCanvas().catch(() => false);
+        if (!drawn) {
+          options.onFallback();
+          output.release();
+          return;
+        }
+
+        output.release();
+
+        const gpuMetrics = result.fieldResult.metrics;
+        debugLog('shape-fill', `GPU flow stroke completed (${priority})`, {
+          ...result.diagnostics,
+          gpuGenerationMs: gpuMetrics?.generationTimeMs,
+          gpuTiles: gpuMetrics?.tilesProcessed,
+          cpuGenerationMs: profile?.cpuGenerationMs,
+          jobId,
+        });
+      } catch (error) {
+        const errorName = typeof error === 'object' && error && 'name' in error
+          ? (error as { name?: string }).name
+          : undefined;
+        if (errorName !== 'AbortError') {
+          debugWarn('shape-fill', 'GPU flow stroke failed', error);
+        }
+        options.onFallback();
+      } finally {
+        result.release();
+      }
+    })
+    .catch(error => {
+      const errorName = typeof error === 'object' && error && 'name' in error
+        ? (error as { name?: string }).name
+        : undefined;
+      if (errorName !== 'AbortError') {
+        debugWarn('shape-fill', 'GPU flow stroke queue failed', error);
+      }
+      options.onFallback();
+    })
+    .finally(() => {
+      inflightGpuJobs.delete(inflightKey);
+    });
 };
 
 export const drawFlowFill = ({
@@ -127,121 +216,46 @@ export const drawFlowFill = ({
     return;
   }
 
-  const pixelMode = brushSettings.shapeFillPixelMode ?? true;
-  const snap = resolveCoordinateSnap(pixelMode);
-  const lineWidth = Math.max(0.2, brushSettings.shapeFillLineWidth ?? 1);
   const strokeColor = strokeColorOverride ?? brushSettings.color ?? '#000000';
-
-  const baseSeedSpacing = seedSpacing ?? brushSettings.flowSeedSpacing ?? 18;
-  const baseStepSize = stepSize ?? brushSettings.flowStepSize ?? 4;
-  const baseMaxSteps = maxSteps ?? brushSettings.flowMaxSteps ?? 120;
-  const orthogonal = useOrthogonal ?? brushSettings.flowUseOrthogonal ?? false;
   const sdfResolution = fieldResolution ?? brushSettings.flowFieldResolution ?? 8;
 
-  if (baseSeedSpacing <= 0 || baseStepSize <= 0 || baseMaxSteps <= 0) {
+  if (typeof window === 'undefined' || !dependencies.gpuScheduler) {
+    debugWarn('shape-fill', 'Flow fill requires the GPU scheduler runtime (window WebGPU).');
     return;
   }
 
-  const spacing = isPreview ? baseSeedSpacing * 1.5 : baseSeedSpacing;
-  const step = Math.max(0.1, baseStepSize);
-  const totalSteps = Math.max(1, Math.floor(isPreview ? baseMaxSteps * 0.6 : baseMaxSteps));
-  const seedJitter = 0.6;
-
-  const field = dependencies.createSignedDistanceField(vertices, ctx.canvas.width, ctx.canvas.height, sdfResolution);
-  if (!field.field.length) {
+  if (!isWebGPUSupported()) {
+    debugWarn('shape-fill', 'WebGPU is unavailable; flow fill GPU pipeline cannot run.');
     return;
   }
 
-  const sampleGradient = buildGradientSampler(field);
-  const rng = createRandomGenerator(randomSeed);
   const bounds = computePolygonBounds(vertices);
-  const padding = Math.max(spacing * 0.5, step * 2);
-  const minX = bounds.minX - padding;
-  const minY = bounds.minY - padding;
-  const maxX = bounds.maxX + padding;
-  const maxY = bounds.maxY + padding;
-
-  ctx.save();
-  ctx.globalAlpha = brushSettings.opacity;
-  ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
-  ctx.imageSmoothingEnabled = !pixelMode;
-  ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = lineWidth;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-
-  tracePolygonPath(ctx, vertices, snap);
-  ctx.clip('nonzero');
-
-  const integrate = (start: Point, direction: number) => {
-    const points: Point[] = [];
-    let currentX = start.x;
-    let currentY = start.y;
-
-    for (let stepIndex = 0; stepIndex < totalSteps; stepIndex++) {
-      if (!isPointInPolygonSDF({ x: currentX, y: currentY }, vertices)) {
-        break;
-      }
-
-      const { gx, gy, magnitude } = sampleGradient(currentX, currentY);
-      if (magnitude < 1e-5) {
-        break;
-      }
-
-      let vx = gx;
-      let vy = gy;
-      if (orthogonal) {
-        const temp = vx;
-        vx = -vy;
-        vy = temp;
-      }
-
-      const length = Math.hypot(vx, vy) || 1e-6;
-      vx /= length;
-      vy /= length;
-
-      currentX += direction * vx * step;
-      currentY += direction * vy * step;
-
-      if (!isPointInPolygonSDF({ x: currentX, y: currentY }, vertices)) {
-        break;
-      }
-
-      points.push({ x: currentX, y: currentY });
+  enqueueGpuStroke(
+    {
+      ctx,
+      vertices,
+      brushSettings,
+      dependencies,
+      seedSpacing,
+      stepSize,
+      maxSteps,
+      useOrthogonal,
+      fieldResolution: sdfResolution,
+      randomSeed,
+      strokeColorOverride,
+      isPreview,
+    } as FlowFillParams,
+    bounds,
+    isPreview ? 'preview' : 'final',
+    undefined,
+    ctx,
+    {
+      strokeColor,
+      onFallback: () => {
+        debugWarn('shape-fill', 'Flow fill GPU pipeline failed with no CPU fallback.');
+      },
     }
-
-    return points;
-  };
-
-  for (let y = minY; y <= maxY; y += spacing) {
-    for (let x = minX; x <= maxX; x += spacing) {
-      const jitterX = (rng() - 0.5) * spacing * seedJitter;
-      const jitterY = (rng() - 0.5) * spacing * seedJitter;
-      const seedX = x + jitterX;
-      const seedY = y + jitterY;
-
-      if (!isPointInPolygonSDF({ x: seedX, y: seedY }, vertices)) {
-        continue;
-      }
-
-      const forward = integrate({ x: seedX, y: seedY }, 1);
-      const backward = integrate({ x: seedX, y: seedY }, -1);
-      const path = backward.reverse().concat([{ x: seedX, y: seedY }], forward);
-
-      if (path.length < 2) {
-        continue;
-      }
-
-      ctx.beginPath();
-      ctx.moveTo(snap(path[0].x), snap(path[0].y));
-      for (let i = 1; i < path.length; i++) {
-        ctx.lineTo(snap(path[i].x), snap(path[i].y));
-      }
-      ctx.stroke();
-    }
-  }
-
-  ctx.restore();
+  );
 };
 
 export type { FlowFillParams as DrawFlowFillParams };

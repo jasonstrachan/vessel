@@ -1,0 +1,8 @@
+#include <metal_stdlib>
+using namespace metal;
+
+kernel void v() {
+  if (false) {
+    uint const v_1 = 0u;
+  }
+}

@@ -18,6 +18,7 @@
     "lint": "next lint",
     "test": "jest",
     "type-check": "tsc --noEmit",
+    "validate:wgsl": "node scripts/validate-wgsl.mjs",
     "cache:clear": "rm -rf .next node_modules/.cache .turbo",
     "clean": "rm -rf .next out dist node_modules/.cache .turbo coverage",
     "prebuild": "npm run cache:clear && npm run build:align-fit",

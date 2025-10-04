@@ -17,6 +17,9 @@ import {
 import { drawCrossHatchPolygon as drawCrossHatchPolygonFill } from '@/brushes/shapes/fills/hatch';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
+import { ShapeFillScheduler } from '@/lib/shapeFill/ShapeFillScheduler';
+import { getShapeFillScheduler } from '@/lib/shapeFill/runtime';
+import { debugLog } from '@/utils/debug';
 
 declare global {
   interface Window {
@@ -63,6 +66,7 @@ export const useBrushEngineSimplified = () => {
   const patternTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const contourFieldCacheRef = useRef<{ key: string; field: SignedDistanceFieldResult } | null>(null);
+  const shapeFillSchedulerRef = useRef<ShapeFillScheduler | null>(null);
   
   // Get color cycle brush from active layer instead of single instance
   const getActiveLayerColorCycleBrush = useCallback((): ColorCycleBrushImplementation | null => {
@@ -264,7 +268,7 @@ export const useBrushEngineSimplified = () => {
       brushStampCache: brushStampCacheRef.current,
       getRotationTempContext
     });
-    
+
     // Initialize spam text when spam brush is selected
     if (tools.brushSettings.brushShape === BrushShape.SPAM_TEXT) {
       const contentType = tools.brushSettings.spamContentType || 'mixed';
@@ -272,6 +276,33 @@ export const useBrushEngineSimplified = () => {
       brushEngine.initializeSpamText(contentType, customText);
     }
   }, [brushEngine, tools.brushSettings, getPatternTempContext, getRotationTempContext]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const scheduler = getShapeFillScheduler();
+    shapeFillSchedulerRef.current = scheduler;
+
+    const unsubscribe = scheduler && process.env.NODE_ENV !== 'production'
+      ? scheduler.subscribe(event => {
+          if (event.type === 'completed') {
+            debugLog('shape-fill', `GPU job ${event.jobId} (${event.priority})`, {
+              diagnostics: event.diagnostics,
+              metrics: event.metrics,
+            });
+          }
+        })
+      : undefined;
+
+    return () => {
+      unsubscribe?.();
+      if (shapeFillSchedulerRef.current === scheduler) {
+        shapeFillSchedulerRef.current = null;
+      }
+    };
+  }, []);
 
   /**
    * Main drawing function - simplified interface
@@ -1040,6 +1071,12 @@ export const useBrushEngineSimplified = () => {
       return contourFieldCacheRef.current.field;
     }
 
+    const cachedFromScheduler = shapeFillSchedulerRef.current?.getCpuField<SignedDistanceFieldResult>(cacheKey);
+    if (cachedFromScheduler) {
+      contourFieldCacheRef.current = { key: cacheKey, field: cachedFromScheduler };
+      return cachedFromScheduler;
+    }
+
     // Extend field beyond canvas boundaries to allow contours to go off-screen
     const extension = 300; // Pixels to extend beyond each edge
     const extendedWidth = canvasWidth + extension * 2;
@@ -1106,6 +1143,7 @@ export const useBrushEngineSimplified = () => {
     
     const result: SignedDistanceFieldResult = { field: distanceField, cols, rows, resolution, peakX, peakY, extension };
     contourFieldCacheRef.current = { key: cacheKey, field: result };
+    shapeFillSchedulerRef.current?.setCpuField(cacheKey, result);
     return result;
   }, [distanceToPolygonSDF, isPointInPolygonSDF]);
 
@@ -1299,6 +1337,7 @@ export const useBrushEngineSimplified = () => {
         createSignedDistanceField,
         extractContour,
         connectSegments,
+        gpuScheduler: shapeFillSchedulerRef.current ?? undefined,
       },
     });
   }, [
@@ -1307,6 +1346,7 @@ export const useBrushEngineSimplified = () => {
     createSignedDistanceField,
     extractContour,
     connectSegments,
+    shapeFillSchedulerRef,
   ]);
 
   /**
@@ -1328,9 +1368,13 @@ export const useBrushEngineSimplified = () => {
       polygonData,
       brushSettings: tools.brushSettings,
       isPreview,
+      dependencies: {
+        gpuScheduler: shapeFillSchedulerRef.current ?? undefined,
+      },
     });
   }, [
     tools.brushSettings,
+    shapeFillSchedulerRef,
   ]);
 
   /**

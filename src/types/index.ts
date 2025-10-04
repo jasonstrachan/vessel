@@ -454,6 +454,8 @@ export interface BrushSettings {
   flowMaxSteps?: number; // 1-500 integration steps per streamline direction
   flowUseOrthogonal?: boolean; // true = use orthogonal gradient for flow direction
   flowFieldResolution?: number; // 2-32 pixel spacing for SDF grid sampling
+  flowOrientationAngle?: number; // 0-360 degrees rotation applied to flow direction
+  flowSeedJitter?: number; // 0-1 jitter applied to seed positions
   ribbonSdfStep?: number; // Grid resolution for ink ribbon SDF sampling
   ribbonSeedSpacing?: number; // Poisson spacing between ribbon anchors
   ribbonStepSize?: number; // Step length for ribbon integration
@@ -639,6 +641,10 @@ export interface PolygonGradientState {
   adjustmentStartPos?: { x: number; y: number };
   tempRotation?: number;
   tempSpacing?: number;
+  tempMaxSteps?: number;
+  tempOrientation?: number;
+  tempNoiseStrength?: number;
+  gpuJobId?: string;
   spacingReferenceDistance?: number;
   spacingReferenceSpacing?: number;
   mode?: 'crosshatch' | 'triangle' | 'flow' | 'inkRibbons';

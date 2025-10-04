@@ -1,6 +1,14 @@
+import type { StrokeJob, ShapeFillScheduler } from '@/lib/shapeFill';
+import { getStrokePipeline, isWebGPUSupported } from '@/lib/shapeFill';
+import type { StrokePipelineResult } from '@/lib/shapeFill/gpu/StrokePipeline';
+import { debugLog, debugWarn } from '@/utils/debug';
 import type { BrushSettings } from '@/types';
 
 import type { Point } from './types';
+
+type CrossHatchDependencies = {
+  gpuScheduler?: ShapeFillScheduler;
+};
 
 export type DrawCrossHatchPolygonParams = {
   ctx: CanvasRenderingContext2D;
@@ -13,6 +21,7 @@ export type DrawCrossHatchPolygonParams = {
   };
   brushSettings: BrushSettings;
   isPreview?: boolean;
+  dependencies?: CrossHatchDependencies;
 };
 
 type Bounds = {
@@ -56,11 +65,12 @@ const DEFAULT_LINE_WIDTH = 1;
 const DEFAULT_ORGANIC = 0.75;
 const DEFAULT_HIGHLIGHT_SCALE = 1.05;
 
-export const drawCrossHatchPolygon = ({
+const drawCrossHatchPolygonCpu = ({
   ctx,
   polygonData,
   brushSettings,
   isPreview = false,
+  dependencies,
 }: DrawCrossHatchPolygonParams): void => {
   const vertices = (polygonData?.vertices ?? []).filter(
     (vertex): vertex is Point => Boolean(vertex) && typeof vertex.x === 'number' && typeof vertex.y === 'number'
@@ -71,6 +81,7 @@ export const drawCrossHatchPolygon = ({
   }
 
   void isPreview;
+  void dependencies;
 
   ctx.save();
   ctx.globalAlpha = brushSettings.opacity;
@@ -150,6 +161,461 @@ export const drawCrossHatchPolygon = ({
   }
 
   ctx.restore();
+};
+
+export const drawCrossHatchPolygon = (params: DrawCrossHatchPolygonParams): void => {
+  const scheduler = params.dependencies?.gpuScheduler;
+  const canUseGpu = Boolean(scheduler) && typeof window !== 'undefined' && isWebGPUSupported();
+
+  if (!canUseGpu) {
+    drawCrossHatchPolygonCpu(params);
+    return;
+  }
+
+  const scheduled = drawCrossHatchPolygonGpu(params, scheduler!);
+  if (!scheduled) {
+    drawCrossHatchPolygonCpu(params);
+  }
+};
+
+const FNV_OFFSET = 2166136261;
+const FNV_PRIME = 16777619;
+const MAX_GPU_HIGHLIGHTS = 6000;
+
+type OrientationFrame = {
+  direction: Point;
+  normal: Point;
+  baseOrigin: Point;
+  directionExtent: number;
+  forwardDistance: number;
+  backDistance: number;
+  maxLevels: number;
+  perpRange: { min: number; max: number };
+};
+
+const drawCrossHatchPolygonGpu = (
+  params: DrawCrossHatchPolygonParams,
+  scheduler: ShapeFillScheduler,
+): boolean => {
+  const {
+    ctx,
+    polygonData,
+    brushSettings,
+    isPreview = false,
+  } = params;
+
+  const vertices = (polygonData?.vertices ?? []).filter(
+    (vertex): vertex is Point => Boolean(vertex) && typeof vertex.x === 'number' && typeof vertex.y === 'number'
+  );
+
+  if (vertices.length < 3) {
+    return false;
+  }
+
+  const spacing = Math.max(2, polygonData?.spacingOverride ?? brushSettings.crossHatchSpacing ?? 10);
+  const baseLineWidth = brushSettings.shapeFillLineWidth
+    ?? brushSettings.crossHatchLineWidth
+    ?? DEFAULT_LINE_WIDTH;
+  const lineWidth = Math.max(0.2, polygonData?.lineWidthOverride ?? baseLineWidth);
+  const color = polygonData?.fillColor ?? brushSettings.color ?? '#000000';
+  const highlightScale = DEFAULT_HIGHLIGHT_SCALE;
+
+  const angleDeg = (polygonData?.rotationOverride ?? brushSettings.crossHatchRotation ?? 45) % 360;
+  const crossAngleDeg = (angleDeg + 90) % 360;
+  const angleRad = (angleDeg * Math.PI) / 180;
+  const crossAngleRad = (crossAngleDeg * Math.PI) / 180;
+
+  const bounds = computeBounds(vertices);
+  const center = {
+    x: (bounds.minx + bounds.maxx) / 2,
+    y: (bounds.miny + bounds.maxy) / 2,
+  };
+
+  const dirA = { x: Math.cos(angleRad), y: Math.sin(angleRad) };
+  const normalA = { x: -dirA.y, y: dirA.x };
+  const dirB = { x: Math.cos(crossAngleRad), y: Math.sin(crossAngleRad) };
+  const normalB = { x: -dirB.y, y: dirB.x };
+
+  const frameA = computeOrientationFrame(vertices, center, dirA, normalA, spacing);
+  const frameB = computeOrientationFrame(vertices, center, dirB, normalB, spacing);
+
+  const fieldResolution = Math.max(2, brushSettings.flowFieldResolution ?? 8);
+  const width = Math.max(1, Math.ceil(bounds.maxx - bounds.minx));
+  const height = Math.max(1, Math.ceil(bounds.maxy - bounds.miny));
+  const diagonal = Math.hypot(width, height);
+  const verticesBuffer = toVertexBuffer(vertices);
+  const baseSeed = hashPoints(vertices);
+  const pixelMode = brushSettings.shapeFillPixelMode ?? true;
+
+  const pipeline = getStrokePipeline();
+  let didFallback = false;
+  let hasDrawn = false;
+
+  const fallbackToCpu = () => {
+    if (didFallback) return;
+    didFallback = true;
+    drawCrossHatchPolygonCpu({
+      ...params,
+      dependencies: { ...params.dependencies, gpuScheduler: undefined },
+    });
+  };
+
+  type OrientationJob = {
+    angleDeg: number;
+    seedSalt: number;
+  };
+
+  const orientationJobs: OrientationJob[] = [
+    { angleDeg, seedSalt: 0 },
+    { angleDeg: crossAngleDeg, seedSalt: 0x51633e2d },
+  ];
+
+  const priority = isPreview ? 'preview' : 'final';
+
+  const runOrientation = async ({ angleDeg: orientationDeg, seedSalt }: OrientationJob): Promise<boolean> => {
+    if (didFallback) return false;
+
+    const orientationBrush: BrushSettings = {
+      ...brushSettings,
+      flowOrientationAngle: orientationDeg,
+      shapeFillLineWidth: lineWidth,
+    };
+
+    const seedsPerAxis = Math.max(6, Math.round(Math.max(width, height) / spacing));
+    const lineLength = Math.max(spacing * 4, diagonal + spacing * 2);
+
+    const job: StrokeJob = {
+      id: computeCrossHatchGpuJobId(
+        verticesBuffer,
+        spacing,
+        orientationDeg,
+        lineWidth,
+        fieldResolution,
+        pixelMode,
+        baseSeed ^ seedSalt,
+      ),
+      vertices: verticesBuffer,
+      bounds: {
+        minX: bounds.minx,
+        minY: bounds.miny,
+        maxX: bounds.maxx,
+        maxY: bounds.maxy,
+      },
+      brushSettings: orientationBrush,
+      seed: baseSeed ^ seedSalt,
+      dynamicParams: {
+        crossHatchSpacing: spacing,
+        crossHatchSeedsPerAxis: seedsPerAxis,
+        crossHatchLineLength: lineLength,
+      },
+      previewResolution: {
+        width,
+        height,
+        scale: isPreview ? 0.5 : 1,
+        fieldResolution,
+      },
+      finalResolution: {
+        width,
+        height,
+        scale: 1,
+        fieldResolution,
+      },
+      pixelMode,
+      margin: spacing * 2,
+      metadata: {
+        brush: 'cross-hatch',
+        orientation: orientationDeg,
+      },
+    };
+
+    const drawOutput = async (output: StrokePipelineResult): Promise<boolean> => {
+      if (typeof ImageData === 'undefined') {
+        return false;
+      }
+
+      const imageData = new ImageData(output.pixels, output.width, output.height);
+      const renderBitmap = async (): Promise<boolean> => {
+        ctx.save();
+        tracePolygonPath(ctx, vertices);
+        ctx.clip('nonzero');
+        ctx.globalAlpha = brushSettings.opacity;
+        ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
+        ctx.imageSmoothingEnabled = !(brushSettings.shapeFillPixelMode ?? true);
+
+        if (typeof createImageBitmap === 'function') {
+          const bitmap = await createImageBitmap(imageData);
+          ctx.drawImage(bitmap, output.origin.x, output.origin.y);
+          ctx.restore();
+          bitmap.close();
+          return true;
+        }
+
+        ctx.putImageData(imageData, output.origin.x, output.origin.y);
+        ctx.restore();
+        return true;
+      };
+
+      const rendered = await renderBitmap().catch(() => false);
+      if (rendered) {
+        hasDrawn = true;
+      }
+      return rendered;
+    };
+
+    try {
+      const result = await scheduler.queueJob(job, {
+        priority,
+        cacheResult: true,
+        readback: priority === 'preview' ? 'all' : false,
+      });
+
+      try {
+        if (!result.fieldResult) {
+          debugWarn('shape-fill', 'Cross hatch GPU field unavailable');
+          return false;
+        }
+
+        const output = await pipeline.render(job, result.fieldResult, {
+          priority,
+          color,
+        });
+
+        if (!output) {
+          debugWarn('shape-fill', 'Cross hatch GPU render failed');
+          return false;
+        }
+
+        try {
+          const drawn = await drawOutput(output);
+          if (!drawn) {
+            return false;
+          }
+        } finally {
+          output.release();
+        }
+
+        debugLog('shape-fill', `GPU cross hatch orientation ${orientationDeg.toFixed(1)}° complete (${priority})`, {
+          gpuGenerationMs: result.fieldResult.metrics?.generationTimeMs,
+          gpuTiles: result.fieldResult.metrics?.tilesProcessed,
+          jobId: job.id,
+        });
+
+        return true;
+      } finally {
+        result.release();
+      }
+    } catch (error) {
+      const errorName = typeof error === 'object' && error && 'name' in error
+        ? (error as { name?: string }).name
+        : undefined;
+      if (errorName !== 'AbortError') {
+        debugWarn('shape-fill', 'Cross hatch GPU orientation failed', error);
+      }
+      return false;
+    }
+  };
+
+  const runAllOrientations = async () => {
+    for (const job of orientationJobs) {
+      const ok = await runOrientation(job);
+      if (!ok) {
+        fallbackToCpu();
+        return;
+      }
+    }
+
+    if (!isPreview && hasDrawn) {
+      ctx.save();
+      tracePolygonPath(ctx, vertices);
+      ctx.clip('nonzero');
+      drawGpuHighlights(ctx, {
+        polygon: vertices,
+        center,
+        spacing,
+        color,
+        lineWidth,
+        highlightScale,
+        frameA,
+        frameB,
+      });
+      ctx.restore();
+    }
+  };
+
+  void runAllOrientations().catch(error => {
+    const errorName = typeof error === 'object' && error && 'name' in error
+      ? (error as { name?: string }).name
+      : undefined;
+    if (errorName !== 'AbortError') {
+      debugWarn('shape-fill', 'Cross hatch GPU job sequence failed', error);
+    }
+    fallbackToCpu();
+  });
+
+  return true;
+};
+
+const toVertexBuffer = (vertices: Point[]): Float32Array => {
+  const buffer = new Float32Array(vertices.length * 2);
+  for (let i = 0; i < vertices.length; i += 1) {
+    buffer[i * 2] = vertices[i].x;
+    buffer[i * 2 + 1] = vertices[i].y;
+  }
+  return buffer;
+};
+
+const computeCrossHatchGpuJobId = (
+  vertices: Float32Array,
+  spacing: number,
+  angleDeg: number,
+  lineWidth: number,
+  fieldResolution: number,
+  pixelMode: boolean,
+  seed: number,
+): string => {
+  let hash = (FNV_OFFSET ^ seed) >>> 0;
+  for (let i = 0; i < vertices.length; i += 1) {
+    hash ^= Math.round(vertices[i] * 4);
+    hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  }
+  hash ^= Math.round(spacing * 256) >>> 0;
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  hash ^= Math.round(lineWidth * 1024) >>> 0;
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  hash ^= Math.round(angleDeg * 1024) >>> 0;
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  hash ^= Math.round(fieldResolution * 256) >>> 0;
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  hash ^= pixelMode ? 1 : 0;
+  hash = Math.imul(hash, FNV_PRIME) >>> 0;
+  return `cross-hatch-${hash.toString(16)}`;
+};
+
+const computeOrientationFrame = (
+  vertices: Point[],
+  center: { x: number; y: number },
+  direction: Point,
+  normal: Point,
+  spacing: number,
+): OrientationFrame => {
+  let alongMin = Infinity;
+  let alongMax = -Infinity;
+  let perpMin = Infinity;
+  let perpMax = -Infinity;
+
+  for (const vertex of vertices) {
+    const relX = vertex.x - center.x;
+    const relY = vertex.y - center.y;
+    const along = relX * direction.x + relY * direction.y;
+    const perp = relX * normal.x + relY * normal.y;
+    if (along < alongMin) alongMin = along;
+    if (along > alongMax) alongMax = along;
+    if (perp < perpMin) perpMin = perp;
+    if (perp > perpMax) perpMax = perp;
+  }
+
+  if (!Number.isFinite(alongMin) || !Number.isFinite(alongMax)) {
+    alongMin = -spacing;
+    alongMax = spacing;
+  }
+  if (!Number.isFinite(perpMin) || !Number.isFinite(perpMax)) {
+    perpMin = -spacing;
+    perpMax = spacing;
+  }
+
+  const directionExtent = Math.max(spacing, alongMax - alongMin + spacing * 0.5);
+  const baseOrigin = {
+    x: center.x + direction.x * alongMin,
+    y: center.y + direction.y * alongMin,
+  };
+
+  const extendedPerpMin = perpMin - spacing;
+  const extendedPerpMax = perpMax + spacing;
+  const forwardDistance = Math.max(0, extendedPerpMax);
+  const backDistance = Math.max(0, -extendedPerpMin);
+
+  const totalSpan = forwardDistance + backDistance;
+  const safeSpacing = Math.max(spacing, 1e-3);
+  const maxLevels = Math.max(1, Math.ceil(totalSpan / safeSpacing) + 4);
+
+  return {
+    direction,
+    normal,
+    baseOrigin,
+    directionExtent,
+    forwardDistance,
+    backDistance,
+    maxLevels,
+    perpRange: {
+      min: extendedPerpMin,
+      max: extendedPerpMax,
+    },
+  };
+};
+
+const collectOffsets = (range: { min: number; max: number }, spacing: number): number[] => {
+  const safeSpacing = Math.max(spacing, 1e-3);
+  const start = Math.floor(range.min / safeSpacing) * safeSpacing;
+  const end = Math.ceil(range.max / safeSpacing) * safeSpacing;
+  const offsets: number[] = [];
+  for (let value = start; value <= end + safeSpacing * 0.5; value += safeSpacing) {
+    offsets.push(value);
+  }
+  return offsets;
+};
+
+const drawGpuHighlights = (
+  ctx: CanvasRenderingContext2D,
+  options: {
+    polygon: Point[];
+    center: { x: number; y: number };
+    spacing: number;
+    color: string;
+    lineWidth: number;
+    highlightScale: number;
+    frameA: OrientationFrame;
+    frameB: OrientationFrame;
+  },
+): void => {
+  const radius = Math.max(0.1, options.lineWidth * options.highlightScale);
+  if (!Number.isFinite(radius) || radius <= 0) {
+    return;
+  }
+
+  const offsetsA = collectOffsets(options.frameA.perpRange, options.spacing);
+  const offsetsB = collectOffsets(options.frameB.perpRange, options.spacing);
+
+  if (!offsetsA.length || !offsetsB.length) {
+    return;
+  }
+
+  const maxPairs = Math.max(1, MAX_GPU_HIGHLIGHTS);
+  const strideA = Math.max(1, Math.ceil(offsetsA.length / Math.sqrt(maxPairs)));
+  const strideB = Math.max(1, Math.ceil(offsetsB.length / Math.sqrt(maxPairs)));
+
+  ctx.fillStyle = options.color;
+  ctx.globalAlpha = 1;
+
+  let drawn = 0;
+  for (let i = 0; i < offsetsA.length && drawn < maxPairs; i += strideA) {
+    const offsetA = offsetsA[i];
+    for (let j = 0; j < offsetsB.length && drawn < maxPairs; j += strideB) {
+      const offsetB = offsetsB[j];
+      const point = {
+        x: options.center.x + options.frameA.normal.x * offsetA + options.frameB.normal.x * offsetB,
+        y: options.center.y + options.frameA.normal.y * offsetA + options.frameB.normal.y * offsetB,
+      };
+
+      if (!pointInPoly(point.x, point.y, options.polygon)) {
+        continue;
+      }
+
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      drawn += 1;
+    }
+  }
 };
 
 function buildLineSet({
