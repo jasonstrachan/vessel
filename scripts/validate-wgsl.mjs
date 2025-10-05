@@ -34,17 +34,40 @@ function extractShaderSource(contents, filePath) {
   return source;
 }
 
-function runValidator(shaderPath) {
-  const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  const result = spawnSync(npxCmd, ['--no-install', '@webgpu/validator', shaderPath], {
+function resolveValidatorBinary() {
+  const candidates = [
+    process.env.NAGA_BIN,
+    'naga',
+    path.join(os.homedir(), '.cargo', 'bin', 'naga'),
+    path.join(repoRoot, 'tools', 'tint', 'tint'),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const command = candidate;
+    const result = spawnSync(command, ['--version'], {
+      stdio: 'ignore',
+      cwd: repoRoot,
+    });
+
+    if (result.error) {
+      continue;
+    }
+
+    if (typeof result.status === 'number' && result.status === 0) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function runValidator(validatorBinary, shaderPath) {
+  const result = spawnSync(validatorBinary, [shaderPath], {
     stdio: 'inherit',
     cwd: repoRoot,
   });
 
   if (result.error) {
-    if (result.error.code === 'ENOENT') {
-      throw new Error('npx not found. Ensure Node.js is installed.');
-    }
     throw result.error;
   }
 
@@ -60,6 +83,16 @@ function runValidator(shaderPath) {
       console.log('No WGSL shaders found.');
       return;
     }
+
+    const validatorBinary = resolveValidatorBinary();
+    if (!validatorBinary) {
+      console.error('Unable to find a WGSL validator.');
+      console.error('Install naga (https://github.com/gfx-rs/naga) or drop a tint binary in tools/tint/tint.');
+      console.error('You can also set NAGA_BIN to the validator path before running this script.');
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`Using validator: ${validatorBinary}`);
 
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vessel-wgsl-'));
     const failures = [];
@@ -79,7 +112,7 @@ function runValidator(shaderPath) {
 
       try {
         console.log(`\nValidating ${path.relative(repoRoot, filePath)}...`);
-        runValidator(tmpShaderPath);
+        runValidator(validatorBinary, tmpShaderPath);
       } catch (error) {
         failures.push({ filePath, message: error.message });
       }
@@ -92,7 +125,6 @@ function runValidator(shaderPath) {
       for (const failure of failures) {
         console.error(` - ${path.relative(repoRoot, failure.filePath)}: ${failure.message}`);
       }
-      console.error('\nInstall the validator with `npm install --save-dev @webgpu/validator` and rerun once network access is available.');
       process.exitCode = 1;
       return;
     }

@@ -10,9 +10,12 @@ export interface PathIntegratorConfig {
   lineLength?: number;
 }
 
+export type CoordinateSpace = 'world' | 'normalized';
+
 export interface PathIntegrationResult {
   buffer: GPUBuffer;
   vertexCount: number;
+  coordinateSpace: CoordinateSpace;
   release(): void;
 }
 
@@ -78,11 +81,9 @@ export class PathIntegrator {
       y: Math.sin(orientationRad),
     };
 
-    const thickness = brush?.shapeFillLineWidth ?? 1;
-
     const vertexBuffer = device.createBuffer({
       label: `shape-fill-path-vertices-${job.id}`,
-      size: vertexCount * 4 * Float32Array.BYTES_PER_ELEMENT,
+      size: vertexCount * 2 * Float32Array.BYTES_PER_ELEMENT,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_SRC,
     });
 
@@ -97,7 +98,7 @@ export class PathIntegrator {
     uniformView.setFloat32(0, direction.x, true);
     uniformView.setFloat32(4, direction.y, true);
     uniformView.setFloat32(8, lineLength * 0.5, true);
-    uniformView.setFloat32(12, thickness, true);
+    uniformView.setFloat32(12, brush?.shapeFillLineWidth ?? 1, true);
     uniformView.setUint32(16, vertexCount, true);
     uniformView.setUint32(20, 0, true);
     uniformView.setUint32(24, 0, true);
@@ -140,6 +141,7 @@ export class PathIntegrator {
     return {
       buffer: vertexBuffer,
       vertexCount,
+      coordinateSpace: 'world',
       release,
     };
   }

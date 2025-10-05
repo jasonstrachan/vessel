@@ -16,7 +16,7 @@ struct VertexCounter {
 
 @group(0) @binding(0) var<uniform> uniforms : TriangleUniforms;
 @group(0) @binding(1) var<storage, read> polygon : array<vec2<f32>>;
-@group(0) @binding(2) var<storage, read_write> lineVertices : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read_write> lineVertices : array<vec2<f32>>;
 @group(0) @binding(3) var<storage, read_write> vertexCounter : VertexCounter;
 
 const MAX_SEEDS : u32 = 512u;
@@ -162,8 +162,8 @@ fn emit_line(a : vec2<f32>, b : vec2<f32>) {
   if (index + 1u >= capacity) {
     return;
   }
-  lineVertices[index] = vec4<f32>(a, line_width_value(), 1.0);
-  lineVertices[index + 1u] = vec4<f32>(b, line_width_value(), 1.0);
+  lineVertices[index] = a;
+  lineVertices[index + 1u] = b;
 }
 
 @compute @workgroup_size(1)

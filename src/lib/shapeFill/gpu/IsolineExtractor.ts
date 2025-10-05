@@ -99,7 +99,7 @@ export class IsolineExtractor {
 
     const vertexBuffer = device.createBuffer({
       label: `contour-isoline-vertices-${job.id}`,
-      size: vertexCapacity * 4 * Float32Array.BYTES_PER_ELEMENT,
+      size: vertexCapacity * 2 * Float32Array.BYTES_PER_ELEMENT,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_SRC,
     });
 
@@ -232,6 +232,7 @@ export class IsolineExtractor {
     return {
       buffer: vertexBuffer,
       vertexCount,
+      coordinateSpace: 'normalized',
       release,
     };
   }

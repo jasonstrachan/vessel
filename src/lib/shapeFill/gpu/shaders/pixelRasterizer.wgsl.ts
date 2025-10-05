@@ -4,38 +4,39 @@ struct RasterUniforms {
   boundsSize : vec2<f32>,
   targetSize : vec2<f32>,
   color : vec4<f32>,
-};
-
-struct VSIn {
-  @location(0) position : vec2<f32>,
-  @location(1) thickness : f32,
-  @location(2) weight : f32,
-};
-
-struct VSOut {
-  @builtin(position) position : vec4<f32>,
-  @location(0) thickness : f32,
+  flags : vec2<f32>,
+  padding : vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms : RasterUniforms;
 
-fn safe_divide(a : vec2<f32>, b : vec2<f32>) -> vec2<f32> {
-  let epsilon = vec2<f32>(1e-6, 1e-6);
-  return a / max(b, epsilon);
+struct VSOut {
+  @builtin(position) position : vec4<f32>,
+};
+
+fn clamp01(value : vec2<f32>) -> vec2<f32> {
+  return clamp(value, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
+}
+
+fn compute_uv(position : vec2<f32>) -> vec2<f32> {
+  if (uniforms.flags.x > 0.5) {
+    return clamp01(position);
+  }
+
+  let size = max(uniforms.boundsSize, vec2<f32>(1e-6, 1e-6));
+  let normalized = (position - uniforms.boundsMin) / size;
+  return clamp01(normalized);
 }
 
 @vertex
-fn vs_main(input : VSIn) -> VSOut {
-  var output : VSOut;
-  var relative = safe_divide(input.position - uniforms.boundsMin, uniforms.boundsSize);
-  var clip = vec2<f32>(relative.x * 2.0 - 1.0, 1.0 - relative.y * 2.0);
-  output.position = vec4<f32>(clip, 0.0, 1.0);
-  output.thickness = input.thickness;
-  return output;
+fn vs_main(@location(0) pos : vec2<f32>) -> VSOut {
+  let uv = compute_uv(pos);
+  let ndc = vec2<f32>(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0));
+  return VSOut(vec4<f32>(ndc, 0.0, 1.0));
 }
 
 @fragment
-fn fs_main(input : VSOut) -> @location(0) vec4<f32> {
+fn fs_main() -> @location(0) vec4<f32> {
   return uniforms.color;
 }
 `;

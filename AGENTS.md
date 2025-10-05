@@ -228,7 +228,22 @@ Coding Conventions
   - Conventional Commits (`feat`, `fix`, `docs`, `refactor`, `chore`, `test`).
   - Keep patches focused; no drive‑by refactors. Update docs/tests with code changes.
 
-Build & Config Notes
+- WebGPU agents
+
+  - One space in buffers. Store XY in world/pixel; normalize in VS: uv=(pos-min)/size; ndc=uv*2-1; ndc.y*=-1.
+  - Match layouts. XY only ⇒ stride 8, attr float32x2 @location(0).
+  - Bring-up. No depth, no blend, FS a=1. Draw point-list (first 64), then line-list (even count).
+  - Bounds. Never 0; default to render target. Use max(size,1e-6).
+
+  Validate.
+
+  - WebGPU: pushErrorScope('validation')/popErrorScope(), getCompilationInfo().
+  - naga: naga validate shader.wgsl (CI gate).
+  - Readback. bytesPerRow 256-aligned; repack rows.
+  - Compute. Write XY only; reset/read counter buffers properly.
+  - Pipeline. Cache by (shaders, layout, format, topology, depth, blend). Set viewport/scissor explicitly.
+
+Footguns. Layout≠shader • bounds=0 • odd line-list • depth/blend hiding • misaligned readback • mixed spaces. Build & Config Notes
 
 - `next.config.ts` sets `basePath`/`assetPrefix` for GH Pages; do not remove or change `/vessel` without explicit task scope.
 - `env.BUILD_TIMESTAMP` is injected at build; preserve this behavior.

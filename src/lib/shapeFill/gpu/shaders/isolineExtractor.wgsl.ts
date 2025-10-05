@@ -16,7 +16,7 @@ struct VertexCounter {
 
 @group(0) @binding(0) var<uniform> uniforms : IsolineUniforms;
 @group(0) @binding(1) var distanceField : texture_storage_2d<rgba32float, read>;
-@group(0) @binding(2) var<storage, read_write> vertices : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read_write> vertices : array<vec2<f32>>;
 @group(0) @binding(3) var<storage, read_write> vertexCounter : VertexCounter;
 
 fn tile_origin() -> vec2<f32> {
@@ -79,6 +79,15 @@ fn bounds_max() -> vec2<f32> {
   return vec2<f32>(uniforms.data4.x, uniforms.data4.y);
 }
 
+fn bounds_size() -> vec2<f32> {
+  let size = bounds_max() - bounds_min();
+  return max(size, vec2<f32>(1e-4, 1e-4));
+}
+
+fn normalize_position(position : vec2<f32>) -> vec2<f32> {
+  return clamp((position - bounds_min()) / bounds_size(), vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
+}
+
 fn base_origin() -> vec2<f32> {
   return vec2<f32>(uniforms.data4.z, uniforms.data4.w);
 }
@@ -93,6 +102,19 @@ fn normal_vec() -> vec2<f32> {
   let normal = vec2<f32>(uniforms.data5.z, uniforms.data5.w);
   let len = max(length(normal), 1e-5);
   return normal / len;
+}
+
+fn sample_offset(index : u32) -> vec2<u32> {
+  if (index == 0u) {
+    return vec2<u32>(0u, 0u);
+  }
+  if (index == 1u) {
+    return vec2<u32>(1u, 0u);
+  }
+  if (index == 2u) {
+    return vec2<u32>(1u, 1u);
+  }
+  return vec2<u32>(0u, 1u);
 }
 
 fn direction_extent() -> f32 {
@@ -148,8 +170,8 @@ fn append_segment(a : vec2<f32>, b : vec2<f32>) {
   if (f32(index + 1u) >= vertex_capacity()) {
     return;
   }
-  vertices[index] = vec4<f32>(a, line_width_value(), 1.0);
-  vertices[index + 1u] = vec4<f32>(b, line_width_value(), 1.0);
+  vertices[index] = normalize_position(a);
+  vertices[index + 1u] = normalize_position(b);
 }
 
 @compute @workgroup_size(8, 8, 1)
@@ -176,16 +198,9 @@ fn main(@builtin(global_invocation_id) global_id : vec3<u32>) {
   var cornerSigns : array<f32, 4>;
   var validCount : u32 = 0u;
 
-  let sampleOffsets = array<vec2<u32>, 4>(
-    vec2<u32>(0u, 0u),
-    vec2<u32>(1u, 0u),
-    vec2<u32>(1u, 1u),
-    vec2<u32>(0u, 1u)
-  );
-
   for (var i : u32 = 0u; i < 4u; i = i + 1u) {
-    let offset = sampleOffsets[i];
-    let sample = textureLoad(distanceField, vec2<i32>(coord + offset), 0);
+    let offset = sample_offset(i);
+    let sample = textureLoad(distanceField, vec2<i32>(coord + offset));
     cornerSigns[i] = sample.w;
 
     let cornerPos = tile_origin() + (vec2<f32>(f32(coord.x + offset.x), f32(coord.y + offset.y)) + vec2<f32>(0.5, 0.5)) * resolution();
@@ -276,9 +291,9 @@ fn main(@builtin(global_invocation_id) global_id : vec3<u32>) {
     if (count == 2u) {
       append_segment(intersections[0u], intersections[1u]);
     } else if (count == 4u) {
-      let config = (select(0u, 1u, cornerValues[0] > level) << 3) |
-                   (select(0u, 1u, cornerValues[1] > level) << 2) |
-                   (select(0u, 1u, cornerValues[2] > level) << 1) |
+      let config = (select(0u, 1u, cornerValues[0] > level) << 3u) |
+                   (select(0u, 1u, cornerValues[1] > level) << 2u) |
+                   (select(0u, 1u, cornerValues[2] > level) << 1u) |
                    (select(0u, 1u, cornerValues[3] > level));
 
       // 6u (0b0110) and 9u (0b1001) represent the diagonal ambiguity cases.

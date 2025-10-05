@@ -11,7 +11,7 @@ struct SeedPoint {
 };
 
 struct PathVertex {
-  data : vec4<f32>,
+  position : vec2<f32>,
 };
 
 @group(0) @binding(0) var<storage, read> seeds : array<SeedPoint>;
@@ -26,7 +26,7 @@ fn main(@builtin(global_invocation_id) global_id : vec3<u32>) {
   }
 
   let seed = seeds[seedIndex].position.xy;
-  let dir = normalize(uniforms.direction);
+  var dir = normalize(uniforms.direction);
   if (all(dir == vec2<f32>(0.0, 0.0))) {
     dir = vec2<f32>(0.0, 1.0);
   }
@@ -35,10 +35,8 @@ fn main(@builtin(global_invocation_id) global_id : vec3<u32>) {
   let startPos = seed - offset;
   let endPos = seed + offset;
 
-  let thickness = uniforms.thickness;
-
   let vertexIndex = seedIndex * 2u;
-  vertices[vertexIndex].data = vec4<f32>(startPos, thickness, 1.0);
-  vertices[vertexIndex + 1u].data = vec4<f32>(endPos, thickness, 1.0);
+  vertices[vertexIndex].position = startPos;
+  vertices[vertexIndex + 1u].position = endPos;
 }
 `;

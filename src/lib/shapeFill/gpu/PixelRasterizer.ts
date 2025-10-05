@@ -1,10 +1,26 @@
 import { WebGPUDeviceManager, isWebGPUSupported } from './WebGPUDeviceManager';
+import { debugLog, debugWarn } from '@/utils/debug';
 import { PIXEL_RASTERIZER_WGSL } from './shaders/pixelRasterizer.wgsl';
 import type { PathIntegrationResult } from './PathIntegrator';
 import type { StrokeJob, StrokeResolution } from '../types';
 import type { RGBAColor } from '@/utils/color/parseCssColor';
 
 const alignTo = (value: number, alignment: number): number => Math.ceil(value / alignment) * alignment;
+
+const FLOATS_PER_VERTEX = 2;
+const VERTEX_STRIDE_BYTES = Float32Array.BYTES_PER_ELEMENT * FLOATS_PER_VERTEX;
+
+const VERTEX_BUFFER_LAYOUT: GPUVertexBufferLayout = {
+  arrayStride: VERTEX_STRIDE_BYTES,
+  stepMode: 'vertex',
+  attributes: [
+    {
+      shaderLocation: 0,
+      offset: 0,
+      format: 'float32x2',
+    },
+  ],
+};
 
 export interface PixelRasterizerOptions {
   resolution: StrokeResolution;
@@ -22,28 +38,17 @@ export interface PixelRasterizerResult {
 export class PixelRasterizer {
   private readonly deviceManager = WebGPUDeviceManager.getInstance();
 
-  private pipeline: any = null;
-
-  private vertexBufferLayout: any = null;
+  private pipeline: GPURenderPipeline | null = null;
 
   private async ensurePipeline(device: GPUDevice): Promise<void> {
     if (this.pipeline) {
       return;
     }
 
-    const module = device.createShaderModule({
+    const shaderModule = device.createShaderModule({
       label: 'shape-fill-pixel-rasterizer-shader',
       code: PIXEL_RASTERIZER_WGSL,
     });
-
-    this.vertexBufferLayout = {
-      arrayStride: 4 * Float32Array.BYTES_PER_ELEMENT,
-      attributes: [
-        { shaderLocation: 0, offset: 0, format: 'float32x2' },
-        { shaderLocation: 1, offset: 8, format: 'float32' },
-        { shaderLocation: 2, offset: 12, format: 'float32' },
-      ],
-    };
 
     const createRenderPipelineAsync = (device as any).createRenderPipelineAsync?.bind(device);
     const createRenderPipeline = (device as any).createRenderPipeline?.bind(device);
@@ -56,28 +61,16 @@ export class PixelRasterizer {
       label: 'shape-fill-pixel-rasterizer-pipeline',
       layout: 'auto',
       vertex: {
-        module,
+        module: shaderModule,
         entryPoint: 'vs_main',
-        buffers: [this.vertexBufferLayout],
+        buffers: [VERTEX_BUFFER_LAYOUT],
       },
       fragment: {
-        module,
+        module: shaderModule,
         entryPoint: 'fs_main',
         targets: [
           {
             format: 'rgba8unorm',
-            blend: {
-              color: {
-                srcFactor: 'src-alpha',
-                dstFactor: 'one-minus-src-alpha',
-                operation: 'add',
-              },
-              alpha: {
-                srcFactor: 'one',
-                dstFactor: 'one-minus-src-alpha',
-                operation: 'add',
-              },
-            },
           },
         ],
       },
@@ -123,20 +116,28 @@ export class PixelRasterizer {
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
 
-    const depth = device.createTexture({
-      label: `shape-fill-depth-${job.id}`,
-      size: { width, height, depthOrArrayLayers: 1 },
-      format: 'depth24plus',
-      usage: GPUTextureUsage.RENDER_ATTACHMENT,
-    });
-
     const uniformBuffer = device.createBuffer({
       label: `shape-fill-raster-uniforms-${job.id}`,
       size: 16 * Float32Array.BYTES_PER_ELEMENT,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    const color = options.color;
+    const color = { ...options.color };
+    if (color.a <= 0 || !Number.isFinite(color.a)) {
+      debugWarn('shape-fill', 'Pixel rasterizer received transparent color; forcing alpha to 1', {
+        jobId: job.id,
+        originalColor: options.color,
+      });
+      color.a = 255;
+    }
+
+    debugLog('shape-fill', 'Pixel rasterizer uniforms', {
+      jobId: job.id,
+      colorString: `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a})`,
+      bounds,
+      resolution: options.resolution,
+      vertexCount: path.vertexCount,
+    });
     const uniformArray = new Float32Array(16);
     uniformArray[0] = bounds.minX;
     uniformArray[1] = bounds.minY;
@@ -148,6 +149,7 @@ export class PixelRasterizer {
     uniformArray[7] = color.g / 255;
     uniformArray[8] = color.b / 255;
     uniformArray[9] = color.a / 255;
+    uniformArray[10] = path.coordinateSpace === 'normalized' ? 1 : 0;
 
     device.queue.writeBuffer(uniformBuffer, 0, uniformArray.buffer);
 
@@ -173,17 +175,13 @@ export class PixelRasterizer {
           clearValue: { r: 0, g: 0, b: 0, a: 0 },
         },
       ],
-      depthStencilAttachment: {
-        view: depth.createView(),
-        depthLoadOp: 'clear',
-        depthStoreOp: 'discard',
-        clearDepth: 1,
-      },
     });
 
     renderPass.setPipeline(this.pipeline!);
     renderPass.setBindGroup(0, bindGroup);
-    renderPass.setVertexBuffer(0, path.buffer);
+    renderPass.setViewport(0, 0, width, height, 0, 1);
+    renderPass.setScissorRect(0, 0, width, height);
+    renderPass.setVertexBuffer(0, path.buffer, 0, path.vertexCount * VERTEX_STRIDE_BYTES);
     renderPass.draw(path.vertexCount, 1, 0, 0);
     renderPass.end();
 
@@ -221,9 +219,25 @@ export class PixelRasterizer {
       pixels.set(padded.subarray(srcOffset, srcOffset + width * bytesPerPixel), dstOffset);
     }
 
+    const hasContent = pixels.some((value, index) => (index & 3) === 3 ? value !== 0 : false);
+    if (!hasContent) {
+      debugWarn('shape-fill', 'Pixel rasterizer produced empty output', {
+        jobId: job.id,
+        vertexCount: path.vertexCount,
+        width,
+        height,
+      });
+    } else {
+      debugLog('shape-fill', 'Pixel rasterizer produced output', {
+        jobId: job.id,
+        vertexCount: path.vertexCount,
+        width,
+        height,
+      });
+    }
+
     const release = () => {
       texture.destroy();
-      depth.destroy();
       uniformBuffer.destroy();
       readbackBuffer.destroy();
     };
