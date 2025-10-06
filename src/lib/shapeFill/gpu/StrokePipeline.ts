@@ -142,7 +142,7 @@ export class StrokePipeline {
 
   async render(
     job: StrokeJob,
-    field: FieldGeneratorResult,
+    field: FieldGeneratorResult | null,
     options: StrokePipelineOptions
   ): Promise<StrokePipelineResult | null> {
     if (!isWebGPUSupported()) {
@@ -187,6 +187,68 @@ export class StrokePipeline {
         quads: quad.quadCount,
       });
     };
+
+    if (job.metadata?.brush === 'contour') {
+      const geometry = job.metadata?.contourGeometry as ContourGeometry | undefined;
+      if (!geometry || !geometry.loops.length) {
+        return null;
+      }
+
+      if (options.priority === 'preview') {
+        return null;
+      }
+
+      const pathGeometry = await this.uploadContourGeometry(job, geometry);
+      if (!pathGeometry) {
+        return null;
+      }
+
+      const quadGeometry = await this.quadExpander.expand(pathGeometry, {
+        bounds: geometry.bounds,
+        resolution,
+        lineWidth: strokeLineWidth,
+      });
+      if (!quadGeometry) {
+        pathGeometry.release();
+        return null;
+      }
+
+      try {
+        logRasterPass(pathGeometry, quadGeometry);
+        const raster = await this.pixelRasterizer.rasterize(job, quadGeometry, {
+          resolution,
+          color,
+          bounds: geometry.bounds,
+        });
+        if (!raster) {
+          quadGeometry.release();
+          pathGeometry.release();
+          return null;
+        }
+
+        const release = () => {
+          raster.release();
+          quadGeometry.release();
+          pathGeometry.release();
+        };
+
+        return {
+          pixels: raster.pixels,
+          width: raster.width,
+          height: raster.height,
+          origin: raster.origin,
+          release,
+        };
+      } catch (error) {
+        quadGeometry.release();
+        pathGeometry.release();
+        throw error;
+      }
+    }
+
+    if (!field) {
+      return null;
+    }
 
     if (job.metadata?.brush === 'triangle-fill') {
       const cellSize = dynamicParams.triangleCellSize ?? 24;
@@ -362,64 +424,6 @@ export class StrokePipeline {
       } catch (error) {
         quadGeometry.release();
         linesResult.release();
-        throw error;
-      }
-    }
-
-    if (job.metadata?.brush === 'contour') {
-      const geometry = job.metadata?.contourGeometry as ContourGeometry | undefined;
-      if (!geometry || !geometry.loops.length) {
-        return null;
-      }
-
-      if (options.priority === 'preview') {
-        return null;
-      }
-
-      const pathGeometry = await this.uploadContourGeometry(job, geometry);
-      if (!pathGeometry) {
-        return null;
-      }
-
-      const quadGeometry = await this.quadExpander.expand(pathGeometry, {
-        bounds: geometry.bounds,
-        resolution,
-        lineWidth: strokeLineWidth,
-      });
-      if (!quadGeometry) {
-        pathGeometry.release();
-        return null;
-      }
-
-      try {
-        logRasterPass(pathGeometry, quadGeometry);
-        const raster = await this.pixelRasterizer.rasterize(job, quadGeometry, {
-          resolution,
-          color,
-          bounds: geometry.bounds,
-        });
-        if (!raster) {
-          quadGeometry.release();
-          pathGeometry.release();
-          return null;
-        }
-
-        const release = () => {
-          raster.release();
-          quadGeometry.release();
-          pathGeometry.release();
-        };
-
-        return {
-          pixels: raster.pixels,
-          width: raster.width,
-          height: raster.height,
-          origin: raster.origin,
-          release,
-        };
-      } catch (error) {
-        quadGeometry.release();
-        pathGeometry.release();
         throw error;
       }
     }

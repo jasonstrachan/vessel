@@ -400,10 +400,7 @@ export class ShapeFillScheduler {
     const startedAt = now();
 
     const cancellationReason = jobState.cancelReason ?? 'abort';
-    const skipFieldGeneration = Boolean(
-      job.metadata && (job.metadata as Record<string, unknown>).contourGeometry,
-    );
-    let fieldResult = skipFieldGeneration ? null : await this.generator.generate(job);
+    let fieldResult = await this.generator.generate(job);
 
     const ensureNotCancelled = (afterCaching = false): void => {
       if (!jobState.cancelled) {

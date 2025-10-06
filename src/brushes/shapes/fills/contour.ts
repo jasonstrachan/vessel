@@ -78,9 +78,7 @@ const enqueueContourGpuStroke = (
 
   const pixelMode = brushSettings.shapeFillPixelMode ?? true;
   const vertexBuffer = ensureFloat32Vertices(vertices, pixelMode);
-  const bounds = computeBoundingBox(vertexBuffer);
-  const width = Math.max(1, Math.ceil(bounds.maxX - bounds.minX));
-  const height = Math.max(1, Math.ceil(bounds.maxY - bounds.minY));
+  const baseBounds = computeBoundingBox(vertexBuffer);
   const jobId = hashContourJob(
     vertexBuffer,
     options.spacing,
@@ -97,10 +95,30 @@ const enqueueContourGpuStroke = (
     return true;
   }
 
+  const stubJob: StrokeJob = {
+    id: jobId,
+    vertices: vertexBuffer,
+    brushSettings: brushSettings,
+    seed: options.seed >>> 0,
+    metadata: { brush: 'contour' },
+  };
+
+  const contourGeometry = computeContoursCPU(stubJob, baseBounds, {
+    spacing: options.spacing,
+    maxDistance: options.maxDistance,
+    variance: options.variance,
+    fieldResolution: options.fieldResolution,
+    randomSeed: options.seed,
+  });
+
+  const geometryBounds = contourGeometry.bounds;
+  const width = Math.max(1, Math.ceil(geometryBounds.maxX - geometryBounds.minX));
+  const height = Math.max(1, Math.ceil(geometryBounds.maxY - geometryBounds.minY));
+
   const stroke: StrokeJob = {
     id: jobId,
     vertices: vertexBuffer,
-    bounds,
+    bounds: geometryBounds,
     brushSettings: {
       ...brushSettings,
       shapeFillLineWidth: options.strokeWidth,
@@ -129,20 +147,8 @@ const enqueueContourGpuStroke = (
     metadata: {
       brush: 'contour',
       variant: params.spacingOverride != null ? 'override' : 'auto',
+      contourGeometry,
     },
-  };
-
-  const contourGeometry = computeContoursCPU(stroke, bounds, {
-    spacing: options.spacing,
-    maxDistance: options.maxDistance,
-    variance: options.variance,
-    fieldResolution: options.fieldResolution,
-    randomSeed: options.seed,
-  });
-
-  stroke.metadata = {
-    ...stroke.metadata,
-    contourGeometry,
   };
 
   const pipeline = getStrokePipeline();
@@ -159,7 +165,7 @@ const enqueueContourGpuStroke = (
   scheduler
     .queueJob(stroke, {
       priority: options.priority,
-      cacheResult: contourGeometry.loops.length === 0,
+      cacheResult: true,
     })
     .then(async result => {
       try {
@@ -206,7 +212,7 @@ const enqueueContourGpuStroke = (
           debugLog('shape-fill', `GPU contour stroke completed (${options.priority})`, {
             jobId,
             diagnostics: result.diagnostics,
-            metrics: result.fieldResult.metrics,
+            metrics: result.fieldResult?.metrics,
           });
         } catch (error) {
           debugWarn('shape-fill', 'Contour GPU render failed to draw to canvas', error);

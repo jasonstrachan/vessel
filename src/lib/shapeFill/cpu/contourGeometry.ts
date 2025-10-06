@@ -34,27 +34,6 @@ const toPoints = (vertices: readonly Vec2[] | Float32Array): Vec2[] => {
   return vertices.map(vertex => ({ x: vertex.x, y: vertex.y }));
 };
 
-const computeBounds = (points: Vec2[]): BoundingBox => {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-
-  for (const point of points) {
-    if (point.x < minX) minX = point.x;
-    if (point.y < minY) minY = point.y;
-    if (point.x > maxX) maxX = point.x;
-    if (point.y > maxY) maxY = point.y;
-  }
-
-  return {
-    minX,
-    minY,
-    maxX,
-    maxY,
-  };
-};
-
 const distanceToSegment = (point: Vec2, a: Vec2, b: Vec2): number => {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -100,56 +79,17 @@ const isPointInsidePolygon = (point: Vec2, vertices: Vec2[]): boolean => {
   return inside;
 };
 
-const seededRandom = (seed: number | undefined) => {
-  if (typeof seed !== 'number') {
-    return Math.random;
-  }
-  let state = seed >>> 0;
-  return () => {
-    state = (state * 1664525 + 1013904223) >>> 0;
-    return state / 0x100000000;
-  };
-};
-
 const buildSignedDistanceField = (
   vertices: Vec2[],
   bounds: BoundingBox,
   fieldResolution: number,
   extension: number,
-  random: () => number,
 ) => {
   const width = Math.max(1, Math.ceil((bounds.maxX - bounds.minX) + extension * 2));
   const height = Math.max(1, Math.ceil((bounds.maxY - bounds.minY) + extension * 2));
   const cols = Math.ceil(width / fieldResolution);
   const rows = Math.ceil(height / fieldResolution);
   const field: number[][] = new Array(rows);
-
-  let sumX = 0;
-  let sumY = 0;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-
-  for (const vertex of vertices) {
-    sumX += vertex.x;
-    sumY += vertex.y;
-    if (vertex.x < minX) minX = vertex.x;
-    if (vertex.y < minY) minY = vertex.y;
-    if (vertex.x > maxX) maxX = vertex.x;
-    if (vertex.y > maxY) maxY = vertex.y;
-  }
-
-  const centerX = sumX / vertices.length;
-  const centerY = sumY / vertices.length;
-  const polyWidth = Math.max(1, maxX - minX);
-  const polyHeight = Math.max(1, maxY - minY);
-
-  const offsetX = (random() - 0.5) * polyWidth * 1.2;
-  const offsetY = (random() - 0.5) * polyHeight * 1.2;
-  const peakX = centerX + offsetX;
-  const peakY = centerY + offsetY;
-  const maxPossible = Math.max(polyWidth, polyHeight);
 
   for (let row = 0; row < rows; row += 1) {
     const y = bounds.minY - extension + row * fieldResolution;
@@ -159,12 +99,7 @@ const buildSignedDistanceField = (
       const point = { x, y };
       const inside = isPointInsidePolygon(point, vertices);
       if (inside) {
-        const edgeDist = distanceToPolygon(point, vertices);
-        const peakDist = Math.hypot(x - peakX, y - peakY);
-        const normalizedPeak = peakDist / maxPossible;
-        const peakInfluence = Math.exp(-normalizedPeak * normalizedPeak * 8);
-        const elevation = edgeDist + edgeDist * peakInfluence * 0.8;
-        rowData[col] = elevation;
+        rowData[col] = distanceToPolygon(point, vertices);
       } else {
         rowData[col] = -distanceToPolygon(point, vertices);
       }
@@ -179,6 +114,41 @@ const buildSignedDistanceField = (
     resolution: fieldResolution,
     extension,
   };
+}; 
+
+const smoothField = (field: number[][], rows: number, cols: number, passes: number) => {
+  for (let pass = 0; pass < passes; pass += 1) {
+    const next = field.map(row => row.slice());
+    for (let y = 0; y < rows; y += 1) {
+      for (let x = 0; x < cols; x += 1) {
+        const value = field[y][x];
+        const sign = value >= 0;
+        let sum = 0;
+        let count = 0;
+        for (let dy = -1; dy <= 1; dy += 1) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= rows) continue;
+          for (let dx = -1; dx <= 1; dx += 1) {
+            const nx = x + dx;
+            if (nx < 0 || nx >= cols) continue;
+            const neighbor = field[ny][nx];
+            if ((neighbor >= 0) === sign) {
+              sum += neighbor;
+              count += 1;
+            }
+          }
+        }
+        if (count > 0) {
+          next[y][x] = sum / count;
+        }
+      }
+    }
+    for (let y = 0; y < rows; y += 1) {
+      for (let x = 0; x < cols; x += 1) {
+        field[y][x] = next[y][x];
+      }
+    }
+  }
 };
 
 const marchingSquares = (
@@ -187,6 +157,7 @@ const marchingSquares = (
   rows: number,
   resolution: number,
   extension: number,
+  boundsMin: Vec2,
   targetDistance: number,
 ) => {
   const segments: Array<[Vec2, Vec2]> = [];
@@ -209,8 +180,8 @@ const marchingSquares = (
       }
 
       const points: Vec2[] = [];
-      const baseX = x * resolution - extension;
-      const baseY = y * resolution - extension;
+      const baseX = boundsMin.x - extension + x * resolution;
+      const baseY = boundsMin.y - extension + y * resolution;
 
       const interpolate = (a: number, b: number, axis: 'x' | 'y', offset: number) => {
         if (Math.abs(a - b) < 1e-6) {
@@ -322,6 +293,50 @@ const connectSegments = (segments: Array<[Vec2, Vec2]>) => {
   return loops;
 };
 
+const removeDuplicatePoints = (loop: Vec2[], epsilon = 0.1): Vec2[] => {
+  if (loop.length <= 2) {
+    return loop;
+  }
+
+  const filtered: Vec2[] = [];
+  for (let index = 0; index < loop.length; index += 1) {
+    const point = loop[index];
+    const prev = filtered[filtered.length - 1] ?? loop[(index + loop.length - 1) % loop.length];
+    if (Math.hypot(point.x - prev.x, point.y - prev.y) > epsilon) {
+      filtered.push(point);
+    }
+  }
+
+  if (filtered.length > 1) {
+    const first = filtered[0];
+    const last = filtered[filtered.length - 1];
+    if (Math.hypot(first.x - last.x, first.y - last.y) <= epsilon) {
+      filtered.pop();
+    }
+  }
+
+  return filtered;
+};
+
+const smoothLoop = (loop: Vec2[], iterations = 2, alpha = 0.25): Vec2[] => {
+  let current = loop.slice();
+  for (let pass = 0; pass < iterations; pass += 1) {
+    const next: Vec2[] = new Array(current.length);
+    for (let index = 0; index < current.length; index += 1) {
+      const prev = current[(index + current.length - 1) % current.length];
+      const point = current[index];
+      const nextPoint = current[(index + 1) % current.length];
+      const weight = 1 - alpha * 2;
+      next[index] = {
+        x: point.x * weight + alpha * (prev.x + nextPoint.x),
+        y: point.y * weight + alpha * (prev.y + nextPoint.y),
+      };
+    }
+    current = next;
+  }
+  return current;
+};
+
 export const computeContoursCPU = (
   job: StrokeJob,
   bounds: BoundingBox,
@@ -332,15 +347,17 @@ export const computeContoursCPU = (
     return { loops: [], bounds };
   }
 
-  const random = seededRandom(params.randomSeed);
   const extension = Math.max(0, params.extension ?? DEFAULT_EXTENSION);
   const field = buildSignedDistanceField(
     vertices,
     bounds,
     Math.max(0.5, params.fieldResolution || 2),
     extension,
-    random,
   );
+
+  smoothField(field.field, field.rows, field.cols, 2);
+  const smoothingAlpha = 0.1 + (1 - Math.min(1, Math.max(0, params.variance))) * 0.25;
+  const smoothingIterations = params.variance > 0.6 ? 2 : 3;
 
   let maxDistance = 0;
   for (let row = 0; row < field.rows; row += 1) {
@@ -351,22 +368,27 @@ export const computeContoursCPU = (
       }
     }
   }
-  const clampedMaxDistance = Math.min(Math.max(params.maxDistance, params.spacing), maxDistance);
+  const clampedMaxDistance = Math.max(params.spacing, Math.min(params.maxDistance, maxDistance));
   const spacing = Math.max(0.5, params.spacing);
 
   const loops: ContourGeometryLoop[] = [];
+  let geomMinX = Infinity;
+  let geomMinY = Infinity;
+  let geomMaxX = -Infinity;
+  let geomMaxY = -Infinity;
   let currentDistance = spacing;
   let levelIndex = 0;
 
   while (currentDistance <= clampedMaxDistance + 1e-3) {
-    const segments = marchingSquares(
-      field.field,
-      field.cols,
-      field.rows,
-      field.resolution,
-      field.extension,
-      currentDistance,
-    );
+      const segments = marchingSquares(
+        field.field,
+        field.cols,
+        field.rows,
+        field.resolution,
+        field.extension,
+        { x: bounds.minX, y: bounds.minY },
+        currentDistance,
+      );
 
     if (segments.length === 0) {
       currentDistance += spacing;
@@ -380,10 +402,21 @@ export const computeContoursCPU = (
         continue;
       }
 
-      const buffer = new Float32Array(loop.length * 2);
-      for (let index = 0; index < loop.length; index += 1) {
-        buffer[index * 2] = loop[index].x;
-        buffer[index * 2 + 1] = loop[index].y;
+      const cleaned = removeDuplicatePoints(loop);
+      if (cleaned.length < 3) {
+        continue;
+      }
+
+      const smoothed = smoothLoop(cleaned, smoothingIterations, smoothingAlpha);
+      const buffer = new Float32Array(smoothed.length * 2);
+      for (let index = 0; index < smoothed.length; index += 1) {
+        const point = smoothed[index];
+        buffer[index * 2] = point.x;
+        buffer[index * 2 + 1] = point.y;
+        if (point.x < geomMinX) geomMinX = point.x;
+        if (point.y < geomMinY) geomMinY = point.y;
+        if (point.x > geomMaxX) geomMaxX = point.x;
+        if (point.y > geomMaxY) geomMaxY = point.y;
       }
 
       loops.push({
@@ -396,9 +429,39 @@ export const computeContoursCPU = (
     levelIndex += 1;
   }
 
+  if (loops.length === 0) {
+    const buffer = new Float32Array(vertices.length * 2);
+    geomMinX = Infinity;
+    geomMinY = Infinity;
+    geomMaxX = -Infinity;
+    geomMaxY = -Infinity;
+    for (let index = 0; index < vertices.length; index += 1) {
+      const point = vertices[index];
+      buffer[index * 2] = point.x;
+      buffer[index * 2 + 1] = point.y;
+      if (point.x < geomMinX) geomMinX = point.x;
+      if (point.y < geomMinY) geomMinY = point.y;
+      if (point.x > geomMaxX) geomMaxX = point.x;
+      if (point.y > geomMaxY) geomMaxY = point.y;
+    }
+    loops.push({
+      levelIndex: 0,
+      points: buffer,
+    });
+  }
+
+  const resolvedBounds = geomMinX === Infinity
+    ? bounds
+    : {
+        minX: geomMinX,
+        minY: geomMinY,
+        maxX: geomMaxX,
+        maxY: geomMaxY,
+      };
+
   return {
     loops,
-    bounds,
+    bounds: resolvedBounds,
   };
 };
 
@@ -438,4 +501,3 @@ export const rasterizeContoursCPU = (
 
   ctx.restore();
 };
-
