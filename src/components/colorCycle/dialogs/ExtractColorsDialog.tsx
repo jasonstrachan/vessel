@@ -382,7 +382,11 @@ export const ExtractColorsDialog: React.FC<ExtractColorsDialogProps> = ({
               max="32"
               value={options.gradientStops}
               onChange={(e) => updateOptions('gradientStops', parseInt(e.target.value))}
-              className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+              className="slider w-full"
+              style={{
+                '--slider-track-gradient': 'linear-gradient(to right, rgba(217,217,217,0.12), rgba(217,217,217,0.6))',
+                '--ascii-thumb-size': '14px'
+              } as React.CSSProperties}
             />
             <div className="flex justify-between text-xs text-gray-500 mt-1">
               <span>4 (Simple)</span>
@@ -449,7 +453,11 @@ export const ExtractColorsDialog: React.FC<ExtractColorsDialogProps> = ({
                   step="0.01"
                   value={options.minColorDifference}
                   onChange={(e) => updateOptions('minColorDifference', parseFloat(e.target.value))}
-                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                  className="slider w-full"
+                  style={{
+                    '--slider-track-gradient': 'linear-gradient(to right, rgba(217,217,217,0.12), rgba(217,217,217,0.6))',
+                    '--ascii-thumb-size': '14px'
+                  } as React.CSSProperties}
                 />
                 <div className="text-xs text-gray-500 mt-1">
                   Higher values = more distinct colors

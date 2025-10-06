@@ -216,7 +216,11 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
           max="100"
           value={settings.ditherIntensity}
           onChange={(e) => onChange({ ditherIntensity: parseInt(e.target.value) })}
-          className="w-full"
+          className="slider w-full"
+          style={{
+            '--slider-track-gradient': 'linear-gradient(to right, rgba(217,217,217,0.15), rgba(217,217,217,0.55))',
+            '--ascii-thumb-size': '14px'
+          } as React.CSSProperties}
         />
       </div>
       

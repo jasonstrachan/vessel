@@ -151,6 +151,10 @@ const enqueueContourGpuStroke = (
     },
   };
 
+  if (options.priority === 'final') {
+    rasterizeContoursCPU(ctx, contourGeometry, options.strokeColor, options.strokeWidth, pixelMode);
+  }
+
   const pipeline = getStrokePipeline();
   const abortFallback = { invoked: false };
   const triggerFallback = () => {

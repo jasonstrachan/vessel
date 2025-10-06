@@ -34,31 +34,35 @@ const toPoints = (vertices: readonly Vec2[] | Float32Array): Vec2[] => {
   return vertices.map(vertex => ({ x: vertex.x, y: vertex.y }));
 };
 
-const distanceToSegment = (point: Vec2, a: Vec2, b: Vec2): number => {
+const distanceToSegmentSquared = (point: Vec2, a: Vec2, b: Vec2): number => {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const lenSq = dx * dx + dy * dy;
 
   if (lenSq === 0) {
-    return Math.hypot(point.x - a.x, point.y - a.y);
+    const diffX = point.x - a.x;
+    const diffY = point.y - a.y;
+    return diffX * diffX + diffY * diffY;
   }
 
   const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lenSq));
   const projX = a.x + t * dx;
   const projY = a.y + t * dy;
-  return Math.hypot(point.x - projX, point.y - projY);
+  const diffX = point.x - projX;
+  const diffY = point.y - projY;
+  return diffX * diffX + diffY * diffY;
 };
 
 const distanceToPolygon = (point: Vec2, vertices: Vec2[]): number => {
-  let minDist = Infinity;
+  let minDistSq = Infinity;
   for (let index = 0; index < vertices.length; index += 1) {
     const next = (index + 1) % vertices.length;
-    const segmentDist = distanceToSegment(point, vertices[index], vertices[next]);
-    if (segmentDist < minDist) {
-      minDist = segmentDist;
+    const segmentDistSq = distanceToSegmentSquared(point, vertices[index], vertices[next]);
+    if (segmentDistSq < minDistSq) {
+      minDistSq = segmentDistSq;
     }
   }
-  return minDist;
+  return Math.sqrt(minDistSq);
 };
 
 const isPointInsidePolygon = (point: Vec2, vertices: Vec2[]): boolean => {
@@ -114,7 +118,27 @@ const buildSignedDistanceField = (
     resolution: fieldResolution,
     extension,
   };
-}; 
+};
+
+const resolveFieldExtension = (
+  bounds: BoundingBox,
+  spacing: number,
+  maxDistance?: number,
+  override?: number,
+): number => {
+  if (override != null) {
+    return Math.max(0, override);
+  }
+
+  const spanX = bounds.maxX - bounds.minX;
+  const spanY = bounds.maxY - bounds.minY;
+  const maxSpan = Math.max(spanX, spanY);
+  const effectiveMaxDistance = typeof maxDistance === 'number' && Number.isFinite(maxDistance) && maxDistance > 0
+    ? maxDistance
+    : Math.max(maxSpan * 0.5, spacing);
+  const padding = Math.max(spacing * 4, effectiveMaxDistance + spacing * 2);
+  return Math.min(DEFAULT_EXTENSION, Math.max(16, padding));
+};
 
 const smoothField = (field: number[][], rows: number, cols: number, passes: number) => {
   for (let pass = 0; pass < passes; pass += 1) {
@@ -347,7 +371,8 @@ export const computeContoursCPU = (
     return { loops: [], bounds };
   }
 
-  const extension = Math.max(0, params.extension ?? DEFAULT_EXTENSION);
+  const spacing = Math.max(0.5, params.spacing);
+  const extension = resolveFieldExtension(bounds, spacing, params.maxDistance, params.extension);
   const field = buildSignedDistanceField(
     vertices,
     bounds,
@@ -368,8 +393,8 @@ export const computeContoursCPU = (
       }
     }
   }
-  const clampedMaxDistance = Math.max(params.spacing, Math.min(params.maxDistance, maxDistance));
-  const spacing = Math.max(0.5, params.spacing);
+  const maxDistanceLimit = Number.isFinite(params.maxDistance) ? params.maxDistance : maxDistance;
+  const clampedMaxDistance = Math.max(spacing, Math.min(maxDistanceLimit, maxDistance));
 
   const loops: ContourGeometryLoop[] = [];
   let geomMinX = Infinity;
@@ -408,6 +433,19 @@ export const computeContoursCPU = (
       }
 
       const smoothed = smoothLoop(cleaned, smoothingIterations, smoothingAlpha);
+      const centroidAccumulator = smoothed.reduce<Vec2>(
+        (acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }),
+        { x: 0, y: 0 },
+      );
+      const centroid = {
+        x: centroidAccumulator.x / smoothed.length,
+        y: centroidAccumulator.y / smoothed.length,
+      };
+
+      if (!isPointInsidePolygon(centroid, vertices)) {
+        continue;
+      }
+
       const buffer = new Float32Array(smoothed.length * 2);
       for (let index = 0; index < smoothed.length; index += 1) {
         const point = smoothed[index];

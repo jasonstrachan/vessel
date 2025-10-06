@@ -91,17 +91,21 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     isolation: 'isolate',
   };
 
-  const sliderStyle: React.CSSProperties = {
+  const buildSliderStyle = (gradient: string): React.CSSProperties => ({
     width: '100%',
     height: '16px',
-    borderRadius: '2px',
+    borderRadius: '0',
     outline: 'none',
-    appearance: 'none',
-    WebkitAppearance: 'none' as const,
+    appearance: 'none' as React.CSSProperties['appearance'],
+    WebkitAppearance: 'none' as React.CSSProperties['WebkitAppearance'],
     cursor: 'pointer',
-    marginBottom: '4px', // Space between sliders
+    marginBottom: '4px',
     display: 'block',
-  };
+    background: 'transparent',
+    '--slider-track-gradient': gradient,
+    '--ascii-thumb-size': '14px',
+    '--ascii-thumb-hitbox': '18px'
+  }) as React.CSSProperties;
 
   // Create hue gradient background
   const hueGradient = 'linear-gradient(to right, ' +
@@ -123,56 +127,14 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     <>
       <style>{`
         @keyframes marchingAnts {
-          0% { 
+          0% {
             background-position: 0 0;
             border-dash-offset: 0;
           }
-          100% { 
+          100% {
             background-position: 8px 8px;
             border-dash-offset: 8px;
           }
-        }
-        
-        .hue-slider::-webkit-slider-thumb {
-          appearance: none;
-          width: 16px;
-          height: 16px;
-          background: white;
-          border: 2px solid #333;
-          border-radius: 50%;
-          cursor: pointer;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-        }
-        
-        .hue-slider::-moz-range-thumb {
-          width: 16px;
-          height: 16px;
-          background: white;
-          border: 2px solid #333;
-          border-radius: 50%;
-          cursor: pointer;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-        }
-        
-        .lightness-slider::-webkit-slider-thumb {
-          appearance: none;
-          width: 16px;
-          height: 16px;
-          background: white;
-          border: 2px solid #333;
-          border-radius: 50%;
-          cursor: pointer;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-        }
-        
-        .lightness-slider::-moz-range-thumb {
-          width: 16px;
-          height: 16px;
-          background: white;
-          border: 2px solid #333;
-          border-radius: 50%;
-          cursor: pointer;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
       `}</style>
       
@@ -190,30 +152,25 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
           style={sliderContainerStyle}
           onPointerDown={(event) => event.stopPropagation()}
         >
+
           <input
-            className="hue-slider"
+            className="hue-slider slider"
             type="range"
             min="-180"
             max="180"
             value={brushEditor.hueShift}
             onChange={handleHueChange}
-            style={{
-              ...sliderStyle,
-              background: hueGradient,
-            }}
+            style={buildSliderStyle(hueGradient)}
           />
           
           <input
-            className="lightness-slider"
+            className="lightness-slider slider"
             type="range"
             min="-100"
             max="100"
             value={brushEditor.lightness}
             onChange={handleLightnessChange}
-            style={{
-              ...sliderStyle,
-              background: lightnessGradient,
-            }}
+            style={buildSliderStyle(lightnessGradient)}
           />
         </div>
       </div>

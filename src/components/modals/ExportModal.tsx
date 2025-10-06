@@ -1372,7 +1372,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   step={0.05}
                   value={pngQuality}
                   onChange={(e) => setPngQuality(parseFloat(e.target.value))}
-                  className="w-48"
+                  className="slider w-48"
+                  style={{
+                    '--slider-track-gradient': 'linear-gradient(to right, rgba(217,217,217,0.2), rgba(217,217,217,0.6))',
+                    '--ascii-thumb-size': '14px'
+                  } as React.CSSProperties}
                 />
               </div>
             </div>
@@ -1442,7 +1446,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   step={0.05}
                   value={gifDitherStrength}
                   onChange={(e) => setGifDitherStrength(parseFloat(e.target.value))}
-                  className="w-48"
+                  className="slider w-48"
+                  style={{
+                    '--slider-track-gradient': 'linear-gradient(to right, rgba(217,217,217,0.2), rgba(217,217,217,0.6))',
+                    '--ascii-thumb-size': '14px'
+                  } as React.CSSProperties}
                   disabled={gifDitherMethod === 'none'}
                 />
               </div>

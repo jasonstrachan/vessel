@@ -10,6 +10,20 @@ import { useBrushEngineSimplified } from '@/hooks/useBrushEngineSimplified';
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 10;
 
+const buildBrushEditorSliderStyle = (gradient: string): React.CSSProperties => ({
+  width: '100%',
+  height: '20px',
+  borderRadius: '0',
+  outline: 'none',
+  appearance: 'none' as React.CSSProperties['appearance'],
+  WebkitAppearance: 'none' as React.CSSProperties['WebkitAppearance'],
+  cursor: 'pointer',
+  background: 'transparent',
+  '--slider-track-gradient': gradient,
+  '--ascii-thumb-size': '16px',
+  '--ascii-thumb-hitbox': '20px'
+}) as React.CSSProperties;
+
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 interface BrushEditorUIProps {}
 
@@ -709,16 +723,6 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     gap: '0',
   };
 
-  const sliderStyle: React.CSSProperties = {
-    width: '100%',
-    height: '20px',
-    borderRadius: '0',
-    outline: 'none',
-    appearance: 'none',
-    WebkitAppearance: 'none' as const,
-    cursor: 'pointer',
-  };
-
   const buttonContainerStyle: React.CSSProperties = {
     display: 'flex',
     gap: '0',
@@ -749,37 +753,6 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
 
   return (
     <>
-      <style>{`
-        .brush-editor-slider::-webkit-slider-thumb {
-          appearance: none;
-          width: 20px;
-          height: 20px;
-          background: white;
-          border: none;
-          border-radius: 0;
-          cursor: pointer;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-        }
-        
-        .brush-editor-slider::-moz-range-thumb {
-          width: 20px;
-          height: 20px;
-          background: white;
-          border: none;
-          border-radius: 0;
-          cursor: pointer;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-        }
-
-        .brush-editor-slider::-webkit-slider-thumb:hover {
-          transform: scale(1.1);
-        }
-
-        .brush-editor-slider::-moz-range-thumb:hover {
-          transform: scale(1.1);
-        }
-      `}</style>
-      
       {/* Brush Editor Panel - Draggable and Resizable */}
       <div 
         className="brush-editor-modal"
@@ -900,10 +873,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
               max="180"
               value={brushEditor.hueShift}
               onChange={handleHueChange}
-              style={{
-                ...sliderStyle,
-                background: hueGradient,
-              }}
+              style={buildBrushEditorSliderStyle(hueGradient)}
             />
           </div>
 
@@ -916,10 +886,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
               max="100"
               value={brushEditor.lightness}
               onChange={handleLightnessChange}
-              style={{
-                ...sliderStyle,
-                background: lightnessGradient,
-              }}
+              style={buildBrushEditorSliderStyle(lightnessGradient)}
             />
           </div>
 
@@ -932,10 +899,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
               max="200"
               value={brushEditor.saturation}
               onChange={handleSaturationChange}
-              style={{
-                ...sliderStyle,
-                background: saturationGradient,
-              }}
+              style={buildBrushEditorSliderStyle(saturationGradient)}
             />
           </div>
         </div>
