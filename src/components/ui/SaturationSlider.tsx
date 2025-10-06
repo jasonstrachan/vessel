@@ -26,7 +26,7 @@ const SaturationSlider = React.forwardRef<
   return (
     <SliderPrimitive.Root
       ref={ref}
-      className="relative flex w-full touch-none select-none items-center px-0"
+      className="ascii-slider-root relative flex w-full touch-none select-none items-center px-0"
       min={0}
       max={100}
       step={1}

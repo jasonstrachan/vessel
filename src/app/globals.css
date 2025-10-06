@@ -57,8 +57,9 @@ select option:active {
   :root {
     --ascii-surface-bg: #111111;
     --ascii-thumb-fill: #d9d9d9;
-    --ascii-surface-dot: var(--ascii-thumb-fill);
-    --ascii-track-overlay-opacity: 0.45;
+    --ascii-track-line-color: #d9d9d9;
+    --ascii-surface-dot: var(--ascii-track-line-color);
+    --ascii-track-overlay-opacity: 1;
   }
 
   html,
@@ -110,7 +111,7 @@ select option:active {
     position: relative;
     width: 100%;
     height: 100%;
-    background-color: var(--ascii-surface-bg);
+    background-color: transparent;
     overflow: hidden;
   }
 
@@ -119,10 +120,51 @@ select option:active {
     position: absolute;
     inset: 0;
     background-image:
-      radial-gradient(circle, var(--ascii-surface-dot) 0 1px, transparent 1px),
-      radial-gradient(circle, var(--ascii-surface-dot) 0 1px, transparent 1px);
-    background-position: 2px 2px, 5px 5px;
-    background-size: 6px 6px, 6px 6px;
+      linear-gradient(
+        to right,
+        var(--ascii-surface-dot) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-surface-dot) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-surface-dot) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-surface-dot) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-surface-dot) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-surface-dot) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-surface-dot) 0 2px,
+        transparent 2px 100%
+      );
+    background-size: 8px 1px, 8px 1px, 8px 1px, 8px 1px, 8px 1px, 8px 1px, 8px 1px;
+    background-position:
+      0 0%,
+      4px 16.6%,
+      0 33.3%,
+      4px 50%,
+      0 66.6%,
+      4px 83.3%,
+      0 100%;
+    background-repeat: repeat-x;
     pointer-events: none;
     opacity: var(--ascii-track-overlay-opacity, 0.45);
   }
@@ -130,37 +172,28 @@ select option:active {
   .ascii-slider-range {
     position: relative;
     height: 100%;
-    background-image: linear-gradient(
-      to right,
-      rgba(217, 217, 217, 0.8),
-      rgba(217, 217, 217, 0.55)
-    );
-  }
-
-  .ascii-slider-range::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background-image: repeating-linear-gradient(
-      90deg,
-      rgba(0, 0, 0, 0.18) 0 1px,
-      transparent 1px 6px
-    );
-    mix-blend-mode: multiply;
-    pointer-events: none;
+    background-color: var(--slider-thumb-color, var(--ascii-thumb-fill));
   }
 
   .ascii-slider-thumb {
     display: block;
     height: var(--ascii-thumb-size, 18px);
     width: calc(var(--ascii-thumb-size, 18px) * 0.75);
-    background-color: var(--ascii-thumb-fill);
-    transition: transform 0.15s ease;
+    background-color: var(--slider-thumb-color, var(--ascii-thumb-fill));
   }
 
-  .ascii-slider-thumb:focus-visible,
-  .ascii-slider-thumb[data-state='active'] {
-    transform: translate(-1px, -1px);
+  .ascii-slider-root[data-orientation='horizontal'] > span:has(> .ascii-slider-thumb) {
+    position: absolute;
+    top: 50%;
+  }
+
+  .ascii-slider-root[data-orientation='horizontal'] {
+    --radix-slider-thumb-transform: translate(-50%, -50%) !important;
+  }
+
+  .ascii-slider-root[data-orientation='horizontal']:has(.ascii-slider-thumb[data-state='active']),
+  .ascii-slider-root[data-orientation='horizontal']:has(.ascii-slider-thumb:focus-visible) {
+    --radix-slider-thumb-transform: translate(-50%, -50%) translate(-1px, -1px) !important;
   }
 
   /* Native slider styling */
@@ -175,6 +208,7 @@ select option:active {
     transition: all .2s;
     cursor: pointer;
     flex: 1;
+    --ascii-thumb-size: var(--ascii-thumb-hitbox, 20px);
   }
 
   .slider.bg-transparent {
@@ -186,59 +220,139 @@ select option:active {
     position: relative;
     height: 100%;
     border-radius: 0;
-    background-color: var(--ascii-surface-bg);
+    background-color: transparent;
     background-image:
       var(--slider-track-gradient, linear-gradient(
         to right,
         rgba(217, 217, 217, 0.25),
         rgba(217, 217, 217, 0.25)
       )),
-      radial-gradient(circle, var(--ascii-surface-dot) 0 1px, transparent 1px),
-      radial-gradient(circle, var(--ascii-surface-dot) 0 1px, transparent 1px);
-    background-size: 100% 100%, 6px 6px, 6px 6px;
-    background-position: center, 2px 2px, 5px 5px;
+      linear-gradient(
+        to right,
+        var(--ascii-track-line-color) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-track-line-color) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-track-line-color) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-track-line-color) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-track-line-color) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-track-line-color) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-track-line-color) 0 2px,
+        transparent 2px 100%
+      );
+    background-size: 100% 100%, 8px 1px, 8px 1px, 8px 1px, 8px 1px, 8px 1px, 8px 1px, 8px 1px;
+    background-position:
+      center,
+      0 0%,
+      4px 16.6%,
+      0 33.3%,
+      4px 50%,
+      0 66.6%,
+      4px 83.3%,
+      0 100%;
+    background-repeat: no-repeat, repeat-x, repeat-x, repeat-x, repeat-x, repeat-x, repeat-x, repeat-x;
   }
 
   /* Firefox - show progress */
   .slider::-moz-range-track {
     height: 100%;
     border-radius: 0;
-    background-color: var(--ascii-surface-bg);
+    background-color: transparent;
     background-image:
       var(--slider-track-gradient, linear-gradient(
         to right,
         rgba(217, 217, 217, 0.25),
         rgba(217, 217, 217, 0.25)
       )),
-      radial-gradient(circle, var(--ascii-surface-dot) 0 1px, transparent 1px),
-      radial-gradient(circle, var(--ascii-surface-dot) 0 1px, transparent 1px);
-    background-size: 100% 100%, 6px 6px, 6px 6px;
-    background-position: center, 2px 2px, 5px 5px;
+      linear-gradient(
+        to right,
+        var(--ascii-track-line-color) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-track-line-color) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-track-line-color) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-track-line-color) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-track-line-color) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-track-line-color) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-track-line-color) 0 2px,
+        transparent 2px 100%
+      );
+    background-size: 100% 100%, 8px 1px, 8px 1px, 8px 1px, 8px 1px, 8px 1px, 8px 1px, 8px 1px;
+    background-position:
+      center,
+      0 0%,
+      4px 16.6%,
+      0 33.3%,
+      4px 50%,
+      0 66.6%,
+      4px 83.3%,
+      0 100%;
+    background-repeat: no-repeat, repeat-x, repeat-x, repeat-x, repeat-x, repeat-x, repeat-x, repeat-x;
   }
 
   .slider::-moz-range-progress {
     height: 100%;
     border-radius: 0;
-    background-image: linear-gradient(
-      to right,
-      rgba(217, 217, 217, 0.75),
-      rgba(217, 217, 217, 0.4)
-    );
+    background-color: var(--slider-thumb-color, var(--ascii-thumb-fill));
   }
 
   .slider::-webkit-slider-thumb {
     appearance: none;
-    height: var(--ascii-thumb-size, 18px);
-    width: calc(var(--ascii-thumb-size, 18px) * 0.75);
+    height: var(--ascii-thumb-size);
+    width: calc(var(--ascii-thumb-size) * 0.75);
     border-radius: 0;
     background: var(--slider-thumb-color, var(--ascii-thumb-fill));
     cursor: pointer;
-    margin-top: calc((var(--ascii-thumb-hitbox, 20px) - var(--ascii-thumb-size, 18px)) / -2);
+    margin-top: 0;
   }
 
   .slider::-moz-range-thumb {
-    height: var(--ascii-thumb-size, 18px);
-    width: calc(var(--ascii-thumb-size, 18px) * 0.75);
+    height: var(--ascii-thumb-size);
+    width: calc(var(--ascii-thumb-size) * 0.75);
     border-radius: 0;
     background: var(--slider-thumb-color, var(--ascii-thumb-fill));
     cursor: pointer;
@@ -247,6 +361,18 @@ select option:active {
   /* RGB sliders with visible thumbs - shorter height */
   .slider.rgb-slider {
     height: 18px;
+  }
+
+  .slider.red-slider {
+    --slider-thumb-color: #ff0000;
+  }
+
+  .slider.green-slider {
+    --slider-thumb-color: #00ff00;
+  }
+
+  .slider.blue-slider {
+    --slider-thumb-color: #0000ff;
   }
 
   .slider.rgb-slider::-webkit-slider-runnable-track {
@@ -328,9 +454,64 @@ select option:active {
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: #4a4a4a;
+    background-color: transparent;
+    overflow: hidden;
     transition: .2s;
     border-radius: 0;
+  }
+
+  .switch-slider::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(
+        to right,
+        var(--ascii-surface-dot) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-surface-dot) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-surface-dot) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-surface-dot) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-surface-dot) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-surface-dot) 0 2px,
+        transparent 2px 100%
+      ),
+      linear-gradient(
+        to right,
+        var(--ascii-surface-dot) 0 2px,
+        transparent 2px 100%
+      );
+    background-size: 8px 1px, 8px 1px, 8px 1px, 8px 1px, 8px 1px, 8px 1px, 8px 1px;
+    background-position:
+      0 0%,
+      4px 16.6%,
+      0 33.3%,
+      4px 50%,
+      0 66.6%,
+      4px 83.3%,
+      0 100%;
+    background-repeat: repeat-x;
+    opacity: var(--ascii-track-overlay-opacity, 0.45);
+    pointer-events: none;
   }
 
   .switch-slider:before {
@@ -346,7 +527,7 @@ select option:active {
   }
 
   .switch input:checked + .switch-slider {
-    background-color: #666;
+    background-color: transparent;
   }
 
   .switch input:checked + .switch-slider:before {

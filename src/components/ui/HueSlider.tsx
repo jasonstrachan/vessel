@@ -25,7 +25,7 @@ const HueSlider = React.forwardRef<
   return (
     <SliderPrimitive.Root
       ref={ref}
-      className="relative flex w-full touch-none select-none items-center px-0"
+      className="ascii-slider-root relative flex w-full touch-none select-none items-center px-0"
       min={-180}
       max={180}
       step={1}
