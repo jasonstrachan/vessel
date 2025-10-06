@@ -392,7 +392,7 @@ export class PerformanceBenchmark {
   <title>Vessel Performance Benchmark Report</title>
   <style>
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: 'IBM Plex Mono', 'Courier New', monospace;
       margin: 40px;
       background: #f5f5f5;
     }

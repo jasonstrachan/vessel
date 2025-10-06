@@ -465,7 +465,7 @@ export class MemoryAnalysis {
   <title>Vessel Memory Usage Analysis Report</title>
   <style>
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: 'IBM Plex Mono', 'Courier New', monospace;
       margin: 40px;
       background: #f5f5f5;
     }
@@ -538,7 +538,7 @@ export class MemoryAnalysis {
     }
     .phase-value {
       font-weight: 500;
-      font-family: monospace;
+      font-family: 'IBM Plex Mono', 'Courier New', monospace;
     }
     .savings-box {
       background: #e8f5e9;

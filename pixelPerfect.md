@@ -13,7 +13,7 @@
     <style>
         /* Apply Inter font to the body */
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: 'IBM Plex Mono', 'Courier New', monospace;
         }
         /* Basic styling for the canvas container to ensure it's a block element */
         #canvas-container {

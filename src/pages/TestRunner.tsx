@@ -123,7 +123,7 @@ export const TestRunner: React.FC = () => {
       padding: '40px',
       maxWidth: '1200px',
       margin: '0 auto',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      fontFamily: "'IBM Plex Mono', 'Courier New', monospace"
     }}>
       <h1 style={{ color: '#333', borderBottom: '3px solid #667eea', paddingBottom: '10px' }}>
         🧪 Canvas2D Migration Test Suite

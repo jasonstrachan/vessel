@@ -9,7 +9,7 @@ const html = `
 <head>
     <title>Image Cropper</title>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; }
+        body { font-family: 'IBM Plex Mono', 'Courier New', monospace; padding: 20px; }
         canvas { border: 1px solid #ccc; margin: 10px 0; }
         button { padding: 10px 20px; margin: 5px; }
     </style>

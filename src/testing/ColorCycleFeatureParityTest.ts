@@ -895,7 +895,7 @@ export class ColorCycleFeatureParityTest {
       <head>
         <title>Color Cycle Feature Parity Test Report</title>
         <style>
-          body { font-family: Arial, sans-serif; margin: 20px; background: #1a1a1a; color: #e0e0e0; }
+          body { font-family: 'IBM Plex Mono', 'Courier New', monospace; margin: 20px; background: #1a1a1a; color: #e0e0e0; }
           h1 { color: #4a9eff; }
           h2 { color: #66d9ff; margin-top: 30px; }
           .summary { background: #2a2a2a; padding: 20px; border-radius: 8px; margin: 20px 0; }

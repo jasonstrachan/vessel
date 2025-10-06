@@ -143,7 +143,7 @@ export class MasterTestRunner {
   <title>Vessel Canvas2D Migration - Master Test Report</title>
   <style>
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: 'IBM Plex Mono', 'Courier New', monospace;
       margin: 0;
       padding: 0;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);

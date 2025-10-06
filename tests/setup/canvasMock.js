@@ -139,7 +139,7 @@ class MockCanvasRenderingContext2D {
     this._fillRgba = { r: 0, g: 0, b: 0, a: 255 };
     this._strokeRgba = { r: 0, g: 0, b: 0, a: 255 };
     this._lineWidth = 1;
-    this._font = '10px sans-serif';
+    this._font = "10px 'IBM Plex Mono'";
     this._globalAlpha = 1;
     this._setBuffer();
   }

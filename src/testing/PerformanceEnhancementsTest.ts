@@ -494,7 +494,7 @@ export class PerformanceEnhancementsTest {
       <head>
         <title>Performance Enhancements Test Report</title>
         <style>
-          body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+          body { font-family: 'IBM Plex Mono', 'Courier New', monospace; margin: 20px; background: #f5f5f5; }
           h1 { color: #333; }
           .summary { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }
           .test-result { background: white; padding: 15px; margin: 10px 0; border-radius: 8px; }

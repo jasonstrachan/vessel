@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap');
 @import '../styles/gradient-editor.css';
 
 /* Reset canvas default styles */
@@ -46,13 +46,6 @@ select option:active {
   visibility: hidden;
 }
 
-@font-face {
-  font-family: 'MEKSANS';
-  src: url('/assets/fonts/MEKSANS-REGULAR.OTF') format('opentype');
-  font-weight: 400;
-  font-style: normal;
-}
-
 @layer base {
   :root {
     --ascii-surface-bg: #111111;
@@ -66,7 +59,7 @@ select option:active {
   body {
     margin: 0;
     padding: 0;
-    font-family: 'Montserrat', system-ui, -apple-system, sans-serif;
+    font-family: 'IBM Plex Mono', 'Courier New', monospace;
     background-color: #141514;
     color: #D9D9D9;
   }
