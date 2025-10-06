@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-floating-promises */
 const WEBGPU_UNSUPPORTED_ERROR = 'WebGPU is not available in this environment';
 
 type DeviceLostCallback = (info: GPUDeviceLostInfo) => void;
@@ -19,6 +18,8 @@ export class WebGPUDeviceManager {
   private device: GPUDevice | null = null;
 
   private onLostCallbacks: Set<DeviceLostCallback> = new Set();
+
+  private deviceGeneration = 0;
 
   private constructor() {}
 
@@ -61,12 +62,15 @@ export class WebGPUDeviceManager {
       requiredFeatures: supportedFeatures,
     });
 
+    this.deviceGeneration += 1;
+
     this.device.addEventListener('uncapturederror', event => {
       console.error('[WebGPU] Uncaptured device error', event.error);
     });
 
-    this.device.lost.then(info => {
+    void this.device.lost.then(info => {
       this.device = null;
+      this.deviceGeneration += 1;
       for (const callback of this.onLostCallbacks) {
         callback(info);
       }
@@ -93,5 +97,10 @@ export class WebGPUDeviceManager {
     this.device = null;
     this.adapter = null;
     this.onLostCallbacks.clear();
+    this.deviceGeneration += 1;
+  }
+
+  getDeviceGeneration(): number {
+    return this.deviceGeneration;
   }
 }

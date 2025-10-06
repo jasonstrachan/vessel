@@ -1,6 +1,7 @@
 import { PATH_INTEGRATOR_WGSL } from './shaders/pathIntegrator.wgsl';
 import { WebGPUDeviceManager, isWebGPUSupported } from './WebGPUDeviceManager';
-import type { StrokeJob } from '../types';
+import { UniformBufferWriter } from './uniformWriter';
+import type { BoundingBox, StrokeJob } from '../types';
 import type { SeedGeneratorResult } from './SeedGenerator';
 import type { BrushSettings } from '@/types';
 
@@ -10,12 +11,24 @@ export interface PathIntegratorConfig {
   lineLength?: number;
 }
 
+/**
+ * Coordinate system emitted by GPU path generators.
+ * - `world`: Same units as the stroke `effectiveBounds` (canvas/world pixels).
+ * - `normalized`: Normalized [0,1] coordinates mapped over the same `effectiveBounds`.
+ */
 export type CoordinateSpace = 'world' | 'normalized';
 
 export interface PathIntegrationResult {
   buffer: GPUBuffer;
   vertexCount: number;
   coordinateSpace: CoordinateSpace;
+  /** Reference bounds that were used when writing the vertex data. */
+  bounds: BoundingBox;
+  segmentMetadata?: {
+    buffer: GPUBuffer;
+    kind: 'level-index';
+    stride: number;
+  };
   release(): void;
 }
 
@@ -24,6 +37,8 @@ export class PathIntegrator {
 
   private pipeline: GPUComputePipeline | null = null;
 
+  private pipelineGeneration = -1;
+
   private readonly defaultLineLength: number;
 
   constructor(config: PathIntegratorConfig = {}) {
@@ -31,11 +46,14 @@ export class PathIntegrator {
   }
 
   private async ensurePipeline(device: GPUDevice): Promise<void> {
-    if (this.pipeline) {
+    const generation = this.deviceManager.getDeviceGeneration();
+    if (this.pipeline && this.pipelineGeneration === generation) {
       return;
     }
 
-    const module = device.createShaderModule({
+    this.pipeline = null;
+
+    const shaderModule = device.createShaderModule({
       label: 'shape-fill-path-integrator-shader',
       code: PATH_INTEGRATOR_WGSL,
     });
@@ -44,16 +62,18 @@ export class PathIntegrator {
       label: 'shape-fill-path-integrator-pipeline',
       layout: 'auto',
       compute: {
-        module,
+        module: shaderModule,
         entryPoint: 'main',
       },
     });
+    this.pipelineGeneration = generation;
   }
 
   async integrate(
     job: StrokeJob,
     seeds: SeedGeneratorResult,
-    config: PathIntegratorConfig = {}
+    config: PathIntegratorConfig = {},
+    bounds: BoundingBox
   ): Promise<PathIntegrationResult | null> {
     if (!isWebGPUSupported()) {
       return null;
@@ -93,18 +113,27 @@ export class PathIntegrator {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    const uniformArray = new ArrayBuffer(32);
-    const uniformView = new DataView(uniformArray);
-    uniformView.setFloat32(0, direction.x, true);
-    uniformView.setFloat32(4, direction.y, true);
-    uniformView.setFloat32(8, lineLength * 0.5, true);
-    uniformView.setFloat32(12, brush?.shapeFillLineWidth ?? 1, true);
-    uniformView.setUint32(16, vertexCount, true);
-    uniformView.setUint32(20, 0, true);
-    uniformView.setUint32(24, 0, true);
-    uniformView.setUint32(28, 0, true);
+    /**
+     * Matches WGSL struct PathUniforms:
+     * struct PathUniforms {
+     *   direction : vec2<f32>;
+     *   halfLength : f32;
+     *   thickness : f32;
+     *   totalVertices : u32;
+     * };
+     * Extra padding is reserved for future fields.
+     */
+    const writer = new UniformBufferWriter(32);
+    writer.writeF32(0, direction.x);
+    writer.writeF32(4, direction.y);
+    writer.writeF32(8, lineLength * 0.5);
+    writer.writeF32(12, brush?.shapeFillLineWidth ?? 1);
+    writer.writeU32(16, vertexCount);
+    writer.writeU32(20, 0);
+    writer.writeU32(24, 0);
+    writer.writeU32(28, 0);
 
-    device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
+    device.queue.writeBuffer(uniformBuffer, 0, writer.buffer);
 
     const bindGroup = device.createBindGroup({
       label: `shape-fill-path-bind-group-${job.id}`,
@@ -142,6 +171,7 @@ export class PathIntegrator {
       buffer: vertexBuffer,
       vertexCount,
       coordinateSpace: 'world',
+      bounds,
       release,
     };
   }

@@ -6,8 +6,9 @@ import {
   type ShapeFillScheduler,
   type StrokeJob,
 } from '@/lib/shapeFill';
+import { computeContoursCPU, rasterizeContoursCPU } from '@/lib/shapeFill/cpu/contourGeometry';
+import { resolveContourParams } from '@/lib/shapeFill/contourParams';
 import { debugLog, debugWarn } from '@/utils/debug';
-import { resolveCoordinateSnap } from './common';
 import type { ContourFillParams } from './types';
 
 const FNV_OFFSET = 2166136261;
@@ -131,6 +132,19 @@ const enqueueContourGpuStroke = (
     },
   };
 
+  const contourGeometry = computeContoursCPU(stroke, bounds, {
+    spacing: options.spacing,
+    maxDistance: options.maxDistance,
+    variance: options.variance,
+    fieldResolution: options.fieldResolution,
+    randomSeed: options.seed,
+  });
+
+  stroke.metadata = {
+    ...stroke.metadata,
+    contourGeometry,
+  };
+
   const pipeline = getStrokePipeline();
   const abortFallback = { invoked: false };
   const triggerFallback = () => {
@@ -145,11 +159,13 @@ const enqueueContourGpuStroke = (
   scheduler
     .queueJob(stroke, {
       priority: options.priority,
-      cacheResult: true,
+      cacheResult: contourGeometry.loops.length === 0,
     })
     .then(async result => {
       try {
-        if (!result.fieldResult) {
+        const hasGeometry = Boolean((result.job.metadata as Record<string, unknown> | undefined)?.contourGeometry);
+
+        if (!result.fieldResult && !hasGeometry) {
           debugWarn('shape-fill', `Contour GPU stroke skipped (${options.priority})`);
           triggerFallback();
           return;
@@ -230,204 +246,49 @@ const drawContourFillCpu = ({
   ctx,
   vertices,
   brushSettings,
-  dependencies,
   isPreview = false,
   spacingOverride,
   randomSeed,
-  previewDetail,
   strokeColorOverride,
 }: ContourFillParams): void => {
-  const {
-    createSignedDistanceField,
-    extractContour,
-    connectSegments,
-  } = dependencies;
-
-  const pixelMode = brushSettings.shapeFillPixelMode ?? true;
-  const snap = resolveCoordinateSnap(pixelMode);
-  const lineWidth = Math.max(0.2, brushSettings.shapeFillLineWidth ?? 1);
-
   if (vertices.length < 3) {
     return;
   }
 
-  const strokeColor = strokeColorOverride ?? brushSettings.color;
-  ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = lineWidth;
-  ctx.imageSmoothingEnabled = !pixelMode;
+  const pixelMode = brushSettings.shapeFillPixelMode ?? true;
+  const lineWidth = Math.max(0.2, brushSettings.shapeFillLineWidth ?? 1);
+  const strokeColor = strokeColorOverride ?? brushSettings.color ?? '#1a1a1a';
 
-  const fieldData = createSignedDistanceField(vertices, ctx.canvas.width, ctx.canvas.height, 2);
+  const bounds = computeBoundingBox(ensureFloat32Vertices(vertices, pixelMode));
 
-  const createRandomGenerator = (seed?: number) => {
-    if (seed == null) {
-      return Math.random;
-    }
-    let value = seed >>> 0;
-    return () => {
-      value = (value * 1664525 + 1013904223) >>> 0;
-      return value / 0x100000000;
-    };
-  };
+  const resolved = resolveContourParams({
+    spacing: spacingOverride ?? brushSettings.contourSpacing,
+    variance: Math.min(1, Math.max(0, (brushSettings.contourVariance ?? 5) / 10)),
+    smoothness: brushSettings.contourSmoothness ?? 0.15,
+    maxDistance: brushSettings.contourMaxDistance,
+    resolution: { width: ctx.canvas.width, height: ctx.canvas.height },
+    bounds,
+    fieldResolution: Math.max(0.5, brushSettings.flowFieldResolution ?? 2),
+    previewScale: isPreview ? 0.5 : 1,
+    minSpacing: 0.5,
+  });
 
-  const random = createRandomGenerator(randomSeed);
-  const allowFullDetail = !isPreview || previewDetail === 'full';
+  const jobStub = {
+    id: 'contour-cpu',
+    vertices,
+    brushSettings,
+    seed: randomSeed,
+  } as unknown as StrokeJob;
 
-  let maxDistance = 0;
-  for (let y = 0; y < fieldData.rows; y++) {
-    const row = fieldData.field[y];
-    for (let x = 0; x < row.length; x++) {
-      if (row[x] > maxDistance) {
-        maxDistance = row[x];
-      }
-    }
-  }
-  const safeMinStep = Math.max(0.5, maxDistance * 0.02);
-  const hasSpacingOverride = spacingOverride != null;
-  const spacingBase = spacingOverride ?? brushSettings.contourSpacing ?? 5;
-  const spacing = Math.max(0.5, hasSpacingOverride ? spacingBase : spacingBase * 2);
-  const variancePercent = Math.min(1, Math.max(0, (brushSettings.contourVariance ?? 5) / 10));
+  const geometry = computeContoursCPU(jobStub, bounds, {
+    spacing: resolved.spacingA,
+    maxDistance: resolved.maxDistance,
+    variance: resolved.variance,
+    fieldResolution: resolved.fieldResolution,
+    randomSeed,
+  });
 
-  const maxStartDistance = Math.min(maxDistance * 0.95, Math.max(spacing * 2, safeMinStep * 6));
-  const minStartDistance = Math.max(safeMinStep * 1.5, spacing * 0.5);
-  const startDistance = Math.min(maxStartDistance, Math.max(minStartDistance, spacing * 1.5));
-
-  let currentDistance = startDistance;
-  let drewAnyContours = false;
-
-  const maxElevation = Math.max(maxDistance * 36, 200);
-  const snapElevation = (value: number) => Math.max(1, Math.round((value / maxElevation) * 1000) / 2);
-
-  const baseNoise = (random() * 2 - 1) * variancePercent;
-  let randomWalk = (random() * 2 - 1) * variancePercent * 0.5;
-  let clusterPhase = random() * Math.PI * 2;
-  const clusterStrength = variancePercent * 0.5;
-  const clusterFreq = 0.2 + variancePercent * 0.4;
-  const walkSpeed = 0.05 + variancePercent * 0.2;
-  const noiseScale = 0.4 + variancePercent * 0.6;
-
-  while (currentDistance < maxDistance) {
-    const contourSegments = extractContour(
-      fieldData.field,
-      fieldData.cols,
-      fieldData.rows,
-      fieldData.resolution,
-      currentDistance,
-      fieldData.extension
-    );
-
-    if (!contourSegments || contourSegments.length === 0) {
-      currentDistance += spacing;
-      continue;
-    }
-
-    const loops = connectSegments(contourSegments);
-
-    loops.forEach(loop => {
-      if (loop.length < 2) return;
-      ctx.beginPath();
-      ctx.moveTo(snap(loop[0].x), snap(loop[0].y));
-      for (let i = 1; i < loop.length; i++) {
-        ctx.lineTo(snap(loop[i].x), snap(loop[i].y));
-      }
-      ctx.lineTo(snap(loop[0].x), snap(loop[0].y));
-      ctx.stroke();
-      drewAnyContours = true;
-
-      if (!allowFullDetail) {
-        return;
-      }
-
-      const elevation = snapElevation(currentDistance * 100);
-      if (random() < 0.08) {
-        const labelIndex = Math.floor(loop.length * 0.25 + random() * loop.length * 0.5);
-        const point = loop[Math.min(loop.length - 1, Math.max(0, labelIndex))];
-        const text = `${Math.round(elevation)}m`;
-
-        ctx.save();
-        ctx.font = '8px monospace';
-        ctx.globalCompositeOperation = 'destination-out';
-        const metrics = ctx.measureText(text);
-        const textWidth = metrics.width;
-        const padding = 2;
-        const textX = snap(point.x);
-        const textY = snap(point.y);
-        ctx.fillRect(
-          Math.floor(textX - textWidth / 2 - padding),
-          Math.floor(textY - 5),
-          Math.ceil(textWidth + padding * 2),
-          10
-        );
-        ctx.globalCompositeOperation = brushSettings.blendMode || 'source-over';
-        ctx.fillStyle = strokeColor;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(text, textX, textY);
-        ctx.restore();
-      }
-    });
-
-    const clusterEffect = Math.sin(clusterPhase) * clusterStrength;
-    const jumpChance = 0.15 * variancePercent;
-    const jump = random() < jumpChance ? (random() * 2 - 0.5) : 0;
-    const localNoise = (random() * 2 - 1) * noiseScale;
-    const totalVariance = (
-      randomWalk * 0.4 +
-      clusterEffect * 0.3 +
-      localNoise * 0.2 +
-      jump * 0.5 +
-      baseNoise * 0.1
-    ) * variancePercent;
-
-    const baseSpacing = spacing * (1 + totalVariance * 2.0);
-    const minSpacing = spacing * (0.1 + (1 - variancePercent) * 0.4);
-    const maxSpacingAdjusted = spacing * (1.5 + variancePercent * 3.5);
-
-    currentDistance += Math.max(minSpacing, Math.min(maxSpacingAdjusted, baseSpacing));
-    clusterPhase += clusterFreq;
-    randomWalk += (random() * 2 - 1) * walkSpeed;
-    randomWalk = Math.max(-1, Math.min(1, randomWalk));
-  }
-
-  if (!drewAnyContours) {
-    let fallbackDistance = Math.max(
-      Math.min(maxDistance * 0.66, maxStartDistance),
-      Math.max(0.1, safeMinStep * 0.5)
-    );
-    if (fallbackDistance >= maxDistance) {
-      fallbackDistance = Math.max(maxDistance * 0.5, maxDistance - 0.01);
-    }
-    fallbackDistance = Math.max(0.005, Math.min(fallbackDistance, Math.max(0.005, maxDistance * 0.95)));
-    const fallbackSegments = extractContour(
-      fieldData.field,
-      fieldData.cols,
-      fieldData.rows,
-      fieldData.resolution,
-      fallbackDistance,
-      fieldData.extension
-    );
-    const fallbackLoops = connectSegments(fallbackSegments);
-
-    fallbackLoops.forEach(loop => {
-      if (loop.length < 2) return;
-      ctx.beginPath();
-      ctx.moveTo(snap(loop[0].x), snap(loop[0].y));
-      for (let i = 1; i < loop.length; i++) {
-        ctx.lineTo(snap(loop[i].x), snap(loop[i].y));
-      }
-      ctx.lineTo(snap(loop[0].x), snap(loop[0].y));
-      ctx.stroke();
-    });
-
-    if (!drewAnyContours && vertices.length >= 2) {
-      ctx.beginPath();
-      ctx.moveTo(snap(vertices[0].x), snap(vertices[0].y));
-      for (let i = 1; i < vertices.length; i++) {
-        ctx.lineTo(snap(vertices[i].x), snap(vertices[i].y));
-      }
-      ctx.closePath();
-      ctx.stroke();
-    }
-  }
+  rasterizeContoursCPU(ctx, geometry, strokeColor, lineWidth, pixelMode);
 };
 
 export const drawContourFill = (params: ContourFillParams): void => {
@@ -452,6 +313,11 @@ export const drawContourFill = (params: ContourFillParams): void => {
 
   const gpuScheduler = dependencies.gpuScheduler;
   const canUseGpu = typeof window !== 'undefined' && gpuScheduler && isWebGPUSupported();
+
+  if (isPreview) {
+    drawContourFillCpu(params);
+    return;
+  }
 
   if (canUseGpu) {
     const vertices = params.vertices;

@@ -1,3 +1,5 @@
+import { defaultBrushSettings } from '@/presets/brushPresets';
+
 import { StrokePipeline } from '../gpu/StrokePipeline';
 import type { StrokeJob, FieldGeneratorResult } from '../types';
 
@@ -6,7 +8,7 @@ describe('StrokePipeline', () => {
     id: 'job-1',
     vertices: new Float32Array([0, 0, 10, 0, 10, 10]),
     bounds: { minX: 0, minY: 0, maxX: 10, maxY: 10 },
-    brushSettings: {} as any,
+    brushSettings: { ...defaultBrushSettings },
     previewResolution: { width: 10, height: 10, scale: 1 },
     finalResolution: { width: 10, height: 10, scale: 1 },
     pixelMode: true,

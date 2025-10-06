@@ -67,7 +67,7 @@ const drawLinesFillCpu = ({
     return;
   }
 
-  const clampSpacing = (value: number) => clamp(value, MIN_LINE_SPACING, MAX_LINE_SPACING);
+  const clampSpacing = (value: number) => clamp(Math.round(value), MIN_LINE_SPACING, MAX_LINE_SPACING);
   const spacingA = clampSpacing(lineOptions?.lineSpacingA ?? (brushSettings.contourSpacing || 5) * 2);
   const spacingB = clampSpacing(lineOptions?.lineSpacingB ?? spacingA);
   const basis = lineOptions?.lineBasis ?? prepareContourLinesBasis(vertices);
@@ -226,7 +226,7 @@ export const drawLinesFill = (params: LinesFillParams): void => {
     return;
   }
 
-  const clampSpacing = (value: number) => clamp(value, MIN_LINE_SPACING, MAX_LINE_SPACING);
+  const clampSpacing = (value: number) => clamp(Math.round(value), MIN_LINE_SPACING, MAX_LINE_SPACING);
   const spacingA = clampSpacing(lineOptions?.lineSpacingA ?? (brushSettings.contourSpacing || 5) * 2);
   const spacingB = clampSpacing(lineOptions?.lineSpacingB ?? spacingA);
   const basis = lineOptions?.lineBasis ?? prepareContourLinesBasis(vertices);
@@ -244,7 +244,7 @@ export const drawLinesFill = (params: LinesFillParams): void => {
 
   const fieldResolution = Math.max(1, Math.round(brushSettings.flowFieldResolution ?? 2));
   const variancePercent = Math.min(1, Math.max(0, (brushSettings.contourVariance ?? 5) / 10));
-  const smoothnessPercent = Math.min(1, Math.max(0, (brushSettings.contourSmoothness ?? 0.5) / 5));
+  const smoothnessPercent = Math.min(0.9, Math.max(0, (brushSettings.contourSmoothness ?? 0.5) / 5));
   const lineWidth = Math.max(0.2, brushSettings.shapeFillLineWidth ?? 1);
   const strokeColor = strokeColorOverride ?? brushSettings.color ?? '#000000';
 
@@ -262,9 +262,8 @@ export const drawLinesFill = (params: LinesFillParams): void => {
 
   const normalVec = basis.normal;
   const maxDistance = Math.max(0.1, basis.maxDistance + basis.backDistance * 0.25);
-  const minSpacing = Math.max(0.5, Math.min(spacingA, spacingB));
-  const approxLevels = Math.max(2, Math.floor((basis.maxDistance + Math.max(0, basis.backDistance)) / minSpacing));
-  const maxLevels = Math.min(160, approxLevels + 2);
+  const primarySpacing = Math.max(MIN_LINE_SPACING, spacingA);
+  const maxLevels = Math.min(160, Math.max(1, Math.floor(maxDistance / primarySpacing)));
 
   const seed = (lineOptions?.randomSeed ?? Math.floor(Math.random() * 0xffffffff)) >>> 0;
   const priority: 'preview' | 'final' = isPreview ? 'preview' : 'final';
@@ -308,6 +307,8 @@ export const drawLinesFill = (params: LinesFillParams): void => {
       contourLinesNormalY: normalVec.y,
       contourLinesDirExtent: directionExtent,
       contourLinesBackDistance: basis.backDistance,
+      contourIndexStride: 5,
+      contourIndexWidthMultiplier: 1.75,
     },
     metadata: {
       brush: 'contour-lines',

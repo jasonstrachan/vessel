@@ -1,3 +1,5 @@
+import { defaultBrushSettings } from '@/presets/brushPresets';
+
 import { ShapeFillScheduler } from '../ShapeFillScheduler';
 import type { StrokeJob, FieldGeneratorResult } from '../types';
 
@@ -18,7 +20,7 @@ describe('ShapeFillScheduler', () => {
     id: 'job-1',
     vertices: new Float32Array([0, 0, 1, 0, 0, 1]),
     bounds: { minX: 0, minY: 0, maxX: 1, maxY: 1 },
-    brushSettings: {} as any,
+    brushSettings: { ...defaultBrushSettings },
     previewResolution: { width: 1, height: 1, scale: 0.5, fieldResolution: 1 },
     finalResolution: { width: 1, height: 1, scale: 1, fieldResolution: 1 },
     pixelMode: true,

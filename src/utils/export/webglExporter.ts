@@ -2458,7 +2458,6 @@ export const exportProjectAsWebGL = async (
 
     const metrics = metricsMap.get(layer.id) ?? computeLayerExportMetrics(layer, options.project);
     const sourceSize = metrics.surfaceSize;
-    const contentBounds = metrics.contentBounds;
     const documentBoundsPx = resolveDocumentBoundsPx(layer, metrics, options.project);
     const documentBoundsPercent = derivePercentBounds(documentBoundsPx, documentSize);
 

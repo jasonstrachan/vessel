@@ -1,5 +1,5 @@
 import { computeBoundingBox, ensureFloat32Vertices, prepareStrokeGeometry } from '../tileManager';
-import type { BoundingBox, FieldGeneratorConfig, TileDescriptor } from '../types';
+import type { FieldGeneratorConfig, TileDescriptor } from '../types';
 
 describe('tileManager helpers', () => {
   describe('ensureFloat32Vertices', () => {

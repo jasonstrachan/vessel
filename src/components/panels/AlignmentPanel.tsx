@@ -43,19 +43,6 @@ const ANCHOR_GRID: AnchorKey[][] = [
   ['bl', 'bc', 'br']
 ];
 
-const ANCHOR_SUMMARY: Record<AnchorSelection, string> = {
-  tl: 'Top Left',
-  tc: 'Top Center',
-  tr: 'Top Right',
-  ml: 'Middle Left',
-  mc: 'Middle Center',
-  mr: 'Middle Right',
-  bl: 'Bottom Left',
-  bc: 'Bottom Center',
-  br: 'Bottom Right',
-  auto: 'Auto'
-};
-
 const anchorButtonBase = [
   'h-6 border transition-colors',
   'flex items-center justify-center'

@@ -1,6 +1,7 @@
 import { WebGPUDeviceManager, isWebGPUSupported } from './WebGPUDeviceManager';
 import { SEED_GENERATOR_WGSL } from './shaders/seedGenerator.wgsl';
-import type { StrokeJob } from '../types';
+import { UniformBufferWriter } from './uniformWriter';
+import type { BoundingBox, StrokeJob } from '../types';
 
 const DEFAULT_SEEDS_PER_AXIS = 16;
 
@@ -19,6 +20,8 @@ export class SeedGenerator {
 
   private pipeline: GPUComputePipeline | null = null;
 
+  private pipelineGeneration = -1;
+
   private seedsPerAxis: number;
 
   constructor(config: SeedGeneratorConfig = {}) {
@@ -26,11 +29,14 @@ export class SeedGenerator {
   }
 
   private async ensurePipeline(device: GPUDevice): Promise<void> {
-    if (this.pipeline) {
+    const generation = this.deviceManager.getDeviceGeneration();
+    if (this.pipeline && this.pipelineGeneration === generation) {
       return;
     }
 
-    const module = device.createShaderModule({
+    this.pipeline = null;
+
+    const shaderModule = device.createShaderModule({
       label: 'shape-fill-seed-generator-shader',
       code: SEED_GENERATOR_WGSL,
     });
@@ -39,13 +45,18 @@ export class SeedGenerator {
       label: 'shape-fill-seed-generator-pipeline',
       layout: 'auto',
       compute: {
-        module,
+        module: shaderModule,
         entryPoint: 'main',
       },
     });
+    this.pipelineGeneration = generation;
   }
 
-  async generate(job: StrokeJob, config: SeedGeneratorConfig = {}): Promise<SeedGeneratorResult | null> {
+  async generate(
+    job: StrokeJob,
+    bounds: BoundingBox,
+    config: SeedGeneratorConfig = {}
+  ): Promise<SeedGeneratorResult | null> {
     if (!isWebGPUSupported()) {
       return null;
     }
@@ -56,13 +67,6 @@ export class SeedGenerator {
     }
 
     await this.ensurePipeline(device);
-
-    const bounds = job.bounds ?? {
-      minX: 0,
-      minY: 0,
-      maxX: 1,
-      maxY: 1,
-    };
 
     const gridAxis = Math.max(1, config.seedsPerAxis ?? this.seedsPerAxis);
     const gridX = gridAxis;
@@ -84,18 +88,27 @@ export class SeedGenerator {
     const boundsWidth = Math.max(1, bounds.maxX - bounds.minX);
     const boundsHeight = Math.max(1, bounds.maxY - bounds.minY);
 
-    const uniformArray = new ArrayBuffer(32);
-    const uniformView = new DataView(uniformArray);
-    uniformView.setFloat32(0, bounds.minX, true);
-    uniformView.setFloat32(4, bounds.minY, true);
-    uniformView.setFloat32(8, boundsWidth, true);
-    uniformView.setFloat32(12, boundsHeight, true);
-    uniformView.setUint32(16, gridX, true);
-    uniformView.setUint32(20, gridY, true);
-    uniformView.setUint32(24, seedCount, true);
-    uniformView.setUint32(28, 0, true);
+    /**
+     * Matches WGSL struct SeedUniforms:
+     * struct SeedUniforms {
+     *   boundsMin : vec2<f32>;
+     *   boundsSize : vec2<f32>;
+     *   gridSize : vec2<u32>;
+     *   seedCount : u32;
+     *   _padding : u32;
+     * }
+     */
+    const writer = new UniformBufferWriter(32);
+    writer.writeF32(0, bounds.minX);
+    writer.writeF32(4, bounds.minY);
+    writer.writeF32(8, boundsWidth);
+    writer.writeF32(12, boundsHeight);
+    writer.writeU32(16, gridX);
+    writer.writeU32(20, gridY);
+    writer.writeU32(24, seedCount);
+    writer.writeU32(28, 0);
 
-    device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
+    device.queue.writeBuffer(uniformBuffer, 0, writer.buffer);
 
     const bindGroup = device.createBindGroup({
       label: `shape-fill-seed-bind-group-${job.id}`,

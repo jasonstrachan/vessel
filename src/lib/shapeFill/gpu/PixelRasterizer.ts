@@ -1,30 +1,19 @@
 import { WebGPUDeviceManager, isWebGPUSupported } from './WebGPUDeviceManager';
 import { debugLog, debugWarn } from '@/utils/debug';
 import { PIXEL_RASTERIZER_WGSL } from './shaders/pixelRasterizer.wgsl';
-import type { PathIntegrationResult } from './PathIntegrator';
-import type { StrokeJob, StrokeResolution } from '../types';
+import { waitForQueueIdle } from './queueUtils';
+import { UniformBufferWriter } from './uniformWriter';
+import { ReadbackPool } from './readbackPool';
+import type { QuadExpandResult } from './QuadExpander';
+import type { StrokeJob, StrokeResolution, BoundingBox } from '../types';
 import type { RGBAColor } from '@/utils/color/parseCssColor';
 
 const alignTo = (value: number, alignment: number): number => Math.ceil(value / alignment) * alignment;
 
-const FLOATS_PER_VERTEX = 2;
-const VERTEX_STRIDE_BYTES = Float32Array.BYTES_PER_ELEMENT * FLOATS_PER_VERTEX;
-
-const VERTEX_BUFFER_LAYOUT: GPUVertexBufferLayout = {
-  arrayStride: VERTEX_STRIDE_BYTES,
-  stepMode: 'vertex',
-  attributes: [
-    {
-      shaderLocation: 0,
-      offset: 0,
-      format: 'float32x2',
-    },
-  ],
-};
-
 export interface PixelRasterizerOptions {
   resolution: StrokeResolution;
   color: RGBAColor;
+  bounds: BoundingBox;
 }
 
 export interface PixelRasterizerResult {
@@ -40,10 +29,38 @@ export class PixelRasterizer {
 
   private pipeline: GPURenderPipeline | null = null;
 
+  private pipelineGeneration = -1;
+
+  private readbackPool: ReadbackPool | null = null;
+
+  private readbackPoolGeneration = -1;
+
+  private readbackPoolSize = 0;
+
+  private ensureReadbackPool(device: GPUDevice, requiredSize: number): ReadbackPool {
+    const generation = this.deviceManager.getDeviceGeneration();
+    const alignedSize = alignTo(requiredSize, 256);
+
+    if (!this.readbackPool || this.readbackPoolGeneration !== generation || this.readbackPoolSize !== alignedSize) {
+      this.readbackPool?.destroy();
+      this.readbackPool = new ReadbackPool(device, {
+        size: alignedSize,
+        label: 'shape-fill-raster-readback-buffer',
+      });
+      this.readbackPoolGeneration = generation;
+      this.readbackPoolSize = alignedSize;
+    }
+
+    return this.readbackPool;
+  }
+
   private async ensurePipeline(device: GPUDevice): Promise<void> {
-    if (this.pipeline) {
+    const generation = this.deviceManager.getDeviceGeneration();
+    if (this.pipeline && this.pipelineGeneration === generation) {
       return;
     }
+
+    this.pipeline = null;
 
     const shaderModule = device.createShaderModule({
       label: 'shape-fill-pixel-rasterizer-shader',
@@ -63,7 +80,19 @@ export class PixelRasterizer {
       vertex: {
         module: shaderModule,
         entryPoint: 'vs_main',
-        buffers: [VERTEX_BUFFER_LAYOUT],
+        buffers: [
+          {
+            arrayStride: Float32Array.BYTES_PER_ELEMENT * 2,
+            stepMode: 'vertex',
+            attributes: [
+              {
+                shaderLocation: 0,
+                offset: 0,
+                format: 'float32x2',
+              },
+            ],
+          },
+        ],
       },
       fragment: {
         module: shaderModule,
@@ -75,17 +104,18 @@ export class PixelRasterizer {
         ],
       },
       primitive: {
-        topology: 'line-list',
+        topology: 'triangle-list',
       },
       multisample: {
         count: 1,
       },
     });
+    this.pipelineGeneration = generation;
   }
 
   async rasterize(
     job: StrokeJob,
-    path: PathIntegrationResult,
+    quad: QuadExpandResult,
     options: PixelRasterizerOptions
   ): Promise<PixelRasterizerResult | null> {
     if (!isWebGPUSupported()) {
@@ -99,15 +129,23 @@ export class PixelRasterizer {
 
     await this.ensurePipeline(device);
 
-    const bounds = job.bounds ?? {
-      minX: 0,
-      minY: 0,
-      maxX: options.resolution.width,
-      maxY: options.resolution.height,
-    };
-
     const width = Math.max(1, Math.floor(options.resolution.width));
     const height = Math.max(1, Math.floor(options.resolution.height));
+
+    if (quad.vertexCount === 0) {
+      debugWarn('shape-fill', 'Pixel rasterizer received empty quad buffer', {
+        jobId: job.id,
+      });
+      return null;
+    }
+
+    const quadCount = quad.quadCount;
+    if (quadCount <= 0) {
+      debugWarn('shape-fill', 'Pixel rasterizer received zero quad count', {
+        jobId: job.id,
+      });
+      return null;
+    }
 
     const texture = device.createTexture({
       label: `shape-fill-raster-target-${job.id}`,
@@ -134,24 +172,18 @@ export class PixelRasterizer {
     debugLog('shape-fill', 'Pixel rasterizer uniforms', {
       jobId: job.id,
       colorString: `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a})`,
-      bounds,
       resolution: options.resolution,
-      vertexCount: path.vertexCount,
+      vertexCount: quad.vertexCount,
+      quadCount,
     });
-    const uniformArray = new Float32Array(16);
-    uniformArray[0] = bounds.minX;
-    uniformArray[1] = bounds.minY;
-    uniformArray[2] = Math.max(1e-6, bounds.maxX - bounds.minX);
-    uniformArray[3] = Math.max(1e-6, bounds.maxY - bounds.minY);
-    uniformArray[4] = width;
-    uniformArray[5] = height;
-    uniformArray[6] = color.r / 255;
-    uniformArray[7] = color.g / 255;
-    uniformArray[8] = color.b / 255;
-    uniformArray[9] = color.a / 255;
-    uniformArray[10] = path.coordinateSpace === 'normalized' ? 1 : 0;
 
-    device.queue.writeBuffer(uniformBuffer, 0, uniformArray.buffer);
+    const writer = new UniformBufferWriter(16);
+    writer.writeF32(0, color.r / 255);
+    writer.writeF32(4, color.g / 255);
+    writer.writeF32(8, color.b / 255);
+    writer.writeF32(12, color.a / 255);
+
+    device.queue.writeBuffer(uniformBuffer, 0, writer.buffer);
 
     const bindGroup = device.createBindGroup({
       label: `shape-fill-raster-bind-group-${job.id}`,
@@ -181,19 +213,16 @@ export class PixelRasterizer {
     renderPass.setBindGroup(0, bindGroup);
     renderPass.setViewport(0, 0, width, height, 0, 1);
     renderPass.setScissorRect(0, 0, width, height);
-    renderPass.setVertexBuffer(0, path.buffer, 0, path.vertexCount * VERTEX_STRIDE_BYTES);
-    renderPass.draw(path.vertexCount, 1, 0, 0);
+    renderPass.setVertexBuffer(0, quad.buffer);
+    renderPass.draw(quad.vertexCount, 1, 0, 0);
     renderPass.end();
 
     const bytesPerPixel = 4;
     const bytesPerRow = alignTo(width * bytesPerPixel, 256);
     const bufferSize = bytesPerRow * height;
 
-    const readbackBuffer = device.createBuffer({
-      label: `shape-fill-raster-readback-${job.id}`,
-      size: bufferSize,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    });
+    const readbackPool = this.ensureReadbackPool(device, bufferSize);
+    const readbackBuffer = readbackPool.acquire();
 
     encoder.copyTextureToBuffer(
       { texture },
@@ -207,10 +236,10 @@ export class PixelRasterizer {
 
     device.queue.submit([encoder.finish()]);
 
-    await readbackBuffer.mapAsync(GPUMapMode.READ);
-    const mapped = readbackBuffer.getMappedRange();
-    const padded = new Uint8Array(mapped.slice(0));
-    readbackBuffer.unmap();
+    await waitForQueueIdle(device.queue);
+
+    const mappedCopy = await readbackPool.read(device.queue, readbackBuffer);
+    const padded = new Uint8Array(mappedCopy);
 
     const pixels = new Uint8ClampedArray(width * height * bytesPerPixel);
     for (let row = 0; row < height; row += 1) {
@@ -219,18 +248,20 @@ export class PixelRasterizer {
       pixels.set(padded.subarray(srcOffset, srcOffset + width * bytesPerPixel), dstOffset);
     }
 
-    const hasContent = pixels.some((value, index) => (index & 3) === 3 ? value !== 0 : false);
+    const hasContent = pixels.some(channel => channel !== 0);
     if (!hasContent) {
       debugWarn('shape-fill', 'Pixel rasterizer produced empty output', {
         jobId: job.id,
-        vertexCount: path.vertexCount,
+        vertexCount: quad.vertexCount,
+        quadCount,
         width,
         height,
       });
     } else {
       debugLog('shape-fill', 'Pixel rasterizer produced output', {
         jobId: job.id,
-        vertexCount: path.vertexCount,
+        vertexCount: quad.vertexCount,
+        quadCount,
         width,
         height,
       });
@@ -239,14 +270,13 @@ export class PixelRasterizer {
     const release = () => {
       texture.destroy();
       uniformBuffer.destroy();
-      readbackBuffer.destroy();
     };
 
     return {
       pixels,
       width,
       height,
-      origin: { x: bounds.minX, y: bounds.minY },
+      origin: { x: options.bounds.minX, y: options.bounds.minY },
       release,
     };
   }

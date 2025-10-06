@@ -1741,6 +1741,13 @@ function cssColorToHex(color: string): string {
               const toMouseY = worldPos.y - startPos.y;
               const perpDist = Math.abs(-lineVecY * toMouseX + lineVecX * toMouseY);
               const previewWidth = perpDist * 2;
+
+              try {
+                useAppStore.getState().setRectangleBrushState({
+                  width: previewWidth,
+                  currentPos: { x: worldPos.x, y: worldPos.y },
+                });
+              } catch {}
               
               const perpX = -dy / length * (previewWidth / 2);
               const perpY = dx / length * (previewWidth / 2);

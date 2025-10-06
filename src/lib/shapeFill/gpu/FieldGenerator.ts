@@ -7,6 +7,8 @@ import {
 } from '../types';
 import { FIELD_GENERATOR_WGSL } from './shaders/fieldGenerator.wgsl';
 import { WebGPUDeviceManager, isWebGPUSupported } from './WebGPUDeviceManager';
+import { UniformBufferWriter } from './uniformWriter';
+import { GpuBufferPool } from './bufferPool';
 
 const DEFAULT_WORKGROUP_SIZE = 8;
 
@@ -33,24 +35,29 @@ interface UniformPayload {
 }
 
 const createUniformArrayBuffer = (payload: UniformPayload): ArrayBuffer => {
-  const buffer = new ArrayBuffer(12 * 4);
-  const floatView = new Float32Array(buffer);
-  const intView = new Uint32Array(buffer);
+  /**
+   * struct FieldUniforms layout (vec4 x 3):
+   * data0: [tileOrigin.x, tileOrigin.y, tileSize.x, tileSize.y]
+   * data1: [boundsMin.x, boundsMin.y, boundsMax.x, boundsMax.y]
+   * data2: [resolution, padding, vertexCount (as u32), flags (as u32)]
+   */
+  const writer = new UniformBufferWriter(12 * 4);
+  writer.writeF32(0, payload.tileOrigin.x);
+  writer.writeF32(4, payload.tileOrigin.y);
+  writer.writeF32(8, payload.tileSize.x);
+  writer.writeF32(12, payload.tileSize.y);
 
-  floatView[0] = payload.tileOrigin.x;
-  floatView[1] = payload.tileOrigin.y;
-  floatView[2] = payload.tileSize.x;
-  floatView[3] = payload.tileSize.y;
-  floatView[4] = payload.boundsMin.x;
-  floatView[5] = payload.boundsMin.y;
-  floatView[6] = payload.boundsMax.x;
-  floatView[7] = payload.boundsMax.y;
-  floatView[8] = payload.resolution;
-  floatView[9] = payload.padding;
-  intView[10] = payload.vertexCount;
-  intView[11] = payload.flags;
+  writer.writeF32(16, payload.boundsMin.x);
+  writer.writeF32(20, payload.boundsMin.y);
+  writer.writeF32(24, payload.boundsMax.x);
+  writer.writeF32(28, payload.boundsMax.y);
 
-  return buffer;
+  writer.writeF32(32, payload.resolution);
+  writer.writeF32(36, payload.padding);
+  writer.writeU32(40, payload.vertexCount);
+  writer.writeU32(44, payload.flags);
+
+  return writer.buffer;
 };
 
 export class FieldGenerator {
@@ -63,6 +70,10 @@ export class FieldGenerator {
   private pipeline: GPUComputePipeline | null = null;
 
   private workgroupSize: number;
+
+  private readonly uniformPool = new GpuBufferPool();
+
+  private pipelineGeneration = -1;
 
   constructor(config: FieldGeneratorConfig = {}) {
     this.config = config;
@@ -79,11 +90,14 @@ export class FieldGenerator {
   }
 
   private async ensurePipeline(device: GPUDevice): Promise<void> {
-    if (this.pipeline) {
+    const generation = this.deviceManager.getDeviceGeneration();
+    if (this.pipeline && this.pipelineGeneration === generation) {
       return;
     }
 
-    const module = device.createShaderModule({
+    this.pipeline = null;
+
+    const shaderModule = device.createShaderModule({
       label: 'shape-fill-field-generator',
       code: FIELD_GENERATOR_WGSL,
     });
@@ -92,10 +106,11 @@ export class FieldGenerator {
       label: 'shape-fill-field-generator-pipeline',
       layout: 'auto',
       compute: {
-        module,
+        module: shaderModule,
         entryPoint: 'main',
       },
     });
+    this.pipelineGeneration = generation;
   }
 
   async generate(job: StrokeJob): Promise<FieldGeneratorResult | null> {
@@ -151,11 +166,12 @@ export class FieldGenerator {
         flags,
       };
 
-      const uniformBuffer = device.createBuffer({
-        label: `stroke-${job.id}-tile-${tile.id}-uniforms`,
-        size: 12 * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      });
+      const uniformBuffer = this.uniformPool.acquire(
+        device,
+        12 * 4,
+        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        `stroke-${job.id}-tile-${tile.id}-uniforms`,
+      );
       const uniformData = createUniformArrayBuffer(uniformPayload);
       device.queue.writeBuffer(uniformBuffer, 0, uniformData);
 
@@ -206,7 +222,11 @@ export class FieldGenerator {
     const release = () => {
       for (const tile of tileResources) {
         tile.distanceTexture.destroy();
-        tile.uniformBuffer.destroy();
+        this.uniformPool.release(
+          tile.uniformBuffer,
+          12 * 4,
+          GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        );
       }
       vertexBuffer.destroy();
     };

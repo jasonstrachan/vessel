@@ -400,7 +400,10 @@ export class ShapeFillScheduler {
     const startedAt = now();
 
     const cancellationReason = jobState.cancelReason ?? 'abort';
-    let fieldResult = await this.generator.generate(job);
+    const skipFieldGeneration = Boolean(
+      job.metadata && (job.metadata as Record<string, unknown>).contourGeometry,
+    );
+    let fieldResult = skipFieldGeneration ? null : await this.generator.generate(job);
 
     const ensureNotCancelled = (afterCaching = false): void => {
       if (!jobState.cancelled) {
@@ -452,13 +455,13 @@ export class ShapeFillScheduler {
       return result;
     }
 
-    const readbackPayload = jobState.readbackSelection
+    const readbackPayload = jobState.readbackSelection && fieldResult
       ? await this.captureReadbacks(fieldResult, jobState)
       : { readbacks: [], durationMs: 0 };
 
     ensureNotCancelled();
 
-    if (jobState.cacheResult) {
+    if (jobState.cacheResult && fieldResult) {
       this.cacheResult(job.id, fieldResult, jobState.priority);
     }
 
@@ -479,13 +482,12 @@ export class ShapeFillScheduler {
         this.releaseCached(job.id);
         return;
       }
-      if (!fieldResult) {
-        return;
-      }
-      try {
-        fieldResult.release();
-      } catch (error) {
-        console.warn('[ShapeFillScheduler] Failed to release job resources', job.id, error);
+      if (fieldResult) {
+        try {
+          fieldResult.release();
+        } catch (error) {
+          console.warn('[ShapeFillScheduler] Failed to release job resources', job.id, error);
+        }
       }
     };
 

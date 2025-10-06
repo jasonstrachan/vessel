@@ -42,7 +42,7 @@ afterEach(() => {
   resetStore();
 });
 
-/* describe('useAppStore updateLayerAlignment percent offsets', () => {
+describe('useAppStore updateLayerAlignment percent offsets', () => {
   const width = 10;
   const height = 8;
 
@@ -69,7 +69,7 @@ afterEach(() => {
     };
   };
 
-  it('populates offsetPercent when switching fit to percent', () => {
+  it('populates offsetPercent when switching fit to contain', () => {
     const layer = createLayer();
 
     useAppStore.setState((state) => ({
@@ -87,15 +87,15 @@ afterEach(() => {
     }));
 
     const { updateLayerAlignment } = useAppStore.getState();
-    updateLayerAlignment(layer.id, { ...layer.alignment, fit: 'percent' });
+    updateLayerAlignment(layer.id, { ...layer.alignment, fit: 'contain' });
 
     const updatedLayer = useAppStore.getState().layers[0];
-    expect(updatedLayer.alignment.fit).toBe('percent');
+    expect(updatedLayer.alignment.fit).toBe('contain');
     expect(updatedLayer.alignment.offsetPercent?.x).toBe(0);
     expect(updatedLayer.alignment.offsetPercent?.y).toBe(0);
   });
 
-  it('preserves manually entered percent offsets once in percent mode', () => {
+  it('preserves manually entered percent offsets once in contain mode', () => {
     const layer = createLayer();
 
     useAppStore.setState((state) => ({
@@ -113,7 +113,7 @@ afterEach(() => {
     }));
 
     const { updateLayerAlignment } = useAppStore.getState();
-    updateLayerAlignment(layer.id, { ...layer.alignment, fit: 'percent' });
+    updateLayerAlignment(layer.id, { ...layer.alignment, fit: 'contain' });
 
     const customPercent = { x: 10, y: 15 } as const;
     const currentAlignment = useAppStore.getState().layers[0].alignment;
@@ -126,7 +126,7 @@ afterEach(() => {
     expect(updatedLayer.alignment.offsetPercent).toEqual(customPercent);
   });
 
-  it('clears percent offsets when leaving percent fit', () => {
+  it('clears percent offsets when leaving contain fit after auto alignment', () => {
     const layer = createLayer();
 
     useAppStore.setState((state) => ({
@@ -152,7 +152,7 @@ afterEach(() => {
     const anchorAligned = useAppStore.getState().layers[0].alignment;
     updateLayerAlignment(layer.id, {
       ...anchorAligned,
-      fit: 'percent'
+      fit: 'contain'
     });
 
     const currentAlignment = useAppStore.getState().layers[0].alignment;
@@ -197,13 +197,13 @@ afterEach(() => {
     expect(updatedLayer.alignment.offsetPercent).toBeDefined();
   });
 
-  it('recomputes percent offsets from pixel offsets when layers are replaced', () => {
+  it('recomputes percent offsets from pixel offsets when layers are replaced using contain fit', () => {
     const layer = createLayer();
     const layerWithOffsets: Layer = {
       ...layer,
       alignment: {
         ...layer.alignment,
-        fit: 'percent',
+        fit: 'contain',
         offsetPx: { x: 5, y: 2 },
         offsetPercent: { x: 0, y: 0 }
       }
@@ -235,7 +235,7 @@ afterEach(() => {
       ...layer,
       alignment: {
         ...layer.alignment,
-        fit: 'percent',
+        fit: 'contain',
         offsetPx: { x: 0, y: 0 },
         offsetPercent: { x: 0, y: 0 }
       },
@@ -283,7 +283,7 @@ afterEach(() => {
     }));
 
     const { updateLayerAlignment, updateLayer } = useAppStore.getState();
-    updateLayerAlignment(layer.id, { ...layer.alignment, fit: 'percent' });
+    updateLayerAlignment(layer.id, { ...layer.alignment, fit: 'contain' });
 
     const targetLayer = useAppStore.getState().layers[0];
     updateLayer(layer.id, {
@@ -297,4 +297,4 @@ afterEach(() => {
     const updatedLayer = useAppStore.getState().layers[0];
     expect(updatedLayer.alignment.offsetPercent).toEqual({ x: 30, y: 50 });
   });
-}); */
+});

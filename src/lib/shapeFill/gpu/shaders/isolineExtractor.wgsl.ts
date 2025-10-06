@@ -18,6 +18,7 @@ struct VertexCounter {
 @group(0) @binding(1) var distanceField : texture_storage_2d<rgba32float, read>;
 @group(0) @binding(2) var<storage, read_write> vertices : array<vec2<f32>>;
 @group(0) @binding(3) var<storage, read_write> vertexCounter : VertexCounter;
+@group(0) @binding(4) var<storage, read_write> segmentMeta : array<f32>;
 
 fn tile_origin() -> vec2<f32> {
   return uniforms.data0.xy;
@@ -125,6 +126,10 @@ fn back_distance() -> f32 {
   return max(uniforms.data6.y, 0.0);
 }
 
+fn metadata_capacity() -> u32 {
+  return max(u32(uniforms.data6.z), 0u);
+}
+
 fn hash(seed : f32, index : u32) -> f32 {
   let n = seed * 0.3183099 + f32(index) * 0.3678794;
   return fract(sin(n) * 43758.5453);
@@ -165,13 +170,22 @@ fn intersection(p0 : vec2<f32>, p1 : vec2<f32>, v0 : f32, v1 : f32, level : f32)
   return mix(p0, p1, t);
 }
 
-fn append_segment(a : vec2<f32>, b : vec2<f32>) {
+fn append_segment(a : vec2<f32>, b : vec2<f32>, level_index : u32) {
   let index = atomicAdd(&vertexCounter.count, 2u);
   if (f32(index + 1u) >= vertex_capacity()) {
     return;
   }
   vertices[index] = normalize_position(a);
   vertices[index + 1u] = normalize_position(b);
+
+  if (mode_value() >= 0.5) {
+    let segIdx = index / 2u;
+    let cap = metadata_capacity();
+    let metaLength = arrayLength(&segmentMeta);
+    if (segIdx < cap && segIdx < metaLength) {
+      segmentMeta[segIdx] = f32(level_index);
+    }
+  }
 }
 
 @compute @workgroup_size(8, 8, 1)
@@ -289,7 +303,7 @@ fn main(@builtin(global_invocation_id) global_id : vec3<u32>) {
     }
 
     if (count == 2u) {
-      append_segment(intersections[0u], intersections[1u]);
+      append_segment(intersections[0u], intersections[1u], levelIndex);
     } else if (count == 4u) {
       let config = (select(0u, 1u, cornerValues[0] > level) << 3u) |
                    (select(0u, 1u, cornerValues[1] > level) << 2u) |
@@ -298,11 +312,11 @@ fn main(@builtin(global_invocation_id) global_id : vec3<u32>) {
 
       // 6u (0b0110) and 9u (0b1001) represent the diagonal ambiguity cases.
       if (config == 6u || config == 9u) {
-        append_segment(intersections[0u], intersections[2u]);
-        append_segment(intersections[1u], intersections[3u]);
+        append_segment(intersections[0u], intersections[2u], levelIndex);
+        append_segment(intersections[1u], intersections[3u], levelIndex);
       } else {
-        append_segment(intersections[0u], intersections[1u]);
-        append_segment(intersections[2u], intersections[3u]);
+        append_segment(intersections[0u], intersections[1u], levelIndex);
+        append_segment(intersections[2u], intersections[3u], levelIndex);
       }
     }
 

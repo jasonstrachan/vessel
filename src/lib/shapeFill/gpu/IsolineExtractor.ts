@@ -1,6 +1,10 @@
 import { WebGPUDeviceManager, isWebGPUSupported } from './WebGPUDeviceManager';
 import { ISOLINE_EXTRACTOR_WGSL } from './shaders/isolineExtractor.wgsl';
-import type { FieldGeneratorResult, StrokeJob } from '../types';
+import { UniformBufferWriter } from './uniformWriter';
+import { GpuBufferPool } from './bufferPool';
+import { waitForQueueIdle } from './queueUtils';
+import { ReadbackPool } from './readbackPool';
+import type { BoundingBox, FieldGeneratorResult, StrokeJob } from '../types';
 import type { PathIntegrationResult } from './PathIntegrator';
 
 const MAX_VERTEX_CAPACITY = 4_000_000;
@@ -45,6 +49,7 @@ export interface IsolineExtractorOptions {
   normal?: { x: number; y: number };
   directionExtent?: number;
   backDistance?: number;
+  alternateStride?: number;
 }
 
 export class IsolineExtractor {
@@ -52,10 +57,34 @@ export class IsolineExtractor {
 
   private pipeline: GPUComputePipeline | null = null;
 
+  private readonly uniformPool = new GpuBufferPool();
+
+  private pipelineGeneration = -1;
+
+  private counterPool: ReadbackPool | null = null;
+
+  private counterPoolGeneration = -1;
+
+  private ensureCounterPool(device: GPUDevice): ReadbackPool {
+    const generation = this.deviceManager.getDeviceGeneration();
+    if (!this.counterPool || this.counterPoolGeneration !== generation) {
+      this.counterPool?.destroy();
+      this.counterPool = new ReadbackPool(device, {
+        size: 4,
+        label: 'contour-isoline-counter-readback',
+      });
+      this.counterPoolGeneration = generation;
+    }
+    return this.counterPool;
+  }
+
   private async ensurePipeline(device: GPUDevice): Promise<void> {
-    if (this.pipeline) {
+    const generation = this.deviceManager.getDeviceGeneration();
+    if (this.pipeline && this.pipelineGeneration === generation) {
       return;
     }
+
+    this.pipeline = null;
 
     const shaderModule = device.createShaderModule({
       label: 'contour-isoline-extractor-shader',
@@ -70,11 +99,13 @@ export class IsolineExtractor {
         entryPoint: 'main',
       },
     });
+    this.pipelineGeneration = generation;
   }
 
   async extract(
     job: StrokeJob,
     field: FieldGeneratorResult,
+    bounds: BoundingBox,
     options: IsolineExtractorOptions,
   ): Promise<PathIntegrationResult | null> {
     if (!isWebGPUSupported()) {
@@ -103,6 +134,13 @@ export class IsolineExtractor {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_SRC,
     });
 
+    const segmentCapacity = Math.max(1, Math.ceil(vertexCapacity / 2));
+    const metadataBuffer = device.createBuffer({
+      label: `contour-isoline-metadata-${job.id}`,
+      size: segmentCapacity * Float32Array.BYTES_PER_ELEMENT,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+
     const counterBuffer = device.createBuffer({
       label: `contour-isoline-counter-${job.id}`,
       size: 4,
@@ -110,11 +148,8 @@ export class IsolineExtractor {
     });
     device.queue.writeBuffer(counterBuffer, 0, new Uint32Array([0]));
 
-    const counterReadback = device.createBuffer({
-      label: `contour-isoline-counter-readback-${job.id}`,
-      size: 4,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    });
+    const counterPool = this.ensureCounterPool(device);
+    const counterReadback = counterPool.acquire();
 
     const bindGroupLayout = this.pipeline!.getBindGroupLayout(0);
 
@@ -128,14 +163,13 @@ export class IsolineExtractor {
 
     const transientBuffers: GPUBuffer[] = [];
 
-    const boundsMinX = job.bounds?.minX ?? 0;
-    const boundsMinY = job.bounds?.minY ?? 0;
-    const boundsMaxX = job.bounds?.maxX ?? 0;
-    const boundsMaxY = job.bounds?.maxY ?? 0;
+    const boundsMinX = bounds.minX;
+    const boundsMinY = bounds.minY;
+    const boundsMaxX = bounds.maxX;
+    const boundsMaxY = bounds.maxY;
 
     for (const tile of field.tiles) {
       const descriptor = tile.descriptor;
-      const uniformArray = new Float32Array(32);
       const mode = options.mode === 'lines' ? 1 : 0;
       const baseOrigin = options.baseOrigin ?? { x: boundsMinX, y: boundsMinY };
       const direction = options.baseDirection ?? { x: 1, y: 0 };
@@ -143,46 +177,59 @@ export class IsolineExtractor {
       const directionExtent = Math.max(1e-3, options.directionExtent ?? 1);
       const backDistance = Math.max(0, options.backDistance ?? 0);
 
-      uniformArray[0] = descriptor.origin.x;
-      uniformArray[1] = descriptor.origin.y;
-      uniformArray[2] = descriptor.resolution;
-      uniformArray[3] = mode;
+      const uniformBuffer = this.uniformPool.acquire(
+        device,
+        128,
+        GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        `contour-isoline-uniforms-${job.id}-${descriptor.id}`,
+      );
+      /**
+       * struct IsolineUniforms (vec4 x 8) layout reference.
+       * data0: [tileOrigin.x, tileOrigin.y, resolution, mode]
+       * data1: [spacingA, spacingB, variance, smoothness]
+       * data2: [maxDistance, lineWidth, maxLevels, seed]
+       * data3: [vertexCapacity, previewFlag, boundsMin.x, boundsMin.y]
+       * data4: [boundsMax.x, boundsMax.y, baseOrigin.x, baseOrigin.y]
+       * data5: [direction.x, direction.y, normal.x, normal.y]
+       * data6: [directionExtent, backDistance, 0, 0]
+       */
+      const writer = new UniformBufferWriter(128);
+      writer.writeF32(0, descriptor.origin.x);
+      writer.writeF32(4, descriptor.origin.y);
+      writer.writeF32(8, descriptor.resolution);
+      writer.writeF32(12, mode);
 
-      uniformArray[4] = options.spacingA;
-      uniformArray[5] = options.spacingB;
-      uniformArray[6] = options.variance;
-      uniformArray[7] = options.smoothness;
+      writer.writeF32(16, options.spacingA);
+      writer.writeF32(20, options.spacingB);
+      writer.writeF32(24, options.variance);
+      writer.writeF32(28, options.smoothness);
 
-      uniformArray[8] = options.maxDistance;
-      uniformArray[9] = options.lineWidth;
-      uniformArray[10] = options.maxLevels;
-      uniformArray[11] = options.seed >>> 0;
+      writer.writeF32(32, options.maxDistance);
+      writer.writeF32(36, options.lineWidth);
+      writer.writeF32(40, options.maxLevels);
+      writer.writeF32(44, options.seed);
 
-      uniformArray[12] = vertexCapacity;
-      uniformArray[13] = options.preview ? 1 : 0;
-      uniformArray[14] = boundsMinX;
-      uniformArray[15] = boundsMinY;
+      writer.writeF32(48, vertexCapacity);
+      writer.writeF32(52, options.preview ? 1 : 0);
+      writer.writeF32(56, boundsMinX);
+      writer.writeF32(60, boundsMinY);
 
-      uniformArray[16] = boundsMaxX;
-      uniformArray[17] = boundsMaxY;
-      uniformArray[18] = baseOrigin.x;
-      uniformArray[19] = baseOrigin.y;
+      writer.writeF32(64, boundsMaxX);
+      writer.writeF32(68, boundsMaxY);
+      writer.writeF32(72, baseOrigin.x);
+      writer.writeF32(76, baseOrigin.y);
 
-      uniformArray[20] = direction.x;
-      uniformArray[21] = direction.y;
-      uniformArray[22] = normal.x;
-      uniformArray[23] = normal.y;
+      writer.writeF32(80, direction.x);
+      writer.writeF32(84, direction.y);
+      writer.writeF32(88, normal.x);
+      writer.writeF32(92, normal.y);
 
-      uniformArray[24] = directionExtent;
-      uniformArray[25] = backDistance;
-      // remaining entries stay zero for padding
+      writer.writeF32(96, directionExtent);
+      writer.writeF32(100, backDistance);
+      writer.writeF32(104, segmentCapacity);
+      writer.writeF32(108, Math.max(0, options.alternateStride ?? 0));
 
-      const uniformBuffer = device.createBuffer({
-        label: `contour-isoline-uniforms-${job.id}-${descriptor.id}`,
-        size: uniformArray.byteLength,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      });
-      device.queue.writeBuffer(uniformBuffer, 0, uniformArray.buffer);
+      device.queue.writeBuffer(uniformBuffer, 0, writer.buffer);
       transientBuffers.push(uniformBuffer);
 
       const bindGroup = device.createBindGroup({
@@ -193,6 +240,7 @@ export class IsolineExtractor {
           { binding: 1, resource: tile.distanceTexture.createView() },
           { binding: 2, resource: { buffer: vertexBuffer } },
           { binding: 3, resource: { buffer: counterBuffer } },
+          { binding: 4, resource: { buffer: metadataBuffer } },
         ],
       });
 
@@ -209,30 +257,38 @@ export class IsolineExtractor {
       .copyBufferToBuffer(counterBuffer, 0, counterReadback, 0, 4);
 
     device.queue.submit([commandEncoder.finish()]);
-    await counterReadback.mapAsync(GPUMapMode.READ);
-    const counterView = new Uint32Array(counterReadback.getMappedRange().slice(0));
-    counterReadback.unmap();
+    await waitForQueueIdle(device.queue);
+    const counterCopy = await counterPool.read(device.queue, counterReadback);
+    const counterView = new Uint32Array(counterCopy);
 
-    transientBuffers.forEach(buffer => buffer.destroy());
+    transientBuffers.forEach(buffer => {
+      this.uniformPool.release(buffer, 128, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    });
 
     const vertexCount = Math.min(counterView[0], vertexCapacity);
     if (vertexCount < 2) {
       vertexBuffer.destroy();
       counterBuffer.destroy();
-      counterReadback.destroy();
+      metadataBuffer.destroy();
       return null;
     }
 
     const release = () => {
       vertexBuffer.destroy();
       counterBuffer.destroy();
-      counterReadback.destroy();
+      metadataBuffer.destroy();
     };
 
     return {
       buffer: vertexBuffer,
       vertexCount,
       coordinateSpace: 'normalized',
+      bounds,
+      segmentMetadata: {
+        buffer: metadataBuffer,
+        kind: 'level-index',
+        stride: Math.max(0, Math.floor(options.alternateStride ?? 0)),
+      },
       release,
     };
   }
