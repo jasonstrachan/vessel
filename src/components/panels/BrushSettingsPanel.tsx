@@ -12,9 +12,6 @@ const BrushSettingsPanel: React.FC = () => {
 
   return (
     <div className="bg-[#2C2C2C] flex flex-col h-full">
-      <div className="flex-shrink-0 px-4 py-2 border-b border-[#404040]">
-        <h3 className="font-medium text-[#D9D9D9]" style={{ fontSize: '14px' }}>Brush Settings</h3>
-      </div>
       <div className="flex-1 overflow-y-auto">
         {(currentTool === 'brush' || currentTool === 'eraser') && <BrushControls />}
         {currentTool === 'fill' && <FillControls />}

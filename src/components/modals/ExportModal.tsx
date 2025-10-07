@@ -1375,8 +1375,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   className="slider w-48"
                   style={{
                     '--slider-track-gradient': 'linear-gradient(to right, rgba(217,217,217,0.2), rgba(217,217,217,0.6))',
-                    '--ascii-thumb-size': '14px'
-                  } as React.CSSProperties}
+                    '--ascii-thumb-size': '14px',
+                    '--slider-progress': `${((pngQuality - 0.1) / 0.9) * 100}%`
+                  } as React.CSSProperties & { '--slider-progress': string }}
                 />
               </div>
             </div>
@@ -1449,8 +1450,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   className="slider w-48"
                   style={{
                     '--slider-track-gradient': 'linear-gradient(to right, rgba(217,217,217,0.2), rgba(217,217,217,0.6))',
-                    '--ascii-thumb-size': '14px'
-                  } as React.CSSProperties}
+                    '--ascii-thumb-size': '14px',
+                    '--slider-progress': `${gifDitherStrength * 100}%`
+                  } as React.CSSProperties & { '--slider-progress': string }}
                   disabled={gifDitherMethod === 'none'}
                 />
               </div>

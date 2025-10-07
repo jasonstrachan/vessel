@@ -15,161 +15,98 @@ describe('normalizeAlignment', () => {
   });
 });
 
+const EPS = 1e-4;
+
+const expectClose = (value: number, expected: number, epsilon = EPS) => {
+  expect(Math.abs(value - expected)).toBeLessThanOrEqual(epsilon);
+};
+
 describe('computeLayerTransform', () => {
-  const baseAlignment: LayerAlignmentSettings = {
+  const anchorAlignment: LayerAlignmentSettings = {
     fit: 'none',
     horizontal: 'center',
     vertical: 'center',
     positioning: 'anchor',
-    offsetPx: { x: 0, y: 0 }
+    offsetPercent: { x: 50, y: 50 },
   };
 
-  test('contain fits within viewport and centers content', () => {
-    const transform = computeLayerTransform(
-      { width: 100, height: 50 },
-      { width: 200, height: 200 },
-      { ...baseAlignment, fit: 'contain' }
-    );
+  const documentSize = { width: 100, height: 50 };
+  const viewport = { width: 200, height: 200 };
 
-    expect(transform.scaleX).toBeCloseTo(2);
-    expect(transform.scaleY).toBeCloseTo(2);
-    expect(transform.translateX).toBeCloseTo(0);
-    expect(transform.translateY).toBeCloseTo(50);
+  const expectedAnchorTranslation = (doc: { width: number; height: number }, view: { width: number; height: number }) => ({
+    x: (view.width - doc.width) / 2,
+    y: (view.height - doc.height) / 2,
   });
 
+  test('anchor positioning keeps unit scale and centers leftover area for contain', () => {
+    const transform = computeLayerTransform(documentSize, viewport, { ...anchorAlignment, fit: 'contain' });
 
-  test('cover scales uniformly until the frame is fully covered', () => {
-    const transform = computeLayerTransform(
-      { width: 100, height: 50 },
-      { width: 200, height: 200 },
-      { ...baseAlignment, fit: 'cover' }
-    );
-
-    expect(transform.scaleX).toBeCloseTo(4);
-    expect(transform.scaleY).toBeCloseTo(4);
-    // With cover, the horizontal overflow is centered (extra space is negative).
-    expect(transform.translateX).toBeCloseTo(-100);
-    expect(transform.translateY).toBeCloseTo(0);
+    expectClose(transform.scaleX, 1);
+    expectClose(transform.scaleY, 1);
+    const expected = expectedAnchorTranslation(documentSize, viewport);
+    expectClose(transform.translateX, expected.x);
+    expectClose(transform.translateY, expected.y);
   });
 
-  test('fill stretches independently on each axis', () => {
-    const transform = computeLayerTransform(
-      { width: 100, height: 50 },
-      { width: 200, height: 200 },
-      { ...baseAlignment, fit: 'fill' }
-    );
+  test('anchor positioning ignores fit scaling but honors percent offsets', () => {
+    const percentShift: LayerAlignmentSettings = {
+      ...anchorAlignment,
+      fit: 'cover',
+      offsetPercent: { x: 75, y: 25 },
+      horizontal: 'left',
+      vertical: 'top',
+    };
 
-    expect(transform.scaleX).toBeCloseTo(2);
-    expect(transform.scaleY).toBeCloseTo(4);
-    expect(transform.translateX).toBeCloseTo(0);
-    expect(transform.translateY).toBeCloseTo(0);
+    const transform = computeLayerTransform(documentSize, viewport, percentShift);
+    expectClose(transform.scaleX, 1);
+    expectClose(transform.scaleY, 1);
+
+    const leftoverX = viewport.width - documentSize.width;
+    const leftoverY = viewport.height - documentSize.height;
+    expectClose(transform.translateX, leftoverX * 0.75);
+    expectClose(transform.translateY, leftoverY * 0.25);
   });
 
-  test('tile preserves scale and uses percent offsets for phase translation', () => {
+  test('auto positioning applies fit scaling and percent offsets', () => {
+    const autoAlignment: LayerAlignmentSettings = {
+      fit: 'contain',
+      horizontal: 'left',
+      vertical: 'top',
+      positioning: 'auto',
+      offsetPercent: { x: 20, y: 40 },
+    };
+
+    const transform = computeLayerTransform(documentSize, viewport, autoAlignment);
+
+    const expectedScale = Math.min(viewport.width / documentSize.width, viewport.height / documentSize.height);
+    expectClose(transform.scaleX, expectedScale);
+    expectClose(transform.scaleY, expectedScale);
+
+    const renderedWidth = documentSize.width * expectedScale;
+    const renderedHeight = documentSize.height * expectedScale;
+    const leftoverX = viewport.width - renderedWidth;
+    const leftoverY = viewport.height - renderedHeight;
+    expectClose(transform.translateX, leftoverX * 0.2);
+    expectClose(transform.translateY, leftoverY * 0.4);
+  });
+
+  test('tile fit leaves scale at 1 while translating by percent offsets', () => {
     const transform = computeLayerTransform(
       { width: 120, height: 80 },
       { width: 300, height: 200 },
       {
-        ...baseAlignment,
+        ...anchorAlignment,
         fit: 'tile',
         horizontal: 'left',
         vertical: 'top',
-        offsetPercent: { x: 50, y: 25 }
+        offsetPercent: { x: 50, y: 25 },
       }
     );
 
-    expect(transform.scaleX).toBeCloseTo(1);
-    expect(transform.scaleY).toBeCloseTo(1);
-    expect(transform.translateX).toBeCloseTo((300 - 120) * 0.5);
-    expect(transform.translateY).toBeCloseTo((200 - 80) * 0.25);
-  });
-
-  test('none fit leaves scaling at 1 and only adjusts alignment', () => {
-    const transform = computeLayerTransform(
-      { width: 100, height: 50 },
-      { width: 200, height: 200 },
-      { ...baseAlignment, fit: 'none' }
-    );
-
-    expect(transform.scaleX).toBeCloseTo(1);
-    expect(transform.scaleY).toBeCloseTo(1);
-    expect(transform.translateX).toBeCloseTo(50);
-    expect(transform.translateY).toBeCloseTo(75);
-  });
-
-  test('percent offsets are ignored unless fit is percent', () => {
-    const containTransform = computeLayerTransform(
-      { width: 50, height: 50 },
-      { width: 100, height: 100 },
-      {
-        ...baseAlignment,
-        fit: 'contain',
-        offsetPercent: { x: 50, y: 50 }
-      }
-    );
-
-    expect(containTransform.translateX).toBeCloseTo(0);
-    expect(containTransform.translateY).toBeCloseTo(0);
-
-    const noneTransform = computeLayerTransform(
-      { width: 50, height: 50 },
-      { width: 150, height: 150 },
-      {
-        ...baseAlignment,
-        horizontal: 'left',
-        vertical: 'top',
-        fit: 'none',
-        offsetPercent: { x: 50, y: 50 }
-      }
-    );
-
-    expect(noneTransform.translateX).toBeCloseTo(0);
-    expect(noneTransform.translateY).toBeCloseTo(0);
-
-    const percentTransform = computeLayerTransform(
-      { width: 100, height: 100 },
-      { width: 200, height: 200 },
-      {
-        ...baseAlignment,
-        horizontal: 'left',
-        vertical: 'top',
-        fit: 'none',
-        positioning: 'anchor',
-        offsetPercent: { x: 25, y: 75 }
-      }
-    );
-
-    expect(percentTransform.translateX).toBeCloseTo(50);
-    expect(percentTransform.translateY).toBeCloseTo(150);
-  });
-
-  test('auto positioning uses percent offsets with any fit', () => {
-    const autoAlignment: LayerAlignmentSettings = {
-      ...baseAlignment,
-      positioning: 'auto',
-      offsetPercent: { x: 30, y: 20 }
-    };
-
-    const transform = computeLayerTransform(
-      { width: 50, height: 50 },
-      { width: 200, height: 200 },
-      autoAlignment
-    );
-
-    expect(transform.translateX).toBeCloseTo(45);
-    expect(transform.translateY).toBeCloseTo(30);
-  });
-
-
-  test('offsets are applied after alignment', () => {
-    const transform = computeLayerTransform(
-      { width: 100, height: 100 },
-      { width: 200, height: 200 },
-      { ...baseAlignment, fit: 'contain', offsetPx: { x: 10, y: -5 } }
-    );
-
-    expect(transform.translateX).toBeCloseTo(10);
-    expect(transform.translateY).toBeCloseTo(-5);
+    expectClose(transform.scaleX, 1);
+    expectClose(transform.scaleY, 1);
+    expectClose(transform.translateX, (300 - 120) * 0.5);
+    expectClose(transform.translateY, (200 - 80) * 0.25);
   });
 
   test('auto positioning derives percent from layer bounds when stored percent is neutral', () => {

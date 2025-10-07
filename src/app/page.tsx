@@ -106,7 +106,7 @@ export default function Home() {
   // Save/Open keyboard shortcuts are centralized in useComprehensiveKeyboard
 
   return (
-    <main className="w-screen h-screen bg-[#141514] text-white flex overflow-hidden">
+    <main className="w-screen h-screen bg-[#141514] text-[#D9D9D9] flex overflow-hidden">
       <ConsoleSilencer />
       
       {/* Left Toolbar */}
@@ -138,6 +138,9 @@ export default function Home() {
         <AnimationControlsPanel />
       </div>
 
+      {/* Vertical Separator Between Right Columns */}
+      <div className="self-stretch border-l" />
+
       {/* Right Panel Column */}
       <div className="flex flex-col h-screen flex-shrink-0 bg-[#2C2C2C]" style={{ width: '260px', minWidth: '260px', maxWidth: '260px' }}>
         <div className="flex-shrink-0">
@@ -147,7 +150,7 @@ export default function Home() {
         <div className="flex-1 min-h-0 overflow-hidden">
           <BrushLibraryPanel />
         </div>
-        <div className="h-[2px] bg-[#424242] w-full flex-shrink-0" />
+        <div className="border-t w-full flex-shrink-0" />
         <div className="flex-[1.2] min-h-0 overflow-hidden">
           <BrushSettingsPanel />
         </div>

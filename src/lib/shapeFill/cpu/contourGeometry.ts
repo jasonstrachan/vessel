@@ -1,4 +1,5 @@
 import type { BoundingBox, StrokeJob } from '@/lib/shapeFill/types';
+import { debugLog } from '@/utils/debug';
 
 export type ContourGeometryLoop = {
   levelIndex: number;
@@ -22,6 +23,11 @@ export interface ContourGeometryParams {
 type Vec2 = { x: number; y: number };
 
 const DEFAULT_EXTENSION = 256;
+
+type BiasSample = {
+  point: Vec2;
+  mode: 'edge' | 'center';
+};
 
 const toPoints = (vertices: readonly Vec2[] | Float32Array): Vec2[] => {
   if (vertices instanceof Float32Array) {
@@ -51,6 +57,44 @@ const distanceToSegmentSquared = (point: Vec2, a: Vec2, b: Vec2): number => {
   const diffX = point.x - projX;
   const diffY = point.y - projY;
   return diffX * diffX + diffY * diffY;
+};
+
+const closestPointOnSegment = (point: Vec2, a: Vec2, b: Vec2): Vec2 => {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+
+  if (lenSq === 0) {
+    return { x: a.x, y: a.y };
+  }
+
+  const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lenSq));
+  return {
+    x: a.x + t * dx,
+    y: a.y + t * dy,
+  };
+};
+
+const closestPointOnPolygon = (point: Vec2, vertices: Vec2[]): { point: Vec2; distance: number } => {
+  let bestPoint = vertices[0];
+  let minDistSq = Infinity;
+
+  for (let index = 0; index < vertices.length; index += 1) {
+    const next = (index + 1) % vertices.length;
+    const candidatePoint = closestPointOnSegment(point, vertices[index], vertices[next]);
+    const diffX = point.x - candidatePoint.x;
+    const diffY = point.y - candidatePoint.y;
+    const distSq = diffX * diffX + diffY * diffY;
+    if (distSq < minDistSq) {
+      minDistSq = distSq;
+      bestPoint = candidatePoint;
+    }
+  }
+
+  return {
+    point: bestPoint,
+    distance: Math.sqrt(minDistSq),
+  };
 };
 
 const distanceToPolygon = (point: Vec2, vertices: Vec2[]): number => {
@@ -119,21 +163,72 @@ const computePolygonCentroid = (vertices: Vec2[]): Vec2 => {
   };
 };
 
+const sampleEdgeInsetPoint = (
+  vertices: Vec2[],
+  centroid: Vec2,
+  spacing: number,
+  rng: () => number,
+): Vec2 | null => {
+  const attemptLimit = Math.max(24, vertices.length * 2);
+  for (let attempt = 0; attempt < attemptLimit; attempt += 1) {
+    const index = Math.floor(rng() * vertices.length);
+    const next = (index + 1) % vertices.length;
+    const a = vertices[index];
+    const b = vertices[next];
+    const t = 0.05 + rng() * 0.9;
+    const edgePoint = {
+      x: a.x + (b.x - a.x) * t,
+      y: a.y + (b.y - a.y) * t,
+    };
+
+    const direction = {
+      x: centroid.x - edgePoint.x + (rng() - 0.5) * spacing * 0.35,
+      y: centroid.y - edgePoint.y + (rng() - 0.5) * spacing * 0.35,
+    };
+    const length = Math.hypot(direction.x, direction.y);
+    if (length <= 1e-5) {
+      continue;
+    }
+
+    const inset = Math.max(0.35, spacing * (0.12 + rng() * 0.3));
+    const candidate = {
+      x: edgePoint.x + (direction.x / length) * inset,
+      y: edgePoint.y + (direction.y / length) * inset,
+    };
+
+    if (isPointInsidePolygon(candidate, vertices)) {
+      return candidate;
+    }
+  }
+
+  return null;
+};
+
 const sampleInteriorPoint = (
   vertices: Vec2[],
   bounds: BoundingBox,
   rng: () => number,
-): Vec2 => {
+  spacing: number,
+  biasSeed: number,
+): BiasSample => {
   const spanX = Math.max(1e-6, bounds.maxX - bounds.minX);
   const spanY = Math.max(1e-6, bounds.maxY - bounds.minY);
   const attemptCount = Math.max(36, vertices.length * 8);
   const centroid = computePolygonCentroid(vertices);
+  const seededEdgeBias = ((biasSeed >>> 3) & 0xffff) / 0xffff;
   const preferEdgeRoll = rng();
-  const preferEdge = preferEdgeRoll < 0.35;
+  const preferEdge = seededEdgeBias < 0.6 || preferEdgeRoll < 0.35;
   const centerPower = 0.9 + rng() * 1.1;
   const edgePower = 0.6 + rng() * 1.3;
   const extent = Math.max(spanX, spanY) * 0.5;
   const distanceNormalizer = Math.max(1e-6, extent);
+
+  if (preferEdge) {
+    const edgeCandidate = sampleEdgeInsetPoint(vertices, centroid, spacing, rng);
+    if (edgeCandidate) {
+      return { point: edgeCandidate, mode: 'edge' };
+    }
+  }
 
   let bestCandidate: Vec2 | null = null;
   let bestScore = -Infinity;
@@ -164,23 +259,35 @@ const sampleInteriorPoint = (
 
   if (bestCandidate) {
     if (preferEdge) {
-      const direction = {
-        x: bestCandidate.x - centroid.x,
-        y: bestCandidate.y - centroid.y,
-      };
-      const length = Math.hypot(direction.x, direction.y);
-      if (length > 1e-5) {
-        const pushFactor = 1 + Math.min(0.4, rng() * 0.5);
-        const pushed = {
-          x: centroid.x + (direction.x / length) * length * pushFactor,
-          y: centroid.y + (direction.y / length) * length * pushFactor,
+      const edgeInset = sampleEdgeInsetPoint(vertices, centroid, spacing, rng);
+      if (edgeInset) {
+        return { point: edgeInset, mode: 'edge' };
+      }
+
+      const { point: edgePoint, distance } = closestPointOnPolygon(bestCandidate, vertices);
+      const offsetTarget = Math.max(
+        0.5,
+        Math.min(distance * (0.2 + rng() * 0.25), extent * (0.04 + rng() * 0.08)),
+      );
+      if (distance > offsetTarget) {
+        const direction = {
+          x: bestCandidate.x - edgePoint.x,
+          y: bestCandidate.y - edgePoint.y,
         };
-        if (isPointInsidePolygon(pushed, vertices)) {
-          bestCandidate = pushed;
+        const length = Math.hypot(direction.x, direction.y);
+        if (length > 1e-5) {
+          const ratio = Math.max(0, Math.min(1, offsetTarget / length));
+          const adjusted = {
+            x: edgePoint.x + direction.x * ratio,
+            y: edgePoint.y + direction.y * ratio,
+          };
+          if (isPointInsidePolygon(adjusted, vertices)) {
+            bestCandidate = adjusted;
+          }
         }
       }
     }
-    return bestCandidate;
+    return { point: bestCandidate, mode: preferEdge ? 'edge' : 'center' };
   }
 
   if (preferEdge) {
@@ -199,16 +306,16 @@ const sampleInteriorPoint = (
         y: centroid.y + (edgePoint.y - centroid.y) * mix,
       };
       if (isPointInsidePolygon(candidate, vertices)) {
-        return candidate;
+        return { point: candidate, mode: 'edge' };
       }
     }
   }
 
   if (isPointInsidePolygon(centroid, vertices)) {
-    return centroid;
+    return { point: centroid, mode: 'center' };
   }
 
-  return vertices[0];
+  return { point: vertices[0], mode: preferEdge ? 'edge' : 'center' };
 };
 
 const applyContourCenterBias = (
@@ -218,15 +325,24 @@ const applyContourCenterBias = (
   spacing: number,
   rng: () => number,
   vertices: Vec2[],
+  baseMaxDistance: number,
+  mode: BiasSample['mode'],
 ) => {
   const boundaryDistance = distanceToPolygon(center, vertices);
   const maxReach = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
-  const maxRadius = Math.max(spacing, maxReach * 0.5);
-  const edgeFactor = Math.max(0, 1 - boundaryDistance / Math.max(spacing * 2, maxRadius));
-  const amplitudeBase = spacing * (0.45 + rng() * 1.05);
-  const amplitude = Math.max(spacing * 0.25, amplitudeBase + edgeFactor * spacing * (0.5 + rng() * 0.6));
-  const falloffBase = 1.1 + rng() * 1.1;
-  const falloffPower = falloffBase + edgeFactor * (0.8 + rng() * 0.6);
+  const edgeFactor = Math.max(0, 1 - boundaryDistance / Math.max(spacing * 2, maxReach));
+  const baseRadius = mode === 'edge'
+    ? Math.min(maxReach * 0.45, boundaryDistance + spacing * (4 + rng() * 2))
+    : maxReach * 0.5;
+  const maxRadius = Math.max(spacing * 1.5, baseRadius);
+
+  const targetPeak = mode === 'edge'
+    ? Math.max(baseMaxDistance * 1.1, boundaryDistance + Math.max(maxRadius * 0.8, spacing * (6 + rng() * 4)))
+    : Math.max(baseMaxDistance, boundaryDistance + spacing * (2 + rng() * 2));
+  const amplitude = Math.max(targetPeak - boundaryDistance, spacing * (mode === 'edge' ? 1.2 : 0.5));
+
+  const falloffBase = mode === 'edge' ? 1.6 + rng() * 0.6 : 1.1 + rng() * 0.6;
+  const falloffPower = falloffBase + edgeFactor * (mode === 'edge' ? 1.2 + rng() * 0.8 : 0.4 + rng() * 0.4);
 
   for (let row = 0; row < fieldData.rows; row += 1) {
     const y = bounds.minY - fieldData.extension + row * fieldData.resolution;
@@ -551,8 +667,27 @@ export const computeContoursCPU = (
   smoothField(field.field, field.rows, field.cols, 2);
   const seed = (params.randomSeed ?? Math.floor(Math.random() * 0xffffffff)) >>> 0;
   const rng = createDeterministicRng(seed || 1);
-  const biasCenter = sampleInteriorPoint(vertices, bounds, rng);
-  applyContourCenterBias(field, bounds, biasCenter, spacing, rng, vertices);
+  let baseMaxDistance = 0;
+  for (let row = 0; row < field.rows; row += 1) {
+    for (let col = 0; col < field.cols; col += 1) {
+      const value = field.field[row][col];
+      if (value > baseMaxDistance) {
+        baseMaxDistance = value;
+      }
+    }
+  }
+
+  const biasSample = sampleInteriorPoint(vertices, bounds, rng, spacing, seed);
+  const biasDistance = distanceToPolygon(biasSample.point, vertices);
+  debugLog('shape-fill', 'contour-bias-center', {
+    id: job.id,
+    mode: biasSample.mode,
+    point: biasSample.point,
+    spacing,
+    bounds,
+    distanceToEdge: biasDistance,
+  });
+  applyContourCenterBias(field, bounds, biasSample.point, spacing, rng, vertices, baseMaxDistance, biasSample.mode);
   const smoothingAlpha = 0.1 + (1 - Math.min(1, Math.max(0, params.variance))) * 0.25;
   const smoothingIterations = params.variance > 0.6 ? 2 : 3;
 

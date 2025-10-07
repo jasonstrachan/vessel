@@ -1,5 +1,6 @@
 import type { BrushSettings, ContourLinesBasis } from '@/types';
 import type { ShapeFillScheduler } from '@/lib/shapeFill/ShapeFillScheduler';
+import type { HybridShapeFillController, ViewTransform } from '@/lib/shapeFill/hybrid/controller';
 
 export type Point = { x: number; y: number };
 
@@ -19,6 +20,11 @@ export type ContourLineOptions = {
   randomSeed?: number;
   previewDetail?: 'minimal' | 'full';
   strokeColorOverride?: string;
+  runtimeContext?: {
+    overlayCanvas?: HTMLCanvasElement | null;
+    finalCanvas?: HTMLCanvasElement | null;
+    viewTransform?: ViewTransform;
+  };
 };
 
 export type ShapeFillDependencies = {
@@ -47,6 +53,10 @@ export type ShapeFillDependencies = {
   ) => Array<[Point, Point]>;
   connectSegments: (segments: Array<[Point, Point]>) => Point[][];
   gpuScheduler?: ShapeFillScheduler;
+  hybridController?: HybridShapeFillController;
+  getOverlayCanvas?: () => HTMLCanvasElement | null;
+  getCompositeCanvas?: () => HTMLCanvasElement | null;
+  getViewTransform?: () => ViewTransform | undefined;
 };
 
 export interface PolygonFillBase {

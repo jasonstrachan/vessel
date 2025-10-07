@@ -2296,7 +2296,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       style={{ 
         overflow: 'hidden', 
         backgroundColor: '#2a2a2a',
-        cursor: cursorStyle
+        cursor: cursorStyle,
+        outline: 'none',
+        boxShadow: 'none'
       }}
       tabIndex={0}
       onBlur={handleBlur}

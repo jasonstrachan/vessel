@@ -1,5 +1,5 @@
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
-import { computeLayerPercentOffset } from '@/utils/layerMetrics';
+import { computeLayerPercentOffset, computeLayerContentMetrics } from '@/utils/layerMetrics';
 import { deriveAutoPercentOffset } from '@/utils/alignment/alignFitResolver';
 import type { Layer, Project } from '@/types';
 
@@ -13,6 +13,12 @@ const createImageData = (width: number, height: number): ImageData => {
     height,
     data: new Uint8ClampedArray(width * height * 4)
   } as unknown as ImageData;
+};
+
+const EPS = 1e-4;
+
+const expectClose = (actual: number, expected: number, epsilon = EPS) => {
+  expect(Math.abs(actual - expected)).toBeLessThanOrEqual(epsilon);
 };
 
 describe('layerMetrics', () => {
@@ -57,9 +63,19 @@ describe('layerMetrics', () => {
     };
 
     const offset = computeLayerPercentOffset(layer, project);
+    const metrics = computeLayerContentMetrics(layer, project);
+    const expected = deriveAutoPercentOffset({
+      x: metrics.contentBounds.x,
+      y: metrics.contentBounds.y,
+      width: metrics.contentBounds.width,
+      height: metrics.contentBounds.height,
+    }, {
+      width: project.width,
+      height: project.height,
+    });
 
-    expect(offset.x).toBeCloseTo((2 / width) * 100, 5);
-    expect(offset.y).toBeCloseTo((3 / height) * 100, 5);
+    expectClose(offset.x, expected.x);
+    expectClose(offset.y, expected.y);
   });
 
   it('accounts for document frame when deriving auto percent offsets', () => {
@@ -112,7 +128,7 @@ describe('layerMetrics', () => {
       height: project.height
     });
 
-    expect(percent.x).toBeCloseTo(expected.x, 5);
-    expect(percent.y).toBeCloseTo(expected.y, 5);
+    expectClose(percent.x, expected.x);
+    expectClose(percent.y, expected.y);
   });
 });

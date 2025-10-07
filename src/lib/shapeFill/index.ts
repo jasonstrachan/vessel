@@ -12,3 +12,10 @@ export {
   computeTiles,
   prepareStrokeGeometry,
 } from './tileManager';
+export * from './hybrid/types';
+export {
+  HybridShapeFillEngine,
+  getHybridShapeFillEngine,
+  resetHybridShapeFillEngine,
+} from './hybrid/runtime';
+export { HybridShapeFillRenderer } from './hybrid/renderer';

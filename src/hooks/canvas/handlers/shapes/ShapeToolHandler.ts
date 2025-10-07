@@ -16,6 +16,7 @@ import { withTemporaryBrushSettings } from '@/utils/withTemporaryBrushSettings';
 import { ShapeAdjustHelper, type ShapeAdjustHelperUpdate } from '@/lib/shapeFill/ShapeAdjustHelper';
 import { getShapeFillScheduler } from '@/lib/shapeFill/runtime';
 import { computeFlowGpuJobId } from '@/brushes/shapes/fills/flow';
+import type { ContourLineOptions } from '@/brushes/shapes/fills/types';
 
 export interface ShapeToolHandlerContext {
   deps: EventHandlerDependencies;
@@ -362,10 +363,10 @@ export const createShapeToolHandler = (
       patch.color = strokeColorOverride;
     }
 
-    const lineOptions = {
+    const lineOptions = withRuntimeLineOptions({
       randomSeed: polygonGradientState.flowRandomSeed,
       strokeColorOverride,
-    };
+    });
 
     const isPreview = options?.isPreview ?? false;
 
@@ -545,6 +546,36 @@ export const createShapeToolHandler = (
     overlayCtx?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
   };
 
+  const withRuntimeLineOptions = (options?: ContourLineOptions): ContourLineOptions | undefined => {
+    const overlayCanvas = overlayCanvasRef.current;
+    const finalCanvas = compositeCanvasRef.current;
+    const viewTransform = viewTransformRef.current;
+
+    const runtimeContext = {
+      overlayCanvas,
+      finalCanvas,
+      viewTransform: viewTransform
+        ? {
+            scale: viewTransform.scale,
+            offsetX: viewTransform.offsetX,
+            offsetY: viewTransform.offsetY,
+          }
+        : undefined,
+    };
+
+    if (!options) {
+      return { runtimeContext };
+    }
+
+    return {
+      ...options,
+      runtimeContext: {
+        ...options.runtimeContext,
+        ...runtimeContext,
+      },
+    };
+  };
+
   const drawContourLinesPreview = (
     spacingStart: number,
     spacingEnd?: number,
@@ -607,12 +638,12 @@ export const createShapeToolHandler = (
               fillColor: undefined,
             },
             true,
-            {
+            withRuntimeLineOptions({
               contourSpacingOverride: constrainedEnd ?? constrainedStart,
               randomSeed: contourState.randomSeed ?? undefined,
               strokeColorOverride,
               previewDetail: 'full',
-            }
+            })
           );
         }
       );
@@ -1610,7 +1641,7 @@ export const createShapeToolHandler = (
                   fillColor,
                 },
                 false,
-                strokeColorOverride ? { strokeColorOverride } : undefined
+                withRuntimeLineOptions(strokeColorOverride ? { strokeColorOverride } : undefined)
               );
             }
           );
@@ -1627,7 +1658,7 @@ export const createShapeToolHandler = (
             fillColor,
           },
           false,
-          strokeColorOverride ? { strokeColorOverride } : undefined
+          withRuntimeLineOptions(strokeColorOverride ? { strokeColorOverride } : undefined)
         );
       } else {
         const useSampledFill = shapeFillUsesSampledColor();
@@ -1703,7 +1734,7 @@ export const createShapeToolHandler = (
               fillColor: polygonState.fillColor,
             },
             false,
-            strokeColorOverride ? { strokeColorOverride } : undefined
+            withRuntimeLineOptions(strokeColorOverride ? { strokeColorOverride } : undefined)
           );
         }
       );
@@ -1766,7 +1797,7 @@ export const createShapeToolHandler = (
               fillColor: polygonState.fillColor,
             },
             false,
-            strokeColorOverride ? { strokeColorOverride } : undefined
+            withRuntimeLineOptions(strokeColorOverride ? { strokeColorOverride } : undefined)
           );
         }
       );
@@ -1851,7 +1882,7 @@ export const createShapeToolHandler = (
               fillColor: polygonState.fillColor,
             },
             false,
-            strokeColorOverride ? { strokeColorOverride } : undefined
+            withRuntimeLineOptions(strokeColorOverride ? { strokeColorOverride } : undefined)
           );
         }
       );

@@ -36,18 +36,13 @@ const SaturationSlider = React.forwardRef<
     >
       <SliderPrimitive.Track
         className="relative h-6 w-full grow ascii-slider-track"
-        style={trackStyle}
-      >
-        {/* Saturation gradient from gray to full color */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background: `linear-gradient(to right,
-              hsl(${hue}, 0%, 50%) 0%,
-              hsl(${hue}, 100%, 50%) 100%)`
-          }}
-        />
-      </SliderPrimitive.Track>
+        style={{
+          ...trackStyle,
+          '--slider-track-gradient': `linear-gradient(to right,
+            hsl(${hue}, 0%, 50%) 0%,
+            hsl(${hue}, 100%, 50%) 100%)`
+        } as React.CSSProperties}
+      />
       <SliderPrimitive.Thumb
         className="ascii-slider-thumb focus:outline-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         style={thumbStyle}

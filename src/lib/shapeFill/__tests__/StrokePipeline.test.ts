@@ -3,7 +3,28 @@ import { defaultBrushSettings } from '@/presets/brushPresets';
 import { StrokePipeline } from '../gpu/StrokePipeline';
 import type { StrokeJob, FieldGeneratorResult } from '../types';
 
+declare global {
+  // eslint-disable-next-line no-var
+  var __mockWebgpu: {
+    enable(): void;
+    disable(): void;
+  };
+}
+
 describe('StrokePipeline', () => {
+  const webgpuMock = global.__mockWebgpu as {
+    enable: () => void;
+    disable: () => void;
+  };
+
+  beforeEach(() => {
+    webgpuMock.disable();
+  });
+
+  afterEach(() => {
+    webgpuMock.enable();
+  });
+
   const job: StrokeJob = {
     id: 'job-1',
     vertices: new Float32Array([0, 0, 10, 0, 10, 10]),

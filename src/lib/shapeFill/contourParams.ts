@@ -41,7 +41,9 @@ export const resolveContourParams = (input: ContourParamInput): ResolvedContourP
   const boundsHeight = Math.max(1, input.bounds.maxY - input.bounds.minY);
   const fallbackDistance = Math.min(input.resolution.width, input.resolution.height, Math.max(boundsWidth, boundsHeight)) * 0.5;
   const rawMaxDistance = typeof input.maxDistance === 'number' ? input.maxDistance : fallbackDistance;
-  const maxDistance = Math.max(minSpacing, rawMaxDistance * previewScale);
+  // Keep coverage consistent during previews by never shrinking the maximum contour distance.
+  const coverageScale = previewScale < 1 ? 1 : previewScale;
+  const maxDistance = Math.max(minSpacing, rawMaxDistance * coverageScale);
 
   const baseDirectionExtent = typeof input.directionExtent === 'number'
     ? input.directionExtent
@@ -60,4 +62,3 @@ export const resolveContourParams = (input: ContourParamInput): ResolvedContourP
     fieldResolution,
   };
 };
-

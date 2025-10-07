@@ -14,6 +14,7 @@ import {
   drawContourPolygon as drawContourPolygonFill,
   type ContourLineOptions,
 } from '@/brushes/shapes/fills/contourPolygon';
+import { HybridShapeFillController } from '@/lib/shapeFill/hybrid/controller';
 import { drawCrossHatchPolygon as drawCrossHatchPolygonFill } from '@/brushes/shapes/fills/hatch';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
@@ -67,6 +68,12 @@ export const useBrushEngineSimplified = () => {
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const contourFieldCacheRef = useRef<{ key: string; field: SignedDistanceFieldResult } | null>(null);
   const shapeFillSchedulerRef = useRef<ShapeFillScheduler | null>(null);
+  const hybridFillControllerRef = useRef<HybridShapeFillController | null>(null);
+
+  useEffect(() => () => {
+    hybridFillControllerRef.current?.dispose();
+    hybridFillControllerRef.current = null;
+  }, []);
   
   // Get color cycle brush from active layer instead of single instance
   const getActiveLayerColorCycleBrush = useCallback((): ColorCycleBrushImplementation | null => {
@@ -1326,6 +1333,13 @@ export const useBrushEngineSimplified = () => {
     isPreview: boolean = false,
     lineOptions?: ContourLineOptions
   ) => {
+    const hybridController = (() => {
+      if (!hybridFillControllerRef.current) {
+        hybridFillControllerRef.current = new HybridShapeFillController();
+      }
+      return hybridFillControllerRef.current;
+    })();
+
     drawContourPolygonFill({
       ctx,
       polygonData,
@@ -1338,6 +1352,7 @@ export const useBrushEngineSimplified = () => {
         extractContour,
         connectSegments,
         gpuScheduler: shapeFillSchedulerRef.current ?? undefined,
+        hybridController,
       },
     });
   }, [

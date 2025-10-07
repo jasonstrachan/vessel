@@ -219,8 +219,9 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
           className="slider w-full"
           style={{
             '--slider-track-gradient': 'linear-gradient(to right, rgba(217,217,217,0.15), rgba(217,217,217,0.55))',
-            '--ascii-thumb-size': '14px'
-          } as React.CSSProperties}
+            '--ascii-thumb-size': '14px',
+            '--slider-progress': `${settings.ditherIntensity}%`
+          } as React.CSSProperties & { '--slider-progress': string }}
         />
       </div>
       

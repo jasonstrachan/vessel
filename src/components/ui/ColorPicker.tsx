@@ -361,7 +361,7 @@ export default function ColorPicker({
         ref={svCanvasRef}
         width={212}
         height={212}
-        className="border border-gray-300 cursor-crosshair"
+        className="cursor-crosshair"
         onPointerDown={handleSVPointerDown}
         onPointerMove={handleSVPointerMove}
         onPointerUp={handleSVPointerUp}
@@ -371,7 +371,7 @@ export default function ColorPicker({
         ref={hueCanvasRef}
         width={20}
         height={212}
-        className="border border-gray-300 cursor-pointer"
+        className="cursor-pointer"
         onPointerDown={handleHuePointerDown}
         onPointerMove={handleHuePointerMove}
         onPointerUp={handleHuePointerUp}

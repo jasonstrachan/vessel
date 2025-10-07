@@ -91,7 +91,17 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     isolation: 'isolate',
   };
 
-  const buildSliderStyle = (gradient: string): React.CSSProperties => ({
+  const buildSliderStyle = (
+    gradient: string,
+    value: number,
+    min: number,
+    max: number
+  ): React.CSSProperties & {
+    '--slider-progress': string;
+    '--slider-track-gradient': string;
+    '--ascii-thumb-size': string;
+    '--ascii-thumb-hitbox': string;
+  } => ({
     width: '100%',
     height: '16px',
     borderRadius: '0',
@@ -104,8 +114,9 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
     background: 'transparent',
     '--slider-track-gradient': gradient,
     '--ascii-thumb-size': '14px',
-    '--ascii-thumb-hitbox': '18px'
-  }) as React.CSSProperties;
+    '--ascii-thumb-hitbox': '18px',
+    '--slider-progress': `${((value - min) / Math.max(max - min, 1)) * 100}%`
+  });
 
   // Create hue gradient background
   const hueGradient = 'linear-gradient(to right, ' +
@@ -160,7 +171,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
             max="180"
             value={brushEditor.hueShift}
             onChange={handleHueChange}
-            style={buildSliderStyle(hueGradient)}
+            style={buildSliderStyle(hueGradient, brushEditor.hueShift, -180, 180)}
           />
           
           <input
@@ -170,7 +181,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
             max="100"
             value={brushEditor.lightness}
             onChange={handleLightnessChange}
-            style={buildSliderStyle(lightnessGradient)}
+            style={buildSliderStyle(lightnessGradient, brushEditor.lightness, -100, 100)}
           />
         </div>
       </div>

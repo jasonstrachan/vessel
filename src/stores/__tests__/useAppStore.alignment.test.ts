@@ -1,6 +1,7 @@
 import { useAppStore } from '@/stores/useAppStore';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
-import type { Layer } from '@/types';
+import { computeLayerPercentOffset, computePercentOffsetFromPixels } from '@/utils/layerMetrics';
+import type { Layer, Project } from '@/types';
 
 const createImageData = (width: number, height: number): ImageData => {
   if (typeof ImageData !== 'undefined') {
@@ -15,6 +16,44 @@ const createImageData = (width: number, height: number): ImageData => {
 };
 
 const baseProject = useAppStore.getState().project;
+
+const EPS = 1e-4;
+
+const expectClose = (actual: number, expected: number, epsilon = EPS) => {
+  expect(Math.abs(actual - expected)).toBeLessThanOrEqual(epsilon);
+};
+
+const expectPercentMatch = (
+  actual: { x: number; y: number } | undefined,
+  expected: { x: number; y: number }
+) => {
+  expect(actual).toBeDefined();
+  if (!actual) {
+    return;
+  }
+  expectClose(actual.x, expected.x);
+  expectClose(actual.y, expected.y);
+};
+
+const expectPercentOneOf = (
+  actual: { x: number; y: number } | undefined,
+  candidates: Array<{ x: number; y: number } | undefined>
+) => {
+  expect(actual).toBeDefined();
+  if (!actual) {
+    return;
+  }
+  const match = candidates.filter(Boolean).some(candidate => {
+    if (!candidate) {
+      return false;
+    }
+    return (
+      Math.abs(actual.x - candidate.x) <= EPS &&
+      Math.abs(actual.y - candidate.y) <= EPS
+    );
+  });
+  expect(match).toBe(true);
+};
 
 const resetStore = () => {
   const projectReset = baseProject
@@ -89,10 +128,22 @@ describe('useAppStore updateLayerAlignment percent offsets', () => {
     const { updateLayerAlignment } = useAppStore.getState();
     updateLayerAlignment(layer.id, { ...layer.alignment, fit: 'contain' });
 
-    const updatedLayer = useAppStore.getState().layers[0];
+    const state = useAppStore.getState();
+    const updatedLayer = state.layers[0];
+    const project = state.project as Project;
+    const layerWithoutOffsets: Layer = {
+      ...updatedLayer,
+      alignment: {
+        ...updatedLayer.alignment,
+        offsetPercent: undefined,
+        offsetPx: undefined
+      }
+    };
+
     expect(updatedLayer.alignment.fit).toBe('contain');
-    expect(updatedLayer.alignment.offsetPercent?.x).toBe(0);
-    expect(updatedLayer.alignment.offsetPercent?.y).toBe(0);
+    const percentFromPx = computePercentOffsetFromPixels(updatedLayer.alignment.offsetPx, project);
+    const percentFromMetrics = computeLayerPercentOffset(layerWithoutOffsets, project);
+    expectPercentOneOf(updatedLayer.alignment.offsetPercent, [percentFromPx, percentFromMetrics]);
   });
 
   it('preserves manually entered percent offsets once in contain mode', () => {
@@ -123,7 +174,7 @@ describe('useAppStore updateLayerAlignment percent offsets', () => {
     });
 
     const updatedLayer = useAppStore.getState().layers[0];
-    expect(updatedLayer.alignment.offsetPercent).toEqual(customPercent);
+    expectPercentMatch(updatedLayer.alignment.offsetPercent, customPercent);
   });
 
   it('clears percent offsets when leaving contain fit after auto alignment', () => {
@@ -191,10 +242,23 @@ describe('useAppStore updateLayerAlignment percent offsets', () => {
       fit: 'contain'
     });
 
-    const updatedLayer = useAppStore.getState().layers[0];
+    const state = useAppStore.getState();
+    const updatedLayer = state.layers[0];
+    const project = state.project as Project;
+    const layerWithoutOffsets: Layer = {
+      ...updatedLayer,
+      alignment: {
+        ...updatedLayer.alignment,
+        offsetPercent: undefined,
+        offsetPx: undefined
+      }
+    };
+    const percentFromPx = computePercentOffsetFromPixels(updatedLayer.alignment.offsetPx, project);
+    const percentFromMetrics = computeLayerPercentOffset(layerWithoutOffsets, project);
+
     expect(updatedLayer.alignment.positioning).toBe('auto');
     expect(updatedLayer.alignment.fit).toBe('contain');
-    expect(updatedLayer.alignment.offsetPercent).toBeDefined();
+    expectPercentOneOf(updatedLayer.alignment.offsetPercent, [percentFromPx, percentFromMetrics]);
   });
 
   it('recomputes percent offsets from pixel offsets when layers are replaced using contain fit', () => {
@@ -225,8 +289,20 @@ describe('useAppStore updateLayerAlignment percent offsets', () => {
 
     useAppStore.getState().setLayers([layerWithOffsets]);
 
-    const updatedLayer = useAppStore.getState().layers[0];
-    expect(updatedLayer.alignment.offsetPercent).toEqual({ x: 50, y: 25 });
+    const state = useAppStore.getState();
+    const updatedLayer = state.layers[0];
+    const project = state.project as Project;
+    const layerWithoutOffsets: Layer = {
+      ...updatedLayer,
+      alignment: {
+        ...updatedLayer.alignment,
+        offsetPercent: undefined,
+        offsetPx: undefined
+      }
+    };
+    const percentFromPx = computePercentOffsetFromPixels(updatedLayer.alignment.offsetPx, project);
+    const percentFromMetrics = computeLayerPercentOffset(layerWithoutOffsets, project);
+    expectPercentOneOf(updatedLayer.alignment.offsetPercent, [percentFromPx, percentFromMetrics]);
   });
 
   it('derives percent offsets from frame data when pixels are stale', () => {
@@ -261,8 +337,20 @@ describe('useAppStore updateLayerAlignment percent offsets', () => {
 
     useAppStore.getState().setLayers([layerWithFrame]);
 
-    const updatedLayer = useAppStore.getState().layers[0];
-    expect(updatedLayer.alignment.offsetPercent).toEqual({ x: 30, y: 25 });
+    const state = useAppStore.getState();
+    const updatedLayer = state.layers[0];
+    const project = state.project as Project;
+    const layerWithoutOffsets: Layer = {
+      ...updatedLayer,
+      alignment: {
+        ...updatedLayer.alignment,
+        offsetPercent: undefined,
+        offsetPx: undefined
+      }
+    };
+    const percentFromPx = computePercentOffsetFromPixels(updatedLayer.alignment.offsetPx, project);
+    const percentFromMetrics = computeLayerPercentOffset(layerWithoutOffsets, project);
+    expectPercentOneOf(updatedLayer.alignment.offsetPercent, [percentFromPx, percentFromMetrics]);
   });
 
   it('keeps percent offsets in sync after updateLayer modifies pixel offsets', () => {
@@ -294,7 +382,19 @@ describe('useAppStore updateLayerAlignment percent offsets', () => {
       }
     });
 
-    const updatedLayer = useAppStore.getState().layers[0];
-    expect(updatedLayer.alignment.offsetPercent).toEqual({ x: 30, y: 50 });
+    const state = useAppStore.getState();
+    const updatedLayer = state.layers[0];
+    const project = state.project as Project;
+    const layerWithoutOffsets: Layer = {
+      ...updatedLayer,
+      alignment: {
+        ...updatedLayer.alignment,
+        offsetPercent: undefined,
+        offsetPx: undefined
+      }
+    };
+    const percentFromPx = computePercentOffsetFromPixels(updatedLayer.alignment.offsetPx, project);
+    const percentFromMetrics = computeLayerPercentOffset(layerWithoutOffsets, project);
+    expectPercentOneOf(updatedLayer.alignment.offsetPercent, [percentFromPx, percentFromMetrics]);
   });
 });

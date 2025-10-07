@@ -10,7 +10,17 @@ import { useBrushEngineSimplified } from '@/hooks/useBrushEngineSimplified';
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 10;
 
-const buildBrushEditorSliderStyle = (gradient: string): React.CSSProperties => ({
+const buildBrushEditorSliderStyle = (
+  gradient: string,
+  value: number,
+  min: number,
+  max: number
+): React.CSSProperties & {
+  '--slider-progress': string;
+  '--slider-track-gradient': string;
+  '--ascii-thumb-size': string;
+  '--ascii-thumb-hitbox': string;
+} => ({
   width: '100%',
   height: '20px',
   borderRadius: '0',
@@ -21,8 +31,9 @@ const buildBrushEditorSliderStyle = (gradient: string): React.CSSProperties => (
   background: 'transparent',
   '--slider-track-gradient': gradient,
   '--ascii-thumb-size': '16px',
-  '--ascii-thumb-hitbox': '20px'
-}) as React.CSSProperties;
+  '--ascii-thumb-hitbox': '20px',
+  '--slider-progress': `${((value - min) / Math.max(max - min, 1)) * 100}%`
+});
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 interface BrushEditorUIProps {}
@@ -873,7 +884,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
               max="180"
               value={brushEditor.hueShift}
               onChange={handleHueChange}
-              style={buildBrushEditorSliderStyle(hueGradient)}
+              style={buildBrushEditorSliderStyle(hueGradient, brushEditor.hueShift, -180, 180)}
             />
           </div>
 
@@ -886,7 +897,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
               max="100"
               value={brushEditor.lightness}
               onChange={handleLightnessChange}
-              style={buildBrushEditorSliderStyle(lightnessGradient)}
+              style={buildBrushEditorSliderStyle(lightnessGradient, brushEditor.lightness, -100, 100)}
             />
           </div>
 
@@ -899,7 +910,7 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
               max="200"
               value={brushEditor.saturation}
               onChange={handleSaturationChange}
-              style={buildBrushEditorSliderStyle(saturationGradient)}
+              style={buildBrushEditorSliderStyle(saturationGradient, brushEditor.saturation, 0, 200)}
             />
           </div>
         </div>

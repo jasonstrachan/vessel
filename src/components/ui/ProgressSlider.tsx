@@ -30,9 +30,10 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
     () => ({
       background: 'transparent',
       '--slider-track-gradient': 'linear-gradient(to right, transparent, transparent)',
-      '--ascii-thumb-hitbox': '20px'
-    }) as React.CSSProperties,
-    []
+      '--ascii-thumb-hitbox': '20px',
+      '--slider-progress': `${percentage}%`
+    }) as React.CSSProperties & { '--slider-progress': string },
+    [percentage]
   );
 
   return (

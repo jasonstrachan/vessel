@@ -436,6 +436,7 @@ export interface BrushSettings {
   contourSpacing?: number; // 1-10 (spacing between contour lines)
   contourVariance?: number; // 0-10 (variance in spacing, 0=uniform, 10=high variance)
   contourSmoothness?: number; // 0-5 (smoothness of contour lines, 0=sharp, 5=very smooth)
+  contourMaxDistance?: number; // optional max distance for contour propagation
   // Contour Lines 2 brush settings (placeholder for upcoming implementation)
   contourLines2Spacing?: number; // 1-20 (base spacing between line groups)
   contourLines2Density?: number; // 1-10 (number of sub-lines per group)

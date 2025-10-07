@@ -190,7 +190,10 @@ const ColorPickerPanel = React.memo(() => {
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             aria-label="Red"
-            style={{ touchAction: 'none' }}
+            style={{
+              touchAction: 'none',
+              '--slider-progress': `${(rgbValues.r / 255) * 100}%`
+            } as React.CSSProperties & { '--slider-progress': string }}
           />
           
           {/* Green slider */}
@@ -207,7 +210,10 @@ const ColorPickerPanel = React.memo(() => {
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
               aria-label="Green"
-              style={{ touchAction: 'none' }}
+              style={{
+                touchAction: 'none',
+                '--slider-progress': `${(rgbValues.g / 255) * 100}%`
+              } as React.CSSProperties & { '--slider-progress': string }}
             />
           </div>
           
@@ -225,7 +231,10 @@ const ColorPickerPanel = React.memo(() => {
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
               aria-label="Blue"
-              style={{ touchAction: 'none' }}
+              style={{
+                touchAction: 'none',
+                '--slider-progress': `${(rgbValues.b / 255) * 100}%`
+              } as React.CSSProperties & { '--slider-progress': string }}
             />
           </div>
         </div>

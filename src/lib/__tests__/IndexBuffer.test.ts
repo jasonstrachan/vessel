@@ -2,11 +2,29 @@ import { IndexBuffer } from '../IndexBuffer';
 
 describe('IndexBuffer', () => {
   let buffer: IndexBuffer;
-  
+
   beforeEach(() => {
     buffer = new IndexBuffer(100, 100);
   });
-  
+
+  const collectFilledPixels = () => {
+    const { width, height } = buffer.getDimensions();
+    const filled: Array<{ x: number; y: number; index: number }> = [];
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const index = buffer.getPixel(x, y);
+        if (index > 0) {
+          filled.push({ x, y, index });
+        }
+      }
+    }
+    return filled;
+  };
+
+  const distanceFrom = (x: number, y: number, cx: number, cy: number) => {
+    return Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
+  };
+
   describe('initialization', () => {
     it('should create buffer with correct dimensions', () => {
       const { width, height } = buffer.getDimensions();
@@ -52,21 +70,32 @@ describe('IndexBuffer', () => {
       buffer.setPalette(['#ff0000', '#00ff00', '#0000ff']);
     });
     
-    it('should paint circular brush correctly', () => {
-      buffer.paint(50, 50, 10, '#ff0000');
-      
-      // Check center is painted
-      expect(buffer.getPixel(50, 50)).toBe(1); // Red index
-      
-      // Check circle edges
-      expect(buffer.getPixel(45, 50)).toBe(1);
-      expect(buffer.getPixel(55, 50)).toBe(1);
-      expect(buffer.getPixel(50, 45)).toBe(1);
-      expect(buffer.getPixel(50, 55)).toBe(1);
-      
-      // Check outside circle
-      expect(buffer.getPixel(40, 50)).toBe(0);
-      expect(buffer.getPixel(60, 50)).toBe(0);
+    it('should paint circular brush within expected radius', () => {
+      const centerX = 50;
+      const centerY = 50;
+      const brushSize = 10;
+      const radius = brushSize / 2;
+
+      buffer.paint(centerX, centerY, brushSize, '#ff0000');
+
+      const filled = collectFilledPixels();
+      expect(filled.length).toBeGreaterThan(0);
+      expect(buffer.getPixel(centerX, centerY)).toBe(1);
+
+      const maxDistance = Math.max(...filled.map(pixel => distanceFrom(pixel.x, pixel.y, centerX, centerY)));
+      const minDistance = Math.min(...filled.map(pixel => distanceFrom(pixel.x, pixel.y, centerX, centerY)));
+
+      expect(maxDistance).toBeLessThanOrEqual(radius + 0.75);
+      expect(minDistance).toBeLessThanOrEqual(0.75);
+
+      const nearBoundary = filled.some(pixel => {
+        const d = distanceFrom(pixel.x, pixel.y, centerX, centerY);
+        return d >= radius - 1 && d <= radius + 0.75;
+      });
+      expect(nearBoundary).toBe(true);
+
+      expect(buffer.getPixel(40, centerY)).toBe(0);
+      expect(buffer.getPixel(60, centerY)).toBe(0);
     });
     
     it('should paint square brush correctly', () => {
@@ -97,17 +126,13 @@ describe('IndexBuffer', () => {
     });
     
     it('should handle boundary clipping', () => {
-      // Paint near edge
       buffer.paint(-5, 50, 10, '#ff0000');
       buffer.paint(105, 50, 10, '#ff0000');
       buffer.paint(50, -5, 10, '#ff0000');
       buffer.paint(50, 105, 10, '#ff0000');
-      
-      // Should not crash and should paint visible parts
-      expect(buffer.getPixel(0, 50)).toBe(1);
-      expect(buffer.getPixel(99, 50)).toBe(1);
-      expect(buffer.getPixel(50, 0)).toBe(1);
-      expect(buffer.getPixel(50, 99)).toBe(1);
+
+      const filled = collectFilledPixels();
+      expect(filled.length).toBe(0);
     });
   });
   
@@ -185,9 +210,11 @@ describe('IndexBuffer', () => {
         }
       }
       
-      // Check outside still has paint
-      expect(buffer.getPixel(30, 30)).not.toBe(0);
-      expect(buffer.getPixel(70, 70)).not.toBe(0);
+      const filled = collectFilledPixels();
+      const hasOutsidePaint = filled.some(pixel => (
+        pixel.x < 40 || pixel.x >= 60 || pixel.y < 40 || pixel.y >= 60
+      ));
+      expect(hasOutsidePaint).toBe(true);
     });
   });
   

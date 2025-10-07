@@ -44,12 +44,13 @@ const ANCHOR_GRID: AnchorKey[][] = [
 ];
 
 const anchorButtonBase = [
-  'h-6 border transition-colors',
-  'flex items-center justify-center'
+  'h-6 border-0 transition-colors bg-transparent',
+  'flex items-center justify-center',
+  'text-[#D9D9D9]'
 ].join(' ');
 
-const anchorActiveClass = 'border-[#3D3D46] bg-[#5A5A68]';
-const anchorInactiveClass = 'border-[#3D3D46] bg-transparent hover:bg-[#5A5A68]';
+const anchorActiveClass = 'bg-transparent text-white';
+const anchorInactiveClass = 'bg-transparent hover:text-white';
 
 const fitOptions: Array<{ value: LayerAlignmentSettings['fit']; label: string }> = [
   { value: 'none', label: 'None' },
@@ -60,8 +61,8 @@ const fitOptions: Array<{ value: LayerAlignmentSettings['fit']; label: string }>
 ];
 
 const fitButtonBase = [
-  'w-full flex items-center gap-2.5',
-  'px-1.5 py-0.5 text-sm transition-colors text-left'
+  'w-full flex items-center gap-2',
+  'px-0 py-0.5 text-sm transition-colors text-left'
 ].join(' ');
 
 const fitButtonActive = 'text-[#F3F3F7] font-semibold';
@@ -271,15 +272,17 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
         <div className={contentSpacingClass}>
           <div>
             <span className={`${labelClass} block`}>Anchor</span>
-            <div className="grid grid-cols-3 bg-[#4A4A4A]">
+            <div className="grid grid-cols-3 text-current border border-current">
               {ANCHOR_GRID.map((row, rowIndex) => (
                 <React.Fragment key={rowIndex}>
-                  {row.map(key => {
+                  {row.map((key, colIndex) => {
                     const isSelected = selectedAnchor === key;
                     const buttonClass = [
                       anchorButtonBase,
                       isSelected ? anchorActiveClass : anchorInactiveClass,
-                      disabled ? 'cursor-not-allowed opacity-60' : ''
+                      disabled ? 'cursor-not-allowed opacity-60' : '',
+                      colIndex < row.length - 1 ? 'border-r border-current' : '',
+                      rowIndex < ANCHOR_GRID.length - 1 ? 'border-b border-current' : ''
                     ].filter(Boolean).join(' ');
 
                     return (
@@ -290,7 +293,16 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
                         onClick={() => handleAnchorSelect(key)}
                         disabled={disabled}
                       >
-                        <span className={`h-1.5 w-1.5 ${isSelected ? 'bg-[#F3F3F7]' : 'bg-[#9A9AB3]'} block`} aria-hidden />
+                        <span
+                          className={[
+                            'h-1.5 w-1.5 block',
+                            
+                            isSelected
+                              ? 'bg-[#F3F3F7]'
+                              : 'border border-current bg-transparent'
+                          ].join(' ')}
+                          aria-hidden
+                        />
                       </button>
                     );
                   })}
@@ -301,8 +313,8 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
               type="button"
               className={[
                 anchorButtonBase,
-                'w-full text-[#D9D9E8] border-[#3D3D46]',
-                selectedAnchor === 'auto' ? 'bg-[#5A5A68]' : 'bg-[#4A4A4A]',
+                'w-full text-[#D9D9D9] border border-current mt-1',
+                selectedAnchor === 'auto' ? 'bg-transparent' : 'bg-transparent',
                 disabled ? 'cursor-not-allowed opacity-60' : ''
               ].filter(Boolean).join(' ')}
               onClick={() => handleAnchorSelect('auto')}

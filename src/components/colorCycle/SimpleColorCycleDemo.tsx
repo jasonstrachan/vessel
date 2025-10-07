@@ -73,12 +73,13 @@ export const SimpleColorCycleDemo: React.FC = () => {
                 step="0.1"
                 value={speed}
                 onChange={(e) => setSpeed(parseFloat(e.target.value))}
-                className="slider w-full"
-                style={{
-                  '--slider-track-gradient': 'linear-gradient(to right, rgba(217,217,217,0.12), rgba(217,217,217,0.6))',
-                  '--ascii-thumb-size': '14px'
-                } as React.CSSProperties}
-              />
+              className="slider w-full"
+              style={{
+                '--slider-track-gradient': 'linear-gradient(to right, rgba(217,217,217,0.12), rgba(217,217,217,0.6))',
+                '--ascii-thumb-size': '14px',
+                '--slider-progress': `${((speed - 0.1) / 1.9) * 100}%`
+              } as React.CSSProperties & { '--slider-progress': string }}
+            />
             </div>
           </div>
 
