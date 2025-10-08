@@ -7,6 +7,7 @@ export {
   onWebGPUSupportChange,
   type WebGPUSupportStatus,
   resetWebGPUSupportStatusForTesting,
+  SHAPE_FILL_GPU_RETIRED_REASON,
 } from './gpu/WebGPUDeviceManager';
 export { StrokePipeline, getStrokePipeline, disposeStrokePipeline } from './gpu/StrokePipeline';
 export { ShapeFillScheduler } from './ShapeFillScheduler';

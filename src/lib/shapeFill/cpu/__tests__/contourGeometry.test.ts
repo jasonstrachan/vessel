@@ -14,14 +14,13 @@ describe('Contour geometry CPU helpers', () => {
       canvasWidth: 20,
       canvasHeight: 20,
       resolution: 1,
-      extension: 0,
       seed: 1,
     });
 
     const loops = generateContourLoops(field, {
       spacing: 2,
       variance: 0,
-      smoothness: 0,
+      smoothness: 0.2,
       maxLevels: 3,
       maxDistance: 6,
       seed: 1,
@@ -30,6 +29,8 @@ describe('Contour geometry CPU helpers', () => {
     expect(loops.length).toBeGreaterThan(0);
     loops.forEach(loop => {
       expect(loop.loop.length).toBeGreaterThan(2);
+      expect(loop.level).toBeGreaterThanOrEqual(1);
+      expect(loop.distance).toBeGreaterThan(0);
     });
   });
 
@@ -38,18 +39,19 @@ describe('Contour geometry CPU helpers', () => {
       canvasWidth: 20,
       canvasHeight: 20,
       resolution: 1,
-      extension: 0,
-      seed: 2,
+      seed: 1,
     });
 
     const loops = generateContourLoops(field, {
-      spacing: 2,
+      spacing: 3,
       variance: 0,
-      smoothness: 0,
-      maxLevels: 1,
-      maxDistance: 4,
-      seed: 2,
+      smoothness: 0.25,
+      maxLevels: 2,
+      maxDistance: 8,
+      seed: 1,
     });
+
+    expect(loops.length).toBeGreaterThan(0);
 
     const mesh = buildContourMesh(loops, {
       bounds: {
@@ -60,8 +62,8 @@ describe('Contour geometry CPU helpers', () => {
       },
       pixelMode: true,
       baseLineWidth: 2,
-      alternateLineWidth: 2,
-      alternateStride: 0,
+      alternateLineWidth: 3.2,
+      alternateStride: 5,
     });
 
     expect(mesh).not.toBeNull();

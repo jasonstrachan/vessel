@@ -330,9 +330,13 @@ export function useComprehensiveKeyboard({
     }
 
     // Polygon gradient or contour polygon completion
-    const normalizedShapeGradientMode = tools.brushSettings.shapeGradientMode === 'mesh'
-      ? 'lines'
-      : (tools.brushSettings.shapeGradientMode || 'contour');
+  const normalizedShapeGradientMode = tools.brushSettings.shapeGradientMode === 'mesh'
+    ? 'lines'
+    : ((tools.brushSettings.shapeGradientMode === 'flow' ||
+        tools.brushSettings.shapeGradientMode === 'inkRibbons' ||
+        tools.brushSettings.shapeGradientMode === 'triangle')
+        ? 'contour'
+        : (tools.brushSettings.shapeGradientMode || 'contour'));
     const isContourLines2Mode =
       (tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON ||
         tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL) &&

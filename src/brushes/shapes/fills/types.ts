@@ -2,6 +2,7 @@ import type { BrushSettings, ContourLinesBasis } from '@/types';
 import type { ShapeFillScheduler } from '@/lib/shapeFill/ShapeFillScheduler';
 import type { StrokeJob } from '@/lib/shapeFill';
 import type { ViewTransform } from '@/lib/shapeFill/ShapeAdjustHelper';
+import type { SignedDistanceFieldResult } from '@/lib/shapeFill/cpu/contourGeometry';
 
 export type Point = { x: number; y: number };
 
@@ -33,37 +34,20 @@ export type ShapeFillDependencies = {
   applyRisographEffect: (ctx: CanvasRenderingContext2D, vertices: Point[], intensity: number) => void;
   createSignedDistanceField: (
     vertices: Point[],
-    canvasWidth: number,
-    canvasHeight: number,
-    resolution?: number
-  ) => {
-    field: number[][];
-    cols: number;
-    rows: number;
-    resolution: number;
-    peakX: number;
-    peakY: number;
-    extension: number;
-    bounds: {
-      minX: number;
-      minY: number;
-      maxX: number;
-      maxY: number;
-    };
-    peak: {
-      x: number;
-      y: number;
-    };
-  };
+    options: {
+      canvasWidth: number;
+      canvasHeight: number;
+      resolution?: number;
+      margin?: number;
+      seed?: number;
+    }
+  ) => SignedDistanceFieldResult;
   extractContour: (
-    field: number[][],
-    cols: number,
-    rows: number,
-    resolution: number,
+    field: SignedDistanceFieldResult,
     level: number,
-    extension: number
+    smoothness?: number
   ) => Array<[Point, Point]>;
-  connectSegments: (segments: Array<[Point, Point]>) => Point[][];
+  connectSegments: (segments: Array<[Point, Point]>, tolerance?: number, minPerimeter?: number) => Point[][];
   gpuScheduler?: ShapeFillScheduler;
   getOverlayCanvas?: () => HTMLCanvasElement | null;
   getCompositeCanvas?: () => HTMLCanvasElement | null;
@@ -96,30 +80,3 @@ export interface LinesFillParams extends PolygonFillBase {
 }
 
 export type Lines2FillParams = LinesFillParams;
-
-export interface DelaunayFillParams extends PolygonFillBase {
-  boundWidth: number;
-  boundHeight: number;
-  isPreview?: boolean;
-  strokeColorOverride?: string;
-  dependencies?: ShapeFillDependencies;
-}
-
-export interface FlowFillParams extends PolygonFillBase {
-  dependencies: ShapeFillDependencies;
-  seedSpacing?: number;
-  stepSize?: number;
-  maxSteps?: number;
-  useOrthogonal?: boolean;
-  fieldResolution?: number;
-  randomSeed?: number;
-  strokeColorOverride?: string;
-  isPreview?: boolean;
-}
-
-export interface InkRibbonsFillParams extends PolygonFillBase {
-  dependencies: ShapeFillDependencies;
-  randomSeed?: number;
-  strokeColorOverride?: string;
-  isPreview?: boolean;
-}

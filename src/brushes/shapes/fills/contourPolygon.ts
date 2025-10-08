@@ -1,14 +1,12 @@
 import { BrushShape, type BrushSettings } from '@/types';
+import { debugLog } from '@/utils/debug';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 
 import { resolveCoordinateSnap } from './common';
 import { drawContourFill } from './contour';
 import { drawNewShapeFill } from './newShapeFill';
-import { drawDelaunayFill } from './delaunator';
 import { drawLinesFill } from './lines';
 import { drawLines2Fill } from './lines2';
-import { drawFlowFill } from './flow';
-import { drawInkRibbonsFill } from './inkRibbons';
 import type {
   ContourLineOptions,
   ShapeFillDependencies,
@@ -144,11 +142,6 @@ export const drawContourPolygon = ({
   const mode = rawMode === 'mesh' ? 'lines' : rawMode;
   const pixelMode = brushSettings.shapeFillPixelMode ?? true;
   const snap = resolveCoordinateSnap(pixelMode);
-  const minX = Math.floor(Math.min(...vertices.map(v => v.x)));
-  const minY = Math.floor(Math.min(...vertices.map(v => v.y)));
-  const maxX = Math.ceil(Math.max(...vertices.map(v => v.x)));
-  const maxY = Math.ceil(Math.max(...vertices.map(v => v.y)));
-
   ctx.save();
   ctx.imageSmoothingEnabled = !pixelMode;
   ctx.lineJoin = 'miter';
@@ -182,9 +175,6 @@ export const drawContourPolygon = ({
       }
     }
 
-    const boundWidth = maxX - minX;
-    const boundHeight = maxY - minY;
-
     if (mode === 'lines') {
       const shapeGradientMode = brushSettings.shapeGradientMode === 'mesh'
         ? 'lines'
@@ -216,47 +206,8 @@ export const drawContourPolygon = ({
       return;
     }
 
-    if (mode === 'flow') {
-      drawFlowFill({
-        ctx,
-        vertices,
-        brushSettings,
-        dependencies,
-        isPreview,
-        randomSeed: lineOptions?.randomSeed,
-        strokeColorOverride: lineOptions?.strokeColorOverride,
-        runtimeContext: lineOptions?.runtimeContext,
-      });
-      return;
-    }
-
-    if (mode === 'inkRibbons') {
-      drawInkRibbonsFill({
-        ctx,
-        vertices,
-        brushSettings,
-        dependencies,
-        isPreview,
-        randomSeed: lineOptions?.randomSeed,
-        strokeColorOverride: lineOptions?.strokeColorOverride,
-        runtimeContext: lineOptions?.runtimeContext,
-      });
-      return;
-    }
-
-    if (mode === 'triangle') {
-      drawDelaunayFill({
-        ctx,
-        vertices,
-        brushSettings,
-        boundWidth,
-        boundHeight,
-        isPreview,
-        strokeColorOverride: lineOptions?.strokeColorOverride,
-        dependencies,
-        runtimeContext: lineOptions?.runtimeContext,
-      });
-      return;
+    if (mode === 'flow' || mode === 'inkRibbons' || mode === 'triangle') {
+      debugLog('shape-fill', `Shape fill mode "${mode}" retired; using contour fallback.`);
     }
 
     const spacingOverride = lineOptions?.contourSpacingOverride ?? lineOptions?.lineSpacingA ?? lineOptions?.lineSpacingB;

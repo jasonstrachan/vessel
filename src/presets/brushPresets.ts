@@ -640,11 +640,11 @@ const contourPolygonBrushComponents: BrushComponent[] = [
 
 export const contourPolygonBrushPreset: BrushPreset = {
   id: 'contour-polygon-brush',
-  name: 'Shape Fill GPU',
+  name: 'Contour Fill',
   category: 'Special',
   components: contourPolygonBrushComponents,
   thumbnail: '/assets/images/Brush.png',
-  tags: ['contour', 'polygon', 'special', 'topographic', 'gpu'],
+  tags: ['contour', 'polygon', 'special', 'topographic'],
   isDefault: false,
   createdAt: new Date(),
   modifiedAt: new Date(),

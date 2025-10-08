@@ -1100,9 +1100,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     // Shape mode should take precedence for normal brushes
     // Start shape drawing immediately to avoid interference from other branches
-    const normalizedShapeMode = tools.brushSettings.shapeGradientMode === 'mesh'
+    const rawShapeMode = tools.brushSettings.shapeGradientMode || 'contour';
+    const normalizedShapeMode = rawShapeMode === 'mesh'
       ? 'lines'
-      : (tools.brushSettings.shapeGradientMode || 'contour');
+      : (rawShapeMode === 'flow' || rawShapeMode === 'inkRibbons' || rawShapeMode === 'triangle'
+        ? 'contour'
+        : rawShapeMode);
     const isLines2Active = (
       tools.brushSettings.brushShape === BrushShape.CONTOUR_LINES2 ||
       ((tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON ||

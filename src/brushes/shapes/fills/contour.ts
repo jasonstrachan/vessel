@@ -3,6 +3,7 @@ import {
   ensureFloat32Vertices,
   getWebGPUSupportStatus,
   isWebGPUSupported,
+  SHAPE_FILL_GPU_RETIRED_REASON,
   type StrokeJob,
 } from '@/lib/shapeFill';
 import type { BoundingBox } from '@/lib/shapeFill/types';
@@ -86,27 +87,6 @@ const getCanvasCSSSize = (canvas: HTMLCanvasElement | OffscreenCanvas | undefine
   return {
     w: canvas.clientWidth || 0,
     h: canvas.clientHeight || 0,
-  };
-};
-
-const bbox = (pts: readonly Pt[]) => {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const p of pts) {
-    if (p.x < minX) minX = p.x;
-    if (p.y < minY) minY = p.y;
-    if (p.x > maxX) maxX = p.x;
-    if (p.y > maxY) maxY = p.y;
-  }
-  return {
-    minX,
-    minY,
-    maxX,
-    maxY,
-    cx: (minX + maxX) / 2,
-    cy: (minY + maxY) / 2,
   };
 };
 
@@ -198,11 +178,10 @@ const drawPreviewLoops = (
     ctx.save();
     ctx.globalAlpha = opacity;
     ctx.globalCompositeOperation = (blendMode ?? 'source-over') as GlobalCompositeOperation;
-    ctx.lineWidth = Math.max(0.2, strokeWidth);
-    ctx.strokeStyle = strokeColor;
     ctx.imageSmoothingEnabled = !pixelMode;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
+    ctx.strokeStyle = strokeColor;
 
     const closingTolerance = 2;
 
@@ -210,6 +189,16 @@ const drawPreviewLoops = (
       const loop = loopResult.loop;
       if (loop.length < 2) {
         continue;
+      }
+      const isIndex = loopResult.level % 5 === 0;
+      const lineWidth = isIndex ? strokeWidth * 1.6 : strokeWidth;
+      ctx.lineWidth = Math.max(0.2, lineWidth);
+      if (isIndex) {
+        ctx.setLineDash([]);
+      } else {
+        const dashLength = Math.max(3, lineWidth * 2.4);
+        const gapLength = Math.max(2, lineWidth * 1.6);
+        ctx.setLineDash([dashLength, gapLength]);
       }
       ctx.beginPath();
       ctx.moveTo(loop[0].x, loop[0].y);
@@ -226,6 +215,7 @@ const drawPreviewLoops = (
       ctx.stroke();
     }
 
+    ctx.setLineDash([]);
     ctx.restore();
   });
 };
@@ -270,10 +260,14 @@ const renderContourStroke = (
 
   if (config.priority === 'final' && !isWebGPUSupported()) {
     const status = getWebGPUSupportStatus();
-    const reason = status.status === 'unavailable'
-      ? status.reason
-      : 'WebGPU support is disabled';
-    debugWarn('shape-fill', `WebGPU is unavailable; contour fill skipped (${reason}).`);
+    if (status.status === 'unavailable' && status.reason === SHAPE_FILL_GPU_RETIRED_REASON) {
+      debugLog('shape-fill', 'Contour GPU pipeline retired; using CPU renderer.');
+    } else {
+      const reason = status.status === 'unavailable'
+        ? status.reason
+        : 'WebGPU support is disabled';
+      debugWarn('shape-fill', `WebGPU is unavailable; contour fill skipped (${reason}).`);
+    }
     return false;
   }
 
@@ -303,12 +297,12 @@ const renderContourStroke = (
 
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      const field = dependencies.createSignedDistanceField(
-        deviceVertices,
-        ctx.canvas.width,
-        ctx.canvas.height,
-        config.fieldResolution,
-      );
+      const field = dependencies.createSignedDistanceField(deviceVertices, {
+        canvasWidth: ctx.canvas.width,
+        canvasHeight: ctx.canvas.height,
+        resolution: config.fieldResolution,
+        seed: config.seed,
+      });
       ctx.restore();
 
       loops = generateContourLoops(field, {
@@ -675,7 +669,7 @@ const renderContourStroke = (
 };
 
 export const drawContourFill = (params: ContourFillParams): void => {
-  const { ctx, vertices, brushSettings, dependencies, isPreview = false } = params;
+  const { ctx, vertices, brushSettings, isPreview = false } = params;
   if (vertices.length < 3) {
     return;
   }
@@ -756,8 +750,8 @@ export const drawContourFill = (params: ContourFillParams): void => {
   const edgeFeather = Math.max(0.5, baseDynamicParams.shapeFillEdgeFeather ?? (pixelMode ? 1 : 1));
   const hardeningThreshold = Math.min(Math.max(baseDynamicParams.shapeFillHardeningThreshold ?? 0.5, 0), 1);
   const dynamicParams: Record<string, number> = { ...baseDynamicParams };
-  const alternateStride = 0;
-  const alternateLineWidth = strokeWidth;
+  const alternateStride = 5;
+  const alternateLineWidth = strokeWidth * 1.6;
 
   const strokeColor = params.strokeColorOverride ?? brushSettings.color ?? '#1a1a1a';
   const colorRgba = colorToRgba(strokeColor);

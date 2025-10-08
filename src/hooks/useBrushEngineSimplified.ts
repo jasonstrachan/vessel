@@ -1032,10 +1032,15 @@ export const useBrushEngineSimplified = () => {
    */
   const createSignedDistanceField = useCallback((
     vertices: Array<{ x: number; y: number }>,
-    canvasWidth: number,
-    canvasHeight: number,
-    resolution: number = 2
+    options: {
+      canvasWidth: number;
+      canvasHeight: number;
+      resolution?: number;
+      margin?: number;
+      seed?: number;
+    }
   ): SignedDistanceFieldResult => {
+    const { canvasWidth, canvasHeight, resolution = 2, margin, seed: seedOverride } = options;
     const roundedKey = vertices
       .map(v => `${Math.round(v.x)}:${Math.round(v.y)}`)
       .join('|');
@@ -1051,11 +1056,12 @@ export const useBrushEngineSimplified = () => {
       return cachedFromScheduler;
     }
 
-    const seed = Math.floor(Math.abs(Math.sin(cacheKey.length + canvasWidth + canvasHeight) * 0xffffffff));
+    const seed = seedOverride ?? Math.floor(Math.abs(Math.sin(cacheKey.length + canvasWidth + canvasHeight) * 0xffffffff));
     const result = buildCpuSignedDistanceField(vertices, {
       canvasWidth,
       canvasHeight,
       resolution,
+      margin,
       seed,
     });
 
@@ -1068,39 +1074,20 @@ export const useBrushEngineSimplified = () => {
    * Extract contour segments using marching squares (CPU helper wrapper)
    */
   const extractContour = useCallback((
-    field: number[][],
-    cols: number,
-    rows: number,
-    resolution: number,
-    targetDistance: number,
-    extension: number = 0
-  ) => {
-    const sdf: SignedDistanceFieldResult = {
-      field,
-      cols,
-      rows,
-      resolution,
-      extension,
-      bounds: {
-        minX: -extension,
-        minY: -extension,
-        maxX: cols * resolution - extension,
-        maxY: rows * resolution - extension,
-      },
-      peak: { x: 0, y: 0 },
-      peakX: 0,
-      peakY: 0,
-    };
-    return cpuExtractContourSegments(sdf, targetDistance);
-  }, []);
+    field: SignedDistanceFieldResult,
+    level: number,
+    smoothness = 0
+  ) => cpuExtractContourSegments(field, level, smoothness), []);
 
   /**
    * Connect segments into continuous loops
    */
   const connectSegments = useCallback((
-    segments: Array<[{ x: number; y: number }, { x: number; y: number }]>
+    segments: Array<[{ x: number; y: number }, { x: number; y: number }]>,
+    tolerance = 3,
+    minPerimeter = 0
   ): Array<Array<{ x: number; y: number }>> => {
-    return cpuConnectContourSegments(segments);
+    return cpuConnectContourSegments(segments, tolerance, minPerimeter);
   }, []);
   
   /**

@@ -17,7 +17,7 @@ import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 import { getPresetStops } from '@/utils/gradientPresets';
 import { setShapeFillViewTargets, resetShapeFillViewTargets } from '@/lib/shapeFill/viewTargets';
-import { getShapeFillScheduler, getStrokePipeline } from '@/lib/shapeFill';
+import { getShapeFillScheduler, getStrokePipeline, isWebGPUSupported } from '@/lib/shapeFill';
 import { drawShapeFillOutput } from '@/brushes/shapes/fills/common';
 import type { ShapeFillHistoryJobSnapshot } from '@/types';
 
@@ -273,6 +273,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
   const replayShapeFillJobs = useCallback(async (jobs?: ShapeFillHistoryJobSnapshot[]) => {
     if (!jobs || jobs.length === 0 || typeof document === 'undefined') {
+      return;
+    }
+
+    if (!isWebGPUSupported()) {
       return;
     }
 

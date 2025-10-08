@@ -1,5 +1,10 @@
 import type { StrokeJob, ShapeFillScheduler } from '@/lib/shapeFill';
-import { getStrokePipeline, getWebGPUSupportStatus, isWebGPUSupported } from '@/lib/shapeFill';
+import {
+  SHAPE_FILL_GPU_RETIRED_REASON,
+  getStrokePipeline,
+  getWebGPUSupportStatus,
+  isWebGPUSupported,
+} from '@/lib/shapeFill';
 import type { StrokePipelineResult } from '@/lib/shapeFill/gpu/StrokePipeline';
 import { debugLog, debugWarn } from '@/utils/debug';
 import type { BrushSettings } from '@/types';
@@ -179,10 +184,14 @@ export const drawCrossHatchPolygon = (params: DrawCrossHatchPolygonParams): void
 
   if (!isWebGPUSupported()) {
     const status = getWebGPUSupportStatus();
-    const reason = status.status === 'unavailable'
-      ? status.reason
-      : 'WebGPU support is disabled';
-    debugWarn('shape-fill', `WebGPU is unavailable; cross hatch fill falling back to CPU (${reason}).`);
+    if (status.status === 'unavailable' && status.reason === SHAPE_FILL_GPU_RETIRED_REASON) {
+      debugLog('shape-fill', 'Cross hatch GPU pipeline retired; using CPU renderer.');
+    } else {
+      const reason = status.status === 'unavailable'
+        ? status.reason
+        : 'WebGPU support is disabled';
+      debugWarn('shape-fill', `WebGPU is unavailable; cross hatch fill falling back to CPU (${reason}).`);
+    }
     drawCrossHatchPolygonCpu(params);
     return;
   }

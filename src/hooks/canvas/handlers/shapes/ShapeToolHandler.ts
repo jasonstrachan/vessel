@@ -16,7 +16,6 @@ import { withTemporaryBrushSettings } from '@/utils/withTemporaryBrushSettings';
 import { ShapeAdjustHelper, type ShapeAdjustHelperUpdate } from '@/lib/shapeFill/ShapeAdjustHelper';
 import { getShapeFillViewTargets } from '@/lib/shapeFill/viewTargets';
 import { getShapeFillScheduler } from '@/lib/shapeFill/runtime';
-import { computeFlowGpuJobId } from '@/brushes/shapes/fills/flow';
 import type { ContourLineOptions } from '@/brushes/shapes/fills/types';
 import { computeNewShapeFillCenter } from '@/brushes/shapes/fills/newShapeFill';
 
@@ -1447,9 +1446,12 @@ export const createShapeToolHandler = (
     }
 
     const pointerWorld = computeWorldPointer(event);
-    const normalizedShapeMode = tools.brushSettings.shapeGradientMode === 'mesh'
+    const rawShapeMode = tools.brushSettings.shapeGradientMode || 'contour';
+    const normalizedShapeMode = rawShapeMode === 'mesh'
       ? 'lines'
-      : (tools.brushSettings.shapeGradientMode || 'contour');
+      : (rawShapeMode === 'flow' || rawShapeMode === 'inkRibbons' || rawShapeMode === 'triangle'
+          ? 'contour'
+          : rawShapeMode);
     const brushShape = tools.brushSettings.brushShape;
 
     if (points.length < 3) {
@@ -1585,9 +1587,7 @@ export const createShapeToolHandler = (
           const initialNoise = Math.max(0, Math.min(1, tools.brushSettings.flowSeedJitter ?? 0.6));
           const randomSeed = Math.floor(Math.random() * 0xffffffff);
           const centroid = computePolygonCentroid(vertices);
-          const fieldResolution = tools.brushSettings.flowFieldResolution ?? 8;
-          const pixelMode = tools.brushSettings.shapeFillPixelMode ?? true;
-          const gpuJobId = computeFlowGpuJobId(vertices, randomSeed, fieldResolution, pixelMode);
+          const gpuJobId: string | undefined = undefined;
 
           useAppStore.getState().setPolygonGradientState({
             drawingState: 'adjustingSpacing',

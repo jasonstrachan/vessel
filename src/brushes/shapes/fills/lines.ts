@@ -4,6 +4,7 @@ import {
   getStrokePipeline,
   getWebGPUSupportStatus,
   isWebGPUSupported,
+  SHAPE_FILL_GPU_RETIRED_REASON,
   type ShapeFillScheduler,
   type StrokeJob,
 } from '@/lib/shapeFill';
@@ -231,10 +232,14 @@ export const drawLinesFill = (params: LinesFillParams): void => {
 
   if (!isWebGPUSupported()) {
     const status = getWebGPUSupportStatus();
-    const reason = status.status === 'unavailable'
-      ? status.reason
-      : 'WebGPU support is disabled';
-    debugWarn('shape-fill', `WebGPU is unavailable; contour lines falling back to CPU (${reason}).`);
+    if (status.status === 'unavailable' && status.reason === SHAPE_FILL_GPU_RETIRED_REASON) {
+      debugLog('shape-fill', 'Lines GPU pipeline retired; using CPU renderer.');
+    } else {
+      const reason = status.status === 'unavailable'
+        ? status.reason
+        : 'WebGPU support is disabled';
+      debugWarn('shape-fill', `WebGPU is unavailable; contour lines falling back to CPU (${reason}).`);
+    }
     drawLinesFillCpu(params);
     return;
   }
