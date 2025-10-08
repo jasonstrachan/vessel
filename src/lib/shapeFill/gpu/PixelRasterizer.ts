@@ -1,5 +1,5 @@
 import { WebGPUDeviceManager, isWebGPUSupported } from './WebGPUDeviceManager';
-import { debugLog, debugWarn } from '@/utils/debug';
+import { debugLog, debugWarn, isDebugEnabled } from '@/utils/debug';
 import { PIXEL_RASTERIZER_WGSL } from './shaders/pixelRasterizer.wgsl';
 import { waitForQueueIdle } from './queueUtils';
 import { UniformBufferWriter } from './uniformWriter';
@@ -195,12 +195,24 @@ export class PixelRasterizer {
       const uploadData = geometry.coordinateSpace === 'canvas'
         ? convertCanvasToClip(geometry.vertexData, options.bounds)
         : geometry.vertexData;
+      const sourceBuffer = uploadData.buffer;
+      const hasSharedBuffer = typeof SharedArrayBuffer !== 'undefined' && sourceBuffer instanceof SharedArrayBuffer;
+      const uploadCopy = hasSharedBuffer ? uploadData.slice() : null;
+      const uploadBuffer = hasSharedBuffer ? uploadCopy!.buffer : sourceBuffer;
+      const uploadOffset = hasSharedBuffer ? 0 : uploadData.byteOffset;
+      const uploadLength = uploadData.byteLength;
       quadBuffer = device.createBuffer({
         label: `shape-fill-cpu-quad-vertices-${job.id}`,
         size: uploadData.byteLength,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
-      device.queue.writeBuffer(quadBuffer, 0, uploadData);
+      device.queue.writeBuffer(
+        quadBuffer,
+        0,
+        uploadBuffer as ArrayBuffer,
+        uploadOffset,
+        uploadLength,
+      );
       releaseGeometry = () => {
         quadBuffer?.destroy();
       };
@@ -241,17 +253,19 @@ export class PixelRasterizer {
     const edgeFeather = Math.max(0.5, options.edgeFeather ?? 1);
     const threshold = options.threshold ?? 0.5;
 
-    debugLog('shape-fill', 'Pixel rasterizer uniforms', {
-      jobId: job.id,
-      colorString: `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a})`,
-      resolution: options.resolution,
-      vertexCount: geometry.vertexCount,
-      quadCount,
-      pixelMode: options.pixelMode,
-      hardeningStrength,
-      edgeFeather,
-      threshold,
-    });
+    if (isDebugEnabled('shape-fill:raster:uniforms')) {
+      debugLog('shape-fill:raster:uniforms', {
+        jobId: job.id,
+        colorString: `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a})`,
+        resolution: options.resolution,
+        vertexCount: geometry.vertexCount,
+        quadCount,
+        pixelMode: options.pixelMode,
+        hardeningStrength,
+        edgeFeather,
+        threshold,
+      });
+    }
 
     writer.writeF32(16, pixelModeFlag);
     writer.writeF32(20, hardeningStrength);
@@ -333,13 +347,15 @@ export class PixelRasterizer {
         height,
       });
     } else {
-      debugLog('shape-fill', 'Pixel rasterizer produced output', {
-        jobId: job.id,
-        vertexCount: geometry.vertexCount,
-        quadCount,
-        width,
-        height,
-      });
+      if (isDebugEnabled('shape-fill:raster')) {
+        debugLog('shape-fill:raster', {
+          jobId: job.id,
+          vertexCount: geometry.vertexCount,
+          quadCount,
+          width,
+          height,
+        });
+      }
     }
 
     const release = () => {

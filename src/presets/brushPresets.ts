@@ -664,6 +664,40 @@ export const contourPolygonBrushPreset: BrushPreset = {
   }
 };
 
+const newShapeFillComponents: BrushComponent[] = [
+  {
+    id: 'new-shape-fill-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.NEW_SHAPE_FILL,
+    },
+    priority: 40,
+    enabled: true,
+  },
+];
+
+export const newShapeFillBrushPreset: BrushPreset = {
+  id: 'new-shape-fill-brush',
+  name: 'NEW! Shape Fill',
+  category: 'Special',
+  components: newShapeFillComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['contour', 'organic', 'cpu'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    contourSpacing: 6,
+    contourVariance: 0.35,
+    contourSmoothness: 0.65,
+    shapeGradientMode: 'contour',
+    shapeFillPixelMode: true,
+    shapeFillUseSampledColor: false,
+    shapeFillLineWidth: 1.25,
+    flowFieldResolution: 2,
+  },
+};
+
 // Spam Brush Components
 const spamBrushComponents: BrushComponent[] = [
   {
@@ -828,6 +862,7 @@ export const brushPresets: BrushPreset[] = [
   rectangleGradientBrushPreset,
   polygonGradientBrushPreset,
   contourPolygonBrushPreset,
+  newShapeFillBrushPreset,
   spamBrushPreset,
   resamplerBrushPreset,
   polygonDitherPreset
@@ -879,6 +914,17 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     settings.shapeFillHardening = 1;
     settings.shapeFillHardeningThreshold = 0.5;
     settings.shapeFillEdgeFeather = 1;
+  } else if (preset.id === 'new-shape-fill-brush') {
+    settings.size = 8; // leaner base width suited to organic contours
+    settings.antialiasing = false;
+    settings.contourSpacing = 6;
+    settings.contourVariance = 0.35;
+    settings.contourSmoothness = 0.65;
+    settings.shapeGradientMode = 'contour';
+    settings.shapeFillPixelMode = true;
+    settings.shapeFillUseSampledColor = false;
+    settings.shapeFillLineWidth = 1.25;
+    settings.flowFieldResolution = 2;
   } else if (preset.id === 'contour-lines2-brush') {
     settings.size = 12; // Slightly larger base size for Lines2 brush
     settings.antialiasing = false;

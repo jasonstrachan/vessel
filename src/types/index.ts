@@ -236,6 +236,7 @@ export enum BrushShape {
   POLYGON_GRADIENT = 'polygon_gradient',
   CONTOUR_POLYGON = 'contour_polygon',
   CONTOUR_LINES2 = 'contour_lines2',
+  NEW_SHAPE_FILL = 'new_shape_fill',
   RISOGRAPH_SOFT = 'risograph_soft',
   RISOGRAPH_ULTRA = 'risograph_ultra',
   RESAMPLER = 'resampler',

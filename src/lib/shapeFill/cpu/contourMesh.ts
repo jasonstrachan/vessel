@@ -31,15 +31,22 @@ export const buildContourMesh = (
 
   const segments: Array<{ a: ContourPoint; b: ContourPoint; level: number }> = [];
   const tolerance = Math.max(1e-3, options.tolerance ?? 1e-3);
+  const closureThreshold = Math.max(tolerance * 4, 4);
 
   loops.forEach(loop => {
     const points = loop.loop;
     if (points.length < 2) {
       return;
     }
-    for (let index = 0; index < points.length; index += 1) {
+    const closingDistance = Math.hypot(
+      points[0].x - points[points.length - 1].x,
+      points[0].y - points[points.length - 1].y,
+    );
+    const segmentCount = closingDistance <= closureThreshold ? points.length : points.length - 1;
+    for (let index = 0; index < segmentCount; index += 1) {
+      const nextIndex = index + 1 === points.length ? 0 : index + 1;
       const a = points[index];
-      const b = points[(index + 1) % points.length];
+      const b = points[nextIndex];
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       if (Math.abs(dx) < tolerance && Math.abs(dy) < tolerance) {

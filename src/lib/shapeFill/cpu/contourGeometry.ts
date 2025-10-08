@@ -32,6 +32,81 @@ const seededRandom = (seed: number, index: number): number => {
   return FRACT(Math.sin(n) * 43758.5453);
 };
 
+// Ramer–Douglas–Peucker simplification keeps significant points only.
+export function simplifyRDP(pts: ContourPoint[], eps: number): ContourPoint[] {
+  if (pts.length < 3 || eps <= 0) {
+    return pts;
+  }
+
+  const stack: Array<[number, number]> = [[0, pts.length - 1]];
+  const keep = new Uint8Array(pts.length);
+  keep[0] = 1;
+  keep[pts.length - 1] = 1;
+
+  const dperp = (p: ContourPoint, a: ContourPoint, b: ContourPoint): number => {
+    const vx = b.x - a.x;
+    const vy = b.y - a.y;
+    const wx = p.x - a.x;
+    const wy = p.y - a.y;
+    const denom = vx * vx + vy * vy || 1e-6;
+    const c = (vx * wx + vy * wy) / denom;
+    const qx = a.x + c * vx;
+    const qy = a.y + c * vy;
+    return Math.hypot(p.x - qx, p.y - qy);
+  };
+
+  while (stack.length) {
+    const segment = stack.pop();
+    if (!segment) {
+      continue;
+    }
+    const [start, end] = segment;
+    let maxDistance = -1;
+    let farthestIndex = -1;
+    for (let i = start + 1; i < end; i += 1) {
+      const distance = dperp(pts[i], pts[start], pts[end]);
+      if (distance > maxDistance) {
+        maxDistance = distance;
+        farthestIndex = i;
+      }
+    }
+    if (maxDistance > eps && farthestIndex !== -1) {
+      keep[farthestIndex] = 1;
+      stack.push([start, farthestIndex], [farthestIndex, end]);
+    }
+  }
+
+  const output: ContourPoint[] = [];
+  for (let i = 0; i < pts.length; i += 1) {
+    if (keep[i]) {
+      output.push(pts[i]);
+    }
+  }
+  return output;
+}
+
+// Chaikin smoothing once around a closed loop to soften corners.
+export function chaikinOnce(loop: ContourPoint[]): ContourPoint[] {
+  const n = loop.length;
+  if (n < 3) {
+    return loop;
+  }
+  const output: ContourPoint[] = new Array(n * 2);
+  for (let i = 0; i < n; i += 1) {
+    const a = loop[i];
+    const b = loop[(i + 1) % n];
+    output[2 * i] = {
+      x: 0.75 * a.x + 0.25 * b.x,
+      y: 0.75 * a.y + 0.25 * b.y,
+    };
+    output[2 * i + 1] = {
+      x: 0.25 * a.x + 0.75 * b.x,
+      y: 0.25 * a.y + 0.75 * b.y,
+    };
+  }
+  return output;
+}
+
 const distanceToSegment = (point: ContourPoint, a: ContourPoint, b: ContourPoint): number => {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -101,8 +176,6 @@ export const createSignedDistanceField = (
   const offset = (index: number) => seededRandom(seed, index) - 0.5;
   const peakX = centerX + offset(0) * spanX * 1.2;
   const peakY = centerY + offset(1) * spanY * 1.2;
-  const maxSpan = Math.max(spanX, spanY);
-
   for (let row = 0; row < rows; row += 1) {
     field[row] = new Array(cols);
     for (let col = 0; col < cols; col += 1) {
@@ -115,10 +188,7 @@ export const createSignedDistanceField = (
               Math.min(acc, distanceToSegment(point, vertex, vertices[(index + 1) % vertices.length]))
             ), Infinity)
           : 0;
-        const peakDist = Math.hypot(px - peakX, py - peakY);
-        const normalized = peakDist / maxSpan;
-        const peakInfluence = Math.exp(-normalized * normalized * 8);
-        field[row][col] = edgeDist + edgeDist * peakInfluence * 0.8;
+        field[row][col] = edgeDist;
       } else {
         const outsideDist = vertices.length > 1
           ? vertices.reduce((acc, vertex, index) => (
@@ -348,9 +418,14 @@ export const generateContourLoops = (
       distance = Math.max(0, base * (1 + jitter * variance));
     }
     const segments = extractContourSegments(sdf, distance, smoothness);
-    const connected = connectContourSegments(segments);
+    // scale with grid pitch
+    const tol = Math.max(3, sdf.resolution * 1.75);
+    const connected = connectContourSegments(segments, tol);
     connected.forEach(loop => {
-      loops.push({ level: index, distance, loop });
+      const eps = sdf.resolution * 0.75;
+      const simplified = simplifyRDP(loop, eps);
+      const smoothLoop = chaikinOnce(simplified);
+      loops.push({ level: index, distance, loop: smoothLoop });
     });
   }
   return loops;
