@@ -1,4 +1,3 @@
-import type { StrokeJob } from '@/lib/shapeFill';
 
 // Core type definitions for Vessel
 // Based on /docs/02_System_Architecture/Data_Model.md
@@ -530,14 +529,6 @@ export interface DrawingAction {
   data: Record<string, unknown>;
 }
 
-export interface ShapeFillHistoryJobSnapshot {
-  layerId: string;
-  job: StrokeJob;
-  brushSettings?: BrushSettings;
-  mode?: string;
-  timestamp?: number;
-}
-
 export interface CanvasSnapshot {
   id: string;
   timestamp: number;
@@ -551,7 +542,6 @@ export interface CanvasSnapshot {
             | 'shape-fill';
   description: string;
   colorCycleState?: ColorCycleSnapshot; // Optional color cycle state
-  shapeFillJobs?: ShapeFillHistoryJobSnapshot[];
 }
 
 // Color Cycle Brush specific snapshot data
@@ -673,36 +663,3 @@ export interface PolygonGradientState {
   flowRandomSeed?: number;
 }
 
-export type ContourLinesStage =
-  | 'idle'
-  | 'awaitingAnchorA'
-  | 'awaitingAngle'
-  | 'awaitingConvergenceA'
-  | 'awaitingConvergenceB';
-
-export interface ContourLinesBasis {
-  baseEdge: { a: { x: number; y: number }; b: { x: number; y: number } };
-  direction: { x: number; y: number };
-  normal: { x: number; y: number };
-  baseProjection: number;
-  maxDistance: number;
-  backDistance: number;
-}
-
-export interface ContourLinesState {
-  stage: ContourLinesStage;
-  shapePoints: Array<{ x: number; y: number }>;
-  fillColor?: string;
-  basis?: ContourLinesBasis;
-  spacingA?: number | null;
-  spacingB?: number | null;
-  previewSpacing?: number | null;
-  variant?: 'legacy' | 'lines2';
-  lineAngle?: number | null;
-  convergenceA?: { x: number; y: number } | null;
-  convergenceB?: { x: number; y: number } | null;
-  centroid?: { x: number; y: number } | null;
-  spacingReferenceDistance?: number | null;
-  spacingReferenceSpacing?: number | null;
-  randomSeed?: number | null;
-}

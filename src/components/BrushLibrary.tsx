@@ -282,7 +282,7 @@ const BrushLibrary = () => {
                       />
                     ) : (
                       <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
-                        ▣
+                        □
                       </div>
                     )
                   ) : brushThumbnails[preset.id] ? (
@@ -295,7 +295,7 @@ const BrushLibrary = () => {
                     />
                   ) : (
                     <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
-                      {preset.category === 'Pixel Art' ? '▪' : '●'}
+                      {preset.category === 'Pixel Art' ? '□' : '○'}
                     </div>
                   )}
                   <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
@@ -357,7 +357,7 @@ const BrushLibrary = () => {
                     />
                   ) : (
                     <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
-                      ▣
+                      □
                     </div>
                   )}
                   <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>Color cycle + recolor</span>

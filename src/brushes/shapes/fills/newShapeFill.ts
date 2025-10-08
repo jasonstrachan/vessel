@@ -1,6 +1,6 @@
 import { debugLog, debugWarn } from '@/utils/debug';
 
-import type { ContourFillParams, Point } from './types';
+import type { ShapeFillParams, Point } from './types';
 
 type Bounds = {
   minX: number;
@@ -441,11 +441,14 @@ export const drawNewShapeFill = ({
   vertices,
   brushSettings,
   isPreview = false,
-  spacingOverride,
-  randomSeed,
-  previewDetail = 'full',
-  strokeColorOverride,
-}: ContourFillParams): void => {
+  options,
+}: ShapeFillParams): void => {
+  const {
+    spacingOverride,
+    randomSeed,
+    previewDetail = 'full',
+    strokeColorOverride,
+  } = options ?? {};
   if (vertices.length < 3) {
     return;
   }

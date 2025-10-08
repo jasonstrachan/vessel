@@ -6,13 +6,13 @@
 import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams, type CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
-import { BrushShape, type BrushSettings } from '../types';
+import { BrushShape } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { canvasPool } from '../utils/canvasPool';
 import {
   drawContourPolygon as drawContourPolygonFill,
-  type ContourLineOptions,
+  type ShapeFillOptions,
 } from '@/brushes/shapes/fills/contourPolygon';
 import { drawCrossHatchPolygon as drawCrossHatchPolygonFill } from '@/brushes/shapes/fills/hatch';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
@@ -20,13 +20,6 @@ import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrus
 import { ShapeFillScheduler } from '@/lib/shapeFill/ShapeFillScheduler';
 import { getShapeFillScheduler } from '@/lib/shapeFill/runtime';
 import { debugLog } from '@/utils/debug';
-import type { StrokeJob } from '@/lib/shapeFill';
-import {
-  createSignedDistanceField as buildCpuSignedDistanceField,
-  extractContourSegments as cpuExtractContourSegments,
-  connectContourSegments as cpuConnectContourSegments,
-  type SignedDistanceFieldResult,
-} from '@/lib/shapeFill/cpu/contourGeometry';
 
 declare global {
   interface Window {
@@ -62,38 +55,7 @@ export const useBrushEngineSimplified = () => {
   const brushStampCacheRef = useRef(new Map<string, HTMLCanvasElement>());
   const patternTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const contourFieldCacheRef = useRef<{ key: string; field: SignedDistanceFieldResult } | null>(null);
   const shapeFillSchedulerRef = useRef<ShapeFillScheduler | null>(null);
-
-  const recordShapeFillJobEntry = useCallback(
-    (job: StrokeJob, metadata: { brushSettings?: BrushSettings; mode?: string; runtimeContext?: ContourLineOptions['runtimeContext'] }) => {
-      const store = useAppStore.getState();
-      const layerId = store.activeLayerId;
-      if (!layerId) {
-        return;
-      }
-      store.recordShapeFillJob({
-        layerId,
-        job,
-        brushSettings: metadata.brushSettings ?? job.brushSettings,
-        mode: metadata.mode,
-        timestamp: Date.now(),
-      });
-    },
-    []
-  );
-
-  const flushShapeFillJobs = useCallback(
-    (finalCanvas: HTMLCanvasElement | null | undefined, description?: string, overrideLayerId?: string) => {
-      if (!finalCanvas) {
-        return;
-      }
-      const store = useAppStore.getState();
-      const targetLayerId = overrideLayerId ?? store.activeLayerId ?? undefined;
-      store.flushShapeFillHistory(finalCanvas, description, targetLayerId);
-    },
-    []
-  );
 
   // Get color cycle brush from active layer instead of single instance
   const getActiveLayerColorCycleBrush = useCallback((): ColorCycleBrushImplementation | null => {
@@ -1028,103 +990,22 @@ export const useBrushEngineSimplified = () => {
 
 
   /**
-   * Create signed distance field for contour generation (CPU helper wrapper)
-   */
-  const createSignedDistanceField = useCallback((
-    vertices: Array<{ x: number; y: number }>,
-    options: {
-      canvasWidth: number;
-      canvasHeight: number;
-      resolution?: number;
-      margin?: number;
-      seed?: number;
-    }
-  ): SignedDistanceFieldResult => {
-    const { canvasWidth, canvasHeight, resolution = 2, margin, seed: seedOverride } = options;
-    const roundedKey = vertices
-      .map(v => `${Math.round(v.x)}:${Math.round(v.y)}`)
-      .join('|');
-    const cacheKey = `${canvasWidth}x${canvasHeight}@${resolution}:${roundedKey}`;
-
-    if (contourFieldCacheRef.current?.key === cacheKey) {
-      return contourFieldCacheRef.current.field;
-    }
-
-    const cachedFromScheduler = shapeFillSchedulerRef.current?.getCpuField<SignedDistanceFieldResult>(cacheKey);
-    if (cachedFromScheduler) {
-      contourFieldCacheRef.current = { key: cacheKey, field: cachedFromScheduler };
-      return cachedFromScheduler;
-    }
-
-    const seed = seedOverride ?? Math.floor(Math.abs(Math.sin(cacheKey.length + canvasWidth + canvasHeight) * 0xffffffff));
-    const result = buildCpuSignedDistanceField(vertices, {
-      canvasWidth,
-      canvasHeight,
-      resolution,
-      margin,
-      seed,
-    });
-
-    contourFieldCacheRef.current = { key: cacheKey, field: result };
-    shapeFillSchedulerRef.current?.setCpuField(cacheKey, result);
-    return result;
-  }, []);
-
-  /**
-   * Extract contour segments using marching squares (CPU helper wrapper)
-   */
-  const extractContour = useCallback((
-    field: SignedDistanceFieldResult,
-    level: number,
-    smoothness = 0
-  ) => cpuExtractContourSegments(field, level, smoothness), []);
-
-  /**
-   * Connect segments into continuous loops
-   */
-  const connectSegments = useCallback((
-    segments: Array<[{ x: number; y: number }, { x: number; y: number }]>,
-    tolerance = 3,
-    minPerimeter = 0
-  ): Array<Array<{ x: number; y: number }>> => {
-    return cpuConnectContourSegments(segments, tolerance, minPerimeter);
-  }, []);
-  
-  /**
    * Draw contour polygon - creates contour lines like a topographic map using distance fields
    */
   const drawContourPolygon = useCallback((
     ctx: CanvasRenderingContext2D,
     polygonData: { vertices: Array<{ x: number; y: number }>; fillColor?: string },
     isPreview: boolean = false,
-    lineOptions?: ContourLineOptions
+    options?: ShapeFillOptions
   ) => {
     drawContourPolygonFill({
       ctx,
       polygonData,
       brushSettings: tools.brushSettings,
       isPreview,
-      lineOptions,
-      dependencies: {
-        applyRisographEffect,
-        createSignedDistanceField,
-        extractContour,
-        connectSegments,
-        gpuScheduler: shapeFillSchedulerRef.current ?? undefined,
-        recordShapeFillJob: recordShapeFillJobEntry,
-        flushShapeFillJobs,
-      },
+      options,
     });
-  }, [
-    tools.brushSettings,
-    applyRisographEffect,
-    createSignedDistanceField,
-    extractContour,
-    connectSegments,
-    shapeFillSchedulerRef,
-    recordShapeFillJobEntry,
-    flushShapeFillJobs,
-  ]);
+  }, [tools.brushSettings]);
 
   /**
    * Draw cross-hatch polygon - fills with rough, hand-drawn cross-hatching pattern

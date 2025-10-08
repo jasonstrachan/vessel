@@ -3,21 +3,11 @@ import { useAppStore } from '../../../../stores/useAppStore';
 import type { EventHandlerDependencies } from '../../utils/types';
 import { BrushShape, type BrushSettings } from '@/types';
 import { snapPointToAngle } from '@/utils/angleSnap';
-import {
-  computeLines2Defaults,
-  generateContourLines,
-  generateLines2Paths,
-  MAX_LINE_SPACING,
-  MIN_LINE_SPACING,
-  prepareContourLinesBasis,
-} from '@/utils/contourLines';
 import { computeDragScaledValue } from '@/utils/dragScale';
 import { withTemporaryBrushSettings } from '@/utils/withTemporaryBrushSettings';
 import { ShapeAdjustHelper, type ShapeAdjustHelperUpdate } from '@/lib/shapeFill/ShapeAdjustHelper';
-import { getShapeFillViewTargets } from '@/lib/shapeFill/viewTargets';
 import { getShapeFillScheduler } from '@/lib/shapeFill/runtime';
-import type { ContourLineOptions } from '@/brushes/shapes/fills/types';
-import { computeNewShapeFillCenter } from '@/brushes/shapes/fills/newShapeFill';
+import type { ShapeFillOptions } from '@/brushes/shapes/fills/types';
 
 export interface ShapeToolHandlerContext {
   deps: EventHandlerDependencies;
@@ -207,7 +197,6 @@ export const createShapeToolHandler = (
   const clampCrosshatchSpacing = (value: number) => Math.max(2, Math.min(50, value));
   const clampFlowSeedSpacing = (value: number) => Math.max(4, Math.min(80, value));
 
-  const contourFillSpacingClickArmedRef = { current: false };
   const MIN_POLYGON_POINT_SPACING = 5;
 
   const computePolygonCentroid = (vertices: Array<{ x: number; y: number }>) => {
@@ -567,215 +556,16 @@ export const createShapeToolHandler = (
     overlayCtx?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
   };
 
-  const withRuntimeLineOptions = (options?: ContourLineOptions): ContourLineOptions | undefined => {
-    const targets = getShapeFillViewTargets();
-    const overlayCanvas = overlayCanvasRef.current ?? targets.overlayCanvas ?? null;
-    const finalCanvas = compositeCanvasRef.current ?? targets.finalCanvas ?? null;
-    const viewTransform = viewTransformRef.current ?? targets.viewTransform;
-    const devicePixelRatio = (() => {
-      if (typeof window !== 'undefined' && typeof window.devicePixelRatio === 'number') {
-        return window.devicePixelRatio || 1;
-      }
-      return targets.devicePixelRatio || 1;
-    })();
-
-    const runtimeContext = {
-      overlayCanvas,
-      finalCanvas,
-      viewTransform: viewTransform
-        ? {
-            scale: viewTransform.scale,
-            offsetX: viewTransform.offsetX,
-            offsetY: viewTransform.offsetY,
-          }
-        : undefined,
-      devicePixelRatio,
-    };
-
-    if (!options) {
-      return { runtimeContext };
+  const withRuntimeLineOptions = (_options?: ShapeFillOptions): ShapeFillOptions | undefined => {
+    if (!_options) {
+      return undefined;
     }
-
-    return {
-      ...options,
-      runtimeContext: {
-        ...options.runtimeContext,
-        ...runtimeContext,
-      },
-    };
+    return { ..._options };
   };
 
-  const drawContourLinesPreview = (
-    spacingStart: number,
-    spacingEnd?: number,
-    override?: {
-      shapePoints: Array<{ x: number; y: number }>;
-      basis: ReturnType<typeof prepareContourLinesBasis> | null;
-      stage?: string;
-    }
-  ) => {
-    const overlayCanvas = overlayCanvasRef.current;
-    const overlayCtx = overlayCanvas?.getContext('2d');
-    if (!overlayCanvas || !overlayCtx) return;
+;
 
-    const contourState = override
-      ? { ...useAppStore.getState().contourLinesState, ...override }
-      : useAppStore.getState().contourLinesState;
-
-    const { basis, shapePoints } = contourState;
-    if (!basis || !shapePoints || shapePoints.length < 3) return;
-
-    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-
-    overlayCtx.save();
-    overlayCtx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
-    overlayCtx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
-    const safeScale = Math.max(viewTransformRef.current.scale, 0.001);
-    const strokeColorOverride = tools.brushSettings.shapeFillUseSampledColor && contourState.fillColor
-      ? contourState.fillColor
-      : tools.brushSettings.color;
-    overlayCtx.lineWidth = Math.max(0.2, 0.45 / safeScale);
-    overlayCtx.strokeStyle = strokeColorOverride;
-    overlayCtx.imageSmoothingEnabled = !(tools.brushSettings.shapeFillPixelMode ?? true);
-
-    const maxDistance = Math.max(0.001, basis.maxDistance || spacingStart);
-    const constrainedStart = Math.min(Math.max(MIN_LINE_SPACING, spacingStart), maxDistance);
-    const constrainedEnd = spacingEnd == null
-      ? undefined
-      : Math.min(Math.max(MIN_LINE_SPACING, spacingEnd), maxDistance);
-
-    const shapeMode = tools.brushSettings.shapeGradientMode || 'contour';
-
-    if (shapeMode === 'contour') {
-      if (!brushEngine) {
-        overlayCtx.restore();
-        overlayCtx.restore();
-        return;
-      }
-
-      withTemporaryBrushSettings(
-        useAppStore.getState().tools.brushSettings,
-        {
-          contourSpacing: constrainedEnd ?? constrainedStart,
-          color: strokeColorOverride,
-        },
-        () => {
-          brushEngine.drawContourPolygon(
-            overlayCtx,
-            {
-              vertices: shapePoints,
-              fillColor: undefined,
-            },
-            true,
-            withRuntimeLineOptions({
-              contourSpacingOverride: constrainedEnd ?? constrainedStart,
-              randomSeed: contourState.randomSeed ?? undefined,
-              strokeColorOverride,
-              previewDetail: 'full',
-            })
-          );
-        }
-      );
-
-      overlayCtx.restore();
-      overlayCtx.restore();
-      return;
-    }
-
-    const paths = generateContourLines(shapePoints, basis, constrainedStart, constrainedEnd);
-
-    overlayCtx.save();
-    const first = shapePoints[0];
-    if (first) {
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(first.x, first.y);
-      for (let i = 1; i < shapePoints.length; i++) {
-        overlayCtx.lineTo(shapePoints[i].x, shapePoints[i].y);
-      }
-      overlayCtx.closePath();
-      overlayCtx.clip();
-    }
-
-    for (const path of paths) {
-      if (!path.points || path.points.length < 2) continue;
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(path.points[0].x, path.points[0].y);
-      for (let i = 1; i < path.points.length; i++) {
-        overlayCtx.lineTo(path.points[i].x, path.points[i].y);
-      }
-      overlayCtx.stroke();
-    }
-
-    overlayCtx.restore();
-    overlayCtx.restore();
-  };
-
-  const drawLines2Preview = (
-    angle: number,
-    convergenceA: { x: number; y: number },
-    convergenceB: { x: number; y: number }
-  ) => {
-    const overlayCanvas = overlayCanvasRef.current;
-    const overlayCtx = overlayCanvas?.getContext('2d');
-    if (!overlayCanvas || !overlayCtx) return;
-
-    const { contourLinesState } = useAppStore.getState();
-    const { shapePoints } = contourLinesState;
-    if (!shapePoints || shapePoints.length < 3) return;
-
-    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-    overlayCtx.save();
-    overlayCtx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
-    overlayCtx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
-
-    const safeScale = Math.max(viewTransformRef.current.scale, 0.001);
-    overlayCtx.lineWidth = Math.max(0.2, 0.45 / safeScale);
-    overlayCtx.strokeStyle = tools.brushSettings.color;
-    overlayCtx.imageSmoothingEnabled = !(tools.brushSettings.shapeFillPixelMode ?? true);
-
-    const spacingSetting = tools.brushSettings.contourLines2Spacing ?? 8;
-    const densitySetting = tools.brushSettings.contourLines2Density ?? 5;
-    const alternateSetting = tools.brushSettings.contourLines2Alternate ?? true;
-
-    const paths = generateLines2Paths(
-      shapePoints,
-      {
-        angle,
-        convergenceA,
-        convergenceB,
-        spacing: spacingSetting,
-        density: densitySetting,
-        alternate: alternateSetting,
-      },
-      contourLinesState.centroid ?? undefined
-    );
-
-    const first = shapePoints[0];
-    if (first) {
-      overlayCtx.save();
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(first.x, first.y);
-      for (let i = 1; i < shapePoints.length; i++) {
-        overlayCtx.lineTo(shapePoints[i].x, shapePoints[i].y);
-      }
-      overlayCtx.closePath();
-      overlayCtx.clip();
-
-      for (const path of paths) {
-        if (!path.points || path.points.length < 2) continue;
-        overlayCtx.beginPath();
-        overlayCtx.moveTo(path.points[0].x, path.points[0].y);
-        for (let i = 1; i < path.points.length; i++) {
-          overlayCtx.lineTo(path.points[i].x, path.points[i].y);
-        }
-        overlayCtx.stroke();
-      }
-
-      overlayCtx.restore();
-    }
-
-    overlayCtx.restore();
-  };
+;
 
   const handleCrosshatchPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (event.button !== 0) return false;
@@ -1446,13 +1236,6 @@ export const createShapeToolHandler = (
     }
 
     const pointerWorld = computeWorldPointer(event);
-    const rawShapeMode = tools.brushSettings.shapeGradientMode || 'contour';
-    const normalizedShapeMode = rawShapeMode === 'mesh'
-      ? 'lines'
-      : (rawShapeMode === 'flow' || rawShapeMode === 'inkRibbons' || rawShapeMode === 'triangle'
-          ? 'contour'
-          : rawShapeMode);
-    const brushShape = tools.brushSettings.brushShape;
 
     if (points.length < 3) {
       return true;
@@ -1460,81 +1243,6 @@ export const createShapeToolHandler = (
 
     const vertices = points.map((p: { x: number; y: number }) => ({ x: p.x, y: p.y }));
     const fillColor = resolveShapeFillColor(points);
-    const isLines2Mode = isContourPolygon && (normalizedShapeMode === 'lines2' || brushShape === BrushShape.CONTOUR_LINES2);
-    const isContourFillMode = isContourPolygon && normalizedShapeMode === 'contour' && !isLines2Mode;
-
-    if (isLines2Mode) {
-      const basis = prepareContourLinesBasis(vertices);
-      const defaults = computeLines2Defaults(vertices, basis);
-
-        const contourSeed = Math.floor(Math.random() * 0xffffffff);
-        useAppStore.getState().setContourLinesState({
-          stage: 'awaitingAngle',
-          variant: 'lines2',
-          shapePoints: vertices,
-          fillColor: undefined,
-          basis: defaults.basis ?? basis ?? undefined,
-          spacingA: null,
-          spacingB: null,
-          previewSpacing: null,
-          lineAngle: defaults.defaultAngle,
-          convergenceA: defaults.convergenceA,
-          convergenceB: defaults.convergenceB,
-          centroid: defaults.centroid,
-          spacingReferenceDistance: null,
-          spacingReferenceSpacing: null,
-          randomSeed: contourSeed,
-        });
-
-      drawLines2Preview(defaults.defaultAngle, defaults.convergenceA, defaults.convergenceB);
-
-      resetPolygonAdjustmentState();
-      interaction.dispatch({ type: 'DRAWING_END' });
-      return true;
-    }
-
-    if (isContourFillMode) {
-      const basis = prepareContourLinesBasis(vertices);
-
-      if (basis) {
-        const defaultSpacingSetting = (tools.brushSettings.contourSpacing || 5) * 2;
-        const initialSpacing = Math.min(
-          MAX_LINE_SPACING,
-          Math.max(MIN_LINE_SPACING, defaultSpacingSetting)
-        );
-
-        const contourSeed = Math.floor(Math.random() * 0xffffffff);
-        const centroid = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
-          ? computeNewShapeFillCenter(vertices, contourSeed)
-          : computePolygonCentroid(vertices);
-        useAppStore.getState().setContourLinesState({
-          stage: 'awaitingAnchorA',
-          variant: 'legacy',
-          shapePoints: vertices,
-          fillColor,
-          basis,
-          spacingA: null,
-          spacingB: null,
-          previewSpacing: initialSpacing,
-          spacingReferenceDistance: null,
-          spacingReferenceSpacing: initialSpacing,
-          centroid,
-          randomSeed: contourSeed,
-        });
-
-        contourFillSpacingClickArmedRef.current = false;
-        drawContourLinesPreview(initialSpacing, initialSpacing, {
-          shapePoints: vertices,
-          basis,
-          stage: 'awaitingAnchorA',
-        });
-
-        resetPolygonAdjustmentState();
-        interaction.dispatch({ type: 'DRAWING_END' });
-        return true;
-      }
-    }
-
     drawingHandlers.initDrawingCanvas();
     const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
 
@@ -1545,7 +1253,6 @@ export const createShapeToolHandler = (
         const strokeColorOverride = shapeFillUsesSampledColor() && fillColor ? fillColor : undefined;
 
         if (shapeMode === 'crosshatch') {
-          useAppStore.getState().resetContourLinesState();
           clearOverlayCanvas();
 
           useAppStore.getState().setPolygonGradientState({
@@ -1578,7 +1285,6 @@ export const createShapeToolHandler = (
         }
 
         if (shapeMode === 'flow') {
-          useAppStore.getState().resetContourLinesState();
           clearOverlayCanvas();
 
           const initialSpacing = clampFlowSeedSpacing(tools.brushSettings.flowSeedSpacing ?? 18);

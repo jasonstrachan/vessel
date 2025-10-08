@@ -1,8 +1,16 @@
-import type { ContourLinesBasis } from '@/types';
 import { clamp } from '@/utils/num';
 
 export interface ContourLinePath {
   points: Array<{ x: number; y: number }>;
+}
+
+export interface ContourLinesBasis {
+  baseEdge: { a: Point; b: Point };
+  direction: Point;
+  normal: Point;
+  baseProjection: number;
+  maxDistance: number;
+  backDistance: number;
 }
 
 export const MIN_LINE_SPACING = 4;

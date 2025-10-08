@@ -3,26 +3,17 @@ import { debugLog } from '@/utils/debug';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 
 import { resolveCoordinateSnap } from './common';
-import { drawContourFill } from './contour';
 import { drawNewShapeFill } from './newShapeFill';
-import { drawLinesFill } from './lines';
-import { drawLines2Fill } from './lines2';
-import type {
-  ContourLineOptions,
-  ShapeFillDependencies,
-  Point,
-} from './types';
+import type { ShapeFillOptions, Point } from './types';
 
-export type { ContourLineOptions } from './types';
-export type { ShapeFillDependencies as DrawContourPolygonDependencies } from './types';
+export type { ShapeFillOptions } from './types';
 
 export type DrawContourPolygonParams = {
   ctx: CanvasRenderingContext2D;
   polygonData: { vertices: Point[]; fillColor?: string };
   brushSettings: BrushSettings;
-  dependencies: ShapeFillDependencies;
   isPreview?: boolean;
-  lineOptions?: ContourLineOptions;
+  options?: ShapeFillOptions;
 };
 
 const shouldFillPolygon = (
@@ -110,9 +101,8 @@ export const drawContourPolygon = ({
   ctx,
   polygonData,
   brushSettings,
-  dependencies,
   isPreview = false,
-  lineOptions,
+  options,
 }: DrawContourPolygonParams): void => {
   const rawVertices = polygonData?.vertices ?? [];
   const vertices = rawVertices.filter(
@@ -123,17 +113,22 @@ export const drawContourPolygon = ({
     return;
   }
 
-  if (brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL) {
+  if (
+    brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL ||
+    brushSettings.brushShape === BrushShape.CONTOUR_POLYGON ||
+    brushSettings.brushShape === BrushShape.CONTOUR_LINES2
+  ) {
     drawNewShapeFill({
       ctx,
       vertices,
       brushSettings,
-      dependencies,
       isPreview,
-      spacingOverride: lineOptions?.contourSpacingOverride,
-      randomSeed: lineOptions?.randomSeed,
-      previewDetail: lineOptions?.previewDetail,
-      strokeColorOverride: lineOptions?.strokeColorOverride ?? polygonData?.fillColor,
+      options: {
+        spacingOverride: options?.spacingOverride,
+        randomSeed: options?.randomSeed,
+        previewDetail: options?.previewDetail,
+        strokeColorOverride: options?.strokeColorOverride ?? polygonData?.fillColor,
+      },
     });
     return;
   }
@@ -175,54 +170,23 @@ export const drawContourPolygon = ({
       }
     }
 
-    if (mode === 'lines') {
-      const shapeGradientMode = brushSettings.shapeGradientMode === 'mesh'
-        ? 'lines'
-        : brushSettings.shapeGradientMode;
-      const isLines2Variant =
-        lineOptions?.variant === 'lines2' ||
-        brushSettings.brushShape === BrushShape.CONTOUR_LINES2 ||
-        (brushSettings.brushShape === BrushShape.CONTOUR_POLYGON && shapeGradientMode === 'lines2');
-
-      if (isLines2Variant) {
-        drawLines2Fill({
-          ctx,
-          vertices,
-          brushSettings,
-          lineOptions,
-        });
-        return;
-      }
-
-      drawLinesFill({
-        ctx,
-        vertices,
-        brushSettings,
-        lineOptions,
-        dependencies,
-        isPreview,
-        strokeColorOverride: lineOptions?.strokeColorOverride,
-      });
-      return;
-    }
-
     if (mode === 'flow' || mode === 'inkRibbons' || mode === 'triangle') {
       debugLog('shape-fill', `Shape fill mode "${mode}" retired; using contour fallback.`);
     }
 
-    const spacingOverride = lineOptions?.contourSpacingOverride ?? lineOptions?.lineSpacingA ?? lineOptions?.lineSpacingB;
+    debugLog('shape-fill', `Mode "${mode}" no longer supported; using new CPU fill.`);
 
-    drawContourFill({
+    drawNewShapeFill({
       ctx,
       vertices,
       brushSettings,
-      dependencies,
       isPreview,
-      spacingOverride,
-      randomSeed: lineOptions?.randomSeed,
-      previewDetail: lineOptions?.previewDetail,
-      strokeColorOverride: lineOptions?.strokeColorOverride,
-      runtimeContext: lineOptions?.runtimeContext,
+      options: {
+        spacingOverride: options?.spacingOverride,
+        randomSeed: options?.randomSeed,
+        previewDetail: options?.previewDetail,
+        strokeColorOverride: options?.strokeColorOverride ?? polygonData?.fillColor,
+      },
     });
   } finally {
     ctx.restore();

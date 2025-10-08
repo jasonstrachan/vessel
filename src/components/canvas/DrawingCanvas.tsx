@@ -17,9 +17,6 @@ import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 import { getPresetStops } from '@/utils/gradientPresets';
 import { setShapeFillViewTargets, resetShapeFillViewTargets } from '@/lib/shapeFill/viewTargets';
-import { getShapeFillScheduler, getStrokePipeline, isWebGPUSupported } from '@/lib/shapeFill';
-import { drawShapeFillOutput } from '@/brushes/shapes/fills/common';
-import type { ShapeFillHistoryJobSnapshot } from '@/types';
 
 const isColorCycleLayerWithData = (
   layer: Layer | undefined | null
@@ -270,106 +267,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       viewTransform,
     });
   }, []);
-
-  const replayShapeFillJobs = useCallback(async (jobs?: ShapeFillHistoryJobSnapshot[]) => {
-    if (!jobs || jobs.length === 0 || typeof document === 'undefined') {
-      return;
-    }
-
-    if (!isWebGPUSupported()) {
-      return;
-    }
-
-    const scheduler = getShapeFillScheduler();
-    const pipeline = getStrokePipeline();
-    const projectRef = useAppStore.getState().project;
-
-    for (const entry of jobs) {
-      const currentStore = useAppStore.getState();
-      const layer = currentStore.layers.find(l => l.id === entry.layerId);
-      if (!layer) {
-        continue;
-      }
-
-      const targetWidth = layer.imageData?.width ?? projectRef?.width ?? 0;
-      const targetHeight = layer.imageData?.height ?? projectRef?.height ?? 0;
-      if (targetWidth <= 0 || targetHeight <= 0) {
-        continue;
-      }
-
-      const baseCanvas = document.createElement('canvas');
-      baseCanvas.width = targetWidth;
-      baseCanvas.height = targetHeight;
-      const baseCtx = baseCanvas.getContext('2d', { willReadFrequently: true });
-      if (!baseCtx) {
-        continue;
-      }
-
-      if (layer.imageData) {
-        baseCtx.putImageData(layer.imageData, 0, 0);
-      }
-
-      try {
-        const result = await scheduler.queueJob(entry.job, {
-          priority: 'final',
-          cacheResult: true,
-          reuseCache: true,
-        });
-
-        try {
-          if (!result.fieldResult) {
-            continue;
-          }
-
-          const output = await pipeline.render(result.job, result.fieldResult, {
-            priority: 'final',
-            color: entry.brushSettings?.color,
-          });
-
-          if (!output) {
-            continue;
-          }
-
-          await drawShapeFillOutput({
-            output: {
-              pixels: output.pixels,
-              width: output.width,
-              height: output.height,
-              origin: output.origin,
-            },
-            baseContext: baseCtx,
-            priority: 'final',
-            brushSettings: entry.brushSettings,
-          }).catch(() => undefined);
-
-          output.release();
-        } finally {
-          result.release();
-        }
-      } catch {
-        continue;
-      }
-
-      const updatedImageData = baseCtx.getImageData(0, 0, baseCanvas.width, baseCanvas.height);
-      updateLayer(entry.layerId, { imageData: updatedImageData });
-    }
-
-    if (compositeCanvasRef.current && project) {
-      compositeLayersToCanvas(compositeCanvasRef.current);
-      setCurrentOffscreenCanvas(compositeCanvasRef.current);
-    }
-
-    setLayersNeedRecomposition(true);
-    setNeedsRedraw(prev => prev + 1);
-  }, [
-    compositeCanvasRef,
-    compositeLayersToCanvas,
-    project,
-    setCurrentOffscreenCanvas,
-    setLayersNeedRecomposition,
-    setNeedsRedraw,
-    updateLayer,
-  ]);
 
   useEffect(() => {
     updateShapeFillViewTargets();
@@ -724,11 +621,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     ({ includeFloatingPaste = false, dispatchInteractionEnd = true }: CancelOptions = {}) => {
       const store = useAppStore.getState();
       let didCancel = false;
-
-      if (store.contourLinesState.stage !== 'idle') {
-        store.resetContourLinesState();
-        didCancel = true;
-      }
 
       if (store.polygonGradientState.drawingState !== 'idle') {
         resetPolygonGradient();
@@ -1541,9 +1433,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         }
       }
 
-      if (snapshot?.shapeFillJobs && snapshot.shapeFillJobs.length > 0) {
-        void replayShapeFillJobs(snapshot.shapeFillJobs);
-      }
     },
     onRedo: () => {
       const snapshot = redo();
@@ -1715,9 +1604,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         }
       }
 
-      if (snapshot?.shapeFillJobs && snapshot.shapeFillJobs.length > 0) {
-        void replayShapeFillJobs(snapshot.shapeFillJobs);
-      }
     },
     onPolygonComplete: () => {
       if (toolStateMachine.completePolygonGradient()) {

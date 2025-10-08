@@ -140,41 +140,6 @@ const syncPercentOffsetsFromPixels = (layers: Layer[], project: Project | null):
   return didChange ? syncedLayers : layers;
 };
 
-const cloneStrokeJob = (source: StrokeJob): StrokeJob => {
-  let vertices: StrokeJob['vertices'];
-  if (source.vertices instanceof Float32Array) {
-    vertices = new Float32Array(source.vertices);
-  } else if (Array.isArray(source.vertices)) {
-    const buffer = new Float32Array(source.vertices.length * 2);
-    source.vertices.forEach((point, index) => {
-      buffer[index * 2] = point.x;
-      buffer[index * 2 + 1] = point.y;
-    });
-    vertices = buffer;
-  } else {
-    vertices = source.vertices;
-  }
-
-  return {
-    ...source,
-    vertices,
-    brushSettings: source.brushSettings ? { ...source.brushSettings } : undefined,
-    dynamicParams: source.dynamicParams ? { ...source.dynamicParams } : undefined,
-    metadata: source.metadata ? { ...source.metadata } : undefined,
-    previewResolution: source.previewResolution ? { ...source.previewResolution } : undefined,
-    finalResolution: source.finalResolution ? { ...source.finalResolution } : undefined,
-    bounds: source.bounds ? { ...source.bounds } : undefined,
-  };
-};
-
-const cloneShapeFillHistoryJob = (job: ShapeFillHistoryJobSnapshot): ShapeFillHistoryJobSnapshot => ({
-  layerId: job.layerId,
-  mode: job.mode,
-  timestamp: job.timestamp,
-  brushSettings: job.brushSettings ? { ...job.brushSettings } : undefined,
-  job: cloneStrokeJob(job.job),
-});
-
 // Global watcher to detect unexpected layer mutations
 if (typeof window !== 'undefined') {
   const tinyWindow = getVesselWindow();
@@ -241,13 +206,11 @@ import type {
   CustomBrush,
   HistoryState,
   CanvasSnapshot,
-  ShapeFillHistoryJobSnapshot,
   ShapeState,
   ShapePoint,
   PolygonGradientState,
   BrushEditorState,
   KeyboardScope,
-  ContourLinesState,
   ExportContainerLayout,
   WebGLExportSettings,
 } from '@/types';
@@ -272,7 +235,6 @@ import {
   normalizeProject
 } from '@/utils/layoutDefaults';
 import { computeLayerPercentOffset, computePercentOffsetFromPixels } from '@/utils/layerMetrics';
-import type { StrokeJob } from '@/lib/shapeFill';
 
 // Helper function to get serializable brush settings for persistence
 const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSettings> => {
@@ -347,13 +309,6 @@ export interface AppState {
   canRedo: () => boolean;
   clearHistory: () => void;
 
-  // Shape fill GPU history
-  shapeFillHistory: {
-    pendingJobs: ShapeFillHistoryJobSnapshot[];
-  };
-  recordShapeFillJob: (job: ShapeFillHistoryJobSnapshot) => void;
-  flushShapeFillHistory: (canvas: HTMLCanvasElement, description?: string, overrideActiveLayerId?: string) => void;
-  
   // Canvas State
   canvas: CanvasState;
   setZoom: (zoom: number) => void;
@@ -451,10 +406,6 @@ export interface AppState {
   clearPolygonGradientPoints: () => void;
 
   // Contour lines interactive state
-  contourLinesState: ContourLinesState;
-  setContourLinesState: (partialState: Partial<ContourLinesState>) => void;
-  resetContourLinesState: () => void;
-
   // Recolor gradient sampling (draw-a-line) state
   recolorSampling: {
     active: boolean;
@@ -667,10 +618,6 @@ const defaultHistoryState: HistoryState = {
   isCapturing: false
 };
 
-const defaultShapeFillHistoryState = {
-  pendingJobs: [] as ShapeFillHistoryJobSnapshot[],
-};
-
 const defaultBrushEditorState: BrushEditorState = {
   status: 'IDLE',
   editingBrushId: null,
@@ -720,24 +667,6 @@ const defaultPolygonGradientState: PolygonGradientState = {
   fillColor: undefined,
   adjustmentStartPos: undefined,
 };
-
-const createDefaultContourLinesState = (): ContourLinesState => ({
-  stage: 'idle',
-  shapePoints: [],
-  fillColor: undefined,
-  basis: undefined,
-  spacingA: null,
-  spacingB: null,
-  previewSpacing: null,
-  variant: 'legacy',
-  lineAngle: null,
-  convergenceA: null,
-  convergenceB: null,
-  centroid: null,
-  spacingReferenceDistance: null,
-  spacingReferenceSpacing: null,
-  randomSeed: null
-});
 
 export const useAppStore = create<AppState>()(
   // TEMPORARILY DISABLE DEVTOOLS TO SEE IF IT'S THE CAUSE
@@ -903,7 +832,6 @@ export const useAppStore = create<AppState>()(
       },
 
       // History State
-      shapeFillHistory: defaultShapeFillHistoryState,
       history: defaultHistoryState,
       setZoom: (zoom) => set((state) => ({
         canvas: { ...state.canvas, zoom: Math.max(0.1, Math.min(10, zoom)) }
@@ -1563,19 +1491,6 @@ export const useAppStore = create<AppState>()(
           previewPath: undefined
         }
       })),
-
-      // Contour lines interactive state
-      contourLinesState: createDefaultContourLinesState(),
-      setContourLinesState: (partialState) => set((state) => ({
-        contourLinesState: {
-          ...state.contourLinesState,
-          ...partialState,
-          shapePoints: partialState.shapePoints
-            ? [...partialState.shapePoints]
-            : state.contourLinesState.shapePoints,
-        }
-      })),
-      resetContourLinesState: () => set(() => ({ contourLinesState: createDefaultContourLinesState() })),
 
       // Recolor/Brush gradient sampling state
       recolorSampling: { active: false, start: null, end: null, samples: 8, target: 'recolor' },
@@ -3214,24 +3129,6 @@ export const useAppStore = create<AppState>()(
         };
       }),
       
-      recordShapeFillJob: (job) => {
-        set((state) => ({
-          shapeFillHistory: {
-            pendingJobs: [...state.shapeFillHistory.pendingJobs, cloneShapeFillHistoryJob(job)],
-          },
-        }));
-      },
-      flushShapeFillHistory: (canvas, description = 'Shape fill stroke', overrideActiveLayerId) => {
-        if (!canvas) {
-          return;
-        }
-        const state = get();
-        if (!state.shapeFillHistory.pendingJobs.length) {
-          return;
-        }
-        state.saveCanvasState(canvas, 'shape-fill', description, overrideActiveLayerId);
-      },
-
       // History Management
       saveCanvasState: (canvas, actionType, description, overrideActiveLayerId?: string) => {
         // quiet: remove diagnostics noise
@@ -3287,11 +3184,7 @@ export const useAppStore = create<AppState>()(
           const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
           if (!ctx) return;
           
-          const pendingShapeFillJobs = state.shapeFillHistory.pendingJobs;
-          const shouldMinimizeImageCapture = pendingShapeFillJobs.length > 0;
-          let imageData = shouldMinimizeImageCapture
-            ? new ImageData(1, 1)
-            : ctx.getImageData(0, 0, canvas.width, canvas.height);
+          let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           // Optimization: For Color Cycle actions, avoid capturing full-canvas ImageData
           try {
             const s = get();
@@ -3448,9 +3341,6 @@ export const useAppStore = create<AppState>()(
             actionType,
             description,
             colorCycleState,
-            shapeFillJobs: pendingShapeFillJobs.length
-              ? pendingShapeFillJobs.map(cloneShapeFillHistoryJob)
-              : undefined,
           };
           
           const newUndoStack = [...state.history.undoStack, snapshot];
@@ -3471,10 +3361,6 @@ export const useAppStore = create<AppState>()(
               lastSaveTime: new Date()
             }
           });
-
-          if (pendingShapeFillJobs.length) {
-            set(() => ({ shapeFillHistory: { pendingJobs: [] } }));
-          }
 
           // quiet
         };
