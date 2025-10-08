@@ -525,9 +525,9 @@ const MinimalLayerList = () => {
   
   
   return (
-    <div className="absolute right-0 top-0 h-full w-[240px] bg-[#141514] border-l border-r border-[#424242] z-30 flex flex-col">
+    <div className="absolute right-0 top-0 h-full w-[240px] bg-[#1A1A1A] border-l border-r border-[#424242] z-30 flex flex-col">
       {/* Add Layer Buttons at the top */}
-      <div className="border-b border-[#424242] bg-[#141514] flex">
+      <div className="border-b border-[#424242] bg-[#1A1A1A] flex">
         <button
           onClick={handleAddRegularLayer}
           className="flex-1 flex items-center justify-center py-3 hover:bg-[#353535] transition-colors border-r border-[#424242] text-[11px] text-[#D9D9D9]"

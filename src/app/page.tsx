@@ -130,7 +130,10 @@ export default function Home() {
       </div>
 
       {/* Layers / Alignment Column */}
-      <div className="flex flex-col h-screen flex-shrink-0 bg-[#141514]" style={{ width: '260px', minWidth: '260px', maxWidth: '260px' }}>
+      <div
+        className="flex flex-col h-screen flex-shrink-0 bg-[#1A1A1A] border-l"
+        style={{ width: '260px', minWidth: '260px', maxWidth: '260px', borderColor: '#242424' }}
+      >
         <div className="flex-1 min-h-0 overflow-hidden">
           <LayersPanel />
         </div>
@@ -139,10 +142,10 @@ export default function Home() {
       </div>
 
       {/* Vertical Separator Between Right Columns */}
-      <div className="self-stretch border-l" />
+      <div className="self-stretch border-l" style={{ borderColor: '#242424' }} />
 
       {/* Right Panel Column */}
-      <div className="flex flex-col h-screen flex-shrink-0 bg-[#141514]" style={{ width: '260px', minWidth: '260px', maxWidth: '260px' }}>
+      <div className="flex flex-col h-screen flex-shrink-0 bg-[#1A1A1A]" style={{ width: '260px', minWidth: '260px', maxWidth: '260px' }}>
         <div className="flex-shrink-0">
           <ColorPickerPanel />
         </div>
