@@ -11,7 +11,7 @@ const BrushSettingsPanel: React.FC = () => {
   const currentTool = useAppStore(state => state.tools.currentTool);
 
   return (
-    <div className="bg-[#2C2C2C] flex flex-col h-full">
+    <div className="bg-[#141514] flex flex-col h-full">
       <div className="flex-1 overflow-y-auto">
         {(currentTool === 'brush' || currentTool === 'eraser') && <BrushControls />}
         {currentTool === 'fill' && <FillControls />}

@@ -244,8 +244,8 @@ const BrushLibrary = () => {
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#2C2C2C]">
-      <div className="flex items-center justify-between px-3 py-2 bg-[#2C2C2C] border-b border-[#4a4a4a]">
+    <div className="h-full flex flex-col bg-[#141514]">
+      <div className="flex items-center justify-between px-3 py-2 bg-[#141514] border-b border-[#4a4a4a]">
         <span className="font-medium text-[#D9D9D9]" style={{ fontSize: '14px' }}>Brush Library</span>
         <div className="flex items-center space-x-2">
           {canSaveCustomBrush && (

@@ -164,7 +164,7 @@ const ColorPickerPanel = React.memo(() => {
   }, [currentTool, setEraserSettings, setBrushSettings]);
 
   return (
-    <div className="h-full overflow-y-auto bg-[#2C2C2C]">
+    <div className="h-full overflow-y-auto bg-[#141514]">
       {/* Color Picker - Full Width Section */}
       <div className="px-4 flex justify-center">
         <ColorPicker
@@ -175,7 +175,7 @@ const ColorPickerPanel = React.memo(() => {
       </div>
 
       {/* RGB Sliders - Full Width Section */}
-      <div className="px-2 py-1 bg-[#2C2C2C]">
+      <div className="px-2 py-1 bg-[#141514]">
         <div>
           {/* Red slider */}
           <input

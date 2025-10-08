@@ -80,7 +80,7 @@ const AnimationControlsPanel: React.FC = () => {
   }, [isAnimating]);
 
   return (
-    <div className="bg-[#2C2C2C] border-t border-[#404040]">
+    <div className="bg-[#141514] border-t border-[#404040]">
       <div className="px-4 py-3 space-y-3">
         <div className="flex items-center gap-2">
           <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>Speed</span>

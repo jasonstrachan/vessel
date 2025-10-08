@@ -240,7 +240,7 @@ const LayersPanel: React.FC = () => {
   }, []);
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-[#2C2C2C]">
+    <div className="flex flex-col h-full min-h-0 bg-[#141514]">
       <div className="flex-shrink-0 flex border-b border-[#404040]">
         <button
           onClick={handleAddRegularLayer}

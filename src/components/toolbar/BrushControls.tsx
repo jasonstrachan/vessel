@@ -30,12 +30,6 @@ const DEFAULT_RAINBOW_STOPS = [
   { position: 1.0, color: '#9400d3' }
 ];
 
-const DEFAULT_SHAPE_FILL_LINE_WIDTH = 1;
-const DEFAULT_SHAPE_FILL_HARDENING = 1;
-const DEFAULT_SHAPE_FILL_HARDENING_THRESHOLD = 0.5;
-const DEFAULT_SHAPE_FILL_EDGE_FEATHER = 1;
-const DEFAULT_CROSS_HATCH_LINE_WIDTH = 1;
-
 // Get access to drawing handlers via a context or ref - we'll need to create this
 export interface ColorCycleAnimationContext {
   startContinuousColorCycleAnimation: () => void;
@@ -152,24 +146,6 @@ const BrushControls = () => {
     currentTool === "eraser" ? eraserSettings : brushSettings;
   const setActiveSettings =
     currentTool === "eraser" ? setEraserSettings : setBrushSettings;
-
-  const shapeFillLineWidth = activeSettings.shapeFillLineWidth ?? DEFAULT_SHAPE_FILL_LINE_WIDTH;
-  const shapeFillLineWidthLabel = Number.isFinite(shapeFillLineWidth)
-    ? (Number.isInteger(shapeFillLineWidth) ? shapeFillLineWidth.toString() : shapeFillLineWidth.toFixed(1))
-    : DEFAULT_SHAPE_FILL_LINE_WIDTH.toFixed(1);
-  const shapeFillHardening = Math.max(0, Math.min(1, activeSettings.shapeFillHardening ?? DEFAULT_SHAPE_FILL_HARDENING));
-  const shapeFillHardeningLabel = `${Math.round(shapeFillHardening * 100)}%`;
-  const shapeFillHardeningThreshold = Math.max(0, Math.min(1, activeSettings.shapeFillHardeningThreshold ?? DEFAULT_SHAPE_FILL_HARDENING_THRESHOLD));
-  const shapeFillHardeningThresholdLabel = shapeFillHardeningThreshold.toFixed(2);
-  const shapeFillEdgeFeather = Math.max(0.5, activeSettings.shapeFillEdgeFeather ?? DEFAULT_SHAPE_FILL_EDGE_FEATHER);
-  const shapeFillEdgeFeatherLabel = `${shapeFillEdgeFeather.toFixed(2)}x`;
-
-  const crossHatchLineWidth = activeSettings.crossHatchLineWidth
-    ?? activeSettings.shapeFillLineWidth
-    ?? DEFAULT_CROSS_HATCH_LINE_WIDTH;
-  const crossHatchLineWidthLabel = Number.isFinite(crossHatchLineWidth)
-    ? (Number.isInteger(crossHatchLineWidth) ? crossHatchLineWidth.toString() : crossHatchLineWidth.toFixed(1))
-    : DEFAULT_CROSS_HATCH_LINE_WIDTH.toFixed(1);
 
   const isCustomColorCycleEnabled = isCustomBrush && !!activeSettings.customBrushColorCycle;
 
@@ -1140,362 +1116,170 @@ const BrushControls = () => {
     );
   }
 
-  // Show Contour Spacing slider for contour polygon brush
-  if (
-    activeSettings.brushShape === BrushShape.CONTOUR_POLYGON ||
-    activeSettings.brushShape === BrushShape.NEW_SHAPE_FILL
-  ) {
-    const isNewShapeFill = activeSettings.brushShape === BrushShape.NEW_SHAPE_FILL;
-    const shapeModeOptions = isNewShapeFill
-      ? [{ label: 'Contour', value: 'contour' }]
-      : [
-          { label: 'Contour', value: 'contour' },
-          { label: 'Lines', value: 'lines' },
-          { label: 'Lines 2', value: 'lines2' },
-          { label: 'Hatch', value: 'crosshatch' },
-        ];
+  if (activeSettings.brushShape === BrushShape.NEW_SHAPE_FILL) {
+    const activeMode = activeSettings.shapeGradientMode === 'crosshatch' ? 'hatch' : 'contour';
+    const contourSpacing = activeSettings.contourSpacing ?? 6;
+    const contourVariance = activeSettings.contourVariance ?? 0.35;
+    const contourSmoothness = activeSettings.contourSmoothness ?? 0.65;
+    const crossHatchRotation = activeSettings.crossHatchRotation ?? 45;
+    const crossHatchSpacing = activeSettings.crossHatchSpacing ?? 10;
+    const crossHatchLineWidth = activeSettings.crossHatchLineWidth ?? 1.25;
+
     return (
-      <div className="p-4">
-        {/* Shape Mode Selector */}
-        <div className="mb-3">
+      <div className="p-4 space-y-4">
+        <div>
           <ButtonGroup
-            options={shapeModeOptions}
-            value={
-              isNewShapeFill
-                ? 'contour'
-                : (activeSettings.shapeGradientMode === 'mesh'
-                    ? 'lines'
-                    : activeSettings.shapeGradientMode) || 'contour'
-            }
+            options={[
+              { label: 'Contour', value: 'contour' },
+              { label: 'Hatch', value: 'hatch' },
+            ]}
+            value={activeMode}
             onChange={(value) => {
-              if (isNewShapeFill) {
-                setActiveSettings({ shapeGradientMode: 'contour' });
-                return;
-              }
               setActiveSettings({
-                shapeGradientMode: value as 'contour' | 'lines' | 'lines2' | 'crosshatch',
+                shapeGradientMode: value === 'hatch' ? 'crosshatch' : 'contour',
               });
             }}
             className="w-full"
           />
         </div>
 
-        <div className="mb-3">
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                Sample
-              </label>
-              <CustomSwitch
-                id="shape-fill-sample-toggle"
-                checked={activeSettings.shapeFillUseSampledColor ?? false}
-                onChange={(checked) => setActiveSettings({ shapeFillUseSampledColor: checked })}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                Pixel
-              </label>
-              <CustomSwitch
-                id="shape-fill-pixel-toggle"
-                checked={activeSettings.shapeFillPixelMode ?? true}
-                onChange={(checked) => setActiveSettings({ shapeFillPixelMode: checked })}
-              />
-            </div>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Sample
+            </label>
+            <CustomSwitch
+              id="shape-fill-sample-toggle"
+              checked={activeSettings.shapeFillUseSampledColor ?? false}
+              onChange={(checked) => setActiveSettings({ shapeFillUseSampledColor: checked })}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Pixel
+            </label>
+            <CustomSwitch
+              id="shape-fill-pixel-toggle"
+              checked={activeSettings.shapeFillPixelMode ?? true}
+              onChange={(checked) => setActiveSettings({ shapeFillPixelMode: checked })}
+            />
           </div>
         </div>
 
-        {!isNewShapeFill &&
-          activeSettings.shapeGradientMode !== 'crosshatch' && (
-          <div className="mb-2">
+        {activeMode === 'contour' && (
+          <div className="space-y-3">
             <div className="flex items-center gap-2">
               <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                Line
+                Spacing
               </label>
               <ProgressSlider
-                value={shapeFillLineWidth}
-                min={0.5}
+                value={contourSpacing}
+                min={1}
                 max={10}
-                step={0.5}
-                onChange={(value) =>
-                  setActiveSettings({ shapeFillLineWidth: value })
-                }
-                aria-label="Fill Line Width"
+                step={1}
+                onChange={(value) => setActiveSettings({ contourSpacing: Math.round(value) })}
+                aria-label="Contour Spacing"
                 className="flex-1"
               />
               <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
-                {shapeFillLineWidthLabel}px
+                {Math.round(contourSpacing)}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                Variance
+              </label>
+              <ProgressSlider
+                value={contourVariance}
+                min={0}
+                max={10}
+                step={0.1}
+                onChange={(value) => setActiveSettings({ contourVariance: Number(value.toFixed(2)) })}
+                aria-label="Contour Variance"
+                className="flex-1"
+              />
+              <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                {contourVariance.toFixed(2)}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                Smooth
+              </label>
+              <ProgressSlider
+                value={contourSmoothness}
+                min={0}
+                max={5}
+                step={0.05}
+                onChange={(value) => setActiveSettings({ contourSmoothness: Number(value.toFixed(2)) })}
+                aria-label="Contour Smoothness"
+                className="flex-1"
+              />
+              <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                {contourSmoothness.toFixed(2)}
               </span>
             </div>
           </div>
         )}
 
-        {!isNewShapeFill && (
-          <>
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                  Hardening
-                </label>
-                <ProgressSlider
-                  value={shapeFillHardening}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  onChange={(value) => setActiveSettings({ shapeFillHardening: Number(value.toFixed(2)) })}
-                  aria-label="Shape Fill Hardening"
-                  className="flex-1"
-                />
-                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
-                  {shapeFillHardeningLabel}
-                </span>
-              </div>
-            </div>
-
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                  Threshold
-                </label>
-                <ProgressSlider
-                  value={shapeFillHardeningThreshold}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  onChange={(value) => setActiveSettings({ shapeFillHardeningThreshold: Number(value.toFixed(2)) })}
-                  aria-label="Shape Fill Hardening Threshold"
-                  className="flex-1"
-                />
-                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
-                  {shapeFillHardeningThresholdLabel}
-                </span>
-              </div>
-            </div>
-
-            <div className="mb-3">
-              <div className="flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                  Feather
-                </label>
-                <ProgressSlider
-                  value={shapeFillEdgeFeather}
-                  min={0.5}
-                  max={3}
-                  step={0.1}
-                  onChange={(value) => setActiveSettings({ shapeFillEdgeFeather: Number(value.toFixed(2)) })}
-                  aria-label="Shape Fill Edge Feather"
-                  className="flex-1"
-                />
-                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
-                  {shapeFillEdgeFeatherLabel}
-                </span>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* Contour controls */}
-        {(activeSettings.shapeGradientMode || 'contour') === 'contour' && (
-          <>
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                  Spacing
-                </label>
-                <ProgressSlider
-                  value={activeSettings.contourSpacing || 5}
-                  min={1}
-                  max={10}
-                  step={1}
-                  onChange={(value) =>
-                    setActiveSettings({ contourSpacing: Math.round(value) })
-                  }
-                  aria-label="Contour Spacing"
-                  className="flex-1"
-                />
-              </div>
-            </div>
-
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                  Variance
-                </label>
-                <ProgressSlider
-                  value={activeSettings.contourVariance ?? 5}
-                  min={0}
-                  max={10}
-                  step={1}
-                  onChange={(value) =>
-                    setActiveSettings({ contourVariance: Math.round(value) })
-                  }
-                  aria-label="Contour Variance"
-                  className="flex-1"
-                />
-              </div>
-            </div>
-
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                  Smooth
-                </label>
-                <ProgressSlider
-                  value={activeSettings.contourSmoothness ?? 2.5}
-                  min={0}
-                  max={5}
-                  step={0.5}
-                  onChange={(value) =>
-                    setActiveSettings({ contourSmoothness: value })
-                  }
-                  aria-label="Contour Smoothness"
-                  className="flex-1"
-                />
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* Lines2 controls */}
-        {!isNewShapeFill && activeSettings.shapeGradientMode === 'lines2' && (
-          <>
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
-                  Bundle Spacing
-                </label>
-                <ProgressSlider
-                  value={activeSettings.contourLines2Spacing ?? 4}
-                  min={1}
-                  max={20}
-                  step={1}
-                  onChange={(value) =>
-                    setActiveSettings({ contourLines2Spacing: Math.round(value) })
-                  }
-                  aria-label="Lines2 Bundle Spacing"
-                  className="flex-1"
-                />
-                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '2rem', textAlign: 'right' }}>
-                  {activeSettings.contourLines2Spacing ?? 4}
-                </span>
-              </div>
-            </div>
-
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
-                  Line Density
-                </label>
-                <ProgressSlider
-                  value={activeSettings.contourLines2Density ?? 5}
-                  min={1}
-                  max={10}
-                  step={1}
-                  onChange={(value) =>
-                    setActiveSettings({ contourLines2Density: Math.round(value) })
-                  }
-                  aria-label="Lines2 Density"
-                  className="flex-1"
-                />
-                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '2rem', textAlign: 'right' }}>
-                  {activeSettings.contourLines2Density ?? 5}
-                </span>
-              </div>
+        {activeMode === 'hatch' && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                Rotation
+              </label>
+              <ProgressSlider
+                value={crossHatchRotation}
+                min={0}
+                max={360}
+                step={5}
+                onChange={(value) => setActiveSettings({ crossHatchRotation: Math.round(value) })}
+                aria-label="Hatch Rotation"
+                className="flex-1"
+              />
+              <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                {Math.round(crossHatchRotation)}°
+              </span>
             </div>
 
             <div className="flex items-center gap-2">
-              <label className="text-[#D9D9D9] w-20" style={{ fontSize: '14px' }}>
-                Alternate
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                Spacing
               </label>
-              <CustomSwitch
-                id="contour-lines2-alternate"
-                checked={activeSettings.contourLines2Alternate ?? true}
-                onChange={(checked) =>
-                  setActiveSettings({ contourLines2Alternate: checked })
-                }
+              <ProgressSlider
+                value={crossHatchSpacing}
+                min={2}
+                max={50}
+                step={1}
+                onChange={(value) => setActiveSettings({ crossHatchSpacing: Math.round(value) })}
+                aria-label="Hatch Spacing"
+                className="flex-1"
               />
-              <span className="text-[#9FA0A4]" style={{ fontSize: '12px' }}>
-                Toggle offset direction every other line group.
+              <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                {Math.round(crossHatchSpacing)}px
               </span>
             </div>
-          </>
-        )}
 
-
-
-
-        {/* Hatch controls */}
-        {activeSettings.shapeGradientMode === 'crosshatch' && (
-          <>
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                  Rotation
-                </label>
-                <ProgressSlider
-                  value={activeSettings.crossHatchRotation || 45}
-                  min={0}
-                  max={360}
-                  step={5}
-                  onChange={(value) =>
-                    setActiveSettings({ crossHatchRotation: Math.round(value) })
-                  }
-                  aria-label="Hatch Rotation"
-                  className="flex-1"
-                />
-                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
-                  {activeSettings.crossHatchRotation || 45}°
-                </span>
-              </div>
+            <div className="flex items-center gap-2">
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                Width
+              </label>
+              <ProgressSlider
+                value={crossHatchLineWidth}
+                min={0.5}
+                max={10}
+                step={0.5}
+                onChange={(value) => setActiveSettings({ crossHatchLineWidth: Number(value.toFixed(2)) })}
+                aria-label="Hatch Line Width"
+                className="flex-1"
+              />
+              <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                {crossHatchLineWidth.toFixed(2)}px
+              </span>
             </div>
-
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                  Spacing
-                </label>
-                <ProgressSlider
-                  value={activeSettings.crossHatchSpacing || 10}
-                  min={2}
-                  max={50}
-                  step={1}
-                  onChange={(value) =>
-                    setActiveSettings({ crossHatchSpacing: Math.round(value) })
-                  }
-                  aria-label="Hatch Spacing"
-                  className="flex-1"
-                />
-                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
-                  {activeSettings.crossHatchSpacing || 10}px
-                </span>
-              </div>
-            </div>
-
-            <div className="mb-1">
-              <div className="flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                  Width
-                </label>
-                <ProgressSlider
-                  value={crossHatchLineWidth}
-                  min={0.5}
-                  max={10}
-                  step={0.5}
-                  onChange={(value) =>
-                    setActiveSettings({
-                      crossHatchLineWidth: value,
-                      shapeFillLineWidth: value,
-                    })
-                  }
-                  aria-label="Hatch Line Width"
-                  className="flex-1"
-                />
-                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
-                  {crossHatchLineWidthLabel}px
-                </span>
-              </div>
-            </div>
-          </>
+          </div>
         )}
       </div>
     );

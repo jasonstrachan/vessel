@@ -48,7 +48,7 @@ const ColorAdjustmentsPanel: React.FC = () => {
   }
 
   return (
-    <div className="bg-[#2C2C2C] border-t border-[#404040] px-4 py-3">
+    <div className="bg-[#141514] border-t border-[#404040] px-4 py-3">
       <ColorSlidersPanel
         hueShift={hueShift}
         saturation={saturation}

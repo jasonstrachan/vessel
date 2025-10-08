@@ -393,7 +393,7 @@ interface AlignmentPanelProps extends DensityProps {
 
 const AlignmentPanel: React.FC<AlignmentPanelProps> = ({ density = 'comfortable', defaultExpanded = true, className = '' }) => {
   const panelClass = [
-    'bg-[#2C2C2C] border-t border-[#404040] px-2 py-2',
+    'bg-[#141514] border-t border-[#404040] px-2 py-2',
     className
   ].filter(Boolean).join(' ');
 

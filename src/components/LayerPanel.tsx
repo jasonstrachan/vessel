@@ -7,7 +7,7 @@ import AnimationControlsPanel from '@/components/panels/AnimationControlsPanel';
 
 const LayerPanel: React.FC = () => {
   return (
-    <div className="flex flex-col h-full bg-[#2C2C2C]">
+    <div className="flex flex-col h-full bg-[#141514]">
       <LayersPanel />
       <AlignmentPanel />
       <AnimationControlsPanel />

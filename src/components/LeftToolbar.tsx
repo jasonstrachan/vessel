@@ -55,7 +55,7 @@ const LeftToolbar = () => {
   };
 
   return (
-    <div className="w-[48px] flex flex-col pt-4 pb-0" style={{ backgroundColor: '#2C2C2C' }}>
+    <div className="w-[48px] flex flex-col pt-4 pb-0" style={{ backgroundColor: '#141514' }}>
       {toolGroups.map((group, groupIndex) => (
         <React.Fragment key={groupIndex}>
           {groupIndex > 0 && (
