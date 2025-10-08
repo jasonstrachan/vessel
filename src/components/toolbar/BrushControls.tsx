@@ -1141,27 +1141,51 @@ const BrushControls = () => {
   }
 
   // Show Contour Spacing slider for contour polygon brush
-  if (activeSettings.brushShape === BrushShape.CONTOUR_POLYGON) {
+  if (
+    activeSettings.brushShape === BrushShape.CONTOUR_POLYGON ||
+    activeSettings.brushShape === BrushShape.NEW_SHAPE_FILL
+  ) {
+    const isNewShapeFill = activeSettings.brushShape === BrushShape.NEW_SHAPE_FILL;
+    const shapeModeOptions = isNewShapeFill
+      ? [{ label: 'Contour', value: 'contour' }]
+      : [
+          { label: 'Contour', value: 'contour' },
+          { label: 'Lines', value: 'lines' },
+          { label: 'Lines 2', value: 'lines2' },
+          { label: 'Flow', value: 'flow' },
+          { label: 'Ribbons', value: 'inkRibbons' },
+          { label: 'Delaunator', value: 'triangle' },
+          { label: 'Hatch', value: 'crosshatch' },
+        ];
     return (
       <div className="p-4">
         {/* Shape Mode Selector */}
         <div className="mb-3">
           <ButtonGroup
-            options={[
-              { label: 'Contour', value: 'contour' },
-              { label: 'Lines', value: 'lines' },
-              { label: 'Lines 2', value: 'lines2' },
-              { label: 'Flow', value: 'flow' },
-              { label: 'Ribbons', value: 'inkRibbons' },
-              { label: 'Delaunator', value: 'triangle' },
-              { label: 'Hatch', value: 'crosshatch' }
-            ]}
-            value={(activeSettings.shapeGradientMode === 'mesh'
-              ? 'lines'
-              : activeSettings.shapeGradientMode) || 'contour'}
-            onChange={(value) => setActiveSettings({ 
-              shapeGradientMode: value as 'contour' | 'lines' | 'lines2' | 'triangle' | 'crosshatch' | 'flow' | 'inkRibbons' 
-            })}
+            options={shapeModeOptions}
+            value={
+              isNewShapeFill
+                ? 'contour'
+                : (activeSettings.shapeGradientMode === 'mesh'
+                    ? 'lines'
+                    : activeSettings.shapeGradientMode) || 'contour'
+            }
+            onChange={(value) => {
+              if (isNewShapeFill) {
+                setActiveSettings({ shapeGradientMode: 'contour' });
+                return;
+              }
+              setActiveSettings({
+                shapeGradientMode: value as
+                  | 'contour'
+                  | 'lines'
+                  | 'lines2'
+                  | 'triangle'
+                  | 'crosshatch'
+                  | 'flow'
+                  | 'inkRibbons',
+              });
+            }}
             className="w-full"
           />
         </div>
@@ -1191,7 +1215,9 @@ const BrushControls = () => {
           </div>
         </div>
 
-        {activeSettings.shapeGradientMode !== 'crosshatch' && activeSettings.shapeGradientMode !== 'inkRibbons' && (
+        {!isNewShapeFill &&
+          activeSettings.shapeGradientMode !== 'crosshatch' &&
+          activeSettings.shapeGradientMode !== 'inkRibbons' && (
           <div className="mb-2">
             <div className="flex items-center gap-2">
               <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
@@ -1215,65 +1241,69 @@ const BrushControls = () => {
           </div>
         )}
 
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-              Hardening
-            </label>
-            <ProgressSlider
-              value={shapeFillHardening}
-              min={0}
-              max={1}
-              step={0.05}
-              onChange={(value) => setActiveSettings({ shapeFillHardening: Number(value.toFixed(2)) })}
-              aria-label="Shape Fill Hardening"
-              className="flex-1"
-            />
-            <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
-              {shapeFillHardeningLabel}
-            </span>
-          </div>
-        </div>
+        {!isNewShapeFill && (
+          <>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Hardening
+                </label>
+                <ProgressSlider
+                  value={shapeFillHardening}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  onChange={(value) => setActiveSettings({ shapeFillHardening: Number(value.toFixed(2)) })}
+                  aria-label="Shape Fill Hardening"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                  {shapeFillHardeningLabel}
+                </span>
+              </div>
+            </div>
 
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-              Threshold
-            </label>
-            <ProgressSlider
-              value={shapeFillHardeningThreshold}
-              min={0}
-              max={1}
-              step={0.05}
-              onChange={(value) => setActiveSettings({ shapeFillHardeningThreshold: Number(value.toFixed(2)) })}
-              aria-label="Shape Fill Hardening Threshold"
-              className="flex-1"
-            />
-            <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
-              {shapeFillHardeningThresholdLabel}
-            </span>
-          </div>
-        </div>
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Threshold
+                </label>
+                <ProgressSlider
+                  value={shapeFillHardeningThreshold}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  onChange={(value) => setActiveSettings({ shapeFillHardeningThreshold: Number(value.toFixed(2)) })}
+                  aria-label="Shape Fill Hardening Threshold"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                  {shapeFillHardeningThresholdLabel}
+                </span>
+              </div>
+            </div>
 
-        <div className="mb-3">
-          <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-              Feather
-            </label>
-            <ProgressSlider
-              value={shapeFillEdgeFeather}
-              min={0.5}
-              max={3}
-              step={0.1}
-              onChange={(value) => setActiveSettings({ shapeFillEdgeFeather: Number(value.toFixed(2)) })}
-              aria-label="Shape Fill Edge Feather"
-              className="flex-1"
-            />
-            <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
-              {shapeFillEdgeFeatherLabel}
-            </span>
-          </div>
-        </div>
+            <div className="mb-3">
+              <div className="flex items-center gap-2">
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  Feather
+                </label>
+                <ProgressSlider
+                  value={shapeFillEdgeFeather}
+                  min={0.5}
+                  max={3}
+                  step={0.1}
+                  onChange={(value) => setActiveSettings({ shapeFillEdgeFeather: Number(value.toFixed(2)) })}
+                  aria-label="Shape Fill Edge Feather"
+                  className="flex-1"
+                />
+                <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+                  {shapeFillEdgeFeatherLabel}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Contour controls */}
         {(activeSettings.shapeGradientMode || 'contour') === 'contour' && (
@@ -1338,7 +1368,7 @@ const BrushControls = () => {
         )}
 
         {/* Lines2 controls */}
-        {activeSettings.shapeGradientMode === 'lines2' && (
+        {!isNewShapeFill && activeSettings.shapeGradientMode === 'lines2' && (
           <>
             <div className="mb-2">
               <div className="flex items-center gap-2">

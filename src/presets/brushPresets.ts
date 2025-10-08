@@ -678,7 +678,7 @@ const newShapeFillComponents: BrushComponent[] = [
 
 export const newShapeFillBrushPreset: BrushPreset = {
   id: 'new-shape-fill-brush',
-  name: 'NEW! Shape Fill',
+  name: 'Shape Fill',
   category: 'Special',
   components: newShapeFillComponents,
   thumbnail: '/assets/images/Brush.png',

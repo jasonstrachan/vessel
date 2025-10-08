@@ -18,6 +18,7 @@ import {
   MIN_LINE_SPACING,
   MAX_LINE_SPACING,
 } from '@/utils/contourLines';
+import { computeNewShapeFillCenter } from '@/brushes/shapes/fills/newShapeFill';
 import { getPresetStops } from '../../../utils/gradientPresets';
 import { debugLog } from '@/utils/debug';
 import { createShapeToolHandler } from './shapes/ShapeToolHandler';
@@ -86,9 +87,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   const shiftAnchorWorldPosRef = ensurePointRef(deps.snapShiftAnchorRef);
   const lastBrushSampleWorldPosRef = ensurePointRef(deps.snapLastBrushSampleRef);
 
-  // Each full step beyond the polygon height (above/below) relaxes spacing by this many pixels.
-  const CONTOUR_DISTANCE_TO_SPACING_SCALE = 18;
-
   const computePolygonCentroid = (points: Array<{ x: number; y: number }>): Point => {
     if (!points.length) {
       return { x: 0, y: 0 };
@@ -107,6 +105,26 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     };
   };
 
+  const computeMaxRadialDistance = (points: Array<{ x: number; y: number }>, center: Point): number => {
+    if (!points.length) {
+      return 0;
+    }
+    let maxDistance = 0;
+    for (const point of points) {
+      const distance = Math.hypot(point.x - center.x, point.y - center.y);
+      if (distance > maxDistance) {
+        maxDistance = distance;
+      }
+    }
+    return maxDistance;
+  };
+
+  const clampContourSpacing = (value: number) => Math.min(MAX_LINE_SPACING, Math.max(MIN_LINE_SPACING, value));
+  const MAX_NEW_SHAPE_FILL_SPACING = 96;
+  const clampNewShapeFillSpacing = (value: number) => Math.min(MAX_NEW_SHAPE_FILL_SPACING, Math.max(MIN_LINE_SPACING, value));
+
+  const CONTOUR_DISTANCE_TO_SPACING_SCALE = 18;
+
   const resolveContourSpacing = (
     _basis: ContourLinesBasis,
     pointer: Point,
@@ -123,10 +141,31 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       };
     }
 
-    const centroid = computePolygonCentroid(points);
+    const brushShape = tools.brushSettings.brushShape;
+
+    if (brushShape === BrushShape.NEW_SHAPE_FILL) {
+      const center = computeNewShapeFillCenter(points, state.randomSeed ?? undefined);
+      const pointerDistance = Math.hypot(pointer.x - center.x, pointer.y - center.y);
+      const outerRadius = computeMaxRadialDistance(points, center);
+      const outerReferenceDistance = outerRadius + 200;
+      const normalized = outerReferenceDistance > 0
+        ? Math.min(Math.max(pointerDistance / outerReferenceDistance, 0), 1)
+        : 0;
+      const spacing = MIN_LINE_SPACING + normalized * (MAX_NEW_SHAPE_FILL_SPACING - MIN_LINE_SPACING);
+      const clampedSpacing = clampNewShapeFillSpacing(spacing);
+
+      return {
+        spacing: clampedSpacing,
+        pointerDistance,
+        referenceDistance: outerReferenceDistance,
+        referenceSpacing: clampedSpacing,
+      };
+    }
+
+    const centroid = state.centroid ?? computePolygonCentroid(points);
     let minY = points[0].y;
     let maxY = points[0].y;
-    for (let i = 1; i < points.length; i++) {
+    for (let i = 1; i < points.length; i += 1) {
       const y = points[i].y;
       if (y < minY) minY = y;
       if (y > maxY) maxY = y;
@@ -134,7 +173,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     const halfHeight = Math.max(1, (maxY - minY) * 0.5);
     const pointerDistance = Math.abs(pointer.y - centroid.y);
-    // Treat distance inside the polygon as the baseline spacing and only expand once we move past the bounds.
     const overshoot = Math.max(0, pointerDistance - halfHeight);
     const normalizedDistance = overshoot / halfHeight;
     const baseSpacing = clampContourSpacing(defaultSpacing);
@@ -158,7 +196,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const store = useAppStore.getState();
     const mode = store.tools.brushSettings.shapeGradientMode || 'contour';
     const brushShape = store.tools.brushSettings.brushShape;
-    const isContourFill = mode === 'contour' && brushShape === BrushShape.CONTOUR_POLYGON;
+    const isContourFill =
+      mode === 'contour' &&
+      (brushShape === BrushShape.CONTOUR_POLYGON || brushShape === BrushShape.NEW_SHAPE_FILL);
 
     if (!isContourFill) return;
 
@@ -307,11 +347,27 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     overlayCtx.strokeStyle = sampledStrokeColor;
     overlayCtx.imageSmoothingEnabled = false;
 
-    const maxDistance = Math.max(0.001, basis.maxDistance || spacingStart);
+    const brushShape = currentTools.brushSettings.brushShape;
+    const isNewShapeFill = brushShape === BrushShape.NEW_SHAPE_FILL;
+    const center = isNewShapeFill
+      ? computeNewShapeFillCenter(shapePoints, contourState.randomSeed ?? undefined)
+      : (contourState.centroid ?? computePolygonCentroid(shapePoints));
+    const radialMaxDistance = isNewShapeFill
+      ? Math.max(MIN_LINE_SPACING, computeMaxRadialDistance(shapePoints, center) + 200)
+      : 0;
+    const basisMaxDistance = basis?.maxDistance ?? 0;
+    const maxDistance = Math.max(
+      0.001,
+      isNewShapeFill ? radialMaxDistance : basisMaxDistance || spacingStart,
+    );
     const constrainedStart = Math.min(Math.max(MIN_LINE_SPACING, spacingStart), maxDistance);
     const constrainedEnd = spacingEnd == null
       ? undefined
       : Math.min(Math.max(MIN_LINE_SPACING, spacingEnd), maxDistance);
+
+    if (contourState.centroid == null) {
+      setContourLinesState({ centroid: center });
+    }
 
     const activeMode = currentTools.brushSettings.shapeGradientMode || 'contour';
 
@@ -373,8 +429,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     overlayCtx.restore();
     overlayCtx.restore();
   };
-
-  const clampContourSpacing = (value: number) => Math.min(MAX_LINE_SPACING, Math.max(MIN_LINE_SPACING, value));
 
   const drawLines2Preview = (
     angle: number,
@@ -799,19 +853,28 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         return;
       }
 
-      const brushDefaultSpacing = clampContourSpacing((tools.brushSettings.contourSpacing || 5) * 2);
+      const brushDefaultSpacing = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
+        ? clampNewShapeFillSpacing((tools.brushSettings.contourSpacing || 5) * 2)
+        : clampContourSpacing((tools.brushSettings.contourSpacing || 5) * 2);
       const { spacing, pointerDistance } = resolveContourSpacing(
         basis,
         worldPos,
         contourLinesState,
         brushDefaultSpacing
       );
-      const spacingValue = clampContourSpacing(spacing);
+      const spacingValue = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
+        ? clampNewShapeFillSpacing(spacing)
+        : clampContourSpacing(spacing);
+
+      const centroid = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
+        ? computeNewShapeFillCenter(contourLinesState.shapePoints, contourLinesState.randomSeed ?? undefined)
+        : (contourLinesState.centroid ?? computePolygonCentroid(contourLinesState.shapePoints));
 
       setContourLinesState({
         previewSpacing: spacingValue,
         spacingReferenceDistance: pointerDistance,
         spacingReferenceSpacing: spacingValue,
+        centroid,
       });
 
       drawContourLinesPreview(spacingValue, spacingValue, {
@@ -1042,7 +1105,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       : (tools.brushSettings.shapeGradientMode || 'contour');
     const isLines2Active = (
       tools.brushSettings.brushShape === BrushShape.CONTOUR_LINES2 ||
-      (tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON && normalizedShapeMode === 'lines2')
+      ((tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON ||
+        tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL) &&
+        normalizedShapeMode === 'lines2')
     );
 
     if (
@@ -1052,6 +1117,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       tools.brushSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT &&
       tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT &&
       tools.brushSettings.brushShape !== BrushShape.CONTOUR_POLYGON &&
+      tools.brushSettings.brushShape !== BrushShape.NEW_SHAPE_FILL &&
       !isLines2Active &&
       tools.brushSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE
     ) {
@@ -1084,6 +1150,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         tools.brushSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT &&
         tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT &&
         tools.brushSettings.brushShape !== BrushShape.CONTOUR_POLYGON &&
+        tools.brushSettings.brushShape !== BrushShape.NEW_SHAPE_FILL &&
         !isLines2Active &&
         tools.brushSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE) {
       // Strictly block incompatible brush/layer combinations (but allow eraser on any layer)
@@ -1922,7 +1989,9 @@ function cssColorToHex(color: string): string {
             return;
           }
 
-          const brushDefaultSpacing = clampContourSpacing((tools.brushSettings.contourSpacing || 5) * 2);
+          const brushDefaultSpacing = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
+            ? clampNewShapeFillSpacing((tools.brushSettings.contourSpacing || 5) * 2)
+            : clampContourSpacing((tools.brushSettings.contourSpacing || 5) * 2);
           const { spacing, pointerDistance } = resolveContourSpacing(
             basis,
             worldPos,
@@ -1930,12 +1999,19 @@ function cssColorToHex(color: string): string {
             brushDefaultSpacing
           );
 
-          const spacingValue = clampContourSpacing(spacing);
+          const spacingValue = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
+            ? clampNewShapeFillSpacing(spacing)
+            : clampContourSpacing(spacing);
+
+          const centroid = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
+            ? computeNewShapeFillCenter(currentState.shapePoints, currentState.randomSeed ?? undefined)
+            : (currentState.centroid ?? computePolygonCentroid(currentState.shapePoints));
 
           setContourLinesState({
             previewSpacing: spacingValue,
             spacingReferenceDistance: pointerDistance,
             spacingReferenceSpacing: spacingValue,
+            centroid,
           });
 
           drawContourLinesPreview(spacingValue, spacingValue, {
@@ -2231,7 +2307,9 @@ function cssColorToHex(color: string): string {
         return;
       }
 
-      const brushDefaultSpacing = clampContourSpacing((tools.brushSettings.contourSpacing || 5) * 2);
+      const brushDefaultSpacing = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
+        ? clampNewShapeFillSpacing((tools.brushSettings.contourSpacing || 5) * 2)
+        : clampContourSpacing((tools.brushSettings.contourSpacing || 5) * 2);
       const { spacing, pointerDistance } = resolveContourSpacing(
         basis,
         pointerWorldPos,
@@ -2239,11 +2317,18 @@ function cssColorToHex(color: string): string {
         brushDefaultSpacing
       );
 
-      const spacingValue = clampContourSpacing(spacing);
+      const spacingValue = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
+        ? clampNewShapeFillSpacing(spacing)
+        : clampContourSpacing(spacing);
+      const centroid = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
+        ? computeNewShapeFillCenter(contourStateOnUp.shapePoints, contourStateOnUp.randomSeed ?? undefined)
+        : (contourStateOnUp.centroid ?? computePolygonCentroid(contourStateOnUp.shapePoints));
+
       setContourLinesState({
         previewSpacing: spacingValue,
         spacingReferenceDistance: pointerDistance,
         spacingReferenceSpacing: spacingValue,
+        centroid,
       });
 
       drawContourLinesPreview(spacingValue, spacingValue, {

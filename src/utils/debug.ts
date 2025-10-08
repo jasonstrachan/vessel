@@ -35,6 +35,7 @@ const __EXCLUDE_CACHE_MS = 1000;
 const DEFAULT_EXCLUDED_SCOPES = new Set<string>([
   'composite',
   'cc-render',
+  'new-shape-fill',
 ]);
 
 function readExcludeSet(): Set<string> {

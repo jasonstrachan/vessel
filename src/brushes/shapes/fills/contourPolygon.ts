@@ -3,6 +3,7 @@ import { parseCssColor } from '@/utils/color/parseCssColor';
 
 import { resolveCoordinateSnap } from './common';
 import { drawContourFill } from './contour';
+import { drawNewShapeFill } from './newShapeFill';
 import { drawDelaunayFill } from './delaunator';
 import { drawLinesFill } from './lines';
 import { drawLines2Fill } from './lines2';
@@ -121,6 +122,21 @@ export const drawContourPolygon = ({
   );
 
   if (vertices.length < 3) {
+    return;
+  }
+
+  if (brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL) {
+    drawNewShapeFill({
+      ctx,
+      vertices,
+      brushSettings,
+      dependencies,
+      isPreview,
+      spacingOverride: lineOptions?.contourSpacingOverride,
+      randomSeed: lineOptions?.randomSeed,
+      previewDetail: lineOptions?.previewDetail,
+      strokeColorOverride: lineOptions?.strokeColorOverride ?? polygonData?.fillColor,
+    });
     return;
   }
 

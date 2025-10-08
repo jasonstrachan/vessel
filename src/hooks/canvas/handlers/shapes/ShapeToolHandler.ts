@@ -18,6 +18,7 @@ import { getShapeFillViewTargets } from '@/lib/shapeFill/viewTargets';
 import { getShapeFillScheduler } from '@/lib/shapeFill/runtime';
 import { computeFlowGpuJobId } from '@/brushes/shapes/fills/flow';
 import type { ContourLineOptions } from '@/brushes/shapes/fills/types';
+import { computeNewShapeFillCenter } from '@/brushes/shapes/fills/newShapeFill';
 
 export interface ShapeToolHandlerContext {
   deps: EventHandlerDependencies;
@@ -531,7 +532,11 @@ export const createShapeToolHandler = (
   const isColorCycleShapeBrush = () => tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
   const isContourPolygonBrush = () => {
     const shape = tools.brushSettings.brushShape;
-    return shape === BrushShape.CONTOUR_POLYGON || shape === BrushShape.CONTOUR_LINES2;
+    return (
+      shape === BrushShape.CONTOUR_POLYGON ||
+      shape === BrushShape.NEW_SHAPE_FILL ||
+      shape === BrushShape.CONTOUR_LINES2
+    );
   };
 
   const resolveShapeFillColor = (points?: Array<{ color?: string }>) => {
@@ -1497,6 +1502,9 @@ export const createShapeToolHandler = (
         );
 
         const contourSeed = Math.floor(Math.random() * 0xffffffff);
+        const centroid = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
+          ? computeNewShapeFillCenter(vertices, contourSeed)
+          : computePolygonCentroid(vertices);
         useAppStore.getState().setContourLinesState({
           stage: 'awaitingAnchorA',
           variant: 'legacy',
@@ -1508,6 +1516,7 @@ export const createShapeToolHandler = (
           previewSpacing: initialSpacing,
           spacingReferenceDistance: null,
           spacingReferenceSpacing: initialSpacing,
+          centroid,
           randomSeed: contourSeed,
         });
 
