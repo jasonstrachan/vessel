@@ -1,5 +1,9 @@
 import { FieldGenerator } from './gpu/FieldGenerator';
-import { WebGPUDeviceManager } from './gpu/WebGPUDeviceManager';
+import {
+  WebGPUDeviceManager,
+  getWebGPUSupportStatus,
+  isWebGPUSupported,
+} from './gpu/WebGPUDeviceManager';
 import {
   FieldGeneratorConfig,
   FieldGeneratorResult,
@@ -8,6 +12,7 @@ import {
   TileDescriptor,
 } from './types';
 import type { BrushSettings } from '@/types';
+import { performanceMonitor } from '@/utils/performanceMonitor';
 
 type JobPriority = 'preview' | 'final';
 
@@ -194,11 +199,56 @@ export class ShapeFillScheduler {
           this.releaseCached(job.id);
         },
       };
+      const metrics = existingCached.result.metrics;
+      performanceMonitor.recordShapeFillTelemetry({
+        jobId: job.id,
+        priority,
+        elapsedMs: 0,
+        fromCache: true,
+        tiles: existingCached.result.tiles.length,
+        workgroups: metrics?.workgroupsDispatched ?? 0,
+        generationMs: metrics?.generationTimeMs,
+      });
       this.emit({ type: 'cancelled', jobId: job.id, priority, reason: 'cache-hit' });
       return Promise.resolve(result);
     }
 
     const queuedAt = now();
+
+    if (!isWebGPUSupported()) {
+      const support = getWebGPUSupportStatus();
+      const reason = support.status === 'unavailable'
+        ? support.reason
+        : 'WebGPU support status is unknown';
+      const diagnostics: ComputeDiagnostics = {
+        queuedAt,
+        startedAt: queuedAt,
+        completedAt: queuedAt,
+        fromCache: false,
+        readbackDurationMs: 0,
+      };
+      const result: ShapeFillSchedulerResult = {
+        job,
+        priority,
+        fieldResult: null,
+        readbacks: [],
+        diagnostics,
+        release: () => {},
+      };
+
+      performanceMonitor.recordShapeFillTelemetry({
+        jobId: job.id,
+        priority,
+        elapsedMs: 0,
+        fromCache: false,
+        tiles: 0,
+        workgroups: 0,
+        generationMs: 0,
+      });
+
+      this.emit({ type: 'failed', jobId: job.id, priority, error: new Error(`WebGPU unavailable: ${reason}`) });
+      return Promise.resolve(result);
+    }
 
     return new Promise<ShapeFillSchedulerResult>((resolve, reject) => {
       const queuedJob: QueuedJob = {
@@ -443,6 +493,14 @@ export class ShapeFillScheduler {
         diagnostics,
         release: () => {},
       };
+      performanceMonitor.recordShapeFillTelemetry({
+        jobId: job.id,
+        priority: jobState.priority,
+        elapsedMs: diagnostics.completedAt - diagnostics.queuedAt,
+        fromCache: false,
+        tiles: 0,
+        workgroups: 0,
+      });
       this.emit({
         type: 'completed',
         jobId: job.id,
@@ -497,6 +555,17 @@ export class ShapeFillScheduler {
       release,
     };
 
+    const metrics = fieldResult.metrics;
+    performanceMonitor.recordShapeFillTelemetry({
+      jobId: job.id,
+      priority: jobState.priority,
+      elapsedMs: diagnostics.completedAt - diagnostics.queuedAt,
+      fromCache: false,
+      tiles: fieldResult.tiles.length,
+      workgroups: metrics?.workgroupsDispatched ?? 0,
+      generationMs: metrics?.generationTimeMs,
+    });
+
     this.emit({
       type: 'completed',
       jobId: job.id,
@@ -545,6 +614,10 @@ export class ShapeFillScheduler {
     result: FieldGeneratorResult,
     jobState: QueuedJob
   ): Promise<{ readbacks: TileReadback[]; durationMs: number }> {
+    if (!jobState.readbackSelection) {
+      return { readbacks: [], durationMs: 0 };
+    }
+
     const tiles = result.tiles;
     if (!tiles.length) {
       return { readbacks: [], durationMs: 0 };

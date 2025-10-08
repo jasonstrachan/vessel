@@ -61,7 +61,10 @@ export const pixelBrushSettings: BrushSettings = {
   ribbonSeed: 2025,
   shapeFillLineWidth: 1,
   shapeFillPixelMode: true,
-  shapeFillUseSampledColor: false
+  shapeFillUseSampledColor: false,
+  shapeFillHardening: 1,
+  shapeFillHardeningThreshold: 0.5,
+  shapeFillEdgeFeather: 1
 };
 
 // Default brush settings for smooth drawing
@@ -136,7 +139,10 @@ export const defaultBrushSettings: BrushSettings = {
   ribbonSeed: 2025,
   shapeFillLineWidth: 1,
   shapeFillPixelMode: true,
-  shapeFillUseSampledColor: false
+  shapeFillUseSampledColor: false,
+  shapeFillHardening: 1,
+  shapeFillHardeningThreshold: 0.5,
+  shapeFillEdgeFeather: 1
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect
@@ -634,11 +640,11 @@ const contourPolygonBrushComponents: BrushComponent[] = [
 
 export const contourPolygonBrushPreset: BrushPreset = {
   id: 'contour-polygon-brush',
-  name: 'Shape Fill',
+  name: 'Shape Fill GPU',
   category: 'Special',
   components: contourPolygonBrushComponents,
   thumbnail: '/assets/images/Brush.png',
-  tags: ['contour', 'polygon', 'special', 'topographic'],
+  tags: ['contour', 'polygon', 'special', 'topographic', 'gpu'],
   isDefault: false,
   createdAt: new Date(),
   modifiedAt: new Date(),
@@ -648,7 +654,13 @@ export const contourPolygonBrushPreset: BrushPreset = {
     contourSmoothness: 0.5,
     triangleFillSize: 48,
     triangleFillJitter: 35,
-    triangleFillRotation: 0
+    triangleFillRotation: 0,
+    shapeGradientMode: 'contour',
+    shapeFillPixelMode: true,
+    shapeFillUseSampledColor: false,
+    shapeFillHardening: 1,
+    shapeFillHardeningThreshold: 0.5,
+    shapeFillEdgeFeather: 1
   }
 };
 
@@ -861,6 +873,12 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     settings.contourSpacing = 4; // Default contour spacing
     settings.contourVariance = 5; // Default medium variance for balanced organic look
     settings.contourSmoothness = 0.5; // Default low smoothness for sharp details
+    settings.shapeGradientMode = 'contour';
+    settings.shapeFillPixelMode = true;
+    settings.shapeFillUseSampledColor = false;
+    settings.shapeFillHardening = 1;
+    settings.shapeFillHardeningThreshold = 0.5;
+    settings.shapeFillEdgeFeather = 1;
   } else if (preset.id === 'contour-lines2-brush') {
     settings.size = 12; // Slightly larger base size for Lines2 brush
     settings.antialiasing = false;

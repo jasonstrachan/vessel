@@ -1,7 +1,7 @@
 import { useAppStore } from '@/stores/useAppStore';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { computeLayerPercentOffset, computePercentOffsetFromPixels } from '@/utils/layerMetrics';
-import type { Layer, Project } from '@/types';
+import type { Layer, LayerAlignmentPercentOffset, Project } from '@/types';
 
 const createImageData = (width: number, height: number): ImageData => {
   if (typeof ImageData !== 'undefined') {
@@ -24,7 +24,7 @@ const expectClose = (actual: number, expected: number, epsilon = EPS) => {
 };
 
 const expectPercentMatch = (
-  actual: { x: number; y: number } | undefined,
+  actual: LayerAlignmentPercentOffset | null | undefined,
   expected: { x: number; y: number }
 ) => {
   expect(actual).toBeDefined();
@@ -36,8 +36,8 @@ const expectPercentMatch = (
 };
 
 const expectPercentOneOf = (
-  actual: { x: number; y: number } | undefined,
-  candidates: Array<{ x: number; y: number } | undefined>
+  actual: LayerAlignmentPercentOffset | null | undefined,
+  candidates: Array<LayerAlignmentPercentOffset | null | undefined>
 ) => {
   expect(actual).toBeDefined();
   if (!actual) {

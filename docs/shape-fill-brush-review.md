@@ -37,9 +37,7 @@
 - **Noise + trig per step (`inkRibbons.ts:403-411`):** We allocate cos/sin per integration step. Cache `noiseScale` inverses and reuse trig values by precomputing lookup tables or using incremental rotation updates to avoid repeated `Math.cos/Math.sin` in hot loops.
 
 ### Delaunay Fill (`src/brushes/shapes/fills/delaunator.ts`)
-- **Point-in-polygon inside Poisson sampling (`delaunator.ts:103-193`):** Both `addSeedPoint` and `generatePoissonPoints` repeatedly invoke `isPointInPolygonSDF`. Introduce a rotated-space bounding grid keyed by cell to avoid the O(n * seeds) membership checks.
-- **`isFarEnough` linear search (`delaunator.ts:111-119`):** Minimum-distance enforcement is another N² loop. Reuse the same spatial grid suggested above.
-- **Preview flag unused:** `isPreview` only affects caller decisions; you can hook it to reduce the number of Poisson layers while keeping triangle topology consistent.
+- CPU-only fallback was removed on 2025-10-07; the brush now routes exclusively through the GPU scheduler/cache. Legacy notes about Poisson sampling and incremental CPU optimizations remain archived below for historical context but no longer apply to the active implementation.
 
 ### Cross Hatch (`src/brushes/shapes/fills/hatch.ts`)
 - Workload is lighter, but we still iterate up to 2k lines (`hatch.ts:110-149`). Guard rail helps, yet preview could short-circuit earlier or reuse cached line sets keyed by vertices + rotation.

@@ -1,6 +1,7 @@
 import type { BrushSettings, ContourLinesBasis } from '@/types';
 import type { ShapeFillScheduler } from '@/lib/shapeFill/ShapeFillScheduler';
-import type { HybridShapeFillController, ViewTransform } from '@/lib/shapeFill/hybrid/controller';
+import type { StrokeJob } from '@/lib/shapeFill';
+import type { ViewTransform } from '@/lib/shapeFill/ShapeAdjustHelper';
 
 export type Point = { x: number; y: number };
 
@@ -24,6 +25,7 @@ export type ContourLineOptions = {
     overlayCanvas?: HTMLCanvasElement | null;
     finalCanvas?: HTMLCanvasElement | null;
     viewTransform?: ViewTransform;
+    devicePixelRatio?: number;
   };
 };
 
@@ -42,6 +44,16 @@ export type ShapeFillDependencies = {
     peakX: number;
     peakY: number;
     extension: number;
+    bounds: {
+      minX: number;
+      minY: number;
+      maxX: number;
+      maxY: number;
+    };
+    peak: {
+      x: number;
+      y: number;
+    };
   };
   extractContour: (
     field: number[][],
@@ -53,16 +65,18 @@ export type ShapeFillDependencies = {
   ) => Array<[Point, Point]>;
   connectSegments: (segments: Array<[Point, Point]>) => Point[][];
   gpuScheduler?: ShapeFillScheduler;
-  hybridController?: HybridShapeFillController;
   getOverlayCanvas?: () => HTMLCanvasElement | null;
   getCompositeCanvas?: () => HTMLCanvasElement | null;
   getViewTransform?: () => ViewTransform | undefined;
+  recordShapeFillJob?: (job: StrokeJob, metadata: { brushSettings?: BrushSettings; mode?: string; runtimeContext?: ContourLineOptions['runtimeContext'] }) => void;
+  flushShapeFillJobs?: (finalCanvas: HTMLCanvasElement | null | undefined, description?: string, overrideLayerId?: string) => void;
 };
 
 export interface PolygonFillBase {
   ctx: CanvasRenderingContext2D;
   vertices: Point[];
   brushSettings: BrushSettings;
+  runtimeContext?: ContourLineOptions['runtimeContext'];
 }
 
 export interface ContourFillParams extends PolygonFillBase {

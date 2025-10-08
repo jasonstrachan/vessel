@@ -12,7 +12,7 @@ struct Params {
 
 @group(0) @binding(0) var<uniform> params : Params;
 @group(0) @binding(1) var<storage, read> inVerts : array<vec2<f32>>;
-@group(0) @binding(2) var<storage, read_write> outVerts : array<vec2<f32>>;
+@group(0) @binding(2) var<storage, read_write> outVerts : array<vec4<f32>>;
 @group(0) @binding(3) var<storage, read> metadata : array<f32>;
 
 fn to_world(p : vec2<f32>) -> vec2<f32> {
@@ -68,12 +68,17 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   let C = world_to_ndc(bWorld - offPx);
   let D = world_to_ndc(aWorld - offPx);
 
+  let uvA = vec2<f32>(0.0, 1.0);
+  let uvB = vec2<f32>(1.0, 1.0);
+  let uvC = vec2<f32>(1.0, -1.0);
+  let uvD = vec2<f32>(0.0, -1.0);
+
   let base = segIdx * 6u;
-  outVerts[base + 0u] = A;
-  outVerts[base + 1u] = B;
-  outVerts[base + 2u] = C;
-  outVerts[base + 3u] = A;
-  outVerts[base + 4u] = C;
-  outVerts[base + 5u] = D;
+  outVerts[base + 0u] = vec4<f32>(A, uvA);
+  outVerts[base + 1u] = vec4<f32>(B, uvB);
+  outVerts[base + 2u] = vec4<f32>(C, uvC);
+  outVerts[base + 3u] = vec4<f32>(A, uvA);
+  outVerts[base + 4u] = vec4<f32>(C, uvC);
+  outVerts[base + 5u] = vec4<f32>(D, uvD);
 }
 `;

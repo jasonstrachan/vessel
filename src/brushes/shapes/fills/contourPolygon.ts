@@ -1,8 +1,4 @@
 import { BrushShape, type BrushSettings } from '@/types';
-
-import { isWebGPUSupported } from '@/lib/shapeFill/gpu/WebGPUDeviceManager';
-import type { PathInput } from '@/lib/shapeFill/hybrid/runtime';
-import type { FillContour, FillSolid } from '@/lib/shapeFill/hybrid/types';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 
 import { resolveCoordinateSnap } from './common';
@@ -36,30 +32,26 @@ const shouldFillPolygon = (
   vertexCount: number
 ) => fillColor !== undefined && vertexCount >= 3 && !['contour', 'lines', 'lines2', 'triangle', 'flow', 'inkRibbons'].includes(mode);
 
+type TestContourFillBase = {
+  type: 'solid';
+  rgba: [number, number, number, number];
+};
+
+type TestContourFill = {
+  type: 'contour';
+  spacing: number;
+  join: 'miter' | 'round' | 'bevel';
+  miterLimit: number;
+  base: TestContourFillBase;
+};
+
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
-const toNormalizedRgba = (color: string | undefined, fallback: [number, number, number, number]): [number, number, number, number] => {
-  const fallbackColor = {
-    r: clamp01(fallback[0]) * 255,
-    g: clamp01(fallback[1]) * 255,
-    b: clamp01(fallback[2]) * 255,
-    a: clamp01(fallback[3]) * 255,
-  };
-  const parsed = parseCssColor(color ?? '', fallbackColor);
-  return [parsed.r / 255, parsed.g / 255, parsed.b / 255, parsed.a / 255];
-};
-
-const createSolidFill = (color: string | undefined, opacity: number): FillSolid => {
-  const rgba = toNormalizedRgba(color, [1, 1, 1, opacity]);
-  rgba[3] = clamp01(opacity * rgba[3]);
-  return { type: 'solid', rgba };
-};
-
-const createContourFill = (
+const createContourFillForTests = (
   brushSettings: BrushSettings,
   fillColor: string | undefined,
-  spacingOverride?: number
-): FillContour => {
+  spacingOverride?: number,
+): TestContourFill => {
   const spacing = Math.max(0.5, spacingOverride ?? brushSettings.contourSpacing ?? 4);
   const join = (() => {
     const smoothness = brushSettings.contourSmoothness ?? 0;
@@ -67,17 +59,31 @@ const createContourFill = (
     if (smoothness > 0.33) return 'bevel';
     return 'miter';
   })();
-  const miterLimit = Math.max(1, brushSettings.shapeFillLineWidth ?? 4);
+  const parsed = parseCssColor(fillColor ?? brushSettings.color ?? '#ffffff', {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: clamp01(brushSettings.opacity ?? 1) * 255,
+  });
+  const rgba: [number, number, number, number] = [
+    parsed.r / 255,
+    parsed.g / 255,
+    parsed.b / 255,
+    clamp01((brushSettings.opacity ?? 1) * (parsed.a / 255)),
+  ];
   return {
     type: 'contour',
     spacing,
     join,
-    miterLimit,
-    base: createSolidFill(fillColor, brushSettings.opacity),
+    miterLimit: Math.max(1, brushSettings.shapeFillLineWidth ?? 4),
+    base: {
+      type: 'solid',
+      rgba,
+    },
   };
 };
 
-const toPathInput = (vertices: Point[], snap: (value: number) => number): PathInput => {
+const toPathInputForTests = (vertices: Point[], snap: (value: number) => number) => {
   const commands: Array<'moveTo' | 'lineTo' | 'closePath'> = [];
   const coords: number[] = [];
   if (!vertices.length) {
@@ -97,8 +103,8 @@ const toPathInput = (vertices: Point[], snap: (value: number) => number): PathIn
 };
 
 export const __contourPolygonTestUtils = {
-  toPathInput,
-  createContourFill,
+  toPathInput: toPathInputForTests,
+  createContourFill: createContourFillForTests,
 };
 
 export const drawContourPolygon = ({
@@ -203,6 +209,7 @@ export const drawContourPolygon = ({
         isPreview,
         randomSeed: lineOptions?.randomSeed,
         strokeColorOverride: lineOptions?.strokeColorOverride,
+        runtimeContext: lineOptions?.runtimeContext,
       });
       return;
     }
@@ -216,6 +223,7 @@ export const drawContourPolygon = ({
         isPreview,
         randomSeed: lineOptions?.randomSeed,
         strokeColorOverride: lineOptions?.strokeColorOverride,
+        runtimeContext: lineOptions?.runtimeContext,
       });
       return;
     }
@@ -230,45 +238,12 @@ export const drawContourPolygon = ({
         isPreview,
         strokeColorOverride: lineOptions?.strokeColorOverride,
         dependencies,
+        runtimeContext: lineOptions?.runtimeContext,
       });
       return;
     }
 
     const spacingOverride = lineOptions?.contourSpacingOverride ?? lineOptions?.lineSpacingA ?? lineOptions?.lineSpacingB;
-
-    const controller = dependencies.hybridController;
-    const runtimeContext = lineOptions?.runtimeContext;
-    const overlayCanvas = dependencies.getOverlayCanvas?.() ?? runtimeContext?.overlayCanvas ?? ctx.canvas ?? null;
-    const finalCanvas = dependencies.getCompositeCanvas?.() ?? runtimeContext?.finalCanvas ?? null;
-
-    if (controller && overlayCanvas && isWebGPUSupported()) {
-      controller.attachCanvases(overlayCanvas, finalCanvas);
-      const viewTransform = dependencies.getViewTransform?.() ?? runtimeContext?.viewTransform;
-      const path = toPathInput(vertices, snap);
-      const fill = createContourFill(brushSettings, lineOptions?.strokeColorOverride ?? polygonData?.fillColor ?? brushSettings.color, spacingOverride);
-
-      void controller.build({
-        paths: [path],
-        fill,
-        preview: isPreview,
-        viewportScale: viewTransform?.scale,
-        viewTransform,
-      }).catch(error => {
-        console.warn('[HybridShapeFill] contour build failed, falling back to CPU', error);
-        drawContourFill({
-          ctx,
-          vertices,
-          brushSettings,
-          dependencies,
-          isPreview,
-          spacingOverride,
-          randomSeed: lineOptions?.randomSeed,
-          previewDetail: lineOptions?.previewDetail,
-          strokeColorOverride: lineOptions?.strokeColorOverride,
-        });
-      });
-      return;
-    }
 
     drawContourFill({
       ctx,
@@ -280,6 +255,7 @@ export const drawContourPolygon = ({
       randomSeed: lineOptions?.randomSeed,
       previewDetail: lineOptions?.previewDetail,
       strokeColorOverride: lineOptions?.strokeColorOverride,
+      runtimeContext: lineOptions?.runtimeContext,
     });
   } finally {
     ctx.restore();

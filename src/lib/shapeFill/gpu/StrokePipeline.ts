@@ -5,13 +5,14 @@ import { PixelRasterizer } from './PixelRasterizer';
 import { IsolineExtractor } from './IsolineExtractor';
 import { TriangleNetworkGenerator } from './TriangleNetworkGenerator';
 import { QuadExpander } from './QuadExpander';
-import type { QuadExpandResult } from './QuadExpander';
+import type { QuadExpandOptions, QuadExpandResult } from './QuadExpander';
 import type { StrokeJob, StrokeResolution, BoundingBox } from '../types';
 import type { FieldGeneratorResult } from '../types';
 import { WebGPUDeviceManager, isWebGPUSupported } from './WebGPUDeviceManager';
+import { getShapeFillMeshCache, hashStructuredValue } from './meshCache';
 import { parseCssColor, DEFAULT_RGBA, type RGBAColor } from '@/utils/color/parseCssColor';
 import { debugLog } from '@/utils/debug';
-import type { ContourGeometry } from '@/lib/shapeFill/cpu/contourGeometry';
+import type { BrushSettings } from '@/types';
 
 export interface StrokePipelineOptions {
   priority: 'preview' | 'final';
@@ -38,6 +39,133 @@ const getResolutionForJob = (job: StrokeJob, priority: 'preview' | 'final'): Str
 
 const colorToRgba = (color?: string): RGBAColor => parseCssColor(color ?? '', DEFAULT_RGBA);
 
+const SCALE_BUCKET_FACTOR = 100;
+
+const sanitizeNumberRecord = (input: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
+  if (!input) {
+    return undefined;
+  }
+  const entries = Object.keys(input)
+    .sort()
+    .reduce<Record<string, unknown>>((acc, key) => {
+      const value = input[key];
+      if (value === undefined || typeof value === 'function') {
+        return acc;
+      }
+      if (typeof value === 'number') {
+        if (Number.isFinite(value)) {
+          acc[key] = value;
+        }
+        return acc;
+      }
+      if (typeof value === 'boolean' || typeof value === 'string') {
+        acc[key] = value;
+        return acc;
+      }
+      if (Array.isArray(value)) {
+        acc[key] = value.slice(0, 32);
+        return acc;
+      }
+      if (value && typeof value === 'object') {
+        const nested = sanitizeNumberRecord(value as Record<string, unknown>);
+        if (nested && Object.keys(nested).length) {
+          acc[key] = nested;
+        }
+        return acc;
+      }
+      return acc;
+    }, {});
+  return Object.keys(entries).length ? entries : undefined;
+};
+
+const BRUSH_CACHE_KEYS = [
+  'shapeFillLineWidth',
+  'shapeFillPixelMode',
+  'shapeGradientMode',
+  'flowFieldResolution',
+  'flowSeedSpacing',
+  'flowMaxSteps',
+  'flowOrientationAngle',
+  'flowSeedJitter',
+  'triangleFillSize',
+  'triangleFillRotation',
+  'triangleFillJitter',
+  'triangleFillDensity',
+  'ribbonLineWidth',
+  'ribbonSeedSpacing',
+  'ribbonSdfStep',
+  'ribbonBiasAngle',
+  'crossHatchSpacing',
+  'crossHatchLineWidth',
+  'crossHatchRotation',
+  'contourSpacing',
+  'contourSpacingB',
+  'contourVariance',
+  'contourSmoothness',
+  'contourLinesDirExtent',
+];
+
+const pickBrushSettingsForCache = (brushSettings: BrushSettings | undefined): Record<string, unknown> | undefined => {
+  if (!brushSettings) {
+    return undefined;
+  }
+  const snapshot: Record<string, unknown> = {};
+  const source = brushSettings as unknown as Record<string, unknown>;
+  for (const key of BRUSH_CACHE_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      const value = source[key];
+      if (value !== undefined && typeof value !== 'function') {
+        snapshot[key] = value;
+      }
+    }
+  }
+  return Object.keys(snapshot).length ? snapshot : undefined;
+};
+
+const buildMeshCacheKey = (
+  job: StrokeJob,
+  path: PathIntegrationResult,
+  options: QuadExpandOptions,
+  extras?: Record<string, unknown>,
+): string => {
+  const scaleValue = options.resolution.scale ?? 1;
+  const scaleBucket = Math.max(1, Math.round(scaleValue * SCALE_BUCKET_FACTOR));
+  const bounds = options.bounds;
+
+  const payload = {
+    jobId: job.id,
+    seed: job.seed ?? 0,
+    brush: job.metadata?.brush ?? job.brushSettings?.brushShape ?? 'generic',
+    pendingGizmo: job.pendingGizmo ?? false,
+    pixelMode: job.pixelMode ?? job.brushSettings?.shapeFillPixelMode ?? true,
+    dynamic: sanitizeNumberRecord(job.dynamicParams),
+    brushSettings: pickBrushSettingsForCache(job.brushSettings as BrushSettings | undefined),
+    metadata: sanitizeNumberRecord(job.metadata as Record<string, unknown> | undefined),
+    resolution: {
+      width: Math.round(options.resolution.width),
+      height: Math.round(options.resolution.height),
+      scaleBucket,
+    },
+    geometry: {
+      lineWidth: options.lineWidth,
+      alternateLineWidth: options.alternateLineWidth,
+      alternateStride: options.alternateStride,
+      coordinateSpace: path.coordinateSpace,
+      vertexCount: path.vertexCount,
+      segmentStride: options.segmentMetadata?.stride ?? path.segmentMetadata?.stride ?? 0,
+    },
+    bounds: {
+      minX: bounds.minX,
+      minY: bounds.minY,
+      maxX: bounds.maxX,
+      maxY: bounds.maxY,
+    },
+    extras,
+  };
+
+  return `mesh:${hashStructuredValue(payload)}`;
+};
+
 export class StrokePipeline {
   private readonly deviceManager = WebGPUDeviceManager.getInstance();
 
@@ -53,91 +181,36 @@ export class StrokePipeline {
 
   private readonly quadExpander = new QuadExpander();
 
-  private async uploadContourGeometry(
+  private readonly meshCache = getShapeFillMeshCache();
+
+  private async acquireQuadGeometry(
     job: StrokeJob,
-    geometry: ContourGeometry,
-  ): Promise<PathIntegrationResult | null> {
-    if (!geometry.loops.length) {
+    path: PathIntegrationResult,
+    options: QuadExpandOptions,
+    extras?: Record<string, unknown>,
+  ): Promise<QuadExpandResult | null> {
+    const cacheKey = buildMeshCacheKey(job, path, options, extras);
+    const generation = this.deviceManager.getDeviceGeneration();
+    const cached = this.meshCache.get(cacheKey, generation);
+    if (cached) {
+      debugLog('shape-fill', 'mesh cache hit', { jobId: job.id, key: cacheKey });
+      return cached;
+    }
+
+    const geometry = await this.quadExpander.expand(path, options);
+    if (!geometry) {
       return null;
     }
 
-    const device = await this.deviceManager.ensureDevice();
-    if (!device) {
-      return null;
+    const stored = this.meshCache.store(cacheKey, generation, geometry);
+    if (stored !== geometry) {
+      debugLog('shape-fill', 'mesh cache store', {
+        jobId: job.id,
+        key: cacheKey,
+        vertexCount: stored.vertexCount,
+      });
     }
-
-    let segmentCount = 0;
-    for (const loop of geometry.loops) {
-      segmentCount += Math.max(0, loop.points.length / 2);
-    }
-    if (segmentCount === 0) {
-      return null;
-    }
-
-    const vertexData = new Float32Array(segmentCount * 4);
-    const metadataData = new Float32Array(segmentCount);
-
-    let vertexOffset = 0;
-    let segmentIndex = 0;
-    for (const loop of geometry.loops) {
-      const points = loop.points;
-      const pointCount = Math.max(0, points.length / 2);
-      if (pointCount < 2) {
-        continue;
-      }
-      for (let index = 0; index < pointCount; index += 1) {
-        const nextIndex = (index + 1) % pointCount;
-        const ax = points[index * 2];
-        const ay = points[index * 2 + 1];
-        const bx = points[nextIndex * 2];
-        const by = points[nextIndex * 2 + 1];
-        vertexData[vertexOffset++] = ax;
-        vertexData[vertexOffset++] = ay;
-        vertexData[vertexOffset++] = bx;
-        vertexData[vertexOffset++] = by;
-        metadataData[segmentIndex++] = loop.levelIndex;
-      }
-    }
-
-    if (segmentIndex === 0) {
-      return null;
-    }
-
-    const vertexBuffer = device.createBuffer({
-      label: `contour-cpu-vertices-${job.id}`,
-      size: vertexData.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-      mappedAtCreation: true,
-    });
-    new Float32Array(vertexBuffer.getMappedRange()).set(vertexData);
-    vertexBuffer.unmap();
-
-    const metadataBuffer = device.createBuffer({
-      label: `contour-cpu-metadata-${job.id}`,
-      size: metadataData.byteLength,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-      mappedAtCreation: true,
-    });
-    new Float32Array(metadataBuffer.getMappedRange()).set(metadataData);
-    metadataBuffer.unmap();
-
-    const release = () => {
-      vertexBuffer.destroy();
-      metadataBuffer.destroy();
-    };
-
-    return {
-      buffer: vertexBuffer,
-      vertexCount: segmentIndex * 2,
-      coordinateSpace: 'world',
-      bounds: geometry.bounds,
-      segmentMetadata: {
-        buffer: metadataBuffer,
-        kind: 'level-index',
-        stride: 1,
-      },
-      release,
-    };
+    return stored;
   }
 
   async render(
@@ -172,6 +245,18 @@ export class StrokePipeline {
 
     const dynamicParams = job.dynamicParams ?? {};
     const strokeLineWidth = Math.max(0.2, job.brushSettings?.shapeFillLineWidth ?? 1);
+    const pixelMode = job.pixelMode ?? job.brushSettings?.shapeFillPixelMode ?? true;
+    const hardeningStrength = pixelMode
+      ? Math.min(Math.max(typeof dynamicParams.shapeFillHardening === 'number'
+        ? dynamicParams.shapeFillHardening
+        : 1, 0), 1)
+      : 0;
+    const edgeFeather = Math.max(0.5, typeof dynamicParams.shapeFillEdgeFeather === 'number'
+      ? dynamicParams.shapeFillEdgeFeather
+      : (pixelMode ? 1 : 1));
+    const hardeningThreshold = Math.min(Math.max(typeof dynamicParams.shapeFillHardeningThreshold === 'number'
+      ? dynamicParams.shapeFillHardeningThreshold
+      : 0.5, 0), 1);
 
     const logRasterPass = (
       path: PathIntegrationResult,
@@ -189,47 +274,109 @@ export class StrokePipeline {
     };
 
     if (job.metadata?.brush === 'contour') {
-      const geometry = job.metadata?.contourGeometry as ContourGeometry | undefined;
-      if (!geometry || !geometry.loops.length) {
+      if (!field) {
         return null;
       }
 
-      if (options.priority === 'preview') {
-        return null;
-      }
+      const spacing = Math.max(
+        0.5,
+        typeof dynamicParams.contourSpacing === 'number'
+          ? dynamicParams.contourSpacing
+          : job.brushSettings?.contourSpacing ?? 5,
+      );
+      const variance = Math.min(
+        1,
+        Math.max(
+          0,
+          typeof dynamicParams.contourVariance === 'number'
+            ? dynamicParams.contourVariance
+            : job.brushSettings?.contourVariance ?? 0,
+        ),
+      );
+      const smoothness = Math.min(
+        1,
+        Math.max(
+          0,
+          typeof dynamicParams.contourSmoothness === 'number'
+            ? dynamicParams.contourSmoothness
+            : job.brushSettings?.contourSmoothness ?? 0.3,
+        ),
+      );
+      const maxLevels = Math.max(
+        1,
+        Math.round(
+          typeof dynamicParams.contourMaxLevels === 'number'
+            ? dynamicParams.contourMaxLevels
+            : Math.max(2, (resolution.width + resolution.height) / Math.max(spacing * 4, 1)),
+        ),
+      );
+      const maxDistance = Math.max(
+        spacing * 2,
+        typeof dynamicParams.contourMaxDistance === 'number'
+          ? dynamicParams.contourMaxDistance
+          : Math.max(resolution.width, resolution.height) * 0.5,
+      );
 
-      const pathGeometry = await this.uploadContourGeometry(job, geometry);
-      if (!pathGeometry) {
-        return null;
-      }
-
-      const quadGeometry = await this.quadExpander.expand(pathGeometry, {
-        bounds: geometry.bounds,
-        resolution,
+      const contourResult = await this.isolineExtractor.extract(job, field, effectiveBounds, {
+        mode: 'contour',
+        spacingA: spacing,
+        spacingB: spacing,
+        variance,
+        smoothness,
+        maxLevels,
+        maxDistance,
         lineWidth: strokeLineWidth,
+        seed: job.seed ?? 0,
+        preview: options.priority === 'preview',
       });
+      if (!contourResult) {
+        return null;
+      }
+
+      const quadGeometry = await this.acquireQuadGeometry(
+        job,
+        contourResult,
+        {
+          bounds: effectiveBounds,
+          resolution,
+          lineWidth: strokeLineWidth,
+          segmentMetadata: contourResult.segmentMetadata,
+        },
+        {
+          branch: 'contour',
+          priority: options.priority,
+          spacing,
+          variance,
+          smoothness,
+          maxLevels,
+        },
+      );
       if (!quadGeometry) {
-        pathGeometry.release();
+        contourResult.release();
         return null;
       }
 
       try {
-        logRasterPass(pathGeometry, quadGeometry);
+        logRasterPass(contourResult, quadGeometry);
         const raster = await this.pixelRasterizer.rasterize(job, quadGeometry, {
           resolution,
           color,
-          bounds: geometry.bounds,
+          bounds: effectiveBounds,
+          pixelMode,
+          hardeningStrength,
+          edgeFeather,
+          threshold: hardeningThreshold,
         });
         if (!raster) {
           quadGeometry.release();
-          pathGeometry.release();
+          contourResult.release();
           return null;
         }
 
         const release = () => {
           raster.release();
           quadGeometry.release();
-          pathGeometry.release();
+          contourResult.release();
         };
 
         return {
@@ -241,7 +388,7 @@ export class StrokePipeline {
         };
       } catch (error) {
         quadGeometry.release();
-        pathGeometry.release();
+        contourResult.release();
         throw error;
       }
     }
@@ -277,11 +424,19 @@ export class StrokePipeline {
         return null;
       }
 
-      const quadGeometry = await this.quadExpander.expand(triangleResult, {
-        bounds: effectiveBounds,
-        resolution,
-        lineWidth: strokeLineWidth,
-      });
+      const quadGeometry = await this.acquireQuadGeometry(
+        job,
+        triangleResult,
+        {
+          bounds: effectiveBounds,
+          resolution,
+          lineWidth: strokeLineWidth,
+        },
+        {
+          branch: 'triangle',
+          priority: options.priority,
+        },
+      );
       if (!quadGeometry) {
         triangleResult.release();
         return null;
@@ -293,6 +448,10 @@ export class StrokePipeline {
           resolution,
           color,
           bounds: effectiveBounds,
+          pixelMode,
+          hardeningStrength,
+          edgeFeather,
+          threshold: hardeningThreshold,
         });
         if (!raster) {
           quadGeometry.release();
@@ -382,14 +541,25 @@ export class StrokePipeline {
         return null;
       }
 
-      const quadGeometry = await this.quadExpander.expand(linesResult, {
-        bounds: effectiveBounds,
-        resolution,
-        lineWidth: strokeLineWidth,
-        alternateLineWidth,
-        alternateStride,
-        segmentMetadata: linesResult.segmentMetadata,
-      });
+      const quadGeometry = await this.acquireQuadGeometry(
+        job,
+        linesResult,
+        {
+          bounds: effectiveBounds,
+          resolution,
+          lineWidth: strokeLineWidth,
+          alternateLineWidth,
+          alternateStride,
+          segmentMetadata: linesResult.segmentMetadata,
+        },
+        {
+          branch: 'contour-lines',
+          priority: options.priority,
+          variant: typeof dynamicParams.contourLinesVariant === 'string'
+            ? dynamicParams.contourLinesVariant
+            : job.metadata?.brush,
+        },
+      );
       if (!quadGeometry) {
         linesResult.release();
         return null;
@@ -401,6 +571,10 @@ export class StrokePipeline {
           resolution,
           color,
           bounds: effectiveBounds,
+          pixelMode,
+          hardeningStrength,
+          edgeFeather,
+          threshold: hardeningThreshold,
         });
         if (!raster) {
           quadGeometry.release();
@@ -468,11 +642,20 @@ export class StrokePipeline {
         return null;
       }
 
-      const quadGeometry = await this.quadExpander.expand(path, {
-        bounds: effectiveBounds,
-        resolution,
-        lineWidth: strokeLineWidth,
-      });
+      const quadGeometry = await this.acquireQuadGeometry(
+        job,
+        path,
+        {
+          bounds: effectiveBounds,
+          resolution,
+          lineWidth: strokeLineWidth,
+        },
+        {
+          branch: 'seed-path',
+          priority: options.priority,
+          seedsPerAxis,
+        },
+      );
       if (!quadGeometry) {
         path.release();
         seeds.release();
@@ -485,6 +668,10 @@ export class StrokePipeline {
           resolution,
           color,
           bounds: effectiveBounds,
+          pixelMode,
+          hardeningStrength,
+          edgeFeather,
+          threshold: hardeningThreshold,
         });
         if (!raster) {
           quadGeometry.release();

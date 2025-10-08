@@ -1,7 +1,8 @@
-import { getStrokePipeline, isWebGPUSupported } from '@/lib/shapeFill';
+import { getStrokePipeline, getWebGPUSupportStatus, isWebGPUSupported } from '@/lib/shapeFill';
 import type { StrokeJob } from '@/lib/shapeFill';
 import { debugLog, debugWarn } from '@/utils/debug';
 import type { FlowFillParams, Point } from './types';
+import { drawShapeFillOutput, resolveShapeFillGpuParams } from './common';
 
 const computePolygonBounds = (vertices: Point[]) => {
   let minX = Infinity;
@@ -22,7 +23,7 @@ const computePolygonBounds = (vertices: Point[]) => {
 const FNV_OFFSET = 2166136261;
 const FNV_PRIME = 16777619;
 
-const inflightGpuJobs = new Set<string>();
+const inflightGpuJobs = new Map<string, Promise<void>>();
 
 export const computeFlowGpuJobId = (
   vertices: Point[],
@@ -52,19 +53,20 @@ const enqueueGpuStroke = (
 ) => {
   const scheduler = params.dependencies.gpuScheduler;
   if (!scheduler || typeof window === 'undefined' || !isWebGPUSupported()) {
+    options.onFallback();
     return;
   }
 
   const fieldResolution = params.fieldResolution ?? params.brushSettings.flowFieldResolution ?? 8;
   const pixelMode = params.brushSettings.shapeFillPixelMode ?? true;
   const jobId = computeFlowGpuJobId(params.vertices, params.randomSeed, fieldResolution, pixelMode);
+  const runtimeContext = params.runtimeContext;
 
   const inflightKey = `${jobId}:${priority}`;
-  if (inflightGpuJobs.has(inflightKey)) {
+  const existing = inflightGpuJobs.get(inflightKey);
+  if (existing) {
     return;
   }
-
-  inflightGpuJobs.add(inflightKey);
 
   const width = Math.max(1, Math.ceil(bounds.maxX - bounds.minX));
   const height = Math.max(1, Math.ceil(bounds.maxY - bounds.minY));
@@ -100,20 +102,23 @@ const enqueueGpuStroke = (
     },
     pixelMode,
     pendingGizmo: priority === 'preview' && Boolean(params.isPreview),
+    dynamicParams: resolveShapeFillGpuParams(params.brushSettings),
     metadata: {
       brush: 'flow-fill',
       mode: priority,
+      viewportScale: runtimeContext?.viewTransform?.scale,
+      devicePixelRatio: runtimeContext?.devicePixelRatio,
     },
   };
 
-  const readback = priority === 'preview' ? 'all' : false;
   const pipeline = getStrokePipeline();
 
-  scheduler
+  const jobPromise = scheduler
     .queueJob(stroke, {
       priority,
       cacheResult: true,
-      readback,
+      readback: false,
+      reuseCache: true,
     })
     .then(async result => {
       try {
@@ -133,33 +138,39 @@ const enqueueGpuStroke = (
           return;
         }
 
-        const drawToCanvas = async () => {
-          if (typeof ImageData === 'undefined') {
-            return false;
-          }
+        const overlayCtx = runtimeContext?.overlayCanvas
+          ? runtimeContext.overlayCanvas.getContext('2d', { willReadFrequently: true }) ?? undefined
+          : undefined;
+        const finalCtx = runtimeContext?.finalCanvas
+          ? runtimeContext.finalCanvas.getContext('2d', { willReadFrequently: true }) ?? undefined
+          : undefined;
 
-          const imageData = new ImageData(output.pixels, output.width, output.height);
-          if (typeof createImageBitmap === 'function') {
-            const bitmap = await createImageBitmap(imageData);
-            ctx.save();
-            ctx.globalAlpha = params.brushSettings.opacity;
-            ctx.globalCompositeOperation = params.brushSettings.blendMode || 'source-over';
-            ctx.imageSmoothingEnabled = !(params.brushSettings.shapeFillPixelMode ?? true);
-            ctx.drawImage(bitmap, output.origin.x, output.origin.y);
-            ctx.restore();
-            bitmap.close();
-            return true;
-          }
-
-          ctx.putImageData(imageData, output.origin.x, output.origin.y);
-          return true;
-        };
-
-        const drawn = await drawToCanvas().catch(() => false);
+        const drawn = await drawShapeFillOutput({
+          output: {
+            pixels: output.pixels,
+            width: output.width,
+            height: output.height,
+            origin: output.origin,
+          },
+          baseContext: ctx,
+          runtimeContext,
+          priority,
+          brushSettings: params.brushSettings,
+          overlayContext: overlayCtx,
+          finalContext: finalCtx,
+        }).catch(() => false);
         if (!drawn) {
           options.onFallback();
           output.release();
           return;
+        }
+
+        if (priority === 'final') {
+          params.dependencies?.recordShapeFillJob?.(stroke, {
+            brushSettings: params.brushSettings,
+            mode: 'flow',
+            runtimeContext,
+          });
         }
 
         output.release();
@@ -195,7 +206,16 @@ const enqueueGpuStroke = (
     })
     .finally(() => {
       inflightGpuJobs.delete(inflightKey);
+      if (priority === 'final') {
+        const finalCanvasTarget = runtimeContext?.finalCanvas
+          ?? (ctx.canvas instanceof HTMLCanvasElement ? ctx.canvas : null);
+        if (finalCanvasTarget) {
+          params.dependencies?.flushShapeFillJobs?.(finalCanvasTarget, 'Shape fill flow stroke');
+        }
+      }
     });
+
+  inflightGpuJobs.set(inflightKey, jobPromise);
 };
 
 export const drawFlowFill = ({
@@ -225,7 +245,11 @@ export const drawFlowFill = ({
   }
 
   if (!isWebGPUSupported()) {
-    debugWarn('shape-fill', 'WebGPU is unavailable; flow fill GPU pipeline cannot run.');
+    const status = getWebGPUSupportStatus();
+    const reason = status.status === 'unavailable'
+      ? status.reason
+      : 'WebGPU support is disabled';
+    debugWarn('shape-fill', `WebGPU is unavailable; flow fill GPU pipeline cannot run (${reason}).`);
     return;
   }
 

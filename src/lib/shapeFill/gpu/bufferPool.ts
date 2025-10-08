@@ -1,8 +1,3 @@
-interface PoolKey {
-  size: number;
-  usage: GPUBufferUsageFlags;
-}
-
 const makeKey = (size: number, usage: GPUBufferUsageFlags): string => `${size}:${usage}`;
 
 /**

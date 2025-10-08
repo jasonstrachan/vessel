@@ -16,6 +16,10 @@ import { setColorCycleAnimationHandlers, getColorCycleAnimationState } from '../
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 import { getPresetStops } from '@/utils/gradientPresets';
+import { setShapeFillViewTargets, resetShapeFillViewTargets } from '@/lib/shapeFill/viewTargets';
+import { getShapeFillScheduler, getStrokePipeline } from '@/lib/shapeFill';
+import { drawShapeFillOutput } from '@/brushes/shapes/fills/common';
+import type { ShapeFillHistoryJobSnapshot } from '@/types';
 
 const isColorCycleLayerWithData = (
   layer: Layer | undefined | null
@@ -243,6 +247,134 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const compositeCanvasDirtyRef = useRef(true); // Track if composite needs update
   const lastCompositeHashRef = useRef<string>(''); // Track last composite state
   const [needsRedraw, setNeedsRedraw] = useState(0);
+
+  const updateShapeFillViewTargets = useCallback(() => {
+    const overlay = overlayCanvasRef.current ?? null;
+    const finalCanvas = compositeCanvasRef.current ?? null;
+    const dpr = typeof window !== 'undefined' && typeof window.devicePixelRatio === 'number'
+      ? window.devicePixelRatio || 1
+      : 1;
+    const viewTransform = viewTransformRef.current
+      ? {
+          scale: viewTransformRef.current.scale,
+          offsetX: viewTransformRef.current.offsetX,
+          offsetY: viewTransformRef.current.offsetY,
+        }
+      : undefined;
+
+    setShapeFillViewTargets({
+      overlayCanvas: overlay,
+      finalCanvas,
+      devicePixelRatio: dpr,
+      viewTransform,
+    });
+  }, []);
+
+  const replayShapeFillJobs = useCallback(async (jobs?: ShapeFillHistoryJobSnapshot[]) => {
+    if (!jobs || jobs.length === 0 || typeof document === 'undefined') {
+      return;
+    }
+
+    const scheduler = getShapeFillScheduler();
+    const pipeline = getStrokePipeline();
+    const projectRef = useAppStore.getState().project;
+
+    for (const entry of jobs) {
+      const currentStore = useAppStore.getState();
+      const layer = currentStore.layers.find(l => l.id === entry.layerId);
+      if (!layer) {
+        continue;
+      }
+
+      const targetWidth = layer.imageData?.width ?? projectRef?.width ?? 0;
+      const targetHeight = layer.imageData?.height ?? projectRef?.height ?? 0;
+      if (targetWidth <= 0 || targetHeight <= 0) {
+        continue;
+      }
+
+      const baseCanvas = document.createElement('canvas');
+      baseCanvas.width = targetWidth;
+      baseCanvas.height = targetHeight;
+      const baseCtx = baseCanvas.getContext('2d', { willReadFrequently: true });
+      if (!baseCtx) {
+        continue;
+      }
+
+      if (layer.imageData) {
+        baseCtx.putImageData(layer.imageData, 0, 0);
+      }
+
+      try {
+        const result = await scheduler.queueJob(entry.job, {
+          priority: 'final',
+          cacheResult: true,
+          reuseCache: true,
+        });
+
+        try {
+          if (!result.fieldResult) {
+            continue;
+          }
+
+          const output = await pipeline.render(result.job, result.fieldResult, {
+            priority: 'final',
+            color: entry.brushSettings?.color,
+          });
+
+          if (!output) {
+            continue;
+          }
+
+          await drawShapeFillOutput({
+            output: {
+              pixels: output.pixels,
+              width: output.width,
+              height: output.height,
+              origin: output.origin,
+            },
+            baseContext: baseCtx,
+            priority: 'final',
+            brushSettings: entry.brushSettings,
+          }).catch(() => undefined);
+
+          output.release();
+        } finally {
+          result.release();
+        }
+      } catch {
+        continue;
+      }
+
+      const updatedImageData = baseCtx.getImageData(0, 0, baseCanvas.width, baseCanvas.height);
+      updateLayer(entry.layerId, { imageData: updatedImageData });
+    }
+
+    if (compositeCanvasRef.current && project) {
+      compositeLayersToCanvas(compositeCanvasRef.current);
+      setCurrentOffscreenCanvas(compositeCanvasRef.current);
+    }
+
+    setLayersNeedRecomposition(true);
+    setNeedsRedraw(prev => prev + 1);
+  }, [
+    compositeCanvasRef,
+    compositeLayersToCanvas,
+    project,
+    setCurrentOffscreenCanvas,
+    setLayersNeedRecomposition,
+    setNeedsRedraw,
+    updateLayer,
+  ]);
+
+  useEffect(() => {
+    updateShapeFillViewTargets();
+  }, [updateShapeFillViewTargets, canvas?.zoom, project?.width, project?.height, needsRedraw, layersNeedRecomposition]);
+
+  useEffect(() => {
+    return () => {
+      resetShapeFillViewTargets();
+    };
+  }, []);
 
   // Cached floating paste canvas (avoid creating per frame)
   const pasteCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1403,6 +1535,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           }
         }
       }
+
+      if (snapshot?.shapeFillJobs && snapshot.shapeFillJobs.length > 0) {
+        void replayShapeFillJobs(snapshot.shapeFillJobs);
+      }
     },
     onRedo: () => {
       const snapshot = redo();
@@ -1572,6 +1708,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             });
           }
         }
+      }
+
+      if (snapshot?.shapeFillJobs && snapshot.shapeFillJobs.length > 0) {
+        void replayShapeFillJobs(snapshot.shapeFillJobs);
       }
     },
     onPolygonComplete: () => {
@@ -1874,14 +2014,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     compositeCanvasDirtyRef.current = false;
     // Reset last sampled pixel cache after recomposition
     lastSampleRef.current = { x: -1, y: -1, color: 'rgb(0, 0, 0)' };
-    
+
     // Reset the recomposition flag if it was set
     if (layersNeedRecomposition) {
       setLayersNeedRecomposition(false);
     }
-    
+
     setNeedsRedraw(prev => prev + 1);
-    
+    updateShapeFillViewTargets();
+
     // Also trigger immediate redraw
     const canvas = canvasRef.current;
     if (canvas && drawRef.current && viewTransformRef.current) {
@@ -1890,7 +2031,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         drawRef.current(ctx, viewTransformRef.current);
       }
     }
-  }, [layersHash, project, compositeLayersToCanvas, setCurrentOffscreenCanvas, layersNeedRecomposition, setLayersNeedRecomposition]);
+  }, [layersHash, project, compositeLayersToCanvas, setCurrentOffscreenCanvas, layersNeedRecomposition, setLayersNeedRecomposition, updateShapeFillViewTargets]);
   
   // Animate marching ants
   useEffect(() => {
@@ -2190,6 +2331,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         }
         
         setCanvasDimensions(width, height);
+        updateShapeFillViewTargets();
         
         // Get the latest draw function and viewTransform
         const drawFunc = drawRef.current;
@@ -2230,7 +2372,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     handleResize();
     
     return () => resizeObserver.disconnect();
-  }, [project, setCanvasDimensions, setPan]);
+  }, [project, setCanvasDimensions, setPan, updateShapeFillViewTargets]);
   
   // Color cycle animation frames are now handled by SimplifiedColorCycleManager
   // No need for separate event listeners
@@ -2364,3 +2506,4 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 };
 
 export default React.memo(DrawingCanvas);
+

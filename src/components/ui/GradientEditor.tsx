@@ -557,7 +557,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     return (
       <div className="flex items-center gap-2 w-full relative">
         <div 
-          className="flex-1 h-5 border border-[#666]"
+          className="flex-1 h-5"
           style={{ 
             background: `linear-gradient(90deg, ${gradientCss})` 
           }}
@@ -636,7 +636,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
                   return (
                     <div className="flex items-center gap-2 w-full relative">
                       <div
-                        className="flex-1 h-5 border border-[#666]"
+                        className="flex-1 h-5"
                         style={{ background: `linear-gradient(90deg, ${parts.join(', ')})` }}
                       />
                     </div>
@@ -654,7 +654,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       <div className="relative mb-2">
         {/* Checkerboard background */}
         <div 
-          className="absolute inset-0 border border-[#5a5a5a]"
+          className="absolute inset-0"
           style={{
             backgroundImage: `repeating-conic-gradient(#606060 0% 25%, #404040 0% 50%)`,
             backgroundSize: '16px 16px',
@@ -664,7 +664,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         <div 
           ref={containerRef}
           tabIndex={0}
-          className="relative h-8 border border-[#5a5a5a] cursor-pointer focus:outline-none"
+          className="relative h-8 cursor-pointer focus:outline-none"
           style={{ 
             background: `linear-gradient(90deg, ${gradientString})` 
           }}

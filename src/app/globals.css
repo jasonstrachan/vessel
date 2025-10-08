@@ -114,17 +114,17 @@ select option:active {
   .border-e,
   [class*='divide-x'],
   [class*='divide-y'] {
-    border-style: dashed !important;
+    border-style: solid !important;
     border-color: currentColor !important;
   }
 
   [class*='divide-x'] > :not([hidden]) ~ :not([hidden]) {
-    border-style: dashed !important;
+    border-style: solid !important;
     border-color: currentColor !important;
   }
 
   [class*='divide-y'] > :not([hidden]) ~ :not([hidden]) {
-    border-style: dashed !important;
+    border-style: solid !important;
     border-color: currentColor !important;
   }
 
@@ -461,11 +461,13 @@ select option:active {
   /* Hide number input spinners */
   input[type="number"]::-webkit-outer-spin-button,
   input[type="number"]::-webkit-inner-spin-button {
+    appearance: none;
     -webkit-appearance: none;
     margin: 0;
   }
 
   input[type="number"] {
+    appearance: textfield;
     -moz-appearance: textfield;
   }
 }

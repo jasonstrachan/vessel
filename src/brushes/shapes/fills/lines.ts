@@ -2,6 +2,7 @@ import {
   computeBoundingBox,
   ensureFloat32Vertices,
   getStrokePipeline,
+  getWebGPUSupportStatus,
   isWebGPUSupported,
   type ShapeFillScheduler,
   type StrokeJob,
@@ -15,13 +16,13 @@ import {
 } from '@/utils/contourLines';
 import { clamp } from '@/utils/num';
 
-import { resolveCoordinateSnap } from './common';
+import { resolveCoordinateSnap, resolveShapeFillGpuParams } from './common';
 import type { LinesFillParams } from './types';
 
 const FNV_OFFSET = 2166136261;
 const FNV_PRIME = 16777619;
 
-const inflightGpuJobs = new Set<string>();
+const inflightGpuJobs = new Map<string, Promise<void>>();
 
 const hashLinesJob = (
   vertices: Float32Array,
@@ -118,15 +119,15 @@ const enqueueLinesGpuStroke = (
 ): void => {
   const pipeline = getStrokePipeline();
   const inflightKey = `${job.id}:${priority}`;
-  if (inflightGpuJobs.has(inflightKey)) {
+  if (inflightGpuJobs.get(inflightKey)) {
     return;
   }
-  inflightGpuJobs.add(inflightKey);
 
-  scheduler
+  const jobPromise = scheduler
     .queueJob(job, {
       priority,
       cacheResult: true,
+      reuseCache: true,
     })
     .then(async result => {
       try {
@@ -203,6 +204,8 @@ const enqueueLinesGpuStroke = (
     .finally(() => {
       inflightGpuJobs.delete(inflightKey);
     });
+
+  inflightGpuJobs.set(inflightKey, jobPromise);
 };
 
 export const drawLinesFill = (params: LinesFillParams): void => {
@@ -221,7 +224,17 @@ export const drawLinesFill = (params: LinesFillParams): void => {
   }
 
   const scheduler = dependencies?.gpuScheduler;
-  if (typeof window === 'undefined' || !scheduler || !isWebGPUSupported()) {
+  if (typeof window === 'undefined' || !scheduler) {
+    drawLinesFillCpu(params);
+    return;
+  }
+
+  if (!isWebGPUSupported()) {
+    const status = getWebGPUSupportStatus();
+    const reason = status.status === 'unavailable'
+      ? status.reason
+      : 'WebGPU support is disabled';
+    debugWarn('shape-fill', `WebGPU is unavailable; contour lines falling back to CPU (${reason}).`);
     drawLinesFillCpu(params);
     return;
   }
@@ -293,6 +306,7 @@ export const drawLinesFill = (params: LinesFillParams): void => {
     },
     pixelMode,
     dynamicParams: {
+      ...resolveShapeFillGpuParams(brushSettings),
       contourSpacing: spacingA,
       contourSpacingB: spacingB,
       contourVariance: variancePercent,

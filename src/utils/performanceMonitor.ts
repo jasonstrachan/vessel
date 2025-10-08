@@ -14,6 +14,17 @@ interface PerformanceMetrics {
   lastCleanupTime: number;
 }
 
+export interface ShapeFillTelemetryEvent {
+  jobId: string;
+  priority: 'preview' | 'final';
+  elapsedMs: number;
+  fromCache: boolean;
+  tiles: number;
+  workgroups: number;
+  generationMs?: number;
+  timestamp: number;
+}
+
 class PerformanceMonitor {
   private metrics: PerformanceMetrics = {
     brushStampCount: 0,
@@ -27,6 +38,8 @@ class PerformanceMonitor {
   private stampTimes: number[] = [];
   private readonly MAX_STAMP_TIMES = 100; // Keep last 100 measurements
   private monitoringEnabled = process.env.NODE_ENV === 'development';
+  private shapeFillEvents: ShapeFillTelemetryEvent[] = [];
+  private readonly MAX_SHAPE_FILL_EVENTS = 50;
 
   /**
    * Record a custom brush stamp operation
@@ -71,6 +84,24 @@ class PerformanceMonitor {
     this.metrics.memoryPressureEvents++;
   }
 
+  recordShapeFillTelemetry(event: Omit<ShapeFillTelemetryEvent, 'timestamp'>): void {
+    if (!this.monitoringEnabled) return;
+
+    const payload: ShapeFillTelemetryEvent = {
+      ...event,
+      timestamp: Date.now(),
+    };
+
+    this.shapeFillEvents.push(payload);
+    if (this.shapeFillEvents.length > this.MAX_SHAPE_FILL_EVENTS) {
+      this.shapeFillEvents.shift();
+    }
+  }
+
+  getShapeFillTelemetry(): ShapeFillTelemetryEvent[] {
+    return [...this.shapeFillEvents];
+  }
+
   /**
    * Get current performance metrics
    */
@@ -105,6 +136,7 @@ class PerformanceMonitor {
       lastCleanupTime: Date.now()
     };
     this.stampTimes = [];
+    this.shapeFillEvents = [];
   }
 
   /**

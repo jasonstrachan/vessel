@@ -1,7 +1,7 @@
 import type { Vec2 } from './types';
 import { computeDragScaledValue } from '@/utils/dragScale';
 
-interface ViewTransform {
+export interface ViewTransform {
   offsetX: number;
   offsetY: number;
   scale: number;

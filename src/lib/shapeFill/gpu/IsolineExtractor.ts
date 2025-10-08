@@ -177,6 +177,26 @@ export class IsolineExtractor {
       const directionExtent = Math.max(1e-3, options.directionExtent ?? 1);
       const backDistance = Math.max(0, options.backDistance ?? 0);
 
+      const neighborOverlap = Math.max(0, descriptor.overlap);
+      const overlapX = Math.min(neighborOverlap, descriptor.size.x);
+      const overlapY = Math.min(neighborOverlap, descriptor.size.y);
+      const clipMinX = Math.min(
+        descriptor.origin.x + descriptor.size.x,
+        Math.max(descriptor.origin.x, descriptor.origin.x + (descriptor.hasNeighborLeft ? overlapX : 0)),
+      );
+      const clipMaxX = Math.max(
+        descriptor.origin.x,
+        descriptor.origin.x + descriptor.size.x - (descriptor.hasNeighborRight ? overlapX : 0),
+      );
+      const clipMinY = Math.min(
+        descriptor.origin.y + descriptor.size.y,
+        Math.max(descriptor.origin.y, descriptor.origin.y + (descriptor.hasNeighborTop ? overlapY : 0)),
+      );
+      const clipMaxY = Math.max(
+        descriptor.origin.y,
+        descriptor.origin.y + descriptor.size.y - (descriptor.hasNeighborBottom ? overlapY : 0),
+      );
+
       const uniformBuffer = this.uniformPool.acquire(
         device,
         128,
@@ -191,7 +211,8 @@ export class IsolineExtractor {
        * data3: [vertexCapacity, previewFlag, boundsMin.x, boundsMin.y]
        * data4: [boundsMax.x, boundsMax.y, baseOrigin.x, baseOrigin.y]
        * data5: [direction.x, direction.y, normal.x, normal.y]
-       * data6: [directionExtent, backDistance, 0, 0]
+       * data6: [directionExtent, backDistance, segmentCapacity, alternateStride]
+       * data7: [clipMin.x, clipMin.y, clipMax.x, clipMax.y]
        */
       const writer = new UniformBufferWriter(128);
       writer.writeF32(0, descriptor.origin.x);
@@ -228,6 +249,10 @@ export class IsolineExtractor {
       writer.writeF32(100, backDistance);
       writer.writeF32(104, segmentCapacity);
       writer.writeF32(108, Math.max(0, options.alternateStride ?? 0));
+      writer.writeF32(112, clipMinX);
+      writer.writeF32(116, clipMinY);
+      writer.writeF32(120, clipMaxX);
+      writer.writeF32(124, clipMaxY);
 
       device.queue.writeBuffer(uniformBuffer, 0, writer.buffer);
       transientBuffers.push(uniformBuffer);

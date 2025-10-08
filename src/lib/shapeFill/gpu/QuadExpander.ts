@@ -2,7 +2,8 @@ import { QUAD_EXPAND_WGSL } from './shaders/quadExpand.wgsl';
 import { WebGPUDeviceManager, isWebGPUSupported } from './WebGPUDeviceManager';
 import { UniformBufferWriter } from './uniformWriter';
 import type { PathIntegrationResult } from './PathIntegrator';
-import type { BoundingBox, StrokeResolution } from '../types';
+import { STROKE_MESH_LAYOUTS } from '../types';
+import type { BoundingBox, StrokeResolution, StrokeMeshLayout } from '../types';
 
 export interface QuadExpandOptions {
   bounds: BoundingBox;
@@ -21,6 +22,9 @@ export interface QuadExpandResult {
   buffer: GPUBuffer;
   vertexCount: number;
   quadCount: number;
+  layout: StrokeMeshLayout;
+  vertexStride: number;
+  winding: 'ccw' | 'cw';
   release(): void;
 }
 
@@ -105,7 +109,7 @@ export class QuadExpander {
     const outputVertexCount = quadCount * 6;
     const outputBuffer = device.createBuffer({
       label: 'shape-fill-quad-vertices',
-      size: outputVertexCount * 2 * Float32Array.BYTES_PER_ELEMENT,
+      size: outputVertexCount * 4 * Float32Array.BYTES_PER_ELEMENT,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_SRC,
     });
 
@@ -189,6 +193,9 @@ export class QuadExpander {
       buffer: outputBuffer,
       vertexCount: outputVertexCount,
       quadCount,
+      layout: 'pos2uv2',
+      vertexStride: STROKE_MESH_LAYOUTS.pos2uv2.vertexStride,
+      winding: STROKE_MESH_LAYOUTS.pos2uv2.winding,
       release: () => {
         outputBuffer.destroy();
         uniformBuffer.destroy();

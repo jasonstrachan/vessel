@@ -1,3 +1,5 @@
+import type { StrokeJob } from '@/lib/shapeFill';
+
 // Core type definitions for Vessel
 // Based on /docs/02_System_Architecture/Data_Model.md
 
@@ -473,6 +475,9 @@ export interface BrushSettings {
   shapeFillLineWidth?: number; // Stroke width for contour/lines fills (px)
   shapeFillPixelMode?: boolean; // true = snap fill vertices to pixel centers
   shapeFillUseSampledColor?: boolean; // true = sample canvas color, false = use selected brush color
+  shapeFillHardening?: number; // 0-1 mix between AA and hard edge coverage
+  shapeFillHardeningThreshold?: number; // 0-1 logistic midpoint for hardening curve
+  shapeFillEdgeFeather?: number; // Multiplier for AA feather width (>=0.5)
   // Color cycle flow direction
   colorCycleFlowForward?: boolean; // true = forward flow, false = backward flow
 
@@ -524,6 +529,14 @@ export interface DrawingAction {
   data: Record<string, unknown>;
 }
 
+export interface ShapeFillHistoryJobSnapshot {
+  layerId: string;
+  job: StrokeJob;
+  brushSettings?: BrushSettings;
+  mode?: string;
+  timestamp?: number;
+}
+
 export interface CanvasSnapshot {
   id: string;
   timestamp: number;
@@ -533,9 +546,11 @@ export interface CanvasSnapshot {
   // Expanded to include structural layer operations captured in history
   actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'paste' | 'delete'
             | 'layer' | 'layers' | 'structure'
-            | 'layer-add' | 'layer-remove' | 'layer-reorder';
+            | 'layer-add' | 'layer-remove' | 'layer-reorder'
+            | 'shape-fill';
   description: string;
   colorCycleState?: ColorCycleSnapshot; // Optional color cycle state
+  shapeFillJobs?: ShapeFillHistoryJobSnapshot[];
 }
 
 // Color Cycle Brush specific snapshot data

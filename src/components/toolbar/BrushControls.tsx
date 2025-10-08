@@ -31,6 +31,9 @@ const DEFAULT_RAINBOW_STOPS = [
 ];
 
 const DEFAULT_SHAPE_FILL_LINE_WIDTH = 1;
+const DEFAULT_SHAPE_FILL_HARDENING = 1;
+const DEFAULT_SHAPE_FILL_HARDENING_THRESHOLD = 0.5;
+const DEFAULT_SHAPE_FILL_EDGE_FEATHER = 1;
 const DEFAULT_CROSS_HATCH_LINE_WIDTH = 1;
 
 // Get access to drawing handlers via a context or ref - we'll need to create this
@@ -154,6 +157,12 @@ const BrushControls = () => {
   const shapeFillLineWidthLabel = Number.isFinite(shapeFillLineWidth)
     ? (Number.isInteger(shapeFillLineWidth) ? shapeFillLineWidth.toString() : shapeFillLineWidth.toFixed(1))
     : DEFAULT_SHAPE_FILL_LINE_WIDTH.toFixed(1);
+  const shapeFillHardening = Math.max(0, Math.min(1, activeSettings.shapeFillHardening ?? DEFAULT_SHAPE_FILL_HARDENING));
+  const shapeFillHardeningLabel = `${Math.round(shapeFillHardening * 100)}%`;
+  const shapeFillHardeningThreshold = Math.max(0, Math.min(1, activeSettings.shapeFillHardeningThreshold ?? DEFAULT_SHAPE_FILL_HARDENING_THRESHOLD));
+  const shapeFillHardeningThresholdLabel = shapeFillHardeningThreshold.toFixed(2);
+  const shapeFillEdgeFeather = Math.max(0.5, activeSettings.shapeFillEdgeFeather ?? DEFAULT_SHAPE_FILL_EDGE_FEATHER);
+  const shapeFillEdgeFeatherLabel = `${shapeFillEdgeFeather.toFixed(2)}x`;
 
   const crossHatchLineWidth = activeSettings.crossHatchLineWidth
     ?? activeSettings.shapeFillLineWidth
@@ -1205,6 +1214,66 @@ const BrushControls = () => {
             </div>
           </div>
         )}
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Hardening
+            </label>
+            <ProgressSlider
+              value={shapeFillHardening}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(value) => setActiveSettings({ shapeFillHardening: Number(value.toFixed(2)) })}
+              aria-label="Shape Fill Hardening"
+              className="flex-1"
+            />
+            <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+              {shapeFillHardeningLabel}
+            </span>
+          </div>
+        </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Threshold
+            </label>
+            <ProgressSlider
+              value={shapeFillHardeningThreshold}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(value) => setActiveSettings({ shapeFillHardeningThreshold: Number(value.toFixed(2)) })}
+              aria-label="Shape Fill Hardening Threshold"
+              className="flex-1"
+            />
+            <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+              {shapeFillHardeningThresholdLabel}
+            </span>
+          </div>
+        </div>
+
+        <div className="mb-3">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Feather
+            </label>
+            <ProgressSlider
+              value={shapeFillEdgeFeather}
+              min={0.5}
+              max={3}
+              step={0.1}
+              onChange={(value) => setActiveSettings({ shapeFillEdgeFeather: Number(value.toFixed(2)) })}
+              aria-label="Shape Fill Edge Feather"
+              className="flex-1"
+            />
+            <span className="text-[#D9D9D9]" style={{ fontSize: '14px', minWidth: '3rem', textAlign: 'right' }}>
+              {shapeFillEdgeFeatherLabel}
+            </span>
+          </div>
+        </div>
 
         {/* Contour controls */}
         {(activeSettings.shapeGradientMode || 'contour') === 'contour' && (

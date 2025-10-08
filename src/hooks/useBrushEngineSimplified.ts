@@ -6,7 +6,7 @@
 import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams, type CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
-import { BrushShape } from '../types';
+import { BrushShape, type BrushSettings } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { canvasPool } from '../utils/canvasPool';
@@ -14,13 +14,19 @@ import {
   drawContourPolygon as drawContourPolygonFill,
   type ContourLineOptions,
 } from '@/brushes/shapes/fills/contourPolygon';
-import { HybridShapeFillController } from '@/lib/shapeFill/hybrid/controller';
 import { drawCrossHatchPolygon as drawCrossHatchPolygonFill } from '@/brushes/shapes/fills/hatch';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
 import { ShapeFillScheduler } from '@/lib/shapeFill/ShapeFillScheduler';
 import { getShapeFillScheduler } from '@/lib/shapeFill/runtime';
 import { debugLog } from '@/utils/debug';
+import type { StrokeJob } from '@/lib/shapeFill';
+import {
+  createSignedDistanceField as buildCpuSignedDistanceField,
+  extractContourSegments as cpuExtractContourSegments,
+  connectContourSegments as cpuConnectContourSegments,
+  type SignedDistanceFieldResult,
+} from '@/lib/shapeFill/cpu/contourGeometry';
 
 declare global {
   interface Window {
@@ -33,16 +39,6 @@ declare global {
  */
 type DrawColorCycleOptions = {
   customStamp?: CustomBrushStrokeData;
-};
-
-type SignedDistanceFieldResult = {
-  field: number[][];
-  cols: number;
-  rows: number;
-  resolution: number;
-  peakX: number;
-  peakY: number;
-  extension: number;
 };
 
 const isTransparencyLockEnabled = () =>
@@ -68,13 +64,37 @@ export const useBrushEngineSimplified = () => {
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const contourFieldCacheRef = useRef<{ key: string; field: SignedDistanceFieldResult } | null>(null);
   const shapeFillSchedulerRef = useRef<ShapeFillScheduler | null>(null);
-  const hybridFillControllerRef = useRef<HybridShapeFillController | null>(null);
 
-  useEffect(() => () => {
-    hybridFillControllerRef.current?.dispose();
-    hybridFillControllerRef.current = null;
-  }, []);
-  
+  const recordShapeFillJobEntry = useCallback(
+    (job: StrokeJob, metadata: { brushSettings?: BrushSettings; mode?: string; runtimeContext?: ContourLineOptions['runtimeContext'] }) => {
+      const store = useAppStore.getState();
+      const layerId = store.activeLayerId;
+      if (!layerId) {
+        return;
+      }
+      store.recordShapeFillJob({
+        layerId,
+        job,
+        brushSettings: metadata.brushSettings ?? job.brushSettings,
+        mode: metadata.mode,
+        timestamp: Date.now(),
+      });
+    },
+    []
+  );
+
+  const flushShapeFillJobs = useCallback(
+    (finalCanvas: HTMLCanvasElement | null | undefined, description?: string, overrideLayerId?: string) => {
+      if (!finalCanvas) {
+        return;
+      }
+      const store = useAppStore.getState();
+      const targetLayerId = overrideLayerId ?? store.activeLayerId ?? undefined;
+      store.flushShapeFillHistory(finalCanvas, description, targetLayerId);
+    },
+    []
+  );
+
   // Get color cycle brush from active layer instead of single instance
   const getActiveLayerColorCycleBrush = useCallback((): ColorCycleBrushImplementation | null => {
     if (!activeLayerId) return null;
@@ -1008,60 +1028,7 @@ export const useBrushEngineSimplified = () => {
 
 
   /**
-   * Helper functions for signed distance field contours
-   */
-  const distanceToPolygonSDF = useCallback((
-    point: { x: number; y: number },
-    vertices: Array<{ x: number; y: number }>
-  ): number => {
-    let minDist = Infinity;
-    const n = vertices.length;
-    
-    for (let i = 0; i < n; i++) {
-      const v1 = vertices[i];
-      const v2 = vertices[(i + 1) % n];
-      
-      const dx = v2.x - v1.x;
-      const dy = v2.y - v1.y;
-      const lenSq = dx * dx + dy * dy;
-      
-      let t = 0;
-      if (lenSq > 0) {
-        t = Math.max(0, Math.min(1, ((point.x - v1.x) * dx + (point.y - v1.y) * dy) / lenSq));
-      }
-      
-      const projX = v1.x + t * dx;
-      const projY = v1.y + t * dy;
-      const dist = Math.sqrt(Math.pow(point.x - projX, 2) + Math.pow(point.y - projY, 2));
-      
-      minDist = Math.min(minDist, dist);
-    }
-    
-    return minDist;
-  }, []);
-  
-  const isPointInPolygonSDF = useCallback((
-    point: { x: number; y: number },
-    vertices: Array<{ x: number; y: number }>
-  ): boolean => {
-    let inside = false;
-    const n = vertices.length;
-    
-    for (let i = 0, j = n - 1; i < n; j = i++) {
-      const xi = vertices[i].x, yi = vertices[i].y;
-      const xj = vertices[j].x, yj = vertices[j].y;
-      
-      if (((yi > point.y) !== (yj > point.y)) &&
-          (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi)) {
-        inside = !inside;
-      }
-    }
-    
-    return inside;
-  }, []);
-  
-  /**
-   * Create signed distance field for contour generation
+   * Create signed distance field for contour generation (CPU helper wrapper)
    */
   const createSignedDistanceField = useCallback((
     vertices: Array<{ x: number; y: number }>,
@@ -1084,78 +1051,21 @@ export const useBrushEngineSimplified = () => {
       return cachedFromScheduler;
     }
 
-    // Extend field beyond canvas boundaries to allow contours to go off-screen
-    const extension = 300; // Pixels to extend beyond each edge
-    const extendedWidth = canvasWidth + extension * 2;
-    const extendedHeight = canvasHeight + extension * 2;
-    const cols = Math.ceil(extendedWidth / resolution);
-    const rows = Math.ceil(extendedHeight / resolution);
-    const distanceField: number[][] = [];
-    
-    // Calculate polygon center and bounds
-    let sumX = 0, sumY = 0;
-    let minX = Infinity, minY = Infinity;
-    let maxX = -Infinity, maxY = -Infinity;
-    
-    vertices.forEach(v => {
-      sumX += v.x;
-      sumY += v.y;
-      minX = Math.min(minX, v.x);
-      minY = Math.min(minY, v.y);
-      maxX = Math.max(maxX, v.x);
-      maxY = Math.max(maxY, v.y);
+    const seed = Math.floor(Math.abs(Math.sin(cacheKey.length + canvasWidth + canvasHeight) * 0xffffffff));
+    const result = buildCpuSignedDistanceField(vertices, {
+      canvasWidth,
+      canvasHeight,
+      resolution,
+      seed,
     });
-    
-    const centerX = sumX / vertices.length;
-    const centerY = sumY / vertices.length;
-    const polyWidth = maxX - minX;
-    const polyHeight = maxY - minY;
-    
-    // Create random offset for peak - very extreme offset from center
-    const offsetX = (Math.random() - 0.5) * polyWidth * 1.2;  // Can go beyond polygon bounds
-    const offsetY = (Math.random() - 0.5) * polyHeight * 1.2;  // Can go beyond polygon bounds
-    const peakX = centerX + offsetX;
-    const peakY = centerY + offsetY;
-    
-    // Build field with offset peak (accounting for extension)
-    for (let y = 0; y < rows; y++) {
-      distanceField[y] = [];
-      for (let x = 0; x < cols; x++) {
-        // Adjust coordinates to account for extension
-        const px = x * resolution - extension;
-        const py = y * resolution - extension;
-        const point = { x: px, y: py };
-        
-        const inside = isPointInPolygonSDF(point, vertices);
-        
-        if (inside) {
-          const edgeDist = distanceToPolygonSDF(point, vertices);
-          const peakDist = Math.sqrt(Math.pow(px - peakX, 2) + Math.pow(py - peakY, 2));
-          const maxPossibleDist = Math.max(polyWidth, polyHeight);
-          const normalizedPeakDist = peakDist / maxPossibleDist;
-          
-          // Create a clearer peak by using a Gaussian-like falloff from the peak position
-          // Peak influence decreases more dramatically with distance
-          const peakInfluence = Math.exp(-normalizedPeakDist * normalizedPeakDist * 8);
-          const baseElevation = edgeDist;
-          const peakBoost = baseElevation * peakInfluence * 0.8;
-          const elevation = baseElevation + peakBoost;
-          
-          distanceField[y][x] = elevation;
-        } else {
-          distanceField[y][x] = -distanceToPolygonSDF(point, vertices);
-        }
-      }
-    }
-    
-    const result: SignedDistanceFieldResult = { field: distanceField, cols, rows, resolution, peakX, peakY, extension };
+
     contourFieldCacheRef.current = { key: cacheKey, field: result };
     shapeFillSchedulerRef.current?.setCpuField(cacheKey, result);
     return result;
-  }, [distanceToPolygonSDF, isPointInPolygonSDF]);
+  }, []);
 
   /**
-   * Extract contour using marching squares
+   * Extract contour segments using marching squares (CPU helper wrapper)
    */
   const extractContour = useCallback((
     field: number[][],
@@ -1165,163 +1075,32 @@ export const useBrushEngineSimplified = () => {
     targetDistance: number,
     extension: number = 0
   ) => {
-    const segments: Array<[{ x: number; y: number }, { x: number; y: number }]> = [];
-    
-    for (let y = 0; y < rows - 1; y++) {
-      for (let x = 0; x < cols - 1; x++) {
-        const tl = field[y][x];
-        const tr = field[y][x + 1];
-        const br = field[y + 1][x + 1];
-        const bl = field[y + 1][x];
-        
-        if (Math.max(tl, tr, br, bl) < 0) continue;
-        
-        const min = Math.min(tl, tr, br, bl);
-        const max = Math.max(tl, tr, br, bl);
-        
-        if (min <= targetDistance && max >= targetDistance) {
-          const points: Array<{ x: number; y: number }> = [];
-          
-          // Check each edge for intersection with better interpolation
-          // Adjust coordinates back to canvas space by subtracting extension
-          if ((tl - targetDistance) * (tr - targetDistance) < 0) {
-            const t = Math.max(0, Math.min(1, (targetDistance - tl) / (tr - tl)));
-            points.push({
-              x: (x + t) * resolution - extension,
-              y: y * resolution - extension
-            });
-          }
-          
-          if ((tr - targetDistance) * (br - targetDistance) < 0) {
-            const t = Math.max(0, Math.min(1, (targetDistance - tr) / (br - tr)));
-            points.push({
-              x: (x + 1) * resolution - extension,
-              y: (y + t) * resolution - extension
-            });
-          }
-          
-          if ((br - targetDistance) * (bl - targetDistance) < 0) {
-            const t = Math.max(0, Math.min(1, (targetDistance - br) / (bl - br)));
-            points.push({
-              x: (x + 1 - t) * resolution - extension,
-              y: (y + 1) * resolution - extension
-            });
-          }
-          
-          if ((bl - targetDistance) * (tl - targetDistance) < 0) {
-            const t = Math.max(0, Math.min(1, (targetDistance - bl) / (tl - bl)));
-            points.push({
-              x: x * resolution - extension,
-              y: (y + 1 - t) * resolution - extension
-            });
-          }
-          
-          // Create segments based on marching squares configuration
-          if (points.length === 2) {
-            segments.push([points[0], points[1]]);
-          } else if (points.length === 4) {
-            // Handle saddle case by connecting opposite pairs
-            const config = [
-              tl > targetDistance ? 1 : 0,
-              tr > targetDistance ? 1 : 0,
-              br > targetDistance ? 1 : 0,
-              bl > targetDistance ? 1 : 0
-            ].join('');
-            
-            // Connect points properly based on the configuration
-            if (config === '0110' || config === '1001') {
-              // Saddle cases - connect diagonal opposites
-              segments.push([points[0], points[3]]);
-              segments.push([points[1], points[2]]);
-            } else {
-              // Normal case - connect adjacent points
-              segments.push([points[0], points[1]]);
-              segments.push([points[2], points[3]]);
-            }
-          }
-        }
-      }
-    }
-    
-    return segments;
+    const sdf: SignedDistanceFieldResult = {
+      field,
+      cols,
+      rows,
+      resolution,
+      extension,
+      bounds: {
+        minX: -extension,
+        minY: -extension,
+        maxX: cols * resolution - extension,
+        maxY: rows * resolution - extension,
+      },
+      peak: { x: 0, y: 0 },
+      peakX: 0,
+      peakY: 0,
+    };
+    return cpuExtractContourSegments(sdf, targetDistance);
   }, []);
-  
+
   /**
    * Connect segments into continuous loops
    */
   const connectSegments = useCallback((
     segments: Array<[{ x: number; y: number }, { x: number; y: number }]>
   ): Array<Array<{ x: number; y: number }>> => {
-    if (segments.length === 0) return [];
-    
-    const loops: Array<Array<{ x: number; y: number }>> = [];
-    const used = new Array(segments.length).fill(false);
-    const tolerance = 3; // Increased tolerance for better segment connection
-    
-    for (let i = 0; i < segments.length; i++) {
-      if (used[i]) continue;
-      
-      const loop = [segments[i][0], segments[i][1]];
-      used[i] = true;
-      
-      let found = true;
-      while (found) {
-        found = false;
-        const last = loop[loop.length - 1];
-        let bestMatch = -1;
-        let bestDistance = Infinity;
-        let useP1 = true;
-        
-        // Find the closest unused segment endpoint
-        for (let j = 0; j < segments.length; j++) {
-          if (used[j]) continue;
-          
-          const [p1, p2] = segments[j];
-          
-          const dist1 = Math.hypot(p1.x - last.x, p1.y - last.y);
-          const dist2 = Math.hypot(p2.x - last.x, p2.y - last.y);
-          
-          if (dist1 < tolerance && dist1 < bestDistance) {
-            bestDistance = dist1;
-            bestMatch = j;
-            useP1 = false; // Use p2 as the next point
-          }
-          if (dist2 < tolerance && dist2 < bestDistance) {
-            bestDistance = dist2;
-            bestMatch = j;
-            useP1 = true; // Use p1 as the next point
-          }
-        }
-        
-        if (bestMatch !== -1) {
-          const [p1, p2] = segments[bestMatch];
-          loop.push(useP1 ? p1 : p2);
-          used[bestMatch] = true;
-          found = true;
-        }
-      }
-      
-      // Try to close the loop by connecting end to start
-      if (loop.length > 3) {
-        const first = loop[0];
-        const last = loop[loop.length - 1];
-        const closingDistance = Math.hypot(first.x - last.x, first.y - last.y);
-        
-        // If the loop is nearly closed, ensure it's properly closed
-        if (closingDistance < tolerance * 2) {
-          // Remove the last point if it's very close to the first
-          if (closingDistance < tolerance / 2) {
-            loop.pop();
-          }
-        }
-        
-        if (loop.length > 3) {
-          loops.push(loop);
-        }
-      }
-    }
-    
-    return loops;
+    return cpuConnectContourSegments(segments);
   }, []);
   
   /**
@@ -1333,13 +1112,6 @@ export const useBrushEngineSimplified = () => {
     isPreview: boolean = false,
     lineOptions?: ContourLineOptions
   ) => {
-    const hybridController = (() => {
-      if (!hybridFillControllerRef.current) {
-        hybridFillControllerRef.current = new HybridShapeFillController();
-      }
-      return hybridFillControllerRef.current;
-    })();
-
     drawContourPolygonFill({
       ctx,
       polygonData,
@@ -1352,7 +1124,8 @@ export const useBrushEngineSimplified = () => {
         extractContour,
         connectSegments,
         gpuScheduler: shapeFillSchedulerRef.current ?? undefined,
-        hybridController,
+        recordShapeFillJob: recordShapeFillJobEntry,
+        flushShapeFillJobs,
       },
     });
   }, [
@@ -1362,6 +1135,8 @@ export const useBrushEngineSimplified = () => {
     extractContour,
     connectSegments,
     shapeFillSchedulerRef,
+    recordShapeFillJobEntry,
+    flushShapeFillJobs,
   ]);
 
   /**

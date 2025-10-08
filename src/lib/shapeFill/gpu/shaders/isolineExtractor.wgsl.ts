@@ -130,6 +130,18 @@ fn metadata_capacity() -> u32 {
   return max(u32(uniforms.data6.z), 0u);
 }
 
+fn alternate_stride() -> f32 {
+  return max(uniforms.data6.w, 0.0);
+}
+
+fn clip_min() -> vec2<f32> {
+  return vec2<f32>(uniforms.data7.x, uniforms.data7.y);
+}
+
+fn clip_max() -> vec2<f32> {
+  return vec2<f32>(uniforms.data7.z, uniforms.data7.w);
+}
+
 fn hash(seed : f32, index : u32) -> f32 {
   let n = seed * 0.3183099 + f32(index) * 0.3678794;
   return fract(sin(n) * 43758.5453);
@@ -175,8 +187,10 @@ fn append_segment(a : vec2<f32>, b : vec2<f32>, level_index : u32) {
   if (f32(index + 1u) >= vertex_capacity()) {
     return;
   }
-  vertices[index] = normalize_position(a);
-  vertices[index + 1u] = normalize_position(b);
+  let clippedA = clamp(a, clip_min(), clip_max());
+  let clippedB = clamp(b, clip_min(), clip_max());
+  vertices[index] = normalize_position(clippedA);
+  vertices[index + 1u] = normalize_position(clippedB);
 
   if (mode_value() >= 0.5) {
     let segIdx = index / 2u;
@@ -205,6 +219,12 @@ fn main(@builtin(global_invocation_id) global_id : vec3<u32>) {
 
   let coord = vec2<u32>(global_id.xy);
   let basePos = tile_origin() + (vec2<f32>(f32(coord.x), f32(coord.y)) + vec2<f32>(0.5, 0.5)) * resolution();
+  let clipMin = clip_min();
+  let clipMax = clip_max();
+  if (basePos.x < clipMin.x - 1e-3 || basePos.x > clipMax.x + 1e-3 ||
+      basePos.y < clipMin.y - 1e-3 || basePos.y > clipMax.y + 1e-3) {
+    return;
+  }
   let dx = vec2<f32>(resolution(), 0.0);
   let dy = vec2<f32>(0.0, resolution());
 

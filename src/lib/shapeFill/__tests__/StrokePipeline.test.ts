@@ -3,19 +3,20 @@ import { defaultBrushSettings } from '@/presets/brushPresets';
 import { StrokePipeline } from '../gpu/StrokePipeline';
 import type { StrokeJob, FieldGeneratorResult } from '../types';
 
+type MockWebgpuControls = {
+  enable(): void;
+  disable(): void;
+  reset?(): void;
+  createDevice?: () => GPUDevice;
+};
+
 declare global {
   // eslint-disable-next-line no-var
-  var __mockWebgpu: {
-    enable(): void;
-    disable(): void;
-  };
+  var __mockWebgpu: MockWebgpuControls | undefined;
 }
 
 describe('StrokePipeline', () => {
-  const webgpuMock = global.__mockWebgpu as {
-    enable: () => void;
-    disable: () => void;
-  };
+  const webgpuMock = global.__mockWebgpu as MockWebgpuControls;
 
   beforeEach(() => {
     webgpuMock.disable();

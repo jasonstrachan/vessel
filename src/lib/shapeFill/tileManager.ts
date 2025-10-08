@@ -74,7 +74,14 @@ export const computeTiles = (
   const endX = expanded.maxX + effectiveOverlap;
   const endY = expanded.maxY + effectiveOverlap;
 
-  const rawTiles: TileDescriptor[] = [];
+  type MutableTile = TileDescriptor & {
+    hasNeighborLeft: boolean;
+    hasNeighborRight: boolean;
+    hasNeighborTop: boolean;
+    hasNeighborBottom: boolean;
+  };
+
+  const rawTiles: MutableTile[] = [];
   for (let y = startY; y <= endY; y += step) {
     for (let x = startX; x <= endX; x += step) {
       const gridWidth = Math.ceil(tileSize / resolution);
@@ -88,7 +95,36 @@ export const computeTiles = (
         gridHeight,
         overlap: effectiveOverlap,
         order: 0,
+        hasNeighborLeft: false,
+        hasNeighborRight: false,
+        hasNeighborTop: false,
+        hasNeighborBottom: false,
       });
+    }
+  }
+
+  if (rawTiles.length > 1) {
+    const tolerance = 1e-3;
+    const roundKey = (value: number): number => Math.round(value / tolerance) * tolerance;
+    const composeKey = (x: number, y: number): string => `${roundKey(x)}:${roundKey(y)}`;
+    const tileMap = new Map<string, MutableTile>();
+    for (const tile of rawTiles) {
+      tileMap.set(composeKey(tile.origin.x, tile.origin.y), tile);
+    }
+
+    const neighborDelta = step;
+
+    for (const tile of rawTiles) {
+      const origin = tile.origin;
+      const leftKey = composeKey(origin.x - neighborDelta, origin.y);
+      const rightKey = composeKey(origin.x + neighborDelta, origin.y);
+      const topKey = composeKey(origin.x, origin.y - neighborDelta);
+      const bottomKey = composeKey(origin.x, origin.y + neighborDelta);
+
+      tile.hasNeighborLeft = tileMap.has(leftKey);
+      tile.hasNeighborRight = tileMap.has(rightKey);
+      tile.hasNeighborTop = tileMap.has(topKey);
+      tile.hasNeighborBottom = tileMap.has(bottomKey);
     }
   }
 

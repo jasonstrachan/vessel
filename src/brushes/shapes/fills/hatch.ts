@@ -1,13 +1,19 @@
 import type { StrokeJob, ShapeFillScheduler } from '@/lib/shapeFill';
-import { getStrokePipeline, isWebGPUSupported } from '@/lib/shapeFill';
+import { getStrokePipeline, getWebGPUSupportStatus, isWebGPUSupported } from '@/lib/shapeFill';
 import type { StrokePipelineResult } from '@/lib/shapeFill/gpu/StrokePipeline';
 import { debugLog, debugWarn } from '@/utils/debug';
 import type { BrushSettings } from '@/types';
 
 import type { Point } from './types';
+import { resolveShapeFillGpuParams } from './common';
+
+const inflightGpuJobs = new Map<string, Promise<boolean>>();
 
 type CrossHatchDependencies = {
   gpuScheduler?: ShapeFillScheduler;
+  recordShapeFillJob?: (job: StrokeJob, metadata: { brushSettings?: BrushSettings; mode?: string }) => void;
+  flushShapeFillJobs?: (finalCanvas: HTMLCanvasElement | null | undefined, description?: string) => void;
+  getCompositeCanvas?: () => HTMLCanvasElement | null;
 };
 
 export type DrawCrossHatchPolygonParams = {
@@ -165,14 +171,23 @@ const drawCrossHatchPolygonCpu = ({
 
 export const drawCrossHatchPolygon = (params: DrawCrossHatchPolygonParams): void => {
   const scheduler = params.dependencies?.gpuScheduler;
-  const canUseGpu = Boolean(scheduler) && typeof window !== 'undefined' && isWebGPUSupported();
 
-  if (!canUseGpu) {
+  if (!scheduler || typeof window === 'undefined') {
     drawCrossHatchPolygonCpu(params);
     return;
   }
 
-  const scheduled = drawCrossHatchPolygonGpu(params, scheduler!);
+  if (!isWebGPUSupported()) {
+    const status = getWebGPUSupportStatus();
+    const reason = status.status === 'unavailable'
+      ? status.reason
+      : 'WebGPU support is disabled';
+    debugWarn('shape-fill', `WebGPU is unavailable; cross hatch fill falling back to CPU (${reason}).`);
+    drawCrossHatchPolygonCpu(params);
+    return;
+  }
+
+  const scheduled = drawCrossHatchPolygonGpu(params, scheduler);
   if (!scheduled) {
     drawCrossHatchPolygonCpu(params);
   }
@@ -273,7 +288,9 @@ const drawCrossHatchPolygonGpu = (
   const priority = isPreview ? 'preview' : 'final';
 
   const runOrientation = async ({ angleDeg: orientationDeg, seedSalt }: OrientationJob): Promise<boolean> => {
-    if (didFallback) return false;
+    if (didFallback) {
+      return false;
+    }
 
     const orientationBrush: BrushSettings = {
       ...brushSettings,
@@ -301,9 +318,10 @@ const drawCrossHatchPolygonGpu = (
         maxX: bounds.maxx,
         maxY: bounds.maxy,
       },
-      brushSettings: orientationBrush,
-      seed: baseSeed ^ seedSalt,
-      dynamicParams: {
+     brushSettings: orientationBrush,
+     seed: baseSeed ^ seedSalt,
+     dynamicParams: {
+        ...resolveShapeFillGpuParams(orientationBrush),
         crossHatchSpacing: spacing,
         crossHatchSeedsPerAxis: seedsPerAxis,
         crossHatchLineLength: lineLength,
@@ -362,57 +380,79 @@ const drawCrossHatchPolygonGpu = (
       return rendered;
     };
 
-    try {
-      const result = await scheduler.queueJob(job, {
+    const inflightKey = `${job.id}:${priority}`;
+    const existing = inflightGpuJobs.get(inflightKey);
+    if (existing) {
+      const ok = await existing;
+      return ok;
+    }
+
+    const jobPromise = scheduler
+      .queueJob(job, {
         priority,
         cacheResult: true,
-        readback: priority === 'preview' ? 'all' : false,
-      });
-
-      try {
-        if (!result.fieldResult) {
-          debugWarn('shape-fill', 'Cross hatch GPU field unavailable');
-          return false;
-        }
-
-        const output = await pipeline.render(job, result.fieldResult, {
-          priority,
-          color,
-        });
-
-        if (!output) {
-          debugWarn('shape-fill', 'Cross hatch GPU render failed');
-          return false;
-        }
-
+        readback: false,
+        reuseCache: true,
+      })
+      .then(async result => {
         try {
-          const drawn = await drawOutput(output);
-          if (!drawn) {
+          if (!result.fieldResult) {
+            debugWarn('shape-fill', 'Cross hatch GPU field unavailable');
             return false;
           }
+
+          const output = await pipeline.render(job, result.fieldResult, {
+            priority,
+            color,
+          });
+
+          if (!output) {
+            debugWarn('shape-fill', 'Cross hatch GPU render failed');
+            return false;
+          }
+
+          try {
+            const drawn = await drawOutput(output);
+            if (!drawn) {
+              return false;
+            }
+
+            if (priority === 'final') {
+              params.dependencies?.recordShapeFillJob?.(job, {
+                brushSettings: orientationBrush,
+                mode: 'cross-hatch',
+              });
+            }
+          } finally {
+            output.release();
+          }
+
+          debugLog('shape-fill', `GPU cross hatch orientation ${orientationDeg.toFixed(1)}° complete (${priority})`, {
+            gpuGenerationMs: result.fieldResult.metrics?.generationTimeMs,
+            gpuTiles: result.fieldResult.metrics?.tilesProcessed,
+            jobId: job.id,
+          });
+
+          return true;
         } finally {
-          output.release();
+          result.release();
         }
+      })
+      .catch(error => {
+        const errorName = typeof error === 'object' && error && 'name' in error
+          ? (error as { name?: string }).name
+          : undefined;
+        if (errorName !== 'AbortError') {
+          debugWarn('shape-fill', 'Cross hatch GPU orientation failed', error);
+        }
+        return false;
+      })
+      .finally(() => {
+        inflightGpuJobs.delete(inflightKey);
+      });
 
-        debugLog('shape-fill', `GPU cross hatch orientation ${orientationDeg.toFixed(1)}° complete (${priority})`, {
-          gpuGenerationMs: result.fieldResult.metrics?.generationTimeMs,
-          gpuTiles: result.fieldResult.metrics?.tilesProcessed,
-          jobId: job.id,
-        });
-
-        return true;
-      } finally {
-        result.release();
-      }
-    } catch (error) {
-      const errorName = typeof error === 'object' && error && 'name' in error
-        ? (error as { name?: string }).name
-        : undefined;
-      if (errorName !== 'AbortError') {
-        debugWarn('shape-fill', 'Cross hatch GPU orientation failed', error);
-      }
-      return false;
-    }
+    inflightGpuJobs.set(inflightKey, jobPromise);
+    return jobPromise;
   };
 
   const runAllOrientations = async () => {
@@ -439,6 +479,14 @@ const drawCrossHatchPolygonGpu = (
         frameB,
       });
       ctx.restore();
+    }
+
+    if (!isPreview) {
+      const finalCanvasTarget = params.dependencies?.getCompositeCanvas?.()
+        ?? (ctx.canvas instanceof HTMLCanvasElement ? ctx.canvas : null);
+      if (finalCanvasTarget) {
+        params.dependencies?.flushShapeFillJobs?.(finalCanvasTarget, 'Shape fill cross hatch stroke');
+      }
     }
   };
 

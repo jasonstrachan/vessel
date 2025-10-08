@@ -1,4 +1,4 @@
-# Shape Fill System Rebuild Blueprint (2025-10-03)
+# Shape Fill System Rebuild Blueprint (2025-10-07)
 
 ## Target Outcomes
 1. **Fast finalization at any canvas size** – completion of a stroke should feel instant on low-end hardware even on 8k canvases.
@@ -53,22 +53,22 @@
 - All heavy computation (SDF, seeding, integration) stays on the GPU. Finalization is just a render pass that reuses cached buffers, independent of canvas size.
 - Bounding-box tiling allows arbitrarily large canvases by processing tiles sequentially while keeping data on the GPU.
 
-**Tile Manager Sketch**
-- Tile size: default 1024×1024 texels with 64px overlap to avoid seams when composing flows/ribbons.
-- Cache: LRU over at most four active tiles (≈64 MB @ float textures). When a stroke spans more tiles, evict the least recently used tile after its data has been resolved.
-- Streaming: scheduler enqueues tiles in breadth-first order around the brush centroid so visible regions render first.
-- Stitching: overlapping border is blended during raster stage; integration shaders sample from neighboring tile data held in a small uniform array.
+**Tile Manager (2025-10-07)**
+- Tile size is fixed at 1024×1024 texels with a 64px overlap. `TileDescriptor` now records neighbor flags so downstream passes know which borders are shared.
+- Cache keeps ≈64 MB of float textures in an LRU queue; once a stroke spans more tiles the least-recent entry is evicted after composition.
+- Streaming remains breadth-first from the stroke centroid so visible regions render first.
+- Stitching: isoline extraction clamps segments to a per-tile clip window derived from overlap/neighbor flags, eliminating double-drawn edges.
 
 ### 2. Pixel-art Lines
 - `pixelMode` flag:
   - Snaps vertices to integer coordinates before uploading to GPU.
   - Prefers integer pixel widths so coverage lines up with the grid.
-  - Uses a fragment shader with a configurable hardening curve to keep edges visually binary without strict 0/1 enforcement.
+  - Fragment shader blends anti-aliased coverage with a logistic sigmoid + hard step mix controlled by `hardeningStrength`, keeping preview/final parity.
 
 ### 3. Accurate Preview vs Finalization
 - Preview and final share buffers; only render target resolution differs. Deterministic seeds ensure no stochastic divergence.
-- If a lower-res preview is necessary, compute both coarse and full SDFs up front on the GPU; finalization simply renders the full-res texture.
-- Adopt “commit-on-ready” so the UI shows preview only after the first GPU pass completes, eliminating heuristic gaps.
+- Scheduler serves final jobs from cached preview field results (`reuseCache: true`), so full-resolution commits simply redraw into the final texture.
+- Telemetry now logs cache hits and tile reuse; remaining UI work is wiring the preview canvas into the React tree.
 
 ## Shape Adjust Helper Concept
 
@@ -90,13 +90,13 @@ Implementation hook: the helper devotes a single worker message type (`StrokeJob
 5. [ ] **Complete GPU migration**: wrap every shape-fill brush around the scheduler and delete all CPU fallbacks so the project runs exclusively on the GPU pipeline.
 
 ### Step 1 Details – FieldGenerator Prototype
-- **Bounding-box tiling**: `prepareStrokeGeometry` collapses each stroke to a padded bounding box, partitions it into 1024² tiles with 64px overlap, and emits the GPU buffers needed for `FieldGenerator` to dispatch compute workloads without touching untouched canvas regions.
+- **Bounding-box tiling**: `prepareStrokeGeometry` collapses each stroke to a padded bounding box, partitions it into 1024² tiles with 64px overlap, and records neighbor adjacency so GPU passes can clamp edges when stitching.
 - **Deterministic job ids**: `computeFlowGpuJobId` hashes quantized vertices, seed, field resolution, and pixel-mode flag into a stable identifier so preview and final passes reuse the same GPU cache entries instead of regenerating SDFs.
 - **Profiling hooks**: Flow fills now emit paired CPU/GPU timings to `debugLog` (`cpu-sdf-generation`, `GPU flow stroke completed`) recording SDF generation cost, GPU tile count, and queue diagnostics—making side-by-side comparisons with the legacy CPU pipeline trivial.
 - **Validation checklist**: capture a representative flow stroke, inspect console output for matching job ids, ensure CPU generation time scales with bounding-box area (not whole-canvas size), and confirm GPU runs reuse cached resources when toggling preview/final.
 
 ### Step 2 Details – Unified Stroke Scheduler
-- **Reusable GPU cache**: `ShapeFillScheduler` stores `FieldGeneratorResult`s keyed by the deterministic job id; preview and final passes request the same cache slot, avoiding redundant SDF/seed work whenever geometry is unchanged.
+- **Reusable GPU cache**: `ShapeFillScheduler` stores `FieldGeneratorResult`s keyed by the deterministic job id; preview and final passes request the same cache slot via `reuseCache`, avoiding redundant SDF/seed work whenever geometry is unchanged.
 - **Stale preview eviction**: enqueuing a new preview with the same job id aborts queued/active preview passes so downstream pipelines only observe the freshest geometry before caching.
 - **Job update channel**: `dispatchJobUpdate` records in-flight `StrokeJobUpdate`s (brush patches + param overrides) and emits an `updated` event so GPU workers can patch uniforms/SSBOs without resubmitting geometry.
 - **Singleton runtime**: `getShapeFillScheduler` exposes a single scheduler instance shared across brushes, ensuring Flow, Ink Ribbons, etc., reuse GPU resources and instrumentation rather than instantiating their own queues.
@@ -105,12 +105,12 @@ Implementation hook: the helper devotes a single worker message type (`StrokeJob
 ### Step 3 Details – PixelRasterizer Shader
 - **Pipeline layout**: the WebGPU render pipeline consumes line-strip vertex buffers emitted by `PathIntegrator`, backed by a `PixelRasterizerUniforms` uniform buffer (model matrix, preview/final resolution, hardening curve parameters, and booleans for `pixelMode` and multisample toggles).
 - **Vertex stage (WGSL)**: snaps incoming XY positions to integer coordinates when `pixelMode` is true by flooring, adding a `0.5` center offset, and applying tile-local transforms. Preview and final passes share the same shader; a `previewScale` uniform handles downscaled render targets without rebuilding buffers.
-- **Fragment stage**: evaluates coverage using the supplied thickness, then applies a configurable hardening function. Default curve is a 3-step smoothstep ladder (`smoothstep(0.0, thresholdLow, coverage)` → `smoothstep(thresholdLow, thresholdHigh, coverage)` → final clamp), with an optional power curve for softer fills.
+- **Fragment stage**: evaluates coverage using the supplied thickness, then mixes anti-aliased smoothstep coverage with a logistic sigmoid and hard step blend controlled by `hardeningStrength`, ensuring hard edges without preview/final divergence.
 - **Blend state**: premultiplied alpha blending with `alphaToCoverageEnabled` during pixel mode to stabilize diagonals. Non-pixel mode disables alpha-to-coverage but keeps premultiplied math so composition with existing canvas textures remains correct.
 - **Resource reuse**: both preview and final passes bind the same vertex/index buffers and uniform storage. Only the color attachment view differs, allowing the scheduler to submit preview frames immediately and defer the full-resolution pass until interaction settles.
 - **Fallbacks removed**: the prior Canvas2D raster path is now disabled for GPU-enabled fills. When WebGPU is unavailable, the scheduler explicitly marks the job unsupported so legacy CPU fills can render instead of mixing pipelines.
-- **Validation hooks**: `StrokeScheduler` now records per-pass GPU timestamps. The doc checklist for QA: compare preview vs final render output hashes across resolutions, verify pixel-mode snapping by overlaying a 1px grid, and assert that multisample toggles do not alter hard-edge mode.
-- **Implementation status (2025-10-04)**: `SeedGenerator`, `PathIntegrator`, and `PixelRasterizer` WebGPU modules land with a `StrokePipeline` orchestrator that renders Flow fills end-to-end, falling back to CPU when WebGPU is unavailable.
+- **Validation hooks**: `StrokeScheduler` now records per-pass GPU timestamps. QA should compare preview vs final render hashes, verify pixel-mode snapping with a 1px grid overlay, and confirm the hardening slider behaves consistently across resolutions.
+- **Implementation status (2025-10-07)**: `SeedGenerator`, `PathIntegrator`, and `PixelRasterizer` WebGPU modules now render Flow, Contour, Lines, Hatch, and Ink Ribbons fills end-to-end with the new hardening curve; CPU raster fallback has been removed.
 
 ### Step 4 Details – ShapeAdjustHelper UX
 - **Radial gizmo bands**: the helper renders three concentric rings (spacing, density, orientation) around the stroke centroid and streams adjustments back through `dispatchJobUpdate` so GPU buffers update in place.
@@ -124,15 +124,13 @@ Implementation hook: the helper devotes a single worker message type (`StrokeJob
 - **Brush parity**: Flow, Ink Ribbons, Contour, Lines, Delaunay, etc. must execute entirely through `ShapeFillScheduler` + WebGPU pipelines; remove calls into CPU SDF builders and `isPointInPolygonSDF` loops once GPU parity is confirmed.
 - **Fail-safe policy**: if WebGPU is unavailable, Surface a clear “GPU required” notice rather than falling back to Canvas2D—no shadow paths.
 - **Verification checklist**: migrate each brush, compare output hashes against baseline GPU renders, update presets/tests, then delete the corresponding CPU modules (`flow.ts` CPU integrator, `inkRibbons.ts` legacy loops, etc.) and strip feature flags/toggles that re-enable them.
-- **Status 2025-10-04**: Flow and Ink Ribbons fills now run exclusively through the `StrokePipeline` GPU stages (seed → path integration → pixel rasterization). Canvas2D fallbacks have been removed; environments without WebGPU emit a scheduler warning instead of rendering.
+- **Status 2025-10-07**: Flow, Contour, Lines, Hatch, Ink Ribbons, and Delaunay now run exclusively through the GPU pipeline. Canvas2D fallbacks have been removed; environments without WebGPU emit a scheduler warning instead of rendering.
 
 ### Shape Fill GPU Brush
-- Add a new brush entry in the library named **Shape Fill GPU** that routes shape strokes to the WebGPU pipeline.
-- Initial GPU fill adapters:
-  1. **Contour/Lines hybrid** – validates SDF extraction and deterministic preview/final parity with minimal shader complexity.
-  2. **Flow** – exercises gradient sampling, tile stitching, and ShapeAdjustHelper spacing/density bands.
-  3. **Ink Ribbons (pared-down noise)** – reuses Flow infrastructure, confirming the helper’s angle/noise controls.
-- After the trio is stable, port Delaunay and Cross Hatch; keep legacy CPU fills alongside for A/B comparison until parity is confirmed.
+- Internal brush entry routes Contour, Flow, Lines, Hatch, and Ink Ribbons through the GPU scheduler/cache. Delaunay and Cross Hatch remain on the migration list.
+- UI exposure is pending: the feature toggle and preview canvas wiring still need to land before shipping broadly.
+- Brush Controls now expose GPU-specific sliders (hardening mix, threshold, edge feather) alongside the existing spacing/variance controls.
+- User-facing instructions live in [`docs/using-shape-fill-gpu.md`](./using-shape-fill-gpu.md); update alongside UI work.
 
 ## Open Questions
 - WebGPU vs WebGL2: pick whichever is available in your target environment (personal build). WebGPU simplifies compute passes; WebGL2 requires fragment-shader-based compute but is more widely supported.

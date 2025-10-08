@@ -47,6 +47,10 @@ describe('tileManager helpers', () => {
       expect(tile.origin.x).toBeCloseTo(-96); // margin (32) + overlap (64)
       expect(tile.origin.y).toBeCloseTo(-96);
       expect(tile.gridWidth).toBe(Math.ceil(1024 / 1));
+      expect(tile.hasNeighborLeft).toBe(false);
+      expect(tile.hasNeighborRight).toBe(false);
+      expect(tile.hasNeighborTop).toBe(false);
+      expect(tile.hasNeighborBottom).toBe(false);
     });
 
     it('creates multiple tiles for wide geometry', () => {
@@ -67,6 +71,14 @@ describe('tileManager helpers', () => {
 
       const sortedByOrder = [...geometry.tiles].sort((a, b) => a.order - b.order);
       expect(sortedByOrder[0].origin.x + sortedByOrder[0].size.x * 0.5).toBeGreaterThan(0);
+
+      const leftmost = geometry.tiles.reduce((acc, candidate) => (candidate.origin.x < acc.origin.x ? candidate : acc));
+      const rightmost = geometry.tiles.reduce((acc, candidate) => (candidate.origin.x > acc.origin.x ? candidate : acc));
+      expect(leftmost.hasNeighborLeft).toBe(false);
+      expect(rightmost.hasNeighborRight).toBe(false);
+
+      const interior = geometry.tiles.find(tile => tile.hasNeighborLeft && tile.hasNeighborRight);
+      expect(interior).toBeDefined();
     });
 
     it('orders tiles by proximity to centroid (breadth-first)', () => {
@@ -92,6 +104,7 @@ describe('tileManager helpers', () => {
       const lastCenterY = last.origin.y + last.size.y * 0.5;
 
       expect(Math.abs(firstCenterY - centroidY)).toBeLessThan(Math.abs(lastCenterY - centroidY));
+      expect(first.hasNeighborBottom || first.hasNeighborTop).toBe(true);
     });
   });
 });

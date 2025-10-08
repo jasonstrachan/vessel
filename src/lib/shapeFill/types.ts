@@ -5,6 +5,35 @@ export interface Vec2 {
   y: number;
 }
 
+export const FLOAT32_BYTES = Float32Array.BYTES_PER_ELEMENT;
+
+export type StrokeMeshLayout = 'pos2uv2';
+
+export interface StrokeMeshLayoutInfo {
+  layout: StrokeMeshLayout;
+  /** Stride in bytes between consecutive vertices in the buffer. */
+  vertexStride: number;
+  /** Offset for the position attribute in bytes. */
+  positionOffset: number;
+  /** Offset for the UV attribute in bytes. */
+  uvOffset: number;
+  /** Index format used when drawing indexed primitives. */
+  indexFormat: GPUIndexFormat;
+  /** Vertex winding order expected by the rasterizer. */
+  winding: 'ccw' | 'cw';
+}
+
+export const STROKE_MESH_LAYOUTS: Record<StrokeMeshLayout, StrokeMeshLayoutInfo> = {
+  pos2uv2: {
+    layout: 'pos2uv2',
+    vertexStride: FLOAT32_BYTES * 4,
+    positionOffset: 0,
+    uvOffset: FLOAT32_BYTES * 2,
+    indexFormat: 'uint32',
+    winding: 'ccw',
+  },
+};
+
 export interface BoundingBox {
   minX: number;
   minY: number;
@@ -77,6 +106,14 @@ export interface TileDescriptor {
   overlap: number;
   /** Index of the tile in the breadth-first streaming order */
   order: number;
+  /** Indicates a tile exists immediately to the left at the same row */
+  hasNeighborLeft: boolean;
+  /** Indicates a tile exists immediately to the right at the same row */
+  hasNeighborRight: boolean;
+  /** Indicates a tile exists immediately above at the same column */
+  hasNeighborTop: boolean;
+  /** Indicates a tile exists immediately below at the same column */
+  hasNeighborBottom: boolean;
 }
 
 export interface FieldGeneratorConfig {

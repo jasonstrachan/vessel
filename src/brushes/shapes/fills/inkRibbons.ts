@@ -1,12 +1,14 @@
-import { getStrokePipeline, isWebGPUSupported } from '@/lib/shapeFill';
+import { getStrokePipeline, getWebGPUSupportStatus, isWebGPUSupported } from '@/lib/shapeFill';
 import type { ShapeFillScheduler, StrokeJob } from '@/lib/shapeFill';
 import { debugLog, debugWarn } from '@/utils/debug';
-import type { InkRibbonsFillParams, Point } from './types';
+import type { InkRibbonsFillParams, Point, ShapeFillDependencies } from './types';
+import type { BrushSettings } from '@/types';
+import { drawShapeFillOutput, resolveShapeFillGpuParams } from './common';
 
 const FNV_OFFSET = 2166136261;
 const FNV_PRIME = 16777619;
 
-const inflightGpuJobs = new Set<string>();
+const inflightGpuJobs = new Map<string, Promise<void>>();
 
 const computeBounds = (vertices: Point[]) => {
   let minX = Infinity;
@@ -62,20 +64,28 @@ const enqueueGpuStroke = (
   priority: 'preview' | 'final',
   ctx: CanvasRenderingContext2D,
   scheduler: ShapeFillScheduler,
-  options: { strokeColor: string }
+  options: {
+    strokeColor: string;
+    runtimeContext?: InkRibbonsFillParams['runtimeContext'];
+    dependencies?: ShapeFillDependencies;
+    brushSettings: BrushSettings;
+  }
 ): void => {
   const pipeline = getStrokePipeline();
 
   const inflightKey = `${job.id}:${priority}`;
-  if (inflightGpuJobs.has(inflightKey)) {
+  if (inflightGpuJobs.get(inflightKey)) {
     return;
   }
-  inflightGpuJobs.add(inflightKey);
 
-  scheduler
+  const finalCanvasTarget = options.runtimeContext?.finalCanvas
+    ?? (ctx.canvas instanceof HTMLCanvasElement ? ctx.canvas : null);
+
+  const jobPromise = scheduler
     .queueJob(job, {
       priority,
       cacheResult: true,
+      reuseCache: true,
     })
     .then(async result => {
       try {
@@ -94,29 +104,29 @@ const enqueueGpuStroke = (
           return;
         }
 
-        const drawToCanvas = async () => {
-          if (typeof ImageData === 'undefined') {
-            return false;
-          }
+        const runtimeContext = options.runtimeContext;
+        const dependencies = options.dependencies;
+        const overlayCtx = runtimeContext?.overlayCanvas
+          ? runtimeContext.overlayCanvas.getContext('2d', { willReadFrequently: true }) ?? undefined
+          : undefined;
+        const finalCtx = runtimeContext?.finalCanvas
+          ? runtimeContext.finalCanvas.getContext('2d', { willReadFrequently: true }) ?? undefined
+          : undefined;
 
-          const imageData = new ImageData(output.pixels, output.width, output.height);
-          if (typeof createImageBitmap === 'function') {
-            const bitmap = await createImageBitmap(imageData);
-            ctx.save();
-            ctx.globalAlpha = job.brushSettings?.opacity ?? 1;
-            ctx.globalCompositeOperation = job.brushSettings?.blendMode || 'source-over';
-            ctx.imageSmoothingEnabled = !(job.pixelMode ?? true);
-            ctx.drawImage(bitmap, output.origin.x, output.origin.y);
-            ctx.restore();
-            bitmap.close();
-            return true;
-          }
-
-          ctx.putImageData(imageData, output.origin.x, output.origin.y);
-          return true;
-        };
-
-        const drawn = await drawToCanvas().catch(() => false);
+        const drawn = await drawShapeFillOutput({
+          output: {
+            pixels: output.pixels,
+            width: output.width,
+            height: output.height,
+            origin: output.origin,
+          },
+          baseContext: ctx,
+          runtimeContext,
+          priority,
+          brushSettings: job.brushSettings,
+          overlayContext: overlayCtx,
+          finalContext: finalCtx,
+        }).catch(() => false);
         if (!drawn) {
           debugWarn('shape-fill', 'Ink ribbons GPU render could not paint onto canvas.');
         } else {
@@ -125,6 +135,15 @@ const enqueueGpuStroke = (
             gpuMetrics: result.fieldResult.metrics,
             jobId: job.id,
           });
+
+          if (priority === 'final') {
+            const jobBrushSettings: BrushSettings = job.brushSettings ?? options.brushSettings;
+            dependencies?.recordShapeFillJob?.(job, {
+              brushSettings: jobBrushSettings,
+              mode: 'ink-ribbons',
+              runtimeContext,
+            });
+          }
         }
 
         output.release();
@@ -149,7 +168,12 @@ const enqueueGpuStroke = (
     })
     .finally(() => {
       inflightGpuJobs.delete(inflightKey);
+      if (priority === 'final' && finalCanvasTarget) {
+        options.dependencies?.flushShapeFillJobs?.(finalCanvasTarget, 'Shape fill ink ribbon stroke');
+      }
     });
+
+  inflightGpuJobs.set(inflightKey, jobPromise);
 };
 
 export const drawInkRibbonsFill = ({
@@ -160,6 +184,7 @@ export const drawInkRibbonsFill = ({
   isPreview = false,
   randomSeed,
   strokeColorOverride,
+  runtimeContext,
 }: InkRibbonsFillParams): void => {
   if (vertices.length < 3) {
     return;
@@ -171,7 +196,11 @@ export const drawInkRibbonsFill = ({
   }
 
   if (!isWebGPUSupported()) {
-    debugWarn('shape-fill', 'WebGPU is unavailable; ink ribbons fill skipped.');
+    const status = getWebGPUSupportStatus();
+    const reason = status.status === 'unavailable'
+      ? status.reason
+      : 'WebGPU support is disabled';
+    debugWarn('shape-fill', `WebGPU is unavailable; ink ribbons fill skipped (${reason}).`);
     return;
   }
 
@@ -194,11 +223,11 @@ export const drawInkRibbonsFill = ({
   }
 
   const orientationDeg = brushSettings.ribbonBiasAngle ?? 0;
-  const strokeBrushSettings = {
+  const strokeBrushSettings: BrushSettings = {
     ...brushSettings,
     flowOrientationAngle: orientationDeg,
     shapeFillLineWidth: lineWidth,
-  } as StrokeJob['brushSettings'];
+  };
 
   const jobId = hashRibbonJob(vertices, seed, fieldResolution, pixelMode, spacing, lineWidth);
 
@@ -228,17 +257,25 @@ export const drawInkRibbonsFill = ({
       fieldResolution,
     },
     pixelMode,
-    dynamicParams: {
+  dynamicParams: {
+      ...resolveShapeFillGpuParams(strokeBrushSettings),
       spacing,
       ribbonLineWidth: lineWidth,
     },
     metadata: {
       brush: 'ink-ribbons',
       mode: priority,
+      viewportScale: runtimeContext?.viewTransform?.scale,
+      devicePixelRatio: runtimeContext?.devicePixelRatio,
     },
   };
 
   const strokeColor = strokeColorOverride ?? brushSettings.color ?? '#0d1d71';
 
-  enqueueGpuStroke(stroke, priority, ctx, dependencies.gpuScheduler, { strokeColor });
+  enqueueGpuStroke(stroke, priority, ctx, dependencies.gpuScheduler, {
+    strokeColor,
+    runtimeContext,
+    dependencies,
+    brushSettings,
+  });
 };

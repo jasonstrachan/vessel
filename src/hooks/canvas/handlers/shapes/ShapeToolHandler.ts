@@ -14,6 +14,7 @@ import {
 import { computeDragScaledValue } from '@/utils/dragScale';
 import { withTemporaryBrushSettings } from '@/utils/withTemporaryBrushSettings';
 import { ShapeAdjustHelper, type ShapeAdjustHelperUpdate } from '@/lib/shapeFill/ShapeAdjustHelper';
+import { getShapeFillViewTargets } from '@/lib/shapeFill/viewTargets';
 import { getShapeFillScheduler } from '@/lib/shapeFill/runtime';
 import { computeFlowGpuJobId } from '@/brushes/shapes/fills/flow';
 import type { ContourLineOptions } from '@/brushes/shapes/fills/types';
@@ -507,13 +508,20 @@ export const createShapeToolHandler = (
 
   const shapeFillUsesSampledColor = () => {
     const { brushSettings } = useAppStore.getState().tools;
+    if (!brushSettings) {
+      return false;
+    }
+    if (brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
+      return true;
+    }
     return !!brushSettings.shapeFillUseSampledColor;
   };
 
   const resolvePolygonPointColor = (worldPos: { x: number; y: number }) => {
-    const { tools: toolsState } = useAppStore.getState();
-    const { brushSettings } = toolsState;
-    if (brushSettings.shapeFillUseSampledColor) {
+    const { brushSettings } = useAppStore.getState().tools;
+    const shouldSample = brushSettings.brushShape === BrushShape.POLYGON_GRADIENT
+      || !!brushSettings.shapeFillUseSampledColor;
+    if (shouldSample) {
       return sampleColorAtPosition(worldPos.x, worldPos.y);
     }
     return brushSettings.color;
@@ -527,16 +535,25 @@ export const createShapeToolHandler = (
   };
 
   const resolveShapeFillColor = (points?: Array<{ color?: string }>) => {
-    const { tools: toolsState } = useAppStore.getState();
-    if (toolsState.brushSettings.shapeFillUseSampledColor) {
-      if (points && points.length > 0) {
-        for (const point of points) {
-          const candidate = point.color;
-          if (candidate) return candidate;
+    const store = useAppStore.getState();
+    const { brushSettings } = store.tools;
+    const usesSampledColor = brushSettings.brushShape === BrushShape.POLYGON_GRADIENT
+      || !!brushSettings.shapeFillUseSampledColor;
+
+    if (usesSampledColor && points && points.length > 0) {
+      for (const point of points) {
+        const candidate = point?.color;
+        if (candidate) {
+          return candidate;
         }
       }
     }
-    return toolsState.brushSettings.color;
+
+    if (usesSampledColor && store.polygonGradientState.fillColor) {
+      return store.polygonGradientState.fillColor;
+    }
+
+    return brushSettings.color;
   };
 
   const clearOverlayCanvas = () => {
@@ -547,9 +564,16 @@ export const createShapeToolHandler = (
   };
 
   const withRuntimeLineOptions = (options?: ContourLineOptions): ContourLineOptions | undefined => {
-    const overlayCanvas = overlayCanvasRef.current;
-    const finalCanvas = compositeCanvasRef.current;
-    const viewTransform = viewTransformRef.current;
+    const targets = getShapeFillViewTargets();
+    const overlayCanvas = overlayCanvasRef.current ?? targets.overlayCanvas ?? null;
+    const finalCanvas = compositeCanvasRef.current ?? targets.finalCanvas ?? null;
+    const viewTransform = viewTransformRef.current ?? targets.viewTransform;
+    const devicePixelRatio = (() => {
+      if (typeof window !== 'undefined' && typeof window.devicePixelRatio === 'number') {
+        return window.devicePixelRatio || 1;
+      }
+      return targets.devicePixelRatio || 1;
+    })();
 
     const runtimeContext = {
       overlayCanvas,
@@ -561,6 +585,7 @@ export const createShapeToolHandler = (
             offsetY: viewTransform.offsetY,
           }
         : undefined,
+      devicePixelRatio,
     };
 
     if (!options) {

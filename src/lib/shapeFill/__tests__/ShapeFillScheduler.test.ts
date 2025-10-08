@@ -60,6 +60,26 @@ describe('ShapeFillScheduler', () => {
     expect(stubResult.release).toHaveBeenCalledTimes(1);
   });
 
+  it('serves final jobs from cached preview results when reuseCache is enabled', async () => {
+    const stubResult = makeStubResult(baseJob.id);
+    const generate = jest.fn().mockResolvedValue(stubResult);
+    const scheduler = new ShapeFillScheduler({ fieldGenerator: { generate }, cacheResultsByDefault: false });
+
+    const preview = await scheduler.queueJob(baseJob, { priority: 'preview', cacheResult: true });
+    expect(generate).toHaveBeenCalledTimes(1);
+    preview.release();
+    expect(stubResult.release).not.toHaveBeenCalled();
+
+    const finalResult = await scheduler.queueJob(baseJob, { priority: 'final', reuseCache: true });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(finalResult.diagnostics.fromCache).toBe(true);
+    expect(finalResult.fieldResult).toBe(stubResult);
+
+    finalResult.release();
+    scheduler.invalidate(baseJob.id);
+    expect(stubResult.release).toHaveBeenCalledTimes(1);
+  });
+
   it('cancels stale preview jobs when newer previews are queued', async () => {
     const firstResult = makeStubResult(baseJob.id);
     const secondResult = makeStubResult(baseJob.id);
