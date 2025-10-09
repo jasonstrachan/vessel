@@ -262,7 +262,7 @@ const BrushControls = () => {
               onChange={(value) => setActiveSettings({ 
                 colorCycleFillMode: value as 'concentric' | 'linear' | 'circular' 
               })}
-              className="w-full"
+              size="sm"
             />
           </div>
         )}
@@ -544,7 +544,7 @@ const BrushControls = () => {
                     }}
                     min="1"
                     max="1000"
-                    className="w-12 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                    className="w-12 bg-transparent"
                   />
                   <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
                     -
@@ -559,7 +559,7 @@ const BrushControls = () => {
                     }}
                     min="1"
                     max="1000"
-                    className="w-12 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                    className="w-12 bg-transparent"
                   />
                 </>
               )}
@@ -641,7 +641,7 @@ const BrushControls = () => {
             value={activeSettings.spamCustomText || spamPresets[activeSettings.spamContentType || 'mixed']}
             onChange={(e) => setActiveSettings({ spamCustomText: e.target.value })}
             placeholder="Enter custom text here..."
-            className="w-full h-20 p-2 bg-[#4a4a4a] text-[#D9D9D9] border-none rounded resize-none focus:outline-none focus:ring-1 focus:ring-[#5a5a5a]"
+            className="w-full h-20 p-2 border border-[#D9D9D9] bg-transparent text-[#D9D9D9] resize-none focus:outline-none focus:border-[#F3F3F7]"
             style={{ fontSize: "12px", fontFamily: 'monospace' }}
           />
         </div>
@@ -753,7 +753,7 @@ const BrushControls = () => {
                   }}
                   min="1"
                   max="1000"
-                  className="w-12 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                    className="w-12 bg-transparent"
                 />
                 <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
                   -
@@ -768,7 +768,7 @@ const BrushControls = () => {
                   }}
                   min="1"
                   max="1000"
-                  className="w-12 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                    className="w-12 bg-transparent"
                 />
               </>
             )}
@@ -993,7 +993,7 @@ const BrushControls = () => {
                   }}
                   min="1"
                   max="1000"
-                  className="w-12 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                  className="w-12 bg-transparent"
                 />
                 <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
                   -
@@ -1008,7 +1008,7 @@ const BrushControls = () => {
                   }}
                   min="1"
                   max="1000"
-                  className="w-12 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                  className="w-12 bg-transparent"
                 />
               </>
             )}
@@ -1070,7 +1070,7 @@ const BrushControls = () => {
                   }
                   min="1"
                   max="20"
-                  className="w-7 bg-[#4a4a4a] border-none focus:outline-none px-0 h-5"
+                  className="w-7 bg-transparent px-0"
                   title="Length multiplier (×brush size)"
                 />
                 <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
@@ -1085,7 +1085,7 @@ const BrushControls = () => {
                   }
                   min="1"
                   max="20"
-                  className="w-7 bg-[#4a4a4a] border-none focus:outline-none px-0 h-5"
+                  className="w-7 bg-transparent px-0"
                   title="Gap multiplier (×brush size)"
                 />
               </>
@@ -1822,7 +1822,7 @@ const BrushControls = () => {
                 }}
                 min="1"
                 max="1000"
-                className="w-8 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                className="w-8 bg-transparent"
               />
               <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
                 -
@@ -1837,7 +1837,7 @@ const BrushControls = () => {
                 }}
                 min="1"
                 max="1000"
-                className="w-8 bg-[#4a4a4a] border-none focus:outline-none h-5"
+                className="w-8 bg-transparent"
               />
             </>
           )}
@@ -1899,7 +1899,7 @@ const BrushControls = () => {
                 }
                 min="1"
                 max="20"
-                className="w-7 bg-[#4a4a4a] border-none focus:outline-none px-0 h-5"
+                className="w-7 bg-transparent px-0"
                 title="Length multiplier (×brush size)"
               />
               <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
@@ -1914,7 +1914,7 @@ const BrushControls = () => {
                 }
                 min="1"
                 max="20"
-                className="w-7 bg-[#4a4a4a] border-none focus:outline-none px-0 h-5"
+                className="w-7 bg-transparent px-0"
                 title="Gap multiplier (×brush size)"
               />
             </>

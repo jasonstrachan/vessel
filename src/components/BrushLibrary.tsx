@@ -258,7 +258,41 @@ const BrushLibrary = () => {
       </div>
       
       <div className="flex-1 py-1 space-y-0 overflow-y-auto">
-        {allBrushes.map((preset) => (
+        {allBrushes.map((preset) => {
+          const isSpamBrush = preset.id === 'spam-brush';
+          const iconSizeClass = isSpamBrush ? 'w-10 h-10' : 'w-8 h-8';
+          const textStyle = {
+            fontSize: isSpamBrush ? '13px' : '12px',
+            lineHeight: '16px'
+          };
+          const renderFallbackIcon = (shape: 'square' | 'circle' | 'text') => {
+            if (shape === 'text') {
+              return (
+                <div className={`${iconSizeClass} flex items-center justify-center`} style={{ color: '#D9D9D9', fontSize: isSpamBrush ? '13px' : '10px' }}>
+                  a
+                </div>
+              );
+            }
+
+            const sizeRatio = 0.62;
+            const borderRadius = shape === 'circle' ? '50%' : '2px';
+
+            return (
+              <div className={`${iconSizeClass} flex items-center justify-center`}>
+                <div
+                  style={{
+                    width: `${sizeRatio * 100}%`,
+                    height: `${sizeRatio * 100}%`,
+                    border: '3px solid #D9D9D9',
+                    borderRadius,
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+            );
+          };
+
+          return (
           <React.Fragment key={preset.id}>
             {/* Skip the separate Color Cycle Shape row to consolidate */}
             {preset.id !== 'color-cycle-shape' && (
@@ -270,35 +304,31 @@ const BrushLibrary = () => {
                     : 'hover:bg-[#404040]'
                 }`}
               >
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1.5">
                   {preset.isCustomBrush ? (
                     preset.thumbnail ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={preset.thumbnail}
                         alt={`${preset.name} thumbnail`}
-                        className="w-10 h-10"
+                        className={iconSizeClass}
                         style={{ imageRendering: 'pixelated' }}
                       />
                     ) : (
-                      <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
-                        □
-                      </div>
+                      renderFallbackIcon(isSpamBrush ? 'text' : 'square')
                     )
                   ) : brushThumbnails[preset.id] ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={brushThumbnails[preset.id]}
                       alt={`${preset.name} thumbnail`}
-                      className="w-10 h-10"
+                      className={iconSizeClass}
                       style={{ imageRendering: 'auto' }}
                     />
                   ) : (
-                    <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
-                      {preset.category === 'Pixel Art' ? '□' : '○'}
-                    </div>
+                    renderFallbackIcon(isSpamBrush ? 'text' : preset.category === 'Pixel Art' ? 'square' : 'circle')
                   )}
-                  <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
+                  <span className="text-[#D9D9D9]" style={textStyle}>
                     {preset.id === 'color-cycle-stroke' ? 'Color Cycle' : preset.name}
                   </span>
                 </div>
@@ -345,28 +375,29 @@ const BrushLibrary = () => {
                 }`}
                 title="Open Color cycle + recolor panel"
               >
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1.5">
                   {/* Use the same icon/thumbnail as Color Cycle Shape if available */}
                   {brushThumbnails['color-cycle-shape'] ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={brushThumbnails['color-cycle-shape']}
                       alt={`Color cycle + recolor icon`}
-                      className="w-10 h-10"
+                      className="w-8 h-8"
                       style={{ imageRendering: 'auto' }}
                     />
                   ) : (
-                    <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+                    <div className="w-8 h-8 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '10px' }}>
                       □
                     </div>
                   )}
-                  <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>Color cycle + recolor</span>
+                  <span className="text-[#D9D9D9]" style={{ fontSize: '12px', lineHeight: '16px' }}>Color cycle + recolor</span>
                   {/* Removed pulsing circle indicator for Recolor entry */}
                 </div>
               </div>
             )}
           </React.Fragment>
-        ))}
+        );
+        })}
       </div>
     </div>
   );

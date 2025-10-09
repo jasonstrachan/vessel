@@ -1,5 +1,4 @@
 import { BrushShape, type BrushSettings } from '@/types';
-import { debugLog } from '@/utils/debug';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 
 import { resolveCoordinateSnap } from './common';
@@ -171,10 +170,10 @@ export const drawContourPolygon = ({
     }
 
     if (mode === 'flow' || mode === 'inkRibbons' || mode === 'triangle') {
-      debugLog('shape-fill', `Shape fill mode "${mode}" retired; using contour fallback.`);
+      console.log(`Shape fill mode "${mode}" retired; using contour fallback.`);
     }
 
-    debugLog('shape-fill', `Mode "${mode}" no longer supported; using new CPU fill.`);
+    console.log(`Mode "${mode}" no longer supported; using new CPU fill.`);
 
     drawNewShapeFill({
       ctx,

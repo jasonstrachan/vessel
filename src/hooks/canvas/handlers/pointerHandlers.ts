@@ -1,4 +1,62 @@
+'use client';
+
 import React from 'react';
+// ---- ContourLines DEBUG ----------------------------------
+const CL_DEBUG = true; // flip to false to silence
+type CLLogEntry = {
+  kind: 'log' | 'warn' | 'group';
+  label?: string;
+  payload?: unknown;
+  args?: unknown[];
+  timestamp: number;
+};
+
+const getLogBuffer = (): CLLogEntry[] | null => {
+  if (typeof globalThis === 'undefined') return null;
+  const globalAny = globalThis as { __CL_LOGS?: CLLogEntry[] };
+  if (!Array.isArray(globalAny.__CL_LOGS)) {
+    globalAny.__CL_LOGS = [];
+  }
+  return globalAny.__CL_LOGS ?? null;
+};
+
+const logBuffer = getLogBuffer();
+
+const rawLog = typeof console !== 'undefined' && typeof console.log === 'function'
+  ? console.log.bind(console)
+  : (..._args: any[]) => {};
+const rawWarn = typeof console !== 'undefined' && typeof console.warn === 'function'
+  ? console.warn.bind(console)
+  : (..._args: any[]) => {};
+const rawGroupCollapsed = typeof console !== 'undefined' && typeof console.groupCollapsed === 'function'
+  ? console.groupCollapsed.bind(console)
+  : (..._args: any[]) => {};
+const rawGroupEnd = typeof console !== 'undefined' && typeof console.groupEnd === 'function'
+  ? console.groupEnd.bind(console)
+  : () => {};
+
+const cl = {
+  log: (...a: any[]) => {
+    if (!CL_DEBUG) return;
+    logBuffer?.push({ kind: 'log', args: a, timestamp: Date.now() });
+    rawLog('%c[CL]', 'color:#6cf', ...a);
+  },
+  warn: (...a: any[]) => {
+    if (!CL_DEBUG) return;
+    logBuffer?.push({ kind: 'warn', args: a, timestamp: Date.now() });
+    rawWarn('%c[CL]', 'color:#fc6', ...a);
+  },
+  grp: (label: string, data?: any) => {
+    if (!CL_DEBUG) return () => {};
+    logBuffer?.push({ kind: 'group', label, payload: data, timestamp: Date.now() });
+    rawLog('%c[CL]%c ' + label, 'color:#6cf', 'color:inherit', data ?? '');
+    rawGroupCollapsed('%c[CL]%c ' + label, 'color:#6cf', 'color:inherit');
+    if (data) rawLog('%c[CL]', 'color:#6cf', data);
+    return () => rawGroupEnd();
+  },
+};
+cl.log('ContourLines logger ready', { enabled: CL_DEBUG });
+// -----------------------------------------------------------
 import { useAppStore } from '../../../stores/useAppStore';
 import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
 import type { EventHandlerDependencies, PointerHandlers } from '../utils/types';
@@ -8,6 +66,7 @@ import { floodFill } from '../../../utils/floodFill';
 import { detectWacomIssues, testWacomPressure } from '../../../utils/detectWacom';
 import {
   generateContourLines,
+  generateLines2Paths,
   computeLines2Defaults,
   computeLines2ProjectionStats,
   getLines2SideMidpoint,
@@ -16,10 +75,11 @@ import {
   MIN_LINE_SPACING,
   MAX_LINE_SPACING,
 } from '@/utils/contourLines';
+import { createVerticalSpacingMapper } from '@/lib/shapeFill/ShapeParameterAdjuster';
 import { computeNewShapeFillCenter } from '@/brushes/shapes/fills/newShapeFill';
 import { getPresetStops } from '../../../utils/gradientPresets';
-import { debugLog } from '@/utils/debug';
 import { createShapeToolHandler } from './shapes/ShapeToolHandler';
+import { logContourFillDebug } from './utils/logContourFillDebug';
 
 type ContourLinesStage =
   | 'idle'
@@ -113,7 +173,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     compositeCanvasDirtyRef,
     setNeedsRedraw,
     pauseAnimationForPan,
-    resumeAnimationAfterPan
+    resumeAnimationAfterPan,
+    restartColorCycleAnimation,
   } = deps;
 
   type Point = { x: number; y: number };
@@ -144,6 +205,78 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
   const resetContourLinesState = () => {
     contourLinesStateRef.current = createDefaultContourLinesState();
+  };
+
+  const initializeContourLinesState = (
+    points: Array<{ x: number; y: number }>,
+    opts: {
+      variant: ContourLinesState['variant'];
+      fillColor?: string;
+      initialSpacing: number;
+      randomSeed?: number;
+    }
+  ): boolean => {
+    if (points.length < 3) {
+      return false;
+    }
+
+    const preparedBasis = prepareContourLinesBasis(points);
+    if (!preparedBasis) {
+      return false;
+    }
+
+    let centroid = computePolygonCentroid(points);
+    const randomSeed = typeof opts.randomSeed === 'number'
+      ? opts.randomSeed
+      : Math.floor(Math.random() * 0xffffffff);
+
+    let stage: ContourLinesStage = 'awaitingAnchorA';
+    let lineAngle: number | null = null;
+    let convergenceA: { x: number; y: number } | null = null;
+    let convergenceB: { x: number; y: number } | null = null;
+    let basis: ContourLinesBasis = preparedBasis;
+
+    if (opts.variant === 'lines2') {
+      const defaults = computeLines2Defaults(points, preparedBasis);
+      centroid = defaults.centroid;
+      lineAngle = defaults.defaultAngle;
+      convergenceA = defaults.convergenceA;
+      convergenceB = defaults.convergenceB;
+      basis = defaults.basis ?? preparedBasis;
+      stage = 'awaitingAngle';
+    }
+
+    setContourLinesState({
+      stage,
+      variant: opts.variant ?? 'legacy',
+      shapePoints: points,
+      basis,
+      centroid,
+      fillColor: opts.fillColor,
+      previewSpacing: opts.initialSpacing,
+      spacingReferenceDistance: null,
+      spacingReferenceSpacing: opts.initialSpacing,
+      randomSeed,
+      lineAngle,
+      convergenceA,
+      convergenceB,
+    });
+
+    const endInitLog = cl.grp('init spacing mode', {
+      stage,
+      points: points.length,
+      initialSpacing: opts.initialSpacing,
+      centroid,
+      variant: opts.variant,
+    });
+    endInitLog();
+
+    drawContourLinesPreview(opts.initialSpacing, opts.initialSpacing, {
+      shapePoints: points,
+      basis: basis as ContourBasis,
+      stage,
+    });
+    return true;
   };
 
   const computePolygonCentroid = (points: Array<{ x: number; y: number }>): Point => {
@@ -182,7 +315,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   const MAX_NEW_SHAPE_FILL_SPACING = 96;
   const clampNewShapeFillSpacing = (value: number) => Math.min(MAX_NEW_SHAPE_FILL_SPACING, Math.max(MIN_LINE_SPACING, value));
 
-  const CONTOUR_DISTANCE_TO_SPACING_SCALE = 18;
+  const VERTICAL_SPACING_BOUNDS = { min: MIN_LINE_SPACING, max: MAX_LINE_SPACING, exponent: 1.06 } as const;
 
   const resolveContourSpacing = (
     _basis: ContourLinesBasis,
@@ -204,69 +337,53 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     if (brushShape === BrushShape.NEW_SHAPE_FILL) {
       const center = computeNewShapeFillCenter(points, state.randomSeed ?? undefined);
-      const pointerDistance = Math.hypot(pointer.x - center.x, pointer.y - center.y);
-      const outerRadius = computeMaxRadialDistance(points, center);
-      const outerReferenceDistance = outerRadius + 200;
-      const normalized = outerReferenceDistance > 0
-        ? Math.min(Math.max(pointerDistance / outerReferenceDistance, 0), 1)
-        : 0;
-      const spacing = MIN_LINE_SPACING + normalized * (MAX_NEW_SHAPE_FILL_SPACING - MIN_LINE_SPACING);
-      const clampedSpacing = clampNewShapeFillSpacing(spacing);
+      const pointerVec = { x: pointer.x, y: pointer.y };
+      const referenceDistance = state.spacingReferenceDistance ?? Math.max(
+        Math.abs(pointer.y - center.y),
+        1e-3
+      );
+      const referenceSpacing = state.spacingReferenceSpacing ?? clampNewShapeFillSpacing(defaultSpacing);
+      const mapper = createVerticalSpacingMapper({
+        centroid: center,
+        referenceDistance,
+        referenceValue: referenceSpacing,
+        bounds: { min: MIN_LINE_SPACING, max: MAX_NEW_SHAPE_FILL_SPACING, exponent: 1.04 },
+      });
+      const { value, distance } = mapper(pointerVec);
 
       return {
-        spacing: clampedSpacing,
-        pointerDistance,
-        referenceDistance: outerReferenceDistance,
-        referenceSpacing: clampedSpacing,
+        spacing: clampNewShapeFillSpacing(value),
+        pointerDistance: distance,
+        referenceDistance,
+        referenceSpacing,
       };
     }
 
     const centroid = state.centroid ?? computePolygonCentroid(points);
-    let minY = points[0].y;
-    let maxY = points[0].y;
-    for (let i = 1; i < points.length; i += 1) {
-      const y = points[i].y;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-    }
+    const pointerVec = { x: pointer.x, y: pointer.y };
+    const referenceDistance = state.spacingReferenceDistance ?? Math.max(
+      Math.abs(pointer.y - centroid.y),
+      1e-3
+    );
+    const referenceSpacing = state.spacingReferenceSpacing ?? clampContourSpacing(defaultSpacing);
+    const mapper = createVerticalSpacingMapper({
+      centroid,
+      referenceDistance,
+      referenceValue: referenceSpacing,
+      bounds: VERTICAL_SPACING_BOUNDS,
+    });
 
-    const halfHeight = Math.max(1, (maxY - minY) * 0.5);
-    const pointerDistance = Math.abs(pointer.y - centroid.y);
-    const overshoot = Math.max(0, pointerDistance - halfHeight);
-    const normalizedDistance = overshoot / halfHeight;
-    const baseSpacing = clampContourSpacing(defaultSpacing);
-    const spacing = clampContourSpacing(baseSpacing + normalizedDistance * CONTOUR_DISTANCE_TO_SPACING_SCALE);
+    const { value, distance } = mapper(pointerVec);
 
     return {
-      spacing,
-      pointerDistance,
-      referenceDistance: pointerDistance,
-      referenceSpacing: spacing,
+      spacing: clampContourSpacing(value),
+      pointerDistance: distance,
+      referenceDistance,
+      referenceSpacing,
     };
   };
 
   type ContourBasis = NonNullable<ReturnType<typeof prepareContourLinesBasis>>;
-
-  const logContourFillDebug = (message: string, data?: Record<string, unknown>) => {
-    const ENABLE_CONTOUR_DEBUG_LOGS = false;
-    if (!ENABLE_CONTOUR_DEBUG_LOGS) return;
-    const store = useAppStore.getState();
-    const mode = store.tools.brushSettings.shapeGradientMode || 'contour';
-    const brushShape = store.tools.brushSettings.brushShape;
-    const isContourFill =
-      mode === 'contour' &&
-      (brushShape === BrushShape.CONTOUR_POLYGON || brushShape === BrushShape.NEW_SHAPE_FILL);
-
-    if (!isContourFill) return;
-
-    const contextData = {
-      fillMode: mode,
-      brushShape,
-      ...data,
-    };
-
-    debugLog('[ContourFill]', message, contextData);
-  };
 
   const extractSelectionAsFloatingPaste = (): { imageData: ImageData; position: Point; width: number; height: number; layerId: string } | null => {
     if (!selectionStart || !selectionEnd || !project || !activeLayerId) {
@@ -487,6 +604,150 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     overlayCtx.restore();
   };
 
+  const drawLines2Preview = (
+    angle: number,
+    convergenceA: { x: number; y: number },
+    convergenceB: { x: number; y: number }
+  ) => {
+    const overlayCanvas = overlayCanvasRef.current;
+    const overlayCtx = overlayCanvas?.getContext('2d');
+    if (!overlayCanvas || !overlayCtx) {
+      return;
+    }
+
+    const contourState = contourLinesStateRef.current;
+    const shapePoints = contourState.shapePoints;
+    if (!shapePoints || shapePoints.length < 3) {
+      return;
+    }
+
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    overlayCtx.save();
+    overlayCtx.translate(deps.viewTransformRef.current.offsetX, deps.viewTransformRef.current.offsetY);
+    overlayCtx.scale(deps.viewTransformRef.current.scale, deps.viewTransformRef.current.scale);
+
+    const safeScale = Math.max(deps.viewTransformRef.current.scale, 0.001);
+    overlayCtx.lineWidth = Math.max(0.2, 0.45 / safeScale);
+    overlayCtx.strokeStyle = tools.brushSettings.color;
+    overlayCtx.imageSmoothingEnabled = false;
+
+    const spacingSetting = tools.brushSettings.contourLines2Spacing ?? 8;
+    const densitySetting = tools.brushSettings.contourLines2Density ?? 5;
+    const alternateSetting = tools.brushSettings.contourLines2Alternate ?? true;
+
+    const paths = generateLines2Paths(
+      shapePoints,
+      {
+        angle,
+        convergenceA,
+        convergenceB,
+        spacing: spacingSetting,
+        density: densitySetting,
+        alternate: alternateSetting,
+      },
+      contourState.centroid ?? undefined
+    );
+
+    const first = shapePoints[0];
+    if (first) {
+      overlayCtx.save();
+      overlayCtx.beginPath();
+      overlayCtx.moveTo(first.x, first.y);
+      for (let i = 1; i < shapePoints.length; i += 1) {
+        overlayCtx.lineTo(shapePoints[i].x, shapePoints[i].y);
+      }
+      overlayCtx.closePath();
+      overlayCtx.clip();
+
+      for (const path of paths) {
+        if (!path.points || path.points.length < 2) {
+          continue;
+        }
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(path.points[0].x, path.points[0].y);
+        for (let i = 1; i < path.points.length; i += 1) {
+          overlayCtx.lineTo(path.points[i].x, path.points[i].y);
+        }
+        overlayCtx.stroke();
+      }
+
+      overlayCtx.restore();
+    }
+
+    overlayCtx.restore();
+  };
+
+  const finalizeContourLinesStroke = (spacingStart: number, spacingEnd: number) => {
+    const contourState = contourLinesStateRef.current;
+    const shapePoints = contourState.shapePoints;
+    const basis = contourState.basis;
+
+    if (!brushEngine || !basis || !shapePoints || shapePoints.length < 3) {
+      resetContourLinesState();
+      clearOverlayCanvas();
+      return;
+    }
+
+    logContourFillDebug('finalizing-contour-fill', {
+      spacingA: spacingStart,
+      spacingB: spacingEnd,
+      vertexCount: shapePoints.length,
+    });
+
+    drawingHandlers.initDrawingCanvas();
+    const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
+    if (!drawCtx) {
+      resetContourLinesState();
+      clearOverlayCanvas();
+      return;
+    }
+
+    const store = useAppStore.getState();
+    const strokeColorOverride = store.tools.brushSettings.shapeFillUseSampledColor
+      ? contourState.fillColor ?? store.tools.brushSettings.color
+      : undefined;
+
+    brushEngine.drawContourPolygon(
+      drawCtx,
+      {
+        vertices: shapePoints,
+        fillColor: contourState.fillColor ?? undefined,
+      },
+      false,
+      {
+        spacingOverride: spacingEnd ?? spacingStart,
+        randomSeed: contourState.randomSeed ?? undefined,
+        strokeColorOverride,
+      }
+    );
+
+    drawingHandlers.drawingCanvasHasContent.current = true;
+    compositeCanvasDirtyRef.current = true;
+
+    drawingHandlers.finalizeDrawing(false).then(() => {
+      stateMachine.finalizationComplete();
+      requestAnimationFrame(() => {
+        if (compositeCanvasRef.current && project) {
+          compositeLayersToCanvas(compositeCanvasRef.current);
+          setCurrentOffscreenCanvas(compositeCanvasRef.current);
+          compositeCanvasDirtyRef.current = false;
+
+          const canvasEl = canvasRef.current;
+          const ctx = canvasEl?.getContext('2d', { willReadFrequently: true });
+          if (ctx) {
+            deps.draw(ctx, deps.viewTransformRef.current);
+          }
+        }
+      });
+
+      restartColorCycleAnimation?.();
+    });
+
+    toolStateMachine.resetPolygonGradient();
+    resetContourLinesState();
+    clearOverlayCanvas();
+  };
+
   // Track whether the pointer is currently within the canvas bounds. This stays accurate
   // even when pointer capture is active so we can hide the brush cursor once the pointer
   // drifts over the UI column.
@@ -535,8 +796,13 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // Track that pointer is down
     isMouseDownRef.current = true;
     
-    // If the app is busy, ignore this pointer event completely
-    if (isBusyRef.current) {
+    const contourLinesStateForBusyCheck = contourLinesStateRef.current;
+    const allowAdjustmentWhileBusy =
+      contourLinesStateForBusyCheck.stage === 'awaitingAnchorA' ||
+      contourLinesStateForBusyCheck.stage === 'awaitingAngle';
+
+    // If the app is busy, ignore pointer events unless we're adjusting contour spacing
+    if (isBusyRef.current && !allowAdjustmentWhileBusy) {
       isMouseDownRef.current = false; // Clear ref in case pointerup is missed
       return;
     }
@@ -607,41 +873,53 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         return;
       }
 
-      const brushDefaultSpacing = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
+      const isNewShapeFill = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL;
+      const defaultSpacing = isNewShapeFill
         ? clampNewShapeFillSpacing((tools.brushSettings.contourSpacing || 5) * 2)
         : clampContourSpacing((tools.brushSettings.contourSpacing || 5) * 2);
-      const { spacing, pointerDistance } = resolveContourSpacing(
-        basis,
-        worldPos,
-        contourLinesState,
-        brushDefaultSpacing
-      );
-      const spacingValue = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
-        ? clampNewShapeFillSpacing(spacing)
-        : clampContourSpacing(spacing);
 
-      const centroid = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
-        ? computeNewShapeFillCenter(contourLinesState.shapePoints, contourLinesState.randomSeed ?? undefined)
-        : (contourLinesState.centroid ?? computePolygonCentroid(contourLinesState.shapePoints));
+      const resolved = resolveContourSpacing(basis, worldPos, contourLinesState, defaultSpacing);
+      const clampFn = isNewShapeFill ? clampNewShapeFillSpacing : clampContourSpacing;
+      const spacing = clampFn(resolved.spacing);
+
+      const centroid =
+        contourLinesState.centroid ??
+        (isNewShapeFill
+          ? computeNewShapeFillCenter(
+              contourLinesState.shapePoints,
+              contourLinesState.randomSeed ?? undefined
+            )
+          : computePolygonCentroid(contourLinesState.shapePoints));
 
       setContourLinesState({
-        previewSpacing: spacingValue,
-        spacingReferenceDistance: pointerDistance,
-        spacingReferenceSpacing: spacingValue,
+        previewSpacing: spacing,
+        spacingReferenceDistance: resolved.referenceDistance,
+        spacingReferenceSpacing: resolved.referenceSpacing,
         centroid,
       });
 
-      drawContourLinesPreview(spacingValue, spacingValue, {
+      drawContourLinesPreview(spacing, spacing, {
         shapePoints: contourLinesState.shapePoints,
         basis: basis as ContourBasis,
         stage: 'awaitingAnchorA',
       });
 
-      logContourFillDebug('spacing-preview', {
+      logContourFillDebug('spacing-finalized', {
         mode: tools.brushSettings.shapeGradientMode || 'contour',
-        spacing: spacingValue,
+        spacing,
       });
 
+      const endCommitLog = cl.grp('commit spacing (pointerdown)', {
+        pointerId: event.pointerId,
+        spacing,
+        isNewShapeFill,
+        worldPos: { x: worldPos.x | 0, y: worldPos.y | 0 },
+        stage: contourLinesState.stage,
+        basisMaxDistance: basis?.maxDistance,
+      });
+      endCommitLog();
+
+      finalizeContourLinesStroke(spacing, spacing);
       return;
     }
 
@@ -1749,7 +2027,7 @@ function cssColorToHex(color: string): string {
           const brushDefaultSpacing = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
             ? clampNewShapeFillSpacing((tools.brushSettings.contourSpacing || 5) * 2)
             : clampContourSpacing((tools.brushSettings.contourSpacing || 5) * 2);
-          const { spacing, pointerDistance } = resolveContourSpacing(
+          const { spacing, pointerDistance, referenceDistance, referenceSpacing } = resolveContourSpacing(
             basis,
             worldPos,
             currentState,
@@ -1766,9 +2044,18 @@ function cssColorToHex(color: string): string {
 
           setContourLinesState({
             previewSpacing: spacingValue,
-            spacingReferenceDistance: pointerDistance,
-            spacingReferenceSpacing: spacingValue,
+            spacingReferenceDistance: referenceDistance,
+            spacingReferenceSpacing: referenceSpacing,
             centroid,
+          });
+
+          cl.log('preview', {
+            stage: 'awaitingAnchorA',
+            pointer: { x: worldPos.x | 0, y: worldPos.y | 0 },
+            spacing: spacingValue,
+            refDist: referenceDistance,
+            refSpacing: referenceSpacing,
+            centroid: { x: centroid.x | 0, y: centroid.y | 0 },
           });
 
           drawContourLinesPreview(spacingValue, spacingValue, {
@@ -2033,7 +2320,13 @@ function cssColorToHex(color: string): string {
     }
     
     // Clear overlay canvas
-    const linesStateOnPointerUp = contourLinesStateRef.current;
+    const contourStateOnUp = contourLinesStateRef.current;
+    if (contourStateOnUp.stage === 'awaitingAnchorA') {
+      cl.log('pointerup ignored in awaitingAnchorA', { pointerId: event.pointerId });
+      return;
+    }
+
+    const linesStateOnPointerUp = contourStateOnUp;
     const overlayCanvas = overlayCanvasRef.current;
     const isLines2Previewing =
       linesStateOnPointerUp.variant === 'lines2' &&
@@ -2051,60 +2344,8 @@ function cssColorToHex(color: string): string {
         overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
       }
     }
-    
+
     const mousePos = getMousePos(event);
-    const pointerWorldPos = pan.screenToWorld(mousePos.x, mousePos.y, canvas?.zoom || 1);
-
-    const contourStateOnUp = contourLinesStateRef.current;
-    if (contourStateOnUp.stage === 'awaitingAnchorA') {
-      const { basis } = contourStateOnUp;
-      if (!basis) {
-        resetContourLinesState();
-        clearOverlayCanvas();
-        return;
-      }
-
-      const brushDefaultSpacing = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
-        ? clampNewShapeFillSpacing((tools.brushSettings.contourSpacing || 5) * 2)
-        : clampContourSpacing((tools.brushSettings.contourSpacing || 5) * 2);
-      const { spacing, pointerDistance } = resolveContourSpacing(
-        basis,
-        pointerWorldPos,
-        contourStateOnUp,
-        brushDefaultSpacing
-      );
-
-      const spacingValue = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
-        ? clampNewShapeFillSpacing(spacing)
-        : clampContourSpacing(spacing);
-      const centroid = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL
-        ? computeNewShapeFillCenter(contourStateOnUp.shapePoints, contourStateOnUp.randomSeed ?? undefined)
-        : (contourStateOnUp.centroid ?? computePolygonCentroid(contourStateOnUp.shapePoints));
-
-      setContourLinesState({
-        previewSpacing: spacingValue,
-        spacingReferenceDistance: pointerDistance,
-        spacingReferenceSpacing: spacingValue,
-        centroid,
-      });
-
-      drawContourLinesPreview(spacingValue, spacingValue, {
-        shapePoints: contourStateOnUp.shapePoints,
-        basis: basis as ContourBasis,
-        stage: 'awaitingAnchorA',
-      });
-      logContourFillDebug('spacing-preview', {
-        mode: tools.brushSettings.shapeGradientMode || 'contour',
-        spacing: spacingValue,
-      });
-
-      finalizeContourLinesStroke(spacingValue, spacingValue);
-      logContourFillDebug('spacing-finalized', {
-        mode: tools.brushSettings.shapeGradientMode || 'contour',
-        spacing: spacingValue,
-      });
-      return;
-    }
 
     if (shapeHandler.handlePointerUp(event)) {
       return;
@@ -2281,6 +2522,35 @@ function cssColorToHex(color: string): string {
         
         // Only proceed with finalization if NOT in direction selection mode
         if (!drawingHandlers.isSelectingDirectionRef?.current) {
+          const brushShape = tools.brushSettings.brushShape;
+          const isContourBrush =
+            brushShape === BrushShape.CONTOUR_POLYGON ||
+            brushShape === BrushShape.NEW_SHAPE_FILL ||
+            brushShape === BrushShape.CONTOUR_LINES2;
+
+          if (isContourBrush) {
+            const shapePoints = drawingHandlers.shapePointsRef.current
+              .filter((point): point is { x: number; y: number } => Boolean(point));
+
+            if (shapePoints.length >= 3) {
+              const variant = brushShape === BrushShape.CONTOUR_LINES2 ? 'lines2' : 'legacy';
+              const clampSpacingFn = brushShape === BrushShape.NEW_SHAPE_FILL
+                ? clampNewShapeFillSpacing
+                : clampContourSpacing;
+              const baseSpacing = tools.brushSettings.contourSpacing || 5;
+              const initialSpacing = clampSpacingFn(baseSpacing);
+              const fillColor = tools.brushSettings.shapeFillUseSampledColor
+                ? tools.brushSettings.color
+                : tools.brushSettings.color;
+
+              initializeContourLinesState(shapePoints.map((pt) => ({ x: pt.x, y: pt.y })), {
+                variant,
+                fillColor,
+                initialSpacing,
+              });
+            }
+          }
+
           drawingHandlers.finalizeShapeDrawing();
           // Signal that finalization is complete
           stateMachine.finalizationComplete();

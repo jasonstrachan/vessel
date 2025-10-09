@@ -14,6 +14,11 @@ export { ShapeFillScheduler } from './ShapeFillScheduler';
 export { getShapeFillScheduler, resetShapeFillScheduler, disposeShapeFillScheduler } from './runtime';
 export { ShapeAdjustHelper } from './ShapeAdjustHelper';
 export {
+  createVerticalSpacingMapper,
+  createAxisDistanceMapper,
+  ShapeParameterAdjustSequence,
+} from './ShapeParameterAdjuster';
+export {
   ensureFloat32Vertices,
   computeBoundingBox,
   expandBoundingBox,

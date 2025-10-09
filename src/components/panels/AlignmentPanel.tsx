@@ -66,7 +66,7 @@ const fitButtonBase = [
 ].join(' ');
 
 const fitButtonActive = 'text-[#F3F3F7] font-semibold';
-const fitButtonInactive = 'text-[#D9D9E8] hover:text-white';
+const fitButtonInactive = 'text-[#D9D9D9] hover:text-white';
 
 const resolveAnchorSelection = (alignment: LayerAlignmentSettings | null): AnchorSelection => {
   if (!alignment || alignment.positioning === 'auto') {
@@ -124,8 +124,8 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
   const labelClass = 'text-sm font-medium text-[#D3D3DC]';
 
   const fieldClass = [
-    'w-full rounded-none border border-[#4A4A4A] bg-[#4A4A4A] text-[#F3F3F7] placeholder:text-[#C6C6D0]',
-    'transition-colors focus:border-[#A5A5BA] focus:outline-none focus:ring-0',
+    'w-full rounded-none border border-[#D9D9D9] bg-transparent text-[#D9D9D9] placeholder:text-[#8F8FA3]',
+    'transition-colors focus:border-[#F3F3F7] focus:outline-none focus:ring-0',
     'disabled:cursor-not-allowed disabled:opacity-50',
     'h-6 px-2 text-sm'
   ].join(' ');
@@ -344,7 +344,12 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
                     disabled={disabled}
                   >
                     <span
-                      className={`h-3 w-3 ${isSelected ? 'bg-[#F3F3F7]' : 'bg-[#5C5C6A]'} block`}
+                      className={[
+                        'h-3 w-3 block',
+                        isSelected
+                          ? 'bg-[#F3F3F7] border border-transparent'
+                          : 'bg-transparent border border-current'
+                      ].join(' ')}
                       aria-hidden
                     />
                     <span>{option.label}</span>

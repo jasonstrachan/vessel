@@ -654,7 +654,7 @@ export interface PolygonGradientState {
   gpuJobId?: string;
   spacingReferenceDistance?: number;
   spacingReferenceSpacing?: number;
-  mode?: 'crosshatch' | 'triangle' | 'flow' | 'inkRibbons';
+  mode?: 'contour' | 'crosshatch' | 'triangle' | 'flow' | 'inkRibbons';
   rotationReferenceAngle?: number;
   rotationInitialRotation?: number;
   tempSize?: number;

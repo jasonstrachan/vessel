@@ -42,7 +42,7 @@ export function generateBrushThumbnail(
   ctx.strokeStyle = opts.brushColor;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  const baseStrokeWidth = Math.max(1, Math.round(opts.size * 0.12));
+  const baseStrokeWidth = 2.5;
   ctx.lineWidth = baseStrokeWidth;
 
   const shapeComponent = preset.components.find((component) => component.type === 'shape');
@@ -60,7 +60,7 @@ export function generateBrushThumbnail(
       generateSquareThumbnail(ctx, opts, isAntialiased, baseStrokeWidth);
       break;
     case BrushShape.PIXEL_ROUND:
-      generatePixelRoundThumbnail(ctx, opts);
+      generatePixelRoundThumbnail(ctx, opts, baseStrokeWidth);
       break;
     case BrushShape.TRIANGLE:
       generateTriangleThumbnail(ctx, opts, isAntialiased, baseStrokeWidth);
@@ -69,6 +69,7 @@ export function generateBrushThumbnail(
       generateRectangleGradientThumbnail(ctx, opts, baseStrokeWidth);
       break;
     case BrushShape.POLYGON_GRADIENT:
+    case BrushShape.NEW_SHAPE_FILL:
       generatePolygonGradientThumbnail(ctx, opts, baseStrokeWidth);
       break;
     case BrushShape.RESAMPLER:
@@ -77,6 +78,9 @@ export function generateBrushThumbnail(
     case BrushShape.COLOR_CYCLE:
     case BrushShape.COLOR_CYCLE_SHAPE:
       generateColorCycleThumbnail(ctx, opts, baseStrokeWidth);
+      break;
+    case BrushShape.SPAM_TEXT:
+      generateSpamTextThumbnail(ctx, opts, baseStrokeWidth);
       break;
     case BrushShape.ROUND:
     default:
@@ -98,7 +102,7 @@ function generateRoundThumbnail(
   strokeWidth: number
 ) {
   const center = opts.size / 2;
-  const radius = Math.max(strokeWidth, (opts.size - strokeWidth) / 2);
+  const radius = Math.max(strokeWidth, opts.size * 0.26);
 
   ctx.globalAlpha = 1;
   ctx.lineWidth = strokeWidth;
@@ -114,7 +118,7 @@ function generateSquareThumbnail(
   strokeWidth: number
 ) {
   const center = opts.size / 2;
-  const size = opts.size * 0.7;
+  const size = opts.size * 0.5;
 
   ctx.globalAlpha = 1;
 
@@ -136,31 +140,18 @@ function generateSquareThumbnail(
 
 function generatePixelRoundThumbnail(
   ctx: CanvasRenderingContext2D,
-  opts: Required<ThumbnailOptions>
+  opts: Required<ThumbnailOptions>,
+  strokeWidth: number
 ) {
   const center = opts.size / 2;
-  const radius = Math.max(2, Math.floor(opts.size * 0.3));
-  const thickness = 1;
+  const radius = Math.max(1.5, opts.size * 0.26);
 
-  ctx.imageSmoothingEnabled = false;
+  ctx.imageSmoothingEnabled = true;
   ctx.globalAlpha = 1;
-
-  const outerSq = radius * radius;
-  const innerSq = Math.max(0, (radius - thickness) * (radius - thickness));
-
-  for (let x = -radius; x <= radius; x++) {
-    for (let y = -radius; y <= radius; y++) {
-      const distanceSq = x * x + y * y;
-      if (distanceSq <= outerSq && distanceSq >= innerSq) {
-        ctx.fillRect(
-          Math.floor(center + x),
-          Math.floor(center + y),
-          1,
-          1
-        );
-      }
-    }
-  }
+  ctx.lineWidth = strokeWidth;
+  ctx.beginPath();
+  ctx.arc(center, center, radius, 0, Math.PI * 2);
+  ctx.stroke();
 }
 
 function generateTriangleThumbnail(
@@ -170,7 +161,7 @@ function generateTriangleThumbnail(
   strokeWidth: number
 ) {
   const center = opts.size / 2;
-  const size = opts.size * 0.6;
+  const size = opts.size * 0.5;
   const height = size * 0.866;
   const adjust = (value: number): number => (isAntialiased ? value : Math.round(value));
 
@@ -190,8 +181,8 @@ function generateRectangleGradientThumbnail(
   strokeWidth: number
 ) {
   const center = opts.size / 2;
-  const width = opts.size * 0.7;
-  const height = opts.size * 0.4;
+  const width = opts.size * 0.6;
+  const height = opts.size * 0.35;
   const x = center - width / 2 + strokeWidth / 2;
   const y = center - height / 2 + strokeWidth / 2;
 
@@ -213,7 +204,7 @@ function generateResamplerThumbnail(
   strokeWidth: number
 ) {
   const center = opts.size / 2;
-  const size = opts.size * 0.65;
+  const size = opts.size * 0.45;
   const x = center - size / 2 + strokeWidth / 2;
   const y = center - size / 2 + strokeWidth / 2;
 
@@ -228,7 +219,7 @@ function generatePolygonGradientThumbnail(
   strokeWidth: number
 ) {
   const center = opts.size / 2;
-  const radius = opts.size * 0.35;
+  const radius = opts.size * 0.28;
   const sides = 6;
 
   ctx.globalAlpha = 1;
@@ -262,7 +253,7 @@ function generateColorCycleThumbnail(
   strokeWidth: number
 ) {
   const center = opts.size / 2;
-  const size = opts.size * 0.7;
+  const size = opts.size * 0.45;
   const x = center - size / 2 + strokeWidth / 2;
   const y = center - size / 2 + strokeWidth / 2;
 
@@ -282,4 +273,20 @@ function generateColorCycleThumbnail(
   ctx.strokeStyle = gradient;
   ctx.strokeRect(x, y, size - strokeWidth, size - strokeWidth);
   ctx.strokeStyle = opts.brushColor;
+}
+
+function generateSpamTextThumbnail(
+  ctx: CanvasRenderingContext2D,
+  opts: Required<ThumbnailOptions>,
+  strokeWidth: number
+) {
+  const center = opts.size / 2;
+
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = strokeWidth;
+  const fontSize = Math.round(opts.size * 0.6);
+  ctx.font = `300 ${fontSize}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('a', center, center);
 }

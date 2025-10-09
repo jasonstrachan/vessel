@@ -264,6 +264,33 @@ export const createShapeToolHandler = (
     return true;
   };
 
+  const drawContourPreview = (spacing: number, strokeColorOverride?: string) => {
+    const currentState = useAppStore.getState();
+    const { polygonGradientState } = currentState;
+    const vertices = polygonGradientState.vertices;
+    if (!vertices || vertices.length < 3 || !brushEngine) return;
+
+    const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
+    if (!drawCtx) return;
+
+    drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+
+    brushEngine.drawContourPolygon(
+      drawCtx,
+      {
+        vertices,
+        fillColor: polygonGradientState.fillColor,
+      },
+      false,
+      {
+        spacingOverride: spacing,
+        strokeColorOverride,
+      }
+    );
+
+    drawingHandlers.drawingCanvasHasContent.current = true;
+  };
+
   const drawCrosshatchPreview = (rotation: number, spacing: number) => {
     const currentState = useAppStore.getState();
     const { polygonGradientState } = currentState;
@@ -583,6 +610,92 @@ export const createShapeToolHandler = (
     return false;
   };
 
+  const handleContourPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const polygonState = useAppStore.getState().polygonGradientState;
+    if (
+      polygonState.mode !== 'contour' ||
+      !polygonState.vertices ||
+      polygonState.vertices.length < 3
+    ) {
+      return false;
+    }
+
+    const worldPos = computeWorldPointer(event);
+    const previewRef = context.deps.previewAnimationFrameRef;
+
+    if (polygonState.drawingState === 'adjustingSpacing') {
+      if (previewRef) {
+        const previewWorld = { x: worldPos.x, y: worldPos.y };
+        if (!previewRef.current) {
+          const nowTs = performance.now();
+          if (nowTs - context.getLastOverlayPreviewTs() < context.overlayPreviewFrameMs) {
+            return true;
+          }
+
+          previewRef.current = requestAnimationFrame(() => {
+            context.setLastOverlayPreviewTs(performance.now());
+            const currentState = useAppStore.getState().polygonGradientState;
+            if (
+              currentState.mode !== 'contour' ||
+              currentState.drawingState !== 'adjustingSpacing' ||
+              !currentState.vertices
+            ) {
+              previewRef.current = null;
+              return;
+            }
+
+            const centroid = computePolygonCentroid(currentState.vertices);
+            const pointerDistance = Math.hypot(previewWorld.x - centroid.x, previewWorld.y - centroid.y);
+            const referenceDistance = currentState.spacingReferenceDistance ?? Math.max(pointerDistance, 1);
+            const referenceSpacing = currentState.spacingReferenceSpacing ??
+              currentState.tempSpacing ??
+              tools.brushSettings.contourSpacing ??
+              6;
+            const newSpacing = Math.max(2, Math.min(96,
+              computeDragScaledValue({
+                startDistance: Math.max(referenceDistance, 1e-3),
+                currentDistance: Math.max(pointerDistance, 1e-3),
+                startValue: referenceSpacing,
+                min: 2,
+                max: 96,
+                exponent: 1.06,
+              })
+            ));
+
+            useAppStore.getState().setPolygonGradientState({ tempSpacing: newSpacing });
+            drawContourPreview(newSpacing, currentState.fillColor);
+            previewRef.current = null;
+          });
+        }
+        return true;
+      }
+
+      const centroid = computePolygonCentroid(polygonState.vertices);
+      const pointerDistance = Math.hypot(worldPos.x - centroid.x, worldPos.y - centroid.y);
+      const referenceDistance = polygonState.spacingReferenceDistance ?? Math.max(pointerDistance, 1);
+      const referenceSpacing = polygonState.spacingReferenceSpacing ??
+        polygonState.tempSpacing ??
+        tools.brushSettings.contourSpacing ??
+        6;
+      const newSpacing = Math.max(2, Math.min(96,
+        computeDragScaledValue({
+          startDistance: Math.max(referenceDistance, 1e-3),
+          currentDistance: Math.max(pointerDistance, 1e-3),
+          startValue: referenceSpacing,
+          min: 2,
+          max: 96,
+          exponent: 1.06,
+        })
+      ));
+
+      useAppStore.getState().setPolygonGradientState({ tempSpacing: newSpacing });
+      drawContourPreview(newSpacing, polygonState.fillColor);
+      return true;
+    }
+
+    return false;
+  };
+
   const handleCrosshatchPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const polygonState = useAppStore.getState().polygonGradientState;
     if (
@@ -720,6 +833,52 @@ export const createShapeToolHandler = (
 
       const rotationForPreview = polygonState.tempRotation ?? tools.brushSettings.crossHatchRotation ?? 45;
       drawCrosshatchPreview(rotationForPreview, newSpacing);
+      return true;
+    }
+
+    return false;
+  };
+
+  const handleContourPointerUp = (_event: React.PointerEvent<HTMLCanvasElement>) => {
+    const polygonState = useAppStore.getState().polygonGradientState;
+    if (
+      polygonState.mode !== 'contour' ||
+      !polygonState.vertices ||
+      polygonState.vertices.length < 3
+    ) {
+      return false;
+    }
+
+    if (polygonState.drawingState === 'adjustingSpacing') {
+      const setBrushSettings = useAppStore.getState().setBrushSettings;
+      const finalSpacing = Math.max(2, Math.min(96,
+        polygonState.tempSpacing ?? tools.brushSettings.contourSpacing ?? 6
+      ));
+
+      setBrushSettings({ contourSpacing: finalSpacing });
+
+      drawContourPreview(finalSpacing, polygonState.fillColor);
+      // drawingCanvasHasContent is set by drawContourPreview
+      context.deps.compositeCanvasDirtyRef.current = true;
+
+      drawingHandlers.finalizeShapeDrawing().then(() => {
+        stateMachine.finalizationComplete();
+
+        if (compositeCanvasRef.current && project) {
+          compositeLayersToCanvas(compositeCanvasRef.current);
+          setCurrentOffscreenCanvas(compositeCanvasRef.current);
+          compositeCanvasDirtyRef.current = false;
+        }
+
+        setNeedsRedraw(prev => prev + 1);
+
+        if (restartColorCycleAnimation) {
+          restartColorCycleAnimation();
+        }
+
+        resetPolygonAdjustmentState();
+        interaction.dispatch({ type: 'DRAWING_END' });
+      });
       return true;
     }
 
@@ -1255,6 +1414,9 @@ export const createShapeToolHandler = (
         if (shapeMode === 'crosshatch') {
           clearOverlayCanvas();
 
+          // Clear drawing canvas to prevent stale content
+          drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+
           useAppStore.getState().setPolygonGradientState({
             drawingState: 'adjustingSpacing',
             mode: 'crosshatch',
@@ -1286,6 +1448,9 @@ export const createShapeToolHandler = (
 
         if (shapeMode === 'flow') {
           clearOverlayCanvas();
+
+          // Clear drawing canvas to prevent stale content
+          drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
 
           const initialSpacing = clampFlowSeedSpacing(tools.brushSettings.flowSeedSpacing ?? 18);
           const initialMaxSteps = tools.brushSettings.flowMaxSteps ?? 120;
@@ -1391,15 +1556,47 @@ export const createShapeToolHandler = (
           return true;
         }
 
-        brushEngine.drawContourPolygon(
-          drawCtx,
-          {
-            vertices,
-            fillColor,
-          },
-          false,
-          withRuntimeLineOptions(strokeColorOverride ? { strokeColorOverride } : undefined)
+        // Default contour mode - enter spacing adjustment state
+        clearOverlayCanvas();
+
+        // Clear drawing canvas to prevent stale content from previous shapes
+        const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
+        if (drawCtx) {
+          drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+        }
+
+        // Calculate centroid and estimate max radius of shape
+        const centroid = vertices.reduce((acc, v) => ({ x: acc.x + v.x, y: acc.y + v.y }), { x: 0, y: 0 });
+        centroid.x /= vertices.length;
+        centroid.y /= vertices.length;
+
+        // Estimate max distance by finding furthest vertex from centroid
+        const maxDistanceEstimate = Math.max(
+          ...vertices.map(v => Math.hypot(v.x - centroid.x, v.y - centroid.y))
         );
+
+        // Clamp initial spacing to be reasonable for this shape size
+        // Spacing should be at most 1/3 of the max distance to ensure at least 2-3 contours
+        let initialSpacing = tools.brushSettings.contourSpacing ?? 6;
+        if (initialSpacing > maxDistanceEstimate / 3) {
+          initialSpacing = Math.max(2, Math.floor(maxDistanceEstimate / 3));
+        }
+
+        const initialReferenceDistance = Math.max(1, Math.hypot(pointerWorld.x - centroid.x, pointerWorld.y - centroid.y));
+
+        useAppStore.getState().setPolygonGradientState({
+          drawingState: 'adjustingSpacing',
+          mode: 'contour',
+          vertices,
+          fillColor,
+          tempSpacing: initialSpacing,
+          spacingReferenceDistance: initialReferenceDistance,
+          spacingReferenceSpacing: initialSpacing,
+        });
+
+        drawContourPreview(initialSpacing, strokeColorOverride);
+        // drawingCanvasHasContent is set by drawContourPreview
+        return true;
       } else {
         const useSampledFill = shapeFillUsesSampledColor();
         const polygonColors = useSampledFill
@@ -1673,6 +1870,9 @@ export const createShapeToolHandler = (
       if (handleFlowPointerMove(event)) {
         return true;
       }
+      if (handleContourPointerMove(event)) {
+        return true;
+      }
       if (handleCrosshatchPointerMove(event)) {
         return true;
       }
@@ -1686,6 +1886,9 @@ export const createShapeToolHandler = (
     },
     handlePointerUp(event) {
       if (handleFlowPointerUp(event)) {
+        return true;
+      }
+      if (handleContourPointerUp(event)) {
         return true;
       }
       if (handleCrosshatchPointerUp(event)) {

@@ -1,5 +1,3 @@
-import { debugLog, debugWarn } from '@/utils/debug';
-
 import type { ShapeFillParams, Point } from './types';
 
 type Bounds = {
@@ -462,7 +460,7 @@ export const drawNewShapeFill = ({
   const spacing = baseSpacing * previewMultiplier;
 
   if (!Number.isFinite(spacing) || spacing <= 0) {
-    debugWarn('new-shape-fill', 'Invalid contour spacing, skipping render', { spacing, spacingSetting });
+    console.warn('Invalid contour spacing, skipping render', { spacing, spacingSetting });
     return;
   }
 
@@ -483,7 +481,7 @@ export const drawNewShapeFill = ({
   const grid = buildDistanceGrid(deviceVertices, bounds, resolution, margin, seed);
 
   if (grid.maxDistance < spacing * 0.75) {
-    debugWarn('new-shape-fill', 'Shape too small for contour spacing', {
+    console.warn('Shape too small for contour spacing', {
       maxDistance: grid.maxDistance,
       spacing,
     });
@@ -498,7 +496,7 @@ export const drawNewShapeFill = ({
   }
 
   if (baseLevels < 1) {
-    debugWarn('new-shape-fill', 'Insufficient contour levels for spacing', {
+    console.warn('Insufficient contour levels for spacing', {
       spacing,
       adjustedSpacing: effectiveSpacing,
       maxDistance: grid.maxDistance,
@@ -547,7 +545,7 @@ export const drawNewShapeFill = ({
   }
 
   if (!loops.length) {
-    debugWarn('new-shape-fill', 'No contour loops generated', {
+    console.warn('No contour loops generated', {
       spacing,
       maxDistance: grid.maxDistance,
       center,
@@ -584,7 +582,7 @@ export const drawNewShapeFill = ({
     ctx.restore();
   });
 
-  debugLog('new-shape-fill', 'Rendered contour loops with custom distance field', {
+  console.log('Rendered contour loops with custom distance field', {
     loopCount: loops.length,
     spacing: effectiveSpacing,
     variance,
