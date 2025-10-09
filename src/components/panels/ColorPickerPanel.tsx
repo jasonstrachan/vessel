@@ -166,11 +166,11 @@ const ColorPickerPanel = React.memo(() => {
   return (
     <div className="h-full overflow-y-auto bg-[#1A1A1A]">
       {/* Color Picker - Full Width Section */}
-      <div className="px-4 flex justify-center">
+      <div className="px-0">
         <ColorPicker
           color={activeSettings.color}
           onChange={handleColorChange}
-          className="-ml-2"
+          className="w-full"
         />
       </div>
 

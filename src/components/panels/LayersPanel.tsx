@@ -49,11 +49,11 @@ const LayersPanel: React.FC = () => {
 
     const newLayerId = addLayer(newLayer);
 
-    if (newLayerId) {
+    if (newLayerId && !activeLayerId) {
       setActiveLayer(newLayerId);
       setSelectedLayerIds([newLayerId]);
     }
-  }, [addLayer, layers.length, setActiveLayer, setSelectedLayerIds]);
+  }, [activeLayerId, addLayer, layers.length, setActiveLayer, setSelectedLayerIds]);
 
   const handleAddColorCycleLayer = React.useCallback(() => {
     const canvas = document.createElement('canvas');
@@ -95,11 +95,14 @@ const LayersPanel: React.FC = () => {
         initColorCycleForLayer(newLayerId, store.project.width, store.project.height);
       }
 
-      setActiveLayer(newLayerId);
-      setSelectedLayerIds([newLayerId]);
       setBrushSettings({ brushShape: BrushShape.COLOR_CYCLE });
+
+      if (!activeLayerId) {
+        setActiveLayer(newLayerId);
+        setSelectedLayerIds([newLayerId]);
+      }
     }
-  }, [addLayer, initColorCycleForLayer, layers, setActiveLayer, setBrushSettings, setSelectedLayerIds]);
+  }, [activeLayerId, addLayer, initColorCycleForLayer, layers, setActiveLayer, setBrushSettings, setSelectedLayerIds]);
 
   const handleDeleteLayer = React.useCallback((layerId: string) => {
     if (layers.length > 1) {

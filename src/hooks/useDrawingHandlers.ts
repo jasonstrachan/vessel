@@ -106,6 +106,33 @@ export function useDrawingHandlers({
   const isDrawingShapeRef = useRef(false);
   const isSelectingDirectionRef = useRef(false);
   const directionPreviewRef = useRef<{ x: number; y: number } | null>(null);
+
+  const resetPolygonState = useCallback(() => {
+    const setPolygonGradientState = useAppStore.getState().setPolygonGradientState;
+    setPolygonGradientState({
+      drawingState: 'idle',
+      points: [],
+      previewPath: undefined,
+      vertices: undefined,
+      fillColor: undefined,
+      mode: undefined,
+      tempRotation: undefined,
+      tempSpacing: undefined,
+      tempMaxSteps: undefined,
+      tempOrientation: undefined,
+      tempNoiseStrength: undefined,
+      tempSize: undefined,
+      adjustmentStartPos: undefined,
+      rotationReferenceAngle: undefined,
+      rotationInitialRotation: undefined,
+      sizeReferenceDistance: undefined,
+      sizeInitialSize: undefined,
+      spacingReferenceDistance: undefined,
+      spacingReferenceSpacing: undefined,
+      flowRandomSeed: undefined,
+      gpuJobId: undefined,
+    });
+  }, []);
   
   // Store resampler brush data for the entire stroke
   const resamplerBrushDataRef = useRef<CustomBrushStrokeData | undefined>(undefined);
@@ -1156,7 +1183,19 @@ export function useDrawingHandlers({
   }, [processBatchedStrokes]);
   
   const finalizeDrawing = useCallback(async (skipSave = false) => {
-    if (isBusyRef?.current || !drawingCanvasRef.current || !drawingCanvasHasContent.current || !project) return;
+    const hasCanvas = Boolean(drawingCanvasRef.current);
+    const hasContent = drawingCanvasHasContent.current;
+    const busy = isBusyRef?.current ?? false;
+    if (busy || !hasCanvas || !hasContent || !project) {
+      debugLog('shape-fill', 'finalizeDrawing skipped', {
+        busy,
+        hasCanvas,
+        hasContent,
+        hasProject: Boolean(project),
+        skipSave,
+      });
+      return;
+    }
     
     try {
       if (isBusyRef) isBusyRef.current = true;
@@ -1198,6 +1237,12 @@ export function useDrawingHandlers({
           // OPTIMIZATION: The drawingCanvas already has the final erased result.
           // We can capture it directly without any extra compositing.
           await captureCanvasToActiveLayer(drawingCanvasRef.current);
+          debugLog('shape-fill', 'captureCanvasToActiveLayer (eraser)', {
+            tool: currentTool,
+            layerId: activeLayer.id,
+            width: drawingCanvasRef.current?.width,
+            height: drawingCanvasRef.current?.height,
+          });
           saveCanvasState(drawingCanvasRef.current, 'eraser', 'Erased stroke');
           
         } else { // Brush tool
@@ -1324,6 +1369,12 @@ export function useDrawingHandlers({
 
             // For CC layers, capture directly from the layer's canvas
             await captureCanvasToActiveLayer(layerCanvas);
+            debugLog('shape-fill', 'captureCanvasToActiveLayer (cc-layer)', {
+              tool: currentTool,
+              layerId: activeLayer.id,
+              brushShape: currentState.tools.brushSettings.brushShape,
+              skipSave,
+            });
 
             // Optional sampling: verify we saved the actual layer canvas (not paint buffer)
             try {
@@ -1364,6 +1415,12 @@ export function useDrawingHandlers({
               tempCtx.drawImage(drawingCanvasRef.current, 0, 0);
               
               await captureCanvasToActiveLayer(tempCanvas);
+              debugLog('shape-fill', 'captureCanvasToActiveLayer (regular-from-temp)', {
+                tool: currentTool,
+                layerId: activeLayer.id,
+                brushShape: currentState.tools.brushSettings.brushShape,
+                skipSave,
+              });
               saveCanvasState(tempCanvas, 'brush', 'Drawing stroke');
               
               
@@ -1598,9 +1655,16 @@ export function useDrawingHandlers({
       isDrawingShape: isDrawingShapeRef.current,
       isSelectingDirection: isSelectingDirectionRef.current,
     });
-    if (!tools.shapeMode) {
+    const polygonState = useAppStore.getState().polygonGradientState;
+    const polygonPointCount = Math.max(polygonState.points?.length ?? 0, polygonState.vertices?.length ?? 0);
+    const polygonActive = polygonState.drawingState !== 'idle' && polygonPointCount >= 3;
+    const hasShapeInProgress = tools.shapeMode || polygonActive || isSelectingDirectionRef.current || isDrawingShapeRef.current;
+
+    if (!hasShapeInProgress) {
       debugLog('shape-fill', 'finalizeShapeDrawing forwarding to finalizeDrawing', {
         pointCount: shapePointsRef.current.length,
+        polygonActive,
+        isSelectingDirection: isSelectingDirectionRef.current,
       });
       return finalizeDrawing();
     }
@@ -1624,6 +1688,7 @@ export function useDrawingHandlers({
         isSelectingDirection: isSelectingDirectionRef.current,
         isDrawingShape: isDrawingShapeRef.current,
       });
+      let finalizeTriggered = false;
       // All finalization logic runs serially here
     
     // Check if we're in direction selection mode for linear gradient
@@ -2121,6 +2186,28 @@ export function useDrawingHandlers({
           debugLog('shape-fill', 'finalizeShapeDrawing color cycle fast path', {
             pointCount: shapePointsRef.current.length,
           });
+          resetPolygonState();
+          if (isBusyRef) isBusyRef.current = false;
+          finalizeTriggered = true;
+          return;
+        }
+
+        const currentLayer = useAppStore.getState().layers.find(l => l.id === useAppStore.getState().activeLayerId);
+        if (drawingCanvasRef.current && currentLayer && currentLayer.layerType !== 'color-cycle') {
+          debugLog('shape-fill', 'finalizeShapeDrawing committing shape directly', {
+            layerId: currentLayer.id,
+            pointCount: shapePointsRef.current.length,
+          });
+          await captureCanvasToActiveLayer(drawingCanvasRef.current);
+          saveCanvasState(drawingCanvasRef.current, 'brush', 'Shape Fill');
+          drawingCanvasHasContent.current = false;
+          if (drawingCtxRef.current && drawingCanvasRef.current) {
+            drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+          }
+          resetPolygonState();
+          finalizeTriggered = true;
+          ccShapePreviewPauseStartedRef.current = false;
+          await resumeColorCycleAfterInteraction();
           if (isBusyRef) isBusyRef.current = false;
           return;
         }
@@ -2130,6 +2217,7 @@ export function useDrawingHandlers({
           pointCount: shapePointsRef.current.length,
         });
         await finalizeDrawing();
+        finalizeTriggered = true;
         debugLog('shape-fill', 'finalizeShapeDrawing finalizeDrawing resolved', {
           pointCount: shapePointsRef.current.length,
         });
@@ -2139,6 +2227,19 @@ export function useDrawingHandlers({
       } else if (isDrawingShapeRef.current) {
         shapePointsRef.current = [];
         isDrawingShapeRef.current = false;
+      }
+
+      if (!finalizeTriggered) {
+        debugLog('shape-fill', 'finalizeShapeDrawing fallback finalize', {
+          pointCount: shapePointsRef.current.length,
+          hasContent: drawingCanvasHasContent.current,
+        });
+        if (isBusyRef) {
+          isBusyRef.current = false;
+        }
+        await finalizeDrawing();
+        finalizeTriggered = true;
+        resetPolygonState();
       }
     } catch (error) {
       debugLog('shape-fill', 'finalizeShapeDrawing primary branch error', {
@@ -2154,7 +2255,7 @@ export function useDrawingHandlers({
       if (isBusyRef) isBusyRef.current = false;
     }
     }); // End of FinalizeQueue.enqueue
-  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef, saveCanvasState, activeLayerId, initDrawingCanvas, equidistantPointsOnPolyline, sampleHexAt, resumeColorCycleAfterInteraction]);
+  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef, saveCanvasState, activeLayerId, initDrawingCanvas, equidistantPointsOnPolyline, sampleHexAt, resumeColorCycleAfterInteraction, resetPolygonState]);
   
   // Helper function to render all visible color cycle layers
   const renderAllColorCycleLayers = useCallback((targetCtx: CanvasRenderingContext2D, onlyActiveLayer: boolean = false) => {

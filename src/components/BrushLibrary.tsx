@@ -269,13 +269,13 @@ const BrushLibrary = () => {
             fontSize: isSpamBrush ? '13px' : '12px',
             lineHeight: '16px'
           };
-          const renderFallbackIcon = (shape: 'square' | 'circle' | 'text') => {
+          const renderFallbackIcon = (shape: 'square' | 'circle' | 'text', highlight: boolean) => {
             if (shape === 'text') {
               return (
                 <div
                   className="flex items-center"
                   style={{
-                    color: '#D9D9D9',
+                    color: highlight ? '#1A1A1A' : '#D9D9D9',
                     fontSize: isSpamBrush ? '13px' : '11px',
                     fontFamily: 'IBM Plex Mono, "Courier New", monospace',
                     paddingLeft: isSpamBrush ? '4px' : '3px',
@@ -300,7 +300,7 @@ const BrushLibrary = () => {
                   style={{
                     width: '100%',
                     height: '100%',
-                    border: '2px solid #D9D9D9',
+                    border: highlight ? '2px solid #1A1A1A' : '2px solid #D9D9D9',
                     borderRadius,
                     boxSizing: 'border-box'
                   }}
@@ -309,19 +309,23 @@ const BrushLibrary = () => {
             );
           };
 
+          const isActive = isPresetActive(preset);
+          const rowClass = isActive ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9]';
+          const nameStyle = {
+            ...textStyle,
+            color: isActive ? '#1A1A1A' : '#D9D9D9'
+          };
+          const nameClass = isActive ? '' : 'transition-colors group-hover:text-[#F3F3F7]';
+
           return (
           <React.Fragment key={preset.id}>
             {/* Skip the separate Color Cycle Shape row to consolidate */}
             {preset.id !== 'color-cycle-shape' && (
               <div
                 onClick={() => handlePresetClick(preset)}
-                className={`flex items-center justify-between px-3 py-0 cursor-pointer transition-colors ${
-                  isPresetActive(preset)
-                    ? 'bg-[#505050]'
-                    : 'hover:bg-[#404040]'
-                }`}
+                className={`group flex items-center justify-between px-2.5 py-0 cursor-pointer transition-colors ${rowClass}`}
               >
-                <div className="flex items-center space-x-1.5">
+                <div className="flex items-center gap-0.5">
                   {preset.isCustomBrush ? (
                     preset.thumbnail ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -330,10 +334,17 @@ const BrushLibrary = () => {
                         alt={`${preset.name} thumbnail`}
                         width={iconSizePx}
                         height={iconSizePx}
-                        style={{ imageRendering: 'pixelated', width: `${iconSizePx}px`, height: `${iconSizePx}px`, display: 'block', flexShrink: 0 }}
+                        style={{
+                          imageRendering: 'pixelated',
+                          width: `${iconSizePx}px`,
+                          height: `${iconSizePx}px`,
+                          display: 'block',
+                          flexShrink: 0,
+                          filter: isActive ? 'invert(1)' : 'none'
+                        }}
                       />
                     ) : (
-                      renderFallbackIcon(isSpamBrush ? 'text' : 'square')
+                      renderFallbackIcon(isSpamBrush ? 'text' : 'square', isActive)
                     )
                   ) : brushThumbnails[preset.id] ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -342,20 +353,31 @@ const BrushLibrary = () => {
                       alt={`${preset.name} thumbnail`}
                       width={iconSizePx}
                       height={iconSizePx}
-                      style={{ imageRendering: 'auto', width: `${iconSizePx}px`, height: `${iconSizePx}px`, display: 'block', flexShrink: 0 }}
+                      style={{
+                        imageRendering: 'auto',
+                        width: `${iconSizePx}px`,
+                        height: `${iconSizePx}px`,
+                        display: 'block',
+                        flexShrink: 0,
+                        filter: isActive ? 'invert(1)' : 'none'
+                      }}
                     />
                   ) : (
-                    renderFallbackIcon(isSpamBrush ? 'text' : preset.category === 'Pixel Art' ? 'square' : 'circle')
+                    renderFallbackIcon(isSpamBrush ? 'text' : preset.category === 'Pixel Art' ? 'square' : 'circle', isActive)
                   )}
-                  <span className="text-[#D9D9D9]" style={textStyle}>
+                  <span style={nameStyle} className={nameClass}>
                     {preset.id === 'color-cycle-stroke' ? 'Color Cycle' : preset.name}
                   </span>
                 </div>
                 {preset.isCustomBrush && (
-                  <div className="flex items-center space-x-0.5">
+                <div className="flex items-center space-x-0.5">
                     <button
                       onClick={(e) => handleEditClick(e, preset)}
-                      className="px-1.5 py-0 text-xs text-[#D9D9D9] hover:text-green-400 transition-colors opacity-60 hover:opacity-100 border border-[#606060] hover:border-green-400 rounded"
+                      className={`px-1.5 py-0 text-xs transition-colors opacity-60 hover:opacity-100 border rounded ${
+                        isActive
+                          ? 'text-[#1A1A1A] border-[#1A1A1A] hover:border-green-400 hover:text-green-600'
+                          : 'text-[#D9D9D9] border-[#606060] hover:text-green-400 hover:border-green-400'
+                      }`}
                       title={brushEditor.status === 'EDITING' && brushEditor.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save changes' : 'Edit brush'}
                     >
                       {brushEditor.status === 'EDITING' && brushEditor.editingBrushId === (preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id) ? 'Save' : 'Edit'}
@@ -369,14 +391,16 @@ const BrushLibrary = () => {
                           e.stopPropagation();
                           handleDeletePreset(preset.id);
                         }}
-                        className="w-3 h-3 text-[#D9D9D9] hover:text-red-400 transition-colors opacity-60 hover:opacity-100 text-center flex items-center justify-center"
+                        className={`w-3 h-3 transition-colors opacity-60 hover:opacity-100 text-center flex items-center justify-center ${
+                          isActive ? 'text-[#5A5A5A] hover:text-red-600' : 'text-[#D9D9D9] hover:text-red-400'
+                        }`}
                         title={`Delete ${preset.name}`}
                         style={{ fontSize: '14px' }}
                       >
                         ×
                       </button>
-                    )}
-                  </div>
+                   )}
+                 </div>
                 )}
               </div>
             )}
@@ -386,16 +410,14 @@ const BrushLibrary = () => {
               <div
                 onClick={(e) => {
                   e.stopPropagation();
-                  // Only switch tool, do not change the active brush preset
                   setCurrentTool('recolor');
                 }}
-                className={`flex items-center justify-between px-3 py-0 cursor-pointer transition-colors ${
-                  tools.currentTool === 'recolor' ? 'bg-[#505050]' : 'hover:bg-[#404040]'
+                className={`group flex items-center justify-between px-2.5 py-0 cursor-pointer transition-colors ${
+                  tools.currentTool === 'recolor' ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9]'
                 }`}
                 title="Open Color cycle + recolor panel"
               >
-                <div className="flex items-center space-x-1.5">
-                  {/* Use the same icon/thumbnail as Color Cycle Shape if available */}
+                <div className="flex items-center gap-0.5">
                   {brushThumbnails['color-cycle-shape'] ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -403,15 +425,34 @@ const BrushLibrary = () => {
                       alt={`Color cycle + recolor icon`}
                       width={40}
                       height={40}
-                      style={{ imageRendering: 'auto', width: '40px', height: '40px', display: 'block', flexShrink: 0 }}
+                      style={{
+                        imageRendering: 'auto',
+                        width: '40px',
+                        height: '40px',
+                        display: 'block',
+                        flexShrink: 0,
+                        filter: tools.currentTool === 'recolor' ? 'invert(1)' : 'none'
+                      }}
                     />
                   ) : (
-                    <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px', flexShrink: 0 }}>
+                    <div
+                      className="w-10 h-10 flex items-center justify-center"
+                      style={{
+                        fontSize: '12px',
+                        flexShrink: 0,
+                        color: tools.currentTool === 'recolor' ? '#1A1A1A' : '#D9D9D9',
+                        border: tools.currentTool === 'recolor' ? '2px solid #1A1A1A' : '2px solid #D9D9D9'
+                      }}
+                    >
                       □
                     </div>
                   )}
-                  <span className="text-[#D9D9D9]" style={{ fontSize: '12px', lineHeight: '16px' }}>Color cycle + recolor</span>
-                  {/* Removed pulsing circle indicator for Recolor entry */}
+                  <span
+                    style={{ fontSize: '12px', lineHeight: '16px', color: tools.currentTool === 'recolor' ? '#1A1A1A' : '#D9D9D9' }}
+                    className={tools.currentTool === 'recolor' ? '' : 'transition-colors group-hover:text-[#F3F3F7]'}
+                  >
+                    Color cycle + recolor
+                  </span>
                 </div>
               </div>
             )}

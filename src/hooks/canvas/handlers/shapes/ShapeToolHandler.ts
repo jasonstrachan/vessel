@@ -157,6 +157,21 @@ export const createShapeToolHandler = (
   const canvasManager = new CanvasManager();
 
   let shapeAdjustHelper: ShapeAdjustHelper | null = null;
+  const clearCurrentPreview = () => {
+    if (currentPreviewCleanup) {
+      try {
+        currentPreviewCleanup();
+      } catch {
+        // ignore cleanup errors
+      }
+      currentPreviewCleanup = null;
+    }
+    const overlayCanvas = context.deps.overlayCanvasRef.current;
+    const overlayCtx = overlayCanvas?.getContext('2d');
+    if (overlayCtx && overlayCanvas) {
+      overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    }
+  };
   let currentPreviewCleanup: (() => void) | null = null;
 
   const logShapeFillEvent = (label: string, extra: Record<string, unknown> = {}) => {
@@ -457,6 +472,9 @@ export const createShapeToolHandler = (
         previewKind: 'contour',
         committed,
       });
+      if (committed) {
+        drawingHandlers.drawingCanvasHasContent.current = true;
+      }
     };
 
     runPreview();
@@ -544,6 +562,9 @@ export const createShapeToolHandler = (
             rotation,
             spacing,
           });
+          if (committed) {
+            drawingHandlers.drawingCanvasHasContent.current = true;
+          }
         }
       }
     );
@@ -650,6 +671,9 @@ export const createShapeToolHandler = (
             seedSpacing,
             isPreview,
           });
+          if (committed) {
+            drawingHandlers.drawingCanvasHasContent.current = true;
+          }
         }
       }
     );
@@ -1082,9 +1106,7 @@ export const createShapeToolHandler = (
 
             const rotationForPreview = currentState.tempRotation ?? tools.brushSettings.crossHatchRotation ?? 45;
             // Clean up any previous preview before starting new one
-            if (currentPreviewCleanup) {
-              currentPreviewCleanup();
-            }
+            clearCurrentPreview();
             currentPreviewCleanup = drawCrosshatchPreview(rotationForPreview, newSpacing);
             previewRef.current = null;
           });
@@ -1116,9 +1138,7 @@ export const createShapeToolHandler = (
 
       const rotationForPreview = polygonState.tempRotation ?? tools.brushSettings.crossHatchRotation ?? 45;
       // Clean up any previous preview before starting new one
-      if (currentPreviewCleanup) {
-        currentPreviewCleanup();
-      }
+      clearCurrentPreview();
       currentPreviewCleanup = drawCrosshatchPreview(rotationForPreview, newSpacing);
       return true;
     }
@@ -1160,6 +1180,9 @@ export const createShapeToolHandler = (
         committed: previewCommitted,
         source: 'contour-spacing-pointer-up',
       });
+      if (previewCommitted) {
+        drawingHandlers.drawingCanvasHasContent.current = true;
+      }
       context.deps.compositeCanvasDirtyRef.current = true;
 
       logShapeModeGuard('contour-adjust-spacing');
@@ -1450,6 +1473,7 @@ export const createShapeToolHandler = (
     });
 
     resetPolygonAdjustmentState();
+    clearCurrentPreview();
     interaction.dispatch({ type: 'DRAWING_END' });
     return true;
   };
@@ -1987,6 +2011,8 @@ export const createShapeToolHandler = (
           },
           false
         );
+
+        drawingHandlers.drawingCanvasHasContent.current = true;
       }
     }
 
@@ -2021,6 +2047,9 @@ export const createShapeToolHandler = (
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
+    }).finally(() => {
+      clearCurrentPreview();
+      clearOverlayCanvas();
     });
 
     resetPolygonAdjustmentState();
@@ -2099,6 +2128,9 @@ export const createShapeToolHandler = (
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
+    }).finally(() => {
+      clearCurrentPreview();
+      clearOverlayCanvas();
     });
 
     interaction.dispatch({ type: 'DRAWING_END' });
@@ -2270,6 +2302,10 @@ export const createShapeToolHandler = (
       return safeDelegate.pointerDown?.(event, context) ?? false;
     },
     handlePointerMove(event) {
+      // Don't interfere with custom brush area selection
+      if (interaction.state.isSelecting) {
+        return false;
+      }
       if (handleFlowPointerMove(event)) {
         return true;
       }

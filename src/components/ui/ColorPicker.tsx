@@ -88,8 +88,10 @@ export default function ColorPicker({
 }: ColorPickerProps) {
   const svCanvasRef = useRef<HTMLCanvasElement>(null);
   const hueCanvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isPointerDown, setIsPointerDown] = useState(false);
   const [isDraggingHue, setIsDraggingHue] = useState(false);
+  const [svSize, setSvSize] = useState(212);
 
   const hsv = hexToHsv(color);
   const [currentHsv, setCurrentHsv] = useState(hsv);
@@ -222,9 +224,43 @@ export default function ColorPicker({
   }, [color]);
 
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const HUE_WIDTH = 28;
+    const MIN_SV_SIZE = 120;
+
+    const updateSize = () => {
+      const availableWidth = container.clientWidth;
+      if (!availableWidth) return;
+      const nextSize = Math.max(MIN_SV_SIZE, Math.floor(availableWidth - HUE_WIDTH));
+      setSvSize(nextSize);
+    };
+
+    updateSize();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => {
+        updateSize();
+      });
+      observer.observe(container);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
+
+  useEffect(() => {
+    svImageDataCache.current.clear();
+  }, [svSize]);
+
+  useEffect(() => {
     drawSVCanvas(currentHsv.h);
     drawHueCanvas();
-  }, [drawSVCanvas, drawHueCanvas, currentHsv.h]);
+  }, [drawSVCanvas, drawHueCanvas, currentHsv.h, svSize]);
 
   const updateColor = useCallback(
     (newHsv: HSV) => {
@@ -355,27 +391,32 @@ export default function ColorPicker({
     setIsDraggingHue(false);
   }, []);
 
+  const hueWidth = 28;
+
   return (
-    <div className={`flex items-start justify-center gap-0 ${className}`}>
+    <div
+      ref={containerRef}
+      className={`flex w-full items-start justify-start gap-0 ${className}`}
+    >
       <canvas
         ref={svCanvasRef}
-        width={212}
-        height={212}
+        width={svSize}
+        height={svSize}
         className="cursor-crosshair"
         onPointerDown={handleSVPointerDown}
         onPointerMove={handleSVPointerMove}
         onPointerUp={handleSVPointerUp}
-        style={{ touchAction: "none" }}
+        style={{ touchAction: "none", display: 'block' }}
       />
       <canvas
         ref={hueCanvasRef}
-        width={20}
-        height={212}
+        width={hueWidth}
+        height={svSize}
         className="cursor-pointer"
         onPointerDown={handleHuePointerDown}
         onPointerMove={handleHuePointerMove}
         onPointerUp={handleHuePointerUp}
-        style={{ touchAction: "none" }}
+        style={{ touchAction: "none", display: 'block' }}
       />
     </div>
   );
