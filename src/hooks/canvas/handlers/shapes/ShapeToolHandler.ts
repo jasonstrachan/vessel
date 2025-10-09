@@ -10,6 +10,8 @@ import { getShapeFillScheduler } from '@/lib/shapeFill/runtime';
 import type { ShapeFillOptions } from '@/brushes/shapes/fills/types';
 import { OpController, CanvasManager } from '@/lib/canvas';
 import { debugLog } from '@/utils/debug';
+import { computeNewShapeFillCenter, computeMinDistanceToPolygon } from '@/brushes/shapes/fills/newShapeFill';
+import { MIN_LINE_SPACING } from '@/utils/contourLines';
 
 const CONTOUR_DEBUG_STORAGE_KEY = 'vessel.debug.contour';
 
@@ -1956,24 +1958,29 @@ export const createShapeToolHandler = (
           drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
         }
 
-        // Calculate centroid and estimate max radius of shape
-        const centroid = vertices.reduce((acc, v) => ({ x: acc.x + v.x, y: acc.y + v.y }), { x: 0, y: 0 });
+        const EDGE_EPS = 0.5;
+        const isNewShapeFill = tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL;
+
+        const centroid = vertices.reduce(
+          (acc, v) => ({ x: acc.x + v.x, y: acc.y + v.y }),
+          { x: 0, y: 0 }
+        );
         centroid.x /= vertices.length;
         centroid.y /= vertices.length;
 
-        // Estimate max distance by finding furthest vertex from centroid
-        const maxDistanceEstimate = Math.max(
-          ...vertices.map(v => Math.hypot(v.x - centroid.x, v.y - centroid.y))
-        );
+        const nsfCenter = isNewShapeFill
+          ? computeNewShapeFillCenter(vertices, Math.floor(Math.random() * 0xffffffff))
+          : centroid;
 
-        // Clamp initial spacing to be reasonable for this shape size
-        // Spacing should be at most 1/3 of the max distance to ensure at least 2-3 contours
+        const hardMax = isNewShapeFill
+          ? Math.max(MIN_LINE_SPACING, computeMinDistanceToPolygon(nsfCenter, vertices))
+          : Math.max(...vertices.map(v => Math.hypot(v.x - centroid.x, v.y - centroid.y)));
+
         let initialSpacing = tools.brushSettings.contourSpacing ?? 6;
-        if (initialSpacing > maxDistanceEstimate / 3) {
-          initialSpacing = Math.max(2, Math.floor(maxDistanceEstimate / 3));
-        }
-
-        const initialReferenceDistance = Math.max(1, Math.hypot(pointerWorld.x - centroid.x, pointerWorld.y - centroid.y));
+        initialSpacing = Math.max(
+          MIN_LINE_SPACING,
+          Math.min(initialSpacing, Math.max(hardMax - EDGE_EPS, MIN_LINE_SPACING))
+        );
 
         useAppStore.getState().setPolygonGradientState({
           drawingState: 'adjustingSpacing',
@@ -1981,9 +1988,16 @@ export const createShapeToolHandler = (
           vertices,
           fillColor,
           tempSpacing: initialSpacing,
-          spacingReferenceDistance: initialReferenceDistance,
+          // Use a stable non-zero reference so drag always shrinks from a valid spacing.
+          spacingReferenceDistance: 1,
           spacingReferenceSpacing: initialSpacing,
         });
+
+        try {
+          useAppStore.getState().setShapeMode(true);
+        } catch {
+          // Ignore store errors; pointer guards prevent brush engine takeover.
+        }
 
         contourDebug('enter-adjusting-spacing', {
           vertexCount: vertices.length,

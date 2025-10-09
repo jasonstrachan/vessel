@@ -55,6 +55,7 @@ export interface ContourLinesState {
   stage: ContourLinesStage;
   shapePoints: Array<{ x: number; y: number }>;
   fillColor?: string;
+  sessionId?: number | null;
   basis?: ContourLinesBasis;
   spacingA?: number | null;
   spacingB?: number | null;
@@ -181,6 +182,11 @@ export interface EventHandlerDependencies {
 
   // Optional feedback hook for surfacing errors/warnings
   feedback?: (message: string) => void;
+
+  // Preview session coordination
+  previewSessionIdRef: React.MutableRefObject<number>;
+  newPreviewSession: () => number;
+  isCurrentPreviewSession: (sessionId: number) => boolean;
 
   // Angle snap refs (persist across re-renders for brush/shape snapping)
   snapStrokeStartRef?: React.MutableRefObject<{ x: number; y: number } | null>;

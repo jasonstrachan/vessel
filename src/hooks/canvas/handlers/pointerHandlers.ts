@@ -960,6 +960,25 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const polygonGradientStateGuard = useAppStore.getState().polygonGradientState;
+    const adjustSessionActive =
+      polygonGradientStateGuard != null &&
+      (polygonGradientStateGuard.drawingState === 'adjustingSpacing' ||
+        polygonGradientStateGuard.drawingState === 'adjustingRotation' ||
+        polygonGradientStateGuard.drawingState === 'adjustingSize');
+
+    if (adjustSessionActive) {
+      isMouseDownRef.current = true;
+      pointerInsideCanvas = true;
+      setMousePosition({ x: event.clientX, y: event.clientY });
+      event.preventDefault();
+      (event.target as HTMLCanvasElement).setPointerCapture(event.pointerId);
+      if (shapeHandler.handlePointerDown(event)) {
+        return;
+      }
+      return;
+    }
+
     const {
       project,
       canvas,
@@ -2525,6 +2544,20 @@ function cssColorToHex(color: string): string {
       scheduledMoveRAF = null;
       lastMoveEvent = null;
     }
+
+    const polygonGradientStateGuard = useAppStore.getState().polygonGradientState;
+    const adjustSessionActive =
+      polygonGradientStateGuard != null &&
+      (polygonGradientStateGuard.drawingState === 'adjustingSpacing' ||
+        polygonGradientStateGuard.drawingState === 'adjustingRotation' ||
+        polygonGradientStateGuard.drawingState === 'adjustingSize');
+
+    if (adjustSessionActive) {
+      if (shapeHandler.handlePointerUp(event)) {
+        return;
+      }
+      return;
+    }
     
     // Clear overlay canvas
     const contourStateOnUp = contourLinesStateRef.current;
@@ -2813,6 +2846,22 @@ function cssColorToHex(color: string): string {
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const polygonGradientStateGuard = useAppStore.getState().polygonGradientState;
+    const adjustSessionActive =
+      polygonGradientStateGuard != null &&
+      (polygonGradientStateGuard.drawingState === 'adjustingSpacing' ||
+        polygonGradientStateGuard.drawingState === 'adjustingRotation' ||
+        polygonGradientStateGuard.drawingState === 'adjustingSize');
+
+    if (adjustSessionActive) {
+      pointerInsideCanvas = isPointerWithinCanvas(event.clientX, event.clientY);
+      setMousePosition({ x: event.clientX, y: event.clientY });
+      if (shapeHandler.handlePointerMove(event)) {
+        return;
+      }
+      return;
+    }
+
     // Keep handler minimal; batch work to next animation frame
     // Never drop updates while drawing shapes; RAF will still run at display rate
     // Persist the synthetic event just in case (React 17+ no-ops)

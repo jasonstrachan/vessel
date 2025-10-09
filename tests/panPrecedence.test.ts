@@ -119,6 +119,14 @@ function makeDeps(overrides: Partial<EventHandlerDependencies> = {}): EventHandl
     contourLinesFinalizingRef: { current: false },
   };
 
+  deps.previewSessionIdRef = { current: 0 };
+  deps.newPreviewSession = () => {
+    deps.previewSessionIdRef.current += 1;
+    deps.contourLinesFinalizingRef.current = false;
+    return deps.previewSessionIdRef.current;
+  };
+  deps.isCurrentPreviewSession = (sessionId: number) => sessionId === deps.previewSessionIdRef.current;
+
   Object.defineProperties(deps, {
     project: {
       get: () => deps.dynamicDepsRef.current.project,

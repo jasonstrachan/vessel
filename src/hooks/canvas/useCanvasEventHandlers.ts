@@ -17,6 +17,9 @@ type EventHandlerDependenciesInput = Omit<
   | 'contourLinesStateRef'
   | 'contourLinesDefaultsCacheRef'
   | 'contourLinesFinalizingRef'
+  | 'previewSessionIdRef'
+  | 'newPreviewSession'
+  | 'isCurrentPreviewSession'
   | 'dynamicDepsRef'
   | 'project'
   | 'canvas'
@@ -59,6 +62,18 @@ export const useCanvasEventHandlers = (deps: EventHandlerDependenciesInput): Eve
   const contourLinesStateRef = useRef<ContourLinesState>(createDefaultContourLinesState());
   const contourLinesDefaultsCacheRef = useRef<Lines2DefaultsCache | null>(null);
   const contourLinesFinalizingRef = useRef<boolean>(false);
+  const previewSessionIdRef = useRef<number>(0);
+
+  const newPreviewSession = useCallback(() => {
+    previewSessionIdRef.current += 1;
+    contourLinesFinalizingRef.current = false;
+    return previewSessionIdRef.current;
+  }, []);
+
+  const isCurrentPreviewSession = useCallback(
+    (sessionId: number) => sessionId === previewSessionIdRef.current,
+    []
+  );
 
   const dynamicDepsRef = useRef<EventHandlerDynamicDeps>({
     project,
@@ -92,6 +107,9 @@ export const useCanvasEventHandlers = (deps: EventHandlerDependenciesInput): Eve
     contourLinesStateRef,
     contourLinesDefaultsCacheRef,
     contourLinesFinalizingRef,
+    previewSessionIdRef,
+    newPreviewSession,
+    isCurrentPreviewSession,
     dynamicDepsRef,
   } as EventHandlerDependencies;
 

@@ -1233,24 +1233,34 @@ export function useDrawingHandlers({
       }
 
       if (activeLayer) {
+        const drawingCanvas = drawingCanvasRef.current;
+
         if (currentTool === 'eraser') {
           // OPTIMIZATION: The drawingCanvas already has the final erased result.
           // We can capture it directly without any extra compositing.
-          await captureCanvasToActiveLayer(drawingCanvasRef.current);
-          debugLog('shape-fill', 'captureCanvasToActiveLayer (eraser)', {
-            tool: currentTool,
-            layerId: activeLayer.id,
-            width: drawingCanvasRef.current?.width,
-            height: drawingCanvasRef.current?.height,
-          });
-          saveCanvasState(drawingCanvasRef.current, 'eraser', 'Erased stroke');
+          if (drawingCanvas) {
+            await captureCanvasToActiveLayer(drawingCanvas);
+            debugLog('shape-fill', 'captureCanvasToActiveLayer (eraser)', {
+              tool: currentTool,
+              layerId: activeLayer.id,
+              width: drawingCanvas.width,
+              height: drawingCanvas.height,
+            });
+            saveCanvasState(drawingCanvas, 'eraser', 'Erased stroke');
+          } else {
+            debugLog('shape-fill', 'skip eraser finalize: missing drawing canvas', {
+              tool: currentTool,
+              layerId: activeLayer.id,
+            });
+          }
           
         } else { // Brush tool
           const activeSettings = currentState.tools.brushSettings;
           const activeFlags = getColorCycleBrushFlags(activeSettings);
+          const drawingCtx = drawingCtxRef.current;
           
           // For color cycle brush, stop the animation and do final render
-          if (activeFlags.isAny && drawingCtxRef.current) {
+          if (activeFlags.isAny && drawingCtx) {
             // If auto-sampling is enabled, compute final 8-stop gradient across full stroke path now
             try {
               if (activeSettings.autoSampleGradient && autoSamplePointsRef.current.length > 0) {
@@ -1291,18 +1301,24 @@ export function useDrawingHandlers({
             const colorCycleBrushManager = getColorCycleBrushManager();
             const colorCycleBrush = activeLayer ? colorCycleBrushManager.getBrush(activeLayer.id) : undefined;
             
-            if (colorCycleBrush && activeLayer?.colorCycleData?.canvas) {
+            if (colorCycleBrush && activeLayer?.colorCycleData?.canvas && drawingCanvas && drawingCtx) {
               // Final render directly to layer canvas at full opacity
               colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayer.id);
               
               // Copy to drawing canvas for final composite
-              drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-              drawingCtxRef.current.globalAlpha = 1.0; // Full opacity for final
-              drawingCtxRef.current.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
-            } else {
+              drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+              drawingCtx.globalAlpha = 1.0; // Full opacity for final
+              drawingCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
+            } else if (drawingCanvas && drawingCtx) {
               // Fallback: Clear and do one final render at FULL OPACITY
-              drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-              brushEngine.renderColorCycle(drawingCtxRef.current, false); // false = don't apply opacity
+              drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+              brushEngine.renderColorCycle(drawingCtx, false); // false = don't apply opacity
+            } else {
+              debugLog('shape-fill', 'skip color cycle final composite: missing drawing ctx/canvas', {
+                hasCtx: Boolean(drawingCtx),
+                hasCanvas: Boolean(drawingCanvas),
+                layerId: activeLayer?.id,
+              });
             }
             
             // IMPORTANT: Check if we should continue animating after stroke ends
@@ -1351,18 +1367,18 @@ export function useDrawingHandlers({
                 }
 
                 brush.clearPaintBuffer?.(activeLayer.id);
-              } else if (drawingCanvasRef.current) {
-                try {
-                  const targetCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
-                  if (targetCtx) {
-                    targetCtx.save();
-                    targetCtx.globalCompositeOperation = activeSettings.blendMode || 'source-over';
-                    targetCtx.globalAlpha = activeSettings.opacity ?? 1;
-                    targetCtx.drawImage(drawingCanvasRef.current, 0, 0);
-                    targetCtx.restore();
-                  }
-                } catch {}
-              }
+                } else if (drawingCanvas) {
+                  try {
+                    const targetCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
+                    if (targetCtx) {
+                      targetCtx.save();
+                      targetCtx.globalCompositeOperation = activeSettings.blendMode || 'source-over';
+                      targetCtx.globalAlpha = activeSettings.opacity ?? 1;
+                      targetCtx.drawImage(drawingCanvas, 0, 0);
+                      targetCtx.restore();
+                    }
+                  } catch {}
+                }
             } catch {
               // Suppressed debug warn for buffer commit
             }
@@ -1412,7 +1428,15 @@ export function useDrawingHandlers({
               // Don't re-apply opacity and blend mode - they were already applied during drawing
               tempCtx.globalCompositeOperation = 'source-over';
               tempCtx.globalAlpha = 1;
-              tempCtx.drawImage(drawingCanvasRef.current, 0, 0);
+              if (drawingCanvas) {
+                tempCtx.drawImage(drawingCanvas, 0, 0);
+              } else {
+                debugLog('shape-fill', 'skip temp composite: missing drawing canvas', {
+                  tool: currentTool,
+                  layerId: activeLayer.id,
+                  brushShape: currentState.tools.brushSettings.brushShape,
+                });
+              }
               
               await captureCanvasToActiveLayer(tempCanvas);
               debugLog('shape-fill', 'captureCanvasToActiveLayer (regular-from-temp)', {
@@ -2193,16 +2217,17 @@ export function useDrawingHandlers({
         }
 
         const currentLayer = useAppStore.getState().layers.find(l => l.id === useAppStore.getState().activeLayerId);
-        if (drawingCanvasRef.current && currentLayer && currentLayer.layerType !== 'color-cycle') {
+        const drawingCanvas = drawingCanvasRef.current;
+        if (drawingCanvas && currentLayer && currentLayer.layerType !== 'color-cycle') {
           debugLog('shape-fill', 'finalizeShapeDrawing committing shape directly', {
             layerId: currentLayer.id,
             pointCount: shapePointsRef.current.length,
           });
-          await captureCanvasToActiveLayer(drawingCanvasRef.current);
-          saveCanvasState(drawingCanvasRef.current, 'brush', 'Shape Fill');
+          await captureCanvasToActiveLayer(drawingCanvas);
+          saveCanvasState(drawingCanvas, 'brush', 'Shape Fill');
           drawingCanvasHasContent.current = false;
-          if (drawingCtxRef.current && drawingCanvasRef.current) {
-            drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+          if (drawingCtxRef.current) {
+            drawingCtxRef.current.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
           }
           resetPolygonState();
           finalizeTriggered = true;
