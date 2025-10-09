@@ -7,7 +7,7 @@ const LeftToolbar = () => {
 
   const toolGroups = [
     [
-      { id: 'new-document' as Tool, label: 'New Document', abbr: 'Nd' },
+      { id: 'new-document' as Tool, label: 'New Document', abbr: 'Dc' },
       { id: 'selection' as Tool, label: 'Selection', abbr: 'Mq' },
     ],
     [
@@ -61,17 +61,17 @@ const LeftToolbar = () => {
     >
       {toolGroups.map((group, groupIndex) => (
         <React.Fragment key={groupIndex}>
-          {groupIndex > 0 && (
-            <div className="h-[2px] bg-[#242424] w-[32px] mx-auto my-2 flex-shrink-0" />
+          {groupIndex > 1 && (
+            <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
           )}
-          {group.map((tool) => (
-            <button
-              key={tool.id}
-              onClick={() => handleToolClick(tool.id)}
-              title={tool.label}
-              className={`w-[48px] h-12 min-h-[40px] mx-auto flex items-center justify-center bg-transparent border-0 appearance-none outline-none mb-1`}
-          style={{ 
-            color: toolState.currentTool === tool.id ? '#FFFFFF' : '#5A5A61',
+          {group.map((tool, toolIndex) => (
+            <React.Fragment key={tool.id}>
+              <button
+                onClick={() => handleToolClick(tool.id)}
+                title={tool.label}
+                className={`w-[48px] h-12 min-h-[40px] mx-auto flex items-center justify-center bg-transparent border-0 appearance-none outline-none mb-1`}
+            style={{ 
+              color: toolState.currentTool === tool.id ? '#FFFFFF' : '#5A5A61',
             fontFamily: 'IBM Plex Mono, "Courier New", monospace',
             fontSize: '1.1rem',
             fontWeight: 600,
@@ -90,7 +90,14 @@ const LeftToolbar = () => {
         >
           <span>{tool.abbr}</span>
         </button>
+              {groupIndex === 0 && toolIndex === 0 && (
+                <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
+              )}
+            </React.Fragment>
           ))}
+          {groupIndex === toolGroups.length - 1 && (
+            <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
+          )}
         </React.Fragment>
       ))}
     </div>

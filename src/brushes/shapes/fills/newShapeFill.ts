@@ -24,6 +24,29 @@ const EPSILON = 1e-6;
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 const MIN_CONTOUR_SPACING = 4;
 
+export const safeClampSpacing = (
+  spacing: number,
+  hardMax: number,
+  edge: number = 0.5,
+  min: number = MIN_CONTOUR_SPACING,
+): number => {
+  const hi = Math.max(min, hardMax - edge);
+  return Math.min(Math.max(spacing, min), hi);
+};
+
+const SHAPE_FILL_DEBUG = (() => {
+  if (typeof window !== 'undefined') {
+    const globalAny = window as typeof window & { __SHAPE_FILL_DEBUG?: boolean };
+    return globalAny.__SHAPE_FILL_DEBUG ?? false;
+  }
+  return false;
+})();
+
+const shapeFillDebug = (payload: Record<string, unknown>) => {
+  if (!SHAPE_FILL_DEBUG) return;
+  console.debug('[NewShapeFill]', payload);
+};
+
 const createPrng = (seed: number): (() => number) => {
   let state = seed >>> 0 || 1;
   return () => {
@@ -60,19 +83,43 @@ const hashVertices = (vertices: readonly Point[]): number => {
 };
 
 const centroidOf = (vertices: readonly Point[]): Point => {
-  if (!vertices.length) {
+  const n = vertices.length;
+  if (n === 0) {
     return { x: 0, y: 0 };
   }
-  let sumX = 0;
-  let sumY = 0;
-  vertices.forEach(vertex => {
-    sumX += vertex.x;
-    sumY += vertex.y;
-  });
-  return {
-    x: sumX / vertices.length,
-    y: sumY / vertices.length,
-  };
+  if (n < 3) {
+    let sumX = 0;
+    let sumY = 0;
+    vertices.forEach(vertex => {
+      sumX += vertex.x;
+      sumY += vertex.y;
+    });
+    return { x: sumX / n, y: sumY / n };
+  }
+  // Shoelace centroid formula for polygons
+  let a = 0;
+  let cx = 0;
+  let cy = 0;
+  for (let i = 0; i < n; i++) {
+    const p = vertices[i];
+    const q = vertices[(i + 1) % n];
+    const cross = p.x * q.y - q.x * p.y;
+    a += cross;
+    cx += (p.x + q.x) * cross;
+    cy += (p.y + q.y) * cross;
+  }
+  a *= 0.5;
+  if (Math.abs(a) < 1e-6) {
+    // Degenerate polygon: fall back to average
+    let sumX = 0;
+    let sumY = 0;
+    vertices.forEach(vertex => {
+      sumX += vertex.x;
+      sumY += vertex.y;
+    });
+    return { x: sumX / n, y: sumY / n };
+  }
+  return { x: cx / (6 * a), y: cy / (6 * a) };
 };
 
 const isPointInsidePolygon = (point: Point, vertices: readonly Point[]): boolean => {
@@ -119,6 +166,19 @@ const minimumEdgeDistance = (point: Point, vertices: readonly Point[]): number =
     }
   }
   return minDistance;
+};
+
+// Compute minimum distance from a point to the nearest edge of a polygon
+const minDistanceToPolygon = (center: Point, poly: readonly Point[]): number => {
+  if (!poly || poly.length < 3) return 0;
+  let minD = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    const d = distanceToSegment(center, a, b);
+    if (d < minD) minD = d;
+  }
+  return Math.max(minD, EPSILON);
 };
 
 const pickInteriorSeedPoint = (
@@ -582,7 +642,7 @@ export const drawNewShapeFill = ({
     ctx.restore();
   });
 
-  console.log('Rendered contour loops with custom distance field', {
+  shapeFillDebug({
     loopCount: loops.length,
     spacing: effectiveSpacing,
     variance,
@@ -608,3 +668,5 @@ export const computeNewShapeFillCenter = (
   const random = createPrng(seed || 1);
   return pickInteriorSeedPoint(vertices, bounds, random);
 };
+
+export const computeMinDistanceToPolygon = minDistanceToPolygon;

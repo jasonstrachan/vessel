@@ -6,6 +6,10 @@ import type { DrawingHandlers } from '@/hooks/useDrawingHandlers';
 import type { SimplePan } from '@/hooks/useSimplePan';
 import type { ToolStateMachine } from '@/hooks/useToolStateMachine';
 import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
+import type {
+  computeLines2Defaults,
+  prepareContourLinesBasis,
+} from '@/utils/contourLines';
 
 // Type definitions for dependencies (avoiding circular imports)
 export interface FloatingPaste {
@@ -38,21 +42,39 @@ export interface ToolsState {
   shapeMode: boolean;
 }
 
-export interface EventHandlerDependencies {
-  // Canvas refs
-  canvasRef: React.RefObject<HTMLCanvasElement>;
-  wrapperRef: React.RefObject<HTMLDivElement>;
-  overlayCanvasRef: React.RefObject<HTMLCanvasElement>;
-  compositeCanvasRef: React.RefObject<HTMLCanvasElement | null>;
-  
-  // State refs
-  isBusyRef: React.MutableRefObject<boolean>;
-  isMouseDownRef: React.MutableRefObject<boolean>;
-  isSpacePressedRef: React.MutableRefObject<boolean>;
-  drawAnimationFrameRef: React.MutableRefObject<number | null>;
-  pointerMoveThrottled: React.MutableRefObject<number>;
-  
-  // Store state
+export type ContourLinesStage =
+  | 'idle'
+  | 'awaitingAnchorA'
+  | 'awaitingAngle'
+  | 'awaitingConvergenceA'
+  | 'awaitingConvergenceB';
+
+export type ContourLinesBasis = ReturnType<typeof prepareContourLinesBasis> | null;
+
+export interface ContourLinesState {
+  stage: ContourLinesStage;
+  shapePoints: Array<{ x: number; y: number }>;
+  fillColor?: string;
+  basis?: ContourLinesBasis;
+  spacingA?: number | null;
+  spacingB?: number | null;
+  previewSpacing?: number | null;
+  variant?: 'legacy' | 'lines2';
+  lineAngle?: number | null;
+  convergenceA?: { x: number; y: number } | null;
+  convergenceB?: { x: number; y: number } | null;
+  centroid?: { x: number; y: number } | null;
+  spacingReferenceDistance?: number | null;
+  spacingReferenceSpacing?: number | null;
+  randomSeed?: number | null;
+}
+
+export interface Lines2DefaultsCache {
+  key: string;
+  defaults: ReturnType<typeof computeLines2Defaults>;
+}
+
+export interface EventHandlerDynamicDeps {
   project: Project | null;
   canvas: CanvasState | null;
   tools: ToolsState;
@@ -61,7 +83,35 @@ export interface EventHandlerDependencies {
   selectionStart: { x: number; y: number } | null;
   selectionEnd: { x: number; y: number } | null;
   floatingPaste: FloatingPaste | null;
+  isDraggingFloatingPaste: boolean;
+}
+
+export interface EventHandlerDependencies {
+  // Canvas refs
+  canvasRef: React.RefObject<HTMLCanvasElement>;
+  wrapperRef: React.RefObject<HTMLDivElement>;
+  overlayCanvasRef: React.RefObject<HTMLCanvasElement>;
+  compositeCanvasRef: React.RefObject<HTMLCanvasElement | null>;
+  dynamicDepsRef: React.MutableRefObject<EventHandlerDynamicDeps>;
   
+  // State refs
+  isBusyRef: React.MutableRefObject<boolean>;
+  isMouseDownRef: React.MutableRefObject<boolean>;
+  isSpacePressedRef: React.MutableRefObject<boolean>;
+  drawAnimationFrameRef: React.MutableRefObject<number | null>;
+  pointerMoveThrottled: React.MutableRefObject<number>;
+  
+  // Store state snapshot (access via dynamicDepsRef)
+  project: Project | null;
+  canvas: CanvasState | null;
+  tools: ToolsState;
+  layers: Layer[];
+  activeLayerId: string | null;
+  selectionStart: { x: number; y: number } | null;
+  selectionEnd: { x: number; y: number } | null;
+  floatingPaste: FloatingPaste | null;
+  isDraggingFloatingPaste: boolean;
+
   // Store actions
   setSelectionBounds: (start: { x: number; y: number }, end: { x: number; y: number }) => void;
   clearSelection: () => void;
@@ -78,7 +128,6 @@ export interface EventHandlerDependencies {
   cancelFloatingPaste: () => void;
   
   // Drawing state
-  isDraggingFloatingPaste: boolean;
   setIsDraggingFloatingPaste: React.Dispatch<React.SetStateAction<boolean>>;
   floatingPasteDragStart: React.MutableRefObject<{ x: number; y: number } | null>;
   floatingPasteOriginalPos: React.MutableRefObject<{ x: number; y: number } | null>;
@@ -137,6 +186,11 @@ export interface EventHandlerDependencies {
   snapStrokeStartRef?: React.MutableRefObject<{ x: number; y: number } | null>;
   snapShiftAnchorRef?: React.MutableRefObject<{ x: number; y: number } | null>;
   snapLastBrushSampleRef?: React.MutableRefObject<{ x: number; y: number } | null>;
+
+  // Contour-lines state (persist across renders)
+  contourLinesStateRef: React.MutableRefObject<ContourLinesState>;
+  contourLinesDefaultsCacheRef: React.MutableRefObject<Lines2DefaultsCache | null>;
+  contourLinesFinalizingRef: React.MutableRefObject<boolean>;
 }
 
 export interface PointerHandlers {

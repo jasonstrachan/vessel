@@ -8,13 +8,14 @@ import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '.
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
 import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
 import { appendSegmentWithDynamicResampling } from '../utils/shapeMaker';
-import { logError, debugWarn } from '../utils/debug';
+import { logError, debugWarn, debugLog } from '../utils/debug';
 import { RecolorManager } from '../lib/colorCycle/RecolorManager';
 import { getColorCycleAnimationState, setColorCycleAnimationState } from '../components/toolbar/BrushControls';
 import { setSharedColorCycleGradient } from '../utils/colorCycleGradients';
 import { toggleGlobalColorCyclePlayback } from '../utils/colorCyclePlayback';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
+import { FinalizeQueue } from '@/lib/canvas';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -125,6 +126,9 @@ export function useDrawingHandlers({
   // Continuous animation for color cycle when play button is pressed
   const continuousColorCycleAnimationRef = useRef<number | null>(null);
   const continuousColorCycleAnimationActiveRef = useRef(false);
+
+  // Finalization queue to prevent concurrent finalization operations
+  const finalizeQueueRef = useRef(new FinalizeQueue());
 
   // Stable refs to call start/stop CC animation from early hooks
   const startCCRef = useRef<() => void>(() => {});
@@ -1377,14 +1381,19 @@ export function useDrawingHandlers({
       // Only clear for non-CC layers to prevent stale content issues
       const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
       const isAnyColorCycleBrush = getColorCycleBrushFlags(currentState.tools.brushSettings).isAny;
+      const polygonState = currentState.polygonGradientState;
+      const isInAdjustmentMode = polygonState.drawingState === 'adjustingSpacing' ||
+                                 polygonState.drawingState === 'adjustingRotation' ||
+                                 polygonState.drawingState === 'adjustingSize';
 
       if (!isColorCycleLayer || !isAnyColorCycleBrush) {
-        // Clear the drawing canvas immediately after finalizing to prevent stale content
-        // from appearing/disappearing when brush settings change
-        if (drawingCtxRef.current && drawingCanvasRef.current) {
-          drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+        // Only clear if we're not in shape adjustment mode (preserves preview visibility)
+        if (!isInAdjustmentMode) {
+          if (drawingCtxRef.current && drawingCanvasRef.current) {
+            drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+          }
+          drawingCanvasHasContent.current = false;
         }
-        drawingCanvasHasContent.current = false;
       }
       
       // Parent component will handle final redraw
@@ -1580,16 +1589,51 @@ export function useDrawingHandlers({
   }, [tools.shapeMode, continueDrawing, pauseColorCycleForNonCCInteraction, updateAutoSampledGradient, initDrawingCanvas]);
   
   const finalizeShapeDrawing = useCallback(async () => {
+    debugLog('shape-fill', 'finalizeShapeDrawing invoked', {
+      shapeMode: tools.shapeMode,
+      busyFlag: isBusyRef?.current ?? false,
+      queueBusy: finalizeQueueRef.current.isBusy(),
+      queueHasPending: finalizeQueueRef.current.hasPending(),
+      pointCount: shapePointsRef.current.length,
+      isDrawingShape: isDrawingShapeRef.current,
+      isSelectingDirection: isSelectingDirectionRef.current,
+    });
     if (!tools.shapeMode) {
+      debugLog('shape-fill', 'finalizeShapeDrawing forwarding to finalizeDrawing', {
+        pointCount: shapePointsRef.current.length,
+      });
       return finalizeDrawing();
     }
-    
-    if (isBusyRef?.current) return;
+
+    if (isBusyRef?.current) {
+      debugLog('shape-fill', 'finalizeShapeDrawing aborted due to busy flag', {
+        pointCount: shapePointsRef.current.length,
+      });
+      return;
+    }
+
+    debugLog('shape-fill', 'finalizeShapeDrawing enqueue', {
+      queueBusy: finalizeQueueRef.current.isBusy(),
+      queueHasPending: finalizeQueueRef.current.hasPending(),
+    });
+
+    // Use FinalizeQueue to prevent concurrent finalization operations
+    return finalizeQueueRef.current.enqueue(async () => {
+      debugLog('shape-fill', 'finalizeShapeDrawing job start', {
+        pointCount: shapePointsRef.current.length,
+        isSelectingDirection: isSelectingDirectionRef.current,
+        isDrawingShape: isDrawingShapeRef.current,
+      });
+      // All finalization logic runs serially here
     
     // Check if we're in direction selection mode for linear gradient
     if (isSelectingDirectionRef.current && directionPreviewRef.current) {
       try {
         if (isBusyRef) isBusyRef.current = true;
+        
+        debugLog('shape-fill', 'finalizeShapeDrawing direction selection branch', {
+          pointCount: shapePointsRef.current.length,
+        });
         
         const drawCtx = drawingCtxRef.current;
         if (drawCtx && brushEngine && shapePointsRef.current.length >= 3) {
@@ -1653,8 +1697,14 @@ export function useDrawingHandlers({
 
         await resumeColorCycleAfterInteraction();
         if (isBusyRef) isBusyRef.current = false;
+        debugLog('shape-fill', 'finalizeShapeDrawing direction selection complete', {
+          pointCount: shapePointsRef.current.length,
+        });
         return;
     } catch (error) {
+      debugLog('shape-fill', 'finalizeShapeDrawing direction selection error', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       logError('Error during linear gradient direction selection:', error);
       } finally {
         if (isBusyRef) isBusyRef.current = false;
@@ -1662,6 +1712,10 @@ export function useDrawingHandlers({
     }
     
     try {
+      debugLog('shape-fill', 'finalizeShapeDrawing primary branch start', {
+        pointCount: shapePointsRef.current.length,
+        isDrawingShape: isDrawingShapeRef.current,
+      });
       // Ensure drawing canvas/context exist before we render any final content
       if (!drawingCtxRef.current || !drawingCanvasRef.current) {
         initDrawingCanvas();
@@ -2064,12 +2118,21 @@ export function useDrawingHandlers({
           // Allow the next CC shape preview to restart animation helpers
           ccShapePreviewPauseStartedRef.current = false;
           await resumeColorCycleAfterInteraction();
+          debugLog('shape-fill', 'finalizeShapeDrawing color cycle fast path', {
+            pointCount: shapePointsRef.current.length,
+          });
           if (isBusyRef) isBusyRef.current = false;
           return;
         }
 
         if (isBusyRef) isBusyRef.current = false;
+        debugLog('shape-fill', 'finalizeShapeDrawing calling finalizeDrawing', {
+          pointCount: shapePointsRef.current.length,
+        });
         await finalizeDrawing();
+        debugLog('shape-fill', 'finalizeShapeDrawing finalizeDrawing resolved', {
+          pointCount: shapePointsRef.current.length,
+        });
         ccShapePreviewPauseStartedRef.current = false;
         await resumeColorCycleAfterInteraction();
         return;
@@ -2078,10 +2141,19 @@ export function useDrawingHandlers({
         isDrawingShapeRef.current = false;
       }
     } catch (error) {
+      debugLog('shape-fill', 'finalizeShapeDrawing primary branch error', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       logError('Error during shape finalization:', error);
     } finally {
+      debugLog('shape-fill', 'finalizeShapeDrawing job complete', {
+        pointCount: shapePointsRef.current.length,
+        isDrawingShape: isDrawingShapeRef.current,
+        isSelectingDirection: isSelectingDirectionRef.current,
+      });
       if (isBusyRef) isBusyRef.current = false;
     }
+    }); // End of FinalizeQueue.enqueue
   }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef, saveCanvasState, activeLayerId, initDrawingCanvas, equidistantPointsOnPolyline, sampleHexAt, resumeColorCycleAfterInteraction]);
   
   // Helper function to render all visible color cycle layers

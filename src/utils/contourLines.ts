@@ -94,14 +94,41 @@ const pointInPolygon = (point: Point, vertices: Point[]): boolean => {
 };
 
 const computeCentroid = (vertices: Point[]): Point => {
-  if (!vertices.length) return { x: 0, y: 0 };
-  let x = 0;
-  let y = 0;
-  for (const v of vertices) {
-    x += v.x;
-    y += v.y;
+  const n = vertices.length;
+  if (n === 0) return { x: 0, y: 0 };
+  if (n < 3) {
+    let x = 0;
+    let y = 0;
+    for (const v of vertices) {
+      x += v.x;
+      y += v.y;
+    }
+    return { x: x / n, y: y / n };
   }
-  return { x: x / vertices.length, y: y / vertices.length };
+  // Shoelace centroid formula for polygons
+  let a = 0;
+  let cx = 0;
+  let cy = 0;
+  for (let i = 0; i < n; i++) {
+    const p = vertices[i];
+    const q = vertices[(i + 1) % n];
+    const cross = p.x * q.y - q.x * p.y;
+    a += cross;
+    cx += (p.x + q.x) * cross;
+    cy += (p.y + q.y) * cross;
+  }
+  a *= 0.5;
+  if (Math.abs(a) < EPSILON) {
+    // Degenerate polygon: fall back to average
+    let x = 0;
+    let y = 0;
+    for (const v of vertices) {
+      x += v.x;
+      y += v.y;
+    }
+    return { x: x / n, y: y / n };
+  }
+  return { x: cx / (6 * a), y: cy / (6 * a) };
 };
 
 

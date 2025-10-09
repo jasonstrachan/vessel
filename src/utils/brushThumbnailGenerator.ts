@@ -285,8 +285,9 @@ function generateSpamTextThumbnail(
   ctx.globalAlpha = 1;
   ctx.lineWidth = strokeWidth;
   const fontSize = Math.round(opts.size * 0.6);
-  ctx.font = `300 ${fontSize}px sans-serif`;
-  ctx.textAlign = 'center';
+  ctx.font = `600 ${fontSize}px "IBM Plex Mono", "Courier New", monospace`;
+  ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText('a', center, center);
+  const offsetX = center - fontSize * 0.4;
+  ctx.fillText('a', offsetX, center);
 }

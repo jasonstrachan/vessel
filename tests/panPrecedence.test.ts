@@ -1,5 +1,5 @@
-import { createPointerHandlers } from '../src/hooks/canvas/handlers/pointerHandlers';
-import type { EventHandlerDependencies } from '../src/hooks/canvas/utils/types';
+import { createPointerHandlers, createDefaultContourLinesState } from '../src/hooks/canvas/handlers/pointerHandlers';
+import type { EventHandlerDependencies, EventHandlerDynamicDeps } from '../src/hooks/canvas/utils/types';
 
 function makeCanvas(width = 800, height = 600) {
   const canvas = document.createElement('canvas');
@@ -18,20 +18,7 @@ function makeDeps(overrides: Partial<EventHandlerDependencies> = {}): EventHandl
   const composite = makeCanvas();
 
   const panState = { offsetX: 0, offsetY: 0, isPanning: false };
-  const deps: any = {
-    // Refs
-    canvasRef: { current: canvas },
-    wrapperRef: { current: document.createElement('div') },
-    overlayCanvasRef: { current: overlay },
-    compositeCanvasRef: { current: composite },
-
-    isBusyRef: { current: false },
-    isMouseDownRef: { current: false },
-    isSpacePressedRef: { current: false },
-    drawAnimationFrameRef: { current: null },
-    pointerMoveThrottled: { current: 0 },
-
-    // State
+  const dynamicDeps: EventHandlerDynamicDeps = {
     project: { width: 800, height: 600 },
     canvas: { width: 800, height: 600, scale: 1, zoom: 1 },
     tools: {
@@ -52,6 +39,22 @@ function makeDeps(overrides: Partial<EventHandlerDependencies> = {}): EventHandl
     selectionStart: null,
     selectionEnd: null,
     floatingPaste: null,
+    isDraggingFloatingPaste: false,
+  };
+
+  const deps: any = {
+    // Refs
+    canvasRef: { current: canvas },
+    wrapperRef: { current: document.createElement('div') },
+    overlayCanvasRef: { current: overlay },
+    compositeCanvasRef: { current: composite },
+    dynamicDepsRef: { current: dynamicDeps },
+
+    isBusyRef: { current: false },
+    isMouseDownRef: { current: false },
+    isSpacePressedRef: { current: false },
+    drawAnimationFrameRef: { current: null },
+    pointerMoveThrottled: { current: 0 },
 
     // Actions
     setSelectionBounds: jest.fn(),
@@ -67,7 +70,6 @@ function makeDeps(overrides: Partial<EventHandlerDependencies> = {}): EventHandl
     cancelFloatingPaste: jest.fn(),
 
     // Drawing state
-    isDraggingFloatingPaste: false,
     setIsDraggingFloatingPaste: jest.fn(),
     floatingPasteDragStart: { current: null },
     floatingPasteOriginalPos: { current: null },
@@ -112,7 +114,49 @@ function makeDeps(overrides: Partial<EventHandlerDependencies> = {}): EventHandl
     snapStrokeStartRef: { current: null },
     snapShiftAnchorRef: { current: null },
     snapLastBrushSampleRef: { current: null },
+    contourLinesStateRef: { current: createDefaultContourLinesState() },
+    contourLinesDefaultsCacheRef: { current: null },
+    contourLinesFinalizingRef: { current: false },
   };
+
+  Object.defineProperties(deps, {
+    project: {
+      get: () => deps.dynamicDepsRef.current.project,
+      set: (value) => { deps.dynamicDepsRef.current.project = value; },
+    },
+    canvas: {
+      get: () => deps.dynamicDepsRef.current.canvas,
+      set: (value) => { deps.dynamicDepsRef.current.canvas = value; },
+    },
+    tools: {
+      get: () => deps.dynamicDepsRef.current.tools,
+      set: (value) => { deps.dynamicDepsRef.current.tools = value; },
+    },
+    layers: {
+      get: () => deps.dynamicDepsRef.current.layers,
+      set: (value) => { deps.dynamicDepsRef.current.layers = value; },
+    },
+    activeLayerId: {
+      get: () => deps.dynamicDepsRef.current.activeLayerId,
+      set: (value) => { deps.dynamicDepsRef.current.activeLayerId = value; },
+    },
+    selectionStart: {
+      get: () => deps.dynamicDepsRef.current.selectionStart,
+      set: (value) => { deps.dynamicDepsRef.current.selectionStart = value; },
+    },
+    selectionEnd: {
+      get: () => deps.dynamicDepsRef.current.selectionEnd,
+      set: (value) => { deps.dynamicDepsRef.current.selectionEnd = value; },
+    },
+    floatingPaste: {
+      get: () => deps.dynamicDepsRef.current.floatingPaste,
+      set: (value) => { deps.dynamicDepsRef.current.floatingPaste = value; },
+    },
+    isDraggingFloatingPaste: {
+      get: () => deps.dynamicDepsRef.current.isDraggingFloatingPaste,
+      set: (value) => { deps.dynamicDepsRef.current.isDraggingFloatingPaste = value; },
+    },
+  });
 
   return { ...deps, ...overrides } as EventHandlerDependencies;
 }
@@ -142,7 +186,7 @@ function makePointerEvent(type: 'down' | 'move' | 'up', target: HTMLCanvasElemen
 describe('Space pan precedence', () => {
   it('starts pan on pointerdown when space is held (shape mode on) and skips shape branch', () => {
     const deps = makeDeps();
-    (deps.tools as any).shapeMode = true;
+    (deps.dynamicDepsRef.current.tools as any).shapeMode = true;
     const { handlePointerDown } = createPointerHandlers(deps);
 
     deps.isSpacePressedRef.current = true;
@@ -157,7 +201,7 @@ describe('Space pan precedence', () => {
 
   it('when already drawing shape, holding space then moving starts pan and does not add shape points', () => {
     const deps = makeDeps();
-    (deps.tools as any).shapeMode = true;
+    (deps.dynamicDepsRef.current.tools as any).shapeMode = true;
     const { handlePointerMove } = createPointerHandlers(deps);
 
     deps.isMouseDownRef.current = true;

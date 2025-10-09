@@ -12,6 +12,7 @@ const config = {
     'src/**/*.{ts,tsx}',
     '!src/**/*.d.ts',
   ],
+  silent: false,
 };
 
 module.exports = config;

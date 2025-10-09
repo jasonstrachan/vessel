@@ -267,6 +267,16 @@ const LayersPanel: React.FC = () => {
           const gradient = layer.colorCycleData?.gradient || layer.colorCycleData?.recolorSettings?.gradient;
           const isMenuOpen = layerMenuState?.layerId === layer.id;
           const sliderPercent = Math.round(layer.opacity * 100);
+          const rowVisualClass = isActive
+            ? 'bg-[#D9D9D9] text-[#1A1A1A]'
+            : 'hover:bg-[#383838]/20 text-[#D9D9D9]';
+          const visibleIconClass = layer.visible
+            ? (isActive ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]')
+            : (isActive ? 'text-[#5A5A5A]' : 'text-[#666]');
+          const badgeBackgroundClass = isActive ? 'bg-[#CFCFCF]' : 'bg-[#3A3A3A]';
+          const badgeTextClass = isActive ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]';
+          const deleteButtonColor = isActive ? 'text-[#5A5A5A]' : 'text-[#666]';
+          const hoverDeleteColor = isActive ? 'hover:text-red-600' : 'hover:text-red-500';
 
           return (
             <div
@@ -283,7 +293,7 @@ const LayersPanel: React.FC = () => {
                 });
               }}
               className={`group relative border-b border-[#404040] ${
-                isActive ? 'bg-[#3A3A42]' : 'hover:bg-[#383838]/20'
+                rowVisualClass
               } ${draggedLayerId === layer.id ? 'opacity-50 shadow-lg' : ''} ${
                 isMenuOpen ? 'z-30' : ''
               } cursor-pointer transition-colors`}
@@ -303,8 +313,8 @@ const LayersPanel: React.FC = () => {
                     handleToggleVisibility(layer.id);
                   }}
                   className={`mr-1 flex h-4 w-4 items-center justify-center ${
-                    layer.visible ? 'text-[#D9D9D9]' : 'text-[#666]'
-                  } hover:text-white`}
+                    visibleIconClass
+                  } ${isActive ? 'hover:text-[#000]' : 'hover:text-white'}`}
                   title={layer.visible ? 'Hide Layer' : 'Show Layer'}
                 >
                   {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
@@ -330,13 +340,13 @@ const LayersPanel: React.FC = () => {
                   <div className="flex items-center gap-1">
                     {isColorCycle ? (
                       <>
-                        <span className="px-1 text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9]">CC</span>
-                        <span className="px-1 text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9]">
+                        <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>CC</span>
+                        <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>
                           {layer.colorCycleData?.mode === 'recolor' ? 'Recolor' : 'Brush'}
                         </span>
                       </>
                     ) : (
-                      <span className="px-1 text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9]">Regular</span>
+                      <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>Regular</span>
                     )}
                   </div>
                 </div>
@@ -348,7 +358,7 @@ const LayersPanel: React.FC = () => {
                         event.stopPropagation();
                         handleDeleteLayer(layer.id);
                       }}
-                      className="flex h-4 w-4 items-center justify-center text-[#666] transition-opacity hover:text-red-500 group-hover:opacity-100 opacity-0"
+                      className={`flex h-4 w-4 items-center justify-center transition-opacity ${deleteButtonColor} ${hoverDeleteColor} group-hover:opacity-100 opacity-0`}
                       title="Delete Layer"
                     >
                       ×

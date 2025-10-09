@@ -15,6 +15,7 @@ import {
   type ShapeFillOptions,
 } from '@/brushes/shapes/fills/contourPolygon';
 import { drawCrossHatchPolygon as drawCrossHatchPolygonFill } from '@/brushes/shapes/fills/hatch';
+import { drawDelaunayPolygon as drawDelaunayPolygonFill } from '@/brushes/shapes/fills/delaunayPolygon';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
 import { ShapeFillScheduler } from '@/lib/shapeFill/ShapeFillScheduler';
@@ -1036,6 +1037,24 @@ export const useBrushEngineSimplified = () => {
   ]);
 
   /**
+   * Draw Delaunay polygon - fills with triangulated network of lines
+   */
+  const drawDelaunayPolygon = useCallback((
+    ctx: CanvasRenderingContext2D,
+    polygonData: { vertices: Array<{ x: number; y: number }>; fillColor?: string },
+    isPreview: boolean = false,
+    options?: ShapeFillOptions
+  ) => {
+    drawDelaunayPolygonFill({
+      ctx,
+      polygonData,
+      brushSettings: tools.brushSettings,
+      isPreview,
+      options,
+    });
+  }, [tools.brushSettings]);
+
+  /**
    * Initialize Color Cycle Brush for the active layer
    */
   const initializeColorCycleBrush = useCallback(() => {
@@ -1652,6 +1671,7 @@ export const useBrushEngineSimplified = () => {
     drawPolygonGradient,
     drawContourPolygon,
     drawCrossHatchPolygon,
+    drawDelaunayPolygon,
     
     // Color cycle brush
     drawColorCycle,

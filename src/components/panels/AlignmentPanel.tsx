@@ -359,7 +359,15 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
             </div>
           </div>
 
-          <div className="mt-1.5">
+          <div
+            className="mt-1.5"
+            style={{
+              opacity: offsetDisabled ? 0 : 1,
+              pointerEvents: offsetDisabled ? 'none' : 'auto',
+              transition: 'opacity 120ms ease'
+            }}
+            aria-hidden={offsetDisabled}
+          >
             <span className={`${labelClass} block`}>Offset</span>
             <div className="grid grid-cols-2 gap-1.5">
               <label className={`${labelClass} flex flex-col`}>
@@ -369,7 +377,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
                   className={`${fieldClass} text-center`}
                   value={alignment ? offset.x : 0}
                   onChange={event => handleOffsetChange('x', Number(event.target.value))}
-                  disabled={offsetDisabled}
+                  tabIndex={offsetDisabled ? -1 : 0}
                 />
               </label>
               <label className={`${labelClass} flex flex-col`}>
@@ -379,7 +387,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
                   className={`${fieldClass} text-center`}
                   value={alignment ? offset.y : 0}
                   onChange={event => handleOffsetChange('y', Number(event.target.value))}
-                  disabled={offsetDisabled}
+                  tabIndex={offsetDisabled ? -1 : 0}
                 />
               </label>
             </div>

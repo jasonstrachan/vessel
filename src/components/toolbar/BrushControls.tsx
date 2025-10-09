@@ -1117,7 +1117,9 @@ const BrushControls = () => {
   }
 
   if (activeSettings.brushShape === BrushShape.NEW_SHAPE_FILL) {
-    const activeMode = activeSettings.shapeGradientMode === 'crosshatch' ? 'hatch' : 'contour';
+    const activeMode = activeSettings.shapeGradientMode === 'crosshatch' ? 'hatch'
+      : activeSettings.shapeGradientMode === 'triangle' ? 'triangle'
+      : 'contour';
     const contourSpacing = activeSettings.contourSpacing ?? 6;
     const contourVariance = activeSettings.contourVariance ?? 0.35;
     const contourSmoothness = activeSettings.contourSmoothness ?? 0.65;
@@ -1132,11 +1134,14 @@ const BrushControls = () => {
             options={[
               { label: 'Contour', value: 'contour' },
               { label: 'Hatch', value: 'hatch' },
+              { label: 'Triangle', value: 'triangle' },
             ]}
             value={activeMode}
             onChange={(value) => {
               setActiveSettings({
-                shapeGradientMode: value === 'hatch' ? 'crosshatch' : 'contour',
+                shapeGradientMode: value === 'hatch' ? 'crosshatch'
+                  : value === 'triangle' ? 'triangle'
+                  : 'contour',
               });
             }}
             className="w-full"

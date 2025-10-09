@@ -8,6 +8,71 @@ import { withTemporaryBrushSettings } from '@/utils/withTemporaryBrushSettings';
 import { ShapeAdjustHelper, type ShapeAdjustHelperUpdate } from '@/lib/shapeFill/ShapeAdjustHelper';
 import { getShapeFillScheduler } from '@/lib/shapeFill/runtime';
 import type { ShapeFillOptions } from '@/brushes/shapes/fills/types';
+import { OpController, CanvasManager } from '@/lib/canvas';
+import { debugLog } from '@/utils/debug';
+
+const CONTOUR_DEBUG_STORAGE_KEY = 'vessel.debug.contour';
+
+const isContourDebugEnabled = () => {
+  if (typeof globalThis === 'undefined') return false;
+  const globalAny = globalThis as typeof globalThis & { __CONTOUR_DEBUG?: boolean; localStorage?: Storage };
+  if (typeof globalAny.__CONTOUR_DEBUG === 'boolean') {
+    return globalAny.__CONTOUR_DEBUG;
+  }
+  try {
+    const stored = globalAny.localStorage?.getItem(CONTOUR_DEBUG_STORAGE_KEY);
+    if (stored != null) {
+      const enabled = stored === '1';
+      globalAny.__CONTOUR_DEBUG = enabled;
+      return enabled;
+    }
+  } catch {
+    // ignore storage issues
+  }
+  const fallback = process.env.NODE_ENV !== 'production';
+  globalAny.__CONTOUR_DEBUG = fallback;
+  return fallback;
+};
+
+const ensureContourDebugBridge = () => {
+  if (typeof globalThis === 'undefined') return;
+  const globalAny = globalThis as typeof globalThis & { __CONTOUR_DEBUG?: boolean; __setContourDebug?: (enabled: boolean) => void; localStorage?: Storage };
+  if (!globalAny.__setContourDebug) {
+    globalAny.__setContourDebug = (enabled: boolean) => {
+      globalAny.__CONTOUR_DEBUG = enabled;
+      try {
+        globalAny.localStorage?.setItem(CONTOUR_DEBUG_STORAGE_KEY, enabled ? '1' : '0');
+      } catch {
+        // storage may fail silently
+      }
+      console.info('[ContourShape]', `Contour debug ${enabled ? 'enabled' : 'disabled'}`);
+    };
+  }
+
+  if (typeof globalAny.__CONTOUR_DEBUG !== 'boolean') {
+    try {
+      const stored = globalAny.localStorage?.getItem(CONTOUR_DEBUG_STORAGE_KEY);
+      if (stored != null) {
+        globalAny.__CONTOUR_DEBUG = stored === '1';
+      } else {
+        globalAny.__CONTOUR_DEBUG = process.env.NODE_ENV !== 'production';
+      }
+    } catch {
+      globalAny.__CONTOUR_DEBUG = process.env.NODE_ENV !== 'production';
+    }
+  }
+};
+
+ensureContourDebugBridge();
+
+const contourDebug = (label: string, payload?: Record<string, unknown>) => {
+  if (!isContourDebugEnabled()) return;
+  if (payload) {
+    console.debug('[ContourShape]', label, payload);
+  } else {
+    console.debug('[ContourShape]', label);
+  }
+};
 
 export interface ShapeToolHandlerContext {
   deps: EventHandlerDependencies;
@@ -73,9 +138,61 @@ export const createShapeToolHandler = (
     feedback,
   } = context.deps;
 
+  const logShapeSnapshot = (label: string, extra: Record<string, unknown> = {}) => {
+    if (!isContourDebugEnabled()) return;
+    const snapshot = context.deps.dynamicDepsRef.current;
+    contourDebug(label, {
+      tool: snapshot.tools.currentTool,
+      brushShape: snapshot.tools.brushSettings.brushShape,
+      activeLayerId: snapshot.activeLayerId,
+      projectSize: snapshot.project ? `${snapshot.project.width}x${snapshot.project.height}` : null,
+      ...extra,
+    });
+  };
+
   const restartColorCycleAnimation = context.deps.restartColorCycleAnimation;
 
+  // Operation tracking and canvas management
+  const opController = new OpController();
+  const canvasManager = new CanvasManager();
+
   let shapeAdjustHelper: ShapeAdjustHelper | null = null;
+  let currentPreviewCleanup: (() => void) | null = null;
+
+  const logShapeFillEvent = (label: string, extra: Record<string, unknown> = {}) => {
+    const store = useAppStore.getState();
+    const polygonState = store.polygonGradientState;
+    const toolsState = store.tools;
+    const payload = {
+      label,
+      mode: polygonState.mode,
+      drawingState: polygonState.drawingState,
+      vertexCount: polygonState.vertices?.length ?? 0,
+      shapePointCount: drawingHandlers.shapePointsRef.current.length,
+      isDrawingShape: drawingHandlers.isDrawingShapeRef.current,
+      shapeModeEnabled: toolsState.shapeMode,
+      currentTool: toolsState.currentTool,
+      brushShape: toolsState.brushSettings.brushShape,
+      previewOpId: opController.latestPreviewId,
+      previewHasContent: canvasManager.hasPreviewContent(),
+      finalHasContent: canvasManager.hasFinalContent(),
+      hasPreviewCleanup: Boolean(currentPreviewCleanup),
+      ...extra,
+    };
+    contourDebug(label, payload);
+    debugLog('shape-fill', label, payload);
+  };
+
+  const logShapeModeGuard = (source: string) => {
+    const store = useAppStore.getState();
+    if (!store.tools.shapeMode) {
+      logShapeFillEvent('shape-fill-shape-mode-disabled', {
+        source,
+        currentTool: store.tools.currentTool,
+        brushShape: store.tools.brushSettings.brushShape,
+      });
+    }
+  };
 
   const normalizeOrientation = (value: number): number => ((value % 360) + 360) % 360;
   const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
@@ -124,7 +241,11 @@ export const createShapeToolHandler = (
       tempOrientation: update.orientation != null ? normalizeOrientation(update.orientation) : update.orientation,
       tempNoiseStrength: update.noiseStrength,
     });
-    drawFlowPreview(update.spacing, { isPreview: true });
+    // Clean up any previous preview before starting new one
+    if (currentPreviewCleanup) {
+      currentPreviewCleanup();
+    }
+    currentPreviewCleanup = drawFlowPreview(update.spacing, { isPreview: true });
     dispatchFlowJobUpdate(update, false);
   };
 
@@ -150,7 +271,11 @@ export const createShapeToolHandler = (
 
     useAppStore.getState().setBrushSettings(patch);
     dispatchFlowJobUpdate(update, true);
-    drawFlowPreview(update.spacing, { isPreview: false });
+    // Clean up any previous preview before starting new one
+    if (currentPreviewCleanup) {
+      currentPreviewCleanup();
+    }
+    currentPreviewCleanup = drawFlowPreview(update.spacing, { isPreview: false });
   };
 
   const computeWorldPointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -166,10 +291,21 @@ export const createShapeToolHandler = (
   };
 
   const resetPolygonAdjustmentState = () => {
+    // Clean up any active preview
+    if (currentPreviewCleanup) {
+      currentPreviewCleanup();
+      currentPreviewCleanup = null;
+    }
+
     if (shapeAdjustHelper) {
       shapeAdjustHelper.destroy();
       shapeAdjustHelper = null;
     }
+
+    // Reset operation tracking
+    opController.reset();
+    canvasManager.reset();
+
     useAppStore.getState().setPolygonGradientState({
       drawingState: 'idle',
       points: [],
@@ -264,43 +400,106 @@ export const createShapeToolHandler = (
     return true;
   };
 
-  const drawContourPreview = (spacing: number, strokeColorOverride?: string) => {
+  const drawContourPreview = (spacing: number, strokeColorOverride?: string): (() => void) => {
     const currentState = useAppStore.getState();
     const { polygonGradientState } = currentState;
     const vertices = polygonGradientState.vertices;
-    if (!vertices || vertices.length < 3 || !brushEngine) return;
 
-    const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
-    if (!drawCtx) return;
+    const drawCanvas = drawingHandlers.drawingCanvasRef.current;
+    if (!vertices || vertices.length < 3 || !brushEngine || !drawCanvas) {
+      return () => {}; // No-op cleanup
+    }
 
-    drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+    const drawCtx = drawCanvas.getContext('2d', { willReadFrequently: true });
+    if (!drawCtx) {
+      return () => {}; // No-op cleanup
+    }
 
-    brushEngine.drawContourPolygon(
-      drawCtx,
-      {
-        vertices,
-        fillColor: polygonGradientState.fillColor,
-      },
-      false,
-      {
-        spacingOverride: spacing,
-        strokeColorOverride,
+    // Get operation ID and start preview
+    const { id, token } = opController.newPreview();
+    canvasManager.startPreview(id, drawCanvas);
+    logShapeFillEvent('shape-fill-preview-start', {
+      previewId: id,
+      previewKind: 'contour',
+      spacing,
+      strokeColorOverride,
+    });
+
+    // Compute transforms once (for future use in async operations)
+    // const spaces = getCurrentSpaces(viewTransformRef);
+
+    // Run async preview (in this case it's actually sync, but structure for future async)
+    const runPreview = () => {
+      if (token.cancelled || !opController.isCurrentPreview(id)) {
+        return;
       }
-    );
 
-    drawingHandlers.drawingCanvasHasContent.current = true;
+      brushEngine.drawContourPolygon(
+        drawCtx,
+        {
+          vertices,
+          fillColor: polygonGradientState.fillColor,
+        },
+        false,
+        {
+          spacingOverride: spacing,
+          strokeColorOverride,
+        }
+      );
+
+      if (token.cancelled || !opController.isCurrentPreview(id)) {
+        return;
+      }
+
+      const committed = canvasManager.commitPreview(id);
+      logShapeFillEvent('shape-fill-preview-commit', {
+        previewId: id,
+        previewKind: 'contour',
+        committed,
+      });
+    };
+
+    runPreview();
+
+    // Return cleanup function
+    return () => {
+      token.cancelled = true;
+      const isCurrent = opController.isCurrentPreview(id);
+      if (isCurrent) {
+        canvasManager.clearPreview(drawCanvas);
+      }
+      logShapeFillEvent('shape-fill-preview-clear', {
+        previewId: id,
+        previewKind: 'contour',
+        cleared: isCurrent,
+      });
+    };
   };
 
-  const drawCrosshatchPreview = (rotation: number, spacing: number) => {
+  const drawCrosshatchPreview = (rotation: number, spacing: number): (() => void) => {
     const currentState = useAppStore.getState();
     const { polygonGradientState } = currentState;
     const vertices = polygonGradientState.vertices;
-    if (!vertices || vertices.length < 3 || !brushEngine) return;
 
-    const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
-    if (!drawCtx) return;
+    const drawCanvas = drawingHandlers.drawingCanvasRef.current;
+    if (!vertices || vertices.length < 3 || !brushEngine || !drawCanvas) {
+      return () => {}; // No-op cleanup
+    }
 
-    drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+    const drawCtx = drawCanvas.getContext('2d', { willReadFrequently: true });
+    if (!drawCtx) {
+      return () => {}; // No-op cleanup
+    }
+
+    // Get operation ID and start preview
+    const { id, token } = opController.newPreview();
+    canvasManager.startPreview(id, drawCanvas);
+    logShapeFillEvent('shape-fill-preview-start', {
+      previewId: id,
+      previewKind: 'crosshatch',
+      rotation,
+      spacing,
+    });
 
     const brushSettings = currentState.tools.brushSettings;
     const lineWidthOverride = brushSettings.shapeFillLineWidth
@@ -320,6 +519,10 @@ export const createShapeToolHandler = (
       currentState.tools.brushSettings,
       patch,
       (tempSettings) => {
+        if (token.cancelled || !opController.isCurrentPreview(id)) {
+          return;
+        }
+
         brushEngine.drawCrossHatchPolygon(
           drawCtx,
           {
@@ -331,27 +534,53 @@ export const createShapeToolHandler = (
           },
           false
         );
+
+        if (!token.cancelled && opController.isCurrentPreview(id)) {
+          const committed = canvasManager.commitPreview(id);
+          logShapeFillEvent('shape-fill-preview-commit', {
+            previewId: id,
+            previewKind: 'crosshatch',
+            committed,
+            rotation,
+            spacing,
+          });
+        }
       }
     );
 
-    drawingHandlers.drawingCanvasHasContent.current = true;
+    // Return cleanup function
+    return () => {
+      token.cancelled = true;
+      const isCurrent = opController.isCurrentPreview(id);
+      if (isCurrent) {
+        canvasManager.clearPreview(drawCanvas);
+      }
+      logShapeFillEvent('shape-fill-preview-clear', {
+        previewId: id,
+        previewKind: 'crosshatch',
+        cleared: isCurrent,
+      });
+    };
   };
 
-  const drawFlowPreview = (seedSpacing: number, options?: { isPreview?: boolean }) => {
+  const drawFlowPreview = (seedSpacing: number, options?: { isPreview?: boolean }): (() => void) => {
     const currentState = useAppStore.getState();
     const { polygonGradientState } = currentState;
     const vertices = polygonGradientState.vertices;
 
-    if (!vertices || vertices.length < 3 || !brushEngine) {
-      return;
+    const drawCanvas = drawingHandlers.drawingCanvasRef.current;
+    if (!vertices || vertices.length < 3 || !brushEngine || !drawCanvas) {
+      return () => {}; // No-op cleanup
     }
 
-    const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
+    const drawCtx = drawCanvas.getContext('2d', { willReadFrequently: true });
     if (!drawCtx) {
-      return;
+      return () => {}; // No-op cleanup
     }
 
-    drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+    // Get operation ID and start preview
+    const { id, token } = opController.newPreview();
+    canvasManager.startPreview(id, drawCanvas);
 
     const strokeColorOverride = shapeFillUsesSampledColor() && polygonGradientState.fillColor
       ? polygonGradientState.fillColor
@@ -386,11 +615,22 @@ export const createShapeToolHandler = (
     });
 
     const isPreview = options?.isPreview ?? false;
+    logShapeFillEvent('shape-fill-preview-start', {
+      previewId: id,
+      previewKind: 'flow',
+      seedSpacing,
+      isPreview,
+      strokeColorOverride,
+    });
 
     withTemporaryBrushSettings(
       currentState.tools.brushSettings,
       patch,
       () => {
+        if (token.cancelled || !opController.isCurrentPreview(id)) {
+          return;
+        }
+
         brushEngine.drawContourPolygon(
           drawCtx,
           {
@@ -400,10 +640,33 @@ export const createShapeToolHandler = (
           isPreview,
           lineOptions
         );
+
+        if (!token.cancelled && opController.isCurrentPreview(id)) {
+          const committed = canvasManager.commitPreview(id);
+          logShapeFillEvent('shape-fill-preview-commit', {
+            previewId: id,
+            previewKind: 'flow',
+            committed,
+            seedSpacing,
+            isPreview,
+          });
+        }
       }
     );
 
-    drawingHandlers.drawingCanvasHasContent.current = true;
+    // Return cleanup function
+    return () => {
+      token.cancelled = true;
+      const isCurrent = opController.isCurrentPreview(id);
+      if (isCurrent) {
+        canvasManager.clearPreview(drawCanvas);
+      }
+      logShapeFillEvent('shape-fill-preview-clear', {
+        previewId: id,
+        previewKind: 'flow',
+        cleared: isCurrent,
+      });
+    };
   };
 
   type PreviewStrokePalette = {
@@ -663,7 +926,11 @@ export const createShapeToolHandler = (
             ));
 
             useAppStore.getState().setPolygonGradientState({ tempSpacing: newSpacing });
-            drawContourPreview(newSpacing, currentState.fillColor);
+            // Clean up any previous preview before starting new one
+            if (currentPreviewCleanup) {
+              currentPreviewCleanup();
+            }
+            currentPreviewCleanup = drawContourPreview(newSpacing, currentState.fillColor);
             previewRef.current = null;
           });
         }
@@ -689,7 +956,11 @@ export const createShapeToolHandler = (
       ));
 
       useAppStore.getState().setPolygonGradientState({ tempSpacing: newSpacing });
-      drawContourPreview(newSpacing, polygonState.fillColor);
+      // Clean up any previous preview before starting new one
+      if (currentPreviewCleanup) {
+        currentPreviewCleanup();
+      }
+      currentPreviewCleanup = drawContourPreview(newSpacing, polygonState.fillColor);
       return true;
     }
 
@@ -740,7 +1011,11 @@ export const createShapeToolHandler = (
               currentState.tempSpacing ?? tools.brushSettings.crossHatchSpacing ?? 10
             );
 
-            drawCrosshatchPreview(newRotation, spacingForPreview);
+            // Clean up any previous preview before starting new one
+            if (currentPreviewCleanup) {
+              currentPreviewCleanup();
+            }
+            currentPreviewCleanup = drawCrosshatchPreview(newRotation, spacingForPreview);
             previewRef.current = null;
           });
         }
@@ -754,7 +1029,11 @@ export const createShapeToolHandler = (
       const spacingForPreview = clampCrosshatchSpacing(
         polygonState.tempSpacing ?? tools.brushSettings.crossHatchSpacing ?? 10
       );
-      drawCrosshatchPreview(newRotation, spacingForPreview);
+      // Clean up any previous preview before starting new one
+      if (currentPreviewCleanup) {
+        currentPreviewCleanup();
+      }
+      currentPreviewCleanup = drawCrosshatchPreview(newRotation, spacingForPreview);
       return true;
     }
 
@@ -802,7 +1081,11 @@ export const createShapeToolHandler = (
             useAppStore.getState().setPolygonGradientState({ tempSpacing: newSpacing });
 
             const rotationForPreview = currentState.tempRotation ?? tools.brushSettings.crossHatchRotation ?? 45;
-            drawCrosshatchPreview(rotationForPreview, newSpacing);
+            // Clean up any previous preview before starting new one
+            if (currentPreviewCleanup) {
+              currentPreviewCleanup();
+            }
+            currentPreviewCleanup = drawCrosshatchPreview(rotationForPreview, newSpacing);
             previewRef.current = null;
           });
         }
@@ -832,14 +1115,18 @@ export const createShapeToolHandler = (
       useAppStore.getState().setPolygonGradientState({ tempSpacing: newSpacing });
 
       const rotationForPreview = polygonState.tempRotation ?? tools.brushSettings.crossHatchRotation ?? 45;
-      drawCrosshatchPreview(rotationForPreview, newSpacing);
+      // Clean up any previous preview before starting new one
+      if (currentPreviewCleanup) {
+        currentPreviewCleanup();
+      }
+      currentPreviewCleanup = drawCrosshatchPreview(rotationForPreview, newSpacing);
       return true;
     }
 
     return false;
   };
 
-  const handleContourPointerUp = (_event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handleContourPointerUp = () => {
     const polygonState = useAppStore.getState().polygonGradientState;
     if (
       polygonState.mode !== 'contour' ||
@@ -855,13 +1142,38 @@ export const createShapeToolHandler = (
         polygonState.tempSpacing ?? tools.brushSettings.contourSpacing ?? 6
       ));
 
+      contourDebug('pointer-up-commit-spacing', {
+        finalSpacing,
+        tempSpacing: polygonState.tempSpacing,
+        storedSpacing: tools.brushSettings.contourSpacing ?? 6,
+        vertexCount: polygonState.vertices.length,
+      });
+
       setBrushSettings({ contourSpacing: finalSpacing });
 
-      drawContourPreview(finalSpacing, polygonState.fillColor);
-      // drawingCanvasHasContent is set by drawContourPreview
+      // The last preview has the final content on drawing canvas
+      // Commit it and mark composite as dirty for finalization
+      const previewId = opController.latestPreviewId;
+      const previewCommitted = canvasManager.commitPreview(previewId);
+      logShapeFillEvent('shape-fill-preview-finalize', {
+        previewId,
+        committed: previewCommitted,
+        source: 'contour-spacing-pointer-up',
+      });
       context.deps.compositeCanvasDirtyRef.current = true;
 
-      drawingHandlers.finalizeShapeDrawing().then(() => {
+      logShapeModeGuard('contour-adjust-spacing');
+      const finalizePromise = drawingHandlers.finalizeShapeDrawing();
+      logShapeFillEvent('shape-fill-finalize-request', {
+        source: 'contour-adjust-spacing',
+      });
+      finalizePromise.then(() => {
+        logShapeFillEvent('shape-fill-finalize-success', {
+          source: 'contour-adjust-spacing',
+        });
+        contourDebug('finalize-shape-drawing-complete', {
+          vertexCount: polygonState.vertices?.length ?? 0,
+        });
         stateMachine.finalizationComplete();
 
         if (compositeCanvasRef.current && project) {
@@ -877,7 +1189,14 @@ export const createShapeToolHandler = (
         }
 
         resetPolygonAdjustmentState();
+        contourDebug('reset-polygon-adjustment-state');
         interaction.dispatch({ type: 'DRAWING_END' });
+      }).catch(error => {
+        logShapeFillEvent('shape-fill-finalize-error', {
+          source: 'contour-adjust-spacing',
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
       });
       return true;
     }
@@ -924,7 +1243,11 @@ export const createShapeToolHandler = (
         spacingReferenceSpacing: finalSpacing,
       });
 
-      drawCrosshatchPreview(nextRotation, finalSpacing);
+      // Clean up any previous preview before starting new one
+      if (currentPreviewCleanup) {
+        currentPreviewCleanup();
+      }
+      currentPreviewCleanup = drawCrosshatchPreview(nextRotation, finalSpacing);
       context.deps.compositeCanvasDirtyRef.current = true;
       return true;
     }
@@ -938,10 +1261,23 @@ export const createShapeToolHandler = (
 
       setBrushSettings({ crossHatchSpacing: finalSpacing, crossHatchRotation: finalRotation });
 
-      drawCrosshatchPreview(finalRotation, finalSpacing);
+      // Clean up any previous preview before starting new one
+      if (currentPreviewCleanup) {
+        currentPreviewCleanup();
+      }
+      currentPreviewCleanup = drawCrosshatchPreview(finalRotation, finalSpacing);
       context.deps.compositeCanvasDirtyRef.current = true;
 
-      drawingHandlers.finalizeShapeDrawing().then(() => {
+      logShapeModeGuard('crosshatch-adjust-rotation');
+      const finalizePromise = drawingHandlers.finalizeShapeDrawing();
+      logShapeFillEvent('shape-fill-finalize-request', {
+        source: 'crosshatch-adjust-rotation',
+        previewId: opController.latestPreviewId,
+      });
+      finalizePromise.then(() => {
+        logShapeFillEvent('shape-fill-finalize-success', {
+          source: 'crosshatch-adjust-rotation',
+        });
         stateMachine.finalizationComplete();
 
         if (compositeCanvasRef.current && project) {
@@ -955,6 +1291,12 @@ export const createShapeToolHandler = (
         if (restartColorCycleAnimation) {
           restartColorCycleAnimation();
         }
+      }).catch(error => {
+        logShapeFillEvent('shape-fill-finalize-error', {
+          source: 'crosshatch-adjust-rotation',
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
       });
 
       resetPolygonAdjustmentState();
@@ -1076,7 +1418,16 @@ export const createShapeToolHandler = (
     shapeAdjustHelper = null;
     context.deps.compositeCanvasDirtyRef.current = true;
 
-    drawingHandlers.finalizeShapeDrawing().then(() => {
+    logShapeModeGuard('flow-adjust-spacing');
+    const finalizePromise = drawingHandlers.finalizeShapeDrawing();
+    logShapeFillEvent('shape-fill-finalize-request', {
+      source: 'flow-adjust-spacing',
+      previewId: opController.latestPreviewId,
+    });
+    finalizePromise.then(() => {
+      logShapeFillEvent('shape-fill-finalize-success', {
+        source: 'flow-adjust-spacing',
+      });
       stateMachine.finalizationComplete();
 
       if (compositeCanvasRef.current && project) {
@@ -1090,6 +1441,12 @@ export const createShapeToolHandler = (
       if (restartColorCycleAnimation) {
         restartColorCycleAnimation();
       }
+    }).catch(error => {
+      logShapeFillEvent('shape-fill-finalize-error', {
+        source: 'flow-adjust-spacing',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     });
 
     resetPolygonAdjustmentState();
@@ -1112,6 +1469,11 @@ export const createShapeToolHandler = (
   const polygonShapePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (event.button !== 0) return false;
 
+    logShapeSnapshot('shape-pointer-down', {
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+    });
+
     const isPolygonGradient = isPolygonGradientBrush();
     const isContourPolygon = isContourPolygonBrush();
     const isCCShape = isColorCycleShapeBrush();
@@ -1126,6 +1488,10 @@ export const createShapeToolHandler = (
       polygonState.drawingState === 'adjustingRotation' ||
       polygonState.drawingState === 'adjustingSpacing'
     ) {
+      contourDebug('skip-pointer-down-during-adjustment', {
+        drawingState: polygonState.drawingState,
+        mode: polygonState.mode,
+      });
       return false;
     }
 
@@ -1414,8 +1780,8 @@ export const createShapeToolHandler = (
         if (shapeMode === 'crosshatch') {
           clearOverlayCanvas();
 
-          // Clear drawing canvas to prevent stale content
-          drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+          // Don't clear drawing canvas - let canvasManager handle preview lifecycle
+          // Manually clearing here can destroy content that's being finalized
 
           useAppStore.getState().setPolygonGradientState({
             drawingState: 'adjustingSpacing',
@@ -1449,8 +1815,8 @@ export const createShapeToolHandler = (
         if (shapeMode === 'flow') {
           clearOverlayCanvas();
 
-          // Clear drawing canvas to prevent stale content
-          drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
+          // Don't clear drawing canvas - let canvasManager handle preview lifecycle
+          // Manually clearing here can destroy content that's being finalized
 
           const initialSpacing = clampFlowSeedSpacing(tools.brushSettings.flowSeedSpacing ?? 18);
           const initialMaxSteps = tools.brushSettings.flowMaxSteps ?? 120;
@@ -1483,7 +1849,11 @@ export const createShapeToolHandler = (
             band: 'spacing',
           }, false);
 
-          drawFlowPreview(initialSpacing, { isPreview: true });
+          // Clean up any previous preview before starting new one
+          if (currentPreviewCleanup) {
+            currentPreviewCleanup();
+          }
+          currentPreviewCleanup = drawFlowPreview(initialSpacing, { isPreview: true });
 
           shapeAdjustHelper?.destroy();
           shapeAdjustHelper = new ShapeAdjustHelper({
@@ -1539,7 +1909,7 @@ export const createShapeToolHandler = (
             useAppStore.getState().tools.brushSettings,
             { triangleFillSize: initialSize },
             () => {
-              brushEngine.drawContourPolygon(
+              brushEngine.drawDelaunayPolygon(
                 drawCtx,
                 {
                   vertices,
@@ -1551,8 +1921,6 @@ export const createShapeToolHandler = (
             }
           );
 
-          drawingHandlers.drawingCanvasHasContent.current = true;
-
           return true;
         }
 
@@ -1560,7 +1928,6 @@ export const createShapeToolHandler = (
         clearOverlayCanvas();
 
         // Clear drawing canvas to prevent stale content from previous shapes
-        const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
         if (drawCtx) {
           drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
         }
@@ -1594,8 +1961,17 @@ export const createShapeToolHandler = (
           spacingReferenceSpacing: initialSpacing,
         });
 
-        drawContourPreview(initialSpacing, strokeColorOverride);
-        // drawingCanvasHasContent is set by drawContourPreview
+        contourDebug('enter-adjusting-spacing', {
+          vertexCount: vertices.length,
+          initialSpacing,
+          fillColor,
+        });
+
+        // Clean up any previous preview before starting new one
+        if (currentPreviewCleanup) {
+          currentPreviewCleanup();
+        }
+        currentPreviewCleanup = drawContourPreview(initialSpacing, strokeColorOverride);
         return true;
       } else {
         const useSampledFill = shapeFillUsesSampledColor();
@@ -1612,13 +1988,20 @@ export const createShapeToolHandler = (
           false
         );
       }
-
-      drawingHandlers.drawingCanvasHasContent.current = true;
     }
 
     compositeCanvasDirtyRef.current = true;
 
-    drawingHandlers.finalizeShapeDrawing().then(() => {
+    logShapeModeGuard('polygon-complete');
+    const finalizePromise = drawingHandlers.finalizeShapeDrawing();
+    logShapeFillEvent('shape-fill-finalize-request', {
+      source: 'polygon-complete',
+      previewId: opController.latestPreviewId,
+    });
+    finalizePromise.then(() => {
+      logShapeFillEvent('shape-fill-finalize-success', {
+        source: 'polygon-complete',
+      });
       stateMachine.finalizationComplete();
 
       if (compositeCanvasRef.current && project) {
@@ -1632,6 +2015,12 @@ export const createShapeToolHandler = (
       if (restartColorCycleAnimation) {
         restartColorCycleAnimation();
       }
+    }).catch(error => {
+      logShapeFillEvent('shape-fill-finalize-error', {
+        source: 'polygon-complete',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     });
 
     resetPolygonAdjustmentState();
@@ -1675,13 +2064,22 @@ export const createShapeToolHandler = (
           );
         }
       );
-
-      drawingHandlers.drawingCanvasHasContent.current = true;
     }
 
     compositeCanvasDirtyRef.current = true;
 
-    drawingHandlers.finalizeShapeDrawing().then(() => {
+    logShapeModeGuard('triangle-size');
+    const finalizePromise = drawingHandlers.finalizeShapeDrawing();
+    logShapeFillEvent('shape-fill-finalize-request', {
+      source: 'triangle-size',
+      previewId: opController.latestPreviewId,
+      finalSize,
+    });
+    finalizePromise.then(() => {
+      logShapeFillEvent('shape-fill-finalize-success', {
+        source: 'triangle-size',
+        finalSize,
+      });
       stateMachine.finalizationComplete();
 
       if (compositeCanvasRef.current && project) {
@@ -1695,6 +2093,12 @@ export const createShapeToolHandler = (
       if (restartColorCycleAnimation) {
         restartColorCycleAnimation();
       }
+    }).catch(error => {
+      logShapeFillEvent('shape-fill-finalize-error', {
+        source: 'triangle-size',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     });
 
     interaction.dispatch({ type: 'DRAWING_END' });
@@ -1727,7 +2131,7 @@ export const createShapeToolHandler = (
         useAppStore.getState().tools.brushSettings,
         patch,
         () => {
-          brushEngine.drawContourPolygon(
+          brushEngine.drawDelaunayPolygon(
             drawCtx,
             {
               vertices,
@@ -1739,7 +2143,6 @@ export const createShapeToolHandler = (
         }
       );
 
-      drawingHandlers.drawingCanvasHasContent.current = true;
       drawingHandlers.finalizeStroke();
     }
 
@@ -1812,7 +2215,7 @@ export const createShapeToolHandler = (
         useAppStore.getState().tools.brushSettings,
         patch,
         () => {
-          brushEngine.drawContourPolygon(
+          brushEngine.drawDelaunayPolygon(
             drawCtx,
             {
               vertices,
@@ -1888,7 +2291,7 @@ export const createShapeToolHandler = (
       if (handleFlowPointerUp(event)) {
         return true;
       }
-      if (handleContourPointerUp(event)) {
+      if (handleContourPointerUp()) {
         return true;
       }
       if (handleCrosshatchPointerUp(event)) {

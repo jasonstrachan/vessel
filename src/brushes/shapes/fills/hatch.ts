@@ -184,9 +184,7 @@ export const drawCrossHatchPolygon = (params: DrawCrossHatchPolygonParams): void
 
   if (!isWebGPUSupported()) {
     const status = getWebGPUSupportStatus();
-    if (status.status === 'unavailable' && status.reason === SHAPE_FILL_GPU_RETIRED_REASON) {
-      debugLog('shape-fill', 'Cross hatch GPU pipeline retired; using CPU renderer.');
-    } else {
+    if (!(status.status === 'unavailable' && status.reason === SHAPE_FILL_GPU_RETIRED_REASON)) {
       const reason = status.status === 'unavailable'
         ? status.reason
         : 'WebGPU support is disabled';

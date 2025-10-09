@@ -57,10 +57,14 @@ const BrushLibrary = () => {
 
   // Generate thumbnails for regular brush presets (client-side only)
   const [brushThumbnails, setBrushThumbnails] = React.useState<Record<string, string>>({});
-  
+
   React.useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
     const thumbnails: Record<string, string> = {};
-    
+
     brushPresets.forEach(preset => {
       if (!preset.isCustomBrush) {
         thumbnails[preset.id] = generateBrushThumbnail(preset, {
@@ -70,7 +74,7 @@ const BrushLibrary = () => {
         });
       }
     });
-    
+
     setBrushThumbnails(thumbnails);
   }, [brushPresets]);
 
@@ -260,7 +264,7 @@ const BrushLibrary = () => {
       <div className="flex-1 py-1 space-y-0 overflow-y-auto">
         {allBrushes.map((preset) => {
           const isSpamBrush = preset.id === 'spam-brush';
-          const iconSizeClass = isSpamBrush ? 'w-10 h-10' : 'w-8 h-8';
+          const iconSizePx = 40;
           const textStyle = {
             fontSize: isSpamBrush ? '13px' : '12px',
             lineHeight: '16px'
@@ -268,22 +272,35 @@ const BrushLibrary = () => {
           const renderFallbackIcon = (shape: 'square' | 'circle' | 'text') => {
             if (shape === 'text') {
               return (
-                <div className={`${iconSizeClass} flex items-center justify-center`} style={{ color: '#D9D9D9', fontSize: isSpamBrush ? '13px' : '10px' }}>
+                <div
+                  className="flex items-center"
+                  style={{
+                    color: '#D9D9D9',
+                    fontSize: isSpamBrush ? '13px' : '11px',
+                    fontFamily: 'IBM Plex Mono, "Courier New", monospace',
+                    paddingLeft: isSpamBrush ? '4px' : '3px',
+                    width: `${iconSizePx}px`,
+                    height: `${iconSizePx}px`,
+                    flexShrink: 0
+                  }}
+                >
                   a
                 </div>
               );
             }
 
-            const sizeRatio = 0.62;
             const borderRadius = shape === 'circle' ? '50%' : '2px';
 
             return (
-              <div className={`${iconSizeClass} flex items-center justify-center`}>
+              <div
+                className="flex items-center justify-center"
+                style={{ width: `${iconSizePx}px`, height: `${iconSizePx}px`, flexShrink: 0 }}
+              >
                 <div
                   style={{
-                    width: `${sizeRatio * 100}%`,
-                    height: `${sizeRatio * 100}%`,
-                    border: '3px solid #D9D9D9',
+                    width: '100%',
+                    height: '100%',
+                    border: '2px solid #D9D9D9',
                     borderRadius,
                     boxSizing: 'border-box'
                   }}
@@ -311,8 +328,9 @@ const BrushLibrary = () => {
                       <img
                         src={preset.thumbnail}
                         alt={`${preset.name} thumbnail`}
-                        className={iconSizeClass}
-                        style={{ imageRendering: 'pixelated' }}
+                        width={iconSizePx}
+                        height={iconSizePx}
+                        style={{ imageRendering: 'pixelated', width: `${iconSizePx}px`, height: `${iconSizePx}px`, display: 'block', flexShrink: 0 }}
                       />
                     ) : (
                       renderFallbackIcon(isSpamBrush ? 'text' : 'square')
@@ -322,8 +340,9 @@ const BrushLibrary = () => {
                     <img
                       src={brushThumbnails[preset.id]}
                       alt={`${preset.name} thumbnail`}
-                      className={iconSizeClass}
-                      style={{ imageRendering: 'auto' }}
+                      width={iconSizePx}
+                      height={iconSizePx}
+                      style={{ imageRendering: 'auto', width: `${iconSizePx}px`, height: `${iconSizePx}px`, display: 'block', flexShrink: 0 }}
                     />
                   ) : (
                     renderFallbackIcon(isSpamBrush ? 'text' : preset.category === 'Pixel Art' ? 'square' : 'circle')
@@ -382,11 +401,12 @@ const BrushLibrary = () => {
                     <img
                       src={brushThumbnails['color-cycle-shape']}
                       alt={`Color cycle + recolor icon`}
-                      className="w-8 h-8"
-                      style={{ imageRendering: 'auto' }}
+                      width={40}
+                      height={40}
+                      style={{ imageRendering: 'auto', width: '40px', height: '40px', display: 'block', flexShrink: 0 }}
                     />
                   ) : (
-                    <div className="w-8 h-8 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '10px' }}>
+                    <div className="w-10 h-10 flex items-center justify-center text-[#D9D9D9]" style={{ fontSize: '12px', flexShrink: 0 }}>
                       □
                     </div>
                   )}

@@ -67,7 +67,7 @@ const Dropdown: React.FC<DropdownProps> = ({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full bg-[#4a4a4a] text-[#D9D9D9] px-2 py-1 text-xs outline-none focus:outline-none flex items-center justify-between"
+        className="w-full bg-transparent border border-[#d9d9d9] text-[#D9D9D9] px-2 py-1 text-xs outline-none focus:outline-none flex items-center justify-between"
       >
         <span className="flex-1 min-w-0 mr-2">
           {renderValue ? renderValue(selectedOption || null) : (selectedOption ? selectedOption.label : placeholder)}
@@ -84,7 +84,7 @@ const Dropdown: React.FC<DropdownProps> = ({
       
       {/* Dropdown menu */}
       {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-[#4a4a4a] shadow-lg">
+        <div className="absolute z-50 w-full mt-1 bg-[#1A1A1A] border border-[#d9d9d9] shadow-lg">
           {options.map((option) => {
             const isSelected = option.value === value;
             return (
