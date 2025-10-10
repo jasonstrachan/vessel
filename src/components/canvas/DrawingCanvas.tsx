@@ -16,6 +16,8 @@ import { setColorCycleAnimationHandlers, getColorCycleAnimationState } from '../
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 import { getPresetStops } from '@/utils/gradientPresets';
+import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
+import { FillStage } from '@/shapeFill/types';
 
 const isColorCycleLayerWithData = (
   layer: Layer | undefined | null
@@ -213,7 +215,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         brushShape === BrushShape.CONTOUR_POLYGON ||
         brushShape === BrushShape.CONTOUR_LINES2 ||
         brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
-        brushShape === BrushShape.SPAM_TEXT) {
+        brushShape === BrushShape.SPAM_TEXT ||
+        brushShape === BrushShape.SHAPE_FILL) {
       return 'crosshair';
     }
     // Color cycle uses standard brush cursor to show size
@@ -614,6 +617,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         didCancel = true;
       }
 
+      if (store.shapeFill.session) {
+        store.cancelShapeFillSession();
+        didCancel = true;
+      }
+
       if (includeFloatingPaste && store.floatingPaste) {
         store.cancelFloatingPaste();
         didCancel = true;
@@ -760,6 +768,53 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
     if (store.rectangleBrushState.drawingState !== 'idle') {
       return finalizeRectangleGradientFromState();
+    }
+
+    if (store.shapeFill.session) {
+      if (store.shapeFill.session.stage === FillStage.AdjustingParam) {
+        store.commitShapeFillParameter();
+      }
+
+      const updatedSession = useAppStore.getState().shapeFill.session;
+      if (!updatedSession || updatedSession.stage === FillStage.Finalized) {
+        const payload = useAppStore.getState().finalizeShapeFillSession();
+        if (payload) {
+          if (!drawingHandlers.drawingCanvasRef.current) {
+            drawingHandlers.initDrawingCanvas();
+          }
+
+          const canvas = drawingHandlers.drawingCanvasRef.current;
+          const ctx = canvas?.getContext('2d');
+          if (canvas && ctx) {
+            ctx.save();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.lineWidth = payload.params.thickness ?? 1;
+            renderFill(ctx, payload.result);
+            ctx.restore();
+
+            drawingHandlers.drawingCanvasHasContent.current = true;
+            await drawingHandlers.finalizeDrawing(false);
+            stateMachine.finalizationComplete();
+
+            const overlayCanvas = overlayCanvasRef.current;
+            overlayCanvas?.getContext('2d')?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+            useAppStore.getState().cancelShapeFillSession();
+
+            if (compositeCanvasRef.current && project) {
+              compositeLayersToCanvas(compositeCanvasRef.current);
+              setCurrentOffscreenCanvas(compositeCanvasRef.current);
+              compositeCanvasDirtyRef.current = false;
+            }
+
+            setNeedsRedraw(prev => prev + 1);
+            interactionDispatch({ type: 'DRAWING_END' });
+            return true;
+          }
+        }
+      }
+
+      return true;
     }
 
     if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
@@ -2288,9 +2343,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     <div
       ref={wrapperRef}
       className="w-full h-full relative"
-      style={{ 
-        overflow: 'hidden', 
-        backgroundColor: '#2a2a2a',
+      style={{
+        overflow: 'hidden',
         cursor: cursorStyle,
         outline: 'none',
         boxShadow: 'none'

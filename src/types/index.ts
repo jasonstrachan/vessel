@@ -240,7 +240,8 @@ export enum BrushShape {
   RESAMPLER = 'resampler',
   COLOR_CYCLE = 'color_cycle',
   COLOR_CYCLE_SHAPE = 'color_cycle_shape',
-  SPAM_TEXT = 'spam_text'
+  SPAM_TEXT = 'spam_text',
+  SHAPE_FILL = 'shape_fill'
 }
 
 export interface CustomBrush {

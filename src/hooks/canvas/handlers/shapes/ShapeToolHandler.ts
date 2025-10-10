@@ -6,8 +6,11 @@ import { snapPointToAngle } from '@/utils/angleSnap';
 import { computeDragScaledValue } from '@/utils/dragScale';
 import { withTemporaryBrushSettings } from '@/utils/withTemporaryBrushSettings';
 import { OpController, CanvasManager } from '@/lib/canvas';
-import { debugLog } from '@/utils/debug';
 import { MIN_LINE_SPACING } from '@/utils/contourLines';
+import { getPreviewRenderer } from '@/shapeFill/paramPreview';
+import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
+import { getFillStrategy } from '@/shapeFill/strategies';
+import { FillStage, type FillParams, type ShapeFillSession } from '@/shapeFill/types';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -250,6 +253,141 @@ export const createShapeToolHandler = (
   };
   let currentPreviewCleanup: (() => void) | null = null;
 
+  const drawShapeFillPreview = (session: ShapeFillSession | null) => {
+    const overlayCanvas = overlayCanvasRef.current;
+    if (!overlayCanvas) return;
+    const overlayCtx = overlayCanvas.getContext('2d');
+    if (!overlayCtx) return;
+
+    const { scale, offsetX, offsetY } = viewTransformRef.current;
+
+    overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+    if (!session || !session.shape || !session.currentParam) {
+      return;
+    }
+
+    const store = useAppStore.getState();
+    const fillId = store.shapeFill.activeFillId;
+    const renderer = getPreviewRenderer(fillId);
+    const strategy = getFillStrategy(fillId);
+    const param = session.currentParam;
+    const paramValue = session.params[param];
+    const defaultValue =
+      typeof strategy.defaults[param] === 'number' ? (strategy.defaults[param] as number) : 0;
+
+    if (param === 'spacing' || param === 'rotation') {
+      return;
+    }
+
+    const value =
+      typeof paramValue === 'number'
+        ? paramValue
+        : (store.shapeFill.paramsByFill[fillId]?.[param] as number | undefined) ?? defaultValue;
+
+    overlayCtx.save();
+    overlayCtx.translate(offsetX, offsetY);
+    overlayCtx.scale(scale, scale);
+    renderer(overlayCtx, session.shape, param, value);
+    overlayCtx.restore();
+  };
+
+  const renderShapeFillLiveResult = (session: ShapeFillSession | null) => {
+    if (!session || !session.shape) {
+      return;
+    }
+
+    if (!drawingHandlers.drawingCanvasRef.current) {
+      drawingHandlers.initDrawingCanvas();
+    }
+
+    const drawingCanvas = drawingHandlers.drawingCanvasRef.current;
+    const drawCtx = drawingCanvas?.getContext('2d');
+    if (!drawingCanvas || !drawCtx) {
+      return;
+    }
+
+    const store = useAppStore.getState();
+    const fillId = store.shapeFill.activeFillId;
+    const strategy = getFillStrategy(fillId);
+    const mergedParams: FillParams = {
+      ...strategy.defaults,
+      ...(store.shapeFill.paramsByFill[fillId] ?? {}),
+      ...session.params,
+    } as FillParams;
+
+    const previewResult = strategy.apply(session.shape, mergedParams);
+    drawCtx.save();
+    drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    drawCtx.lineWidth = mergedParams.thickness ?? 1;
+    renderFill(drawCtx, previewResult);
+    // Draw a subtle outline so the shape boundary remains visible.
+    drawCtx.strokeStyle = 'rgba(0,0,0,0.35)';
+    drawCtx.beginPath();
+    drawCtx.moveTo(session.shape.points[0].x, session.shape.points[0].y);
+    for (let i = 1; i < session.shape.points.length; i += 1) {
+      const pt = session.shape.points[i];
+      drawCtx.lineTo(pt.x, pt.y);
+    }
+    drawCtx.closePath();
+    drawCtx.stroke();
+    drawCtx.restore();
+    drawingHandlers.drawingCanvasHasContent.current = true;
+  };
+
+  const finalizeShapeFillResult = async (): Promise<boolean> => {
+    const store = useAppStore.getState();
+    const payload = store.finalizeShapeFillSession();
+    if (!payload) {
+      return false;
+    }
+
+    if (!drawingHandlers.drawingCanvasRef.current) {
+      drawingHandlers.initDrawingCanvas();
+    }
+
+    const drawingCanvas = drawingHandlers.drawingCanvasRef.current;
+    const drawCtx = drawingCanvas?.getContext('2d');
+    if (!drawingCanvas || !drawCtx) {
+      return false;
+    }
+
+    drawCtx.save();
+    drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    drawCtx.lineWidth = payload.params.thickness ?? 1;
+    renderFill(drawCtx, payload.result);
+    drawCtx.strokeStyle = 'rgba(0,0,0,0.35)';
+    if (payload.shape.points.length >= 3) {
+      drawCtx.beginPath();
+      drawCtx.moveTo(payload.shape.points[0].x, payload.shape.points[0].y);
+      for (let i = 1; i < payload.shape.points.length; i += 1) {
+        const pt = payload.shape.points[i];
+        drawCtx.lineTo(pt.x, pt.y);
+      }
+      drawCtx.closePath();
+      drawCtx.stroke();
+    }
+    drawCtx.restore();
+
+    drawingHandlers.drawingCanvasHasContent.current = true;
+    await drawingHandlers.finalizeDrawing();
+
+    stateMachine.finalizationComplete();
+
+    if (compositeCanvasRef.current && project) {
+      compositeLayersToCanvas(compositeCanvasRef.current);
+      setCurrentOffscreenCanvas(compositeCanvasRef.current);
+      compositeCanvasDirtyRef.current = false;
+    }
+
+    clearCurrentPreview();
+    store.cancelShapeFillSession();
+    interaction.dispatch({ type: 'DRAWING_END' });
+    setNeedsRedraw(prev => prev + 1);
+    return true;
+  };
+
   const logShapeFillEvent = (label: string, extra: Record<string, unknown> = {}) => {
     const store = useAppStore.getState();
     const polygonState = store.polygonGradientState;
@@ -271,7 +409,6 @@ export const createShapeToolHandler = (
       ...extra,
     };
     contourDebug(label, payload);
-    debugLog('shape-fill', label, payload);
   };
 
   const logShapeModeGuard = (source: string) => {
@@ -888,6 +1025,7 @@ export const createShapeToolHandler = (
 
   const isPolygonGradientBrush = () => tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT;
   const isColorCycleShapeBrush = () => tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+  const isShapeFillBrush = () => tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
   const isContourPolygonBrush = () => {
     const shape = tools.brushSettings.brushShape;
     return (
@@ -1555,8 +1693,31 @@ export const createShapeToolHandler = (
     const isPolygonGradient = isPolygonGradientBrush();
     const isContourPolygon = isContourPolygonBrush();
     const isCCShape = isColorCycleShapeBrush();
+    const isShapeFill = isShapeFillBrush();
 
-    if (!isPolygonGradient && !isContourPolygon && !isCCShape) {
+    if (isShapeFill) {
+      const store = useAppStore.getState();
+      const session = store.shapeFill.session;
+      if (session && session.stage !== FillStage.Drawing) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (session.stage === FillStage.AdjustingParam) {
+          store.commitShapeFillParameter();
+          const updated = useAppStore.getState().shapeFill.session;
+          renderShapeFillLiveResult(updated ?? null);
+          drawShapeFillPreview(updated ?? null);
+          if (!updated || updated.stage === FillStage.Finalized) {
+            void finalizeShapeFillResult();
+          }
+        } else if (session.stage === FillStage.Finalized) {
+          void finalizeShapeFillResult();
+        }
+        return true;
+      }
+    }
+
+    if (!isPolygonGradient && !isContourPolygon && !isCCShape && !isShapeFill) {
       return false;
     }
 
@@ -1578,11 +1739,19 @@ export const createShapeToolHandler = (
 
     const activeLayer = layers.find(layer => layer.id === activeLayerId);
     const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
-    if ((isColorCycleLayer && !isCCShape) || (!isColorCycleLayer && isCCShape)) {
+    if (!isShapeFill && ((isColorCycleLayer && !isCCShape) || (!isColorCycleLayer && isCCShape))) {
       const message = isColorCycleLayer
         ? "Can't use regular polygon/contour on a Color Cycle layer. Select a Color Cycle shape, or switch layers."
         : "Can't use Color Cycle shape on a normal layer. Create/select a Color Cycle layer.";
       feedback?.(message);
+      return true;
+    }
+
+    if (isShapeFill) {
+      useAppStore.getState().cancelShapeFillSession();
+      clearCurrentPreview();
+      interaction.dispatch({ type: 'DRAWING_START' });
+      drawingHandlers.startShapeDrawing(worldPos, pressure);
       return true;
     }
 
@@ -1603,12 +1772,13 @@ export const createShapeToolHandler = (
     const isPolygonGradient = isPolygonGradientBrush();
     const isContourPolygon = isContourPolygonBrush();
     const isCCShape = isColorCycleShapeBrush();
+    const isShapeFill = isShapeFillBrush();
     const isShapePreviewActive =
       tools.shapeMode &&
       drawingHandlers.isDrawingShapeRef.current &&
       drawingHandlers.shapePointsRef.current.length > 0;
 
-    if (!isPolygonGradient && !isContourPolygon && !isCCShape && !isShapePreviewActive) {
+    if (!isPolygonGradient && !isContourPolygon && !isCCShape && !isShapeFill && !isShapePreviewActive) {
       return false;
     }
 
@@ -1623,6 +1793,23 @@ export const createShapeToolHandler = (
         const anchor = points[points.length - 1];
         previewWorld = snapPointToAngle(anchor, previewWorld, 45);
       }
+    }
+
+    if (isShapeFill) {
+      if ((event.buttons & 1) === 1 && drawingHandlers.isDrawingShapeRef.current) {
+        drawingHandlers.continueShapeDrawing(previewWorld);
+      }
+
+      const store = useAppStore.getState();
+      const session = store.shapeFill.session;
+      if (session && session.stage === FillStage.AdjustingParam) {
+        store.updateShapeFillCursor(previewWorld);
+        const updatedSession = useAppStore.getState().shapeFill.session;
+        renderShapeFillLiveResult(updatedSession ?? null);
+        drawShapeFillPreview(updatedSession ?? null);
+        return true;
+      }
+      // Continue to shared preview logic so shape outline renders while drawing.
     }
 
     let shouldShowPreview: boolean;
@@ -1827,6 +2014,25 @@ export const createShapeToolHandler = (
   const polygonShapePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const isPolygonGradient = isPolygonGradientBrush();
     const isContourPolygon = isContourPolygonBrush();
+    const isShapeFill = isShapeFillBrush();
+
+    if (isShapeFill) {
+      if (drawingHandlers.isDrawingShapeRef.current && drawingHandlers.shapePointsRef.current.length >= 3) {
+        const points = drawingHandlers.shapePointsRef.current.map(point => ({ x: point.x, y: point.y }));
+        useAppStore.getState().beginShapeFillSession(points);
+    drawingHandlers.isDrawingShapeRef.current = false;
+    drawingHandlers.shapePointsRef.current = [];
+    const session = useAppStore.getState().shapeFill.session;
+    if (session?.stage === FillStage.AdjustingParam) {
+      renderShapeFillLiveResult(session);
+    }
+    drawShapeFillPreview(session ?? null);
+    if (!session || session.stage === FillStage.Finalized) {
+      void finalizeShapeFillResult();
+    }
+  }
+      return true;
+    }
 
     if (!isPolygonGradient && !isContourPolygon) {
       return false;

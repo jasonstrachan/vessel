@@ -173,6 +173,9 @@ if (typeof window !== 'undefined') {
 // Import ColorCycleBrush manager
 import { getColorCycleBrushManager, setLayerIdGetter, setColorCycleStoreStateGetter } from './colorCycleBrushManager';
 import type { ColorCycleBrushImplementation } from './colorCycleBrushManager';
+import { ShapeFillOrchestrator, type ShapeFillFinalizePayload } from '@/shapeFill';
+import { getFillStrategy, listFillStrategies } from '@/shapeFill/strategies';
+import type { FillParams, ShapeFillId, ShapeFillSession, ShapeFillParamKey, Vec2 } from '@/shapeFill/types';
 
 // Get global manager instance
 const colorCycleBrushManager = getColorCycleBrushManager();
@@ -265,6 +268,15 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
     gradientBands: settings.gradientBands
   };
 };
+
+interface ShapeFillState {
+  activeFillId: ShapeFillId;
+  availableFillIds: ShapeFillId[];
+  paramsByFill: Record<ShapeFillId, Partial<FillParams>>;
+  session: ShapeFillSession | null;
+  parameterOrder: ShapeFillParamKey[];
+  lastFinalize: ShapeFillFinalizePayload | null;
+}
 
 export interface AppState {
   // Project State
@@ -386,6 +398,21 @@ export interface AppState {
   addShapePoint: (point: ShapePoint) => void;
   clearShapePoints: () => void;
   setShapePreviewPath: (path: Path2D | undefined) => void;
+
+  // Shape Fill State
+  shapeFill: ShapeFillState;
+  setShapeFillActiveFill: (fillId: ShapeFillId) => void;
+  setShapeFillParameterOrder: (order: ShapeFillParamKey[]) => void;
+  setShapeFillParamValue: (
+    fillId: ShapeFillId,
+    param: keyof FillParams,
+    value: number | boolean | undefined
+  ) => void;
+  beginShapeFillSession: (points: Vec2[]) => void;
+  updateShapeFillCursor: (cursor: Vec2) => void;
+  commitShapeFillParameter: () => void;
+  finalizeShapeFillSession: () => ShapeFillFinalizePayload | null;
+  cancelShapeFillSession: () => void;
   
   // Rectangle Brush State
   rectangleBrushState: {
@@ -634,6 +661,25 @@ const defaultShapeState: ShapeState = {
   previewPath: undefined
 };
 
+const defaultShapeFillStrategies = listFillStrategies();
+const defaultShapeFillIds = defaultShapeFillStrategies.map(strategy => strategy.id);
+const defaultShapeFillParams = defaultShapeFillStrategies.reduce<Record<ShapeFillId, Partial<FillParams>>>(
+  (acc, strategy) => {
+    acc[strategy.id] = { ...strategy.defaults };
+    return acc;
+  },
+  {} as Record<ShapeFillId, Partial<FillParams>>
+);
+
+const defaultShapeFillState: ShapeFillState = {
+  activeFillId: defaultShapeFillIds[0] ?? 'hatch',
+  availableFillIds: defaultShapeFillIds,
+  paramsByFill: defaultShapeFillParams,
+  session: null,
+  parameterOrder: ['spacing', 'rotation'],
+  lastFinalize: null,
+};
+
 const defaultRectangleBrushState = {
   drawingState: 'idle' as const,
   startPos: { x: 0, y: 0 },
@@ -679,6 +725,17 @@ export const useAppStore = create<AppState>()(
           (window as Window & { __vesselStore?: typeof useAppStore }).__vesselStore = useAppStore;
         }, 0);
       }
+
+      const shapeFillOrchestratorInstance = new ShapeFillOrchestrator();
+      shapeFillOrchestratorInstance.setParameterOrder(defaultShapeFillState.parameterOrder);
+      shapeFillOrchestratorInstance.setSessionListener(session => {
+        set(state => ({
+          shapeFill: {
+            ...state.shapeFill,
+            session,
+          },
+        }));
+      });
       
       return {
       // Project State
@@ -1465,6 +1522,78 @@ export const useAppStore = create<AppState>()(
       setShapePreviewPath: (path) => set((state) => ({
         shapeState: { ...state.shapeState, previewPath: path }
       })),
+      
+      // Shape Fill State
+      shapeFill: { ...defaultShapeFillState },
+      setShapeFillActiveFill: (fillId) => set((state) => ({
+        shapeFill: { ...state.shapeFill, activeFillId: fillId }
+      })),
+      setShapeFillParameterOrder: (order) => {
+        shapeFillOrchestratorInstance.setParameterOrder(order);
+        set((state) => ({
+          shapeFill: { ...state.shapeFill, parameterOrder: [...order] }
+        }));
+      },
+      setShapeFillParamValue: (fillId, param, value) => {
+        set((state) => ({
+          shapeFill: {
+            ...state.shapeFill,
+            paramsByFill: {
+              ...state.shapeFill.paramsByFill,
+              [fillId]: {
+                ...(state.shapeFill.paramsByFill[fillId] ?? {}),
+                [param]: value as never,
+              },
+            },
+          },
+        }));
+
+        const session = shapeFillOrchestratorInstance.getSession();
+        const activeFillId = get().shapeFill.activeFillId;
+        if (session && activeFillId === fillId) {
+          shapeFillOrchestratorInstance.setParameterValue(param, value);
+        }
+      },
+      beginShapeFillSession: (points) => {
+        const state = get();
+        const fillId = state.shapeFill.activeFillId;
+        const strategy = getFillStrategy(fillId);
+        const baseParams = state.shapeFill.paramsByFill[fillId] ?? strategy.defaults;
+        shapeFillOrchestratorInstance.begin(fillId, strategy, points, baseParams);
+        set((prevState) => ({
+          shapeFill: {
+            ...prevState.shapeFill,
+            lastFinalize: null,
+          },
+        }));
+      },
+      updateShapeFillCursor: (cursor) => {
+        shapeFillOrchestratorInstance.updateCursor(cursor);
+      },
+      commitShapeFillParameter: () => {
+        shapeFillOrchestratorInstance.commitCurrentParameter();
+      },
+      finalizeShapeFillSession: () => {
+        const payload = shapeFillOrchestratorInstance.finalize();
+        if (payload) {
+          set((state) => ({
+            shapeFill: {
+              ...state.shapeFill,
+              lastFinalize: payload,
+              paramsByFill: {
+                ...state.shapeFill.paramsByFill,
+                [payload.fillId]: {
+                  ...payload.params,
+                },
+              },
+            },
+          }));
+        }
+        return payload;
+      },
+      cancelShapeFillSession: () => {
+        shapeFillOrchestratorInstance.cancel();
+      },
       
       // Rectangle Brush State
       rectangleBrushState: defaultRectangleBrushState,

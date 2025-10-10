@@ -1187,13 +1187,6 @@ export function useDrawingHandlers({
     const hasContent = drawingCanvasHasContent.current;
     const busy = isBusyRef?.current ?? false;
     if (busy || !hasCanvas || !hasContent || !project) {
-      debugLog('shape-fill', 'finalizeDrawing skipped', {
-        busy,
-        hasCanvas,
-        hasContent,
-        hasProject: Boolean(project),
-        skipSave,
-      });
       return;
     }
     
@@ -1240,18 +1233,7 @@ export function useDrawingHandlers({
           // We can capture it directly without any extra compositing.
           if (drawingCanvas) {
             await captureCanvasToActiveLayer(drawingCanvas);
-            debugLog('shape-fill', 'captureCanvasToActiveLayer (eraser)', {
-              tool: currentTool,
-              layerId: activeLayer.id,
-              width: drawingCanvas.width,
-              height: drawingCanvas.height,
-            });
             saveCanvasState(drawingCanvas, 'eraser', 'Erased stroke');
-          } else {
-            debugLog('shape-fill', 'skip eraser finalize: missing drawing canvas', {
-              tool: currentTool,
-              layerId: activeLayer.id,
-            });
           }
           
         } else { // Brush tool
@@ -1313,12 +1295,6 @@ export function useDrawingHandlers({
               // Fallback: Clear and do one final render at FULL OPACITY
               drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
               brushEngine.renderColorCycle(drawingCtx, false); // false = don't apply opacity
-            } else {
-              debugLog('shape-fill', 'skip color cycle final composite: missing drawing ctx/canvas', {
-                hasCtx: Boolean(drawingCtx),
-                hasCanvas: Boolean(drawingCanvas),
-                layerId: activeLayer?.id,
-              });
             }
             
             // IMPORTANT: Check if we should continue animating after stroke ends
@@ -1385,12 +1361,6 @@ export function useDrawingHandlers({
 
             // For CC layers, capture directly from the layer's canvas
             await captureCanvasToActiveLayer(layerCanvas);
-            debugLog('shape-fill', 'captureCanvasToActiveLayer (cc-layer)', {
-              tool: currentTool,
-              layerId: activeLayer.id,
-              brushShape: currentState.tools.brushSettings.brushShape,
-              skipSave,
-            });
 
             // Optional sampling: verify we saved the actual layer canvas (not paint buffer)
             try {
@@ -1430,21 +1400,9 @@ export function useDrawingHandlers({
               tempCtx.globalAlpha = 1;
               if (drawingCanvas) {
                 tempCtx.drawImage(drawingCanvas, 0, 0);
-              } else {
-                debugLog('shape-fill', 'skip temp composite: missing drawing canvas', {
-                  tool: currentTool,
-                  layerId: activeLayer.id,
-                  brushShape: currentState.tools.brushSettings.brushShape,
-                });
               }
-              
+
               await captureCanvasToActiveLayer(tempCanvas);
-              debugLog('shape-fill', 'captureCanvasToActiveLayer (regular-from-temp)', {
-                tool: currentTool,
-                layerId: activeLayer.id,
-                brushShape: currentState.tools.brushSettings.brushShape,
-                skipSave,
-              });
               saveCanvasState(tempCanvas, 'brush', 'Drawing stroke');
               
               
@@ -1670,48 +1628,21 @@ export function useDrawingHandlers({
   }, [tools.shapeMode, continueDrawing, pauseColorCycleForNonCCInteraction, updateAutoSampledGradient, initDrawingCanvas]);
   
   const finalizeShapeDrawing = useCallback(async () => {
-    debugLog('shape-fill', 'finalizeShapeDrawing invoked', {
-      shapeMode: tools.shapeMode,
-      busyFlag: isBusyRef?.current ?? false,
-      queueBusy: finalizeQueueRef.current.isBusy(),
-      queueHasPending: finalizeQueueRef.current.hasPending(),
-      pointCount: shapePointsRef.current.length,
-      isDrawingShape: isDrawingShapeRef.current,
-      isSelectingDirection: isSelectingDirectionRef.current,
-    });
     const polygonState = useAppStore.getState().polygonGradientState;
     const polygonPointCount = Math.max(polygonState.points?.length ?? 0, polygonState.vertices?.length ?? 0);
     const polygonActive = polygonState.drawingState !== 'idle' && polygonPointCount >= 3;
     const hasShapeInProgress = tools.shapeMode || polygonActive || isSelectingDirectionRef.current || isDrawingShapeRef.current;
 
     if (!hasShapeInProgress) {
-      debugLog('shape-fill', 'finalizeShapeDrawing forwarding to finalizeDrawing', {
-        pointCount: shapePointsRef.current.length,
-        polygonActive,
-        isSelectingDirection: isSelectingDirectionRef.current,
-      });
       return finalizeDrawing();
     }
 
     if (isBusyRef?.current) {
-      debugLog('shape-fill', 'finalizeShapeDrawing aborted due to busy flag', {
-        pointCount: shapePointsRef.current.length,
-      });
       return;
     }
 
-    debugLog('shape-fill', 'finalizeShapeDrawing enqueue', {
-      queueBusy: finalizeQueueRef.current.isBusy(),
-      queueHasPending: finalizeQueueRef.current.hasPending(),
-    });
-
     // Use FinalizeQueue to prevent concurrent finalization operations
     return finalizeQueueRef.current.enqueue(async () => {
-      debugLog('shape-fill', 'finalizeShapeDrawing job start', {
-        pointCount: shapePointsRef.current.length,
-        isSelectingDirection: isSelectingDirectionRef.current,
-        isDrawingShape: isDrawingShapeRef.current,
-      });
       let finalizeTriggered = false;
       // All finalization logic runs serially here
     
@@ -1719,11 +1650,7 @@ export function useDrawingHandlers({
     if (isSelectingDirectionRef.current && directionPreviewRef.current) {
       try {
         if (isBusyRef) isBusyRef.current = true;
-        
-        debugLog('shape-fill', 'finalizeShapeDrawing direction selection branch', {
-          pointCount: shapePointsRef.current.length,
-        });
-        
+
         const drawCtx = drawingCtxRef.current;
         if (drawCtx && brushEngine && shapePointsRef.current.length >= 3) {
           // Calculate shape center
@@ -1786,14 +1713,8 @@ export function useDrawingHandlers({
 
         await resumeColorCycleAfterInteraction();
         if (isBusyRef) isBusyRef.current = false;
-        debugLog('shape-fill', 'finalizeShapeDrawing direction selection complete', {
-          pointCount: shapePointsRef.current.length,
-        });
         return;
     } catch (error) {
-      debugLog('shape-fill', 'finalizeShapeDrawing direction selection error', {
-        error: error instanceof Error ? error.message : String(error),
-      });
       logError('Error during linear gradient direction selection:', error);
       } finally {
         if (isBusyRef) isBusyRef.current = false;
@@ -1801,10 +1722,6 @@ export function useDrawingHandlers({
     }
     
     try {
-      debugLog('shape-fill', 'finalizeShapeDrawing primary branch start', {
-        pointCount: shapePointsRef.current.length,
-        isDrawingShape: isDrawingShapeRef.current,
-      });
       // Ensure drawing canvas/context exist before we render any final content
       if (!drawingCtxRef.current || !drawingCanvasRef.current) {
         initDrawingCanvas();
@@ -2207,9 +2124,6 @@ export function useDrawingHandlers({
           // Allow the next CC shape preview to restart animation helpers
           ccShapePreviewPauseStartedRef.current = false;
           await resumeColorCycleAfterInteraction();
-          debugLog('shape-fill', 'finalizeShapeDrawing color cycle fast path', {
-            pointCount: shapePointsRef.current.length,
-          });
           resetPolygonState();
           if (isBusyRef) isBusyRef.current = false;
           finalizeTriggered = true;
@@ -2219,10 +2133,6 @@ export function useDrawingHandlers({
         const currentLayer = useAppStore.getState().layers.find(l => l.id === useAppStore.getState().activeLayerId);
         const drawingCanvas = drawingCanvasRef.current;
         if (drawingCanvas && currentLayer && currentLayer.layerType !== 'color-cycle') {
-          debugLog('shape-fill', 'finalizeShapeDrawing committing shape directly', {
-            layerId: currentLayer.id,
-            pointCount: shapePointsRef.current.length,
-          });
           await captureCanvasToActiveLayer(drawingCanvas);
           saveCanvasState(drawingCanvas, 'brush', 'Shape Fill');
           drawingCanvasHasContent.current = false;
@@ -2238,14 +2148,8 @@ export function useDrawingHandlers({
         }
 
         if (isBusyRef) isBusyRef.current = false;
-        debugLog('shape-fill', 'finalizeShapeDrawing calling finalizeDrawing', {
-          pointCount: shapePointsRef.current.length,
-        });
         await finalizeDrawing();
         finalizeTriggered = true;
-        debugLog('shape-fill', 'finalizeShapeDrawing finalizeDrawing resolved', {
-          pointCount: shapePointsRef.current.length,
-        });
         ccShapePreviewPauseStartedRef.current = false;
         await resumeColorCycleAfterInteraction();
         return;
@@ -2255,10 +2159,6 @@ export function useDrawingHandlers({
       }
 
       if (!finalizeTriggered) {
-        debugLog('shape-fill', 'finalizeShapeDrawing fallback finalize', {
-          pointCount: shapePointsRef.current.length,
-          hasContent: drawingCanvasHasContent.current,
-        });
         if (isBusyRef) {
           isBusyRef.current = false;
         }
@@ -2267,16 +2167,8 @@ export function useDrawingHandlers({
         resetPolygonState();
       }
     } catch (error) {
-      debugLog('shape-fill', 'finalizeShapeDrawing primary branch error', {
-        error: error instanceof Error ? error.message : String(error),
-      });
       logError('Error during shape finalization:', error);
     } finally {
-      debugLog('shape-fill', 'finalizeShapeDrawing job complete', {
-        pointCount: shapePointsRef.current.length,
-        isDrawingShape: isDrawingShapeRef.current,
-        isSelectingDirection: isSelectingDirectionRef.current,
-      });
       if (isBusyRef) isBusyRef.current = false;
     }
     }); // End of FinalizeQueue.enqueue

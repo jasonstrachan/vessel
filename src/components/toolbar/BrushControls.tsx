@@ -18,6 +18,7 @@ import { GradientEditor } from "../ui/GradientEditor";
 import { isStrokeBrush } from "../../utils/brushCategories";
 import { getPresetOptions as getRectGradientPresetOptions, getPresetStops } from "../../utils/gradientPresets";
 import { isColorCycleBrush, getShapeModeForBrush, setSharedColorCycleGradient } from "../../utils/colorCycleGradients";
+import ShapeFillControls from "./ShapeFillControls";
 
 // Stable default rainbow gradient to avoid re-creating arrays every render
 const DEFAULT_RAINBOW_STOPS = [
@@ -148,6 +149,13 @@ const BrushControls = () => {
     currentTool === "eraser" ? setEraserSettings : setBrushSettings;
 
   const isCustomColorCycleEnabled = isCustomBrush && !!activeSettings.customBrushColorCycle;
+  const isShapeFillBrush = brushSettings.brushShape === BrushShape.SHAPE_FILL;
+
+  React.useEffect(() => {
+    if (isShapeFillBrush && !shapeMode) {
+      setShapeMode(true);
+    }
+  }, [isShapeFillBrush, shapeMode, setShapeMode]);
 
   const handleToggleCustomColorCycle = React.useCallback((checked: boolean) => {
     const updates: Partial<typeof activeSettings> = {
@@ -1425,6 +1433,14 @@ const BrushControls = () => {
             Draw Test Swatches
           </button>
         </div>
+      </div>
+    );
+  }
+
+  if (isShapeFillBrush) {
+    return (
+      <div className="flex flex-col gap-4">
+        <ShapeFillControls />
       </div>
     );
   }

@@ -323,3 +323,37 @@ Integrated UI with live controls
    - Update user-facing docs (e.g., `docs/` guides) with workflow instructions and known limitations.
    - Note future roadmap items: additional fills, GPU acceleration, offline export formats.
    - Prepare release notes summarizing new brush type, defaults, and preview behaviors.
+
+
+
+Here are the key files that make up the new Shape
+  Fill feature:
+
+  - src/shapeFill/types.ts, parameters.ts,
+    shapeFactory.ts, parameterAdjuster.ts,
+    strategies.ts, renderers/cpuRenderer.ts, and
+    the strategy files (fillStrategies/hatch.ts,
+    contour.ts, stipple.ts), plus their helpers in
+    utils/ – this core module defines shape/session
+    types, parameter logic, deterministic fill
+    strategies, and the Canvas2D renderer.
+  - src/shapeFill/index.ts – the orchestrator that
+    manages Shape Fill sessions (point capture,
+    parameter stages, finalization payloads) and
+    hooks into the store.
+  - src/components/toolbar/ShapeFillControls.tsx
+    and the additions to src/components/toolbar/
+    BrushControls.tsx – the UI that surfaces the
+    Shape Fill brush, lets you pick strategies, and
+    exposes live parameter controls.
+  - src/stores/useAppStore.ts – the Zustand slice
+    for Shape Fill (active strategy, parameter
+    persistence, session actions, orchestration
+    wiring, finalize/cancel paths).
+  - src/hooks/canvas/handlers/shapes/
+    ShapeToolHandler.ts and src/components/canvas/
+    DrawingCanvas.tsx – integrates the brush with
+    pointer workflows: drawing polygons, showing
+    clipped previews, rendering fills immediately,
+    and feeding the result into undo/redo history
+    and composite redraw.

@@ -122,7 +122,6 @@ const cl = {
     return () => rawGroupEnd();
   },
 };
-cl.log('ContourLines logger ready (dynamic flag)', { enabled: shouldEnableContourDebug() });
 // -----------------------------------------------------------
 import { useAppStore } from '../../../stores/useAppStore';
 import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';

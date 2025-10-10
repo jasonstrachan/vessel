@@ -44,17 +44,20 @@ export interface StrokeJob {
   [key: string]: unknown;
 }
 
-export interface FieldGeneratorConfig {
+export interface FieldGeneratorRequiredConfig {
   shape: ShapeDefinition;
   params: FillParams;
   bounds: Bounds;
+}
+
+export type FieldGeneratorConfig = Partial<FieldGeneratorRequiredConfig> & {
   pixelDensity?: number;
   samplesPerStroke?: number;
   maxStrokeCount?: number;
   seed?: number;
   preview?: boolean;
   [key: string]: unknown;
-}
+};
 
 export interface FieldGeneratorResult {
   jobs: StrokeJob[];

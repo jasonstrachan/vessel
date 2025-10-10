@@ -613,6 +613,34 @@ export const polygonGradientBrushPreset: BrushPreset = {
   }
 };
 
+const shapeFillBrushComponents: BrushComponent[] = [
+  {
+    id: 'shape-fill-renderer',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.SHAPE_FILL
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+export const shapeFillBrushPreset: BrushPreset = {
+  id: 'shape-fill-brush',
+  name: 'Shape Fill',
+  category: 'Special',
+  components: shapeFillBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['shape', 'fill', 'procedural'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    shapeEnabled: true,
+    brushShape: BrushShape.SHAPE_FILL
+  }
+};
+
 // Spam Brush Components
 const spamBrushComponents: BrushComponent[] = [
   {
@@ -776,6 +804,7 @@ export const brushPresets: BrushPreset[] = [
   colorCycleShapeBrushPreset,
   rectangleGradientBrushPreset,
   polygonGradientBrushPreset,
+  shapeFillBrushPreset,
   spamBrushPreset,
   resamplerBrushPreset,
   polygonDitherPreset
