@@ -127,11 +127,10 @@ const ShapeFillControls: React.FC = () => {
 
               return (
                 <span>
-                  Adjust <strong className="text-[#F0F0F0]">{currentParam}</strong>
+                  <strong className="text-[#F0F0F0]">{currentParam}</strong>
                   {formattedValue !== undefined ? (
                     <span className="ml-2 text-[#C6C6C6] tabular-nums">{formattedValue}</span>
-                  ) : null}{' '}
-                  with the cursor, then click to commit.
+                  ) : null}
                 </span>
               );
             })()

@@ -1,5 +1,6 @@
 import { contourFill } from './fillStrategies/contour';
 import { hatchFill } from './fillStrategies/hatch';
+import { dashesFill } from './fillStrategies/dashes';
 import { stippleFill } from './fillStrategies/stipple';
 import { getParameterDefault } from './parameters';
 import { FillStrategy, ShapeFillId } from './types';
@@ -142,6 +143,47 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
         max: 5,
         step: 0.1,
         default: 1,
+      },
+    ],
+  },
+  dashes: {
+    id: 'dashes',
+    label: 'Dashes',
+    defaults: {
+      spacing: 18,
+      rotation: 0,
+      thickness: 2.2,
+      variance: 0.35,
+      seed: 0,
+    },
+    apply: dashesFill,
+    ui: [
+      {
+        key: 'spacing',
+        type: 'number',
+        label: 'Spacing',
+        min: 2,
+        max: 200,
+        step: 1,
+        default: 18,
+      },
+      {
+        key: 'thickness',
+        type: 'number',
+        label: 'Dash Weight',
+        min: 0.2,
+        max: 8,
+        step: 0.1,
+        default: 2.2,
+      },
+      {
+        key: 'variance',
+        type: 'number',
+        label: 'Jitter',
+        min: 0,
+        max: 1,
+        step: 0.05,
+        default: 0.35,
       },
     ],
   },

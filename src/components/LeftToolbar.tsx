@@ -5,6 +5,15 @@ const LeftToolbar = () => {
   // Force refresh - toolbar black background fix
   const { tools: toolState, setCurrentTool, saveProject, loadProject, toggleModal } = useAppStore();
 
+  const baseButtonStyle: React.CSSProperties = {
+    fontFamily: 'IBM Plex Mono, "Courier New", monospace',
+    fontSize: '0.95rem',
+    fontWeight: 600,
+    letterSpacing: '0.02em',
+    border: '1px solid transparent',
+    transition: 'background-color 0.15s ease, color 0.15s ease',
+  };
+
   const toolGroups = [
     [
       { id: 'new-document' as Tool, label: 'New Document', abbr: 'Dc' },
@@ -64,37 +73,36 @@ const LeftToolbar = () => {
           {groupIndex > 1 && (
             <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
           )}
-          {group.map((tool, toolIndex) => (
-            <React.Fragment key={tool.id}>
-              <button
-                onClick={() => handleToolClick(tool.id)}
-                title={tool.label}
-                className={`w-[48px] h-12 min-h-[40px] mx-auto flex items-center justify-center bg-transparent border-0 appearance-none outline-none mb-1`}
-            style={{ 
-              color: toolState.currentTool === tool.id ? '#FFFFFF' : '#5A5A61',
-            fontFamily: 'IBM Plex Mono, "Courier New", monospace',
-            fontSize: '1.1rem',
-            fontWeight: 600,
-            letterSpacing: '0.02em'
-          }}
-          onMouseEnter={(e) => {
-            if (toolState.currentTool !== tool.id) {
-              e.currentTarget.style.color = '#888888';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (toolState.currentTool !== tool.id) {
-              e.currentTarget.style.color = '#5A5A61';
-            }
-          }}
-        >
-          <span>{tool.abbr}</span>
-        </button>
-              {groupIndex === 0 && toolIndex === 0 && (
-                <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
-              )}
-            </React.Fragment>
-          ))}
+          {group.map((tool, toolIndex) => {
+            const isActive = toolState.currentTool === tool.id;
+
+            return (
+              <React.Fragment key={tool.id}>
+                <button
+                  onClick={() => handleToolClick(tool.id)}
+                  title={tool.label}
+                className={`w-[44px] h-10 min-h-[36px] mx-auto flex items-center justify-center bg-transparent border-0 appearance-none outline-none mb-1`}
+                  style={baseButtonStyle}
+                >
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      padding: isActive ? '1px 3px' : 0,
+                      color: isActive ? '#1A1A1A' : '#FFFFFF',
+                      backgroundColor: isActive ? '#FFFFFF' : 'transparent',
+                      boxShadow: isActive ? '0 0 0 1px #FFFFFF' : 'none',
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {tool.abbr}
+                  </span>
+                </button>
+                {groupIndex === 0 && toolIndex === 0 && (
+                  <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
+                )}
+              </React.Fragment>
+            );
+          })}
           {groupIndex === toolGroups.length - 1 && (
             <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
           )}
