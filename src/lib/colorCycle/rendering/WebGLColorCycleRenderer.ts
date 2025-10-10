@@ -30,9 +30,13 @@ type LoseContextExtension = {
 };
 
 export class WebGLColorCycleRenderer {
+  private static readonly MAX_CONTEXTS = 8;
+  private static activeContexts = 0;
+
   private canvas: HTMLCanvasElement;
   private gl: GL;
   private isWebGL2: boolean;
+  private hasContextSlot = false;
 
   private program: WebGLProgram;
   private vao: WebGLVertexArrayObject | WebGLVertexArrayObjectOES | null = null;
@@ -106,6 +110,11 @@ export class WebGLColorCycleRenderer {
       throw new Error('WebGLColorCycleRenderer requires a browser environment');
     }
 
+    if (!WebGLColorCycleRenderer.reserveContextSlot()) {
+      throw new Error('WEBGL_CONTEXT_BUDGET_EXCEEDED');
+    }
+    this.hasContextSlot = true;
+
     this.width = Math.max(1, Math.floor(config.width));
     this.height = Math.max(1, Math.floor(config.height));
 
@@ -113,25 +122,31 @@ export class WebGLColorCycleRenderer {
     this.canvas.width = this.width;
     this.canvas.height = this.height;
 
-    // Prefer WebGL2, fallback to WebGL1
-    const gl2 = this.canvas.getContext('webgl2', { premultipliedAlpha: false, alpha: true }) as WebGL2RenderingContext | null;
-    if (gl2) {
-      this.gl = gl2;
-      this.isWebGL2 = true;
-    } else {
-      const gl = (this.canvas.getContext('webgl', { premultipliedAlpha: false, alpha: true }) ||
-                  this.canvas.getContext('experimental-webgl', { premultipliedAlpha: false, alpha: true })) as WebGLRenderingContext | null;
-      if (!gl) {
-      throw new Error('Failed to create WebGL context');
+    try {
+      // Prefer WebGL2, fallback to WebGL1
+      const gl2 = this.canvas.getContext('webgl2', { premultipliedAlpha: false, alpha: true }) as WebGL2RenderingContext | null;
+      if (gl2) {
+        this.gl = gl2;
+        this.isWebGL2 = true;
+      } else {
+        const gl = (this.canvas.getContext('webgl', { premultipliedAlpha: false, alpha: true }) ||
+                    this.canvas.getContext('experimental-webgl', { premultipliedAlpha: false, alpha: true })) as WebGLRenderingContext | null;
+        if (!gl) {
+          throw new Error('Failed to create WebGL context');
+        }
+        this.gl = gl;
+        this.isWebGL2 = false;
       }
-      this.gl = gl;
-      this.isWebGL2 = false;
-    }
 
-    this.program = this.createProgram();
-    this.setupGeometry();
-    this.setupUniformsAndSamplers();
-    this.createTextures();
+      this.program = this.createProgram();
+      this.setupGeometry();
+      this.setupUniformsAndSamplers();
+      this.createTextures();
+    } catch (error) {
+      WebGLColorCycleRenderer.releaseContextSlot();
+      this.hasContextSlot = false;
+      throw error;
+    }
 
     // Determine safe vertex limit for fragment uniform array
     try {
@@ -254,14 +269,50 @@ export class WebGLColorCycleRenderer {
 
   dispose() {
     const gl = this.gl;
+
     if (this.indexTex) { gl.deleteTexture(this.indexTex); this.indexTex = null; }
     if (this.paletteTex) { gl.deleteTexture(this.paletteTex); this.paletteTex = null; }
+    if (this.fillTex) { gl.deleteTexture(this.fillTex); this.fillTex = null; }
+    if (this.fillFbo) { gl.deleteFramebuffer(this.fillFbo); this.fillFbo = null; }
     if (this.vbo) { gl.deleteBuffer(this.vbo); this.vbo = null; }
     if (this.isWebGL2 && this.vao) {
       (this.gl as WebGL2RenderingContext).deleteVertexArray(this.vao as WebGLVertexArrayObject);
       this.vao = null;
     }
-    if (this.program) gl.deleteProgram(this.program);
+
+    if (this.program) {
+      gl.deleteProgram(this.program);
+    }
+    if (this.fillProgram) {
+      gl.deleteProgram(this.fillProgram);
+      this.fillProgram = null;
+    }
+
+    const loseContext = gl.getExtension('WEBGL_lose_context') as LoseContextExtension | null;
+    loseContext?.loseContext?.();
+
+    // Hint to the browser that this canvas is no longer in use
+    this.canvas.width = 0;
+    this.canvas.height = 0;
+
+    if (this.hasContextSlot) {
+      WebGLColorCycleRenderer.releaseContextSlot();
+      this.hasContextSlot = false;
+    }
+  }
+
+  private static reserveContextSlot(): boolean {
+    if (this.activeContexts >= this.MAX_CONTEXTS) {
+      return false;
+    }
+    this.activeContexts += 1;
+    return true;
+  }
+
+  private static releaseContextSlot(): void {
+    if (this.activeContexts > 0) {
+      this.activeContexts -= 1;
+    }
   }
 
   private createProgram(): WebGLProgram {

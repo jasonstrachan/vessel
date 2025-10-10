@@ -90,7 +90,16 @@ export class ColorCycleAnimator {
           this.glCanvas = this.glRenderer.getCanvas();
           // quiet
           this._glPaletteReady = false;
-        } catch {}
+        } catch (error) {
+          if (error instanceof Error && error.message === 'WEBGL_CONTEXT_BUDGET_EXCEEDED') {
+            this.forceCanvas2D = true;
+            debugWarn('cc-render', '[ColorCycleAnimator] WebGL context budget exhausted during lazy init; using Canvas2D');
+          } else {
+            debugWarn('cc-render', '[ColorCycleAnimator] Failed to init WebGL renderer (lazy):', error);
+          }
+          this.glRenderer = null;
+          this.glCanvas = null;
+        }
       } else {
         // quiet
       }
@@ -138,7 +147,16 @@ export class ColorCycleAnimator {
           this.glCanvas = this.glRenderer.getCanvas();
           // quiet
           this._glPaletteReady = false;
-        } catch {}
+        } catch (error) {
+          if (error instanceof Error && error.message === 'WEBGL_CONTEXT_BUDGET_EXCEEDED') {
+            this.forceCanvas2D = true;
+            debugWarn('cc-render', '[ColorCycleAnimator] WebGL context budget exhausted; using Canvas2D');
+          } else {
+            debugWarn('cc-render', '[ColorCycleAnimator] Failed to init WebGL renderer:', error);
+          }
+          this.glRenderer = null;
+          this.glCanvas = null;
+        }
       } else {
         // quiet
       }
@@ -231,12 +249,19 @@ export class ColorCycleAnimator {
         this._glPaletteReady = false;
         this._glIndexDirty = true;
         this._renderSampledOnce = false;
-      } catch {
+      } catch (error) {
         // Failed to initialize WebGL; fall back to Canvas2D
         this.forceCanvas2D = true;
         this.glRenderer = null;
         this.glCanvas = null;
         this._renderSampledOnce = false;
+        if (error instanceof Error) {
+          if (error.message === 'WEBGL_CONTEXT_BUDGET_EXCEEDED') {
+            debugWarn('cc-render', '[ColorCycleAnimator] WebGL context budget exhausted when enabling GPU; staying on Canvas2D');
+          } else {
+            debugWarn('cc-render', '[ColorCycleAnimator] setForceCanvas2D -> WebGL init failed:', error);
+          }
+        }
       }
     }
 
@@ -955,6 +980,20 @@ export class ColorCycleAnimator {
     
     // Clear callbacks
     this.onFrameCallbacks.clear();
+
+    if (this.glRenderer) {
+      try {
+        this.glRenderer.dispose();
+      } catch (error) {
+        debugWarn('cc-render', '[ColorCycleAnimator] Error disposing WebGL renderer:', error);
+      } finally {
+        this.glRenderer = null;
+        this.glCanvas = null;
+        this._glPaletteReady = false;
+        this._glIndexDirty = true;
+        this._renderSampledOnce = false;
+      }
+    }
     
     // Return canvas to pool
     if (this.canvas) {

@@ -1425,16 +1425,6 @@ export const useAppStore = create<AppState>()(
 
         const isCC = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
                       state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-        if (process.env.NODE_ENV !== 'production' && state.tools.shapeMode !== enabled && typeof console !== 'undefined') {
-          // eslint-disable-next-line no-console
-          console.trace('[shape-fill] setShapeMode', {
-            prev: state.tools.shapeMode,
-            next: enabled,
-            tool: state.tools.currentTool,
-            brushShape: state.tools.brushSettings.brushShape,
-          });
-        }
-
         return {
           tools: {
             ...state.tools,

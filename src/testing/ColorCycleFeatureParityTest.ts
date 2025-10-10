@@ -74,7 +74,6 @@ export class ColorCycleFeatureParityTest {
     // Core drawing features
     await this.testPaintOperation();
     await this.testLineDrawing();
-    await this.testShapeFilling();
     
     // Gradient features
     await this.testGradientSetting();
@@ -243,53 +242,6 @@ export class ColorCycleFeatureParityTest {
         speedup: (result.webgl.time - result.canvas2d.time) / result.webgl.time * 100
       });
     }
-  }
-  
-  /**
-   * Test shape filling
-   */
-  private async testShapeFilling(): Promise<void> {
-    const feature = 'Shape Filling';
-    const result: TestResult = {
-      feature,
-      webgl: { passed: false },
-      canvas2d: { passed: false },
-      parity: false
-    };
-    
-    const vertices = [
-      { x: 50, y: 50 },
-      { x: 150, y: 50 },
-      { x: 150, y: 150 },
-      { x: 50, y: 150 }
-    ];
-    
-    // Test WebGL
-    if (this.webglBrush) {
-      const start = performance.now();
-      try {
-        this.webglBrush.fillShape(vertices, 'default');
-        result.webgl.passed = true;
-        result.webgl.time = performance.now() - start;
-      } catch (error) {
-        result.webgl.error = String(error);
-      }
-    }
-    
-    // Test Canvas2D
-    if (this.canvas2dBrush) {
-      const start = performance.now();
-      try {
-        this.canvas2dBrush.fillShape(vertices, 'default');
-        result.canvas2d.passed = true;
-        result.canvas2d.time = performance.now() - start;
-      } catch (error) {
-        result.canvas2d.error = String(error);
-      }
-    }
-    
-    result.parity = result.webgl.passed === result.canvas2d.passed;
-    this.testResults.push(result);
   }
   
   /**

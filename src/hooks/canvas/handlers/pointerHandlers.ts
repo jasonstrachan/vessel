@@ -41,8 +41,8 @@ const getLogBuffer = (): CLLogEntry[] | null => {
     globalAny.__CL_LOGS = [];
     const buf: CLLogEntry[] = globalAny.__CL_LOGS;
     const push = buf.push.bind(buf);
-    globalAny.__CL_LOGS.push = (...args: any[]) => {
-      const n = push(...args);
+    globalAny.__CL_LOGS.push = (...entries: CLLogEntry[]): number => {
+      const n = push(...entries);
       if (buf.length > MAX_LOGS) buf.splice(0, buf.length - MAX_LOGS);
       return n;
     };
@@ -54,13 +54,19 @@ const logBuffer = getLogBuffer();
 
 const rawLog = typeof console !== 'undefined' && typeof console.log === 'function'
   ? console.log.bind(console)
-  : (..._args: any[]) => {};
+  : (..._args: unknown[]) => {
+    void _args;
+  };
 const rawWarn = typeof console !== 'undefined' && typeof console.warn === 'function'
   ? console.warn.bind(console)
-  : (..._args: any[]) => {};
+  : (..._args: unknown[]) => {
+    void _args;
+  };
 const rawGroupCollapsed = typeof console !== 'undefined' && typeof console.groupCollapsed === 'function'
   ? console.groupCollapsed.bind(console)
-  : (..._args: any[]) => {};
+  : (..._args: unknown[]) => {
+    void _args;
+  };
 const rawGroupEnd = typeof console !== 'undefined' && typeof console.groupEnd === 'function'
   ? console.groupEnd.bind(console)
   : () => {};
@@ -97,17 +103,17 @@ const ensureCLDebugBridge = () => {
 ensureCLDebugBridge();
 
 const cl = {
-  log: (...a: any[]) => {
+  log: (...a: unknown[]) => {
     if (!shouldEnableContourDebug()) return;
     logBuffer?.push({ kind: 'log', args: a, timestamp: Date.now() });
     rawLog('%c[CL]', 'color:#6cf', ...a);
   },
-  warn: (...a: any[]) => {
+  warn: (...a: unknown[]) => {
     if (!shouldEnableContourDebug()) return;
     logBuffer?.push({ kind: 'warn', args: a, timestamp: Date.now() });
     rawWarn('%c[CL]', 'color:#fc6', ...a);
   },
-  grp: (label: string, data?: any) => {
+  grp: (label: string, data?: unknown) => {
     if (!shouldEnableContourDebug()) return () => {};
     logBuffer?.push({ kind: 'group', label, payload: data, timestamp: Date.now() });
     rawLog('%c[CL]%c ' + label, 'color:#6cf', 'color:inherit', data ?? '');
@@ -142,11 +148,88 @@ import {
   MIN_LINE_SPACING,
   MAX_LINE_SPACING,
 } from '@/utils/contourLines';
-import { createVerticalSpacingMapper } from '@/lib/shapeFill/ShapeParameterAdjuster';
-import { computeNewShapeFillCenter, computeMinDistanceToPolygon } from '@/brushes/shapes/fills/newShapeFill';
 import { getPresetStops } from '../../../utils/gradientPresets';
 import { createShapeToolHandler } from './shapes/ShapeToolHandler';
 import { logContourFillDebug } from './utils/logContourFillDebug';
+
+type VerticalSpacingMapperConfig = {
+  centroid: { x: number; y: number };
+  referenceDistance: number;
+  referenceValue: number;
+  bounds: { min: number; max: number; exponent?: number };
+  distanceScale?: number;
+};
+
+type VerticalSpacingMapperResult = {
+  value: number;
+  distance: number;
+};
+
+const createVerticalSpacingMapper = (config: VerticalSpacingMapperConfig) => {
+  const baseDistance = Math.max(config.referenceDistance, 1e-3);
+  const clampValue = (value: number) => Math.min(
+    Math.max(value, config.bounds.min),
+    config.bounds.max
+  );
+  return (point: { x: number; y: number }): VerticalSpacingMapperResult => {
+    const deltaY = Math.abs(point.y - config.centroid.y) * (config.distanceScale ?? 1);
+    const distance = Math.max(deltaY, 1e-3);
+    const ratio = distance / baseDistance;
+    const value = clampValue(config.referenceValue * ratio);
+    return { value, distance };
+  };
+};
+
+const distanceToSegment = (point: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): number => {
+  const vx = b.x - a.x;
+  const vy = b.y - a.y;
+  const lenSq = vx * vx + vy * vy;
+  if (lenSq <= 1e-12) {
+    return Math.hypot(point.x - a.x, point.y - a.y);
+  }
+  let t = ((point.x - a.x) * vx + (point.y - a.y) * vy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  const projX = a.x + vx * t;
+  const projY = a.y + vy * t;
+  return Math.hypot(point.x - projX, point.y - projY);
+};
+
+export const computeNewShapeFillCenter = (
+  vertices: Array<{ x: number; y: number }>,
+  _randomSeed?: number
+): { x: number; y: number } => {
+  void _randomSeed;
+  if (!vertices.length) {
+    return { x: 0, y: 0 };
+  }
+  let sumX = 0;
+  let sumY = 0;
+  for (const vertex of vertices) {
+    sumX += vertex.x;
+    sumY += vertex.y;
+  }
+  const inv = 1 / vertices.length;
+  return { x: sumX * inv, y: sumY * inv };
+};
+
+export const computeMinDistanceToPolygon = (
+  center: { x: number; y: number },
+  vertices: Array<{ x: number; y: number }>
+): number => {
+  if (vertices.length < 2) {
+    return 0;
+  }
+  let minDistance = Infinity;
+  for (let i = 0; i < vertices.length; i += 1) {
+    const a = vertices[i];
+    const b = vertices[(i + 1) % vertices.length];
+    const distance = distanceToSegment(center, a, b);
+    if (distance < minDistance) {
+      minDistance = distance;
+    }
+  }
+  return Math.max(minDistance, 1e-6);
+};
 
 export const createDefaultContourLinesState = (): ContourLinesState => ({
   stage: 'idle',
@@ -852,9 +935,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       drawCtx.imageSmoothingEnabled = false;
 
       // Defensive reset of CTM before drawing
-      if (typeof (drawCtx as any).setTransform === 'function') {
-        drawCtx.setTransform(1, 0, 0, 1, 0, 0);
-      }
+      drawCtx.setTransform(1, 0, 0, 1, 0, 0);
 
       brushEngine.drawContourPolygon(
         drawCtx,
@@ -990,6 +1071,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       floatingPaste,
       isDraggingFloatingPaste,
     } = getDynamicDeps();
+    void project;
+    void layers;
+    void activeLayerId;
+    void selectionStart;
+    void selectionEnd;
+    void isDraggingFloatingPaste;
 
     // Track that pointer is down
     isMouseDownRef.current = true;
@@ -1794,6 +1881,13 @@ function cssColorToHex(color: string): string {
       layers,
       activeLayerId,
     } = getDynamicDeps();
+    void floatingPaste;
+    void selectionStart;
+    void selectionEnd;
+    void project;
+    void isDraggingFloatingPaste;
+    void layers;
+    void activeLayerId;
     const rect = canvasRef.current?.getBoundingClientRect();
     const currentPointerPos = rect ? {
       x: event.clientX - rect.left,
@@ -2513,6 +2607,13 @@ function cssColorToHex(color: string): string {
       selectionEnd,
       isDraggingFloatingPaste,
     } = getDynamicDeps();
+    void floatingPaste;
+    void project;
+    void layers;
+    void activeLayerId;
+    void selectionStart;
+    void selectionEnd;
+    void isDraggingFloatingPaste;
     // Clear pointer down state
     isMouseDownRef.current = false;
     // Reset snapping anchors at end of action

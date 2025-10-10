@@ -16,7 +16,6 @@ import { setColorCycleAnimationHandlers, getColorCycleAnimationState } from '../
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 import { getPresetStops } from '@/utils/gradientPresets';
-import { setShapeFillViewTargets, resetShapeFillViewTargets } from '@/lib/shapeFill/viewTargets';
 
 const isColorCycleLayerWithData = (
   layer: Layer | undefined | null
@@ -245,38 +244,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const compositeCanvasDirtyRef = useRef(true); // Track if composite needs update
   const lastCompositeHashRef = useRef<string>(''); // Track last composite state
   const [needsRedraw, setNeedsRedraw] = useState(0);
-
-  const updateShapeFillViewTargets = useCallback(() => {
-    const overlay = overlayCanvasRef.current ?? null;
-    const finalCanvas = compositeCanvasRef.current ?? null;
-    const dpr = typeof window !== 'undefined' && typeof window.devicePixelRatio === 'number'
-      ? window.devicePixelRatio || 1
-      : 1;
-    const viewTransform = viewTransformRef.current
-      ? {
-          scale: viewTransformRef.current.scale,
-          offsetX: viewTransformRef.current.offsetX,
-          offsetY: viewTransformRef.current.offsetY,
-        }
-      : undefined;
-
-    setShapeFillViewTargets({
-      overlayCanvas: overlay,
-      finalCanvas,
-      devicePixelRatio: dpr,
-      viewTransform,
-    });
-  }, []);
-
-  useEffect(() => {
-    updateShapeFillViewTargets();
-  }, [updateShapeFillViewTargets, canvas?.zoom, project?.width, project?.height, needsRedraw, layersNeedRecomposition]);
-
-  useEffect(() => {
-    return () => {
-      resetShapeFillViewTargets();
-    };
-  }, []);
 
   // Cached floating paste canvas (avoid creating per frame)
   const pasteCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1912,7 +1879,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     }
 
     setNeedsRedraw(prev => prev + 1);
-    updateShapeFillViewTargets();
 
     // Also trigger immediate redraw
     const canvas = canvasRef.current;
@@ -1922,7 +1888,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         drawRef.current(ctx, viewTransformRef.current);
       }
     }
-  }, [layersHash, project, compositeLayersToCanvas, setCurrentOffscreenCanvas, layersNeedRecomposition, setLayersNeedRecomposition, updateShapeFillViewTargets]);
+  }, [layersHash, project, compositeLayersToCanvas, setCurrentOffscreenCanvas, layersNeedRecomposition, setLayersNeedRecomposition]);
   
   // Animate marching ants
   useEffect(() => {
@@ -2222,7 +2188,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         }
         
         setCanvasDimensions(width, height);
-        updateShapeFillViewTargets();
         
         // Get the latest draw function and viewTransform
         const drawFunc = drawRef.current;
@@ -2263,7 +2228,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     handleResize();
     
     return () => resizeObserver.disconnect();
-  }, [project, setCanvasDimensions, setPan, updateShapeFillViewTargets]);
+  }, [project, setCanvasDimensions, setPan]);
   
   // Color cycle animation frames are now handled by SimplifiedColorCycleManager
   // No need for separate event listeners

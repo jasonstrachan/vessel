@@ -10,17 +10,8 @@ import { BrushShape } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { canvasPool } from '../utils/canvasPool';
-import {
-  drawContourPolygon as drawContourPolygonFill,
-  type ShapeFillOptions,
-} from '@/brushes/shapes/fills/contourPolygon';
-import { drawCrossHatchPolygon as drawCrossHatchPolygonFill } from '@/brushes/shapes/fills/hatch';
-import { drawDelaunayPolygon as drawDelaunayPolygonFill } from '@/brushes/shapes/fills/delaunayPolygon';
 // Use migration wrapper to switch between WebGL and Canvas2D implementations
 import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrushMigration';
-import { ShapeFillScheduler } from '@/lib/shapeFill/ShapeFillScheduler';
-import { getShapeFillScheduler } from '@/lib/shapeFill/runtime';
-import { debugLog } from '@/utils/debug';
 
 declare global {
   interface Window {
@@ -34,6 +25,21 @@ declare global {
 type DrawColorCycleOptions = {
   customStamp?: CustomBrushStrokeData;
 };
+
+type ShapeFillOptions = Record<string, unknown>;
+
+const warnShapeFillRemoved = (() => {
+  let hasWarned = false;
+  return (feature: string) => {
+    if (hasWarned || typeof console === 'undefined') {
+      return;
+    }
+    hasWarned = true;
+    console.warn(
+      `[ShapeFill] ${feature} called after shape-fill system was removed. This operation is now a no-op.`
+    );
+  };
+})();
 
 const isTransparencyLockEnabled = () =>
   typeof window !== 'undefined' && window.transparencyLockEnabled === true;
@@ -56,7 +62,6 @@ export const useBrushEngineSimplified = () => {
   const brushStampCacheRef = useRef(new Map<string, HTMLCanvasElement>());
   const patternTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rotationTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const shapeFillSchedulerRef = useRef<ShapeFillScheduler | null>(null);
 
   // Get color cycle brush from active layer instead of single instance
   const getActiveLayerColorCycleBrush = useCallback((): ColorCycleBrushImplementation | null => {
@@ -266,33 +271,6 @@ export const useBrushEngineSimplified = () => {
       brushEngine.initializeSpamText(contentType, customText);
     }
   }, [brushEngine, tools.brushSettings, getPatternTempContext, getRotationTempContext]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return undefined;
-    }
-
-    const scheduler = getShapeFillScheduler();
-    shapeFillSchedulerRef.current = scheduler;
-
-    const unsubscribe = scheduler && process.env.NODE_ENV !== 'production'
-      ? scheduler.subscribe(event => {
-          if (event.type === 'completed') {
-            debugLog('shape-fill', `GPU job ${event.jobId} (${event.priority})`, {
-              diagnostics: event.diagnostics,
-              metrics: event.metrics,
-            });
-          }
-        })
-      : undefined;
-
-    return () => {
-      unsubscribe?.();
-      if (shapeFillSchedulerRef.current === scheduler) {
-        shapeFillSchedulerRef.current = null;
-      }
-    };
-  }, []);
 
   /**
    * Main drawing function - simplified interface
@@ -994,65 +972,53 @@ export const useBrushEngineSimplified = () => {
    * Draw contour polygon - creates contour lines like a topographic map using distance fields
    */
   const drawContourPolygon = useCallback((
-    ctx: CanvasRenderingContext2D,
-    polygonData: { vertices: Array<{ x: number; y: number }>; fillColor?: string },
-    isPreview: boolean = false,
-    options?: ShapeFillOptions
+    _ctx: CanvasRenderingContext2D,
+    _polygonData: { vertices: Array<{ x: number; y: number }>; fillColor?: string },
+    _isPreview: boolean = false,
+    _options?: ShapeFillOptions
   ) => {
-    drawContourPolygonFill({
-      ctx,
-      polygonData,
-      brushSettings: tools.brushSettings,
-      isPreview,
-      options,
-    });
-  }, [tools.brushSettings]);
+    warnShapeFillRemoved('drawContourPolygon');
+    void _ctx;
+    void _polygonData;
+    void _isPreview;
+    void _options;
+  }, []);
 
   /**
    * Draw cross-hatch polygon - fills with rough, hand-drawn cross-hatching pattern
    */
   const drawCrossHatchPolygon = useCallback((
-    ctx: CanvasRenderingContext2D,
-    polygonData: {
+    _ctx: CanvasRenderingContext2D,
+    _polygonData: {
       vertices: Array<{ x: number; y: number }>;
       fillColor?: string;
       spacingOverride?: number;
       rotationOverride?: number;
       lineWidthOverride?: number;
     },
-    isPreview: boolean = false
+    _isPreview: boolean = false
   ) => {
-    drawCrossHatchPolygonFill({
-      ctx,
-      polygonData,
-      brushSettings: tools.brushSettings,
-      isPreview,
-      dependencies: {
-        gpuScheduler: shapeFillSchedulerRef.current ?? undefined,
-      },
-    });
-  }, [
-    tools.brushSettings,
-    shapeFillSchedulerRef,
-  ]);
+    warnShapeFillRemoved('drawCrossHatchPolygon');
+    void _ctx;
+    void _polygonData;
+    void _isPreview;
+  }, []);
 
   /**
    * Draw Delaunay polygon - fills with triangulated network of lines
    */
   const drawDelaunayPolygon = useCallback((
-    ctx: CanvasRenderingContext2D,
-    polygonData: { vertices: Array<{ x: number; y: number }>; fillColor?: string },
-    isPreview: boolean = false,
-    options?: ShapeFillOptions
+    _ctx: CanvasRenderingContext2D,
+    _polygonData: { vertices: Array<{ x: number; y: number }>; fillColor?: string },
+    _isPreview: boolean = false,
+    _options?: ShapeFillOptions
   ) => {
-    drawDelaunayPolygonFill({
-      ctx,
-      polygonData,
-      brushSettings: tools.brushSettings,
-      isPreview,
-      options,
-    });
-  }, [tools.brushSettings]);
+    warnShapeFillRemoved('drawDelaunayPolygon');
+    void _ctx;
+    void _polygonData;
+    void _isPreview;
+    void _options;
+  }, []);
 
   /**
    * Initialize Color Cycle Brush for the active layer

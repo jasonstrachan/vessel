@@ -5,13 +5,142 @@ import { BrushShape, type BrushSettings } from '@/types';
 import { snapPointToAngle } from '@/utils/angleSnap';
 import { computeDragScaledValue } from '@/utils/dragScale';
 import { withTemporaryBrushSettings } from '@/utils/withTemporaryBrushSettings';
-import { ShapeAdjustHelper, type ShapeAdjustHelperUpdate } from '@/lib/shapeFill/ShapeAdjustHelper';
-import { getShapeFillScheduler } from '@/lib/shapeFill/runtime';
-import type { ShapeFillOptions } from '@/brushes/shapes/fills/types';
 import { OpController, CanvasManager } from '@/lib/canvas';
 import { debugLog } from '@/utils/debug';
-import { computeNewShapeFillCenter, computeMinDistanceToPolygon } from '@/brushes/shapes/fills/newShapeFill';
 import { MIN_LINE_SPACING } from '@/utils/contourLines';
+
+type ShapeAdjustHelperUpdate = {
+  spacing: number;
+  density?: number;
+  orientation?: number;
+  noiseStrength?: number;
+  band?: string;
+};
+
+type ShapeFillOptions = Record<string, unknown>;
+
+type ShapeFillScheduler = {
+  dispatchJobUpdate: (update: unknown) => void;
+};
+
+type ShapeAdjustHelperConfig = {
+  getOverlayCanvas?: () => HTMLCanvasElement | null | undefined;
+  getViewTransform?: () => unknown;
+  onUpdate: (update: ShapeAdjustHelperUpdate) => void;
+  onCommit?: (update: ShapeAdjustHelperUpdate) => void;
+  onCancel?: () => void;
+  spacingBounds?: { min: number; max: number; exponent?: number };
+  densityBounds?: { min: number; max: number; exponent?: number };
+  noiseBounds?: { min: number; max: number };
+  orientationSnap?: number;
+};
+
+class ShapeAdjustHelper {
+  constructor(config: ShapeAdjustHelperConfig) {
+    void config;
+  }
+  destroy(): void {}
+  isActive(): boolean {
+    return false;
+  }
+  beginSession(session: {
+    centroid: { x: number; y: number };
+    vertices: Array<{ x: number; y: number }>;
+    initialSpacing: number;
+    initialDensity: number;
+    initialOrientation: number;
+    initialNoise: number;
+  }): void {
+    void session;
+  }
+  beginDrag(
+    point: { x: number; y: number },
+    pointerId: number,
+    modifiers?: { shiftKey?: boolean }
+  ): void {
+    void point;
+    void pointerId;
+    void modifiers;
+  }
+  updateDrag(
+    point: { x: number; y: number },
+    pointerId: number,
+    modifiers?: { shiftKey?: boolean }
+  ): void {
+    void point;
+    void pointerId;
+    void modifiers;
+  }
+  endDrag(pointerId: number, commit: boolean): ShapeAdjustHelperUpdate | null {
+    void pointerId;
+    void commit;
+    return null;
+  }
+  isDragging(pointerId: number): boolean {
+    void pointerId;
+    return false;
+  }
+  getCurrentValues(): ShapeAdjustHelperUpdate | null {
+    return null;
+  }
+}
+
+const getShapeFillScheduler = (): ShapeFillScheduler | null => null;
+
+const distanceToSegment = (
+  point: { x: number; y: number },
+  a: { x: number; y: number },
+  b: { x: number; y: number }
+): number => {
+  const vx = b.x - a.x;
+  const vy = b.y - a.y;
+  const lenSq = vx * vx + vy * vy;
+  if (lenSq <= 1e-12) {
+    return Math.hypot(point.x - a.x, point.y - a.y);
+  }
+  let t = ((point.x - a.x) * vx + (point.y - a.y) * vy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  const projX = a.x + vx * t;
+  const projY = a.y + vy * t;
+  return Math.hypot(point.x - projX, point.y - projY);
+};
+
+const computeNewShapeFillCenter = (
+  vertices: Array<{ x: number; y: number }>,
+  _randomSeed?: number
+): { x: number; y: number } => {
+  void _randomSeed;
+  if (!vertices.length) {
+    return { x: 0, y: 0 };
+  }
+  let sumX = 0;
+  let sumY = 0;
+  for (const vertex of vertices) {
+    sumX += vertex.x;
+    sumY += vertex.y;
+  }
+  const inv = 1 / vertices.length;
+  return { x: sumX * inv, y: sumY * inv };
+};
+
+const computeMinDistanceToPolygon = (
+  center: { x: number; y: number },
+  vertices: Array<{ x: number; y: number }>
+): number => {
+  if (vertices.length < 2) {
+    return 0;
+  }
+  let minDistance = Infinity;
+  for (let i = 0; i < vertices.length; i += 1) {
+    const a = vertices[i];
+    const b = vertices[(i + 1) % vertices.length];
+    const distance = distanceToSegment(center, a, b);
+    if (distance < minDistance) {
+      minDistance = distance;
+    }
+  }
+  return Math.max(minDistance, 1e-6);
+};
 
 const CONTOUR_DEBUG_STORAGE_KEY = 'vessel.debug.contour';
 
@@ -226,6 +355,9 @@ export const createShapeToolHandler = (
     }
 
     const scheduler = getShapeFillScheduler();
+    if (!scheduler) {
+      return;
+    }
     const currentBrush = store.tools.brushSettings;
 
     const maxSteps = update.density ?? store.polygonGradientState.tempMaxSteps ?? currentBrush.flowMaxSteps ?? 120;
