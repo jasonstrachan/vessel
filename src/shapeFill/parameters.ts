@@ -50,6 +50,27 @@ const PARAM_DEFINITIONS: Record<ShapeFillParamKey, ShapeFillParameterDefinition>
     scale: 1,
     mode: 'wrap',
   },
+  flowSeedSpacing: {
+    key: 'flowSeedSpacing',
+    min: 4,
+    max: 200,
+    default: 26,
+    scale: 0.4,
+  },
+  flowStepSize: {
+    key: 'flowStepSize',
+    min: 0.25,
+    max: 20,
+    default: 2,
+    scale: 0.05,
+  },
+  flowMaxSteps: {
+    key: 'flowMaxSteps',
+    min: 10,
+    max: 600,
+    default: 160,
+    scale: 2,
+  },
 };
 
 export function getParameterDefinition(key: ShapeFillParamKey): ShapeFillParameterDefinition {

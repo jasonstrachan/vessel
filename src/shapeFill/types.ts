@@ -7,8 +7,16 @@ export interface ShapeDefinition {
   bounds: { minX: number; minY: number; maxX: number; maxY: number };
 }
 
-export type ShapeFillId = 'hatch' | 'contour' | 'stipple' | 'dashes';
-export type ShapeFillParamKey = 'spacing' | 'rotation' | 'thickness' | 'variance' | 'seed';
+export type ShapeFillId = 'hatch' | 'contour' | 'stipple' | 'dashes' | 'flow';
+export type ShapeFillParamKey =
+  | 'spacing'
+  | 'rotation'
+  | 'thickness'
+  | 'variance'
+  | 'seed'
+  | 'flowSeedSpacing'
+  | 'flowStepSize'
+  | 'flowMaxSteps';
 
 export interface FillParams {
   spacing: number;
@@ -18,6 +26,11 @@ export interface FillParams {
   seed?: number;
   organic?: number;
   cross?: boolean;
+  flowSeedSpacing?: number;
+  flowStepSize?: number;
+  flowMaxSteps?: number;
+  flowFieldStep?: number;
+  flowUseOrthogonal?: boolean;
 }
 
 export interface FillResult {
@@ -52,6 +65,7 @@ export interface FillStrategy {
   label: string;
   defaults: FillParams;
   apply: (shape: ShapeDefinition, params: FillParams) => FillResult;
+  adjustOrder?: ShapeFillParamKey[];
   ui: FillUIControl[];
 }
 

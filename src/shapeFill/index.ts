@@ -78,7 +78,9 @@ export class ShapeFillOrchestrator {
       ...baseParams,
     };
 
-    const queue = this.parameterOrder.filter(param => param in strategy.defaults);
+    const preferredOrder =
+      strategy.adjustOrder !== undefined ? strategy.adjustOrder : this.parameterOrder;
+    const queue = preferredOrder.filter(param => param in strategy.defaults);
 
     this.session = {
       stage: queue.length > 0 ? FillStage.AdjustingParam : FillStage.Finalized,
@@ -351,5 +353,14 @@ function normalizePoints(points: Vec2[]): Vec2[] {
 }
 
 function isClampableParam(param: keyof FillParams): param is ShapeFillParamKey {
-  return ['spacing', 'rotation', 'thickness', 'variance', 'seed'].includes(param as string);
+  return [
+    'spacing',
+    'rotation',
+    'thickness',
+    'variance',
+    'seed',
+    'flowSeedSpacing',
+    'flowStepSize',
+    'flowMaxSteps',
+  ].includes(param as string);
 }

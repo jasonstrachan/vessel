@@ -1,6 +1,7 @@
 import { contourFill } from './fillStrategies/contour';
 import { hatchFill } from './fillStrategies/hatch';
 import { dashesFill } from './fillStrategies/dashes';
+import { flowFill } from './fillStrategies/flow';
 import { stippleFill } from './fillStrategies/stipple';
 import { getParameterDefault } from './parameters';
 import { FillStrategy, ShapeFillId } from './types';
@@ -19,6 +20,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
       seed: 0,
     },
     apply: hatchFill,
+    adjustOrder: ['spacing', 'rotation', 'thickness'],
     ui: [
       {
         key: 'spacing',
@@ -75,6 +77,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
       seed: 0,
     },
     apply: contourFill,
+    adjustOrder: ['spacing', 'variance', 'thickness'],
     ui: [
       {
         key: 'spacing',
@@ -116,6 +119,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
       seed: 0,
     },
     apply: stippleFill,
+    adjustOrder: ['spacing', 'variance', 'thickness'],
     ui: [
       {
         key: 'spacing',
@@ -157,6 +161,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
       seed: 0,
     },
     apply: dashesFill,
+    adjustOrder: ['spacing'],
     ui: [
       {
         key: 'spacing',
@@ -184,6 +189,53 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
         max: 1,
         step: 0.05,
         default: 0.35,
+      },
+    ],
+  },
+  flow: {
+    id: 'flow',
+    label: 'Flow',
+    defaults: {
+      spacing: getParameterDefault('spacing'),
+      rotation: 0,
+      thickness: 1,
+      variance: 0,
+      seed: 0,
+      flowSeedSpacing: getParameterDefault('flowSeedSpacing'),
+      flowStepSize: getParameterDefault('flowStepSize'),
+      flowMaxSteps: getParameterDefault('flowMaxSteps'),
+      flowFieldStep: 8,
+      flowUseOrthogonal: false,
+    },
+    apply: flowFill,
+    adjustOrder: [],
+    ui: [
+      {
+        key: 'flowSeedSpacing',
+        type: 'number',
+        label: 'Seed spacing (px)',
+        min: 4,
+        max: 200,
+        step: 1,
+        default: getParameterDefault('flowSeedSpacing'),
+      },
+      {
+        key: 'flowStepSize',
+        type: 'number',
+        label: 'Step size (px/iter)',
+        min: 0.25,
+        max: 20,
+        step: 0.25,
+        default: getParameterDefault('flowStepSize'),
+      },
+      {
+        key: 'flowMaxSteps',
+        type: 'number',
+        label: 'Max length',
+        min: 10,
+        max: 600,
+        step: 5,
+        default: getParameterDefault('flowMaxSteps'),
       },
     ],
   },
