@@ -1,7 +1,7 @@
 # Contour Lines Finalization - Verification Checklist
 
 ## Test Setup
-1. Select Contour Lines brush (CONTOUR_LINES2 or NEW_SHAPE_FILL)
+1. Select Contour Lines brush (CONTOUR_LINES2)
 2. Draw a polygon shape (3+ vertices)
 3. Adjust spacing by dragging
 

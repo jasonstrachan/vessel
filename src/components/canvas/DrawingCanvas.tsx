@@ -211,7 +211,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     if (brushShape === BrushShape.RECTANGLE_GRADIENT || 
         brushShape === BrushShape.POLYGON_GRADIENT || 
         brushShape === BrushShape.CONTOUR_POLYGON ||
-        brushShape === BrushShape.NEW_SHAPE_FILL ||
         brushShape === BrushShape.CONTOUR_LINES2 ||
         brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
         brushShape === BrushShape.SPAM_TEXT) {
@@ -1604,9 +1603,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             
           } else if (toolStateMachine.isContourPolygon) {
             // Check if it's a contour polygon
-            const sampledStrokeColor = tools.brushSettings.shapeFillUseSampledColor
-              ? toolStateMachine.polygonGradientState.points.find((p) => p.color)?.color
-              : undefined;
+            const sampledStrokeColor = toolStateMachine.polygonGradientState.points.find((p) => p.color)?.color;
             brushEngine.drawContourPolygon(
               drawCtx,
               {

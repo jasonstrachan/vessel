@@ -338,13 +338,11 @@ export function useComprehensiveKeyboard({
         ? 'contour'
         : (tools.brushSettings.shapeGradientMode || 'contour'));
     const isContourLines2Mode =
-      (tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON ||
-        tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL) &&
+      tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON &&
       normalizedShapeGradientMode === 'lines2';
 
     if ((tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT || 
          tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON ||
-         tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL ||
          tools.brushSettings.brushShape === BrushShape.CONTOUR_LINES2 ||
          isContourLines2Mode) && 
         polygonGradientState.points.length >= 3) {

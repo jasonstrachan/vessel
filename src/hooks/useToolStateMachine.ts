@@ -100,9 +100,6 @@ export function useToolStateMachine({
     if (brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
       return sampleColorAtPosition(worldPos.x, worldPos.y);
     }
-    if (brushSettings.shapeFillUseSampledColor) {
-      return sampleColorAtPosition(worldPos.x, worldPos.y);
-    }
     return brushSettings.color;
   }, [sampleColorAtPosition]);
 
@@ -196,7 +193,6 @@ export function useToolStateMachine({
   const isColorCycleShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
   const isContourPolygon =
     tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON ||
-    tools.brushSettings.brushShape === BrushShape.NEW_SHAPE_FILL ||
     tools.brushSettings.brushShape === BrushShape.CONTOUR_LINES2;
   
   return {

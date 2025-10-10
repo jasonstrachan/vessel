@@ -1908,6 +1908,24 @@ export const useAppStore = create<AppState>()(
             layers: syncedLayers
           };
         });
+
+        // Ensure the newly created layer becomes the active selection.
+        try {
+          const storeState = get();
+          if (storeState.setActiveLayer) {
+            if (storeState.activeLayerId !== newLayerId) {
+              storeState.setActiveLayer(newLayerId);
+            } else if (!storeState.selectedLayerIds.includes(newLayerId) && storeState.setSelectedLayerIds) {
+              storeState.setSelectedLayerIds([newLayerId]);
+            }
+          }
+        } catch (error) {
+          logError('addLayer: failed to auto-select new layer', error);
+          set(() => ({
+            activeLayerId: newLayerId,
+            selectedLayerIds: [newLayerId]
+          }));
+        }
         
         // Persist a structural snapshot asynchronously so the UI doesn't stutter
         // when adding layers on large canvases.

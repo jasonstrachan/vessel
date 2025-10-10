@@ -58,13 +58,7 @@ export const pixelBrushSettings: BrushSettings = {
   ribbonLineWidth: 1.6,
   ribbonJitter: 0.25,
   ribbonAnchorFalloff: 0.3,
-  ribbonSeed: 2025,
-  shapeFillLineWidth: 1,
-  shapeFillPixelMode: true,
-  shapeFillUseSampledColor: false,
-  shapeFillHardening: 1,
-  shapeFillHardeningThreshold: 0.5,
-  shapeFillEdgeFeather: 1
+  ribbonSeed: 2025
 };
 
 // Default brush settings for smooth drawing
@@ -136,13 +130,7 @@ export const defaultBrushSettings: BrushSettings = {
   ribbonLineWidth: 1.6,
   ribbonJitter: 0.25,
   ribbonAnchorFalloff: 0.3,
-  ribbonSeed: 2025,
-  shapeFillLineWidth: 1,
-  shapeFillPixelMode: true,
-  shapeFillUseSampledColor: false,
-  shapeFillHardening: 1,
-  shapeFillHardeningThreshold: 0.5,
-  shapeFillEdgeFeather: 1
+  ribbonSeed: 2025
 };
 
 // Components for pixel brush - 1px, hard edges, pixel perfect
@@ -625,40 +613,6 @@ export const polygonGradientBrushPreset: BrushPreset = {
   }
 };
 
-const newShapeFillComponents: BrushComponent[] = [
-  {
-    id: 'new-shape-fill-shape',
-    type: ComponentType.SHAPE_RENDERER,
-    parameters: {
-      shape: BrushShape.NEW_SHAPE_FILL,
-    },
-    priority: 40,
-    enabled: true,
-  },
-];
-
-export const newShapeFillBrushPreset: BrushPreset = {
-  id: 'new-shape-fill-brush',
-  name: 'Shape Fill',
-  category: 'Special',
-  components: newShapeFillComponents,
-  thumbnail: '/assets/images/Brush.png',
-  tags: ['contour', 'organic', 'cpu'],
-  isDefault: false,
-  createdAt: new Date(),
-  modifiedAt: new Date(),
-  preferredSettings: {
-    contourSpacing: 6,
-    contourVariance: 0.35,
-    contourSmoothness: 0.65,
-    shapeGradientMode: 'contour',
-    shapeFillPixelMode: true,
-    shapeFillUseSampledColor: false,
-    shapeFillLineWidth: 1.25,
-    flowFieldResolution: 2,
-  },
-};
-
 // Spam Brush Components
 const spamBrushComponents: BrushComponent[] = [
   {
@@ -822,7 +776,6 @@ export const brushPresets: BrushPreset[] = [
   colorCycleShapeBrushPreset,
   rectangleGradientBrushPreset,
   polygonGradientBrushPreset,
-  newShapeFillBrushPreset,
   spamBrushPreset,
   resamplerBrushPreset,
   polygonDitherPreset
@@ -862,17 +815,6 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     settings.pressureEnabled = true;
     settings.minPressure = 50;  // 50% size at min pressure
     settings.maxPressure = 200; // 200% size at max pressure
-  } else if (preset.id === 'new-shape-fill-brush') {
-    settings.size = 8; // leaner base width suited to organic contours
-    settings.antialiasing = false;
-    settings.contourSpacing = 6;
-    settings.contourVariance = 0.35;
-    settings.contourSmoothness = 0.65;
-    settings.shapeGradientMode = 'contour';
-    settings.shapeFillPixelMode = true;
-    settings.shapeFillUseSampledColor = false;
-    settings.shapeFillLineWidth = 1.25;
-    settings.flowFieldResolution = 2;
   } else if (preset.category === 'Custom') {
     // Handle custom brush presets - apply sensible defaults
     settings.antialiasing = true;

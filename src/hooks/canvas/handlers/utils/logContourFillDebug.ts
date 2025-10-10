@@ -17,7 +17,6 @@ export const shouldLogContourFill = (
   if (!SUPPORTED_MODES.has(mode)) return false;
   return (
     brushShape === BrushShape.CONTOUR_POLYGON ||
-    brushShape === BrushShape.NEW_SHAPE_FILL ||
     brushShape === BrushShape.CONTOUR_LINES2
   );
 };
