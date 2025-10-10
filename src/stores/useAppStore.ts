@@ -276,6 +276,7 @@ interface ShapeFillState {
   session: ShapeFillSession | null;
   parameterOrder: ShapeFillParamKey[];
   lastFinalize: ShapeFillFinalizePayload | null;
+  showOutline: boolean;
 }
 
 export interface AppState {
@@ -408,6 +409,7 @@ export interface AppState {
     param: keyof FillParams,
     value: number | boolean | undefined
   ) => void;
+  setShapeFillShowOutline: (show: boolean) => void;
   beginShapeFillSession: (points: Vec2[]) => void;
   updateShapeFillCursor: (cursor: Vec2) => void;
   commitShapeFillParameter: () => void;
@@ -678,6 +680,7 @@ const defaultShapeFillState: ShapeFillState = {
   session: null,
   parameterOrder: ['spacing', 'rotation'],
   lastFinalize: null,
+  showOutline: false,
 };
 
 const defaultRectangleBrushState = {
@@ -1554,6 +1557,14 @@ export const useAppStore = create<AppState>()(
           shapeFillOrchestratorInstance.setParameterValue(param, value);
         }
       },
+      setShapeFillShowOutline: (show) => {
+        set((state) => ({
+          shapeFill: {
+            ...state.shapeFill,
+            showOutline: show,
+          },
+        }));
+      },
       beginShapeFillSession: (points) => {
         const state = get();
         const fillId = state.shapeFill.activeFillId;
@@ -1576,6 +1587,7 @@ export const useAppStore = create<AppState>()(
       finalizeShapeFillSession: () => {
         const payload = shapeFillOrchestratorInstance.finalize();
         if (payload) {
+          const strategy = getFillStrategy(payload.fillId);
           set((state) => ({
             shapeFill: {
               ...state.shapeFill,
@@ -1583,7 +1595,7 @@ export const useAppStore = create<AppState>()(
               paramsByFill: {
                 ...state.shapeFill.paramsByFill,
                 [payload.fillId]: {
-                  ...payload.params,
+                  ...strategy.defaults,
                 },
               },
             },
@@ -1592,7 +1604,21 @@ export const useAppStore = create<AppState>()(
         return payload;
       },
       cancelShapeFillSession: () => {
+        const state = get();
+        const fillId = state.shapeFill.activeFillId;
+        const strategy = getFillStrategy(fillId);
         shapeFillOrchestratorInstance.cancel();
+        set(currentState => ({
+          shapeFill: {
+            ...currentState.shapeFill,
+            paramsByFill: {
+              ...currentState.shapeFill.paramsByFill,
+              [fillId]: {
+                ...strategy.defaults,
+              },
+            },
+          },
+        }));
       },
       
       // Rectangle Brush State

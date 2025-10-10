@@ -1,5 +1,5 @@
 import { adjustParameterFromCursor } from './parameterAdjuster';
-import { clampParameterValue, getParameterDefault } from './parameters';
+import { clampParameterValue, getParameterDefault, getParameterDefinition } from './parameters';
 import { createShape, MAX_POINTS, SAMPLE_DISTANCE_PX } from './shapeFactory';
 import {
   FillParams,
@@ -114,7 +114,6 @@ export class ShapeFillOrchestrator {
     }
 
     const baseValue =
-      params[currentParam] ??
       this.baseParams[currentParam] ??
       getParameterDefault(currentParam);
 
@@ -122,10 +121,55 @@ export class ShapeFillOrchestrator {
     const cursorVecX = cursor.x - centroid.x;
     const cursorVecY = cursor.y - centroid.y;
     const cursorDistance = Math.hypot(cursorVecX, cursorVecY);
+
+    if (currentParam === 'rotation') {
+      if (cursorDistance < 1e-3) {
+        return;
+      }
+
+      let degrees = (Math.atan2(cursorVecY, cursorVecX) * 180) / Math.PI; // -180..180
+      degrees = ((degrees % 180) + 180) % 180; // wrap to [0,180)
+      const clamped = clampParameterValue(degrees, 'rotation');
+
+      this.session = {
+        ...this.session,
+        cursorAnchorParam: currentParam,
+        cursorAnchorDirection: { x: cursorVecX / cursorDistance, y: cursorVecY / cursorDistance },
+        lastCursor: { ...cursor },
+        params: {
+          ...params,
+          [currentParam]: clamped,
+        },
+      };
+
+      this.emit();
+      return;
+    }
+
     const normalizedDirection =
       cursorDistance > 1e-3
         ? { x: cursorVecX / cursorDistance, y: cursorVecY / cursorDistance }
         : cursorAnchorDirection ?? { x: 1, y: 0 };
+
+    if (currentParam === 'spacing' || currentParam === 'thickness' || currentParam === 'variance') {
+      const definition = getParameterDefinition(currentParam);
+      const rawValue = definition.min + cursorDistance * definition.scale;
+      const clampedValue = clampParameterValue(rawValue, currentParam);
+
+      this.session = {
+        ...this.session,
+        cursorAnchorParam: currentParam,
+        cursorAnchorDirection: normalizedDirection,
+        lastCursor: { ...cursor },
+        params: {
+          ...params,
+          [currentParam]: clampedValue,
+        },
+      };
+
+      this.emit();
+      return;
+    }
 
     let nextAnchorParam = cursorAnchorParam;
     let previousCursor = lastCursor;

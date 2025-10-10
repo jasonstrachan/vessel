@@ -322,16 +322,17 @@ export const createShapeToolHandler = (
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
     drawCtx.lineWidth = mergedParams.thickness ?? 1;
     renderFill(drawCtx, previewResult);
-    // Draw a subtle outline so the shape boundary remains visible.
-    drawCtx.strokeStyle = 'rgba(0,0,0,0.35)';
-    drawCtx.beginPath();
-    drawCtx.moveTo(session.shape.points[0].x, session.shape.points[0].y);
-    for (let i = 1; i < session.shape.points.length; i += 1) {
-      const pt = session.shape.points[i];
-      drawCtx.lineTo(pt.x, pt.y);
+    if (store.shapeFill.showOutline && session.shape.points.length >= 3) {
+      drawCtx.strokeStyle = 'rgba(0,0,0,0.35)';
+      drawCtx.beginPath();
+      drawCtx.moveTo(session.shape.points[0].x, session.shape.points[0].y);
+      for (let i = 1; i < session.shape.points.length; i += 1) {
+        const pt = session.shape.points[i];
+        drawCtx.lineTo(pt.x, pt.y);
+      }
+      drawCtx.closePath();
+      drawCtx.stroke();
     }
-    drawCtx.closePath();
-    drawCtx.stroke();
     drawCtx.restore();
     drawingHandlers.drawingCanvasHasContent.current = true;
   };
@@ -357,8 +358,8 @@ export const createShapeToolHandler = (
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
     drawCtx.lineWidth = payload.params.thickness ?? 1;
     renderFill(drawCtx, payload.result);
-    drawCtx.strokeStyle = 'rgba(0,0,0,0.35)';
-    if (payload.shape.points.length >= 3) {
+    if (store.shapeFill.showOutline && payload.shape.points.length >= 3) {
+      drawCtx.strokeStyle = 'rgba(0,0,0,0.35)';
       drawCtx.beginPath();
       drawCtx.moveTo(payload.shape.points[0].x, payload.shape.points[0].y);
       for (let i = 1; i < payload.shape.points.length; i += 1) {
