@@ -287,19 +287,42 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       return last.color;
     }
 
-    const imageData = ctx.getImageData(clampedX, clampedY, 1, 1);
-    let [r, g, b] = imageData.data;
-    const a = imageData.data[3];
+    const offsets = [
+      { dx: 0, dy: 0 },
+      { dx: 1, dy: 0 },
+      { dx: -1, dy: 0 },
+      { dx: 0, dy: 1 },
+      { dx: 0, dy: -1 },
+      { dx: 1, dy: 1 },
+    ];
 
-    const alpha = a / 255;
+    let rSum = 0;
+    let gSum = 0;
+    let bSum = 0;
+    let weightSum = 0;
+
+    offsets.forEach(offset => {
+      const sx = Math.max(0, Math.min(comp.width - 1, clampedX + offset.dx));
+      const sy = Math.max(0, Math.min(comp.height - 1, clampedY + offset.dy));
+      const data = ctx.getImageData(sx, sy, 1, 1).data;
+      const alpha = data[3] / 255;
+      if (alpha <= 0) {
+        return;
+      }
+      rSum += data[0] * alpha;
+      gSum += data[1] * alpha;
+      bSum += data[2] * alpha;
+      weightSum += alpha;
+    });
+
     let color: string;
-    if (a === 0) {
-      color = 'rgba(255, 255, 255, 0)';
-    } else if (alpha >= 0.999) {
-      color = `rgb(${r}, ${g}, ${b})`;
+    if (weightSum === 0) {
+      color = 'rgb(255, 255, 255)';
     } else {
-      const alphaStr = Number(alpha.toFixed(3)).toString();
-      color = `rgba(${r}, ${g}, ${b}, ${alphaStr})`;
+      const r = Math.round(rSum / weightSum);
+      const g = Math.round(gSum / weightSum);
+      const b = Math.round(bSum / weightSum);
+      color = `rgb(${r}, ${g}, ${b})`;
     }
 
     // Update cache
@@ -802,7 +825,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
                 x: centroid.x / payload.shape.points.length,
                 y: centroid.y / payload.shape.points.length,
               };
-              fillColor = sampleColorAtPosition(normalized.x, normalized.y);
+              const sampledColor = sampleColorAtPosition(normalized.x, normalized.y);
+              fillColor = sampledColor;
             }
             ctx.strokeStyle = fillColor;
             ctx.fillStyle = fillColor;

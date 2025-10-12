@@ -1,10 +1,16 @@
 import { useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { BrushShape } from '../types';
+import { parseCssColor } from '@/utils/color/parseCssColor';
 
 interface ToolStateMachineProps {
   sampleColorAtPosition: (x: number, y: number) => string;
 }
+
+const toOpaqueColorString = (color: string): string => {
+  const parsed = parseCssColor(color);
+  return `rgb(${parsed.r}, ${parsed.g}, ${parsed.b})`;
+};
 
 export function useToolStateMachine({ 
   sampleColorAtPosition
@@ -95,10 +101,11 @@ export function useToolStateMachine({
   }, [setRectangleBrushState]);
 
   const resolvePolygonPointColor = useCallback((worldPos: { x: number; y: number }) => {
-    const { tools } = useAppStore.getState();
-    const brushSettings = tools.brushSettings;
+    const state = useAppStore.getState();
+    const brushSettings = state.tools.brushSettings;
     if (brushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
-      return sampleColorAtPosition(worldPos.x, worldPos.y);
+      const sampled = sampleColorAtPosition(worldPos.x, worldPos.y);
+      return toOpaqueColorString(sampled);
     }
     return brushSettings.color;
   }, [sampleColorAtPosition]);

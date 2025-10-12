@@ -3,6 +3,7 @@ import { computeBounds, pointInPolygon } from '../utils/geometry';
 import { clamp } from '../utils/math';
 
 const THRESHOLD = 128;
+const FLAT_FILL_THRESHOLD = 0.96;
 
 interface ActiveCell {
   gx: number;
@@ -30,11 +31,9 @@ export function sierraFill(shape: ShapeDefinition, params: FillParams): FillResu
     };
   }
 
-  if (density >= 0.999) {
+  if (density >= FLAT_FILL_THRESHOLD) {
     return {
-      polygons: [
-        shape.points.map(point => ({ ...point })),
-      ],
+      polygons: [shape.points.map(point => ({ ...point }))],
       clipPath: [...shape.points],
     };
   }

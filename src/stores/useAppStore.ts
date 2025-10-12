@@ -686,6 +686,161 @@ const defaultShapeFillState: ShapeFillState = {
   sampleUnderShape: false,
 };
 
+const SHAPE_FILL_STORAGE_KEY = 'vessel-shape-fill-settings';
+
+type PersistedShapeFillSnapshot = {
+  activeFillId?: ShapeFillId;
+  paramsByFill?: Record<string, Partial<FillParams>>;
+  showOutline?: boolean;
+  sampleUnderShape?: boolean;
+};
+
+const VALID_FILL_PARAM_KEYS: (keyof FillParams)[] = [
+  'spacing',
+  'rotation',
+  'thickness',
+  'variance',
+  'seed',
+  'dashLength',
+  'dashLengthJitter',
+  'dashWeightJitter',
+  'scatter',
+  'nearFalloff',
+  'farFalloff',
+  'angleDrift',
+  'angleScale',
+  'sierraDensity',
+  'sierraResolution',
+  'organic',
+  'cross',
+  'flowSeedSpacing',
+  'flowStepSize',
+  'flowMaxSteps',
+  'flowFieldStep',
+  'flowUseOrthogonal',
+];
+
+const VALID_FILL_PARAM_KEY_SET = new Set<keyof FillParams>(VALID_FILL_PARAM_KEYS);
+
+const cloneDefaultShapeFillParams = (): Record<ShapeFillId, Partial<FillParams>> => {
+  return defaultShapeFillStrategies.reduce<Record<ShapeFillId, Partial<FillParams>>>(
+    (acc, strategy) => {
+      acc[strategy.id] = { ...(defaultShapeFillParams[strategy.id] ?? {}) };
+      return acc;
+    },
+    {} as Record<ShapeFillId, Partial<FillParams>>
+  );
+};
+
+const sanitizePersistedParams = (
+  _fillId: ShapeFillId,
+  params: unknown
+): Partial<FillParams> => {
+  if (!params || typeof params !== 'object') {
+    return {};
+  }
+
+  const sanitized: Partial<FillParams> = {};
+  Object.entries(params as Record<string, unknown>).forEach(([key, value]) => {
+    if (!VALID_FILL_PARAM_KEY_SET.has(key as keyof FillParams)) {
+      return;
+    }
+
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      sanitized[key as keyof FillParams] = value as never;
+    }
+  });
+
+  return sanitized;
+};
+
+const loadPersistedShapeFillState = (): PersistedShapeFillSnapshot | null => {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(SHAPE_FILL_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as PersistedShapeFillSnapshot;
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const persistShapeFillState = (state: ShapeFillState): void => {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+
+  const snapshot: PersistedShapeFillSnapshot = {
+    activeFillId: state.activeFillId,
+    paramsByFill: state.paramsByFill,
+    showOutline: state.showOutline,
+    sampleUnderShape: state.sampleUnderShape,
+  };
+
+  try {
+    window.localStorage.setItem(SHAPE_FILL_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch {
+    // Ignore quota and serialization errors — persistence is best effort.
+  }
+};
+
+const createInitialShapeFillState = (): ShapeFillState => {
+  const base: ShapeFillState = {
+    ...defaultShapeFillState,
+    paramsByFill: cloneDefaultShapeFillParams(),
+  };
+
+  const persisted = loadPersistedShapeFillState();
+  if (!persisted) {
+    return base;
+  }
+
+  if (persisted.paramsByFill && typeof persisted.paramsByFill === 'object') {
+    Object.entries(persisted.paramsByFill).forEach(([id, params]) => {
+      if (!base.availableFillIds.includes(id as ShapeFillId)) {
+        return;
+      }
+
+      const fillId = id as ShapeFillId;
+      const sanitized = sanitizePersistedParams(fillId, params);
+
+      base.paramsByFill[fillId] = {
+        ...base.paramsByFill[fillId],
+        ...sanitized,
+      };
+    });
+  }
+
+  if (persisted.activeFillId && base.availableFillIds.includes(persisted.activeFillId)) {
+    base.activeFillId = persisted.activeFillId;
+  }
+
+  if (typeof persisted.showOutline === 'boolean') {
+    base.showOutline = persisted.showOutline;
+  }
+
+  if (typeof persisted.sampleUnderShape === 'boolean') {
+    base.sampleUnderShape = persisted.sampleUnderShape;
+  }
+
+  if (typeof window !== 'undefined') {
+    persistShapeFillState(base);
+  }
+
+  return base;
+};
+
 const pickFillParamsForPersist = (params: FillParams, defaults: FillParams): Partial<FillParams> => {
   const persisted: Partial<FillParams> = {};
   (Object.keys(defaults) as (keyof FillParams)[]).forEach(key => {
@@ -1561,10 +1716,17 @@ export const useAppStore = create<AppState>()(
       })),
       
       // Shape Fill State
-      shapeFill: { ...defaultShapeFillState },
-      setShapeFillActiveFill: (fillId) => set((state) => ({
-        shapeFill: { ...state.shapeFill, activeFillId: fillId }
-      })),
+      shapeFill: createInitialShapeFillState(),
+      setShapeFillActiveFill: (fillId) => {
+        const current = get();
+        if (!current.shapeFill.availableFillIds.includes(fillId)) {
+          return;
+        }
+        set((state) => ({
+          shapeFill: { ...state.shapeFill, activeFillId: fillId }
+        }));
+        persistShapeFillState(get().shapeFill);
+      },
       setShapeFillParameterOrder: (order) => {
         shapeFillOrchestratorInstance.setParameterOrder(order);
         set((state) => ({
@@ -1572,6 +1734,11 @@ export const useAppStore = create<AppState>()(
         }));
       },
       setShapeFillParamValue: (fillId, param, value) => {
+        const current = get();
+        if (!current.shapeFill.availableFillIds.includes(fillId)) {
+          return;
+        }
+
         set((state) => ({
           shapeFill: {
             ...state.shapeFill,
@@ -1584,6 +1751,7 @@ export const useAppStore = create<AppState>()(
             },
           },
         }));
+        persistShapeFillState(get().shapeFill);
 
         const session = shapeFillOrchestratorInstance.getSession();
         const activeFillId = get().shapeFill.activeFillId;
@@ -1598,6 +1766,7 @@ export const useAppStore = create<AppState>()(
             showOutline: show,
           },
         }));
+        persistShapeFillState(get().shapeFill);
       },
       setShapeFillSampleUnderShape: (sample) => {
         set((state) => ({
@@ -1606,6 +1775,7 @@ export const useAppStore = create<AppState>()(
             sampleUnderShape: sample,
           },
         }));
+        persistShapeFillState(get().shapeFill);
       },
       beginShapeFillSession: (points) => {
         const state = get();
@@ -1643,6 +1813,7 @@ export const useAppStore = create<AppState>()(
               },
             },
           }));
+          persistShapeFillState(get().shapeFill);
         }
         return payload;
       },

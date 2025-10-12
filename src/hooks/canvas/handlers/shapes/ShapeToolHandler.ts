@@ -5,6 +5,7 @@ import { BrushShape, type BrushSettings } from '@/types';
 import { snapPointToAngle } from '@/utils/angleSnap';
 import { computeDragScaledValue } from '@/utils/dragScale';
 import { withTemporaryBrushSettings } from '@/utils/withTemporaryBrushSettings';
+import { parseCssColor } from '@/utils/color/parseCssColor';
 import { OpController, CanvasManager } from '@/lib/canvas';
 import { MIN_LINE_SPACING } from '@/utils/contourLines';
 import { getPreviewRenderer } from '@/shapeFill/paramPreview';
@@ -24,6 +25,11 @@ type ShapeFillOptions = Record<string, unknown>;
 
 type ShapeFillScheduler = {
   dispatchJobUpdate: (update: unknown) => void;
+};
+
+const toOpaqueColorString = (color: string): string => {
+  const parsed = parseCssColor(color);
+  return `rgb(${parsed.r}, ${parsed.g}, ${parsed.b})`;
 };
 
 type ShapeAdjustHelperConfig = {
@@ -1026,10 +1032,12 @@ export const createShapeToolHandler = (
   };
 
   const resolvePolygonPointColor = (worldPos: { x: number; y: number }) => {
-    const { brushSettings } = useAppStore.getState().tools;
+    const store = useAppStore.getState();
+    const { brushSettings } = store.tools;
     const shouldSample = brushSettings.brushShape === BrushShape.POLYGON_GRADIENT;
     if (shouldSample) {
-      return sampleColorAtPosition(worldPos.x, worldPos.y);
+      const sampled = sampleColorAtPosition(worldPos.x, worldPos.y);
+      return toOpaqueColorString(sampled);
     }
     return brushSettings.color;
   };
@@ -1086,7 +1094,7 @@ export const createShapeToolHandler = (
           const centroid = computePolygonCentroid(coords);
           const sampled = sampleColorAtPosition(centroid.x, centroid.y);
           if (sampled) {
-            return sampled;
+            return toOpaqueColorString(sampled);
           }
         }
       }
