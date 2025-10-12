@@ -1423,8 +1423,20 @@ export const useAppStore = create<AppState>()(
         }
       },
       setCurrentTool: (tool) => {
+        const stateBeforeSwitch = get();
         // Save current settings before switching
-        get()._saveCurrentBrushSettings();
+        stateBeforeSwitch._saveCurrentBrushSettings();
+
+        const shapeFillSession = stateBeforeSwitch.shapeFill.session;
+        const isShapeFillActive =
+          !!shapeFillSession &&
+          stateBeforeSwitch.tools.currentTool === 'brush' &&
+          stateBeforeSwitch.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
+        const toolChanged = tool !== stateBeforeSwitch.tools.currentTool;
+
+        if (isShapeFillActive && toolChanged) {
+          stateBeforeSwitch.cancelShapeFillSession();
+        }
         
         // Clear temporary brush and selection when switching to or re-selecting custom tool
         if (tool === 'custom') {
@@ -1445,6 +1457,7 @@ export const useAppStore = create<AppState>()(
           set((state) => {
 
         const newBrushSettings = { ...state.tools.brushSettings };
+        const wasShapeFillBrush = state.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
         
         // Track last regular tool and brush shape when switching from regular brush
         let lastRegularTool = state.tools.lastRegularTool;
@@ -1471,6 +1484,9 @@ export const useAppStore = create<AppState>()(
 
         // Reset shapeMode and clear shape state when switching away from brush/eraser tools
         let newShapeMode = state.tools.shapeMode;
+        if (wasShapeFillBrush && tool !== 'brush') {
+          newShapeMode = false;
+        }
         if ((state.tools.currentTool === 'brush' || state.tools.currentTool === 'eraser' || state.tools.currentTool === 'custom') &&
             tool !== 'brush' && tool !== 'eraser' && tool !== 'custom') {
           newShapeMode = false;
@@ -1869,8 +1885,17 @@ export const useAppStore = create<AppState>()(
       currentOffscreenCanvas: null,
       setCurrentOffscreenCanvas: (canvas) => set({ currentOffscreenCanvas: canvas }),
       setBrushPreset: (preset, preserveEditMode = false) => {
+        const stateBeforeSwitch = get();
         // Save current settings before switching
-        get()._saveCurrentBrushSettings();
+        stateBeforeSwitch._saveCurrentBrushSettings();
+
+        if (
+          stateBeforeSwitch.shapeFill.session &&
+          stateBeforeSwitch.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL &&
+          stateBeforeSwitch.currentBrushPreset?.id !== preset.id
+        ) {
+          stateBeforeSwitch.cancelShapeFillSession();
+        }
         
         // Cancel any active brush edit session before switching (unless preserveEditMode is true)
         const state = get();
@@ -2029,9 +2054,13 @@ export const useAppStore = create<AppState>()(
         // Decide shapeMode based on brush domain (Color Cycle vs regular)
         const isNewCC = newBrushSettings.brushShape === BrushShape.COLOR_CYCLE ||
                         newBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+        const wasShapeFillBrush = state.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
+        const isShapeFillBrush = newBrushSettings.brushShape === BrushShape.SHAPE_FILL;
 
         let nextShapeMode: boolean;
-        if (isNewCC) {
+        if (isShapeFillBrush) {
+          nextShapeMode = true;
+        } else if (isNewCC) {
           // Respect explicit CC variant presets; otherwise restore last CC shape mode
           if (preset.id === 'color-cycle-shape') {
             nextShapeMode = true;
@@ -2042,7 +2071,7 @@ export const useAppStore = create<AppState>()(
           }
         } else {
           // Non-CC brushes should not inherit CC shape mode
-          nextShapeMode = state.tools.lastRegularShapeMode ?? false;
+          nextShapeMode = wasShapeFillBrush ? false : state.tools.lastRegularShapeMode ?? false;
         }
 
         // Clear temporary brush when switching away from custom brushes
