@@ -15,9 +15,11 @@ const ShapeFillControls: React.FC = () => {
   const paramsByFill = useAppStore(state => state.shapeFill.paramsByFill);
   const session = useAppStore(state => state.shapeFill.session);
   const showOutline = useAppStore(state => state.shapeFill.showOutline);
+  const sampleUnderShape = useAppStore(state => state.shapeFill.sampleUnderShape);
   const setActiveFill = useAppStore(state => state.setShapeFillActiveFill);
   const setParamValue = useAppStore(state => state.setShapeFillParamValue);
   const setShowOutline = useAppStore(state => state.setShapeFillShowOutline);
+  const setSampleUnderShape = useAppStore(state => state.setShapeFillSampleUnderShape);
 
   const activeStrategy =
     SHAPE_FILL_STRATEGIES.find(strategy => strategy.id === activeFillId) ??
@@ -62,6 +64,15 @@ const ShapeFillControls: React.FC = () => {
       />
 
       <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-3 text-xs text-[#CCCCCC]">
+          <span className="w-24">Sample</span>
+          <CustomSwitch
+            checked={sampleUnderShape}
+            onChange={checked => setSampleUnderShape(checked)}
+            aria-label="Sample"
+          />
+        </div>
+
         {activeStrategy.ui.map(control => {
           if (control.type === 'boolean') {
             const value = activeParams[control.key];
@@ -94,7 +105,11 @@ const ShapeFillControls: React.FC = () => {
                 min={control.min}
                 max={control.max}
                 step={control.step}
-                onChange={value => setParamValue(activeStrategy.id, control.key, Number(value))}
+                onChange={value => {
+                  const raw = typeof value === 'number' ? value : Number(value);
+                  const nextValue = control.step >= 1 ? Math.round(raw) : raw;
+                  setParamValue(activeStrategy.id, control.key, nextValue);
+                }}
                 aria-label={control.label}
                 className="flex-1"
               />

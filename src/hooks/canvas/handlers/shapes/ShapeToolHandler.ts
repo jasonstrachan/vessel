@@ -268,6 +268,10 @@ export const createShapeToolHandler = (
       return;
     }
 
+    const previewFillColor = resolveShapeFillColor(session.shape.points);
+    overlayCtx.strokeStyle = previewFillColor;
+    overlayCtx.fillStyle = previewFillColor;
+
     const store = useAppStore.getState();
     const fillId = store.shapeFill.activeFillId;
     const renderer = getPreviewRenderer(fillId);
@@ -321,6 +325,9 @@ export const createShapeToolHandler = (
     drawCtx.save();
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
     drawCtx.lineWidth = mergedParams.thickness ?? 1;
+    const fillColor = resolveShapeFillColor(session.shape.points);
+    drawCtx.strokeStyle = fillColor;
+    drawCtx.fillStyle = fillColor;
     renderFill(drawCtx, previewResult);
     if (store.shapeFill.showOutline && session.shape.points.length >= 3) {
       drawCtx.strokeStyle = 'rgba(0,0,0,0.35)';
@@ -357,6 +364,9 @@ export const createShapeToolHandler = (
     drawCtx.save();
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
     drawCtx.lineWidth = payload.params.thickness ?? 1;
+    const fillColor = resolveShapeFillColor(payload.shape.points);
+    drawCtx.strokeStyle = fillColor;
+    drawCtx.fillStyle = fillColor;
     renderFill(drawCtx, payload.result);
     if (store.shapeFill.showOutline && payload.shape.points.length >= 3) {
       drawCtx.strokeStyle = 'rgba(0,0,0,0.35)';
@@ -372,7 +382,7 @@ export const createShapeToolHandler = (
     drawCtx.restore();
 
     drawingHandlers.drawingCanvasHasContent.current = true;
-    await drawingHandlers.finalizeDrawing();
+    await drawingHandlers.finalizeDrawing({ historyActionType: 'fill' });
 
     stateMachine.finalizationComplete();
 
@@ -1035,22 +1045,52 @@ export const createShapeToolHandler = (
     );
   };
 
-  const resolveShapeFillColor = (points?: Array<{ color?: string }>) => {
+  const resolveShapeFillColor = (points?: Array<{ x: number; y: number; color?: string }>) => {
     const store = useAppStore.getState();
     const { brushSettings } = store.tools;
-    const usesSampledColor = brushSettings.brushShape === BrushShape.POLYGON_GRADIENT;
+    const brushShape = brushSettings.brushShape;
 
-    if (usesSampledColor && points && points.length > 0) {
-      for (const point of points) {
-        const candidate = point?.color;
-        if (candidate) {
-          return candidate;
+    if (brushShape === BrushShape.POLYGON_GRADIENT) {
+      const candidatePoints =
+        points ?? store.polygonGradientState.points;
+
+      if (candidatePoints && candidatePoints.length > 0) {
+        for (const point of candidatePoints) {
+          const candidate = point?.color;
+          if (candidate) {
+            return candidate;
+          }
         }
       }
+
+      if (store.polygonGradientState.fillColor) {
+        return store.polygonGradientState.fillColor;
+      }
+
+      return brushSettings.color;
     }
 
-    if (usesSampledColor && store.polygonGradientState.fillColor) {
-      return store.polygonGradientState.fillColor;
+    if (brushShape === BrushShape.SHAPE_FILL) {
+      if (store.shapeFill.sampleUnderShape) {
+        const candidatePoints =
+          points ??
+          store.shapeFill.session?.shape?.points ??
+          store.shapeFill.lastFinalize?.shape.points ??
+          [];
+
+        if (candidatePoints.length > 0) {
+          const coords = candidatePoints.map(point => ({
+            x: point.x,
+            y: point.y,
+          }));
+          const centroid = computePolygonCentroid(coords);
+          const sampled = sampleColorAtPosition(centroid.x, centroid.y);
+          if (sampled) {
+            return sampled;
+          }
+        }
+      }
+      return brushSettings.color;
     }
 
     return brushSettings.color;
@@ -1922,7 +1962,7 @@ export const createShapeToolHandler = (
                   : [];
                 const previewColor = useSampledFill
                   ? sampleColorAtPosition(previewPoint.x, previewPoint.y)
-                  : resolveShapeFillColor();
+                  : resolveShapeFillColor(polygonStateForPreview.points);
                 previewColors.push(previewColor);
 
                 if (previewColors.length >= 3) {

@@ -1,7 +1,15 @@
-import { FillParams, FillResult, ShapeDefinition, Vec2 } from '../types';
+import {
+  FillDotInstance,
+  FillParams,
+  FillResult,
+  FillStrokeSegment,
+  ShapeDefinition,
+  Vec2,
+} from '../types';
 import { computeBounds, pointInPolygon } from '../utils/geometry';
 import { clamp } from '../utils/math';
 import { createRng, hashPoints } from '../utils/random';
+import { fbm2, jitterPoint } from '../utils/noise';
 
 const DEG_TO_RAD = Math.PI / 180;
 
@@ -11,66 +19,137 @@ export function dashesFill(shape: ShapeDefinition, params: FillParams): FillResu
   }
 
   const bounds = computeBounds(shape.points);
-  const spacing = Math.max(4, params.spacing ?? 18);
-  const variance = clamp(params.variance ?? 0.3, 0, 1);
-  const thickness = Math.max(0.2, params.thickness ?? 2.4);
+  const spacing = Math.max(2, params.spacing ?? 10);
+  const thickness = Math.max(0.2, params.thickness ?? 3.5);
   const seed = params.seed ?? hashPoints(shape.points);
   const rng = createRng(seed);
 
-  const dashLengthBase = Math.max(spacing * 0.85, thickness * 4);
-  const jitterDistance = spacing * variance;
-  const angleJitterMax = variance * Math.PI * 0.5;
-  const lengthJitter = variance * 0.65;
+  const rotationDeg = params.rotation ?? 0;
+  const rotationRad = rotationDeg * DEG_TO_RAD;
+  const baseDir = {
+    x: Math.cos(rotationRad),
+    y: Math.sin(rotationRad),
+  };
 
-  const lines: Vec2[][] = [];
-  const capCenters: Vec2[] = [];
+  const dashLengthBase = Math.max(1, params.dashLength ?? Math.max(spacing * 0.65, thickness * 3));
+  const lengthJitter = clamp01(params.dashLengthJitter ?? 0);
+  const weightJitter = clamp01(params.dashWeightJitter ?? 0.25);
+  const scatter = Math.max(0, params.scatter ?? 0);
+  const angleDriftDeg = Math.max(0, params.angleDrift ?? 0);
+  const angleDrift = angleDriftDeg * DEG_TO_RAD;
+  const angleScale = Math.max(1, params.angleScale ?? 420);
+  const nearScale = clamp(params.nearFalloff ?? 1, 0.15, 4);
+  const farScale = clamp(params.farFalloff ?? 1, 0.15, 5);
+
+  const baseAlignNear = Math.max(8, spacing * 2.8);
+  const alignReachNear = baseAlignNear * nearScale;
+  const baseAlignFar = Math.max(alignReachNear * 2.4, spacing * 6, dashLengthBase * 5, 36);
+  const alignReachFar = baseAlignFar * farScale;
+  const nearStrength = clamp(0.35 + nearScale * 0.55, 0.1, 1.2);
+  const farWeight = clamp(0.25 + farScale * 0.25, 0.05, 0.9);
+
+  const computeAlignment = (distance: number) => {
+    const dist = Math.abs(distance);
+    const nearFall = 1 - smoothstep(0, alignReachNear, dist);
+    const farFall = 1 - smoothstep(0, alignReachFar, dist);
+    const combined = Math.max(nearFall, farFall * farWeight);
+    return clamp01(nearStrength * Math.pow(combined, 0.92));
+  };
+
+  const angleNoiseSeed = seed ^ 0x3f11c2d9;
+  const angleNoise = angleDrift > 1e-4
+    ? (x: number, y: number) => fbm2(x / angleScale, y / angleScale, angleNoiseSeed, 3)
+    : null;
+
+  const strokes: FillStrokeSegment[] = [];
+  const caps: FillDotInstance[] = [];
+
+  const cellJitter = spacing * 0.35;
 
   for (let x = bounds.minX; x <= bounds.maxX; x += spacing) {
     for (let y = bounds.minY; y <= bounds.maxY; y += spacing) {
-      const candidate = {
-        x: x + (rng() - 0.5) * 2 * jitterDistance,
-        y: y + (rng() - 0.5) * 2 * jitterDistance,
+      const baseCandidate = {
+        x: x + (rng() - 0.5) * 2 * cellJitter,
+        y: y + (rng() - 0.5) * 2 * cellJitter,
       };
 
+      if (!pointInPolygon(baseCandidate, shape.points)) {
+        continue;
+      }
+
+      const candidate = jitterPoint(baseCandidate, scatter, shape.points, rng);
       if (!pointInPolygon(candidate, shape.points)) {
         continue;
       }
 
       const edgeInfo = nearestEdgeInfo(candidate, shape.points);
-      const baseAngle = edgeInfo
-        ? Math.atan2(edgeInfo.tangent.y, edgeInfo.tangent.x)
-        : (rng() * Math.PI * 2);
-      const alignStrength = edgeInfo
-        ? computeAlignment(edgeInfo.distance, spacing)
-        : 0;
-      const angleJitter = (rng() - 0.5) * 2 * angleJitterMax * (1 - alignStrength * 0.85);
-      const angle = baseAngle + angleJitter;
+      let dirX = baseDir.x;
+      let dirY = baseDir.y;
+      let alignStrength = 0;
+
+      if (edgeInfo) {
+        alignStrength = computeAlignment(edgeInfo.distance);
+        let tangentX = edgeInfo.tangent.x;
+        let tangentY = edgeInfo.tangent.y;
+
+        if (tangentX * dirX + tangentY * dirY < 0) {
+          tangentX = -tangentX;
+          tangentY = -tangentY;
+        }
+
+        const blendedX = dirX * (1 - alignStrength) + tangentX * alignStrength;
+        const blendedY = dirY * (1 - alignStrength) + tangentY * alignStrength;
+        const mag = Math.hypot(blendedX, blendedY);
+
+        if (mag > 1e-6) {
+          dirX = blendedX / mag;
+          dirY = blendedY / mag;
+        }
+      }
+
+      let theta = Math.atan2(dirY, dirX);
+
+      if (angleNoise) {
+        const n = clamp(angleNoise(candidate.x, candidate.y), -1, 1);
+        theta += n * angleDrift;
+      }
 
       const lengthBase = dashLengthBase * lerp(0.85, 1.1, alignStrength);
       const length = Math.max(0.5, lengthBase * (1 + (rng() - 0.5) * 2 * lengthJitter));
       const half = length * 0.5;
 
-      const dx = Math.cos(angle) * half;
-      const dy = Math.sin(angle) * half;
+      const width = Math.max(0.2, thickness * (1 + (rng() - 0.5) * 2 * weightJitter));
+      const alpha = clamp(0.7 + (rng() - 0.5) * 0.45, 0.35, 1);
+
+      const dx = Math.cos(theta) * half;
+      const dy = Math.sin(theta) * half;
       const start = { x: candidate.x - dx, y: candidate.y - dy };
       const end = { x: candidate.x + dx, y: candidate.y + dy };
 
-      const segments = clipSegmentToPolygon(start, end, shape.points, Math.max(1.5, thickness));
+      const segments = clipSegmentToPolygon(start, end, shape.points, Math.max(1.5, width));
       for (const segment of segments) {
         if (segment.length < 2) {
           continue;
         }
-        lines.push(segment);
-        capCenters.push(segment[0], segment[segment.length - 1]);
+        strokes.push({ points: segment, lineWidth: width, alpha });
+
+        const first = segment[0];
+        const last = segment[segment.length - 1];
+        const capScale = 0.68 + (rng() - 0.5) * 0.24;
+        const capRadius = Math.max(width * 0.6, width * capScale);
+        caps.push(
+          { center: first, radius: capRadius, alpha },
+          { center: last, radius: capRadius, alpha }
+        );
       }
     }
   }
 
   return {
-    lines,
-    dots: capCenters,
-    dotRadius: Math.max(0.4, thickness * 0.45),
+    strokeSegments: strokes,
+    dotInstances: caps,
     lineWidth: thickness,
+    dotRadius: Math.max(0.4, thickness * 0.45),
     clipPath: [...shape.points],
   };
 }
@@ -164,14 +243,6 @@ function nearestEdgeInfo(point: Vec2, polygon: Vec2[]): {
   }
 
   return bestInfo;
-}
-
-function computeAlignment(distance: number, spacing: number): number {
-  const nearReach = Math.max(spacing * 1.25, 8);
-  const farReach = Math.max(spacing * 3.5, 24);
-  const near = 1 - smoothstep(0, nearReach, Math.abs(distance));
-  const far = 1 - smoothstep(0, farReach, Math.abs(distance));
-  return clamp01(Math.max(near, far * 0.65));
 }
 
 function smoothstep(edge0: number, edge1: number, x: number): number {

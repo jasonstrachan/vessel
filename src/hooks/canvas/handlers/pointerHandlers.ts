@@ -1266,16 +1266,20 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // Check the state BEFORE dispatching - this is critical!
     const currentMode = stateMachine.state.mode;
 
-    const rewriteHandled = shapeHandler.handlePointerDown(event);
-    if (rewriteHandled) {
-      const polygonState = useAppStore.getState().polygonGradientState;
-      if (polygonState.drawingState === 'idle') {
-        isMouseDownRef.current = false;
-        if ((event.target as HTMLCanvasElement).hasPointerCapture?.(event.pointerId)) {
-          (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+    // Only allow shape handlers when using brush/eraser/custom tools
+    // This prevents shape mode from intercepting other tools like fill, eyedropper, etc.
+    if (tools.currentTool === 'brush' || tools.currentTool === 'eraser' || tools.currentTool === 'custom') {
+      const rewriteHandled = shapeHandler.handlePointerDown(event);
+      if (rewriteHandled) {
+        const polygonState = useAppStore.getState().polygonGradientState;
+        if (polygonState.drawingState === 'idle') {
+          isMouseDownRef.current = false;
+          if ((event.target as HTMLCanvasElement).hasPointerCapture?.(event.pointerId)) {
+            (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+          }
         }
+        return;
       }
-      return;
     }
 
     // --- PROPER FIX: Block clicks outside canvas bounds ---

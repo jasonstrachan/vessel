@@ -152,10 +152,12 @@ const BrushControls = () => {
   const isShapeFillBrush = brushSettings.brushShape === BrushShape.SHAPE_FILL;
 
   React.useEffect(() => {
-    if (isShapeFillBrush && !shapeMode) {
+    // Only auto-enable shapeMode for SHAPE_FILL when the current tool is 'brush'
+    // This prevents shape mode from being enabled when using other tools
+    if (isShapeFillBrush && !shapeMode && currentTool === 'brush') {
       setShapeMode(true);
     }
-  }, [isShapeFillBrush, shapeMode, setShapeMode]);
+  }, [isShapeFillBrush, shapeMode, setShapeMode, currentTool]);
 
   const handleToggleCustomColorCycle = React.useCallback((checked: boolean) => {
     const updates: Partial<typeof activeSettings> = {

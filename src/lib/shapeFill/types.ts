@@ -30,6 +30,16 @@ export interface FillResult {
   lines?: Vec2[][];
   dots?: Vec2[];
   polygons?: Vec2[][];
+  strokeSegments?: {
+    points: Vec2[];
+    lineWidth: number;
+    alpha?: number;
+  }[];
+  dotInstances?: {
+    center: Vec2;
+    radius: number;
+    alpha?: number;
+  }[];
 }
 
 export interface StrokeJob {

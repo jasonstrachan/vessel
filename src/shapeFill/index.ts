@@ -153,10 +153,43 @@ export class ShapeFillOrchestrator {
         ? { x: cursorVecX / cursorDistance, y: cursorVecY / cursorDistance }
         : cursorAnchorDirection ?? { x: 1, y: 0 };
 
-    if (currentParam === 'spacing' || currentParam === 'thickness' || currentParam === 'variance') {
+    if (
+      currentParam === 'spacing' ||
+      currentParam === 'thickness' ||
+      currentParam === 'variance' ||
+      currentParam === 'dashLength'
+    ) {
       const definition = getParameterDefinition(currentParam);
       const rawValue = definition.min + cursorDistance * definition.scale;
       const clampedValue = clampParameterValue(rawValue, currentParam);
+
+      this.session = {
+        ...this.session,
+        cursorAnchorParam: currentParam,
+        cursorAnchorDirection: normalizedDirection,
+        lastCursor: { ...cursor },
+        params: {
+          ...params,
+          [currentParam]: clampedValue,
+        },
+      };
+
+      this.emit();
+      return;
+    }
+
+    if (currentParam === 'sierraDensity') {
+      const definition = getParameterDefinition('sierraDensity');
+      const maxRadius = shape.points.reduce((max, point) => {
+        const dx = point.x - centroid.x;
+        const dy = point.y - centroid.y;
+        return Math.max(max, Math.hypot(dx, dy));
+      }, 0);
+
+      const normalizedDistance =
+        maxRadius > 1e-3 ? Math.min(Math.max(cursorDistance / maxRadius, 0), 1) : 0;
+      const rawValue = definition.max - normalizedDistance * (definition.max - definition.min);
+      const clampedValue = clampParameterValue(rawValue, 'sierraDensity');
 
       this.session = {
         ...this.session,
@@ -188,11 +221,15 @@ export class ShapeFillOrchestrator {
       radialDelta = deltaX * normalizedDirection.x + deltaY * normalizedDirection.y;
     }
 
-    const value = adjustParameterFromCursor(shape, cursor, currentParam, {
+    let value = adjustParameterFromCursor(shape, cursor, currentParam, {
       baseValue,
       cursorDistance,
       distanceDeltaOverride: radialDelta,
     });
+
+    if (currentParam === 'sierraResolution') {
+      value = Math.round(value);
+    }
 
     this.session = {
       ...this.session,
@@ -219,10 +256,14 @@ export class ShapeFillOrchestrator {
       return;
     }
 
-    const committedValue = clampParameterValue(
+    let committedValue = clampParameterValue(
       this.session.params[current] ?? getParameterDefault(current),
       current
     );
+
+    if (current === 'sierraResolution') {
+      committedValue = Math.round(committedValue);
+    }
 
     this.baseParams = {
       ...this.baseParams,
@@ -259,6 +300,9 @@ export class ShapeFillOrchestrator {
     let nextValue = value;
     if (typeof value === 'number' && isClampableParam(param)) {
       nextValue = clampParameterValue(value, param as ShapeFillParamKey);
+      if (param === 'sierraResolution') {
+        nextValue = Math.round(nextValue);
+      }
     }
 
     this.baseParams = {
@@ -359,6 +403,16 @@ function isClampableParam(param: keyof FillParams): param is ShapeFillParamKey {
     'thickness',
     'variance',
     'seed',
+    'dashLength',
+    'dashLengthJitter',
+    'dashWeightJitter',
+    'scatter',
+    'nearFalloff',
+    'farFalloff',
+    'angleDrift',
+    'angleScale',
+    'sierraDensity',
+    'sierraResolution',
     'flowSeedSpacing',
     'flowStepSize',
     'flowMaxSteps',

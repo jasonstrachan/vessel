@@ -7,13 +7,23 @@ export interface ShapeDefinition {
   bounds: { minX: number; minY: number; maxX: number; maxY: number };
 }
 
-export type ShapeFillId = 'hatch' | 'contour' | 'stipple' | 'dashes' | 'flow';
+export type ShapeFillId = 'hatch' | 'contour' | 'stipple' | 'dashes' | 'flow' | 'sierra';
 export type ShapeFillParamKey =
   | 'spacing'
   | 'rotation'
   | 'thickness'
   | 'variance'
   | 'seed'
+  | 'dashLength'
+  | 'dashLengthJitter'
+  | 'dashWeightJitter'
+  | 'scatter'
+  | 'nearFalloff'
+  | 'farFalloff'
+  | 'angleDrift'
+  | 'angleScale'
+  | 'sierraDensity'
+  | 'sierraResolution'
   | 'flowSeedSpacing'
   | 'flowStepSize'
   | 'flowMaxSteps';
@@ -24,6 +34,16 @@ export interface FillParams {
   thickness: number;
   variance?: number;
   seed?: number;
+  dashLength?: number;
+  dashLengthJitter?: number;
+  dashWeightJitter?: number;
+  scatter?: number;
+  nearFalloff?: number;
+  farFalloff?: number;
+  angleDrift?: number;
+  angleScale?: number;
+  sierraDensity?: number;
+  sierraResolution?: number;
   organic?: number;
   cross?: boolean;
   flowSeedSpacing?: number;
@@ -40,6 +60,20 @@ export interface FillResult {
   lineWidth?: number;
   dotRadius?: number;
   clipPath?: Vec2[];
+  strokeSegments?: FillStrokeSegment[];
+  dotInstances?: FillDotInstance[];
+}
+
+export interface FillStrokeSegment {
+  points: Vec2[];
+  lineWidth: number;
+  alpha?: number;
+}
+
+export interface FillDotInstance {
+  center: Vec2;
+  radius: number;
+  alpha?: number;
 }
 
 export enum FillStage {

@@ -277,6 +277,7 @@ interface ShapeFillState {
   parameterOrder: ShapeFillParamKey[];
   lastFinalize: ShapeFillFinalizePayload | null;
   showOutline: boolean;
+  sampleUnderShape: boolean;
 }
 
 export interface AppState {
@@ -410,6 +411,7 @@ export interface AppState {
     value: number | boolean | undefined
   ) => void;
   setShapeFillShowOutline: (show: boolean) => void;
+  setShapeFillSampleUnderShape: (sample: boolean) => void;
   beginShapeFillSession: (points: Vec2[]) => void;
   updateShapeFillCursor: (cursor: Vec2) => void;
   commitShapeFillParameter: () => void;
@@ -589,8 +591,8 @@ const defaultCanvasState: CanvasState = {
   gridSize: 16,
   showRulers: false,
   displayMode: 'pixelated',
-  canvasWidth: 0,
-  canvasHeight: 0,
+  canvasWidth: 2000,
+  canvasHeight: 2000,
   offsetX: 0,
   offsetY: 0,
   selection: {
@@ -681,6 +683,18 @@ const defaultShapeFillState: ShapeFillState = {
   parameterOrder: ['spacing', 'rotation'],
   lastFinalize: null,
   showOutline: false,
+  sampleUnderShape: false,
+};
+
+const pickFillParamsForPersist = (params: FillParams, defaults: FillParams): Partial<FillParams> => {
+  const persisted: Partial<FillParams> = {};
+  (Object.keys(defaults) as (keyof FillParams)[]).forEach(key => {
+    const value = params[key];
+    if (value !== undefined) {
+      persisted[key] = value as never;
+    }
+  });
+  return persisted;
 };
 
 const defaultRectangleBrushState = {
@@ -1281,25 +1295,44 @@ export const useAppStore = create<AppState>()(
         let lastRegularTool = state.tools.lastRegularTool;
         let lastRegularBrushShape = state.tools.lastRegularBrushShape;
         
-        if ((state.tools.currentTool === 'brush' || state.tools.currentTool === 'eraser') && 
+        if ((state.tools.currentTool === 'brush' || state.tools.currentTool === 'eraser') &&
             tool !== 'brush' && tool !== 'eraser') {
           // Switching away from regular brush/eraser - save current settings
           lastRegularTool = state.tools.currentTool;
           lastRegularBrushShape = state.tools.brushSettings.brushShape;
         }
-        
+
         // Reset custom brush state when switching to incompatible tools
         // Preserve custom brush when switching from 'custom' to 'brush' tool
         if (state.tools.currentTool === 'custom' && tool !== 'custom' && tool !== 'brush') {
           newBrushSettings.brushShape = BrushShape.ROUND; // Reset to default shape
           newBrushSettings.selectedCustomBrush = null;
         }
-        
+
         // Clear currentBrushTip when switching to custom tool
         if (tool === 'custom') {
           newBrushSettings.currentBrushTip = undefined;
         }
-        
+
+        // Reset shapeMode and clear shape state when switching away from brush/eraser tools
+        let newShapeMode = state.tools.shapeMode;
+        if ((state.tools.currentTool === 'brush' || state.tools.currentTool === 'eraser' || state.tools.currentTool === 'custom') &&
+            tool !== 'brush' && tool !== 'eraser' && tool !== 'custom') {
+          newShapeMode = false;
+          // Clear any active shape drawing sessions
+          get().setPolygonGradientState({
+            drawingState: 'idle',
+            points: [],
+            vertices: undefined,
+            fillColor: undefined,
+          });
+          get().setRectangleBrushState({
+            drawingState: 'idle',
+            startPos: { x: 0, y: 0 },
+            endPos: { x: 0, y: 0 }
+          });
+        }
+
         return {
           tools: {
             ...state.tools,
@@ -1307,7 +1340,8 @@ export const useAppStore = create<AppState>()(
             currentTool: tool,
             lastRegularTool: lastRegularTool,
             lastRegularBrushShape: lastRegularBrushShape,
-            brushSettings: newBrushSettings
+            brushSettings: newBrushSettings,
+            shapeMode: newShapeMode
           }
         };
         });
@@ -1565,6 +1599,14 @@ export const useAppStore = create<AppState>()(
           },
         }));
       },
+      setShapeFillSampleUnderShape: (sample) => {
+        set((state) => ({
+          shapeFill: {
+            ...state.shapeFill,
+            sampleUnderShape: sample,
+          },
+        }));
+      },
       beginShapeFillSession: (points) => {
         const state = get();
         const fillId = state.shapeFill.activeFillId;
@@ -1595,7 +1637,8 @@ export const useAppStore = create<AppState>()(
               paramsByFill: {
                 ...state.shapeFill.paramsByFill,
                 [payload.fillId]: {
-                  ...strategy.defaults,
+                  ...state.shapeFill.paramsByFill[payload.fillId],
+                  ...pickFillParamsForPersist(payload.params, strategy.defaults),
                 },
               },
             },
@@ -1606,17 +1649,10 @@ export const useAppStore = create<AppState>()(
       cancelShapeFillSession: () => {
         const state = get();
         const fillId = state.shapeFill.activeFillId;
-        const strategy = getFillStrategy(fillId);
         shapeFillOrchestratorInstance.cancel();
         set(currentState => ({
           shapeFill: {
             ...currentState.shapeFill,
-            paramsByFill: {
-              ...currentState.shapeFill.paramsByFill,
-              [fillId]: {
-                ...strategy.defaults,
-              },
-            },
           },
         }));
       },

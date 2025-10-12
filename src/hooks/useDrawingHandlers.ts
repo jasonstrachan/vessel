@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { useBrushEngineSimplified } from './useBrushEngineSimplified';
 import { useUserBrushEngine } from './useUserBrushEngine';
-import { BrushShape, type BrushSettings, type CustomBrush, type Layer } from '../types';
+import { BrushShape, type BrushSettings, type CustomBrush, type Layer, type CanvasSnapshot } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '../hooks/brushEngine/utilities';
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
@@ -31,6 +31,12 @@ type ManagedColorCycleBrush = ColorCycleBrushImplementation & {
   commitToLayer?: (canvas: HTMLCanvasElement, layerId: string) => void;
   renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
   clearPaintBuffer?: (layerId?: string) => void;
+};
+
+type FinalizeDrawingOptions = {
+  skipSave?: boolean;
+  historyActionType?: CanvasSnapshot['actionType'];
+  historyDescription?: string;
 };
 
 /**
@@ -1182,7 +1188,18 @@ export function useDrawingHandlers({
     }
   }, [processBatchedStrokes]);
   
-  const finalizeDrawing = useCallback(async (skipSave = false) => {
+  const finalizeDrawing = useCallback(async (skipSaveOrOptions?: boolean | FinalizeDrawingOptions) => {
+    const options =
+      typeof skipSaveOrOptions === 'object' && skipSaveOrOptions !== null
+        ? skipSaveOrOptions
+        : {};
+    const skipSave =
+      typeof skipSaveOrOptions === 'boolean'
+        ? skipSaveOrOptions
+        : options.skipSave ?? false;
+    const historyActionOverride = options.historyActionType;
+    const historyDescriptionOverride = options.historyDescription;
+
     const hasCanvas = Boolean(drawingCanvasRef.current);
     const hasContent = drawingCanvasHasContent.current;
     const busy = isBusyRef?.current ?? false;
@@ -1229,11 +1246,13 @@ export function useDrawingHandlers({
         const drawingCanvas = drawingCanvasRef.current;
 
         if (currentTool === 'eraser') {
+          const historyAction = historyActionOverride ?? 'eraser';
+          const historyDescription = historyDescriptionOverride ?? 'Erased stroke';
           // OPTIMIZATION: The drawingCanvas already has the final erased result.
           // We can capture it directly without any extra compositing.
           if (drawingCanvas) {
             await captureCanvasToActiveLayer(drawingCanvas);
-            saveCanvasState(drawingCanvas, 'eraser', 'Erased stroke');
+            saveCanvasState(drawingCanvas, historyAction, historyDescription);
           }
           
         } else { // Brush tool
@@ -1324,6 +1343,8 @@ export function useDrawingHandlers({
             return;
           }
 
+          const isShapeMode = currentState.tools.shapeMode;
+
           if (isColorCycleLayer && isColorCycleBrush && activeLayer?.colorCycleData?.canvas) {
             const layerCanvas = activeLayer.colorCycleData.canvas;
             try {
@@ -1370,8 +1391,10 @@ export function useDrawingHandlers({
 
             // Skip saving if requested (for CC shapes that already saved)
             if (!skipSave) {
-              const description = currentState.tools.shapeMode ? 'CC Shape' : 'CC Drawing stroke';
-              saveCanvasState(layerCanvas, 'brush', description);
+              const defaultDescription = isShapeMode ? 'CC Shape' : 'CC Drawing stroke';
+              const historyAction = historyActionOverride ?? (isShapeMode ? 'fill' : 'brush');
+              const historyDescription = historyDescriptionOverride ?? defaultDescription;
+              saveCanvasState(layerCanvas, historyAction, historyDescription);
                
             } else {
                
@@ -1403,7 +1426,12 @@ export function useDrawingHandlers({
               }
 
               await captureCanvasToActiveLayer(tempCanvas);
-              saveCanvasState(tempCanvas, 'brush', 'Drawing stroke');
+              if (!skipSave) {
+                const defaultDescription = isShapeMode ? 'Shape Fill' : 'Drawing stroke';
+                const historyAction = historyActionOverride ?? (isShapeMode ? 'fill' : 'brush');
+                const historyDescription = historyDescriptionOverride ?? defaultDescription;
+                saveCanvasState(tempCanvas, historyAction, historyDescription);
+              }
               
               
               
@@ -2134,7 +2162,7 @@ export function useDrawingHandlers({
         const drawingCanvas = drawingCanvasRef.current;
         if (drawingCanvas && currentLayer && currentLayer.layerType !== 'color-cycle') {
           await captureCanvasToActiveLayer(drawingCanvas);
-          saveCanvasState(drawingCanvas, 'brush', 'Shape Fill');
+          saveCanvasState(drawingCanvas, 'fill', 'Shape Fill');
           drawingCanvasHasContent.current = false;
           if (drawingCtxRef.current) {
             drawingCtxRef.current.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);

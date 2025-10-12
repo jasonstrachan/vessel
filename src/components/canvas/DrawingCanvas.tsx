@@ -291,16 +291,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     let [r, g, b] = imageData.data;
     const a = imageData.data[3];
 
+    const alpha = a / 255;
     let color: string;
-    if (a < 10) {
-      color = 'rgb(255, 255, 255)';
-    } else {
-      if (r <= 30 && g <= 30 && b <= 30) {
-        r = 0; g = 0; b = 0;
-      } else if (r >= 225 && g >= 225 && b >= 225) {
-        r = 255; g = 255; b = 255;
-      }
+    if (a === 0) {
+      color = 'rgba(255, 255, 255, 0)';
+    } else if (alpha >= 0.999) {
       color = `rgb(${r}, ${g}, ${b})`;
+    } else {
+      const alphaStr = Number(alpha.toFixed(3)).toString();
+      color = `rgba(${r}, ${g}, ${b}, ${alphaStr})`;
     }
 
     // Update cache
@@ -789,6 +788,24 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.lineWidth = payload.params.thickness ?? 1;
+            const storeSnapshot = useAppStore.getState();
+            let fillColor = storeSnapshot.tools.brushSettings.color;
+            if (storeSnapshot.shapeFill.sampleUnderShape && payload.shape.points.length > 0) {
+              const centroid = payload.shape.points.reduce(
+                (acc, point) => ({
+                  x: acc.x + point.x,
+                  y: acc.y + point.y,
+                }),
+                { x: 0, y: 0 }
+              );
+              const normalized = {
+                x: centroid.x / payload.shape.points.length,
+                y: centroid.y / payload.shape.points.length,
+              };
+              fillColor = sampleColorAtPosition(normalized.x, normalized.y);
+            }
+            ctx.strokeStyle = fillColor;
+            ctx.fillStyle = fillColor;
             renderFill(ctx, payload.result);
             ctx.restore();
 
@@ -841,6 +858,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     finalizeRectangleGradientFromState,
     interactionDispatch,
     project,
+    sampleColorAtPosition,
     setCurrentOffscreenCanvas,
     setNeedsRedraw,
     stateMachine,
