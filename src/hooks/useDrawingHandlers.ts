@@ -2086,11 +2086,14 @@ export function useDrawingHandlers({
                 // quiet
                 return;
               } else {
-                // Concentric fill (default)
-                brushEngine.fillColorCycleShape(shapePointsRef.current);
+                if (fillMode === 'circular') {
+                  brushEngine.fillColorCycleShapeCircular(shapePointsRef.current);
+                } else {
+                  brushEngine.fillColorCycleShape(shapePointsRef.current);
+                }
                 
                 // CRITICAL FIX: Ensure the CC layer's canvas is updated with the shape
-                // This should ONLY happen for concentric mode, not linear (which needs direction first)
+                // Applies to concentric and circular fills (linear handled separately)
                 if (activeLayerId && activeLayer.colorCycleData?.canvas) {
                   // Force immediate texture update and render to the layer's canvas
                   brushEngine.updateColorCycleTexture();
@@ -2111,7 +2114,8 @@ export function useDrawingHandlers({
                   
                   // Save state AFTER the shape is rendered (no extra capture)
                   // Mark as important to avoid debounce coalescing multiple shapes
-                  saveCanvasState(activeLayer.colorCycleData.canvas, 'fill', 'CC Shape');
+                  const historyLabel = fillMode === 'circular' ? 'CC Shape Circular' : 'CC Shape';
+                  saveCanvasState(activeLayer.colorCycleData.canvas, 'fill', historyLabel);
 
                   // Force composite refresh so the persisted shape appears even if
                   // the overlay is suppressed by CC animation state.

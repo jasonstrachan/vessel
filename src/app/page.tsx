@@ -21,15 +21,21 @@ import { SettingsModal } from '../components/modals/SettingsModal';
 import { useAppStore } from '../stores/useAppStore';
 import { autosaveService } from '../utils/autosave';
 import { preloadRisographTexture } from '../utils/risographTexture';
+import { devLog } from '../utils/devLog';
 // import TestPluginBrushes from '../components/TestPluginBrushes'; // TEST COMPONENT - Disabled due to render loop
+
+const homeLog = devLog.scope('HOME');
 
 
 export default function Home() {
   // Global mouse tracking removed - now handled directly in canvas
   // Use individual selectors to avoid unstable object references
   const toggleModal = useAppStore(state => state.toggleModal);
-  const ui = useAppStore(state => state.ui);
-  const autosave = useAppStore(state => state.autosave);
+  const isDocumentModalOpen = useAppStore(state => state.ui.modals.document);
+  const isSettingsModalOpen = useAppStore(state => state.ui.modals.settings);
+  const isExportModalOpen = useAppStore(state => state.ui.modals.export);
+  const autosaveEnabled = useAppStore(state => state.autosave.isEnabled);
+  const autosaveInterval = useAppStore(state => state.autosave.interval);
   // const currentTool = useAppStore(state => state.tools.currentTool);
   const newProject = useAppStore(state => state.newProject);
   
@@ -81,7 +87,10 @@ export default function Home() {
             store.setHistorySize(settings.history.maxHistorySize);
           }
         }
-      } catch {}
+      } catch (error) {
+        homeLog.warn('Failed to load persisted settings; clearing stored payload.', { error });
+        localStorage.removeItem('vessel-settings');
+      }
     }
   }, []); // Only run once on mount
 
@@ -95,13 +104,21 @@ export default function Home() {
 
   // Watch for autosave settings changes
   useEffect(() => {
-    if (autosave.isEnabled) {
-      autosaveService.setInterval(autosave.interval);
-      autosaveService.start();
-    } else {
-      autosaveService.stop();
+    const isCurrentlyRunning = autosaveService.isRunning();
+
+    if (!autosaveEnabled) {
+      if (isCurrentlyRunning) {
+        autosaveService.stop();
+      }
+      return;
     }
-  }, [autosave.isEnabled, autosave.interval]);
+
+    autosaveService.setInterval(autosaveInterval);
+
+    if (!isCurrentlyRunning) {
+      autosaveService.start();
+    }
+  }, [autosaveEnabled, autosaveInterval]);
 
   // Save/Open keyboard shortcuts are centralized in useComprehensiveKeyboard
 
@@ -161,19 +178,19 @@ export default function Home() {
       
       {/* Document Modal */}
       <DocumentModal 
-        isOpen={ui.modals.document}
+        isOpen={isDocumentModalOpen}
         onClose={() => toggleModal('document')}
       />
       
       {/* Settings Modal */}
       <SettingsModal 
-        isOpen={ui.modals.settings}
+        isOpen={isSettingsModalOpen}
         onClose={() => toggleModal('settings')}
       />
 
       {/* Export Modal */}
       <ExportModal
-        isOpen={ui.modals.export}
+        isOpen={isExportModalOpen}
         onClose={() => toggleModal('export')}
       />
       

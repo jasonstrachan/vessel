@@ -5,10 +5,14 @@
 import { useAppStore } from '../stores/useAppStore';
 import { backgroundStorageService } from './backgroundStorage';
 import { fileBackupService } from './fileBackupService';
+import { devLog } from './devLog';
+
+const autosaveLog = devLog.scope('AUTOSAVE');
 
 class AutosaveService {
   private intervalId: NodeJS.Timeout | null = null;
   private intervalMs: number = 2 * 60 * 1000; // 2 minutes
+  private inProgress = false;
 
   start(): void {
     if (this.intervalId) {
@@ -48,6 +52,11 @@ class AutosaveService {
   }
 
   private async performAutosave(): Promise<void> {
+    if (this.inProgress) {
+      autosaveLog.debug('Autosave already running; skipping overlapping invocation.');
+      return;
+    }
+
     const store = useAppStore.getState();
     
     // Check if autosave is enabled and there are unsaved changes
@@ -59,6 +68,8 @@ class AutosaveService {
     if (!store.project) {
       return;
     }
+
+    this.inProgress = true;
 
     try {
       // Capture current canvas state to active layer before saving
@@ -102,8 +113,8 @@ class AutosaveService {
               // File backup saved: ${backupResult.filename}
             }
             // File backup failed: ${backupResult.error}
-          } catch {
-            // File backup error
+          } catch (error) {
+            autosaveLog.error('Failed to write file backup during autosave.', error, { mode });
           }
         }
       }
@@ -112,9 +123,9 @@ class AutosaveService {
       freshState.clearDirtyState();
       
       // Project "${freshState.project.name}" saved to background storage
-    } catch {
-      // Failed to save project to background storage
-      
+    } catch (error) {
+      autosaveLog.error('Background autosave failed.', error);
+
       // Only show notification for critical failures, not for every autosave issue
       // This keeps autosave truly silent unless there's a real problem
       const store = useAppStore.getState();
@@ -125,6 +136,8 @@ class AutosaveService {
         timestamp: new Date(),
         duration: 3000
       });
+    } finally {
+      this.inProgress = false;
     }
   }
 
@@ -144,19 +157,28 @@ export const autosaveService = new AutosaveService();
 
 // Hook for React components to use autosave
 export function useAutosave() {
-  const store = useAppStore();
+  const isEnabled = useAppStore(state => state.autosave.isEnabled);
+  const isRunning = useAppStore(state => state.autosave.isRunning);
+  const hasUnsavedChanges = useAppStore(state => state.autosave.hasUnsavedChanges);
+  const lastSaveTime = useAppStore(state => state.autosave.lastSaveTime);
+  const fileBackup = useAppStore(state => state.autosave.fileBackup);
+  const setAutosaveEnabled = useAppStore(state => state.setAutosaveEnabled);
+  const setFileBackupEnabled = useAppStore(state => state.setFileBackupEnabled);
+  const setFileBackupMode = useAppStore(state => state.setFileBackupMode);
+  const setFileBackupFile = useAppStore(state => state.setFileBackupFile);
+  const setFileBackupDirectory = useAppStore(state => state.setFileBackupDirectory);
   
   return {
-    isEnabled: store.autosave.isEnabled,
-    isRunning: store.autosave.isRunning,
-    hasUnsavedChanges: store.autosave.hasUnsavedChanges,
-    lastSaveTime: store.autosave.lastSaveTime,
-    fileBackup: store.autosave.fileBackup,
-    setEnabled: store.setAutosaveEnabled,
-    setFileBackupEnabled: store.setFileBackupEnabled,
-    setFileBackupMode: store.setFileBackupMode,
-    setFileBackupFile: store.setFileBackupFile,
-    setFileBackupDirectory: store.setFileBackupDirectory,
+    isEnabled,
+    isRunning,
+    hasUnsavedChanges,
+    lastSaveTime,
+    fileBackup,
+    setEnabled: setAutosaveEnabled,
+    setFileBackupEnabled,
+    setFileBackupMode,
+    setFileBackupFile,
+    setFileBackupDirectory,
     start: () => autosaveService.start(),
     stop: () => autosaveService.stop(),
     setInterval: (minutes: number) => autosaveService.setInterval(minutes),

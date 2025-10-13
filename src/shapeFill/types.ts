@@ -7,7 +7,15 @@ export interface ShapeDefinition {
   bounds: { minX: number; minY: number; maxX: number; maxY: number };
 }
 
-export type ShapeFillId = 'delaunay' | 'hatch' | 'contour' | 'stipple' | 'dashes' | 'flow' | 'sierra';
+export type ShapeFillId =
+  | 'delaunay'
+  | 'hatch'
+  | 'contour'
+  | 'stipple'
+  | 'dashes'
+  | 'flow'
+  | 'sierra'
+  | 'noise';
 export type ShapeFillParamKey =
   | 'spacing'
   | 'rotation'
@@ -26,7 +34,11 @@ export type ShapeFillParamKey =
   | 'sierraResolution'
   | 'flowSeedSpacing'
   | 'flowStepSize'
-  | 'flowMaxSteps';
+  | 'flowMaxSteps'
+  | 'noiseScale'
+  | 'noiseContrast'
+  | 'noiseThreshold'
+  | 'noiseOctaves';
 
 export interface FillParams {
   spacing: number;
@@ -51,6 +63,10 @@ export interface FillParams {
   flowMaxSteps?: number;
   flowFieldStep?: number;
   flowUseOrthogonal?: boolean;
+  noiseScale?: number;
+  noiseContrast?: number;
+  noiseThreshold?: number;
+  noiseOctaves?: number;
 }
 
 export interface FillResult {

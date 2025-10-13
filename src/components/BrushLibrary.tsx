@@ -104,6 +104,51 @@ const BrushLibrary = () => {
       return 0;
     });
   }, [brushPresets, customBrushPresets]);
+
+  const { currentTool, brushSettings } = tools;
+  const { brushShape, selectedCustomBrush } = brushSettings;
+
+  const activeBrushId = React.useMemo(() => {
+    if (currentTool === 'recolor') {
+      return null;
+    }
+
+    if (brushShape === BrushShape.CUSTOM) {
+      if (!selectedCustomBrush) {
+        return null;
+      }
+
+      const candidateIds = [`custom_${selectedCustomBrush}`, selectedCustomBrush];
+      const matchingId = candidateIds.find((candidate) =>
+        allBrushes.some((brush) => brush.id === candidate)
+      );
+
+      return matchingId ?? null;
+    }
+
+    if (brushShape === BrushShape.COLOR_CYCLE || brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
+      if (
+        currentBrushPreset?.id &&
+        allBrushes.some((brush) => brush.id === currentBrushPreset.id)
+      ) {
+        return currentBrushPreset.id;
+      }
+
+      const fallbackId = allBrushes.some((brush) => brush.id === 'color-cycle-stroke')
+        ? 'color-cycle-stroke'
+        : null;
+
+      return fallbackId;
+    }
+
+    return currentBrushPreset?.id ?? null;
+  }, [
+    allBrushes,
+    brushShape,
+    currentBrushPreset?.id,
+    currentTool,
+    selectedCustomBrush
+  ]);
   
   // Check if there's an active custom brush that can be saved
   const activeCustomBrush = React.useMemo(() => {
@@ -168,30 +213,6 @@ const BrushLibrary = () => {
     setCurrentTool('brush');
     // Then apply the selected preset (preserve edit mode if active)
     setBrushPreset(preset, true);
-  };
-
-  const isPresetActive = (preset: BrushPreset): boolean => {
-    // When in Recolor and animate tool, suppress any brush selection highlight
-    if (tools.currentTool === 'recolor') return false;
-
-    // If using Color Cycle brush shapes, map directly to CC presets so highlight stays in sync
-    if (
-      (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
-       tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) &&
-      preset.id === 'color-cycle-stroke'
-    ) {
-      return true;
-    }
-
-    // REFACTOR: Robust check for active state
-    if (preset.isCustomBrush) {
-      const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
-      return tools.brushSettings.brushShape === BrushShape.CUSTOM &&
-             tools.brushSettings.selectedCustomBrush === customBrushId;
-    }
-    // A regular preset is active if the current preset ID matches and we are NOT in custom brush mode.
-    return tools.brushSettings.brushShape !== BrushShape.CUSTOM &&
-           currentBrushPreset?.id === preset.id;
   };
 
   const handleEditClick = (e: React.MouseEvent, preset: BrushPreset) => {
@@ -309,7 +330,7 @@ const BrushLibrary = () => {
             );
           };
 
-          const isActive = isPresetActive(preset);
+          const isActive = activeBrushId === preset.id;
           const rowClass = isActive ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9]';
           const nameStyle = {
             ...textStyle,

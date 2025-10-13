@@ -4,16 +4,26 @@ import { XIcon } from '../icons/XIcon';
 import { Switch } from '../retroui/Switch';
 import { FeatureFlagToggle } from '../ui/FeatureFlagToggle';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
+import { devLog } from '../../utils/devLog';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+const settingsLog = devLog.scope('SETTINGS');
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   // Suspend global/canvas shortcuts while modal is open
   useKeyboardScope('modal', isOpen);
-  const { canvas, autosave, history, setAutosaveEnabled, setAutosaveInterval, setHistorySize } = useAppStore();
+  const showRulers = useAppStore(state => state.canvas.showRulers);
+  const isAutosaveEnabled = useAppStore(state => state.autosave.isEnabled);
+  const autosaveInterval = useAppStore(state => state.autosave.interval);
+  const historySize = useAppStore(state => state.history.maxHistorySize);
+  const setAutosaveEnabled = useAppStore(state => state.setAutosaveEnabled);
+  const setAutosaveInterval = useAppStore(state => state.setAutosaveInterval);
+  const setHistorySize = useAppStore(state => state.setHistorySize);
+  const toggleRulers = useAppStore(state => state.toggleRulers);
   
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
@@ -36,7 +46,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         maxHistorySize: currentState.history.maxHistorySize,
       },
     };
-    localStorage.setItem('vessel-settings', JSON.stringify(settings));
+    try {
+      localStorage.setItem('vessel-settings', JSON.stringify(settings));
+    } catch (error) {
+      settingsLog.warn('Failed to persist settings to localStorage; keeping in-memory values only.', { error });
+      currentState.addNotification?.({
+        type: 'warning',
+        title: 'Settings Not Saved',
+        message: 'Settings were applied for this session, but could not be stored locally. Check browser storage permissions.',
+        timestamp: new Date(),
+        duration: 4000
+      });
+    }
   }, []);
 
   const handleClose = React.useCallback(() => {
@@ -58,8 +79,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
 
   const handleRulersToggle = (enabled: boolean) => {
-    const { toggleRulers } = useAppStore.getState();
-    if (canvas.showRulers !== enabled) {
+    if (showRulers !== enabled) {
       toggleRulers();
     }
   };
@@ -147,7 +167,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <label htmlFor="show-rulers" className="text-base text-[#888]">Show Rulers</label>
                 <Switch
                   id="show-rulers"
-                  checked={canvas.showRulers}
+                  checked={showRulers}
                   onChange={handleRulersToggle}
                 />
               </div>
@@ -165,15 +185,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <label htmlFor="enable-autosave" className="text-base text-[#888]">Enable Autosave</label>
                 <Switch
                   id="enable-autosave"
-                  checked={autosave.isEnabled}
+                  checked={isAutosaveEnabled}
                   onChange={handleAutosaveToggle}
                 />
               </div>
-              {autosave.isEnabled && (
+              {isAutosaveEnabled && (
                 <div className="flex items-center justify-between">
                   <label className="text-base text-[#888]">Save Interval</label>
                   <select 
-                    value={autosave.interval}
+                    value={autosaveInterval}
                     onChange={(e) => handleIntervalChange(Number(e.target.value))}
                     className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
                   >
@@ -206,7 +226,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <div className="flex items-center justify-between">
                 <label className="text-base text-[#888]">Undo History Size</label>
                 <select 
-                  value={history.maxHistorySize}
+                  value={historySize}
                   onChange={(e) => handleHistorySizeChange(Number(e.target.value))}
                   className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
                 >

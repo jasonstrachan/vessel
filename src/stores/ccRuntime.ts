@@ -24,7 +24,8 @@ const speedsAreEqual = (a: number | undefined, b: number | undefined): boolean =
  * Synchronize color-cycle runtime state from layer data into live brush instances.
  * Centralizes gradient/speed/animation updates to avoid scattered mutations.
  */
-export function syncCCRuntimes(layers: Layer[], _cause: string): void {
+export function syncCCRuntimes(layers: Layer[], cause?: string): void {
+  void cause; // Quiets lint when tracing cause is unnecessary
   if (!Array.isArray(layers) || layers.length === 0) {
     return;
   }

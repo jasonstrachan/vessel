@@ -416,5 +416,9 @@ function isClampableParam(param: keyof FillParams): param is ShapeFillParamKey {
     'flowSeedSpacing',
     'flowStepSize',
     'flowMaxSteps',
+    'noiseScale',
+    'noiseContrast',
+    'noiseThreshold',
+    'noiseOctaves',
   ].includes(param as string);
 }

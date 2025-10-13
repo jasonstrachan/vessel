@@ -141,6 +141,34 @@ const PARAM_DEFINITIONS: Record<ShapeFillParamKey, ShapeFillParameterDefinition>
     default: 160,
     scale: 2,
   },
+  noiseScale: {
+    key: 'noiseScale',
+    min: 4,
+    max: 240,
+    default: 48,
+    scale: 0.5,
+  },
+  noiseContrast: {
+    key: 'noiseContrast',
+    min: 0,
+    max: 1,
+    default: 0.65,
+    scale: 0.01,
+  },
+  noiseThreshold: {
+    key: 'noiseThreshold',
+    min: 0,
+    max: 1,
+    default: 0.45,
+    scale: 0.01,
+  },
+  noiseOctaves: {
+    key: 'noiseOctaves',
+    min: 1,
+    max: 6,
+    default: 3,
+    scale: 1,
+  },
 };
 
 export function getParameterDefinition(key: ShapeFillParamKey): ShapeFillParameterDefinition {
