@@ -186,8 +186,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         snapshot.canvasState.canvasWidth,
         snapshot.canvasState.canvasHeight
       );
-      storeApi.setCanvasOffset(snapshot.canvasState.offsetX, snapshot.canvasState.offsetY);
-      storeApi.setZoom(snapshot.canvasState.zoom);
     }
   }, []);
   

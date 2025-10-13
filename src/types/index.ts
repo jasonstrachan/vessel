@@ -558,11 +558,11 @@ export interface CanvasSnapshot {
     height: number;
   };
   canvasState?: {
-    offsetX: number;
-    offsetY: number;
-    zoom: number;
     canvasWidth: number;
     canvasHeight: number;
+    offsetX?: number;
+    offsetY?: number;
+    zoom?: number;
   };
 }
 

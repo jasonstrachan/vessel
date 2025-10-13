@@ -11,7 +11,7 @@ import { MIN_LINE_SPACING } from '@/utils/contourLines';
 import { getPreviewRenderer } from '@/shapeFill/paramPreview';
 import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
 import { getFillStrategy } from '@/shapeFill/strategies';
-import { FillStage, type FillParams, type ShapeFillSession } from '@/shapeFill/types';
+import { FillStage, type FillParams, type ShapeFillSession, type ShapeFillParamKey } from '@/shapeFill/types';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -283,13 +283,12 @@ export const createShapeToolHandler = (
     const renderer = getPreviewRenderer(fillId);
     const strategy = getFillStrategy(fillId);
     const param = session.currentParam;
+    if (!LIVE_ADJUSTABLE_PARAMS.has(param as ShapeFillParamKey)) {
+      return;
+    }
     const paramValue = session.params[param];
     const defaultValue =
       typeof strategy.defaults[param] === 'number' ? (strategy.defaults[param] as number) : 0;
-
-    if (param === 'spacing' || param === 'rotation') {
-      return;
-    }
 
     const value =
       typeof paramValue === 'number'
@@ -321,9 +320,20 @@ export const createShapeToolHandler = (
     const store = useAppStore.getState();
     const fillId = store.shapeFill.activeFillId;
     const strategy = getFillStrategy(fillId);
+    const storedParams = { ...(store.shapeFill.paramsByFill[fillId] ?? {}) };
+
+    if (session.stage === FillStage.AdjustingParam) {
+      for (const key of Object.keys(storedParams)) {
+        const paramKey = key as ShapeFillParamKey;
+        if (!LIVE_ADJUSTABLE_PARAMS.has(paramKey)) {
+          delete (storedParams as Record<string, unknown>)[paramKey];
+        }
+      }
+    }
+
     const mergedParams: FillParams = {
       ...strategy.defaults,
-      ...(store.shapeFill.paramsByFill[fillId] ?? {}),
+      ...(storedParams as Partial<FillParams>),
       ...session.params,
     } as FillParams;
 
@@ -2635,3 +2645,4 @@ export const createShapeToolHandler = (
     },
   };
 };
+const LIVE_ADJUSTABLE_PARAMS = new Set<ShapeFillParamKey>(['spacing', 'rotation', 'thickness']);

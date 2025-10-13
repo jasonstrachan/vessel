@@ -7,7 +7,7 @@ export interface ShapeDefinition {
   bounds: { minX: number; minY: number; maxX: number; maxY: number };
 }
 
-export type ShapeFillId = 'hatch' | 'contour' | 'stipple' | 'dashes' | 'flow' | 'sierra';
+export type ShapeFillId = 'delaunay' | 'hatch' | 'contour' | 'stipple' | 'dashes' | 'flow' | 'sierra';
 export type ShapeFillParamKey =
   | 'spacing'
   | 'rotation'

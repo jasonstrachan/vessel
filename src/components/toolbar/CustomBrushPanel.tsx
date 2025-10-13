@@ -130,7 +130,6 @@ export const CustomBrushPanel = () => {
         isColorizable: false
       }
     };
-    try { console.log('[CUSTOM/BRUSH] switching to temp brush', { id: tempBrush.id, w: tempBrush.width, h: tempBrush.height }); } catch {}
     setBrushSettings(brushSettings);
     
     // Also update the global brush size and custom brushes size to 100%

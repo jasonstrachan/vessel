@@ -1010,7 +1010,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       // Intentionally silent to avoid console noise
     }
     
-    const canPan = tools.currentTool !== 'crop';
+    const canPan = tools.currentTool !== 'crop' || isSpacePressedRef.current;
 
     // SIMPLIFIED PANNING: Just check if space is pressed
     if (isSpacePressedRef.current && canPan) {
@@ -1777,7 +1777,7 @@ function cssColorToHex(color: string): string {
     // Always update cursor position immediately for responsive feel
     setMousePosition({ x: event.clientX, y: event.clientY });
 
-    const canPan = tools.currentTool !== 'crop';
+    const canPan = tools.currentTool !== 'crop' || isSpacePressedRef.current;
 
     if (!canPan && pan.panState.isPanning) {
       pan.endPan();

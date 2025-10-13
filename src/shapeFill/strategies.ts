@@ -1,5 +1,6 @@
 import { contourFill } from './fillStrategies/contour';
 import { hatchFill } from './fillStrategies/hatch';
+import { delaunayFill } from './fillStrategies/delaunay';
 import { dashesFill } from './fillStrategies/dashes';
 import { flowFill } from './fillStrategies/flow';
 import { stippleFill } from './fillStrategies/stipple';
@@ -21,7 +22,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
       seed: 0,
     },
     apply: hatchFill,
-    adjustOrder: ['spacing', 'variance', 'organic'],
+    adjustOrder: ['spacing'],
     ui: [
       {
         key: 'spacing',
@@ -55,6 +56,49 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
         type: 'boolean',
         label: 'Crosshatch',
         default: false,
+      },
+    ],
+  },
+  delaunay: {
+    id: 'delaunay',
+    label: 'Delaunay',
+    defaults: {
+      spacing: 22,
+      rotation: 0,
+      thickness: 1.1,
+      variance: 0.35,
+      organic: 0,
+      seed: 0,
+    },
+    apply: delaunayFill,
+    adjustOrder: ['spacing'],
+    ui: [
+      {
+        key: 'spacing',
+        type: 'number',
+        label: 'Spacing',
+        min: 6,
+        max: 200,
+        step: 1,
+        default: 22,
+      },
+      {
+        key: 'variance',
+        type: 'number',
+        label: 'Jitter',
+        min: 0,
+        max: 1,
+        step: 0.05,
+        default: 0.35,
+      },
+      {
+        key: 'thickness',
+        type: 'number',
+        label: 'Line Width',
+        min: 0.2,
+        max: 6,
+        step: 0.1,
+        default: 1.1,
       },
     ],
   },

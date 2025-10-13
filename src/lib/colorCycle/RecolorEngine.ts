@@ -9,7 +9,6 @@ import { WebGLColorCycleRenderer } from './rendering/WebGLColorCycleRenderer';
 import { CPUColorCycleRenderer } from './rendering/CPUColorCycleRenderer';
 import { GradientPalette } from '../GradientPalette';
 import type { Layer } from '../../types';
-import type { RecolorSettings } from './types';
 
 export interface RecolorEngineConfig {
   canvas?: HTMLCanvasElement | OffscreenCanvas;
