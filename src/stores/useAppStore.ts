@@ -4415,15 +4415,16 @@ export const useAppStore = create<AppState>()(
             isImportantAction = true;
           }
         }
+        let isColorCycleTarget = false;
+        let isCCAction = actionType === 'fill' || (description && (description.includes('CC') || description.includes('Color Cycle'))) || false;
         try {
           const s = get();
           const activeLayer = (s.layers || []).find(l => l.id === s.activeLayerId);
-          const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
-          if (actionType === 'brush' && isColorCycleLayer) {
+          isColorCycleTarget = activeLayer?.layerType === 'color-cycle';
+          if (actionType === 'brush' && isColorCycleTarget) {
             isImportantAction = true;
           }
-          // ADDITIONAL FIX: Also check description for any CC-related actions
-          if (description && (description.includes('CC') || description.includes('Color Cycle'))) {
+          if (isCCAction) {
             isImportantAction = true;
           }
         } catch {}
@@ -4442,20 +4443,43 @@ export const useAppStore = create<AppState>()(
           try {
             const s = get();
             const activeLayer = (s.layers || []).find(l => l.id === s.activeLayerId);
-            const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
-            const isCCAction = actionType === 'fill' || (description && (description.includes('CC') || description.includes('Color Cycle')));
-            if (isColorCycleLayer && isCCAction) {
+            isColorCycleTarget = activeLayer?.layerType === 'color-cycle';
+            if (isColorCycleTarget && isCCAction) {
               imageData = new ImageData(1, 1);
             }
           } catch {}
           // Deep copy layers to preserve their individual ImageData and colorCycleData
           const contextOptions: CanvasRenderingContext2DSettings = { willReadFrequently: true };
+          const activeLayerIdForSnapshot = overrideActiveLayerId || state.activeLayerId || state.layers[0]?.id || '';
+          const previousSnapshot =
+            isColorCycleTarget && isCCAction && state.history.undoStack.length > 0
+              ? state.history.undoStack[state.history.undoStack.length - 1]
+              : null;
+          const previousLayersById = previousSnapshot
+            ? new Map(previousSnapshot.layers.map(prevLayer => [prevLayer.id, prevLayer]))
+            : null;
+
           const layersCopy = (state.layers || []).map<LayerHistorySnapshot>((layer) => {
-            const clonedImageData = layer.imageData
+            if (
+              isColorCycleTarget &&
+              isCCAction &&
+              previousLayersById &&
+              layer.id !== activeLayerIdForSnapshot
+            ) {
+              const previousLayer = previousLayersById.get(layer.id);
+              if (previousLayer) {
+                return previousLayer;
+              }
+            }
+
+            const shouldCloneImageData =
+              !!layer.imageData &&
+              (!isColorCycleTarget || !isCCAction || layer.id === activeLayerIdForSnapshot);
+            const clonedImageData = shouldCloneImageData
               ? new ImageData(
-                  new Uint8ClampedArray(layer.imageData.data),
-                  layer.imageData.width,
-                  layer.imageData.height
+                  new Uint8ClampedArray(layer.imageData!.data),
+                  layer.imageData!.width,
+                  layer.imageData!.height
                 )
               : layer.imageData;
 
@@ -4474,12 +4498,12 @@ export const useAppStore = create<AppState>()(
               const isStructural = typeof actionType === 'string' && (
                 actionType === 'layer' || actionType.startsWith('layer-') || actionType === 'layers' || actionType === 'structure'
               );
-              const isCCAction =
+              const isCCActionForLayer =
                 isStructural ||
                 actionType === 'fill' ||
                 (description && (description.includes('CC') || description.includes('Color Cycle')));
 
-              if (!isCCAction && layer.colorCycleData.canvas) {
+              if (!isCCActionForLayer && layer.colorCycleData.canvas) {
                 try {
                   const ccCtx = layer.colorCycleData.canvas.getContext('2d', contextOptions);
                   if (ccCtx) {

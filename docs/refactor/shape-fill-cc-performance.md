@@ -1,5 +1,7 @@
 ## Shape Fill & Color-Cycle Performance Review
 
+Date: October 13, 2025
+
 Context: previewing and finalizing shape fills on color-cycle layers has become sluggish. Inspection focused on the hot paths in `ShapeToolHandler`, `useDrawingHandlers`, history capture, and the color-cycle runtime sync helpers.
 
 ### 1. Preview redraw clears full canvas every frame

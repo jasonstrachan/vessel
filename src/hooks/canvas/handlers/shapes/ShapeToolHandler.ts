@@ -242,6 +242,27 @@ export const createShapeToolHandler = (
   const canvasManager = new CanvasManager();
 
   let shapeAdjustHelper: ShapeAdjustHelper | null = null;
+  type OverlayRect = { x: number; y: number; width: number; height: number };
+  let lastPreviewRect: OverlayRect | null = null;
+  const PREVIEW_CLEAR_PADDING = 16;
+
+  const inflateRect = (rect: OverlayRect, padding: number): OverlayRect => ({
+    x: rect.x - padding,
+    y: rect.y - padding,
+    width: rect.width + padding * 2,
+    height: rect.height + padding * 2,
+  });
+
+  const clearRegion = (ctx: CanvasRenderingContext2D, rect: OverlayRect | null) => {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (!rect) {
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      return;
+    }
+    const padded = inflateRect(rect, 2);
+    ctx.clearRect(padded.x, padded.y, padded.width, padded.height);
+  };
+
   const clearCurrentPreview = () => {
     if (currentPreviewCleanup) {
       try {
@@ -254,8 +275,9 @@ export const createShapeToolHandler = (
     const overlayCanvas = context.deps.overlayCanvasRef.current;
     const overlayCtx = overlayCanvas?.getContext('2d');
     if (overlayCtx && overlayCanvas) {
-      overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+      clearRegion(overlayCtx, lastPreviewRect);
     }
+    lastPreviewRect = null;
   };
   let currentPreviewCleanup: (() => void) | null = null;
 
@@ -267,12 +289,30 @@ export const createShapeToolHandler = (
 
     const { scale, offsetX, offsetY } = viewTransformRef.current;
 
-    overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
-    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-
     if (!session || !session.shape || !session.currentParam) {
+      if (lastPreviewRect) {
+        clearRegion(overlayCtx, lastPreviewRect);
+        lastPreviewRect = null;
+      }
       return;
     }
+
+    if (lastPreviewRect) {
+      clearRegion(overlayCtx, lastPreviewRect);
+    }
+
+    const bounds = session.shape.bounds;
+    const scaledWidth = (bounds.maxX - bounds.minX) * scale;
+    const scaledHeight = (bounds.maxY - bounds.minY) * scale;
+    const rect: OverlayRect = {
+      x: Math.floor(offsetX + bounds.minX * scale) - PREVIEW_CLEAR_PADDING,
+      y: Math.floor(offsetY + bounds.minY * scale) - PREVIEW_CLEAR_PADDING,
+      width: Math.ceil(Math.max(1, scaledWidth)) + PREVIEW_CLEAR_PADDING * 2,
+      height: Math.ceil(Math.max(1, scaledHeight)) + PREVIEW_CLEAR_PADDING * 2,
+    };
+
+    overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+    overlayCtx.clearRect(rect.x, rect.y, rect.width, rect.height);
 
     const previewFillColor = resolveShapeFillColor(session.shape.points);
     overlayCtx.strokeStyle = previewFillColor;
@@ -300,6 +340,7 @@ export const createShapeToolHandler = (
     overlayCtx.scale(scale, scale);
     renderer(overlayCtx, session.shape, param, value);
     overlayCtx.restore();
+    lastPreviewRect = rect;
   };
 
   const renderShapeFillLiveResult = (session: ShapeFillSession | null) => {
@@ -402,10 +443,13 @@ export const createShapeToolHandler = (
 
     stateMachine.finalizationComplete();
 
-    if (compositeCanvasRef.current && project) {
-      compositeLayersToCanvas(compositeCanvasRef.current);
-      setCurrentOffscreenCanvas(compositeCanvasRef.current);
-      compositeCanvasDirtyRef.current = false;
+    if (project) {
+      try {
+        useAppStore.getState().setLayersNeedRecomposition(true);
+      } catch {
+        // quiet
+      }
+      compositeCanvasDirtyRef.current = true;
     }
 
     clearCurrentPreview();
