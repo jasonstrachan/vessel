@@ -176,6 +176,8 @@ import type { ColorCycleBrushImplementation } from './colorCycleBrushManager';
 import { ShapeFillOrchestrator, type ShapeFillFinalizePayload } from '@/shapeFill';
 import { getFillStrategy, listFillStrategies } from '@/shapeFill/strategies';
 import type { FillParams, ShapeFillId, ShapeFillSession, ShapeFillParamKey, Vec2 } from '@/shapeFill/types';
+import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
+import type { RecolorOptions } from '@/lib/colorCycle/RecolorManager';
 
 // Get global manager instance
 const colorCycleBrushManager = getColorCycleBrushManager();
@@ -216,6 +218,8 @@ import type {
   KeyboardScope,
   ExportContainerLayout,
   WebGLExportSettings,
+  CropState,
+  Rectangle,
 } from '@/types';
 import { BrushShape } from '@/types';
 import { brushPresets, applyBrushPreset, defaultBrushSettings, pixelBrushPreset } from '../presets/brushPresets';
@@ -351,6 +355,13 @@ export interface AppState {
   clearSelection: () => void;
   selectAllActiveLayerPixels: () => void;
   deleteSelectedPixels: () => void;
+
+  // Crop State
+  crop: CropState;
+  setCropState: (partial: Partial<CropState>) => void;
+  resetCrop: () => void;
+  commitCrop: (overrideRect?: Rectangle | null) => Promise<void>;
+  cancelCrop: () => void;
   
   // Floating Paste State
   floatingPaste: {
@@ -621,6 +632,13 @@ const defaultToolState: ToolState = {
     contiguous: true
   },
   shapeMode: false
+};
+
+const defaultCropState: CropState = {
+  status: 'idle',
+  marquee: null,
+  activeHandle: null,
+  commitInFlight: false
 };
 
 const defaultUIState: UIState = {
@@ -1264,6 +1282,789 @@ export const useAppStore = create<AppState>()(
         // Clear selection after deletion
         state.clearSelection();
       },
+
+      // Crop State
+      crop: defaultCropState,
+      setCropState: (partial) =>
+        set((state) => ({
+          crop: {
+            ...state.crop,
+            ...partial
+          }
+        })),
+      resetCrop: () => set({ crop: defaultCropState }),
+      cancelCrop: () => set({ crop: defaultCropState }),
+      commitCrop: async (overrideRect) => {
+        const state = get();
+        const cropState = state.crop;
+
+        if (cropState.commitInFlight) {
+          return;
+        }
+
+        const sourceRect = overrideRect ?? cropState.marquee;
+        const project = state.project;
+
+        if (!sourceRect || !project) {
+          set({ crop: defaultCropState });
+          return;
+        }
+
+        const clampValue = (value: number, min: number, max: number) => {
+          if (Number.isNaN(value)) return min;
+          return Math.max(min, Math.min(max, value));
+        };
+
+        const normalizedRect = {
+          x: clampValue(Math.floor(sourceRect.x), 0, Math.max(0, project.width - 1)),
+          y: clampValue(Math.floor(sourceRect.y), 0, Math.max(0, project.height - 1)),
+          width: clampValue(Math.floor(sourceRect.width), 1, project.width),
+          height: clampValue(Math.floor(sourceRect.height), 1, project.height)
+        };
+
+        normalizedRect.width = clampValue(
+          normalizedRect.width,
+          1,
+          Math.max(1, project.width - normalizedRect.x)
+        );
+        normalizedRect.height = clampValue(
+          normalizedRect.height,
+          1,
+          Math.max(1, project.height - normalizedRect.y)
+        );
+
+        if (normalizedRect.width <= 0 || normalizedRect.height <= 0) {
+          set({ crop: defaultCropState });
+          return;
+        }
+
+        set((prev) => ({
+          crop: {
+            ...prev.crop,
+            commitInFlight: true
+          }
+        }));
+
+        try {
+          const targetWidth = normalizedRect.width;
+          const targetHeight = normalizedRect.height;
+          const recolorRebuildQueue: Array<{ id: string; options: Partial<RecolorOptions> }> = [];
+          const colorCycleBrushResets: Array<{
+            id: string;
+            width: number;
+            height: number;
+            croppedCanvas: HTMLCanvasElement | null;
+            imageData: ImageData | null;
+            gradientStops?: Array<{ position: number; color: string }>;
+            wasAnimating: boolean;
+            brushSpeed?: number;
+            mode?: 'brush' | 'recolor';
+            wasActiveLayer: boolean;
+            strokeSnapshot?: {
+              paintBuffer: ArrayBuffer;
+              hasContent: boolean;
+              strokeCounter: number;
+            };
+          }> = [];
+
+          const createCanvas = (width: number, height: number): HTMLCanvasElement => {
+            if (typeof document === 'undefined') {
+              throw new Error('Canvas APIs unavailable for crop operation.');
+            }
+            const canvasElement = document.createElement('canvas');
+            canvasElement.width = width;
+            canvasElement.height = height;
+            return canvasElement;
+          };
+
+          const normalizeToHtmlCanvas = (surface: HTMLCanvasElement | OffscreenCanvas | null | undefined): HTMLCanvasElement | null => {
+            if (!surface) {
+              return null;
+            }
+            if (surface instanceof HTMLCanvasElement) {
+              return surface;
+            }
+            if (typeof OffscreenCanvas !== 'undefined' && surface instanceof OffscreenCanvas) {
+              try {
+                const temp = createCanvas(surface.width, surface.height);
+                const ctx = temp.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+                if (ctx) {
+                  ctx.drawImage(surface as unknown as CanvasImageSource, 0, 0);
+                  return temp;
+                }
+              } catch {
+                return null;
+              }
+            }
+            return null;
+          };
+
+          const ensureSourceCanvas = (layer: Layer): HTMLCanvasElement | null => {
+            const fromColorCycle = normalizeToHtmlCanvas(layer.colorCycleData?.canvas ?? null);
+            if (fromColorCycle) {
+              return fromColorCycle;
+            }
+
+            const fromFramebuffer = normalizeToHtmlCanvas(layer.framebuffer ?? null);
+            if (fromFramebuffer) {
+              return fromFramebuffer;
+            }
+
+            if (layer.imageData) {
+              try {
+                const tempCanvas = createCanvas(layer.imageData.width, layer.imageData.height);
+                const ctx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+                if (ctx) {
+                  ctx.putImageData(layer.imageData, 0, 0);
+                  return tempCanvas;
+                }
+              } catch {
+                return null;
+              }
+            }
+
+            return null;
+          };
+
+          const updatedLayers = state.layers.map((layer) => {
+          const targetCanvas = createCanvas(targetWidth, targetHeight);
+          const targetCtx = targetCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+
+          const sliceImageData = (imageData: ImageData): ImageData => {
+            const destination = new ImageData(targetWidth, targetHeight);
+            for (let row = 0; row < targetHeight; row += 1) {
+              const srcRow = normalizedRect.y + row;
+              const srcStart = (srcRow * imageData.width + normalizedRect.x) * 4;
+              const destStart = row * targetWidth * 4;
+              destination.data.set(
+                imageData.data.subarray(srcStart, srcStart + targetWidth * 4),
+                destStart
+              );
+            }
+            return destination;
+          };
+
+          let sourceCanvas = ensureSourceCanvas(layer);
+
+          let croppedImageData: ImageData | null = null;
+
+          const colorCycleCanvas = layer.colorCycleData?.canvas ?? null;
+          const colorCycleBrush = layer.colorCycleData?.colorCycleBrush ?? null;
+          const shouldUseColorCycleCanvas = layer.layerType === 'color-cycle' && Boolean(colorCycleCanvas);
+
+          let colorCycleReadbackCanvas: HTMLCanvasElement | OffscreenCanvas | null = colorCycleCanvas;
+          let colorCycleSourceCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
+
+          const tryGet2dContext = (
+            canvas: typeof colorCycleReadbackCanvas
+          ): CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null => {
+            if (!canvas || typeof canvas.getContext !== 'function') {
+              return null;
+            }
+            try {
+              return canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) ?? null;
+            } catch {
+              return null;
+            }
+          };
+
+          if (shouldUseColorCycleCanvas) {
+            colorCycleSourceCtx = tryGet2dContext(colorCycleReadbackCanvas);
+
+            if (!colorCycleSourceCtx && colorCycleBrush && typeof document !== 'undefined') {
+              try {
+                const readbackCanvas = document.createElement('canvas');
+                readbackCanvas.width = colorCycleCanvas?.width ?? targetWidth;
+                readbackCanvas.height = colorCycleCanvas?.height ?? targetHeight;
+
+                if (typeof colorCycleBrush.commitCurrentStroke === 'function') {
+                  try {
+                    colorCycleBrush.commitCurrentStroke(layer.id);
+                  } catch (commitError) {
+                    logError('[crop] Failed to finalize color-cycle stroke before readback', commitError);
+                  }
+                }
+
+                try {
+                  colorCycleBrush.renderDirectToCanvas(readbackCanvas, layer.id);
+                  colorCycleSourceCtx = tryGet2dContext(readbackCanvas);
+                  if (colorCycleSourceCtx) {
+                    colorCycleReadbackCanvas = readbackCanvas;
+                    sourceCanvas = readbackCanvas;
+                  }
+                } catch (renderError) {
+                  logError('[crop] Failed to render color-cycle layer for crop readback', renderError);
+                }
+              } catch (fallbackError) {
+                logError('[crop] Failed to create readback canvas for color-cycle crop', fallbackError);
+              }
+            }
+          }
+
+          if (shouldUseColorCycleCanvas && colorCycleReadbackCanvas && colorCycleSourceCtx) {
+            try {
+              const fullImageData = colorCycleSourceCtx.getImageData(
+                0,
+                0,
+                colorCycleReadbackCanvas.width,
+                colorCycleReadbackCanvas.height
+              );
+              croppedImageData = sliceImageData(fullImageData);
+            } catch (readError) {
+              croppedImageData = null;
+              logError('[crop] Failed to read color-cycle canvas pixels during crop', readError);
+            }
+          }
+
+          if (!croppedImageData && layer.imageData) {
+            try {
+              croppedImageData = sliceImageData(layer.imageData);
+            } catch {
+              croppedImageData = null;
+            }
+          } else if (sourceCanvas) {
+            const sourceCtx = sourceCanvas.getContext?.('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+            if (sourceCtx) {
+              try {
+                const fullImageData = sourceCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+                croppedImageData = sliceImageData(fullImageData);
+              } catch {
+                croppedImageData = null;
+              }
+            }
+          }
+
+          if (targetCtx) {
+            targetCtx.clearRect(0, 0, targetWidth, targetHeight);
+            if (croppedImageData) {
+              try {
+                targetCtx.putImageData(croppedImageData, 0, 0);
+              } catch {
+                // Ignore failures during testing environments
+              }
+            } else if (sourceCanvas) {
+              try {
+                targetCtx.drawImage(
+                  sourceCanvas as unknown as CanvasImageSource,
+                  normalizedRect.x,
+                  normalizedRect.y,
+                  targetWidth,
+                  targetHeight,
+                  0,
+                  0,
+                  targetWidth,
+                  targetHeight
+                );
+                croppedImageData = targetCtx.getImageData(0, 0, targetWidth, targetHeight);
+              } catch {
+                croppedImageData = null;
+              }
+            }
+          }
+
+          if (!croppedImageData && typeof ImageData !== 'undefined') {
+            croppedImageData = new ImageData(targetWidth, targetHeight);
+          }
+
+          const clonedAlignment = cloneLayerAlignment(layer.alignment);
+
+          let updatedColorCycleData: Layer['colorCycleData'] | undefined;
+
+          if (layer.colorCycleData) {
+            const isColorCycleLayer = layer.layerType === 'color-cycle';
+            const sourceColorCycleCanvas = colorCycleReadbackCanvas ?? layer.colorCycleData.canvas ?? null;
+            let croppedCcCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+
+            if (sourceColorCycleCanvas) {
+              try {
+                croppedCcCanvas = createCanvas(targetWidth, targetHeight);
+                const ccCtx = croppedCcCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+                if (ccCtx) {
+                  ccCtx.clearRect(0, 0, targetWidth, targetHeight);
+                  ccCtx.drawImage(
+                    sourceColorCycleCanvas as unknown as CanvasImageSource,
+                    normalizedRect.x,
+                    normalizedRect.y,
+                    targetWidth,
+                    targetHeight,
+                    0,
+                    0,
+                    targetWidth,
+                    targetHeight
+                  );
+                }
+              } catch {
+                croppedCcCanvas = null;
+              }
+            }
+
+            const originalRecolor = layer.colorCycleData.recolorSettings;
+            let refreshedOriginalImage: ImageData | undefined;
+
+            if (croppedImageData && typeof ImageData !== 'undefined') {
+              try {
+                refreshedOriginalImage = new ImageData(
+                  new Uint8ClampedArray(croppedImageData.data),
+                  targetWidth,
+                  targetHeight
+                );
+              } catch {
+                refreshedOriginalImage = undefined;
+              }
+            }
+
+            const recolorSettings = originalRecolor
+              ? {
+                  ...originalRecolor,
+                  originalImageData: refreshedOriginalImage ?? originalRecolor.originalImageData,
+                  indexBuffer: undefined,
+                  palette: undefined,
+                  colorMap: undefined,
+                  phaseMap: undefined,
+                  indexPhaseMap: undefined,
+                  animation: {
+                    ...originalRecolor.animation,
+                    currentTick: 0
+                  }
+                }
+              : undefined;
+
+            if (recolorSettings && originalRecolor) {
+              const customGradient = Array.isArray(originalRecolor.gradient)
+                ? originalRecolor.gradient.map((stop) => ({ ...stop }))
+                : undefined;
+
+              recolorRebuildQueue.push({
+                id: layer.id,
+                options: {
+                  quantizationMode: originalRecolor.quantizationMode,
+                  ditherMode: originalRecolor.ditherMode,
+                  cycleColors: originalRecolor.cycleColors,
+                  customGradient
+                }
+              });
+            }
+
+            const nextColorCycleCanvas =
+              croppedCcCanvas ??
+              (layer.layerType === 'color-cycle' ? targetCanvas : layer.colorCycleData.canvas ?? undefined);
+
+            if (isColorCycleLayer) {
+              const gradientStops = Array.isArray(layer.colorCycleData.gradient)
+                ? layer.colorCycleData.gradient.map((stop) => ({ ...stop }))
+                : Array.isArray(layer.colorCycleData.recolorSettings?.gradient)
+                  ? layer.colorCycleData.recolorSettings.gradient.map((stop) => ({ ...stop }))
+                  : undefined;
+              const existingBrush = layer.colorCycleData.colorCycleBrush ?? null;
+              const brushIsPlaying =
+                typeof existingBrush?.isPlaying === 'function' ? existingBrush.isPlaying() : false;
+              const storedAnimating = layer.colorCycleData.isAnimating ?? false;
+              const wasAnimating = storedAnimating || brushIsPlaying;
+              const brushSpeed =
+                typeof layer.colorCycleData.brushSpeed === 'number' ? layer.colorCycleData.brushSpeed : undefined;
+              const mode = layer.colorCycleData.mode ?? 'brush';
+              const wasActiveLayer = state.activeLayerId === layer.id;
+              let strokeSnapshot: {
+                paintBuffer: ArrayBuffer;
+                hasContent: boolean;
+                strokeCounter: number;
+              } | undefined;
+
+              if (existingBrush && typeof existingBrush.getLayerSnapshot === 'function' && sourceColorCycleCanvas) {
+                try {
+                  const rawSnapshot = existingBrush.getLayerSnapshot(layer.id);
+                  if (rawSnapshot && rawSnapshot.paintBuffer) {
+                    const srcWidth = sourceColorCycleCanvas.width;
+                    const srcHeight = sourceColorCycleCanvas.height;
+                    const sourceBuffer = new Uint8Array(rawSnapshot.paintBuffer);
+                    if (
+                      srcWidth >= normalizedRect.x + targetWidth &&
+                      srcHeight >= normalizedRect.y + targetHeight &&
+                      srcWidth * srcHeight === sourceBuffer.length
+                    ) {
+                      const croppedBuffer = new Uint8Array(targetWidth * targetHeight);
+                      for (let row = 0; row < targetHeight; row += 1) {
+                        const srcRow = normalizedRect.y + row;
+                        const srcStart = srcRow * srcWidth + normalizedRect.x;
+                        const destStart = row * targetWidth;
+                        const srcEnd = srcStart + targetWidth;
+                        if (srcStart >= 0 && srcEnd <= sourceBuffer.length) {
+                          croppedBuffer.set(sourceBuffer.subarray(srcStart, srcEnd), destStart);
+                        }
+                      }
+                      const hasContent =
+                        Boolean(rawSnapshot.hasContent) && croppedBuffer.some((value) => value !== 0);
+                      strokeSnapshot = {
+                        paintBuffer: croppedBuffer.buffer.slice(0),
+                        hasContent,
+                        strokeCounter: rawSnapshot.strokeCounter
+                      };
+                    }
+                  }
+                } catch (snapshotError) {
+                  logError('[crop] Failed to capture color-cycle stroke snapshot during crop', snapshotError);
+                }
+              }
+
+              colorCycleBrushResets.push({
+                id: layer.id,
+                width: targetWidth,
+                height: targetHeight,
+                croppedCanvas: croppedCcCanvas ?? null,
+                imageData: croppedImageData,
+                gradientStops,
+                wasAnimating,
+                brushSpeed,
+                mode,
+                wasActiveLayer,
+                strokeSnapshot
+              });
+            }
+
+            updatedColorCycleData = {
+              ...layer.colorCycleData,
+              colorCycleBrush: undefined,
+              canvas: nextColorCycleCanvas ?? undefined,
+              recolorSettings,
+              gradient: Array.isArray(layer.colorCycleData.gradient)
+                ? [...layer.colorCycleData.gradient]
+                : layer.colorCycleData.gradient
+            };
+          }
+
+          return {
+            ...layer,
+            imageData: croppedImageData,
+            framebuffer: targetCanvas,
+            alignment: clonedAlignment,
+            colorCycleData: updatedColorCycleData
+          };
+          });
+
+          let updatedProject: Project = {
+            ...project,
+            width: targetWidth,
+            height: targetHeight,
+            updatedAt: new Date()
+          };
+
+          const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, updatedProject);
+
+          updatedProject = {
+            ...updatedProject,
+            layers: syncedLayers
+          };
+
+          const currentCanvas = state.canvas;
+          const currentZoom = currentCanvas?.zoom ?? 1;
+          const nextOffsetX = (currentCanvas?.offsetX ?? 0) + normalizedRect.x * currentZoom;
+          const nextOffsetY = (currentCanvas?.offsetY ?? 0) + normalizedRect.y * currentZoom;
+
+          const nextCanvasState = currentCanvas
+            ? {
+                ...currentCanvas,
+                canvasWidth: targetWidth,
+                canvasHeight: targetHeight,
+                offsetX: nextOffsetX,
+                offsetY: nextOffsetY,
+                selection: {
+                  active: false,
+                  bounds: { x: 0, y: 0, width: 0, height: 0 },
+                  pixels: currentCanvas.selection?.pixels ?? (typeof ImageData !== 'undefined' ? new ImageData(1, 1) : ({} as ImageData))
+                }
+              }
+            : currentCanvas;
+
+          set((prev) => ({
+            project: updatedProject,
+            layers: syncedLayers,
+            canvas: nextCanvasState,
+            selectionStart: null,
+            selectionEnd: null,
+            floatingPaste: null,
+            layersNeedRecomposition: true,
+            crop: {
+              ...prev.crop,
+              marquee: null,
+              status: 'ready',
+              activeHandle: null,
+              commitInFlight: true
+            }
+          }));
+
+          const postState = get();
+          const { compositeLayersToCanvas, saveCanvasState } = postState;
+
+          if (compositeLayersToCanvas && saveCanvasState) {
+            if (typeof document !== 'undefined') {
+              const historyCanvas = document.createElement('canvas');
+              historyCanvas.width = targetWidth;
+              historyCanvas.height = targetHeight;
+              compositeLayersToCanvas(historyCanvas);
+              saveCanvasState(historyCanvas, 'crop', 'Crop to selection');
+              set({ currentOffscreenCanvas: historyCanvas });
+            } else if (postState.currentOffscreenCanvas) {
+              compositeLayersToCanvas(postState.currentOffscreenCanvas);
+              saveCanvasState(postState.currentOffscreenCanvas, 'crop', 'Crop to selection');
+            }
+          }
+
+          set({ crop: defaultCropState });
+
+          if (colorCycleBrushResets.length > 0 && typeof window !== 'undefined') {
+            Promise.resolve().then(() => {
+              const toGradientArray = (stops: Array<{ position: number; color: string }> | undefined): Uint8Array | undefined => {
+                if (!stops || stops.length === 0) {
+                  return undefined;
+                }
+                const gradientArray = new Uint8Array(256 * 3);
+                for (let i = 0; i < 256; i += 1) {
+                  const t = i / 255;
+                  let r = 255;
+                  let g = 0;
+                  let b = 0;
+                  for (let j = 0; j < stops.length - 1; j += 1) {
+                    const current = stops[j];
+                    const next = stops[j + 1];
+                    if (t >= current.position && t <= next.position) {
+                      const t0 = current.position;
+                      const t1 = next.position;
+                      const span = Math.max(1e-6, t1 - t0);
+                      const localT = (t - t0) / span;
+                      const c0 = parseInt(current.color.slice(1), 16);
+                      const c1 = parseInt(next.color.slice(1), 16);
+                      const r0 = (c0 >> 16) & 0xff;
+                      const g0 = (c0 >> 8) & 0xff;
+                      const b0 = c0 & 0xff;
+                      const r1 = (c1 >> 16) & 0xff;
+                      const g1 = (c1 >> 8) & 0xff;
+                      const b1 = c1 & 0xff;
+                      r = Math.round(r0 + (r1 - r0) * localT);
+                      g = Math.round(g0 + (g1 - g0) * localT);
+                      b = Math.round(b0 + (b1 - b0) * localT);
+                      break;
+                    }
+                  }
+                  gradientArray[i * 3] = r;
+                  gradientArray[i * 3 + 1] = g;
+                  gradientArray[i * 3 + 2] = b;
+                }
+                return gradientArray;
+              };
+
+              for (const entry of colorCycleBrushResets) {
+                try {
+                  const currentState = get();
+                  const targetLayer = currentState.layers.find((layer) => layer.id === entry.id);
+                  if (!targetLayer || targetLayer.layerType !== 'color-cycle' || !targetLayer.colorCycleData) {
+                    continue;
+                  }
+
+                  if (entry.mode === 'recolor') {
+                    continue;
+                  }
+
+                  const isActiveLayer = currentState.activeLayerId === entry.id;
+
+                  colorCycleBrushManager.removeColorCycleBrush(entry.id);
+
+                  const gradientStops =
+                    entry.gradientStops ??
+                    (Array.isArray(targetLayer.colorCycleData.gradient) && targetLayer.colorCycleData.gradient.length > 0
+                      ? targetLayer.colorCycleData.gradient.map((stop) => ({ ...stop }))
+                      : targetLayer.colorCycleData.recolorSettings?.gradient?.map((stop) => ({ ...stop })));
+
+                  const gradientArray = toGradientArray(gradientStops ?? undefined);
+
+                  const freshBrush = colorCycleBrushManager.createBrush(
+                    entry.id,
+                    Math.max(1, entry.width),
+                    Math.max(1, entry.height),
+                    gradientArray
+                  ) as ColorCycleBrushImplementation | undefined;
+
+                  if (!freshBrush) {
+                    continue;
+                  }
+
+                  if (typeof freshBrush.setLayerId === 'function') {
+                    try {
+                      freshBrush.setLayerId(entry.id);
+                    } catch {}
+                  }
+
+                  if ('setActiveLayer' in freshBrush && typeof freshBrush.setActiveLayer === 'function') {
+                    try {
+                      freshBrush.setActiveLayer(entry.id);
+                    } catch {}
+                  }
+
+                  if (gradientStops && typeof freshBrush.setGradient === 'function') {
+                    try {
+                      freshBrush.setGradient(gradientStops, entry.id);
+                    } catch {}
+                  }
+
+                  if (typeof entry.brushSpeed === 'number' && typeof freshBrush.setSpeed === 'function') {
+                    try {
+                      freshBrush.setSpeed(entry.brushSpeed);
+                    } catch {}
+                  }
+
+                  if (entry.strokeSnapshot) {
+                    try {
+                      const snapshotBuffer = entry.strokeSnapshot.paintBuffer.slice(0);
+                      freshBrush.applyLayerSnapshot(entry.id, {
+                        paintBuffer: snapshotBuffer,
+                        hasContent: entry.strokeSnapshot.hasContent,
+                        strokeCounter: entry.strokeSnapshot.strokeCounter
+                      });
+                    } catch (snapshotError) {
+                      logError('[crop] Failed to restore color-cycle stroke snapshot after crop', snapshotError);
+                    }
+                  }
+
+                  const brushCanvas = freshBrush.getCanvas?.();
+                  if (brushCanvas) {
+                    const brushCtx = brushCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+                    if (brushCtx) {
+                      brushCtx.clearRect(0, 0, brushCanvas.width, brushCanvas.height);
+                      const sourceCanvas = entry.croppedCanvas;
+                      if (sourceCanvas) {
+                        try {
+                          brushCtx.drawImage(sourceCanvas as unknown as CanvasImageSource, 0, 0, brushCanvas.width, brushCanvas.height);
+                        } catch {
+                          if (entry.imageData) {
+                            brushCtx.putImageData(entry.imageData, 0, 0);
+                          }
+                        }
+                      }
+                      if (entry.imageData) {
+                        try {
+                          brushCtx.putImageData(entry.imageData, 0, 0);
+                        } catch {}
+                      }
+                    }
+                  }
+
+                  if (freshBrush && typeof freshBrush.markLayerHasExternalBase === 'function') {
+                    try {
+                      freshBrush.markLayerHasExternalBase(entry.id);
+                    } catch {}
+                  }
+
+                  if (entry.wasAnimating) {
+                    try {
+                      freshBrush.startAnimation();
+                    } catch {}
+                  } else if (typeof freshBrush.stopAnimation === 'function') {
+                    try {
+                      freshBrush.stopAnimation();
+                    } catch {}
+                  }
+
+                  try {
+                    colorCycleBrushManager.setActiveState(entry.id, isActiveLayer);
+                  } catch {}
+
+                  set((current) => {
+                    const index = current.layers.findIndex((layer) => layer.id === entry.id);
+                    if (index === -1) {
+                      return {};
+                    }
+
+                    const nextLayers = current.layers.map((layer, layerIndex) => {
+                      if (layerIndex !== index || !layer.colorCycleData) {
+                        return layer;
+                      }
+
+                      return {
+                        ...layer,
+                        colorCycleData: {
+                          ...layer.colorCycleData,
+                          colorCycleBrush: freshBrush,
+                          canvas: freshBrush.getCanvas ? freshBrush.getCanvas() : layer.colorCycleData.canvas,
+                          gradient: gradientStops ?? layer.colorCycleData.gradient,
+                          brushSpeed: typeof entry.brushSpeed === 'number' ? entry.brushSpeed : layer.colorCycleData.brushSpeed,
+                          isAnimating: entry.wasAnimating
+                        }
+                      };
+                    });
+
+                    return { layers: nextLayers };
+                  });
+                } catch (brushError) {
+                  logError('[crop] Failed to rebuild color-cycle brush after crop', brushError);
+                }
+              }
+
+              set({ layersNeedRecomposition: true });
+            });
+          }
+
+          if (recolorRebuildQueue.length > 0 && typeof window !== 'undefined') {
+            Promise.resolve().then(async () => {
+              const manager = RecolorManager.getInstance();
+              for (const entry of recolorRebuildQueue) {
+                const latestState = get();
+                const targetLayer = latestState.layers.find((l) => l.id === entry.id);
+                if (!targetLayer || targetLayer.layerType !== 'color-cycle' || targetLayer.colorCycleData?.mode !== 'recolor') {
+                  continue;
+                }
+
+                try {
+                  const success = await manager.processLayer(targetLayer, entry.options);
+                  if (!success) {
+                    continue;
+                  }
+
+                  set((current) => {
+                    const index = current.layers.findIndex((layer) => layer.id === entry.id);
+                    if (index === -1) {
+                      return {};
+                    }
+                    const nextLayers = current.layers.map((layer, layerIndex) => {
+                      if (layerIndex !== index) {
+                        return layer;
+                      }
+
+                      const nextColorCycleData = layer.colorCycleData
+                        ? {
+                            ...layer.colorCycleData,
+                            recolorSettings: layer.colorCycleData.recolorSettings
+                              ? { ...layer.colorCycleData.recolorSettings }
+                              : undefined
+                          }
+                        : undefined;
+
+                      return {
+                        ...layer,
+                        colorCycleData: nextColorCycleData
+                      };
+                    });
+                    return {
+                      layers: nextLayers,
+                      layersNeedRecomposition: true
+                    };
+                  });
+                } catch (recolorError) {
+                  logError('[crop] Failed to rebuild recolor layer after crop', recolorError);
+                }
+              }
+            });
+          }
+        } catch (error) {
+          logError('[crop] Failed to commit crop', error);
+          set({ crop: defaultCropState });
+        } finally {
+          set((prev) => ({
+            crop: {
+              ...prev.crop,
+              commitInFlight: false
+            }
+          }));
+        }
+      },
       
       // Floating Paste State
       floatingPaste: null,
@@ -1451,6 +2252,10 @@ export const useAppStore = create<AppState>()(
             
             get().clearSelection();
           }
+        }
+
+        if (stateBeforeSwitch.tools.currentTool === 'crop' && tool !== 'crop') {
+          set({ crop: defaultCropState });
         }
         
         try {
@@ -1834,8 +2639,6 @@ export const useAppStore = create<AppState>()(
         return payload;
       },
       cancelShapeFillSession: () => {
-        const state = get();
-        const fillId = state.shapeFill.activeFillId;
         shapeFillOrchestratorInstance.cancel();
         set(currentState => ({
           shapeFill: {
@@ -3739,6 +4542,21 @@ export const useAppStore = create<AppState>()(
           }
           
           const syncedLayersCopy = syncPercentOffsetsFromPixels(layersCopy, state.project ?? null);
+          const projectSize = state.project
+            ? {
+                width: state.project.width,
+                height: state.project.height
+              }
+            : undefined;
+          const canvasStateSnapshot = state.canvas
+            ? {
+                offsetX: state.canvas.offsetX,
+                offsetY: state.canvas.offsetY,
+                zoom: state.canvas.zoom,
+                canvasWidth: state.canvas.canvasWidth,
+                canvasHeight: state.canvas.canvasHeight
+              }
+            : undefined;
 
           const snapshot: CanvasSnapshot = {
             id: `snapshot_${Date.now()}_${Math.random()}`,
@@ -3749,6 +4567,8 @@ export const useAppStore = create<AppState>()(
             actionType,
             description,
             colorCycleState,
+            projectSize,
+            canvasState: canvasStateSnapshot
           };
           
           const newUndoStack = [...state.history.undoStack, snapshot];

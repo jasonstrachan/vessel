@@ -294,6 +294,24 @@ export interface ToolState {
   shapeMode: boolean; // When true, draws closed polygon shapes with current brush
 }
 
+export type CropHandle =
+  | 'top-left'
+  | 'top'
+  | 'top-right'
+  | 'right'
+  | 'bottom-right'
+  | 'bottom'
+  | 'bottom-left'
+  | 'left'
+  | 'center';
+
+export interface CropState {
+  status: 'idle' | 'creating' | 'ready' | 'adjusting';
+  marquee: Rectangle | null;
+  activeHandle: CropHandle | null;
+  commitInFlight: boolean;
+}
+
 export interface UIState {
   panels: {
     leftToolbar: boolean;
@@ -517,7 +535,7 @@ export interface Notification {
 
 export interface DrawingAction {
   id: string;
-  type: 'brush' | 'eraser' | 'fill' | 'selection';
+  type: 'brush' | 'eraser' | 'fill' | 'selection' | 'crop';
   layerId: string;
   timestamp: Date;
   data: Record<string, unknown>;
@@ -530,11 +548,22 @@ export interface CanvasSnapshot {
   layers: Layer[];  // Full layers state
   activeLayerId: string;  // Active layer at time of snapshot
   // Expanded to include structural layer operations captured in history
-  actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'paste' | 'delete'
+  actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'crop' | 'paste' | 'delete'
             | 'layer' | 'layers' | 'structure'
             | 'layer-add' | 'layer-remove' | 'layer-reorder';
   description: string;
   colorCycleState?: ColorCycleSnapshot; // Optional color cycle state
+  projectSize?: {
+    width: number;
+    height: number;
+  };
+  canvasState?: {
+    offsetX: number;
+    offsetY: number;
+    zoom: number;
+    canvasWidth: number;
+    canvasHeight: number;
+  };
 }
 
 // Color Cycle Brush specific snapshot data
@@ -570,7 +599,7 @@ export interface HistoryState {
   isCapturing: boolean;
 }
 
-export type Tool = 'brush' | 'eraser' | 'fill' | 'selection' | 'eyedropper' | 'zoom' | 'new-document' | 'save' | 'load' | 'export' | 'export-png' | 'custom' | 'options' | 'recolor';
+export type Tool = 'brush' | 'eraser' | 'fill' | 'crop' | 'selection' | 'eyedropper' | 'zoom' | 'new-document' | 'save' | 'load' | 'export' | 'export-png' | 'custom' | 'options' | 'recolor';
 
 export type BlendMode = GlobalCompositeOperation;
 

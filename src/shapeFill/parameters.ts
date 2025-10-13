@@ -1,4 +1,4 @@
-import { FillParams, ShapeFillParamKey } from './types';
+import { ShapeFillParamKey } from './types';
 import { clamp, wrap } from './utils/math';
 
 type ParamMode = 'clamp' | 'wrap';

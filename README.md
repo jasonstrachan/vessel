@@ -13,6 +13,7 @@ Vessel is built with Next.js 15 and P5.js, providing a high-performance drawing 
 - **Eraser Tool**: Precision erasing with configurable brush settings
 - **Fill Tool**: Intelligent flood fill with tolerance controls
 - **Selection Tool**: Rectangle and brush selection modes
+- **Crop Tool**: Precise canvas cropping with adjustable marquee handles
 - **Clear Tool**: Quick layer clearing functionality
 
 ### Brush System

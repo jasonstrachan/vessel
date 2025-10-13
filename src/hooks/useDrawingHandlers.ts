@@ -8,7 +8,7 @@ import { shouldApplyGridSnapPure, snapToGridPure, calculateGridSpacing } from '.
 import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokeProcessor';
 import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
 import { appendSegmentWithDynamicResampling } from '../utils/shapeMaker';
-import { logError, debugWarn, debugLog } from '../utils/debug';
+import { logError, debugWarn } from '../utils/debug';
 import { RecolorManager } from '../lib/colorCycle/RecolorManager';
 import { getColorCycleAnimationState, setColorCycleAnimationState } from '../components/toolbar/BrushControls';
 import { setSharedColorCycleGradient } from '../utils/colorCycleGradients';

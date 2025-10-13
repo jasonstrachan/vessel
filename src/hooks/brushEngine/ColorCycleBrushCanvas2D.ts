@@ -34,7 +34,7 @@ type LayerStrokeState = {
   stampCounter: number;
   hasExternalBase?: boolean;
 };
-
+    
 type AnimatorSerializedState = ReturnType<ColorCycleAnimator['serialize']>;
 
 interface AnimatorIndexSnapshot {

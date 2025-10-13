@@ -25,6 +25,7 @@ const LeftToolbar = () => {
       { id: 'eraser' as Tool, label: 'Eraser', abbr: 'Er' },
       { id: 'eyedropper' as Tool, label: 'Eyedropper', abbr: 'Ey' },
       { id: 'fill' as Tool, label: 'Fill', abbr: 'Fl' },
+      { id: 'crop' as Tool, label: 'Crop', abbr: 'Cr' },
     ],
     [
       { id: 'save' as Tool, label: 'Save File', abbr: 'Sv' },

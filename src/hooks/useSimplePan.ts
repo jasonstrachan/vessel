@@ -17,11 +17,11 @@ export function useSimplePan(options: SimplePanOptions = {}) {
     offsetY: 0,
     isPanning: false
   });
-  
+
   const panStartRef = useRef({ x: 0, y: 0 });
   const panStartOffsetRef = useRef({ x: 0, y: 0 });
   const isPanningRef = useRef(false);
-  
+
   const startPan = useCallback((x: number, y: number) => {
     panStartRef.current = { x, y };
     setPanState(prev => {
@@ -30,30 +30,44 @@ export function useSimplePan(options: SimplePanOptions = {}) {
       return { ...prev, isPanning: true };
     });
   }, []);
-  
+
   const updatePan = useCallback((currentX: number, currentY: number) => {
-    // Check the ref which is always current
-    if (!isPanningRef.current) return;
-    
+    if (!isPanningRef.current) {
+      return;
+    }
+
     const deltaX = currentX - panStartRef.current.x;
     const deltaY = currentY - panStartRef.current.y;
-    
-    setPanState(prev => ({
-      ...prev,
-      offsetX: panStartOffsetRef.current.x + deltaX,
-      offsetY: panStartOffsetRef.current.y + deltaY
-    }));
-  }, []); // Empty deps is OK since we're using refs which don't need to be dependencies
-  
-  const setPan = useCallback((offsetX: number, offsetY: number) => {
-    setPanState(prev => ({ ...prev, offsetX, offsetY }));
+    const nextOffsetX = panStartOffsetRef.current.x + deltaX;
+    const nextOffsetY = panStartOffsetRef.current.y + deltaY;
+
+    setPanState(prev => {
+      if (prev.offsetX === nextOffsetX && prev.offsetY === nextOffsetY && prev.isPanning) {
+        return prev;
+      }
+      return {
+        ...prev,
+        offsetX: nextOffsetX,
+        offsetY: nextOffsetY,
+        isPanning: true
+      };
+    });
   }, []);
-  
+
+  const setPan = useCallback((offsetX: number, offsetY: number) => {
+    setPanState(prev => {
+      if (prev.offsetX === offsetX && prev.offsetY === offsetY) {
+        return prev;
+      }
+      return { ...prev, offsetX, offsetY };
+    });
+  }, []);
+
   const endPan = useCallback(() => {
     isPanningRef.current = false;
     setPanState(prev => ({ ...prev, isPanning: false }));
   }, []);
-  
+
   const resetPan = useCallback(() => {
     isPanningRef.current = false;
     setPanState({
@@ -62,25 +76,31 @@ export function useSimplePan(options: SimplePanOptions = {}) {
       isPanning: false
     });
   }, []);
-  
-  const screenToWorld = useCallback((x: number, y: number, currentScale: number = scale) => {
-    return {
-      x: (x - panState.offsetX) / currentScale,
-      y: (y - panState.offsetY) / currentScale
-    };
-  }, [panState.offsetX, panState.offsetY, scale]);
-  
-  const worldToScreen = useCallback((x: number, y: number, currentScale: number = scale) => {
-    return {
-      x: x * currentScale + panState.offsetX,
-      y: y * currentScale + panState.offsetY
-    };
-  }, [panState.offsetX, panState.offsetY, scale]);
-  
+
+  const screenToWorld = useCallback(
+    (x: number, y: number, currentScale: number = scale) => {
+      return {
+        x: (x - panState.offsetX) / currentScale,
+        y: (y - panState.offsetY) / currentScale
+      };
+    },
+    [panState.offsetX, panState.offsetY, scale]
+  );
+
+  const worldToScreen = useCallback(
+    (x: number, y: number, currentScale: number = scale) => {
+      return {
+        x: x * currentScale + panState.offsetX,
+        y: y * currentScale + panState.offsetY
+      };
+    },
+    [panState.offsetX, panState.offsetY, scale]
+  );
+
   return {
     panState,
-    panStartRef,  // Expose the ref for CSS transform calculations
-    panStartOffsetRef,  // Expose for direct offset access during panning
+    panStartRef,
+    panStartOffsetRef,
     startPan,
     updatePan,
     setPan,

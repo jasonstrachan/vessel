@@ -429,7 +429,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     state: ContourLinesState,
     defaultSpacing: number
   ) => {
-    const { tools } = getDynamicDeps();
     const points = state.shapePoints;
     if (!points || points.length === 0) {
       return {
@@ -791,7 +790,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     const EDGE_EPS = 0.5;
     const hardMax = Math.max(0.001, basis.maxDistance || spacingStart);
-    let clampedSpacing = Math.min(Math.max(MIN_LINE_SPACING, spacingEnd ?? spacingStart), hardMax - EDGE_EPS);
+    const clampedSpacing = Math.min(Math.max(MIN_LINE_SPACING, spacingEnd ?? spacingStart), hardMax - EDGE_EPS);
 
     logContourFillDebug('finalizing-contour-fill', {
       spacingA: spacingStart,
@@ -1011,8 +1010,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       // Intentionally silent to avoid console noise
     }
     
+    const canPan = tools.currentTool !== 'crop';
+
     // SIMPLIFIED PANNING: Just check if space is pressed
-    if (isSpacePressedRef.current) {
+    if (isSpacePressedRef.current && canPan) {
       pan.startPan(pointerPos.x, pointerPos.y);
       setCursorStyle('grabbing');
       setShowBrushCursor(false);
@@ -1776,8 +1777,16 @@ function cssColorToHex(color: string): string {
     // Always update cursor position immediately for responsive feel
     setMousePosition({ x: event.clientX, y: event.clientY });
 
+    const canPan = tools.currentTool !== 'crop';
+
+    if (!canPan && pan.panState.isPanning) {
+      pan.endPan();
+      setCursorStyle(deps.defaultCursorStyle || 'crosshair');
+      setShowBrushCursor(true);
+    }
+
     // If space is held and mouse is down, but pan hasn't started yet, start it now and exit early.
-    if (isSpacePressedRef.current && isMouseDownRef.current && !pan.panState.isPanning) {
+    if (isSpacePressedRef.current && isMouseDownRef.current && !pan.panState.isPanning && canPan) {
       pan.startPan(currentPointerPos.x, currentPointerPos.y);
       setCursorStyle('grabbing');
       setShowBrushCursor(false);
@@ -1791,7 +1800,7 @@ function cssColorToHex(color: string): string {
     }
 
     // PANNING TAKES PRECEDENCE: if actively panning, update pan and skip other handling
-    if (pan.panState.isPanning) {
+    if (pan.panState.isPanning && canPan) {
       pan.updatePan(currentPointerPos.x, currentPointerPos.y);
 
       // Update view transform for immediate feedback

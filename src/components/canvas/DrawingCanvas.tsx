@@ -8,10 +8,12 @@ import { useToolStateMachine } from '../../hooks/useToolStateMachine';
 import { useComprehensiveKeyboard } from '../../hooks/useComprehensiveKeyboard';
 import { useDrawingHandlers } from '../../hooks/useDrawingHandlers';
 import { useCanvasEventHandlers } from '../../hooks/canvas/useCanvasEventHandlers';
+import { useCropState } from '../../hooks/useCropState';
 import { BrushShape } from '../../types';
 import type { CanvasSnapshot, Layer, Tool } from '../../types';
 import type { FloatingPaste as FloatingPasteState } from '../../hooks/canvas/utils/types';
 import BrushCursor from './BrushCursor';
+import CropOverlay from './CropOverlay';
 import { setColorCycleAnimationHandlers, getColorCycleAnimationState } from '../toolbar/BrushControls';
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
@@ -115,6 +117,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const selectionEnd = useAppStore((state) => state.selectionEnd);
   const floatingPaste = useAppStore((state) => state.floatingPaste);
   const layersNeedRecomposition = useAppStore((state) => state.layersNeedRecomposition);
+  const { crop, commitCrop, cancelCrop } = useCropState();
   
   // Get functions separately (they don't change)
   const {
@@ -172,6 +175,21 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     },
     [setFloatingPaste]
   );
+
+  const applySnapshotViewState = useCallback((snapshot: CanvasSnapshot) => {
+    const storeApi = useAppStore.getState();
+    if (snapshot.projectSize) {
+      storeApi.setProjectDimensions(snapshot.projectSize.width, snapshot.projectSize.height);
+    }
+    if (snapshot.canvasState) {
+      storeApi.setCanvasDimensions(
+        snapshot.canvasState.canvasWidth,
+        snapshot.canvasState.canvasHeight
+      );
+      storeApi.setCanvasOffset(snapshot.canvasState.offsetX, snapshot.canvasState.offsetY);
+      storeApi.setZoom(snapshot.canvasState.zoom);
+    }
+  }, []);
   
   // Mouse position for brush cursor
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -194,6 +212,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const defaultCursorStyle = useMemo(() => {
     // Fill tool uses crosshair cursor
     if (tools.currentTool === 'fill') {
+      return 'crosshair';
+    }
+    // Crop tool uses crosshair cursor for precision marquee placement
+    if (tools.currentTool === 'crop') {
       return 'crosshair';
     }
     // Recolor tool uses crosshair cursor (sampling only, no painting)
@@ -541,10 +563,62 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   // const prevStateRef = useRef(stateMachine.state);
   const panOffsetX = pan.panState.offsetX;
   const panOffsetY = pan.panState.offsetY;
+  const canvasOffsetX = canvas?.offsetX ?? 0;
+  const canvasOffsetY = canvas?.offsetY ?? 0;
+  const isPanning = pan.panState.isPanning;
+  const lastPanSyncedRef = useRef<{ x: number; y: number }>({ x: Number.NaN, y: Number.NaN });
+  const lastStoreSyncedRef = useRef<{ x: number; y: number }>({ x: Number.NaN, y: Number.NaN });
+  const isApplyingStorePanRef = useRef(false);
 
   useEffect(() => {
+    if (
+      lastPanSyncedRef.current.x === panOffsetX &&
+      lastPanSyncedRef.current.y === panOffsetY
+    ) {
+      return;
+    }
+
+    lastPanSyncedRef.current = { x: panOffsetX, y: panOffsetY };
+
+    if (isApplyingStorePanRef.current) {
+      // Store-driven sync triggered this change; avoid looping back into the store
+      isApplyingStorePanRef.current = false;
+      return;
+    }
+
+    const canvasState = useAppStore.getState().canvas;
+    if (!canvasState) {
+      return;
+    }
+
+    if (canvasState.offsetX === panOffsetX && canvasState.offsetY === panOffsetY) {
+      return;
+    }
+
     setCanvasOffset(panOffsetX, panOffsetY);
   }, [panOffsetX, panOffsetY, setCanvasOffset]);
+
+  useEffect(() => {
+    if (
+      lastStoreSyncedRef.current.x === canvasOffsetX &&
+      lastStoreSyncedRef.current.y === canvasOffsetY
+    ) {
+      return;
+    }
+
+    lastStoreSyncedRef.current = { x: canvasOffsetX, y: canvasOffsetY };
+
+    if (isPanning) {
+      return;
+    }
+
+    if (panOffsetX === canvasOffsetX && panOffsetY === canvasOffsetY) {
+      return;
+    }
+
+    isApplyingStorePanRef.current = true;
+    setPan(canvasOffsetX, canvasOffsetY);
+  }, [canvasOffsetX, canvasOffsetY, isPanning, panOffsetX, panOffsetY, setPan]);
   
   // Simplified cursor state ref for space key
   const isSpacePressedRef = useRef(false);
@@ -1329,6 +1403,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       // Pop exactly one entry via store.undo() (single-step undo)
       const snapshot = undo();
       if (snapshot) {
+        applySnapshotViewState(snapshot);
         if (snapshot.layers && snapshot.activeLayerId) {
           // Reconstruct layers with proper type preservation
           const restoredLayers = (snapshot.layers as SerializedLayer[]).map((layer) => {
@@ -1407,6 +1482,22 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           
           setLayers(restoredLayers);
           setActiveLayer(snapshot.activeLayerId);
+          useAppStore.setState((state) => {
+            if (!state.project) {
+              return state;
+            }
+            const nextWidth = snapshot.projectSize?.width ?? state.project.width;
+            const nextHeight = snapshot.projectSize?.height ?? state.project.height;
+            return {
+              project: {
+                ...state.project,
+                width: nextWidth,
+                height: nextHeight,
+                layers: restoredLayers,
+                updatedAt: new Date()
+              }
+            };
+          });
 
           // Restore color cycle internal state after layers are in place
           if (snapshot.colorCycleState) {
@@ -1470,6 +1561,22 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         } else {
           const activeLayer = layers.find(l => l.id === activeLayerId);
           if (activeLayer && snapshot.imageData) {
+            useAppStore.setState((state) => {
+              if (!state.project) {
+                return state;
+              }
+              const nextWidth = snapshot.projectSize?.width ?? state.project.width;
+              const nextHeight = snapshot.projectSize?.height ?? state.project.height;
+              return {
+                project: {
+                  ...state.project,
+                  width: nextWidth,
+                  height: nextHeight,
+                  layers: state.layers,
+                  updatedAt: new Date()
+                }
+              };
+            });
             // Mark composite as dirty BEFORE updating layer
             compositeCanvasDirtyRef.current = true;
             
@@ -1500,6 +1607,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     onRedo: () => {
       const snapshot = redo();
       if (snapshot) {
+        applySnapshotViewState(snapshot);
         if (snapshot.layers && snapshot.activeLayerId) {
           // Reconstruct layers with proper type preservation
           const restoredLayers = (snapshot.layers as SerializedLayer[]).map((layer) => {
@@ -1579,6 +1687,22 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           
           setLayers(restoredLayers);
           setActiveLayer(snapshot.activeLayerId);
+          useAppStore.setState((state) => {
+            if (!state.project) {
+              return state;
+            }
+            const nextWidth = snapshot.projectSize?.width ?? state.project.width;
+            const nextHeight = snapshot.projectSize?.height ?? state.project.height;
+            return {
+              project: {
+                ...state.project,
+                width: nextWidth,
+                height: nextHeight,
+                layers: restoredLayers,
+                updatedAt: new Date()
+              }
+            };
+          });
 
           // Restore color cycle internal state after layers are in place
           if (snapshot.colorCycleState) {
@@ -1755,6 +1879,13 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       interaction.dispatch({ type: 'DRAWING_END' });
     },
     onEnterPressed: async () => {
+      if (tools.currentTool === 'crop') {
+        if (crop.marquee && !crop.commitInFlight) {
+          await commitCrop();
+        }
+        return;
+      }
+
       if (await finalizeActiveShape()) {
         return;
       }
@@ -1769,6 +1900,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       }
     },
     onEscapePressed: () => {
+      if (tools.currentTool === 'crop') {
+        cancelCrop();
+        return;
+      }
+
       const cancelled = cancelActiveOperations({ includeFloatingPaste: true, dispatchInteractionEnd: true });
 
       if (cancelled) {
@@ -2424,6 +2560,17 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           cursor: cursorStyle,
         }}
       />
+
+      {tools.currentTool === 'crop' && project ? (
+        <CropOverlay
+          active
+          projectWidth={project.width}
+          projectHeight={project.height}
+          zoom={canvas?.zoom || 1}
+          offsetX={pan.panState.offsetX}
+          offsetY={pan.panState.offsetY}
+        />
+      ) : null}
       
       {/* Zoom indicator */}
       <div className="absolute bottom-4 right-4 bg-black/50 text-white px-2 py-1 rounded text-sm">
