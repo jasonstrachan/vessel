@@ -26,11 +26,10 @@ const edgeKey = (a: Vec2, b: Vec2): string => {
     : `${bx}:${by}-${ax}:${ay}`;
 };
 
-const triangleArea = (p0: Point, p1: Point, p2: Point): number => {
-  return Math.abs(
-    (p0.x * (p1.y - p2.y) + p1.x * (p2.y - p0.y) + p2.x * (p0.y - p1.y)) / 2
-  );
-};
+const MAX_GENERATED_POINTS = 1800;
+const MIN_GENERATED_POINTS = 12;
+const GRID_RADIUS_DISTANCE_CHECK = 1;
+const GRID_RADIUS_EDGE_SEARCH = 2;
 
 export function delaunayFill(shape: ShapeDefinition, params: FillParams): FillResult {
   if (shape.points.length < 3) {
@@ -82,48 +81,98 @@ export function delaunayFill(shape: ShapeDefinition, params: FillParams): FillRe
   const seed = hashPoints(shape.points);
   const rng = createRng(seed ^ 0x5f3759df);
 
-  const isInside = (point: Point) => pointInPolygon(point, polygonLocal);
-
   const poissonPoints: Point[] = [];
   const minDist = Math.max(spacing * 0.85, 4);
   const minDistSq = minDist * minDist;
 
-  const isFarEnough = (candidate: Point) => {
-    for (const point of poissonPoints) {
-      const dx = candidate.x - point.x;
-      const dy = candidate.y - point.y;
+  const isInside = (point: Point) => pointInPolygon(point, polygonLocal);
+
+  const cellSize = Math.max(minDist, spacing);
+  const invCellSize = 1 / cellSize;
+  const cellKey = (ix: number, iy: number) => `${ix}:${iy}`;
+  const grid = new Map<string, number[]>();
+
+  const toCell = (point: Point) => {
+    const ix = Math.floor((point.x - bounds.minX) * invCellSize);
+    const iy = Math.floor((point.y - bounds.minY) * invCellSize);
+    return { ix, iy };
+  };
+
+  const gatherNeighborIndices = (ix: number, iy: number, radius: number) => {
+    const indices: number[] = [];
+    for (let dx = -radius; dx <= radius; dx += 1) {
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        const key = cellKey(ix + dx, iy + dy);
+        const bucket = grid.get(key);
+        if (bucket && bucket.length > 0) {
+          indices.push(...bucket);
+        }
+      }
+    }
+    return indices;
+  };
+
+  const registerPoint = (point: Point, index: number) => {
+    const { ix, iy } = toCell(point);
+    const key = cellKey(ix, iy);
+    const bucket = grid.get(key);
+    if (bucket) {
+      bucket.push(index);
+    } else {
+      grid.set(key, [index]);
+    }
+  };
+
+  const tryAddPoint = (candidate: Point): boolean => {
+    if (!isInside(candidate)) {
+      return false;
+    }
+
+    const { ix, iy } = toCell(candidate);
+    const neighbors = gatherNeighborIndices(ix, iy, GRID_RADIUS_DISTANCE_CHECK);
+
+    for (const index of neighbors) {
+      const neighbor = poissonPoints[index];
+      const dx = candidate.x - neighbor.x;
+      const dy = candidate.y - neighbor.y;
       if (dx * dx + dy * dy < minDistSq) {
         return false;
       }
     }
+
+    const newIndex = poissonPoints.push(candidate) - 1;
+    registerPoint(candidate, newIndex);
     return true;
   };
 
-  const attemptCount = Math.max(400, Math.floor(((maxX - minX) * (maxY - minY)) / (spacing * spacing)) * 6);
+  const areaApprox = (maxX - minX) * (maxY - minY);
+  const desiredPoints = Math.min(
+    MAX_GENERATED_POINTS,
+    Math.max(
+      MIN_GENERATED_POINTS,
+      Math.floor((areaApprox / (spacing * spacing)) * 0.9)
+    )
+  );
+  const maxAttempts = Math.max(desiredPoints * 5, 400);
 
-  for (let attempt = 0; attempt < attemptCount; attempt += 1) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const x = bounds.minX + rng() * (bounds.maxX - bounds.minX);
     const y = bounds.minY + rng() * (bounds.maxY - bounds.minY);
     const candidate: Point = { x, y };
 
-    if (!isInside(candidate)) {
-      continue;
-    }
-    if (!isFarEnough(candidate)) {
-      continue;
+    if (tryAddPoint(candidate) && poissonPoints.length >= desiredPoints) {
+      break;
     }
 
-    poissonPoints.push(candidate);
-
-    if (rng() < (0.22 + jitter * 0.5)) {
+    if (rng() < 0.22 + jitter * 0.5) {
       const offsetMag = spacing * (0.12 + rng() * 0.4);
       const offsetAngle = rng() * Math.PI * 2;
       const companion: Point = {
         x: candidate.x + Math.cos(offsetAngle) * offsetMag,
         y: candidate.y + Math.sin(offsetAngle) * offsetMag,
       };
-      if (isInside(companion)) {
-        poissonPoints.push(companion);
+      if (tryAddPoint(companion) && poissonPoints.length >= desiredPoints) {
+        break;
       }
     }
   }
@@ -139,14 +188,20 @@ export function delaunayFill(shape: ShapeDefinition, params: FillParams): FillRe
 
   for (let i = 0; i < poissonPoints.length; i += 1) {
     const point = poissonPoints[i];
+    const { ix, iy } = toCell(point);
+    const neighborIndices = gatherNeighborIndices(ix, iy, GRID_RADIUS_EDGE_SEARCH);
+    const seenNeighbor = new Set<number>();
     const distances: Array<{ index: number; dist: number }> = [];
 
-    for (let j = 0; j < poissonPoints.length; j += 1) {
-      if (i === j) continue;
-      const other = poissonPoints[j];
+    for (const neighborIndex of neighborIndices) {
+      if (neighborIndex === i || seenNeighbor.has(neighborIndex)) {
+        continue;
+      }
+      seenNeighbor.add(neighborIndex);
+      const other = poissonPoints[neighborIndex];
       const dx = point.x - other.x;
       const dy = point.y - other.y;
-      distances.push({ index: j, dist: dx * dx + dy * dy });
+      distances.push({ index: neighborIndex, dist: dx * dx + dy * dy });
     }
 
     distances.sort((a, b) => a.dist - b.dist);

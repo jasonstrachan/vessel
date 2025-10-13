@@ -5017,7 +5017,9 @@ export const useAppStore = create<AppState>()(
                       brush.stopAnimation?.();
                     }
 
-                    brush.updateAnimation?.();
+                    if (wantPlaying) {
+                      brush.updateAnimation?.();
+                    }
                     brush.renderDirectToCanvas?.(layer.colorCycleData.canvas, layer.id);
                   } catch (e) {
                     logError('[compose] CC advance/render failed', e);
