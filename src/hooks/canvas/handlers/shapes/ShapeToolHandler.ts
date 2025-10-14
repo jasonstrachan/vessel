@@ -314,8 +314,8 @@ export const createShapeToolHandler = (
     overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
     overlayCtx.clearRect(rect.x, rect.y, rect.width, rect.height);
 
-    const isAdjusting = session.stage === FillStage.AdjustingParam && session.currentParam;
-    if (isAdjusting) {
+    const isAdjusting = session.stage === FillStage.AdjustingParam && !!session.currentParam;
+    if (isAdjusting && session.currentParam) {
       const previewFillColor = resolveShapeFillColor(session.shape.points);
       overlayCtx.strokeStyle = previewFillColor;
       overlayCtx.fillStyle = previewFillColor;
@@ -324,9 +324,9 @@ export const createShapeToolHandler = (
       const fillId = store.shapeFill.activeFillId;
       const renderer = getPreviewRenderer(fillId);
       const strategy = getFillStrategy(fillId);
-      const param = session.currentParam;
+      const param = session.currentParam as ShapeFillParamKey;
 
-      if (LIVE_ADJUSTABLE_PARAMS.has(param as ShapeFillParamKey)) {
+      if (LIVE_ADJUSTABLE_PARAMS.has(param)) {
         const paramValue = session.params[param];
         const defaultValue =
           typeof strategy.defaults[param] === 'number' ? (strategy.defaults[param] as number) : 0;

@@ -18,6 +18,7 @@ import { setColorCycleAnimationHandlers, getColorCycleAnimationState } from '../
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 import { getPresetStops } from '@/utils/gradientPresets';
+import { getColorCycleBrushManager, type ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
 import { FillStage } from '@/shapeFill/types';
 
@@ -106,6 +107,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const isMouseDownRef = useRef(false); // Track mouse button state
   const drawAnimationFrameRef = useRef<number | null>(null); // RAF throttling for pan
   const pointerMoveThrottled = useRef<number>(0); // Throttle pointer move to 120fps
+  const colorCycleBrushManagerRef = useRef<ColorCycleBrushManager | null>(null);
   
   // Get essential store state - removed shallow comparison to avoid infinite loop
   const project = useAppStore((state) => state.project);
@@ -189,6 +191,120 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     }
   }, []);
   
+  const rebuildLayersFromSnapshot = useCallback(
+    (snapshotLayers: SerializedLayer[]): Layer[] => {
+      const brushManager = colorCycleBrushManagerRef.current;
+
+      const resolveDimension = (candidates: Array<number | undefined>): number => {
+        const value = candidates.find(
+          (candidate): candidate is number =>
+            typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0
+        );
+        return Math.max(1, Math.round(value ?? 1));
+      };
+
+      return snapshotLayers.map((layer) => {
+        const existingLayer = layers.find((candidate) => candidate.id === layer.id) as Layer | undefined;
+
+        const baseProps = {
+          id: layer.id,
+          name: layer.name,
+          visible: layer.visible,
+          opacity: layer.opacity,
+          blendMode: layer.blendMode,
+          locked: layer.locked,
+          order: layer.order,
+          imageData: layer.imageData,
+          framebuffer: layer.framebuffer
+        };
+
+        const colorCycleData = layer.colorCycleData;
+        if (colorCycleData) {
+          const {
+            canvasWidth,
+            canvasHeight,
+            canvasImageData,
+            canvas: snapshotCanvas,
+            colorCycleBrush: _snapshotBrush,
+            ...persistedColorCycle
+          } = colorCycleData;
+
+          try {
+            brushManager?.removeColorCycleBrush(layer.id);
+          } catch {
+            // If removal fails, continue rebuilding to avoid blocking undo/redo.
+          }
+
+          if (colorCycleData.mode === 'recolor') {
+            return {
+              ...baseProps,
+              layerType: 'color-cycle' as const,
+              colorCycleData: {
+                ...persistedColorCycle,
+                mode: 'recolor',
+                isAnimating: false,
+                colorCycleBrush: undefined
+              }
+            } as Layer;
+          }
+
+          const targetWidth = resolveDimension([
+            canvasImageData?.width,
+            layer.imageData?.width,
+            canvasWidth,
+            existingLayer?.colorCycleData?.canvas?.width,
+            existingLayer?.imageData?.width
+          ]);
+          const targetHeight = resolveDimension([
+            canvasImageData?.height,
+            layer.imageData?.height,
+            canvasHeight,
+            existingLayer?.colorCycleData?.canvas?.height,
+            existingLayer?.imageData?.height
+          ]);
+
+          let canvas: HTMLCanvasElement | undefined;
+          if (typeof document !== 'undefined') {
+            canvas = document.createElement('canvas');
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            if (ctx) {
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              if (canvasImageData) {
+                ctx.putImageData(canvasImageData, 0, 0);
+              } else if (layer.imageData) {
+                ctx.putImageData(layer.imageData, 0, 0);
+              } else if (existingLayer?.imageData) {
+                ctx.putImageData(existingLayer.imageData, 0, 0);
+              }
+            }
+          } else if (snapshotCanvas instanceof HTMLCanvasElement) {
+            canvas = snapshotCanvas;
+          }
+
+          return {
+            ...baseProps,
+            layerType: 'color-cycle' as const,
+            colorCycleData: {
+              ...persistedColorCycle,
+              isAnimating: false,
+              canvas,
+              colorCycleBrush: undefined
+            }
+          } as Layer;
+        }
+
+        return {
+          ...baseProps,
+          layerType: 'normal' as const,
+          colorCycleData: undefined
+        } as Layer;
+      });
+    },
+    [layers]
+  );
+  
   // Mouse position for brush cursor
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [showBrushCursor, setShowBrushCursor] = useState(false);
@@ -198,6 +314,13 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   useEffect(() => {
     mousePositionRef.current = mousePosition;
   }, [mousePosition]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    colorCycleBrushManagerRef.current = getColorCycleBrushManager();
+  }, []);
 
   const isPointerInsideCanvas = useCallback(() => {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -429,7 +552,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
         ));
         const isManagerPlaying = colorCycleManagerRef.current?.isPlaying() || false;
 
-        if (!anyCCAnimating && !isManagerPlaying) {
+        const activelyDrawing = Boolean(isDrawing);
+        const overlayBlockedByAnimation = anyCCAnimating || isManagerPlaying;
+
+        if (!overlayBlockedByAnimation || activelyDrawing) {
           // For eraser, the drawing canvas contains the entire modified layer
           // For brush, it's just the new strokes to overlay
           ctx.drawImage(drawingCanvasRef, 0, 0);
@@ -1402,80 +1528,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       if (snapshot) {
         applySnapshotViewState(snapshot);
         if (snapshot.layers && snapshot.activeLayerId) {
-          // Reconstruct layers with proper type preservation
-          const restoredLayers = (snapshot.layers as SerializedLayer[]).map((layer) => {
-            const existingLayer = layers.find(l => l.id === layer.id) as Layer | undefined;
-
-            const baseProps = {
-              id: layer.id,
-              name: layer.name,
-              visible: layer.visible,
-              opacity: layer.opacity,
-              blendMode: layer.blendMode,
-              locked: layer.locked,
-              order: layer.order,
-              imageData: layer.imageData,
-              framebuffer: layer.framebuffer
-            };
-
-            const colorCycleData = layer.colorCycleData;
-            if (colorCycleData) {
-              const {
-                canvasWidth,
-                canvasHeight,
-                canvasImageData,
-                canvas: snapshotCanvas,
-                colorCycleBrush: snapshotBrush,
-                ...persistedColorCycle
-              } = colorCycleData;
-
-              if (colorCycleData.mode === 'recolor') {
-                return {
-                  ...baseProps,
-                  layerType: 'color-cycle' as const,
-                  colorCycleData: {
-                    ...persistedColorCycle,
-                    mode: 'recolor',
-                    isAnimating: false
-                  }
-                } as Layer;
-              }
-
-              let canvas = existingLayer?.colorCycleData?.canvas ?? snapshotCanvas;
-              if (!canvas) {
-                canvas = document.createElement('canvas');
-                canvas.width = canvasWidth || (layer.imageData?.width ?? 1920);
-                canvas.height = canvasHeight || (layer.imageData?.height ?? 1080);
-              }
-
-              const ctx = canvas.getContext('2d', { willReadFrequently: true });
-              if (ctx) {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                if (canvasImageData) {
-                  ctx.putImageData(canvasImageData, 0, 0);
-                } else if (layer.imageData) {
-                  ctx.putImageData(layer.imageData, 0, 0);
-                }
-              }
-
-              return {
-                ...baseProps,
-                layerType: 'color-cycle' as const,
-                colorCycleData: {
-                  ...persistedColorCycle,
-                  isAnimating: false,
-                  canvas,
-                  colorCycleBrush: existingLayer?.colorCycleData?.colorCycleBrush ?? snapshotBrush
-                }
-              } as Layer;
-            }
-
-            return {
-              ...baseProps,
-              layerType: 'normal' as const,
-              colorCycleData: undefined
-            } as Layer;
-          });
+          const restoredLayers = rebuildLayersFromSnapshot(snapshot.layers as SerializedLayer[]);
           
           setLayers(restoredLayers);
           setActiveLayer(snapshot.activeLayerId);
@@ -1606,81 +1659,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       if (snapshot) {
         applySnapshotViewState(snapshot);
         if (snapshot.layers && snapshot.activeLayerId) {
-          // Reconstruct layers with proper type preservation
-          const restoredLayers = (snapshot.layers as SerializedLayer[]).map((layer) => {
-            const existingLayer = layers.find(l => l.id === layer.id) as Layer | undefined;
-
-            const baseProps = {
-              id: layer.id,
-              name: layer.name,
-              visible: layer.visible,
-              opacity: layer.opacity,
-              blendMode: layer.blendMode,
-              locked: layer.locked,
-              order: layer.order,
-              imageData: layer.imageData,
-              framebuffer: layer.framebuffer
-            };
-
-            const colorCycleData = layer.colorCycleData;
-            if (colorCycleData) {
-              const {
-                canvasWidth,
-                canvasHeight,
-                canvasImageData,
-                canvas: snapshotCanvas,
-                colorCycleBrush: snapshotBrush,
-                ...persistedColorCycle
-              } = colorCycleData;
-
-              if (colorCycleData.mode === 'recolor') {
-                return {
-                  ...baseProps,
-                  layerType: 'color-cycle' as const,
-                  colorCycleData: {
-                    ...persistedColorCycle,
-                    mode: 'recolor',
-                    isAnimating: false
-                  }
-                } as Layer;
-              }
-
-              let canvas = existingLayer?.colorCycleData?.canvas ?? snapshotCanvas;
-              if (!canvas) {
-                canvas = document.createElement('canvas');
-                canvas.width = canvasWidth || (layer.imageData?.width ?? 1920);
-                canvas.height = canvasHeight || (layer.imageData?.height ?? 1080);
-              }
-
-              const ctx = canvas.getContext('2d', { willReadFrequently: true });
-              if (ctx) {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                if (canvasImageData) {
-                  ctx.putImageData(canvasImageData, 0, 0);
-                } else if (layer.imageData) {
-                  ctx.putImageData(layer.imageData, 0, 0);
-                }
-              }
-
-              return {
-                ...baseProps,
-                layerType: 'color-cycle' as const,
-                colorCycleData: {
-                  ...persistedColorCycle,
-                  // Pause animation after redo restore to avoid wiping pixels before canvas restore
-                  isAnimating: false,
-                  canvas,
-                  colorCycleBrush: existingLayer?.colorCycleData?.colorCycleBrush ?? snapshotBrush
-                }
-              } as Layer;
-            }
-
-            return {
-              ...baseProps,
-              layerType: 'normal' as const,
-              colorCycleData: undefined
-            } as Layer;
-          }) as Layer[];
+          const restoredLayers = rebuildLayersFromSnapshot(snapshot.layers as SerializedLayer[]);
           
           setLayers(restoredLayers);
           setActiveLayer(snapshot.activeLayerId);

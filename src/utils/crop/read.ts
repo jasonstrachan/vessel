@@ -13,6 +13,29 @@ import type {
 const CONTEXT_SETTINGS = { willReadFrequently: true } as CanvasRenderingContext2DSettings;
 
 type Logger = (message: string, error?: unknown) => void;
+type TwoDContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
+const isTwoDContext = (ctx: unknown): ctx is TwoDContext => {
+  if (!ctx) {
+    return false;
+  }
+  if (typeof CanvasRenderingContext2D !== 'undefined' && ctx instanceof CanvasRenderingContext2D) {
+    return true;
+  }
+  if (
+    typeof OffscreenCanvasRenderingContext2D !== 'undefined' &&
+    ctx instanceof OffscreenCanvasRenderingContext2D
+  ) {
+    return true;
+  }
+  if (typeof ctx === 'object' && ctx !== null) {
+    const candidate = ctx as Partial<CanvasRenderingContext2D>;
+    return (
+      typeof candidate.getImageData === 'function' && typeof candidate.putImageData === 'function'
+    );
+  }
+  return false;
+};
 
 const createCanvas = (width: number, height: number): HTMLCanvasElement => {
   if (typeof document === 'undefined') {
@@ -98,12 +121,16 @@ const sliceImageData = (
 
 const tryGet2dContext = (
   canvas: HTMLCanvasElement | OffscreenCanvas | null | undefined
-): CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null => {
+): TwoDContext | null => {
   if (!canvas || typeof canvas.getContext !== 'function') {
     return null;
   }
   try {
-    return canvas.getContext('2d', CONTEXT_SETTINGS) ?? null;
+    const ctx = canvas.getContext('2d', CONTEXT_SETTINGS);
+    if (!ctx) {
+      return null;
+    }
+    return isTwoDContext(ctx) ? ctx : null;
   } catch {
     return null;
   }
