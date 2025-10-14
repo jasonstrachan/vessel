@@ -4,7 +4,7 @@ A sophisticated web-based drawing application with animation capabilities, advan
 
 ## Overview
 
-Vessel is built with Next.js 15 and P5.js, providing a high-performance drawing experience with pixel-perfect rendering, custom brushes, and comprehensive animation tools. The application features a dark theme design with professional-grade drawing capabilities.
+Vessel is built with Next.js 15 and a custom HTML Canvas rendering pipeline, providing a high-performance drawing experience with pixel-perfect rendering, custom brushes, and comprehensive animation tools. The application features a dark theme design with professional-grade drawing capabilities.
 
 ## Key Features
 
@@ -41,7 +41,7 @@ Vessel is built with Next.js 15 and P5.js, providing a high-performance drawing 
 ### Core Components
 
 #### Canvas System (`/src/components/canvas/`)
-- **DrawingCanvas.tsx**: Core P5.js-based drawing engine with performance optimizations
+- **DrawingCanvas.tsx**: Core canvas rendering surface driven by custom React hooks and brush engines
 - **ClientOnlyCanvas.tsx**: SSR-safe wrapper for dynamic loading
 
 #### Toolbar System (`/src/components/toolbar/`)
@@ -61,7 +61,6 @@ Vessel is built with Next.js 15 and P5.js, providing a high-performance drawing 
 ### Technical Stack
 
 - **Next.js 15.3.4**: React framework with SSR support
-- **P5.js 2.0.3**: High-performance canvas rendering engine
 - **Zustand 5.0.6**: Lightweight state management
 - **Tailwind CSS 4**: Utility-first styling framework
 - **TypeScript 5**: Type safety and development experience
