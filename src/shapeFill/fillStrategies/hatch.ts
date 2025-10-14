@@ -5,6 +5,8 @@ import { hashPoints, createRng } from '../utils/random';
 const DEG_TO_RAD = Math.PI / 180;
 const MIN_CONTEXT_PAD = 12;
 const MIN_STEP = 2;
+const SEGMENTS_MIN = 1;
+const SEGMENTS_MAX = 24;
 
 type HatchShearSettings = {
   spacing: number;
@@ -85,6 +87,11 @@ function normalizeSettings(params: FillParams): HatchShearSettings {
   const thickness = Math.max(0.25, params.thickness ?? Math.max(1.25, spacing * 0.12));
   const organic = clamp01(params.organic ?? 0.7);
   const spacingJitter = clamp01(params.variance ?? 0.35);
+  const defaultSegments = clampNumber(Math.round(3 + organic * 3), SEGMENTS_MIN, SEGMENTS_MAX);
+  const requestedSegments =
+    typeof params.segments === 'number'
+      ? clampNumber(Math.round(params.segments), SEGMENTS_MIN, SEGMENTS_MAX)
+      : defaultSegments;
 
   return {
     spacing,
@@ -92,7 +99,7 @@ function normalizeSettings(params: FillParams): HatchShearSettings {
     spacingJitter,
     offset: Math.max(thickness * 2.2, spacing * 0.55),
     organic,
-    cutSegments: Math.max(1, Math.round(3 + organic * 3)),
+    cutSegments: requestedSegments,
     verticalAlpha: clamp01(0.7 + organic * 0.25),
     horizontalAlpha: clamp01(0.48 + organic * 0.35),
   };

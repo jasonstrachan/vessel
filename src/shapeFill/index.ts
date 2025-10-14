@@ -411,6 +411,7 @@ function isClampableParam(param: keyof FillParams): param is ShapeFillParamKey {
     'farFalloff',
     'angleDrift',
     'angleScale',
+    'segments',
     'sierraDensity',
     'sierraResolution',
     'flowSeedSpacing',

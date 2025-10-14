@@ -1,4 +1,10 @@
+import { TextDecoder, TextEncoder } from 'util';
+
+(global as unknown as { TextEncoder?: typeof TextEncoder }).TextEncoder = TextEncoder;
+(global as unknown as { TextDecoder?: typeof TextDecoder }).TextDecoder = TextDecoder;
+
 import { useAppStore } from '@/stores/useAppStore';
+import historyManager from '@/history/historyService';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
 import type { Layer, Project } from '@/types';
@@ -402,15 +408,15 @@ describe('useAppStore commitCrop', () => {
     primeStoreForCrop(layer, 5, 5);
 
     const store = useAppStore.getState();
-    const saveSpy = jest.spyOn(store, 'saveCanvasState');
+    const beforeCount = historyManager.entries().length;
 
     await store.commitCrop();
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(saveSpy).toHaveBeenCalled();
-    const lastCall = saveSpy.mock.calls[saveSpy.mock.calls.length - 1];
-    expect(lastCall?.[1]).toBe('crop');
-
-    saveSpy.mockRestore();
+    const entries = historyManager.entries();
+    expect(entries.length).toBeGreaterThan(beforeCount);
+    const lastEntry = entries[entries.length - 1];
+    expect(lastEntry.action).toBe('crop');
+    expect(lastEntry.label).toBe('Crop to selection');
   });
 });

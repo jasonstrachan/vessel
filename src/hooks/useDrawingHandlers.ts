@@ -16,6 +16,9 @@ import { toggleGlobalColorCyclePlayback } from '../utils/colorCyclePlayback';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 import { FinalizeQueue } from '@/lib/canvas';
+import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
+import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
+import { commitLayerHistory } from '@/history/helpers/layerHistory';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -38,6 +41,39 @@ type FinalizeDrawingOptions = {
   historyActionType?: CanvasSnapshot['actionType'];
   historyDescription?: string;
 };
+
+const BRUSH_HISTORY_COALESCE_WINDOW_MS = 250;
+
+type BrushStrokeSession = {
+  id: string;
+  pointerId: number | string;
+  layerId: string | null;
+  tool: string;
+  brushId?: string | null;
+  startedAt: number;
+  endedAt?: number;
+};
+
+type BeginStrokeSessionOptions = {
+  id?: string;
+  pointerId: number | string;
+  layerId: string | null;
+  tool: string;
+  brushId?: string | null;
+  startedAt?: number;
+};
+
+const cloneImageData = (imageData: ImageData | null | undefined): ImageData | null => {
+  if (!imageData) {
+    return null;
+  }
+  return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+};
+
+const isColorCycleLayerWithData = (
+  layer: Layer | undefined | null
+): layer is Layer & { colorCycleData: NonNullable<Layer['colorCycleData']> } =>
+  Boolean(layer && layer.layerType === 'color-cycle' && layer.colorCycleData);
 
 /**
  * Clips a line segment to a rectangular boundary.
@@ -88,7 +124,7 @@ export function useDrawingHandlers({
 }: UseDrawingHandlersProps) {
   const brushEngine = useBrushEngineSimplified();
   const userBrushEngine = useUserBrushEngine();
-  const { captureCanvasToActiveLayer, saveCanvasState, tools, activeLayerId } = useAppStore();
+  const { captureCanvasToActiveLayer, tools, activeLayerId } = useAppStore();
   
   // Feedback message state
   const feedbackMessageRef = useRef<((message: string) => void) | null>(null);
@@ -112,6 +148,33 @@ export function useDrawingHandlers({
   const isDrawingShapeRef = useRef(false);
   const isSelectingDirectionRef = useRef(false);
   const directionPreviewRef = useRef<{ x: number; y: number } | null>(null);
+  const activeStrokeSessionRef = useRef<BrushStrokeSession | null>(null);
+
+  const beginStrokeSession = useCallback((options: BeginStrokeSessionOptions) => {
+    const now = Date.now();
+    const session: BrushStrokeSession = {
+      id:
+        options.id ??
+        `stroke-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      pointerId: options.pointerId,
+      layerId: options.layerId,
+      tool: options.tool,
+      brushId: options.brushId,
+      startedAt: options.startedAt ?? now,
+    };
+    activeStrokeSessionRef.current = session;
+    return session;
+  }, []);
+
+  const endStrokeSession = useCallback((endedAt?: number) => {
+    if (activeStrokeSessionRef.current) {
+      activeStrokeSessionRef.current.endedAt = endedAt ?? Date.now();
+    }
+  }, []);
+
+  const clearStrokeSession = useCallback(() => {
+    activeStrokeSessionRef.current = null;
+  }, []);
 
   const resetPolygonState = useCallback(() => {
     const setPolygonGradientState = useAppStore.getState().setPolygonGradientState;
@@ -1245,15 +1308,50 @@ export function useDrawingHandlers({
 
       if (activeLayer) {
         const drawingCanvas = drawingCanvasRef.current;
+        const layerBeforeImage = cloneImageData(activeLayer.imageData);
+        const layerBeforeColorState = isColorCycleLayerWithData(activeLayer)
+          ? captureColorCycleBrushState(activeLayer.id)
+          : null;
+        const strokeSession = activeStrokeSessionRef.current;
+        if (strokeSession && strokeSession.endedAt == null) {
+          endStrokeSession();
+        }
+        const shouldCoalesceStroke =
+          strokeSession &&
+          strokeSession.layerId === activeLayer.id &&
+          strokeSession.tool === currentTool &&
+          (currentTool === 'brush' || currentTool === 'eraser');
+        const coalescePayload = shouldCoalesceStroke
+          ? {
+              key: strokeSession.id,
+              maxIntervalMs: BRUSH_HISTORY_COALESCE_WINDOW_MS,
+              pointerSession: {
+                pointerId: strokeSession.pointerId,
+                startedAt: strokeSession.startedAt,
+                endedAt: strokeSession.endedAt ?? Date.now(),
+              },
+            }
+          : undefined;
 
         if (currentTool === 'eraser') {
           const historyAction = historyActionOverride ?? 'eraser';
-          const historyDescription = historyDescriptionOverride ?? 'Erased stroke';
-          // OPTIMIZATION: The drawingCanvas already has the final erased result.
-          // We can capture it directly without any extra compositing.
-          if (drawingCanvas) {
+          const historyDescription = historyDescriptionOverride ?? 'Eraser Stroke';
+
+          if (skipSave) {
+            if (drawingCanvas) {
+              await captureCanvasToActiveLayer(drawingCanvas);
+            }
+          } else if (drawingCanvas) {
             await captureCanvasToActiveLayer(drawingCanvas);
-            saveCanvasState(drawingCanvas, historyAction, historyDescription);
+            await commitLayerHistory({
+              layerId: activeLayer.id,
+              beforeImage: layerBeforeImage,
+              beforeColorState: layerBeforeColorState,
+              actionType: historyAction,
+              description: historyDescription,
+              tool: 'eraser',
+              coalesce: coalescePayload,
+            });
           }
           
         } else { // Brush tool
@@ -1390,16 +1488,6 @@ export function useDrawingHandlers({
               ctx?.getImageData(0, 0, 1, 1);
             } catch {}
 
-            // Skip saving if requested (for CC shapes that already saved)
-            if (!skipSave) {
-              const defaultDescription = isShapeMode ? 'CC Shape' : 'CC Drawing stroke';
-              const historyAction = historyActionOverride ?? (isShapeMode ? 'fill' : 'brush');
-              const historyDescription = historyDescriptionOverride ?? defaultDescription;
-              saveCanvasState(layerCanvas, historyAction, historyDescription);
-               
-            } else {
-               
-            }
           } else if (isColorCycleLayer) {
             // On a color-cycle layer without a valid CC canvas, do not fall back to
             // regular layer saving, as that would create a misleading 'Drawing stroke'
@@ -1427,12 +1515,6 @@ export function useDrawingHandlers({
               }
 
               await captureCanvasToActiveLayer(tempCanvas);
-              if (!skipSave) {
-                const defaultDescription = isShapeMode ? 'Shape Fill' : 'Drawing stroke';
-                const historyAction = historyActionOverride ?? (isShapeMode ? 'fill' : 'brush');
-                const historyDescription = historyDescriptionOverride ?? defaultDescription;
-                saveCanvasState(tempCanvas, historyAction, historyDescription);
-              }
               
               
               
@@ -1442,9 +1524,33 @@ export function useDrawingHandlers({
               tempCtx.clearRect(0, 0, 1, 1);
             }
           }
+
+          if (!skipSave) {
+            const actionType = historyActionOverride ?? (isShapeMode ? 'fill' : 'brush');
+            const defaultDescription = (() => {
+              if (isShapeMode) {
+                return isColorCycleLayer && isColorCycleBrush ? 'Color Cycle Fill' : 'Shape Fill';
+              }
+              if (isColorCycleLayer && isColorCycleBrush) {
+                return 'Color Cycle Stroke';
+              }
+              return 'Brush Stroke';
+            })();
+            const historyDescription = historyDescriptionOverride ?? defaultDescription;
+
+            await commitLayerHistory({
+              layerId: activeLayer.id,
+              beforeImage: layerBeforeImage,
+              beforeColorState: layerBeforeColorState,
+              actionType,
+              description: historyDescription,
+              tool: currentTool,
+              coalesce: coalescePayload,
+            });
+          }
         }
       }
-      
+
       // FIXED: Don't clear drawing canvas for CC shapes to prevent them from disappearing
       // Only clear for non-CC layers to prevent stale content issues
       const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
@@ -1478,20 +1584,22 @@ export function useDrawingHandlers({
           st.setBrushSettings({ autoSampleGradient: false });
         }
       } catch {}
+      clearStrokeSession();
       await resumeColorCycleAfterInteraction();
       if (isBusyRef) isBusyRef.current = false;
     }
   }, [
     project,
     captureCanvasToActiveLayer,
-    saveCanvasState,
     isBusyRef,
     userBrushEngine,
     brushEngine,
     processBatchedStrokes,
     equidistantPointsOnPolyline,
     sampleHexAt,
-    resumeColorCycleAfterInteraction
+    resumeColorCycleAfterInteraction,
+    endStrokeSession,
+    clearStrokeSession
   ]);
 
   const finalizeStroke = useCallback(() => {
@@ -1674,6 +1782,10 @@ export function useDrawingHandlers({
     return finalizeQueueRef.current.enqueue(async () => {
       let finalizeTriggered = false;
       // All finalization logic runs serially here
+
+      let shapeLayerId: string | null = null;
+      let shapeBeforeImage: ImageData | null = null;
+      let shapeBeforeColorState: ColorCycleSerializedState = null;
     
     // Check if we're in direction selection mode for linear gradient
     if (isSelectingDirectionRef.current && directionPreviewRef.current) {
@@ -1682,6 +1794,13 @@ export function useDrawingHandlers({
 
         const drawCtx = drawingCtxRef.current;
         if (drawCtx && brushEngine && shapePointsRef.current.length >= 3) {
+          const beforeState = useAppStore.getState();
+          const beforeLayer = beforeState.layers.find(l => l.id === beforeState.activeLayerId);
+          shapeLayerId = beforeLayer?.id ?? null;
+          shapeBeforeImage = cloneImageData(beforeLayer?.imageData ?? null);
+          shapeBeforeColorState = beforeLayer && isColorCycleLayerWithData(beforeLayer)
+            ? captureColorCycleBrushState(beforeLayer.id)
+            : null;
           // Calculate shape center
           let centerX = 0, centerY = 0;
           for (const p of shapePointsRef.current) {
@@ -1700,6 +1819,15 @@ export function useDrawingHandlers({
           // Clear the canvas first
           drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
           
+          if (!shapeLayerId || !beforeLayer?.colorCycleData?.canvas) {
+            drawingCanvasHasContent.current = true;
+            isSelectingDirectionRef.current = false;
+            directionPreviewRef.current = null;
+            await resumeColorCycleAfterInteraction();
+            if (isBusyRef) isBusyRef.current = false;
+            return;
+          }
+
           // Reset and fill with linear gradient
           // Pass false to keep existing shapes (we save state elsewhere)
           brushEngine.resetColorCycle(false);
@@ -1710,24 +1838,32 @@ export function useDrawingHandlers({
           const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
           const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
           
-          if (isColorCycleLayer && activeLayer?.colorCycleData?.canvas) {
-            brushEngine.updateColorCycleTexture();
-            
-            const colorCycleBrushManager = getColorCycleBrushManager();
-            const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayerId || '');
+            if (isColorCycleLayer && activeLayer?.colorCycleData?.canvas) {
+              brushEngine.updateColorCycleTexture();
+              
+              const colorCycleBrushManager = getColorCycleBrushManager();
+              const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayerId || '');
             if (colorCycleBrush) {
               colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayerId || '');
             }
             
-            drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
-            drawCtx.globalAlpha = 1.0;
-            drawCtx.globalCompositeOperation = 'source-over';
-            drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
-            
-            // For CC layers, avoid an extra full-canvas capture; snapshot will
-            // record CC state separately. Save history directly.
-            saveCanvasState(activeLayer.colorCycleData.canvas, 'fill', 'CC Shape Linear');
-          }
+              drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
+              drawCtx.globalAlpha = 1.0;
+              drawCtx.globalCompositeOperation = 'source-over';
+              drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
+
+              await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
+              if (shapeLayerId) {
+                await commitLayerHistory({
+                  layerId: shapeLayerId,
+                  beforeImage: shapeBeforeImage,
+                  beforeColorState: shapeBeforeColorState,
+                  actionType: 'fill',
+                  description: 'CC Shape Linear',
+                  tool: tools.currentTool,
+                });
+              }
+            }
           
           drawingCanvasHasContent.current = true;
         }
@@ -1764,6 +1900,14 @@ export function useDrawingHandlers({
           // quiet
           drawCtx.globalAlpha = 1.0;
           drawCtx.globalCompositeOperation = 'source-over';
+
+          const beforeState = useAppStore.getState();
+          const beforeLayer = beforeState.layers.find(l => l.id === beforeState.activeLayerId);
+          const shapeLayerId = beforeLayer?.id;
+          const shapeBeforeImage = cloneImageData(beforeLayer?.imageData ?? null);
+          const shapeBeforeColorState = beforeLayer && isColorCycleLayerWithData(beforeLayer)
+            ? captureColorCycleBrushState(beforeLayer.id)
+            : null;
           
           // Check if we're using a pixel brush - need crisp edges
           const isPixelBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND || 
@@ -2077,9 +2221,19 @@ export function useDrawingHandlers({
                   drawCtx.globalAlpha = 1.0;
                   drawCtx.globalCompositeOperation = 'source-over';
                   drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
-                  
-                  saveCanvasState(activeLayer.colorCycleData.canvas, 'fill', 'CC Shape Linear');
-                  
+
+                  await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
+                  if (shapeLayerId) {
+                    await commitLayerHistory({
+                      layerId: shapeLayerId,
+                      beforeImage: shapeBeforeImage,
+                      beforeColorState: shapeBeforeColorState,
+                      actionType: 'fill',
+                      description: 'CC Shape Linear',
+                      tool: tools.currentTool,
+                    });
+                  }
+
                   try { window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate')); } catch {}
                 }
                 
@@ -2110,9 +2264,17 @@ export function useDrawingHandlers({
                   drawCtx.globalCompositeOperation = 'source-over';
                   drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
                   
-                  // Save state AFTER the shape is rendered (no extra capture)
-                  // Mark as important to avoid debounce coalescing multiple shapes
-                  saveCanvasState(activeLayer.colorCycleData.canvas, 'fill', 'CC Shape');
+                  await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
+                  if (shapeLayerId) {
+                    await commitLayerHistory({
+                      layerId: shapeLayerId,
+                      beforeImage: shapeBeforeImage,
+                      beforeColorState: shapeBeforeColorState,
+                      actionType: 'fill',
+                      description: 'CC Shape',
+                      tool: tools.currentTool,
+                    });
+                  }
 
                   // Force composite refresh so the persisted shape appears even if
                   // the overlay is suppressed by CC animation state.
@@ -2164,7 +2326,14 @@ export function useDrawingHandlers({
         const drawingCanvas = drawingCanvasRef.current;
         if (drawingCanvas && currentLayer && currentLayer.layerType !== 'color-cycle') {
           await captureCanvasToActiveLayer(drawingCanvas);
-          saveCanvasState(drawingCanvas, 'fill', 'Shape Fill');
+          await commitLayerHistory({
+            layerId: currentLayer.id,
+            beforeImage: shapeBeforeImage,
+            beforeColorState: shapeBeforeColorState,
+            actionType: 'fill',
+            description: 'Shape Fill',
+            tool: tools.currentTool,
+          });
           drawingCanvasHasContent.current = false;
           if (drawingCtxRef.current) {
             drawingCtxRef.current.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
@@ -2202,7 +2371,7 @@ export function useDrawingHandlers({
       if (isBusyRef) isBusyRef.current = false;
     }
     }); // End of FinalizeQueue.enqueue
-  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef, saveCanvasState, activeLayerId, initDrawingCanvas, equidistantPointsOnPolyline, sampleHexAt, resumeColorCycleAfterInteraction, resetPolygonState, captureCanvasToActiveLayer]);
+  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef, activeLayerId, initDrawingCanvas, equidistantPointsOnPolyline, sampleHexAt, resumeColorCycleAfterInteraction, resetPolygonState, captureCanvasToActiveLayer]);
   
   // Helper function to render all visible color cycle layers
   const renderAllColorCycleLayers = useCallback((targetCtx: CanvasRenderingContext2D, onlyActiveLayer: boolean = false) => {
@@ -2496,6 +2665,9 @@ export function useDrawingHandlers({
     shapePointsRef,
     isDrawingShapeRef,
     isSelectingDirectionRef,  // Export this so DrawingCanvas knows we're in direction selection mode
+    beginStrokeSession,
+    endStrokeSession,
+    clearStrokeSession,
     startContinuousColorCycleAnimation,
     stopContinuousColorCycleAnimation,
     resumeColorCycleAfterInteraction,

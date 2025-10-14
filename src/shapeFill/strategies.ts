@@ -6,7 +6,7 @@ import { flowFill } from './fillStrategies/flow';
 import { stippleFill } from './fillStrategies/stipple';
 import { sierraFill } from './fillStrategies/sierra';
 import { noiseFill } from './fillStrategies/noise';
-import { getParameterDefault } from './parameters';
+import { getParameterDefault, getParameterDefinition } from './parameters';
 import { FillStrategy, ShapeFillId } from './types';
 
 const strategyMap: Record<ShapeFillId, FillStrategy> = {
@@ -19,6 +19,7 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
       thickness: getParameterDefault('thickness'),
       variance: 0.35,
       organic: 0.7,
+      segments: getParameterDefault('segments'),
       cross: false,
       seed: 0,
     },
@@ -53,6 +54,15 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
         default: getParameterDefault('thickness'),
       },
       {
+        key: 'segments',
+        type: 'number',
+        label: 'Segments',
+        min: getParameterDefinition('segments').min,
+        max: getParameterDefinition('segments').max,
+        step: 1,
+        default: getParameterDefault('segments'),
+      },
+      {
         key: 'organic',
         type: 'number',
         label: 'Organic Wobble',
@@ -60,12 +70,6 @@ const strategyMap: Record<ShapeFillId, FillStrategy> = {
         max: 1,
         step: 0.05,
         default: 0.7,
-      },
-      {
-        key: 'cross',
-        type: 'boolean',
-        label: 'Crosshatch',
-        default: false,
       },
     ],
   },

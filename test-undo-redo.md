@@ -17,11 +17,11 @@
 The undo/redo functionality has been fixed to work with the new rendering pipeline:
 
 1. **Keyboard shortcuts added**: Ctrl+Z for undo, Ctrl+Shift+Z for redo
-2. **State saving**: saveCanvasState is now called after each drawing operation
-3. **State restoration**: Undo/redo properly restores the layer's imageData and triggers a redraw
+2. **State saving**: `commitLayerHistory` (or the underlying transaction helpers) capture a bitmap delta after each drawing operation
+3. **State restoration**: Undo/redo replays the recorded deltas and triggers a redraw without cloning entire canvases
 
 ## Code Changes
 
 - Added keyboard handlers in DrawingCanvas.tsx
-- Added saveCanvasState calls after captureCanvasToActiveLayer
+- Routed stroke finalization through `commitLayerHistory`
 - Imported necessary functions from useAppStore

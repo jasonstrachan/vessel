@@ -119,7 +119,6 @@ export interface EventHandlerDependencies {
   setCurrentTool: (tool: string) => void;
   setCurrentOffscreenCanvas: (canvas: HTMLCanvasElement | null) => void;
   compositeLayersToCanvas: (canvas: HTMLCanvasElement) => void;
-  saveCanvasState: (canvas: HTMLCanvasElement, tool: string, action: string) => void;
   updateLayer: (layerId: string, updates: Partial<Layer>) => void;
   
   // Floating paste actions

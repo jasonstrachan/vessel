@@ -35,6 +35,13 @@ const PARAM_DEFINITIONS: Record<ShapeFillParamKey, ShapeFillParameterDefinition>
     default: 1,
     scale: 0.05,
   },
+  segments: {
+    key: 'segments',
+    min: 1,
+    max: 24,
+    default: 5,
+    scale: 0.4,
+  },
   variance: {
     key: 'variance',
     min: 0,

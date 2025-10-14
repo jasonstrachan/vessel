@@ -13,7 +13,7 @@ Context: previewing and finalizing shape fills on color-cycle layers has become 
 ### 2. Finalization does deep history capture on hot path
 
 - *Files*: `src/hooks/useDrawingHandlers.ts:2108-2127`, `src/stores/useAppStore.ts:4386-4668`
-- *Issue*: The CC shape commit path calls `saveCanvasState(...)`, which deep-clones every layer and often triggers a `getImageData` on a full-size canvas. Even with the 1×1 fast-path, cloning large layer arrays blocks the main thread.
+- *Issue*: (Resolved) CC shape commits no longer funnel through `saveCanvasState(...)`; stroke deltas are captured via `commitLayerHistory`, avoiding full-layer clones that previously blocked the main thread.
 - *Recommendation*: For color-cycle fills, store the serialized animator/index buffers you already collect (as in crop) or defer the heavy snapshot to `requestIdleCallback`. A lightweight history entry per fill will keep finalization responsive.
 
 ### 3. Forced composite during finalize

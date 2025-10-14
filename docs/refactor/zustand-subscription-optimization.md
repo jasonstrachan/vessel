@@ -15,7 +15,7 @@ const { tools, setBrushSettings, setEraserSettings } = useAppStore();
 ### 2. MiniCanvas.tsx - ❌ NEEDS OPTIMIZATION
 **Current subscription:**
 ```typescript
-const { tools, project, temporaryCustomBrush, saveCanvasState, brushPresets, setBrushSettings } = useAppStore();
+const { tools, project, temporaryCustomBrush, brushPresets, setBrushSettings } = useAppStore();
 ```
 **Issues:** 
 - Subscribes to entire `tools` object but only uses `brushSettings`
@@ -30,7 +30,6 @@ const temporaryCustomBrush = useAppStore(state => state.temporaryCustomBrush);
 const customBrushes = useAppStore(state => state.project?.customBrushes);
 const brushPresets = useAppStore(state => state.brushPresets.filter(p => p.isCustomBrush));
 const setBrushSettings = useAppStore(state => state.setBrushSettings);
-const saveCanvasState = useAppStore(state => state.saveCanvasState);
 ```
 
 ### 3. LayerPanel.tsx - ❌ NEEDS MAJOR OPTIMIZATION

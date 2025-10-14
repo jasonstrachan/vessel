@@ -192,7 +192,7 @@ Coding Conventions
 
 - Zustand Store (`src/stores/useAppStore.ts`)
   - Keep state serializable unless explicitly documented as ephemeral (e.g., `Path2D`). Do not persist ephemeral fields.
-  - Action names are imperative verbs (`setBrushPreset`, `undo`, `redo`, `saveCanvasState`).
+  - Action names are imperative verbs (`setBrushPreset`, `undo`, `redo`, `commitLayerHistory`).
   - Never mutate arrays/objects in place; return new references. Use helper utilities when updating nested state.
   - Use selectors in components; avoid accessing `getState()` directly except in utilities and effect glue code.
 

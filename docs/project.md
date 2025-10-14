@@ -396,7 +396,7 @@
 - **Benefits**:
   - Clean, predictable state machine for drawing modes
   - Efficient rendering with temporary canvas
-  - Proper undo/redo support via saveCanvasState
+  - Proper undo/redo support via structured history commits (`commitLayerHistory`)
   - No direct DOM manipulation during event handlers
 
 ### Performance Optimization: Composite Canvas Caching (2025-01-15)

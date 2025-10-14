@@ -656,7 +656,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         <div 
           className="absolute inset-0"
           style={{
-            backgroundImage: `repeating-conic-gradient(#606060 0% 25%, #404040 0% 50%)`,
+            backgroundImage: `repeating-conic-gradient(#e9e9ec 0% 25%, #f6f6f8 0% 50%)`,
             backgroundSize: '16px 16px',
           }}
         />

@@ -10,7 +10,7 @@ This document details performance bottlenecks identified in Vessel and the optim
 
 **Root Causes**:
 - `captureCanvasToLayer` runs synchronously in the pointer up handler
-- `saveCanvasStateDeduped` performs immediate state capture
+- Legacy snapshot capture (`saveCanvasStateDeduped`) performed immediate full-layer cloning before we moved to diff-based history commits
 - Multiple cleanup operations run sequentially
 
 **Impact**: Creates a laggy feel where strokes appear to "stick" after release.
@@ -79,9 +79,16 @@ async handlePointerUp() {
   setIsDrawing(false);
   
   // Defer heavy operations
-  requestIdleCallback(() => {
-    captureCanvasToLayer();
-    saveCanvasState();
+  requestIdleCallback(async () => {
+    await captureCanvasToLayer();
+    await commitLayerHistory({
+      layerId: activeLayerId,
+      beforeImage,
+      beforeColorState,
+      actionType: 'brush',
+      description: 'Brush stroke',
+      tool: 'brush',
+    });
   });
 }
 ```

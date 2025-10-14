@@ -1,13 +1,8 @@
 // Zustand store with state slices
 // Based on /docs/02_System_Architecture/Overall_Design.md (lines 58-64)
 
-// Module-level flag to prevent saveCanvasState during undo/redo operations
+// Module-level flag to prevent history capture during undo/redo operations
 let isHistoryOperationInProgress = false;
-
-// Debouncing for canvas state saves to improve performance
-let saveCanvasStateTimer: NodeJS.Timeout | null = null;
-let lastSaveTimestamp = 0;
-const MIN_SAVE_INTERVAL = 100; // Minimum 0.1 second between saves
 
 interface VesselWindow extends Window {
   __checkLayerIntegrity?: () => string[];
@@ -140,6 +135,87 @@ const syncPercentOffsetsFromPixels = (layers: Layer[], project: Project | null):
   return didChange ? syncedLayers : layers;
 };
 
+type ProjectSizeSnapshot = { width: number; height: number };
+
+interface CropHistoryArgs {
+  beforeProject: ProjectSizeSnapshot | null;
+  afterProject: ProjectSizeSnapshot | null;
+  beforeLayers: Map<string, { image: ImageData | null; colorState: ColorCycleSerializedState }>;
+  afterLayers: Layer[];
+  description: string;
+}
+
+const recordCropHistory = async ({
+  beforeProject,
+  afterProject,
+  beforeLayers,
+  afterLayers,
+  description,
+}: CropHistoryArgs): Promise<void> => {
+  let deltaCount = 0;
+  const txn = historyManager.begin(mapCanvasActionToHistoryId('crop'), {
+    description,
+  });
+
+  try {
+    for (const layer of afterLayers) {
+      const baseline = beforeLayers.get(layer.id) ?? {
+        image: null,
+        colorState: null,
+      };
+      const afterImage = cloneLayerImageData(layer.imageData);
+      const bitmapDelta = await createBitmapTileDelta({
+        layerId: layer.id,
+        before: baseline.image,
+        after: afterImage,
+      });
+      if (bitmapDelta) {
+        txn.push(bitmapDelta);
+        deltaCount += 1;
+      }
+
+      if (layer.layerType === 'color-cycle' || baseline.colorState) {
+        const afterColor = captureColorCycleBrushState(layer.id);
+        const colorDelta = createColorCycleStrokeDelta({
+          layerId: layer.id,
+          forwardState: afterColor,
+          backwardState: baseline.colorState ?? null,
+        });
+        if (colorDelta) {
+          txn.push(colorDelta);
+          deltaCount += 1;
+        }
+      }
+    }
+
+    if (
+      beforeProject &&
+      afterProject &&
+      (beforeProject.width !== afterProject.width ||
+        beforeProject.height !== afterProject.height)
+    ) {
+      txn.push(
+        createProjectDimensionsDelta({
+          before: beforeProject,
+          after: afterProject,
+        }),
+      );
+      deltaCount += 1;
+    }
+
+    if (deltaCount > 0) {
+      txn.commit(description);
+    } else {
+      txn.cancel();
+    }
+  } catch (error) {
+    txn.cancel();
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[history] Failed to record crop history', error);
+    }
+  }
+};
+
 // Global watcher to detect unexpected layer mutations
 if (typeof window !== 'undefined') {
   const tinyWindow = getVesselWindow();
@@ -245,6 +321,17 @@ import {
   normalizeProject
 } from '@/utils/layoutDefaults';
 import { computeLayerPercentOffset, computePercentOffsetFromPixels } from '@/utils/layerMetrics';
+import historyManager, { setActiveHistoryDocument } from '@/history/historyService';
+import { createLegacySnapshotDelta, isLegacySnapshotDelta } from '@/history/legacyCanvasSnapshot';
+import { mapCanvasActionToHistoryId } from '@/history/helpers/actions';
+import { commitLayerHistory, cloneLayerImageData } from '@/history/helpers/layerHistory';
+import { selectionSnapshotFromValues } from '@/history/selectionState';
+import { createBitmapTileDelta } from '@/history/deltas/bitmapDelta';
+import { createColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDelta';
+import { createProjectDimensionsDelta } from '@/history/deltas/projectDimensionsDelta';
+import { createShapeSessionDelta } from '@/history/deltas/shapeSessionDelta';
+import type { ScopedTxn } from '@/history/actionTypes';
+import { captureColorCycleBrushState, type ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 
 // Helper function to get serializable brush settings for persistence
 const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSettings> => {
@@ -323,9 +410,8 @@ export interface AppState {
   
   // History State
   history: HistoryState;
-  saveCanvasState: (canvas: HTMLCanvasElement, actionType: CanvasSnapshot['actionType'], description: string, overrideActiveLayerId?: string) => void;
-  undo: () => CanvasSnapshot | null;
-  redo: () => CanvasSnapshot | null;
+  undo: () => Promise<CanvasSnapshot | null>;
+  redo: () => Promise<CanvasSnapshot | null>;
   canUndo: () => boolean;
   canRedo: () => boolean;
   clearHistory: () => void;
@@ -558,6 +644,239 @@ type PersistedColorCycleData = NonNullable<Layer['colorCycleData']> & {
 
 type LayerHistorySnapshot = Layer & { colorCycleData?: PersistedColorCycleData };
 
+const cloneImageDataForHistory = (imageData: ImageData | null | undefined): ImageData | undefined => {
+  if (!imageData) {
+    return undefined;
+  }
+  return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+};
+
+interface CloneLayerForHistoryOptions {
+  actionType: CanvasSnapshot['actionType'];
+  description?: string;
+  activeLayerId: string;
+  isColorCycleTarget?: boolean;
+  isColorCycleAction?: boolean;
+  previousLayersById?: Map<string, LayerHistorySnapshot>;
+  contextOptions?: CanvasRenderingContext2DSettings;
+}
+
+const cloneLayerForHistory = (
+  layer: Layer,
+  {
+    actionType,
+    description,
+    activeLayerId,
+    isColorCycleTarget = false,
+    isColorCycleAction = false,
+    previousLayersById,
+    contextOptions = { willReadFrequently: true },
+  }: CloneLayerForHistoryOptions
+): LayerHistorySnapshot => {
+  if (
+    isColorCycleTarget &&
+    isColorCycleAction &&
+    previousLayersById &&
+    layer.id !== activeLayerId
+  ) {
+    const previousLayer = previousLayersById.get(layer.id);
+    if (previousLayer) {
+      return previousLayer;
+    }
+  }
+
+  const shouldCloneImageData =
+    !!layer.imageData &&
+    (!isColorCycleTarget || !isColorCycleAction || layer.id === activeLayerId);
+  const clonedImageData = shouldCloneImageData
+    ? cloneImageDataForHistory(layer.imageData)
+    : layer.imageData;
+
+  const layerCopy: LayerHistorySnapshot = {
+    ...layer,
+    layerType: layer.layerType,
+    imageData: clonedImageData ?? null,
+    alignment: cloneLayerAlignment(layer.alignment),
+  };
+
+  if (layer.colorCycleData) {
+    let captured: ImageData | undefined;
+    const isStructural =
+      actionType === 'layer' ||
+      actionType === 'layers' ||
+      actionType === 'structure' ||
+      actionType.startsWith('layer-');
+    const isCCActionForLayer =
+      isStructural ||
+      actionType === 'fill' ||
+      (description && (description.includes('CC') || description.includes('Color Cycle')));
+
+    if (!isCCActionForLayer && layer.colorCycleData.canvas) {
+      try {
+        const ccCtx = layer.colorCycleData.canvas.getContext('2d', contextOptions);
+        if (ccCtx) {
+          captured = ccCtx.getImageData(
+            0,
+            0,
+            layer.colorCycleData.canvas.width,
+            layer.colorCycleData.canvas.height
+          );
+        }
+      } catch {
+        captured = undefined;
+      }
+    }
+
+    let hasCCPixels = captured ? false : true;
+    if (captured?.data) {
+      const data = captured.data;
+      const step = Math.max(4, Math.floor(data.length / 4096));
+      for (let i = 3; i < data.length; i += step) {
+        if (data[i] > 0) {
+          hasCCPixels = true;
+          break;
+        }
+      }
+    }
+
+    if (hasCCPixels) {
+      layerCopy.colorCycleData = {
+        ...layer.colorCycleData,
+        gradient: layer.colorCycleData.gradient ? [...layer.colorCycleData.gradient] : undefined,
+        canvasImageData: captured,
+        canvasWidth: layer.colorCycleData.canvas?.width,
+        canvasHeight: layer.colorCycleData.canvas?.height,
+      };
+    } else {
+      delete layerCopy.colorCycleData;
+      layerCopy.layerType = 'normal';
+    }
+  }
+
+  return layerCopy;
+};
+
+interface SnapshotFromStateOptions {
+  actionType: CanvasSnapshot['actionType'];
+  description: string;
+  activeLayerId?: string;
+  previousSnapshot?: CanvasSnapshot | null;
+  isColorCycleTarget?: boolean;
+  isColorCycleAction?: boolean;
+}
+
+const createHistorySnapshotFromState = (
+  state: AppState,
+  {
+    actionType,
+    description,
+    activeLayerId,
+    previousSnapshot = null,
+    isColorCycleTarget = false,
+    isColorCycleAction = false,
+  }: SnapshotFromStateOptions
+): CanvasSnapshot => {
+  const resolvedActiveLayerId =
+    activeLayerId ?? state.activeLayerId ?? state.layers[0]?.id ?? '';
+  const previousLayersById = previousSnapshot
+    ? new Map(previousSnapshot.layers.map((layer) => [layer.id, layer]))
+    : undefined;
+
+  const contextOptions: CanvasRenderingContext2DSettings = { willReadFrequently: true };
+  const layersCopy = (state.layers || []).map((layer) =>
+    cloneLayerForHistory(layer, {
+      actionType,
+      description,
+      activeLayerId: resolvedActiveLayerId,
+      isColorCycleTarget,
+      isColorCycleAction,
+      previousLayersById,
+      contextOptions,
+    })
+  );
+
+  let colorCycleState: CanvasSnapshot['colorCycleState'] = undefined;
+  const activeLayer = (state.layers || []).find((layer) => layer.id === state.activeLayerId);
+  const brush = activeLayer?.colorCycleData?.colorCycleBrush;
+  const rawState =
+    brush?.serialize?.() ??
+    brush?.getFullState?.() ??
+    null;
+
+  if (activeLayer && isSerializedColorCycleBrushState(rawState) && rawState.layers) {
+    colorCycleState = {
+      layerId: activeLayer.id,
+      strokeData: new ArrayBuffer(0),
+      gradients: [],
+      animationState: {
+        cycleOffset: 0,
+        speed: 1,
+        fps: 30,
+        isPaused: false,
+      },
+      layerStrokes: rawState.layers.map((layerSnapshot) => {
+        const indexBuffer = layerSnapshot.data?.indexBuffer;
+        const indexSource = indexBuffer?.data;
+        const indexArray = indexSource ? new Uint8Array(indexSource) : null;
+        const hasNonZeroIndex = indexArray ? indexArray.some((value) => value !== 0) : false;
+
+        const paintBufferSource = layerSnapshot.strokeData?.paintBuffer;
+        const paintBufferArray = paintBufferSource ? new Uint8Array(paintBufferSource) : null;
+        const paintBufferCopy = paintBufferArray ? paintBufferArray.slice().buffer : new ArrayBuffer(0);
+
+        const animatorIndex = indexBuffer
+          ? {
+              width: indexBuffer.width,
+              height: indexBuffer.height,
+              data: (indexArray ? indexArray.slice() : new Uint8Array()).buffer,
+              gradientStops: layerSnapshot.data?.gradient?.gradientStops || undefined,
+            }
+          : undefined;
+
+        return {
+          layerId: layerSnapshot.layerId,
+          paintBuffer: paintBufferCopy,
+          hasContent: Boolean(layerSnapshot.strokeData?.hasContent) || hasNonZeroIndex,
+          strokeCounter: layerSnapshot.strokeData?.strokeCounter ?? 0,
+          strokeLength: 0,
+          gradientLayerIndices: [],
+          currentGradientIndex: 0,
+          animatorIndex,
+        };
+      }),
+    };
+  }
+
+  const baseImageData =
+    typeof ImageData !== 'undefined' ? new ImageData(1, 1) : ({} as ImageData);
+
+  return {
+    id: `snapshot_${Date.now()}_${Math.random()}`,
+    timestamp: Date.now(),
+    imageData: baseImageData,
+    layers: layersCopy,
+    activeLayerId: resolvedActiveLayerId,
+    actionType,
+    description,
+    colorCycleState,
+    projectSize: state.project
+      ? {
+          width: state.project.width,
+          height: state.project.height,
+        }
+      : undefined,
+    canvasState: state.canvas
+      ? {
+          canvasWidth: state.canvas.canvasWidth,
+          canvasHeight: state.canvas.canvasHeight,
+          offsetX: state.canvas.offsetX,
+          offsetY: state.canvas.offsetY,
+          zoom: state.canvas.zoom,
+        }
+      : undefined,
+  };
+};
+
 interface SerializedColorCycleLayerSnapshot {
   layerId: string;
   data?: {
@@ -709,6 +1028,31 @@ const defaultShapeFillState: ShapeFillState = {
 
 const SHAPE_FILL_STORAGE_KEY = 'vessel-shape-fill-settings';
 
+const cloneVec2 = (vec: Vec2 | undefined): Vec2 | undefined =>
+  vec ? { x: vec.x, y: vec.y } : undefined;
+
+const cloneShapeSession = (session: ShapeFillSession | null): ShapeFillSession | null => {
+  if (!session) {
+    return null;
+  }
+  return {
+    ...session,
+    points: session.points.map((point) => ({ ...point })),
+    params: { ...(session.params ?? {}) },
+    paramQueue: [...session.paramQueue],
+    shape: session.shape
+      ? {
+          ...session.shape,
+          points: session.shape.points.map((point) => ({ ...point })),
+          centroid: { ...session.shape.centroid },
+          bounds: { ...session.shape.bounds },
+        }
+      : undefined,
+    cursorAnchorDirection: cloneVec2(session.cursorAnchorDirection),
+    lastCursor: cloneVec2(session.lastCursor),
+  };
+};
+
 type PersistedShapeFillSnapshot = {
   activeFillId?: ShapeFillId;
   paramsByFill?: Record<string, Partial<FillParams>>;
@@ -730,6 +1074,7 @@ const VALID_FILL_PARAM_KEYS: (keyof FillParams)[] = [
   'farFalloff',
   'angleDrift',
   'angleScale',
+  'segments',
   'sierraDensity',
   'sierraResolution',
   'organic',
@@ -769,6 +1114,11 @@ const sanitizePersistedParams = (
   const sanitized: Partial<FillParams> = {};
   Object.entries(params as Record<string, unknown>).forEach(([key, value]) => {
     if (!VALID_FILL_PARAM_KEY_SET.has(key as keyof FillParams)) {
+      return;
+    }
+
+    if (key === 'cross') {
+      // Crosshatch toggle removed; ignore persisted flag.
       return;
     }
 
@@ -926,15 +1276,90 @@ export const useAppStore = create<AppState>()(
 
       const shapeFillOrchestratorInstance = new ShapeFillOrchestrator();
       shapeFillOrchestratorInstance.setParameterOrder(defaultShapeFillState.parameterOrder);
-      shapeFillOrchestratorInstance.setSessionListener(session => {
-        set(state => ({
-          shapeFill: {
-            ...state.shapeFill,
-            session,
-          },
-        }));
+
+      let shapeSessionTxn: ScopedTxn | null = null;
+      let shapeSessionTxnHasDelta = false;
+
+      shapeFillOrchestratorInstance.setSessionListener((session) => {
+        const nextSession = cloneShapeSession(session);
+        set((state) => {
+          const previousSession = state.shapeFill.session;
+          const isInitialStart = !previousSession && nextSession;
+
+          if (!historyManager.isReplaying) {
+            const delta = isInitialStart
+              ? null
+              : createShapeSessionDelta({
+                forward: nextSession,
+                backward: cloneShapeSession(previousSession),
+              });
+
+            if (delta) {
+              if (!shapeSessionTxn) {
+                try {
+                  shapeSessionTxn = historyManager.begin('shape-session', {
+                    fillId: state.shapeFill.activeFillId,
+                    stage: nextSession?.stage,
+                  });
+                  shapeSessionTxnHasDelta = false;
+                } catch (error) {
+                  if (process.env.NODE_ENV !== 'production') {
+                    console.warn('[history] Unable to begin shape session transaction', error);
+                  }
+                  shapeSessionTxn = null;
+                  shapeSessionTxnHasDelta = false;
+                }
+              }
+
+              if (shapeSessionTxn) {
+                try {
+                  shapeSessionTxn.push(delta);
+                  shapeSessionTxnHasDelta = true;
+                } catch (error) {
+                  if (process.env.NODE_ENV !== 'production') {
+                    console.warn('[history] Unable to append shape session delta', error);
+                  }
+                }
+              }
+            }
+
+            if (!nextSession && shapeSessionTxn) {
+              try {
+                if (shapeSessionTxnHasDelta) {
+                  const label = state.shapeFill.activeFillId
+                    ? `Shape Session (${state.shapeFill.activeFillId})`
+                    : 'Shape Session';
+                  shapeSessionTxn.commit(label);
+                } else {
+                  shapeSessionTxn.cancel();
+                }
+              } catch (error) {
+                shapeSessionTxn.cancel();
+                if (process.env.NODE_ENV !== 'production') {
+                  console.warn('[history] Unable to commit shape session transaction', error);
+                }
+              } finally {
+                shapeSessionTxn = null;
+                shapeSessionTxnHasDelta = false;
+              }
+            }
+          } else if (!nextSession && shapeSessionTxn) {
+            shapeSessionTxn.cancel();
+            shapeSessionTxn = null;
+            shapeSessionTxnHasDelta = false;
+          }
+
+          return {
+            shapeFill: {
+              ...state.shapeFill,
+              session: nextSession,
+            },
+          };
+        });
       });
       
+      setActiveHistoryDocument('default-project');
+
       return {
       // Project State
       project: {
@@ -957,9 +1382,13 @@ export const useAppStore = create<AppState>()(
         bundleFormat: 'single-html',
         enableGobletDiagnostics: process.env.NODE_ENV !== 'production'
       },
-      setProject: (project) => set(() => ({
-        project: normalizeProject(project)
-      })),
+      setProject: (project) => set(() => {
+        const normalized = normalizeProject(project);
+        setActiveHistoryDocument(normalized.id);
+        return {
+          project: normalized
+        };
+      }),
       updateProject: (updates) => set((state) => {
         if (!state.project) {
           return { project: null };
@@ -972,6 +1401,10 @@ export const useAppStore = create<AppState>()(
             ? cloneExportLayout(updates.exportLayout)
             : cloneExportLayout(state.project.exportLayout)
         };
+
+        if (nextProject.id) {
+          setActiveHistoryDocument(nextProject.id);
+        }
 
         return { project: nextProject };
       }),
@@ -1252,7 +1685,15 @@ export const useAppStore = create<AppState>()(
         const height = Math.abs(selectionEnd.y - selectionStart.y);
         
         if (width <= 0 || height <= 0) return;
+
+        const selectionBefore = selectionSnapshotFromValues(selectionStart, selectionEnd);
         
+        const beforeImage = cloneLayerImageData(activeLayer.imageData);
+        const beforeColorState =
+          activeLayer.layerType === 'color-cycle'
+            ? captureColorCycleBrushState(activeLayer.id)
+            : null;
+
         // Create a copy of the image data
         const newImageData = new ImageData(
           new Uint8ClampedArray(activeLayer.imageData.data),
@@ -1276,19 +1717,23 @@ export const useAppStore = create<AppState>()(
         
         // Trigger recomposition to update the canvas immediately
         set({ layersNeedRecomposition: true });
-        
-        // Save state for undo
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = project.width;
-        tempCanvas.height = project.height;
-            const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
-            if (tempCtx) {
-          tempCtx.putImageData(newImageData, 0, 0);
-          state.saveCanvasState(tempCanvas, 'delete', 'Delete selected pixels');
-        }
-        
-        // Clear selection after deletion
+
+        // Clear selection before committing history so the delta captures UI state changes
         state.clearSelection();
+
+        void commitLayerHistory({
+          layerId: activeLayerId,
+          beforeImage,
+          beforeColorState,
+          actionType: 'delete',
+          description: 'Delete selected pixels',
+          tool: 'selection',
+          selectionBefore,
+        }).catch((error) => {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('[history] Failed to record selection delete', error);
+          }
+        });
       },
 
       // Crop State
@@ -1327,6 +1772,26 @@ export const useAppStore = create<AppState>()(
         }));
 
         try {
+          const beforeProject =
+            project != null
+              ? {
+                  width: project.width,
+                  height: project.height,
+                }
+              : null;
+          const beforeLayerSnapshots = new Map<
+            string,
+            { image: ImageData | null; colorState: ColorCycleSerializedState }
+          >();
+          state.layers.forEach((layer) => {
+            beforeLayerSnapshots.set(layer.id, {
+              image: cloneLayerImageData(layer.imageData),
+              colorState:
+                layer.layerType === 'color-cycle'
+                  ? captureColorCycleBrushState(layer.id)
+                  : null,
+            });
+          });
           const {
             updatedProject,
             updatedLayers,
@@ -1380,21 +1845,29 @@ export const useAppStore = create<AppState>()(
           }));
 
           const postState = get();
-          const { compositeLayersToCanvas, saveCanvasState } = postState;
+          const { compositeLayersToCanvas } = postState;
 
-          if (compositeLayersToCanvas && saveCanvasState) {
+          if (compositeLayersToCanvas) {
             if (typeof document !== 'undefined') {
-              const historyCanvas = document.createElement('canvas');
-              historyCanvas.width = normalizedRect.width;
-              historyCanvas.height = normalizedRect.height;
-              compositeLayersToCanvas(historyCanvas);
-              saveCanvasState(historyCanvas, 'crop', 'Crop to selection');
-              set({ currentOffscreenCanvas: historyCanvas });
+              const croppedCanvas = document.createElement('canvas');
+              croppedCanvas.width = normalizedRect.width;
+              croppedCanvas.height = normalizedRect.height;
+              compositeLayersToCanvas(croppedCanvas);
+              set({ currentOffscreenCanvas: croppedCanvas });
             } else if (postState.currentOffscreenCanvas) {
               compositeLayersToCanvas(postState.currentOffscreenCanvas);
-              saveCanvasState(postState.currentOffscreenCanvas, 'crop', 'Crop to selection');
             }
           }
+
+          await recordCropHistory({
+            beforeProject,
+            afterProject: postState.project
+              ? { width: postState.project.width, height: postState.project.height }
+              : null,
+            beforeLayers: beforeLayerSnapshots,
+            afterLayers: postState.layers,
+            description: 'Crop to selection',
+          });
 
           set({ crop: defaultCropState });
 
@@ -1459,6 +1932,13 @@ export const useAppStore = create<AppState>()(
         const activeLayer = layers.find(l => l.id === activeLayerId) || layers[0];
         if (!activeLayer) return;
 
+        const beforeImage =
+          activeLayer.imageData ? cloneImageDataForHistory(activeLayer.imageData) ?? null : null;
+        const beforeColorState =
+          activeLayer.layerType === 'color-cycle'
+            ? captureColorCycleBrushState(activeLayer.id)
+            : null;
+
         // Create a temporary canvas to merge existing layer content + floating paste
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = project.width;
@@ -1492,8 +1972,14 @@ export const useAppStore = create<AppState>()(
           // Capture composited result to the active layer
           await state.captureCanvasToActiveLayer(tempCanvas);
 
-          // Save state for undo
-          state.saveCanvasState(tempCanvas, 'paste', 'Committed paste');
+          await commitLayerHistory({
+            layerId: activeLayer.id,
+            beforeImage,
+            beforeColorState,
+            actionType: 'paste',
+            description: 'Committed paste',
+            tool: 'paste',
+          });
         }
 
         // Clear floating paste
@@ -2353,6 +2839,12 @@ export const useAppStore = create<AppState>()(
           // quiet
         }
         recordBreadcrumb('layers', { event: 'store-addLayer-enter', incomingType: layer?.layerType });
+        const stateBeforeAdd = get();
+        const beforeSnapshot = createHistorySnapshotFromState(stateBeforeAdd, {
+          actionType: 'layer-add',
+          description: 'Add layer',
+        });
+
         const newLayerId = `layer-${Date.now()}-${Math.random()}`;
         // quiet
 
@@ -2485,37 +2977,46 @@ export const useAppStore = create<AppState>()(
             selectedLayerIds: [newLayerId]
           }));
         }
-        
-        // Persist a structural snapshot asynchronously so the UI doesn't stutter
-        // when adding layers on large canvases.
+
+        const stateAfterAdd = get();
+        const afterSnapshot = createHistorySnapshotFromState(stateAfterAdd, {
+          actionType: 'layer-add',
+          description: 'Add layer',
+          activeLayerId: newLayerId,
+        });
+
         try {
-          // Allow opting out for debugging perf issues
-          const debugWindow = getVesselWindow();
-          if (debugWindow?.__TB_DEBUG?.skipLayerAddSnapshot) {
-            throw new Error('skip-snapshot');
-          }
-          const st = get();
-          // quiet
-          // Use a tiny placeholder canvas; we only need to record structure here.
-          const temp = document.createElement('canvas');
-          temp.width = 1;
-          temp.height = 1;
-          // Defer to allow React to finish updates and keep the thread responsive
-          setTimeout(() => {
-            try {
-              st.saveCanvasState(temp as unknown as HTMLCanvasElement, 'layer-add', 'Add layer', newLayerId);
-              recordBreadcrumb('layers', { event: 'store-addLayer-saved', id: newLayerId.slice(0, 20) });
-            } catch {
-              // quiet
-            }
-          }, 0);
-        } catch {
-          // quiet
+          const txn = historyManager.begin('layer-structure', {
+            layerId: newLayerId,
+            operation: 'add',
+          });
+          txn.push(
+            createLegacySnapshotDelta({
+              forward: afterSnapshot,
+              backward: beforeSnapshot,
+            })
+          );
+          txn.commit('Add layer');
+          set((state) => ({
+            autosave: {
+              ...state.autosave,
+              hasUnsavedChanges: true,
+              lastSaveTime: new Date(),
+            },
+          }));
+        } catch (historyError) {
+          logError('[history] Failed to record layer add', historyError);
         }
 
         return newLayerId;
       },
       removeLayer: (id) => {
+        const stateBeforeRemove = get();
+        const beforeSnapshot = createHistorySnapshotFromState(stateBeforeRemove, {
+          actionType: 'layer-remove',
+          description: 'Remove layer',
+        });
+
         set((state) => {
           // Use enhanced manager method for cleanup
           colorCycleBrushManager.removeColorCycleBrush(id);
@@ -2540,21 +3041,39 @@ export const useAppStore = create<AppState>()(
           return {
             layers: syncedLayers,
             activeLayerId: newActiveLayerId,
-            selectedLayerIds: nextSelection
-            // Remove the project update entirely - only update top-level layers
-          };
+          selectedLayerIds: nextSelection
+          // Remove the project update entirely - only update top-level layers
+        };
         });
 
-        // Persist a structural snapshot so undo restores the removed layer
+        const stateAfterRemove = get();
+        const afterSnapshot = createHistorySnapshotFromState(stateAfterRemove, {
+          actionType: 'layer-remove',
+          description: 'Remove layer',
+        });
+
         try {
-          const st = get();
-          const w = st.project?.width ?? 1;
-          const h = st.project?.height ?? 1;
-          const temp = document.createElement('canvas');
-          temp.width = w;
-          temp.height = h;
-          st.saveCanvasState(temp as unknown as HTMLCanvasElement, 'layer-remove', 'Remove layer');
-        } catch {}
+          const txn = historyManager.begin('layer-structure', {
+            layerId: id,
+            operation: 'remove',
+          });
+          txn.push(
+            createLegacySnapshotDelta({
+              forward: afterSnapshot,
+              backward: beforeSnapshot,
+            })
+          );
+          txn.commit('Remove layer');
+          set((state) => ({
+            autosave: {
+              ...state.autosave,
+              hasUnsavedChanges: true,
+              lastSaveTime: new Date(),
+            },
+          }));
+        } catch (historyError) {
+          logError('[history] Failed to record layer removal', historyError);
+        }
       },
       updateLayer: (id, updates) => set((state) => {
         const originalLayer = state.layers.find(l => l.id === id);
@@ -3014,6 +3533,12 @@ export const useAppStore = create<AppState>()(
         };
       }),
       reorderLayers: (sourceIndex, destinationIndex) => {
+        const stateBeforeReorder = get();
+        const beforeSnapshot = createHistorySnapshotFromState(stateBeforeReorder, {
+          actionType: 'layer-reorder',
+          description: 'Reorder layers',
+        });
+
         set((state) => {
           const newLayers = [...state.layers];
           const [removed] = newLayers.splice(sourceIndex, 1);
@@ -3036,16 +3561,33 @@ export const useAppStore = create<AppState>()(
           };
         });
 
-        // Persist a structural snapshot so reorders are undoable step-by-step
+        const stateAfterReorder = get();
+        const afterSnapshot = createHistorySnapshotFromState(stateAfterReorder, {
+          actionType: 'layer-reorder',
+          description: 'Reorder layers',
+        });
+
         try {
-          const st = get();
-          const w = st.project?.width ?? 1;
-          const h = st.project?.height ?? 1;
-          const temp = document.createElement('canvas');
-          temp.width = w;
-          temp.height = h;
-          st.saveCanvasState(temp as unknown as HTMLCanvasElement, 'layer-reorder', 'Reorder layers');
-        } catch {}
+          const txn = historyManager.begin('layer-structure', {
+            operation: 'reorder',
+          });
+          txn.push(
+            createLegacySnapshotDelta({
+              forward: afterSnapshot,
+              backward: beforeSnapshot,
+            })
+          );
+          txn.commit('Reorder layers');
+          set((state) => ({
+            autosave: {
+              ...state.autosave,
+              hasUnsavedChanges: true,
+              lastSaveTime: new Date(),
+            },
+          }));
+        } catch (historyError) {
+          logError('[history] Failed to record layer reorder', historyError);
+        }
       },
       
       // Color Cycle Layer Management
@@ -3699,388 +4241,124 @@ export const useAppStore = create<AppState>()(
       }),
       
       // History Management
-      saveCanvasState: (canvas, actionType, description, overrideActiveLayerId?: string) => {
-        // quiet: remove diagnostics noise
-        // Allow disabling history during debugging/perf triage
-        const debugWindow = getVesselWindow();
-        if (debugWindow?.__TB_DEBUG?.disableHistory) {
-          return;
+
+      
+      undo: async () => {
+        const pendingEntry = historyManager.peekUndo();
+        if (!pendingEntry) {
+          return null;
         }
-        if (isHistoryOperationInProgress) {
-          return;
-        }
-        
-        const now = Date.now();
-        
-        // Clear existing timer
-        if (saveCanvasStateTimer) {
-          clearTimeout(saveCanvasStateTimer);
-        }
-        
-        // For important actions, save immediately
-        // Treat Color-Cycle brush commits and structural layer ops as important so each action
-        // becomes its own history entry (enables step-by-step undo: stroke -> empty layer -> no layer).
-        let isImportantAction = actionType === 'paste' || actionType === 'fill';
-        if (typeof actionType === 'string') {
-          if (
-            actionType === 'layer' ||
-            actionType.startsWith('layer-') ||
-            actionType === 'layers' ||
-            actionType === 'structure'
-          ) {
-            isImportantAction = true;
+
+        const hasLegacySnapshot = pendingEntry.deltas.some((delta) => isLegacySnapshotDelta(delta));
+        let currentSnapshot: CanvasSnapshot | null = null;
+        let previousSnapshot: CanvasSnapshot | null = null;
+
+        if (hasLegacySnapshot) {
+          const snapshotState = get();
+          if (snapshotState.history.undoStack.length <= 1) {
+            return null;
           }
+
+          currentSnapshot =
+            snapshotState.history.undoStack[snapshotState.history.undoStack.length - 1] ?? null;
+          previousSnapshot =
+            snapshotState.history.undoStack[snapshotState.history.undoStack.length - 2] ?? null;
         }
-        let isColorCycleTarget = false;
-        const isCCAction =
-          actionType === 'fill' ||
-          Boolean(description && (description.includes('CC') || description.includes('Color Cycle')));
+
+        isHistoryOperationInProgress = true;
         try {
-          const s = get();
-          const activeLayer = (s.layers || []).find(l => l.id === s.activeLayerId);
-          isColorCycleTarget = activeLayer?.layerType === 'color-cycle';
-          if (actionType === 'brush' && isColorCycleTarget) {
-            isImportantAction = true;
-          }
-          if (isCCAction) {
-            isImportantAction = true;
-          }
-        } catch {}
-        
-        const performSave = () => {
-          const state = get();
-          if (state.history.isCapturing || isHistoryOperationInProgress) {
-            return;
-          }
-          
-          const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
-          if (!ctx) return;
-          
-          let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          // Optimization: For Color Cycle actions, avoid capturing full-canvas ImageData
-          try {
-            const s = get();
-            const activeLayer = (s.layers || []).find(l => l.id === s.activeLayerId);
-            isColorCycleTarget = activeLayer?.layerType === 'color-cycle';
-            if (isColorCycleTarget && isCCAction) {
-              imageData = new ImageData(1, 1);
-            }
-          } catch {}
-          // Deep copy layers to preserve their individual ImageData and colorCycleData
-          const contextOptions: CanvasRenderingContext2DSettings = { willReadFrequently: true };
-          const activeLayerIdForSnapshot = overrideActiveLayerId || state.activeLayerId || state.layers[0]?.id || '';
-          const previousSnapshot =
-            isColorCycleTarget && isCCAction && state.history.undoStack.length > 0
-              ? state.history.undoStack[state.history.undoStack.length - 1]
-              : null;
-          const previousLayersById = previousSnapshot
-            ? new Map(previousSnapshot.layers.map(prevLayer => [prevLayer.id, prevLayer]))
-            : null;
+          await historyManager.undo();
+        } finally {
+          isHistoryOperationInProgress = false;
+        }
 
-          const layersCopy = (state.layers || []).map<LayerHistorySnapshot>((layer) => {
-            if (
-              isColorCycleTarget &&
-              isCCAction &&
-              previousLayersById &&
-              layer.id !== activeLayerIdForSnapshot
-            ) {
-              const previousLayer = previousLayersById.get(layer.id);
-              if (previousLayer) {
-                return previousLayer;
-              }
-            }
-
-            const shouldCloneImageData =
-              !!layer.imageData &&
-              (!isColorCycleTarget || !isCCAction || layer.id === activeLayerIdForSnapshot);
-            const clonedImageData = shouldCloneImageData
-              ? new ImageData(
-                  new Uint8ClampedArray(layer.imageData!.data),
-                  layer.imageData!.width,
-                  layer.imageData!.height
-                )
-              : layer.imageData;
-
-            const layerCopy: LayerHistorySnapshot = {
-              ...layer,
-              // CRITICAL: Explicitly preserve layerType to prevent corruption
-              layerType: layer.layerType,
-              imageData: clonedImageData,
-              alignment: cloneLayerAlignment(layer.alignment)
-            };
-
-            // Deep copy colorCycleData if present
-            if (layer.colorCycleData) {
-              // Capture canvas pixels (if any) and only persist colorCycleData when there is content.
-              let captured: ImageData | undefined;
-              const isStructural = typeof actionType === 'string' && (
-                actionType === 'layer' || actionType.startsWith('layer-') || actionType === 'layers' || actionType === 'structure'
-              );
-              const isCCActionForLayer =
-                isStructural ||
-                actionType === 'fill' ||
-                (description && (description.includes('CC') || description.includes('Color Cycle')));
-
-              if (!isCCActionForLayer && layer.colorCycleData.canvas) {
-                try {
-                  const ccCtx = layer.colorCycleData.canvas.getContext('2d', contextOptions);
-                  if (ccCtx) {
-                    captured = ccCtx.getImageData(
-                      0,
-                      0,
-                      layer.colorCycleData.canvas.width,
-                      layer.colorCycleData.canvas.height
-                    );
-                  }
-                } catch {}
-              }
-
-              // Determine if the CC canvas has any visible pixels (alpha > 0)
-              // Default to true (keep CC) if we could not capture pixels safely
-              let hasCCPixels = captured ? false : true;
-              if (captured?.data) {
-                const data = captured.data;
-                // Sample alpha every few pixels for performance
-                const step = Math.max(4, Math.floor(data.length / 4096));
-                for (let i = 3; i < data.length; i += step) {
-                  if (data[i] > 0) {
-                    hasCCPixels = true;
-                    break;
-                  }
-                }
-              }
-
-              if (hasCCPixels) {
-                // Persist CC data when there is actual content
-                layerCopy.colorCycleData = {
-                  ...layer.colorCycleData,
-                  gradient: layer.colorCycleData.gradient ? [...layer.colorCycleData.gradient] : undefined,
-                  canvasImageData: captured,
-                  canvasWidth: layer.colorCycleData.canvas?.width,
-                  canvasHeight: layer.colorCycleData.canvas?.height
-                };
-              } else {
-                // No CC pixels at this snapshot — treat as a normal layer in history.
-                // This enables the desired undo sequence:
-                //  - Undo last stroke: layer remains but converts to normal
-                //  - Undo again (if the layer was created by that action): layer can be removed by older snapshot
-                delete layerCopy.colorCycleData;
-                layerCopy.layerType = 'normal';
-              }
-            }
-
-            return layerCopy;
-          });
-          
-          // Capture color cycle state if available
-          let colorCycleState: CanvasSnapshot['colorCycleState'] = undefined;
-          const activeLayer = (state.layers || []).find(l => l.id === state.activeLayerId);
-          
-          const brush = activeLayer?.colorCycleData?.colorCycleBrush;
-          const rawState = brush?.serialize?.() ?? brush?.getFullState?.() ?? null;
-
-          if (activeLayer && isSerializedColorCycleBrushState(rawState) && rawState.layers) {
-            colorCycleState = {
-              layerId: activeLayer.id,
-              strokeData: new ArrayBuffer(0),
-              gradients: [],
-              animationState: {
-                cycleOffset: 0,
-                speed: 1,
-                fps: 30,
-                isPaused: false
+        if (hasLegacySnapshot && currentSnapshot) {
+          set((state) => {
+            const undoStack = state.history.undoStack.slice(0, -1);
+            const redoStack = [currentSnapshot!, ...state.history.redoStack];
+            return {
+              history: {
+                ...state.history,
+                undoStack,
+                redoStack,
+                isCapturing: false,
               },
-              layerStrokes: rawState.layers.map((layer) => {
-                const indexBuffer = layer.data?.indexBuffer;
-                const indexSource = indexBuffer?.data;
-                const indexArray = indexSource ? new Uint8Array(indexSource) : null;
-                const hasNonZeroIndex = indexArray ? indexArray.some((value) => value !== 0) : false;
-
-                const paintBufferSource = layer.strokeData?.paintBuffer;
-                const paintBufferArray = paintBufferSource ? new Uint8Array(paintBufferSource) : null;
-                const paintBufferCopy = paintBufferArray ? paintBufferArray.slice().buffer : new ArrayBuffer(0);
-
-                const animatorIndex = indexBuffer
-                  ? {
-                      width: indexBuffer.width,
-                      height: indexBuffer.height,
-                      data: (indexArray ? indexArray.slice() : new Uint8Array()).buffer,
-                      gradientStops: layer.data?.gradient?.gradientStops || undefined
-                    }
-                  : undefined;
-
-                return {
-                  layerId: layer.layerId,
-                  paintBuffer: paintBufferCopy,
-                  hasContent: Boolean(layer.strokeData?.hasContent) || hasNonZeroIndex,
-                  strokeCounter: layer.strokeData?.strokeCounter ?? 0,
-                  strokeLength: 0,
-                  gradientLayerIndices: [],
-                  currentGradientIndex: 0,
-                  animatorIndex
-                };
-              })
             };
-
-            // quiet: remove cc-history diagnostics
-          }
-          
-          const syncedLayersCopy = syncPercentOffsetsFromPixels(layersCopy, state.project ?? null);
-          const projectSize = state.project
-            ? {
-                width: state.project.width,
-                height: state.project.height
-              }
-            : undefined;
-          const canvasStateSnapshot = state.canvas
-            ? {
-                canvasWidth: state.canvas.canvasWidth,
-                canvasHeight: state.canvas.canvasHeight
-              }
-            : undefined;
-
-          const snapshot: CanvasSnapshot = {
-            id: `snapshot_${Date.now()}_${Math.random()}`,
-            timestamp: Date.now(),
-            imageData,
-            layers: syncedLayersCopy,  // Deep copy of all layers with cloned ImageData
-            activeLayerId: overrideActiveLayerId || state.activeLayerId || state.layers[0]?.id || '',  // Current active layer or fallback
-            actionType,
-            description,
-            colorCycleState,
-            projectSize,
-            canvasState: canvasStateSnapshot
-          };
-          
-          const newUndoStack = [...state.history.undoStack, snapshot];
-          if (newUndoStack.length > state.history.maxHistorySize) {
-            newUndoStack.shift();
-          }
-          
-          
-          set({
+          });
+        } else {
+          set((state) => ({
             history: {
               ...state.history,
-              undoStack: newUndoStack,
-              redoStack: []
+              isCapturing: false,
             },
-            autosave: {
-              ...state.autosave,
-              hasUnsavedChanges: true,
-              lastSaveTime: new Date()
-            }
+          }));
+        }
+
+        return previousSnapshot;
+      },
+      
+      redo: async () => {
+        const pendingEntry = historyManager.peekRedo();
+        if (!pendingEntry) {
+          return null;
+        }
+
+        const hasLegacySnapshot = pendingEntry.deltas.some((delta) => isLegacySnapshotDelta(delta));
+        let stateToRestore: CanvasSnapshot | null = null;
+
+        if (hasLegacySnapshot) {
+          const snapshotState = get();
+          if (snapshotState.history.redoStack.length === 0) {
+            return null;
+          }
+          stateToRestore = snapshotState.history.redoStack[0] ?? null;
+        }
+
+        isHistoryOperationInProgress = true;
+        try {
+          await historyManager.redo();
+        } finally {
+          isHistoryOperationInProgress = false;
+        }
+
+        if (hasLegacySnapshot && stateToRestore) {
+          set((state) => {
+            const redoStack = state.history.redoStack.slice(1);
+            const undoStack = [...state.history.undoStack, stateToRestore!];
+            return {
+              history: {
+                ...state.history,
+                undoStack,
+                redoStack,
+                isCapturing: false,
+              },
+            };
           });
-
-          // quiet
-        };
-
-        if (isImportantAction || (now - lastSaveTimestamp) >= MIN_SAVE_INTERVAL) {
-          // Save immediately
-          performSave();
-          lastSaveTimestamp = now;
         } else {
-          // Debounce for frequent actions like brush strokes
-          saveCanvasStateTimer = setTimeout(() => {
-            performSave();
-            lastSaveTimestamp = Date.now();
-            saveCanvasStateTimer = null;
-          }, 100);
+          set((state) => ({
+            history: {
+              ...state.history,
+              isCapturing: false,
+            },
+          }));
         }
+
+        return stateToRestore;
       },
       
-      undo: () => {
-        const state = get();
-        
-        if (state.history.undoStack.length === 0) {
-          return null; // Can't undo if stack is empty
-        }
-        
-        // Current state is the last item in undoStack - move it to redoStack
-        const currentState = state.history.undoStack[state.history.undoStack.length - 1];
-        
-        // If there's only one state, we can't undo further but we should handle it gracefully
-        if (state.history.undoStack.length === 1) {
-          return null;
-        }
-        
-        // Previous state is what we want to restore to
-        const previousState = state.history.undoStack[state.history.undoStack.length - 2];
-        
-        const newUndoStack = state.history.undoStack.slice(0, -1); // Remove current state
-        const newRedoStack = [currentState, ...state.history.redoStack]; // Add current to redo stack
-        
-        // Set protection flags during operation
-        isHistoryOperationInProgress = true;
-        
-        set({
-          history: {
-            ...state.history,
-            undoStack: newUndoStack,
-            redoStack: newRedoStack,
-            isCapturing: true
-          }
-        });
-        
-        // Reset flags immediately after state update - no async delay needed
-        isHistoryOperationInProgress = false;
+      canUndo: () => Boolean(historyManager.peekUndo()),
+      canRedo: () => Boolean(historyManager.peekRedo()),
+      
+      clearHistory: () => {
+        historyManager.clear();
         set((state) => ({
           history: {
             ...state.history,
-            isCapturing: false
+            undoStack: [],
+            redoStack: []
           }
         }));
-        
-        return previousState; // Return the state to restore to
       },
-      
-      redo: () => {
-        const state = get();
-        
-        
-        if (state.history.redoStack.length === 0) {
-          return null;
-        }
-        
-        // The first item in redoStack is the state we want to restore to
-        const stateToRestore = state.history.redoStack[0];
-        
-        const newRedoStack = state.history.redoStack.slice(1); // Remove restored state from redo stack
-        const newUndoStack = [...state.history.undoStack, stateToRestore]; // Add restored state to undo stack
-        
-        // Set protection flags during operation
-        isHistoryOperationInProgress = true;
-        
-        set({
-          history: {
-            ...state.history,
-            undoStack: newUndoStack,
-            redoStack: newRedoStack,
-            isCapturing: true
-          }
-        });
-        
-        // Reset flags immediately after state update - no async delay needed
-        isHistoryOperationInProgress = false;
-        set((state) => ({
-          history: {
-            ...state.history,
-            isCapturing: false
-          }
-        }));
-        
-        return stateToRestore; // Return the state to restore to
-      },
-      
-      canUndo: () => get().history.undoStack.length > 1,
-      canRedo: () => get().history.redoStack.length > 0,
-      
-      clearHistory: () => set((state) => ({
-        history: {
-          ...state.history,
-          undoStack: [],
-          redoStack: []
-        }
-      })),
       
       // Project Save/Load Management
       saveProject: async (filename?: string) => {
@@ -4340,6 +4618,8 @@ export const useAppStore = create<AppState>()(
         const normalizedProject = normalizeProject(newProject);
         const normalizedLayers = normalizeLayers([defaultLayer]);
         const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, normalizedProject);
+
+        setActiveHistoryDocument(normalizedProject.id);
 
         set({
           project: normalizedProject,
@@ -4712,9 +4992,12 @@ export const useAppStore = create<AppState>()(
       setAutosaveInterval: (interval) => set((state) => ({
         autosave: { ...state.autosave, interval }
       })),
-      setHistorySize: (size) => set((state) => ({
-        history: { ...state.history, maxHistorySize: size }
-      })),
+      setHistorySize: (size) => {
+        historyManager.setMaxEntries(size);
+        set((state) => ({
+          history: { ...state.history, maxHistorySize: size }
+        }));
+      },
       
       // Brush-specific settings methods
       saveBrushSettings: (brushId, settings) => set((state) => {

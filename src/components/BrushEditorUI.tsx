@@ -171,9 +171,9 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
   // Draw checkerboard pattern for transparency
   const drawCheckerboard = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
     const checkSize = 4; // Smaller checkerboard
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = '#f6f6f8';
     ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = '#e0e0e0';
+    ctx.fillStyle = '#e9e9ec';
     
     for (let y = 0; y < height; y += checkSize) {
       for (let x = 0; x < width; x += checkSize) {
@@ -846,10 +846,10 @@ const BrushEditorUI: React.FC<BrushEditorUIProps> = () => {
               transformOrigin: '0 0',
               // Checkerboard pattern that scales with zoom
               backgroundImage: `
-                linear-gradient(45deg, #606060 25%, transparent 25%),
-                linear-gradient(-45deg, #606060 25%, transparent 25%),
-                linear-gradient(45deg, transparent 75%, #606060 75%),
-                linear-gradient(-45deg, transparent 75%, #606060 75%)
+                linear-gradient(45deg, #e9e9ec 25%, transparent 25%),
+                linear-gradient(-45deg, #e9e9ec 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #e9e9ec 75%),
+                linear-gradient(-45deg, transparent 75%, #e9e9ec 75%)
               `,
               backgroundSize: '20px 20px',
               backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',

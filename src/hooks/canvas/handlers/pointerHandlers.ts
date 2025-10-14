@@ -150,6 +150,14 @@ import {
 import { getPresetStops } from '../../../utils/gradientPresets';
 import { createShapeToolHandler } from './shapes/ShapeToolHandler';
 import { logContourFillDebug } from './utils/logContourFillDebug';
+import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
+import { commitLayerHistory, cloneLayerImageData } from '@/history/helpers/layerHistory';
+import {
+  captureSelectionSnapshot,
+  commitSelectionHistory,
+  cloneSelectionSnapshot,
+} from '@/history/helpers/selectionHistory';
+import type { SelectionSnapshot } from '@/history/selectionState';
 
 type VerticalSpacingMapperConfig = {
   centroid: { x: number; y: number };
@@ -213,7 +221,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     clearSelection,
     setCurrentOffscreenCanvas,
     compositeLayersToCanvas,
-    saveCanvasState,
     updateLayer,
     setIsDraggingFloatingPaste,
     floatingPasteDragStart,
@@ -257,6 +264,13 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   const strokeStartWorldPosRef = ensurePointRef(deps.snapStrokeStartRef);
   const shiftAnchorWorldPosRef = ensurePointRef(deps.snapShiftAnchorRef);
   const lastBrushSampleWorldPosRef = ensurePointRef(deps.snapLastBrushSampleRef);
+  let pendingSelectionHistory:
+    | {
+        before: SelectionSnapshot;
+        description: string;
+        meta?: Record<string, unknown>;
+      }
+    | null = null;
 
   if (!contourLinesStateRef || !contourLinesDefaultsCacheRef || !contourLinesFinalizingRef || !dynamicDepsRef) {
     throw new Error('Missing contour lines refs in pointer handler dependencies');
@@ -1370,6 +1384,19 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       shiftAnchorWorldPosRef.current = event.shiftKey ? worldPos : null;
       // quiet
 
+      const brushPresetId = (() => {
+        try {
+          return useAppStore.getState().currentBrushPreset?.id ?? null;
+        } catch {
+          return null;
+        }
+      })();
+      drawingHandlers.beginStrokeSession({
+        pointerId: event.pointerId,
+        layerId: activeLayerId ?? null,
+        tool: tools.currentTool,
+        brushId: brushPresetId ?? undefined,
+      });
       // Use the existing drawing system with brush engine
       interaction.dispatch({ type: 'DRAWING_START', pressure });
       drawingHandlers.startDrawing(worldPos, pressure);
@@ -1431,6 +1458,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           }
         }
         
+        const beforeImage = cloneLayerImageData(currentImageData);
+        const beforeColorState =
+          activeLayer.layerType === 'color-cycle'
+            ? captureColorCycleBrushState(activeLayer.id)
+            : null;
+
         // Parse fill color - handle both hex and rgb formats
         const fillColor = tools.brushSettings.color;
         let r = 0, g = 0, b = 0;
@@ -1448,18 +1481,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
             [r, g, b] = matches.map(Number);
           }
         }
-        // If history is empty, capture a baseline snapshot so undo/redo has a reference state.
-        if (useAppStore.getState().history.undoStack.length === 0) {
-          const baselineCanvas = document.createElement('canvas');
-          baselineCanvas.width = canvasWidth;
-          baselineCanvas.height = canvasHeight;
-          const baselineCtx = baselineCanvas.getContext('2d', { willReadFrequently: true });
-          if (baselineCtx) {
-            baselineCtx.putImageData(currentImageData, 0, 0);
-            saveCanvasState(baselineCanvas, 'fill', 'Flood fill (baseline)');
-          }
-        }
-        
+
         // Perform flood fill on the current image data
         const filledImageData = floodFill(
           currentImageData,
@@ -1502,15 +1524,18 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           }
         });
         
-        // Save state for undo
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = canvasWidth;
-        tempCanvas.height = canvasHeight;
-        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-        if (tempCtx) {
-          tempCtx.putImageData(filledImageData, 0, 0);
-          saveCanvasState(tempCanvas, 'fill', 'Flood fill');
-        }
+        void commitLayerHistory({
+          layerId: activeLayer.id,
+          beforeImage,
+          beforeColorState,
+          actionType: 'fill',
+          description: 'Flood fill',
+          tool: 'fill',
+        }).catch((error) => {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('[history] Failed to record flood fill history', error);
+          }
+        });
         
         return;
       }
@@ -1526,6 +1551,15 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       }
 
       if (tools.currentTool === 'selection' || (tools.currentTool === 'custom' && !tools.shapeMode)) {
+        const beforeSelection = captureSelectionSnapshot();
+        pendingSelectionHistory = {
+          before: cloneSelectionSnapshot(beforeSelection),
+          description: beforeSelection.start && beforeSelection.end ? 'Adjust selection' : 'Create selection',
+          meta: {
+            source: tools.currentTool === 'custom' ? 'custom-selection-tool' : 'selection-tool',
+            pointerId: event.pointerId,
+          },
+        };
         interaction.dispatch({ type: 'SELECTION_START' });
         interaction.refs.selectionStart.current = worldPos;
         setSelectionBounds(worldPos, worldPos);
@@ -1556,7 +1590,14 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         
         // Check if click is outside selection bounds
         if (worldPos.x < minX || worldPos.x > maxX || worldPos.y < minY || worldPos.y > maxY) {
+          const beforeSelection = captureSelectionSnapshot();
           clearSelection();
+          commitSelectionHistory({
+            before: beforeSelection,
+            description: 'Clear selection',
+            meta: { source: 'click-outside' },
+          });
+          pendingSelectionHistory = null;
         }
       }
       
@@ -1653,6 +1694,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           
           toolStateMachine.resetRectangleGradient();
           interaction.dispatch({ type: 'DRAWING_END' });
+          drawingHandlers.endStrokeSession(Date.now());
         } else if (result === true) {
           interaction.dispatch({ type: 'DRAWING_START', mode: 'definingLength' });
         }
@@ -1675,6 +1717,19 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         if (tools.shapeMode) {
           drawingHandlers.startShapeDrawing(worldPos, pressure);
         } else {
+          const brushPresetId = (() => {
+            try {
+              return useAppStore.getState().currentBrushPreset?.id ?? null;
+            } catch {
+              return null;
+            }
+          })();
+          drawingHandlers.beginStrokeSession({
+            pointerId: event.pointerId,
+            layerId: activeLayerId ?? null,
+            tool: tools.currentTool,
+            brushId: brushPresetId ?? undefined,
+          });
           drawingHandlers.startDrawing(worldPos, pressure);
         }
       }
@@ -2690,6 +2745,18 @@ function cssColorToHex(color: string): string {
           updateBrushCursorVisibility(); // Show brush cursor again after custom brush selection
         }
       }
+      if (pendingSelectionHistory) {
+        commitSelectionHistory({
+          before: pendingSelectionHistory.before,
+          description: pendingSelectionHistory.description,
+          meta: {
+            ...(pendingSelectionHistory.meta ?? {}),
+            pointerId: event.pointerId,
+            outcome: tools.currentTool === 'custom' ? 'custom-selection' : 'selection',
+          },
+        });
+        pendingSelectionHistory = null;
+      }
       interaction.refs.selectionStart.current = null;
       return;
     }
@@ -2714,6 +2781,7 @@ function cssColorToHex(color: string): string {
           // Reset the tool state and end drawing
           toolStateMachine.resetRectangleGradient();
           interaction.dispatch({ type: 'DRAWING_END' });
+          drawingHandlers.endStrokeSession(Date.now());
         }
         // Don't end drawing state if we're still defining width
         return;
@@ -2721,6 +2789,7 @@ function cssColorToHex(color: string): string {
       
       // Normal brush or shape mode
       interaction.dispatch({ type: 'DRAWING_END' });
+      drawingHandlers.endStrokeSession(Date.now());
       
       // Mark composite as dirty BEFORE finalization to ensure it updates
       compositeCanvasDirtyRef.current = true;
@@ -2886,6 +2955,9 @@ function cssColorToHex(color: string): string {
     // Handle pointer cancel (e.g., stylus moving out of range)
     isMouseDownRef.current = false;
     (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
+
+    drawingHandlers.endStrokeSession(Date.now());
+    drawingHandlers.clearStrokeSession();
 
     pointerInsideCanvas = isPointerWithinCanvas(event.clientX, event.clientY);
     updateBrushCursorVisibility();

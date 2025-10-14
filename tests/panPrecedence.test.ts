@@ -1,3 +1,8 @@
+import { TextDecoder, TextEncoder } from 'util';
+
+(global as unknown as { TextEncoder?: typeof TextEncoder }).TextEncoder = TextEncoder;
+(global as unknown as { TextDecoder?: typeof TextDecoder }).TextDecoder = TextDecoder;
+
 import { createPointerHandlers, createDefaultContourLinesState } from '../src/hooks/canvas/handlers/pointerHandlers';
 import type { EventHandlerDependencies, EventHandlerDynamicDeps } from '../src/hooks/canvas/utils/types';
 
@@ -62,7 +67,6 @@ function makeDeps(overrides: Partial<EventHandlerDependencies> = {}): EventHandl
     setCurrentTool: jest.fn(),
     setCurrentOffscreenCanvas: jest.fn(),
     compositeLayersToCanvas: jest.fn(),
-    saveCanvasState: jest.fn(),
     updateLayer: jest.fn(),
     setFloatingPaste: jest.fn(),
     updateFloatingPastePosition: jest.fn(),

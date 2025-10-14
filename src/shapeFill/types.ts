@@ -30,6 +30,7 @@ export type ShapeFillParamKey =
   | 'farFalloff'
   | 'angleDrift'
   | 'angleScale'
+  | 'segments'
   | 'sierraDensity'
   | 'sierraResolution'
   | 'flowSeedSpacing'
@@ -56,6 +57,7 @@ export interface FillParams {
   farFalloff?: number;
   angleDrift?: number;
   angleScale?: number;
+  segments?: number;
   sierraDensity?: number;
   sierraResolution?: number;
   organic?: number;

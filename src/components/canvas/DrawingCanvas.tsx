@@ -88,14 +88,6 @@ const resampleStopsToColors = (stops: GradientStop[], count: number): string[] =
   return colors;
 };
 
-type ColorCycleSnapshotData = NonNullable<Layer['colorCycleData']> & {
-  canvasWidth?: number;
-  canvasHeight?: number;
-  canvasImageData?: ImageData;
-};
-
-type SerializedLayer = Layer & { colorCycleData?: ColorCycleSnapshotData };
-
 interface DrawingCanvasProps {
   showFeedback?: (message: string) => void;
 }
@@ -134,13 +126,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     setCanvasViewport,
     undo,
     redo,
-    saveCanvasState,
     setFloatingPaste,
     updateFloatingPastePosition,
     commitFloatingPaste,
     cancelFloatingPaste,
-    setLayers,
-    setActiveLayer,
     updateLayer,
     setLayersNeedRecomposition,
   } = useAppStore();
@@ -150,13 +139,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       setCurrentTool(toolId as Tool);
     },
     [setCurrentTool]
-  );
-
-  const saveCanvasStateForHandlers = useCallback(
-    (canvasElement: HTMLCanvasElement, actionType: string, description: string) => {
-      saveCanvasState(canvasElement, actionType as CanvasSnapshot['actionType'], description);
-    },
-    [saveCanvasState]
   );
 
   const setFloatingPasteFromHandlers = useCallback(
@@ -178,133 +160,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     [setFloatingPaste]
   );
 
-  const applySnapshotViewState = useCallback((snapshot: CanvasSnapshot) => {
-    const storeApi = useAppStore.getState();
-    if (snapshot.projectSize) {
-      storeApi.setProjectDimensions(snapshot.projectSize.width, snapshot.projectSize.height);
-    }
-    if (snapshot.canvasState) {
-      storeApi.setCanvasDimensions(
-        snapshot.canvasState.canvasWidth,
-        snapshot.canvasState.canvasHeight
-      );
-    }
-  }, []);
-  
-  const rebuildLayersFromSnapshot = useCallback(
-    (snapshotLayers: SerializedLayer[]): Layer[] => {
-      const brushManager = colorCycleBrushManagerRef.current;
-
-      const resolveDimension = (candidates: Array<number | undefined>): number => {
-        const value = candidates.find(
-          (candidate): candidate is number =>
-            typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0
-        );
-        return Math.max(1, Math.round(value ?? 1));
-      };
-
-      return snapshotLayers.map((layer) => {
-        const existingLayer = layers.find((candidate) => candidate.id === layer.id) as Layer | undefined;
-
-        const baseProps = {
-          id: layer.id,
-          name: layer.name,
-          visible: layer.visible,
-          opacity: layer.opacity,
-          blendMode: layer.blendMode,
-          locked: layer.locked,
-          order: layer.order,
-          imageData: layer.imageData,
-          framebuffer: layer.framebuffer
-        };
-
-        const colorCycleData = layer.colorCycleData;
-        if (colorCycleData) {
-          const {
-            canvasWidth,
-            canvasHeight,
-            canvasImageData,
-            canvas: snapshotCanvas,
-            colorCycleBrush: _snapshotBrush,
-            ...persistedColorCycle
-          } = colorCycleData;
-
-          try {
-            brushManager?.removeColorCycleBrush(layer.id);
-          } catch {
-            // If removal fails, continue rebuilding to avoid blocking undo/redo.
-          }
-
-          if (colorCycleData.mode === 'recolor') {
-            return {
-              ...baseProps,
-              layerType: 'color-cycle' as const,
-              colorCycleData: {
-                ...persistedColorCycle,
-                mode: 'recolor',
-                isAnimating: false,
-                colorCycleBrush: undefined
-              }
-            } as Layer;
-          }
-
-          const targetWidth = resolveDimension([
-            canvasImageData?.width,
-            layer.imageData?.width,
-            canvasWidth,
-            existingLayer?.colorCycleData?.canvas?.width,
-            existingLayer?.imageData?.width
-          ]);
-          const targetHeight = resolveDimension([
-            canvasImageData?.height,
-            layer.imageData?.height,
-            canvasHeight,
-            existingLayer?.colorCycleData?.canvas?.height,
-            existingLayer?.imageData?.height
-          ]);
-
-          let canvas: HTMLCanvasElement | undefined;
-          if (typeof document !== 'undefined') {
-            canvas = document.createElement('canvas');
-            canvas.width = targetWidth;
-            canvas.height = targetHeight;
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            if (ctx) {
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              if (canvasImageData) {
-                ctx.putImageData(canvasImageData, 0, 0);
-              } else if (layer.imageData) {
-                ctx.putImageData(layer.imageData, 0, 0);
-              } else if (existingLayer?.imageData) {
-                ctx.putImageData(existingLayer.imageData, 0, 0);
-              }
-            }
-          } else if (snapshotCanvas instanceof HTMLCanvasElement) {
-            canvas = snapshotCanvas;
-          }
-
-          return {
-            ...baseProps,
-            layerType: 'color-cycle' as const,
-            colorCycleData: {
-              ...persistedColorCycle,
-              isAnimating: false,
-              canvas,
-              colorCycleBrush: undefined
-            }
-          } as Layer;
-        }
-
-        return {
-          ...baseProps,
-          layerType: 'normal' as const,
-          colorCycleData: undefined
-        } as Layer;
-      });
-    },
-    [layers]
-  );
-  
   // Mouse position for brush cursor
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [showBrushCursor, setShowBrushCursor] = useState(false);
@@ -503,9 +358,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       
       // Draw checkerboard using simple fills (more efficient for panning)
       const checkerSize = 10;
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#f6f6f8';
       ctx.fillRect(0, 0, project.width, project.height);
-      ctx.fillStyle = '#e0e0e0';
+      ctx.fillStyle = '#e9e9ec';
       
       // Only draw visible checkers - ensure we stay within canvas bounds
       const startX = Math.floor(Math.max(0, -offsetX / scale) / (checkerSize * 2)) * (checkerSize * 2);
@@ -1516,257 +1371,61 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     onEraserReleased: () => {
       // Eraser key released - tool restoration handled in hook
     },
-    onUndo: () => {
+    onUndo: async () => {
       const storeState = useAppStore.getState();
-      const currentStack = storeState.history.undoStack;
-      if (currentStack.length <= 1) {
+      if (!storeState.canUndo()) {
         return;
       }
 
-      // Pop exactly one entry via store.undo() (single-step undo)
-      const snapshot = undo();
-      if (snapshot) {
-        applySnapshotViewState(snapshot);
-        if (snapshot.layers && snapshot.activeLayerId) {
-          const restoredLayers = rebuildLayersFromSnapshot(snapshot.layers as SerializedLayer[]);
-          
-          setLayers(restoredLayers);
-          setActiveLayer(snapshot.activeLayerId);
-          useAppStore.setState((state) => {
-            if (!state.project) {
-              return state;
-            }
-            const nextWidth = snapshot.projectSize?.width ?? state.project.width;
-            const nextHeight = snapshot.projectSize?.height ?? state.project.height;
-            return {
-              project: {
-                ...state.project,
-                width: nextWidth,
-                height: nextHeight,
-                layers: restoredLayers,
-                updatedAt: new Date()
-              }
-            };
-          });
+      await undo();
 
-          // Restore color cycle internal state after layers are in place
-          if (snapshot.colorCycleState) {
-            const { layerId } = snapshot.colorCycleState;
-            const restoredActive = restoredLayers.find(l => l.id === layerId);
-            if (isColorCycleLayerWithData(restoredActive) && restoredActive.colorCycleData.colorCycleBrush) {
-              restoredActive.colorCycleData.colorCycleBrush.restoreFullState({
-                gradients: snapshot.colorCycleState.gradients.map(g => ({
-                  gradientStops: g.gradientStops
-                })),
-                animationState: snapshot.colorCycleState.animationState,
-                layerSnapshots: snapshot.colorCycleState.layerStrokes
-              });
+      const latestStore = useAppStore.getState();
+      const latestProject = latestStore.project;
 
-              // quiet
-            }
-          }
-          
-          // If the active layer is a CC layer, ensure its canvas content is captured
-          // into imageData so exports and non-CC paths stay consistent.
-          try {
-            const activeRestored = restoredLayers.find(l => l.id === snapshot.activeLayerId);
-            if (isColorCycleLayerWithData(activeRestored) && activeRestored.colorCycleData.canvas) {
-              const { captureCanvasToActiveLayer } = useAppStore.getState();
-              // Fire and forget; keep UI responsive
-              captureCanvasToActiveLayer(activeRestored.colorCycleData.canvas).catch(() => {});
-            }
-          } catch {}
-          
-          // Reinitialize color cycle brushes for restored layers
-          restoredLayers.forEach(layer => {
-            if (isColorCycleLayerWithData(layer) && !layer.colorCycleData.colorCycleBrush) {
-              // Call initColorCycleForLayer to recreate the brush
-              const { initColorCycleForLayer } = useAppStore.getState();
-              if (layer.colorCycleData.canvas) {
-                initColorCycleForLayer(layer.id, layer.colorCycleData.canvas.width, layer.colorCycleData.canvas.height);
-              }
-            }
-          });
-          
-          // Mark composite as dirty for next redraw
-          compositeCanvasDirtyRef.current = true;
-          
-          // Immediately regenerate composite canvas
-          if (compositeCanvasRef.current && project) {
-            compositeLayersToCanvas(compositeCanvasRef.current);
-            setCurrentOffscreenCanvas(compositeCanvasRef.current);
-          }
-          
-          // Force a redraw
-          setNeedsRedraw(prev => prev + 1);
-          
-          // Also trigger immediate redraw
-          requestAnimationFrame(() => {
-            const canvas = canvasRef.current;
-            const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-            if (ctx) {
-              draw(ctx, viewTransformRef.current);
-            }
-          });
-        } else {
-          const activeLayer = layers.find(l => l.id === activeLayerId);
-          if (activeLayer && snapshot.imageData) {
-            useAppStore.setState((state) => {
-              if (!state.project) {
-                return state;
-              }
-              const nextWidth = snapshot.projectSize?.width ?? state.project.width;
-              const nextHeight = snapshot.projectSize?.height ?? state.project.height;
-              return {
-                project: {
-                  ...state.project,
-                  width: nextWidth,
-                  height: nextHeight,
-                  layers: state.layers,
-                  updatedAt: new Date()
-                }
-              };
-            });
-            // Mark composite as dirty BEFORE updating layer
-            compositeCanvasDirtyRef.current = true;
-            
-            updateLayer(activeLayer.id, { imageData: snapshot.imageData });
-            
-            // Immediately regenerate composite canvas
-            if (compositeCanvasRef.current && project) {
-              compositeLayersToCanvas(compositeCanvasRef.current);
-              setCurrentOffscreenCanvas(compositeCanvasRef.current);
-            }
-            
-            // Force a redraw by incrementing the redraw counter
-            setNeedsRedraw(prev => prev + 1);
-            
-            // Also trigger immediate redraw
-            requestAnimationFrame(() => {
-              const canvas = canvasRef.current;
-              const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-              if (ctx) {
-                draw(ctx, viewTransformRef.current);
-              }
-            });
-          }
-        }
+      compositeCanvasDirtyRef.current = true;
+
+      if (compositeCanvasRef.current && latestProject) {
+        compositeLayersToCanvas(compositeCanvasRef.current);
+        setCurrentOffscreenCanvas(compositeCanvasRef.current);
+        compositeCanvasDirtyRef.current = false;
       }
 
+      setNeedsRedraw((prev) => prev + 1);
+      requestAnimationFrame(() => {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          draw(ctx, viewTransformRef.current);
+        }
+      });
     },
-    onRedo: () => {
-      const snapshot = redo();
-      if (snapshot) {
-        applySnapshotViewState(snapshot);
-        if (snapshot.layers && snapshot.activeLayerId) {
-          const restoredLayers = rebuildLayersFromSnapshot(snapshot.layers as SerializedLayer[]);
-          
-          setLayers(restoredLayers);
-          setActiveLayer(snapshot.activeLayerId);
-          useAppStore.setState((state) => {
-            if (!state.project) {
-              return state;
-            }
-            const nextWidth = snapshot.projectSize?.width ?? state.project.width;
-            const nextHeight = snapshot.projectSize?.height ?? state.project.height;
-            return {
-              project: {
-                ...state.project,
-                width: nextWidth,
-                height: nextHeight,
-                layers: restoredLayers,
-                updatedAt: new Date()
-              }
-            };
-          });
-
-          // Restore color cycle internal state after layers are in place
-          if (snapshot.colorCycleState) {
-            const { layerId } = snapshot.colorCycleState;
-            const restoredActive = restoredLayers.find(l => l.id === layerId);
-            if (isColorCycleLayerWithData(restoredActive) && restoredActive.colorCycleData.colorCycleBrush) {
-              restoredActive.colorCycleData.colorCycleBrush.restoreFullState({
-                gradients: snapshot.colorCycleState.gradients.map(g => ({
-                  gradientStops: g.gradientStops
-                })),
-                animationState: snapshot.colorCycleState.animationState,
-                layerSnapshots: snapshot.colorCycleState.layerStrokes
-              });
-
-              // quiet
-            }
-          }
-          
-          // Keep imageData in sync for active CC layer
-          try {
-            const activeRestored = restoredLayers.find(l => l.id === snapshot.activeLayerId);
-            if (isColorCycleLayerWithData(activeRestored) && activeRestored.colorCycleData.canvas) {
-              const { captureCanvasToActiveLayer } = useAppStore.getState();
-              // Fire and forget; keep UI responsive
-              captureCanvasToActiveLayer(activeRestored.colorCycleData.canvas).catch(() => {});
-            }
-          } catch {}
-          
-          // Reinitialize color cycle brushes for restored layers
-          restoredLayers.forEach(layer => {
-            if (isColorCycleLayerWithData(layer) && !layer.colorCycleData.colorCycleBrush) {
-              // Call initColorCycleForLayer to recreate the brush
-              const { initColorCycleForLayer } = useAppStore.getState();
-              if (layer.colorCycleData.canvas) {
-                initColorCycleForLayer(layer.id, layer.colorCycleData.canvas.width, layer.colorCycleData.canvas.height);
-              }
-            }
-          });
-          
-          // Mark composite as dirty for next redraw
-          compositeCanvasDirtyRef.current = true;
-          
-          // Immediately regenerate composite canvas
-          if (compositeCanvasRef.current && project) {
-            compositeLayersToCanvas(compositeCanvasRef.current);
-            setCurrentOffscreenCanvas(compositeCanvasRef.current);
-          }
-          
-          // Force a redraw
-          setNeedsRedraw(prev => prev + 1);
-          
-          // Also trigger immediate redraw
-          requestAnimationFrame(() => {
-            const canvas = canvasRef.current;
-            const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-            if (ctx) {
-              draw(ctx, viewTransformRef.current);
-            }
-          });
-        } else {
-          const activeLayer = layers.find(l => l.id === activeLayerId);
-          if (activeLayer && snapshot.imageData) {
-            updateLayer(activeLayer.id, { imageData: snapshot.imageData });
-            
-            // Mark composite as dirty for imageData updates too
-            compositeCanvasDirtyRef.current = true;
-            
-            // Immediately regenerate composite canvas
-            if (compositeCanvasRef.current && project) {
-              compositeLayersToCanvas(compositeCanvasRef.current);
-              setCurrentOffscreenCanvas(compositeCanvasRef.current);
-            }
-            
-            // Force a redraw
-            setNeedsRedraw(prev => prev + 1);
-            
-            // Also trigger immediate redraw
-            requestAnimationFrame(() => {
-              const canvas = canvasRef.current;
-              const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-              if (ctx) {
-                draw(ctx, viewTransformRef.current);
-              }
-            });
-          }
-        }
+    onRedo: async () => {
+      const storeState = useAppStore.getState();
+      if (!storeState.canRedo()) {
+        return;
       }
 
+      await redo();
+
+      const latestStore = useAppStore.getState();
+      const latestProject = latestStore.project;
+
+      compositeCanvasDirtyRef.current = true;
+
+      if (compositeCanvasRef.current && latestProject) {
+        compositeLayersToCanvas(compositeCanvasRef.current);
+        setCurrentOffscreenCanvas(compositeCanvasRef.current);
+        compositeCanvasDirtyRef.current = false;
+      }
+
+      setNeedsRedraw((prev) => prev + 1);
+      requestAnimationFrame(() => {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          draw(ctx, viewTransformRef.current);
+        }
+      });
     },
     onPolygonComplete: () => {
       if (toolStateMachine.completePolygonGradient()) {
@@ -1971,7 +1630,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     setCurrentTool: setCurrentToolById,
     setCurrentOffscreenCanvas,
     compositeLayersToCanvas,
-    saveCanvasState: saveCanvasStateForHandlers,
     updateLayer,
 
     // Floating paste
@@ -2243,26 +1901,6 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     }
   }, []);
   
-  // Save initial state
-  useEffect(() => {
-    if (project && layers.length > 0 && compositeCanvasRef.current) {
-      const store = useAppStore.getState();
-      if (store.history.undoStack.length === 0) {
-        const activeLayer = layers.find(l => l.id === activeLayerId) || layers[0];
-        if (activeLayer) {
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = project.width;
-          tempCanvas.height = project.height;
-          const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-          if (tempCtx && activeLayer.imageData) {
-            tempCtx.putImageData(activeLayer.imageData, 0, 0);
-            saveCanvasState(tempCanvas, 'brush', 'Initial state');
-          }
-        }
-      }
-    }
-  }, [project, layers, activeLayerId, saveCanvasState]);
-  
   // Redraw whenever the view transform state or composite canvas changes
   useEffect(() => {
     // Skip automatic redraws during active panning (handled by mousemove)
@@ -2362,7 +2000,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     return () => {
       document.removeEventListener('paste', handlePaste);
     };
-  }, [project, layers, activeLayerId, saveCanvasState, draw, setFloatingPaste]);
+  }, [project, layers, activeLayerId, draw, setFloatingPaste]);
 
   // Handle canvas resizing - run only once on mount
   useEffect(() => {
