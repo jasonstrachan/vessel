@@ -1448,6 +1448,17 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
             [r, g, b] = matches.map(Number);
           }
         }
+        // If history is empty, capture a baseline snapshot so undo/redo has a reference state.
+        if (useAppStore.getState().history.undoStack.length === 0) {
+          const baselineCanvas = document.createElement('canvas');
+          baselineCanvas.width = canvasWidth;
+          baselineCanvas.height = canvasHeight;
+          const baselineCtx = baselineCanvas.getContext('2d', { willReadFrequently: true });
+          if (baselineCtx) {
+            baselineCtx.putImageData(currentImageData, 0, 0);
+            saveCanvasState(baselineCanvas, 'fill', 'Flood fill (baseline)');
+          }
+        }
         
         // Perform flood fill on the current image data
         const filledImageData = floodFill(

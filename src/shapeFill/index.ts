@@ -420,5 +420,6 @@ function isClampableParam(param: keyof FillParams): param is ShapeFillParamKey {
     'noiseContrast',
     'noiseThreshold',
     'noiseOctaves',
+    'noiseRandomness',
   ].includes(param as string);
 }

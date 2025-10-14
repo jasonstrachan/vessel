@@ -18,6 +18,7 @@ import { GradientEditor } from "../ui/GradientEditor";
 import { isStrokeBrush } from "../../utils/brushCategories";
 import { getPresetOptions as getRectGradientPresetOptions, getPresetStops } from "../../utils/gradientPresets";
 import { isColorCycleBrush, getShapeModeForBrush, setSharedColorCycleGradient } from "../../utils/colorCycleGradients";
+import { toggleGlobalColorCyclePlayback } from "@/utils/colorCyclePlayback";
 import ShapeFillControls from "./ShapeFillControls";
 
 // Stable default rainbow gradient to avoid re-creating arrays every render
@@ -181,7 +182,23 @@ const BrushControls = () => {
   }, [activeSettings.colorCycleGradient, activeSettings.colorCycleSpeed, ensureCustomColorCycleLayer, setActiveSettings]);
 
   // Use state to track animation status for proper re-renders
-  const [isAnimating, setIsAnimating] = React.useState(true); // Default to playing
+  const [isAnimating, setIsAnimating] = React.useState(() => getColorCycleAnimationState());
+
+  React.useEffect(() => {
+    const handleAnimationState = (event: Event) => {
+      try {
+        const customEvent = event as CustomEvent<{ isPlaying: boolean }>;
+        if (typeof customEvent.detail?.isPlaying === 'boolean') {
+          setIsAnimating(customEvent.detail.isPlaying);
+        }
+      } catch {}
+    };
+
+    window.addEventListener('colorCycleAnimationState', handleAnimationState as EventListener);
+    return () => {
+      window.removeEventListener('colorCycleAnimationState', handleAnimationState as EventListener);
+    };
+  }, []);
 
   // Ensure Color Cycle brushes start with a sensible spacing value even when no preset overrides exist
   React.useEffect(() => {
@@ -208,8 +225,8 @@ const BrushControls = () => {
     
     if (isCurrentColorCycle) {
       // Start animation when switching to color cycle brush (if play is active)
-      if (isAnimating && colorCycleAnimationHandlers) {
-        colorCycleAnimationHandlers.startContinuousColorCycleAnimation();
+      if (isAnimating) {
+        void toggleGlobalColorCyclePlayback(true);
       }
       
       // Set appropriate shape mode based on brush variant
@@ -220,15 +237,14 @@ const BrushControls = () => {
     } else {
       // ALWAYS stop animation when switching to ANY other tool
       // This prevents lag when using other tools
-      if (colorCycleAnimationHandlers) {
-        colorCycleAnimationHandlers.stopContinuousColorCycleAnimation();
+      if (isAnimating) {
+        void toggleGlobalColorCyclePlayback(false);
       }
       
       if (wasColorCycle) {
         // Reset Color Cycle speed to default when leaving CC mode
         setActiveSettings({ colorCycleSpeed: 0.1 });
       }
-      setIsAnimating(true); // Reset to playing state for next time
     }
     
     previousBrushShape.current = activeSettings.brushShape;

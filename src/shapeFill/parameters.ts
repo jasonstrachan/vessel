@@ -159,7 +159,7 @@ const PARAM_DEFINITIONS: Record<ShapeFillParamKey, ShapeFillParameterDefinition>
     key: 'noiseThreshold',
     min: 0,
     max: 1,
-    default: 0.45,
+    default: 0.5,
     scale: 0.01,
   },
   noiseOctaves: {
@@ -168,6 +168,20 @@ const PARAM_DEFINITIONS: Record<ShapeFillParamKey, ShapeFillParameterDefinition>
     max: 6,
     default: 3,
     scale: 1,
+  },
+  noiseRandomness: {
+    key: 'noiseRandomness',
+    min: 0,
+    max: 1,
+    default: 0.25,
+    scale: 0.01,
+  },
+  delaunayVariation: {
+    key: 'delaunayVariation',
+    min: 0,
+    max: 1.5,
+    default: 1,
+    scale: 0.01,
   },
 };
 

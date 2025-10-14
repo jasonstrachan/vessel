@@ -60,4 +60,19 @@ describe('hatchFill', () => {
     const crossCount = result.strokeSegments?.length ?? 0;
     expect(crossCount).toBeGreaterThan(verticalCount);
   });
+
+  it('respects explicit thickness values', () => {
+    const shape = rectangle(140, 90);
+    const thickParams = {
+      ...defaultParams(),
+      thickness: 4,
+      seed: hashPoints(shape.points),
+    };
+
+    const result = hatchFill(shape, thickParams);
+
+    expect(result.lineWidth).toBeCloseTo(4, 1);
+    const segment = result.strokeSegments?.find(Boolean);
+    expect(segment?.lineWidth).toBeGreaterThanOrEqual(3.5);
+  });
 });

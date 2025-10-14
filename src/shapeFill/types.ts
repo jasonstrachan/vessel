@@ -38,7 +38,9 @@ export type ShapeFillParamKey =
   | 'noiseScale'
   | 'noiseContrast'
   | 'noiseThreshold'
-  | 'noiseOctaves';
+  | 'noiseOctaves'
+  | 'noiseRandomness'
+  | 'delaunayVariation';
 
 export interface FillParams {
   spacing: number;
@@ -67,6 +69,9 @@ export interface FillParams {
   noiseContrast?: number;
   noiseThreshold?: number;
   noiseOctaves?: number;
+  noiseRandomness?: number;
+  delaunayVariation?: number;
+  fillColor?: string;
 }
 
 export interface FillResult {
@@ -90,6 +95,10 @@ export interface FillDotInstance {
   center: Vec2;
   radius: number;
   alpha?: number;
+  shade?: number;
+  size?: number;
+  shape?: 'circle' | 'square';
+  color?: string;
 }
 
 export enum FillStage {

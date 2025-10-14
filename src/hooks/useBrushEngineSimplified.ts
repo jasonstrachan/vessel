@@ -1438,50 +1438,6 @@ export const useBrushEngineSimplified = () => {
   }, [initializeColorCycleBrush, activeLayerId, tools.brushSettings.colorCycleGradient, tools.brushSettings.gradientBands]);
   
   /**
-   * Fill a shape with circular color cycle gradient centered on vertices centroid.
-   */
-  const fillColorCycleShapeCircular = useCallback((
-    vertices: Array<{ x: number; y: number }>,
-    origin?: { x: number; y: number }
-  ) => {
-    const brush = initializeColorCycleBrush();
-    const layerId = activeLayerId;
-
-    if (brush && layerId) {
-      brush.setLayerId?.(layerId);
-      brush.setActiveLayer?.(layerId);
-
-      const currentBrushLayerId = brush.getLayerId();
-      if (!currentBrushLayerId || currentBrushLayerId !== layerId) {
-        const currentGradient = tools.brushSettings.colorCycleGradient || [
-          { position: 0, color: '#ff0000' },
-          { position: 0.5, color: '#00ff00' },
-          { position: 1, color: '#0000ff' }
-        ];
-        brush.setGradient(currentGradient, layerId);
-      }
-
-      const bands = tools.brushSettings.gradientBands || 12;
-      brush.setGradientBands(bands);
-
-      if (typeof brush.fillShapeCircular === 'function') {
-        brush.fillShapeCircular(vertices, layerId, origin);
-      } else {
-        brush.fillShape(vertices, layerId, tools.brushSettings.spacing);
-      }
-
-      brush.endStroke(layerId);
-      brush.render(true);
-    }
-  }, [
-    initializeColorCycleBrush,
-    activeLayerId,
-    tools.brushSettings.colorCycleGradient,
-    tools.brushSettings.gradientBands,
-    tools.brushSettings.spacing
-  ]);
-  
-  /**
    * Fill a shape with color cycle gradient from edges to center
    */
   const fillColorCycleShape = useCallback((vertices: Array<{ x: number; y: number }>) => {
@@ -1690,7 +1646,6 @@ export const useBrushEngineSimplified = () => {
     endColorCycleStroke,
     fillColorCycleShape,
     fillColorCycleShapeLinear,
-    fillColorCycleShapeCircular,
     
     // Force immediate texture update for color cycle brush
     updateColorCycleTexture: () => {

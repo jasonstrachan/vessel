@@ -9,8 +9,8 @@ import { parseCssColor } from '@/utils/color/parseCssColor';
 import { OpController, CanvasManager } from '@/lib/canvas';
 import { MIN_LINE_SPACING } from '@/utils/contourLines';
 import { getPreviewRenderer } from '@/shapeFill/paramPreview';
-import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
 import { getFillStrategy } from '@/shapeFill/strategies';
+import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
 import { FillStage, type FillParams, type ShapeFillSession, type ShapeFillParamKey } from '@/shapeFill/types';
 
 type ShapeAdjustHelperUpdate = {
@@ -289,7 +289,7 @@ export const createShapeToolHandler = (
 
     const { scale, offsetX, offsetY } = viewTransformRef.current;
 
-    if (!session || !session.shape || !session.currentParam) {
+    if (!session || !session.shape) {
       if (lastPreviewRect) {
         clearRegion(overlayCtx, lastPreviewRect);
         lastPreviewRect = null;
@@ -314,31 +314,51 @@ export const createShapeToolHandler = (
     overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
     overlayCtx.clearRect(rect.x, rect.y, rect.width, rect.height);
 
-    const previewFillColor = resolveShapeFillColor(session.shape.points);
-    overlayCtx.strokeStyle = previewFillColor;
-    overlayCtx.fillStyle = previewFillColor;
+    const isAdjusting = session.stage === FillStage.AdjustingParam && session.currentParam;
+    if (isAdjusting) {
+      const previewFillColor = resolveShapeFillColor(session.shape.points);
+      overlayCtx.strokeStyle = previewFillColor;
+      overlayCtx.fillStyle = previewFillColor;
 
-    const store = useAppStore.getState();
-    const fillId = store.shapeFill.activeFillId;
-    const renderer = getPreviewRenderer(fillId);
-    const strategy = getFillStrategy(fillId);
-    const param = session.currentParam;
-    if (!LIVE_ADJUSTABLE_PARAMS.has(param as ShapeFillParamKey)) {
-      return;
+      const store = useAppStore.getState();
+      const fillId = store.shapeFill.activeFillId;
+      const renderer = getPreviewRenderer(fillId);
+      const strategy = getFillStrategy(fillId);
+      const param = session.currentParam;
+
+      if (LIVE_ADJUSTABLE_PARAMS.has(param as ShapeFillParamKey)) {
+        const paramValue = session.params[param];
+        const defaultValue =
+          typeof strategy.defaults[param] === 'number' ? (strategy.defaults[param] as number) : 0;
+
+        const value =
+          typeof paramValue === 'number'
+            ? paramValue
+            : (store.shapeFill.paramsByFill[fillId]?.[param] as number | undefined) ?? defaultValue;
+
+        overlayCtx.save();
+        overlayCtx.translate(offsetX, offsetY);
+        overlayCtx.scale(scale, scale);
+        renderer(overlayCtx, session.shape, param, value);
+        overlayCtx.restore();
+        lastPreviewRect = rect;
+        return;
+      }
     }
-    const paramValue = session.params[param];
-    const defaultValue =
-      typeof strategy.defaults[param] === 'number' ? (strategy.defaults[param] as number) : 0;
-
-    const value =
-      typeof paramValue === 'number'
-        ? paramValue
-        : (store.shapeFill.paramsByFill[fillId]?.[param] as number | undefined) ?? defaultValue;
 
     overlayCtx.save();
     overlayCtx.translate(offsetX, offsetY);
     overlayCtx.scale(scale, scale);
-    renderer(overlayCtx, session.shape, param, value);
+    overlayCtx.lineWidth = 1 / Math.max(scale, 1e-3);
+    overlayCtx.strokeStyle = '#000000';
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(session.shape.points[0].x, session.shape.points[0].y);
+    for (let i = 1; i < session.shape.points.length; i += 1) {
+      const pt = session.shape.points[i];
+      overlayCtx.lineTo(pt.x, pt.y);
+    }
+    overlayCtx.closePath();
+    overlayCtx.stroke();
     overlayCtx.restore();
     lastPreviewRect = rect;
   };
@@ -378,11 +398,15 @@ export const createShapeToolHandler = (
       ...session.params,
     } as FillParams;
 
-    const previewResult = strategy.apply(session.shape, mergedParams);
+    const fillColor = resolveShapeFillColor(session.shape.points);
+    const paramsWithColor: FillParams = {
+      ...mergedParams,
+      fillColor,
+    };
+    const previewResult = strategy.apply(session.shape, paramsWithColor);
     drawCtx.save();
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-    drawCtx.lineWidth = mergedParams.thickness ?? 1;
-    const fillColor = resolveShapeFillColor(session.shape.points);
+    drawCtx.lineWidth = paramsWithColor.thickness ?? 1;
     drawCtx.strokeStyle = fillColor;
     drawCtx.fillStyle = fillColor;
     renderFill(drawCtx, previewResult);
@@ -418,13 +442,20 @@ export const createShapeToolHandler = (
       return false;
     }
 
+    const fillColor = resolveShapeFillColor(payload.shape.points);
+    const paramsWithColor: FillParams = {
+      ...payload.params,
+      fillColor,
+    };
+    const finalResult = payload.strategy.apply(payload.shape, paramsWithColor);
+    payload.params = paramsWithColor;
+    payload.result = finalResult;
     drawCtx.save();
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-    drawCtx.lineWidth = payload.params.thickness ?? 1;
-    const fillColor = resolveShapeFillColor(payload.shape.points);
+    drawCtx.lineWidth = paramsWithColor.thickness ?? 1;
     drawCtx.strokeStyle = fillColor;
     drawCtx.fillStyle = fillColor;
-    renderFill(drawCtx, payload.result);
+    renderFill(drawCtx, finalResult);
     if (store.shapeFill.showOutline && payload.shape.points.length >= 3) {
       drawCtx.strokeStyle = 'rgba(0,0,0,0.35)';
       drawCtx.beginPath();
@@ -437,7 +468,6 @@ export const createShapeToolHandler = (
       drawCtx.stroke();
     }
     drawCtx.restore();
-
     drawingHandlers.drawingCanvasHasContent.current = true;
     await drawingHandlers.finalizeDrawing({ historyActionType: 'fill' });
 
@@ -1989,7 +2019,7 @@ export const createShapeToolHandler = (
               } else if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
                 overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
                 overlayCtx.globalAlpha = 1.0;
-              } else if (tools.shapeMode && !isPolygonGradient) {
+              } else if (tools.shapeMode && !isPolygonGradient && !isShapeFill) {
                 overlayCtx.fillStyle = tools.brushSettings.color;
                 overlayCtx.globalAlpha = 0.4;
               } else {
@@ -2053,6 +2083,8 @@ export const createShapeToolHandler = (
 
               if (isContourPolygon) {
                 overlayCtx.stroke();
+                strokePreviewOutline();
+              } else if (isShapeFill) {
                 strokePreviewOutline();
               } else {
                 overlayCtx.fill();

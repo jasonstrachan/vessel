@@ -2037,63 +2037,61 @@ export function useDrawingHandlers({
               // quiet
               
               if (fillMode === 'linear') {
-                // For linear mode, enter direction selection phase
-                // quiet
-                isSelectingDirectionRef.current = true;
-                isDrawingShapeRef.current = false;
-                
-                // Stop any color cycle animation during direction selection to prevent flickering
-                if (colorCycleAnimationRef.current) {
-                  cancelAnimationFrame(colorCycleAnimationRef.current);
-                  colorCycleAnimationRef.current = null;
+                // Auto-select a direction based on the shape's major axis so linear fill always succeeds
+                const points = shapePointsRef.current.filter((pt): pt is { x: number; y: number } => Boolean(pt));
+                const firstPoint = points[0];
+                let minX = firstPoint.x;
+                let maxX = firstPoint.x;
+                let minY = firstPoint.y;
+                let maxY = firstPoint.y;
+                for (let i = 1; i < points.length; i++) {
+                  const pt = points[i];
+                  if (pt.x < minX) minX = pt.x;
+                  if (pt.x > maxX) maxX = pt.x;
+                  if (pt.y < minY) minY = pt.y;
+                  if (pt.y > maxY) maxY = pt.y;
                 }
-                if (continuousColorCycleAnimationRef.current) {
-                  stopCCRef.current();
-                }
+                const width = Math.max(1e-3, maxX - minX);
+                const height = Math.max(1e-3, maxY - minY);
+                const primaryHorizontal = width >= height;
+                const fallback = primaryHorizontal
+                  ? { x: width / 2, y: 0 }
+                  : { x: 0, y: height / 2 };
+                // If shape collapsed to a point, ensure non-zero direction
+                const direction = (Number.isFinite(fallback.x) && Number.isFinite(fallback.y))
+                  ? fallback
+                  : { x: 1, y: 0 };
+
+                brushEngine.fillColorCycleShapeLinear(points, direction);
                 
-                
-                // Keep the shape points for when direction is selected
-                // Make sure drawing canvas is initialized
-                if (!drawingCanvasRef.current || !drawingCtxRef.current) {
-                  // quiet
-                  initDrawingCanvas();
-                }
-                
-                // Draw a preview of the shape with dashed outline
-                if (drawingCtxRef.current && drawingCanvasRef.current) {
-                  drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-                  drawingCtxRef.current.save();
-                  drawingCtxRef.current.globalCompositeOperation = 'difference';
-                  drawingCtxRef.current.strokeStyle = '#000000';  // Black with difference mode
-                  drawingCtxRef.current.lineWidth = 2;
-                  drawingCtxRef.current.beginPath();
-                  drawingCtxRef.current.moveTo(shapePointsRef.current[0].x, shapePointsRef.current[0].y);
-                  for (let i = 1; i < shapePointsRef.current.length; i++) {
-                    drawingCtxRef.current.lineTo(shapePointsRef.current[i].x, shapePointsRef.current[i].y);
-                  }
-                  drawingCtxRef.current.closePath();
-                  drawingCtxRef.current.stroke();
-                  drawingCtxRef.current.restore();
+                if (activeLayerId && activeLayer.colorCycleData?.canvas) {
+                  brushEngine.updateColorCycleTexture();
                   
-                  drawingCanvasHasContent.current = true;
-      // quiet
-                } else {
-                  // quiet
+                  const colorCycleBrushManager = getColorCycleBrushManager();
+                  const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayerId);
+                  if (colorCycleBrush) {
+                    colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayerId);
+                  }
+                  
+                  drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
+                  drawCtx.globalAlpha = 1.0;
+                  drawCtx.globalCompositeOperation = 'source-over';
+                  drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
+                  
+                  saveCanvasState(activeLayer.colorCycleData.canvas, 'fill', 'CC Shape Linear');
+                  
+                  try { window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate')); } catch {}
                 }
                 
-                // Exit early - don't finalize yet, wait for direction click
-                if (isBusyRef) isBusyRef.current = false;
-                // quiet
-                return;
+                drawingCanvasHasContent.current = true;
+                isSelectingDirectionRef.current = false;
+                directionPreviewRef.current = null;
               } else {
-                if (fillMode === 'circular') {
-                  brushEngine.fillColorCycleShapeCircular(shapePointsRef.current);
-                } else {
-                  brushEngine.fillColorCycleShape(shapePointsRef.current);
-                }
+                // Concentric fill (default)
+                brushEngine.fillColorCycleShape(shapePointsRef.current);
                 
                 // CRITICAL FIX: Ensure the CC layer's canvas is updated with the shape
-                // Applies to concentric and circular fills (linear handled separately)
+                // This should ONLY happen for concentric mode, not linear (which needs direction first)
                 if (activeLayerId && activeLayer.colorCycleData?.canvas) {
                   // Force immediate texture update and render to the layer's canvas
                   brushEngine.updateColorCycleTexture();
@@ -2114,8 +2112,7 @@ export function useDrawingHandlers({
                   
                   // Save state AFTER the shape is rendered (no extra capture)
                   // Mark as important to avoid debounce coalescing multiple shapes
-                  const historyLabel = fillMode === 'circular' ? 'CC Shape Circular' : 'CC Shape';
-                  saveCanvasState(activeLayer.colorCycleData.canvas, 'fill', historyLabel);
+                  saveCanvasState(activeLayer.colorCycleData.canvas, 'fill', 'CC Shape');
 
                   // Force composite refresh so the persisted shape appears even if
                   // the overlay is suppressed by CC animation state.

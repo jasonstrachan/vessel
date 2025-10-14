@@ -1,6 +1,7 @@
 import type { FillParams, FillResult, FillStrokeSegment, ShapeDefinition, Vec2 } from '../types';
 import { pointInPolygon } from '../utils/geometry';
 import { clampParameterValue } from '../parameters';
+import { fbm2 } from '../utils/noise';
 import { createRng, hashPoints } from '../utils/random';
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -30,6 +31,9 @@ const MAX_GENERATED_POINTS = 1800;
 const MIN_GENERATED_POINTS = 12;
 const GRID_RADIUS_DISTANCE_CHECK = 1;
 const GRID_RADIUS_EDGE_SEARCH = 2;
+const BASE_DENSITY_MIN = 0.55;
+const BASE_DENSITY_MAX = 1.45;
+const MIN_LOCAL_DISTANCE = 2;
 
 export function delaunayFill(shape: ShapeDefinition, params: FillParams): FillResult {
   if (shape.points.length < 3) {
@@ -41,6 +45,14 @@ export function delaunayFill(shape: ShapeDefinition, params: FillParams): FillRe
   const jitter = clampNumber(params.variance ?? 0.35, 0, 1);
   const rotation = params.rotation ?? 0;
   const lineWidth = Math.max(0.2, params.thickness ?? 1.1);
+  const variationRaw = params.delaunayVariation ?? 1;
+  const variation = clampNumber(
+    clampParameterValue(variationRaw, 'delaunayVariation'),
+    0,
+    1.5
+  );
+  const densityMin = 1 - (1 - BASE_DENSITY_MIN) * variation;
+  const densityMax = 1 + (BASE_DENSITY_MAX - 1) * variation;
 
   const centroid = shape.centroid;
 
@@ -78,16 +90,27 @@ export function delaunayFill(shape: ShapeDefinition, params: FillParams): FillRe
     maxY: maxY + spacing,
   };
 
-  const seed = hashPoints(shape.points);
+  const baseSeed = hashPoints(shape.points);
+  const seedParam = clampNumber(clampParameterValue(params.seed ?? 0, 'seed'), 0, Number.MAX_SAFE_INTEGER);
+  const seed = baseSeed ^ (Math.floor(seedParam) * 0x9e3779b1);
   const rng = createRng(seed ^ 0x5f3759df);
 
   const poissonPoints: Point[] = [];
-  const minDist = Math.max(spacing * 0.85, 4);
-  const minDistSq = minDist * minDist;
+  const pointDensityFactors: number[] = [];
+  const baseMinDist = Math.max(spacing * 0.85, 4);
+
+  const densityFrequency = 1 / Math.max(spacing * 3.5, 48);
+  const densitySeed = seed ^ 0x68ccf3e1;
+  const computeDensityFactor = (worldPoint: Vec2): number => {
+    const noise = fbm2(worldPoint.x * densityFrequency, worldPoint.y * densityFrequency, densitySeed, 4, 2.05, 0.55);
+    const normalized = 0.5 + 0.5 * noise;
+    const factor = densityMin + (densityMax - densityMin) * normalized;
+    return clampNumber(factor, densityMin, densityMax);
+  };
 
   const isInside = (point: Point) => pointInPolygon(point, polygonLocal);
 
-  const cellSize = Math.max(minDist, spacing);
+  const cellSize = Math.max(baseMinDist, spacing);
   const invCellSize = 1 / cellSize;
   const cellKey = (ix: number, iy: number) => `${ix}:${iy}`;
   const grid = new Map<string, number[]>();
@@ -128,6 +151,10 @@ export function delaunayFill(shape: ShapeDefinition, params: FillParams): FillRe
       return false;
     }
 
+    const worldCandidate = toWorld(candidate);
+    const candidateDensity = computeDensityFactor(worldCandidate);
+    const candidateMinDist = Math.max(baseMinDist / candidateDensity, MIN_LOCAL_DISTANCE);
+
     const { ix, iy } = toCell(candidate);
     const neighbors = gatherNeighborIndices(ix, iy, GRID_RADIUS_DISTANCE_CHECK);
 
@@ -135,12 +162,16 @@ export function delaunayFill(shape: ShapeDefinition, params: FillParams): FillRe
       const neighbor = poissonPoints[index];
       const dx = candidate.x - neighbor.x;
       const dy = candidate.y - neighbor.y;
-      if (dx * dx + dy * dy < minDistSq) {
+      const neighborDensity = pointDensityFactors[index] ?? 1;
+      const neighborMinDist = Math.max(baseMinDist / neighborDensity, MIN_LOCAL_DISTANCE);
+      const requiredDist = Math.max(candidateMinDist, neighborMinDist);
+      if (dx * dx + dy * dy < requiredDist * requiredDist) {
         return false;
       }
     }
 
     const newIndex = poissonPoints.push(candidate) - 1;
+    pointDensityFactors[newIndex] = candidateDensity;
     registerPoint(candidate, newIndex);
     return true;
   };
@@ -184,10 +215,11 @@ export function delaunayFill(shape: ShapeDefinition, params: FillParams): FillRe
   const segments: FillStrokeSegment[] = [];
   const seenEdges = new Set<string>();
 
-  const neighborCount = Math.max(2, Math.round(3 + jitter * 3));
+  const baseNeighborCount = Math.max(2, Math.round(3 + jitter * 3));
 
   for (let i = 0; i < poissonPoints.length; i += 1) {
     const point = poissonPoints[i];
+    const pointDensity = pointDensityFactors[i] ?? 1;
     const { ix, iy } = toCell(point);
     const neighborIndices = gatherNeighborIndices(ix, iy, GRID_RADIUS_EDGE_SEARCH);
     const seenNeighbor = new Set<number>();
@@ -205,7 +237,9 @@ export function delaunayFill(shape: ShapeDefinition, params: FillParams): FillRe
     }
 
     distances.sort((a, b) => a.dist - b.dist);
-    const limit = Math.min(neighborCount, distances.length);
+    const neighborMultiplier = clampNumber(1 + (pointDensity - 1) * 0.9, 0.6, 2);
+    const localNeighborTarget = Math.max(2, Math.round(baseNeighborCount * neighborMultiplier));
+    const limit = Math.min(localNeighborTarget, distances.length);
 
     for (let k = 0; k < limit; k += 1) {
       const neighbor = poissonPoints[distances[k].index];

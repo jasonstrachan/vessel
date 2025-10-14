@@ -10,6 +10,8 @@ export function renderFill(ctx: CanvasRenderingContext2D, result: FillResult): v
 
   const hasStrokeSegments = Array.isArray(result.strokeSegments) && result.strokeSegments.length > 0;
   const hasDotInstances = Array.isArray(result.dotInstances) && result.dotInstances.length > 0;
+  const baseFillStyle = ctx.fillStyle;
+  const baseFillString = typeof baseFillStyle === 'string' ? baseFillStyle : null;
 
   if (result.clipPath && result.clipPath.length >= 3) {
     ctx.save();
@@ -59,10 +61,24 @@ export function renderFill(ctx: CanvasRenderingContext2D, result: FillResult): v
         return;
       }
       ctx.save();
+      const shade = instance.shade;
+      if (instance.color) {
+        ctx.fillStyle = instance.color;
+      } else if (shade !== undefined) {
+        ctx.fillStyle = shade >= 0 ? '#ffffff' : '#000000';
+      } else if (baseFillString) {
+        ctx.fillStyle = baseFillString;
+      }
       ctx.globalAlpha = instance.alpha ?? 1;
-      ctx.beginPath();
-      ctx.arc(instance.center.x, instance.center.y, instance.radius, 0, Math.PI * 2);
-      ctx.fill();
+      if (instance.shape === 'square') {
+        const size = instance.size ?? instance.radius * 2;
+        const half = size / 2;
+        ctx.fillRect(instance.center.x - half, instance.center.y - half, size, size);
+      } else {
+        ctx.beginPath();
+        ctx.arc(instance.center.x, instance.center.y, instance.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     });
   } else {

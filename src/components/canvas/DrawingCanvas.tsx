@@ -370,7 +370,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     const { scale, offsetX, offsetY } = transform;
     
     // Clear canvas
-    ctx.fillStyle = '#1a1a1a';
+    ctx.fillStyle = '#141514';
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     
     if (project && layers.length > 0) {
@@ -438,14 +438,13 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       
       // Note: Color cycle animation is now rendered to the drawing canvas
       // in useDrawingHandlers, so it gets composited in the correct layer order
-      
       ctx.restore();
       
-      // Draw border
+      // Draw subtle border matching background to mask checker anti-alias fringe
       ctx.save();
       ctx.translate(offsetX, offsetY);
       ctx.scale(scale, scale);
-      ctx.strokeStyle = '#666666';
+      ctx.strokeStyle = '#141514';
       ctx.lineWidth = 2 / scale;
       ctx.strokeRect(0, 0, project.width, project.height);
       ctx.restore();

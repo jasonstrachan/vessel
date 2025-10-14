@@ -1,11 +1,12 @@
 import { FillParams, FillResult, ShapeDefinition, Vec2 } from '../types';
 import { computeBounds, pointInPolygon } from '../utils/geometry';
-import { fbm2 } from '../utils/noise';
 import { createRng, hashPoints } from '../utils/random';
 import { clamp } from '../utils/math';
+import { parseCssColor } from '@/utils/color/parseCssColor';
 
-const MIN_SPACING = 2;
-const MAX_SAMPLES = 200_000;
+const MAX_CELLS = 180_000;
+const WHITE_RGB = { r: 255, g: 255, b: 255 };
+const BLACK_RGB = { r: 0, g: 0, b: 0 };
 
 export function noiseFill(shape: ShapeDefinition, params: FillParams): FillResult {
   if (shape.points.length < 3) {
@@ -13,54 +14,135 @@ export function noiseFill(shape: ShapeDefinition, params: FillParams): FillResul
   }
 
   const bounds = computeBounds(shape.points);
-  const spacing = Math.max(MIN_SPACING, params.spacing ?? 6);
-  const jitter = spacing * clamp(params.variance ?? 0.25, 0, 1);
 
-  const seed = params.seed ?? hashPoints(shape.points);
+  const requestedSize = Math.max(0.1, params.spacing ?? 0.5);
+  let pixelSize = clamp(requestedSize, 0.1, 8);
+  const jitter = clamp01(params.variance ?? 0.3);
+  const randomness = clamp01(params.noiseRandomness ?? 0);
+  const contrast = clamp(0.1 + (params.noiseContrast ?? 0.65) * 2.9, 0.1, 3);
+  const colorBleed = clamp01((params.noiseScale ?? 48) / 240);
+  const scanlineStrength =
+    clamp01(((params.noiseOctaves ?? 3) - 1) / 5) * 0.4;
+  const seedOffset = params.seed ?? 0;
+  const seed = hashPoints(shape.points) ^ seedOffset;
   const rng = createRng(seed);
+  const whiteBias = clamp01(params.noiseThreshold ?? 0.5);
+  const biasShift = (whiteBias - 0.5) * 0.9;
 
-  const scale = Math.max(2, params.noiseScale ?? 48);
-  const contrast = clamp01(params.noiseContrast ?? 0.65);
-  const threshold = clamp01(params.noiseThreshold ?? 0.45);
-  const octaves = clamp(Math.round(params.noiseOctaves ?? 3), 1, 6);
-  const thickness = Math.max(0.15, params.thickness ?? 1);
+  const pad = pixelSize * 2;
+  const startX = Math.max(0, Math.floor(bounds.minX - pad));
+  const startY = Math.max(0, Math.floor(bounds.minY - pad));
+  const endX = Math.floor(bounds.maxX + pad);
+  const endY = Math.floor(bounds.maxY + pad);
+
+  const width = Math.max(1, endX - startX);
+  const height = Math.max(1, endY - startY);
+  const estimatedCols = Math.max(1, Math.ceil(width / pixelSize));
+  const estimatedRows = Math.max(1, Math.ceil(height / pixelSize));
+  const estimatedCells = estimatedCols * estimatedRows;
+
+  if (estimatedCells > MAX_CELLS) {
+    const scale = Math.sqrt(estimatedCells / MAX_CELLS);
+    pixelSize = clamp(pixelSize * scale, 0.1, 8);
+  }
+
+  const hasCustomFillColor = typeof params.fillColor === 'string' && params.fillColor.trim().length > 0;
+  const parsedFill = hasCustomFillColor ? parseCssColor(params.fillColor as string) : null;
+  const baseFillColor = parsedFill
+    ? { r: parsedFill.r, g: parsedFill.g, b: parsedFill.b }
+    : WHITE_RGB;
+  const normalizedContrast = clamp01((contrast - 0.1) / (3 - 0.1));
+  const highlightMix = clamp01(0.2 + colorBleed * 0.55 + normalizedContrast * 0.15);
+  const shadowMix = clamp01(0.35 + normalizedContrast * 0.4);
+  const highlightColor = hasCustomFillColor ? mixColor(baseFillColor, WHITE_RGB, highlightMix) : WHITE_RGB;
+  const shadowColor = hasCustomFillColor ? mixColor(baseFillColor, BLACK_RGB, shadowMix) : BLACK_RGB;
+  const fillAlpha = parsedFill ? clamp01(parsedFill.a / 255) : 1;
+  const luminanceScale = 0.23 * contrast;
+  const jitterScale = 0.25 * jitter;
+  const hotPixelChance = 0.0005 * contrast;
+  const coldPixelChance = 0.00035 * contrast;
 
   const dotInstances: NonNullable<FillResult['dotInstances']> = [];
 
-  const width = bounds.maxX - bounds.minX;
-  const height = bounds.maxY - bounds.minY;
-  const maxDots = Math.min(
-    MAX_SAMPLES,
-    Math.ceil(width / spacing) * Math.ceil(height / spacing) * 2
-  );
+  let rowIndex = 0;
+  for (let y = startY; y < endY && dotInstances.length < MAX_CELLS; y += pixelSize, rowIndex += 1) {
+    const scanlineMask =
+      1 - scanlineStrength * (0.5 + 0.5 * Math.sin((rowIndex + seed * 0.00037) * 0.9));
 
-  for (let x = bounds.minX; x <= bounds.maxX && dotInstances.length < maxDots; x += spacing) {
-    for (let y = bounds.minY; y <= bounds.maxY && dotInstances.length < maxDots; y += spacing) {
-      const jitterX = jitter ? (rng() - 0.5) * 2 * jitter : 0;
-      const jitterY = jitter ? (rng() - 0.5) * 2 * jitter : 0;
-      const sample: Vec2 = { x: x + jitterX, y: y + jitterY };
-
-      if (!pointInPolygon(sample, shape.points)) {
+    for (let x = startX; x < endX && dotInstances.length < MAX_CELLS; x += pixelSize) {
+      const baseCenter: Vec2 = { x: x + pixelSize * 0.5, y: y + pixelSize * 0.5 };
+      if (!pointInPolygon(baseCenter, shape.points)) {
         continue;
       }
 
-      const noiseValue = fbm2(sample.x / scale, sample.y / scale, seed, octaves, 2, 0.55);
-      const normalized = clamp01(0.5 + 0.5 * noiseValue);
-      const contrasted = applyContrast(normalized, contrast);
+      let center = baseCenter;
+      if (randomness > 0) {
+        const jitterExtent = pixelSize * randomness * 0.75;
+        const offsetX = (rng() - 0.5) * 2 * jitterExtent;
+        const offsetY = (rng() - 0.5) * 2 * jitterExtent;
+        const candidate: Vec2 = {
+          x: baseCenter.x + offsetX,
+          y: baseCenter.y + offsetY,
+        };
 
-      if (contrasted < threshold) {
-        continue;
+        if (pointInPolygon(candidate, shape.points)) {
+          center = candidate;
+        } else {
+          center = {
+            x: baseCenter.x + offsetX * 0.35,
+            y: baseCenter.y + offsetY * 0.35,
+          };
+        }
       }
 
-      const surplus = (contrasted - threshold) / Math.max(1e-5, 1 - threshold);
-      const radiusBase = Math.max(0.35, thickness * 0.45);
-      const radius = radiusBase * (0.65 + surplus * 1.5);
-      const alpha = clamp01(0.35 + surplus * 0.55);
+      const baseNoise = clamp01(
+        0.5 + gaussianNoise(rng) * luminanceScale + (rng() - 0.5) * jitterScale
+      );
+
+      let rSample = clamp01(baseNoise + (rng() - 0.5) * colorBleed * 0.9 + biasShift);
+      let gSample = clamp01(baseNoise + (rng() - 0.5) * colorBleed * 0.6 + biasShift);
+      let bSample = clamp01(baseNoise + (rng() - 0.5) * colorBleed * 1.1 + biasShift);
+
+      const flicker = 1 + (rng() - 0.5) * 0.06 * contrast;
+      rSample = clamp01(rSample * flicker);
+      gSample = clamp01(gSample * flicker);
+      bSample = clamp01(bSample * flicker);
+
+      const hotRoll = rng();
+      if (hotRoll < hotPixelChance) {
+        rSample = clamp01(rSample + 0.6 + rng() * 0.4);
+        gSample = clamp01(gSample + 0.2 + rng() * 0.3);
+        bSample = clamp01(bSample + 0.1 + rng() * 0.2);
+      } else if (hotRoll - hotPixelChance < coldPixelChance) {
+        rSample *= rng() * 0.4;
+        gSample *= rng() * 0.3;
+        bSample *= rng() * 0.3;
+      }
+
+      const maskedR = clamp01(rSample * scanlineMask);
+      const maskedG = clamp01(gSample * scanlineMask);
+      const maskedB = clamp01(bSample * scanlineMask);
+      const r = lerp(shadowColor.r, highlightColor.r, maskedR);
+      const g = lerp(shadowColor.g, highlightColor.g, maskedG);
+      const b = lerp(shadowColor.b, highlightColor.b, maskedB);
+
+      const color = formatCssColor({ r, g, b }, fillAlpha);
+      const luminance = (rSample + gSample + bSample) / 3;
+
+      let dotSize = pixelSize;
+      if (randomness > 0) {
+        const sizeVariance = 1 + (rng() - 0.5) * randomness * 0.8;
+        dotSize = clamp(dotSize * sizeVariance, pixelSize * 0.45, pixelSize * 1.6);
+      }
 
       dotInstances.push({
-        center: sample,
-        radius,
-        alpha,
+        center,
+        radius: dotSize * 0.5,
+        alpha: 1,
+        shape: 'square',
+        size: dotSize,
+        color,
+        shade: luminance >= 0.5 ? 1 : -1,
       });
     }
   }
@@ -71,18 +153,47 @@ export function noiseFill(shape: ShapeDefinition, params: FillParams): FillResul
   };
 }
 
-function applyContrast(value: number, contrast: number): number {
-  // Map contrast in [0,1] to gamma-like adjustment where 0.5 is neutral.
-  if (contrast <= 0) {
-    return value;
-  }
-
-  const pivot = 0.5;
-  const strength = 1 + contrast * 2;
-  const adjusted = (value - pivot) * strength + pivot;
-  return clamp01(adjusted);
-}
-
 function clamp01(value: number): number {
   return clamp(value, 0, 1);
+}
+
+type RGB = { r: number; g: number; b: number };
+
+function mixColor(a: RGB, b: RGB, t: number): RGB {
+  return {
+    r: lerp(a.r, b.r, t),
+    g: lerp(a.g, b.g, t),
+    b: lerp(a.b, b.b, t),
+  };
+}
+
+function formatCssColor(rgb: RGB, alpha: number): string {
+  const r = clampChannel(rgb.r);
+  const g = clampChannel(rgb.g);
+  const b = clampChannel(rgb.b);
+  const normalizedAlpha = clamp01(alpha);
+  if (normalizedAlpha >= 0.999) {
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  const roundedAlpha = Math.round(normalizedAlpha * 1000) / 1000;
+  return `rgba(${r}, ${g}, ${b}, ${roundedAlpha})`;
+}
+
+function clampChannel(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+function gaussianNoise(rng: () => number): number {
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = rng();
+  while (v === 0) v = rng();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
