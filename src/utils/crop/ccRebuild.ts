@@ -162,11 +162,26 @@ export function rebuildCCLayerAfterCrop({
                 }
               }
             }
-            if (entry.imageData) {
-              try {
-                brushCtx.putImageData(entry.imageData, 0, 0);
-              } catch {}
-            }
+        if (entry.imageData) {
+          try {
+            brushCtx.putImageData(entry.imageData, 0, 0);
+          } catch {}
+        }
+      }
+    }
+
+        const targetBrushSpeed =
+          typeof entry.brushSpeed === 'number'
+            ? entry.brushSpeed
+            : targetLayer.colorCycleData?.brushSpeed ??
+              getState().tools.brushSettings.colorCycleSpeed ??
+              0.1;
+
+        if (typeof freshBrush.setSpeed === 'function') {
+          try {
+            freshBrush.setSpeed(targetBrushSpeed);
+          } catch {
+            // Ignore failures; downstream logic will handle fallback speed
           }
         }
 

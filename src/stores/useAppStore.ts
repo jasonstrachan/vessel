@@ -4178,6 +4178,72 @@ export const useAppStore = create<AppState>()(
               }
             }));
           }
+
+          // Register restored color cycle brushes with the manager so they aren't recreated blank
+          if (colorCycleBrushManager) {
+            const postLoadState = get();
+            const colorCycleLayerIds = new Set(
+              postLoadState.layers
+                .filter(layer => layer.layerType === 'color-cycle')
+                .map(layer => layer.id)
+            );
+
+            try {
+              colorCycleBrushManager.cleanupOrphanedBrushes(colorCycleLayerIds);
+            } catch (error) {
+              console.warn('[Store] Failed to cleanup orphaned color cycle brushes during load:', error);
+            }
+
+            const now = Date.now();
+            const projectWidth = postLoadState.project?.width ?? loadedProject.width ?? 0;
+            const projectHeight = postLoadState.project?.height ?? loadedProject.height ?? 0;
+
+            for (const layer of postLoadState.layers) {
+              if (layer.layerType !== 'color-cycle' || !layer.colorCycleData?.colorCycleBrush) {
+                continue;
+              }
+
+              const brush = layer.colorCycleData.colorCycleBrush as ColorCycleBrushImplementation & {
+                setLayerId?: (layerId: string) => void;
+                isUsingWebGL?: () => boolean;
+              };
+
+              try {
+                brush.setLayerId?.(layer.id);
+              } catch (error) {
+                console.warn('[Store] Failed to set layerId on restored color cycle brush:', error);
+              }
+
+              colorCycleBrushManager.brushes.set(layer.id, brush);
+              colorCycleBrushManager.brushMetadata.set(layer.id, {
+                layerId: layer.id,
+                created: now,
+                lastUsed: now,
+                width: layer.colorCycleData.canvas?.width ?? projectWidth,
+                height: layer.colorCycleData.canvas?.height ?? projectHeight,
+                gradientHash: undefined,
+                isActive: false
+              });
+              colorCycleBrushManager.activeResources.add(layer.id);
+              colorCycleBrushManager.activeResources.add(`canvas_${layer.id}`);
+
+              try {
+                if (brush.isUsingWebGL?.()) {
+                  colorCycleBrushManager.activeResources.add(`webgl_${layer.id}`);
+                }
+              } catch (error) {
+                console.warn('[Store] Failed to register WebGL resource for restored CC brush:', error);
+              }
+            }
+
+            if (postLoadState.activeLayerId) {
+              try {
+                colorCycleBrushManager.setActiveState(postLoadState.activeLayerId, true);
+              } catch (error) {
+                console.warn('[Store] Failed to set active CC brush state during load:', error);
+              }
+            }
+          }
           
           // Clear history when loading a new project
           state.clearHistory();

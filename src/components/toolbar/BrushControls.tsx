@@ -189,6 +189,7 @@ const BrushControls = () => {
       try {
         const customEvent = event as CustomEvent<{ isPlaying: boolean }>;
         if (typeof customEvent.detail?.isPlaying === 'boolean') {
+          globalIsAnimating = customEvent.detail.isPlaying;
           setIsAnimating(customEvent.detail.isPlaying);
         }
       } catch {}
@@ -220,33 +221,29 @@ const BrushControls = () => {
   const previousBrushShape = React.useRef(activeSettings.brushShape);
   
   React.useEffect(() => {
-    const wasColorCycle = isColorCycleBrush(previousBrushShape.current);
+    const previousShape = previousBrushShape.current;
+    const wasColorCycle = isColorCycleBrush(previousShape);
     const isCurrentColorCycle = isColorCycleBrush(activeSettings.brushShape);
-    
-    if (isCurrentColorCycle) {
-      // Start animation when switching to color cycle brush (if play is active)
+
+    if (!wasColorCycle && isCurrentColorCycle) {
       if (isAnimating) {
         void toggleGlobalColorCyclePlayback(true);
       }
-      
-      // Set appropriate shape mode based on brush variant
+    } else if (wasColorCycle && !isCurrentColorCycle) {
+      if (isAnimating) {
+        void toggleGlobalColorCyclePlayback(false);
+      }
+      // Reset Color Cycle speed to default when leaving CC mode
+      setActiveSettings({ colorCycleSpeed: 0.1 });
+    }
+
+    if (isCurrentColorCycle) {
       const forcedShapeMode = getShapeModeForBrush(activeSettings.brushShape);
       if (forcedShapeMode !== undefined && shapeMode !== forcedShapeMode) {
         setShapeMode(forcedShapeMode);
       }
-    } else {
-      // ALWAYS stop animation when switching to ANY other tool
-      // This prevents lag when using other tools
-      if (isAnimating) {
-        void toggleGlobalColorCyclePlayback(false);
-      }
-      
-      if (wasColorCycle) {
-        // Reset Color Cycle speed to default when leaving CC mode
-        setActiveSettings({ colorCycleSpeed: 0.1 });
-      }
     }
-    
+
     previousBrushShape.current = activeSettings.brushShape;
   }, [activeSettings.brushShape, isAnimating, setActiveSettings, shapeMode, setShapeMode]);
 

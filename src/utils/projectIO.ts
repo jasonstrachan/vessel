@@ -897,6 +897,14 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
             layerSnapshots
           });
 
+          if (typeof colorCycleBrush.setLayerId === 'function') {
+            try {
+              colorCycleBrush.setLayerId(layer.id);
+            } catch (error) {
+              console.warn('[projectIO] Failed to assign layerId to restored color cycle brush:', error);
+            }
+          }
+
           if (layer.colorCycleData.gradient) {
             try {
               colorCycleBrush.setGradient(layer.colorCycleData.gradient);
@@ -918,6 +926,14 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
             colorCycleBrush.setPlaying(false);
           }
 
+          if (typeof colorCycleBrush.markLayerHasExternalBase === 'function') {
+            try {
+              colorCycleBrush.markLayerHasExternalBase(layer.id);
+            } catch (error) {
+              console.warn('[projectIO] Failed to flag restored color cycle base (brush state):', error);
+            }
+          }
+
           continue;
         } catch (error) {
           console.error('[projectIO] Failed to restore color cycle brush state:', error);
@@ -928,6 +944,13 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
       if (savedState) {
         // Create new color cycle brush
         const colorCycleBrush = createColorCycleBrush(layer.colorCycleData.canvas!);
+        if (typeof colorCycleBrush.setLayerId === 'function') {
+          try {
+            colorCycleBrush.setLayerId(layer.id);
+          } catch (error) {
+            console.warn('[projectIO] Failed to assign layerId to restored CC brush (WebGL state):', error);
+          }
+        }
         
         // Restore the WebGL state
         const layerSnapshots = new Map<string, ArrayBuffer>();
@@ -951,11 +974,33 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
         if (layer.colorCycleData.isAnimating) {
           colorCycleBrush.setPlaying(!savedState.animationState.isPaused);
         }
+
+        if (typeof colorCycleBrush.markLayerHasExternalBase === 'function') {
+          try {
+            colorCycleBrush.markLayerHasExternalBase(layer.id);
+          } catch (error) {
+            console.warn('[projectIO] Failed to flag restored color cycle base (WebGL state):', error);
+          }
+        }
       } else {
         // No saved state, create a new brush with the gradient
         const colorCycleBrush = createColorCycleBrush(layer.colorCycleData.canvas!);
+        if (typeof colorCycleBrush.setLayerId === 'function') {
+          try {
+            colorCycleBrush.setLayerId(layer.id);
+          } catch (error) {
+            console.warn('[projectIO] Failed to assign layerId to restored CC brush (fallback):', error);
+          }
+        }
         if (layer.colorCycleData.gradient) {
           colorCycleBrush.setGradient(layer.colorCycleData.gradient);
+        }
+        if (typeof layer.colorCycleData.brushSpeed === 'number') {
+          try {
+            colorCycleBrush.setSpeed(layer.colorCycleData.brushSpeed);
+          } catch (error) {
+            console.warn('[projectIO] Failed to restore color cycle speed:', error);
+          }
         }
         layer.colorCycleData.colorCycleBrush = colorCycleBrush;
 
