@@ -3,9 +3,11 @@ import { createBitmapTileDelta } from '@/history/deltas/bitmapDelta';
 import { createColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDelta';
 import { mapCanvasActionToHistoryId } from './actions';
 import { captureColorCycleBrushState, type ColorCycleSerializedState } from './colorCycle';
+import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { CanvasSnapshot } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
 import { createSelectionDelta } from '@/history/deltas/selectionDelta';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import {
   cloneSelectionSnapshot,
   selectionSnapshotFromValues,
@@ -47,7 +49,12 @@ export interface LayerHistoryPayload {
     };
   };
   selectionBefore?: SelectionSnapshot | null;
+  skipBitmapDelta?: boolean;
 }
+
+type BrushWithOptionalFlush = ColorCycleBrushImplementation & {
+  flush?: (layerId: string) => void;
+};
 
 export const commitLayerHistory = async ({
   layerId,
@@ -58,16 +65,25 @@ export const commitLayerHistory = async ({
   tool,
   coalesce,
   selectionBefore,
+  skipBitmapDelta,
 }: LayerHistoryPayload): Promise<void> => {
   const afterState = useAppStore.getState();
   const refreshedLayer = afterState.layers.find((layer) => layer.id === layerId) ?? null;
   if (!refreshedLayer) {
     return;
   }
+  const isColorCycleLayer = refreshedLayer.layerType === 'color-cycle';
 
   const afterImage = cloneImageData(refreshedLayer.imageData);
+
+  if (isColorCycleLayer) {
+    const manager = getColorCycleBrushManager();
+    const brush = manager.getBrush(layerId) as BrushWithOptionalFlush | undefined;
+    brush?.flush?.(layerId);
+  }
+
   const afterColorState =
-    refreshedLayer.layerType === 'color-cycle'
+    isColorCycleLayer
       ? captureColorCycleBrushState(refreshedLayer.id)
       : null;
 
@@ -92,59 +108,78 @@ export const commitLayerHistory = async ({
     ? cloneSelectionSnapshot(selectionBefore)
     : null;
 
-  const txn = historyManager.begin(historyId, meta, undefined, coalesce ? {
-    coalesce: {
-      key: coalesce.key,
-      maxIntervalMs: coalesce.maxIntervalMs,
-      mergeLabel: coalesce.mergeLabel,
-    },
-  } : undefined);
+  const txn = historyManager.begin(
+    historyId,
+    meta,
+    undefined,
+    coalesce
+      ? {
+          coalesce: {
+            key: coalesce.key,
+            maxIntervalMs: coalesce.maxIntervalMs,
+            mergeLabel: coalesce.mergeLabel,
+          },
+        }
+      : undefined,
+  );
   let deltaCount = 0;
+  let committed = false;
 
-  if (afterImage) {
-    const bitmapDelta = await createBitmapTileDelta({
-      layerId,
-      before: beforeImage,
-      after: afterImage,
-    });
-    if (bitmapDelta) {
-      txn.push(bitmapDelta);
-      deltaCount += 1;
+  try {
+    const skipBitmap = skipBitmapDelta === true;
+
+    if (afterImage && !skipBitmap && !isColorCycleLayer) {
+      const bitmapDelta = await createBitmapTileDelta({
+        layerId,
+        before: beforeImage,
+        after: afterImage,
+      });
+      if (bitmapDelta) {
+        txn.push(bitmapDelta);
+        deltaCount += 1;
+      }
     }
-  }
 
-  if (afterColorState || beforeColorState) {
-    const colorDelta = createColorCycleStrokeDelta({
-      layerId,
-      forwardState: afterColorState,
-      backwardState: beforeColorState,
-    });
-    if (colorDelta) {
-      txn.push(colorDelta);
-      deltaCount += 1;
+    if (afterColorState || beforeColorState) {
+      const colorDelta = createColorCycleStrokeDelta({
+        layerId,
+        forwardState: afterColorState,
+        backwardState: beforeColorState,
+      });
+      if (colorDelta) {
+        txn.push(colorDelta);
+        deltaCount += 1;
+      }
     }
-  }
 
-  if (selectionBeforeSnapshot) {
-    const selectionAfterSnapshot = selectionSnapshotFromValues(
-      afterState.selectionStart,
-      afterState.selectionEnd,
-    );
-    const selectionDelta = createSelectionDelta({
-      before: selectionBeforeSnapshot,
-      after: selectionAfterSnapshot,
-    });
-    if (selectionDelta) {
-      txn.push(selectionDelta);
-      deltaCount += 1;
+    if (selectionBeforeSnapshot) {
+      const selectionAfterSnapshot = selectionSnapshotFromValues(
+        afterState.selectionStart,
+        afterState.selectionEnd,
+      );
+      const selectionDelta = createSelectionDelta({
+        before: selectionBeforeSnapshot,
+        after: selectionAfterSnapshot,
+      });
+      if (selectionDelta) {
+        txn.push(selectionDelta);
+        deltaCount += 1;
+      }
     }
-  }
 
-  if (deltaCount > 0) {
-    txn.commit(description);
-    markUnsavedChanges();
-  } else {
+    if (deltaCount > 0) {
+      txn.commit(description);
+      committed = true;
+    } else {
+      txn.cancel();
+    }
+  } catch (error) {
     txn.cancel();
+    throw error;
+  } finally {
+    if (committed) {
+      markUnsavedChanges();
+    }
   }
 };
 

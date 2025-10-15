@@ -10,6 +10,7 @@ import { captureSelectionSnapshot, commitSelectionHistory } from '@/history/help
 import historyManager from '@/history/historyService';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 const TRIANGLE_POINTS = [
   { x: 0, y: 0 },
@@ -82,7 +83,7 @@ const createLayer = (id: string, imageData: ImageData): Layer => {
     layerType: 'normal',
     imageData,
     framebuffer,
-    alignment: null,
+    alignment: createDefaultLayerAlignment(),
     colorCycleData: undefined,
   };
 };

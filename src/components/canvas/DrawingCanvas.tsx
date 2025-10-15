@@ -3,14 +3,14 @@ import { useAppStore } from '../../stores/useAppStore';
 import { useBrushEngineSimplified } from '../../hooks/useBrushEngineSimplified';
 import { useCanvasInteraction } from '../../hooks/useCanvasInteraction';
 import { useCanvasStateMachine } from '../../hooks/useCanvasStateMachine';
-import { useSimplePan } from '../../hooks/useSimplePan';
+import { useSimplePan, type PanSnapshot, type PanEvent } from '../../hooks/useSimplePan';
 import { useToolStateMachine } from '../../hooks/useToolStateMachine';
 import { useComprehensiveKeyboard } from '../../hooks/useComprehensiveKeyboard';
 import { useDrawingHandlers } from '../../hooks/useDrawingHandlers';
 import { useCanvasEventHandlers } from '../../hooks/canvas/useCanvasEventHandlers';
 import { useCropState } from '../../hooks/useCropState';
 import { BrushShape } from '../../types';
-import type { CanvasSnapshot, Layer, Tool } from '../../types';
+import type { Layer, Tool } from '../../types';
 import type { FloatingPaste as FloatingPasteState } from '../../hooks/canvas/utils/types';
 import BrushCursor from './BrushCursor';
 import CropOverlay from './CropOverlay';
@@ -21,12 +21,6 @@ import { getPresetStops } from '@/utils/gradientPresets';
 import { getColorCycleBrushManager, type ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
 import { FillStage } from '@/shapeFill/types';
-
-const isColorCycleLayerWithData = (
-  layer: Layer | undefined | null
-): layer is Layer & { colorCycleData: NonNullable<Layer['colorCycleData']> } => {
-  return !!layer && layer.layerType === 'color-cycle' && !!layer.colorCycleData;
-};
 
 type GradientStop = { position: number; color: string };
 
@@ -101,16 +95,32 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const pointerMoveThrottled = useRef<number>(0); // Throttle pointer move to 120fps
   const colorCycleBrushManagerRef = useRef<ColorCycleBrushManager | null>(null);
   
-  // Get essential store state - removed shallow comparison to avoid infinite loop
+  // Get essential store state using focused selectors to avoid unnecessary re-renders
   const project = useAppStore((state) => state.project);
-  const canvas = useAppStore((state) => state.canvas);
-  const tools = useAppStore((state) => state.tools);
   const layers = useAppStore((state) => state.layers);
   const activeLayerId = useAppStore((state) => state.activeLayerId);
   const selectionStart = useAppStore((state) => state.selectionStart);
   const selectionEnd = useAppStore((state) => state.selectionEnd);
   const floatingPaste = useAppStore((state) => state.floatingPaste);
   const layersNeedRecomposition = useAppStore((state) => state.layersNeedRecomposition);
+  const canvasZoom = useAppStore((state) => state.canvas.zoom);
+  const canvasOffsetX = useAppStore((state) => state.canvas.offsetX);
+  const canvasOffsetY = useAppStore((state) => state.canvas.offsetY);
+  const currentTool = useAppStore((state) => state.tools.currentTool);
+  const brushSettings = useAppStore((state) => state.tools.brushSettings);
+  const fillSettings = useAppStore((state) => state.tools.fillSettings);
+  const eraserSettings = useAppStore((state) => state.tools.eraserSettings);
+  const shapeMode = useAppStore((state) => state.tools.shapeMode);
+  const tools = useMemo(
+    () => ({
+      currentTool,
+      brushSettings,
+      fillSettings,
+      eraserSettings,
+      shapeMode
+    }),
+    [brushSettings, currentTool, eraserSettings, fillSettings, shapeMode]
+  );
   const { crop, commitCrop, cancelCrop } = useCropState();
   
   // Get functions separately (they don't change)
@@ -536,67 +546,85 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const stateMachine = useCanvasStateMachine();
   const setCanvasStateMachineTool = stateMachine.setTool;
   const forceCanvasIdle = stateMachine.forceIdle;
-  const pan = useSimplePan({ scale: canvas?.zoom || 1 });
-  const { setPan } = pan;
-  // const prevStateRef = useRef(stateMachine.state);
-  const panOffsetX = pan.panState.offsetX;
-  const panOffsetY = pan.panState.offsetY;
-  const canvasOffsetX = canvas?.offsetX ?? 0;
-  const canvasOffsetY = canvas?.offsetY ?? 0;
-  const isPanning = pan.panState.isPanning;
-  const lastPanSyncedRef = useRef<{ x: number; y: number }>({ x: Number.NaN, y: Number.NaN });
-  const lastStoreSyncedRef = useRef<{ x: number; y: number }>({ x: Number.NaN, y: Number.NaN });
-  const isApplyingStorePanRef = useRef(false);
+  const pan = useSimplePan({ scale: canvasZoom || 1 });
+  const setPan = pan.setPan;
+  const getPanState = pan.getState;
+  const subscribeToPan = pan.subscribe;
+  const lastCommittedPanRef = useRef<{ x: number; y: number }>({ x: canvasOffsetX, y: canvasOffsetY });
+  const pendingPanCommitRef = useRef<number | null>(null);
+  const pendingPanStateRef = useRef<PanSnapshot | null>(null);
+
+  const commitPanToStore = useCallback(
+    (state: PanSnapshot) => {
+      setCanvasOffset(state.offsetX, state.offsetY);
+      lastCommittedPanRef.current = { x: state.offsetX, y: state.offsetY };
+    },
+    [setCanvasOffset]
+  );
 
   useEffect(() => {
-    if (
-      lastPanSyncedRef.current.x === panOffsetX &&
-      lastPanSyncedRef.current.y === panOffsetY
-    ) {
+    const current = getPanState();
+    if (current.isPanning) {
       return;
     }
-
-    lastPanSyncedRef.current = { x: panOffsetX, y: panOffsetY };
-
-    if (isApplyingStorePanRef.current) {
-      // Store-driven sync triggered this change; avoid looping back into the store
-      isApplyingStorePanRef.current = false;
+    if (current.offsetX === canvasOffsetX && current.offsetY === canvasOffsetY) {
       return;
     }
-
-    const canvasState = useAppStore.getState().canvas;
-    if (!canvasState) {
-      return;
-    }
-
-    if (canvasState.offsetX === panOffsetX && canvasState.offsetY === panOffsetY) {
-      return;
-    }
-
-    setCanvasOffset(panOffsetX, panOffsetY);
-  }, [panOffsetX, panOffsetY, setCanvasOffset]);
+    setPan(canvasOffsetX, canvasOffsetY, { silent: true });
+    viewTransformRef.current.offsetX = canvasOffsetX;
+    viewTransformRef.current.offsetY = canvasOffsetY;
+  }, [canvasOffsetX, canvasOffsetY, getPanState, setPan]);
 
   useEffect(() => {
-    if (
-      lastStoreSyncedRef.current.x === canvasOffsetX &&
-      lastStoreSyncedRef.current.y === canvasOffsetY
-    ) {
-      return;
-    }
+    lastCommittedPanRef.current = { x: canvasOffsetX, y: canvasOffsetY };
+  }, [canvasOffsetX, canvasOffsetY]);
 
-    lastStoreSyncedRef.current = { x: canvasOffsetX, y: canvasOffsetY };
+  useEffect(() => {
+    const handlePanEvent = (state: PanSnapshot, event: PanEvent) => {
+      viewTransformRef.current.offsetX = state.offsetX;
+      viewTransformRef.current.offsetY = state.offsetY;
 
-    if (isPanning) {
-      return;
-    }
+      if (event === 'change' || event === 'set') {
+        pendingPanStateRef.current = state;
+        if (pendingPanCommitRef.current != null) {
+          return;
+        }
+        pendingPanCommitRef.current = requestAnimationFrame(() => {
+          pendingPanCommitRef.current = null;
+          if (pendingPanStateRef.current) {
+            commitPanToStore(pendingPanStateRef.current);
+          }
+        });
+        return;
+      }
 
-    if (panOffsetX === canvasOffsetX && panOffsetY === canvasOffsetY) {
-      return;
-    }
+      if (event === 'end' || event === 'reset') {
+        if (pendingPanCommitRef.current != null) {
+          cancelAnimationFrame(pendingPanCommitRef.current);
+          pendingPanCommitRef.current = null;
+        }
+        pendingPanStateRef.current = null;
 
-    isApplyingStorePanRef.current = true;
-    setPan(canvasOffsetX, canvasOffsetY);
-  }, [canvasOffsetX, canvasOffsetY, isPanning, panOffsetX, panOffsetY, setPan]);
+        if (
+          lastCommittedPanRef.current.x !== state.offsetX ||
+          lastCommittedPanRef.current.y !== state.offsetY
+        ) {
+          commitPanToStore(state);
+        }
+      }
+    };
+
+    const unsubscribe = subscribeToPan(handlePanEvent);
+
+    return () => {
+      if (pendingPanCommitRef.current != null) {
+        cancelAnimationFrame(pendingPanCommitRef.current);
+        pendingPanCommitRef.current = null;
+      }
+      pendingPanStateRef.current = null;
+      unsubscribe();
+    };
+  }, [commitPanToStore, subscribeToPan]);
   
   // Simplified cursor state ref for space key
   const isSpacePressedRef = useRef(false);
@@ -612,21 +640,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const lastStateMachineToolRef = useRef<Tool | null>(tools.currentTool);
   
   // View transform ref for zoom
-  const viewTransformRef = useRef({ 
-    scale: canvas?.zoom || 1, 
-    offsetX: 0, 
-    offsetY: 0 
+  const viewTransformRef = useRef({
+    scale: canvasZoom || 1,
+    offsetX: canvasOffsetX,
+    offsetY: canvasOffsetY
   });
   
-  // Update view transform when zoom or pan changes (but not during active panning)
-  React.useEffect(() => {
-    // Skip updates during active panning to avoid conflicts
-    if (stateMachine.state.mode !== 'PANNING') {
-      viewTransformRef.current.offsetX = pan.panState.offsetX;
-      viewTransformRef.current.offsetY = pan.panState.offsetY;
-    }
-    viewTransformRef.current.scale = canvas?.zoom || 1;
-  }, [canvas?.zoom, pan.panState.offsetX, pan.panState.offsetY, stateMachine.state.mode]);
+  useEffect(() => {
+    viewTransformRef.current.scale = canvasZoom || 1;
+  }, [canvasZoom]);
 
   // Removed old state machine panning logic - now handled directly in mouse events
   
@@ -1372,60 +1394,16 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       // Eraser key released - tool restoration handled in hook
     },
     onUndo: async () => {
-      const storeState = useAppStore.getState();
-      if (!storeState.canUndo()) {
+      if (!useAppStore.getState().canUndo()) {
         return;
       }
-
       await undo();
-
-      const latestStore = useAppStore.getState();
-      const latestProject = latestStore.project;
-
-      compositeCanvasDirtyRef.current = true;
-
-      if (compositeCanvasRef.current && latestProject) {
-        compositeLayersToCanvas(compositeCanvasRef.current);
-        setCurrentOffscreenCanvas(compositeCanvasRef.current);
-        compositeCanvasDirtyRef.current = false;
-      }
-
-      setNeedsRedraw((prev) => prev + 1);
-      requestAnimationFrame(() => {
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-        if (ctx) {
-          draw(ctx, viewTransformRef.current);
-        }
-      });
     },
     onRedo: async () => {
-      const storeState = useAppStore.getState();
-      if (!storeState.canRedo()) {
+      if (!useAppStore.getState().canRedo()) {
         return;
       }
-
       await redo();
-
-      const latestStore = useAppStore.getState();
-      const latestProject = latestStore.project;
-
-      compositeCanvasDirtyRef.current = true;
-
-      if (compositeCanvasRef.current && latestProject) {
-        compositeLayersToCanvas(compositeCanvasRef.current);
-        setCurrentOffscreenCanvas(compositeCanvasRef.current);
-        compositeCanvasDirtyRef.current = false;
-      }
-
-      setNeedsRedraw((prev) => prev + 1);
-      requestAnimationFrame(() => {
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-        if (ctx) {
-          draw(ctx, viewTransformRef.current);
-        }
-      });
     },
     onPolygonComplete: () => {
       if (toolStateMachine.completePolygonGradient()) {
@@ -1610,7 +1588,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     
     // Store state
     project,
-    canvas: canvas ? { width: project?.width || 1920, height: project?.height || 1080, scale: canvas.zoom, zoom: canvas.zoom } : null,
+    canvas: {
+      width: project?.width ?? 1920,
+      height: project?.height ?? 1080,
+      scale: canvasZoom || 1,
+      zoom: canvasZoom || 1
+    },
     tools: {
       currentTool: tools.currentTool,
       brushSettings: tools.brushSettings,
@@ -1914,7 +1897,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     draw(ctx, viewTransformRef.current);
 
   // This now correctly depends on the sources of truth for a redraw
-  }, [canvas?.zoom, pan.panState.offsetX, pan.panState.offsetY, draw, needsRedraw, stateMachine.state.mode]);
+  }, [canvasZoom, canvasOffsetX, canvasOffsetY, draw, needsRedraw, stateMachine.state.mode]);
   
   // Handle paste event
   useEffect(() => {
@@ -2105,7 +2088,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   }, [project, setPan]);
 
   
-  const shouldForcePixelated = (canvas?.zoom || 1) > 3 || (
+  const shouldForcePixelated = (canvasZoom || 1) > 3 || (
     tools.brushSettings.rotationEnabled &&
     (
       tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
@@ -2168,7 +2151,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           height: '100%',
           mixBlendMode: 'normal',
           pointerEvents: 'none',
-          imageRendering: (canvas?.zoom || 1) > 3 ? 'pixelated' : 'auto',
+          imageRendering: (canvasZoom || 1) > 3 ? 'pixelated' : 'auto',
           touchAction: 'none', // Prevent scrolling/zooming on touch devices
           userSelect: 'none', // Prevent text selection
           cursor: cursorStyle,
@@ -2180,7 +2163,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           active
           projectWidth={project.width}
           projectHeight={project.height}
-          zoom={canvas?.zoom || 1}
+          zoom={canvasZoom || 1}
           offsetX={pan.panState.offsetX}
           offsetY={pan.panState.offsetY}
         />
@@ -2188,7 +2171,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       
       {/* Zoom indicator */}
       <div className="absolute bottom-4 right-4 bg-black/50 text-white px-2 py-1 rounded text-sm">
-        {Math.round((canvas?.zoom || 1) * 100)}%
+        {Math.round((canvasZoom || 1) * 100)}%
       </div>
       
       {/* Brush cursor preview */}
@@ -2200,7 +2183,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             screenY={mousePosition.y}
             size={active.size}
             brushShape={active.brushShape || BrushShape.ROUND}
-            zoom={canvas?.zoom || 1}
+            zoom={canvasZoom || 1}
             color={active.color}
             customBrush={active.currentBrushTip ? {
               imageData: active.currentBrushTip.imageData,

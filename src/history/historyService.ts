@@ -1,6 +1,17 @@
 import HistoryManager from './historyManager';
 
-const historyManager = new HistoryManager({ maxEntries: 50 });
+// eslint-disable-next-line no-console
+console.log('HistoryManager debug', typeof HistoryManager, HistoryManager);
+
+const HistoryManagerCtor =
+  typeof HistoryManager === 'function'
+    ? HistoryManager
+    : ((HistoryManager as unknown as { default?: typeof HistoryManager }).default ??
+        (() => {
+          throw new Error('Unable to resolve HistoryManager constructor');
+        })) as typeof HistoryManager;
+
+const historyManager = new HistoryManagerCtor({ maxEntries: 50 });
 
 let activeDocumentId = 'default-document';
 

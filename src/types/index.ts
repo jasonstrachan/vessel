@@ -126,6 +126,9 @@ export interface Layer {
     // If undefined, UI should default to 0.1 or fall back to brush settings
     brushSpeed?: number;
     canvas?: HTMLCanvasElement;
+    canvasImageData?: ImageData;
+    canvasWidth?: number;
+    canvasHeight?: number;
 
     // Recolor mode data (new functionality)
     recolorSettings?: {
@@ -544,7 +547,7 @@ export interface DrawingAction {
 export interface CanvasSnapshot {
   id: string;
   timestamp: number;
-  imageData: ImageData;  // Keep for backward compatibility
+  imageData?: ImageData | null;  // Optional legacy raster payload (exports only)
   layers: Layer[];  // Full layers state
   activeLayerId: string;  // Active layer at time of snapshot
   // Expanded to include structural layer operations captured in history

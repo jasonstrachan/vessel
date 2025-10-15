@@ -33,6 +33,9 @@ export function restoreCanvasSnapshot(
   if (!ctx) {
     throw new Error('Cannot restore snapshot: canvas context is null');
   }
+  if (!snapshot.imageData) {
+    throw new Error('Cannot restore snapshot: missing raster image data');
+  }
   
   // Ensure canvas dimensions match snapshot
   if (canvas.width !== snapshot.imageData.width || canvas.height !== snapshot.imageData.height) {

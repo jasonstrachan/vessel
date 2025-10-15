@@ -6,6 +6,7 @@ import type {
   HistoryDelta,
   HistoryDirection,
   HistoryEntry,
+  HistoryRehydrationTargets,
 } from './actionTypes';
 
 export const LEGACY_SNAPSHOT_TAG = 'legacy-canvas-snapshot';
@@ -32,17 +33,37 @@ class LegacySnapshotDelta implements LegacySnapshotDeltaHandle {
   constructor(options: LegacySnapshotDeltaOptions) {
     this.forward = options.forward;
     this.backward = options.backward;
-    this.applySnapshot = options.applySnapshot ?? ((_direction, snapshot) => applyLegacySnapshot(snapshot));
+    this.applySnapshot =
+      options.applySnapshot ??
+      (async (_direction, snapshot) => {
+        await applyLegacySnapshot(snapshot);
+      });
     this.approxBytes = options.approxBytes;
   }
 
   apply(direction: HistoryDirection): Promise<void> | void {
     const snapshot = direction === 'forward' ? this.forward : this.backward;
-    return this.applySnapshot(direction, snapshot);
+    return this.applySnapshot!(direction, snapshot);
   }
 
   getSnapshot(direction: HistoryDirection): CanvasSnapshot {
     return direction === 'forward' ? this.forward : this.backward;
+  }
+
+  collectRehydrationTargets(targets: HistoryRehydrationTargets): void {
+    const layers = this.forward.layers ?? [];
+    layers.forEach((layer) => {
+      if (!layer) {
+        return;
+      }
+      if (layer.id) {
+        targets.layerIds.add(layer.id);
+        if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
+          targets.colorCycleLayerIds.add(layer.id);
+          targets.workerScopes.add('color-cycle-gradient');
+        }
+      }
+    });
   }
 }
 

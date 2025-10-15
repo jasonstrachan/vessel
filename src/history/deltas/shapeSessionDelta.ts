@@ -1,8 +1,8 @@
 import { useAppStore } from '@/stores/useAppStore';
-import type { ShapeFillState } from '@/stores/useAppStore';
+import type { AppState } from '@/stores/useAppStore';
 import type { HistoryDelta, HistoryDirection } from '../actionTypes';
 
-type ShapeSession = ShapeFillState['session'];
+type ShapeSession = AppState['shapeFill']['session'];
 
 const cloneSession = (session: ShapeSession): ShapeSession => {
   if (!session) {
@@ -11,7 +11,20 @@ const cloneSession = (session: ShapeSession): ShapeSession => {
   return {
     ...session,
     points: session.points?.map((point) => ({ ...point })) ?? [],
-    options: session.options ? { ...session.options } : undefined
+    params: { ...(session.params ?? {}) },
+    paramQueue: [...(session.paramQueue ?? [])],
+    shape: session.shape
+      ? {
+          ...session.shape,
+          points: session.shape.points.map((point) => ({ ...point })),
+          centroid: { ...session.shape.centroid },
+          bounds: { ...session.shape.bounds },
+        }
+      : undefined,
+    cursorAnchorDirection: session.cursorAnchorDirection
+      ? { ...session.cursorAnchorDirection }
+      : undefined,
+    lastCursor: session.lastCursor ? { ...session.lastCursor } : undefined,
   };
 };
 

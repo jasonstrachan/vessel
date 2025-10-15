@@ -1,7 +1,7 @@
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 
-import type { HistoryDelta, HistoryDirection } from '../actionTypes';
+import type { HistoryDelta, HistoryDirection, HistoryRehydrationTargets } from '../actionTypes';
 import { readBlob, releaseBlob, storeBlob } from '../blobStore';
 
 type TileEncoding = 'raw' | 'rle';
@@ -121,11 +121,12 @@ class BitmapTileDelta implements HistoryDelta {
   readonly _tag = 'bitmap-tile';
   readonly approxBytes?: number;
 
-  private readonly layerId: string;
+  readonly layerId: string;
   private readonly width: number;
   private readonly height: number;
   private readonly forward: TilePatch[];
   private readonly backward: TilePatch[];
+  readonly tileCount: number;
 
   constructor(layerId: string, width: number, height: number, forward: TilePatch[], backward: TilePatch[]) {
     this.layerId = layerId;
@@ -133,6 +134,7 @@ class BitmapTileDelta implements HistoryDelta {
     this.height = height;
     this.forward = forward;
     this.backward = backward;
+    this.tileCount = forward.length;
     const total =
       forward.reduce((sum, patch) => sum + patch.approxBytes, 0) +
       backward.reduce((sum, patch) => sum + patch.approxBytes, 0);
@@ -233,6 +235,10 @@ class BitmapTileDelta implements HistoryDelta {
     };
     this.forward.forEach(collect);
     this.backward.forEach(collect);
+  }
+
+  collectRehydrationTargets(targets: HistoryRehydrationTargets): void {
+    targets.layerIds.add(this.layerId);
   }
 }
 

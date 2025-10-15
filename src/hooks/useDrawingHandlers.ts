@@ -34,6 +34,7 @@ type ManagedColorCycleBrush = ColorCycleBrushImplementation & {
   commitToLayer?: (canvas: HTMLCanvasElement, layerId: string) => void;
   renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
   clearPaintBuffer?: (layerId?: string) => void;
+  flush?: (layerId?: string) => void;
 };
 
 type FinalizeDrawingOptions = {
@@ -686,6 +687,13 @@ export function useDrawingHandlers({
       }
     }
     
+    beginStrokeSession({
+      pointerId: 0,
+      layerId: currentState.activeLayerId ?? null,
+      tool: currentTool,
+      brushId: currentBrushId ?? null,
+    });
+    
     initDrawingCanvas();
 
     // Initialize auto-sampling for color cycle stroke
@@ -986,7 +994,8 @@ export function useDrawingHandlers({
     project,
     drawEraserSegment,
     pauseColorCycleForNonCCInteraction,
-    updateAutoSampledGradient
+    updateAutoSampledGradient,
+    beginStrokeSession
   ]);
 
   // Process batched stroke points
@@ -1228,6 +1237,7 @@ export function useDrawingHandlers({
     const currentState = useAppStore.getState();
     const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
     if (activeLayer && !activeLayer.visible) {
+      endStrokeSession();
       return; // Exit silently if layer became hidden mid-stroke
     }
     
@@ -1250,7 +1260,7 @@ export function useDrawingHandlers({
         });
       }
     }
-  }, [processBatchedStrokes]);
+  }, [processBatchedStrokes, endStrokeSession]);
   
   const finalizeDrawing = useCallback(async (skipSaveOrOptions?: boolean | FinalizeDrawingOptions) => {
     const options =
@@ -1321,7 +1331,7 @@ export function useDrawingHandlers({
           strokeSession.layerId === activeLayer.id &&
           strokeSession.tool === currentTool &&
           (currentTool === 'brush' || currentTool === 'eraser');
-        const coalescePayload = shouldCoalesceStroke
+        let coalescePayload = shouldCoalesceStroke
           ? {
               key: strokeSession.id,
               maxIntervalMs: BRUSH_HISTORY_COALESCE_WINDOW_MS,
@@ -1358,7 +1368,9 @@ export function useDrawingHandlers({
           const activeSettings = currentState.tools.brushSettings;
           const activeFlags = getColorCycleBrushFlags(activeSettings);
           const drawingCtx = drawingCtxRef.current;
-          
+          const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+          const isColorCycleBrush = activeFlags.isAny;
+
           // For color cycle brush, stop the animation and do final render
           if (activeFlags.isAny && drawingCtx) {
             // If auto-sampling is enabled, compute final 8-stop gradient across full stroke path now
@@ -1421,10 +1433,12 @@ export function useDrawingHandlers({
           }
           
           // Handle capture differently for CC layers vs regular layers
-          const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
           // Treat stroke, shape, and custom CC variants as CC for saving
-          const saveFlags = getColorCycleBrushFlags(activeSettings);
-          const isColorCycleBrush = saveFlags.isAny;
+          const shouldDisableCoalescing = isColorCycleLayer && isColorCycleBrush;
+          if (shouldDisableCoalescing) {
+            coalescePayload = undefined;
+          }
+          const isAnyColorCycleBrush = isColorCycleBrush;
 
           // Ensure CC layer has a canvas before attempting to save
           if (isColorCycleLayer && !activeLayer?.colorCycleData?.canvas && currentState.project) {
@@ -1444,7 +1458,9 @@ export function useDrawingHandlers({
 
           const isShapeMode = currentState.tools.shapeMode;
 
-          if (isColorCycleLayer && isColorCycleBrush && activeLayer?.colorCycleData?.canvas) {
+          let brushForCleanup: ManagedColorCycleBrush | undefined;
+
+          if (isColorCycleLayer && isAnyColorCycleBrush && activeLayer?.colorCycleData?.canvas) {
             const layerCanvas = activeLayer.colorCycleData.canvas;
             try {
               const colorCycleBrushManager = getColorCycleBrushManager();
@@ -1462,12 +1478,12 @@ export function useDrawingHandlers({
                   brush.renderDirectToCanvas?.(layerCanvas, activeLayer.id);
                 }
 
-                brush.clearPaintBuffer?.(activeLayer.id);
-                } else if (drawingCanvas) {
-                  try {
-                    const targetCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
-                    if (targetCtx) {
-                      targetCtx.save();
+                brushForCleanup = brush;
+              } else if (drawingCanvas) {
+                try {
+                  const targetCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
+                  if (targetCtx) {
+                    targetCtx.save();
                       targetCtx.globalCompositeOperation = activeSettings.blendMode || 'source-over';
                       targetCtx.globalAlpha = activeSettings.opacity ?? 1;
                       targetCtx.drawImage(drawingCanvas, 0, 0);
@@ -1538,16 +1554,41 @@ export function useDrawingHandlers({
             })();
             const historyDescription = historyDescriptionOverride ?? defaultDescription;
 
+            const shouldSkipBitmapDelta = shouldDisableCoalescing;
+            const coalesceForHistory = shouldSkipBitmapDelta ? undefined : coalescePayload;
+            let afterColorState: ReturnType<typeof captureColorCycleBrushState> | null = null;
+
+            if (brushForCleanup?.flush) {
+              brushForCleanup.flush(activeLayer.id);
+            }
+
+            if (shouldSkipBitmapDelta) {
+              afterColorState = captureColorCycleBrushState(activeLayer.id);
+              console.debug('[cc-delta-capture]', {
+                beforeBytes:
+                  layerBeforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
+                afterBytes:
+                  afterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
+                beforeCtr:
+                  layerBeforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+                afterCtr:
+                  afterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+              });
+            }
             await commitLayerHistory({
               layerId: activeLayer.id,
               beforeImage: layerBeforeImage,
               beforeColorState: layerBeforeColorState,
+              afterColorState,
               actionType,
               description: historyDescription,
               tool: currentTool,
-              coalesce: coalescePayload,
+              coalesce: coalesceForHistory,
+              skipBitmapDelta: shouldSkipBitmapDelta,
             });
           }
+
+          brushForCleanup?.clearPaintBuffer?.(activeLayer.id);
         }
       }
 
@@ -1861,6 +1902,8 @@ export function useDrawingHandlers({
                   actionType: 'fill',
                   description: 'CC Shape Linear',
                   tool: tools.currentTool,
+                  coalesce: undefined,
+                  skipBitmapDelta: true,
                 });
               }
             }
@@ -2231,6 +2274,8 @@ export function useDrawingHandlers({
                       actionType: 'fill',
                       description: 'CC Shape Linear',
                       tool: tools.currentTool,
+                      coalesce: undefined,
+                      skipBitmapDelta: true,
                     });
                   }
 
@@ -2273,6 +2318,8 @@ export function useDrawingHandlers({
                       actionType: 'fill',
                       description: 'CC Shape',
                       tool: tools.currentTool,
+                      coalesce: undefined,
+                      skipBitmapDelta: true,
                     });
                   }
 
@@ -2371,7 +2418,7 @@ export function useDrawingHandlers({
       if (isBusyRef) isBusyRef.current = false;
     }
     }); // End of FinalizeQueue.enqueue
-  }, [tools.shapeMode, tools.brushSettings, brushEngine, finalizeDrawing, isBusyRef, activeLayerId, initDrawingCanvas, equidistantPointsOnPolyline, sampleHexAt, resumeColorCycleAfterInteraction, resetPolygonState, captureCanvasToActiveLayer]);
+  }, [tools.shapeMode, tools.brushSettings, tools.currentTool, brushEngine, finalizeDrawing, isBusyRef, activeLayerId, initDrawingCanvas, equidistantPointsOnPolyline, sampleHexAt, resumeColorCycleAfterInteraction, resetPolygonState, captureCanvasToActiveLayer]);
   
   // Helper function to render all visible color cycle layers
   const renderAllColorCycleLayers = useCallback((targetCtx: CanvasRenderingContext2D, onlyActiveLayer: boolean = false) => {
@@ -2638,11 +2685,19 @@ export function useDrawingHandlers({
       } catch {}
     };
 
+    const handleRequestStop = () => {
+      try {
+        stopContinuousColorCycleAnimation();
+      } catch {}
+    };
+
     window.addEventListener('cc:request-start-raf', handleRequestStart);
+    window.addEventListener('cc:request-stop-raf', handleRequestStop);
     return () => {
       window.removeEventListener('cc:request-start-raf', handleRequestStart);
+      window.removeEventListener('cc:request-stop-raf', handleRequestStop);
     };
-  }, [startContinuousColorCycleAnimation]);
+  }, [startContinuousColorCycleAnimation, stopContinuousColorCycleAnimation]);
   
   // Setter for feedback message callback
   const setFeedbackCallback = useCallback((callback: (message: string) => void) => {

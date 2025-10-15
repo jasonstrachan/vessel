@@ -469,6 +469,10 @@ export const createShapeToolHandler = (
     }
     drawCtx.restore();
     drawingHandlers.drawingCanvasHasContent.current = true;
+
+    // Close the shape session before recording history so transaction scope is clear.
+    store.cancelShapeFillSession();
+
     await drawingHandlers.finalizeDrawing({ historyActionType: 'fill' });
 
     stateMachine.finalizationComplete();
@@ -483,7 +487,6 @@ export const createShapeToolHandler = (
     }
 
     clearCurrentPreview();
-    store.cancelShapeFillSession();
     interaction.dispatch({ type: 'DRAWING_END' });
     setNeedsRedraw(prev => prev + 1);
     return true;

@@ -7,9 +7,17 @@ import { TextDecoder, TextEncoder } from 'util';
 import historyManager from '@/history/historyService';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { useAppStore } from '@/stores/useAppStore';
-import type { Layer } from '@/types';
+import type { Layer, LayerAlignmentSettings } from '@/types';
+
+const DEFAULT_ALIGNMENT: LayerAlignmentSettings = {
+  fit: 'none',
+  horizontal: 'center',
+  vertical: 'center',
+  positioning: 'anchor',
+};
 
 const CANVAS_SIZE = { width: 2, height: 2 };
+
 
 const createImage = (pixels: number[]): ImageData => {
   return new ImageData(new Uint8ClampedArray(pixels), CANVAS_SIZE.width, CANVAS_SIZE.height);
@@ -36,7 +44,7 @@ const createLayer = (id: string, imageData: ImageData): Layer => {
     layerType: 'normal',
     imageData,
     framebuffer,
-    alignment: null,
+    alignment: DEFAULT_ALIGNMENT,
     colorCycleData: undefined,
   };
 };

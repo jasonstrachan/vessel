@@ -34,6 +34,12 @@ export interface HistoryDelta {
    * Optional cleanup hook called when the history entry that owns this delta is discarded.
    */
   dispose?(): void;
+  /**
+   * Optional hook allowing a delta to describe which runtime resources require rehydration
+   * once the entry finishes applying. Mutate the provided accumulator instead of creating
+   * a new object to avoid allocations in hot paths.
+   */
+  collectRehydrationTargets?(targets: HistoryRehydrationTargets): void;
 }
 
 export interface HistoryEntry {
@@ -74,4 +80,21 @@ export interface HistoryManagerHooks {
   onCommit?(entry: HistoryEntry): void;
   onUndo?(entry: HistoryEntry): void;
   onRedo?(entry: HistoryEntry): void;
+}
+
+export type HistoryWorkerScope = 'color-cycle-gradient';
+
+export interface HistoryRehydrationTargets {
+  /**
+   * Layers with bitmap updates requiring framebuffer re-sync.
+   */
+  layerIds: Set<string>;
+  /**
+   * Color cycle layers requiring runtime restoration.
+   */
+  colorCycleLayerIds: Set<string>;
+  /**
+   * Workers or background services that need state refresh after replay.
+   */
+  workerScopes: Set<HistoryWorkerScope>;
 }

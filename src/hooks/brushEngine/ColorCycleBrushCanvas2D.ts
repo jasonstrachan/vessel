@@ -81,6 +81,11 @@ interface ColorCycleBrushCanvasSerialized {
   brushSize: number;
 }
 
+type RestoreOpts = {
+  mode?: 'normal' | 'history';
+  preservePaintBuffer?: boolean;
+};
+
 const EDGE_PADDING_EPSILON = 1e-3;
 const applyEdgePadding = (value: number): number => {
   const clamped = Math.max(0, Math.min(1, value));
@@ -144,6 +149,8 @@ export class ColorCycleBrushCanvas2D {
   
   // Frame callback
   private onFrameRendered?: () => void;
+
+  private _isHistoryRestore = false;
   
   // Layer tracking for API compatibility
   private layerStrokes: Map<string, LayerStrokeState> = new Map();
@@ -641,14 +648,18 @@ export class ColorCycleBrushCanvas2D {
    */
   clearPaintBuffer(layerId?: string) {
     const id = layerId || this.activeLayerId || 'default';
+    if (this._isHistoryRestore) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.assert(false, '[ColorCycleBrush] clearPaintBuffer invoked during history restore');
+      }
+      return;
+    }
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
-      // Clear the paint buffer to start fresh
+      // Clear the paint buffer to start fresh and mark the layer as having no live stroke content.
       strokeData.paintBuffer.fill(0);
-      // IMPORTANT: Do NOT mark hasContent=false or clear the animator here.
-      // We want previously committed strokes to continue animating.
-      // Only reset per-stroke counters that affect geometry, but keep counters that
-      // drive gradient progression so subsequent shapes continue smoothly.
+      strokeData.hasContent = false;
+      strokeData.hasExternalBase = true;
       strokeData.strokeCounter = 0;
       // Preserve stampCounter to maintain gradient offset continuity across shapes
       // (intentionally left unchanged here).
@@ -760,7 +771,7 @@ export class ColorCycleBrushCanvas2D {
           return false;
         })();
         
-        if (hasPixels && clearBuffer) {
+        if (hasPixels && clearBuffer && !this._isHistoryRestore) {
           try { animator.clear(); } catch {}
         }
       }
@@ -769,7 +780,7 @@ export class ColorCycleBrushCanvas2D {
     
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
-      if (clearBuffer) {
+      if (clearBuffer && !this._isHistoryRestore) {
         const preservedStampCounter = strokeData.stampCounter;
         strokeData.paintBuffer.fill(0);
         strokeData.hasContent = false;
@@ -1902,6 +1913,12 @@ export class ColorCycleBrushCanvas2D {
    * Clear (API compatible)
    */
   clear() {
+    if (this._isHistoryRestore) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.assert(false, '[ColorCycleBrush] clear() invoked during history restore');
+      }
+      return;
+    }
     this.animators.forEach(animator => animator.clear());
     this.layerStrokes.clear();
     this.render(false);
@@ -1922,7 +1939,9 @@ export class ColorCycleBrushCanvas2D {
     });
 
     if (!anyContent) {
-      // Nothing to render right now; preserve existing layer pixels.
+      // No live stroke data to composite; leave the layer canvas untouched.
+      this.compositeCtx.clearRect(0, 0, this.width, this.height);
+      this.dirtyLayers.clear();
       if (this.onFrameRendered) {
         this.onFrameRendered();
       }
@@ -1985,6 +2004,7 @@ export class ColorCycleBrushCanvas2D {
     }
 
     const strokeData = this.layerStrokes.get(layerId);
+    const hadExternalBase = Boolean(strokeData?.hasExternalBase);
     const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
 
     if (!ctx) {
@@ -2029,9 +2049,7 @@ export class ColorCycleBrushCanvas2D {
     const prevSmoothing = ctx.imageSmoothingEnabled;
 
     try {
-      const strokeData = this.layerStrokes.get(layerId);
-
-      if (strokeData?.hasExternalBase) {
+      if (hadExternalBase && strokeData) {
         const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
         if (srcCtx) {
           const prevMode = srcCtx.globalCompositeOperation;
@@ -2053,7 +2071,7 @@ export class ColorCycleBrushCanvas2D {
       ctx.imageSmoothingEnabled = false;
 
       // Clear before drawing when animator owns the full contents of the layer.
-      if (!strokeData?.hasExternalBase) {
+      if (!hadExternalBase) {
         ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
       }
       ctx.drawImage(srcCanvas, 0, 0);
@@ -2638,91 +2656,103 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Restore full state (API compatible)
    */
-  restoreFullState(state: ColorCycleBrushCanvasState = {}) {
+  restoreFullState(state: ColorCycleBrushCanvasState = {}, opts: RestoreOpts = {}) {
     const { layerSnapshots } = state;
+    const asHistory = opts.mode === 'history' || opts.preservePaintBuffer === true;
+    this._isHistoryRestore = asHistory;
+    const shouldAssertNoClear = process.env.NODE_ENV !== 'production' && asHistory;
+    let clearedDuringRestore = false;
+    let highestStrokeCounter = this.strokeCounter;
     try {
-      const snapshotCount = layerSnapshots instanceof Map
-        ? layerSnapshots.size
-        : Array.isArray(layerSnapshots)
-          ? layerSnapshots.length
-          : 0;
-      console.log('[ColorCycleBrush] restoreFullState called', {
-        hasSnapshots: Boolean(layerSnapshots),
-        snapshotCount,
-        caller: new Error().stack?.split('\n')[2]?.trim()
-      });
-    } catch {}
-    
-    // The canvas pixels are restored separately from history; treat them as source of truth.
-    // IMPORTANT: Clear internal paint buffers AND animator canvases for affected layers
-    // so stale pixels don't reappear on the next stroke/composite.
+      try {
+        const snapshotCount = layerSnapshots instanceof Map
+          ? layerSnapshots.size
+          : Array.isArray(layerSnapshots)
+            ? layerSnapshots.length
+            : 0;
+        console.log('[ColorCycleBrush] restoreFullState called', {
+          hasSnapshots: Boolean(layerSnapshots),
+          snapshotCount,
+          mode: opts.mode ?? 'normal',
+          caller: new Error().stack?.split('\n')[2]?.trim()
+        });
+      } catch {}
+      
+      if (state.cycleSpeed !== undefined) this.cycleSpeed = state.cycleSpeed;
+      if (state.fps !== undefined) this.fps = state.fps;
+      if (state.brushSize !== undefined) this.brushSize = state.brushSize;
+      
+      if (layerSnapshots && !asHistory) {
+        const clearForLayer = (layerId: string) => {
+          clearedDuringRestore = true;
+          const sd = this.layerStrokes.get(layerId);
+          if (sd) {
+            console.log('[ColorCycleBrush] Paint buffer cleared during restore for layer:', layerId?.substring(0, 20));
+            sd.paintBuffer.fill(0);
+            sd.hasContent = false;
+            sd.strokeCounter = 0;
+            sd.strokeLength = 0;
+            sd.lastPoint = null;
+            sd.stampCounter = 0;
+          }
+          const animator = this.animators.get(layerId);
+          if (animator) {
+            try { animator.clear(); } catch {}
+          }
+        };
 
-    // Update basic settings only
-    if (state.cycleSpeed !== undefined) this.cycleSpeed = state.cycleSpeed;
-    if (state.fps !== undefined) this.fps = state.fps;
-    if (state.brushSize !== undefined) this.brushSize = state.brushSize;
-    
-    // First, proactively clear the affected layers' internal state (strokeData + animator canvas)
-    if (layerSnapshots) {
-      const clearForLayer = (layerId: string) => {
-        const sd = this.layerStrokes.get(layerId);
-        if (sd) {
-          console.log('[ColorCycleBrush] Paint buffer cleared during restore for layer:', layerId?.substring(0, 20));
-          sd.paintBuffer.fill(0);
-          sd.hasContent = false;
-          sd.strokeCounter = 0;
-          sd.strokeLength = 0;
-          sd.lastPoint = null;
-          sd.stampCounter = 0;
-        }
-        const animator = this.animators.get(layerId);
-        if (animator) {
-          // Clear the animator canvas so no stale pixels remain
-          try { animator.clear(); } catch {}
-        }
-      };
-
-      if (layerSnapshots instanceof Map) {
-        layerSnapshots.forEach((_buffer, layerId) => clearForLayer(layerId));
-      } else if (Array.isArray(layerSnapshots)) {
-        for (const snapshot of layerSnapshots) {
-          if (snapshot?.layerId) {
-            clearForLayer(snapshot.layerId);
+        if (layerSnapshots instanceof Map) {
+          layerSnapshots.forEach((_buffer, layerId) => clearForLayer(layerId));
+        } else if (Array.isArray(layerSnapshots)) {
+          for (const snapshot of layerSnapshots) {
+            if (snapshot?.layerId) {
+              clearForLayer(snapshot.layerId);
+            }
           }
         }
+        this.compositeCtx.clearRect(0, 0, this.width, this.height);
       }
-      // Clear composite so future draws don't include stale pixels
-      this.compositeCtx.clearRect(0, 0, this.width, this.height);
-    }
 
-    // Apply or clear stroke data for layers listed in the snapshot
-    if (layerSnapshots) {
-      // Accept Map(layerId -> ArrayBuffer) or Array<{layerId, paintBuffer}>
-      if (layerSnapshots instanceof Map) {
-        layerSnapshots.forEach((buffer, layerId) => {
-          this.applyLayerSnapshot(layerId, {
-            paintBuffer: buffer,
-            hasContent: !!buffer && (buffer as ArrayBuffer).byteLength > 0,
-            strokeCounter: 0
-          }, /*extra*/ undefined);
-        });
-      } else if (Array.isArray(layerSnapshots)) {
-        layerSnapshots.forEach((snapshot) => {
-          if (!snapshot || !snapshot.layerId) {
-            return;
-          }
-          const { paintBuffer, hasContent, strokeCounter, animatorIndex } = snapshot;
-          const buffer = paintBuffer ?? new ArrayBuffer(0);
-          this.applyLayerSnapshot(snapshot.layerId, {
-            paintBuffer: buffer,
-            hasContent: Boolean(hasContent) || buffer.byteLength > 0,
-            strokeCounter: strokeCounter ?? 0
-          }, animatorIndex);
-        });
+      if (layerSnapshots) {
+        if (layerSnapshots instanceof Map) {
+          layerSnapshots.forEach((buffer, layerId) => {
+            this.applyLayerSnapshot(layerId, {
+              paintBuffer: buffer,
+              hasContent: !!buffer && (buffer as ArrayBuffer).byteLength > 0,
+              strokeCounter: 0
+            }, /*extra*/ undefined);
+          });
+        } else if (Array.isArray(layerSnapshots)) {
+          layerSnapshots.forEach((snapshot) => {
+            if (!snapshot || !snapshot.layerId) {
+              return;
+            }
+            const { paintBuffer, hasContent, strokeCounter, animatorIndex } = snapshot;
+            const buffer = paintBuffer ?? new ArrayBuffer(0);
+            if (typeof strokeCounter === 'number') {
+              highestStrokeCounter = Math.max(highestStrokeCounter, strokeCounter);
+            }
+            this.applyLayerSnapshot(snapshot.layerId, {
+              paintBuffer: buffer,
+              hasContent: Boolean(hasContent) || buffer.byteLength > 0,
+              strokeCounter: strokeCounter ?? 0
+            }, animatorIndex);
+          });
+        }
       }
+      if (asHistory) {
+        this.strokeCounter = highestStrokeCounter;
+      }
+      
+      try {
+        console.log('[ColorCycleBrush] Settings updated after restore', { history: asHistory });
+      } catch {}
+    } finally {
+      if (shouldAssertNoClear) {
+        console.assert(!clearedDuringRestore, '[ColorCycleBrush] Cleared stroke data during history restore');
+      }
+      this._isHistoryRestore = false;
     }
-    
-    try { console.log('[ColorCycleBrush] Settings updated and stroke data cleared for restored layers'); } catch {}
   }
 
   /**

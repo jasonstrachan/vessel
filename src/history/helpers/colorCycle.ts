@@ -1,7 +1,7 @@
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import type { ColorCycleBrushImplementation } from '@/stores/colorCycleBrushManager';
 
-type Brush = NonNullable<ReturnType<typeof getColorCycleBrushManager>['getBrush']>;
-export type ColorCycleSerializedState = ReturnType<Brush['serialize']> | null;
+export type ColorCycleSerializedState = ReturnType<ColorCycleBrushImplementation['serialize']> | null;
 
 export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializedState => {
   const manager = getColorCycleBrushManager();

@@ -184,16 +184,16 @@ export const applyLegacySnapshot = async (
       }
     });
 
-    useAppStore.setState((state) => ({
+    useAppStore.setState({
       layersNeedRecomposition: true,
-      floatingPaste: null
-    }));
+      floatingPaste: null,
+    });
 
     const recolor = RecolorManager.getInstance();
     try {
       for (const layer of restoredLayers) {
         if (isColorCycleLayer(layer) && layer.colorCycleData.mode === 'recolor') {
-          recolor.processLayer(layer, { immediate: true }).catch(() => {});
+          recolor.processLayer(layer).catch(() => {});
         }
       }
     } catch {
@@ -201,22 +201,6 @@ export const applyLegacySnapshot = async (
     }
 
     return { restoredLayers };
-  }
-
-  if (snapshot.imageData && store.activeLayerId) {
-    const activeLayerId = store.activeLayerId;
-    store.updateLayer(activeLayerId, { imageData: snapshot.imageData });
-    useAppStore.setState((state) => ({
-      layersNeedRecomposition: true,
-      project: state.project
-        ? {
-            ...state.project,
-            width: snapshot.projectSize?.width ?? state.project.width,
-            height: snapshot.projectSize?.height ?? state.project.height,
-            updatedAt: new Date()
-          }
-        : state.project
-    }));
   }
 
   return { restoredLayers: null };

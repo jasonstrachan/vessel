@@ -1,8 +1,15 @@
 // Zustand store with state slices
 // Based on /docs/02_System_Architecture/Overall_Design.md (lines 58-64)
 
-// Module-level flag to prevent history capture during undo/redo operations
-let isHistoryOperationInProgress = false;
+const NON_COMPOSITE_DELTA_TAGS = new Set<string>(['selection-bounds', 'view-state']);
+
+const entryRequiresComposite = (entry: HistoryEntry | null): boolean => {
+  if (!entry) {
+    return true;
+  }
+  return entry.deltas.some((delta) => !NON_COMPOSITE_DELTA_TAGS.has(delta._tag));
+};
+
 
 interface VesselWindow extends Window {
   __checkLayerIntegrity?: () => string[];
@@ -330,7 +337,7 @@ import { createBitmapTileDelta } from '@/history/deltas/bitmapDelta';
 import { createColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDelta';
 import { createProjectDimensionsDelta } from '@/history/deltas/projectDimensionsDelta';
 import { createShapeSessionDelta } from '@/history/deltas/shapeSessionDelta';
-import type { ScopedTxn } from '@/history/actionTypes';
+import type { HistoryEntry, ScopedTxn } from '@/history/actionTypes';
 import { captureColorCycleBrushState, type ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 
 // Helper function to get serializable brush settings for persistence
@@ -847,13 +854,9 @@ const createHistorySnapshotFromState = (
     };
   }
 
-  const baseImageData =
-    typeof ImageData !== 'undefined' ? new ImageData(1, 1) : ({} as ImageData);
-
   return {
     id: `snapshot_${Date.now()}_${Math.random()}`,
     timestamp: Date.now(),
-    imageData: baseImageData,
     layers: layersCopy,
     activeLayerId: resolvedActiveLayerId,
     actionType,
@@ -4250,6 +4253,7 @@ export const useAppStore = create<AppState>()(
         }
 
         const hasLegacySnapshot = pendingEntry.deltas.some((delta) => isLegacySnapshotDelta(delta));
+        const requiresComposite = entryRequiresComposite(pendingEntry);
         let currentSnapshot: CanvasSnapshot | null = null;
         let previousSnapshot: CanvasSnapshot | null = null;
 
@@ -4265,34 +4269,24 @@ export const useAppStore = create<AppState>()(
             snapshotState.history.undoStack[snapshotState.history.undoStack.length - 2] ?? null;
         }
 
-        isHistoryOperationInProgress = true;
-        try {
-          await historyManager.undo();
-        } finally {
-          isHistoryOperationInProgress = false;
-        }
+        await historyManager.undo();
 
-        if (hasLegacySnapshot && currentSnapshot) {
-          set((state) => {
-            const undoStack = state.history.undoStack.slice(0, -1);
-            const redoStack = [currentSnapshot!, ...state.history.redoStack];
-            return {
-              history: {
-                ...state.history,
-                undoStack,
-                redoStack,
-                isCapturing: false,
-              },
-            };
-          });
-        } else {
-          set((state) => ({
-            history: {
-              ...state.history,
-              isCapturing: false,
-            },
-          }));
-        }
+        set((state) => {
+          const nextHistory = {
+            ...state.history,
+            isCapturing: false,
+          };
+
+          if (hasLegacySnapshot && currentSnapshot) {
+            nextHistory.undoStack = state.history.undoStack.slice(0, -1);
+            nextHistory.redoStack = [currentSnapshot, ...state.history.redoStack];
+          }
+
+          return {
+            history: nextHistory,
+            layersNeedRecomposition: requiresComposite ? true : state.layersNeedRecomposition,
+          };
+        });
 
         return previousSnapshot;
       },
@@ -4304,6 +4298,7 @@ export const useAppStore = create<AppState>()(
         }
 
         const hasLegacySnapshot = pendingEntry.deltas.some((delta) => isLegacySnapshotDelta(delta));
+        const requiresComposite = entryRequiresComposite(pendingEntry);
         let stateToRestore: CanvasSnapshot | null = null;
 
         if (hasLegacySnapshot) {
@@ -4314,34 +4309,24 @@ export const useAppStore = create<AppState>()(
           stateToRestore = snapshotState.history.redoStack[0] ?? null;
         }
 
-        isHistoryOperationInProgress = true;
-        try {
-          await historyManager.redo();
-        } finally {
-          isHistoryOperationInProgress = false;
-        }
+        await historyManager.redo();
 
-        if (hasLegacySnapshot && stateToRestore) {
-          set((state) => {
-            const redoStack = state.history.redoStack.slice(1);
-            const undoStack = [...state.history.undoStack, stateToRestore!];
-            return {
-              history: {
-                ...state.history,
-                undoStack,
-                redoStack,
-                isCapturing: false,
-              },
-            };
-          });
-        } else {
-          set((state) => ({
-            history: {
-              ...state.history,
-              isCapturing: false,
-            },
-          }));
-        }
+        set((state) => {
+          const nextHistory = {
+            ...state.history,
+            isCapturing: false,
+          };
+
+          if (hasLegacySnapshot && stateToRestore) {
+            nextHistory.redoStack = state.history.redoStack.slice(1);
+            nextHistory.undoStack = [...state.history.undoStack, stateToRestore];
+          }
+
+          return {
+            history: nextHistory,
+            layersNeedRecomposition: requiresComposite ? true : state.layersNeedRecomposition,
+          };
+        });
 
         return stateToRestore;
       },

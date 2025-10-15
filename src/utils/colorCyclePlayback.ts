@@ -17,6 +17,13 @@ export const toggleGlobalColorCyclePlayback = async (shouldPlay: boolean): Promi
   // Brush-based color cycle playback (stroke/shape brushes)
   try {
     setColorCycleAnimationState(shouldPlay);
+    try {
+      window.dispatchEvent(
+        new CustomEvent(shouldPlay ? 'cc:request-start-raf' : 'cc:request-stop-raf')
+      );
+    } catch {
+      // Event dispatch best-effort.
+    }
     const handlers = window.colorCycleAnimationHandlers;
     if (handlers) {
       if (shouldPlay) {

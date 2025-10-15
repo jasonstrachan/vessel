@@ -7,9 +7,22 @@ import type {
   ScopedTxn,
   ScopedTxnOptions,
   HistoryCoalesceOptions,
+  HistoryRehydrationTargets,
 } from './actionTypes';
+import { recordHistoryEntryMetrics } from './profiling';
 
 type DocIdResolver = () => string;
+
+type RehydrationModule = typeof import('./runtimeRehydration');
+
+let rehydrationModulePromise: Promise<RehydrationModule> | null = null;
+
+const loadRehydrationModule = async (): Promise<RehydrationModule> => {
+  if (!rehydrationModulePromise) {
+    rehydrationModulePromise = import('./runtimeRehydration');
+  }
+  return rehydrationModulePromise;
+};
 
 interface HistoryManagerOptions {
   /**
@@ -158,7 +171,7 @@ export class HistoryManager {
     this.ensureStacks(resolvedDoc);
     const redoStack = this.redoStacks.get(resolvedDoc)!;
     try {
-      await this.replay(entry, 'backward');
+      await this.applyEntry(entry, 'backward');
       redoStack.push(entry);
       this.hooks.onUndo?.(entry);
       return entry;
@@ -178,7 +191,7 @@ export class HistoryManager {
     this.ensureStacks(resolvedDoc);
     const undoStack = this.undoStacks.get(resolvedDoc)!;
     try {
-      await this.replay(entry, 'forward');
+      await this.applyEntry(entry, 'forward');
       undoStack.push(entry);
       this.hooks.onRedo?.(entry);
       return entry;
@@ -186,6 +199,10 @@ export class HistoryManager {
       redoStack.push(entry);
       throw error;
     }
+  }
+
+  async apply(entry: HistoryEntry, direction: HistoryDirection): Promise<void> {
+    await this.applyEntry(entry, direction);
   }
 
   peekUndo(docId?: string): HistoryEntry | null {
@@ -326,6 +343,7 @@ export class HistoryManager {
       }
     }
     this.hooks.onCommit?.(entry);
+    recordHistoryEntryMetrics(entry);
   }
 
   clearActiveTxn(txn: ScopedTxnImpl): void {
@@ -334,16 +352,36 @@ export class HistoryManager {
     }
   }
 
-  private async replay(entry: HistoryEntry, direction: HistoryDirection): Promise<void> {
+  private async applyEntry(entry: HistoryEntry, direction: HistoryDirection): Promise<void> {
     this._isReplaying = true;
+    let rehydrationModule: RehydrationModule | null = null;
+    let targets: HistoryRehydrationTargets | null = null;
+    let thrown: unknown = null;
     try {
+      rehydrationModule = await loadRehydrationModule();
+      targets = rehydrationModule.createRehydrationTargets();
+      if (!targets) {
+        throw new Error('Failed to create history rehydration targets.');
+      }
       const deltas =
         direction === 'forward' ? entry.deltas : [...entry.deltas].reverse();
       for (const delta of deltas) {
+        // Allow the delta to register any runtime surfaces that need follow-up.
+        delta.collectRehydrationTargets?.(targets);
         await delta.apply(direction);
       }
+    } catch (error) {
+      thrown = error;
     } finally {
       this._isReplaying = false;
+    }
+
+    if (thrown) {
+      throw thrown;
+    }
+
+    if (rehydrationModule && targets) {
+      await rehydrationModule.rehydrateEntryResources(entry, direction, targets);
     }
   }
 

@@ -9,6 +9,7 @@ import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
 import type { Layer, Project } from '@/types';
 
+
 const createImageData = (width: number, height: number): ImageData => {
   const imageData = new ImageData(width, height);
   for (let y = 0; y < height; y += 1) {

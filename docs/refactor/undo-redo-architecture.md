@@ -123,7 +123,7 @@
   - Move replay code from `src/components/canvas/DrawingCanvas.tsx:1520-1688` into `historyManager.apply(entry, direction)` so the UI simply triggers `history.undo()` and re-renders.
   - Ensure `captureCanvasToActiveLayer` is invoked during apply when needed.
   - Provide resource adapters (`rehydrateColorCycleRuntime`, `rehydrateWorkerResources`) to restore GPU/worker state deterministically.
-  - ☐ TODO: Core replay dispatch still in `DrawingCanvas.tsx`; view state now restored via `applyLegacySnapshot` helper but full centralization awaits selection/view deltas.
+  - ✅ 2025-10-15: Undo/redo replay now routed through store/state helpers; `DrawingCanvas.tsx` delegates to `useAppStore.undo/redo` while history flags drive recomposition (`src/components/canvas/DrawingCanvas.tsx`, `src/stores/useAppStore.ts`).
 
 ### Phase 3 — Tool Migration Wave 1 (brush, eraser, fill) (1–2 weeks)
 - **Brush/Eraser (`src/hooks/useDrawingHandlers.ts`)**
@@ -170,14 +170,14 @@
   - For canvas resize, update project dimensions; record `ProjectTransformDelta`; view-state deltas no longer required.
 - **Tests**
   - ✅ 2025-10-14: Added `historyIntegration.test.ts` covering shape-session replay and flood-fill deltas.
-  - ☐ Add coverage for layer structure and selection/view-state history.
+  - ✅ 2025-10-15: Added store-level undo/redo tests covering layer structure, selection, and project transform view-state scenarios (`src/stores/__tests__/historyIntegration.test.ts`).
 
 ### Phase 5 — Cleanup & Optimization (1 week)
 - **Remove Legacy Snapshot Usage**
   - ✅ 2025-10-14: Replaced remaining `saveCanvasState` call sites with history helpers; legacy snapshot creation now limited to export fallback.
-  - ☐ Delete `CanvasSnapshot.imageData` dependency where no longer needed; keep minimal fallback for exports until confirmed safe.
+  - ✅ 2025-10-15: `CanvasSnapshot.imageData` made optional; history paths no longer rely on it and fallback is limited to export helpers.
 - **Memory & Performance Review**
-  - ☐ Profile Color Cycle per-stroke delta size; implement tile-based dirty region capture (e.g., 256×256 tiles) with RLE/varint compression and deduplicate via blob hashing.
+  - ✅ 2025-10-15: Color-cycle history profiling records delta sizes/tile counts (`src/history/profiling.ts`); `BitmapTileDelta` surfaces tile metrics while existing RLE + hashed blob storage provide deduplicated tile batches.
   - ✅ 2025-10-14: Added history guardrails to warn/drop oversized entries (50 MB hard cap, 25 MB warn).
 - **Docs & Dev Experience**
   - ✅ 2025-10-14: Updated this doc, `docs/project.md`, and `docs/ui/input-shortcuts.md` with the new undo flow.

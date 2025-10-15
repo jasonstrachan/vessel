@@ -1,7 +1,5 @@
 const memoryStore = new Map<string, { data: Uint8Array; refCount: number; size: number }>();
 
-const textEncoder = new TextEncoder();
-
 const toBase64 = (bytes: Uint8Array): string => {
   if (typeof Buffer !== 'undefined') {
     return Buffer.from(bytes).toString('base64');
