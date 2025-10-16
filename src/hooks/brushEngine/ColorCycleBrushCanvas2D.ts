@@ -488,6 +488,16 @@ export class ColorCycleBrushCanvas2D {
     // Mark layer as dirty for batched rendering
     this.dirtyLayers.add(id);
     
+    // If we're supposed to be animating but no callback is wired for this layer yet
+    // (e.g. after restoring a snapshot), force an immediate render so the stroke appears.
+    const needsImmediateRender = this.isAnimating && !this.animatorCallbacks.has(id);
+    if (needsImmediateRender) {
+      try {
+        animator.forceRender();
+      } catch {}
+      this.render(false);
+    }
+
     // Schedule batched render if not animating
     if (!this.isAnimating && !this.renderScheduled) {
       this.renderScheduled = true;
@@ -662,8 +672,6 @@ export class ColorCycleBrushCanvas2D {
       strokeData.paintBuffer.fill(0);
       strokeData.hasContent = false;
       strokeData.hasExternalBase = true;
-      strokeData.strokeCounter = 0;
-      strokeData.lastSnapshot = undefined;
       // Preserve stampCounter to maintain gradient offset continuity across shapes
       // (intentionally left unchanged here).
       // Ensure our composite canvas is clean for the next draw
@@ -787,10 +795,8 @@ export class ColorCycleBrushCanvas2D {
         const preservedStampCounter = strokeData.stampCounter;
         strokeData.paintBuffer.fill(0);
         strokeData.hasContent = false;
-        strokeData.strokeCounter = 0;
         // Preserve stamp counter for continuous gradient flow between shapes
         strokeData.stampCounter = preservedStampCounter;
-        strokeData.lastSnapshot = undefined;
       }
       strokeData.strokeCounter = this.strokeCounter;
       strokeData.strokeLength = 0;
@@ -2709,7 +2715,7 @@ export class ColorCycleBrushCanvas2D {
     this._isHistoryRestore = asHistory;
     const shouldAssertNoClear = process.env.NODE_ENV !== 'production' && asHistory;
     let clearedDuringRestore = false;
-    let highestStrokeCounter = this.strokeCounter;
+    let highestStrokeCounter = asHistory ? 0 : this.strokeCounter;
     try {
       try {
         const snapshotCount = layerSnapshots instanceof Map
@@ -2862,7 +2868,7 @@ export class ColorCycleBrushCanvas2D {
       }
 
       const hasContent = snapshot?.hasContent ?? strokeData?.hasContent ?? false;
-      const strokeCounter = snapshot?.strokeCounter ?? strokeData?.strokeCounter ?? this.strokeCounter;
+      const strokeCounter = strokeData?.strokeCounter ?? snapshot?.strokeCounter ?? this.strokeCounter;
 
       layers.push({
         layerId,
@@ -2928,7 +2934,7 @@ export class ColorCycleBrushCanvas2D {
     return {
       paintBuffer,
       hasContent: snapshot?.hasContent ?? !!strokeData.hasContent,
-      strokeCounter: snapshot?.strokeCounter ?? strokeData.strokeCounter ?? 0
+      strokeCounter: strokeData.strokeCounter ?? snapshot?.strokeCounter ?? 0
     };
   }
 
@@ -3017,6 +3023,34 @@ export class ColorCycleBrushCanvas2D {
         // Replace existing animator for this layer
         this.animators.set(layerId, rebuilt);
         animator = rebuilt;
+        // Ensure animation callbacks are re-bound when swapping animators during history restore.
+        if (this.isAnimating) {
+          try {
+            if (typeof animator.start === 'function') {
+              animator.start();
+            }
+          } catch {}
+        }
+        const existingCallback = this.animatorCallbacks.get(layerId);
+        if (existingCallback) {
+          try {
+            if (typeof animator.onFrame === 'function') {
+              animator.onFrame(existingCallback);
+            }
+          } catch {}
+        } else if (this.isAnimating) {
+          const callback = () => {
+            if (!this.isPaused) {
+              this.render(false);
+            }
+          };
+          this.animatorCallbacks.set(layerId, callback);
+          try {
+            if (typeof animator.onFrame === 'function') {
+              animator.onFrame(callback);
+            }
+          } catch {}
+        }
         hasLayerContent = hasLayerContent || anyNonZero;
       } catch (error) {
         console.warn('[ColorCycleBrush.applyLayerSnapshot] Failed to rebuild animator from snapshot:', error);

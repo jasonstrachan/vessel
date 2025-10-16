@@ -187,22 +187,37 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
         Boolean(layerSnapshot.strokeData?.hasContent)
       );
 
-      try {
-        brush.clearPaintBuffer?.(this.layerId);
-      } catch {
-        // Clearing paint buffer is best-effort.
-      }
+      // Do not clear before a history restore; the restore will rebuild the animator and commit the correct pixels.
       brush.restoreFullState({
         cycleSpeed: state.cycleSpeed,
         fps: state.fps,
         brushSize: state.brushSize,
-        layerSnapshots: state.layers?.map((layerSnapshot: ColorCycleSerializedLayer) => ({
-          layerId: layerSnapshot.layerId,
-          data: layerSnapshot.data,
-          paintBuffer: layerSnapshot.strokeData?.paintBuffer ?? new ArrayBuffer(0),
-          hasContent: Boolean(layerSnapshot.strokeData?.hasContent),
-          strokeCounter: layerSnapshot.strokeData?.strokeCounter ?? 0
-        }))
+        layerSnapshots: state.layers?.map((layerSnapshot: ColorCycleSerializedLayer) => {
+          const indexBuffer = (layerSnapshot as any)?.data?.indexBuffer;
+          const gradientStops = (layerSnapshot as any)?.data?.gradient?.gradientStops;
+          const animatorIndex =
+            indexBuffer &&
+            indexBuffer.data &&
+            indexBuffer.width &&
+            indexBuffer.height
+              ? {
+                  width: indexBuffer.width,
+                  height: indexBuffer.height,
+                  data:
+                    indexBuffer.data instanceof ArrayBuffer
+                      ? indexBuffer.data
+                      : indexBuffer.data?.buffer ?? indexBuffer.data,
+                  gradientStops: Array.isArray(gradientStops) ? gradientStops : undefined
+                }
+              : undefined;
+          return {
+            layerId: layerSnapshot.layerId,
+            paintBuffer: layerSnapshot.strokeData?.paintBuffer ?? new ArrayBuffer(0),
+            hasContent: Boolean(layerSnapshot.strokeData?.hasContent),
+            strokeCounter: layerSnapshot.strokeData?.strokeCounter ?? 0,
+            animatorIndex
+          };
+        })
       }, { mode: 'history' });
       try {
         brush.updateColorCycleTexture?.();
@@ -210,29 +225,23 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
         // Texture updates are best-effort.
       }
 
-      if (!restoredHasContent) {
-        try {
-          brush.clearPaintBuffer?.(this.layerId);
-        } catch {
-          // Clearing paint buffer is best-effort.
-        }
-        try {
-          brush.applyLayerSnapshot?.(
-            this.layerId,
-            {
-              paintBuffer: new ArrayBuffer(0),
-              hasContent: false,
-              strokeCounter: 0
-            }
-          );
-        } catch {
-          // Fallback to clear paint buffer only.
-        }
-      } else {
+      if (restoredHasContent) {
         try {
           brush.render?.(false);
         } catch {
           // Rendering is best-effort; ignore failures so history replay can continue.
+        }
+      }
+
+      // Ensure runtime stroke data reflects presence of restored content
+      if (restoredHasContent) {
+        try {
+          const runtimeState = (brush as any)?.layerStrokes?.get?.(this.layerId);
+          if (runtimeState) {
+            runtimeState.hasContent = true;
+          }
+        } catch {
+          // Best-effort; brush state remains authoritative even if this fails.
         }
       }
 
@@ -252,12 +261,12 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       } catch {
         // Sampling is diagnostic only.
       }
-
-      tctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
       tctx.restore();
       let synced = false;
       if (typeof brush.commitToLayer === 'function') {
         try {
+          // Do NOT clear here. commitToLayer() already handles any required clearing;
+          // if srcCanvas === targetCanvas it will bail out, so pre-clearing would leave a blank frame.
           brush.commitToLayer(targetCanvas, this.layerId);
           synced = true;
         } catch {
@@ -325,21 +334,6 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
         }
       } catch {
         // Best-effort metadata update.
-      }
-
-      if (!restoredHasContent) {
-        try {
-          const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
-          ctx?.save();
-          try {
-            ctx?.setTransform?.(1, 0, 0, 1, 0, 0);
-            ctx?.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-          } finally {
-            ctx?.restore?.();
-          }
-        } catch {
-          // Canvas clear fallback best-effort.
-        }
       }
 
       if (typeof window !== 'undefined') {

@@ -3,6 +3,37 @@
 
 import type { Project, Layer } from '../types';
 
+const sanitizeColorCycleData = (
+  colorCycleData: Layer['colorCycleData']
+): Layer['colorCycleData'] | undefined => {
+  if (!colorCycleData) {
+    return colorCycleData;
+  }
+
+  const {
+    colorCycleBrush: _brush,
+    canvas: _canvas,
+    recolorSettings,
+    ...rest
+  } = colorCycleData;
+
+  const sanitized: Layer['colorCycleData'] = {
+    ...rest,
+    colorCycleBrush: undefined,
+    canvas: undefined
+  };
+
+  if (recolorSettings) {
+    const { colorMap, ...recolorRest } = recolorSettings;
+    sanitized.recolorSettings = {
+      ...recolorRest,
+      colorMap: colorMap ? new Map(colorMap) : undefined
+    };
+  }
+
+  return sanitized;
+};
+
 type SerializableLayer = Omit<Layer, 'framebuffer'>;
 
 interface AutosaveRecord {
@@ -73,9 +104,12 @@ class BackgroundStorageService {
 
     // Create serializable layers by excluding OffscreenCanvas framebuffer
     const serializableLayers = layers.map(layer => {
-      const { framebuffer: _framebuffer, ...serializableLayer } = layer;
+      const { framebuffer: _framebuffer, colorCycleData, ...serializableLayer } = layer;
       void _framebuffer;
-      return serializableLayer;
+      return {
+        ...serializableLayer,
+        colorCycleData: sanitizeColorCycleData(colorCycleData)
+      };
     });
 
     // Create serializable project data by excluding layers (they're stored separately)
