@@ -8,17 +8,15 @@ import { scaledBrushCache } from '@/utils/scaledBrushCache';
 
 export const CustomBrushPanel = () => {
   
-  const { 
-    project, 
-    addCustomBrush,
-    selectionStart,
-    selectionEnd,
-    clearSelection,
-    currentOffscreenCanvas,
-    temporaryCustomBrush,
-    setTemporaryCustomBrush,
-    setBrushSettings
-  } = useAppStore();
+  const project = useAppStore((state) => state.project);
+  const selectionStart = useAppStore((state) => state.selectionStart);
+  const selectionEnd = useAppStore((state) => state.selectionEnd);
+  const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
+  const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
+  const addCustomBrush = useAppStore((state) => state.addCustomBrush);
+  const clearSelection = useAppStore((state) => state.clearSelection);
+  const setTemporaryCustomBrush = useAppStore((state) => state.setTemporaryCustomBrush);
+  const setBrushSettings = useAppStore((state) => state.setBrushSettings);
 
   // Clear temporary brush when there's no selection (i.e., when custom tool is deactivated)
   useEffect(() => {

@@ -97,6 +97,7 @@ class ShapeAdjustHelper {
 const getShapeFillScheduler = (): ShapeFillScheduler | null => null;
 
 const CONTOUR_DEBUG_STORAGE_KEY = 'vessel.debug.contour';
+const DEFAULT_CONTOUR_DEBUG = process.env.NEXT_PUBLIC_CONTOUR_DEBUG === '1';
 
 const isContourDebugEnabled = () => {
   if (typeof globalThis === 'undefined') return false;
@@ -114,7 +115,7 @@ const isContourDebugEnabled = () => {
   } catch {
     // ignore storage issues
   }
-  const fallback = process.env.NODE_ENV !== 'production';
+  const fallback = DEFAULT_CONTOUR_DEBUG;
   globalAny.__CONTOUR_DEBUG = fallback;
   return fallback;
 };
@@ -140,10 +141,10 @@ const ensureContourDebugBridge = () => {
       if (stored != null) {
         globalAny.__CONTOUR_DEBUG = stored === '1';
       } else {
-        globalAny.__CONTOUR_DEBUG = process.env.NODE_ENV !== 'production';
+        globalAny.__CONTOUR_DEBUG = DEFAULT_CONTOUR_DEBUG;
       }
     } catch {
-      globalAny.__CONTOUR_DEBUG = process.env.NODE_ENV !== 'production';
+      globalAny.__CONTOUR_DEBUG = DEFAULT_CONTOUR_DEBUG;
     }
   }
 };

@@ -1,9 +1,9 @@
 'use client';
 
 import React from 'react';
-console.info('[ContourLines bootstrap]');
 // ---- ContourLines DEBUG ----------------------------------
 const CL_DEBUG_STORAGE_KEY = 'vessel.debug.cl';
+const DEFAULT_CL_DEBUG = process.env.NEXT_PUBLIC_CONTOUR_DEBUG === '1';
 
 const shouldEnableContourDebug = (): boolean => {
   if (typeof globalThis === 'undefined') return false;
@@ -20,7 +20,7 @@ const shouldEnableContourDebug = (): boolean => {
   } catch {
     // ignore storage access issues
   }
-  const fallback = process.env.NODE_ENV !== 'production';
+  const fallback = DEFAULT_CL_DEBUG;
   globalAny.__CL_DEBUG = fallback;
   return fallback;
 };
@@ -92,7 +92,7 @@ const ensureCLDebugBridge = () => {
       if (stored != null) {
         globalAny.__CL_DEBUG = stored === '1';
       } else {
-        globalAny.__CL_DEBUG = process.env.NODE_ENV !== 'production';
+        globalAny.__CL_DEBUG = DEFAULT_CL_DEBUG;
       }
     } catch {
       globalAny.__CL_DEBUG = process.env.NODE_ENV !== 'production';

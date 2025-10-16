@@ -2,6 +2,7 @@ import { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanv
 import { getColorCycleAnimationState } from '@/components/toolbar/BrushControls';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
+import { colorCycleDebug } from '@/utils/colorCycleDebug';
 import type {
   HistoryDelta,
   HistoryDirection,
@@ -182,7 +183,7 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       const layerSnapshots = state.layers ?? [];
       const paintBufferBytes =
         state.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1;
-      console.debug('[cc-apply] restoring paintBuffer bytes:', paintBufferBytes);
+      colorCycleDebug('[cc-apply] restoring paintBuffer bytes', paintBufferBytes);
       const restoredHasContent = layerSnapshots.some((layerSnapshot) =>
         Boolean(layerSnapshot.strokeData?.hasContent)
       );
@@ -257,7 +258,7 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       // Diagnostic: sample before clearing
       try {
         const beforePx = tctx.getImageData(0, 0, 1, 1).data;
-        console.debug('[cc-apply] top-left BEFORE:', Array.from(beforePx));
+        colorCycleDebug('[cc-apply] top-left BEFORE', Array.from(beforePx));
       } catch {
         // Sampling is diagnostic only.
       }
@@ -309,7 +310,7 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
         const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
         const sample = ctx?.getImageData(0, 0, 1, 1).data;
         if (sample) {
-          console.debug('[cc-apply] top-left AFTER:', Array.from(sample));
+          colorCycleDebug('[cc-apply] top-left AFTER', Array.from(sample));
         }
       } catch {
         // Sampling is diagnostic only.

@@ -4684,9 +4684,12 @@ export const useAppStore = create<AppState>()(
         }
 
         // Try to get the source canvas (offscreen canvas with the drawing)
-        const canvas = sourceCanvas;
+        const canvas = sourceCanvas ?? state.currentOffscreenCanvas ?? undefined;
 
         if (!canvas) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('[captureCanvasToActiveLayer] No source canvas available; skipping capture.');
+          }
           return;
         }
 

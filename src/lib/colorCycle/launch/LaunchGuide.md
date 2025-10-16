@@ -61,15 +61,15 @@ import { ColorCycleUI, ColorCycleToggle } from './colorCycle/integration/ColorCy
 // ... existing imports
 
 const ControlsPanel = () => {
-  const { tools } = useAppStore();
+  const currentTool = useAppStore(state => state.tools.currentTool);
   const [colorCycleVisible, setColorCycleVisible] = useState(false);
   
   return (
     <div className="h-full overflow-y-auto bg-[#2C2C2C]">
       {/* Existing controls */}
-      {(tools.currentTool === 'brush' || tools.currentTool === 'eraser') && <BrushControls />}
-      {tools.currentTool === 'fill' && <FillControls />}
-      {tools.currentTool === 'custom' && <CustomBrushPanel />}
+      {(currentTool === 'brush' || currentTool === 'eraser') && <BrushControls />}
+      {currentTool === 'fill' && <FillControls />}
+      {currentTool === 'custom' && <CustomBrushPanel />}
       
       {/* Color Cycle Toggle */}
       <div className="border-t border-gray-600 mt-4 pt-4">

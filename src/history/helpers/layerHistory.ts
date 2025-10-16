@@ -13,6 +13,7 @@ import {
   selectionSnapshotFromValues,
   type SelectionSnapshot,
 } from '@/history/selectionState';
+import { colorCycleDebug } from '@/utils/colorCycleDebug';
 
 const cloneImageData = (imageData: ImageData | null | undefined): ImageData | null => {
   if (!imageData) {
@@ -144,7 +145,7 @@ export const commitLayerHistory = async ({
 
     if (afterColorState || beforeColorState) {
       // Diagnostics: verify before/after differ
-      console.debug('[cc-delta-capture]', {
+      colorCycleDebug('[cc-delta-capture]', {
         beforeBytes: beforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
         afterBytes: afterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
         beforeCtr: beforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,

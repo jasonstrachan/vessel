@@ -199,7 +199,11 @@ export interface RenderSettings {
 
 
 export const useBrushEngine = () => {
-  const { tools, activeBrushComponents, project, brushPresets, temporaryCustomBrush } = useAppStore();
+  const tools = useAppStore((state) => state.tools);
+  const activeBrushComponents = useAppStore((state) => state.activeBrushComponents);
+  const project = useAppStore((state) => state.project);
+  const brushPresets = useAppStore((state) => state.brushPresets);
+  const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
   
   
   // Pixel queue state for perfect pixel drawing with distance-based spacing

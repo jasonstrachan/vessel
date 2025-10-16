@@ -94,18 +94,17 @@ export function useComprehensiveKeyboard({
   const isTemporaryEraserRef = useRef(false);
   const eraserPressTimeRef = useRef<number>(0);
 
-  const { 
-    setCurrentTool, 
-    tools, 
-    polygonGradientState,
-    setGlobalBrushSize,
-    deleteSelectedPixels,
-    selectAllActiveLayerPixels,
-    selectionStart,
-    selectionEnd,
-    floatingPaste,
-    setFloatingPaste
-  } = useAppStore();
+  const currentTool = useAppStore((state) => state.tools.currentTool);
+  const brushSettings = useAppStore((state) => state.tools.brushSettings);
+  const polygonGradientState = useAppStore((state) => state.polygonGradientState);
+  const setCurrentTool = useAppStore((state) => state.setCurrentTool);
+  const setGlobalBrushSize = useAppStore((state) => state.setGlobalBrushSize);
+  const deleteSelectedPixels = useAppStore((state) => state.deleteSelectedPixels);
+  const selectAllActiveLayerPixels = useAppStore((state) => state.selectAllActiveLayerPixels);
+  const selectionStart = useAppStore((state) => state.selectionStart);
+  const selectionEnd = useAppStore((state) => state.selectionEnd);
+  const floatingPaste = useAppStore((state) => state.floatingPaste);
+  const setFloatingPaste = useAppStore((state) => state.setFloatingPaste);
 
   // Use refs for stable callbacks to avoid re-registering event listeners
   const onSpacePressedRef = useRef(onSpacePressed);
@@ -273,8 +272,8 @@ export function useComprehensiveKeyboard({
         eraserPressTimeRef.current = Date.now();
         
         // Store current tool for potential temporary mode
-        if (tools.currentTool !== 'eraser') {
-          previousToolRef.current = tools.currentTool;
+        if (currentTool !== 'eraser') {
+          previousToolRef.current = currentTool;
           isTemporaryEraserRef.current = true;
           setCurrentTool('eraser');
         } else {
@@ -303,7 +302,6 @@ export function useComprehensiveKeyboard({
         onBrushSizeDecrease();
       } else {
         // Default implementation
-        const { brushSettings } = tools;
         const currentSize = brushSettings.size;
         const adjustment = 1;
         const minSize = 1;
@@ -319,7 +317,6 @@ export function useComprehensiveKeyboard({
         onBrushSizeIncrease();
       } else {
         // Default implementation
-        const { brushSettings } = tools;
         const currentSize = brushSettings.size;
         const adjustment = 1;
         const maxSize = 500;
@@ -330,20 +327,20 @@ export function useComprehensiveKeyboard({
     }
 
     // Polygon gradient or contour polygon completion
-  const normalizedShapeGradientMode = tools.brushSettings.shapeGradientMode === 'mesh'
+  const normalizedShapeGradientMode = brushSettings.shapeGradientMode === 'mesh'
     ? 'lines'
-    : ((tools.brushSettings.shapeGradientMode === 'flow' ||
-        tools.brushSettings.shapeGradientMode === 'inkRibbons' ||
-        tools.brushSettings.shapeGradientMode === 'triangle')
+    : ((brushSettings.shapeGradientMode === 'flow' ||
+        brushSettings.shapeGradientMode === 'inkRibbons' ||
+        brushSettings.shapeGradientMode === 'triangle')
         ? 'contour'
-        : (tools.brushSettings.shapeGradientMode || 'contour'));
-    const isContourLines2Mode =
-      tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON &&
+        : (brushSettings.shapeGradientMode || 'contour'));
+  const isContourLines2Mode =
+      brushSettings.brushShape === BrushShape.CONTOUR_POLYGON &&
       normalizedShapeGradientMode === 'lines2';
 
-    if ((tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT || 
-         tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON ||
-         tools.brushSettings.brushShape === BrushShape.CONTOUR_LINES2 ||
+    if ((brushSettings.brushShape === BrushShape.POLYGON_GRADIENT || 
+         brushSettings.brushShape === BrushShape.CONTOUR_POLYGON ||
+         brushSettings.brushShape === BrushShape.CONTOUR_LINES2 ||
          isContourLines2Mode) && 
         polygonGradientState.points.length >= 3) {
       if (event.key === 'Enter') {
@@ -387,7 +384,7 @@ export function useComprehensiveKeyboard({
     }
   }, [enabled, allowedScopes, onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
       onPolygonCancel, onEnterPressed, onEscapePressed,
-      tools, polygonGradientState, setCurrentTool, setGlobalBrushSize,
+      currentTool, brushSettings, polygonGradientState, setCurrentTool, setGlobalBrushSize,
       deleteSelectedPixels, selectAllActiveLayerPixels, selectionStart, selectionEnd,
       floatingPaste, setFloatingPaste]);
 

@@ -114,7 +114,8 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   className = '',
   sampleTarget = 'recolor'
 }) => {
-  const { startRecolorSampling, addNotification } = useAppStore();
+  const startRecolorSampling = useAppStore((state) => state.startRecolorSampling);
+  const addNotification = useAppStore((state) => state.addNotification);
   // Brush auto-sample state (used when sampleTarget === 'brush')
   const autoSampleEnabled = useAppStore(state => !!state.tools.brushSettings.autoSampleGradient);
   const setBrushSettings = useAppStore(state => state.setBrushSettings);

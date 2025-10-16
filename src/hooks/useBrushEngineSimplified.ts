@@ -51,7 +51,9 @@ const hasForceRender = (
 };
 
 export const useBrushEngineSimplified = () => {
-  const { tools, project, activeLayerId } = useAppStore();
+  const tools = useAppStore((state) => state.tools);
+  const project = useAppStore((state) => state.project);
+  const activeLayerId = useAppStore((state) => state.activeLayerId);
   // Track per-layer CC brush speed for the active layer
   const activeLayerBrushSpeed = useAppStore((state) => {
     const layer = state.layers.find(l => l.id === state.activeLayerId);

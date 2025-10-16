@@ -124,25 +124,23 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const { crop, commitCrop, cancelCrop } = useCropState();
   
   // Get functions separately (they don't change)
-  const {
-    setSelectionBounds,
-    clearSelection,
-    setCurrentTool,
-    setCurrentOffscreenCanvas,
-    compositeLayersToCanvas,
-    setCanvasDimensions,
-    setZoom,
-    setCanvasOffset,
-    setCanvasViewport,
-    undo,
-    redo,
-    setFloatingPaste,
-    updateFloatingPastePosition,
-    commitFloatingPaste,
-    cancelFloatingPaste,
-    updateLayer,
-    setLayersNeedRecomposition,
-  } = useAppStore();
+  const setSelectionBounds = useAppStore((state) => state.setSelectionBounds);
+  const clearSelection = useAppStore((state) => state.clearSelection);
+  const setCurrentTool = useAppStore((state) => state.setCurrentTool);
+  const setCurrentOffscreenCanvas = useAppStore((state) => state.setCurrentOffscreenCanvas);
+  const compositeLayersToCanvas = useAppStore((state) => state.compositeLayersToCanvas);
+  const setCanvasDimensions = useAppStore((state) => state.setCanvasDimensions);
+  const setZoom = useAppStore((state) => state.setZoom);
+  const setCanvasOffset = useAppStore((state) => state.setCanvasOffset);
+  const setCanvasViewport = useAppStore((state) => state.setCanvasViewport);
+  const undo = useAppStore((state) => state.undo);
+  const redo = useAppStore((state) => state.redo);
+  const setFloatingPaste = useAppStore((state) => state.setFloatingPaste);
+  const updateFloatingPastePosition = useAppStore((state) => state.updateFloatingPastePosition);
+  const commitFloatingPaste = useAppStore((state) => state.commitFloatingPaste);
+  const cancelFloatingPaste = useAppStore((state) => state.cancelFloatingPaste);
+  const updateLayer = useAppStore((state) => state.updateLayer);
+  const setLayersNeedRecomposition = useAppStore((state) => state.setLayersNeedRecomposition);
 
   const setCurrentToolById = useCallback(
     (toolId: string) => {

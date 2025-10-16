@@ -6,8 +6,8 @@ import { calculateZoomIncrement } from '../../utils/zoomUtils';
 import Input from '../ui/Input';
 
 export default function ZoomControls() {
-  const { canvas, setZoom } = useAppStore();
-  const { zoom } = canvas;
+  const zoom = useAppStore((state) => state.canvas.zoom);
+  const setZoom = useAppStore((state) => state.setZoom);
 
   // Zoom at center of canvas since we don't have reliable cursor position from buttons
   const zoomAtCenter = (newZoom: number) => {

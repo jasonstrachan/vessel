@@ -15,8 +15,7 @@ export const useUserBrushEngine = () => {
   const strokeCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const strokeCtxRef = useRef<CanvasRenderingContext2D | null>(null);
 
-  const { tools } = useAppStore();
-  const brushSettings = tools.brushSettings;
+  const brushSettings = useAppStore((state) => state.tools.brushSettings);
 
   // Initialize stroke canvas for plugin brushes
   useEffect(() => {

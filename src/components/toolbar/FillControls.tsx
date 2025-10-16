@@ -6,8 +6,8 @@ import CustomSwitch from '../ui/CustomSwitch';
 import ProgressSlider from '../ui/ProgressSlider';
 
 export default function FillControls() {
-  const { tools, setFillSettings } = useAppStore();
-  const { fillSettings } = tools;
+  const fillSettings = useAppStore((state) => state.tools.fillSettings);
+  const setFillSettings = useAppStore((state) => state.setFillSettings);
 
   return (
     <div className="p-4">

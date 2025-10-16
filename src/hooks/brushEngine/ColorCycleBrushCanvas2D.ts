@@ -2094,6 +2094,11 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
 
+    if (strokeData) {
+      // Ensure ongoing animation bookkeeping knows this layer has drawable content
+      strokeData.hasContent = true;
+    }
+
     try { animator.forceRender(); } catch {}
 
     const srcCanvas = animator.getCanvas();
@@ -2114,6 +2119,7 @@ export class ColorCycleBrushCanvas2D {
           }
         }
         strokeData.hasExternalBase = false;
+        strokeData.hasContent = true;
       }
 
       ctx.globalCompositeOperation = 'source-over';
@@ -2723,7 +2729,7 @@ export class ColorCycleBrushCanvas2D {
           : Array.isArray(layerSnapshots)
             ? layerSnapshots.length
             : 0;
-        console.log('[ColorCycleBrush] restoreFullState called', {
+        ccLog('[ColorCycleBrush] restoreFullState called', {
           hasSnapshots: Boolean(layerSnapshots),
           snapshotCount,
           mode: opts.mode ?? 'normal',
@@ -2740,7 +2746,7 @@ export class ColorCycleBrushCanvas2D {
           clearedDuringRestore = true;
           const sd = this.layerStrokes.get(layerId);
           if (sd) {
-            console.log('[ColorCycleBrush] Paint buffer cleared during restore for layer:', layerId?.substring(0, 20));
+            ccLog('[ColorCycleBrush] Paint buffer cleared during restore for layer:', layerId?.substring(0, 20));
             sd.paintBuffer.fill(0);
             sd.hasContent = false;
             sd.strokeCounter = 0;
@@ -2799,7 +2805,7 @@ export class ColorCycleBrushCanvas2D {
       }
       
       try {
-        console.log('[ColorCycleBrush] Settings updated after restore', { history: asHistory });
+        ccLog('[ColorCycleBrush] Settings updated after restore', { history: asHistory });
       } catch {}
     } finally {
       if (shouldAssertNoClear) {
@@ -2816,14 +2822,14 @@ export class ColorCycleBrushCanvas2D {
     const id = layerId;
     const animator = this.animators.get(id);
     if (!animator || !animator.getCanvas) {
-      console.log('[Debug] No animator/canvas exists for layer:', id);
+      ccLog('[Debug] No animator/canvas exists for layer:', id);
       return true;
     }
     try {
       const canvas = animator.getCanvas();
       const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as CanvasRenderingContext2D | null;
       if (!ctx) {
-        console.log('[Debug] No 2D context on animator canvas');
+        ccLog('[Debug] No 2D context on animator canvas');
         return true;
       }
       const w = Math.min(32, canvas.width);
@@ -2836,7 +2842,7 @@ export class ColorCycleBrushCanvas2D {
         }
         return false;
       })();
-      console.log('[Debug] Animator canvas has content:', hasContent, 'layer:', id);
+      ccLog('[Debug] Animator canvas has content:', hasContent, 'layer:', id);
       return !hasContent;
     } catch (error) {
       console.warn('[Debug] Failed to verify animator canvas content:', error);
@@ -3141,6 +3147,6 @@ export class ColorCycleBrushCanvas2D {
     this.layerStrokes.clear();
     this.dirtyLayers.clear();
     
-    console.log('ColorCycleBrushCanvas2D disposed');
+    ccLog('ColorCycleBrushCanvas2D disposed');
   }
 }

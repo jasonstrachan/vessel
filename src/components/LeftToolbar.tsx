@@ -3,7 +3,11 @@ import { useAppStore } from '../stores/useAppStore';
 import { Tool } from '../types';
 const LeftToolbar = () => {
   // Force refresh - toolbar black background fix
-  const { tools: toolState, setCurrentTool, saveProject, loadProject, toggleModal } = useAppStore();
+  const currentTool = useAppStore((state) => state.tools.currentTool);
+  const setCurrentTool = useAppStore((state) => state.setCurrentTool);
+  const saveProject = useAppStore((state) => state.saveProject);
+  const loadProject = useAppStore((state) => state.loadProject);
+  const toggleModal = useAppStore((state) => state.toggleModal);
 
   const baseButtonStyle: React.CSSProperties = {
     fontFamily: 'IBM Plex Mono, "Courier New", monospace',
@@ -75,7 +79,7 @@ const LeftToolbar = () => {
             <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
           )}
           {group.map((tool, toolIndex) => {
-            const isActive = toolState.currentTool === tool.id;
+            const isActive = currentTool === tool.id;
 
             return (
               <React.Fragment key={tool.id}>

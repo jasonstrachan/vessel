@@ -35,7 +35,9 @@ const calculateMemoryUsage = (width: number, height: number): number => {
 export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose }) => {
   // Suspend global/canvas shortcuts while modal is open
   useKeyboardScope('modal', isOpen);
-  const { project, newProject, resizeCanvas } = useAppStore();
+  const project = useAppStore((state) => state.project);
+  const newProject = useAppStore((state) => state.newProject);
+  const resizeCanvas = useAppStore((state) => state.resizeCanvas);
   
   const [resizeWidth, setResizeWidth] = useState<number | string>(project?.width || 2000);
   const [resizeHeight, setResizeHeight] = useState<number | string>(project?.height || 2000);

@@ -19,6 +19,7 @@ import { FinalizeQueue } from '@/lib/canvas';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
+import { colorCycleDebug } from '@/utils/colorCycleDebug';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -126,7 +127,9 @@ export function useDrawingHandlers({
 }: UseDrawingHandlersProps) {
   const brushEngine = useBrushEngineSimplified();
   const userBrushEngine = useUserBrushEngine();
-  const { captureCanvasToActiveLayer, tools, activeLayerId } = useAppStore();
+  const captureCanvasToActiveLayer = useAppStore((state) => state.captureCanvasToActiveLayer);
+  const tools = useAppStore((state) => state.tools);
+  const activeLayerId = useAppStore((state) => state.activeLayerId);
   
   // Feedback message state
   const feedbackMessageRef = useRef<((message: string) => void) | null>(null);
@@ -707,9 +710,11 @@ export function useDrawingHandlers({
       const manager = getColorCycleBrushManager();
       const brush = manager.getBrush(activeLayerForCapture.id) as any;
       const layerStrokeData = brush?.layerStrokes?.get(activeLayerForCapture.id);
-      console.debug('[cc-before-capture] brushCounter:', brush?.strokeCounter ?? -1,
-        'layerDataCounter:', layerStrokeData?.strokeCounter ?? -1,
-        'serializedCounter:', beforeState?.layers?.[0]?.strokeData?.strokeCounter ?? -1);
+      colorCycleDebug('[cc-before-capture]', {
+        brushCounter: brush?.strokeCounter ?? -1,
+        layerDataCounter: layerStrokeData?.strokeCounter ?? -1,
+        serializedCounter: beforeState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+      });
       strokeBeforeColorStateRef.current = beforeState;
     } else {
       strokeBeforeColorStateRef.current = null;
@@ -1619,7 +1624,7 @@ export function useDrawingHandlers({
 
             if (shouldSkipBitmapDelta) {
               afterColorState = captureColorCycleBrushState(activeLayer.id);
-              console.debug('[cc-delta-capture]', {
+              colorCycleDebug('[cc-delta-capture]', {
                 beforeBytes:
                   layerBeforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
                 afterBytes:
@@ -1936,7 +1941,7 @@ export function useDrawingHandlers({
               await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
               if (shapeLayerId) {
                 const afterColorState = captureColorCycleBrushState(shapeLayerId);
-                console.debug('[cc-delta-capture]', {
+                colorCycleDebug('[cc-delta-capture]', {
                   beforeBytes:
                     shapeBeforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
                   afterBytes:
@@ -2320,7 +2325,7 @@ export function useDrawingHandlers({
                   await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
                   if (shapeLayerId) {
                     const afterColorState = captureColorCycleBrushState(shapeLayerId);
-                    console.debug('[cc-delta-capture]', {
+                    colorCycleDebug('[cc-delta-capture]', {
                       beforeBytes:
                         shapeBeforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
                       afterBytes:
@@ -2376,7 +2381,7 @@ export function useDrawingHandlers({
                   await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
                   if (shapeLayerId) {
                     const afterColorState = captureColorCycleBrushState(shapeLayerId);
-                    console.debug('[cc-delta-capture]', {
+                    colorCycleDebug('[cc-delta-capture]', {
                       beforeBytes:
                         shapeBeforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
                       afterBytes:

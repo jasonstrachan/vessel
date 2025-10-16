@@ -15,13 +15,11 @@ const toOpaqueColorString = (color: string): string => {
 export function useToolStateMachine({ 
   sampleColorAtPosition
 }: ToolStateMachineProps) {
-  const {
-    tools,
-    rectangleBrushState,
-    setRectangleBrushState,
-    polygonGradientState,
-    setPolygonGradientState,
-  } = useAppStore();
+  const tools = useAppStore((state) => state.tools);
+  const rectangleBrushState = useAppStore((state) => state.rectangleBrushState);
+  const setRectangleBrushState = useAppStore((state) => state.setRectangleBrushState);
+  const polygonGradientState = useAppStore((state) => state.polygonGradientState);
+  const setPolygonGradientState = useAppStore((state) => state.setPolygonGradientState);
   
   // Rectangle gradient state machine
   const handleRectangleGradientMouseDown = useCallback((worldPos: { x: number; y: number }) => {
