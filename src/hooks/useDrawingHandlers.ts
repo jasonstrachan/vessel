@@ -741,14 +741,8 @@ export function useDrawingHandlers({
       brushEngine.resetStroke();
     }
 
-    // Only pause animations for NON-CC brushes
-    // CC brushes should auto-start animations instead
-    if (ccFlags.isAny) {
-      // AUTO-START animations when using a CC brush
-      if (!getColorCycleAnimationState()) {
-        toggleGlobalColorCyclePlayback(true);
-      }
-    } else {
+    // Respect toolbar playback state for CC brushes; do not auto-start here.
+    if (!ccFlags.isAny) {
       // Pause animations for non-CC brushes only
       pauseColorCycleForNonCCInteraction();
     }
@@ -1467,6 +1461,11 @@ export function useDrawingHandlers({
             // IMPORTANT: Check if we should continue animating after stroke ends
             // The animation should continue if the play button is active
             // We'll rely on the DrawingCanvas to restart it based on UI state
+            if (getColorCycleAnimationState?.()) {
+              try {
+                window.dispatchEvent(new CustomEvent('cc:request-start-raf'));
+              } catch {}
+            }
           }
           
           // Handle capture differently for CC layers vs regular layers
@@ -1707,12 +1706,7 @@ export function useDrawingHandlers({
       const state = useAppStore.getState();
       const isCCShape = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
 
-      if (isCCShape) {
-        // AUTO-START animations when using CC shape brush
-        if (!getColorCycleAnimationState()) {
-          toggleGlobalColorCyclePlayback(true);
-        }
-      } else {
+      if (!isCCShape) {
         // Only pause for non-CC shape brushes
         pauseColorCycleForNonCCInteraction();
       }
@@ -1757,12 +1751,7 @@ export function useDrawingHandlers({
       const state = useAppStore.getState();
       const isCCShape = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
 
-      if (isCCShape) {
-        // AUTO-START for CC shapes
-        if (!getColorCycleAnimationState()) {
-          toggleGlobalColorCyclePlayback(true);
-        }
-      } else {
+      if (!isCCShape) {
         // Only pause for non-CC shapes
         pauseColorCycleForNonCCInteraction();
       }
@@ -2704,6 +2693,10 @@ export function useDrawingHandlers({
       cancelAnimationFrame(continuousColorCycleAnimationRef.current);
       continuousColorCycleAnimationRef.current = null;
     }
+    if (colorCycleAnimationRef.current) {
+      cancelAnimationFrame(colorCycleAnimationRef.current);
+      colorCycleAnimationRef.current = null;
+    }
 
     // Ensure store flags reflect paused state so overlay preview can render
     try {
@@ -2764,6 +2757,10 @@ export function useDrawingHandlers({
     const handleRequestStop = () => {
       try {
         stopContinuousColorCycleAnimation();
+        if (colorCycleAnimationRef.current) {
+          cancelAnimationFrame(colorCycleAnimationRef.current);
+          colorCycleAnimationRef.current = null;
+        }
       } catch {}
     };
 
