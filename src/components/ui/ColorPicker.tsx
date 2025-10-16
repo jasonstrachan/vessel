@@ -1,0 +1,423 @@
+import React, { useRef, useEffect, useCallback, useState } from "react";
+
+interface ColorPickerProps {
+  color: string;
+  onChange: (color: string) => void;
+  className?: string;
+}
+
+interface HSV {
+  h: number;
+  s: number;
+  v: number;
+}
+
+function hexToHsv(hex: string): HSV {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+
+  let h = 0;
+  if (delta !== 0) {
+    if (max === r) h = ((g - b) / delta) % 6;
+    else if (max === g) h = (b - r) / delta + 2;
+    else h = (r - g) / delta + 4;
+  }
+  h = Math.round(h * 60);
+  if (h < 0) h += 360;
+
+  const s = max === 0 ? 0 : delta / max;
+  const v = max;
+
+  return { h, s: s * 100, v: v * 100 };
+}
+
+function hsvToHex(h: number, s: number, v: number): string {
+  s /= 100;
+  v /= 100;
+
+  const c = v * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - c;
+
+  let r = 0,
+    g = 0,
+    b = 0;
+
+  if (h >= 0 && h < 60) {
+    r = c;
+    g = x;
+    b = 0;
+  } else if (h >= 60 && h < 120) {
+    r = x;
+    g = c;
+    b = 0;
+  } else if (h >= 120 && h < 180) {
+    r = 0;
+    g = c;
+    b = x;
+  } else if (h >= 180 && h < 240) {
+    r = 0;
+    g = x;
+    b = c;
+  } else if (h >= 240 && h < 300) {
+    r = x;
+    g = 0;
+    b = c;
+  } else if (h >= 300 && h < 360) {
+    r = c;
+    g = 0;
+    b = x;
+  }
+
+  const red = Math.round((r + m) * 255);
+  const green = Math.round((g + m) * 255);
+  const blue = Math.round((b + m) * 255);
+
+  return `#${red.toString(16).padStart(2, "0")}${green.toString(16).padStart(2, "0")}${blue.toString(16).padStart(2, "0")}`;
+}
+
+export default function ColorPicker({
+  color,
+  onChange,
+  className = "",
+}: ColorPickerProps) {
+  const svCanvasRef = useRef<HTMLCanvasElement>(null);
+  const hueCanvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isPointerDown, setIsPointerDown] = useState(false);
+  const [isDraggingHue, setIsDraggingHue] = useState(false);
+  const [svSize, setSvSize] = useState(212);
+
+  const hsv = hexToHsv(color);
+  const [currentHsv, setCurrentHsv] = useState(hsv);
+
+  // Cache for SV gradient
+  const svImageDataCache = useRef<Map<number, ImageData>>(new Map());
+
+  const drawSVCanvas = useCallback(
+    (hue: number) => {
+      const canvas = svCanvasRef.current;
+      if (!canvas) return;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const width = canvas.width;
+      const height = canvas.height;
+
+      // Check cache first
+      const cacheKey = Math.round(hue);
+      let imageData = svImageDataCache.current.get(cacheKey);
+
+      if (!imageData) {
+        imageData = ctx.createImageData(width, height);
+        const data = imageData.data;
+
+        const gridCols = 10; // Number of columns
+        const gridRows = 10; // Number of rows
+        const cellWidth = width / gridCols;
+        const cellHeight = height / gridRows;
+
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            // Calculate grid position - snap to grid cells
+            const gridCol = Math.floor(x / cellWidth);
+            const gridRow = Math.floor(y / cellHeight);
+            const gridX = gridCol * cellWidth;
+            const gridY = gridRow * cellHeight;
+
+            let hex;
+            
+            // Special cases for specific grid cells
+            if (gridCol === 0 && gridRow === 0) {
+              // Top-left cell: pure white
+              hex = "#ffffff";
+            } else if (gridCol === gridCols - 1 && gridRow === gridRows - 1) {
+              // Bottom-right cell: pure black
+              hex = "#000000";
+            } else {
+              // All other cells: normal color picker behavior
+              const s = (gridX / width) * 100;
+              const v = ((height - gridY) / height) * 100;
+              hex = hsvToHex(hue, s, v);
+            }
+
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+
+            const index = (y * width + x) * 4;
+            data[index] = r;
+            data[index + 1] = g;
+            data[index + 2] = b;
+            data[index + 3] = 255;
+          }
+        }
+
+        // Limit cache size
+        if (svImageDataCache.current.size > 20) {
+          const firstKey = svImageDataCache.current.keys().next().value;
+          if (firstKey !== undefined) {
+            svImageDataCache.current.delete(firstKey);
+          }
+        }
+        svImageDataCache.current.set(cacheKey, imageData);
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+
+      // Draw selection indicator - square matching grid cell size
+      const gridCols = 10;
+      const gridRows = 10;
+      const cellWidth = width / gridCols;
+      const cellHeight = height / gridRows;
+
+      const x = (currentHsv.s / 100) * width;
+      const y = ((100 - currentHsv.v) / 100) * height;
+
+      // Snap selection to grid
+      const gridX = Math.floor(x / cellWidth) * cellWidth;
+      const gridY = Math.floor(y / cellHeight) * cellHeight;
+
+      ctx.strokeStyle = currentHsv.v > 50 ? "#000" : "#fff";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(gridX + 0.5, gridY + 0.5, cellWidth - 1, cellHeight - 1);
+    },
+    [currentHsv.s, currentHsv.v],
+  );
+
+  const drawHueCanvas = useCallback(() => {
+    const canvas = hueCanvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, "#ff0000");
+    gradient.addColorStop(1 / 6, "#ffff00");
+    gradient.addColorStop(2 / 6, "#00ff00");
+    gradient.addColorStop(3 / 6, "#00ffff");
+    gradient.addColorStop(4 / 6, "#0000ff");
+    gradient.addColorStop(5 / 6, "#ff00ff");
+    gradient.addColorStop(1, "#ff0000");
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw selection indicator
+    const y = (currentHsv.h / 360) * canvas.height;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, y - 2, canvas.width, 4);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(2, y - 1, canvas.width - 4, 2);
+  }, [currentHsv.h]);
+
+  useEffect(() => {
+    const newHsv = hexToHsv(color);
+    setCurrentHsv(newHsv);
+  }, [color]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const HUE_WIDTH = 28;
+    const MIN_SV_SIZE = 120;
+
+    const updateSize = () => {
+      const availableWidth = container.clientWidth;
+      if (!availableWidth) return;
+      const nextSize = Math.max(MIN_SV_SIZE, Math.floor(availableWidth - HUE_WIDTH));
+      setSvSize(nextSize);
+    };
+
+    updateSize();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => {
+        updateSize();
+      });
+      observer.observe(container);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
+
+  useEffect(() => {
+    svImageDataCache.current.clear();
+  }, [svSize]);
+
+  useEffect(() => {
+    drawSVCanvas(currentHsv.h);
+    drawHueCanvas();
+  }, [drawSVCanvas, drawHueCanvas, currentHsv.h, svSize]);
+
+  const updateColor = useCallback(
+    (newHsv: HSV) => {
+      const hex = hsvToHex(newHsv.h, newHsv.s, newHsv.v);
+      setCurrentHsv(newHsv);
+      onChange(hex);
+    },
+    [onChange],
+  );
+
+  const handleSVPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      const canvas = svCanvasRef.current;
+      if (!canvas) return;
+
+      canvas.setPointerCapture(e.pointerId);
+      setIsPointerDown(true);
+
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.max(0, Math.min(canvas.width, e.clientX - rect.left));
+      const y = Math.max(0, Math.min(canvas.height, e.clientY - rect.top));
+
+      const gridCols = 10;
+      const gridRows = 10;
+      const cellWidth = canvas.width / gridCols;
+      const cellHeight = canvas.height / gridRows;
+      const gridCol = Math.floor(x / cellWidth);
+      const gridRow = Math.floor(y / cellHeight);
+      
+      // Check for special cells
+      if (gridCol === 0 && gridRow === 0) {
+        // Top-left: pure white
+        updateColor({ h: 0, s: 0, v: 100 });
+      } else if (gridCol === gridCols - 1 && gridRow === gridRows - 1) {
+        // Bottom-right: pure black
+        updateColor({ h: 0, s: 0, v: 0 });
+      } else {
+        // Normal color selection
+        const s = (x / canvas.width) * 100;
+        const v = ((canvas.height - y) / canvas.height) * 100;
+        updateColor({ ...currentHsv, s, v });
+      }
+    },
+    [currentHsv, updateColor],
+  );
+
+  const handleSVPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isPointerDown) return;
+
+      const canvas = svCanvasRef.current;
+      if (!canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.max(0, Math.min(canvas.width, e.clientX - rect.left));
+      const y = Math.max(0, Math.min(canvas.height, e.clientY - rect.top));
+
+      const gridCols = 10;
+      const gridRows = 10;
+      const cellWidth = canvas.width / gridCols;
+      const cellHeight = canvas.height / gridRows;
+      const gridCol = Math.floor(x / cellWidth);
+      const gridRow = Math.floor(y / cellHeight);
+      
+      // Check for special cells
+      if (gridCol === 0 && gridRow === 0) {
+        // Top-left: pure white
+        updateColor({ h: 0, s: 0, v: 100 });
+      } else if (gridCol === gridCols - 1 && gridRow === gridRows - 1) {
+        // Bottom-right: pure black
+        updateColor({ h: 0, s: 0, v: 0 });
+      } else {
+        // Normal color selection
+        const s = (x / canvas.width) * 100;
+        const v = ((canvas.height - y) / canvas.height) * 100;
+        updateColor({ ...currentHsv, s, v });
+      }
+    },
+    [isPointerDown, currentHsv, updateColor],
+  );
+
+  const handleSVPointerUp = useCallback((e: React.PointerEvent) => {
+    const canvas = svCanvasRef.current;
+    if (!canvas) return;
+
+    canvas.releasePointerCapture(e.pointerId);
+    setIsPointerDown(false);
+  }, []);
+
+  const handleHuePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      const canvas = hueCanvasRef.current;
+      if (!canvas) return;
+
+      canvas.setPointerCapture(e.pointerId);
+      setIsDraggingHue(true);
+
+      const rect = canvas.getBoundingClientRect();
+      const y = Math.max(0, Math.min(canvas.height, e.clientY - rect.top));
+      const h = (y / canvas.height) * 360;
+
+      updateColor({ ...currentHsv, h });
+    },
+    [currentHsv, updateColor],
+  );
+
+  const handleHuePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isDraggingHue) return;
+
+      const canvas = hueCanvasRef.current;
+      if (!canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const y = Math.max(0, Math.min(canvas.height, e.clientY - rect.top));
+      const h = (y / canvas.height) * 360;
+
+      updateColor({ ...currentHsv, h });
+    },
+    [isDraggingHue, currentHsv, updateColor],
+  );
+
+  const handleHuePointerUp = useCallback((e: React.PointerEvent) => {
+    const canvas = hueCanvasRef.current;
+    if (!canvas) return;
+
+    canvas.releasePointerCapture(e.pointerId);
+    setIsDraggingHue(false);
+  }, []);
+
+  const hueWidth = 28;
+
+  return (
+    <div
+      ref={containerRef}
+      className={`flex w-full items-start justify-start gap-0 ${className}`}
+    >
+      <canvas
+        ref={svCanvasRef}
+        width={svSize}
+        height={svSize}
+        className="cursor-crosshair"
+        onPointerDown={handleSVPointerDown}
+        onPointerMove={handleSVPointerMove}
+        onPointerUp={handleSVPointerUp}
+        style={{ touchAction: "none", display: 'block' }}
+      />
+      <canvas
+        ref={hueCanvasRef}
+        width={hueWidth}
+        height={svSize}
+        className="cursor-pointer"
+        onPointerDown={handleHuePointerDown}
+        onPointerMove={handleHuePointerMove}
+        onPointerUp={handleHuePointerUp}
+        style={{ touchAction: "none", display: 'block' }}
+      />
+    </div>
+  );
+}

@@ -1,0 +1,74 @@
+'use client';
+
+import React from 'react';
+
+interface ProgressSliderProps {
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  onChange: (value: number) => void;
+  'aria-label'?: string;
+  className?: string;
+}
+
+const ProgressSlider: React.FC<ProgressSliderProps> = ({
+  value,
+  min,
+  max,
+  step = 1,
+  onChange,
+  'aria-label': ariaLabel,
+  className = ''
+}) => {
+  const percentage = ((value - min) / (max - min)) * 100;
+  
+  // Format value for display - show decimals only if step < 1
+  const displayValue = step < 1 ? value.toFixed(2) : Math.round(value).toString();
+
+  const sliderStyle = React.useMemo(
+    () => ({
+      background: 'transparent',
+      '--slider-track-gradient': 'linear-gradient(to right, transparent, transparent)',
+      '--ascii-thumb-hitbox': '20px',
+      '--slider-progress': `${percentage}%`
+    }) as React.CSSProperties & { '--slider-progress': string },
+    [percentage]
+  );
+
+  return (
+    <div className={`relative h-[20px] ${className}`}>
+      <div className="absolute inset-0 z-0 pointer-events-none">
+        <div className="h-full ascii-slider-track">
+          <div
+            className="ascii-slider-range"
+            style={{ width: `${percentage}%` }}
+          />
+        </div>
+      </div>
+      {/* Value display with mix-blend-mode for visibility on any background */}
+      <div
+        className="absolute inset-0 flex items-center justify-center text-xs font-medium z-20 pointer-events-none"
+        style={{
+          color: 'white',
+          mixBlendMode: 'difference'
+        }}
+      >
+        {displayValue}
+      </div>
+      <input
+        type="range"
+        className="slider relative z-10"
+        style={sliderStyle}
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        aria-label={ariaLabel}
+      />
+    </div>
+  );
+};
+
+export default ProgressSlider;

@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ColorCycleBrush Layer Rendering Test</title>
+    <style>
+        body {
+            font-family: 'IBM Plex Mono', 'Courier New', monospace;
+            padding: 20px;
+            background: #222;
+            color: #fff;
+        }
+        .canvas-container {
+            display: inline-block;
+            margin: 10px;
+            border: 2px solid #444;
+            padding: 5px;
+        }
+        canvas {
+            background: white;
+            display: block;
+        }
+        h3 {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        button {
+            margin: 5px;
+            padding: 10px;
+            font-size: 14px;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            background: #333;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>ColorCycleBrush Layer-Aware Rendering Test</h1>
+    
+    <div>
+        <button onclick="testLayerRendering()">Test Layer Rendering</button>
+        <button onclick="clearAll()">Clear All</button>
+        <button onclick="animateTest()">Animate Layers</button>
+    </div>
+    
+    <div class="status" id="status">Ready to test...</div>
+    
+    <div style="display: flex; flex-wrap: wrap;">
+        <div class="canvas-container">
+            <h3>Main WebGL Canvas (All Layers)</h3>
+            <canvas id="mainCanvas" width="400" height="400"></canvas>
+        </div>
+        
+        <div class="canvas-container">
+            <h3>Layer 1 Only</h3>
+            <canvas id="layer1Canvas" width="400" height="400"></canvas>
+        </div>
+        
+        <div class="canvas-container">
+            <h3>Layer 2 Only</h3>
+            <canvas id="layer2Canvas" width="400" height="400"></canvas>
+        </div>
+        
+        <div class="canvas-container">
+            <h3>Layer 3 Only</h3>
+            <canvas id="layer3Canvas" width="400" height="400"></canvas>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import the ColorCycleBrush class (you'll need to build it first)
+        // For testing, we'll simulate the basic structure
+        
+        class ColorCycleBrushTest {
+            constructor() {
+                this.mainCanvas = document.getElementById('mainCanvas');
+                this.layer1Canvas = document.getElementById('layer1Canvas');
+                this.layer2Canvas = document.getElementById('layer2Canvas');
+                this.layer3Canvas = document.getElementById('layer3Canvas');
+                
+                // Simulate layer stroke storage
+                this.layerStrokes = new Map();
+                this.status = document.getElementById('status');
+            }
+            
+            // Simulate drawing on different layers
+            drawOnLayer(layerId, points, color) {
+                const canvas = document.getElementById(`${layerId}Canvas`);
+                const ctx = canvas.getContext('2d');
+                
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 20;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                
+                ctx.beginPath();
+                points.forEach((point, i) => {
+                    if (i === 0) {
+                        ctx.moveTo(point.x, point.y);
+                    } else {
+                        ctx.lineTo(point.x, point.y);
+                    }
+                });
+                ctx.stroke();
+                
+                // Store stroke data for this layer
+                if (!this.layerStrokes.has(layerId)) {
+                    this.layerStrokes.set(layerId, []);
+                }
+                this.layerStrokes.get(layerId).push({ points, color });
+            }
+            
+            // Render all layers to main canvas
+            renderAllLayers() {
+                const ctx = this.mainCanvas.getContext('2d');
+                ctx.clearRect(0, 0, this.mainCanvas.width, this.mainCanvas.height);
+                
+                // Composite all layer canvases
+                ctx.drawImage(this.layer1Canvas, 0, 0);
+                ctx.drawImage(this.layer2Canvas, 0, 0);
+                ctx.drawImage(this.layer3Canvas, 0, 0);
+            }
+            
+            // Clear a specific layer
+            clearLayer(layerId) {
+                const canvas = document.getElementById(`${layerId}Canvas`);
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                this.layerStrokes.delete(layerId);
+            }
+            
+            clearAll() {
+                ['layer1', 'layer2', 'layer3'].forEach(layerId => {
+                    this.clearLayer(layerId);
+                });
+                this.renderAllLayers();
+            }
+            
+            updateStatus(message) {
+                this.status.textContent = message;
+            }
+        }
+        
+        const brushTest = new ColorCycleBrushTest();
+        
+        window.testLayerRendering = function() {
+            brushTest.updateStatus('Drawing on Layer 1...');
+            
+            // Draw a circle on layer 1
+            const circle1Points = [];
+            for (let i = 0; i <= 360; i += 10) {
+                const angle = (i * Math.PI) / 180;
+                circle1Points.push({
+                    x: 200 + Math.cos(angle) * 80,
+                    y: 150 + Math.sin(angle) * 80
+                });
+            }
+            brushTest.drawOnLayer('layer1', circle1Points, '#FF0000');
+            
+            setTimeout(() => {
+                brushTest.updateStatus('Drawing on Layer 2...');
+                
+                // Draw a square on layer 2
+                const squarePoints = [
+                    { x: 150, y: 200 },
+                    { x: 250, y: 200 },
+                    { x: 250, y: 300 },
+                    { x: 150, y: 300 },
+                    { x: 150, y: 200 }
+                ];
+                brushTest.drawOnLayer('layer2', squarePoints, '#00FF00');
+                
+                setTimeout(() => {
+                    brushTest.updateStatus('Drawing on Layer 3...');
+                    
+                    // Draw a triangle on layer 3
+                    const trianglePoints = [
+                        { x: 200, y: 250 },
+                        { x: 250, y: 350 },
+                        { x: 150, y: 350 },
+                        { x: 200, y: 250 }
+                    ];
+                    brushTest.drawOnLayer('layer3', trianglePoints, '#0000FF');
+                    
+                    setTimeout(() => {
+                        brushTest.updateStatus('Compositing all layers...');
+                        brushTest.renderAllLayers();
+                        
+                        setTimeout(() => {
+                            brushTest.updateStatus('Test complete! Each layer shows independent strokes.');
+                        }, 500);
+                    }, 500);
+                }, 500);
+            }, 500);
+        };
+        
+        window.clearAll = function() {
+            brushTest.clearAll();
+            brushTest.updateStatus('All layers cleared.');
+        };
+        
+        window.animateTest = function() {
+            let frame = 0;
+            const animate = () => {
+                frame++;
+                
+                // Animate layer 1
+                brushTest.clearLayer('layer1');
+                const circle1Points = [];
+                for (let i = 0; i <= 360; i += 10) {
+                    const angle = (i * Math.PI) / 180;
+                    const radius = 80 + Math.sin(frame * 0.05) * 20;
+                    circle1Points.push({
+                        x: 200 + Math.cos(angle) * radius,
+                        y: 150 + Math.sin(angle) * radius
+                    });
+                }
+                brushTest.drawOnLayer('layer1', circle1Points, 
+                    `hsl(${frame % 360}, 100%, 50%)`);
+                
+                // Animate layer 2 rotation
+                brushTest.clearLayer('layer2');
+                const rotation = frame * 0.02;
+                const squarePoints = [];
+                const corners = [
+                    { x: -50, y: -50 },
+                    { x: 50, y: -50 },
+                    { x: 50, y: 50 },
+                    { x: -50, y: 50 },
+                    { x: -50, y: -50 }
+                ];
+                corners.forEach(corner => {
+                    const x = corner.x * Math.cos(rotation) - corner.y * Math.sin(rotation);
+                    const y = corner.x * Math.sin(rotation) + corner.y * Math.cos(rotation);
+                    squarePoints.push({ x: x + 200, y: y + 250 });
+                });
+                brushTest.drawOnLayer('layer2', squarePoints, 
+                    `hsl(${(frame + 120) % 360}, 100%, 50%)`);
+                
+                // Update composite
+                brushTest.renderAllLayers();
+                brushTest.updateStatus(`Animating... Frame: ${frame}`);
+                
+                if (frame < 200) {
+                    requestAnimationFrame(animate);
+                } else {
+                    brushTest.updateStatus('Animation complete!');
+                }
+            };
+            animate();
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+.gradient-editor {
+  @apply w-full;
+}
+
+.gradient-editor select {
+  @apply cursor-pointer transition-colors;
+}
+
+.gradient-editor select:hover {
+  @apply bg-gray-700;
+}
+
+.gradient-editor .gradient-stop {
+  @apply transition-transform;
+}
+
+.gradient-editor .gradient-stop:hover {
+  @apply scale-110;
+}
+
+.gradient-editor .gradient-stop.selected {
+  @apply scale-125;
+}

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vessel Goblet Bundle Viewer</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+        cursor: default;
+        user-select: none;
+      }
+      canvas {
+        display: block;
+        background: #000;
+        image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="preview-canvas" aria-hidden="true"></canvas>
+    <input id="file-input" type="file" accept="application/json" hidden />
+
+    <script type="module">
+      import { renderVesselWebGL } from './goblet.js';
+
+      const canvas = document.getElementById('preview-canvas');
+      const fileInput = document.getElementById('file-input');
+      let isRendering = false;
+      let pendingMetadata = null;
+      let lastMetadata = null;
+
+      const computeScale = (metadata) => {
+        const { width, height } = metadata.viewport ?? {};
+        if (!width || !height) {
+          return 1;
+        }
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const scale = Math.min(viewportWidth / width, viewportHeight / height, 1);
+        return scale > 0 ? scale : 1;
+      };
+
+      const drawMetadata = async (metadata) => {
+        if (!metadata) {
+          return;
+        }
+        pendingMetadata = metadata;
+        if (isRendering) {
+          return;
+        }
+        isRendering = true;
+        while (pendingMetadata) {
+          const current = pendingMetadata;
+          pendingMetadata = null;
+          try {
+            const scale = computeScale(current);
+            await renderVesselWebGL(current, canvas, { scale });
+            lastMetadata = current;
+          } catch (error) {
+            console.error('Failed to render Vessel bundle', error);
+            break;
+          }
+        }
+        isRendering = false;
+      };
+
+      const renderBundle = async (file) => {
+        if (!file) {
+          return;
+        }
+        try {
+          const text = await file.text();
+          const metadata = JSON.parse(text);
+          void drawMetadata(metadata);
+        } catch (error) {
+          console.error('Failed to load Vessel bundle', error);
+        }
+      };
+
+      const handleFileSelection = (event) => {
+        const file = event?.target?.files?.[0];
+        if (file) {
+          void renderBundle(file);
+        }
+        if (event?.target) {
+          event.target.value = '';
+        }
+      };
+
+      fileInput.addEventListener('change', handleFileSelection);
+
+      window.addEventListener('dragover', (event) => {
+        event.preventDefault();
+      });
+
+      window.addEventListener('drop', (event) => {
+        event.preventDefault();
+        const file = event.dataTransfer?.files?.[0];
+        if (file) {
+          void renderBundle(file);
+        }
+      });
+
+      window.addEventListener('keydown', (event) => {
+        const isOpenShortcut = (event.key === 'o' || event.key === 'O') && (event.metaKey || event.ctrlKey);
+        if (isOpenShortcut) {
+          event.preventDefault();
+          fileInput.click();
+        }
+      });
+
+      window.addEventListener('resize', () => {
+        // Re-render with updated scale when viewport changes.
+        if (lastMetadata) {
+          void drawMetadata(lastMetadata);
+        }
+      });
+
+      console.info('Vessel Goblet Viewer ready. Drop a bundle or use Ctrl/Cmd+O to open a file.');
+    
+      const packagedMetadata = JSON.parse(JSON.parse("{\"html\":\"<div>test<\\/div>\"}"));
+      const autoBundleName = "bundle.json";
+      const renderPackagedMetadata = async (metadata) => {};
+      const autoLoadPackagedBundle = async () => {};
+      void autoLoadPackagedBundle();
+</script>
+  </body>
+</html>

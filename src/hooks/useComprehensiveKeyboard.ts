@@ -1,0 +1,500 @@
+import { useEffect, useRef, useCallback } from 'react';
+import { useAppStore } from '../stores/useAppStore';
+import { BrushShape, Tool } from '../types';
+
+// Treat these input types as text entry fields so we don't hijack shortcuts while typing.
+const TEXTUAL_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'password', 'tel', 'number', 'color']);
+
+const isTextEntryTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (
+    target instanceof HTMLTextAreaElement ||
+    target.isContentEditable ||
+    target.getAttribute('contenteditable')?.toLowerCase() === 'true'
+  ) {
+    return true;
+  }
+
+  if (target instanceof HTMLInputElement) {
+    const type = (target.type || 'text').toLowerCase();
+    return TEXTUAL_INPUT_TYPES.has(type);
+  }
+
+  return false;
+};
+
+export const __keyboardTestUtils = { isTextEntryTarget };
+
+interface KeyboardState {
+  isSpacePressed: boolean;
+  isShiftPressed: boolean;
+  isCtrlPressed: boolean;
+  isAltPressed: boolean;
+  isMetaPressed: boolean;
+}
+
+type KeyboardScope = 'global' | 'canvas' | 'recolor' | 'gradient' | 'modal';
+
+interface UseComprehensiveKeyboardProps {
+  onSpacePressed?: () => void;
+  onSpaceReleased?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  onSave?: () => void;
+  onOpen?: () => void;
+  onBrushSizeDecrease?: () => void;
+  onBrushSizeIncrease?: () => void;
+  onCustomTool?: () => void;
+  onPolygonComplete?: () => void;
+  onPolygonCancel?: () => void;
+  onEnterPressed?: () => void;
+  onEscapePressed?: () => void;
+  onEraserPressed?: () => void;
+  onEraserReleased?: () => void;
+  enabled?: boolean;
+  allowedScopes?: KeyboardScope[]; // default: ['canvas']
+}
+
+export function useComprehensiveKeyboard({
+  onSpacePressed,
+  onSpaceReleased,
+  onUndo,
+  onRedo,
+  onSave,
+  onOpen,
+  onBrushSizeDecrease,
+  onBrushSizeIncrease,
+  onCustomTool,
+  onPolygonComplete,
+  onPolygonCancel,
+  onEnterPressed,
+  onEscapePressed,
+  onEraserPressed,
+  onEraserReleased,
+  enabled = true,
+  allowedScopes = ['canvas']
+}: UseComprehensiveKeyboardProps) {
+  // Track all modifier keys
+  const keyboardStateRef = useRef<KeyboardState>({
+    isSpacePressed: false,
+    isShiftPressed: false,
+    isCtrlPressed: false,
+    isAltPressed: false,
+    isMetaPressed: false,
+  });
+
+  // Track which keys are currently pressed to prevent repeat events
+  const pressedKeysRef = useRef<Set<string>>(new Set());
+  
+  // Track previous tool for temporary eraser mode
+  const previousToolRef = useRef<string | null>(null);
+  const isTemporaryEraserRef = useRef(false);
+  const eraserPressTimeRef = useRef<number>(0);
+
+  const currentTool = useAppStore((state) => state.tools.currentTool);
+  const brushSettings = useAppStore((state) => state.tools.brushSettings);
+  const polygonGradientState = useAppStore((state) => state.polygonGradientState);
+  const setCurrentTool = useAppStore((state) => state.setCurrentTool);
+  const setGlobalBrushSize = useAppStore((state) => state.setGlobalBrushSize);
+  const deleteSelectedPixels = useAppStore((state) => state.deleteSelectedPixels);
+  const selectAllActiveLayerPixels = useAppStore((state) => state.selectAllActiveLayerPixels);
+  const selectionStart = useAppStore((state) => state.selectionStart);
+  const selectionEnd = useAppStore((state) => state.selectionEnd);
+  const floatingPaste = useAppStore((state) => state.floatingPaste);
+  const setFloatingPaste = useAppStore((state) => state.setFloatingPaste);
+
+  // Use refs for stable callbacks to avoid re-registering event listeners
+  const onSpacePressedRef = useRef(onSpacePressed);
+  const onSpaceReleasedRef = useRef(onSpaceReleased);
+  const onCustomToolRef = useRef(onCustomTool);
+  const onEraserPressedRef = useRef(onEraserPressed);
+  const onEraserReleasedRef = useRef(onEraserReleased);
+  const onUndoRef = useRef(onUndo);
+  const onRedoRef = useRef(onRedo);
+  const onSaveRef = useRef(onSave);
+  const onOpenRef = useRef(onOpen);
+  
+  // Update refs when callbacks change
+  useEffect(() => {
+    onSpacePressedRef.current = onSpacePressed;
+    onSpaceReleasedRef.current = onSpaceReleased;
+    onCustomToolRef.current = onCustomTool;
+    onEraserPressedRef.current = onEraserPressed;
+    onEraserReleasedRef.current = onEraserReleased;
+    onUndoRef.current = onUndo;
+    onRedoRef.current = onRedo;
+    onSaveRef.current = onSave;
+    onOpenRef.current = onOpen;
+  }, [onSpacePressed, onSpaceReleased, onCustomTool, onEraserPressed, onEraserReleased, onUndo, onRedo, onSave, onOpen]);
+
+  const handleKeyDown = useCallback((event: KeyboardEvent) => {
+    if (!enabled) return;
+
+    // Respect keyboard scope: bail if current scope not allowed (Space handled below regardless)
+    let currentScope: KeyboardScope | null = null;
+    const isBracketShortcut = event.key === '[' || event.key === ']';
+    try {
+      currentScope = useAppStore.getState().ui.keyboardScope as KeyboardScope;
+      if (!allowedScopes.includes(currentScope)) {
+        // If not allowed, still allow Space and bracket size shortcuts
+        if (event.code !== 'Space' && !isBracketShortcut) return;
+      }
+    } catch {}
+
+    // Ignore if typing in text-focused inputs or editable elements
+    const target = event.target as HTMLElement | null;
+    if (target instanceof HTMLInputElement) {
+      if (isTextEntryTarget(target)) {
+        if (event.code !== 'Space') {
+          return;
+        }
+      } else if (event.code !== 'Space' && !isBracketShortcut) {
+        return;
+      }
+    } else if (isTextEntryTarget(target)) {
+      if (event.code !== 'Space') {
+        return;
+      }
+    } else if (target instanceof HTMLSelectElement) {
+      if (event.code !== 'Space' && !isBracketShortcut) {
+        return;
+      }
+    }
+
+
+    // Update modifier states
+    keyboardStateRef.current.isShiftPressed = event.shiftKey;
+    keyboardStateRef.current.isCtrlPressed = event.ctrlKey;
+    keyboardStateRef.current.isAltPressed = event.altKey;
+    keyboardStateRef.current.isMetaPressed = event.metaKey;
+
+    // Handle Undo (Ctrl/Cmd + Z) - must come before general key tracking
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.shiftKey) {
+      event.preventDefault();
+      onUndoRef.current?.();
+      return;
+    }
+
+    // Handle Redo (Ctrl/Cmd + Shift + Z or Ctrl/Cmd + Y)
+    if ((event.ctrlKey || event.metaKey) && (
+      (event.key.toLowerCase() === 'z' && event.shiftKey) || 
+      (event.key.toLowerCase() === 'y' && !event.shiftKey)
+    )) {
+      event.preventDefault();
+      if (onRedoRef.current) {
+        onRedoRef.current();
+      }
+      return;
+    }
+
+    // Handle Space for panning (prevent repeat)
+    if (event.code === 'Space' && onSpacePressedRef.current) {
+      event.preventDefault();
+      
+      // Only process if not already pressed
+      if (!keyboardStateRef.current.isSpacePressed) {
+        keyboardStateRef.current.isSpacePressed = true;
+        pressedKeysRef.current.add(event.code);
+        onSpacePressedRef.current?.();
+      }
+      return;
+    }
+
+    // For bracket keys, allow repeat events for continuous size adjustment
+    const allowRepeat = isBracketShortcut;
+    
+    // Prevent repeat events for other keys (but allow for bracket keys)
+    if (!allowRepeat && pressedKeysRef.current.has(event.code)) {
+      return;
+    }
+    if (!allowRepeat) {
+      pressedKeysRef.current.add(event.code);
+    }
+
+    // Handle Save (Ctrl/Cmd + S) - prevent default browser save
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+      event.preventDefault();
+      onSaveRef.current?.();
+      return;
+    }
+
+    // Handle Open (Ctrl/Cmd + O) - prevent default browser open
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') {
+      event.preventDefault();
+      onOpenRef.current?.();
+      return;
+    }
+
+    // Handle Select All (Ctrl/Cmd + A)
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+      event.preventDefault();
+      selectAllActiveLayerPixels();
+      setCurrentTool('selection');
+      return;
+    }
+
+    // Tool switching - C for custom brush
+    if (event.key === 'c' || event.key === 'C') {
+      if (!event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        onCustomToolRef.current?.();
+        return;
+      }
+    }
+
+    // Tool switching - F for fill tool
+    if (event.key === 'f' || event.key === 'F') {
+      if (!event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        setCurrentTool('fill');
+        return;
+      }
+    }
+
+    // Tool switching - B for brush tool
+    if (event.key === 'b' || event.key === 'B') {
+      if (!event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        setCurrentTool('brush');
+        return;
+      }
+    }
+
+    // Tool switching - E for eraser tool (hold for temporary, tap for permanent)
+    if (event.key === 'e' || event.key === 'E') {
+      if (!event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        
+        // Record press time
+        eraserPressTimeRef.current = Date.now();
+        
+        // Store current tool for potential temporary mode
+        if (currentTool !== 'eraser') {
+          previousToolRef.current = currentTool;
+          isTemporaryEraserRef.current = true;
+          setCurrentTool('eraser');
+        } else {
+          // Already in eraser mode, keep it
+          isTemporaryEraserRef.current = false;
+        }
+        
+        onEraserPressedRef.current?.();
+        return;
+      }
+    }
+
+    // Tool switching - M for selection tool (marquee)
+    if (event.key === 'm' || event.key === 'M') {
+      if (!event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        setCurrentTool('selection');
+        return;
+      }
+    }
+
+    // Brush size adjustment
+    if (event.key === '[') {
+      event.preventDefault();
+      if (onBrushSizeDecrease) {
+        onBrushSizeDecrease();
+      } else {
+        // Default implementation
+        const currentSize = brushSettings.size;
+        const adjustment = 1;
+        const minSize = 1;
+        const newSize = Math.max(minSize, currentSize - adjustment);
+        setGlobalBrushSize(newSize);
+      }
+      return;
+    }
+
+    if (event.key === ']') {
+      event.preventDefault();
+      if (onBrushSizeIncrease) {
+        onBrushSizeIncrease();
+      } else {
+        // Default implementation
+        const currentSize = brushSettings.size;
+        const adjustment = 1;
+        const maxSize = 500;
+        const newSize = Math.min(maxSize, currentSize + adjustment);
+        setGlobalBrushSize(newSize);
+      }
+      return;
+    }
+
+    // Polygon gradient or contour polygon completion
+  const normalizedShapeGradientMode = brushSettings.shapeGradientMode === 'mesh'
+    ? 'lines'
+    : ((brushSettings.shapeGradientMode === 'flow' ||
+        brushSettings.shapeGradientMode === 'inkRibbons' ||
+        brushSettings.shapeGradientMode === 'triangle')
+        ? 'contour'
+        : (brushSettings.shapeGradientMode || 'contour'));
+  const isContourLines2Mode =
+      brushSettings.brushShape === BrushShape.CONTOUR_POLYGON &&
+      normalizedShapeGradientMode === 'lines2';
+
+    if ((brushSettings.brushShape === BrushShape.POLYGON_GRADIENT || 
+         brushSettings.brushShape === BrushShape.CONTOUR_POLYGON ||
+         brushSettings.brushShape === BrushShape.CONTOUR_LINES2 ||
+         isContourLines2Mode) && 
+        polygonGradientState.points.length >= 3) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        onPolygonComplete?.();
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onPolygonCancel?.();
+        return;
+      }
+    }
+
+    // Delete key for deleting selected pixels
+    if (event.key === 'Delete') {
+      event.preventDefault();
+      if (floatingPaste) {
+        setFloatingPaste(null);
+        return;
+      }
+      if (selectionStart && selectionEnd) {
+        deleteSelectedPixels();
+      }
+      return;
+    }
+
+    // Enter key general handling (for floating paste)
+    // Handle both standard Enter and NumpadEnter for wider keyboard support
+    if (event.key === 'Enter' || event.code === 'NumpadEnter') {
+      event.preventDefault();
+      onEnterPressed?.();
+      return;
+    }
+    
+    // Escape key general handling
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      onEscapePressed?.();
+      return;
+    }
+  }, [enabled, allowedScopes, onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
+      onPolygonCancel, onEnterPressed, onEscapePressed,
+      currentTool, brushSettings, polygonGradientState, setCurrentTool, setGlobalBrushSize,
+      deleteSelectedPixels, selectAllActiveLayerPixels, selectionStart, selectionEnd,
+      floatingPaste, setFloatingPaste]);
+
+  const handleKeyUp = useCallback((event: KeyboardEvent) => {
+    if (!enabled) return;
+
+    // Respect keyboard scope
+    try {
+      const currentScope = useAppStore.getState().ui.keyboardScope as KeyboardScope;
+      if (!allowedScopes.includes(currentScope) && event.code !== 'Space') return;
+    } catch {}
+
+
+    // Update modifier states
+    keyboardStateRef.current.isShiftPressed = event.shiftKey;
+    keyboardStateRef.current.isCtrlPressed = event.ctrlKey;
+    keyboardStateRef.current.isAltPressed = event.altKey;
+    keyboardStateRef.current.isMetaPressed = event.metaKey;
+
+    // Handle Space release
+    if (event.code === 'Space' && onSpaceReleasedRef.current) {
+      event.preventDefault();
+      
+      // Only process if space was actually pressed
+      if (keyboardStateRef.current.isSpacePressed) {
+        keyboardStateRef.current.isSpacePressed = false;
+        pressedKeysRef.current.delete(event.code);
+        onSpaceReleasedRef.current?.();
+      }
+      return;
+    }
+    
+    // Remove from pressed keys for other keys
+    pressedKeysRef.current.delete(event.code);
+    
+    // Handle E key release (for temporary eraser mode)
+    if (event.key === 'e' || event.key === 'E') {
+      if (!event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        
+        // Calculate hold duration
+        const holdDuration = Date.now() - eraserPressTimeRef.current;
+        const isQuickTap = holdDuration < 200; // Tap if held less than 200ms
+        
+        // If it was temporary mode and a hold (not a tap), restore previous tool
+        if (isTemporaryEraserRef.current && previousToolRef.current && !isQuickTap) {
+          // Restore previous tool
+          setCurrentTool(previousToolRef.current as Tool);
+          previousToolRef.current = null;
+          isTemporaryEraserRef.current = false;
+        } else if (isTemporaryEraserRef.current && isQuickTap) {
+          // It was a tap - make eraser permanent
+          previousToolRef.current = null;
+          isTemporaryEraserRef.current = false;
+        }
+        
+        onEraserReleasedRef.current?.();
+        return;
+      }
+    }
+  }, [enabled, allowedScopes, setCurrentTool]);
+
+  // Handle window blur to reset state when window loses focus
+  const handleBlur = useCallback(() => {
+    // Reset keyboard state when window loses focus
+    if (!document.hasFocus()) {
+      // If space was pressed, release it
+      if (keyboardStateRef.current.isSpacePressed) {
+        keyboardStateRef.current.isSpacePressed = false;
+        onSpaceReleasedRef.current?.();
+      }
+      
+      // Reset all states
+      keyboardStateRef.current = {
+        isSpacePressed: false,
+        isShiftPressed: false,
+        isCtrlPressed: false,
+        isAltPressed: false,
+        isMetaPressed: false,
+      };
+      pressedKeysRef.current.clear();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    // Remove any existing listeners first to prevent duplicates
+    window.removeEventListener('keydown', handleKeyDown);
+    window.removeEventListener('keyup', handleKeyUp);
+    window.removeEventListener('blur', handleBlur);
+    
+    // Add fresh listeners
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [enabled, handleKeyDown, handleKeyUp, handleBlur]);
+
+  return {
+    keyboardState: keyboardStateRef,
+    isSpacePressed: () => keyboardStateRef.current.isSpacePressed,
+    isShiftPressed: () => keyboardStateRef.current.isShiftPressed,
+    isCtrlPressed: () => keyboardStateRef.current.isCtrlPressed,
+    isAltPressed: () => keyboardStateRef.current.isAltPressed,
+    isMetaPressed: () => keyboardStateRef.current.isMetaPressed,
+  };
+}

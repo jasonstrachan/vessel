@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Color Cycle Animation Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'IBM Plex Mono', 'Courier New', monospace;
+            background: #222;
+            color: white;
+        }
+        canvas {
+            border: 1px solid #555;
+            display: block;
+            margin: 20px 0;
+        }
+        button {
+            margin: 5px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .info {
+            margin: 10px 0;
+            font-size: 14px;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+    <h1>Color Cycle Animation Test</h1>
+    <div class="info">Tests the ColorCycleBrush animation loop fix</div>
+    
+    <canvas id="testCanvas" width="800" height="400"></canvas>
+    
+    <div>
+        <button id="drawBtn">Draw Stroke</button>
+        <button id="playBtn">Play Animation</button>
+        <button id="pauseBtn">Pause Animation</button>
+        <button id="clearBtn">Clear</button>
+    </div>
+    
+    <div class="info" id="status">Status: Ready</div>
+    
+    <script type="module">
+        // Simple test of the ColorCycleBrush
+        import { ColorCycleBrush } from './src/hooks/brushEngine/ColorCycleBrush.ts';
+        
+        const canvas = document.getElementById('testCanvas');
+        const status = document.getElementById('status');
+        
+        // Create color cycle brush
+        const colorCycleBrush = new ColorCycleBrush(canvas, { fps: 30 });
+        
+        // Set up animation loop
+        let animationId = null;
+        let isPlaying = false;
+        
+        function animate() {
+            if (!isPlaying) {
+                animationId = null;
+                return;
+            }
+            
+            // Update animation
+            colorCycleBrush.updateAnimation();
+            
+            // Copy WebGL canvas to our display canvas
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(colorCycleBrush.getCanvas(), 0, 0);
+            
+            animationId = requestAnimationFrame(animate);
+        }
+        
+        // Draw button
+        document.getElementById('drawBtn').addEventListener('click', () => {
+            status.textContent = 'Status: Drawing...';
+            
+            // Draw a simple stroke
+            colorCycleBrush.startStroke();
+            
+            // Draw a wavy line
+            for (let i = 0; i < 100; i++) {
+                const x = 100 + i * 6;
+                const y = 200 + Math.sin(i * 0.2) * 50;
+                colorCycleBrush.paint(x, y);
+            }
+            
+            colorCycleBrush.endStroke();
+            
+            status.textContent = 'Status: Stroke complete';
+        });
+        
+        // Play button
+        document.getElementById('playBtn').addEventListener('click', () => {
+            if (!isPlaying) {
+                isPlaying = true;
+                colorCycleBrush.forcePlay();
+                animate();
+                status.textContent = 'Status: Playing animation';
+            }
+        });
+        
+        // Pause button
+        document.getElementById('pauseBtn').addEventListener('click', () => {
+            isPlaying = false;
+            colorCycleBrush.forcePause();
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+            status.textContent = 'Status: Paused';
+        });
+        
+        // Clear button
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            colorCycleBrush.clear();
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            status.textContent = 'Status: Cleared';
+        });
+        
+        // Initial draw to show something
+        setTimeout(() => {
+            document.getElementById('drawBtn').click();
+        }, 500);
+    </script>
+</body>
+</html>
