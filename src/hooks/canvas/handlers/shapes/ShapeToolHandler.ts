@@ -470,7 +470,7 @@ export const createShapeToolHandler = (
     drawCtx.restore();
     drawingHandlers.drawingCanvasHasContent.current = true;
 
-    // Close the shape session before recording history so transaction scope is clear.
+    // Close the shape session now so its history transaction completes before layer history begins.
     store.cancelShapeFillSession();
 
     await drawingHandlers.finalizeDrawing({ historyActionType: 'fill' });

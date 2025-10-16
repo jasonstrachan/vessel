@@ -336,8 +336,7 @@ import { selectionSnapshotFromValues } from '@/history/selectionState';
 import { createBitmapTileDelta } from '@/history/deltas/bitmapDelta';
 import { createColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDelta';
 import { createProjectDimensionsDelta } from '@/history/deltas/projectDimensionsDelta';
-import { createShapeSessionDelta } from '@/history/deltas/shapeSessionDelta';
-import type { HistoryEntry, ScopedTxn } from '@/history/actionTypes';
+import type { HistoryEntry } from '@/history/actionTypes';
 import { captureColorCycleBrushState, type ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 
 // Helper function to get serializable brush settings for persistence
@@ -1280,85 +1279,14 @@ export const useAppStore = create<AppState>()(
       const shapeFillOrchestratorInstance = new ShapeFillOrchestrator();
       shapeFillOrchestratorInstance.setParameterOrder(defaultShapeFillState.parameterOrder);
 
-      let shapeSessionTxn: ScopedTxn | null = null;
-      let shapeSessionTxnHasDelta = false;
-
       shapeFillOrchestratorInstance.setSessionListener((session) => {
         const nextSession = cloneShapeSession(session);
-        set((state) => {
-          const previousSession = state.shapeFill.session;
-          const isInitialStart = !previousSession && nextSession;
-
-          if (!historyManager.isReplaying) {
-            const delta = isInitialStart
-              ? null
-              : createShapeSessionDelta({
-                forward: nextSession,
-                backward: cloneShapeSession(previousSession),
-              });
-
-            if (delta) {
-              if (!shapeSessionTxn) {
-                try {
-                  shapeSessionTxn = historyManager.begin('shape-session', {
-                    fillId: state.shapeFill.activeFillId,
-                    stage: nextSession?.stage,
-                  });
-                  shapeSessionTxnHasDelta = false;
-                } catch (error) {
-                  if (process.env.NODE_ENV !== 'production') {
-                    console.warn('[history] Unable to begin shape session transaction', error);
-                  }
-                  shapeSessionTxn = null;
-                  shapeSessionTxnHasDelta = false;
-                }
-              }
-
-              if (shapeSessionTxn) {
-                try {
-                  shapeSessionTxn.push(delta);
-                  shapeSessionTxnHasDelta = true;
-                } catch (error) {
-                  if (process.env.NODE_ENV !== 'production') {
-                    console.warn('[history] Unable to append shape session delta', error);
-                  }
-                }
-              }
-            }
-
-            if (!nextSession && shapeSessionTxn) {
-              try {
-                if (shapeSessionTxnHasDelta) {
-                  const label = state.shapeFill.activeFillId
-                    ? `Shape Session (${state.shapeFill.activeFillId})`
-                    : 'Shape Session';
-                  shapeSessionTxn.commit(label);
-                } else {
-                  shapeSessionTxn.cancel();
-                }
-              } catch (error) {
-                shapeSessionTxn.cancel();
-                if (process.env.NODE_ENV !== 'production') {
-                  console.warn('[history] Unable to commit shape session transaction', error);
-                }
-              } finally {
-                shapeSessionTxn = null;
-                shapeSessionTxnHasDelta = false;
-              }
-            }
-          } else if (!nextSession && shapeSessionTxn) {
-            shapeSessionTxn.cancel();
-            shapeSessionTxn = null;
-            shapeSessionTxnHasDelta = false;
-          }
-
-          return {
-            shapeFill: {
-              ...state.shapeFill,
-              session: nextSession,
-            },
-          };
-        });
+        set((state) => ({
+          shapeFill: {
+            ...state.shapeFill,
+            session: nextSession,
+          },
+        }));
       });
       
       setActiveHistoryDocument('default-project');

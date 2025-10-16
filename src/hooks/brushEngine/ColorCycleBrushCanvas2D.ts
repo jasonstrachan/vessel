@@ -9,9 +9,10 @@ import { ColorCycleAnimator } from '../../lib/ColorCycleAnimator';
 import { GradientStop } from '../../lib/GradientPalette';
 import { applyPressureCurve } from '../../utils/pressureCurve';
 import { applyDitheringWithFillResolution } from './dithering';
-import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
+import { useAppStore } from '@/stores/useAppStore';
 import { canvasPool } from '@/utils/canvasPool';
 import { ccLog } from '@/utils/colorCycle/ccDebug';
+import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 
 interface CustomStampInput {
   imageData: ImageData;
@@ -33,6 +34,7 @@ type LayerStrokeState = {
   currentGradientIndex: number;
   stampCounter: number;
   hasExternalBase?: boolean;
+  lastSnapshot?: StrokeDataSnapshot;
 };
     
 type AnimatorSerializedState = ReturnType<ColorCycleAnimator['serialize']>;
@@ -661,6 +663,7 @@ export class ColorCycleBrushCanvas2D {
       strokeData.hasContent = false;
       strokeData.hasExternalBase = true;
       strokeData.strokeCounter = 0;
+      strokeData.lastSnapshot = undefined;
       // Preserve stampCounter to maintain gradient offset continuity across shapes
       // (intentionally left unchanged here).
       // Ensure our composite canvas is clean for the next draw
@@ -787,6 +790,7 @@ export class ColorCycleBrushCanvas2D {
         strokeData.strokeCounter = 0;
         // Preserve stamp counter for continuous gradient flow between shapes
         strokeData.stampCounter = preservedStampCounter;
+        strokeData.lastSnapshot = undefined;
       }
       strokeData.strokeCounter = this.strokeCounter;
       strokeData.strokeLength = 0;
@@ -803,16 +807,59 @@ export class ColorCycleBrushCanvas2D {
   endStroke(layerId?: string) {
     const id = layerId || this.activeLayerId || 'default';
     this.isDrawing = false;
-    
+
     const animator = this.getAnimator(id);
     animator.endStroke();
     animator.forceRender(); // Force render on stroke end
-    
+
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
       strokeData.lastPoint = null;
+      strokeData.strokeCounter = this.strokeCounter;
+      strokeData.hasContent = true;
+
+      let snapshotBuffer: ArrayBuffer = strokeData.paintBuffer.length > 0
+        ? strokeData.paintBuffer.slice().buffer
+        : new ArrayBuffer(0);
+
+      try {
+        const serializedAnimator = animator.serialize();
+        const bufferData = serializedAnimator?.indexBuffer?.data;
+        if (bufferData) {
+          const liveBuffer = bufferData.slice();
+          strokeData.paintBuffer = liveBuffer;
+          snapshotBuffer = liveBuffer.byteLength > 0
+            ? liveBuffer.buffer.slice(0)
+            : new ArrayBuffer(0);
+        }
+      } catch (error) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[ColorCycleBrush.endStroke] Failed to snapshot paint buffer:', error);
+        }
+      }
+
+      strokeData.lastSnapshot = {
+        paintBuffer: snapshotBuffer,
+        hasContent: true,
+        strokeCounter: this.strokeCounter
+      };
+
+      try {
+        const storeState = useAppStore.getState();
+        const layer = storeState.layers.find(layerItem => layerItem.id === id);
+        if (layer?.colorCycleData) {
+          storeState.updateLayer(layer.id, {
+            colorCycleData: {
+              ...layer.colorCycleData,
+              hasContent: true
+            }
+          });
+        }
+      } catch {
+        // Swallow store sync issues silently; brush state remains authoritative.
+      }
     }
-    
+
     // Final render
     this.render(false);
   }
@@ -2694,6 +2741,7 @@ export class ColorCycleBrushCanvas2D {
             sd.strokeLength = 0;
             sd.lastPoint = null;
             sd.stampCounter = 0;
+            sd.lastSnapshot = undefined;
           }
           const animator = this.animators.get(layerId);
           if (animator) {
@@ -2804,20 +2852,25 @@ export class ColorCycleBrushCanvas2D {
 
     this.animators.forEach((animator, layerId) => {
       const strokeData = this.layerStrokes.get(layerId);
-      if (!strokeData?.hasContent) {
-        return;
+      const snapshot = strokeData?.lastSnapshot;
+
+      let paintBuffer: ArrayBuffer = new ArrayBuffer(0);
+      if (snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0) {
+        paintBuffer = snapshot.paintBuffer.slice(0);
+      } else if (strokeData?.paintBuffer && strokeData.paintBuffer.length > 0) {
+        paintBuffer = strokeData.paintBuffer.slice().buffer;
       }
 
-      const clonedArray = strokeData.paintBuffer.slice();
-      const paintBuffer = clonedArray.buffer as ArrayBuffer;
+      const hasContent = snapshot?.hasContent ?? strokeData?.hasContent ?? false;
+      const strokeCounter = snapshot?.strokeCounter ?? strokeData?.strokeCounter ?? this.strokeCounter;
 
       layers.push({
         layerId,
         data: animator.serialize(),
         strokeData: {
-          hasContent: strokeData.hasContent,
-          strokeCounter: strokeData.strokeCounter,
-          paintBuffer
+          paintBuffer,
+          hasContent,
+          strokeCounter
         }
       });
     });
@@ -2866,14 +2919,16 @@ export class ColorCycleBrushCanvas2D {
   getLayerSnapshot(layerId: string): { paintBuffer: ArrayBuffer; hasContent: boolean; strokeCounter: number } | null {
     const strokeData = this.layerStrokes.get(layerId);
     if (!strokeData) return null;
-    const clonedArray = strokeData.paintBuffer
-      ? strokeData.paintBuffer.slice()
-      : new Uint8Array(0);
-    const paintBuffer = clonedArray.buffer as ArrayBuffer;
+    const snapshot = strokeData.lastSnapshot;
+    const paintBuffer = snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0
+      ? snapshot.paintBuffer.slice(0)
+      : strokeData.paintBuffer.length > 0
+        ? strokeData.paintBuffer.slice().buffer
+        : new ArrayBuffer(0);
     return {
       paintBuffer,
-      hasContent: !!strokeData.hasContent,
-      strokeCounter: strokeData.strokeCounter || 0
+      hasContent: snapshot?.hasContent ?? !!strokeData.hasContent,
+      strokeCounter: snapshot?.strokeCounter ?? strokeData.strokeCounter ?? 0
     };
   }
 
@@ -2976,6 +3031,13 @@ export class ColorCycleBrushCanvas2D {
     strokeData.strokeLength = 0;
     strokeData.lastPoint = null;
     strokeData.stampCounter = 0;
+    strokeData.lastSnapshot = {
+      paintBuffer: strokeData.paintBuffer.length > 0
+        ? strokeData.paintBuffer.slice().buffer
+        : new ArrayBuffer(0),
+      hasContent: hasLayerContent,
+      strokeCounter: strokeData.strokeCounter
+    };
     this.layerStrokes.set(layerId, strokeData);
     // Mark layer dirty so next render updates
     this.dirtyLayers.add(layerId);

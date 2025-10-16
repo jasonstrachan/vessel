@@ -35,6 +35,7 @@ export interface LayerHistoryPayload {
   layerId: string;
   beforeImage: ImageData | null;
   beforeColorState: ColorCycleSerializedState;
+  afterColorState?: ColorCycleSerializedState | null;
   actionType: CanvasSnapshot['actionType'];
   description: string;
   tool: string;
@@ -60,6 +61,7 @@ export const commitLayerHistory = async ({
   layerId,
   beforeImage,
   beforeColorState,
+  afterColorState: afterColorStateOverride,
   actionType,
   description,
   tool,
@@ -84,7 +86,7 @@ export const commitLayerHistory = async ({
 
   const afterColorState =
     isColorCycleLayer
-      ? captureColorCycleBrushState(refreshedLayer.id)
+      ? (afterColorStateOverride ?? captureColorCycleBrushState(refreshedLayer.id))
       : null;
 
   const historyId = mapCanvasActionToHistoryId(actionType);
@@ -141,6 +143,13 @@ export const commitLayerHistory = async ({
     }
 
     if (afterColorState || beforeColorState) {
+      // Diagnostics: verify before/after differ
+      console.debug('[cc-delta-capture]', {
+        beforeBytes: beforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
+        afterBytes: afterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
+        beforeCtr: beforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+        afterCtr: afterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+      });
       const colorDelta = createColorCycleStrokeDelta({
         layerId,
         forwardState: afterColorState,

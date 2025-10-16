@@ -17,6 +17,7 @@ type ManagedColorCycleBrush = ColorCycleBrushCanvas2D & {
   render?: (forceFullOpacity?: boolean) => void;
   flush?: (layerId: string) => void;
   clearPaintBuffer?: (layerId?: string) => void;
+  updateColorCycleTexture?: () => void;
   getCanvas?: () => HTMLCanvasElement | null;
   applyLayerSnapshot?: (
     layerId: string,
@@ -179,6 +180,9 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
 
     try {
       const layerSnapshots = state.layers ?? [];
+      const paintBufferBytes =
+        state.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1;
+      console.debug('[cc-apply] restoring paintBuffer bytes:', paintBufferBytes);
       const restoredHasContent = layerSnapshots.some((layerSnapshot) =>
         Boolean(layerSnapshot.strokeData?.hasContent)
       );
@@ -232,26 +236,25 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
         }
       }
 
-      const clearTargetCanvas = () => {
-        const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
-        if (!ctx) {
-          return;
-        }
-        ctx.save();
-        try {
-          ctx.globalCompositeOperation = 'source-over';
-          ctx.globalAlpha = 1;
-          ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-        } finally {
-          try {
-            ctx.restore();
-          } catch {
-            // Ignore restore failure.
-          }
-        }
-      };
+      const tctx = targetCanvas.getContext('2d', { willReadFrequently: true });
+      if (!tctx) {
+        return;
+      }
 
-      clearTargetCanvas();
+      tctx.save();
+      tctx.globalCompositeOperation = 'source-over';
+      tctx.globalAlpha = 1;
+
+      // Diagnostic: sample before clearing
+      try {
+        const beforePx = tctx.getImageData(0, 0, 1, 1).data;
+        console.debug('[cc-apply] top-left BEFORE:', Array.from(beforePx));
+      } catch {
+        // Sampling is diagnostic only.
+      }
+
+      tctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+      tctx.restore();
       let synced = false;
       if (typeof brush.commitToLayer === 'function') {
         try {
@@ -294,6 +297,16 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       }
 
       try {
+        const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
+        const sample = ctx?.getImageData(0, 0, 1, 1).data;
+        if (sample) {
+          console.debug('[cc-apply] top-left AFTER:', Array.from(sample));
+        }
+      } catch {
+        // Sampling is diagnostic only.
+      }
+
+      try {
         brush.flush?.(this.layerId);
       } catch {
         // Flushing is optional; ignore failures.
@@ -330,6 +343,11 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       }
 
       if (typeof window !== 'undefined') {
+        try {
+          window.dispatchEvent(new CustomEvent('cc:clear-overlay'));
+        } catch {
+          // Overlay clear signal is optional.
+        }
         try {
           window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
         } catch {
