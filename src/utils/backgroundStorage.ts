@@ -11,8 +11,6 @@ const sanitizeColorCycleData = (
   }
 
   const {
-    colorCycleBrush: _brush,
-    canvas: _canvas,
     recolorSettings,
     ...rest
   } = colorCycleData;

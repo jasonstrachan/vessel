@@ -1059,20 +1059,20 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   }, []);
   
   // Simplified animation control functions
-  const wrappedStartAnimation = useCallback(() => {
+  const wrappedStartAnimation = useCallback((reason?: string) => {
     // Start the color cycle animation in drawing handlers
-    startAnimationRef.current?.();
+    startAnimationRef.current?.(reason ?? 'drawing-canvas-wrapper');
 
     // Start the animation manager
     colorCycleManagerRef.current?.start();
   }, []);
 
-  const wrappedStopAnimation = useCallback(() => {
+  const wrappedStopAnimation = useCallback((reason?: string) => {
     // Stop the animation manager
     colorCycleManagerRef.current?.stop();
 
     // Stop the color cycle animation
-    stopAnimationRef.current?.();
+    stopAnimationRef.current?.(reason ?? 'drawing-canvas-wrapper');
 
     // Do one final redraw to ensure clean state
     const canvas = canvasRef.current;
@@ -1085,7 +1085,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const pauseAnimationForPan = useCallback(() => {
     if (pausedAnimationForPanRef.current) return;
     if (!stopAnimationRef.current) return;
-    stopAnimationRef.current();
+    stopAnimationRef.current('pan-start');
     pausedAnimationForPanRef.current = true;
   }, []);
 

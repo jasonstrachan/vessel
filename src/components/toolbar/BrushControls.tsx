@@ -34,8 +34,8 @@ const DEFAULT_RAINBOW_STOPS = [
 
 // Get access to drawing handlers via a context or ref - we'll need to create this
 export interface ColorCycleAnimationContext {
-  startContinuousColorCycleAnimation: () => void;
-  stopContinuousColorCycleAnimation: () => void;
+  startContinuousColorCycleAnimation: (reason?: string) => void;
+  stopContinuousColorCycleAnimation: (reason?: string) => void;
   updateColorCycleGradient?: (stops: Array<{ position: number; color: string }>) => void;
   setFlowDirection?: (direction: 'forward' | 'backward') => void;
 }
@@ -57,7 +57,8 @@ export const setColorCycleAnimationHandlers = (handlers: ColorCycleAnimationCont
 };
 
 export const getColorCycleAnimationState = () => globalIsAnimating;
-export const setColorCycleAnimationState = (isAnimating: boolean) => {
+
+const setColorCycleAnimationStateInternal = (isAnimating: boolean) => {
   globalIsAnimating = isAnimating;
   try {
     // Unified broadcast so all UIs sync immediately
@@ -65,6 +66,27 @@ export const setColorCycleAnimationState = (isAnimating: boolean) => {
       detail: { isPlaying: isAnimating, source: 'brush' }
     }));
   } catch {}
+};
+
+// DEBUG ONLY
+export const setColorCycleAnimationState = (next: boolean, dbg?: unknown) => {
+  try {
+    // only scream when turning OFF
+    if (next === false) {
+      // group + full stack
+      // (Error.stack gives precise ESM stack frames if sourcemaps are on)
+      // eslint-disable-next-line no-console
+      console.groupCollapsed('[CC:TRACE] setColorCycleAnimationState(false)', dbg ?? '');
+      // eslint-disable-next-line no-console
+      console.log(new Error('setColorCycleAnimationState(false)').stack);
+      // eslint-disable-next-line no-console
+      console.groupEnd();
+      // quick breakpoint option:
+      // debugger;
+    }
+  } catch {}
+  // >>> your real implementation follows (don’t change behaviour) <<<
+  return setColorCycleAnimationStateInternal(next);
 };
 
 const BrushControls = () => {
@@ -227,11 +249,11 @@ const BrushControls = () => {
 
     if (!wasColorCycle && isCurrentColorCycle) {
       if (isAnimating) {
-        void toggleGlobalColorCyclePlayback(true);
+        void toggleGlobalColorCyclePlayback(true, 'toolbar-button');
       }
     } else if (wasColorCycle && !isCurrentColorCycle) {
       if (isAnimating) {
-        void toggleGlobalColorCyclePlayback(false);
+        void toggleGlobalColorCyclePlayback(false, 'toolbar-button');
       }
       // Reset Color Cycle speed to default when leaving CC mode
       setActiveSettings({ colorCycleSpeed: 0.1 });

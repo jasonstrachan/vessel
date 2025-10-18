@@ -9,6 +9,7 @@ import { LayerAlignmentControls } from '@/components/panels/AlignmentPanel';
 import ProgressSlider from './ui/ProgressSlider';
 import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
 import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
+import { getColorCycleAnimationState } from '@/components/toolbar/BrushControls';
 import { recordBreadcrumb } from '../utils/debug';
 // Removed floating color cycle panel integration; panel now lives in Brush Settings
 
@@ -275,6 +276,14 @@ const MinimalLayerList = () => {
       { position: 1.0, color: '#9400d3' }
     ];
     
+    const isGlobalPlaying = (() => {
+      try {
+        return !!getColorCycleAnimationState();
+      } catch {
+        return false;
+      }
+    })();
+
     // Create a color-cycle layer
     const newLayer: Omit<Layer, 'id' | 'order'> = {
       name: `CC Layer ${layers.filter(l => l.layerType === 'color-cycle').length + 1}`,
@@ -288,7 +297,7 @@ const MinimalLayerList = () => {
       layerType: 'color-cycle', // Color-cycle layer - cannot be converted to normal
       colorCycleData: {
         gradient: currentGradient,
-        isAnimating: true,
+        isAnimating: isGlobalPlaying,
         // Initialize per-layer brush speed from current brush setting
         brushSpeed: (useAppStore.getState().tools?.brushSettings?.colorCycleSpeed) || 0.1
       }
@@ -306,6 +315,14 @@ const MinimalLayerList = () => {
       const state = useAppStore.getState();
       if (state.project) {
         state.initColorCycleForLayer(newLayerId, state.project.width, state.project.height);
+      }
+
+      if (isGlobalPlaying) {
+        try {
+          window.dispatchEvent(
+            new CustomEvent('cc:request-start-raf', { detail: { reason: 'layer-create' } })
+          );
+        } catch {}
       }
       
       // Set as active layer (this will also sync the gradient to brush settings)
@@ -721,7 +738,7 @@ const MinimalLayerList = () => {
           <button
             onClick={async () => {
             const newIsAnimating = !isAnimating;
-            await toggleGlobalColorCyclePlayback(newIsAnimating);
+            await toggleGlobalColorCyclePlayback(newIsAnimating, 'layer-panel-button');
             }}
             className="w-full h-10 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
           >

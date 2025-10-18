@@ -202,7 +202,7 @@ export function useRecolorState(
       // Determine intended new global state based on unified view
       const newIsAnimating = !isAnimating;
 
-      await toggleGlobalColorCyclePlayback(newIsAnimating);
+      await toggleGlobalColorCyclePlayback(newIsAnimating, 'recolor-panel');
 
       setIsAnimating(newIsAnimating);
     } catch (error) {

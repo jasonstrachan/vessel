@@ -1,4 +1,5 @@
 import { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
+import type { GradientStop } from '@/lib/GradientPalette';
 import { getColorCycleAnimationState } from '@/components/toolbar/BrushControls';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
@@ -29,6 +30,8 @@ type ManagedColorCycleBrush = ColorCycleBrushCanvas2D & {
     animatorIndex?: unknown
   ) => void;
 };
+
+type RuntimeLayerState = { strokeCounter?: number; hasContent?: boolean };
 
 export interface ColorCycleStrokeDeltaOptions {
   layerId: string;
@@ -193,21 +196,26 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
         fps: state.fps,
         brushSize: state.brushSize,
         layerSnapshots: state.layers?.map((layerSnapshot: ColorCycleSerializedLayer) => {
-          const indexBuffer = (layerSnapshot as any)?.data?.indexBuffer;
-          const gradientStops = (layerSnapshot as any)?.data?.gradient?.gradientStops;
+          const layerData = layerSnapshot?.data as {
+            indexBuffer?: {
+              width?: number;
+              height?: number;
+              data?: ArrayBuffer | ArrayBufferView | { buffer?: ArrayBuffer | SharedArrayBuffer } | SharedArrayBuffer;
+            };
+            gradient?: { gradientStops?: GradientStop[] | unknown };
+          } | undefined;
+          const indexBuffer = layerData?.indexBuffer;
+          const animatorData = toArrayBuffer(indexBuffer?.data);
+          const gradientStops = Array.isArray(layerData?.gradient?.gradientStops)
+            ? (layerData?.gradient?.gradientStops as GradientStop[])
+            : undefined;
           const animatorIndex =
-            indexBuffer &&
-            indexBuffer.data &&
-            indexBuffer.width &&
-            indexBuffer.height
+            animatorData && typeof indexBuffer?.width === 'number' && typeof indexBuffer?.height === 'number'
               ? {
                   width: indexBuffer.width,
                   height: indexBuffer.height,
-                  data:
-                    indexBuffer.data instanceof ArrayBuffer
-                      ? indexBuffer.data
-                      : indexBuffer.data?.buffer ?? indexBuffer.data,
-                  gradientStops: Array.isArray(gradientStops) ? gradientStops : undefined
+                  data: animatorData,
+                  gradientStops
                 }
               : undefined;
           return {
@@ -236,7 +244,8 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       // Ensure runtime stroke data reflects presence of restored content
       if (restoredHasContent) {
         try {
-          const runtimeState = (brush as any)?.layerStrokes?.get?.(this.layerId);
+          const runtimeBrush = brush as unknown as { layerStrokes?: Map<string, RuntimeLayerState> };
+          const runtimeState = runtimeBrush.layerStrokes?.get?.(this.layerId);
           if (runtimeState) {
             runtimeState.hasContent = true;
           }
@@ -366,7 +375,12 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       }
       try {
         if (typeof window !== 'undefined' && getColorCycleAnimationState?.()) {
-          window.dispatchEvent(new CustomEvent('cc:request-start-raf'));
+          const handlers = (window as typeof window & {
+            colorCycleAnimationHandlers?: {
+              startContinuousColorCycleAnimation?: (reason?: string) => void;
+            };
+          }).colorCycleAnimationHandlers;
+          handlers?.startContinuousColorCycleAnimation?.('delta-replay');
         }
       } catch {
         // Restart request best-effort.
@@ -408,4 +422,57 @@ export const createColorCycleStrokeDelta = (
     forwardState: cloneState(options.forwardState, forwardLengths),
     backwardState: cloneState(options.backwardState, backwardLengths)
   });
+};
+const toArrayBuffer = (
+  value:
+    | ArrayBuffer
+    | ArrayBufferView
+    | { buffer?: ArrayBuffer | SharedArrayBuffer }
+    | SharedArrayBuffer
+    | undefined
+): ArrayBuffer | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  if (value instanceof ArrayBuffer) {
+    return value;
+  }
+
+  const cloneFromView = (view: ArrayBufferView): ArrayBuffer => {
+    const out = new Uint8Array(view.byteLength);
+    out.set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
+    return out.buffer;
+  };
+
+  if (typeof SharedArrayBuffer !== 'undefined' && value instanceof SharedArrayBuffer) {
+    const out = new Uint8Array(value.byteLength);
+    out.set(new Uint8Array(value));
+    return out.buffer;
+  }
+
+  if (ArrayBuffer.isView(value)) {
+    const view = value as ArrayBufferView;
+    if (typeof SharedArrayBuffer !== 'undefined' && view.buffer instanceof SharedArrayBuffer) {
+      return cloneFromView(view);
+    }
+    if (view.buffer instanceof ArrayBuffer) {
+      return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
+    }
+    return cloneFromView(view);
+  }
+
+  if (typeof value === 'object' && 'buffer' in value && value.buffer) {
+    const buffer = value.buffer;
+    if (buffer instanceof ArrayBuffer) {
+      return buffer;
+    }
+    if (typeof SharedArrayBuffer !== 'undefined' && buffer instanceof SharedArrayBuffer) {
+      const out = new Uint8Array(buffer.byteLength);
+      out.set(new Uint8Array(buffer));
+      return out.buffer;
+    }
+  }
+
+  return undefined;
 };

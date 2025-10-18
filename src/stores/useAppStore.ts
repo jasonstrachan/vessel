@@ -4952,3 +4952,35 @@ useAppStore.subscribe((state) => {
   // Note: Zustand v4 doesn't provide previous state in subscribe
   // Would need to track manually if we need to compare
 });
+
+// DEBUG ONLY
+(() => {
+  try {
+    const get = useAppStore.getState;
+    const current = get();
+    const origUpdateLayer = current.updateLayer as typeof current.updateLayer & { __ccTraceWrapped?: boolean };
+    if (origUpdateLayer.__ccTraceWrapped) {
+      return;
+    }
+    const wrapped: typeof current.updateLayer & { __ccTraceWrapped?: boolean } = (id, patch) => {
+      const before = useAppStore.getState().layers.find((l) => l.id === id);
+      const prev = before?.colorCycleData?.isAnimating;
+      const next = patch?.colorCycleData?.isAnimating;
+      if (typeof next === 'boolean' && next !== prev) {
+        // eslint-disable-next-line no-console
+        console.groupCollapsed('[CC:TRACE] updateLayer isAnimating flip', { id: id?.slice(-6), prev, next });
+        // eslint-disable-next-line no-console
+        console.log('patch:', patch);
+        // eslint-disable-next-line no-console
+        console.log(new Error('updateLayer:isAnimating').stack);
+        // eslint-disable-next-line no-console
+        console.groupEnd();
+        // debugger;
+      }
+      return origUpdateLayer(id, patch);
+    };
+    wrapped.__ccTraceWrapped = true;
+    origUpdateLayer.__ccTraceWrapped = true;
+    get().updateLayer = wrapped;
+  } catch {}
+})();

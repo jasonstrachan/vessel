@@ -1,8 +1,5 @@
 import HistoryManager from './historyManager';
 
-// eslint-disable-next-line no-console
-console.log('HistoryManager debug', typeof HistoryManager, HistoryManager);
-
 const HistoryManagerCtor =
   typeof HistoryManager === 'function'
     ? HistoryManager

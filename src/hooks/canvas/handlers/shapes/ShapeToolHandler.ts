@@ -1892,7 +1892,7 @@ export const createShapeToolHandler = (
     }
 
     if (isCCShape) {
-      drawingHandlers.stopContinuousColorCycleAnimation?.();
+      drawingHandlers.stopContinuousColorCycleAnimation?.('shape-tool-start');
       interaction.dispatch({ type: 'DRAWING_START' });
       drawingHandlers.startShapeDrawing(worldPos, pressure);
       return true;
@@ -1954,7 +1954,7 @@ export const createShapeToolHandler = (
       const isActivelyDrawing =
         drawingHandlers.isDrawingShapeRef.current || (event.buttons & 1) === 1;
       if (isActivelyDrawing) {
-        drawingHandlers.stopContinuousColorCycleAnimation?.();
+        drawingHandlers.stopContinuousColorCycleAnimation?.('shape-tool-drag');
       } else {
         // Keep animation running during hover previews for CC shapes.
         restartColorCycleAnimation?.();

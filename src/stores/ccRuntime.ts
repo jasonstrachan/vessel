@@ -96,7 +96,12 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
         window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
       }
       if (shouldRequestStart) {
-        window.dispatchEvent(new CustomEvent('cc:request-start-raf'));
+        const handlers = (window as typeof window & {
+          colorCycleAnimationHandlers?: {
+            startContinuousColorCycleAnimation?: (reason?: string) => void;
+          };
+        }).colorCycleAnimationHandlers;
+        handlers?.startContinuousColorCycleAnimation?.('cc-runtime');
       }
     } catch {}
   }

@@ -76,7 +76,7 @@ const AnimationControlsPanel: React.FC = () => {
 
   const handleTogglePlayback = React.useCallback(async () => {
     const nextState = !isAnimating;
-    await toggleGlobalColorCyclePlayback(nextState);
+    await toggleGlobalColorCyclePlayback(nextState, 'animation-panel');
   }, [isAnimating]);
 
   return (
