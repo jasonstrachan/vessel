@@ -4,7 +4,7 @@
  */
 
 import { useCallback, useMemo, useRef, useEffect } from 'react';
-import { useAppStore } from '../stores/useAppStore';
+import { selectEffectiveColorCyclePlaying, useAppStore } from '../stores/useAppStore';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams, type CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 import { BrushShape } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
@@ -1143,6 +1143,35 @@ export const useBrushEngineSimplified = () => {
     activeLayerId,
     getActiveLayerColorCycleBrush
   ]);
+
+  const ensureColorCycleAnimation = useCallback((shouldPlay: boolean) => {
+    let brush = getActiveLayerColorCycleBrush();
+
+    if (!brush && shouldPlay) {
+      brush = initializeColorCycleBrush();
+    }
+
+    if (!brush) {
+      return;
+    }
+
+    const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
+
+    if (shouldPlay && !isPlaying) {
+      if (typeof brush.startAnimation === 'function') {
+        brush.startAnimation();
+      }
+      return;
+    }
+
+    if (!shouldPlay && isPlaying) {
+      if (typeof brush.pause === 'function') {
+        brush.pause();
+      } else if (typeof brush.stopAnimation === 'function') {
+        brush.stopAnimation();
+      }
+    }
+  }, [getActiveLayerColorCycleBrush, initializeColorCycleBrush]);
   
   /**
    * Draw with Color Cycle Brush - only paints to Canvas2D buffer, no immediate rendering
@@ -1610,6 +1639,24 @@ export const useBrushEngineSimplified = () => {
     }
   }, [tools.brushSettings.maxPressure, activeLayerId, getActiveLayerColorCycleBrush]);
 
+  useEffect(() => {
+    let previous = selectEffectiveColorCyclePlaying(useAppStore.getState());
+    ensureColorCycleAnimation(previous);
+
+    const unsubscribe = useAppStore.subscribe((state) => {
+      const next = selectEffectiveColorCyclePlaying(state);
+      if (next === previous) {
+        return;
+      }
+      previous = next;
+      ensureColorCycleAnimation(next);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [ensureColorCycleAnimation, activeLayerId]);
+
   // Clean up resources
   useEffect(() => {
     const cache = brushStampCacheRef.current;
@@ -1709,49 +1756,9 @@ export const useBrushEngineSimplified = () => {
         colorCycleBrush.setFlowDirection(direction);
       }
     },
-    
-    toggleColorCycleAnimation: () => {
-      const colorCycleBrush = getActiveLayerColorCycleBrush();
-      if (!colorCycleBrush) {
-        const brush = initializeColorCycleBrush();
-        if (brush) {
-          // Start animation properly
-          brush.startAnimation();
-        }
-      } else {
-        colorCycleBrush.togglePlayPause();
-      }
-    },
 
-    // Explicit pause/resume to avoid unintended state resets when toggling
-    resumeColorCycleAnimation: () => {
-      // Ensure brush exists for the active CC layer
-      let colorCycleBrush = getActiveLayerColorCycleBrush();
-      if (!colorCycleBrush) {
-        colorCycleBrush = initializeColorCycleBrush();
-      }
-      if (colorCycleBrush) {
-        // If not animating at all, start; if paused, resume
-        if (!colorCycleBrush.isPlaying()) {
-          // startAnimation ensures callbacks are hooked without clearing buffers
-          colorCycleBrush.startAnimation();
-        } else {
-          // Already playing; nothing to do
-        }
-      }
-    },
-
-    pauseColorCycleAnimation: () => {
-      const colorCycleBrush = getActiveLayerColorCycleBrush();
-      if (colorCycleBrush) {
-        // Pause without clearing pixels or resetting buffers
-        if (colorCycleBrush.pause) {
-          colorCycleBrush.pause();
-        } else if (colorCycleBrush.stopAnimation) {
-          // Fallback if API surface differs
-          colorCycleBrush.stopAnimation();
-        }
-      }
+    ensureColorCycleAnimation: (shouldPlay: boolean) => {
+      ensureColorCycleAnimation(shouldPlay);
     },
     
     updateColorCycleAnimation: () => {

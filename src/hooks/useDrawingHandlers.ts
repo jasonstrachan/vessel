@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useAppStore } from '../stores/useAppStore';
 import { useBrushEngineSimplified } from './useBrushEngineSimplified';
 import { useUserBrushEngine } from './useUserBrushEngine';
 import { BrushShape, type BrushSettings, type CustomBrush, type Layer, type CanvasSnapshot } from '../types';
@@ -9,11 +8,16 @@ import { shouldDrawStamp, createPixelQueue } from '../hooks/brushEngine/strokePr
 import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
 import { appendSegmentWithDynamicResampling } from '../utils/shapeMaker';
 import { logError, debugWarn } from '../utils/debug';
-import { ccGroup, ccGroupEnd, ccLog, dumpLayerFlags } from '@/debug/ccDebug';
+import { CC_DEBUG, ccGroup, ccGroupEnd, ccLog, dumpLayerFlags } from '@/debug/ccDebug';
 import { RecolorManager } from '../lib/colorCycle/RecolorManager';
-import { getColorCycleAnimationState, setColorCycleAnimationState } from '../components/toolbar/BrushControls';
 import { setSharedColorCycleGradient } from '../utils/colorCycleGradients';
-import { toggleGlobalColorCyclePlayback, markCCPlayingState } from '../utils/colorCyclePlayback';
+import type { CCReason } from '../stores/useAppStore';
+import {
+  selectColorCycleDesiredPlaying,
+  selectColorCycleSuspendDepth,
+  selectEffectiveColorCyclePlaying,
+  useAppStore
+} from '../stores/useAppStore';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 import { FinalizeQueue } from '@/lib/canvas';
@@ -52,10 +56,14 @@ type FinalizeDrawingOptions = {
 
 const BRUSH_HISTORY_COALESCE_WINDOW_MS = 250;
 const STOP_COOLDOWN_MS = 200;
+const START_CC_TRACE_THROTTLE_MS = 2000;
+const SYNTHETIC_STOP_THROTTLE_MS = 200;
+const START_CC_COOLDOWN_MS = 200;
+const SKIP_CC_LOG_THROTTLE_MS = 1000;
 
 const SYNTHETIC_CC_STOP_REASONS = new Set<string>([
+  'shape-tool-start',
   'shape-tool-drag',
-  'brush-stroke',
   'pointer-drag',
   'layer-create',
   'layer-switch',
@@ -63,6 +71,14 @@ const SYNTHETIC_CC_STOP_REASONS = new Set<string>([
   'unknown',
   'event'
 ]);
+
+const getDesiredColorCyclePlaying = () =>
+  selectColorCycleDesiredPlaying(useAppStore.getState());
+
+const getEffectiveColorCyclePlaying = () =>
+  selectEffectiveColorCyclePlaying(useAppStore.getState());
+
+const lastSyntheticStopAtMap = new Map<string, number>();
 
 type BrushStrokeSession = {
   id: string;
@@ -175,17 +191,24 @@ export function useDrawingHandlers({
   const lastRendererLogTS = useRef(0);
   const firstPaintRef = useRef(true);
   const lastStopAtRef = useRef(0);
+  const startContinuousColorCycleTraceStateRef = useRef<{
+    lastByReason: Record<string, number>;
+    suppressedByReason: Record<string, number>;
+  }>({
+    lastByReason: Object.create(null) as Record<string, number>,
+    suppressedByReason: Object.create(null) as Record<string, number>,
+  });
 
   const getCCStampTargetCtx = useCallback((): CanvasRenderingContext2D | null => {
     const st = useAppStore.getState();
-    const globalIsPlaying = typeof getColorCycleAnimationState === 'function'
-      ? !!getColorCycleAnimationState()
-      : false;
+    const layer = st.layers.find(l => l.id === st.activeLayerId);
+    const layerCanvas = layer?.colorCycleData?.canvas;
 
-    if (globalIsPlaying) {
-      const layer = st.layers.find(l => l.id === st.activeLayerId);
-      const layerCanvas = layer?.colorCycleData?.canvas;
-      return layerCanvas?.getContext?.('2d', { willReadFrequently: true }) ?? null;
+    if (layerCanvas) {
+      const layerCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
+      if (layerCtx) {
+        return layerCtx;
+      }
     }
 
     return drawingCtxRef.current;
@@ -264,13 +287,15 @@ export function useDrawingHandlers({
   const continuousColorCycleAnimationRef = useRef<number | null>(null);
   const continuousColorCycleAnimationActiveRef = useRef(false);
   const startingColorCycleAnimationRef = useRef(false);
+  const startPlaybackRef = useRef<((reason?: string) => void) | null>(null);
+  const lastStartAtRef = useRef<number>(0);
+  const startupKickDoneRef = useRef<boolean>(false);
+  const skipStartLogAtRef = useRef<Record<string, number>>({});
+  const skipStopLogAtRef = useRef<Record<string, number>>({});
 
   // Finalization queue to prevent concurrent finalization operations
   const finalizeQueueRef = useRef(new FinalizeQueue());
 
-  // Stable refs to call start/stop CC animation from early hooks
-  const startCCRef = useRef<(reason?: string) => void>(() => {});
-  const stopCCRef = useRef<(reason?: string) => void>(() => {});
 
   // Auto-sample gradient (for color cycle brushes)
   const autoSamplePointsRef = useRef<Array<{ x: number; y: number }>>([]);
@@ -495,14 +520,10 @@ export function useDrawingHandlers({
     // Check global brush play state (toolbar) so we can resume even if no per-layer flags were set
     let globalShouldResume = false;
     try {
-      if (typeof getColorCycleAnimationState === 'function') {
-        globalShouldResume = !!getColorCycleAnimationState();
-      }
+      globalShouldResume = getEffectiveColorCyclePlaying();
     } catch {}
     // Record and report state
     pausedCCLayerIdsRef.current = toResume;
-    try { window.dispatchEvent(new CustomEvent('colorCycleAnimationState', { detail: { isPlaying: false, source: 'brush' } })); } catch {}
-    
     const result = toResume.length > 0 || globalShouldResume || recolorWasAnimatingRef.current;
     ccLog('pauseAllBrushCCAnimationsNow result', {
       toResume: toResume.map(id => id.slice(-6)),
@@ -514,7 +535,7 @@ export function useDrawingHandlers({
     return result;
   }, []);
 
-  const pauseColorCycleForNonCCInteraction = useCallback((reason: string = 'shape-preview') => {
+  const pauseColorCycleForNonCCInteraction = useCallback((reason: CCReason = 'shape-preview') => {
     if (shouldResumeColorCycleAfterInteractionRef.current) {
       ccLog('pauseColorCycleForNonCCInteraction: already scheduled resume');
       return;
@@ -532,27 +553,22 @@ export function useDrawingHandlers({
       return;
     }
 
-    const wasPlaying = getColorCycleAnimationState();
+    const wasPlaying = getEffectiveColorCyclePlaying();
     ccLog('pauseColorCycleForNonCCInteraction', { wasPlaying, reason });
     const pausedAny = pauseAllBrushCCAnimationsNow();
     ccLog('pauseColorCycleForNonCCInteraction -> pauseAllBrush', { pausedAny });
 
     if (wasPlaying) {
       shouldResumeColorCycleAfterInteractionRef.current = true;
-      ccLog('pauseColorCycleForNonCCInteraction: toggling global playback off', { reason });
-      void toggleGlobalColorCyclePlayback(false, reason);
+      ccLog('pauseColorCycleForNonCCInteraction: suspending playback', { reason });
+      useAppStore.getState().suspendColorCycle(reason);
     }
   }, [pauseAllBrushCCAnimationsNow]);
 
   const resumeColorCycleAfterInteraction = useCallback(async () => {
     ccGroup('resumeColorCycleAfterInteraction()');
     const shouldResume = shouldResumeColorCycleAfterInteractionRef.current;
-    let globalIsPlaying = false;
-    try {
-      if (typeof getColorCycleAnimationState === 'function') {
-        globalIsPlaying = !!getColorCycleAnimationState();
-      }
-    } catch {}
+    const globalIsPlaying = getEffectiveColorCyclePlaying();
     ccLog('state', { shouldResume, globalIsPlaying });
 
     if (!shouldResume) {
@@ -562,9 +578,14 @@ export function useDrawingHandlers({
 
     shouldResumeColorCycleAfterInteractionRef.current = false;
 
-    if (!globalIsPlaying) {
-      ccLog('resuming global playback');
-      await toggleGlobalColorCyclePlayback(true, 'shape-preview-resume');
+    const st = useAppStore.getState();
+    const suspendDepth = selectColorCycleSuspendDepth(st);
+    if (suspendDepth > 1) {
+      st.forceResumeColorCycle('shape-preview');
+      ccLog('forceResumeColorCycle', { suspendDepth });
+    } else {
+      st.resumeColorCycle('shape-preview');
+      ccLog('resumeColorCycle', { suspendDepth });
     }
     ccGroupEnd();
   }, []);
@@ -605,12 +626,7 @@ export function useDrawingHandlers({
       recolorWasAnimatingRef.current = false;
     }
 
-    let globalIsPlaying = false;
-    try {
-      if (typeof getColorCycleAnimationState === 'function') {
-        globalIsPlaying = !!getColorCycleAnimationState();
-      }
-    } catch {}
+    const globalIsPlaying = getEffectiveColorCyclePlaying();
 
     if (globalIsPlaying) {
       const ccLayers = state.layers.filter(layer => layer.layerType === 'color-cycle' && layer.colorCycleData?.mode !== 'recolor');
@@ -630,12 +646,11 @@ export function useDrawingHandlers({
       });
       if (ccLayers.length > 0) {
         resumedAny = true;
-        startCCRef.current?.('resume-global-play');
       }
     }
 
     if (resumedAny || globalIsPlaying) {
-      try { window.dispatchEvent(new CustomEvent('colorCycleAnimationState', { detail: { isPlaying: true, source: 'brush' } })); } catch {}
+      // Store-driven playback will notify subscribers.
     }
   }, []);
   
@@ -700,36 +715,6 @@ export function useDrawingHandlers({
   useEffect(() => {
     ensureOverlayInitialized();
   }, [ensureOverlayInitialized]);
-
-  useEffect(() => {
-    if (!project) {
-      return;
-    }
-    if (typeof window === 'undefined') {
-      return;
-    }
-    const ready = ensureOverlayInitialized();
-    if (!ready) {
-      return;
-    }
-    let timeoutId: number | null = null;
-    try {
-      const isPlaying = typeof getColorCycleAnimationState === 'function'
-        ? !!getColorCycleAnimationState()
-        : false;
-      if (isPlaying) {
-        timeoutId = window.setTimeout(() => {
-          startCCRef.current?.('project-ready');
-        }, 0);
-      }
-    } catch {}
-
-    return () => {
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
-    };
-  }, [project, ensureOverlayInitialized]);
 
   // OPTIMIZATION: Helper function to draw an eraser segment. Using a stroked
   // line is often faster than stamping multiple circles.
@@ -903,9 +888,7 @@ export function useDrawingHandlers({
     // Reset color cycle brush for new stroke and start animation
     if (ccFlags.isAny) {
       // Don't set up callback here - let startContinuousColorCycleAnimation handle it
-      const globalIsPlaying = typeof getColorCycleAnimationState === 'function'
-        ? !!getColorCycleAnimationState()
-        : false;
+      const globalIsPlaying = getEffectiveColorCyclePlaying();
       colorCyclePlayingAtStrokeStart = globalIsPlaying;
       const shouldAnimateLive = !globalIsPlaying;
 
@@ -1429,9 +1412,14 @@ export function useDrawingHandlers({
     const historyDescriptionOverride = options.historyDescription;
 
     const hasCanvas = Boolean(drawingCanvasRef.current);
-    const hasContent = drawingCanvasHasContent.current;
     const busy = isBusyRef?.current ?? false;
-    if (busy || !hasCanvas || !hasContent || !project) {
+    const snapshot = useAppStore.getState();
+    const activeLayerSnapshot = snapshot.layers.find(l => l.id === snapshot.activeLayerId);
+    const isCCLayerSnapshot = activeLayerSnapshot?.layerType === 'color-cycle';
+    const isCCBrushSnapshot = getColorCycleBrushFlags(snapshot.tools.brushSettings).isAny;
+    const overlayHasContent = drawingCanvasHasContent.current;
+    const overlayOptional = isCCLayerSnapshot && isCCBrushSnapshot;
+    if (busy || !hasCanvas || (!overlayHasContent && !overlayOptional) || !project) {
       return;
     }
     
@@ -1470,7 +1458,7 @@ export function useDrawingHandlers({
         brushEngine.finalizeStroke(drawingCtxRef.current);
       }
 
-      let currentState = useAppStore.getState();
+      let currentState = snapshot;
       let activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
       const currentTool = currentState.tools.currentTool;
       const currentBrushId = currentState.currentBrushPreset?.id;
@@ -1590,18 +1578,11 @@ export function useDrawingHandlers({
               brushEngine.renderColorCycle(drawingCtx, false); // false = don't apply opacity
             }
             
-            // IMPORTANT: Check if we should continue animating after stroke ends
-            // The animation should continue if the play button is active
-            // We'll rely on the DrawingCanvas to restart it based on UI state
-            if (getColorCycleAnimationState?.()) {
-              if (typeof window !== 'undefined') {
-                try {
-                  window.dispatchEvent(
-                    new CustomEvent('cc:request-start-raf', { detail: { reason: 'stroke-finalize' } })
-                  );
-                } catch {}
-              }
-              startCCRef.current?.('stroke-finalize');
+            // Keep runtime aligned with toolbar intent after finalize.
+            if (getDesiredColorCyclePlaying()) {
+              Promise.resolve().then(() => startPlaybackRef.current?.('stroke-end'));
+            } else {
+              stopContinuousColorCycleAnimation('brush-stroke');
             }
           }
           
@@ -1635,21 +1616,39 @@ export function useDrawingHandlers({
 
           if (isColorCycleLayer && isAnyColorCycleBrush && activeLayer?.colorCycleData?.canvas) {
             const layerCanvas = activeLayer.colorCycleData.canvas;
+            const targetLayerId = activeLayer!.id;
             try {
               const colorCycleBrushManager = getColorCycleBrushManager();
-              const brush = colorCycleBrushManager.getBrush(activeLayer.id) as ManagedColorCycleBrush | undefined;
+              const brush = colorCycleBrushManager.getBrush(targetLayerId) as ManagedColorCycleBrush | undefined;
               if (brush) {
                 if (typeof brush.commitCurrentStroke === 'function') {
-                  brush.commitCurrentStroke(activeLayer.id);
+                  brush.commitCurrentStroke(targetLayerId);
                 } else {
-                  brush.finalizeCurrentStroke?.(activeLayer.id);
+                  brush.finalizeCurrentStroke?.(targetLayerId);
                 }
 
+                // Ensure animator texture/index reflect committed geometry
+                brush.updateColorCycleTexture?.();
+
                 if (typeof brush.commitToLayer === 'function') {
-                  brush.commitToLayer(layerCanvas, activeLayer.id);
+                  brush.commitToLayer(layerCanvas, targetLayerId);
                 } else {
-                  brush.renderDirectToCanvas?.(layerCanvas, activeLayer.id);
+                  brush.renderDirectToCanvas?.(layerCanvas, targetLayerId);
                 }
+
+                // Mark layer metadata so downstream consumers know content exists
+                try {
+                  const st = useAppStore.getState();
+                  const freshLayer = st.layers.find(l => l.id === targetLayerId);
+                  if (freshLayer?.colorCycleData) {
+                    st.updateLayer(targetLayerId, {
+                      colorCycleData: {
+                        ...freshLayer.colorCycleData,
+                        hasContent: true
+                      }
+                    });
+                  }
+                } catch {}
 
                 brushForCleanup = brush;
               } else if (drawingCanvas) {
@@ -1670,6 +1669,10 @@ export function useDrawingHandlers({
 
             // For CC layers, capture directly from the layer's canvas
             await captureCanvasToActiveLayer(layerCanvas);
+            try {
+              window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
+              ccLog('stroke: frameUpdate dispatched', { layerId: targetLayerId.slice(-6) });
+            } catch {}
 
             // Optional sampling: verify we saved the actual layer canvas (not paint buffer)
             try {
@@ -1779,7 +1782,9 @@ export function useDrawingHandlers({
             });
           }
 
-          brushForCleanup?.clearPaintBuffer?.(activeLayer.id);
+          if (!(isColorCycleLayer && isAnyColorCycleBrush)) {
+            brushForCleanup?.clearPaintBuffer?.(activeLayer.id);
+          }
         }
       }
 
@@ -2638,14 +2643,14 @@ export function useDrawingHandlers({
   }, [tools.shapeMode, tools.brushSettings, tools.currentTool, brushEngine, finalizeDrawing, isBusyRef, activeLayerId, initDrawingCanvas, equidistantPointsOnPolyline, sampleHexAt, resumeColorCycleAfterInteraction, resetPolygonState, captureCanvasToActiveLayer]);
   
   // Helper function to render all visible color cycle layers
-  const renderAllColorCycleLayers = useCallback((targetCtx: CanvasRenderingContext2D, onlyActiveLayer: boolean = false) => {
+  const renderAllColorCycleLayers = useCallback((targetCtx?: CanvasRenderingContext2D, onlyActiveLayer: boolean = false) => {
     const currentState = useAppStore.getState();
     let hasRendered = false;
 
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     if (now - renderAllCCLogTSRef.current > 1000) {
       const ccLayersSnapshot = currentState.layers.filter(layer => layer.layerType === 'color-cycle');
-      const animatingCount = ccLayersSnapshot.filter(layer => layer.colorCycleData?.isAnimating).length;
+          const animatingCount = ccLayersSnapshot.filter(layer => layer.colorCycleData?.isAnimating).length;
       ccLog('renderAllCC', {
         onlyActiveLayer,
         ccLayers: ccLayersSnapshot.length,
@@ -2674,10 +2679,13 @@ export function useDrawingHandlers({
         if (layer.colorCycleData.isAnimating) {
           colorCycleBrush.updateAnimation();
           colorCycleBrush.renderDirectToCanvas(layer.colorCycleData.canvas, layer.id);
+          hasRendered = true;
         }
-        
-        // Composite this layer onto the target canvas
-        if (layer.id === currentState.activeLayerId || !onlyActiveLayer) {
+
+        if (
+          targetCtx &&
+          (layer.id === currentState.activeLayerId || !onlyActiveLayer)
+        ) {
           targetCtx.globalAlpha = layer.opacity;
           targetCtx.globalCompositeOperation = layer.blendMode || 'source-over';
           targetCtx.drawImage(layer.colorCycleData.canvas, 0, 0);
@@ -2696,9 +2704,65 @@ export function useDrawingHandlers({
       continuousColorCycleAnimationActiveRef.current = false;
     }
 
-    if (continuousColorCycleAnimationActiveRef.current || startingColorCycleAnimationRef.current) {
+    const rafAlive =
+      typeof window !== 'undefined' && window.__ccRafAlive === true;
+
+    let ccLayers: Layer[] = [];
+    try {
+      const st = useAppStore.getState();
+      ccLayers = st.layers.filter(
+        (layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.mode !== 'recolor'
+      );
+    } catch {}
+
+    const ensureLayersAnimating = () => {
+      try {
+        const st = useAppStore.getState();
+        ccLayers.forEach((layer) => {
+          if (!layer.colorCycleData) {
+            return;
+          }
+          if (layer.colorCycleData.isAnimating) {
+            return;
+          }
+          st.updateLayer(layer.id, {
+            colorCycleData: {
+              ...layer.colorCycleData,
+              isAnimating: true,
+            },
+          });
+          ccLog('ensure isAnimating=true (noop start)', { id: layer.id.slice(-6), reason });
+        });
+      } catch {}
+    };
+
+    if (
+      rafAlive ||
+      continuousColorCycleAnimationActiveRef.current ||
+      startingColorCycleAnimationRef.current
+    ) {
+      ccLog('startContinuousColorCycleAnimation noop (already running)', { reason, rafAlive });
+      ensureLayersAnimating();
       return;
     }
+
+    const allAnimating =
+      ccLayers.length > 0 &&
+      ccLayers.every((layer) => Boolean(layer.colorCycleData?.isAnimating));
+    if (allAnimating) {
+      ccLog('startContinuousColorCycleAnimation noop (all animating)', { reason });
+      return;
+    }
+
+    const now =
+      typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+    if (now - lastStartAtRef.current < START_CC_COOLDOWN_MS) {
+      ccLog('startContinuousColorCycleAnimation throttled', { reason });
+      return;
+    }
+    lastStartAtRef.current = now;
 
     startingColorCycleAnimationRef.current = true;
 
@@ -2713,8 +2777,6 @@ export function useDrawingHandlers({
         ccGroupEnd();
         return;
       }
-
-      markCCPlayingState(true);
 
       // Stop any existing continuous animation
       if (continuousColorCycleAnimationRef.current) {
@@ -2749,7 +2811,7 @@ export function useDrawingHandlers({
         });
       } catch {}
 
-      if (!overlayReady && !getColorCycleAnimationState?.()) {
+      if (!overlayReady && !getEffectiveColorCyclePlaying()) {
         overlayReady = ensureOverlayInitialized();
         ccLog('overlay retry', {
           reason,
@@ -2772,35 +2834,28 @@ export function useDrawingHandlers({
         });
       } catch {}
 
-      // IMPORTANT: Do an initial render to show existing content across all CC layers
-      if (drawingCtxRef.current && drawingCanvasRef.current) {
-        drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-        const had = renderAllColorCycleLayers(drawingCtxRef.current, false);
-        ccLog('initial composite', { hadContent: had, reason });
-        if (!had) {
-          // Fallback: Legacy rendering for compatibility
-          try { brushEngine.renderColorCycle(drawingCtxRef.current, true); } catch {}
-        }
-        try {
-          // Force a composite refresh so base layers are redrawn
-          window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
-          ccLog('dispatched colorCycleFrameUpdate', { reason });
-        } catch {}
-      } else if (!overlayReady) {
+      // IMPORTANT: Do an initial render into layer canvases so the main canvas can refresh
+      renderAllColorCycleLayers(undefined, false);
+      try {
+        window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
+        ccLog('dispatched colorCycleFrameUpdate', { reason });
+      } catch {}
+
+      if (!overlayReady) {
         debugWarn('[DrawingHandlers] Overlay canvas not ready; animation will start once initialized');
         ccLog('overlay missing; defer animation', { reason });
       }
 
       // Resume the color cycle brush animation explicitly (avoid toggle side-effects) for active brush engine
       try {
-        if (brushEngine && !brushEngine.isColorCycleAnimating?.()) {
-          brushEngine.resumeColorCycleAnimation?.();
-          ccLog('resumeColorCycleAnimation()', { reason });
+        if (brushEngine) {
+          brushEngine.ensureColorCycleAnimation?.(true);
+          ccLog('ensureColorCycleAnimation(true)', { reason });
         }
       } catch {}
 
-      // Mark that the drawing canvas has content so it gets rendered
-      drawingCanvasHasContent.current = true;
+      // Overlay is idle during continuous playback; clear any stale flag
+      drawingCanvasHasContent.current = false;
       firstPaintRef.current = true;
       lastRendererLogTS.current = 0;
       
@@ -2828,53 +2883,54 @@ export function useDrawingHandlers({
         
         // Then do the rendering work
         if (timestamp - lastRenderTime >= frameInterval) {
-          if (drawingCtxRef.current && drawingCanvasRef.current) {
-            // Clear drawing canvas once
-            drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-            
-            // Use the helper to render all color cycle layers
-            // During continuous animation, show all color cycle layers
-            const hasColorCycleContent = renderAllColorCycleLayers(drawingCtxRef.current, false);
-            
-            // If no color cycle layers were rendered, try legacy fallback
-            if (!hasColorCycleContent) {
-              // Fallback: Legacy rendering for compatibility
-              // IMPORTANT: Do not advance animation when paused
-              let shouldAdvance = false;
-              try {
-                // Respect brush animator state
-                shouldAdvance = !!(brushEngine.isColorCycleAnimating && brushEngine.isColorCycleAnimating());
-                if (!shouldAdvance) {
-                  // Also check store flags in case animator is out-of-sync
-                  const st = useAppStore.getState();
-                  shouldAdvance = st.layers.some(l => l.layerType === 'color-cycle' && !!l.colorCycleData?.isAnimating);
-                }
-              } catch {}
-              if (shouldAdvance) {
-                brushEngine.updateColorCycleAnimation?.();
-              }
-              brushEngine.renderColorCycle(drawingCtxRef.current, true);
-              drawingCanvasHasContent.current = true;
-            } else {
-              drawingCanvasHasContent.current = true;
-            }
-            
-            if (firstPaintRef.current) {
-              ccLog('RAF first paint', { hadContent: hasColorCycleContent, reason });
-              firstPaintRef.current = false;
-            }
+          const renderedAny = renderAllColorCycleLayers(undefined, false);
 
-            const logNow = typeof performance !== 'undefined' ? performance.now() : Date.now();
-            if (logNow - lastRendererLogTS.current > 1000) {
-              const snapshot = useAppStore.getState();
-              const animatingLayers = snapshot.layers.filter(layer => layer.layerType === 'color-cycle' && layer.colorCycleData?.isAnimating).length;
-              ccLog('RAF tick', { animatingLayers, reason });
-              lastRendererLogTS.current = logNow;
+          if (renderedAny) {
+            drawingCanvasHasContent.current = false;
+          } else if (drawingCtxRef.current && drawingCanvasRef.current) {
+            // Fallback: legacy renderer for compatibility (used when layer canvases unavailable)
+            drawingCtxRef.current.clearRect(
+              0,
+              0,
+              drawingCanvasRef.current.width,
+              drawingCanvasRef.current.height
+            );
+            let shouldAdvance = false;
+            try {
+              shouldAdvance = !!(brushEngine.isColorCycleAnimating && brushEngine.isColorCycleAnimating());
+              if (!shouldAdvance) {
+                const st = useAppStore.getState();
+                shouldAdvance = st.layers.some(
+                  (layer) => layer.layerType === 'color-cycle' && !!layer.colorCycleData?.isAnimating
+                );
+              }
+            } catch {}
+            if (shouldAdvance) {
+              brushEngine.updateColorCycleAnimation?.();
             }
-            
-            // Trigger main canvas to re-composite layers with updated CC canvases
-            window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
+            brushEngine.renderColorCycle(drawingCtxRef.current, true);
+            drawingCanvasHasContent.current = true;
           }
+
+          if (firstPaintRef.current) {
+            ccLog('RAF first paint', { hadContent: renderedAny, reason });
+            firstPaintRef.current = false;
+          }
+
+          const logNow = typeof performance !== 'undefined' ? performance.now() : Date.now();
+          if (logNow - lastRendererLogTS.current > 1000) {
+            const snapshot = useAppStore.getState();
+            const animatingLayers = snapshot.layers.filter(
+              (layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.isAnimating
+            ).length;
+            ccLog('RAF tick', { animatingLayers, reason });
+            lastRendererLogTS.current = logNow;
+          }
+
+          try {
+            window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
+          } catch {}
+
           lastRenderTime = timestamp;
         }
       };
@@ -2885,28 +2941,85 @@ export function useDrawingHandlers({
         window.__ccRafAlive = true;
       }
 
-      // Broadcast unified animation state for brush-based CC
-      try {
-        window.dispatchEvent(new CustomEvent('colorCycleAnimationState', { detail: { isPlaying: true, source: 'brush' } }));
-      } catch {}
       ccGroupEnd();
     } finally {
       startingColorCycleAnimationRef.current = false;
     }
   }, [brushEngine, ensureOverlayInitialized, renderAllColorCycleLayers]);
 
-  // DEBUG ONLY
+  // DEBUG ONLY - throttle noisy trace logs to avoid console spam while retaining stack samples
   const startContinuousColorCycleAnimation = useCallback((reason = 'unknown') => {
     try {
-      // eslint-disable-next-line no-console
-      console.groupCollapsed('[CC:TRACE] startContinuousColorCycleAnimation', { reason });
-      // eslint-disable-next-line no-console
-      console.log(new Error('startContinuousColorCycleAnimation').stack);
-      // eslint-disable-next-line no-console
-      console.groupEnd();
+      const rafAlive =
+        typeof window !== 'undefined' && window.__ccRafAlive === true;
+      if (
+        rafAlive ||
+        continuousColorCycleAnimationActiveRef.current ||
+        startingColorCycleAnimationRef.current
+      ) {
+        return;
+      }
     } catch {}
+
+    const now =
+      typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+    const traceState = startContinuousColorCycleTraceStateRef.current;
+    const lastLoggedAt = traceState.lastByReason[reason];
+    const elapsed = lastLoggedAt === undefined ? Number.POSITIVE_INFINITY : now - lastLoggedAt;
+    const shouldAttemptLog = elapsed >= START_CC_TRACE_THROTTLE_MS;
+
+    if (CC_DEBUG.on && shouldAttemptLog) {
+      const suppressedCount = traceState.suppressedByReason[reason] ?? 0;
+      traceState.lastByReason[reason] = now;
+      traceState.suppressedByReason[reason] = 0;
+      try {
+        console.groupCollapsed('[CC:TRACE] startContinuousColorCycleAnimation', {
+          reason,
+          suppressedCount,
+        });
+        if (suppressedCount > 0) {
+          console.log(`suppressed ${suppressedCount} rapid calls`);
+        }
+        console.log(new Error('startContinuousColorCycleAnimation').stack);
+        console.groupEnd();
+      } catch {}
+    } else if (CC_DEBUG.on && !shouldAttemptLog) {
+      traceState.suppressedByReason[reason] =
+        (traceState.suppressedByReason[reason] ?? 0) + 1;
+    } else if (shouldAttemptLog) {
+      // Keep timestamps fresh even when debug logging is disabled.
+      traceState.lastByReason[reason] = now;
+      traceState.suppressedByReason[reason] = 0;
+    }
+
     return startContinuousColorCycleAnimationCore(reason);
   }, [startContinuousColorCycleAnimationCore]);
+
+  useEffect(() => {
+    startPlaybackRef.current = startContinuousColorCycleAnimation;
+  }, [startContinuousColorCycleAnimation]);
+
+  useEffect(() => {
+    if (!project) {
+      return;
+    }
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const ready = ensureOverlayInitialized();
+    if (!ready) {
+      return;
+    }
+    const isPlaying = getEffectiveColorCyclePlaying();
+    if (isPlaying && !startupKickDoneRef.current) {
+      startupKickDoneRef.current = true;
+      Promise.resolve().then(() => {
+        startContinuousColorCycleAnimation('store-sync');
+      });
+    }
+  }, [project, ensureOverlayInitialized, startContinuousColorCycleAnimation]);
   
   // Stop continuous color cycle animation AND pause it (applies to all brush-based CC layers)
   const stopContinuousColorCycleAnimationCore = useCallback((reason = 'unknown') => {
@@ -2921,21 +3034,79 @@ export function useDrawingHandlers({
     } catch {}
 
     if (SYNTHETIC_CC_STOP_REASONS.has(reason)) {
-      ccLog('stopContinuousColorCycleAnimation synthetic stop (no toolbar flip)', { reason });
+      try {
+        const st = useAppStore.getState();
+        const shape = st.tools.brushSettings.brushShape;
+        const isCCShape = shape === BrushShape.COLOR_CYCLE_SHAPE;
+        if (isCCShape && (reason === 'shape-tool-start' || reason === 'shape-tool-drag')) {
+          ccLog('skip synthetic stop for CC shape', { reason });
+          return;
+        }
+      } catch {}
+
+      const now =
+        typeof performance !== 'undefined' && typeof performance.now === 'function'
+          ? performance.now()
+          : Date.now();
+      const last = lastSyntheticStopAtMap.get(reason) ?? 0;
+      if (now - last < SYNTHETIC_STOP_THROTTLE_MS) {
+        ccLog('skip synthetic stop (throttled)', { reason });
+        return;
+      }
+      lastSyntheticStopAtMap.set(reason, now);
+
+      ccLog('stopContinuousColorCycleAnimation synthetic stop', { reason });
+
       continuousColorCycleAnimationActiveRef.current = false;
       if (continuousColorCycleAnimationRef.current) {
         cancelAnimationFrame(continuousColorCycleAnimationRef.current);
         continuousColorCycleAnimationRef.current = null;
         ccLog('cancel global RAF (synthetic)', { reason });
       }
-      if (typeof window !== 'undefined') {
-        window.__ccRafAlive = false;
-      }
       if (colorCycleAnimationRef.current) {
         cancelAnimationFrame(colorCycleAnimationRef.current);
         colorCycleAnimationRef.current = null;
         ccLog('cancel per-stroke RAF (synthetic)', { reason });
       }
+      if (typeof window !== 'undefined') {
+        window.__ccRafAlive = false;
+      }
+
+      const pausedAny = pauseAllBrushCCAnimationsNow();
+      ccLog('pauseAllBrushCCAnimationsNow() (synthetic)', { pausedAny, reason });
+
+      try {
+        if (!shouldResumeColorCycleAfterInteractionRef.current) {
+          const st = useAppStore.getState();
+          const wasPlaying = selectEffectiveColorCyclePlaying(st);
+          if (wasPlaying) {
+            st.suspendColorCycle(reason as CCReason);
+            shouldResumeColorCycleAfterInteractionRef.current = true;
+            ccLog('suspendColorCycle (synthetic)', { reason });
+          }
+        }
+      } catch {}
+
+      try {
+        if (drawingCtxRef.current && drawingCanvasRef.current) {
+          drawingCtxRef.current.clearRect(
+            0,
+            0,
+            drawingCanvasRef.current.width,
+            drawingCanvasRef.current.height
+          );
+          ccLog('cleared overlay canvas (synthetic)', { reason });
+        }
+      } catch {}
+      drawingCanvasHasContent.current = false;
+
+      try {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
+          ccLog('dispatched colorCycleFrameUpdate (synthetic)', { reason });
+        }
+      } catch {}
+
       return;
     }
 
@@ -2955,17 +3126,19 @@ export function useDrawingHandlers({
     lastStopAtRef.current = now;
 
     ccGroup('stopContinuousColorCycleAnimation()', { reason });
-    markCCPlayingState(false);
     dumpLayerFlags();
     const pausedAny = pauseAllBrushCCAnimationsNow();
     ccLog('pauseAllBrushCCAnimationsNow()', { pausedAny, reason });
 
-    if (pausedAny) {
+    const shouldAutoResume = reason === 'brush-stroke'
+      || reason === 'shape-preview'
+      || reason === 'history-apply'
+      || reason === 'visibility-hidden'
+      || reason === 'layer-switch';
+
+    if (pausedAny && shouldAutoResume) {
       shouldResumeColorCycleAfterInteractionRef.current = true;
     }
-
-    setColorCycleAnimationState(false);
-    ccLog('setColorCycleAnimationState(false)', { reason });
 
     continuousColorCycleAnimationActiveRef.current = false;
     if (continuousColorCycleAnimationRef.current) {
@@ -3028,91 +3201,101 @@ export function useDrawingHandlers({
   // DEBUG ONLY
   const stopContinuousColorCycleAnimation = useCallback((reason = 'unknown') => {
     try {
-      // eslint-disable-next-line no-console
       console.groupCollapsed('[CC:TRACE] stopContinuousColorCycleAnimation', { reason });
-      // eslint-disable-next-line no-console
       console.log(new Error('stopContinuousColorCycleAnimation').stack);
-      // eslint-disable-next-line no-console
       console.groupEnd();
     } catch {}
     return stopContinuousColorCycleAnimationCore(reason);
   }, [stopContinuousColorCycleAnimationCore]);
 
-  // Keep callable refs in sync with the real animation controls
   useEffect(() => {
-    startCCRef.current = startContinuousColorCycleAnimation;
-    stopCCRef.current = stopContinuousColorCycleAnimation;
-  }, [startContinuousColorCycleAnimation, stopContinuousColorCycleAnimation]);
+    let previous = getEffectiveColorCyclePlaying();
 
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const win = window as unknown as Record<string, unknown>;
-    if (win.__ccListenersInstalled) {
-      ccLog('cc listeners already installed');
-      return;
-    }
-    win.__ccListenersInstalled = true;
-
-    const handleRequestStart = (event: Event) => {
-      const reason = (event as CustomEvent<{ reason?: string }>).detail?.reason ?? 'event';
-      ccGroup('EVENT cc:request-start-raf', { reason });
-      ccLog('overlay?', {
-        hasCanvas: !!drawingCanvasRef.current,
-        hasCtx: !!drawingCtxRef.current
-      });
-      dumpLayerFlags();
-      if (colorCycleAnimationRef.current) {
-        cancelAnimationFrame(colorCycleAnimationRef.current);
-        colorCycleAnimationRef.current = null;
-      }
-      if (drawingCtxRef.current && drawingCanvasRef.current) {
-        drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-        drawingCanvasHasContent.current = false;
-      }
-      try {
-        if (continuousColorCycleAnimationActiveRef.current || startingColorCycleAnimationRef.current) {
-          ccLog('ignored: already active', { reason });
-          ccGroupEnd();
-          return;
+    const syncPlayback = (playing: boolean, reason: CCReason) => {
+      if (playing) {
+        const rafAlive = typeof window !== 'undefined' && window.__ccRafAlive === true;
+        let allAnimating = false;
+        try {
+          const st = useAppStore.getState();
+          const ccLayers = st.layers.filter((layer) => layer.layerType === 'color-cycle');
+          allAnimating =
+            ccLayers.length > 0 &&
+            ccLayers.every((layer) => !!layer.colorCycleData?.isAnimating);
+        } catch {}
+        if (!rafAlive && !continuousColorCycleAnimationActiveRef.current && !startingColorCycleAnimationRef.current) {
+          try {
+            const st = useAppStore.getState();
+            const depth = selectColorCycleSuspendDepth(st);
+            if (depth > 0) {
+              st.forceResumeColorCycle('toolbar');
+              ccLog('forceResumeColorCycle(toolbar) due to suspend depth', { depth });
+            }
+          } catch {}
+          startContinuousColorCycleAnimation(reason);
+        } else {
+          const now =
+            typeof performance !== 'undefined' && typeof performance.now === 'function'
+              ? performance.now()
+              : Date.now();
+          const lastAt = skipStartLogAtRef.current[reason] ?? 0;
+          if (now - lastAt >= SKIP_CC_LOG_THROTTLE_MS) {
+            skipStartLogAtRef.current[reason] = now;
+            ccLog('skip startContinuousColorCycleAnimation (already running)', {
+              reason,
+              rafAlive,
+              allAnimating
+            });
+          }
         }
-        startCCRef.current?.(reason);
-      } catch (error) {
-        ccLog('startContinuousColorCycleAnimation error', { reason, error });
+      } else {
+        const rafAlive = typeof window !== 'undefined' && window.__ccRafAlive === true;
+        let anyAnimating = false;
+        try {
+          const st = useAppStore.getState();
+          anyAnimating = st.layers.some(
+            (layer) => layer.layerType === 'color-cycle' && !!layer.colorCycleData?.isAnimating
+          );
+        } catch {}
+
+        if (
+          rafAlive ||
+          anyAnimating ||
+          continuousColorCycleAnimationActiveRef.current ||
+          startingColorCycleAnimationRef.current
+        ) {
+          stopContinuousColorCycleAnimation(reason);
+        } else {
+          const now =
+            typeof performance !== 'undefined' && typeof performance.now === 'function'
+              ? performance.now()
+              : Date.now();
+          const lastAt = skipStopLogAtRef.current[reason] ?? 0;
+          if (now - lastAt >= SKIP_CC_LOG_THROTTLE_MS) {
+            skipStopLogAtRef.current[reason] = now;
+            ccLog('skip stopContinuousColorCycleAnimation (already stopped)', {
+              reason,
+              rafAlive,
+              anyAnimating
+            });
+          }
+        }
       }
-      ccGroupEnd();
     };
 
-    const handleRequestStop = (event: Event) => {
-      const reason = (event as CustomEvent<{ reason?: string }>).detail?.reason ?? 'event';
-      ccGroup('EVENT cc:request-stop-raf', { reason });
-      dumpLayerFlags();
-      if (SYNTHETIC_CC_STOP_REASONS.has(reason) && getColorCycleAnimationState?.()) {
-        ccLog('EVENT cc:request-stop-raf ignored (synthetic while playing)', { reason });
-        ccGroupEnd();
+    // Ensure initial alignment with store state
+    syncPlayback(previous, 'startup');
+
+    const unsubscribe = useAppStore.subscribe((state) => {
+      const next = selectEffectiveColorCyclePlaying(state);
+      if (next === previous) {
         return;
       }
-      try {
-        stopCCRef.current?.(reason);
-        if (colorCycleAnimationRef.current) {
-          cancelAnimationFrame(colorCycleAnimationRef.current);
-          colorCycleAnimationRef.current = null;
-          ccLog('cancel per-stroke RAF (event bridge)', { reason });
-        }
-      } catch (error) {
-        ccLog('stopContinuousColorCycleAnimation error', { reason, error });
-      }
-      ccGroupEnd();
-    };
+      previous = next;
+      syncPlayback(next, 'store-sync');
+    });
 
-    window.addEventListener('cc:request-start-raf', handleRequestStart);
-    window.addEventListener('cc:request-stop-raf', handleRequestStop);
     return () => {
-      window.removeEventListener('cc:request-start-raf', handleRequestStart);
-      window.removeEventListener('cc:request-stop-raf', handleRequestStop);
-      win.__ccListenersInstalled = false;
+      unsubscribe();
     };
   }, [startContinuousColorCycleAnimation, stopContinuousColorCycleAnimation]);
 

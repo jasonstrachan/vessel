@@ -1,8 +1,8 @@
 import { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
 import type { GradientStop } from '@/lib/GradientPalette';
-import { getColorCycleAnimationState } from '@/components/toolbar/BrushControls';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
+import { isColorCycleDesired } from '@/utils/colorCyclePlayback';
 import type {
   HistoryDelta,
   HistoryDirection,
@@ -374,13 +374,9 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
         }
       }
       try {
-        if (typeof window !== 'undefined' && getColorCycleAnimationState?.()) {
-          const handlers = (window as typeof window & {
-            colorCycleAnimationHandlers?: {
-              startContinuousColorCycleAnimation?: (reason?: string) => void;
-            };
-          }).colorCycleAnimationHandlers;
-          handlers?.startContinuousColorCycleAnimation?.('delta-replay');
+        if (isColorCycleDesired()) {
+          const handlers = useAppStore.getState().colorCycleRuntimeHandlers;
+          handlers.start?.('delta-replay');
         }
       } catch {
         // Restart request best-effort.

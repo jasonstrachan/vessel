@@ -89,8 +89,13 @@ const updateLayerImage = (layerId: string, image: ImageData): void => {
   const store = useAppStore.getState();
   const targetLayer = store.layers.find((layer) => layer.id === layerId);
   if (targetLayer?.framebuffer) {
-    const ctx = targetLayer.framebuffer.getContext('2d');
-    ctx?.putImageData(image, 0, 0);
+    const ctx = targetLayer.framebuffer.getContext('2d') as
+      | CanvasRenderingContext2D
+      | OffscreenCanvasRenderingContext2D
+      | null;
+    if (ctx && 'putImageData' in ctx) {
+      ctx.putImageData(image, 0, 0);
+    }
   }
 
   useAppStore.setState((state) => ({

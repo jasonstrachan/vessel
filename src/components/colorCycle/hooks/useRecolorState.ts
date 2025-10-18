@@ -8,7 +8,10 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../../../types';
 import { RecolorManager, RecolorOptions, RecolorPerformanceStats } from '../../../lib/colorCycle/RecolorManager';
-import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
+import { useAppStore } from '@/stores/useAppStore';
+
+const isRecolorLayer = (layer: Layer) =>
+  layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor';
 
 export interface RecolorState {
   mode: 'brush' | 'recolor';
@@ -76,6 +79,12 @@ export function useRecolorState(
 
   // Get recolor manager instance
   const recolorManager = useMemo(() => RecolorManager.getInstance(), []);
+  const desiredPlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
+  const suspendDepth = useAppStore(state => state.colorCyclePlayback.suspendDepth);
+  const playColorCycle = useAppStore(state => state.playColorCycle);
+  const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
+  const effectivePlaying = desiredPlaying && suspendDepth === 0;
+  const isAnimating = effectivePlaying;
 
   // Internal state
   const [state, setState] = useState<RecolorState>({
@@ -89,7 +98,6 @@ export function useRecolorState(
 
   // Performance stats (updated periodically)
   const [performanceStats, setPerformanceStats] = useState<RecolorPerformanceStats | null>(null);
-  const [isAnimating, setIsAnimating] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [, setRenderTick] = useState(0);
 
@@ -190,7 +198,7 @@ export function useRecolorState(
 
   // Animation controls
   const lastToggleAtRef = useRef<number>(0);
-  const toggleAnimation = useCallback(async () => {
+  const toggleAnimation = useCallback(() => {
     try {
       const now = performance.now?.() ?? Date.now();
       if (now - lastToggleAtRef.current < 250) {
@@ -199,18 +207,17 @@ export function useRecolorState(
       }
       lastToggleAtRef.current = now;
 
-      // Determine intended new global state based on unified view
-      const newIsAnimating = !isAnimating;
-
-      await toggleGlobalColorCyclePlayback(newIsAnimating, 'recolor-panel');
-
-      setIsAnimating(newIsAnimating);
+      if (desiredPlaying) {
+        pauseColorCycle('toolbar');
+      } else {
+        playColorCycle('toolbar');
+      }
     } catch (error) {
       console.error('[useRecolorState] Animation toggle error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Animation control error';
       actions.setError(errorMessage);
     }
-  }, [actions, isAnimating]);
+  }, [actions, desiredPlaying, pauseColorCycle, playColorCycle]);
 
   // Settings management
   const updateLayerSpeed = useCallback((layerId: string, speed: number) => {
@@ -267,31 +274,43 @@ export function useRecolorState(
     }
   }, [recolorManager, actions]);
 
-  // Update animation state periodically
   useEffect(() => {
-    // Immediate sync via unified event when any controller toggles state
-    const handler = (e: Event) => {
-      try {
-        const ce = e as CustomEvent<{ isPlaying: boolean }>;
-        if (typeof ce.detail?.isPlaying === 'boolean') {
-          setIsAnimating(ce.detail.isPlaying);
-        }
-      } catch {}
-    };
-    window.addEventListener('colorCycleAnimationState', handler);
+    let cancelled = false;
 
-    const interval = setInterval(() => {
-      const animating = recolorManager.isAnimating();
-      if (animating !== isAnimating) {
-        setIsAnimating(animating);
+    const syncPlayback = async () => {
+      const state = useAppStore.getState();
+      const recolorLayers = state.layers.filter(isRecolorLayer);
+
+      if (effectivePlaying) {
+        try {
+          await Promise.all(recolorLayers.map(layer => recolorManager.registerExistingLayer(layer)));
+          if (!cancelled) {
+            recolorManager.playAll();
+            const maybeRenderOnce = (recolorManager as { renderOnce?: () => void }).renderOnce;
+            if (typeof maybeRenderOnce === 'function') {
+              maybeRenderOnce.call(recolorManager);
+            }
+          }
+        } catch (error) {
+          console.error('[useRecolorState] Failed to start recolor playback', error);
+          if (!cancelled) {
+            actions.setError('Failed to start recolor animation');
+          }
+        }
+      } else {
+        recolorManager.pause();
+        if (!cancelled) {
+          setPerformanceStats(null);
+        }
       }
-    }, 500);
+    };
+
+    void syncPlayback();
 
     return () => {
-      window.removeEventListener('colorCycleAnimationState', handler);
-      clearInterval(interval);
+      cancelled = true;
     };
-  }, [recolorManager, isAnimating]);
+  }, [actions, effectivePlaying, recolorManager]);
 
   // Update performance stats periodically during animation
   useEffect(() => {

@@ -1,4 +1,5 @@
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 
 type RuntimeSnapshot = {
@@ -96,12 +97,7 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
         window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
       }
       if (shouldRequestStart) {
-        const handlers = (window as typeof window & {
-          colorCycleAnimationHandlers?: {
-            startContinuousColorCycleAnimation?: (reason?: string) => void;
-          };
-        }).colorCycleAnimationHandlers;
-        handlers?.startContinuousColorCycleAnimation?.('cc-runtime');
+        useAppStore.getState().colorCycleRuntimeHandlers.start?.('cc-runtime');
       }
     } catch {}
   }

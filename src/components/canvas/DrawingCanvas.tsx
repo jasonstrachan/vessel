@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useCallback, useState, useMemo, useLayoutEffect } from 'react';
-import { useAppStore } from '../../stores/useAppStore';
+import { selectEffectiveColorCyclePlaying, useAppStore } from '../../stores/useAppStore';
 import { useBrushEngineSimplified } from '../../hooks/useBrushEngineSimplified';
 import { useCanvasInteraction } from '../../hooks/useCanvasInteraction';
 import { useCanvasStateMachine } from '../../hooks/useCanvasStateMachine';
@@ -14,7 +14,6 @@ import type { Layer, Tool } from '../../types';
 import type { FloatingPaste as FloatingPasteState } from '../../hooks/canvas/utils/types';
 import BrushCursor from './BrushCursor';
 import CropOverlay from './CropOverlay';
-import { setColorCycleAnimationHandlers, getColorCycleAnimationState } from '../toolbar/BrushControls';
 import { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 import { getPresetStops } from '@/utils/gradientPresets';
@@ -40,6 +39,9 @@ const rgbToHex = (r: number, g: number, b: number): string => {
   const toHex = (value: number) => value.toString(16).padStart(2, '0');
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 };
+
+const isColorCyclePlaybackActive = () =>
+  selectEffectiveColorCyclePlaying(useAppStore.getState());
 
 const interpolateStopColorAt = (position: number, stops: GradientStop[]): string => {
   if (stops.length === 0) {
@@ -965,6 +967,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   
   // Extract the color cycle animation functions for use by BrushControls
   const { startContinuousColorCycleAnimation, stopContinuousColorCycleAnimation, setFeedbackCallback } = drawingHandlers;
+  const setColorCycleRuntimeHandlers = useAppStore((state) => state.setColorCycleRuntimeHandlers);
 
   const startAnimationRef = useRef(startContinuousColorCycleAnimation);
   const stopAnimationRef = useRef(stopContinuousColorCycleAnimation);
@@ -1001,6 +1004,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const hasStoppedAnimationRef = useRef(false);
   // Track when we paused CC animation specifically for panning so it can resume automatically
   const pausedAnimationForPanRef = useRef(false);
+  const managerRunningRef = useRef(false);
 
   useLayoutEffect(() => {
     if (typeof window === 'undefined') {
@@ -1060,19 +1064,30 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   
   // Simplified animation control functions
   const wrappedStartAnimation = useCallback((reason?: string) => {
+    const effectiveReason = reason ?? 'drawing-canvas-wrapper';
+    if (managerRunningRef.current && effectiveReason === 'drawing-canvas-wrapper') {
+      return;
+    }
+    managerRunningRef.current = true;
     // Start the color cycle animation in drawing handlers
-    startAnimationRef.current?.(reason ?? 'drawing-canvas-wrapper');
+    startAnimationRef.current?.(effectiveReason);
 
     // Start the animation manager
     colorCycleManagerRef.current?.start();
   }, []);
 
   const wrappedStopAnimation = useCallback((reason?: string) => {
+    const effectiveReason = reason ?? 'drawing-canvas-wrapper';
+    if (!managerRunningRef.current && effectiveReason === 'drawing-canvas-wrapper') {
+      return;
+    }
+
     // Stop the animation manager
     colorCycleManagerRef.current?.stop();
 
     // Stop the color cycle animation
-    stopAnimationRef.current?.(reason ?? 'drawing-canvas-wrapper');
+    stopAnimationRef.current?.(effectiveReason);
+    managerRunningRef.current = false;
 
     // Do one final redraw to ensure clean state
     const canvas = canvasRef.current;
@@ -1102,20 +1117,19 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
   // Set up the animation handlers for BrushControls
   useEffect(() => {
-    setColorCycleAnimationHandlers({
-      startContinuousColorCycleAnimation: wrappedStartAnimation,
-      stopContinuousColorCycleAnimation: wrappedStopAnimation,
-      updateColorCycleGradient: (stops: Array<{ position: number; color: string }>) =>
+    setColorCycleRuntimeHandlers({
+      start: wrappedStartAnimation,
+      stop: wrappedStopAnimation,
+      updateGradient: (stops: Array<{ position: number; color: string }>) =>
         updateColorCycleGradientRef.current?.(stops),
       setFlowDirection: (direction: 'forward' | 'backward') =>
         setColorCycleFlowDirectionRef.current?.(direction),
     });
-    
-    // Cleanup on unmount
+
     return () => {
-      setColorCycleAnimationHandlers(null);
+      setColorCycleRuntimeHandlers(null);
     };
-  }, [wrappedStartAnimation, wrappedStopAnimation]);
+  }, [setColorCycleRuntimeHandlers, wrappedStartAnimation, wrappedStopAnimation]);
 
   // Stop all color-cycle playback when switching to a non-CC layer
   useEffect(() => {
@@ -1479,7 +1493,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             setNeedsRedraw(prev => prev + 1);
             
             // Restart color cycle animation if it should be playing
-            if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && getColorCycleAnimationState()) {
+            if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && isColorCyclePlaybackActive()) {
               wrappedStartAnimation();
             }
           });
@@ -1658,7 +1672,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     // Optional
     defaultCursorStyle: cursorStyle,
     restartColorCycleAnimation: () => {
-      if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && getColorCycleAnimationState()) {
+      if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && isColorCyclePlaybackActive()) {
         wrappedStartAnimation();
       }
     },

@@ -3,7 +3,6 @@
 import React from 'react';
 import ProgressSlider from '@/components/ui/ProgressSlider';
 import { useAppStore } from '@/stores/useAppStore';
-import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
 
 const AnimationControlsPanel: React.FC = () => {
   const layers = useAppStore(state => state.layers);
@@ -12,30 +11,12 @@ const AnimationControlsPanel: React.FC = () => {
   const globalColorCycleSpeed = useAppStore(state => state.tools.brushSettings.colorCycleSpeed || 0.1);
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
   const updateLayer = useAppStore(state => state.updateLayer);
-
-  const brushAnimating = React.useMemo(
-    () => layers.some(layer => layer.layerType === 'color-cycle' && layer.colorCycleData?.mode !== 'recolor' && !!layer.colorCycleData?.isAnimating),
-    [layers]
-  );
-
-  const [externalIsPlaying, setExternalIsPlaying] = React.useState(false);
-  const isAnimating = brushAnimating || externalIsPlaying;
-
-  React.useEffect(() => {
-    const handler = (event: Event) => {
-      try {
-        const customEvent = event as CustomEvent<{ isPlaying: boolean }>;
-        if (typeof customEvent.detail?.isPlaying === 'boolean') {
-          setExternalIsPlaying(customEvent.detail.isPlaying);
-        }
-      } catch {}
-    };
-
-    window.addEventListener('colorCycleAnimationState', handler as EventListener);
-    return () => {
-      window.removeEventListener('colorCycleAnimationState', handler as EventListener);
-    };
-  }, []);
+  const desiredPlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
+  const suspendDepth = useAppStore(state => state.colorCyclePlayback.suspendDepth);
+  const playColorCycle = useAppStore(state => state.playColorCycle);
+  const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
+  const effectivePlaying = desiredPlaying && suspendDepth === 0;
+  const isSuspended = desiredPlaying && suspendDepth > 0;
 
   const activeLayer = React.useMemo(
     () => layers.find(layer => layer.id === activeLayerId) || null,
@@ -74,10 +55,13 @@ const AnimationControlsPanel: React.FC = () => {
     });
   }, [activeLayerId, layers, selectedLayerIds, setBrushSettings, updateLayer]);
 
-  const handleTogglePlayback = React.useCallback(async () => {
-    const nextState = !isAnimating;
-    await toggleGlobalColorCyclePlayback(nextState, 'animation-panel');
-  }, [isAnimating]);
+  const handleTogglePlayback = React.useCallback(() => {
+    if (desiredPlaying) {
+      pauseColorCycle('toolbar');
+    } else {
+      playColorCycle('toolbar');
+    }
+  }, [desiredPlaying, pauseColorCycle, playColorCycle]);
 
   return (
     <div className="bg-[#1A1A1A] border-t border-[#404040]">
@@ -99,9 +83,14 @@ const AnimationControlsPanel: React.FC = () => {
           onClick={handleTogglePlayback}
           className="w-full h-11 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
         >
-          <span className="text-[10px]" aria-hidden="true">{isAnimating ? '⏸' : '▶'}</span>
-          <span className="ml-1 text-[10px]">{isAnimating ? 'Pause' : 'Play'}</span>
+          <span className="text-[10px]" aria-hidden="true">{effectivePlaying ? '⏸' : '▶'}</span>
+          <span className="ml-1 text-[10px]">{effectivePlaying ? 'Pause' : 'Play'}</span>
         </button>
+        {isSuspended && (
+          <p className="text-center text-[#C4C4C4] text-xs mt-1">
+            Suspended while busy
+          </p>
+        )}
       </div>
     </div>
   );

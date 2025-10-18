@@ -8,8 +8,6 @@ import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { LayerAlignmentControls } from '@/components/panels/AlignmentPanel';
 import ProgressSlider from './ui/ProgressSlider';
 import { ThrottledColorAnalyzer, ColorSwatch } from '../utils/colorAnalyzer';
-import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
-import { getColorCycleAnimationState } from '@/components/toolbar/BrushControls';
 import { recordBreadcrumb } from '../utils/debug';
 // Removed floating color cycle panel integration; panel now lives in Brush Settings
 
@@ -194,26 +192,12 @@ LayerItem.displayName = 'LayerItem';
 const MinimalLayerList = () => {
   const [dragOverLayerId, setDragOverLayerId] = useState<string | null>(null);
   const [dragOverBottom, setDragOverBottom] = useState<boolean>(false);
-  // Derived animation state
-  const brushAnimating = useAppStore(state => state.layers.some(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode !== 'recolor' && !!l.colorCycleData?.isAnimating));
-  const [externalIsPlaying, setExternalIsPlaying] = useState(false);
-  const isAnimating = brushAnimating || externalIsPlaying;
-
-  // Keep local play/pause UI in sync with unified animation state
-  useEffect(() => {
-    const handler = (e: Event) => {
-      try {
-        const ce = e as CustomEvent<{ isPlaying: boolean }>;
-        if (typeof ce.detail?.isPlaying === 'boolean') {
-          setExternalIsPlaying(ce.detail.isPlaying);
-        }
-      } catch {}
-    };
-    window.addEventListener('colorCycleAnimationState', handler as EventListener);
-    return () => {
-      window.removeEventListener('colorCycleAnimationState', handler as EventListener);
-    };
-  }, []);
+  const desiredPlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
+  const suspendDepth = useAppStore(state => state.colorCyclePlayback.suspendDepth);
+  const playColorCycle = useAppStore(state => state.playColorCycle);
+  const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
+  const effectivePlaying = desiredPlaying && suspendDepth === 0;
+  const isSuspended = desiredPlaying && suspendDepth > 0;
   
   // Store subscriptions
   const layers = useAppStore(state => state.layers);
@@ -266,7 +250,8 @@ const MinimalLayerList = () => {
     };
     
     // Get current gradient from brush settings or use default rainbow
-    const currentGradient = useAppStore.getState().tools.brushSettings.colorCycleGradient || [
+    const stateSnapshot = useAppStore.getState();
+    const currentGradient = stateSnapshot.tools.brushSettings.colorCycleGradient || [
       { position: 0.0, color: '#ff0000' },
       { position: 0.17, color: '#ff7f00' },
       { position: 0.33, color: '#ffff00' },
@@ -275,14 +260,8 @@ const MinimalLayerList = () => {
       { position: 0.83, color: '#4b0082' },
       { position: 1.0, color: '#9400d3' }
     ];
-    
-    const isGlobalPlaying = (() => {
-      try {
-        return !!getColorCycleAnimationState();
-      } catch {
-        return false;
-      }
-    })();
+    const playback = stateSnapshot.colorCyclePlayback;
+    const isGlobalPlaying = playback.desiredPlaying && playback.suspendDepth === 0;
 
     // Create a color-cycle layer
     const newLayer: Omit<Layer, 'id' | 'order'> = {
@@ -299,7 +278,7 @@ const MinimalLayerList = () => {
         gradient: currentGradient,
         isAnimating: isGlobalPlaying,
         // Initialize per-layer brush speed from current brush setting
-        brushSpeed: (useAppStore.getState().tools?.brushSettings?.colorCycleSpeed) || 0.1
+        brushSpeed: stateSnapshot.tools?.brushSettings?.colorCycleSpeed || 0.1
       }
     };
     // quiet
@@ -317,14 +296,6 @@ const MinimalLayerList = () => {
         state.initColorCycleForLayer(newLayerId, state.project.width, state.project.height);
       }
 
-      if (isGlobalPlaying) {
-        try {
-          window.dispatchEvent(
-            new CustomEvent('cc:request-start-raf', { detail: { reason: 'layer-create' } })
-          );
-        } catch {}
-      }
-      
       // Set as active layer (this will also sync the gradient to brush settings)
       setActiveLayer(newLayerId);
       // quiet
@@ -736,15 +707,23 @@ const MinimalLayerList = () => {
         {/* Bottom Controls: Play/Pause for Color Cycle animation only */}
         <div className="border-t border-[#424242] p-2">
           <button
-            onClick={async () => {
-            const newIsAnimating = !isAnimating;
-            await toggleGlobalColorCyclePlayback(newIsAnimating, 'layer-panel-button');
+            onClick={() => {
+              if (desiredPlaying) {
+                pauseColorCycle('toolbar');
+              } else {
+                playColorCycle('toolbar');
+              }
             }}
             className="w-full h-10 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
           >
-            <span className="text-[10px] mr-1">{isAnimating ? '⏸' : '▶'}</span>
-            <span className="text-[10px]">{isAnimating ? 'Pause' : 'Play'}</span>
+            <span className="text-[10px] mr-1">{effectivePlaying ? '⏸' : '▶'}</span>
+            <span className="text-[10px]">{effectivePlaying ? 'Pause' : 'Play'}</span>
           </button>
+          {isSuspended && (
+            <p className="text-center text-[#C4C4C4] text-xs mt-1">
+              Suspended while busy
+            </p>
+          )}
         </div>
       </div>
     </div>

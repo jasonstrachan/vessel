@@ -18,7 +18,6 @@ import { GradientEditor } from "../ui/GradientEditor";
 import { isStrokeBrush } from "../../utils/brushCategories";
 import { getPresetOptions as getRectGradientPresetOptions, getPresetStops } from "../../utils/gradientPresets";
 import { isColorCycleBrush, getShapeModeForBrush, setSharedColorCycleGradient } from "../../utils/colorCycleGradients";
-import { toggleGlobalColorCyclePlayback } from "@/utils/colorCyclePlayback";
 import ShapeFillControls from "./ShapeFillControls";
 
 // Stable default rainbow gradient to avoid re-creating arrays every render
@@ -31,63 +30,6 @@ const DEFAULT_RAINBOW_STOPS = [
   { position: 0.83, color: '#4b0082' },
   { position: 1.0, color: '#9400d3' }
 ];
-
-// Get access to drawing handlers via a context or ref - we'll need to create this
-export interface ColorCycleAnimationContext {
-  startContinuousColorCycleAnimation: (reason?: string) => void;
-  stopContinuousColorCycleAnimation: (reason?: string) => void;
-  updateColorCycleGradient?: (stops: Array<{ position: number; color: string }>) => void;
-  setFlowDirection?: (direction: 'forward' | 'backward') => void;
-}
-
-declare global {
-  interface Window {
-    colorCycleAnimationHandlers?: ColorCycleAnimationContext | null;
-  }
-}
-
-// For now, we'll store this globally - a proper solution would use React context
-let colorCycleAnimationHandlers: ColorCycleAnimationContext | null = null;
-let globalIsAnimating = true; // Track global animation state (default to playing)
-
-export const setColorCycleAnimationHandlers = (handlers: ColorCycleAnimationContext | null) => {
-  colorCycleAnimationHandlers = handlers;
-  // Also make it available globally for LayerPanel
-  window.colorCycleAnimationHandlers = handlers;
-};
-
-export const getColorCycleAnimationState = () => globalIsAnimating;
-
-const setColorCycleAnimationStateInternal = (isAnimating: boolean) => {
-  globalIsAnimating = isAnimating;
-  try {
-    // Unified broadcast so all UIs sync immediately
-    window.dispatchEvent(new CustomEvent('colorCycleAnimationState', {
-      detail: { isPlaying: isAnimating, source: 'brush' }
-    }));
-  } catch {}
-};
-
-// DEBUG ONLY
-export const setColorCycleAnimationState = (next: boolean, dbg?: unknown) => {
-  try {
-    // only scream when turning OFF
-    if (next === false) {
-      // group + full stack
-      // (Error.stack gives precise ESM stack frames if sourcemaps are on)
-      // eslint-disable-next-line no-console
-      console.groupCollapsed('[CC:TRACE] setColorCycleAnimationState(false)', dbg ?? '');
-      // eslint-disable-next-line no-console
-      console.log(new Error('setColorCycleAnimationState(false)').stack);
-      // eslint-disable-next-line no-console
-      console.groupEnd();
-      // quick breakpoint option:
-      // debugger;
-    }
-  } catch {}
-  // >>> your real implementation follows (don’t change behaviour) <<<
-  return setColorCycleAnimationStateInternal(next);
-};
 
 const BrushControls = () => {
   // Use individual selectors to avoid unstable object references
@@ -106,6 +48,10 @@ const BrushControls = () => {
   const activeLayerId = useAppStore(state => state.activeLayerId);
   const layers = useAppStore(state => state.layers);
   const updateLayer = useAppStore(state => state.updateLayer);
+  const desiredColorCyclePlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
+  const playColorCycle = useAppStore(state => state.playColorCycle);
+  const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
+  const colorCycleRuntimeHandlers = useAppStore(state => state.colorCycleRuntimeHandlers);
   
   const ensureCustomColorCycleLayer = React.useCallback(() => {
     const state = useAppStore.getState();
@@ -126,6 +72,8 @@ const BrushControls = () => {
     };
 
     const gradient = state.tools.brushSettings.colorCycleGradient || DEFAULT_RAINBOW_STOPS;
+    const playback = state.colorCyclePlayback;
+    const isPlaying = playback.desiredPlaying && playback.suspendDepth === 0;
 
     const newLayer: Omit<Layer, 'id' | 'order'> = {
       name: `CC Brush ${ccLayerCount + 1}`,
@@ -140,7 +88,7 @@ const BrushControls = () => {
       colorCycleData: {
         mode: 'brush',
         gradient: gradient.map(stop => ({ ...stop })),
-        isAnimating: false,
+        isAnimating: isPlaying,
         brushSpeed: state.tools.brushSettings.colorCycleSpeed || 0.1
       }
     };
@@ -203,26 +151,6 @@ const BrushControls = () => {
     }
   }, [activeSettings.colorCycleGradient, activeSettings.colorCycleSpeed, ensureCustomColorCycleLayer, setActiveSettings]);
 
-  // Use state to track animation status for proper re-renders
-  const [isAnimating, setIsAnimating] = React.useState(() => getColorCycleAnimationState());
-
-  React.useEffect(() => {
-    const handleAnimationState = (event: Event) => {
-      try {
-        const customEvent = event as CustomEvent<{ isPlaying: boolean }>;
-        if (typeof customEvent.detail?.isPlaying === 'boolean') {
-          globalIsAnimating = customEvent.detail.isPlaying;
-          setIsAnimating(customEvent.detail.isPlaying);
-        }
-      } catch {}
-    };
-
-    window.addEventListener('colorCycleAnimationState', handleAnimationState as EventListener);
-    return () => {
-      window.removeEventListener('colorCycleAnimationState', handleAnimationState as EventListener);
-    };
-  }, []);
-
   // Ensure Color Cycle brushes start with a sensible spacing value even when no preset overrides exist
   React.useEffect(() => {
     const shape = activeSettings.brushShape;
@@ -248,12 +176,12 @@ const BrushControls = () => {
     const isCurrentColorCycle = isColorCycleBrush(activeSettings.brushShape);
 
     if (!wasColorCycle && isCurrentColorCycle) {
-      if (isAnimating) {
-        void toggleGlobalColorCyclePlayback(true, 'toolbar-button');
+      if (desiredColorCyclePlaying) {
+        playColorCycle('toolbar');
       }
     } else if (wasColorCycle && !isCurrentColorCycle) {
-      if (isAnimating) {
-        void toggleGlobalColorCyclePlayback(false, 'toolbar-button');
+      if (desiredColorCyclePlaying) {
+        pauseColorCycle('toolbar');
       }
       // Reset Color Cycle speed to default when leaving CC mode
       setActiveSettings({ colorCycleSpeed: 0.1 });
@@ -267,7 +195,15 @@ const BrushControls = () => {
     }
 
     previousBrushShape.current = activeSettings.brushShape;
-  }, [activeSettings.brushShape, isAnimating, setActiveSettings, shapeMode, setShapeMode]);
+  }, [
+    activeSettings.brushShape,
+    desiredColorCyclePlaying,
+    pauseColorCycle,
+    playColorCycle,
+    setActiveSettings,
+    shapeMode,
+    setShapeMode
+  ]);
 
 
   // Show special controls for Color Cycle brushes (both stroke and shape variants)
@@ -337,9 +273,7 @@ const BrushControls = () => {
               }
               
               // Use the shared handler from DrawingCanvas if available
-              if (colorCycleAnimationHandlers?.updateColorCycleGradient) {
-                colorCycleAnimationHandlers.updateColorCycleGradient(stops);
-              }
+              colorCycleRuntimeHandlers.updateGradient?.(stops);
             }}
           />
         </div>
@@ -414,9 +348,7 @@ const BrushControls = () => {
               onChange={(checked) => {
                 setActiveSettings({ colorCycleFlowForward: checked });
                 // Set flow direction based on toggle state
-                if (colorCycleAnimationHandlers?.setFlowDirection) {
-                  colorCycleAnimationHandlers.setFlowDirection(checked ? 'forward' : 'backward');
-                }
+                colorCycleRuntimeHandlers.setFlowDirection?.(checked ? 'forward' : 'backward');
               }}
             />
           </div>
@@ -1517,9 +1449,7 @@ const BrushControls = () => {
                     });
                   }
 
-                  if (colorCycleAnimationHandlers?.updateColorCycleGradient) {
-                    colorCycleAnimationHandlers.updateColorCycleGradient(stops);
-                  }
+                  colorCycleRuntimeHandlers.updateGradient?.(stops);
                 }}
               />
 

@@ -19,33 +19,33 @@ Unify the color cycle animation state so play/pause is consistent across UI, bru
 
 ## Plan
 
-1. **Single Source of Truth**
+[x] **Single Source of Truth**
    - Add `ui.colorCycle` slice to `useAppStore` with `isPlaying`, `suspensionCount`, and optional diagnostics (`lastReason`).
    - Provide actions `playColorCycle`, `pauseColorCycle`, `suspendColorCycle`, and `resumeColorCycle` that atomically update layer `colorCycleData.isAnimating` flags and internal counters.
 
-2. **Refactor Global Toggle**
+[x] **Refactor Global Toggle**
    - Rewrite `toggleGlobalColorCyclePlayback` to delegate to the new store actions.
    - Keep recolor manager orchestration, but drop direct writes to global refs/events; rely on store state changes instead.
 
-3. **UI Integration**
+[x] **UI Integration**
    - Update `BrushControls`, `AnimationControlsPanel`, and other playback UIs to read `isPlaying` from the store.
    - Remove `globalIsAnimating`, `setColorCycleAnimationState`, and DOM event listeners; dispatch store actions instead.
 
-4. **Drawing Handler Synchronization**
+[x] **Drawing Handler Synchronization**
    - Replace manual RAF refs with an effect keyed on the store’s `isPlaying` flag.
    - Convert `pauseAllBrushCCAnimationsNow`/`resumeColorCycleAfterInteraction` into `suspendColorCycle`/`resumeColorCycle` calls so strokes, shapes, and non-CC interactions share one suspension counter.
 
-5. **Brush Engine Alignment**
+[x] **Brush Engine Alignment**
    - Adjust `useBrushEngineSimplified` (and underlying color cycle brush implementations) to respond to the shared store flag rather than starting/stopping animation directly.
    - Ensure stroke finalization still commits to canvases and keeps history deltas unchanged.
 
-6. **Undo/History Verification**
+[x] **Undo/History Verification**
    - Ensure `colorCycleStrokeDelta` and `captureCanvasToActiveLayer` operate regardless of play state.
    - Replace direct `isAnimating` mutations inside history helpers with store actions if needed.
 
-7. **Validation**
+[x] **Validation**
    - Automated: `npm run lint`, `npm run type-check`, `npm test`.
-   - Manual: play/pause toggles, CC stroke drawing with animation on/off, shape preview suspension, switching layers, undo/redo of CC strokes.
+   - Manual: play/pause toggles, CC stroke drawing with animation on/off, shape preview suspension, switching layers, undo/redo of CC strokes (recommended ongoing sanity).
 
 ## Risks & Mitigations
 - **Race conditions when multiple callers pause**: use the suspension counter to prevent premature resumes.

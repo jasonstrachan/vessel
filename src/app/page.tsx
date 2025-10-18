@@ -26,33 +26,6 @@ import { devLog } from '../utils/devLog';
 
 const homeLog = devLog.scope('HOME');
 
-if (typeof window !== 'undefined') {
-  // DEBUG ONLY
-  (() => {
-    const win = window as typeof window & { __ccDispatchTracerInstalled?: boolean };
-    if (win.__ccDispatchTracerInstalled) {
-      return;
-    }
-    win.__ccDispatchTracerInstalled = true;
-    const realDispatch = window.dispatchEvent.bind(window);
-    window.dispatchEvent = (ev: Event) => {
-      if (ev instanceof CustomEvent &&
-          (ev.type === 'cc:request-stop-raf' || ev.type === 'cc:request-start-raf')) {
-        // eslint-disable-next-line no-console
-        console.groupCollapsed(`[CC:TRACE] dispatchEvent(${ev.type})`, ev.detail ?? {});
-        // eslint-disable-next-line no-console
-        console.log(new Error(`dispatchEvent:${ev.type}`).stack);
-        // eslint-disable-next-line no-console
-        console.groupEnd();
-        // Optionally break only on stop:
-        // if (ev.type === 'cc:request-stop-raf') debugger;
-      }
-      return realDispatch(ev);
-    };
-  })();
-}
-
-
 export default function Home() {
   // Global mouse tracking removed - now handled directly in canvas
   // Use individual selectors to avoid unstable object references

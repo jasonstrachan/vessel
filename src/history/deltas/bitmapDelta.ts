@@ -202,8 +202,13 @@ class BitmapTileDelta implements HistoryDelta {
       const framebuffer = targetLayer.framebuffer;
       if (framebuffer) {
         try {
-          const fbCtx = framebuffer.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
-          fbCtx?.putImageData(base, 0, 0);
+          const fbCtx = framebuffer.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as
+            | CanvasRenderingContext2D
+            | OffscreenCanvasRenderingContext2D
+            | null;
+          if (fbCtx && 'putImageData' in fbCtx) {
+            fbCtx.putImageData(base, 0, 0);
+          }
         } catch {
           // ignore framebuffer failures, history still updates imageData
         }

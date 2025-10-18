@@ -329,6 +329,7 @@ import {
 } from '@/utils/layoutDefaults';
 import { computeLayerPercentOffset, computePercentOffsetFromPixels } from '@/utils/layerMetrics';
 import historyManager, { setActiveHistoryDocument } from '@/history/historyService';
+import { createShapeSessionDelta } from '@/history/deltas/shapeSessionDelta';
 import { createLegacySnapshotDelta, isLegacySnapshotDelta } from '@/history/legacyCanvasSnapshot';
 import { mapCanvasActionToHistoryId } from '@/history/helpers/actions';
 import { commitLayerHistory, cloneLayerImageData } from '@/history/helpers/layerHistory';
@@ -380,6 +381,47 @@ interface ShapeFillState {
   sampleUnderShape: boolean;
 }
 
+export type CCReason =
+  | 'toolbar'
+  | 'brush-stroke'
+  | 'stroke-end'
+  | 'shape-preview'
+  | 'history-apply'
+  | 'visibility-hidden'
+  | 'layer-switch'
+  | 'startup'
+  | 'store-sync'
+  | 'shape-tool-start'
+  | 'shape-tool-drag'
+  | 'pointer-drag'
+  | 'layer-create'
+  | 'overlay-reinit'
+  | 'unknown'
+  | 'event';
+
+export interface ColorCycleUIState {
+  desiredPlaying: boolean;
+  suspendDepth: number;
+  lastReason?: CCReason;
+  recentReasons?: Array<{ reason: CCReason; ts: number }>;
+}
+
+const SHOULD_TRACK_COLOR_CYCLE_REASONS = process.env.NODE_ENV !== 'production';
+const MAX_COLOR_CYCLE_RECENT_REASONS = 16;
+
+const appendColorCycleReason = (
+  state: ColorCycleUIState,
+  reason: CCReason
+): ColorCycleUIState['recentReasons'] => {
+  if (!SHOULD_TRACK_COLOR_CYCLE_REASONS) {
+    return state.recentReasons;
+  }
+  const base = state.recentReasons ?? [];
+  const next = [...base, { reason, ts: Date.now() }];
+  const overflow = next.length - MAX_COLOR_CYCLE_RECENT_REASONS;
+  return overflow > 0 ? next.slice(overflow) : next;
+};
+
 export interface AppState {
   // Project State
   project: Project | null;
@@ -388,6 +430,24 @@ export interface AppState {
   setExportLayout: (layout: ExportContainerLayout) => void;
   webglExportSettings: WebGLExportSettings;
   updateWebglExportSettings: (settings: Partial<WebGLExportSettings>) => void;
+
+  // Color Cycle playback state
+  colorCyclePlayback: ColorCycleUIState;
+  playColorCycle: (reason: CCReason) => void;
+  pauseColorCycle: (reason: CCReason) => void;
+  suspendColorCycle: (reason: CCReason) => void;
+  resumeColorCycle: (reason: CCReason) => void;
+  forceResumeColorCycle: (reason: CCReason) => void;
+  withColorCycleSuspended: <T>(reason: CCReason, fn: () => T | Promise<T>) => Promise<T>;
+  colorCycleRuntimeHandlers: {
+    start?: (reason?: string) => void;
+    stop?: (reason?: string) => void;
+    updateGradient?: (stops: Array<{ position: number; color: string }>) => void;
+    setFlowDirection?: (direction: 'forward' | 'backward') => void;
+  };
+  setColorCycleRuntimeHandlers: (
+    handlers: AppState['colorCycleRuntimeHandlers'] | null
+  ) => void;
   
   // Layer composition trigger
   layersNeedRecomposition: boolean;
@@ -1364,6 +1424,74 @@ export const useAppStore = create<AppState>()(
           }
         };
       }),
+
+      colorCyclePlayback: {
+        desiredPlaying: true,
+        suspendDepth: 0,
+        lastReason: 'startup',
+        recentReasons: SHOULD_TRACK_COLOR_CYCLE_REASONS ? [] : undefined
+      },
+      playColorCycle: (reason) => set((state) => ({
+        colorCyclePlayback: {
+          ...state.colorCyclePlayback,
+          desiredPlaying: true,
+          lastReason: reason,
+          recentReasons: appendColorCycleReason(state.colorCyclePlayback, reason)
+        }
+      })),
+      pauseColorCycle: (reason) => set((state) => ({
+        colorCyclePlayback: {
+          ...state.colorCyclePlayback,
+          desiredPlaying: false,
+          lastReason: reason,
+          recentReasons: appendColorCycleReason(state.colorCyclePlayback, reason)
+        }
+      })),
+      suspendColorCycle: (reason) => set((state) => {
+        const playback = state.colorCyclePlayback;
+        const nextDepth = Math.max(0, playback.suspendDepth) + 1;
+        return {
+          colorCyclePlayback: {
+            ...playback,
+            suspendDepth: nextDepth,
+            lastReason: reason,
+            recentReasons: appendColorCycleReason(playback, reason)
+          }
+        };
+      }),
+      resumeColorCycle: (reason) => set((state) => {
+        const playback = state.colorCyclePlayback;
+        const nextDepth = Math.max(0, playback.suspendDepth - 1);
+        return {
+          colorCyclePlayback: {
+            ...playback,
+            suspendDepth: nextDepth,
+            lastReason: reason,
+            recentReasons: appendColorCycleReason(playback, reason)
+          }
+        };
+      }),
+      forceResumeColorCycle: (reason) => set((state) => ({
+        colorCyclePlayback: {
+          ...state.colorCyclePlayback,
+          suspendDepth: 0,
+          lastReason: reason,
+          recentReasons: appendColorCycleReason(state.colorCyclePlayback, reason)
+        }
+      })),
+      withColorCycleSuspended: async (reason, fn) => {
+        const { suspendColorCycle, resumeColorCycle } = get();
+        suspendColorCycle(reason);
+        try {
+          return await fn();
+        } finally {
+          resumeColorCycle(reason);
+        }
+      },
+      colorCycleRuntimeHandlers: {},
+      setColorCycleRuntimeHandlers: (handlers) => set(() => ({
+        colorCycleRuntimeHandlers: handlers ?? {}
+      })),
       
       // Global brush settings
       globalBrushSize: 5, // Start with default brush size (5px)
@@ -2421,8 +2549,19 @@ export const useAppStore = create<AppState>()(
         return payload;
       },
       cancelShapeFillSession: () => {
+        const previousSession = shapeFillOrchestratorInstance.getSession();
         shapeFillOrchestratorInstance.cancel();
-        set(currentState => ({
+
+        if (previousSession) {
+          const delta = createShapeSessionDelta({ forward: null, backward: previousSession });
+          if (delta) {
+            const txn = historyManager.begin('shape-session');
+            txn.push(delta);
+            txn.commit('Cancel Shape Session');
+          }
+        }
+
+        set((currentState) => ({
           shapeFill: {
             ...currentState.shapeFill,
           },
@@ -4175,88 +4314,92 @@ export const useAppStore = create<AppState>()(
 
       
       undo: async () => {
-        const pendingEntry = historyManager.peekUndo();
-        if (!pendingEntry) {
-          return null;
-        }
-
-        const hasLegacySnapshot = pendingEntry.deltas.some((delta) => isLegacySnapshotDelta(delta));
-        const requiresComposite = entryRequiresComposite(pendingEntry);
-        let currentSnapshot: CanvasSnapshot | null = null;
-        let previousSnapshot: CanvasSnapshot | null = null;
-
-        if (hasLegacySnapshot) {
-          const snapshotState = get();
-          if (snapshotState.history.undoStack.length <= 1) {
+        return get().withColorCycleSuspended('history-apply', async () => {
+          const pendingEntry = historyManager.peekUndo();
+          if (!pendingEntry) {
             return null;
           }
 
-          currentSnapshot =
-            snapshotState.history.undoStack[snapshotState.history.undoStack.length - 1] ?? null;
-          previousSnapshot =
-            snapshotState.history.undoStack[snapshotState.history.undoStack.length - 2] ?? null;
-        }
+          const hasLegacySnapshot = pendingEntry.deltas.some((delta) => isLegacySnapshotDelta(delta));
+          const requiresComposite = entryRequiresComposite(pendingEntry);
+          let currentSnapshot: CanvasSnapshot | null = null;
+          let previousSnapshot: CanvasSnapshot | null = null;
 
-        await historyManager.undo();
+          if (hasLegacySnapshot) {
+            const snapshotState = get();
+            if (snapshotState.history.undoStack.length <= 1) {
+              return null;
+            }
 
-        set((state) => {
-          const nextHistory = {
-            ...state.history,
-            isCapturing: false,
-          };
-
-          if (hasLegacySnapshot && currentSnapshot) {
-            nextHistory.undoStack = state.history.undoStack.slice(0, -1);
-            nextHistory.redoStack = [currentSnapshot, ...state.history.redoStack];
+            currentSnapshot =
+              snapshotState.history.undoStack[snapshotState.history.undoStack.length - 1] ?? null;
+            previousSnapshot =
+              snapshotState.history.undoStack[snapshotState.history.undoStack.length - 2] ?? null;
           }
 
-          return {
-            history: nextHistory,
-            layersNeedRecomposition: requiresComposite ? true : state.layersNeedRecomposition,
-          };
-        });
+          await historyManager.undo();
 
-        return previousSnapshot;
+          set((state) => {
+            const nextHistory = {
+              ...state.history,
+              isCapturing: false,
+            };
+
+            if (hasLegacySnapshot && currentSnapshot) {
+              nextHistory.undoStack = state.history.undoStack.slice(0, -1);
+              nextHistory.redoStack = [currentSnapshot, ...state.history.redoStack];
+            }
+
+            return {
+              history: nextHistory,
+              layersNeedRecomposition: requiresComposite ? true : state.layersNeedRecomposition,
+            };
+          });
+
+          return previousSnapshot;
+        });
       },
       
       redo: async () => {
-        const pendingEntry = historyManager.peekRedo();
-        if (!pendingEntry) {
-          return null;
-        }
-
-        const hasLegacySnapshot = pendingEntry.deltas.some((delta) => isLegacySnapshotDelta(delta));
-        const requiresComposite = entryRequiresComposite(pendingEntry);
-        let stateToRestore: CanvasSnapshot | null = null;
-
-        if (hasLegacySnapshot) {
-          const snapshotState = get();
-          if (snapshotState.history.redoStack.length === 0) {
+        return get().withColorCycleSuspended('history-apply', async () => {
+          const pendingEntry = historyManager.peekRedo();
+          if (!pendingEntry) {
             return null;
           }
-          stateToRestore = snapshotState.history.redoStack[0] ?? null;
-        }
 
-        await historyManager.redo();
+          const hasLegacySnapshot = pendingEntry.deltas.some((delta) => isLegacySnapshotDelta(delta));
+          const requiresComposite = entryRequiresComposite(pendingEntry);
+          let stateToRestore: CanvasSnapshot | null = null;
 
-        set((state) => {
-          const nextHistory = {
-            ...state.history,
-            isCapturing: false,
-          };
-
-          if (hasLegacySnapshot && stateToRestore) {
-            nextHistory.redoStack = state.history.redoStack.slice(1);
-            nextHistory.undoStack = [...state.history.undoStack, stateToRestore];
+          if (hasLegacySnapshot) {
+            const snapshotState = get();
+            if (snapshotState.history.redoStack.length === 0) {
+              return null;
+            }
+            stateToRestore = snapshotState.history.redoStack[0] ?? null;
           }
 
-          return {
-            history: nextHistory,
-            layersNeedRecomposition: requiresComposite ? true : state.layersNeedRecomposition,
-          };
-        });
+          await historyManager.redo();
 
-        return stateToRestore;
+          set((state) => {
+            const nextHistory = {
+              ...state.history,
+              isCapturing: false,
+            };
+
+            if (hasLegacySnapshot && stateToRestore) {
+              nextHistory.redoStack = state.history.redoStack.slice(1);
+              nextHistory.undoStack = [...state.history.undoStack, stateToRestore];
+            }
+
+            return {
+              history: nextHistory,
+              layersNeedRecomposition: requiresComposite ? true : state.layersNeedRecomposition,
+            };
+          });
+
+          return stateToRestore;
+        });
       },
       
       canUndo: () => Boolean(historyManager.peekUndo()),
@@ -4941,6 +5084,14 @@ export const useAppStore = create<AppState>()(
   // { name: 'vessel-store' }
 );
 
+export const selectColorCyclePlayback = (state: AppState): ColorCycleUIState => state.colorCyclePlayback;
+export const selectColorCycleDesiredPlaying = (state: AppState): boolean =>
+  state.colorCyclePlayback.desiredPlaying;
+export const selectColorCycleSuspendDepth = (state: AppState): number =>
+  state.colorCyclePlayback.suspendDepth;
+export const selectEffectiveColorCyclePlaying = (state: AppState): boolean =>
+  state.colorCyclePlayback.desiredPlaying && state.colorCyclePlayback.suspendDepth === 0;
+
 setColorCycleStoreStateGetter(() => useAppStore.getState());
 
 // Corruption detector removed - bug is fixed
@@ -4967,13 +5118,9 @@ useAppStore.subscribe((state) => {
       const prev = before?.colorCycleData?.isAnimating;
       const next = patch?.colorCycleData?.isAnimating;
       if (typeof next === 'boolean' && next !== prev) {
-        // eslint-disable-next-line no-console
         console.groupCollapsed('[CC:TRACE] updateLayer isAnimating flip', { id: id?.slice(-6), prev, next });
-        // eslint-disable-next-line no-console
         console.log('patch:', patch);
-        // eslint-disable-next-line no-console
         console.log(new Error('updateLayer:isAnimating').stack);
-        // eslint-disable-next-line no-console
         console.groupEnd();
         // debugger;
       }
