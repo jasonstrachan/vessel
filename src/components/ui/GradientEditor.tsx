@@ -2,6 +2,12 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Dropdown from './Dropdown';
 import { useAppStore } from '../../stores/useAppStore';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
+import {
+  DEFAULT_GRADIENT_ID,
+  GRADIENT_PRESETS,
+  getPresetById
+} from '@/utils/gradientPresets';
+import type { PresetGradientStop } from '@/utils/gradientPresets';
 
 interface GradientStop {
   position: number;
@@ -25,71 +31,32 @@ interface GradientEditorProps {
   sampleTarget?: 'recolor' | 'brush';
 }
 
-const normalizeStops = (stops: GradientStop[]): GradientStop[] =>
-  stops.map((s) => ({ ...s, opacity: s.opacity ?? 1 }));
+const toGradientStop = (stop: GradientStop | PresetGradientStop): GradientStop => ({
+  position: stop.position,
+  color: stop.color,
+  opacity: (stop as GradientStop).opacity ?? 1,
+});
 
-const defaultGradients: SavedGradient[] = [
-  {
-    id: 'rainbow',
-    name: 'Rainbow',
-    stops: [
-      { position: 0.0, color: '#ff0000', opacity: 1 },
-      { position: 0.17, color: '#ff7f00', opacity: 1 },
-      { position: 0.33, color: '#ffff00', opacity: 1 },
-      { position: 0.5, color: '#00ff00', opacity: 1 },
-      { position: 0.67, color: '#0000ff', opacity: 1 },
-      { position: 0.83, color: '#4b0082', opacity: 1 },
-      { position: 1.0, color: '#9400d3', opacity: 1 }
-    ]
-  },
-  {
-    id: 'fire',
-    name: 'Fire',
-    stops: [
-      { position: 0.0, color: '#ff0000', opacity: 1 },
-      { position: 0.33, color: '#ff7f00', opacity: 1 },
-      { position: 0.67, color: '#ffff00', opacity: 1 },
-      { position: 1.0, color: '#ff0000', opacity: 1 }
-    ]
-  },
-  {
-    id: 'ocean',
-    name: 'Ocean',
-    stops: [
-      { position: 0.0, color: '#001f3f', opacity: 1 },
-      { position: 0.5, color: '#0074d9', opacity: 1 },
-      { position: 1.0, color: '#001f3f', opacity: 1 }
-    ]
-  },
-  {
-    id: 'sunset',
-    name: 'Sunset',
-    stops: [
-      { position: 0.0, color: '#ff6b6b', opacity: 1 },
-      { position: 0.33, color: '#ffa500', opacity: 1 },
-      { position: 0.67, color: '#ffd700', opacity: 1 },
-      { position: 1.0, color: '#4b0082', opacity: 1 }
-    ]
-  },
-  {
-    id: 'mint',
-    name: 'Mint',
-    stops: [
-      { position: 0.0, color: '#00ff88', opacity: 1 },
-      { position: 0.5, color: '#00ffff', opacity: 1 },
-      { position: 1.0, color: '#0088ff', opacity: 1 }
-    ]
-  }
-];
-
+const normalizeStops = (stops: Array<GradientStop | PresetGradientStop>): GradientStop[] =>
+  stops.map(toGradientStop);
 
 // Load custom gradients from localStorage and merge with defaults
 const loadGradients = (): SavedGradient[] => {
-  const defaults = defaultGradients.map(g => ({ ...g, isDefault: true }));
+  const defaults = GRADIENT_PRESETS.map(g => ({
+    id: g.id,
+    name: g.name,
+    stops: g.stops.map(toGradientStop),
+    isDefault: true
+  }));
   try {
     const stored = localStorage.getItem('vessel_custom_gradients');
     if (stored) {
-      const customGradients = JSON.parse(stored);
+      const customGradients = (JSON.parse(stored) as SavedGradient[]).map(g => ({
+        id: g.id,
+        name: g.name,
+        isDefault: false,
+        stops: (g.stops ?? []).map(toGradientStop)
+      }));
       return [...defaults, ...customGradients];
     }
   } catch (e) {
@@ -126,12 +93,15 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   const [selectedStop, setSelectedStop] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [savedGradients, setSavedGradients] = useState<SavedGradient[]>(loadGradients());
-  const [selectedGradientId, setSelectedGradientId] = useState<string>('');
+  const [selectedGradientId, setSelectedGradientId] = useState<string>(DEFAULT_GRADIENT_ID);
+  const prevStopsRef = useRef<GradientStop[]>(stops);
   const containerRef = useRef<HTMLDivElement>(null);
   const [hasFocus, setHasFocus] = useState(false);
   // Suspend global/canvas shortcuts while gradient editor is focused
   useKeyboardScope('gradient', hasFocus);
   const colorInputRef = useRef<HTMLInputElement>(null);
+  const [hexInput, setHexInput] = useState<string>('');
+  const [isHexDirty, setIsHexDirty] = useState(false);
 
   // Local undo/redo stacks (editor-scoped)
   const undoStackRef = useRef<GradientStop[][]>([]);
@@ -199,6 +169,10 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   // Update internal state when props meaningfully change (content-based),
   // preserving selection whenever possible.
   useEffect(() => {
+    prevStopsRef.current = stops;
+  }, [stops]);
+
+  useEffect(() => {
     const normalized = normalizeStops(initialStops);
     const nextSig = stopsSignature(normalized);
     if (nextSig !== lastPropSigRef.current) {
@@ -208,7 +182,8 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       // Try to preserve selected stop by matching on position+color or nearest position
       setSelectedStop(prev => {
         if (prev === null || prev < 0) return prev;
-        const prevStop = stops[prev];
+        const prevStops = prevStopsRef.current;
+        const prevStop = prevStops[prev];
         if (!prevStop) return null;
         const exactIdx = normalized.findIndex(s => s.position === prevStop.position && s.color.toLowerCase() === prevStop.color.toLowerCase());
         if (exactIdx !== -1) return exactIdx;
@@ -242,40 +217,55 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         }
       }
     }
-  }, [initialStops, sampleTarget, stops, stopsSignature]);
+  }, [initialStops, sampleTarget, stopsSignature]);
+
+  useEffect(() => {
+    if (selectedStop === null) {
+      setHexInput('');
+      setIsHexDirty(false);
+      return;
+    }
+    const stop = stops[selectedStop];
+    if (!stop) {
+      setHexInput('');
+      setIsHexDirty(false);
+      return;
+    }
+    setHexInput(stop.color.toUpperCase());
+    setIsHexDirty(false);
+  }, [selectedStop, stops]);
   
   // Update saved gradient when stops change without triggering recursive renders
   useEffect(() => {
     if (!selectedGradientId || stops.length === 0) return;
 
-    const normalizedStops = stops.map(stop => ({
-      ...stop,
-      opacity: stop.opacity ?? 1
-    }));
+    const target = savedGradients.find(g => g.id === selectedGradientId);
+    if (!target || target.isDefault) {
+      return;
+    }
+
+    const normalizedStops = normalizeStops(stops);
     const incomingSignature = stopsSignature(normalizedStops);
+    const existingSignature = stopsSignature(
+      normalizeStops(target.stops ?? [])
+    );
+
+    if (existingSignature === incomingSignature) {
+      return;
+    }
 
     setSavedGradients(prev => {
       const index = prev.findIndex(g => g.id === selectedGradientId);
       if (index === -1) return prev;
-
-      const target = prev[index];
-      const existingSignature = stopsSignature(
-        (target.stops ?? []).map(stop => ({
-          ...stop,
-          opacity: stop.opacity ?? 1
-        }))
-      );
-
-      if (existingSignature === incomingSignature) {
-        return prev;
-      }
-
       const updated = [...prev];
-      updated[index] = { ...target, stops: normalizedStops };
+      updated[index] = {
+        ...prev[index],
+        stops: normalizedStops
+      };
       saveCustomGradients(updated);
       return updated;
     });
-  }, [stops, selectedGradientId, stopsSignature]);
+  }, [savedGradients, selectedGradientId, stops, stopsSignature]);
 
   // Generate CSS gradient string with opacity (fallback transparent when no stops)
   const gradientString = (stops.length > 0
@@ -313,6 +303,8 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     newStops[selectedStop].color = e.target.value;
     setStops(newStops);
     onChange(newStops);
+    setHexInput(e.target.value.toUpperCase());
+    setIsHexDirty(false);
   }, [selectedStop, stops, onChange, pushUndo]);
 
   const handleStopMouseDown = useCallback((index: number, e: React.MouseEvent) => {
@@ -384,6 +376,40 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     setSelectedStop(sel);
     onChange(newStops);
   }, [stops, onChange, pushUndo]);
+
+  const revertHexInput = useCallback(() => {
+    if (selectedStop === null) {
+      setHexInput('');
+      setIsHexDirty(false);
+      return;
+    }
+    const stop = stops[selectedStop];
+    if (!stop) return;
+    setHexInput(stop.color.toUpperCase());
+    setIsHexDirty(false);
+  }, [selectedStop, stops]);
+
+  const commitHexInput = useCallback(() => {
+    if (selectedStop === null) return false;
+    const normalized = hexInput.trim().toUpperCase();
+    if (!/^#[0-9A-F]{6}$/.test(normalized)) {
+      return false;
+    }
+    const current = stops[selectedStop];
+    if (current && current.color.toUpperCase() === normalized) {
+      setHexInput(normalized);
+      setIsHexDirty(false);
+      return true;
+    }
+    pushUndo(stops);
+    const newStops = [...stops];
+    newStops[selectedStop].color = normalized;
+    setStops(newStops);
+    onChange(newStops);
+    setHexInput(normalized);
+    setIsHexDirty(false);
+    return true;
+  }, [hexInput, onChange, pushUndo, selectedStop, stops]);
 
   // Keyboard: Delete/Backspace removes selected stop (keep at least 2)
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -471,7 +497,22 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       return;
     }
 
-    const gradient = savedGradients.find(g => g.id === gradientId);
+    let gradient = savedGradients.find(g => g.id === gradientId);
+    if (!gradient) {
+      const preset = getPresetById(gradientId);
+      if (preset) {
+        gradient = {
+          id: preset.id,
+          name: preset.name,
+          stops: preset.stops.map(toGradientStop),
+          isDefault: true
+        };
+        setSavedGradients(prev => {
+          const exists = prev.some(g => g.id === preset.id);
+          return exists ? prev : [...prev, gradient!];
+        });
+      }
+    }
     if (gradient) {
       const newStops = [...gradient.stops];
       setStops(newStops);
@@ -721,6 +762,61 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
           height: '1px'
         }}
       />
+
+      {selectedStop !== null && stops[selectedStop] ? (
+        <div className="flex items-center gap-2 text-xs text-[#CCCCCC] mt-2">
+          <span className="uppercase tracking-wide">Hex</span>
+          <input
+            value={hexInput}
+            onChange={(event) => {
+              let raw = event.target.value.trim();
+              if (!raw.startsWith('#')) {
+                raw = `#${raw}`;
+              }
+              raw = `#${raw
+                .slice(1)
+                .replace(/[^0-9a-fA-F]/g, '')
+                .slice(0, 6)
+                .toUpperCase()}`;
+              setHexInput(raw);
+              setIsHexDirty(true);
+            }}
+            onBlur={() => {
+              if (!isHexDirty) return;
+              if (!commitHexInput()) {
+                revertHexInput();
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                if (!commitHexInput()) {
+                  revertHexInput();
+                }
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                revertHexInput();
+                (event.target as HTMLInputElement).blur();
+              }
+            }}
+            spellCheck={false}
+            className="bg-[#1F1F1F] border border-[#444] rounded px-2 py-1 text-[#F0F0F0] font-mono tracking-widest uppercase focus:outline-none focus:border-[#888]"
+            placeholder="#RRGGBB"
+            maxLength={7}
+          />
+          <button
+            type="button"
+            onClick={() => {
+              if (!commitHexInput()) {
+                revertHexInput();
+              }
+            }}
+            className="px-2 py-1 bg-[#3A3A3A] hover:bg-[#4A4A4A] rounded text-[#EAEAEA] transition-colors"
+          >
+            Apply
+          </button>
+        </div>
+      ) : null}
 
       {/* Controls removed per request */}
     </div>

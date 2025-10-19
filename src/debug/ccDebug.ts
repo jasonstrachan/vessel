@@ -62,7 +62,7 @@ if (typeof window !== 'undefined') {
     window.__CC_DEBUG__ = CC_DEBUG.on;
   }
 
-  (window as Record<string, unknown>).CC_DEBUG = CC_DEBUG;
+  ((window as unknown) as Record<string, unknown>).CC_DEBUG = CC_DEBUG;
 }
 
 let sequence = 0;

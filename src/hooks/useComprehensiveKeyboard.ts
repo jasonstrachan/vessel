@@ -38,22 +38,24 @@ interface KeyboardState {
 
 type KeyboardScope = 'global' | 'canvas' | 'recolor' | 'gradient' | 'modal';
 
+type VoidHandler = () => void | Promise<void>;
+
 interface UseComprehensiveKeyboardProps {
-  onSpacePressed?: () => void;
-  onSpaceReleased?: () => void;
-  onUndo?: () => void;
-  onRedo?: () => void;
-  onSave?: () => void;
-  onOpen?: () => void;
-  onBrushSizeDecrease?: () => void;
-  onBrushSizeIncrease?: () => void;
-  onCustomTool?: () => void;
-  onPolygonComplete?: () => void;
-  onPolygonCancel?: () => void;
-  onEnterPressed?: () => void;
-  onEscapePressed?: () => void;
-  onEraserPressed?: () => void;
-  onEraserReleased?: () => void;
+  onSpacePressed?: VoidHandler;
+  onSpaceReleased?: VoidHandler;
+  onUndo?: VoidHandler;
+  onRedo?: VoidHandler;
+  onSave?: VoidHandler;
+  onOpen?: VoidHandler;
+  onBrushSizeDecrease?: VoidHandler;
+  onBrushSizeIncrease?: VoidHandler;
+  onCustomTool?: VoidHandler;
+  onPolygonComplete?: VoidHandler;
+  onPolygonCancel?: VoidHandler;
+  onEnterPressed?: VoidHandler;
+  onEscapePressed?: VoidHandler;
+  onEraserPressed?: VoidHandler;
+  onEraserReleased?: VoidHandler;
   enabled?: boolean;
   allowedScopes?: KeyboardScope[]; // default: ['canvas']
 }
@@ -175,7 +177,7 @@ export function useComprehensiveKeyboard({
     // Handle Undo (Ctrl/Cmd + Z) - must come before general key tracking
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.shiftKey) {
       event.preventDefault();
-      onUndoRef.current?.();
+      void onUndoRef.current?.();
       return;
     }
 
@@ -199,7 +201,7 @@ export function useComprehensiveKeyboard({
       if (!keyboardStateRef.current.isSpacePressed) {
         keyboardStateRef.current.isSpacePressed = true;
         pressedKeysRef.current.add(event.code);
-        onSpacePressedRef.current?.();
+        void onSpacePressedRef.current?.();
       }
       return;
     }
@@ -218,14 +220,14 @@ export function useComprehensiveKeyboard({
     // Handle Save (Ctrl/Cmd + S) - prevent default browser save
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
       event.preventDefault();
-      onSaveRef.current?.();
+      void onSaveRef.current?.();
       return;
     }
 
     // Handle Open (Ctrl/Cmd + O) - prevent default browser open
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') {
       event.preventDefault();
-      onOpenRef.current?.();
+      void onOpenRef.current?.();
       return;
     }
 
@@ -241,7 +243,7 @@ export function useComprehensiveKeyboard({
     if (event.key === 'c' || event.key === 'C') {
       if (!event.ctrlKey && !event.metaKey) {
         event.preventDefault();
-        onCustomToolRef.current?.();
+        void onCustomToolRef.current?.();
         return;
       }
     }
@@ -282,7 +284,7 @@ export function useComprehensiveKeyboard({
           isTemporaryEraserRef.current = false;
         }
         
-        onEraserPressedRef.current?.();
+        void onEraserPressedRef.current?.();
         return;
       }
     }
@@ -348,7 +350,7 @@ export function useComprehensiveKeyboard({
         polygonGradientState.points.length >= 3) {
       if (event.key === 'Enter') {
         event.preventDefault();
-        onPolygonComplete?.();
+        void onPolygonComplete?.();
         return;
       }
       if (event.key === 'Escape') {
@@ -415,7 +417,7 @@ export function useComprehensiveKeyboard({
       if (keyboardStateRef.current.isSpacePressed) {
         keyboardStateRef.current.isSpacePressed = false;
         pressedKeysRef.current.delete(event.code);
-        onSpaceReleasedRef.current?.();
+        void onSpaceReleasedRef.current?.();
       }
       return;
     }
@@ -444,7 +446,7 @@ export function useComprehensiveKeyboard({
           isTemporaryEraserRef.current = false;
         }
         
-        onEraserReleasedRef.current?.();
+        void onEraserReleasedRef.current?.();
         return;
       }
     }
@@ -457,7 +459,7 @@ export function useComprehensiveKeyboard({
       // If space was pressed, release it
       if (keyboardStateRef.current.isSpacePressed) {
         keyboardStateRef.current.isSpacePressed = false;
-        onSpaceReleasedRef.current?.();
+        void onSpaceReleasedRef.current?.();
       }
       
       // Reset all states

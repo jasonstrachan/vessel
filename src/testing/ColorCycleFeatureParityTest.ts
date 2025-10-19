@@ -721,7 +721,7 @@ export class ColorCycleFeatureParityTest {
     if (this.webglBrush) {
       const start = performance.now();
       try {
-        this.webglBrush.fillShape(vertices, 'default');
+        await Promise.resolve(this.webglBrush.fillShape(vertices, 'default'));
         result.webgl.passed = true;
         result.webgl.time = performance.now() - start;
       } catch (error) {
@@ -733,7 +733,7 @@ export class ColorCycleFeatureParityTest {
     if (this.canvas2dBrush) {
       const start = performance.now();
       try {
-        this.canvas2dBrush.fillShape(vertices, 'default');
+        await Promise.resolve(this.canvas2dBrush.fillShape(vertices, 'default'));
         result.canvas2d.passed = true;
         result.canvas2d.time = performance.now() - start;
       } catch (error) {

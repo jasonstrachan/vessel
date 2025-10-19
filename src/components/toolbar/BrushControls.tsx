@@ -16,20 +16,13 @@ import ButtonGroup from "../ui/ButtonGroup";
 import { drawTestSwatches } from "../../utils/drawTestSwatches";
 import { GradientEditor } from "../ui/GradientEditor";
 import { isStrokeBrush } from "../../utils/brushCategories";
-import { getPresetOptions as getRectGradientPresetOptions, getPresetStops } from "../../utils/gradientPresets";
+import {
+  DEFAULT_GRADIENT_STOPS,
+  getPresetOptions as getRectGradientPresetOptions,
+  getPresetStops
+} from '@/utils/gradientPresets';
 import { isColorCycleBrush, getShapeModeForBrush, setSharedColorCycleGradient } from "../../utils/colorCycleGradients";
 import ShapeFillControls from "./ShapeFillControls";
-
-// Stable default rainbow gradient to avoid re-creating arrays every render
-const DEFAULT_RAINBOW_STOPS = [
-  { position: 0.0, color: '#ff0000' },
-  { position: 0.17, color: '#ff7f00' },
-  { position: 0.33, color: '#ffff00' },
-  { position: 0.5, color: '#00ff00' },
-  { position: 0.67, color: '#0000ff' },
-  { position: 0.83, color: '#4b0082' },
-  { position: 1.0, color: '#9400d3' }
-];
 
 const BrushControls = () => {
   // Use individual selectors to avoid unstable object references
@@ -71,7 +64,7 @@ const BrushControls = () => {
       return canvas;
     };
 
-    const gradient = state.tools.brushSettings.colorCycleGradient || DEFAULT_RAINBOW_STOPS;
+    const gradient = state.tools.brushSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS;
     const playback = state.colorCyclePlayback;
     const isPlaying = playback.desiredPlaying && playback.suspendDepth === 0;
 
@@ -130,6 +123,76 @@ const BrushControls = () => {
     }
   }, [isShapeFillBrush, shapeMode, setShapeMode, currentTool]);
 
+  const gradientDebounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingGradientRef = React.useRef<Array<{ position: number; color: string }>>(
+    brushSettings.colorCycleGradient
+      ? brushSettings.colorCycleGradient.map(stop => ({ ...stop }))
+      : DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop }))
+  );
+
+  const flushPendingGradient = React.useCallback(
+    (stops: Array<{ position: number; color: string }>) => {
+      const clonedStops = stops.map(stop => ({ ...stop }));
+      setActiveSettings({ colorCycleGradient: clonedStops });
+      setSharedColorCycleGradient(clonedStops);
+
+      const state = useAppStore.getState();
+      const activeLayerIdLive = state.activeLayerId;
+      if (activeLayerIdLive) {
+        const activeLayer = state.layers.find(l => l.id === activeLayerIdLive);
+        if (activeLayer?.layerType === 'color-cycle') {
+          state.updateLayer(activeLayerIdLive, {
+            colorCycleData: {
+              ...activeLayer.colorCycleData,
+              gradient: clonedStops,
+              isAnimating: activeLayer.colorCycleData?.isAnimating || false
+            }
+          });
+        }
+      }
+
+      colorCycleRuntimeHandlers.updateGradient?.(clonedStops);
+      pendingGradientRef.current = clonedStops;
+    },
+    [setActiveSettings, colorCycleRuntimeHandlers]
+  );
+
+  const scheduleGradientFlush = React.useCallback(
+    (stops: Array<{ position: number; color: string }>, immediate = false) => {
+      pendingGradientRef.current = stops.map(stop => ({ ...stop }));
+      if (gradientDebounceTimerRef.current) {
+        clearTimeout(gradientDebounceTimerRef.current);
+        gradientDebounceTimerRef.current = null;
+      }
+
+      if (immediate) {
+        flushPendingGradient(pendingGradientRef.current);
+        return;
+      }
+
+      gradientDebounceTimerRef.current = setTimeout(() => {
+        gradientDebounceTimerRef.current = null;
+        flushPendingGradient(pendingGradientRef.current);
+      }, 80);
+    },
+    [flushPendingGradient]
+  );
+
+  React.useEffect(() => {
+    return () => {
+      if (gradientDebounceTimerRef.current) {
+        clearTimeout(gradientDebounceTimerRef.current);
+        gradientDebounceTimerRef.current = null;
+        flushPendingGradient(pendingGradientRef.current);
+      }
+    };
+  }, [flushPendingGradient]);
+
+  React.useEffect(() => {
+    const currentStops = activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS;
+    pendingGradientRef.current = currentStops.map(stop => ({ ...stop }));
+  }, [activeSettings.colorCycleGradient]);
+
   const handleToggleCustomColorCycle = React.useCallback((checked: boolean) => {
     const updates: Partial<typeof activeSettings> = {
       customBrushColorCycle: checked
@@ -137,7 +200,7 @@ const BrushControls = () => {
 
     if (checked) {
       if (!activeSettings.colorCycleGradient || activeSettings.colorCycleGradient.length === 0) {
-        updates.colorCycleGradient = DEFAULT_RAINBOW_STOPS;
+        updates.colorCycleGradient = DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop }));
       }
       if (!activeSettings.colorCycleSpeed) {
         updates.colorCycleSpeed = 0.1;
@@ -252,28 +315,9 @@ const BrushControls = () => {
         <div className="mb-4">
           <GradientEditor
             sampleTarget="brush"
-            stops={activeSettings.colorCycleGradient || DEFAULT_RAINBOW_STOPS}
+            stops={activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS}
             onChange={(stops) => {
-              setActiveSettings({ colorCycleGradient: stops });
-
-              // Keep shared gradient in sync across all Color Cycle tools
-              setSharedColorCycleGradient(stops);
-              
-              // Update the active layer's gradient if it's a color-cycle layer
-              const state = useAppStore.getState();
-              const activeLayer = state.layers.find(l => l.id === state.activeLayerId);
-              if (activeLayer?.layerType === 'color-cycle' && state.activeLayerId) {
-                state.updateLayer(state.activeLayerId, {
-                  colorCycleData: {
-                    ...activeLayer.colorCycleData,
-                    gradient: stops,
-                    isAnimating: activeLayer.colorCycleData?.isAnimating || false
-                  }
-                });
-              }
-              
-              // Use the shared handler from DrawingCanvas if available
-              colorCycleRuntimeHandlers.updateGradient?.(stops);
+              scheduleGradientFlush(stops);
             }}
           />
         </div>
@@ -1432,24 +1476,9 @@ const BrushControls = () => {
             <div className="mt-2 space-y-2">
               <GradientEditor
                 sampleTarget="brush"
-                stops={activeSettings.colorCycleGradient || DEFAULT_RAINBOW_STOPS}
+                stops={activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS}
                 onChange={(stops) => {
-                  setActiveSettings({ colorCycleGradient: stops });
-                  setSharedColorCycleGradient(stops);
-
-                  const state = useAppStore.getState();
-                  const activeLayer = state.layers.find(l => l.id === state.activeLayerId);
-                  if (activeLayer?.layerType === 'color-cycle' && state.activeLayerId) {
-                    state.updateLayer(state.activeLayerId, {
-                      colorCycleData: {
-                        ...activeLayer.colorCycleData,
-                        gradient: stops,
-                        isAnimating: activeLayer.colorCycleData?.isAnimating || false
-                      }
-                    });
-                  }
-
-                  colorCycleRuntimeHandlers.updateGradient?.(stops);
+                  scheduleGradientFlush(stops);
                 }}
               />
 

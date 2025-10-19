@@ -5,7 +5,7 @@
  * keyboard shortcuts, and real-time performance monitoring.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Layer } from '../../types';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
@@ -19,6 +19,11 @@ import { GradientEditor } from '../ui/GradientEditor';
 import { useAppStore } from '../../stores/useAppStore';
 import { AnimationControls } from './controls/AnimationControls';
 import Button from '../ui/Button';
+import {
+  DEFAULT_GRADIENT_ID,
+  DEFAULT_GRADIENT_STOPS,
+  GRADIENT_PRESETS
+} from '@/utils/gradientPresets';
 // Extract colors feature removed from UI
 import { ConfirmationDialog } from './dialogs/ConfirmationDialog';
 // Performance indicator removed from UI
@@ -68,15 +73,9 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     mappingMode: 'banded' as 'banded' | 'continuous',
     flowMapping: 'palette' as 'palette' | 'directional' | 'luminance'
   });
-  const [plannedGradient, setPlannedGradient] = useState<Array<{ position: number; color: string }>>([
-    { position: 0, color: '#ff0000' },
-    { position: 0.17, color: '#ff8000' },
-    { position: 0.33, color: '#ffff00' },
-    { position: 0.5, color: '#00ff00' },
-    { position: 0.67, color: '#0080ff' },
-    { position: 0.83, color: '#8000ff' },
-    { position: 1, color: '#ff0000' }
-  ]);
+  const [plannedGradient, setPlannedGradient] = useState<Array<{ position: number; color: string }>>(
+    DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop }))
+  );
 
   // Keep planned settings synced with active recolor layer when available
   useEffect(() => {
@@ -93,35 +92,105 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
   }, [recolorSettings]);
 
   // Gradient presets for shortcuts (memoized to avoid dependency issues)
-  const gradientPresets = useMemo(() => [
-    { name: 'rainbow', gradient: [
-      { position: 0, color: '#ff0000' },
-      { position: 0.17, color: '#ff8000' },
-      { position: 0.33, color: '#ffff00' },
-      { position: 0.5, color: '#00ff00' },
-      { position: 0.67, color: '#0080ff' },
-      { position: 0.83, color: '#8000ff' },
-      { position: 1, color: '#ff0000' }
-    ]},
-    { name: 'fire', gradient: [
-      { position: 0, color: '#000000' },
-      { position: 0.3, color: '#800000' },
-      { position: 0.6, color: '#ff4000' },
-      { position: 0.8, color: '#ffff00' },
-      { position: 1, color: '#ffffff' }
-    ]},
-    { name: 'ocean', gradient: [
-      { position: 0, color: '#000040' },
-      { position: 0.5, color: '#0080ff' },
-      { position: 1, color: '#80ffff' }
-    ]},
-    { name: 'sunset', gradient: [
-      { position: 0, color: '#4000ff' },
-      { position: 0.3, color: '#ff0080' },
-      { position: 0.6, color: '#ff8000' },
-      { position: 1, color: '#ffff80' }
-    ]}
-  ], []);
+  const gradientPresets = useMemo(() => GRADIENT_PRESETS.map(preset => ({
+    name: preset.id,
+    gradient: preset.stops.map(stop => ({ position: stop.position, color: stop.color }))
+  })), []);
+
+  const recolorGradientTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recolorGradientPendingRef = useRef<{
+    stops: Array<{ position: number; color: string }>;
+    layerId: string;
+  } | null>(null);
+
+  const scheduleRecolorGradientUpdate = useCallback(
+    (stops: Array<{ position: number; color: string }>, immediate = false) => {
+      if (!activeLayer || !activeLayer.id) {
+        return;
+      }
+      recolorGradientPendingRef.current = {
+        stops: stops.map(stop => ({ ...stop })),
+        layerId: activeLayer.id
+      };
+
+      if (recolorGradientTimerRef.current) {
+        clearTimeout(recolorGradientTimerRef.current);
+        recolorGradientTimerRef.current = null;
+      }
+
+      const flush = () => {
+        recolorGradientTimerRef.current = null;
+        const pending = recolorGradientPendingRef.current;
+        if (!pending) return;
+        const stateSnapshot = useAppStore.getState();
+        const layer = stateSnapshot.layers.find(l => l.id === pending.layerId);
+        if (!layer) return;
+
+        const clonedStops = pending.stops.map(stop => ({ ...stop }));
+        updateGradient(layer, clonedStops);
+
+        if (stateSnapshot.tools.currentTool !== 'recolor') {
+          stateSnapshot.setBrushSettings({ colorCycleGradient: clonedStops });
+        }
+        recolorGradientPendingRef.current = null;
+      };
+
+      if (immediate) {
+        flush();
+        return;
+      }
+
+      recolorGradientTimerRef.current = setTimeout(flush, 80);
+    },
+    [activeLayer, updateGradient]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (recolorGradientTimerRef.current) {
+        clearTimeout(recolorGradientTimerRef.current);
+        recolorGradientTimerRef.current = null;
+        const pending = recolorGradientPendingRef.current;
+        if (pending) {
+          const stateSnapshot = useAppStore.getState();
+          const layer = stateSnapshot.layers.find(l => l.id === pending.layerId);
+          if (layer) {
+            const clonedStops = pending.stops.map(stop => ({ ...stop }));
+            updateGradient(layer, clonedStops);
+            if (stateSnapshot.tools.currentTool !== 'recolor') {
+              stateSnapshot.setBrushSettings({ colorCycleGradient: clonedStops });
+            }
+          }
+          recolorGradientPendingRef.current = null;
+        }
+      }
+    };
+  }, [updateGradient]);
+
+  useEffect(() => {
+    if (!activeLayer?.id) {
+      return;
+    }
+    const pending = recolorGradientPendingRef.current;
+    if (
+      recolorGradientTimerRef.current &&
+      pending &&
+      pending.layerId !== activeLayer.id
+    ) {
+      clearTimeout(recolorGradientTimerRef.current);
+      recolorGradientTimerRef.current = null;
+      const stateSnapshot = useAppStore.getState();
+      const layer = stateSnapshot.layers.find(l => l.id === pending.layerId);
+      if (layer) {
+        const clonedStops = pending.stops.map(stop => ({ ...stop }));
+        updateGradient(layer, clonedStops);
+        if (stateSnapshot.tools.currentTool !== 'recolor') {
+          stateSnapshot.setBrushSettings({ colorCycleGradient: clonedStops });
+        }
+      }
+      recolorGradientPendingRef.current = null;
+    }
+  }, [activeLayer?.id, updateGradient]);
 
   // Keyboard shortcuts
   const shortcutHandlers = useMemo(() => ({
@@ -134,7 +203,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
           quantizationMode: 'rgb332',
           ditherMode: 'off',
           cycleColors: 16,
-          gradientPreset: 'rainbow'
+          gradientPreset: DEFAULT_GRADIENT_ID
         });
       } else {
         // If already in recolor mode, just toggle animation instead of converting back
@@ -240,37 +309,37 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
         <div className="space-y-4">
           {/* Gradient Editor - always visible; first selection applies conversion and plays */}
           <div className="mb-2">
-            <GradientEditor
-              sampleTarget="recolor"
-              stops={isRecolorEnabled ? (recolorSettings?.gradient || []) : plannedGradient}
-              onChange={async (stops) => {
-                if (!activeLayer) return;
-                if (isRecolorEnabled) {
-                  updateGradient(activeLayer, stops);
-                } else {
-                  setPlannedGradient(stops);
-                  const ok = await processLayer(activeLayer, {
-                    quantizationMode: 'rgb332',
-                    ditherMode: 'off',
-                    cycleColors: plannedSettings.cycleColors,
-                    gradientPreset: 'custom',
-                    customGradient: stops
-                  });
-                  if (ok) {
-                    updateLayerSpeed(activeLayer.id, plannedSettings.speed);
-                    updateGlobalFPS(plannedSettings.fps);
-                    updateLayerFlowDirection(activeLayer.id, plannedSettings.flowDirection);
-                    updateLayerMappingMode(activeLayer.id, plannedSettings.mappingMode);
-                    // Auto-play on first apply
-                    toggleAnimation();
-                  }
+          <GradientEditor
+            sampleTarget="recolor"
+            stops={isRecolorEnabled ? (recolorSettings?.gradient || []) : plannedGradient}
+            onChange={async (stops) => {
+              if (!activeLayer) return;
+              if (isRecolorEnabled) {
+                scheduleRecolorGradientUpdate(stops);
+              } else {
+                setPlannedGradient(stops);
+                const ok = await processLayer(activeLayer, {
+                  quantizationMode: 'rgb332',
+                  ditherMode: 'off',
+                  cycleColors: plannedSettings.cycleColors,
+                  gradientPreset: 'custom',
+                  customGradient: stops
+                });
+                if (ok) {
+                  updateLayerSpeed(activeLayer.id, plannedSettings.speed);
+                  updateGlobalFPS(plannedSettings.fps);
+                  updateLayerFlowDirection(activeLayer.id, plannedSettings.flowDirection);
+                  updateLayerMappingMode(activeLayer.id, plannedSettings.mappingMode);
+                  // Auto-play on first apply
+                  toggleAnimation();
                 }
-                const store = useAppStore.getState();
-                if (store.tools.currentTool !== 'recolor') {
-                  store.setBrushSettings({ colorCycleGradient: stops });
-                }
-              }}
-            />
+              }
+              const store = useAppStore.getState();
+              if (store.tools.currentTool !== 'recolor') {
+                store.setBrushSettings({ colorCycleGradient: stops });
+              }
+            }}
+          />
           </div>
 
           {/* Extract Colors UI removed */}

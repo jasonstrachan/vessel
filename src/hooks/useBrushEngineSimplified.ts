@@ -1424,7 +1424,10 @@ export const useBrushEngineSimplified = () => {
   /**
    * Fill a shape with linear color cycle gradient in specified direction
    */
-  const fillColorCycleShapeLinear = useCallback((vertices: Array<{ x: number; y: number }>, direction: { x: number; y: number }) => {
+  const fillColorCycleShapeLinear = useCallback(async (
+    vertices: Array<{ x: number; y: number }>,
+    direction: { x: number; y: number }
+  ) => {
     // quiet
     
     // Initialize brush if needed
@@ -1454,7 +1457,7 @@ export const useBrushEngineSimplified = () => {
       
       // quiet
       // Fill the shape with linear gradient
-      brush.fillShapeLinear(vertices, direction, layerId);
+      await Promise.resolve(brush.fillShapeLinear?.(vertices, direction, layerId));
 
       // quiet
       // End the stroke to ensure texture is updated
@@ -1469,7 +1472,7 @@ export const useBrushEngineSimplified = () => {
   /**
    * Fill a shape with color cycle gradient from edges to center
    */
-  const fillColorCycleShape = useCallback((vertices: Array<{ x: number; y: number }>) => {
+  const fillColorCycleShape = useCallback(async (vertices: Array<{ x: number; y: number }>) => {
     // quiet
     
     // Initialize brush if needed
@@ -1508,7 +1511,7 @@ export const useBrushEngineSimplified = () => {
       
       // quiet
       // Fill the shape with layer ID and spacing
-      brush.fillShape(vertices, layerId, tools.brushSettings.spacing);
+      await Promise.resolve(brush.fillShape?.(vertices, layerId, tools.brushSettings.spacing));
 
       // quiet
       // End the stroke to ensure texture is updated

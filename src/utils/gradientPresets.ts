@@ -17,37 +17,38 @@ export const GRADIENT_PRESETS: PresetGradient[] = [
       { position: 0.33, color: '#ffff00' },
       { position: 0.5, color: '#00ff00' },
       { position: 0.67, color: '#0000ff' },
-      { position: 0.83, color: '#4b0082' },
-      { position: 1.0, color: '#9400d3' }
+      { position: 0.83, color: '#8000ff' },
+      { position: 1.0, color: '#ff0000' }
     ]
   },
   {
     id: 'fire',
     name: 'Fire',
     stops: [
-      { position: 0.0, color: '#ff0000' },
-      { position: 0.33, color: '#ff7f00' },
-      { position: 0.67, color: '#ffff00' },
-      { position: 1.0, color: '#ff0000' }
+      { position: 0.0, color: '#000000' },
+      { position: 0.3, color: '#800000' },
+      { position: 0.6, color: '#ff4000' },
+      { position: 0.8, color: '#ffff00' },
+      { position: 1.0, color: '#ffffff' }
     ]
   },
   {
     id: 'ocean',
     name: 'Ocean',
     stops: [
-      { position: 0.0, color: '#001f3f' },
-      { position: 0.5, color: '#0074d9' },
-      { position: 1.0, color: '#001f3f' }
+      { position: 0.0, color: '#000040' },
+      { position: 0.5, color: '#0080ff' },
+      { position: 1.0, color: '#80ffff' }
     ]
   },
   {
     id: 'sunset',
     name: 'Sunset',
     stops: [
-      { position: 0.0, color: '#ff6b6b' },
-      { position: 0.33, color: '#ffa500' },
-      { position: 0.67, color: '#ffd700' },
-      { position: 1.0, color: '#4b0082' }
+      { position: 0.0, color: '#4000ff' },
+      { position: 0.3, color: '#ff0080' },
+      { position: 0.6, color: '#ff8000' },
+      { position: 1.0, color: '#ffff80' }
     ]
   },
   {
@@ -61,12 +62,29 @@ export const GRADIENT_PRESETS: PresetGradient[] = [
   }
 ];
 
+export const DEFAULT_GRADIENT_ID = 'rainbow';
+
+export const DEFAULT_GRADIENT_STOPS: PresetGradientStop[] = (() => {
+  const preset = GRADIENT_PRESETS.find(p => p.id === DEFAULT_GRADIENT_ID);
+  return preset ? preset.stops.map(stop => ({ ...stop })) : [];
+})();
+
 export function getPresetStops(id: string): PresetGradientStop[] | null {
   const preset = GRADIENT_PRESETS.find(p => p.id === id);
-  return preset ? preset.stops : null;
+  return preset ? preset.stops.map(stop => ({ ...stop })) : null;
 }
 
 export function getPresetOptions(): Array<{ value: string; label: string }>{
   return GRADIENT_PRESETS.map(p => ({ value: p.id, label: p.name }));
 }
 
+export function getPresetById(id: string): PresetGradient | null {
+  const preset = GRADIENT_PRESETS.find(p => p.id === id);
+  return preset
+    ? {
+        id: preset.id,
+        name: preset.name,
+        stops: preset.stops.map(stop => ({ ...stop }))
+      }
+    : null;
+}

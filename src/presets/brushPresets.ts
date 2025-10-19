@@ -1,4 +1,5 @@
 import { BrushPreset, BrushComponent, ComponentType, BrushSettings, BrushShape } from '../types';
+import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 
 // Default brush settings for pixel-perfect drawing
 export const pixelBrushSettings: BrushSettings = {
@@ -437,15 +438,7 @@ export const colorCycleStrokeBrushPreset: BrushPreset = {
     pressureEnabled: true,
     minPressure: 50,
     maxPressure: 200,
-    colorCycleGradient: [
-      { position: 0.0, color: '#ff0000' },
-      { position: 0.17, color: '#ff7f00' },
-      { position: 0.33, color: '#ffff00' },
-      { position: 0.5, color: '#00ff00' },
-      { position: 0.67, color: '#0000ff' },
-      { position: 0.83, color: '#4b0082' },
-      { position: 1.0, color: '#9400d3' }
-    ],
+    colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
     shapeEnabled: false // Force shape mode OFF for stroke variant
   }
 };
@@ -504,15 +497,7 @@ export const colorCycleShapeBrushPreset: BrushPreset = {
     pressureEnabled: true,
     minPressure: 50,
     maxPressure: 200,
-    colorCycleGradient: [
-      { position: 0.0, color: '#ff0000' },
-      { position: 0.17, color: '#ff7f00' },
-      { position: 0.33, color: '#ffff00' },
-      { position: 0.5, color: '#00ff00' },
-      { position: 0.67, color: '#0000ff' },
-      { position: 0.83, color: '#4b0082' },
-      { position: 1.0, color: '#9400d3' }
-    ],
+    colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
     shapeEnabled: true // Force shape mode ON for shape variant
   }
 };

@@ -5,17 +5,9 @@
  */
 
 import { useAppStore } from '@/stores/useAppStore';
+import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 
-// Default rainbow gradient
-export const DEFAULT_COLOR_CYCLE_GRADIENT = [
-  { position: 0.0, color: '#ff0000' },
-  { position: 0.17, color: '#ff7f00' },
-  { position: 0.33, color: '#ffff00' },
-  { position: 0.5, color: '#00ff00' },
-  { position: 0.67, color: '#0000ff' },
-  { position: 0.83, color: '#4b0082' },
-  { position: 1.0, color: '#9400d3' }
-];
+export const DEFAULT_COLOR_CYCLE_GRADIENT = DEFAULT_GRADIENT_STOPS;
 
 /**
  * Get the current shared gradient for color cycle brushes
@@ -23,7 +15,7 @@ export const DEFAULT_COLOR_CYCLE_GRADIENT = [
 export function getSharedColorCycleGradient(): Array<{ position: number; color: string }> {
   const state = useAppStore.getState();
   const brushSettings = state.tools.brushSettings;
-  return brushSettings.colorCycleGradient || DEFAULT_COLOR_CYCLE_GRADIENT;
+  return brushSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS;
 }
 
 /**
@@ -73,7 +65,7 @@ export function getSharedColorCycleSettings() {
   const settings = state.tools.brushSettings;
   
   return {
-    gradient: settings.colorCycleGradient || DEFAULT_COLOR_CYCLE_GRADIENT,
+    gradient: settings.colorCycleGradient || DEFAULT_GRADIENT_STOPS,
     speed: settings.colorCycleSpeed || 0.1,
     fps: settings.colorCycleFPS || 30,
     flowForward: settings.colorCycleFlowForward !== false,

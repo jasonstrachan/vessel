@@ -1419,7 +1419,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       }
       await redo();
     },
-    onPolygonComplete: () => {
+    onPolygonComplete: async () => {
       if (toolStateMachine.completePolygonGradient()) {
         // Draw polygon
         drawingHandlers.initDrawingCanvas();
@@ -1441,7 +1441,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             
             // Fill shape with color cycle gradient from edges to center
             const points = toolStateMachine.polygonGradientState.points.map(p => ({ x: p.x, y: p.y }));
-            brushEngine.fillColorCycleShape(points);
+            await brushEngine.fillColorCycleShape(points);
             
             // Clear the drawing canvas before rendering
             drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);

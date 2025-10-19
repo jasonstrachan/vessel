@@ -15,6 +15,10 @@ import ConsoleSilencer from '../components/dev/ConsoleSilencer';
 import FeedbackStrip from '../components/FeedbackStrip';
 import FPSMeter from '../components/dev/FPSMeter';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
+
+import { commitLayerHistory } from '@/history/helpers/layerHistory';
+import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
+import { enableCCPerfProbe } from '@/utils/perf/ccPerfProbe';
 import { DocumentModal } from '../components/modals/DocumentModal';
 import { ExportModal } from '../components/modals/ExportModal';
 import { SettingsModal } from '../components/modals/SettingsModal';
@@ -43,6 +47,16 @@ export default function Home() {
   
   const showFeedback = useCallback((message: string) => {
     setFeedbackMessage(message);
+  }, []);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') {
+      return;
+    }
+    enableCCPerfProbe({
+      captureColorCycleBrushState,
+      commitLayerHistory,
+    });
   }, []);
 
   // Create default project on initial load if no layers exist

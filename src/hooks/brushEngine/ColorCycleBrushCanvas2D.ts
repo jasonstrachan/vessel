@@ -83,6 +83,22 @@ interface ColorCycleBrushCanvasSerialized {
   brushSize: number;
 }
 
+const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+const createYieldController = () => {
+  let sliceStart = nowMs();
+  return async (iteration: number) => {
+    if ((iteration & 0x3f) !== 0) {
+      return;
+    }
+    const now = nowMs();
+    if (now - sliceStart > 8) {
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      sliceStart = nowMs();
+    }
+  };
+};
+
 type RestoreOpts = {
   mode?: 'normal' | 'history';
   preservePaintBuffer?: boolean;
@@ -888,7 +904,11 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Fill shape with linear gradient in specified direction
    */
-  fillShapeLinear(vertices: Array<{ x: number; y: number }>, direction: { x: number; y: number }, layerId: string) {
+  async fillShapeLinear(
+    vertices: Array<{ x: number; y: number }>,
+    direction: { x: number; y: number },
+    layerId: string
+  ) {
     if (!layerId) {
       throw new Error('fillShapeLinear requires a layerId');
     }
@@ -905,6 +925,7 @@ export class ColorCycleBrushCanvas2D {
     }
     
     const id = layerId;
+    const yieldIfNeeded = createYieldController();
     
     // Initialize stroke data BEFORE getting animator
     if (!this.layerStrokes.has(id)) {
@@ -1007,6 +1028,7 @@ export class ColorCycleBrushCanvas2D {
         // Precompute per-row spans
         const spans: Array<Array<[number, number]>> = [];
         for (let y = y0; y <= Math.ceil(maxY); y++) {
+          await yieldIfNeeded(y - y0);
           const ints: number[] = [];
           for (let i = 0; i < vertices.length; i++) {
             const v1 = vertices[i];
@@ -1039,6 +1061,7 @@ export class ColorCycleBrushCanvas2D {
         const projRange = Math.max(1e-6, maxProj - minProj);
 
         for (let yy = 0; yy < height; yy++) {
+          await yieldIfNeeded(yy);
           const y = y0 + yy;
           const rowSpans = spans[yy] || [];
           for (const [sx, ex] of rowSpans) {
@@ -1064,6 +1087,7 @@ export class ColorCycleBrushCanvas2D {
         // Map dithered pixels back to gradient indices and write to index buffer
         const out = dithered.data;
         for (let yy = 0; yy < height; yy++) {
+          await yieldIfNeeded(yy);
           const y = y0 + yy;
           const rowSpans = spans[yy] || [];
           for (const [sx, ex] of rowSpans) {
@@ -1120,6 +1144,7 @@ export class ColorCycleBrushCanvas2D {
     const cellOutIdx: Int16Array[] = Array.from({ length: cellsDown }, () => new Int16Array(cellsAcross).fill(-1));
 
     for (let y = Math.floor(minY), rowIdx = 0; y <= Math.ceil(maxY); y++, rowIdx++) {
+      await yieldIfNeeded(rowIdx);
       // swap rows and clear next row accumulator (per-pixel dithering path)
       const _t = errCurr; errCurr = errNext; errNext = _t; errNext.fill(0);
 
@@ -1337,7 +1362,7 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Fill shape with smooth gradient bands from edge to center (concentric)
    */
-  fillShape(vertices: Array<{ x: number; y: number }>, layerId: string, spacing?: number) {
+  async fillShape(vertices: Array<{ x: number; y: number }>, layerId: string, spacing?: number) {
     if (!layerId) {
       throw new Error('fillShape requires a layerId');
     }
@@ -1354,6 +1379,7 @@ export class ColorCycleBrushCanvas2D {
     }
     
     const id = layerId;
+    const yieldIfNeeded = createYieldController();
     
     // Initialize stroke data BEFORE getting animator
     if (!this.layerStrokes.has(id)) {
@@ -1483,6 +1509,7 @@ export class ColorCycleBrushCanvas2D {
         // Build row spans (scanline polygon fill)
         const spans2: Array<Array<[number, number]>> = [];
         for (let y = y02; y <= Math.ceil(maxY); y++) {
+          await yieldIfNeeded(y - y02);
           const ints: number[] = [];
           for (let i = 0; i < vertices.length; i++) {
             const v1 = vertices[i]; const v2 = vertices[(i + 1) % vertices.length];
@@ -1507,6 +1534,7 @@ export class ColorCycleBrushCanvas2D {
 
         // Fill gradient colors into buffer using concentric distance
         for (let yy = 0; yy < height2; yy++) {
+          await yieldIfNeeded(yy);
           const y = y02 + yy; const rowSpans = spans2[yy] || [];
           for (const [sx, ex] of rowSpans) {
             for (let x = sx; x <= ex; x++) {
@@ -1534,6 +1562,7 @@ export class ColorCycleBrushCanvas2D {
         const dithered2: ImageData = applyDitherFR(img2, quantLevels2, Math.max(1, this.ditherPixelSize), 'sierra-lite', undefined, paletteCss2);
         const out2 = dithered2.data;
         for (let yy = 0; yy < height2; yy++) {
+          await yieldIfNeeded(yy);
           const y = y02 + yy; const rowSpans = spans2[yy] || [];
           for (const [sx, ex] of rowSpans) {
             for (let x = sx; x <= ex; x++) {
@@ -1625,6 +1654,7 @@ export class ColorCycleBrushCanvas2D {
       let cErrNext = new Float32Array(cellsAcross);
 
       for (let yb = y0, rowIdx = 0; yb <= yMax; yb += cellSize, rowIdx++) {
+        await yieldIfNeeded(rowIdx);
         const tmp = cErrCurr; cErrCurr = cErrNext; cErrNext = tmp; cErrNext.fill(0);
         const serpentine = (rowIdx & 1) === 1;
         const yCenter = Math.min(yMax, yb + Math.floor(cellSize / 2));
@@ -1756,6 +1786,7 @@ export class ColorCycleBrushCanvas2D {
 
     const yBase = Math.floor(minY);
     for (let y = yBase; y <= Math.ceil(maxY); y++) {
+      await yieldIfNeeded(y - yBase);
       // Swap current/next error rows and clear next
       const swap = errCurr; errCurr = errNext; errNext = swap; errNext.fill(0);
       const intersections: number[] = [];

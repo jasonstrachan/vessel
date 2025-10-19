@@ -1,16 +1,11 @@
 /**
  * FinalizeQueue - Serializes finalization operations
  *
- * You almost never want two finalizations in flight. A simple queue (size 1)
- * protects the staging/final surface.
+ * Multiple lanes (per layer or global) are keyed to avoid unnecessary
+ * serialization between unrelated work. Each lane executes tasks sequentially.
  */
 
-type QueueItem = {
-  task: () => Promise<void>;
-  layerId?: string;
-  resolve: () => void;
-  reject: (error: unknown) => void;
-};
+const DEFAULT_LANE = '__global__';
 
 type Waiter = {
   resolve: () => void;
@@ -18,32 +13,49 @@ type Waiter = {
 };
 
 export class FinalizeQueue {
-  private busy = false;
-  private readonly queue: QueueItem[] = [];
-  private readonly pendingCounts = new Map<string, number>();
+  private readonly tails = new Map<string, Promise<void>>();
   private readonly waiters = new Map<string, Waiter[]>();
   private readonly globalWaiters: Waiter[] = [];
 
-  async enqueue(task: () => Promise<void>, layerId?: string): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      if (layerId) {
-        this.incrementLayer(layerId);
-      }
-      this.queue.push({ task, layerId, resolve, reject });
-      void this.processQueue();
+  enqueue(task: () => Promise<void>, laneId: string = DEFAULT_LANE): Promise<void> {
+    const key = laneId ?? DEFAULT_LANE;
+    const previousTail = this.tails.get(key) ?? Promise.resolve();
+
+    const taskPromise = previousTail.catch(() => undefined).then(() => task());
+
+    const publicPromise = taskPromise.catch(error => {
+      this.notifyLayerWaiters(key, error);
+      this.notifyGlobalWaiters(error);
+      throw error;
     });
+
+    const laneTail = publicPromise.catch(() => undefined);
+
+    laneTail.finally(() => {
+      if (this.tails.get(key) === laneTail) {
+        this.tails.delete(key);
+        this.notifyLayerWaiters(key);
+        if (!this.hasPending()) {
+          this.notifyGlobalWaiters();
+        }
+      }
+    });
+
+    this.tails.set(key, laneTail);
+
+    return publicPromise;
   }
 
-  async whenIdle(layerId?: string): Promise<void> {
-    if (layerId) {
-      if (!this.pendingCounts.has(layerId)) {
+  async whenIdle(laneId?: string): Promise<void> {
+    if (laneId) {
+      if (!this.tails.has(laneId)) {
         return;
       }
 
       await new Promise<void>((resolve, reject) => {
-        const layerWaiters = this.waiters.get(layerId) ?? [];
+        const layerWaiters = this.waiters.get(laneId) ?? [];
         layerWaiters.push({ resolve, reject });
-        this.waiters.set(layerId, layerWaiters);
+        this.waiters.set(laneId, layerWaiters);
       });
       return;
     }
@@ -58,76 +70,22 @@ export class FinalizeQueue {
   }
 
   isBusy(): boolean {
-    return this.busy;
+    return this.hasPending();
   }
 
   hasPending(): boolean {
-    return this.queue.length > 0 || this.busy;
+    return this.tails.size > 0;
   }
 
   clear(): void {
-    this.queue.length = 0;
+    this.tails.clear();
   }
 
   async drainPendingForLayer(layerId: string): Promise<void> {
-    if (!this.pendingCounts.has(layerId)) {
-      return;
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      const layerWaiters = this.waiters.get(layerId) ?? [];
-      layerWaiters.push({ resolve, reject });
-      this.waiters.set(layerId, layerWaiters);
-    });
+    await this.whenIdle(layerId);
   }
 
-  private async processQueue(): Promise<void> {
-    if (this.busy) {
-      return;
-    }
-    const next = this.queue.shift();
-    if (!next) {
-      return;
-    }
-
-    this.busy = true;
-    try {
-      await next.task();
-      next.resolve();
-    } catch (error) {
-      next.reject(error);
-      this.notifyLayerWaiters(next.layerId, error);
-      this.notifyGlobalWaiters(error);
-    } finally {
-      if (next.layerId) {
-        this.decrementLayer(next.layerId);
-      }
-      this.busy = false;
-      if (!this.hasPending()) {
-        this.notifyGlobalWaiters();
-      }
-      void this.processQueue();
-    }
-  }
-
-  private incrementLayer(layerId: string): void {
-    this.pendingCounts.set(layerId, (this.pendingCounts.get(layerId) ?? 0) + 1);
-  }
-
-  private decrementLayer(layerId: string): void {
-    const nextCount = (this.pendingCounts.get(layerId) ?? 1) - 1;
-    if (nextCount <= 0) {
-      this.pendingCounts.delete(layerId);
-      this.notifyLayerWaiters(layerId);
-    } else {
-      this.pendingCounts.set(layerId, nextCount);
-    }
-  }
-
-  private notifyLayerWaiters(layerId?: string, error?: unknown): void {
-    if (!layerId) {
-      return;
-    }
+  private notifyLayerWaiters(layerId: string, error?: unknown): void {
     const layerWaiters = this.waiters.get(layerId);
     if (!layerWaiters || layerWaiters.length === 0) {
       return;
