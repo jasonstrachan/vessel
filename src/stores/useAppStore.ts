@@ -3,6 +3,78 @@
 
 const NON_COMPOSITE_DELTA_TAGS = new Set<string>(['selection-bounds', 'view-state']);
 
+const isCcDebugEnabled = (): boolean => {
+  try {
+    const scope = globalThis as { CC_DEBUG?: { on: boolean } };
+    return scope.CC_DEBUG?.on === true;
+  } catch {
+    return false;
+  }
+};
+
+export type CaptureROI = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+const normalizeCaptureROI = (
+  roi: CaptureROI | undefined,
+  maxWidth: number,
+  maxHeight: number
+): CaptureROI | undefined => {
+  if (!roi) {
+    return undefined;
+  }
+  if (
+    !Number.isFinite(roi.x) ||
+    !Number.isFinite(roi.y) ||
+    !Number.isFinite(roi.width) ||
+    !Number.isFinite(roi.height)
+  ) {
+    return undefined;
+  }
+  if (roi.width <= 0 || roi.height <= 0) {
+    return undefined;
+  }
+  const x = Math.max(0, Math.floor(roi.x));
+  const y = Math.max(0, Math.floor(roi.y));
+  const width = Math.max(1, Math.min(maxWidth - x, Math.ceil(roi.width)));
+  const height = Math.max(1, Math.min(maxHeight - y, Math.ceil(roi.height)));
+  if (width <= 0 || height <= 0) {
+    return undefined;
+  }
+  return { x, y, width, height };
+};
+
+const mergeImageDataRegion = (
+  base: ImageData | null,
+  region: ImageData,
+  offsetX: number,
+  offsetY: number,
+  fullWidth: number,
+  fullHeight: number
+): ImageData => {
+  const targetWidth = fullWidth;
+  const targetHeight = fullHeight;
+  const baseMatches =
+    base && base.width === targetWidth && base.height === targetHeight;
+  const mergedData = baseMatches
+    ? new Uint8ClampedArray(base!.data)
+    : new Uint8ClampedArray(targetWidth * targetHeight * 4);
+
+  const src = region.data;
+  const rowStride = region.width * 4;
+  for (let row = 0; row < region.height; row++) {
+    const srcStart = row * rowStride;
+    const destStart = ((offsetY + row) * targetWidth + offsetX) * 4;
+    mergedData.set(src.subarray(srcStart, srcStart + rowStride), destStart);
+  }
+
+  return new ImageData(mergedData, targetWidth, targetHeight);
+};
+
 const entryRequiresComposite = (entry: HistoryEntry | null): boolean => {
   if (!entry) {
     return true;
@@ -255,6 +327,7 @@ if (typeof window !== 'undefined') {
 
 // Import ColorCycleBrush manager
 import { getColorCycleBrushManager, setLayerIdGetter, setColorCycleStoreStateGetter } from './colorCycleBrushManager';
+import { waitForFinalizeQueueIdle, waitForPendingColorCycleSaves } from './pendingColorCycleSaves';
 import { syncCCRuntimes } from './ccRuntime';
 import type { ColorCycleBrushImplementation } from './colorCycleBrushManager';
 import { ShapeFillOrchestrator, type ShapeFillFinalizePayload } from '@/shapeFill';
@@ -679,7 +752,7 @@ export interface AppState {
   exportProject: (format: 'png', options?: { quality?: number; scale?: number }) => Promise<void>;
   newProject: (width: number, height: number, name?: string) => void;
   compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => void;
-  captureCanvasToActiveLayer: (sourceCanvas?: HTMLCanvasElement) => Promise<void>;
+  captureCanvasToActiveLayer: (sourceCanvas?: HTMLCanvasElement, roi?: CaptureROI) => Promise<void>;
   captureCanvasToLayer: (sourceCanvas: HTMLCanvasElement, targetLayerId: string | null) => Promise<void>;
   
   // Autosave State
@@ -4338,6 +4411,18 @@ export const useAppStore = create<AppState>()(
               snapshotState.history.undoStack[snapshotState.history.undoStack.length - 2] ?? null;
           }
 
+          const pendingLayerId =
+            typeof pendingEntry.meta?.['layerId'] === 'string'
+              ? (pendingEntry.meta['layerId'] as string)
+              : null;
+
+          if (pendingLayerId) {
+            await waitForFinalizeQueueIdle(pendingLayerId);
+            await waitForPendingColorCycleSaves(pendingLayerId);
+          } else {
+            await waitForFinalizeQueueIdle();
+          }
+
           await historyManager.undo();
 
           set((state) => {
@@ -4378,6 +4463,18 @@ export const useAppStore = create<AppState>()(
               return null;
             }
             stateToRestore = snapshotState.history.redoStack[0] ?? null;
+          }
+
+          const pendingLayerId =
+            typeof pendingEntry.meta?.['layerId'] === 'string'
+              ? (pendingEntry.meta['layerId'] as string)
+              : null;
+
+          if (pendingLayerId) {
+            await waitForFinalizeQueueIdle(pendingLayerId);
+            await waitForPendingColorCycleSaves(pendingLayerId);
+          } else {
+            await waitForFinalizeQueueIdle();
           }
 
           await historyManager.redo();
@@ -4815,7 +4912,7 @@ export const useAppStore = create<AppState>()(
         }
       },
       
-      captureCanvasToActiveLayer: async (sourceCanvas?: HTMLCanvasElement) => {
+      captureCanvasToActiveLayer: async (sourceCanvas?: HTMLCanvasElement, roi?: CaptureROI) => {
         const state = get();
 
         // Skip if we're in the middle of a history operation
@@ -4834,30 +4931,28 @@ export const useAppStore = create<AppState>()(
           return;
         }
 
-        const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
+        const ctx = canvas.getContext(
+          '2d',
+          { willReadFrequently: true } as CanvasRenderingContext2DSettings
+        ) as CanvasRenderingContext2D | null;
         if (!ctx) {
           return;
         }
-        
+
         try {
-          // Capture only the project area, not the full canvas
-          const captureWidth = Math.min(state.project.width, canvas.width);
-          const captureHeight = Math.min(state.project.height, canvas.height);
-          
-          
-          // CRITICAL CHECK: Are we capturing the right area?
-          if (captureWidth !== state.project.width || captureHeight !== state.project.height) {
-            console.warn('[CAPTURE] WARNING: Capture size mismatch!', {
-              captureSize: { width: captureWidth, height: captureHeight },
-              projectSize: { width: state.project.width, height: state.project.height }
-            });
-          }
-          
-          // Always capture the full canvas, regardless of brush editor status
-          // This allows normal drawing on the main canvas while the modal is open
-          const imageData = ctx.getImageData(0, 0, captureWidth, captureHeight);
-          
-          
+          const projectWidth = state.project.width;
+          const projectHeight = state.project.height;
+          const captureWidth = Math.min(projectWidth, canvas.width);
+          const captureHeight = Math.min(projectHeight, canvas.height);
+
+          const normalizedRoi = normalizeCaptureROI(roi, captureWidth, captureHeight);
+          const captureX = normalizedRoi ? normalizedRoi.x : 0;
+          const captureY = normalizedRoi ? normalizedRoi.y : 0;
+          const regionWidth = normalizedRoi ? normalizedRoi.width : captureWidth;
+          const regionHeight = normalizedRoi ? normalizedRoi.height : captureHeight;
+
+          const capturedImageData = ctx.getImageData(captureX, captureY, regionWidth, regionHeight);
+
           // Find the active layer or use the first layer
           const activeLayerId = state.activeLayerId || state.layers[0]?.id;
           
@@ -4873,22 +4968,46 @@ export const useAppStore = create<AppState>()(
                   // Update both imageData and framebuffer to stay in sync
                   const fb = layer.framebuffer;
                   // Ensure framebuffer matches capture dimensions to avoid clipping
-                  if (fb.width !== imageData.width || fb.height !== imageData.height) {
-                    fb.width = imageData.width;
-                    fb.height = imageData.height;
+                  if (fb.width !== captureWidth || fb.height !== captureHeight) {
+                    fb.width = captureWidth;
+                    fb.height = captureHeight;
                   }
-                  const framebufferCtx = fb.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null);
+                  const framebufferCtx = fb.getContext(
+                    '2d',
+                    { willReadFrequently: true } as CanvasRenderingContext2DSettings
+                  ) as (CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null);
                   if (framebufferCtx) {
-                    framebufferCtx.clearRect(0, 0, fb.width, fb.height);
-                    framebufferCtx.putImageData(imageData, 0, 0);
+                    if (normalizedRoi) {
+                      framebufferCtx.putImageData(capturedImageData, captureX, captureY);
+                    } else {
+                      framebufferCtx.clearRect(0, 0, fb.width, fb.height);
+                      framebufferCtx.putImageData(capturedImageData, 0, 0);
+                    }
                   }
+                  const baseImageData =
+                    layer.imageData &&
+                    layer.imageData.width === captureWidth &&
+                    layer.imageData.height === captureHeight
+                      ? layer.imageData
+                      : null;
+                  const mergedImageData = normalizedRoi
+                    ? mergeImageDataRegion(
+                        baseImageData,
+                        capturedImageData,
+                        captureX,
+                        captureY,
+                        captureWidth,
+                        captureHeight
+                      )
+                    : capturedImageData;
+
                   let nextAlignment = layer.alignment;
                   const project = currentState.project;
                   if (project && nextAlignment && nextAlignment.positioning === 'auto') {
                     try {
                       const layerForMetrics: Layer = {
                         ...layer,
-                        imageData,
+                        imageData: mergedImageData,
                         alignment: {
                           ...nextAlignment,
                           offsetPercent: undefined,
@@ -4914,7 +5033,7 @@ export const useAppStore = create<AppState>()(
                   // Use spread operator first to preserve everything, then override only imageData
                   const updatedLayer = { 
                     ...layer, 
-                    imageData,
+                    imageData: mergedImageData,
                     alignment: nextAlignment,
                     version: (layer.version || 0) + 1 // Increment version for color swatch updates
                     // Don't explicitly set layerType and colorCycleData - they're already in ...layer
@@ -5118,7 +5237,7 @@ useAppStore.subscribe((state) => {
       const before = useAppStore.getState().layers.find((l) => l.id === id);
       const prev = before?.colorCycleData?.isAnimating;
       const next = patch?.colorCycleData?.isAnimating;
-      if (typeof next === 'boolean' && next !== prev) {
+      if (isCcDebugEnabled() && typeof next === 'boolean' && next !== prev) {
         console.groupCollapsed('[CC:TRACE] updateLayer isAnimating flip', { id: id?.slice(-6), prev, next });
         console.log('patch:', patch);
         console.log(new Error('updateLayer:isAnimating').stack);

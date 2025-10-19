@@ -9,6 +9,7 @@ import { getColorCycleBrushManager } from '../stores/colorCycleBrushManager';
 import { appendSegmentWithDynamicResampling } from '../utils/shapeMaker';
 import { logError, debugWarn } from '../utils/debug';
 import { CC_DEBUG, ccGroup, ccGroupEnd, ccLog, dumpLayerFlags } from '@/debug/ccDebug';
+import { FF } from '@/config/ccFeatureFlags';
 import { RecolorManager } from '../lib/colorCycle/RecolorManager';
 import { setSharedColorCycleGradient } from '../utils/colorCycleGradients';
 import type { CCReason } from '../stores/useAppStore';
@@ -24,6 +25,7 @@ import { FinalizeQueue } from '@/lib/canvas';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
+import { markPendingColorCycleSaveEnd, markPendingColorCycleSaveStart, registerFinalizeQueue } from '@/stores/pendingColorCycleSaves';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -53,6 +55,31 @@ type FinalizeDrawingOptions = {
   historyActionType?: CanvasSnapshot['actionType'];
   historyDescription?: string;
 };
+
+type LayerHistoryPayload = Parameters<typeof commitLayerHistory>[0];
+
+type DeferredColorCycleSaveOptions = {
+  layerId: string;
+  canvas: HTMLCanvasElement;
+  beforeColorState: ColorCycleSerializedState;
+  afterColorState?: ColorCycleSerializedState;
+  actionType: CanvasSnapshot['actionType'];
+  description: string;
+  tool: string;
+  coalesce?: LayerHistoryPayload['coalesce'];
+  beforeImage?: LayerHistoryPayload['beforeImage'];
+  skipBitmapDelta?: boolean;
+  roi?: { x: number; y: number; width: number; height: number };
+};
+
+type BoundingBox = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+};
+
+type CaptureRegion = { x: number; y: number; width: number; height: number };
 
 const BRUSH_HISTORY_COALESCE_WINDOW_MS = 250;
 const STOP_COOLDOWN_MS = 200;
@@ -104,6 +131,107 @@ const cloneImageData = (imageData: ImageData | null | undefined): ImageData | nu
     return null;
   }
   return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+};
+
+const debugTime = (label: string) => {
+  if (CC_DEBUG.on) {
+    console.time(label);
+  }
+};
+
+const debugTimeEnd = (label: string) => {
+  if (CC_DEBUG.on) {
+    console.timeEnd(label);
+  }
+};
+
+const debugVerbose = (...args: Parameters<typeof console.debug>) => {
+  if (CC_DEBUG.on) {
+    console.debug(...args);
+  }
+};
+
+const withTiming = async <T>(label: string, task: () => Promise<T>): Promise<T> => {
+  debugTime(label);
+  try {
+    return await task();
+  } finally {
+    debugTimeEnd(label);
+  }
+};
+
+const ROI_PADDING_PX = 2;
+
+const createBoundingBox = (point: { x: number; y: number }): BoundingBox => ({
+  minX: point.x,
+  minY: point.y,
+  maxX: point.x,
+  maxY: point.y,
+});
+
+const expandBoundingBox = (bbox: BoundingBox, point: { x: number; y: number }): BoundingBox => ({
+  minX: Math.min(bbox.minX, point.x),
+  minY: Math.min(bbox.minY, point.y),
+  maxX: Math.max(bbox.maxX, point.x),
+  maxY: Math.max(bbox.maxY, point.y),
+});
+
+const mergeBoundingBox = (bbox: BoundingBox | null, point: { x: number; y: number }): BoundingBox =>
+  bbox ? expandBoundingBox(bbox, point) : createBoundingBox(point);
+
+const boundingBoxToCaptureRegion = (
+  bbox: BoundingBox | null,
+  padding: number,
+  project: { width: number; height: number } | null
+): CaptureRegion | undefined => {
+  if (!bbox || !project) {
+    return undefined;
+  }
+  const minX = Math.min(bbox.minX, bbox.maxX);
+  const maxX = Math.max(bbox.minX, bbox.maxX);
+  const minY = Math.min(bbox.minY, bbox.maxY);
+  const maxY = Math.max(bbox.minY, bbox.maxY);
+  if (
+    !Number.isFinite(minX) ||
+    !Number.isFinite(maxX) ||
+    !Number.isFinite(minY) ||
+    !Number.isFinite(maxY)
+  ) {
+    return undefined;
+  }
+  const pad = Math.max(0, padding);
+  const x = Math.max(0, Math.floor(minX) - pad);
+  const y = Math.max(0, Math.floor(minY) - pad);
+  const right = Math.min(project.width, Math.ceil(maxX) + pad);
+  const bottom = Math.min(project.height, Math.ceil(maxY) + pad);
+  if (right <= x || bottom <= y) {
+    return undefined;
+  }
+  return {
+    x,
+    y,
+    width: Math.max(1, right - x),
+    height: Math.max(1, bottom - y),
+  };
+};
+
+const captureRegionFromPoints = (
+  points: Array<{ x: number; y: number }> | undefined,
+  padding: number,
+  project: { width: number; height: number } | null
+): CaptureRegion | undefined => {
+  if (!points || points.length === 0) {
+    return undefined;
+  }
+  let bbox = createBoundingBox(points[0]);
+  for (let i = 1; i < points.length; i += 1) {
+    const point = points[i];
+    if (!point) {
+      continue;
+    }
+    bbox = expandBoundingBox(bbox, point);
+  }
+  return boundingBoxToCaptureRegion(bbox, padding, project);
 };
 
 const isColorCycleLayerWithData = (
@@ -276,6 +404,7 @@ export function useDrawingHandlers({
   
   // Store resampler brush data for the entire stroke
   const resamplerBrushDataRef = useRef<CustomBrushStrokeData | undefined>(undefined);
+  const strokeBoundingBoxRef = useRef<BoundingBox | null>(null);
   
   // Track stamp count for continuous resampling
   const stampCounterRef = useRef<number>(0);
@@ -302,6 +431,118 @@ export function useDrawingHandlers({
 
   // Finalization queue to prevent concurrent finalization operations
   const finalizeQueueRef = useRef(new FinalizeQueue());
+
+  useEffect(() => {
+    registerFinalizeQueue(finalizeQueueRef.current);
+    return () => {
+      registerFinalizeQueue(null);
+    };
+  }, []);
+
+  const scheduleDeferredColorCycleSave = useCallback(
+    ({
+      layerId,
+      canvas,
+      beforeColorState,
+      afterColorState: providedAfterColorState,
+      actionType,
+      description,
+      tool,
+      coalesce,
+      beforeImage = null,
+      skipBitmapDelta = true,
+      roi,
+    }: DeferredColorCycleSaveOptions) => {
+      markPendingColorCycleSaveStart(layerId);
+      const sanitizedRoi = roi && project
+        ? boundingBoxToCaptureRegion(
+            {
+              minX: roi.x,
+              minY: roi.y,
+              maxX: roi.x + roi.width,
+              maxY: roi.y + roi.height,
+            },
+            0,
+            project
+          )
+        : roi;
+      const runTask = () => {
+        void finalizeQueueRef.current
+          .enqueue(
+            async () => {
+              try {
+                debugTime('cc:capture');
+                await captureCanvasToActiveLayer(canvas, sanitizedRoi);
+                debugTimeEnd('cc:capture');
+
+                let nextAfterColorState: ColorCycleSerializedState | null =
+                  providedAfterColorState ?? null;
+                if (!nextAfterColorState) {
+                  debugTime('cc:state-serialize-after');
+                  nextAfterColorState = captureColorCycleBrushState(layerId);
+                  debugTimeEnd('cc:state-serialize-after');
+                }
+
+                debugVerbose('[cc-delta-capture]', {
+                  beforeBytes:
+                    beforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
+                  afterBytes:
+                    nextAfterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
+                  beforeCtr:
+                    beforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+                  afterCtr:
+                    nextAfterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+                });
+
+                debugTime('cc:commit');
+                await commitLayerHistory({
+                  layerId,
+                  beforeImage,
+                  beforeColorState,
+                  afterColorState: nextAfterColorState,
+                  actionType,
+                  description,
+                  tool,
+                  coalesce,
+                  skipBitmapDelta,
+                });
+                debugTimeEnd('cc:commit');
+              } catch (error) {
+                logError('Deferred color cycle save failed', error);
+                throw error;
+              } finally {
+                markPendingColorCycleSaveEnd(layerId);
+              }
+            },
+            layerId
+          )
+          .catch(error => {
+            if (process.env.NODE_ENV !== 'production') {
+              console.error('[cc:defer] finalize queue rejected', error);
+            }
+          });
+      };
+
+      const scheduleMacrotask = (cb: () => void) => {
+        setTimeout(cb, 0);
+      };
+
+      const idle = (cb: () => void) => {
+        if (typeof window !== 'undefined') {
+          // @ts-ignore
+          const requestIdle = window.requestIdleCallback;
+          if (typeof requestIdle === 'function') {
+            requestIdle(() => cb(), { timeout: 120 });
+            return;
+          }
+        }
+        scheduleMacrotask(cb);
+      };
+
+      idle(runTask);
+    },
+    [captureCanvasToActiveLayer, commitLayerHistory, project]
+  );
 
 
   // Auto-sample gradient (for color cycle brushes)
@@ -420,7 +661,7 @@ export function useDrawingHandlers({
         last = p;
       }
     }
-    const maxStops = 8;
+    const maxStops = 6;
     const dynamicCount = Math.min(maxStops, Math.max(2, Math.floor(totalLen / 64) + 2));
     const samplePts = equidistantPointsOnPolyline(sourcePts, dynamicCount);
     if (samplePts.length === 0) return;
@@ -757,6 +998,12 @@ export function useDrawingHandlers({
     // Early return if no project
     if (!project) return;
 
+    if (currentTool === 'brush') {
+      strokeBoundingBoxRef.current = createBoundingBox(worldPos);
+    } else {
+      strokeBoundingBoxRef.current = null;
+    }
+
     // Layer type handling and validation
     const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
     if (activeLayer) {
@@ -837,7 +1084,13 @@ export function useDrawingHandlers({
     
     // Capture "before" state BEFORE any stroke data is written
     const activeLayerForCapture = currentState.layers.find(l => l.id === currentState.activeLayerId);
-    strokeBeforeImageRef.current = cloneImageData(activeLayerForCapture?.imageData ?? null);
+    const shouldSkipStrokeBitmapClone =
+      FF.CC_HISTORY_NO_BITMAP &&
+      activeLayerForCapture?.layerType === 'color-cycle' &&
+      ccFlags.isAny;
+    strokeBeforeImageRef.current = shouldSkipStrokeBitmapClone
+      ? null
+      : cloneImageData(activeLayerForCapture?.imageData ?? null);
 
     // Ensure CC brush exists before capturing state
     if (activeLayerForCapture?.layerType === 'color-cycle') {
@@ -886,9 +1139,14 @@ export function useDrawingHandlers({
       const manager = getColorCycleBrushManager();
       const brush = manager.getBrush(activeLayerForCapture.id) as DebugBrush | undefined;
       const layerStrokeData = brush?.layerStrokes?.get(activeLayerForCapture.id);
-      console.debug('[cc-before-capture] brushCounter:', brush?.strokeCounter ?? -1,
-        'layerDataCounter:', layerStrokeData?.strokeCounter ?? -1,
-        'serializedCounter:', beforeState?.layers?.[0]?.strokeData?.strokeCounter ?? -1);
+      debugVerbose(
+        '[cc-before-capture] brushCounter:',
+        brush?.strokeCounter ?? -1,
+        'layerDataCounter:',
+        layerStrokeData?.strokeCounter ?? -1,
+        'serializedCounter:',
+        beforeState?.layers?.[0]?.strokeData?.strokeCounter ?? -1
+      );
       strokeBeforeColorStateRef.current = beforeState;
     } else {
       strokeBeforeColorStateRef.current = null;
@@ -1424,9 +1682,13 @@ export function useDrawingHandlers({
       endStrokeSession();
       return; // Exit silently if layer became hidden mid-stroke
     }
-    
+
     const now = performance.now();
-    
+
+    if (currentState.tools.currentTool === 'brush') {
+      strokeBoundingBoxRef.current = mergeBoundingBox(strokeBoundingBoxRef.current, worldPos);
+    }
+
     // Add to batch
     strokeBatchRef.current.push({ pos: worldPos, pressure });
     
@@ -1447,6 +1709,19 @@ export function useDrawingHandlers({
   }, [processBatchedStrokes, endStrokeSession]);
   
   const finalizeDrawing = useCallback(async (skipSaveOrOptions?: boolean | FinalizeDrawingOptions) => {
+    let finalizeVisibleTimerStarted = false;
+    const startFinalizeVisibleTimer = () => {
+      if (!finalizeVisibleTimerStarted && CC_DEBUG.on) {
+        debugTime('cc:visible-finalize');
+        finalizeVisibleTimerStarted = true;
+      }
+    };
+    const endFinalizeVisibleTimer = () => {
+      if (finalizeVisibleTimerStarted) {
+        debugTimeEnd('cc:visible-finalize');
+        finalizeVisibleTimerStarted = false;
+      }
+    };
     const options =
       typeof skipSaveOrOptions === 'object' && skipSaveOrOptions !== null
         ? skipSaveOrOptions
@@ -1469,7 +1744,7 @@ export function useDrawingHandlers({
     if (busy || !hasCanvas || (!overlayHasContent && !overlayOptional) || !project) {
       return;
     }
-    
+
     try {
       if (isBusyRef) isBusyRef.current = true;
       let busyReleased = false;
@@ -1516,6 +1791,7 @@ export function useDrawingHandlers({
       }
 
       if (activeLayer) {
+        const activeLayerIdString = activeLayer.id;
         const drawingCanvas = drawingCanvasRef.current;
         // Use "before" state captured at stroke start, not at finalization
         const layerBeforeImage = strokeBeforeImageRef.current;
@@ -1547,19 +1823,21 @@ export function useDrawingHandlers({
 
           if (skipSave) {
             if (drawingCanvas) {
-              await captureCanvasToActiveLayer(drawingCanvas);
+              await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
             }
           } else if (drawingCanvas) {
-            await captureCanvasToActiveLayer(drawingCanvas);
-            await commitLayerHistory({
-              layerId: activeLayer.id,
-              beforeImage: layerBeforeImage,
-              beforeColorState: layerBeforeColorState,
-              actionType: historyAction,
-              description: historyDescription,
-              tool: 'eraser',
-              coalesce: coalescePayload,
-            });
+            await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
+            await withTiming('cc:commit', () =>
+              commitLayerHistory({
+                layerId: activeLayerIdString,
+                beforeImage: layerBeforeImage,
+                beforeColorState: layerBeforeColorState,
+                actionType: historyAction,
+                description: historyDescription,
+                tool: 'eraser',
+                coalesce: coalescePayload,
+              })
+            );
           }
           
         } else { // Brush tool
@@ -1575,7 +1853,7 @@ export function useDrawingHandlers({
             try {
               if (activeSettings.autoSampleGradient && autoSamplePointsRef.current.length > 0) {
                 const finalPts = [...autoSamplePointsRef.current];
-                const maxStops = 8;
+                const maxStops = 6;
                 const samplePts = equidistantPointsOnPolyline(finalPts, Math.min(maxStops, Math.max(1, finalPts.length)));
                 if (samplePts.length > 0) {
                   const colors = samplePts.map(p => sampleHexAt(p.x, p.y));
@@ -1607,21 +1885,21 @@ export function useDrawingHandlers({
             brushEngine.endColorCycleStroke();
             
             // Phase 3: Direct rendering approach
-            const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+            const refreshedActiveLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
             const colorCycleBrushManager = getColorCycleBrushManager();
-            const colorCycleBrush = activeLayer ? colorCycleBrushManager.getBrush(activeLayer.id) : undefined;
-            
-            if (colorCycleBrush && activeLayer?.colorCycleData?.canvas && drawingCanvas && drawingCtx) {
+            const colorCycleBrush = refreshedActiveLayer ? colorCycleBrushManager.getBrush(refreshedActiveLayer.id) : undefined;
+
+            if (colorCycleBrush && refreshedActiveLayer?.colorCycleData?.canvas && drawingCanvas && drawingCtx) {
               // Final render directly to layer canvas at full opacity
-              colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayer.id);
+              colorCycleBrush.renderDirectToCanvas(refreshedActiveLayer.colorCycleData.canvas, refreshedActiveLayer.id);
               
-              // Copy to drawing canvas for final composite
+              // Clear transient overlay so compositor paints the next frame
               drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-              drawingCtx.globalAlpha = 1.0; // Full opacity for final
-              drawingCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
+              drawingCanvasHasContent.current = false;
             } else if (drawingCanvas && drawingCtx) {
               // Fallback: Clear and do one final render at FULL OPACITY
               drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+              drawingCanvasHasContent.current = false;
               brushEngine.renderColorCycle(drawingCtx, false); // false = don't apply opacity
             }
             
@@ -1656,14 +1934,22 @@ export function useDrawingHandlers({
           if (!activeLayer) {
             return;
           }
+          const activeLayerIdString = activeLayer.id;
 
           const isShapeMode = currentState.tools.shapeMode;
 
           let brushForCleanup: ManagedColorCycleBrush | undefined;
+          let deferredLayerCanvas: HTMLCanvasElement | null = null;
+          let strokeCaptureRoi: CaptureRegion | undefined;
 
           if (isColorCycleLayer && isAnyColorCycleBrush && activeLayer?.colorCycleData?.canvas) {
             const layerCanvas = activeLayer.colorCycleData.canvas;
-            const targetLayerId = activeLayer!.id;
+            startFinalizeVisibleTimer();
+            strokeCaptureRoi = FF.CC_CAPTURE_ROI
+              ? boundingBoxToCaptureRegion(strokeBoundingBoxRef.current, ROI_PADDING_PX, project)
+              : undefined;
+            deferredLayerCanvas = layerCanvas;
+            const targetLayerId = activeLayer.id;
             try {
               const colorCycleBrushManager = getColorCycleBrushManager();
               const brush = colorCycleBrushManager.getBrush(targetLayerId) as ManagedColorCycleBrush | undefined;
@@ -1713,19 +1999,11 @@ export function useDrawingHandlers({
             } catch {
               // Suppressed debug warn for buffer commit
             }
-
-            // For CC layers, capture directly from the layer's canvas
-            await captureCanvasToActiveLayer(layerCanvas);
             try {
               window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
               ccLog('stroke: frameUpdate dispatched', { layerId: targetLayerId.slice(-6) });
             } catch {}
-
-            // Optional sampling: verify we saved the actual layer canvas (not paint buffer)
-            try {
-              const ctx = layerCanvas.getContext('2d', { willReadFrequently: true });
-              ctx?.getImageData(0, 0, 1, 1);
-            } catch {}
+            endFinalizeVisibleTimer();
 
           } else if (isColorCycleLayer) {
             // On a color-cycle layer without a valid CC canvas, do not fall back to
@@ -1753,7 +2031,7 @@ export function useDrawingHandlers({
                 tempCtx.drawImage(drawingCanvas, 0, 0);
               }
 
-              await captureCanvasToActiveLayer(tempCanvas);
+              await withTiming('cc:capture', () => captureCanvasToActiveLayer(tempCanvas));
               
               
               
@@ -1797,40 +2075,77 @@ export function useDrawingHandlers({
 
             const shouldSkipBitmapDelta = shouldDisableCoalescing;
             const coalesceForHistory = shouldSkipBitmapDelta ? undefined : coalescePayload;
-            let afterColorState: ReturnType<typeof captureColorCycleBrushState> | null = null;
 
             if (brushForCleanup?.flush) {
-              brushForCleanup.flush(activeLayer.id);
+              brushForCleanup.flush(activeLayerIdString);
             }
 
-            if (shouldSkipBitmapDelta) {
-              afterColorState = captureColorCycleBrushState(activeLayer.id);
-              console.debug('[cc-delta-capture]', {
-                beforeBytes:
-                  layerBeforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-                afterBytes:
-                  afterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-                beforeCtr:
-                  layerBeforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
-                afterCtr:
-                  afterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+            const shouldDeferColorCycleSave =
+              isColorCycleLayer &&
+              isColorCycleBrush &&
+              Boolean(deferredLayerCanvas);
+
+            if (shouldDeferColorCycleSave && deferredLayerCanvas) {
+              debugTime('cc:state-serialize-after');
+              let afterColorState: ColorCycleSerializedState | null = null;
+              try {
+                afterColorState = captureColorCycleBrushState(activeLayerIdString);
+              } finally {
+                debugTimeEnd('cc:state-serialize-after');
+              }
+
+              scheduleDeferredColorCycleSave({
+                layerId: activeLayerIdString,
+                canvas: deferredLayerCanvas,
+                beforeColorState: layerBeforeColorState,
+                afterColorState,
+                actionType,
+                description: historyDescription,
+                tool: currentTool,
+                coalesce: undefined,
+                beforeImage: null,
+                skipBitmapDelta: true,
+                roi: strokeCaptureRoi,
               });
+            } else {
+              let afterColorState: ReturnType<typeof captureColorCycleBrushState> | null = null;
+
+              if (shouldSkipBitmapDelta) {
+                debugTime('cc:state-serialize-after');
+                try {
+                afterColorState = captureColorCycleBrushState(activeLayerIdString);
+                } finally {
+                  debugTimeEnd('cc:state-serialize-after');
+                }
+                debugVerbose('[cc-delta-capture]', {
+                  beforeBytes:
+                    layerBeforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
+                  afterBytes:
+                    afterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
+                  beforeCtr:
+                    layerBeforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+                  afterCtr:
+                    afterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+                });
+              }
+              await withTiming('cc:commit', () =>
+                commitLayerHistory({
+                  layerId: activeLayerIdString,
+                  beforeImage: layerBeforeImage,
+                  beforeColorState: layerBeforeColorState,
+                  afterColorState,
+                  actionType,
+                  description: historyDescription,
+                  tool: currentTool,
+                  coalesce: coalesceForHistory,
+                  skipBitmapDelta: shouldSkipBitmapDelta,
+                })
+              );
             }
-            await commitLayerHistory({
-              layerId: activeLayer.id,
-              beforeImage: layerBeforeImage,
-              beforeColorState: layerBeforeColorState,
-              afterColorState,
-              actionType,
-              description: historyDescription,
-              tool: currentTool,
-              coalesce: coalesceForHistory,
-              skipBitmapDelta: shouldSkipBitmapDelta,
-            });
           }
 
           if (!(isColorCycleLayer && isAnyColorCycleBrush)) {
-            brushForCleanup?.clearPaintBuffer?.(activeLayer.id);
+            brushForCleanup?.clearPaintBuffer?.(activeLayerIdString);
           }
         }
       }
@@ -1859,6 +2174,8 @@ export function useDrawingHandlers({
       }
       drawingCanvasHasContent.current = false;
       await resumeColorCycleAfterInteraction();
+      endFinalizeVisibleTimer();
+      strokeBoundingBoxRef.current = null;
       if (isBusyRef) isBusyRef.current = false;
     }
   }, [
@@ -1888,6 +2205,7 @@ export function useDrawingHandlers({
   }, []);
   
   const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
+    strokeBoundingBoxRef.current = null;
     // If we're selecting direction for linear gradient, record the direction
     if (isSelectingDirectionRef.current) {
       directionPreviewRef.current = worldPos;
@@ -2048,6 +2366,7 @@ export function useDrawingHandlers({
     return finalizeQueueRef.current.enqueue(async () => {
       let finalizeTriggered = false;
       // All finalization logic runs serially here
+      let handledColorCycleShape = false;
 
       let shapeLayerId: string | null = null;
       let shapeBeforeImage: ImageData | null = null;
@@ -2062,8 +2381,24 @@ export function useDrawingHandlers({
         if (drawCtx && brushEngine && shapePointsRef.current.length >= 3) {
           const beforeState = useAppStore.getState();
           const beforeLayer = beforeState.layers.find(l => l.id === beforeState.activeLayerId);
+          const shapeFlags = getColorCycleBrushFlags(beforeState.tools.brushSettings);
+          const shouldSkipShapeBitmapClone =
+            FF.CC_HISTORY_NO_BITMAP &&
+            beforeLayer?.layerType === 'color-cycle' &&
+            shapeFlags.isAny;
           shapeLayerId = beforeLayer?.id ?? null;
-          shapeBeforeImage = cloneImageData(beforeLayer?.imageData ?? null);
+          if (!shapeLayerId || !beforeLayer?.colorCycleData?.canvas) {
+            drawingCanvasHasContent.current = true;
+            isSelectingDirectionRef.current = false;
+            directionPreviewRef.current = null;
+            await resumeColorCycleAfterInteraction();
+            if (isBusyRef) isBusyRef.current = false;
+            return;
+          }
+          const shapeLayerIdString: string = shapeLayerId;
+          shapeBeforeImage = shouldSkipShapeBitmapClone
+            ? null
+            : cloneImageData(beforeLayer?.imageData ?? null);
           shapeBeforeColorState = beforeLayer && isColorCycleLayerWithData(beforeLayer)
             ? captureColorCycleBrushState(beforeLayer.id)
             : null;
@@ -2084,16 +2419,8 @@ export function useDrawingHandlers({
           
           // Clear the canvas first
           drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
+          drawingCanvasHasContent.current = false;
           
-          if (!shapeLayerId || !beforeLayer?.colorCycleData?.canvas) {
-            drawingCanvasHasContent.current = true;
-            isSelectingDirectionRef.current = false;
-            directionPreviewRef.current = null;
-            await resumeColorCycleAfterInteraction();
-            if (isBusyRef) isBusyRef.current = false;
-            return;
-          }
-
           // Reset and fill with linear gradient
           // Pass false to keep existing shapes (we save state elsewhere)
           brushEngine.resetColorCycle(false);
@@ -2103,49 +2430,60 @@ export function useDrawingHandlers({
           const currentState = useAppStore.getState();
           const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
           const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+          const activeLayerCanvas = activeLayer?.colorCycleData?.canvas ?? null;
           
-            if (isColorCycleLayer && activeLayer?.colorCycleData?.canvas) {
-              brushEngine.updateColorCycleTexture();
-              
-              const colorCycleBrushManager = getColorCycleBrushManager();
-              const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayerId || '');
-            if (colorCycleBrush) {
-              colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayerId || '');
-            }
-            
-              drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
-              drawCtx.globalAlpha = 1.0;
-              drawCtx.globalCompositeOperation = 'source-over';
-              drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
+            if (isColorCycleLayer && activeLayerCanvas && activeLayerId) {
+              debugTime('cc:visible-finalize');
+              try {
+                brushEngine.updateColorCycleTexture();
 
-              await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
-              if (shapeLayerId) {
-                const afterColorState = captureColorCycleBrushState(shapeLayerId);
-                console.debug('[cc-delta-capture]', {
-                  beforeBytes:
-                    shapeBeforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-                  afterBytes:
-                    afterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-                  beforeCtr:
-                    shapeBeforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
-                  afterCtr:
-                    afterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
-                });
-                await commitLayerHistory({
-                  layerId: shapeLayerId,
-                  beforeImage: shapeBeforeImage,
-                  beforeColorState: shapeBeforeColorState,
-                  afterColorState,
-                  actionType: 'fill',
-                  description: 'CC Shape Linear',
-                  tool: tools.currentTool,
-                  coalesce: undefined,
-                  skipBitmapDelta: true,
-                });
+                const colorCycleBrushManager = getColorCycleBrushManager();
+                const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayerId);
+                if (colorCycleBrush) {
+                  colorCycleBrush.renderDirectToCanvas(activeLayerCanvas, activeLayerId);
+                }
+
+                drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
+                drawingCanvasHasContent.current = false;
+                drawCtx.globalAlpha = 1.0;
+                drawCtx.globalCompositeOperation = 'source-over';
+
+                try {
+                  window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
+                  ccLog('shape: frameUpdate dispatched', { mode: 'linear' });
+                } catch {}
+
+                if (shapeLayerIdString) {
+                  const shapeCaptureRoi = FF.CC_CAPTURE_ROI
+                    ? captureRegionFromPoints(shapePointsRef.current, ROI_PADDING_PX, project)
+                    : undefined;
+                  debugTime('cc:state-serialize-after');
+                  let afterColorState: ColorCycleSerializedState | null = null;
+                  try {
+                    afterColorState = captureColorCycleBrushState(shapeLayerIdString);
+                  } finally {
+                    debugTimeEnd('cc:state-serialize-after');
+                  }
+                  scheduleDeferredColorCycleSave({
+                    layerId: shapeLayerIdString,
+                    canvas: activeLayerCanvas,
+                    beforeColorState: shapeBeforeColorState,
+                    afterColorState,
+                    actionType: 'fill',
+                    description: 'CC Shape Linear',
+                    tool: tools.currentTool,
+                    coalesce: undefined,
+                    beforeImage: null,
+                    skipBitmapDelta: true,
+                    roi: shapeCaptureRoi,
+                  });
+                }
+              } finally {
+                debugTimeEnd('cc:visible-finalize');
               }
             }
           
-          drawingCanvasHasContent.current = true;
+          drawingCanvasHasContent.current = false;
         }
         
         // Reset state
@@ -2155,6 +2493,7 @@ export function useDrawingHandlers({
         isDrawingShapeRef.current = false;
         
         ccShapePreviewPauseStartedRef.current = false;
+        handledColorCycleShape = true;
 
         await resumeColorCycleAfterInteraction();
         if (isBusyRef) isBusyRef.current = false;
@@ -2183,8 +2522,25 @@ export function useDrawingHandlers({
 
           const beforeState = useAppStore.getState();
           const beforeLayer = beforeState.layers.find(l => l.id === beforeState.activeLayerId);
-          const shapeLayerId = beforeLayer?.id;
-          const shapeBeforeImage = cloneImageData(beforeLayer?.imageData ?? null);
+          const shapeLayerId = beforeLayer?.id ?? null;
+          const shapeLayerCanvas = beforeLayer?.colorCycleData?.canvas ?? null;
+          if (!shapeLayerId || !shapeLayerCanvas) {
+            drawingCanvasHasContent.current = true;
+            isSelectingDirectionRef.current = false;
+            directionPreviewRef.current = null;
+            await resumeColorCycleAfterInteraction();
+            if (isBusyRef) isBusyRef.current = false;
+            return;
+          }
+          const shapeLayerIdString: string = shapeLayerId;
+          const shapeFlags = getColorCycleBrushFlags(beforeState.tools.brushSettings);
+          const shouldSkipShapeBitmapClone =
+            FF.CC_HISTORY_NO_BITMAP &&
+            beforeLayer?.layerType === 'color-cycle' &&
+            shapeFlags.isAny;
+          const shapeBeforeImage = shouldSkipShapeBitmapClone
+            ? null
+            : cloneImageData(beforeLayer?.imageData ?? null);
           const shapeBeforeColorState = beforeLayer && isColorCycleLayerWithData(beforeLayer)
             ? captureColorCycleBrushState(beforeLayer.id)
             : null;
@@ -2208,7 +2564,7 @@ export function useDrawingHandlers({
             const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
             if (isCCShape && st.tools.brushSettings.autoSampleGradient) {
               const finalPts = [...shapePointsRef.current];
-              const maxStops = 8;
+              const maxStops = 6;
               const samplePts = equidistantPointsOnPolyline(finalPts, Math.min(maxStops, Math.max(1, finalPts.length)));
               if (samplePts.length > 0) {
                 const colors = samplePts.map(p => sampleHexAt(p.x, p.y));
@@ -2488,54 +2844,61 @@ export function useDrawingHandlers({
 
                 brushEngine.fillColorCycleShapeLinear(points, direction);
                 
-                if (activeLayerId && activeLayer.colorCycleData?.canvas) {
-                  brushEngine.updateColorCycleTexture();
-                  
-                  const colorCycleBrushManager = getColorCycleBrushManager();
-                  const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayerId);
-                  if (colorCycleBrush) {
-                    colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayerId);
-                  }
-                  
-                  drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
-                  drawCtx.globalAlpha = 1.0;
-                  drawCtx.globalCompositeOperation = 'source-over';
-                  drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
-
-                  await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
-                  ccLog('shape: wrote CC canvas & captured', { mode: 'linear', layerId: shapeLayerId?.slice(-6) ?? null });
-                  if (shapeLayerId) {
-                    const afterColorState = captureColorCycleBrushState(shapeLayerId);
-                    console.debug('[cc-delta-capture]', {
-                      beforeBytes:
-                        shapeBeforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-                      afterBytes:
-                        afterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-                      beforeCtr:
-                        shapeBeforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
-                      afterCtr:
-                        afterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
-                    });
-                    await commitLayerHistory({
-                      layerId: shapeLayerId,
-                      beforeImage: shapeBeforeImage,
-                      beforeColorState: shapeBeforeColorState,
-                      afterColorState,
-                      actionType: 'fill',
-                      description: 'CC Shape Linear',
-                      tool: tools.currentTool,
-                      coalesce: undefined,
-                      skipBitmapDelta: true,
-                    });
-                  }
-
+                if (activeLayerId && activeLayer?.colorCycleData?.canvas) {
+                  debugTime('cc:visible-finalize');
                   try {
-                    window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
-                    ccLog('shape: frameUpdate dispatched', { mode: 'linear' });
-                  } catch {}
+                    const activeLayerCanvasLinear = activeLayer.colorCycleData.canvas;
+                    brushEngine.updateColorCycleTexture();
+
+                    const colorCycleBrushManager = getColorCycleBrushManager();
+                    const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayerId);
+                    if (colorCycleBrush) {
+                      colorCycleBrush.renderDirectToCanvas(activeLayerCanvasLinear, activeLayerId);
+                    }
+
+                    drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
+                    drawingCanvasHasContent.current = false;
+                    drawCtx.globalAlpha = 1.0;
+                    drawCtx.globalCompositeOperation = 'source-over';
+
+                    try {
+                      window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
+                      ccLog('shape: frameUpdate dispatched', { mode: 'linear' });
+                    } catch {}
+
+                    if (shapeLayerId) {
+                      const shapeCaptureRoi = FF.CC_CAPTURE_ROI
+                        ? captureRegionFromPoints(shapePointsRef.current, ROI_PADDING_PX, project)
+                        : undefined;
+                      ccLog('shape: wrote CC canvas', { mode: 'linear', layerId: shapeLayerIdString.slice(-6) });
+                      debugTime('cc:state-serialize-after');
+                      let afterColorState: ColorCycleSerializedState | null = null;
+                      try {
+                        afterColorState = captureColorCycleBrushState(shapeLayerIdString);
+                      } finally {
+                        debugTimeEnd('cc:state-serialize-after');
+                      }
+                      scheduleDeferredColorCycleSave({
+                        layerId: shapeLayerIdString,
+                        canvas: activeLayerCanvasLinear,
+                        beforeColorState: shapeBeforeColorState,
+                        afterColorState,
+                        actionType: 'fill',
+                        description: 'CC Shape Linear',
+                        tool: tools.currentTool,
+                        coalesce: undefined,
+                        beforeImage: null,
+                        skipBitmapDelta: true,
+                        roi: shapeCaptureRoi,
+                      });
+                    }
+                  } finally {
+                    debugTimeEnd('cc:visible-finalize');
+                  }
                 }
+                handledColorCycleShape = handledColorCycleShape || Boolean(activeLayerId && activeLayer?.colorCycleData?.canvas);
                 
-                drawingCanvasHasContent.current = true;
+                drawingCanvasHasContent.current = false;
                 isSelectingDirectionRef.current = false;
                 directionPreviewRef.current = null;
               } else {
@@ -2544,65 +2907,71 @@ export function useDrawingHandlers({
                 
                 // CRITICAL FIX: Ensure the CC layer's canvas is updated with the shape
                 // This should ONLY happen for concentric mode, not linear (which needs direction first)
-                if (activeLayerId && activeLayer.colorCycleData?.canvas) {
-                  // Force immediate texture update and render to the layer's canvas
-                  brushEngine.updateColorCycleTexture();
-                  
-                  // Get the color cycle brush and render directly to the layer's canvas
-                  const colorCycleBrushManager = getColorCycleBrushManager();
-                  const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayerId);
-                  if (colorCycleBrush) {
-                    // Render directly to the layer's canvas to ensure it's updated
-                    colorCycleBrush.renderDirectToCanvas(activeLayer.colorCycleData.canvas, activeLayerId);
-                  }
-                  
-                  // Now render from the layer's canvas to the drawing canvas for display
-                  drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
-                  drawCtx.globalAlpha = 1.0; // Full opacity for finalization
-                  drawCtx.globalCompositeOperation = 'source-over';
-                  drawCtx.drawImage(activeLayer.colorCycleData.canvas, 0, 0);
-                  
-                  await captureCanvasToActiveLayer(activeLayer.colorCycleData.canvas);
-                  ccLog('shape: wrote CC canvas & captured', { mode: 'concentric', layerId: shapeLayerId?.slice(-6) ?? null });
-                  if (shapeLayerId) {
-                    const afterColorState = captureColorCycleBrushState(shapeLayerId);
-                    console.debug('[cc-delta-capture]', {
-                      beforeBytes:
-                        shapeBeforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-                      afterBytes:
-                        afterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-                      beforeCtr:
-                        shapeBeforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
-                      afterCtr:
-                        afterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
-                    });
-                    await commitLayerHistory({
-                      layerId: shapeLayerId,
-                      beforeImage: shapeBeforeImage,
-                      beforeColorState: shapeBeforeColorState,
-                      afterColorState,
-                      actionType: 'fill',
-                      description: 'CC Shape',
-                      tool: tools.currentTool,
-                      coalesce: undefined,
-                      skipBitmapDelta: true,
-                    });
-                  }
-
-                  // Force composite refresh so the persisted shape appears even if
-                  // the overlay is suppressed by CC animation state.
+                if (activeLayerId && activeLayer?.colorCycleData?.canvas) {
+                  debugTime('cc:visible-finalize');
                   try {
-                    window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
-                    ccLog('shape: frameUpdate dispatched', { mode: 'concentric' });
-                  } catch {}
+                    const activeLayerCanvasConcentric = activeLayer.colorCycleData.canvas;
+                    // Force immediate texture update and render to the layer's canvas
+                    brushEngine.updateColorCycleTexture();
+
+                    // Get the color cycle brush and render directly to the layer's canvas
+                    const colorCycleBrushManager = getColorCycleBrushManager();
+                    const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayerId);
+                    if (colorCycleBrush) {
+                      // Render directly to the layer's canvas to ensure it's updated
+                      colorCycleBrush.renderDirectToCanvas(activeLayerCanvasConcentric, activeLayerId);
+                    }
+
+                    // Now render from the layer's canvas to the drawing canvas for display
+                    drawCtx.clearRect(0, 0, drawingCanvasRef.current?.width || 0, drawingCanvasRef.current?.height || 0);
+                    drawingCanvasHasContent.current = false;
+                    drawCtx.globalAlpha = 1.0; // Full opacity for finalization
+                    drawCtx.globalCompositeOperation = 'source-over';
+                    drawCtx.drawImage(activeLayerCanvasConcentric, 0, 0);
+
+                    try {
+                      window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
+                      ccLog('shape: frameUpdate dispatched', { mode: 'concentric' });
+                    } catch {}
+
+                    if (shapeLayerId) {
+                      const shapeCaptureRoi = FF.CC_CAPTURE_ROI
+                        ? captureRegionFromPoints(shapePointsRef.current, ROI_PADDING_PX, project)
+                        : undefined;
+                      ccLog('shape: wrote CC canvas', { mode: 'concentric', layerId: shapeLayerIdString.slice(-6) });
+                      debugTime('cc:state-serialize-after');
+                      let afterColorState: ColorCycleSerializedState | null = null;
+                      try {
+                        afterColorState = captureColorCycleBrushState(shapeLayerIdString);
+                      } finally {
+                        debugTimeEnd('cc:state-serialize-after');
+                      }
+                      scheduleDeferredColorCycleSave({
+                        layerId: shapeLayerIdString,
+                        canvas: activeLayerCanvasConcentric,
+                        beforeColorState: shapeBeforeColorState,
+                        afterColorState,
+                        actionType: 'fill',
+                        description: 'CC Shape',
+                        tool: tools.currentTool,
+                        coalesce: undefined,
+                        beforeImage: null,
+                        skipBitmapDelta: true,
+                        roi: shapeCaptureRoi,
+                      });
+                    }
+                  } finally {
+                    debugTimeEnd('cc:visible-finalize');
+                  }
                 }
                 
-                drawingCanvasHasContent.current = true;
+                handledColorCycleShape = handledColorCycleShape || Boolean(activeLayerId && activeLayer?.colorCycleData?.canvas);
+                drawingCanvasHasContent.current = false;
               }
             }
           }
           
-          drawingCanvasHasContent.current = true;
+          drawingCanvasHasContent.current = false;
         }
         
         // Only clear shape points if we're NOT in direction selection mode
@@ -2622,7 +2991,7 @@ export function useDrawingHandlers({
         const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
         const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
         
-        if (isColorCycleLayer && drawingCanvasHasContent.current) {
+        if (isColorCycleLayer && handledColorCycleShape) {
           // For CC layers, the save already happened after drawing the shape
           // No need to save again here
 
@@ -2641,15 +3010,17 @@ export function useDrawingHandlers({
         const currentLayer = useAppStore.getState().layers.find(l => l.id === useAppStore.getState().activeLayerId);
         const drawingCanvas = drawingCanvasRef.current;
         if (drawingCanvas && currentLayer && currentLayer.layerType !== 'color-cycle') {
-          await captureCanvasToActiveLayer(drawingCanvas);
-          await commitLayerHistory({
-            layerId: currentLayer.id,
-            beforeImage: shapeBeforeImage,
-            beforeColorState: shapeBeforeColorState,
-            actionType: 'fill',
-            description: 'Shape Fill',
-            tool: tools.currentTool,
-          });
+          await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
+          await withTiming('cc:commit', () =>
+            commitLayerHistory({
+              layerId: currentLayer.id,
+              beforeImage: shapeBeforeImage,
+              beforeColorState: shapeBeforeColorState,
+              actionType: 'fill',
+              description: 'Shape Fill',
+              tool: tools.currentTool,
+            })
+          );
           drawingCanvasHasContent.current = false;
           if (drawingCtxRef.current) {
             drawingCtxRef.current.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
@@ -3260,11 +3631,13 @@ export function useDrawingHandlers({
 
   // DEBUG ONLY
   const stopContinuousColorCycleAnimation = useCallback((reason = 'unknown') => {
-    try {
-      console.groupCollapsed('[CC:TRACE] stopContinuousColorCycleAnimation', { reason });
-      console.log(new Error('stopContinuousColorCycleAnimation').stack);
-      console.groupEnd();
-    } catch {}
+    if (CC_DEBUG.on) {
+      try {
+        console.groupCollapsed('[CC:TRACE] stopContinuousColorCycleAnimation', { reason });
+        console.log(new Error('stopContinuousColorCycleAnimation').stack);
+        console.groupEnd();
+      } catch {}
+    }
     return stopContinuousColorCycleAnimationCore(reason);
   }, [stopContinuousColorCycleAnimationCore]);
 

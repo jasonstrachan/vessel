@@ -4,13 +4,66 @@ type ScopedConsole = typeof console;
 
 const resolveConsole = (): ScopedConsole => console;
 
+const resolveInitialDebugState = (): boolean => {
+  if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_CC_DEBUG === '1') {
+    return true;
+  }
+
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  if (window.__CC_DEBUG__ === true) {
+    return true;
+  }
+
+  try {
+    return window.localStorage.getItem('ccDebug') === '1';
+  } catch {
+    return false;
+  }
+};
+
 export const CC_DEBUG: { on: boolean } = (() => {
   const globalScope = globalThis as Record<string, unknown>;
   if (!globalScope.CC_DEBUG) {
-    globalScope.CC_DEBUG = { on: true };
+    globalScope.CC_DEBUG = { on: resolveInitialDebugState() };
   }
   return globalScope.CC_DEBUG as { on: boolean };
 })();
+
+const persistDebugPreference = (enabled: boolean) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    if (enabled) {
+      window.localStorage.setItem('ccDebug', '1');
+    } else {
+      window.localStorage.removeItem('ccDebug');
+    }
+  } catch {}
+};
+
+if (typeof window !== 'undefined') {
+  try {
+    Object.defineProperty(window, '__CC_DEBUG__', {
+      configurable: true,
+      get() {
+        return CC_DEBUG.on;
+      },
+      set(value: unknown) {
+        CC_DEBUG.on = Boolean(value);
+        persistDebugPreference(CC_DEBUG.on);
+      }
+    });
+  } catch {
+    window.__CC_DEBUG__ = CC_DEBUG.on;
+  }
+
+  (window as Record<string, unknown>).CC_DEBUG = CC_DEBUG;
+}
 
 let sequence = 0;
 
