@@ -391,6 +391,7 @@ export type CCReason =
   | 'layer-switch'
   | 'startup'
   | 'store-sync'
+  | 'auto-start'
   | 'shape-tool-start'
   | 'shape-tool-drag'
   | 'pointer-drag'
@@ -1426,7 +1427,7 @@ export const useAppStore = create<AppState>()(
       }),
 
       colorCyclePlayback: {
-        desiredPlaying: true,
+        desiredPlaying: false,
         suspendDepth: 0,
         lastReason: 'startup',
         recentReasons: SHOULD_TRACK_COLOR_CYCLE_REASONS ? [] : undefined

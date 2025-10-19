@@ -2,7 +2,7 @@
 
 import React from 'react';
 import ProgressSlider from '@/components/ui/ProgressSlider';
-import { useAppStore } from '@/stores/useAppStore';
+import { useAppStore, selectEffectiveColorCyclePlaying } from '@/stores/useAppStore';
 
 const AnimationControlsPanel: React.FC = () => {
   const layers = useAppStore(state => state.layers);
@@ -15,7 +15,7 @@ const AnimationControlsPanel: React.FC = () => {
   const suspendDepth = useAppStore(state => state.colorCyclePlayback.suspendDepth);
   const playColorCycle = useAppStore(state => state.playColorCycle);
   const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
-  const effectivePlaying = desiredPlaying && suspendDepth === 0;
+  const effectivePlaying = useAppStore(selectEffectiveColorCyclePlaying);
   const isSuspended = desiredPlaying && suspendDepth > 0;
 
   const activeLayer = React.useMemo(

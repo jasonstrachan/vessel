@@ -202,7 +202,14 @@ export function useDrawingHandlers({
   const getCCStampTargetCtx = useCallback((): CanvasRenderingContext2D | null => {
     const st = useAppStore.getState();
     const layer = st.layers.find(l => l.id === st.activeLayerId);
-    const layerCanvas = layer?.colorCycleData?.canvas;
+    let layerCanvas = layer?.colorCycleData?.canvas;
+
+    if (!layerCanvas && layer?.layerType === 'color-cycle' && st.project) {
+      try {
+        st.initColorCycleForLayer(layer.id, st.project.width, st.project.height);
+      } catch {}
+      layerCanvas = st.layers.find(l => l.id === st.activeLayerId)?.colorCycleData?.canvas;
+    }
 
     if (layerCanvas) {
       const layerCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
@@ -787,41 +794,42 @@ export function useDrawingHandlers({
         
         // Check gradient compatibility for CC layers
         if (isStandardColorCycleBrush && isColorCycleLayer) {
-          // Ensure the CC layer has Canvas2D brush initialized
           const colorCycleBrushManager = getColorCycleBrushManager();
           if (!colorCycleBrushManager.getBrush(activeLayer.id)) {
-            // Initialize it now if needed
             currentState.initColorCycleForLayer(activeLayer.id, project.width, project.height);
           }
-          
+
           const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
           const layerGradient = activeLayer.colorCycleData?.gradient;
-          
-          
-          // Only check gradient compatibility if both exist
-          // If brush has no gradient, allow it to use the layer's gradient
-          if (brushGradient && layerGradient) {
-            // Compare gradients
-            const gradientsMatch = JSON.stringify(brushGradient) === JSON.stringify(layerGradient);
-            if (!gradientsMatch) {
-              if (feedbackMessageRef.current) {
-                feedbackMessageRef.current("This layer uses a different gradient");
-              }
-              return; // Block drawing
-            }
+          if (brushGradient && (!layerGradient || JSON.stringify(brushGradient) !== JSON.stringify(layerGradient))) {
+            try {
+              currentState.updateLayer(activeLayer.id, {
+                colorCycleData: {
+                  ...(activeLayer.colorCycleData ?? {}),
+                  gradient: brushGradient
+                }
+              });
+            } catch {}
+            try {
+              brushEngine.updateColorCycleGradient?.(brushGradient);
+            } catch {}
           }
         }
         if (isCustomColorCycleBrush && isColorCycleLayer) {
           const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
           const layerGradient = activeLayer.colorCycleData?.gradient;
-          if (brushGradient && layerGradient) {
-            const gradientsMatch = JSON.stringify(brushGradient) === JSON.stringify(layerGradient);
-            if (!gradientsMatch) {
-              if (feedbackMessageRef.current) {
-                feedbackMessageRef.current("This layer uses a different gradient");
-              }
-              return;
-            }
+          if (brushGradient && (!layerGradient || JSON.stringify(brushGradient) !== JSON.stringify(layerGradient))) {
+            try {
+              currentState.updateLayer(activeLayer.id, {
+                colorCycleData: {
+                  ...(activeLayer.colorCycleData ?? {}),
+                  gradient: brushGradient
+                }
+              });
+            } catch {}
+            try {
+              brushEngine.updateColorCycleGradient?.(brushGradient);
+            } catch {}
           }
         }
       }
@@ -837,6 +845,40 @@ export function useDrawingHandlers({
       if (!colorCycleBrushManager.getBrush(activeLayerForCapture.id)) {
         currentState.initColorCycleForLayer(activeLayerForCapture.id, project.width, project.height);
       }
+
+      try {
+        const refreshedState = useAppStore.getState();
+        const refreshedLayer = refreshedState.layers.find(l => l.id === refreshedState.activeLayerId);
+        const brushGradient = refreshedState.tools.brushSettings.colorCycleGradient;
+        if (refreshedLayer?.layerType === 'color-cycle' && brushGradient) {
+          const existingGradient = refreshedLayer.colorCycleData?.gradient;
+          if (!existingGradient || JSON.stringify(existingGradient) !== JSON.stringify(brushGradient)) {
+            refreshedState.updateLayer(refreshedLayer.id, {
+              colorCycleData: {
+                ...(refreshedLayer.colorCycleData ?? {}),
+                gradient: brushGradient
+              }
+            });
+            try {
+              brushEngine.updateColorCycleGradient?.(brushGradient);
+            } catch {}
+          }
+        }
+
+        const desiredPlaying = selectColorCycleDesiredPlaying(refreshedState);
+        const effectivePlaying = selectEffectiveColorCyclePlaying(refreshedState);
+        const lastReason = refreshedState.colorCyclePlayback.lastReason;
+        if (!desiredPlaying && !effectivePlaying && (lastReason === 'startup' || lastReason === 'auto-start')) {
+          refreshedState.playColorCycle('auto-start');
+        }
+
+        const rafAlive = typeof window !== 'undefined' && (window as any).__ccRafAlive === true;
+        const postState = useAppStore.getState();
+        const shouldBePlaying = selectEffectiveColorCyclePlaying(postState);
+        if (shouldBePlaying && !rafAlive) {
+          Promise.resolve().then(() => startPlaybackRef.current?.('stroke-start'));
+        }
+      } catch {}
     }
 
     if (activeLayerForCapture && isColorCycleLayerWithData(activeLayerForCapture)) {
@@ -913,12 +955,7 @@ export function useDrawingHandlers({
     if (!drawCtx || !drawingCanvasRef.current || !project) return;
       
     drawCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-    if (ccFlags.isAny && colorCyclePlayingAtStrokeStart) {
-      // Preserve overlay visibility while global CC playback is active.
-      drawingCanvasHasContent.current = true;
-    } else {
-      drawingCanvasHasContent.current = !(ccFlags.isAny && colorCyclePlayingAtStrokeStart);
-    }
+    drawingCanvasHasContent.current = !(ccFlags.isAny && colorCyclePlayingAtStrokeStart);
     lastDrawPosRef.current = worldPos;
     
     if (currentTool === 'eraser') {
@@ -963,7 +1000,17 @@ export function useDrawingHandlers({
             JSON.stringify(brushGradient) === JSON.stringify(layerGradient);
 
           if (!gradientsMatch) {
-            return;
+            try {
+              currentState.updateLayer(activeLayer.id, {
+                colorCycleData: {
+                  ...(activeLayer.colorCycleData ?? {}),
+                  gradient: brushGradient
+                }
+              });
+            } catch {}
+            try {
+              brushEngine.updateColorCycleGradient?.(brushGradient);
+            } catch {}
           }
 
           const spacing = currentState.tools.brushSettings.spacing || 1;
@@ -3116,7 +3163,9 @@ export function useDrawingHandlers({
     }
 
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    if (now - lastStopAtRef.current < STOP_COOLDOWN_MS) {
+    const bypassCooldown =
+      reason === 'store-sync' || reason === 'toolbar';
+    if (!bypassCooldown && now - lastStopAtRef.current < STOP_COOLDOWN_MS) {
       ccLog('stopContinuousColorCycleAnimation skipped (cooldown)', {
         reason,
         sinceLast: now - lastStopAtRef.current
@@ -3196,6 +3245,17 @@ export function useDrawingHandlers({
       ccLog('dispatched colorCycleFrameUpdate', { reason });
     } catch {}
     ccGroupEnd();
+
+    if (reason === 'store-sync' || reason === 'toolbar') {
+      try {
+        const st = useAppStore.getState();
+        const depth = selectColorCycleSuspendDepth(st);
+        if (depth > 0) {
+          st.forceResumeColorCycle('toolbar');
+        }
+        st.pauseColorCycle?.('toolbar');
+      } catch {}
+    }
   }, [pauseAllBrushCCAnimationsNow]);
 
   // DEBUG ONLY
