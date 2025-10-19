@@ -114,7 +114,7 @@ const isContourDebugEnabled = () => {
   } catch {
     // ignore storage issues
   }
-  const fallback = process.env.NODE_ENV !== 'production';
+  const fallback = false;
   globalAny.__CONTOUR_DEBUG = fallback;
   return fallback;
 };
@@ -140,10 +140,10 @@ const ensureContourDebugBridge = () => {
       if (stored != null) {
         globalAny.__CONTOUR_DEBUG = stored === '1';
       } else {
-        globalAny.__CONTOUR_DEBUG = process.env.NODE_ENV !== 'production';
+        globalAny.__CONTOUR_DEBUG = false;
       }
     } catch {
-      globalAny.__CONTOUR_DEBUG = process.env.NODE_ENV !== 'production';
+      globalAny.__CONTOUR_DEBUG = false;
     }
   }
 };

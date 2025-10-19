@@ -28,16 +28,30 @@ import {
 import { ConfirmationDialog } from './dialogs/ConfirmationDialog';
 // Performance indicator removed from UI
 
+type GradientStop = { position: number; color: string };
+
+const cloneStops = (stops?: Array<{ position: number; color: string }> | null): GradientStop[] =>
+  (stops ?? DEFAULT_GRADIENT_STOPS).map((stop) => ({ position: stop.position, color: stop.color }));
+
+const applyBrushGradient = (stops: GradientStop[]) => {
+  const store = useAppStore.getState();
+  store.setBrushSettings({ colorCycleGradient: stops.map((stop) => ({ position: stop.position, color: stop.color })) });
+};
+
 export interface RecolorPanelProps {
   activeLayer: Layer | null;
   isVisible: boolean;
   onError?: (error: string) => void;
+  onCommit?: (gradient: Array<{ position: number; color: string }>) => void;
+  onCancel?: () => void;
 }
 
 export const RecolorPanel: React.FC<RecolorPanelProps> = ({
   activeLayer,
   isVisible,
-  onError
+  onError,
+  onCommit,
+  onCancel
 }) => {
   // Use custom state management hook
   const {
@@ -73,9 +87,80 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     mappingMode: 'banded' as 'banded' | 'continuous',
     flowMapping: 'palette' as 'palette' | 'directional' | 'luminance'
   });
-  const [plannedGradient, setPlannedGradient] = useState<Array<{ position: number; color: string }>>(
-    DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop }))
+  const [plannedGradient, setPlannedGradient] = useState<GradientStop[]>(() => cloneStops(DEFAULT_GRADIENT_STOPS));
+
+  const originalGradientRef = useRef<GradientStop[] | null>(null);
+  const latestPreviewRef = useRef<GradientStop[] | null>(null);
+  const hasPendingChangesRef = useRef(false);
+  const cancelTriggeredRef = useRef(false);
+  const wasVisibleRef = useRef(false);
+  const originalLayerIdRef = useRef<string | null>(null);
+  const originalModeRef = useRef<string | null>(null);
+
+  const activeLayerId = activeLayer?.id ?? null;
+  const activeLayerMode = activeLayer?.colorCycleData?.mode ?? null;
+
+  const commitGradientForLayer = useCallback(
+    (layerId: string, stops: GradientStop[]) => {
+      const stateSnapshot = useAppStore.getState();
+      const targetLayer = stateSnapshot.layers.find((layer) => layer.id === layerId);
+      if (!targetLayer) {
+        return;
+      }
+
+      if (targetLayer.colorCycleData?.mode === 'recolor') {
+        updateGradient(targetLayer, cloneStops(stops));
+      }
+
+      applyBrushGradient(stops);
+    },
+    [updateGradient]
   );
+
+  useEffect(() => {
+    if (!isVisible) {
+      wasVisibleRef.current = false;
+      return;
+    }
+
+    if (!activeLayerId) {
+      hasPendingChangesRef.current = false;
+      cancelTriggeredRef.current = false;
+      originalGradientRef.current = null;
+      latestPreviewRef.current = null;
+      originalLayerIdRef.current = null;
+      originalModeRef.current = null;
+      return;
+    }
+
+    const shouldReset =
+      !wasVisibleRef.current ||
+      originalLayerIdRef.current !== activeLayerId ||
+      originalModeRef.current !== activeLayerMode;
+
+    if (shouldReset) {
+      const stateSnapshot = useAppStore.getState();
+      const layer = stateSnapshot.layers.find((l) => l.id === activeLayerId);
+      const baseStops =
+        (layer?.colorCycleData?.mode === 'recolor'
+          ? layer.colorCycleData?.recolorSettings?.gradient
+          : layer?.colorCycleData?.gradient) ?? DEFAULT_GRADIENT_STOPS;
+
+      const cloned = cloneStops(baseStops);
+      originalGradientRef.current = cloned;
+      latestPreviewRef.current = cloned.map((stop) => ({ ...stop }));
+      hasPendingChangesRef.current = false;
+      cancelTriggeredRef.current = false;
+      originalLayerIdRef.current = activeLayerId;
+      originalModeRef.current = activeLayerMode;
+
+      if (!isRecolorEnabled) {
+        setPlannedGradient(cloned);
+      }
+    }
+
+    wasVisibleRef.current = true;
+  }, [isVisible, activeLayerId, activeLayerMode, isRecolorEnabled]);
 
   // Keep planned settings synced with active recolor layer when available
   useEffect(() => {
@@ -105,12 +190,12 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
 
   const scheduleRecolorGradientUpdate = useCallback(
     (stops: Array<{ position: number; color: string }>, immediate = false) => {
-      if (!activeLayer || !activeLayer.id) {
+      if (!activeLayerId) {
         return;
       }
       recolorGradientPendingRef.current = {
-        stops: stops.map(stop => ({ ...stop })),
-        layerId: activeLayer.id
+        stops: cloneStops(stops),
+        layerId: activeLayerId
       };
 
       if (recolorGradientTimerRef.current) {
@@ -122,16 +207,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
         recolorGradientTimerRef.current = null;
         const pending = recolorGradientPendingRef.current;
         if (!pending) return;
-        const stateSnapshot = useAppStore.getState();
-        const layer = stateSnapshot.layers.find(l => l.id === pending.layerId);
-        if (!layer) return;
-
-        const clonedStops = pending.stops.map(stop => ({ ...stop }));
-        updateGradient(layer, clonedStops);
-
-        if (stateSnapshot.tools.currentTool !== 'recolor') {
-          stateSnapshot.setBrushSettings({ colorCycleGradient: clonedStops });
-        }
+        commitGradientForLayer(pending.layerId, pending.stops);
         recolorGradientPendingRef.current = null;
       };
 
@@ -142,7 +218,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
 
       recolorGradientTimerRef.current = setTimeout(flush, 80);
     },
-    [activeLayer, updateGradient]
+    [activeLayerId, commitGradientForLayer]
   );
 
   useEffect(() => {
@@ -152,20 +228,12 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
         recolorGradientTimerRef.current = null;
         const pending = recolorGradientPendingRef.current;
         if (pending) {
-          const stateSnapshot = useAppStore.getState();
-          const layer = stateSnapshot.layers.find(l => l.id === pending.layerId);
-          if (layer) {
-            const clonedStops = pending.stops.map(stop => ({ ...stop }));
-            updateGradient(layer, clonedStops);
-            if (stateSnapshot.tools.currentTool !== 'recolor') {
-              stateSnapshot.setBrushSettings({ colorCycleGradient: clonedStops });
-            }
-          }
+          commitGradientForLayer(pending.layerId, pending.stops);
           recolorGradientPendingRef.current = null;
         }
       }
     };
-  }, [updateGradient]);
+  }, [commitGradientForLayer]);
 
   useEffect(() => {
     if (!activeLayer?.id) {
@@ -179,18 +247,69 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     ) {
       clearTimeout(recolorGradientTimerRef.current);
       recolorGradientTimerRef.current = null;
-      const stateSnapshot = useAppStore.getState();
-      const layer = stateSnapshot.layers.find(l => l.id === pending.layerId);
-      if (layer) {
-        const clonedStops = pending.stops.map(stop => ({ ...stop }));
-        updateGradient(layer, clonedStops);
-        if (stateSnapshot.tools.currentTool !== 'recolor') {
-          stateSnapshot.setBrushSettings({ colorCycleGradient: clonedStops });
-        }
-      }
+      commitGradientForLayer(pending.layerId, pending.stops);
       recolorGradientPendingRef.current = null;
     }
-  }, [activeLayer?.id, updateGradient]);
+  }, [activeLayer?.id, commitGradientForLayer]);
+
+  const revertToOriginal = useCallback(() => {
+    if (!activeLayerId || !originalGradientRef.current) {
+      return;
+    }
+
+    if (recolorGradientTimerRef.current) {
+      clearTimeout(recolorGradientTimerRef.current);
+      recolorGradientTimerRef.current = null;
+    }
+    recolorGradientPendingRef.current = null;
+
+    const originalStops = cloneStops(originalGradientRef.current);
+    commitGradientForLayer(activeLayerId, originalStops);
+
+    if (!isRecolorEnabled) {
+      setPlannedGradient(originalStops);
+    }
+
+    hasPendingChangesRef.current = false;
+    latestPreviewRef.current = originalStops.map((stop) => ({ ...stop }));
+    cancelTriggeredRef.current = true;
+  }, [activeLayerId, commitGradientForLayer, isRecolorEnabled]);
+
+  useEffect(() => {
+    if (!isVisible) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (hasPendingChangesRef.current) {
+          revertToOriginal();
+        }
+        onCancel?.();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    };
+  }, [isVisible, onCancel, revertToOriginal]);
+
+  useEffect(() => {
+    if (!wasVisibleRef.current) {
+      return;
+    }
+
+    if (!isVisible) {
+      wasVisibleRef.current = false;
+      if (!cancelTriggeredRef.current && hasPendingChangesRef.current && latestPreviewRef.current) {
+        onCommit?.(cloneStops(latestPreviewRef.current));
+      }
+      cancelTriggeredRef.current = false;
+      hasPendingChangesRef.current = false;
+    }
+  }, [isVisible, onCommit]);
 
   // Keyboard shortcuts
   const shortcutHandlers = useMemo(() => ({
@@ -314,16 +433,22 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
             stops={isRecolorEnabled ? (recolorSettings?.gradient || []) : plannedGradient}
             onChange={async (stops) => {
               if (!activeLayer) return;
+
+              const clonedStops = cloneStops(stops);
+              hasPendingChangesRef.current = true;
+              cancelTriggeredRef.current = false;
+              latestPreviewRef.current = clonedStops.map((stop) => ({ ...stop }));
+
               if (isRecolorEnabled) {
-                scheduleRecolorGradientUpdate(stops);
+                scheduleRecolorGradientUpdate(clonedStops);
               } else {
-                setPlannedGradient(stops);
+                setPlannedGradient(clonedStops);
                 const ok = await processLayer(activeLayer, {
                   quantizationMode: 'rgb332',
                   ditherMode: 'off',
                   cycleColors: plannedSettings.cycleColors,
                   gradientPreset: 'custom',
-                  customGradient: stops
+                  customGradient: clonedStops
                 });
                 if (ok) {
                   updateLayerSpeed(activeLayer.id, plannedSettings.speed);
@@ -336,7 +461,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
               }
               const store = useAppStore.getState();
               if (store.tools.currentTool !== 'recolor') {
-                store.setBrushSettings({ colorCycleGradient: stops });
+                store.setBrushSettings({ colorCycleGradient: clonedStops });
               }
             }}
           />

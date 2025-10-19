@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useCallback, useState } from "react";
+import Input from "./Input";
 
 interface ColorPickerProps {
   color: string;
@@ -95,6 +96,7 @@ export default function ColorPicker({
 
   const hsv = hexToHsv(color);
   const [currentHsv, setCurrentHsv] = useState(hsv);
+  const [hexValue, setHexValue] = useState(color.toUpperCase());
 
   // Cache for SV gradient
   const svImageDataCache = useRef<Map<number, ImageData>>(new Map());
@@ -221,6 +223,7 @@ export default function ColorPicker({
   useEffect(() => {
     const newHsv = hexToHsv(color);
     setCurrentHsv(newHsv);
+    setHexValue(color.toUpperCase());
   }, [color]);
 
   useEffect(() => {
@@ -264,11 +267,63 @@ export default function ColorPicker({
 
   const updateColor = useCallback(
     (newHsv: HSV) => {
-      const hex = hsvToHex(newHsv.h, newHsv.s, newHsv.v);
+      const hex = hsvToHex(newHsv.h, newHsv.s, newHsv.v).toUpperCase();
       setCurrentHsv(newHsv);
+      setHexValue(hex);
       onChange(hex);
     },
     [onChange],
+  );
+
+  const applyHex = useCallback(
+    (hex: string) => {
+      const normalized = hex.trim().toUpperCase();
+      if (!/^#[0-9A-F]{6}$/.test(normalized)) {
+        return;
+      }
+      const nextHsv = hexToHsv(normalized);
+      setCurrentHsv(nextHsv);
+      setHexValue(normalized);
+      onChange(normalized);
+    },
+    [onChange],
+  );
+
+  const sanitizeHexInput = (value: string) => {
+    const trimmed = value.trim().replace(/^#+/, '');
+    const filtered = trimmed.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
+    return `#${filtered}`.toUpperCase();
+  };
+
+  const handleHexInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const next = sanitizeHexInput(event.target.value);
+      setHexValue(next);
+      if (next.length === 7) {
+        applyHex(next);
+      }
+    },
+    [applyHex],
+  );
+
+  const handleHexInputBlur = useCallback(() => {
+    if (!/^#[0-9A-F]{6}$/.test(hexValue)) {
+      setHexValue(color.toUpperCase());
+    }
+  }, [hexValue, color]);
+
+  const handleHexInputKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        applyHex(hexValue);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        setHexValue(color.toUpperCase());
+        (event.currentTarget as HTMLInputElement).blur();
+      }
+    },
+    [applyHex, hexValue, color],
   );
 
   const handleSVPointerDown = useCallback(
@@ -396,28 +451,44 @@ export default function ColorPicker({
   return (
     <div
       ref={containerRef}
-      className={`flex w-full items-start justify-start gap-0 ${className}`}
+      className={`flex w-full flex-col gap-2 ${className}`}
     >
-      <canvas
-        ref={svCanvasRef}
-        width={svSize}
-        height={svSize}
-        className="cursor-crosshair"
-        onPointerDown={handleSVPointerDown}
-        onPointerMove={handleSVPointerMove}
-        onPointerUp={handleSVPointerUp}
-        style={{ touchAction: "none", display: 'block' }}
-      />
-      <canvas
-        ref={hueCanvasRef}
-        width={hueWidth}
-        height={svSize}
-        className="cursor-pointer"
-        onPointerDown={handleHuePointerDown}
-        onPointerMove={handleHuePointerMove}
-        onPointerUp={handleHuePointerUp}
-        style={{ touchAction: "none", display: 'block' }}
-      />
+      <div className="flex w-full items-start justify-start gap-0">
+        <canvas
+          ref={svCanvasRef}
+          width={svSize}
+          height={svSize}
+          className="cursor-crosshair"
+          onPointerDown={handleSVPointerDown}
+          onPointerMove={handleSVPointerMove}
+          onPointerUp={handleSVPointerUp}
+          style={{ touchAction: "none", display: 'block' }}
+        />
+        <canvas
+          ref={hueCanvasRef}
+          width={hueWidth}
+          height={svSize}
+          className="cursor-pointer"
+          onPointerDown={handleHuePointerDown}
+          onPointerMove={handleHuePointerMove}
+          onPointerUp={handleHuePointerUp}
+          style={{ touchAction: "none", display: 'block' }}
+        />
+      </div>
+      <div className="flex items-center gap-2 text-xs text-[#CCCCCC]">
+        <span className="uppercase tracking-wide">Hex</span>
+        <Input
+          value={hexValue}
+          onChange={handleHexInputChange}
+          onBlur={handleHexInputBlur}
+          onKeyDown={handleHexInputKeyDown}
+          placeholder="#RRGGBB"
+          maxLength={7}
+          variant="hex"
+          spellCheck={false}
+          className="bg-[#1F1F1F] border-[#444] text-[#F0F0F0] focus:border-[#888]"
+        />
+      </div>
     </div>
   );
 }

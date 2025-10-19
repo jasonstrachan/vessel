@@ -100,8 +100,6 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   // Suspend global/canvas shortcuts while gradient editor is focused
   useKeyboardScope('gradient', hasFocus);
   const colorInputRef = useRef<HTMLInputElement>(null);
-  const [hexInput, setHexInput] = useState<string>('');
-  const [isHexDirty, setIsHexDirty] = useState(false);
 
   // Local undo/redo stacks (editor-scoped)
   const undoStackRef = useRef<GradientStop[][]>([]);
@@ -219,22 +217,6 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     }
   }, [initialStops, sampleTarget, stopsSignature]);
 
-  useEffect(() => {
-    if (selectedStop === null) {
-      setHexInput('');
-      setIsHexDirty(false);
-      return;
-    }
-    const stop = stops[selectedStop];
-    if (!stop) {
-      setHexInput('');
-      setIsHexDirty(false);
-      return;
-    }
-    setHexInput(stop.color.toUpperCase());
-    setIsHexDirty(false);
-  }, [selectedStop, stops]);
-  
   // Update saved gradient when stops change without triggering recursive renders
   useEffect(() => {
     if (!selectedGradientId || stops.length === 0) return;
@@ -303,8 +285,6 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     newStops[selectedStop].color = e.target.value;
     setStops(newStops);
     onChange(newStops);
-    setHexInput(e.target.value.toUpperCase());
-    setIsHexDirty(false);
   }, [selectedStop, stops, onChange, pushUndo]);
 
   const handleStopMouseDown = useCallback((index: number, e: React.MouseEvent) => {
@@ -376,40 +356,6 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     setSelectedStop(sel);
     onChange(newStops);
   }, [stops, onChange, pushUndo]);
-
-  const revertHexInput = useCallback(() => {
-    if (selectedStop === null) {
-      setHexInput('');
-      setIsHexDirty(false);
-      return;
-    }
-    const stop = stops[selectedStop];
-    if (!stop) return;
-    setHexInput(stop.color.toUpperCase());
-    setIsHexDirty(false);
-  }, [selectedStop, stops]);
-
-  const commitHexInput = useCallback(() => {
-    if (selectedStop === null) return false;
-    const normalized = hexInput.trim().toUpperCase();
-    if (!/^#[0-9A-F]{6}$/.test(normalized)) {
-      return false;
-    }
-    const current = stops[selectedStop];
-    if (current && current.color.toUpperCase() === normalized) {
-      setHexInput(normalized);
-      setIsHexDirty(false);
-      return true;
-    }
-    pushUndo(stops);
-    const newStops = [...stops];
-    newStops[selectedStop].color = normalized;
-    setStops(newStops);
-    onChange(newStops);
-    setHexInput(normalized);
-    setIsHexDirty(false);
-    return true;
-  }, [hexInput, onChange, pushUndo, selectedStop, stops]);
 
   // Keyboard: Delete/Backspace removes selected stop (keep at least 2)
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -762,62 +708,6 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
           height: '1px'
         }}
       />
-
-      {selectedStop !== null && stops[selectedStop] ? (
-        <div className="flex items-center gap-2 text-xs text-[#CCCCCC] mt-2">
-          <span className="uppercase tracking-wide">Hex</span>
-          <input
-            value={hexInput}
-            onChange={(event) => {
-              let raw = event.target.value.trim();
-              if (!raw.startsWith('#')) {
-                raw = `#${raw}`;
-              }
-              raw = `#${raw
-                .slice(1)
-                .replace(/[^0-9a-fA-F]/g, '')
-                .slice(0, 6)
-                .toUpperCase()}`;
-              setHexInput(raw);
-              setIsHexDirty(true);
-            }}
-            onBlur={() => {
-              if (!isHexDirty) return;
-              if (!commitHexInput()) {
-                revertHexInput();
-              }
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                if (!commitHexInput()) {
-                  revertHexInput();
-                }
-              } else if (event.key === 'Escape') {
-                event.preventDefault();
-                revertHexInput();
-                (event.target as HTMLInputElement).blur();
-              }
-            }}
-            spellCheck={false}
-            className="bg-[#1F1F1F] border border-[#444] rounded px-2 py-1 text-[#F0F0F0] font-mono tracking-widest uppercase focus:outline-none focus:border-[#888]"
-            placeholder="#RRGGBB"
-            maxLength={7}
-          />
-          <button
-            type="button"
-            onClick={() => {
-              if (!commitHexInput()) {
-                revertHexInput();
-              }
-            }}
-            className="px-2 py-1 bg-[#3A3A3A] hover:bg-[#4A4A4A] rounded text-[#EAEAEA] transition-colors"
-          >
-            Apply
-          </button>
-        </div>
-      ) : null}
-
       {/* Controls removed per request */}
     </div>
   );

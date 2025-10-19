@@ -2,6 +2,7 @@ type AnyFn = (...args: unknown[]) => unknown;
 
 export const CC_PERF = {
   on: true,
+  verbose: false,
   counters: {
     getImageDataCalls: 0,
     getImageDataMp: 0,
@@ -14,6 +15,53 @@ export const CC_PERF = {
 
 if (typeof process !== 'undefined' && process.env.NODE_ENV === 'production') {
   CC_PERF.on = false;
+}
+
+const VERBOSE_STORAGE_KEY = 'vessel:cc-perf-verbose';
+
+function resolveVerboseFlag(explicit?: boolean) {
+  if (typeof explicit === 'boolean') {
+    return explicit;
+  }
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  try {
+    const stored = window.localStorage?.getItem(VERBOSE_STORAGE_KEY);
+    if (stored === null) {
+      return false;
+    }
+    return stored === '1' || stored === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function persistVerboseFlag(value: boolean) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.localStorage?.setItem(VERBOSE_STORAGE_KEY, value ? '1' : '0');
+  } catch {
+    // ignore storage errors (e.g., private browsing)
+  }
+}
+
+function shouldLog() {
+  return CC_PERF.on && CC_PERF.verbose;
+}
+
+function perfLog(...args: Parameters<typeof console.log>) {
+  if (shouldLog()) {
+    console.log(...args);
+  }
+}
+
+function perfWarn(...args: Parameters<typeof console.warn>) {
+  if (shouldLog()) {
+    console.warn(...args);
+  }
 }
 
 export function perfMark(name: string) {
@@ -38,7 +86,7 @@ export async function timeAsync<T>(label: string, fn: () => Promise<T>): Promise
   try {
     return await fn();
   } finally {
-    console.log(`[perf] ${label}: ${(performance.now() - t0).toFixed(2)}ms`);
+    perfLog(`[perf] ${label}: ${(performance.now() - t0).toFixed(2)}ms`);
   }
 }
 
@@ -50,17 +98,17 @@ export function timeSync<T>(label: string, fn: () => T): T {
   try {
     return fn();
   } finally {
-    console.log(`[perf] ${label}: ${(performance.now() - t0).toFixed(2)}ms`);
+    perfLog(`[perf] ${label}: ${(performance.now() - t0).toFixed(2)}ms`);
   }
 }
 
 export function enableLongTaskObserver() {
   if (!CC_PERF.on || typeof window === 'undefined' || !('PerformanceObserver' in window)) return;
   try {
-    const po = new PerformanceObserver(list => {
+    const observer = new PerformanceObserver(list => {
       for (const entry of list.getEntries()) {
         const attribution = (entry as PerformanceEntry & { attribution?: unknown }).attribution;
-        console.warn('[longtask]', {
+        perfWarn('[longtask]', {
           name: entry.name,
           dur: `${entry.duration.toFixed(1)}ms`,
           start: entry.startTime.toFixed(1),
@@ -68,7 +116,13 @@ export function enableLongTaskObserver() {
         });
       }
     });
-    po.observe({ entryTypes: ['longtask'], buffered: true });
+    if (typeof PerformanceObserver !== 'undefined' && 'supportedEntryTypes' in PerformanceObserver) {
+      const supported = (PerformanceObserver as typeof PerformanceObserver & { supportedEntryTypes?: string[] }).supportedEntryTypes;
+      if (!supported || !supported.includes('longtask')) {
+        return;
+      }
+    }
+    observer.observe({ type: 'longtask', buffered: true });
   } catch {
     // ignore observer errors
   }
@@ -77,10 +131,10 @@ export function enableLongTaskObserver() {
 export function enableEventTiming() {
   if (!CC_PERF.on || typeof window === 'undefined' || !('PerformanceObserver' in window)) return;
   try {
-    const po = new PerformanceObserver(list => {
+    const observer = new PerformanceObserver(list => {
       for (const entry of list.getEntries() as PerformanceEventTiming[]) {
         if (entry.name === 'pointerup' || entry.name === 'click') {
-          console.log('[event]', entry.name, {
+          perfLog('[event]', entry.name, {
             dur: `${entry.duration?.toFixed(2)}ms`,
             processingStart: `${(entry.processingStart - entry.startTime).toFixed(2)}ms`,
             processingEnd: `${(entry.processingEnd - entry.processingStart).toFixed(2)}ms`,
@@ -89,7 +143,13 @@ export function enableEventTiming() {
         }
       }
     });
-    po.observe({ entryTypes: ['event'], buffered: true });
+    if (typeof PerformanceObserver !== 'undefined' && 'supportedEntryTypes' in PerformanceObserver) {
+      const supported = (PerformanceObserver as typeof PerformanceObserver & { supportedEntryTypes?: string[] }).supportedEntryTypes;
+      if (!supported || !supported.includes('event')) {
+        return;
+      }
+    }
+    observer.observe({ type: 'event', buffered: true, durationThreshold: 16 });
   } catch {
     // ignore observer errors
   }
@@ -113,7 +173,7 @@ function wrapMethod<T extends object, K extends keyof T>(
       const dt = performance.now() - t0;
       after?.(dt, args);
       if (dt > 16) {
-        console.log(`[perf] ${label} ${dt.toFixed(2)}ms`, { args });
+        perfLog(`[perf] ${label} ${dt.toFixed(2)}ms`, { args });
       }
     }
   };
@@ -135,7 +195,7 @@ export function wrapCanvasReadbacks() {
         CC_PERF.counters.getImageDataCalls += 1;
         CC_PERF.counters.getImageDataMp += mp;
         CC_PERF.counters.getImageDataMs += dt;
-        console.log('[perf] getImageData', {
+        perfLog('[perf] getImageData', {
           x,
           y,
           w,
@@ -160,7 +220,7 @@ export function wrapCanvasReadbacks() {
       undefined,
       (dt, args) => {
         const [x, y, w, h] = args as [number, number, number, number];
-        console.log('[perf] offscr.getImageData', { x, y, w, h, ms: dt.toFixed(2) });
+        perfLog('[perf] offscr.getImageData', { x, y, w, h, ms: dt.toFixed(2) });
       }
     );
   }
@@ -181,7 +241,7 @@ export function wrapAppHotspots(opts: {
         CC_PERF.counters.serializeMs += ms;
         if (ms > 8) {
           const [layerId] = args;
-          console.log('[perf] captureColorCycleBrushState', `${ms.toFixed(2)}ms`, {
+          perfLog('[perf] captureColorCycleBrushState', `${ms.toFixed(2)}ms`, {
             layerId: typeof layerId === 'string' ? layerId : undefined,
           });
         }
@@ -199,7 +259,7 @@ export function wrapAppHotspots(opts: {
         CC_PERF.counters.commits += 1;
         CC_PERF.counters.commitMs += ms;
         if (ms > 16) {
-          console.log('[perf] commitLayerHistory', `${ms.toFixed(2)}ms`, args[0]);
+          perfLog('[perf] commitLayerHistory', `${ms.toFixed(2)}ms`, args[0]);
         }
       }
     };
@@ -227,9 +287,16 @@ export function enableCCPerfProbe<
 >(globals?: {
   captureColorCycleBrushState?: Capture;
   commitLayerHistory?: Commit;
-}) {
+}, options?: { verbose?: boolean }) {
   if (!CC_PERF.on) {
     return globals;
+  }
+  CC_PERF.verbose = resolveVerboseFlag(options?.verbose);
+  if (typeof window !== 'undefined') {
+    (window as typeof window & { setCCPerfVerbose?: (value: boolean) => void }).setCCPerfVerbose = value => {
+      CC_PERF.verbose = value;
+      persistVerboseFlag(value);
+    };
   }
   enableLongTaskObserver();
   enableEventTiming();
@@ -244,6 +311,7 @@ export function enableCCPerfProbe<
         : undefined,
     });
   }
-  console.log('[perf] CC probe enabled');
+  perfLog('[perf] CC probe enabled');
+  persistVerboseFlag(CC_PERF.verbose);
   return globals;
 }
