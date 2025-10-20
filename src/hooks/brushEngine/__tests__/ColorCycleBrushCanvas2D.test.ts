@@ -1,4 +1,5 @@
 const setIndexSpy = jest.fn();
+const paintSquareSpy = jest.fn();
 
 jest.mock('../../../lib/ColorCycleAnimator', () => {
   return {
@@ -13,7 +14,9 @@ jest.mock('../../../lib/ColorCycleAnimator', () => {
 
       setGradient() {}
       resize() {}
-      paintSquare() {}
+      paintSquare(_x: number, _y: number, _brushSize: number, colorIndex?: number) {
+        paintSquareSpy(colorIndex);
+      }
       paint() {}
       paintLine() {}
       forceRender() {}
@@ -87,6 +90,7 @@ describe('ColorCycleBrushCanvas2D paintCustomStamp', () => {
 
   beforeEach(() => {
     setIndexSpy.mockClear();
+    paintSquareSpy.mockClear();
   });
 
   it('records setIndex calls for custom stamps', () => {
@@ -127,5 +131,29 @@ describe('ColorCycleBrushCanvas2D paintCustomStamp', () => {
     expect(firstCall.x).toBeGreaterThan(0);
     expect(firstCall.y).toBeGreaterThan(0);
     expect(firstCall.colorIndex).toBeGreaterThanOrEqual(1);
+  });
+
+  it('advances color indices across the full gradient range for short gradients', () => {
+    const baseCanvas = document.createElement('canvas');
+    baseCanvas.width = 64;
+    baseCanvas.height = 64;
+
+    const brush = new ColorCycleBrushCanvas2D(baseCanvas, { brushSize: 8, fps: 30 });
+    brush.setGradient(
+      [
+        { position: 0, color: '#112233' },
+        { position: 0.5, color: '#abcdef' },
+        { position: 1, color: '#112233' }
+      ],
+      'layer-short'
+    );
+    brush.setGradientBands(3);
+
+    brush.paint(8, 8, 'layer-short');
+    brush.paint(10, 10, 'layer-short');
+    brush.paint(12, 12, 'layer-short');
+
+    const indices = paintSquareSpy.mock.calls.map(call => call[0]);
+    expect(indices).toEqual([1, 128, 255]);
   });
 });

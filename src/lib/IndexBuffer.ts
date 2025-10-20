@@ -32,12 +32,17 @@ export class IndexBuffer {
    * Set the color palette for this buffer
    */
   setPalette(colors: string[]) {
-    // Always keep transparent at index 0
-    this.palette = ['rgba(0,0,0,0)', ...colors];
+    // Always keep transparent at index 0 and clamp to Uint8 capacity (0-255)
+    const limited = colors.length > 255 ? colors.slice(0, 255) : colors.slice();
+    if (colors.length > 255) {
+      // Ensure the final slot preserves the last gradient color
+      limited[limited.length - 1] = colors[colors.length - 1];
+    }
+    this.palette = ['rgba(0,0,0,0)', ...limited];
     // Clear cache when palette changes
     this.rgbaCache.clear();
     this.rgbaCache.set(0, [0, 0, 0, 0]);
-    
+
     // Don't pre-compute all colors - parse them lazily when needed
     // This avoids parsing 256 colors when gradient changes
     // Colors will be parsed on-demand during rendering
@@ -86,10 +91,19 @@ export class IndexBuffer {
       return 0; // Return transparent index
     }
     
+    if (color.trim().toLowerCase() === 'transparent') {
+      return 0;
+    }
+    
     // Check if color already exists
     const existingIndex = this.palette.indexOf(color);
     if (existingIndex !== -1) {
       return existingIndex;
+    }
+    
+    if (this.palette.length >= 256) {
+      // Palette is saturated; reuse the last non-transparent slot to avoid overflow
+      return 255;
     }
     
     // Add new color to palette

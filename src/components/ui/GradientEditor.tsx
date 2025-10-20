@@ -105,6 +105,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   const colorPickerUndoRef = useRef(false);
   const pendingGradientUpdateRef = useRef<number | null>(null);
   const pendingGradientStopsRef = useRef<GradientStop[] | null>(null);
+  const gradientHeightClass = sampleTarget === 'brush' ? 'h-4' : 'h-8';
 
   const flushPendingGradientUpdate = useCallback(() => {
     if (pendingGradientUpdateRef.current !== null) {
@@ -337,14 +338,22 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   const gradientString = (stops.length > 0
     ? stops
         .map(s => {
-          const opacity = s.opacity ?? 1;
-          const hex = s.color;
-          const r = parseInt(hex.slice(1, 3), 16);
-          const g = parseInt(hex.slice(3, 5), 16);
-          const b = parseInt(hex.slice(5, 7), 16);
-          return `rgba(${r}, ${g}, ${b}, ${opacity}) ${s.position * 100}%`;
-        })
-        .join(', ')
+        const colorValue = s.color ?? '#000000';
+        const isTransparentStop = typeof colorValue === 'string' && colorValue.toLowerCase() === 'transparent';
+        const opacity = typeof s.opacity === 'number' ? s.opacity : isTransparentStop ? 0 : 1;
+        let r = 0;
+        let g = 0;
+        let b = 0;
+
+        if (!isTransparentStop && /^#[0-9A-F]{6}$/i.test(colorValue)) {
+          r = parseInt(colorValue.slice(1, 3), 16);
+          g = parseInt(colorValue.slice(3, 5), 16);
+          b = parseInt(colorValue.slice(5, 7), 16);
+        }
+
+        return `rgba(${r}, ${g}, ${b}, ${opacity}) ${s.position * 100}%`;
+      })
+      .join(', ')
     : 'rgba(0,0,0,0) 0%, rgba(0,0,0,0) 100%');
 
   const handleStopClick = useCallback((index: number, e: React.MouseEvent) => {
@@ -367,28 +376,54 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     openColorPicker(index);
   }, [openColorPicker]);
 
-  const handleColorPickerChange = useCallback((nextHex: string) => {
-    const normalized = nextHex.trim().toUpperCase();
-    if (!/^#[0-9A-F]{6}$/.test(normalized)) {
+  const handleColorPickerChange = useCallback((nextColor: string) => {
+    const raw = nextColor.trim();
+    const lower = raw.toLowerCase();
+    const isTransparentSelection = lower === 'transparent';
+
+    if (!isTransparentSelection && !/^#[0-9A-F]{6}$/i.test(raw)) {
       return;
     }
+
+    const normalized = isTransparentSelection ? 'transparent' : raw.toUpperCase();
 
     setStops(prevStops => {
       const index = activeColorPickerIndex;
       if (index === null || index < 0 || index >= prevStops.length) {
         return prevStops;
       }
-      const currentColor = prevStops[index].color.toUpperCase();
+
+      const currentColor = prevStops[index].color;
       if (currentColor === normalized) {
         return prevStops;
       }
+
       if (!colorPickerUndoRef.current) {
         pushUndo(prevStops);
         colorPickerUndoRef.current = true;
       }
-      const updatedStops = prevStops.map((stop, stopIdx) =>
-        stopIdx === index ? { ...stop, color: normalized } : stop
-      );
+
+      const updatedStops = prevStops.map((stop, stopIdx) => {
+        if (stopIdx !== index) {
+          return stop;
+        }
+
+        if (isTransparentSelection) {
+          return { ...stop, color: 'transparent', opacity: 0 };
+        }
+
+        const shouldRestoreOpacity =
+          typeof stop.opacity === 'number'
+            ? stop.opacity === 0 || (typeof stop.color === 'string' && stop.color.toLowerCase() === 'transparent')
+            : true;
+
+        return {
+          ...stop,
+          color: normalized,
+          opacity: shouldRestoreOpacity ? 1 : stop.opacity
+        };
+      });
+
       scheduleGradientUpdate(updatedStops);
       return updatedStops;
     });
@@ -758,7 +793,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         <div 
           ref={containerRef}
           tabIndex={0}
-          className="relative h-8 cursor-pointer focus:outline-none"
+          className={`relative ${gradientHeightClass} cursor-pointer focus:outline-none`}
           style={{ 
             background: `linear-gradient(90deg, ${gradientString})` 
           }}
@@ -785,14 +820,22 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
             >
               {/* Stop handle - square shape */}
               <div 
-                className={`w-4 h-4 border-2 ${
-                  selectedStop === index ? 'border-white' : 'border-[#888]'
-                } shadow-lg`}
-                style={{ 
+                className="relative w-4 h-4 shadow-lg"
+                style={{
                   backgroundColor: stop.color,
                   opacity: stop.opacity ?? 1
                 }}
-              />
+              >
+                <div
+                  className="pointer-events-none absolute inset-0 border border-white mix-blend-difference"
+                  aria-hidden="true"
+                />
+                <div
+                  className={`pointer-events-none absolute inset-0 ${selectedStop === index ? 'border-white/40' : 'border-black/60'}`}
+                  aria-hidden="true"
+                  style={{ mixBlendMode: 'normal' }}
+                />
+              </div>
             </div>
           ))}
         </div>
@@ -818,6 +861,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
             color={stops[activeColorPickerIndex].color}
             onChange={handleColorPickerChange}
             showHexInput
+            allowTransparent
             className="w-full"
           />
         </div>
@@ -859,6 +903,9 @@ function interpolateColor(position: number, stops: GradientStop[]): string {
 }
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  if (typeof hex === 'string' && hex.toLowerCase() === 'transparent') {
+    return { r: 0, g: 0, b: 0 };
+  }
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return result ? {
     r: parseInt(result[1], 16),

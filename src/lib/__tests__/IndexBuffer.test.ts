@@ -63,6 +63,20 @@ describe('IndexBuffer', () => {
       buffer.setPalette(['#ff0000']);
       expect(buffer.needsRedraw()).toBe(true);
     });
+
+    it('should keep high-index colors addressable without wrapping to transparent', () => {
+      const colors = Array.from({ length: 256 }, (_, i) => `rgba(${i % 256}, ${(255 - i) % 256}, ${(i * 13) % 256}, 1)`);
+      buffer.setPalette(colors);
+      const palette = buffer.getPalette();
+      expect(palette.length).toBe(256);
+      expect(palette[255]).toBe(colors[255]);
+
+      buffer.paintSquare(10, 10, 1, colors[255]);
+      expect(buffer.getPixel(10, 10)).toBe(255);
+
+      buffer.paintSquare(12, 10, 1, colors[254]);
+      expect(buffer.getPixel(12, 10)).toBe(255);
+    });
   });
   
   describe('painting operations', () => {

@@ -921,6 +921,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   // Helper: Determine if current brush and active layer are compatible
   const checkLayerBrushCompatibility = () => {
     const { layers, activeLayerId, tools } = getDynamicDeps();
+
+    if (tools.currentTool === 'fill') {
+      // Flood fill does not interact with brush pipelines, so skip CC mismatch checks entirely.
+      return { ok: true } as const;
+    }
+
     const activeLayer = layers.find(l => l.id === activeLayerId);
     const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
     const brushShape = tools.brushSettings.brushShape;

@@ -411,12 +411,17 @@ export class ColorCycleBrushCanvas2D {
   }
 
   private computeColorBandIndex(strokeData: LayerStrokeState): number {
-    const bandsToUse = Math.max(2, this.gradientBands || 12);
-    const colorsToUse = Math.max(2, Math.min(254, bandsToUse));
-    const colorStep = Math.max(1, Math.floor(254 / colorsToUse));
-    const bandIndex = strokeData.stampCounter % colorsToUse;
-    const paletteIndex = 1 + bandIndex * colorStep; // Index 0 is transparent; offset to keep stamps visible
-    return Math.max(1, Math.min(254, paletteIndex));
+    const bandsToUse = Math.max(1, this.gradientBands || 12);
+    const colorsToUse = Math.min(255, bandsToUse);
+    const bandIndex = colorsToUse > 0 ? strokeData.stampCounter % colorsToUse : 0;
+
+    if (colorsToUse <= 1) {
+      return 1; // Degenerate case: always use the first non-transparent entry
+    }
+
+    const normalized = bandIndex / (colorsToUse - 1);
+    const paletteIndex = 1 + Math.round(normalized * 254); // Offset keeps index 0 reserved for transparency
+    return Math.max(1, Math.min(255, paletteIndex));
   }
 
   private getSourceCanvasForStamp(stamp: CustomStampInput): HTMLCanvasElement {

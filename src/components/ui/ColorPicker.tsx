@@ -6,6 +6,7 @@ interface ColorPickerProps {
   onChange: (color: string) => void;
   className?: string;
   showHexInput?: boolean;
+  allowTransparent?: boolean;
 }
 
 interface HSV {
@@ -88,6 +89,7 @@ export default function ColorPicker({
   onChange,
   className = "",
   showHexInput = false,
+  allowTransparent = false,
 }: ColorPickerProps) {
   const svCanvasRef = useRef<HTMLCanvasElement>(null);
   const hueCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -96,9 +98,15 @@ export default function ColorPicker({
   const [isDraggingHue, setIsDraggingHue] = useState(false);
   const [svSize, setSvSize] = useState(212);
 
-  const hsv = hexToHsv(color);
-  const [currentHsv, setCurrentHsv] = useState(hsv);
-  const [hexValue, setHexValue] = useState(color.toUpperCase());
+  const normalizedColor = typeof color === "string" ? color.trim() : "";
+  const fallbackHex = "#FFFFFF";
+  const isColorTransparent = allowTransparent && normalizedColor.toLowerCase() === "transparent";
+  const safeHex = /^#[0-9A-F]{6}$/i.test(normalizedColor) ? normalizedColor.toUpperCase() : fallbackHex;
+
+  const [isTransparent, setIsTransparent] = useState(isColorTransparent);
+  const [currentHsv, setCurrentHsv] = useState<HSV>(() => hexToHsv(safeHex));
+  const [hexValue, setHexValue] = useState(isColorTransparent ? "TRANSPARENT" : safeHex);
+  const lastOpaqueHexRef = useRef<string>(isColorTransparent ? safeHex : safeHex);
 
   // Cache for SV gradient
   const svImageDataCache = useRef<Map<number, ImageData>>(new Map());
@@ -223,10 +231,23 @@ export default function ColorPicker({
   }, [currentHsv.h]);
 
   useEffect(() => {
-    const newHsv = hexToHsv(color);
-    setCurrentHsv(newHsv);
-    setHexValue(color.toUpperCase());
-  }, [color]);
+    const raw = typeof color === "string" ? color.trim() : "";
+    const lower = raw.toLowerCase();
+
+    if (allowTransparent && lower === "transparent") {
+      setIsTransparent(true);
+      setHexValue("TRANSPARENT");
+      return;
+    }
+
+    if (/^#[0-9A-F]{6}$/i.test(raw)) {
+      const upper = raw.toUpperCase();
+      lastOpaqueHexRef.current = upper;
+      setIsTransparent(false);
+      setCurrentHsv(hexToHsv(upper));
+      setHexValue(upper);
+    }
+  }, [color, allowTransparent]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -270,8 +291,10 @@ export default function ColorPicker({
   const updateColor = useCallback(
     (newHsv: HSV) => {
       const hex = hsvToHex(newHsv.h, newHsv.s, newHsv.v).toUpperCase();
+      setIsTransparent(false);
       setCurrentHsv(newHsv);
       setHexValue(hex);
+      lastOpaqueHexRef.current = hex;
       onChange(hex);
     },
     [onChange],
@@ -284,11 +307,35 @@ export default function ColorPicker({
         return;
       }
       const nextHsv = hexToHsv(normalized);
+      setIsTransparent(false);
       setCurrentHsv(nextHsv);
       setHexValue(normalized);
+      lastOpaqueHexRef.current = normalized;
       onChange(normalized);
     },
     [onChange],
+  );
+
+  const handleTransparentToggle = useCallback(
+    (checked: boolean) => {
+      if (!allowTransparent) {
+        return;
+      }
+      if (checked) {
+        setIsTransparent(true);
+        setHexValue("TRANSPARENT");
+        onChange("transparent");
+        return;
+      }
+
+      const fallback = lastOpaqueHexRef.current || fallbackHex;
+      setIsTransparent(false);
+      setCurrentHsv(hexToHsv(fallback));
+      setHexValue(fallback);
+      lastOpaqueHexRef.current = fallback;
+      onChange(fallback);
+    },
+    [allowTransparent, onChange],
   );
 
   const sanitizeHexInput = (value: string) => {
@@ -299,33 +346,60 @@ export default function ColorPicker({
 
   const handleHexInputChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
-      const next = sanitizeHexInput(event.target.value);
+      const rawValue = event.target.value;
+      if (allowTransparent && rawValue.trim().toLowerCase() === "transparent") {
+        if (!isTransparent) {
+          handleTransparentToggle(true);
+        }
+        setHexValue("TRANSPARENT");
+        return;
+      }
+
+      const next = sanitizeHexInput(rawValue);
+      if (isTransparent) {
+        setIsTransparent(false);
+      }
       setHexValue(next);
       if (next.length === 7) {
         applyHex(next);
       }
     },
-    [applyHex],
+    [allowTransparent, applyHex, handleTransparentToggle, isTransparent],
   );
 
   const handleHexInputBlur = useCallback(() => {
-    if (!/^#[0-9A-F]{6}$/.test(hexValue)) {
-      setHexValue(color.toUpperCase());
+    if (isTransparent) {
+      setHexValue("TRANSPARENT");
+      return;
     }
-  }, [hexValue, color]);
+
+    if (!/^#[0-9A-F]{6}$/.test(hexValue)) {
+      const fallback = lastOpaqueHexRef.current || fallbackHex;
+      setHexValue(fallback);
+    }
+  }, [hexValue, isTransparent]);
 
   const handleHexInputKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
       if (event.key === "Enter") {
         event.preventDefault();
-        applyHex(hexValue);
+        if (isTransparent) {
+          onChange("transparent");
+        } else {
+          applyHex(hexValue);
+        }
       } else if (event.key === "Escape") {
         event.preventDefault();
-        setHexValue(color.toUpperCase());
+        if (isTransparent) {
+          setHexValue("TRANSPARENT");
+        } else {
+          const fallback = lastOpaqueHexRef.current || fallbackHex;
+          setHexValue(fallback);
+        }
         (event.currentTarget as HTMLInputElement).blur();
       }
     },
-    [applyHex, hexValue, color],
+    [applyHex, hexValue, isTransparent, onChange],
   );
 
   const handleSVPointerDown = useCallback(
@@ -485,13 +559,24 @@ export default function ColorPicker({
             onChange={handleHexInputChange}
             onBlur={handleHexInputBlur}
             onKeyDown={handleHexInputKeyDown}
-            placeholder="#RRGGBB"
-            maxLength={7}
+            placeholder={allowTransparent ? '#RRGGBB or transparent' : '#RRGGBB'}
+            maxLength={allowTransparent ? 11 : 7}
             variant="hex"
             spellCheck={false}
             className="bg-[#1F1F1F] border-[#444] text-[#F0F0F0] focus:border-[#888]"
           />
         </div>
+      ) : null}
+      {allowTransparent ? (
+        <label className="flex items-center gap-2 text-xs text-[#CCCCCC]">
+          <input
+            type="checkbox"
+            className="h-3 w-3 accent-[#888]"
+            checked={isTransparent}
+            onChange={(event) => handleTransparentToggle(event.target.checked)}
+          />
+          Transparent
+        </label>
       ) : null}
     </div>
   );

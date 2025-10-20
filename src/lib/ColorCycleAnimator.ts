@@ -176,6 +176,7 @@ export class ColorCycleAnimator {
       this.updateIndexBufferPalette();
     }
   }
+
   
   /**
    * Handle animation frame
@@ -493,7 +494,18 @@ export class ColorCycleAnimator {
    */
   setIndex(x: number, y: number, colorIndex: number) {
     try {
-      this.indexBuffer.setPixel(x, y, colorIndex);
+      if (colorIndex === 0) {
+        this.indexBuffer.setPixel(x, y, 0);
+        this._glIndexDirty = true;
+        return;
+      }
+
+      if (!Number.isFinite(colorIndex)) {
+        return;
+      }
+
+      const clamped = Math.max(1, Math.min(255, Math.round(colorIndex)));
+      this.indexBuffer.setPixel(x, y, clamped);
       this._glIndexDirty = true;
     } catch {
       // Fail silently for out-of-bounds or transient states
