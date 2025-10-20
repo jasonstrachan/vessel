@@ -1483,7 +1483,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         }
 
         // Perform flood fill on the current image data
-        const filledImageData = floodFill(
+        const { imageData: filledImageData, bounds: fillBounds } = floodFill(
           currentImageData,
           Math.floor(worldPos.x),
           Math.floor(worldPos.y),
@@ -1531,6 +1531,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           actionType: 'fill',
           description: 'Flood fill',
           tool: 'fill',
+          bitmapRoi: fillBounds ?? undefined,
         }).catch((error) => {
           if (process.env.NODE_ENV !== 'production') {
             console.warn('[history] Failed to record flood fill history', error);

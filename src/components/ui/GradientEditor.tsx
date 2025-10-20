@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Dropdown from './Dropdown';
+import ColorPicker from './ColorPicker';
 import { useAppStore } from '../../stores/useAppStore';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 import {
@@ -99,7 +100,40 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   const [hasFocus, setHasFocus] = useState(false);
   // Suspend global/canvas shortcuts while gradient editor is focused
   useKeyboardScope('gradient', hasFocus);
-  const colorInputRef = useRef<HTMLInputElement>(null);
+  const [activeColorPickerIndex, setActiveColorPickerIndex] = useState<number | null>(null);
+  const colorPickerOverlayRef = useRef<HTMLDivElement>(null);
+  const colorPickerUndoRef = useRef(false);
+  const pendingGradientUpdateRef = useRef<number | null>(null);
+  const pendingGradientStopsRef = useRef<GradientStop[] | null>(null);
+
+  const flushPendingGradientUpdate = useCallback(() => {
+    if (pendingGradientUpdateRef.current !== null) {
+      cancelAnimationFrame(pendingGradientUpdateRef.current);
+      pendingGradientUpdateRef.current = null;
+    }
+    if (pendingGradientStopsRef.current) {
+      onChange(pendingGradientStopsRef.current);
+      pendingGradientStopsRef.current = null;
+    }
+  }, [onChange]);
+
+  const scheduleGradientUpdate = useCallback((nextStops: GradientStop[]) => {
+    pendingGradientStopsRef.current = nextStops;
+    if (pendingGradientUpdateRef.current !== null) return;
+    pendingGradientUpdateRef.current = requestAnimationFrame(() => {
+      pendingGradientUpdateRef.current = null;
+      if (pendingGradientStopsRef.current) {
+        onChange(pendingGradientStopsRef.current);
+        pendingGradientStopsRef.current = null;
+      }
+    });
+  }, [onChange]);
+
+  useEffect(() => {
+    return () => {
+      flushPendingGradientUpdate();
+    };
+  }, [flushPendingGradientUpdate]);
 
   // Local undo/redo stacks (editor-scoped)
   const undoStackRef = useRef<GradientStop[][]>([]);
@@ -119,7 +153,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     
     setStops(prev);
     setSelectedStop(null);
-    onChange(prev);
+    scheduleGradientUpdate(prev);
   }, [stops, onChange]);
   const doRedo = useCallback(() => {
     if (redoStackRef.current.length === 0) return;
@@ -129,19 +163,69 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     
     setStops(next);
     setSelectedStop(null);
-    onChange(next);
-  }, [stops, onChange]);
+    scheduleGradientUpdate(next);
+  }, [stops, scheduleGradientUpdate]);
 
   const openColorPicker = useCallback((index: number) => {
-    if (colorInputRef.current) {
-      try {
-        colorInputRef.current.value = stops[index]?.color || '#ffffff';
-        // Focus container first so selection state is clear, then open picker
-        containerRef.current?.focus();
-        colorInputRef.current.click();
-      } catch {}
+    setSelectedStop(index);
+    setActiveColorPickerIndex(index);
+    containerRef.current?.focus();
+    colorPickerUndoRef.current = false;
+  }, []);
+
+  const closeColorPicker = useCallback(() => {
+    setActiveColorPickerIndex(null);
+    colorPickerUndoRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    if (activeColorPickerIndex === null) {
+      return;
     }
-  }, [stops]);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeColorPicker();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [activeColorPickerIndex, closeColorPicker]);
+
+  useEffect(() => {
+    if (activeColorPickerIndex === null) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (colorPickerOverlayRef.current?.contains(target)) {
+        return;
+      }
+      if (containerRef.current?.contains(target)) {
+        return;
+      }
+      closeColorPicker();
+    };
+
+    window.addEventListener('mousedown', handlePointerDown);
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown);
+    };
+  }, [activeColorPickerIndex, closeColorPicker]);
+
+  useEffect(() => {
+    if (activeColorPickerIndex === null) {
+      return;
+    }
+    if (activeColorPickerIndex < 0 || activeColorPickerIndex >= stops.length) {
+      closeColorPicker();
+    }
+  }, [activeColorPickerIndex, closeColorPicker, stops.length]);
 
   // Track last seen stops signature to avoid resetting selection on identical props
   const lastPropSigRef = useRef<string>('');
@@ -268,6 +352,13 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     setSelectedStop(index);
     // Keep focus on container so Delete works immediately
     containerRef.current?.focus();
+    setActiveColorPickerIndex(prev => {
+      if (prev !== null) {
+        colorPickerUndoRef.current = false;
+        return index;
+      }
+      return prev;
+    });
   }, []);
 
   const handleStopDoubleClick = useCallback((index: number, e: React.MouseEvent) => {
@@ -276,16 +367,32 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     openColorPicker(index);
   }, [openColorPicker]);
 
-  const handleColorChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (selectedStop === null) return;
+  const handleColorPickerChange = useCallback((nextHex: string) => {
+    const normalized = nextHex.trim().toUpperCase();
+    if (!/^#[0-9A-F]{6}$/.test(normalized)) {
+      return;
+    }
 
-    pushUndo(stops);
-    
-    const newStops = [...stops];
-    newStops[selectedStop].color = e.target.value;
-    setStops(newStops);
-    onChange(newStops);
-  }, [selectedStop, stops, onChange, pushUndo]);
+    setStops(prevStops => {
+      const index = activeColorPickerIndex;
+      if (index === null || index < 0 || index >= prevStops.length) {
+        return prevStops;
+      }
+      const currentColor = prevStops[index].color.toUpperCase();
+      if (currentColor === normalized) {
+        return prevStops;
+      }
+      if (!colorPickerUndoRef.current) {
+        pushUndo(prevStops);
+        colorPickerUndoRef.current = true;
+      }
+      const updatedStops = prevStops.map((stop, stopIdx) =>
+        stopIdx === index ? { ...stop, color: normalized } : stop
+      );
+      scheduleGradientUpdate(updatedStops);
+      return updatedStops;
+    });
+  }, [activeColorPickerIndex, pushUndo, scheduleGradientUpdate]);
 
   const handleStopMouseDown = useCallback((index: number, e: React.MouseEvent) => {
     e.preventDefault();
@@ -315,8 +422,8 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     // Selection follows the moved stop's new index
     setSelectedStop(newIndex);
     setStops(newStops);
-    onChange(newStops);
-  }, [isDragging, selectedStop, stops, onChange]);
+    scheduleGradientUpdate(newStops);
+  }, [isDragging, selectedStop, stops, scheduleGradientUpdate]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
@@ -354,8 +461,8 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     // Select the newly added stop
     const sel = newStops.indexOf(newStop);
     setSelectedStop(sel);
-    onChange(newStops);
-  }, [stops, onChange, pushUndo]);
+    scheduleGradientUpdate(newStops);
+  }, [stops, scheduleGradientUpdate, pushUndo]);
 
   // Keyboard: Delete/Backspace removes selected stop (keep at least 2)
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -397,9 +504,9 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       const newSelected = newStops.length === 0 ? null : Math.min(index, newStops.length - 1);
       setStops(newStops);
       setSelectedStop(newSelected);
-      onChange(newStops);
+      scheduleGradientUpdate(newStops);
     }
-  }, [selectedStop, stops, onChange, openColorPicker, pushUndo, doUndo, doRedo]);
+  }, [selectedStop, stops, openColorPicker, pushUndo, doUndo, doRedo, scheduleGradientUpdate]);
 
 
   // Deleting stops via UI removed; keep logic minimal in component
@@ -427,7 +534,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
             newStops.push({ position: i / (sampleCount - 1), color: hex, opacity: 1 });
           }
           setStops(newStops);
-          onChange(newStops);
+          scheduleGradientUpdate(newStops);
           setSelectedGradientId('original');
           setSelectedStop(null);
         } else {
@@ -462,11 +569,11 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     if (gradient) {
       const newStops = [...gradient.stops];
       setStops(newStops);
-      onChange(newStops);
+      scheduleGradientUpdate(newStops);
       setSelectedGradientId(gradientId);
       setSelectedStop(null);
     }
-  }, [savedGradients, onChange, addNotification]);
+  }, [savedGradients, addNotification, scheduleGradientUpdate]);
 
   const handleAddGradient = useCallback(() => {
     const existingCustom = savedGradients.filter(g => g.name.startsWith('Custom '));
@@ -489,10 +596,10 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     
     // Select and apply the new gradient
     setStops(newGradient.stops);
-    onChange(newGradient.stops);
+    scheduleGradientUpdate(newGradient.stops);
     setSelectedGradientId(newId);
     setSelectedStop(null);
-  }, [savedGradients, onChange]);
+  }, [savedGradients, scheduleGradientUpdate]);
 
   const handleRemoveGradient = useCallback((gradientId: string) => {
     const gradient = savedGradients.find(g => g.id === gradientId);
@@ -691,23 +798,31 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         </div>
       </div>
 
-      {/* Color input positioned well above the gradient */}
-      <input
-        ref={colorInputRef}
-        type="color"
-        onChange={handleColorChange}
-        className="absolute"
-        style={{
-          left: '0',
-          top: '-230px', // Moved down 20px, aligned with gradient
-          transform: 'none',
-          opacity: 0,
-          pointerEvents: 'none',
-          zIndex: 200, // Higher z-index to appear above BrushEditorUI modal (z-index: 100)
-          width: '1px',
-          height: '1px'
-        }}
-      />
+      {activeColorPickerIndex !== null && stops[activeColorPickerIndex] ? (
+        <div
+          ref={colorPickerOverlayRef}
+          className="absolute left-1/2 z-40 w-[260px] -translate-x-1/2 rounded-md border border-[#444] bg-[#161616] p-3 shadow-2xl"
+          style={{ top: 'calc(100% + 12px)' }}
+        >
+          <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-[#BBBBBB]">
+            <span>Stop Color</span>
+            <button
+              type="button"
+              onClick={closeColorPicker}
+              className="rounded px-1 py-0.5 text-[11px] text-[#888] transition-colors hover:bg-[#2A2A2A] hover:text-[#E0E0E0]"
+            >
+              Close
+            </button>
+          </div>
+          <ColorPicker
+            color={stops[activeColorPickerIndex].color}
+            onChange={handleColorPickerChange}
+            showHexInput
+            className="w-full"
+          />
+        </div>
+      ) : null}
+
       {/* Controls removed per request */}
     </div>
   );

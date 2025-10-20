@@ -113,6 +113,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const fillSettings = useAppStore((state) => state.tools.fillSettings);
   const eraserSettings = useAppStore((state) => state.tools.eraserSettings);
   const shapeMode = useAppStore((state) => state.tools.shapeMode);
+  const previousTool = useAppStore((state) => state.tools.previousTool);
+  const colorAdjustActive = useAppStore((state) => state.colorAdjust.active);
   const tools = useMemo(
     () => ({
       currentTool,
@@ -144,6 +146,8 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     cancelFloatingPaste,
     updateLayer,
     setLayersNeedRecomposition,
+    applyColorAdjust,
+    cancelColorAdjust,
   } = useAppStore();
 
   const setCurrentToolById = useCallback(
@@ -1506,6 +1510,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       interaction.dispatch({ type: 'DRAWING_END' });
     },
     onEnterPressed: async () => {
+      if (tools.currentTool === 'color-adjust' && colorAdjustActive) {
+        await applyColorAdjust();
+        return;
+      }
+
       if (tools.currentTool === 'crop') {
         if (crop.marquee && !crop.commitInFlight) {
           await commitCrop();
@@ -1527,6 +1536,15 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       }
     },
     onEscapePressed: () => {
+      if (tools.currentTool === 'color-adjust' && colorAdjustActive) {
+        cancelColorAdjust();
+        const fallbackTool = (previousTool ?? 'brush') as Tool;
+        const resolvedTool: Tool =
+          fallbackTool === 'color-adjust' ? 'brush' : fallbackTool;
+        setCurrentTool(resolvedTool);
+        return;
+      }
+
       if (tools.currentTool === 'crop') {
         cancelCrop();
         return;

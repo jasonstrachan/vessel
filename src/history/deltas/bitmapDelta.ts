@@ -21,6 +21,12 @@ export interface BitmapDeltaOptions {
   before: ImageData | null;
   after: ImageData | null;
   tileSize?: number;
+  roi?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 const TILE_SIZE_DEFAULT = 256;
@@ -251,7 +257,8 @@ export const createBitmapTileDelta = async ({
   layerId,
   before,
   after,
-  tileSize = TILE_SIZE_DEFAULT
+  tileSize = TILE_SIZE_DEFAULT,
+  roi,
 }: BitmapDeltaOptions): Promise<HistoryDelta | null> => {
   if (!after) {
     return null;
@@ -263,11 +270,38 @@ export const createBitmapTileDelta = async ({
   const forwardPatches: TilePatch[] = [];
   const backwardPatches: TilePatch[] = [];
 
+  const normalizedRoi = (() => {
+    if (!roi) {
+      return null;
+    }
+    const x = Math.max(0, Math.floor(roi.x));
+    const y = Math.max(0, Math.floor(roi.y));
+    const right = Math.min(width, Math.ceil(roi.x + roi.width));
+    const bottom = Math.min(height, Math.ceil(roi.y + roi.height));
+    if (right <= x || bottom <= y) {
+      return null;
+    }
+    return { x, y, right, bottom };
+  })();
+
   const horizontalTiles = Math.ceil(width / tileSize);
   const verticalTiles = Math.ceil(height / tileSize);
 
-  for (let ty = 0; ty < verticalTiles; ty += 1) {
-    for (let tx = 0; tx < horizontalTiles; tx += 1) {
+  const txStart = normalizedRoi ? Math.max(0, Math.floor(normalizedRoi.x / tileSize)) : 0;
+  const txEnd = normalizedRoi
+    ? Math.min(horizontalTiles - 1, Math.floor((normalizedRoi.right - 1) / tileSize))
+    : horizontalTiles - 1;
+  const tyStart = normalizedRoi ? Math.max(0, Math.floor(normalizedRoi.y / tileSize)) : 0;
+  const tyEnd = normalizedRoi
+    ? Math.min(verticalTiles - 1, Math.floor((normalizedRoi.bottom - 1) / tileSize))
+    : verticalTiles - 1;
+
+  if (txEnd < txStart || tyEnd < tyStart) {
+    return null;
+  }
+
+  for (let ty = tyStart; ty <= tyEnd; ty += 1) {
+    for (let tx = txStart; tx <= txEnd; tx += 1) {
       const x = tx * tileSize;
       const y = ty * tileSize;
       const tileWidth = Math.min(tileSize, width - x);

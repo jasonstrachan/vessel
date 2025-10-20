@@ -539,7 +539,7 @@ export interface Notification {
 
 export interface DrawingAction {
   id: string;
-  type: 'brush' | 'eraser' | 'fill' | 'selection' | 'crop';
+  type: 'brush' | 'eraser' | 'fill' | 'selection' | 'crop' | 'color-adjust';
   layerId: string;
   timestamp: Date;
   data: Record<string, unknown>;
@@ -552,7 +552,7 @@ export interface CanvasSnapshot {
   layers: Layer[];  // Full layers state
   activeLayerId: string;  // Active layer at time of snapshot
   // Expanded to include structural layer operations captured in history
-  actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'crop' | 'paste' | 'delete'
+  actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'crop' | 'paste' | 'delete' | 'color-adjust'
             | 'layer' | 'layers' | 'structure'
             | 'layer-add' | 'layer-remove' | 'layer-reorder';
   description: string;
@@ -603,7 +603,22 @@ export interface HistoryState {
   isCapturing: boolean;
 }
 
-export type Tool = 'brush' | 'eraser' | 'fill' | 'crop' | 'selection' | 'eyedropper' | 'zoom' | 'new-document' | 'save' | 'load' | 'export' | 'export-png' | 'custom' | 'options' | 'recolor';
+export type Tool = 'brush' | 'eraser' | 'fill' | 'crop' | 'selection' | 'eyedropper' | 'zoom' | 'new-document' | 'save' | 'load' | 'export' | 'export-png' | 'custom' | 'options' | 'recolor' | 'color-adjust';
+
+export interface ColorAdjustParams {
+  hue: number;        // -180 to 180 degrees
+  saturation: number; // -100 to 100 percent delta
+  lightness: number;  // -100 to 100 percent delta
+  contrast: number;   // -100 to 100 percent delta
+}
+
+export interface ColorAdjustState {
+  active: boolean;
+  params: ColorAdjustParams;
+  originalImageData: ImageData | null;
+  selectionBounds: Rectangle | null;
+  targetLayerId: string | null;
+}
 
 export type BlendMode = GlobalCompositeOperation;
 

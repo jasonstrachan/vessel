@@ -548,6 +548,7 @@ export function useDrawingHandlers({
               tool,
               coalesce,
               skipBitmapDelta,
+              bitmapRoi: sanitizedRoi ?? undefined,
             })
           );
         });
@@ -2340,6 +2341,16 @@ export function useDrawingHandlers({
               brushForCleanup.flush(activeLayerIdString);
             }
 
+            const historyBitmapRoi =
+              strokeCaptureRoi ??
+              (project
+                ? boundingBoxToCaptureRegion(
+                    strokeBoundingBoxRef.current,
+                    ROI_PADDING_PX,
+                    project
+                  )
+                : undefined);
+
             const shouldDeferColorCycleSave =
               isColorCycleLayer &&
               isColorCycleBrush &&
@@ -2413,6 +2424,7 @@ export function useDrawingHandlers({
                   tool: currentTool,
                   coalesce: coalesceForHistory,
                   skipBitmapDelta: shouldSkipBitmapDelta,
+                  bitmapRoi: historyBitmapRoi ?? undefined,
                 })
               );
             }
@@ -3462,6 +3474,14 @@ export function useDrawingHandlers({
               actionType: 'fill',
               description: 'Shape Fill',
               tool: tools.currentTool,
+              bitmapRoi:
+                project
+                  ? boundingBoxToCaptureRegion(
+                      strokeBoundingBoxRef.current,
+                      ROI_PADDING_PX,
+                      project
+                    )
+                  : undefined,
             })
           );
           drawingCanvasHasContent.current = false;

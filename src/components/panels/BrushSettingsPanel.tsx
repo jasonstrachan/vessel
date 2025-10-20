@@ -6,6 +6,7 @@ import FillControls from '@/components/toolbar/FillControls';
 import { CustomBrushPanel } from '@/components/toolbar/CustomBrushPanel';
 import { ColorCycleUI } from '@/components/colorCycle/integration/ColorCycleUI';
 import { useAppStore } from '@/stores/useAppStore';
+import ColorAdjustToolPanel from '@/components/panels/ColorAdjustToolPanel';
 
 const BrushSettingsPanel: React.FC = () => {
   const currentTool = useAppStore(state => state.tools.currentTool);
@@ -21,6 +22,7 @@ const BrushSettingsPanel: React.FC = () => {
             <ColorCycleUI isVisible={true} />
           </div>
         )}
+        {currentTool === 'color-adjust' && <ColorAdjustToolPanel />}
       </div>
     </div>
   );

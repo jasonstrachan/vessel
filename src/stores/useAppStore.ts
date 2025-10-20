@@ -376,6 +376,8 @@ import type {
   WebGLExportSettings,
   CropState,
   Rectangle,
+  ColorAdjustState,
+  ColorAdjustParams,
 } from '@/types';
 import { BrushShape } from '@/types';
 import { brushPresets, applyBrushPreset, defaultBrushSettings, pixelBrushPreset } from '../presets/brushPresets';
@@ -387,7 +389,7 @@ import {
 } from '../utils/projectIO';
 // import { memoryManager } from '../utils/memoryCleanup';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../constants/canvas';
-import { adjustHueAndSaturation } from '../utils/imageProcessing';
+import { adjustHueAndSaturation, applyColorAdjustments } from '../utils/imageProcessing';
 import { debugLog, logError, __DEV__, recordBreadcrumb } from '../utils/debug';
 import { applyCroppedLayers } from '@/utils/crop/apply';
 import { rebuildCCLayerAfterCrop, rebuildRecolorLayersAfterCrop } from '@/utils/crop/ccRebuild';
@@ -442,6 +444,102 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
     gradientBands: settings.gradientBands
   };
 };
+
+const COLOR_ADJUST_TOOL: Tool = 'color-adjust';
+let colorAdjustPreviewHandle: number | null = null;
+
+const cancelScheduledColorAdjustPreview = (): void => {
+  if (typeof window !== 'undefined' && colorAdjustPreviewHandle !== null) {
+    cancelAnimationFrame(colorAdjustPreviewHandle);
+  }
+  colorAdjustPreviewHandle = null;
+};
+
+const scheduleColorAdjustPreview = (getState: () => AppState): void => {
+  if (typeof window === 'undefined') {
+    getState().previewColorAdjust();
+    return;
+  }
+
+  cancelScheduledColorAdjustPreview();
+  colorAdjustPreviewHandle = requestAnimationFrame(() => {
+    colorAdjustPreviewHandle = null;
+    getState().previewColorAdjust();
+  });
+};
+
+const clampSelectionBounds = (
+  bounds: Rectangle | null,
+  imageWidth: number,
+  imageHeight: number
+): Rectangle | null => {
+  if (!bounds) {
+    return null;
+  }
+
+  const width = Math.ceil(bounds.width);
+  const height = Math.ceil(bounds.height);
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+
+  const x = Math.max(0, Math.min(imageWidth - 1, Math.floor(bounds.x)));
+  const y = Math.max(0, Math.min(imageHeight - 1, Math.floor(bounds.y)));
+  const clampedWidth = Math.min(width, imageWidth - x);
+  const clampedHeight = Math.min(height, imageHeight - y);
+
+  if (clampedWidth <= 0 || clampedHeight <= 0) {
+    return null;
+  }
+
+  return {
+    x,
+    y,
+    width: clampedWidth,
+    height: clampedHeight
+  };
+};
+
+const copyRegionIntoTarget = (source: ImageData, target: ImageData, bounds: Rectangle): void => {
+  const srcData = source.data;
+  const tgtData = target.data;
+  const sourceWidth = source.width;
+  const sourceHeight = source.height;
+  const targetWidth = target.width;
+  const targetHeight = target.height;
+
+  const startX = Math.max(0, Math.min(sourceWidth, Math.floor(bounds.x)));
+  const startY = Math.max(0, Math.min(sourceHeight, Math.floor(bounds.y)));
+  const endX = Math.min(sourceWidth, Math.ceil(bounds.x + bounds.width));
+  const endY = Math.min(sourceHeight, Math.ceil(bounds.y + bounds.height));
+
+  for (let y = startY; y < endY && y < targetHeight; y += 1) {
+    for (let x = startX; x < endX && x < targetWidth; x += 1) {
+      const index = (y * sourceWidth + x) * 4;
+      const targetIndex = (y * targetWidth + x) * 4;
+
+      tgtData[targetIndex] = srcData[index];
+      tgtData[targetIndex + 1] = srcData[index + 1];
+      tgtData[targetIndex + 2] = srcData[index + 2];
+      tgtData[targetIndex + 3] = srcData[index + 3];
+    }
+  }
+};
+
+const defaultColorAdjustParams: ColorAdjustParams = {
+  hue: 0,
+  saturation: 0,
+  lightness: 0,
+  contrast: 0
+};
+
+const createDefaultColorAdjustState = (): ColorAdjustState => ({
+  active: false,
+  params: { ...defaultColorAdjustParams },
+  originalImageData: null,
+  selectionBounds: null,
+  targetLayerId: null
+});
 
 interface ShapeFillState {
   activeFillId: ShapeFillId;
@@ -584,6 +682,15 @@ export interface AppState {
   clearSelection: () => void;
   selectAllActiveLayerPixels: () => void;
   deleteSelectedPixels: () => void;
+
+  // Color Adjust Tool
+  colorAdjust: ColorAdjustState;
+  startColorAdjustSession: () => void;
+  updateColorAdjustParams: (params: Partial<ColorAdjustParams>) => void;
+  previewColorAdjust: () => void;
+  applyColorAdjust: () => Promise<void>;
+  cancelColorAdjust: () => void;
+  resetColorAdjustParams: () => void;
 
   // Crop State
   crop: CropState;
@@ -1869,6 +1976,222 @@ export const useAppStore = create<AppState>()(
         });
       },
 
+      // Color Adjust Tool
+      colorAdjust: createDefaultColorAdjustState(),
+      startColorAdjustSession: () => {
+        const state = get();
+        const { activeLayerId, layers } = state;
+        if (!activeLayerId) {
+          set({ colorAdjust: createDefaultColorAdjustState() });
+          return;
+        }
+
+        const layer = layers.find((l) => l.id === activeLayerId);
+        if (!layer || layer.layerType !== 'normal' || !layer.imageData) {
+          set({ colorAdjust: createDefaultColorAdjustState() });
+          return;
+        }
+
+        const originalImageData = cloneLayerImageData(layer.imageData);
+        if (!originalImageData) {
+          set({ colorAdjust: createDefaultColorAdjustState() });
+          return;
+        }
+
+        const selectionFromBounds =
+          state.selectionStart && state.selectionEnd
+            ? {
+                x: Math.min(state.selectionStart.x, state.selectionEnd.x),
+                y: Math.min(state.selectionStart.y, state.selectionEnd.y),
+                width: Math.abs(state.selectionEnd.x - state.selectionStart.x),
+                height: Math.abs(state.selectionEnd.y - state.selectionStart.y)
+              }
+            : null;
+        const canvasSelection = state.canvas.selection;
+        const rawBounds =
+          selectionFromBounds && selectionFromBounds.width > 0 && selectionFromBounds.height > 0
+            ? selectionFromBounds
+            : canvasSelection?.active
+              ? canvasSelection.bounds
+              : null;
+        const selectionBounds = clampSelectionBounds(rawBounds, originalImageData.width, originalImageData.height);
+
+        set({
+          colorAdjust: {
+            active: true,
+            targetLayerId: layer.id,
+            originalImageData,
+            selectionBounds,
+            params: { ...defaultColorAdjustParams }
+          }
+        });
+        scheduleColorAdjustPreview(get);
+      },
+      updateColorAdjustParams: (params) => {
+        let didUpdate = false;
+        set((state) => {
+          if (!state.colorAdjust.active) {
+            return state;
+          }
+
+          didUpdate = true;
+          return {
+            colorAdjust: {
+              ...state.colorAdjust,
+              params: {
+                ...state.colorAdjust.params,
+                ...params
+              }
+            }
+          };
+        });
+
+        if (didUpdate) {
+          scheduleColorAdjustPreview(get);
+        }
+      },
+      previewColorAdjust: () => {
+        const state = get();
+        const { colorAdjust } = state;
+        if (!colorAdjust.active || !colorAdjust.targetLayerId || !colorAdjust.originalImageData) {
+          return;
+        }
+
+        const layer = state.layers.find((l) => l.id === colorAdjust.targetLayerId);
+        if (!layer || layer.layerType !== 'normal') {
+          return;
+        }
+
+        const { params, selectionBounds, originalImageData } = colorAdjust;
+        const hasAdjustments =
+          params.hue !== 0 || params.saturation !== 0 || params.lightness !== 0 || params.contrast !== 0;
+
+        let finalImageData: ImageData;
+        if (!hasAdjustments) {
+          const baselineImage = cloneLayerImageData(originalImageData) ?? originalImageData;
+          finalImageData = baselineImage;
+        } else {
+          const adjustedImage = applyColorAdjustments(originalImageData, params);
+          if (selectionBounds) {
+            const compositeImage = cloneLayerImageData(originalImageData);
+            if (!compositeImage) {
+              return;
+            }
+            copyRegionIntoTarget(adjustedImage, compositeImage, selectionBounds);
+            finalImageData = compositeImage;
+          } else {
+            finalImageData = adjustedImage;
+          }
+        }
+
+        state.updateLayer(layer.id, { imageData: finalImageData });
+        set({ layersNeedRecomposition: true });
+      },
+      applyColorAdjust: async () => {
+        const state = get();
+        const { colorAdjust } = state;
+        if (!colorAdjust.active || !colorAdjust.targetLayerId || !colorAdjust.originalImageData) {
+          return;
+        }
+
+        cancelScheduledColorAdjustPreview();
+
+        const layer = state.layers.find((l) => l.id === colorAdjust.targetLayerId);
+        if (!layer || layer.layerType !== 'normal') {
+          set({ colorAdjust: createDefaultColorAdjustState() });
+          return;
+        }
+
+        const beforeImage = cloneLayerImageData(colorAdjust.originalImageData);
+        if (!beforeImage) {
+          set({ colorAdjust: createDefaultColorAdjustState() });
+          return;
+        }
+
+        // Ensure the latest params are rendered prior to committing history
+        get().previewColorAdjust();
+
+        const selectionSnapshot =
+          state.selectionStart && state.selectionEnd
+            ? selectionSnapshotFromValues(state.selectionStart, state.selectionEnd)
+            : null;
+
+        await commitLayerHistory({
+          layerId: layer.id,
+          beforeImage,
+          beforeColorState: null,
+          actionType: 'color-adjust',
+          description: 'Color adjust',
+          tool: 'color-adjust',
+          selectionBefore: selectionSnapshot ?? undefined,
+          bitmapRoi: colorAdjust.selectionBounds ?? undefined
+        }).catch((error) => {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('[history] Failed to record color adjust', error);
+          }
+        });
+
+        const refreshedLayer = get().layers.find((l) => l.id === layer.id);
+        const updatedBaseline = refreshedLayer?.imageData
+          ? cloneLayerImageData(refreshedLayer.imageData)
+          : null;
+
+        if (updatedBaseline) {
+          set((prev) => ({
+            colorAdjust: {
+              active: true,
+              targetLayerId: layer.id,
+              originalImageData: updatedBaseline,
+              selectionBounds: prev.colorAdjust.selectionBounds,
+              params: { ...defaultColorAdjustParams }
+            }
+          }));
+        } else {
+          set({ colorAdjust: createDefaultColorAdjustState() });
+        }
+      },
+      cancelColorAdjust: () => {
+        const state = get();
+        const { colorAdjust } = state;
+        if (!colorAdjust.active || !colorAdjust.targetLayerId || !colorAdjust.originalImageData) {
+          set({ colorAdjust: createDefaultColorAdjustState() });
+          return;
+        }
+
+        cancelScheduledColorAdjustPreview();
+
+        const layer = state.layers.find((l) => l.id === colorAdjust.targetLayerId);
+        if (layer && layer.layerType === 'normal') {
+          const restoredImage = cloneLayerImageData(colorAdjust.originalImageData);
+          if (restoredImage) {
+            state.updateLayer(layer.id, { imageData: restoredImage });
+            set({ layersNeedRecomposition: true });
+          }
+        }
+
+        set({ colorAdjust: createDefaultColorAdjustState() });
+      },
+      resetColorAdjustParams: () => {
+        let didReset = false;
+        set((state) => {
+          if (!state.colorAdjust.active) {
+            return state;
+          }
+
+          didReset = true;
+          return {
+            colorAdjust: {
+              ...state.colorAdjust,
+              params: { ...defaultColorAdjustParams }
+            }
+          };
+        });
+
+        if (didReset) {
+          scheduleColorAdjustPreview(get);
+        }
+      },
+
       // Crop State
       crop: defaultCropState,
       setCropState: (partial) =>
@@ -2306,6 +2629,20 @@ export const useAppStore = create<AppState>()(
         };
         });
         } catch {}
+
+        if (tool === COLOR_ADJUST_TOOL) {
+          const store = get();
+          if (!store.colorAdjust.active || toolChanged) {
+            store.startColorAdjustSession();
+          }
+        } else if (stateBeforeSwitch.tools.currentTool === COLOR_ADJUST_TOOL) {
+          const store = get();
+          if (stateBeforeSwitch.colorAdjust?.active) {
+            store.cancelColorAdjust();
+          } else {
+            set({ colorAdjust: createDefaultColorAdjustState() });
+          }
+        }
       },
       setBrushSettings: (settings) => set((state) => {
         // quiet

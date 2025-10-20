@@ -5,6 +5,7 @@ interface ColorPickerProps {
   color: string;
   onChange: (color: string) => void;
   className?: string;
+  showHexInput?: boolean;
 }
 
 interface HSV {
@@ -86,6 +87,7 @@ export default function ColorPicker({
   color,
   onChange,
   className = "",
+  showHexInput = false,
 }: ColorPickerProps) {
   const svCanvasRef = useRef<HTMLCanvasElement>(null);
   const hueCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -475,20 +477,22 @@ export default function ColorPicker({
           style={{ touchAction: "none", display: 'block' }}
         />
       </div>
-      <div className="flex items-center gap-2 text-xs text-[#CCCCCC]">
-        <span className="uppercase tracking-wide">Hex</span>
-        <Input
-          value={hexValue}
-          onChange={handleHexInputChange}
-          onBlur={handleHexInputBlur}
-          onKeyDown={handleHexInputKeyDown}
-          placeholder="#RRGGBB"
-          maxLength={7}
-          variant="hex"
-          spellCheck={false}
-          className="bg-[#1F1F1F] border-[#444] text-[#F0F0F0] focus:border-[#888]"
-        />
-      </div>
+      {showHexInput ? (
+        <div className="flex items-center gap-2 text-xs text-[#CCCCCC]">
+          <span className="uppercase tracking-wide">Hex</span>
+          <Input
+            value={hexValue}
+            onChange={handleHexInputChange}
+            onBlur={handleHexInputBlur}
+            onKeyDown={handleHexInputKeyDown}
+            placeholder="#RRGGBB"
+            maxLength={7}
+            variant="hex"
+            spellCheck={false}
+            className="bg-[#1F1F1F] border-[#444] text-[#F0F0F0] focus:border-[#888]"
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

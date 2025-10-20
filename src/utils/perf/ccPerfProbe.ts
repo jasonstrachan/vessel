@@ -149,7 +149,12 @@ export function enableEventTiming() {
         return;
       }
     }
-    observer.observe({ type: 'event', buffered: true, durationThreshold: 16 });
+    const eventInit: PerformanceObserverInit & { durationThreshold?: number } = {
+      type: 'event',
+      buffered: true,
+      durationThreshold: 16,
+    };
+    observer.observe(eventInit);
   } catch {
     // ignore observer errors
   }

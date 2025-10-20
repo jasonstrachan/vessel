@@ -69,6 +69,7 @@ export function generateBrushThumbnail(
       generateRectangleGradientThumbnail(ctx, opts, baseStrokeWidth);
       break;
     case BrushShape.POLYGON_GRADIENT:
+    case BrushShape.SHAPE_FILL:
       generatePolygonGradientThumbnail(ctx, opts, baseStrokeWidth);
       break;
     case BrushShape.RESAMPLER:

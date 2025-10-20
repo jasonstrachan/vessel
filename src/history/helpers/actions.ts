@@ -14,6 +14,8 @@ export const mapCanvasActionToHistoryId = (
     case 'paste':
     case 'delete':
       return 'layer-bitmap';
+    case 'color-adjust':
+      return 'layer-bitmap';
     case 'layer':
     case 'layers':
     case 'layer-add':
@@ -27,4 +29,3 @@ export const mapCanvasActionToHistoryId = (
       return 'layer-bitmap';
   }
 };
-

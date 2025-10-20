@@ -109,7 +109,7 @@ const BrushLibrary = () => {
   const { brushShape, selectedCustomBrush } = brushSettings;
 
   const activeBrushId = React.useMemo(() => {
-    if (currentTool === 'recolor') {
+    if (currentTool === 'recolor' || currentTool === 'fill') {
       return null;
     }
 

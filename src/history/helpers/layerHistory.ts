@@ -5,6 +5,7 @@ import { mapCanvasActionToHistoryId } from './actions';
 import { captureColorCycleBrushState, type ColorCycleSerializedState } from './colorCycle';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { CanvasSnapshot } from '@/types';
+import { CC_DEBUG } from '@/debug/ccDebug';
 import { useAppStore } from '@/stores/useAppStore';
 import { createSelectionDelta } from '@/history/deltas/selectionDelta';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
@@ -37,6 +38,12 @@ export interface LayerHistoryPayload {
   beforeImage: ImageData | null;
   beforeColorState: ColorCycleSerializedState;
   afterColorState?: ColorCycleSerializedState | null;
+  bitmapRoi?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null;
   actionType: CanvasSnapshot['actionType'];
   description: string;
   tool: string;
@@ -69,6 +76,7 @@ export const commitLayerHistory = async ({
   coalesce,
   selectionBefore,
   skipBitmapDelta,
+  bitmapRoi,
 }: LayerHistoryPayload): Promise<void> =>
   timeAsync('commitLayerHistory', async () => {
     const afterState = useAppStore.getState();
@@ -78,7 +86,9 @@ export const commitLayerHistory = async ({
     }
     const isColorCycleLayer = refreshedLayer.layerType === 'color-cycle';
 
-    const afterImage = cloneImageData(refreshedLayer.imageData);
+    const refreshedImageData = refreshedLayer.imageData ?? null;
+    const shouldCaptureBitmap = !skipBitmapDelta && !isColorCycleLayer && Boolean(refreshedImageData);
+    const afterImage = shouldCaptureBitmap ? refreshedImageData : null;
 
     if (isColorCycleLayer) {
       const manager = getColorCycleBrushManager();
@@ -137,6 +147,7 @@ export const commitLayerHistory = async ({
           layerId,
           before: beforeImage,
           after: afterImage,
+          roi: bitmapRoi ?? undefined,
         });
         if (bitmapDelta) {
           txn.push(bitmapDelta);
@@ -145,13 +156,14 @@ export const commitLayerHistory = async ({
       }
 
       if (afterColorState || beforeColorState) {
-        // Diagnostics: verify before/after differ
-        console.debug('[cc-delta-capture]', {
-          beforeBytes: beforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-          afterBytes: afterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-          beforeCtr: beforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
-          afterCtr: afterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
-        });
+        if (CC_DEBUG.on) {
+          console.debug('[cc-delta-capture]', {
+            beforeBytes: beforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
+            afterBytes: afterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
+            beforeCtr: beforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+            afterCtr: afterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+          });
+        }
         const colorDelta = createColorCycleStrokeDelta({
           layerId,
           forwardState: afterColorState,

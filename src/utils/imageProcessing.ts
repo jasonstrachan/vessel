@@ -320,8 +320,45 @@ export function adjustContrast(imageData: ImageData, contrast: number): ImageDat
     data[i + 1] = Math.max(0, Math.min(255, factor * (data[i + 1] - 128) + 128)); // G
     data[i + 2] = Math.max(0, Math.min(255, factor * (data[i + 2] - 128) + 128)); // B
   }
-  
+
   return new ImageData(data, imageData.width, imageData.height);
+}
+
+export interface ColorAdjustOptions {
+  hue: number;
+  saturation: number;
+  lightness: number;
+  contrast: number;
+}
+
+export function applyColorAdjustments(imageData: ImageData, options: ColorAdjustOptions): ImageData {
+  const { hue, saturation, lightness, contrast } = options;
+  const hasHueSatLightness = hue !== 0 || saturation !== 0 || lightness !== 0;
+  const hasContrast = contrast !== 0;
+
+  if (!hasHueSatLightness && !hasContrast) {
+    return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+  }
+
+  let working = imageData;
+
+  if (hasHueSatLightness) {
+    const saturationPercent = Math.max(0, Math.min(200, 100 + saturation));
+    const lightnessAdjust = Math.max(-100, Math.min(100, lightness));
+    const hueShift = Math.max(-180, Math.min(180, hue));
+    working = adjustHueLightnessSaturation(working, hueShift, lightnessAdjust, saturationPercent);
+  } else {
+    working = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+  }
+
+  if (hasContrast) {
+    const contrastValue = Math.max(-255, Math.min(255, Math.round(contrast * 2.55)));
+    if (contrastValue !== 0) {
+      working = adjustContrast(working, contrastValue);
+    }
+  }
+
+  return working;
 }
 
 // Replace a color in ImageData with another color

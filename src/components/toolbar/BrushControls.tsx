@@ -124,38 +124,48 @@ const BrushControls = () => {
   }, [isShapeFillBrush, shapeMode, setShapeMode, currentTool]);
 
   const gradientDebounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gradientFrameRef = React.useRef<number | null>(null);
   const pendingGradientRef = React.useRef<Array<{ position: number; color: string }>>(
     brushSettings.colorCycleGradient
       ? brushSettings.colorCycleGradient.map(stop => ({ ...stop }))
       : DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop }))
   );
+  const pendingLayerUpdateRef = React.useRef<{
+    layerId: string;
+    gradient: Array<{ position: number; color: string }>;
+  } | null>(null);
 
-  const flushPendingGradient = React.useCallback(
-    (stops: Array<{ position: number; color: string }>) => {
-      const clonedStops = stops.map(stop => ({ ...stop }));
-      setActiveSettings({ colorCycleGradient: clonedStops });
-      setSharedColorCycleGradient(clonedStops);
+  const flushPendingGradient = React.useCallback(() => {
+    const stops = pendingGradientRef.current;
+    const clonedStops = stops.map(stop => ({ ...stop }));
+    setActiveSettings({ colorCycleGradient: clonedStops });
+    setSharedColorCycleGradient(clonedStops);
 
-      const state = useAppStore.getState();
-      const activeLayerIdLive = state.activeLayerId;
-      if (activeLayerIdLive) {
-        const activeLayer = state.layers.find(l => l.id === activeLayerIdLive);
-        if (activeLayer?.layerType === 'color-cycle') {
-          state.updateLayer(activeLayerIdLive, {
-            colorCycleData: {
-              ...activeLayer.colorCycleData,
-              gradient: clonedStops,
-              isAnimating: activeLayer.colorCycleData?.isAnimating || false
-            }
-          });
+    const pendingLayerUpdate = pendingLayerUpdateRef.current;
+    if (pendingLayerUpdate) {
+      updateLayer(pendingLayerUpdate.layerId, {
+        colorCycleData: {
+          gradient: pendingLayerUpdate.gradient.map(stop => ({ ...stop }))
         }
-      }
+      });
+      pendingLayerUpdateRef.current = null;
+    }
 
-      colorCycleRuntimeHandlers.updateGradient?.(clonedStops);
-      pendingGradientRef.current = clonedStops;
-    },
-    [setActiveSettings, colorCycleRuntimeHandlers]
-  );
+    colorCycleRuntimeHandlers.updateGradient?.(clonedStops);
+    pendingGradientRef.current = clonedStops;
+  }, [setActiveSettings, updateLayer, colorCycleRuntimeHandlers]);
+
+  const scheduleFlushFrame = React.useCallback(() => {
+    if (gradientFrameRef.current !== null) {
+      cancelAnimationFrame(gradientFrameRef.current);
+      gradientFrameRef.current = null;
+    }
+
+    gradientFrameRef.current = requestAnimationFrame(() => {
+      gradientFrameRef.current = null;
+      flushPendingGradient();
+    });
+  }, [flushPendingGradient]);
 
   const scheduleGradientFlush = React.useCallback(
     (stops: Array<{ position: number; color: string }>, immediate = false) => {
@@ -165,17 +175,28 @@ const BrushControls = () => {
         gradientDebounceTimerRef.current = null;
       }
 
+      const state = useAppStore.getState();
+      const activeLayerIdLive = state.activeLayerId;
+      if (activeLayerIdLive) {
+        pendingLayerUpdateRef.current = {
+          layerId: activeLayerIdLive,
+          gradient: pendingGradientRef.current
+        };
+      } else {
+        pendingLayerUpdateRef.current = null;
+      }
+
       if (immediate) {
-        flushPendingGradient(pendingGradientRef.current);
+        scheduleFlushFrame();
         return;
       }
 
       gradientDebounceTimerRef.current = setTimeout(() => {
         gradientDebounceTimerRef.current = null;
-        flushPendingGradient(pendingGradientRef.current);
+        scheduleFlushFrame();
       }, 80);
     },
-    [flushPendingGradient]
+    [scheduleFlushFrame]
   );
 
   React.useEffect(() => {
@@ -183,8 +204,12 @@ const BrushControls = () => {
       if (gradientDebounceTimerRef.current) {
         clearTimeout(gradientDebounceTimerRef.current);
         gradientDebounceTimerRef.current = null;
-        flushPendingGradient(pendingGradientRef.current);
       }
+      if (gradientFrameRef.current !== null) {
+        cancelAnimationFrame(gradientFrameRef.current);
+        gradientFrameRef.current = null;
+      }
+      flushPendingGradient();
     };
   }, [flushPendingGradient]);
 
