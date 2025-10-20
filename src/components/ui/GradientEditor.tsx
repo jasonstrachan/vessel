@@ -155,7 +155,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
     setStops(prev);
     setSelectedStop(null);
     scheduleGradientUpdate(prev);
-  }, [stops, onChange]);
+  }, [stops, scheduleGradientUpdate]);
   const doRedo = useCallback(() => {
     if (redoStackRef.current.length === 0) return;
     const next = redoStackRef.current.pop()!;

@@ -2896,14 +2896,16 @@ export class ColorCycleBrushCanvas2D {
       const strokeData = this.layerStrokes.get(layerId);
       const snapshot = strokeData?.lastSnapshot;
 
-      let paintBuffer: ArrayBuffer = new ArrayBuffer(0);
-      if (snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0) {
-        paintBuffer = snapshot.paintBuffer.slice(0);
-      } else if (strokeData?.paintBuffer && strokeData.paintBuffer.length > 0) {
-        paintBuffer = strokeData.paintBuffer.slice().buffer;
-      }
-
       const hasContent = snapshot?.hasContent ?? strokeData?.hasContent ?? false;
+
+      let paintBuffer: ArrayBuffer = new ArrayBuffer(0);
+      if (hasContent) {
+        if (snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0) {
+          paintBuffer = snapshot.paintBuffer.slice(0);
+        } else if (strokeData?.paintBuffer && strokeData.paintBuffer.length > 0) {
+          paintBuffer = strokeData.paintBuffer.slice().buffer;
+        }
+      }
       const strokeCounter = strokeData?.strokeCounter ?? snapshot?.strokeCounter ?? this.strokeCounter;
 
       layers.push({
@@ -2987,6 +2989,8 @@ export class ColorCycleBrushCanvas2D {
     const existing = this.layerStrokes.get(layerId);
     const expectedSize = this.width * this.height;
     const incoming = new Uint8Array(buffer);
+    const expectsContent = Boolean(snapshot.hasContent);
+    const hadExistingContent = existing?.hasContent ?? false;
     try {
       if (incoming.length !== expectedSize) {
         // Ensure animator is at the correct size for the current canvas
@@ -3016,15 +3020,11 @@ export class ColorCycleBrushCanvas2D {
         strokeData.paintBuffer.fill(0);
         strokeData.paintBuffer.set(incoming.subarray(0, copyLen));
       }
-    } else {
-      // No incoming data — keep existing contents rather than wiping
-      // to avoid undo clearing the entire layer unexpectedly.
-      // If this is the very first restore for this layer, ensure buffer exists
-      if (strokeData.paintBuffer.length !== expectedSize) {
-        strokeData.paintBuffer = new Uint8Array(expectedSize);
-      }
+    } else if (!expectsContent && hadExistingContent) {
+      // Snapshot explicitly represents an empty state — clear prior contents lazily.
+      strokeData.paintBuffer.fill(0);
     }
-    let hasLayerContent = (incoming.length > 0 ? incoming.some(v => v !== 0) : strokeData.paintBuffer.some(v => v !== 0)) && !!snapshot.hasContent;
+    let hasLayerContent = expectsContent;
 
     // If animator index buffer is provided, rebuild animator from it to preserve prior pixels
     if (animatorIndex && animatorIndex.data && animatorIndex.width && animatorIndex.height) {
@@ -3102,7 +3102,7 @@ export class ColorCycleBrushCanvas2D {
     strokeData.lastPoint = null;
     strokeData.stampCounter = 0;
     strokeData.lastSnapshot = {
-      paintBuffer: strokeData.paintBuffer.length > 0
+      paintBuffer: hasLayerContent
         ? strokeData.paintBuffer.slice().buffer
         : new ArrayBuffer(0),
       hasContent: hasLayerContent,

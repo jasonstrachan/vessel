@@ -88,7 +88,7 @@ export function floodFill(
 
     while (pixelStack.length > 0) {
       const [stackX, stackY] = pixelStack.pop()!;
-      let x = stackX;
+      const x = stackX;
       let y = stackY;
       let pixelPos = (y * width + x) * 4;
 

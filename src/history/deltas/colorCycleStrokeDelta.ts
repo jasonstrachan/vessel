@@ -170,6 +170,16 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       return;
     }
 
+    const layerSnapshots = state.layers ?? [];
+    const restoredHasContent = layerSnapshots.some((layerSnapshot) =>
+      Boolean(layerSnapshot.strokeData?.hasContent)
+    );
+    const layerHadContent = Boolean(layer.colorCycleData?.hasContent);
+
+    if (!restoredHasContent && !layerHadContent) {
+      return;
+    }
+
     const wasAnimating = Boolean(layer.colorCycleData?.isAnimating);
     if (wasAnimating && layer.colorCycleData) {
       try {
@@ -182,20 +192,16 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
     }
 
     try {
-      const layerSnapshots = state.layers ?? [];
       const paintBufferBytes =
-        state.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1;
+        layerSnapshots[0]?.strokeData?.paintBuffer?.byteLength ?? -1;
       console.debug('[cc-apply] restoring paintBuffer bytes:', paintBufferBytes);
-      const restoredHasContent = layerSnapshots.some((layerSnapshot) =>
-        Boolean(layerSnapshot.strokeData?.hasContent)
-      );
 
       // Do not clear before a history restore; the restore will rebuild the animator and commit the correct pixels.
       brush.restoreFullState({
         cycleSpeed: state.cycleSpeed,
         fps: state.fps,
         brushSize: state.brushSize,
-        layerSnapshots: state.layers?.map((layerSnapshot: ColorCycleSerializedLayer) => {
+        layerSnapshots: layerSnapshots.map((layerSnapshot: ColorCycleSerializedLayer) => {
           const layerData = layerSnapshot?.data as {
             indexBuffer?: {
               width?: number;
