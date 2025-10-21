@@ -620,12 +620,23 @@ export class BrushEngineFacade {
       return true;
     }
 
-    try {
-      const imageData = ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1);
-      return imageData.data[3] > 0; // Check alpha channel
-    } catch {
-      return true; // Allow drawing if we can't check
+    // With the higher-level alpha-lock compositing, we allow the stamp to draw
+    // and rely on the final destination-in mask to clip the result. Sampling
+    // per-stamp alpha here produced frequent false negatives when the mask and
+    // brush coordinates diverged slightly (e.g., CC layers or rotated strokes),
+    // effectively disabling painting even though the layer had visible alpha.
+    // TODO: if we reintroduce gating, use the selected mask canvas instead of
+    // the live context and account for coordinate scaling.
+    if (typeof window !== 'undefined' && (window as typeof window & { __alphaLockDebug?: number }).__alphaLockDebug >= 3) {
+      try {
+        const pixel = ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1);
+        console.log('[AL] canDrawAt bypass sample', { x: Math.floor(x), y: Math.floor(y), alpha: pixel.data[3] });
+      } catch {
+        // ignore sampling errors in debug logging
+      }
     }
+
+    return true;
   }
 
   /**

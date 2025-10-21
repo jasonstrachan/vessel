@@ -184,60 +184,6 @@ const sampleRGBA = (ctx: CanvasRenderingContext2D, x: number, y: number) => {
   }
 };
 
-type Rect = { x: number; y: number; w: number; h: number };
-
-const unionRect = (a: Rect | null, b: Rect | null): Rect | null => {
-  if (!b) {
-    return a ? { ...a } : null;
-  }
-  if (!a) {
-    return { ...b };
-  }
-  const x = Math.min(a.x, b.x);
-  const y = Math.min(a.y, b.y);
-  const right = Math.max(a.x + a.w, b.x + b.w);
-  const bottom = Math.max(a.y + a.h, b.y + b.h);
-  return { x, y, w: right - x, h: bottom - y };
-};
-
-const inflateRect = (r: Rect, pad: number): Rect => ({
-  x: r.x - pad,
-  y: r.y - pad,
-  w: r.w + pad * 2,
-  h: r.h + pad * 2
-});
-
-const clipRectToCanvas = (r: Rect | null, w: number, h: number): Rect | null => {
-  if (!r) {
-    return null;
-  }
-  const x = clamp(Math.floor(r.x), 0, w);
-  const y = clamp(Math.floor(r.y), 0, h);
-  const rx = clamp(Math.ceil(r.x + r.w), 0, w);
-  const by = clamp(Math.ceil(r.y + r.h), 0, h);
-  const width = rx - x;
-  const height = by - y;
-  return (width > 0 && height > 0) ? { x, y, w: width, h: height } : null;
-};
-
-const segmentToRect = (
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-  radius: number
-): Rect => {
-  const minX = Math.min(from.x, to.x);
-  const minY = Math.min(from.y, to.y);
-  const maxX = Math.max(from.x, to.x);
-  const maxY = Math.max(from.y, to.y);
-  const base: Rect = {
-    x: Math.floor(minX),
-    y: Math.floor(minY),
-    w: Math.ceil(maxX - minX),
-    h: Math.ceil(maxY - minY)
-  };
-  return inflateRect(base, Math.ceil(radius) + 2);
-};
-
 export const useBrushEngineSimplified = () => {
   const { tools, project, activeLayerId } = useAppStore();
   // Track per-layer CC brush speed for the active layer
@@ -347,13 +293,6 @@ export const useBrushEngineSimplified = () => {
     sampledAt: 0
   });
   const alphaProbeCanvasRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
-  const alphaLockDirtyRef = useRef<Rect | null>(null);
-  const bumpDirty = useCallback((rect: Rect) => {
-    alphaLockDirtyRef.current = unionRect(alphaLockDirtyRef.current, rect);
-  }, []);
-  const resetDirty = useCallback(() => {
-    alphaLockDirtyRef.current = null;
-  }, []);
   const strokeBoundsRef = useRef<Rect | null>(null);
 
   const layerHasAnyAlpha = useCallback(() => {
@@ -471,172 +410,104 @@ export const useBrushEngineSimplified = () => {
     const lockOn = activeLayerTransparencyLock;
     AL('ENTER', { tag: sample.tag, lockOn, dst: `${dstW}x${dstH}` });
 
-    if (!lockOn) {
+    if (!lockOn || !dstW || !dstH) {
       alphaLockEmptyMaskWarnedRef.current = false;
       paint(dstCtx);
       return;
     }
 
-    if (!dstW || !dstH) {
-      return;
-    }
-
-    const region = normalizeRectForCanvas(bounds, dstW, dstH);
-
-    const layerMask = getActiveLayerBitmapCanvas();
+    const mask = getActiveLayerBitmapCanvas();
     const hasLayerAlpha = layerHasAnyAlpha();
-    const warnOnEmpty = true;
-
-    if (!hasLayerAlpha && warnOnEmpty) {
+    const maskWidth = (mask as { width?: number })?.width ?? 0;
+    const maskHeight = (mask as { height?: number })?.height ?? 0;
+    if (!mask || !maskWidth || !maskHeight || !hasLayerAlpha) {
       if (!alphaLockEmptyMaskWarnedRef.current && typeof console !== 'undefined') {
         console.warn('[AlphaLock] Active layer shows no visible alpha; lock prevents new pixels.');
         alphaLockEmptyMaskWarnedRef.current = true;
       }
-    } else {
-      alphaLockEmptyMaskWarnedRef.current = false;
-    }
-
-    // Fast path: when using normal blending, we can rely on 'source-atop'
-    // directly on the destination without allocating a scratch canvas.
-    // This preserves alpha-lock semantics and avoids a full-canvas mask.
-    const blendMode = (tools.brushSettings.blendMode || 'source-over') as GlobalCompositeOperation;
-    if (blendMode === 'source-over') {
-      const maskCanvas = layerMask as HTMLCanvasElement | OffscreenCanvas | undefined;
-      const referenceCtx = typeof maskCanvas?.getContext === 'function'
-        ? maskCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings)
-        : null;
-      const readCtx = referenceCtx ?? dstCtx;
-      const readCanvas = readCtx.canvas as HTMLCanvasElement | OffscreenCanvas | undefined;
-      const proxyableSize = !!readCanvas && readCanvas.width === dstW && readCanvas.height === dstH;
-
-      let restoreGetImageData: (() => void) | null = null;
-      if (proxyableSize) {
-        const originalGetImageData = dstCtx.getImageData.bind(dstCtx);
-        dstCtx.getImageData = ((x: number, y: number, w: number, h: number) =>
-          readCtx.getImageData(x, y, w, h)
-        ) as typeof dstCtx.getImageData;
-        restoreGetImageData = () => {
-          dstCtx.getImageData = originalGetImageData;
-        };
-      }
-
-      const prevComp = dstCtx.globalCompositeOperation;
-      try {
-        dstCtx.globalCompositeOperation = 'source-atop';
-        paint(dstCtx);
-      } finally {
-        dstCtx.globalCompositeOperation = prevComp;
-        restoreGetImageData?.();
-      }
-
-      if (layerMask) {
-        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        alphaPresenceCacheRef.current = {
-          canvas: layerMask as HTMLCanvasElement | OffscreenCanvas,
-          hasAlpha: true,
-          sampledAt: now
-        };
-      }
       return;
     }
+    alphaLockEmptyMaskWarnedRef.current = false;
 
-    const scratchCanvas = canvasPool.acquire(region.width, region.height);
+    const region = normalizeRectForCanvas(bounds, dstW, dstH);
+    const scratch = canvasPool.acquire(region.width, region.height);
 
     try {
-      const scratchCtx = scratchCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
-      if (!scratchCtx) {
+      const sctx = scratch.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+      if (!sctx) {
         return;
       }
 
-      scratchCtx.clearRect(0, 0, region.width, region.height);
+      sctx.clearRect(0, 0, region.width, region.height);
+      sctx.save();
+      sctx.translate(-region.x, -region.y);
 
-      const maskWidth = (layerMask as { width?: number })?.width ?? 0;
-      const maskHeight = (layerMask as { height?: number })?.height ?? 0;
-      const maskA = sampleMaskA(layerMask, dstW, dstH, sample.x, sample.y);
+      const originalGetImageData = sctx.getImageData.bind(sctx);
+      sctx.getImageData = ((x: number, y: number, w: number, h: number) =>
+        dstCtx.getImageData(x + region.x, y + region.y, w, h)
+      ) as typeof sctx.getImageData;
+
+      try {
+        paint(sctx as unknown as CanvasRenderingContext2D);
+      } finally {
+        sctx.getImageData = originalGetImageData;
+        sctx.restore();
+      }
+
+      const scratchSampleX = sample.x - region.x;
+      const scratchSampleY = sample.y - region.y;
+      const scratchPre = sampleRGBA(sctx as unknown as CanvasRenderingContext2D, scratchSampleX, scratchSampleY);
+
       const maskSrc = (typeof window !== 'undefined' && window.__AL_maskSrc) || 'unknown';
       const dstBefore = sampleRGBA(dstCtx, sample.x, sample.y);
-
       AL('SETUP', {
         maskSrc,
         maskSize: `${maskWidth}x${maskHeight}`,
         sampleXY: `${Math.round(sample.x)},${Math.round(sample.y)}`,
-        maskA,
-        dstBefore
+        dstBefore,
+        region
       });
-
-      const maskCanvas = layerMask as HTMLCanvasElement | OffscreenCanvas | undefined;
-      const referenceCtx = typeof maskCanvas?.getContext === 'function'
-        ? maskCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings)
-        : null;
-      const readCtx = referenceCtx ?? dstCtx;
-      const readCanvas = readCtx.canvas as HTMLCanvasElement | OffscreenCanvas | undefined;
-      const proxyableSize = !!readCanvas && readCanvas.width === dstW && readCanvas.height === dstH;
-
-      // Proxy readbacks to the real layer so alpha-locked brushes see existing pixels.
-      let restoreGetImageData: (() => void) | null = null;
-      if (proxyableSize) {
-        const originalGetImageData = scratchCtx.getImageData.bind(scratchCtx);
-        scratchCtx.getImageData = ((x: number, y: number, w: number, h: number) =>
-          readCtx.getImageData(x + region.x, y + region.y, w, h)
-        ) as typeof scratchCtx.getImageData;
-        restoreGetImageData = () => {
-          scratchCtx.getImageData = originalGetImageData;
-        };
-      }
-
-      try {
-        scratchCtx.save();
-        scratchCtx.translate(-region.x, -region.y);
-        paint(scratchCtx);
-        scratchCtx.restore();
-      } finally {
-        restoreGetImageData?.();
-      }
-
-      const scratchPre = sampleRGBA(scratchCtx, sample.x - region.x, sample.y - region.y);
       AL('PAINT', { scratchRGBA_preMask: scratchPre });
 
-      const maskSource = (layerMask as unknown as CanvasImageSource) ?? null;
-      if (!maskSource) {
-        AL('MASK_SKIP', { reason: 'missing-mask' });
-        return;
-      }
+      const sx = (region.x * maskWidth) / dstW;
+      const sy = (region.y * maskHeight) / dstH;
+      const sw = (region.width * maskWidth) / dstW;
+      const sh = (region.height * maskHeight) / dstH;
 
-      scratchCtx.globalCompositeOperation = 'destination-in';
-      scratchCtx.drawImage(
-        maskSource,
-        region.x,
-        region.y,
-        region.width,
-        region.height,
+      sctx.globalCompositeOperation = 'destination-in';
+      sctx.drawImage(
+        mask as unknown as CanvasImageSource,
+        sx,
+        sy,
+        sw,
+        sh,
         0,
         0,
         region.width,
         region.height
       );
-      scratchCtx.globalCompositeOperation = 'source-over';
+      sctx.globalCompositeOperation = 'source-over';
 
-      const scratchPost = sampleRGBA(scratchCtx, sample.x - region.x, sample.y - region.y);
-      AL('MASK', { scratchRGBA_afterMask: scratchPost, maskSource: maskSrc });
+      const scratchPost = sampleRGBA(sctx as unknown as CanvasRenderingContext2D, scratchSampleX, scratchSampleY);
+      AL('MASK', { scratchRGBA_afterMask: scratchPost, region });
 
+      const blendMode = (tools.brushSettings.blendMode || 'source-over') as GlobalCompositeOperation;
       dstCtx.save();
       dstCtx.globalCompositeOperation = blendMode;
-      dstCtx.drawImage(scratchCanvas, region.x, region.y);
+      dstCtx.drawImage(scratch, region.x, region.y);
       dstCtx.restore();
-
-      if (layerMask) {
-        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        alphaPresenceCacheRef.current = {
-          canvas: layerMask as HTMLCanvasElement | OffscreenCanvas,
-          hasAlpha: true,
-          sampledAt: now
-        };
-      }
 
       const dstAfter = sampleRGBA(dstCtx, sample.x, sample.y);
       AL('COMPOSITE', { gco: blendMode, dstAfter });
+
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      alphaPresenceCacheRef.current = {
+        canvas: mask as HTMLCanvasElement | OffscreenCanvas,
+        hasAlpha: true,
+        sampledAt: now
+      };
     } finally {
-      canvasPool.release(scratchCanvas);
+      canvasPool.release(scratch);
     }
   }, [activeLayerTransparencyLock, getActiveLayerBitmapCanvas, layerHasAnyAlpha, tools.brushSettings.blendMode]);
 
@@ -669,27 +540,6 @@ export const useBrushEngineSimplified = () => {
       });
     }
 
-    // Fast path for default blending: draw directly with source-atop
-    if (activeLayerTransparencyLock && blendMode === 'source-over') {
-      const prevComp = targetCtx.globalCompositeOperation;
-      try {
-        targetCtx.globalCompositeOperation = 'source-atop';
-        targetCtx.drawImage(sourceCanvas as unknown as CanvasImageSource, 0, 0, width, height);
-      } finally {
-        targetCtx.globalCompositeOperation = prevComp;
-      }
-      const layerMask = getActiveLayerBitmapCanvas();
-      if (layerMask) {
-        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        alphaPresenceCacheRef.current = {
-          canvas: layerMask as HTMLCanvasElement | OffscreenCanvas,
-          hasAlpha: true,
-          sampledAt: now
-        };
-      }
-      return;
-    }
-
     const tempCanvas = canvasPool.acquire(width, height);
     try {
       const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
@@ -703,13 +553,25 @@ export const useBrushEngineSimplified = () => {
       if (activeLayerTransparencyLock) {
         const layerMask = getActiveLayerBitmapCanvas();
         const maskCanvas: CanvasImageSource | null = (layerMask as unknown as CanvasImageSource) ?? null;
-        if (!maskCanvas) {
+        const maskWidth = (layerMask as { width?: number })?.width ?? 0;
+        const maskHeight = (layerMask as { height?: number })?.height ?? 0;
+        if (!maskCanvas || !maskWidth || !maskHeight) {
           AL('CC_MASK_SKIP', { reason: 'missing-mask' });
           return;
         }
 
         tempCtx.globalCompositeOperation = 'destination-in';
-        tempCtx.drawImage(maskCanvas, 0, 0, width, height);
+        tempCtx.drawImage(
+          maskCanvas,
+          0,
+          0,
+          maskWidth,
+          maskHeight,
+          0,
+          0,
+          width,
+          height
+        );
         tempCtx.globalCompositeOperation = 'source-over';
 
         try {
@@ -933,7 +795,11 @@ export const useBrushEngineSimplified = () => {
     from: { x: number; y: number },
     to: { x: number; y: number },
     pressure: number = 1,
-    customBrushData?: CustomBrushStrokeData
+    customBrushData?: {
+      width?: number;
+      height?: number;
+      isResampler?: boolean;
+    }
   ): Rect => {
     const brushSettings = tools.brushSettings;
     const brushSize = Math.max(brushSettings.size || 1, 1);
