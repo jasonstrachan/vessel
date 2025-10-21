@@ -16,6 +16,9 @@ import { type ColorCycleBrushImplementation } from './brushEngine/ColorCycleBrus
 declare global {
   interface Window {
     transparencyLockEnabled?: boolean;
+    __alphaLockDebug?: number;
+    __AL_sample?: { x: number; y: number; tag?: string };
+    __AL_maskSrc?: string;
   }
 }
 
@@ -47,7 +50,193 @@ const hasForceRender = (
   return Boolean(brush && typeof (brush as { forceRender?: unknown }).forceRender === 'function');
 };
 
-const ALPHALOCK_STRATEGY: 'layer' | 'visible-if-empty' = 'visible-if-empty';
+const getAlphaLockDebugLevel = () => {
+  if (typeof window === 'undefined') {
+    return 0;
+  }
+  const level = Number((window as { __alphaLockDebug?: unknown }).__alphaLockDebug ?? 0);
+  return Number.isFinite(level) ? level : 0;
+};
+
+const AL = (step: string, obj: Record<string, unknown>) => {
+  const level = typeof window !== 'undefined' ? window.__alphaLockDebug ?? 0 : 0;
+  if (level > 0) {
+    try {
+      console.log(`[AL] ${step} ${JSON.stringify(obj)}`);
+    } catch {
+      console.log('[AL]', step, obj);
+    }
+  }
+};
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const MAX_ALPHA_PROBE_SIZE = 256;
+
+type Rect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+const mergeRectBounds = (current: Rect | null, next: Rect): Rect => {
+  if (!current) {
+    return next;
+  }
+  const minX = Math.min(current.x, next.x);
+  const minY = Math.min(current.y, next.y);
+  const maxX = Math.max(current.x + current.width, next.x + next.width);
+  const maxY = Math.max(current.y + current.height, next.y + next.height);
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY
+  };
+};
+
+const inflateRect = (rect: Rect, padding: number): Rect => ({
+  x: rect.x - padding,
+  y: rect.y - padding,
+  width: rect.width + padding * 2,
+  height: rect.height + padding * 2
+});
+
+const normalizeRectForCanvas = (
+  rect: Rect | undefined,
+  canvasWidth: number,
+  canvasHeight: number
+): Rect => {
+  if (!rect) {
+    return {
+      x: 0,
+      y: 0,
+      width: canvasWidth,
+      height: canvasHeight
+    };
+  }
+
+  const minX = clamp(Math.floor(rect.x), 0, canvasWidth);
+  const minY = clamp(Math.floor(rect.y), 0, canvasHeight);
+  const maxX = clamp(Math.ceil(rect.x + rect.width), minX, canvasWidth);
+  const maxY = clamp(Math.ceil(rect.y + rect.height), minY, canvasHeight);
+  const width = maxX - minX;
+  const height = maxY - minY;
+
+  if (width <= 0 || height <= 0) {
+    return {
+      x: 0,
+      y: 0,
+      width: canvasWidth,
+      height: canvasHeight
+    };
+  }
+
+  return {
+    x: minX,
+    y: minY,
+    width,
+    height
+  };
+};
+
+const pick2D = (c: HTMLCanvasElement | OffscreenCanvas | null) =>
+  c?.getContext?.('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) ?? null;
+
+const sampleMaskA = (
+  mask: HTMLCanvasElement | OffscreenCanvas | null,
+  dstW: number,
+  dstH: number,
+  dx: number,
+  dy: number
+) => {
+  if (getAlphaLockDebugLevel() === 0) {
+    return -1;
+  }
+  if (!mask) {
+    return -1;
+  }
+  const mW = (mask as { width?: number }).width ?? 0;
+  const mH = (mask as { height?: number }).height ?? 0;
+  const mctx = pick2D(mask);
+  if (!mctx || !mW || !mH) {
+    return -1;
+  }
+  const mx = clamp(Math.floor((dx * mW) / Math.max(1, dstW)), 0, mW - 1);
+  const my = clamp(Math.floor((dy * mH) / Math.max(1, dstH)), 0, mH - 1);
+  try {
+    return mctx.getImageData(mx, my, 1, 1).data[3];
+  } catch {
+    return -1;
+  }
+};
+
+const sampleRGBA = (ctx: CanvasRenderingContext2D, x: number, y: number) => {
+  if (getAlphaLockDebugLevel() === 0) {
+    return null;
+  }
+  const ix = clamp(Math.floor(x), 0, (ctx.canvas.width | 0) - 1);
+  const iy = clamp(Math.floor(y), 0, (ctx.canvas.height | 0) - 1);
+  try {
+    return Array.from(ctx.getImageData(ix, iy, 1, 1).data);
+  } catch {
+    return null;
+  }
+};
+
+type Rect = { x: number; y: number; w: number; h: number };
+
+const unionRect = (a: Rect | null, b: Rect | null): Rect | null => {
+  if (!b) {
+    return a ? { ...a } : null;
+  }
+  if (!a) {
+    return { ...b };
+  }
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  const right = Math.max(a.x + a.w, b.x + b.w);
+  const bottom = Math.max(a.y + a.h, b.y + b.h);
+  return { x, y, w: right - x, h: bottom - y };
+};
+
+const inflateRect = (r: Rect, pad: number): Rect => ({
+  x: r.x - pad,
+  y: r.y - pad,
+  w: r.w + pad * 2,
+  h: r.h + pad * 2
+});
+
+const clipRectToCanvas = (r: Rect | null, w: number, h: number): Rect | null => {
+  if (!r) {
+    return null;
+  }
+  const x = clamp(Math.floor(r.x), 0, w);
+  const y = clamp(Math.floor(r.y), 0, h);
+  const rx = clamp(Math.ceil(r.x + r.w), 0, w);
+  const by = clamp(Math.ceil(r.y + r.h), 0, h);
+  const width = rx - x;
+  const height = by - y;
+  return (width > 0 && height > 0) ? { x, y, w: width, h: height } : null;
+};
+
+const segmentToRect = (
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  radius: number
+): Rect => {
+  const minX = Math.min(from.x, to.x);
+  const minY = Math.min(from.y, to.y);
+  const maxX = Math.max(from.x, to.x);
+  const maxY = Math.max(from.y, to.y);
+  const base: Rect = {
+    x: Math.floor(minX),
+    y: Math.floor(minY),
+    w: Math.ceil(maxX - minX),
+    h: Math.ceil(maxY - minY)
+  };
+  return inflateRect(base, Math.ceil(radius) + 2);
+};
 
 export const useBrushEngineSimplified = () => {
   const { tools, project, activeLayerId } = useAppStore();
@@ -71,6 +260,9 @@ export const useBrushEngineSimplified = () => {
     if (layer.layerType === 'color-cycle') {
       const ccCanvas = layer.colorCycleData?.canvas;
       if (ccCanvas && typeof ccCanvas.getContext === 'function') {
+        if (typeof window !== 'undefined') {
+          window.__AL_maskSrc = 'ccCanvas';
+        }
         return ccCanvas as HTMLCanvasElement | OffscreenCanvas;
       }
 
@@ -80,23 +272,38 @@ export const useBrushEngineSimplified = () => {
 
       const internalCanvas = brush?.getCanvas?.();
       if (internalCanvas && typeof (internalCanvas as HTMLCanvasElement | OffscreenCanvas).getContext === 'function') {
+        if (typeof window !== 'undefined') {
+          window.__AL_maskSrc = 'ccInternal';
+        }
         return internalCanvas as HTMLCanvasElement | OffscreenCanvas;
       }
 
       const paintBuffer = (brush as { getPaintBuffer?: () => HTMLCanvasElement | OffscreenCanvas | null } | null)
         ?.getPaintBuffer?.();
       if (paintBuffer && typeof (paintBuffer as HTMLCanvasElement | OffscreenCanvas).getContext === 'function') {
+        if (typeof window !== 'undefined') {
+          window.__AL_maskSrc = 'ccPaintBuffer';
+        }
         return paintBuffer as HTMLCanvasElement | OffscreenCanvas;
       }
 
+      if (typeof window !== 'undefined') {
+        window.__AL_maskSrc = 'null-cc';
+      }
       return null;
     }
 
     const framebuffer = layer.framebuffer;
     if (framebuffer && typeof framebuffer.getContext === 'function') {
+      if (typeof window !== 'undefined') {
+        window.__AL_maskSrc = 'framebuffer';
+      }
       return framebuffer as HTMLCanvasElement | OffscreenCanvas;
     }
 
+    if (typeof window !== 'undefined') {
+      window.__AL_maskSrc = 'null-bitmap';
+    }
     return null;
   }, []);
 
@@ -130,10 +337,42 @@ export const useBrushEngineSimplified = () => {
     }
   }, [activeLayerTransparencyLock]);
 
+  const alphaPresenceCacheRef = useRef<{
+    canvas: HTMLCanvasElement | OffscreenCanvas | null;
+    hasAlpha: boolean;
+    sampledAt: number;
+  }>({
+    canvas: null,
+    hasAlpha: true,
+    sampledAt: 0
+  });
+  const alphaProbeCanvasRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
+  const alphaLockDirtyRef = useRef<Rect | null>(null);
+  const bumpDirty = useCallback((rect: Rect) => {
+    alphaLockDirtyRef.current = unionRect(alphaLockDirtyRef.current, rect);
+  }, []);
+  const resetDirty = useCallback(() => {
+    alphaLockDirtyRef.current = null;
+  }, []);
+  const strokeBoundsRef = useRef<Rect | null>(null);
+
   const layerHasAnyAlpha = useCallback(() => {
     const mask = getActiveLayerBitmapCanvas();
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const cache = alphaPresenceCacheRef.current;
+
     if (!mask) {
+      cache.canvas = null;
+      cache.hasAlpha = true;
+      cache.sampledAt = now;
       return true;
+    }
+
+    if (cache.canvas === mask) {
+      const ttlMs = cache.hasAlpha ? 32 : 250;
+      if (now - cache.sampledAt < ttlMs) {
+        return cache.hasAlpha;
+      }
     }
 
     const width = ((mask as HTMLCanvasElement | OffscreenCanvas).width ?? 0) | 0;
@@ -142,47 +381,112 @@ export const useBrushEngineSimplified = () => {
       return true;
     }
 
-    const maskCtx = typeof (mask as HTMLCanvasElement | OffscreenCanvas).getContext === 'function'
-      ? (mask as HTMLCanvasElement | OffscreenCanvas).getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings)
+    const sampleW = Math.max(1, Math.min(MAX_ALPHA_PROBE_SIZE, width));
+    const sampleH = Math.max(1, Math.min(MAX_ALPHA_PROBE_SIZE, height));
+
+    let probeCanvas = alphaProbeCanvasRef.current;
+    if (!probeCanvas || probeCanvas.width !== sampleW || probeCanvas.height !== sampleH) {
+      const globalAny = globalThis as Record<string, unknown>;
+      const offscreenCtor = (globalAny as { OffscreenCanvas?: unknown }).OffscreenCanvas;
+
+      if (typeof offscreenCtor === 'function') {
+        probeCanvas = new (offscreenCtor as { new(w: number, h: number): unknown })(sampleW, sampleH) as HTMLCanvasElement | OffscreenCanvas;
+      } else if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+        const canvas = document.createElement('canvas');
+        canvas.width = sampleW;
+        canvas.height = sampleH;
+        probeCanvas = canvas;
+      } else {
+        // Unable to create a canvas in this environment; assume alpha to avoid blocking.
+        return true;
+      }
+      alphaProbeCanvasRef.current = probeCanvas;
+    }
+
+    const probeCtx = typeof probeCanvas.getContext === 'function'
+      ? probeCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings)
       : null;
-    if (!maskCtx) {
+    if (!probeCtx) {
       return true;
     }
 
-    const samplesX = Math.min(8, width);
-    const samplesY = Math.min(8, height);
-    for (let iy = 0; iy < samplesY; iy++) {
-      for (let ix = 0; ix < samplesX; ix++) {
-        const x = Math.min(width - 1, Math.floor(((ix + 0.5) * width) / samplesX));
-        const y = Math.min(height - 1, Math.floor(((iy + 0.5) * height) / samplesY));
-        try {
-          if (maskCtx.getImageData(x, y, 1, 1).data[3] > 0) {
-            return true;
+    probeCtx.clearRect(0, 0, sampleW, sampleH);
+    try {
+      probeCtx.drawImage(mask as CanvasImageSource, 0, 0, width, height, 0, 0, sampleW, sampleH);
+    } catch {
+      return true;
+    }
+
+    const data = probeCtx.getImageData(0, 0, sampleW, sampleH).data;
+    let hasAlpha = false;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] > 0) {
+        hasAlpha = true;
+        break;
+      }
+    }
+
+    if (!hasAlpha) {
+      const maskCtx = pick2D(mask);
+      if (maskCtx) {
+        const stepY = Math.max(1, Math.floor(height / sampleH));
+        const stepX = Math.max(1, Math.floor(width / sampleW));
+        for (let y = 0; y < height && !hasAlpha; y += stepY) {
+          try {
+            const row = maskCtx.getImageData(0, y, width, 1).data;
+            for (let x = 3; x < row.length; x += stepX * 4) {
+              if (row[x] > 0) {
+                hasAlpha = true;
+                break;
+              }
+            }
+          } catch {
+            break;
           }
-        } catch {
-          // Continue to next sample when a read fails.
         }
       }
     }
 
-    return false;
+    cache.canvas = mask as HTMLCanvasElement | OffscreenCanvas;
+    cache.hasAlpha = hasAlpha;
+    cache.sampledAt = now;
+    return hasAlpha;
   }, [getActiveLayerBitmapCanvas]);
 
   const alphaLockEmptyMaskWarnedRef = useRef(false);
 
   const withAlphaLock = useCallback((
     dstCtx: CanvasRenderingContext2D,
-    paint: (targetCtx: CanvasRenderingContext2D) => void
+    paint: (targetCtx: CanvasRenderingContext2D) => void,
+    bounds?: Rect
   ) => {
-    if (!activeLayerTransparencyLock) {
+    const dstW = dstCtx.canvas.width | 0;
+    const dstH = dstCtx.canvas.height | 0;
+    const sample = (typeof window !== 'undefined' && window.__AL_sample) || {
+      x: dstW ? dstW / 2 : 0,
+      y: dstH ? dstH / 2 : 0,
+      tag: '(center)'
+    };
+
+    const lockOn = activeLayerTransparencyLock;
+    AL('ENTER', { tag: sample.tag, lockOn, dst: `${dstW}x${dstH}` });
+
+    if (!lockOn) {
       alphaLockEmptyMaskWarnedRef.current = false;
       paint(dstCtx);
       return;
     }
 
+    if (!dstW || !dstH) {
+      return;
+    }
+
+    const region = normalizeRectForCanvas(bounds, dstW, dstH);
+
+    const layerMask = getActiveLayerBitmapCanvas();
     const hasLayerAlpha = layerHasAnyAlpha();
-    const allowVisibleFallback = ALPHALOCK_STRATEGY === 'visible-if-empty';
-    const warnOnEmpty = !allowVisibleFallback;
+    const warnOnEmpty = true;
+
     if (!hasLayerAlpha && warnOnEmpty) {
       if (!alphaLockEmptyMaskWarnedRef.current && typeof console !== 'undefined') {
         console.warn('[AlphaLock] Active layer shows no visible alpha; lock prevents new pixels.');
@@ -192,13 +496,51 @@ export const useBrushEngineSimplified = () => {
       alphaLockEmptyMaskWarnedRef.current = false;
     }
 
-    const width = dstCtx.canvas.width | 0;
-    const height = dstCtx.canvas.height | 0;
-    if (!width || !height) {
+    // Fast path: when using normal blending, we can rely on 'source-atop'
+    // directly on the destination without allocating a scratch canvas.
+    // This preserves alpha-lock semantics and avoids a full-canvas mask.
+    const blendMode = (tools.brushSettings.blendMode || 'source-over') as GlobalCompositeOperation;
+    if (blendMode === 'source-over') {
+      const maskCanvas = layerMask as HTMLCanvasElement | OffscreenCanvas | undefined;
+      const referenceCtx = typeof maskCanvas?.getContext === 'function'
+        ? maskCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings)
+        : null;
+      const readCtx = referenceCtx ?? dstCtx;
+      const readCanvas = readCtx.canvas as HTMLCanvasElement | OffscreenCanvas | undefined;
+      const proxyableSize = !!readCanvas && readCanvas.width === dstW && readCanvas.height === dstH;
+
+      let restoreGetImageData: (() => void) | null = null;
+      if (proxyableSize) {
+        const originalGetImageData = dstCtx.getImageData.bind(dstCtx);
+        dstCtx.getImageData = ((x: number, y: number, w: number, h: number) =>
+          readCtx.getImageData(x, y, w, h)
+        ) as typeof dstCtx.getImageData;
+        restoreGetImageData = () => {
+          dstCtx.getImageData = originalGetImageData;
+        };
+      }
+
+      const prevComp = dstCtx.globalCompositeOperation;
+      try {
+        dstCtx.globalCompositeOperation = 'source-atop';
+        paint(dstCtx);
+      } finally {
+        dstCtx.globalCompositeOperation = prevComp;
+        restoreGetImageData?.();
+      }
+
+      if (layerMask) {
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        alphaPresenceCacheRef.current = {
+          canvas: layerMask as HTMLCanvasElement | OffscreenCanvas,
+          hasAlpha: true,
+          sampledAt: now
+        };
+      }
       return;
     }
 
-    const scratchCanvas = canvasPool.acquire(width, height);
+    const scratchCanvas = canvasPool.acquire(region.width, region.height);
 
     try {
       const scratchCtx = scratchCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
@@ -206,73 +548,97 @@ export const useBrushEngineSimplified = () => {
         return;
       }
 
-      scratchCtx.clearRect(0, 0, width, height);
+      scratchCtx.clearRect(0, 0, region.width, region.height);
 
-      const layerMask = getActiveLayerBitmapCanvas();
+      const maskWidth = (layerMask as { width?: number })?.width ?? 0;
+      const maskHeight = (layerMask as { height?: number })?.height ?? 0;
+      const maskA = sampleMaskA(layerMask, dstW, dstH, sample.x, sample.y);
+      const maskSrc = (typeof window !== 'undefined' && window.__AL_maskSrc) || 'unknown';
+      const dstBefore = sampleRGBA(dstCtx, sample.x, sample.y);
+
+      AL('SETUP', {
+        maskSrc,
+        maskSize: `${maskWidth}x${maskHeight}`,
+        sampleXY: `${Math.round(sample.x)},${Math.round(sample.y)}`,
+        maskA,
+        dstBefore
+      });
+
+      const maskCanvas = layerMask as HTMLCanvasElement | OffscreenCanvas | undefined;
+      const referenceCtx = typeof maskCanvas?.getContext === 'function'
+        ? maskCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings)
+        : null;
+      const readCtx = referenceCtx ?? dstCtx;
+      const readCanvas = readCtx.canvas as HTMLCanvasElement | OffscreenCanvas | undefined;
+      const proxyableSize = !!readCanvas && readCanvas.width === dstW && readCanvas.height === dstH;
+
+      // Proxy readbacks to the real layer so alpha-locked brushes see existing pixels.
       let restoreGetImageData: (() => void) | null = null;
-      if (activeLayerTransparencyLock) {
-        const maskCtx = layerMask && typeof (layerMask as HTMLCanvasElement | OffscreenCanvas).getContext === 'function'
-          ? (layerMask as HTMLCanvasElement | OffscreenCanvas).getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings)
-          : null;
-        const maskCanvas = maskCtx?.canvas as HTMLCanvasElement | OffscreenCanvas | undefined;
-        const sameSize = Boolean(
-          maskCanvas &&
-          'width' in maskCanvas &&
-          'height' in maskCanvas &&
-          (maskCanvas.width | 0) === width &&
-          (maskCanvas.height | 0) === height
-        );
-
-        if (maskCtx && sameSize) {
-          const originalGetImageData = scratchCtx.getImageData.bind(scratchCtx);
-          const maskGetImageData = maskCtx.getImageData.bind(maskCtx);
-          const targetGetImageData = dstCtx.getImageData.bind(dstCtx);
-
-          scratchCtx.getImageData = ((...args: Parameters<typeof originalGetImageData>) => {
-            try {
-              return maskGetImageData(...args);
-            } catch {
-              try {
-                return targetGetImageData(...args);
-              } catch {
-                return originalGetImageData(...args);
-              }
-            }
-          }) as typeof scratchCtx.getImageData;
-
-          restoreGetImageData = () => {
-            scratchCtx.getImageData = originalGetImageData;
-          };
-        }
+      if (proxyableSize) {
+        const originalGetImageData = scratchCtx.getImageData.bind(scratchCtx);
+        scratchCtx.getImageData = ((x: number, y: number, w: number, h: number) =>
+          readCtx.getImageData(x + region.x, y + region.y, w, h)
+        ) as typeof scratchCtx.getImageData;
+        restoreGetImageData = () => {
+          scratchCtx.getImageData = originalGetImageData;
+        };
       }
 
       try {
+        scratchCtx.save();
+        scratchCtx.translate(-region.x, -region.y);
         paint(scratchCtx);
+        scratchCtx.restore();
       } finally {
         restoreGetImageData?.();
       }
 
-      let maskSource: CanvasImageSource | null = (layerMask as unknown as CanvasImageSource) ?? null;
+      const scratchPre = sampleRGBA(scratchCtx, sample.x - region.x, sample.y - region.y);
+      AL('PAINT', { scratchRGBA_preMask: scratchPre });
 
-      if (!hasLayerAlpha && allowVisibleFallback) {
-        maskSource = dstCtx.canvas;
-      }
-
+      const maskSource = (layerMask as unknown as CanvasImageSource) ?? null;
       if (!maskSource) {
-        maskSource = dstCtx.canvas;
+        AL('MASK_SKIP', { reason: 'missing-mask' });
+        return;
       }
+
       scratchCtx.globalCompositeOperation = 'destination-in';
-      scratchCtx.drawImage(maskSource, 0, 0, width, height);
+      scratchCtx.drawImage(
+        maskSource,
+        region.x,
+        region.y,
+        region.width,
+        region.height,
+        0,
+        0,
+        region.width,
+        region.height
+      );
       scratchCtx.globalCompositeOperation = 'source-over';
 
+      const scratchPost = sampleRGBA(scratchCtx, sample.x - region.x, sample.y - region.y);
+      AL('MASK', { scratchRGBA_afterMask: scratchPost, maskSource: maskSrc });
+
       dstCtx.save();
-      dstCtx.globalCompositeOperation = (tools.brushSettings.blendMode || 'source-over') as GlobalCompositeOperation;
-      dstCtx.drawImage(scratchCanvas, 0, 0);
+      dstCtx.globalCompositeOperation = blendMode;
+      dstCtx.drawImage(scratchCanvas, region.x, region.y);
       dstCtx.restore();
+
+      if (layerMask) {
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        alphaPresenceCacheRef.current = {
+          canvas: layerMask as HTMLCanvasElement | OffscreenCanvas,
+          hasAlpha: true,
+          sampledAt: now
+        };
+      }
+
+      const dstAfter = sampleRGBA(dstCtx, sample.x, sample.y);
+      AL('COMPOSITE', { gco: blendMode, dstAfter });
     } finally {
       canvasPool.release(scratchCanvas);
     }
-  }, [activeLayerTransparencyLock, tools.brushSettings.blendMode, getActiveLayerBitmapCanvas, layerHasAnyAlpha]);
+  }, [activeLayerTransparencyLock, getActiveLayerBitmapCanvas, layerHasAnyAlpha, tools.brushSettings.blendMode]);
 
   const renderCCWithBlendAndLock = useCallback((
     targetCtx: CanvasRenderingContext2D,
@@ -282,6 +648,45 @@ export const useBrushEngineSimplified = () => {
     const width = targetCtx.canvas.width;
     const height = targetCtx.canvas.height;
     if (!width || !height) {
+      return;
+    }
+
+    const sampleDefault = { x: width / 2, y: height / 2, tag: 'cc(center)' };
+    const sample = (typeof window !== 'undefined' && window.__AL_sample) || sampleDefault;
+    AL('CC_ENTER', { lock: activeLayerTransparencyLock, dst: `${width}x${height}` });
+
+    if (activeLayerTransparencyLock) {
+      const mask = getActiveLayerBitmapCanvas();
+      const maskWidth = (mask as { width?: number })?.width ?? 0;
+      const maskHeight = (mask as { height?: number })?.height ?? 0;
+      const maskSrc = (typeof window !== 'undefined' && window.__AL_maskSrc) || 'unknown';
+      const maskA = sampleMaskA(mask, width, height, sample.x, sample.y);
+      AL('CC_SETUP', {
+        sampleTag: sample.tag,
+        maskSrc,
+        maskSize: `${maskWidth}x${maskHeight}`,
+        maskA
+      });
+    }
+
+    // Fast path for default blending: draw directly with source-atop
+    if (activeLayerTransparencyLock && blendMode === 'source-over') {
+      const prevComp = targetCtx.globalCompositeOperation;
+      try {
+        targetCtx.globalCompositeOperation = 'source-atop';
+        targetCtx.drawImage(sourceCanvas as unknown as CanvasImageSource, 0, 0, width, height);
+      } finally {
+        targetCtx.globalCompositeOperation = prevComp;
+      }
+      const layerMask = getActiveLayerBitmapCanvas();
+      if (layerMask) {
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        alphaPresenceCacheRef.current = {
+          canvas: layerMask as HTMLCanvasElement | OffscreenCanvas,
+          hasAlpha: true,
+          sampledAt: now
+        };
+      }
       return;
     }
 
@@ -297,30 +702,46 @@ export const useBrushEngineSimplified = () => {
 
       if (activeLayerTransparencyLock) {
         const layerMask = getActiveLayerBitmapCanvas();
-        const hasLayerAlpha = layerHasAnyAlpha();
-        let maskCanvas: CanvasImageSource | null = (layerMask as unknown as CanvasImageSource) ?? null;
-
-        const allowVisibleFallback = ALPHALOCK_STRATEGY === 'visible-if-empty';
-        if (!hasLayerAlpha && allowVisibleFallback) {
-          maskCanvas = targetCtx.canvas;
-        }
-
+        const maskCanvas: CanvasImageSource | null = (layerMask as unknown as CanvasImageSource) ?? null;
         if (!maskCanvas) {
-          maskCanvas = targetCtx.canvas;
+          AL('CC_MASK_SKIP', { reason: 'missing-mask' });
+          return;
         }
+
         tempCtx.globalCompositeOperation = 'destination-in';
         tempCtx.drawImage(maskCanvas, 0, 0, width, height);
         tempCtx.globalCompositeOperation = 'source-over';
+
+        try {
+          const sx = clamp(Math.floor(sample.x), 0, width - 1);
+          const sy = clamp(Math.floor(sample.y), 0, height - 1);
+          const px = tempCtx.getImageData(sx, sy, 1, 1).data;
+          AL('CC_MASK', { tempSampleRGBA_afterMask: px ? Array.from(px) : null });
+        } catch {
+          AL('CC_MASK', { tempSampleRGBA_afterMask: 'read-failed' });
+        }
       }
 
       targetCtx.save();
       targetCtx.globalCompositeOperation = blendMode;
       targetCtx.drawImage(tempCanvas, 0, 0);
       targetCtx.restore();
+
+      if (activeLayerTransparencyLock) {
+        const layerMask = getActiveLayerBitmapCanvas();
+        if (layerMask) {
+          const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+          alphaPresenceCacheRef.current = {
+            canvas: layerMask as HTMLCanvasElement | OffscreenCanvas,
+            hasAlpha: true,
+            sampledAt: now
+          };
+        }
+      }
     } finally {
       canvasPool.release(tempCanvas);
     }
-  }, [activeLayerTransparencyLock, getActiveLayerBitmapCanvas, layerHasAnyAlpha]);
+  }, [activeLayerTransparencyLock, getActiveLayerBitmapCanvas]);
   
   // Cache for brush stamps
   const brushStampCacheRef = useRef(new Map<string, HTMLCanvasElement>());
@@ -508,11 +929,53 @@ export const useBrushEngineSimplified = () => {
     }
   }, [activeLayerTransparencyLock]);
 
+  const estimateStrokeBounds = useCallback((
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    pressure: number = 1,
+    customBrushData?: CustomBrushStrokeData
+  ): Rect => {
+    const brushSettings = tools.brushSettings;
+    const brushSize = Math.max(brushSettings.size || 1, 1);
+    const pressureFactor = Number.isFinite(pressure) ? Math.max(pressure, 1) : 1;
+    let effectiveSize = brushSize * pressureFactor;
+
+    if (customBrushData) {
+      const maxDimension = Math.max(customBrushData.width || 0, customBrushData.height || 0);
+      if (maxDimension > 0) {
+        const stampSize = customBrushData.isResampler
+          ? brushSize * pressureFactor
+          : Math.max(1, (brushSize / 100) * maxDimension * pressureFactor);
+        effectiveSize = Math.max(effectiveSize, stampSize);
+      }
+    }
+
+    const spacing = brushSettings.spacing || 0;
+    const halfExtent = Math.max(1, effectiveSize * 0.5);
+    const safetyMargin = Math.max(halfExtent, spacing * 0.5, 32);
+    const padding = halfExtent + safetyMargin;
+
+    const minX = Math.min(from.x, to.x);
+    const minY = Math.min(from.y, to.y);
+    const width = Math.abs(to.x - from.x);
+    const height = Math.abs(to.y - from.y);
+
+    return inflateRect(
+      {
+        x: minX,
+        y: minY,
+        width,
+        height
+      },
+      padding
+    );
+  }, [tools.brushSettings]);
+
   // Create brush engine facade - only recreate when structural dependencies change
   const brushEngine = useMemo(() => {
     const config: BrushEngineConfig = {
       brushSettings: tools.brushSettings,
-      transparencyLockEnabled: activeLayerTransparencyLock,
+      transparencyLockEnabled: false,
       getPatternTempContext,
       brushStampCache: brushStampCacheRef.current,
       createPixelCircleStamp,
@@ -528,7 +991,7 @@ export const useBrushEngineSimplified = () => {
   useEffect(() => {
     brushEngine.updateConfig({
       brushSettings: tools.brushSettings,
-      transparencyLockEnabled: activeLayerTransparencyLock,
+      transparencyLockEnabled: false,
       getPatternTempContext,
       brushStampCache: brushStampCacheRef.current,
       getRotationTempContext
@@ -577,10 +1040,21 @@ export const useBrushEngineSimplified = () => {
     };
 
     // Render the stroke
+    if (typeof window !== 'undefined') {
+      window.__AL_sample = { x: to.x, y: to.y, tag: 'drawBrush' };
+    }
+    const segmentBounds = estimateStrokeBounds(
+      from,
+      to,
+      strokeParams.pressure,
+      cursor.customBrushData
+    );
+    strokeBoundsRef.current = mergeRectBounds(strokeBoundsRef.current, segmentBounds);
+
     withAlphaLock(ctx, (targetCtx) => {
       brushEngine.renderBrushStroke(targetCtx, strokeParams);
-    });
-  }, [brushEngine, withAlphaLock]);
+    }, segmentBounds);
+  }, [brushEngine, withAlphaLock, estimateStrokeBounds]);
 
   /**
    * Draw a single stamp at a position
@@ -599,18 +1073,30 @@ export const useBrushEngineSimplified = () => {
       timestamp: Date.now()
     };
 
+    if (typeof window !== 'undefined') {
+      window.__AL_sample = { x, y, tag: 'drawStamp' };
+    }
+    const segmentBounds = estimateStrokeBounds(
+      { x, y },
+      { x, y },
+      strokeParams.pressure
+    );
+    strokeBoundsRef.current = mergeRectBounds(strokeBoundsRef.current, segmentBounds);
+
     withAlphaLock(ctx, (targetCtx) => {
       brushEngine.renderBrushStroke(targetCtx, strokeParams);
-    });
-  }, [brushEngine, withAlphaLock]);
+    }, segmentBounds);
+  }, [brushEngine, withAlphaLock, estimateStrokeBounds]);
 
   /**
    * Finalize the current stroke (draw any waiting pixels)
    */
   const finalizeStroke = useCallback((ctx: CanvasRenderingContext2D) => {
+    const strokeBounds = strokeBoundsRef.current ?? undefined;
     withAlphaLock(ctx, (targetCtx) => {
       brushEngine.finalizeStroke(targetCtx);
-    });
+    }, strokeBounds);
+    strokeBoundsRef.current = null;
   }, [brushEngine, withAlphaLock]);
 
   /**
@@ -618,6 +1104,7 @@ export const useBrushEngineSimplified = () => {
    */
   const resetStroke = useCallback(() => {
     brushEngine.resetStroke();
+    strokeBoundsRef.current = null;
   }, [brushEngine]);
 
   /**
@@ -646,6 +1133,12 @@ export const useBrushEngineSimplified = () => {
     colors: string[],
     isPreview: boolean = false
   ) => {
+    if (typeof window !== 'undefined') {
+      const cx = (startX + endX) / 2;
+      const cy = (startY + endY) / 2;
+      window.__AL_sample = { x: cx, y: cy, tag: 'rectGrad' };
+    }
+
     // Use cached isPixelBrush value for crisp edges
     // Calculate rectangle geometry (matching monolithic exactly)
     const dx = endX - startX;
@@ -928,6 +1421,13 @@ export const useBrushEngineSimplified = () => {
     const validVertices = vertices.filter(v => v && typeof v.x === 'number' && typeof v.y === 'number');
     if (validVertices.length < 3) return;
 
+    if (typeof window !== 'undefined') {
+      const firstVertex = validVertices[0];
+      if (firstVertex) {
+        window.__AL_sample = { x: firstVertex.x, y: firstVertex.y, tag: 'polyGrad' };
+      }
+    }
+
     // Calculate bounds for gradient
     const minX = Math.floor(Math.min(...validVertices.map(v => v.x)));
     const minY = Math.floor(Math.min(...validVertices.map(v => v.y)));
@@ -967,7 +1467,7 @@ export const useBrushEngineSimplified = () => {
     
     // Add color stops - using unique colors that progress across the shape
     const validColors = colors?.filter(c => c !== undefined && c !== null && typeof c === 'string') || [];
-    
+
     if (validColors.length === 0) {
       // Fallback to current brush color
       const defaultColor = tools.brushSettings.color || '#000000';
@@ -1058,7 +1558,7 @@ export const useBrushEngineSimplified = () => {
         gradient.addColorStop(1, validColors[validColors.length - 1]);
       }
     }
-    
+
     withTransparencyLock(ctx, () => {
     // Save context state
     ctx.save();
