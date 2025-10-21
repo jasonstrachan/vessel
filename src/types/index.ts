@@ -120,6 +120,7 @@ export interface Layer {
 
     // Brush mode data (existing functionality)
     gradient?: Array<{ position: number; color: string }>;
+    gradientVersion?: number;
     colorCycleBrush?: import('../hooks/brushEngine/ColorCycleBrushCanvas2D').ColorCycleBrushCanvas2D;
     isAnimating?: boolean;
     hasContent?: boolean;
@@ -503,6 +504,7 @@ export interface BrushSettings {
   // Color cycle brush settings
   colorCycleSpeed?: number; // 0.02-1.0 (brush animation speed)
   colorCycleGradient?: Array<{ position: number; color: string }>; // Gradient stops
+  colorCycleGradientVersion?: number;
   colorCycleFPS?: number; // 15-60 (frames per second for animation)
   colorCycleFillMode?: 'concentric' | 'linear' | 'circular'; // Fill mode for Color Cycle Shape
   // Auto-sampling for gradient while drawing (Color Cycle brushes)

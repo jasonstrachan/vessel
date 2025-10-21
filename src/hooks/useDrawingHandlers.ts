@@ -80,7 +80,16 @@ type BoundingBox = {
   maxY: number;
 };
 
+type StampCmd = {
+  x: number;
+  y: number;
+  pressure: number;
+  rotation: number;
+  customStamp?: CustomBrushStrokeData;
+};
+
 type CaptureRegion = { x: number; y: number; width: number; height: number };
+type RecomposeRegion = { x: number; y: number; width: number; height: number };
 
 const BRUSH_HISTORY_COALESCE_WINDOW_MS = 250;
 const STOP_COOLDOWN_MS = 200;
@@ -311,7 +320,7 @@ export function useDrawingHandlers({
   const strokeBatchRef = useRef<Array<{ pos: { x: number; y: number }, pressure: number }>>([]);
   const strokeBatchTimerRef = useRef<number | null>(null);
   const lastProcessedTimeRef = useRef<number>(0);
-  const THROTTLE_MS = 8; // Process strokes at ~120fps max
+  const THROTTLE_MS = 12; // Process strokes at ~83fps max to reduce handler pressure
   
   // OPTIMIZATION: The separate eraser mask canvas is no longer needed.
   // We will perform erasing directly on the drawingCanvas.
@@ -348,7 +357,7 @@ export function useDrawingHandlers({
     }
 
     if (layerCanvas) {
-      const layerCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
+      const layerCtx = layerCanvas.getContext('2d');
       if (layerCtx) {
         return layerCtx;
       }
@@ -426,6 +435,32 @@ export function useDrawingHandlers({
   
   // Pixel queue for color cycle dashed pattern support
   const colorCyclePixelQueue = useRef(createPixelQueue());
+  const pendingRecomposeRef = useRef(false);
+  const scheduleRecompose = useCallback((roi?: RecomposeRegion) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    if (pendingRecomposeRef.current) {
+      return;
+    }
+    const dispatch = () => {
+      pendingRecomposeRef.current = false;
+      try {
+        window.dispatchEvent(
+          new CustomEvent('colorCycleFrameUpdate', {
+            detail: { onlyActiveLayer: true, roi }
+          })
+        );
+      } catch {}
+    };
+
+    pendingRecomposeRef.current = true;
+    if (typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(dispatch);
+    } else {
+      dispatch();
+    }
+  }, []);
   
   // Continuous animation for color cycle when play button is pressed
   const continuousColorCycleAnimationRef = useRef<number | null>(null);
@@ -1253,8 +1288,6 @@ export function useDrawingHandlers({
       if (!activeLayer.visible) {
         return; // Exit silently, cursor will still show
       }
-      const isStandardColorCycleBrush = ccFlags.isStandard;
-      const isCustomColorCycleBrush = ccFlags.isCustom;
       const isAnyColorCycleBrush = ccFlags.isAny;
       
       // IMPORTANT: Layers can NEVER be converted from one type to another.
@@ -1282,37 +1315,38 @@ export function useDrawingHandlers({
         }
         
         // Check gradient compatibility for CC layers
-        if (isStandardColorCycleBrush && isColorCycleLayer) {
+        if (isAnyColorCycleBrush && isColorCycleLayer) {
           const colorCycleBrushManager = getColorCycleBrushManager();
           if (!colorCycleBrushManager.getBrush(activeLayer.id)) {
             currentState.initColorCycleForLayer(activeLayer.id, project.width, project.height);
           }
 
           const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
+          const brushGradientVersion = currentState.tools.brushSettings.colorCycleGradientVersion ?? null;
           const layerGradient = activeLayer.colorCycleData?.gradient;
-          if (brushGradient && (!layerGradient || JSON.stringify(brushGradient) !== JSON.stringify(layerGradient))) {
+          const layerGradientVersion = activeLayer.colorCycleData?.gradientVersion ?? null;
+          const layerGradientFingerprint =
+            layerGradient && layerGradientVersion == null ? JSON.stringify(layerGradient) : null;
+          const brushGradientFingerprint =
+            brushGradient && brushGradientVersion == null ? JSON.stringify(brushGradient) : null;
+          const gradientsMatch =
+            !brushGradient ||
+            !layerGradient
+              ? brushGradient === layerGradient
+              : brushGradientVersion != null && layerGradientVersion != null
+                ? brushGradientVersion === layerGradientVersion
+                : brushGradientFingerprint === layerGradientFingerprint;
+
+          if (brushGradient && !gradientsMatch) {
+            const nextVersion =
+              brushGradientVersion ??
+              ((activeLayer.colorCycleData?.gradientVersion ?? 0) + 1);
             try {
               currentState.updateLayer(activeLayer.id, {
                 colorCycleData: {
                   ...(activeLayer.colorCycleData ?? {}),
-                  gradient: brushGradient
-                }
-              });
-            } catch {}
-            try {
-              brushEngine.updateColorCycleGradient?.(brushGradient);
-            } catch {}
-          }
-        }
-        if (isCustomColorCycleBrush && isColorCycleLayer) {
-          const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
-          const layerGradient = activeLayer.colorCycleData?.gradient;
-          if (brushGradient && (!layerGradient || JSON.stringify(brushGradient) !== JSON.stringify(layerGradient))) {
-            try {
-              currentState.updateLayer(activeLayer.id, {
-                colorCycleData: {
-                  ...(activeLayer.colorCycleData ?? {}),
-                  gradient: brushGradient
+                  gradient: brushGradient,
+                  gradientVersion: nextVersion
                 }
               });
             } catch {}
@@ -1346,12 +1380,29 @@ export function useDrawingHandlers({
         const refreshedLayer = refreshedState.layers.find(l => l.id === refreshedState.activeLayerId);
         const brushGradient = refreshedState.tools.brushSettings.colorCycleGradient;
         if (refreshedLayer?.layerType === 'color-cycle' && brushGradient) {
+          const brushGradientVersion = refreshedState.tools.brushSettings.colorCycleGradientVersion ?? null;
           const existingGradient = refreshedLayer.colorCycleData?.gradient;
-          if (!existingGradient || JSON.stringify(existingGradient) !== JSON.stringify(brushGradient)) {
+          const existingVersion = refreshedLayer.colorCycleData?.gradientVersion ?? null;
+          const existingFingerprint =
+            existingGradient && existingVersion == null ? JSON.stringify(existingGradient) : null;
+          const brushFingerprint =
+            brushGradient && brushGradientVersion == null ? JSON.stringify(brushGradient) : null;
+          const gradientsMatch =
+            !existingGradient ||
+            !brushGradient
+              ? existingGradient === brushGradient
+              : brushGradientVersion != null && existingVersion != null
+                ? brushGradientVersion === existingVersion
+                : brushFingerprint === existingFingerprint;
+
+          if (brushGradient && !gradientsMatch) {
             refreshedState.updateLayer(refreshedLayer.id, {
               colorCycleData: {
                 ...(refreshedLayer.colorCycleData ?? {}),
-                gradient: brushGradient
+                gradient: brushGradient,
+                gradientVersion:
+                  brushGradientVersion ??
+                  ((refreshedLayer.colorCycleData?.gradientVersion ?? 0) + 1)
               }
             });
             try {
@@ -1441,7 +1492,13 @@ export function useDrawingHandlers({
       colorCycleLastPosRef.current = null;
 
       // Reset pixel queue for dashed pattern support
+      try {
+        colorCyclePixelQueue.current?.flushNow();
+      } catch {}
       colorCyclePixelQueue.current = createPixelQueue();
+      try {
+        colorCyclePixelQueue.current?.flushNow();
+      } catch {}
 
       // Always arm the brush so parametric counters advance even when global play is active
       brushEngine.resetColorCycle();
@@ -1495,18 +1552,30 @@ export function useDrawingHandlers({
           }
 
           const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
+          const brushGradientVersion = currentState.tools.brushSettings.colorCycleGradientVersion ?? null;
           const layerGradient = activeLayer.colorCycleData?.gradient;
+          const layerGradientVersion = activeLayer.colorCycleData?.gradientVersion ?? null;
+          const layerGradientFingerprint =
+            layerGradient && layerGradientVersion == null ? JSON.stringify(layerGradient) : null;
+          const brushGradientFingerprint =
+            brushGradient && brushGradientVersion == null ? JSON.stringify(brushGradient) : null;
           const gradientsMatch =
             !brushGradient ||
-            !layerGradient ||
-            JSON.stringify(brushGradient) === JSON.stringify(layerGradient);
+            !layerGradient
+              ? brushGradient === layerGradient
+              : brushGradientVersion != null && layerGradientVersion != null
+                ? brushGradientVersion === layerGradientVersion
+                : brushGradientFingerprint === layerGradientFingerprint;
 
-          if (!gradientsMatch) {
+          if (!gradientsMatch && brushGradient) {
             try {
               currentState.updateLayer(activeLayer.id, {
                 colorCycleData: {
                   ...(activeLayer.colorCycleData ?? {}),
-                  gradient: brushGradient
+                  gradient: brushGradient,
+                  gradientVersion:
+                    brushGradientVersion ??
+                    ((activeLayer.colorCycleData?.gradientVersion ?? 0) + 1)
                 }
               });
             } catch {}
@@ -1515,7 +1584,32 @@ export function useDrawingHandlers({
             } catch {}
           }
 
-          const spacing = currentState.tools.brushSettings.spacing || 1;
+          const rawSpacing = currentState.tools.brushSettings.spacing || 1;
+          const pausedForStart = !selectEffectiveColorCyclePlaying(currentState);
+          const pixelQueue = colorCyclePixelQueue.current ?? (() => {
+            const queue = createPixelQueue();
+            colorCyclePixelQueue.current = queue;
+            return queue;
+          })();
+          const brushSize = currentState.tools.brushSettings.size || 1;
+          const recomposeHalf = Math.ceil(brushSize / 2) + 2;
+          const effectiveSpacing = pausedForStart
+            ? Math.max(1, Math.round(rawSpacing * 1.25))
+            : rawSpacing;
+          const markDirty = (cx: number, cy: number) => {
+            if (!pausedForStart) {
+              return;
+            }
+            const width = recomposeHalf * 2;
+            const height = width;
+            const x = Math.floor(cx - recomposeHalf);
+            const y = Math.floor(cy - recomposeHalf);
+            if (typeof pixelQueue.addDirtyRect === 'function') {
+              pixelQueue.addDirtyRect(x, y, width, height);
+            } else {
+              scheduleRecompose({ x, y, width, height });
+            }
+          };
 
           if (ccStrokeFlags.isCustom) {
             const brushData = customBrushData ?? resamplerBrushDataRef.current;
@@ -1530,7 +1624,7 @@ export function useDrawingHandlers({
 
               colorCycleDistanceRef.current += distance;
 
-              if (colorCycleDistanceRef.current >= spacing) {
+              if (colorCycleDistanceRef.current >= effectiveSpacing) {
                 const rotation = currentState.tools.brushSettings.rotationEnabled
                   ? Math.atan2(dy, dx)
                   : 0;
@@ -1538,19 +1632,29 @@ export function useDrawingHandlers({
                 if (!targetCtx) return;
                 targetCtx.globalCompositeOperation = 'source-over';
                 targetCtx.globalAlpha = 1;
-                brushEngine.drawColorCycle(targetCtx, worldPos.x, worldPos.y, pressure, rotation, {
-                  customStamp: brushData
+                const stampX = worldPos.x;
+                const stampY = worldPos.y;
+                pixelQueue.enqueue(() => {
+                  brushEngine.drawColorCycle(targetCtx, stampX, stampY, pressure, rotation, {
+                    customStamp: brushData
+                  });
                 });
-                colorCycleDistanceRef.current = 0;
+                markDirty(stampX, stampY);
+                colorCycleDistanceRef.current = Math.max(0, colorCycleDistanceRef.current - effectiveSpacing);
               }
             } else {
               const targetCtx = getCCStampTargetCtx();
               if (!targetCtx) return;
               targetCtx.globalCompositeOperation = 'source-over';
               targetCtx.globalAlpha = 1;
-              brushEngine.drawColorCycle(targetCtx, worldPos.x, worldPos.y, pressure, 0, {
-                customStamp: brushData
+              const stampX = worldPos.x;
+              const stampY = worldPos.y;
+              pixelQueue.enqueue(() => {
+                brushEngine.drawColorCycle(targetCtx, stampX, stampY, pressure, 0, {
+                  customStamp: brushData
+                });
               });
+              markDirty(stampX, stampY);
             }
 
             colorCycleLastPosRef.current = worldPos;
@@ -1564,7 +1668,7 @@ export function useDrawingHandlers({
 
             colorCycleDistanceRef.current += distance;
 
-            if (colorCycleDistanceRef.current >= spacing) {
+            if (colorCycleDistanceRef.current >= effectiveSpacing) {
               const rotation = currentState.tools.brushSettings.rotationEnabled
                 ? Math.atan2(dy, dx)
                 : 0;
@@ -1572,15 +1676,25 @@ export function useDrawingHandlers({
               if (!targetCtx) return;
               targetCtx.globalCompositeOperation = 'source-over';
               targetCtx.globalAlpha = 1;
-              brushEngine.drawColorCycle(targetCtx, worldPos.x, worldPos.y, pressure, rotation);
-              colorCycleDistanceRef.current = 0;
+              const stampX = worldPos.x;
+              const stampY = worldPos.y;
+              pixelQueue.enqueue(() => {
+                brushEngine.drawColorCycle(targetCtx, stampX, stampY, pressure, rotation);
+              });
+              markDirty(stampX, stampY);
+              colorCycleDistanceRef.current = Math.max(0, colorCycleDistanceRef.current - effectiveSpacing);
             }
           } else {
             const targetCtx = getCCStampTargetCtx();
             if (!targetCtx) return;
             targetCtx.globalCompositeOperation = 'source-over';
             targetCtx.globalAlpha = 1;
-            brushEngine.drawColorCycle(targetCtx, worldPos.x, worldPos.y, pressure, 0);
+            const stampX = worldPos.x;
+            const stampY = worldPos.y;
+            pixelQueue.enqueue(() => {
+              brushEngine.drawColorCycle(targetCtx, stampX, stampY, pressure, 0);
+            });
+            markDirty(stampX, stampY);
           }
 
           colorCycleLastPosRef.current = worldPos;
@@ -1672,7 +1786,8 @@ export function useDrawingHandlers({
     pauseColorCycleForNonCCInteraction,
     updateAutoSampledGradient,
     beginStrokeSession,
-    getCCStampTargetCtx
+    getCCStampTargetCtx,
+    scheduleRecompose
   ]);
 
   // Process batched stroke points
@@ -1684,6 +1799,16 @@ export function useDrawingHandlers({
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
     const drawCtx = drawingCtxRef.current;
+
+    const brushSettings = currentState.tools.brushSettings;
+    const brushSize = brushSettings.size || 1;
+    const doSnap = shouldApplyGridSnapPure(brushSettings);
+    const gridSpacing = doSnap ? calculateGridSpacing() : 0;
+    const paused = !selectEffectiveColorCyclePlaying(currentState);
+    const brushGradient = brushSettings.colorCycleGradient;
+    const brushGradientVersion = brushSettings.colorCycleGradientVersion ?? null;
+    const brushGradientFingerprint =
+      brushGradient && brushGradientVersion == null ? JSON.stringify(brushGradient) : null;
     
     if (!drawCtx || !project) {
       strokeBatchRef.current = [];
@@ -1733,22 +1858,41 @@ export function useDrawingHandlers({
 
               // Decide where to paint CC stamps (layer canvas vs overlay)
               const targetCtx = getCCStampTargetCtx();
-              if (!targetCtx) {
+              const layerCanvas = activeLayer?.colorCycleData?.canvas ?? null;
+              if (!targetCtx || targetCtx.canvas !== layerCanvas) {
                 colorCycleLastPosRef.current = clippedEnd;
                 continue;
               }
               targetCtx.globalCompositeOperation = 'source-over';
               targetCtx.globalAlpha = 1;
               
-              const brushGradient = currentState.tools.brushSettings.colorCycleGradient;
               const layerGradient = activeLayer?.colorCycleData?.gradient;
+              const layerGradientVersion = activeLayer?.colorCycleData?.gradientVersion ?? null;
+              const layerGradientFingerprint =
+                layerGradient && layerGradientVersion == null ? JSON.stringify(layerGradient) : null;
               const gradientsMatch =
                 !brushGradient ||
-                !layerGradient ||
-                JSON.stringify(brushGradient) === JSON.stringify(layerGradient);
+                !layerGradient
+                  ? brushGradient === layerGradient
+                  : brushGradientVersion != null && layerGradientVersion != null
+                    ? brushGradientVersion === layerGradientVersion
+                    : brushGradientFingerprint === layerGradientFingerprint;
 
-              if (!gradientsMatch) {
-                continue;
+              if (!gradientsMatch && brushGradient && activeLayer) {
+                try {
+                  currentState.updateLayer(activeLayer.id, {
+                    colorCycleData: {
+                      ...(activeLayer.colorCycleData ?? {}),
+                      gradient: brushGradient,
+                      gradientVersion:
+                        brushGradientVersion ??
+                        ((activeLayer.colorCycleData?.gradientVersion ?? 0) + 1)
+                    }
+                  });
+                } catch {}
+                try {
+                  brushEngine.updateColorCycleGradient?.(brushGradient);
+                } catch {}
               }
 
               const usingCustomStamp = ccProcessFlags.isCustom;
@@ -1759,53 +1903,116 @@ export function useDrawingHandlers({
               if (usingCustomStamp && !stampData) {
                 continue;
               }
-              
-              // Use the spacing setting from brush controls - now in pixels directly
-              const spacing = currentState.tools.brushSettings.spacing || 1;
-              
-              if (colorCycleLastPosRef.current) {
-                const dx = clippedEnd.x - colorCycleLastPosRef.current.x;
-                const dy = clippedEnd.y - colorCycleLastPosRef.current.y;
+              const rawSpacing = brushSettings.spacing || 1;
+              const effectiveSpacing = paused
+                ? Math.max(1, Math.round(rawSpacing * 1.25))
+                : rawSpacing;
+              const rotationEnabled = !!brushSettings.rotationEnabled;
+              const pixelQueue = colorCyclePixelQueue.current ?? (() => {
+                const queue = createPixelQueue();
+                colorCyclePixelQueue.current = queue;
+                return queue;
+              })();
+              const stampCmds: StampCmd[] = [];
+              const MAX_STAMPS_PER_BATCH = 128;
+
+              const previousPos = colorCycleLastPosRef.current;
+              if (previousPos) {
+                const dx = clippedEnd.x - previousPos.x;
+                const dy = clippedEnd.y - previousPos.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
-                
+
                 colorCycleDistanceRef.current += distance;
-                
-                // Calculate rotation if enabled
-                const rotation = currentState.tools.brushSettings.rotationEnabled 
-                  ? Math.atan2(dy, dx) 
-                  : 0;
-                
-                // Draw stamps at consistent intervals with stroke processor features
-                while (colorCycleDistanceRef.current >= spacing) {
-                  const t = 1 - (colorCycleDistanceRef.current - spacing) / distance;
-                  let stampX = colorCycleLastPosRef.current.x + dx * t;
-                  let stampY = colorCycleLastPosRef.current.y + dy * t;
-                  
-                  // Apply grid snapping if enabled
-                  if (shouldApplyGridSnapPure(currentState.tools.brushSettings)) {
-                    const gridSpacing = calculateGridSpacing();
+
+                const rotation = rotationEnabled ? Math.atan2(dy, dx) : 0;
+                let enqueuedStamps = false;
+                let roiMinX = Number.POSITIVE_INFINITY;
+                let roiMinY = Number.POSITIVE_INFINITY;
+                let roiMaxX = Number.NEGATIVE_INFINITY;
+                let roiMaxY = Number.NEGATIVE_INFINITY;
+
+                while (distance > 0 && colorCycleDistanceRef.current >= effectiveSpacing) {
+                  const t = 1 - (colorCycleDistanceRef.current - effectiveSpacing) / distance;
+                  let stampX = previousPos.x + dx * t;
+                  let stampY = previousPos.y + dy * t;
+
+                  if (doSnap) {
                     const snapped = snapToGridPure(stampX, stampY, gridSpacing);
                     stampX = snapped.x;
                     stampY = snapped.y;
                   }
-                  
-                  // Check dashed pattern before drawing
-                  if (shouldDrawStamp(currentState.tools.brushSettings, colorCyclePixelQueue.current, currentState.tools.brushSettings.size)) {
-                    if (usingCustomStamp) {
-                      brushEngine.drawColorCycle(targetCtx, stampX, stampY, pressure, rotation, {
-                        customStamp: stampData!
-                      });
-                    } else if (currentState.tools.brushSettings.rotationEnabled && rotation !== 0) {
-                      brushEngine.drawColorCycle(targetCtx, stampX, stampY, pressure, rotation);
+
+                  const dashAllows = shouldDrawStamp(brushSettings, pixelQueue, brushSize);
+                  const allowStamp = dashAllows;
+
+                  if (allowStamp) {
+                    const sx = stampX;
+                    const sy = stampY;
+                    const sRotation = rotation;
+                    const sPressure = pressure;
+                    stampCmds.push({
+                      x: sx,
+                      y: sy,
+                      pressure: sPressure,
+                      rotation: sRotation,
+                      customStamp: usingCustomStamp ? stampData : undefined
+                    });
+
+                    enqueuedStamps = true;
+                    roiMinX = Math.min(roiMinX, sx);
+                    roiMinY = Math.min(roiMinY, sy);
+                    roiMaxX = Math.max(roiMaxX, sx);
+                    roiMaxY = Math.max(roiMaxY, sy);
+                  }
+
+                  colorCycleDistanceRef.current -= effectiveSpacing;
+                  if (stampCmds.length >= MAX_STAMPS_PER_BATCH) {
+                    break;
+                  }
+                }
+
+                if (stampCmds.length) {
+                  const ctx = targetCtx;
+                  const cmds = stampCmds.splice(0, stampCmds.length);
+                  pixelQueue.enqueue(() => {
+                    for (let i = 0; i < cmds.length; i++) {
+                      const c = cmds[i];
+                      if (c.customStamp) {
+                        brushEngine.drawColorCycle(
+                          ctx,
+                          c.x,
+                          c.y,
+                          c.pressure,
+                          c.rotation,
+                          { customStamp: c.customStamp }
+                        );
+                      } else if (rotationEnabled && c.rotation !== 0) {
+                        brushEngine.drawColorCycle(ctx, c.x, c.y, c.pressure, c.rotation);
+                      } else {
+                        brushEngine.drawColorCycle(ctx, c.x, c.y, c.pressure, 0);
+                      }
+                    }
+                  });
+                }
+
+                if (paused && enqueuedStamps) {
+                  const pad = Math.ceil(brushSize / 2) + 2;
+                  const minX = Math.floor(Math.min(roiMinX, previousPos.x, clippedEnd.x) - pad);
+                  const minY = Math.floor(Math.min(roiMinY, previousPos.y, clippedEnd.y) - pad);
+                  const maxX = Math.ceil(Math.max(roiMaxX, previousPos.x, clippedEnd.x) + pad);
+                  const maxY = Math.ceil(Math.max(roiMaxY, previousPos.y, clippedEnd.y) + pad);
+                  const width = Math.max(0, maxX - minX);
+                  const height = Math.max(0, maxY - minY);
+                  if (width > 0 && height > 0) {
+                    if (typeof pixelQueue.addDirtyRect === 'function') {
+                      pixelQueue.addDirtyRect(minX, minY, width, height);
                     } else {
-                      brushEngine.drawColorCycle(targetCtx, stampX, stampY, pressure, 0);
+                      scheduleRecompose({ x: minX, y: minY, width, height });
                     }
                   }
-                  
-                  colorCycleDistanceRef.current -= spacing;
                 }
               }
-              
+
               colorCycleLastPosRef.current = clippedEnd;
               continue;
             } else if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER) {
@@ -1916,7 +2123,15 @@ export function useDrawingHandlers({
     // Clear the batch
     strokeBatchRef.current = [];
     strokeBatchTimerRef.current = null;
-  }, [brushEngine, userBrushEngine, project, drawEraserSegment, updateAutoSampledGradient, getCCStampTargetCtx]);
+  }, [
+    brushEngine,
+    userBrushEngine,
+    project,
+    drawEraserSegment,
+    updateAutoSampledGradient,
+    getCCStampTargetCtx,
+    scheduleRecompose
+  ]);
 
   const continueDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
     // Check if layer is still visible before continuing drawing
@@ -1928,6 +2143,7 @@ export function useDrawingHandlers({
     }
 
     const now = performance.now();
+    const throttleBudget = THROTTLE_MS;
 
     if (currentState.tools.currentTool === 'brush') {
       strokeBoundingBoxRef.current = mergeBoundingBox(strokeBoundingBoxRef.current, worldPos);
@@ -1937,7 +2153,7 @@ export function useDrawingHandlers({
     strokeBatchRef.current.push({ pos: worldPos, pressure });
     
     // Check if we should process immediately (throttling)
-    if (now - lastProcessedTimeRef.current >= THROTTLE_MS) {
+    if (now - lastProcessedTimeRef.current >= throttleBudget) {
       // Process immediately
       processBatchedStrokes();
       lastProcessedTimeRef.current = now;
@@ -2014,383 +2230,367 @@ export function useDrawingHandlers({
       if (strokeBatchRef.current.length > 0) {
         processBatchedStrokes();
       }
-      
-      // Cancel any pending batch timer
-      if (strokeBatchTimerRef.current) {
-        cancelAnimationFrame(strokeBatchTimerRef.current);
-        strokeBatchTimerRef.current = null;
-      }
-      
-      lastDrawPosRef.current = null;
-      
-      // Clear resampler data and reset counter after stroke ends
-      resamplerBrushDataRef.current = undefined;
-      stampCounterRef.current = 0;
 
-      // Finalize the stroke (draw any waiting pixels) for modular engine
-      if (brushEngine.finalizeStroke && drawingCtxRef.current) {
-        brushEngine.finalizeStroke(drawingCtxRef.current);
+      // Ensure any deferred color-cycle stamps are rendered before finalizing
+      const activeQueue = colorCyclePixelQueue.current;
+      const shouldAwaitQueueIdle =
+        Boolean(activeQueue?.onIdle) && isCCLayerSnapshot && isCCBrushSnapshot;
+      if (shouldAwaitQueueIdle && activeQueue) {
+        await new Promise<void>((resolve) => {
+          activeQueue.onIdle(resolve);
+        });
+      } else {
+        try {
+          activeQueue?.flushNow();
+        } catch {}
       }
 
-      let currentState = snapshot;
-      let activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
-      const currentTool = currentState.tools.currentTool;
-      const currentBrushId = currentState.currentBrushPreset?.id;
-      
-      // End stroke for user brushes
-      if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
-        userBrushEngine.endStroke();
-      }
-
-      if (activeLayer) {
-        const activeLayerIdString = activeLayer.id;
-        const drawingCanvas = drawingCanvasRef.current;
-        // Use "before" state captured at stroke start, not at finalization
-        const layerBeforeImage = strokeBeforeImageRef.current;
-        const layerBeforeColorState = strokeBeforeColorStateRef.current;
-        const strokeSession = activeStrokeSessionRef.current;
-        if (strokeSession && strokeSession.endedAt == null) {
-          endStrokeSession();
+      const finalizeAfterQueue = async () => {
+        // Cancel any pending batch timer
+        if (strokeBatchTimerRef.current) {
+          cancelAnimationFrame(strokeBatchTimerRef.current);
+          strokeBatchTimerRef.current = null;
         }
-        const shouldCoalesceStroke =
-          strokeSession &&
-          strokeSession.layerId === activeLayer.id &&
-          strokeSession.tool === currentTool &&
-          (currentTool === 'brush' || currentTool === 'eraser');
-        let coalescePayload = shouldCoalesceStroke
-          ? {
-              key: strokeSession.id,
-              maxIntervalMs: BRUSH_HISTORY_COALESCE_WINDOW_MS,
-              pointerSession: {
-                pointerId: strokeSession.pointerId,
-                startedAt: strokeSession.startedAt,
-                endedAt: strokeSession.endedAt ?? Date.now(),
-              },
-            }
-          : undefined;
+        
+        lastDrawPosRef.current = null;
+        
+        // Clear resampler data and reset counter after stroke ends
+        resamplerBrushDataRef.current = undefined;
+        stampCounterRef.current = 0;
 
-        if (currentTool === 'eraser') {
-          const historyAction = historyActionOverride ?? 'eraser';
-          const historyDescription = historyDescriptionOverride ?? 'Eraser Stroke';
+        // Finalize the stroke (draw any waiting pixels) for modular engine
+        if (brushEngine.finalizeStroke && drawingCtxRef.current) {
+          brushEngine.finalizeStroke(drawingCtxRef.current);
+        }
 
-          if (skipSave) {
-            if (drawingCanvas) {
-              await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
-            }
-          } else if (drawingCanvas) {
-            await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
-            await withTiming('cc:commit', () =>
-              commitLayerHistory({
-                layerId: activeLayerIdString,
-                beforeImage: layerBeforeImage,
-                beforeColorState: layerBeforeColorState,
-                actionType: historyAction,
-                description: historyDescription,
-                tool: 'eraser',
-                coalesce: coalescePayload,
-              })
-            );
+        let currentState = snapshot;
+        let activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+        const currentTool = currentState.tools.currentTool;
+        const currentBrushId = currentState.currentBrushPreset?.id;
+        
+        // End stroke for user brushes
+        if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
+          userBrushEngine.endStroke();
+        }
+
+        if (activeLayer) {
+          const activeLayerIdString = activeLayer.id;
+          const drawingCanvas = drawingCanvasRef.current;
+          // Use "before" state captured at stroke start, not at finalization
+          const layerBeforeImage = strokeBeforeImageRef.current;
+          const layerBeforeColorState = strokeBeforeColorStateRef.current;
+          const strokeSession = activeStrokeSessionRef.current;
+          if (strokeSession && strokeSession.endedAt == null) {
+            endStrokeSession();
           }
-          
-        } else { // Brush tool
-          const activeSettings = currentState.tools.brushSettings;
-          const activeFlags = getColorCycleBrushFlags(activeSettings);
-          const drawingCtx = drawingCtxRef.current;
-          const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
-          const isColorCycleBrush = activeFlags.isAny;
+          const shouldCoalesceStroke =
+            strokeSession &&
+            strokeSession.layerId === activeLayer.id &&
+            strokeSession.tool === currentTool &&
+            (currentTool === 'brush' || currentTool === 'eraser');
+          let coalescePayload = shouldCoalesceStroke
+            ? {
+                key: strokeSession.id,
+                maxIntervalMs: BRUSH_HISTORY_COALESCE_WINDOW_MS,
+                pointerSession: {
+                  pointerId: strokeSession.pointerId,
+                  startedAt: strokeSession.startedAt,
+                  endedAt: strokeSession.endedAt ?? Date.now(),
+                },
+              }
+            : undefined;
 
-          // For color cycle brush, stop the animation and do final render
-          if (activeFlags.isAny && drawingCtx) {
-            // If auto-sampling is enabled, compute final 8-stop gradient across full stroke path now
-            try {
-              if (activeSettings.autoSampleGradient && autoSamplePointsRef.current.length > 0) {
-                const finalPts = [...autoSamplePointsRef.current];
-                const maxStops = 6;
-                const samplePts = equidistantPointsOnPolyline(finalPts, Math.min(maxStops, Math.max(1, finalPts.length)));
-                if (samplePts.length > 0) {
-                  const colors = samplePts.map(p => sampleHexAt(p.x, p.y));
-                  const stops = colors.map((c, i) => ({ position: samplePts.length === 1 ? 0 : i / (samplePts.length - 1), color: c }));
-                  try {
-                    setSharedColorCycleGradient(stops);
-                  } catch {
-                    useAppStore.getState().setBrushSettings({ colorCycleGradient: stops });
+          if (currentTool === 'eraser') {
+            const historyAction = historyActionOverride ?? 'eraser';
+            const historyDescription = historyDescriptionOverride ?? 'Eraser Stroke';
+
+            if (skipSave) {
+              if (drawingCanvas) {
+                await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
+              }
+            } else if (drawingCanvas) {
+              await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
+              await withTiming('cc:commit', () =>
+                commitLayerHistory({
+                  layerId: activeLayerIdString,
+                  beforeImage: layerBeforeImage,
+                  beforeColorState: layerBeforeColorState,
+                  actionType: historyAction,
+                  description: historyDescription,
+                  tool: 'eraser',
+                  coalesce: coalescePayload,
+                })
+              );
+            }
+            
+          } else { // Brush tool
+            const activeSettings = currentState.tools.brushSettings;
+            const activeFlags = getColorCycleBrushFlags(activeSettings);
+            const drawingCtx = drawingCtxRef.current;
+            const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+            const isColorCycleBrush = activeFlags.isAny;
+
+            // For color cycle brush, stop the animation and do final render
+            if (activeFlags.isAny && drawingCtx) {
+              // If auto-sampling is enabled, compute final 8-stop gradient across full stroke path now
+              try {
+                if (activeSettings.autoSampleGradient && autoSamplePointsRef.current.length > 0) {
+                  const finalPts = [...autoSamplePointsRef.current];
+                  const maxStops = 6;
+                  const samplePts = equidistantPointsOnPolyline(finalPts, Math.min(maxStops, Math.max(1, finalPts.length)));
+                  if (samplePts.length > 0) {
+                    const colors = samplePts.map(p => sampleHexAt(p.x, p.y));
+                    const stops = colors.map((c, i) => ({ position: samplePts.length === 1 ? 0 : i / (samplePts.length - 1), color: c }));
+                    try {
+                      setSharedColorCycleGradient(stops);
+                    } catch {
+                      useAppStore.getState().setBrushSettings({ colorCycleGradient: stops });
+                    }
+                    // Push into live brush
+                    try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
+                    // One-shot: auto-disable sampling after applying
+                    try {
+                      const st = useAppStore.getState();
+                      if (st.tools.brushSettings.autoSampleGradient) {
+                        st.setBrushSettings({ autoSampleGradient: false });
+                      }
+                    } catch {}
                   }
-                  // Push into live brush
-                  try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
-                  // One-shot: auto-disable sampling after applying
+                }
+              } catch {}
+              // Stop animation loop
+              if (colorCycleAnimationRef.current) {
+                cancelAnimationFrame(colorCycleAnimationRef.current);
+                colorCycleAnimationRef.current = null;
+              }
+              
+              // End stroke and do final render
+              brushEngine.endColorCycleStroke();
+              
+              // Phase 3: Direct rendering approach
+              const refreshedActiveLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+              const colorCycleBrushManager = getColorCycleBrushManager();
+              const colorCycleBrush = refreshedActiveLayer ? colorCycleBrushManager.getBrush(refreshedActiveLayer.id) : undefined;
+
+              if (colorCycleBrush && refreshedActiveLayer?.colorCycleData?.canvas && drawingCanvas && drawingCtx) {
+                // Final render directly to layer canvas at full opacity
+                colorCycleBrush.renderDirectToCanvas(refreshedActiveLayer.colorCycleData.canvas, refreshedActiveLayer.id);
+                
+                // Clear transient overlay so compositor paints the next frame
+                drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+                drawingCanvasHasContent.current = false;
+              } else if (drawingCanvas && drawingCtx) {
+                // Fallback: Clear and do one final render at FULL OPACITY
+                drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+                drawingCanvasHasContent.current = false;
+                brushEngine.renderColorCycle(drawingCtx, false); // false = don't apply opacity
+              }
+              
+              // Keep runtime aligned with toolbar intent after finalize.
+              if (getDesiredColorCyclePlaying()) {
+                Promise.resolve().then(() => startPlaybackRef.current?.('stroke-end'));
+              } else {
+                stopContinuousColorCycleAnimation('brush-stroke');
+              }
+            }
+            
+            // Handle capture differently for CC layers vs regular layers
+            // Treat stroke, shape, and custom CC variants as CC for saving
+            const shouldDisableCoalescing = isColorCycleLayer && isColorCycleBrush;
+            if (shouldDisableCoalescing) {
+              coalescePayload = undefined;
+            }
+            const isAnyColorCycleBrush = isColorCycleBrush;
+
+            // Ensure CC layer has a canvas before attempting to save
+            if (isColorCycleLayer && !activeLayer?.colorCycleData?.canvas && currentState.project) {
+              try {
+                useAppStore.getState().initColorCycleForLayer(activeLayer.id, currentState.project.width, currentState.project.height);
+                // Refresh state references after init
+                currentState = useAppStore.getState();
+                activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+              } catch {
+                // Suppressed debug warn for finalize init
+              }
+            }
+
+            if (!activeLayer) {
+              return;
+            }
+            const activeLayerIdString = activeLayer.id;
+
+            const isShapeMode = currentState.tools.shapeMode;
+
+            let brushForCleanup: ManagedColorCycleBrush | undefined;
+            let deferredLayerCanvas: HTMLCanvasElement | null = null;
+            let strokeCaptureRoi: CaptureRegion | undefined;
+
+            if (isColorCycleLayer && isAnyColorCycleBrush && activeLayer?.colorCycleData?.canvas) {
+              const layerCanvas = activeLayer.colorCycleData.canvas;
+              startFinalizeVisibleTimer();
+              if (FF.CC_CAPTURE_ROI) {
+                perfMark('cc:roi:start');
+                strokeCaptureRoi = boundingBoxToCaptureRegion(
+                  strokeBoundingBoxRef.current,
+                  ROI_PADDING_PX,
+                  project
+                );
+                perfMark('cc:roi:end');
+                perfMeasure('cc:roi', 'cc:roi:start', 'cc:roi:end');
+              } else {
+                strokeCaptureRoi = undefined;
+              }
+              deferredLayerCanvas = layerCanvas;
+              const targetLayerId = activeLayer.id;
+              try {
+                const colorCycleBrushManager = getColorCycleBrushManager();
+                const brush = colorCycleBrushManager.getBrush(targetLayerId) as ManagedColorCycleBrush | undefined;
+                if (brush) {
+                  if (typeof brush.commitCurrentStroke === 'function') {
+                    brush.commitCurrentStroke(targetLayerId);
+                  } else {
+                    brush.finalizeCurrentStroke?.(targetLayerId);
+                  }
+
+                  // Ensure animator texture/index reflect committed geometry
+                  brush.updateColorCycleTexture?.();
+
+                  if (typeof brush.commitToLayer === 'function') {
+                    brush.commitToLayer(layerCanvas, targetLayerId);
+                  } else {
+                    brush.renderDirectToCanvas?.(layerCanvas, targetLayerId);
+                  }
+
+                  // Mark layer metadata so downstream consumers know content exists
                   try {
                     const st = useAppStore.getState();
-                    if (st.tools.brushSettings.autoSampleGradient) {
-                      st.setBrushSettings({ autoSampleGradient: false });
+                    const freshLayer = st.layers.find(l => l.id === targetLayerId);
+                    if (freshLayer?.colorCycleData) {
+                      st.updateLayer(targetLayerId, {
+                        colorCycleData: {
+                          ...freshLayer.colorCycleData,
+                          hasContent: true
+                        }
+                      });
                     }
                   } catch {}
-                }
-              }
-            } catch {}
-            // Stop animation loop
-            if (colorCycleAnimationRef.current) {
-              cancelAnimationFrame(colorCycleAnimationRef.current);
-              colorCycleAnimationRef.current = null;
-            }
-            
-            // End stroke and do final render
-            brushEngine.endColorCycleStroke();
-            
-            // Phase 3: Direct rendering approach
-            const refreshedActiveLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
-            const colorCycleBrushManager = getColorCycleBrushManager();
-            const colorCycleBrush = refreshedActiveLayer ? colorCycleBrushManager.getBrush(refreshedActiveLayer.id) : undefined;
 
-            if (colorCycleBrush && refreshedActiveLayer?.colorCycleData?.canvas && drawingCanvas && drawingCtx) {
-              // Final render directly to layer canvas at full opacity
-              colorCycleBrush.renderDirectToCanvas(refreshedActiveLayer.colorCycleData.canvas, refreshedActiveLayer.id);
-              
-              // Clear transient overlay so compositor paints the next frame
-              drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-              drawingCanvasHasContent.current = false;
-            } else if (drawingCanvas && drawingCtx) {
-              // Fallback: Clear and do one final render at FULL OPACITY
-              drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-              drawingCanvasHasContent.current = false;
-              brushEngine.renderColorCycle(drawingCtx, false); // false = don't apply opacity
-            }
-            
-            // Keep runtime aligned with toolbar intent after finalize.
-            if (getDesiredColorCyclePlaying()) {
-              Promise.resolve().then(() => startPlaybackRef.current?.('stroke-end'));
-            } else {
-              stopContinuousColorCycleAnimation('brush-stroke');
-            }
-          }
-          
-          // Handle capture differently for CC layers vs regular layers
-          // Treat stroke, shape, and custom CC variants as CC for saving
-          const shouldDisableCoalescing = isColorCycleLayer && isColorCycleBrush;
-          if (shouldDisableCoalescing) {
-            coalescePayload = undefined;
-          }
-          const isAnyColorCycleBrush = isColorCycleBrush;
-
-          // Ensure CC layer has a canvas before attempting to save
-          if (isColorCycleLayer && !activeLayer?.colorCycleData?.canvas && currentState.project) {
-            try {
-              useAppStore.getState().initColorCycleForLayer(activeLayer.id, currentState.project.width, currentState.project.height);
-              // Refresh state references after init
-              currentState = useAppStore.getState();
-              activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
-            } catch {
-              // Suppressed debug warn for finalize init
-            }
-          }
-
-          if (!activeLayer) {
-            return;
-          }
-          const activeLayerIdString = activeLayer.id;
-
-          const isShapeMode = currentState.tools.shapeMode;
-
-          let brushForCleanup: ManagedColorCycleBrush | undefined;
-          let deferredLayerCanvas: HTMLCanvasElement | null = null;
-          let strokeCaptureRoi: CaptureRegion | undefined;
-
-          if (isColorCycleLayer && isAnyColorCycleBrush && activeLayer?.colorCycleData?.canvas) {
-            const layerCanvas = activeLayer.colorCycleData.canvas;
-            startFinalizeVisibleTimer();
-            if (FF.CC_CAPTURE_ROI) {
-              perfMark('cc:roi:start');
-              strokeCaptureRoi = boundingBoxToCaptureRegion(
-                strokeBoundingBoxRef.current,
-                ROI_PADDING_PX,
-                project
-              );
-              perfMark('cc:roi:end');
-              perfMeasure('cc:roi', 'cc:roi:start', 'cc:roi:end');
-            } else {
-              strokeCaptureRoi = undefined;
-            }
-            deferredLayerCanvas = layerCanvas;
-            const targetLayerId = activeLayer.id;
-            try {
-              const colorCycleBrushManager = getColorCycleBrushManager();
-              const brush = colorCycleBrushManager.getBrush(targetLayerId) as ManagedColorCycleBrush | undefined;
-              if (brush) {
-                if (typeof brush.commitCurrentStroke === 'function') {
-                  brush.commitCurrentStroke(targetLayerId);
-                } else {
-                  brush.finalizeCurrentStroke?.(targetLayerId);
-                }
-
-                // Ensure animator texture/index reflect committed geometry
-                brush.updateColorCycleTexture?.();
-
-                if (typeof brush.commitToLayer === 'function') {
-                  brush.commitToLayer(layerCanvas, targetLayerId);
-                } else {
-                  brush.renderDirectToCanvas?.(layerCanvas, targetLayerId);
-                }
-
-                // Mark layer metadata so downstream consumers know content exists
-                try {
-                  const st = useAppStore.getState();
-                  const freshLayer = st.layers.find(l => l.id === targetLayerId);
-                  if (freshLayer?.colorCycleData) {
-                    st.updateLayer(targetLayerId, {
-                      colorCycleData: {
-                        ...freshLayer.colorCycleData,
-                        hasContent: true
+                  brushForCleanup = brush;
+                } else if (drawingCanvas) {
+                  try {
+                    const targetCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
+                    if (targetCtx) {
+                      targetCtx.save();
+                        targetCtx.globalCompositeOperation = activeSettings.blendMode || 'source-over';
+                        targetCtx.globalAlpha = activeSettings.opacity ?? 1;
+                        targetCtx.drawImage(drawingCanvas, 0, 0);
+                        targetCtx.restore();
                       }
-                    });
+                    } catch {}
                   }
-                } catch {}
-
-                brushForCleanup = brush;
-              } else if (drawingCanvas) {
-                try {
-                  const targetCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
-                  if (targetCtx) {
-                    targetCtx.save();
-                      targetCtx.globalCompositeOperation = activeSettings.blendMode || 'source-over';
-                      targetCtx.globalAlpha = activeSettings.opacity ?? 1;
-                      targetCtx.drawImage(drawingCanvas, 0, 0);
-                      targetCtx.restore();
-                    }
-                  } catch {}
-                }
-            } catch {
-              // Suppressed debug warn for buffer commit
-            }
-            try {
-              window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
-              ccLog('stroke: frameUpdate dispatched', { layerId: targetLayerId.slice(-6) });
-            } catch {}
-            endFinalizeVisibleTimer();
-
-          } else if (isColorCycleLayer) {
-            // On a color-cycle layer without a valid CC canvas, do not fall back to
-            // regular layer saving, as that would create a misleading 'Drawing stroke'
-            // history entry and break CC undo granularity. Skip saving in this edge case.
-            // Reduce noise: suppressed finalize debug
-          } else {
-            // Regular layers: composite drawing onto layer
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = project.width;
-            tempCanvas.height = project.height;
-            const tempCtx = tempCanvas.getContext('2d', {
-              willReadFrequently: true,
-              alpha: true
-            });
-            
-            if (tempCtx) {
-              if (activeLayer.imageData) {
-                tempCtx.putImageData(activeLayer.imageData, 0, 0);
+              } catch {
+                // Suppressed debug warn for buffer commit
               }
-              // Don't re-apply opacity and blend mode - they were already applied during drawing
-              tempCtx.globalCompositeOperation = 'source-over';
-              tempCtx.globalAlpha = 1;
-              if (drawingCanvas) {
-                tempCtx.drawImage(drawingCanvas, 0, 0);
-              }
-
-              await withTiming('cc:capture', () => captureCanvasToActiveLayer(tempCanvas));
-              
-              
-              
-              // Clean up temporary canvas to prevent memory leak
-              tempCanvas.width = 1;
-              tempCanvas.height = 1;
-              tempCtx.clearRect(0, 0, 1, 1);
-          }
-        }
-
-        // Clear transient drawing canvas content before scheduling history work
-        const polygonState = currentState.polygonGradientState;
-        const isInAdjustmentMode =
-          polygonState.drawingState === 'adjustingSpacing' ||
-          polygonState.drawingState === 'adjustingRotation' ||
-          polygonState.drawingState === 'adjustingSize';
-
-        if (!isColorCycleLayer || !isColorCycleBrush) {
-          if (!isInAdjustmentMode) {
-            if (drawingCtxRef.current && drawingCanvasRef.current) {
-              drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
-            }
-            drawingCanvasHasContent.current = false;
-          }
-        }
-
-        releaseBusyLock();
-
-        if (!skipSave) {
-          const actionType = historyActionOverride ?? (isShapeMode ? 'fill' : 'brush');
-          const defaultDescription = (() => {
-            if (isShapeMode) {
-              return isColorCycleLayer && isColorCycleBrush ? 'Color Cycle Fill' : 'Shape Fill';
-              }
-              if (isColorCycleLayer && isColorCycleBrush) {
-                return 'Color Cycle Stroke';
-              }
-              return 'Brush Stroke';
-            })();
-            const historyDescription = historyDescriptionOverride ?? defaultDescription;
-
-            const shouldSkipBitmapDelta = shouldDisableCoalescing;
-            const coalesceForHistory = shouldSkipBitmapDelta ? undefined : coalescePayload;
-
-            if (brushForCleanup?.flush) {
-              brushForCleanup.flush(activeLayerIdString);
-            }
-
-            const historyBitmapRoi =
-              strokeCaptureRoi ??
-              (project
-                ? boundingBoxToCaptureRegion(
-                    strokeBoundingBoxRef.current,
-                    ROI_PADDING_PX,
-                    project
-                  )
-                : undefined);
-
-            const shouldDeferColorCycleSave =
-              isColorCycleLayer &&
-              isColorCycleBrush &&
-              Boolean(deferredLayerCanvas);
-
-            if (shouldDeferColorCycleSave && deferredLayerCanvas) {
-              perfMark('cc:state-serialize-after:start');
-              debugTime('cc:state-serialize-after');
-              let afterColorState: ColorCycleSerializedState | null = null;
               try {
-                afterColorState = captureColorCycleBrushState(activeLayerIdString);
-              } finally {
-                debugTimeEnd('cc:state-serialize-after');
-                perfMark('cc:state-serialize-after:end');
-                perfMeasure(
-                  'cc:state-serialize-after',
-                  'cc:state-serialize-after:start',
-                  'cc:state-serialize-after:end'
-                );
+                window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
+                ccLog('stroke: frameUpdate dispatched', { layerId: targetLayerId.slice(-6) });
+              } catch {}
+              endFinalizeVisibleTimer();
+
+            } else if (isColorCycleLayer) {
+              // On a color-cycle layer without a valid CC canvas, do not fall back to
+              // regular layer saving, as that would create a misleading 'Drawing stroke'
+              // history entry and break CC undo granularity. Skip saving in this edge case.
+              // Reduce noise: suppressed finalize debug
+            } else {
+              // Regular layers: composite drawing onto layer
+              const tempCanvas = document.createElement('canvas');
+              tempCanvas.width = project.width;
+              tempCanvas.height = project.height;
+              const tempCtx = tempCanvas.getContext('2d', {
+                willReadFrequently: true,
+                alpha: true
+              });
+              
+              if (tempCtx) {
+                if (activeLayer.imageData) {
+                  tempCtx.putImageData(activeLayer.imageData, 0, 0);
+                }
+                // Don't re-apply opacity and blend mode - they were already applied during drawing
+                tempCtx.globalCompositeOperation = 'source-over';
+                tempCtx.globalAlpha = 1;
+                if (drawingCanvas) {
+                  tempCtx.drawImage(drawingCanvas, 0, 0);
+                }
+
+                await withTiming('cc:capture', () => captureCanvasToActiveLayer(tempCanvas));
+                
+                
+                
+                // Clean up temporary canvas to prevent memory leak
+                tempCanvas.width = 1;
+                tempCanvas.height = 1;
+                tempCtx.clearRect(0, 0, 1, 1);
+            }
+          }
+
+          // Clear transient drawing canvas content before scheduling history work
+          const polygonState = currentState.polygonGradientState;
+          const isInAdjustmentMode =
+            polygonState.drawingState === 'adjustingSpacing' ||
+            polygonState.drawingState === 'adjustingRotation' ||
+            polygonState.drawingState === 'adjustingSize';
+
+          if (!isColorCycleLayer || !isColorCycleBrush) {
+            if (!isInAdjustmentMode) {
+              if (drawingCtxRef.current && drawingCanvasRef.current) {
+                drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
+              }
+              drawingCanvasHasContent.current = false;
+            }
+          }
+
+          releaseBusyLock();
+
+          if (!skipSave) {
+            const actionType = historyActionOverride ?? (isShapeMode ? 'fill' : 'brush');
+            const defaultDescription = (() => {
+              if (isShapeMode) {
+                return isColorCycleLayer && isColorCycleBrush ? 'Color Cycle Fill' : 'Shape Fill';
+                }
+                if (isColorCycleLayer && isColorCycleBrush) {
+                  return 'Color Cycle Stroke';
+                }
+                return 'Brush Stroke';
+              })();
+              const historyDescription = historyDescriptionOverride ?? defaultDescription;
+
+              const shouldSkipBitmapDelta = shouldDisableCoalescing;
+              const coalesceForHistory = shouldSkipBitmapDelta ? undefined : coalescePayload;
+
+              if (brushForCleanup?.flush) {
+                brushForCleanup.flush(activeLayerIdString);
               }
 
-              scheduleDeferredColorCycleSave({
-                layerId: activeLayerIdString,
-                canvas: deferredLayerCanvas,
-                beforeColorState: layerBeforeColorState,
-                afterColorState,
-                actionType,
-                description: historyDescription,
-                tool: currentTool,
-                coalesce: undefined,
-                beforeImage: null,
-                skipBitmapDelta: true,
-                roi: strokeCaptureRoi,
-              });
-            } else {
-              let afterColorState: ReturnType<typeof captureColorCycleBrushState> | null = null;
+              const historyBitmapRoi =
+                strokeCaptureRoi ??
+                (project
+                  ? boundingBoxToCaptureRegion(
+                      strokeBoundingBoxRef.current,
+                      ROI_PADDING_PX,
+                      project
+                    )
+                  : undefined);
 
-              if (shouldSkipBitmapDelta) {
+              const shouldDeferColorCycleSave =
+                isColorCycleLayer &&
+                isColorCycleBrush &&
+                Boolean(deferredLayerCanvas);
+
+              if (shouldDeferColorCycleSave && deferredLayerCanvas) {
                 perfMark('cc:state-serialize-after:start');
                 debugTime('cc:state-serialize-after');
+                let afterColorState: ColorCycleSerializedState | null = null;
                 try {
                   afterColorState = captureColorCycleBrushState(activeLayerIdString);
                 } finally {
@@ -2402,41 +2602,78 @@ export function useDrawingHandlers({
                     'cc:state-serialize-after:end'
                   );
                 }
-                debugVerbose('[cc-delta-capture]', {
-                  beforeBytes:
-                    layerBeforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-                  afterBytes:
-                    afterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-                  beforeCtr:
-                    layerBeforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
-                  afterCtr:
-                    afterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
-                });
-              }
-              await withTiming('cc:commit', () =>
-                commitLayerHistory({
+
+                scheduleDeferredColorCycleSave({
                   layerId: activeLayerIdString,
-                  beforeImage: layerBeforeImage,
+                  canvas: deferredLayerCanvas,
                   beforeColorState: layerBeforeColorState,
                   afterColorState,
                   actionType,
                   description: historyDescription,
                   tool: currentTool,
-                  coalesce: coalesceForHistory,
-                  skipBitmapDelta: shouldSkipBitmapDelta,
-                  bitmapRoi: historyBitmapRoi ?? undefined,
-                })
-              );
+                  coalesce: undefined,
+                  beforeImage: null,
+                  skipBitmapDelta: true,
+                  roi: strokeCaptureRoi,
+                });
+              } else {
+                let afterColorState: ReturnType<typeof captureColorCycleBrushState> | null = null;
+
+                if (shouldSkipBitmapDelta) {
+                  perfMark('cc:state-serialize-after:start');
+                  debugTime('cc:state-serialize-after');
+                  try {
+                    afterColorState = captureColorCycleBrushState(activeLayerIdString);
+                  } finally {
+                    debugTimeEnd('cc:state-serialize-after');
+                    perfMark('cc:state-serialize-after:end');
+                    perfMeasure(
+                      'cc:state-serialize-after',
+                      'cc:state-serialize-after:start',
+                      'cc:state-serialize-after:end'
+                    );
+                  }
+                  debugVerbose('[cc-delta-capture]', {
+                    beforeBytes:
+                      layerBeforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
+                    afterBytes:
+                      afterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
+                    beforeCtr:
+                      layerBeforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+                    afterCtr:
+                      afterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+                  });
+                }
+                await withTiming('cc:commit', () =>
+                  commitLayerHistory({
+                    layerId: activeLayerIdString,
+                    beforeImage: layerBeforeImage,
+                    beforeColorState: layerBeforeColorState,
+                    afterColorState,
+                    actionType,
+                    description: historyDescription,
+                    tool: currentTool,
+                    coalesce: coalesceForHistory,
+                    skipBitmapDelta: shouldSkipBitmapDelta,
+                    bitmapRoi: historyBitmapRoi ?? undefined,
+                  })
+                );
+              }
+            }
+
+            if (!(isColorCycleLayer && isAnyColorCycleBrush)) {
+              brushForCleanup?.clearPaintBuffer?.(activeLayerIdString);
             }
           }
-
-          if (!(isColorCycleLayer && isAnyColorCycleBrush)) {
-            brushForCleanup?.clearPaintBuffer?.(activeLayerIdString);
-          }
         }
+      };
+
+      if (shouldAwaitQueueIdle) {
+        await runIdleAsync(finalizeAfterQueue);
+      } else {
+        await finalizeAfterQueue();
       }
 
-      
       // Parent component will handle final redraw
     } catch (error) {
       logError('Error during finalization:', error);
@@ -3572,14 +3809,15 @@ export function useDrawingHandlers({
         const colorCycleBrushManager = getColorCycleBrushManager();
         const colorCycleBrush = colorCycleBrushManager.getBrush(layer.id);
         if (!colorCycleBrush) return;
-        
+
         // Advance strictly when the store marks this layer as animating
-        // This ensures Pause reliably stops updates regardless of internal animator state.
         if (layer.colorCycleData.isAnimating) {
           colorCycleBrush.updateAnimation();
-          colorCycleBrush.renderDirectToCanvas(layer.colorCycleData.canvas, layer.id);
-          hasRendered = true;
         }
+
+        // Always copy the latest brush buffer into the layer canvas so paused strokes stay visible.
+        colorCycleBrush.renderDirectToCanvas(layer.colorCycleData.canvas, layer.id);
+        hasRendered = true;
 
         if (
           targetCtx &&

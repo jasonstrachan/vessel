@@ -184,24 +184,226 @@ export const shouldDrawStamp = (
 /**
  * Create initial pixel queue state
  */
-export const createPixelQueue = (): PixelQueue => ({
-  initialized: false,
-  lastDrawnX: 0,
-  lastDrawnY: 0,
-  waitingPixelX: 0,
-  waitingPixelY: 0,
-  spacingCounter: 0,
-  lastStrokePosition: { x: 0, y: 0 },
-  accumulatedDistance: 0,
-  stampedGridPositions: new Set<string>(),
-  dashStampCounter: 0,
-  drawnPixels: new Set<string>()
-});
+export function createPixelQueue(): PixelQueue {
+  const tasks: Array<() => void> = [];
+  let rafId: number | null = null;
+  const idleListeners: Array<() => void> = [];
+  const hasWindow = typeof window !== 'undefined';
+  const requestFrame = hasWindow && typeof window.requestAnimationFrame === 'function'
+    ? window.requestAnimationFrame.bind(window)
+    : null;
+  const cancelFrame = hasWindow && typeof window.cancelAnimationFrame === 'function'
+    ? window.cancelAnimationFrame.bind(window)
+    : null;
+
+  let dirtyRect: { x: number; y: number; w: number; h: number } | null = null;
+  let pendingDirtyFrame: number | null = null;
+  let pendingDirtyTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  const now = () => {
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+      return performance.now();
+    }
+    return Date.now();
+  };
+
+  const BUDGET_MS = 6;
+  const MAX_TASKS = 512;
+
+  const runTask = (task: () => void) => {
+    try {
+      task();
+    } catch (error) {
+      console.error('[PixelQueue] Task execution failed:', error);
+    }
+  };
+
+  const notifyIdle = () => {
+    if (tasks.length || rafId != null) {
+      return;
+    }
+    if (!idleListeners.length) {
+      return;
+    }
+    const callbacks = idleListeners.splice(0, idleListeners.length);
+    for (const cb of callbacks) {
+      try {
+        cb();
+      } catch (error) {
+        console.error('[PixelQueue] Idle callback failed:', error);
+      }
+    }
+  };
+
+  const dispatchDirtyRect = () => {
+    pendingDirtyFrame = null;
+    if (pendingDirtyTimeout != null) {
+      clearTimeout(pendingDirtyTimeout);
+      pendingDirtyTimeout = null;
+    }
+    if (!dirtyRect || !hasWindow) {
+      dirtyRect = null;
+      return;
+    }
+    const rect = dirtyRect;
+    dirtyRect = null;
+    try {
+      window.dispatchEvent(
+        new CustomEvent('colorCycleFrameUpdate', {
+          detail: {
+            onlyActiveLayer: true,
+            roi: { x: rect.x, y: rect.y, width: rect.w, height: rect.h }
+          }
+        })
+      );
+    } catch (error) {
+      console.error('[PixelQueue] Failed to dispatch dirty rect:', error);
+    }
+  };
+
+  const scheduleDirtyDispatch = () => {
+    if (!dirtyRect || !hasWindow) {
+      return;
+    }
+    if (pendingDirtyFrame != null) {
+      return;
+    }
+    if (requestFrame) {
+      pendingDirtyFrame = requestFrame(dispatchDirtyRect);
+    } else {
+      pendingDirtyTimeout = setTimeout(dispatchDirtyRect, 0);
+    }
+  };
+
+  const tick = () => {
+    rafId = null;
+    if (!tasks.length) {
+      if (dirtyRect) {
+        scheduleDirtyDispatch();
+      }
+      notifyIdle();
+      return;
+    }
+
+    const start = now();
+    let processed = 0;
+    while (tasks.length && processed < MAX_TASKS) {
+      runTask(tasks.shift()!);
+      processed++;
+      if (now() - start >= BUDGET_MS) {
+        break;
+      }
+    }
+
+    if (dirtyRect) {
+      scheduleDirtyDispatch();
+    }
+
+    if (tasks.length) {
+      if (requestFrame) {
+        rafId = requestFrame(tick);
+      } else {
+        // No RAF (e.g., SSR). Process synchronously to avoid stalling.
+        tick();
+      }
+    } else {
+      notifyIdle();
+    }
+  };
+
+  const enqueue = (fn: () => void) => {
+    tasks.push(fn);
+    if (rafId != null) {
+      return;
+    }
+    if (requestFrame) {
+      rafId = requestFrame(tick);
+    } else {
+      tick();
+    }
+  };
+
+  const flushNow = () => {
+    if (rafId != null && cancelFrame) {
+      cancelFrame(rafId);
+    }
+    if (pendingDirtyFrame != null) {
+      if (cancelFrame) {
+        cancelFrame(pendingDirtyFrame);
+      }
+      pendingDirtyFrame = null;
+    }
+    if (pendingDirtyTimeout != null) {
+      clearTimeout(pendingDirtyTimeout);
+      pendingDirtyTimeout = null;
+    }
+    rafId = null;
+    while (tasks.length) {
+      runTask(tasks.shift()!);
+    }
+    if (dirtyRect) {
+      dispatchDirtyRect();
+    }
+    notifyIdle();
+  };
+
+  const onIdle = (cb: () => void) => {
+    if (typeof cb !== 'function') {
+      return;
+    }
+    if (!tasks.length && rafId == null) {
+      Promise.resolve().then(() => {
+        try {
+          cb();
+        } catch (error) {
+          console.error('[PixelQueue] Idle callback failed:', error);
+        }
+      });
+      return;
+    }
+    idleListeners.push(cb);
+  };
+
+  const addDirtyRect = (x: number, y: number, width: number, height: number) => {
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+    const rect = dirtyRect;
+    if (!rect) {
+      dirtyRect = { x, y, w: width, h: height };
+      return;
+    }
+    const minX = Math.min(rect.x, x);
+    const minY = Math.min(rect.y, y);
+    const maxX = Math.max(rect.x + rect.w, x + width);
+    const maxY = Math.max(rect.y + rect.h, y + height);
+    dirtyRect = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  };
+
+  return {
+    initialized: false,
+    lastDrawnX: 0,
+    lastDrawnY: 0,
+    waitingPixelX: 0,
+    waitingPixelY: 0,
+    spacingCounter: 0,
+    lastStrokePosition: { x: 0, y: 0 },
+    accumulatedDistance: 0,
+    stampedGridPositions: new Set<string>(),
+    dashStampCounter: 0,
+    drawnPixels: new Set<string>(),
+    enqueue,
+    flushNow,
+    onIdle,
+    addDirtyRect
+  };
+}
 
 /**
  * Reset pixel queue state
  */
 export const resetPixelQueue = (queue: PixelQueue): void => {
+  queue.flushNow();
   queue.initialized = false;
   queue.lastDrawnX = 0;
   queue.lastDrawnY = 0;

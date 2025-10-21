@@ -2649,6 +2649,51 @@ export const useAppStore = create<AppState>()(
         try {
         const currentSettings = state.tools.brushSettings;
         const newSettings = { ...currentSettings, ...settings };
+        const gradientsEqual = (
+          a?: BrushSettings['colorCycleGradient'],
+          b?: BrushSettings['colorCycleGradient']
+        ): boolean => {
+          if (!a || !b) {
+            return !a && !b;
+          }
+          if (a.length !== b.length) {
+            return false;
+          }
+          for (let i = 0; i < a.length; i++) {
+            const lhs = a[i];
+            const rhs = b[i];
+            if (!rhs) {
+              return false;
+            }
+            if (
+              (lhs.color ?? '') !== (rhs.color ?? '') ||
+              Number(lhs.position ?? 0) !== Number(rhs.position ?? 0)
+            ) {
+              return false;
+            }
+          }
+          return true;
+        };
+        const explicitGradientVersion = settings.colorCycleGradientVersion;
+        if (settings.colorCycleGradient !== undefined && explicitGradientVersion === undefined) {
+          const gradientChanged = !gradientsEqual(
+            currentSettings.colorCycleGradient,
+            settings.colorCycleGradient
+          );
+          if (gradientChanged) {
+            newSettings.colorCycleGradientVersion =
+              (currentSettings.colorCycleGradientVersion ?? 0) + 1;
+          } else if (currentSettings.colorCycleGradientVersion !== undefined) {
+            newSettings.colorCycleGradientVersion = currentSettings.colorCycleGradientVersion;
+          }
+        } else if (explicitGradientVersion !== undefined) {
+          newSettings.colorCycleGradientVersion = explicitGradientVersion;
+        } else if (
+          newSettings.colorCycleGradientVersion === undefined &&
+          currentSettings.colorCycleGradientVersion !== undefined
+        ) {
+          newSettings.colorCycleGradientVersion = currentSettings.colorCycleGradientVersion;
+        }
         
         // If size is being changed, update global size
         if (settings.size !== undefined) {
@@ -2697,6 +2742,15 @@ export const useAppStore = create<AppState>()(
           if (settings.rectGradientPresetId !== undefined) settingsToSave.rectGradientPresetId = newSettings.rectGradientPresetId;
           if (settings.continuousSampling !== undefined) settingsToSave.continuousSampling = newSettings.continuousSampling;
           if (settings.resampleInterval !== undefined) settingsToSave.resampleInterval = newSettings.resampleInterval;
+          if (settings.colorCycleGradient !== undefined) {
+            settingsToSave.colorCycleGradient = newSettings.colorCycleGradient;
+          }
+          if (
+            settings.colorCycleGradient !== undefined ||
+            settings.colorCycleGradientVersion !== undefined
+          ) {
+            settingsToSave.colorCycleGradientVersion = newSettings.colorCycleGradientVersion;
+          }
           
           brushSettingsToSave = { brushId: currentBrushId, settings: settingsToSave };
         }

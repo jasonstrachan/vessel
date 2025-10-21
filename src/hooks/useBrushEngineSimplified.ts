@@ -1280,6 +1280,16 @@ export const useBrushEngineSimplified = () => {
           colorCycleBrush.paint(paintX, paintY, layerId, pressure, rotation);
         }
       }
+
+      // When playback is paused, immediately mirror the buffer so stamps stay visible.
+      try {
+        const isPlaying =
+          typeof colorCycleBrush.isPlaying === 'function' ? colorCycleBrush.isPlaying() : false;
+        const targetCanvas = ctx.canvas as HTMLCanvasElement | undefined;
+        if (!isPlaying && targetCanvas) {
+          colorCycleBrush.renderDirectToCanvas?.(targetCanvas, layerId);
+        }
+      } catch {}
     } catch (error) {
       console.error('[ColorCycle] Error in drawColorCycle:', error);
     }

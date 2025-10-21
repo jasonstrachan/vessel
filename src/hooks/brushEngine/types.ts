@@ -20,6 +20,10 @@ export interface PixelQueue {
   stampedGridPositions: Set<string>;
   dashStampCounter: number;
   drawnPixels: Set<string>; // Track drawn pixels for pixel-perfect brushes
+  enqueue: (fn: () => void) => void;
+  flushNow: () => void;
+  onIdle: (cb: () => void) => void;
+  addDirtyRect?: (x: number, y: number, width: number, height: number) => void;
 }
 
 /**
