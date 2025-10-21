@@ -115,6 +115,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   const shapeMode = useAppStore((state) => state.tools.shapeMode);
   const previousTool = useAppStore((state) => state.tools.previousTool);
   const colorAdjustActive = useAppStore((state) => state.colorAdjust.active);
+  const globalBrushSize = useAppStore((state) => state.globalBrushSize);
   const tools = useMemo(
     () => ({
       currentTool,
@@ -1497,7 +1498,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
             setNeedsRedraw(prev => prev + 1);
             
             // Restart color cycle animation if it should be playing
-            if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && isColorCyclePlaybackActive()) {
+            if (
+              (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
+               tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) &&
+              isColorCyclePlaybackActive()
+            ) {
               wrappedStartAnimation();
             }
           });
@@ -1690,7 +1695,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     // Optional
     defaultCursorStyle: cursorStyle,
     restartColorCycleAnimation: () => {
-      if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE && isColorCyclePlaybackActive()) {
+      if (
+        (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
+         tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) &&
+        isColorCyclePlaybackActive()
+      ) {
         wrappedStartAnimation();
       }
     },
@@ -2208,19 +2217,27 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       
       {/* Brush cursor preview */}
       {(() => {
-        const active = tools.currentTool === 'eraser' ? tools.eraserSettings : tools.brushSettings;
+        const brushShapeForCursor = tools.brushSettings.brushShape || BrushShape.ROUND;
+        const cursorSize = Math.max(
+          1,
+          tools.brushSettings.size ??
+            globalBrushSize ??
+            tools.eraserSettings.size ??
+            1
+        );
+        const brushTip = tools.brushSettings.currentBrushTip;
         return (
           <BrushCursor
             screenX={mousePosition.x}
             screenY={mousePosition.y}
-            size={active.size}
-            brushShape={active.brushShape || BrushShape.ROUND}
+            size={cursorSize}
+            brushShape={brushShapeForCursor}
             zoom={canvasZoom || 1}
-            color={active.color}
-            customBrush={active.currentBrushTip ? {
-              imageData: active.currentBrushTip.imageData,
-              width: active.currentBrushTip.width || 32,
-              height: active.currentBrushTip.height || 32
+            color={tools.brushSettings.color}
+            customBrush={brushTip ? {
+              imageData: brushTip.imageData,
+              width: brushTip.width || 32,
+              height: brushTip.height || 32
             } : null}
             visible={showBrushCursor && !pan.panState.isPanning && !isSpacePressedRef.current && cursorStyle === 'none'}
           />

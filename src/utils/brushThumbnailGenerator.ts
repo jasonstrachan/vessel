@@ -63,6 +63,7 @@ export function generateBrushThumbnail(
       generatePixelRoundThumbnail(ctx, opts, baseStrokeWidth);
       break;
     case BrushShape.TRIANGLE:
+    case BrushShape.COLOR_CYCLE_TRIANGLE:
       generateTriangleThumbnail(ctx, opts, isAntialiased, baseStrokeWidth);
       break;
     case BrushShape.RECTANGLE_GRADIENT:

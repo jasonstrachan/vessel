@@ -65,6 +65,12 @@ const useCursorDataURL = (
       case BrushShape.COLOR_CYCLE: // Color cycle now uses square stamps
         ctx.rect(center - radius, center - radius, screenSize - ctx.lineWidth, screenSize - ctx.lineWidth);
         break;
+      case BrushShape.COLOR_CYCLE_TRIANGLE:
+        ctx.moveTo(center, center - radius);
+        ctx.lineTo(center - radius, center + radius);
+        ctx.lineTo(center + radius, center + radius);
+        ctx.closePath();
+        break;
       case BrushShape.TRIANGLE:
       case BrushShape.POLYGON_GRADIENT:
       case BrushShape.COLOR_CYCLE_SHAPE:

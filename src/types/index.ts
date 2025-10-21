@@ -104,6 +104,11 @@ export interface Layer {
   opacity: number;
   blendMode: BlendMode;
   locked: boolean;
+  /**
+   * When true, drawing operations should preserve existing transparent pixels on this layer.
+   * This is applied by the brush engine to both regular and color-cycle layers.
+   */
+  transparencyLocked?: boolean;
   order: number;
   imageData: ImageData | null;
   // Use a flexible framebuffer type for broader browser support
@@ -131,6 +136,8 @@ export interface Layer {
     canvasImageData?: ImageData;
     canvasWidth?: number;
     canvasHeight?: number;
+    eraseMask?: HTMLCanvasElement;
+    eraseMaskVersion?: number;
 
     // Recolor mode data (new functionality)
     recolorSettings?: {
@@ -244,6 +251,7 @@ export enum BrushShape {
   RISOGRAPH_ULTRA = 'risograph_ultra',
   RESAMPLER = 'resampler',
   COLOR_CYCLE = 'color_cycle',
+  COLOR_CYCLE_TRIANGLE = 'color_cycle_triangle',
   COLOR_CYCLE_SHAPE = 'color_cycle_shape',
   SPAM_TEXT = 'spam_text',
   SHAPE_FILL = 'shape_fill'
@@ -523,6 +531,7 @@ export interface BrushSettings {
   spamCustomText?: string; // Custom text to use instead of preset content
   // Shape gradient mode settings
   shapeGradientMode?: 'contour' | 'lines' | 'lines2' | 'mesh' | 'triangle' | 'crosshatch' | 'flow' | 'inkRibbons'; // Mode for shape gradient brushes ('mesh' kept for legacy projects)
+  linkSizeToBrush?: boolean;
   
 }
 

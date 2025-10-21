@@ -40,6 +40,7 @@ export const createMockLayer = (overrides: Partial<Layer> = {}): Layer => {
     opacity: overrides.opacity ?? 1,
     blendMode: overrides.blendMode ?? 'source-over',
     locked: overrides.locked ?? false,
+    transparencyLocked: overrides.transparencyLocked ?? false,
     order: overrides.order ?? 0,
     imageData: overrides.imageData ?? null,
     framebuffer: overrides.framebuffer ?? resolvedCanvas,

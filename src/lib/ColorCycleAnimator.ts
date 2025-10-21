@@ -532,6 +532,20 @@ export class ColorCycleAnimator {
       console.error('[ColorCycleAnimator] Error in paintSquare:', error);
     }
   }
+
+  /**
+   * Paint triangle brush with stamp-based color progression
+   */
+  paintTriangle(x: number, y: number, brushSize: number, colorIndex?: number) {
+    try {
+      const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
+      const color = this.gradientPalette.getColorString(index);
+      this.indexBuffer.paintTriangle(x, y, brushSize, color);
+      this._glIndexDirty = true;
+    } catch (error) {
+      console.error('[ColorCycleAnimator] Error in paintTriangle:', error);
+    }
+  }
   
   /**
    * Paint line

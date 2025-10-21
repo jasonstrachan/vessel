@@ -7,6 +7,7 @@ import { BrushShape, Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { LayerColorSwatches } from '@/components/MinimalLayerList';
 import ProgressSlider from '@/components/ui/ProgressSlider';
+import LockTransparencyIcon from '@/components/icons/LockTransparencyIcon';
 
 const LayersPanel: React.FC = () => {
   const [layerMenuState, setLayerMenuState] = React.useState<{
@@ -41,6 +42,7 @@ const LayersPanel: React.FC = () => {
       opacity: 1,
       blendMode: 'source-over',
       locked: false,
+      transparencyLocked: false,
       imageData: null,
       framebuffer: canvas,
       alignment: createDefaultLayerAlignment(),
@@ -77,6 +79,7 @@ const LayersPanel: React.FC = () => {
       opacity: 1,
       blendMode: 'source-over',
       locked: false,
+      transparencyLocked: false,
       imageData: null,
       framebuffer: canvas,
       alignment: createDefaultLayerAlignment(),
@@ -127,6 +130,13 @@ const LayersPanel: React.FC = () => {
   const handleOpacityChange = React.useCallback((layerId: string, opacityPercent: number) => {
     updateLayer(layerId, { opacity: opacityPercent / 100 });
   }, [updateLayer]);
+
+  const handleToggleTransparencyLock = React.useCallback((layerId: string) => {
+    const layer = layers.find(l => l.id === layerId);
+    if (layer) {
+      updateLayer(layerId, { transparencyLocked: layer.transparencyLocked !== true });
+    }
+  }, [layers, updateLayer]);
 
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -390,6 +400,20 @@ const LayersPanel: React.FC = () => {
                           aria-label="Layer Opacity"
                         />
                       </div>
+                      <button
+                        onClick={event => {
+                          event.stopPropagation();
+                          handleToggleTransparencyLock(layer.id);
+                        }}
+                        className={`w-full flex items-center gap-3 px-2 py-1.5 text-sm border border-[#545454] transition-colors ${
+                          layer.transparencyLocked ? 'bg-[#3C3C3C] text-[#F8D866]' : 'bg-transparent text-[#B0B0B0]'
+                        } hover:bg-[#3C3C3C]`}
+                        aria-pressed={layer.transparencyLocked === true}
+                        title={layer.transparencyLocked ? 'Unlock transparent pixels' : 'Lock transparent pixels'}
+                      >
+                        <LockTransparencyIcon locked={layer.transparencyLocked === true} size={18} />
+                        <span>Transparency</span>
+                      </button>
                       <button
                         onClick={event => {
                           event.stopPropagation();

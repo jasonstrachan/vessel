@@ -13,6 +13,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import { canvasPool } from '@/utils/canvasPool';
 import { ccLog } from '@/utils/colorCycle/ccDebug';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
+import { getMaskManager } from '@/layers/MaskManager';
 
 interface CustomStampInput {
   imageData: ImageData;
@@ -73,14 +74,18 @@ interface ColorCycleBrushCanvasState {
   fps?: number;
   brushSize?: number;
   layerSnapshots?: LayerSnapshots;
+  stampShape?: StampShape;
   [key: string]: unknown;
 }
+
+type StampShape = 'square' | 'triangle';
 
 interface ColorCycleBrushCanvasSerialized {
   layers: SerializedLayerState[];
   cycleSpeed: number;
   fps: number;
   brushSize: number;
+  stampShape?: StampShape;
 }
 
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -164,6 +169,9 @@ export class ColorCycleBrushCanvas2D {
   // Batched rendering
   private renderScheduled: boolean = false;
   private dirtyLayers: Set<string> = new Set();
+
+  // Stamp geometry
+  private stampShape: StampShape = 'square';
   
   // Frame callback
   private onFrameRendered?: () => void;
@@ -497,8 +505,12 @@ export class ColorCycleBrushCanvas2D {
       // Detailed paint debug removed
       
       // Paint with specific color index and pressure-modulated size
-      // TODO: Add rotation support to paintSquare method in future update
-      animator.paintSquare(x, y, pressureSize, colorIndex);
+      if (this.stampShape === 'triangle') {
+        animator.paintTriangle(x, y, pressureSize, colorIndex);
+      } else {
+        // TODO: Add rotation support to paintSquare method in future update
+        animator.paintSquare(x, y, pressureSize, colorIndex);
+      }
       
       // Update tracking
       strokeData.strokeLength++;
@@ -2161,9 +2173,17 @@ export class ColorCycleBrushCanvas2D {
 
       // Clear before drawing when animator owns the full contents of the layer.
       if (!hadExternalBase) {
-        ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-      }
-      ctx.drawImage(srcCanvas, 0, 0);
+      ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+    }
+    ctx.drawImage(srcCanvas, 0, 0);
+    try {
+      const maskManager = getMaskManager();
+      maskManager.applyMaskToCanvas(layerId, ctx);
+    } catch {}
+      try {
+        const maskManager = getMaskManager();
+        maskManager.applyMaskToCanvas(layerId, ctx);
+      } catch {}
     } finally {
       ctx.globalCompositeOperation = prevComposite;
       ctx.globalAlpha = prevAlpha;
@@ -2500,6 +2520,13 @@ export class ColorCycleBrushCanvas2D {
     }
     this.bandSpacing = Math.floor(spacing);
   }
+
+  /**
+   * Set stamp shape for stroke rendering
+   */
+  setStampShape(shape: StampShape) {
+    this.stampShape = shape === 'triangle' ? 'triangle' : 'square';
+  }
   
   /**
    * Set pressure enabled state
@@ -2770,6 +2797,9 @@ export class ColorCycleBrushCanvas2D {
       if (state.cycleSpeed !== undefined) this.cycleSpeed = state.cycleSpeed;
       if (state.fps !== undefined) this.fps = state.fps;
       if (state.brushSize !== undefined) this.brushSize = state.brushSize;
+      if (state.stampShape === 'triangle' || state.stampShape === 'square') {
+        this.setStampShape(state.stampShape);
+      }
       
       if (layerSnapshots && !asHistory) {
         const clearForLayer = (layerId: string) => {
@@ -2923,7 +2953,8 @@ export class ColorCycleBrushCanvas2D {
       layers,
       cycleSpeed: this.cycleSpeed,
       fps: this.fps,
-      brushSize: this.brushSize
+      brushSize: this.brushSize,
+      stampShape: this.stampShape
     };
   }
   
@@ -2938,6 +2969,10 @@ export class ColorCycleBrushCanvas2D {
 
     if (typeof data.cycleSpeed === 'number') {
       instance.setSpeed(data.cycleSpeed);
+    }
+
+    if (data.stampShape) {
+      instance.setStampShape(data.stampShape);
     }
 
     data.layers?.forEach((layer) => {

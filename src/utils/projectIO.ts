@@ -44,6 +44,7 @@ interface SerializedLayer {
   opacity: number;
   blendMode: string;
   locked: boolean;
+  transparencyLocked?: boolean;
   order: number;
   imageDataUrl: string; // Base64 encoded ImageData
   layerType?: 'normal' | 'color-cycle' | 'colorCycle';
@@ -330,6 +331,7 @@ function serializeLayer(layer: Layer): SerializedLayer {
     opacity: layer.opacity,
     blendMode: layer.blendMode,
     locked: layer.locked,
+    transparencyLocked: layer.transparencyLocked === true,
     order: layer.order,
     imageDataUrl,
     layerType: layer.layerType,
@@ -491,6 +493,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
     opacity: serializedLayer.opacity,
     blendMode: serializedLayer.blendMode as GlobalCompositeOperation,
     locked: serializedLayer.locked,
+    transparencyLocked: serializedLayer.transparencyLocked === true,
     order: serializedLayer.order,
     imageData,
     framebuffer,

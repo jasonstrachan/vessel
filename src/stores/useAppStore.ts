@@ -334,6 +334,7 @@ import { ShapeFillOrchestrator, type ShapeFillFinalizePayload } from '@/shapeFil
 import { getFillStrategy, listFillStrategies } from '@/shapeFill/strategies';
 import type { FillParams, ShapeFillId, ShapeFillSession, ShapeFillParamKey, Vec2 } from '@/shapeFill/types';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
+import { configureMaskManager } from '@/layers/MaskManager';
 
 // Get global manager instance
 const colorCycleBrushManager = getColorCycleBrushManager();
@@ -1191,7 +1192,12 @@ const defaultToolState: ToolState = {
   lastRegularShapeMode: false,
   lastColorCycleShapeMode: false,
   brushSettings: defaultBrushSettingsForStore,
-  eraserSettings: { ...defaultBrushSettingsForStore, blendMode: 'destination-out', color: 'rgba(255, 255, 255, 0.1)' },
+  eraserSettings: {
+    ...defaultBrushSettingsForStore,
+    blendMode: 'destination-out',
+    color: 'rgba(255, 255, 255, 0.1)',
+    linkSizeToBrush: true
+  },
   fillSettings: {
     threshold: 0,
     contiguous: true
@@ -1675,7 +1681,7 @@ export const useAppStore = create<AppState>()(
       })),
       
       // Global brush settings
-      globalBrushSize: 5, // Start with default brush size (5px)
+      globalBrushSize: defaultBrushSettingsForStore.size ?? 5,
       
       // Unified size settings - one for all default brushes, one for all custom brushes
       defaultBrushesSize: 5,   // 5px for all default brushes
@@ -1702,16 +1708,33 @@ export const useAppStore = create<AppState>()(
             size
           };
           
+          const shouldSyncEraser = state.tools.eraserSettings.linkSizeToBrush !== false;
+          const updatedEraserSettings = shouldSyncEraser
+            ? { ...state.tools.eraserSettings, size }
+            : state.tools.eraserSettings;
+
           return {
             ...newState,
             tools: {
               ...state.tools,
-              brushSettings: updatedBrushSettings
+              brushSettings: updatedBrushSettings,
+              eraserSettings: updatedEraserSettings
             }
           };
         }
         
-        return newState;
+        const shouldSyncEraser = state.tools.eraserSettings.linkSizeToBrush !== false;
+        const updatedEraserSettings = shouldSyncEraser
+          ? { ...state.tools.eraserSettings, size }
+          : state.tools.eraserSettings;
+
+        return {
+          ...newState,
+          tools: {
+            ...state.tools,
+            eraserSettings: updatedEraserSettings
+          }
+        };
       }),
       
       // Default brush sizes storage (initialize with common defaults)
@@ -2534,7 +2557,6 @@ export const useAppStore = create<AppState>()(
         const stateBeforeSwitch = get();
         // Save current settings before switching
         stateBeforeSwitch._saveCurrentBrushSettings();
-
         const shapeFillSession = stateBeforeSwitch.shapeFill.session;
         const isShapeFillActive =
           !!shapeFillSession &&
@@ -2844,12 +2866,21 @@ export const useAppStore = create<AppState>()(
           return state;
         }
       }),
-      setEraserSettings: (settings) => set((state) => ({
-        tools: {
-          ...state.tools,
-          eraserSettings: { ...state.tools.eraserSettings, ...settings }
+      setEraserSettings: (settings) => set((state) => {
+        const next = { ...state.tools.eraserSettings, ...settings };
+        if (settings.linkSizeToBrush === true) {
+          const syncSize = state.globalBrushSize ?? next.size;
+          if (typeof syncSize === 'number') {
+            next.size = syncSize;
+          }
         }
-      })),
+        return {
+          tools: {
+            ...state.tools,
+            eraserSettings: next
+          }
+        };
+      }),
       setFillSettings: (settings) => set((state) => ({
         tools: {
           ...state.tools,
@@ -2869,6 +2900,7 @@ export const useAppStore = create<AppState>()(
         } catch {}
 
         const isCC = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
+                      state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE ||
                       state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
         return {
           tools: {
@@ -3238,10 +3270,13 @@ export const useAppStore = create<AppState>()(
           newBrushSettings.brushShape = BrushShape.COLOR_CYCLE_SHAPE;
         } else if (preset.id === 'color-cycle-stroke') {
           newBrushSettings.brushShape = BrushShape.COLOR_CYCLE;
+        } else if (preset.id === 'color-cycle-triangle') {
+          newBrushSettings.brushShape = BrushShape.COLOR_CYCLE_TRIANGLE;
         }
         
         // Decide shapeMode based on brush domain (Color Cycle vs regular)
         const isNewCC = newBrushSettings.brushShape === BrushShape.COLOR_CYCLE ||
+                        newBrushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE ||
                         newBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
         const wasShapeFillBrush = state.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
         const isShapeFillBrush = newBrushSettings.brushShape === BrushShape.SHAPE_FILL;
@@ -3253,7 +3288,7 @@ export const useAppStore = create<AppState>()(
           // Respect explicit CC variant presets; otherwise restore last CC shape mode
           if (preset.id === 'color-cycle-shape') {
             nextShapeMode = true;
-          } else if (preset.id === 'color-cycle-stroke') {
+          } else if (preset.id === 'color-cycle-stroke' || preset.id === 'color-cycle-triangle') {
             nextShapeMode = false;
           } else {
             nextShapeMode = state.tools.lastColorCycleShapeMode ?? state.tools.shapeMode ?? false;
@@ -3398,6 +3433,7 @@ export const useAppStore = create<AppState>()(
             // Temporary order; will be normalized after insertion
             order: 0,
             alignment: cloneLayerAlignment(layer.alignment),
+            transparencyLocked: layer.transparencyLocked === true,
             // CRITICAL: Preserve layerType EXACTLY - DO NOT convert CC layers to normal!
             layerType: layer.layerType || (
               (logError('CRITICAL: Layer missing layerType!', {
@@ -4236,22 +4272,64 @@ export const useAppStore = create<AppState>()(
             return {};
           }
         
-        const updatedLayers = state.layers.map(l => 
-          l.id === layerId 
-            ? {
-                ...l,
-                layerType: 'color-cycle' as const,
-                colorCycleData: {
-                  gradient: gradient || [],
-                  colorCycleBrush,
-                  isAnimating: true,
-                  // Initialize per-layer brush speed from current brush settings
-                  brushSpeed: state.tools.brushSettings.colorCycleSpeed || 0.1,
-                  canvas: colorCycleBrush.getCanvas ? colorCycleBrush.getCanvas() : undefined
+        const updatedLayers = state.layers.map(l => {
+          if (l.id !== layerId) {
+            return l;
+          }
+
+          let eraseMask = l.colorCycleData?.eraseMask;
+          let eraseMaskVersion = l.colorCycleData?.eraseMaskVersion ?? 0;
+
+          if (typeof document !== 'undefined') {
+            if (eraseMask) {
+              if (eraseMask.width !== safeWidth || eraseMask.height !== safeHeight) {
+                const resized = document.createElement('canvas');
+                resized.width = safeWidth;
+                resized.height = safeHeight;
+                const ctx = resized.getContext('2d');
+                if (ctx) {
+                  ctx.drawImage(
+                    eraseMask,
+                    0,
+                    0,
+                    eraseMask.width,
+                    eraseMask.height,
+                    0,
+                    0,
+                    safeWidth,
+                    safeHeight
+                  );
                 }
+                eraseMask = resized;
+                eraseMaskVersion =
+                  typeof l.colorCycleData?.eraseMaskVersion === 'number'
+                    ? l.colorCycleData.eraseMaskVersion + 1
+                    : 1;
               }
-            : l
-        );
+            } else {
+              const maskCanvas = document.createElement('canvas');
+              maskCanvas.width = safeWidth;
+              maskCanvas.height = safeHeight;
+              eraseMask = maskCanvas;
+              eraseMaskVersion = 0;
+            }
+          }
+
+          return {
+            ...l,
+            layerType: 'color-cycle' as const,
+            colorCycleData: {
+              gradient: gradient || [],
+              colorCycleBrush,
+              isAnimating: true,
+              // Initialize per-layer brush speed from current brush settings
+              brushSpeed: state.tools.brushSettings.colorCycleSpeed || 0.1,
+              canvas: colorCycleBrush.getCanvas ? colorCycleBrush.getCanvas() : undefined,
+              eraseMask,
+              eraseMaskVersion
+            }
+          };
+        });
         
         trackLayerChanges('initColorCycleForLayer RETURN', updatedLayers);
         const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
@@ -5140,6 +5218,7 @@ export const useAppStore = create<AppState>()(
           blendMode: 'source-over',
           order: 0,
           locked: false,
+          transparencyLocked: false,
           imageData: new ImageData(width, height),
           framebuffer,
           alignment: createDefaultLayerAlignment(),
@@ -5604,6 +5683,19 @@ export const selectEffectiveColorCyclePlaying = (state: AppState): boolean =>
   state.colorCyclePlayback.desiredPlaying && state.colorCyclePlayback.suspendDepth === 0;
 
 setColorCycleStoreStateGetter(() => useAppStore.getState());
+configureMaskManager({
+  getLayer: (layerId) => {
+    const state = useAppStore.getState();
+    return state.layers.find((layer) => layer.id === layerId);
+  },
+  updateLayer: (layerId, patch) => {
+    useAppStore.getState().updateLayer(layerId, patch);
+  },
+  getProjectSize: () => {
+    const project = useAppStore.getState().project;
+    return project ? { width: project.width, height: project.height } : null;
+  }
+});
 
 // Corruption detector removed - bug is fixed
 

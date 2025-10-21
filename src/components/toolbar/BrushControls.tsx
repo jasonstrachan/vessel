@@ -63,10 +63,17 @@ const BrushControls = () => {
       canvas.height = Math.max(1, h);
       return canvas;
     };
+    const makeMaskCanvas = (w: number, h: number): HTMLCanvasElement => {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, w);
+      canvas.height = Math.max(1, h);
+      return canvas;
+    };
 
     const gradient = state.tools.brushSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS;
     const playback = state.colorCyclePlayback;
     const isPlaying = playback.desiredPlaying && playback.suspendDepth === 0;
+    const eraseMask = makeMaskCanvas(width, height);
 
     const newLayer: Omit<Layer, 'id' | 'order'> = {
       name: `CC Brush ${ccLayerCount + 1}`,
@@ -74,6 +81,7 @@ const BrushControls = () => {
       opacity: 1,
       blendMode: 'source-over',
       locked: false,
+      transparencyLocked: false,
       imageData: null,
       framebuffer: makeFramebuffer(width, height),
       alignment: createDefaultLayerAlignment(),
@@ -82,7 +90,9 @@ const BrushControls = () => {
         mode: 'brush',
         gradient: gradient.map(stop => ({ ...stop })),
         isAnimating: isPlaying,
-        brushSpeed: state.tools.brushSettings.colorCycleSpeed || 0.1
+        brushSpeed: state.tools.brushSettings.colorCycleSpeed || 0.1,
+        eraseMask,
+        eraseMaskVersion: 0
       }
     };
 
@@ -103,17 +113,18 @@ const BrushControls = () => {
   }, []);
 
   // Determine if current brush is custom (uses percentage) or default (uses pixels)
-  const isCustomBrush = brushSettings.brushShape === BrushShape.CUSTOM;
-  const sizeUnit = isCustomBrush ? '%' : 'px';
+  const activeSettings =
+    currentTool === 'eraser' ? eraserSettings : brushSettings;
+  const isActiveCustomBrush = activeSettings.brushShape === BrushShape.CUSTOM;
+  const sizeUnit = isActiveCustomBrush ? '%' : 'px';
 
   // Use the appropriate settings and setter based on current tool
-  const activeSettings =
-    currentTool === "eraser" ? eraserSettings : brushSettings;
   const setActiveSettings =
-    currentTool === "eraser" ? setEraserSettings : setBrushSettings;
+    currentTool === 'eraser' ? setEraserSettings : setBrushSettings;
 
-  const isCustomColorCycleEnabled = isCustomBrush && !!activeSettings.customBrushColorCycle;
+  const isCustomColorCycleEnabled = isActiveCustomBrush && !!activeSettings.customBrushColorCycle;
   const isShapeFillBrush = brushSettings.brushShape === BrushShape.SHAPE_FILL;
+  const eraserLinkSize = eraserSettings.linkSizeToBrush !== false;
 
   React.useEffect(() => {
     // Only auto-enable shapeMode for SHAPE_FILL when the current tool is 'brush'
@@ -242,7 +253,11 @@ const BrushControls = () => {
   // Ensure Color Cycle brushes start with a sensible spacing value even when no preset overrides exist
   React.useEffect(() => {
     const shape = activeSettings.brushShape;
-    if (shape !== BrushShape.COLOR_CYCLE && shape !== BrushShape.COLOR_CYCLE_SHAPE) {
+    if (
+      shape !== BrushShape.COLOR_CYCLE &&
+      shape !== BrushShape.COLOR_CYCLE_TRIANGLE &&
+      shape !== BrushShape.COLOR_CYCLE_SHAPE
+    ) {
       return;
     }
 
@@ -303,14 +318,24 @@ const BrushControls = () => {
           <ButtonGroup
             options={[
               { label: 'Stroke', value: 'stroke' },
+              { label: 'Triangle', value: 'triangle' },
               { label: 'Shape', value: 'shape' }
             ]}
-            value={activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE ? 'shape' : 'stroke'}
+            value={
+              activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
+                ? 'shape'
+                : activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
+                  ? 'triangle'
+                  : 'stroke'
+            }
             onChange={(value) => {
               const strokePreset = brushPresets.find(p => p.id === 'color-cycle-stroke');
               const shapePreset = brushPresets.find(p => p.id === 'color-cycle-shape');
+              const trianglePreset = brushPresets.find(p => p.id === 'color-cycle-triangle');
               if (value === 'shape' && shapePreset) {
                 setBrushPreset(shapePreset, true);
+              } else if (value === 'triangle' && trianglePreset) {
+                setBrushPreset(trianglePreset, true);
               } else if (value === 'stroke' && strokePreset) {
                 setBrushPreset(strokePreset, true);
               }
@@ -431,17 +456,45 @@ const BrushControls = () => {
                 Size px
               </label>
               <ProgressSlider
-                value={globalBrushSize}
+                value={
+                  currentTool === 'eraser' && !eraserLinkSize
+                    ? eraserSettings.size ?? globalBrushSize
+                    : globalBrushSize
+                }
                 min={1}
                 max={500}
                 step={1}
                 onChange={(value) => {
-                  setGlobalBrushSize(Math.max(1, value));
+                  const next = Math.max(1, value);
+                  if (currentTool === 'eraser' && !eraserLinkSize) {
+                    setEraserSettings({ size: next });
+                    return;
+                  }
+                  setGlobalBrushSize(next);
+                  if (currentTool === 'eraser') {
+                    setEraserSettings({ size: next });
+                  }
                 }}
                 aria-label="Brush Size (px)"
                 className="flex-1"
               />
             </div>
+            {currentTool === 'eraser' && (
+              <div className="flex items-center gap-2 mt-2">
+                <label className="text-[#D9D9D9] w-32" style={{ fontSize: '12px' }}>
+                  Link size to brush
+                </label>
+                <CustomSwitch
+                  checked={eraserLinkSize}
+                  onChange={(checked) => {
+                    setEraserSettings({
+                      linkSizeToBrush: checked,
+                      size: checked ? globalBrushSize : eraserSettings.size ?? globalBrushSize
+                    });
+                  }}
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -462,8 +515,9 @@ const BrushControls = () => {
             />
           </div>
         </div>
-        {/* Spacing (Color Cycle Stroke only) */}
-        {activeSettings.brushShape === BrushShape.COLOR_CYCLE && (
+        {/* Spacing (Color Cycle stroke variants only) */}
+        {(activeSettings.brushShape === BrushShape.COLOR_CYCLE ||
+          activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) && (
           <div className="mb-2">
             <div className="flex items-center gap-2">
               <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
@@ -558,8 +612,9 @@ const BrushControls = () => {
 
         {/* Shape Mode - Hidden for Color Cycle brushes as it's auto-managed */}
 
-        {/* Pressure - only for Color Cycle stroke variant */}
-        {activeSettings.brushShape === BrushShape.COLOR_CYCLE && (
+        {/* Pressure - only for Color Cycle stroke variants */}
+        {(activeSettings.brushShape === BrushShape.COLOR_CYCLE ||
+          activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) && (
           <div className="mb-2">
             <div className="flex items-center gap-2">
               <label
@@ -613,8 +668,9 @@ const BrushControls = () => {
           </div>
         )}
 
-        {/* Rotation - only for stroke variant */}
-        {activeSettings.brushShape === BrushShape.COLOR_CYCLE && (
+        {/* Rotation - only for stroke variants */}
+        {(activeSettings.brushShape === BrushShape.COLOR_CYCLE ||
+          activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) && (
           <div className="mb-2">
             <div className="flex items-center gap-2">
               <label
@@ -727,7 +783,13 @@ const BrushControls = () => {
               min={8}
               max={72}
               step={1}
-              onChange={(value) => setGlobalBrushSize(Math.max(8, value))}
+              onChange={(value) => {
+                const next = Math.max(8, value);
+                setGlobalBrushSize(next);
+                if (currentTool === 'eraser') {
+                  setEraserSettings({ size: next });
+                }
+              }}
               aria-label="Text Size (px)"
               className="flex-1"
             />
@@ -896,13 +958,18 @@ const BrushControls = () => {
             </label>
             <ProgressSlider
               value={globalBrushSize}
-              min={isCustomBrush ? 5 : 1}
-              max={isCustomBrush ? 500 : 500}
-              step={isCustomBrush ? 5 : 1}
+              min={isActiveCustomBrush ? 5 : 1}
+              max={isActiveCustomBrush ? 500 : 500}
+              step={isActiveCustomBrush ? 5 : 1}
               onChange={(value) => {
                 // For custom brushes, ensure we stay on 5% increments
-                const finalValue = isCustomBrush ? Math.round(value / 5) * 5 : value;
-                setGlobalBrushSize(Math.max(isCustomBrush ? 5 : 1, finalValue));
+                const finalValue = isActiveCustomBrush ? Math.round(value / 5) * 5 : value;
+                const min = isActiveCustomBrush ? 5 : 1;
+                const next = Math.max(min, finalValue);
+                setGlobalBrushSize(next);
+                if (currentTool === 'eraser') {
+                  setEraserSettings({ size: next });
+                }
               }}
               aria-label={`Brush Size (${sizeUnit})`}
               className="flex-1"
@@ -1239,7 +1306,13 @@ const BrushControls = () => {
               min={1}
               max={500}
               step={1}
-              onChange={(value) => setGlobalBrushSize(value)}
+              onChange={(value) => {
+                const next = Math.max(1, value);
+                setGlobalBrushSize(next);
+                if (currentTool === 'eraser') {
+                  setEraserSettings({ size: next });
+                }
+              }}
               aria-label="Brush Size"
               className="flex-1"
             />
@@ -1485,7 +1558,7 @@ const BrushControls = () => {
 
   return (
     <div className="p-4">
-      {isCustomBrush && (
+      {isActiveCustomBrush && (
         <div className="mb-3">
           <div className="flex items-center gap-2">
             <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
@@ -1549,13 +1622,18 @@ const BrushControls = () => {
           </label>
           <ProgressSlider
             value={globalBrushSize}
-            min={isCustomBrush ? 5 : 1}
-            max={isCustomBrush ? 500 : 500}
-            step={isCustomBrush ? 5 : 1}
+            min={isActiveCustomBrush ? 5 : 1}
+            max={isActiveCustomBrush ? 500 : 500}
+            step={isActiveCustomBrush ? 5 : 1}
             onChange={(value) => {
               // For custom brushes, ensure we stay on 5% increments
-              const finalValue = isCustomBrush ? Math.round(value / 5) * 5 : value;
-              setGlobalBrushSize(Math.max(isCustomBrush ? 5 : 1, finalValue));
+              const finalValue = isActiveCustomBrush ? Math.round(value / 5) * 5 : value;
+              const min = isActiveCustomBrush ? 5 : 1;
+              const next = Math.max(min, finalValue);
+              setGlobalBrushSize(next);
+              if (currentTool === 'eraser') {
+                setEraserSettings({ size: next });
+              }
             }}
             aria-label={`Brush Size (${sizeUnit})`}
             className="flex-1"

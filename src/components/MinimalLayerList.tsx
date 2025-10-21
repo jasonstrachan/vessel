@@ -270,6 +270,7 @@ const MinimalLayerList = () => {
       opacity: 1,
       blendMode: 'source-over',
       locked: false,
+      transparencyLocked: false,
       imageData: null,
       framebuffer: makeFramebuffer(),
       alignment: createDefaultLayerAlignment(),
@@ -329,6 +330,7 @@ const MinimalLayerList = () => {
       opacity: 1,
       blendMode: 'source-over',
       locked: false,
+      transparencyLocked: false,
       imageData: null,
       framebuffer: makeFramebuffer(),
       alignment: createDefaultLayerAlignment(),
@@ -357,7 +359,10 @@ const MinimalLayerList = () => {
       // This ensures users can immediately draw on the new regular layer
       try {
         const finalState = useAppStore.getState();
-        if (finalState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE) {
+        if (
+          finalState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
+          finalState.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
+        ) {
           finalState.setBrushSettings({ brushShape: BrushShape.ROUND });
           // quiet
         }

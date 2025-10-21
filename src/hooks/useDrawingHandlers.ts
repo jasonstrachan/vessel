@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useBrushEngineSimplified } from './useBrushEngineSimplified';
 import { useUserBrushEngine } from './useUserBrushEngine';
 import { BrushShape, type BrushSettings, type CustomBrush, type Layer, type CanvasSnapshot } from '../types';
@@ -27,6 +27,9 @@ import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { markPendingColorCycleSaveEnd, markPendingColorCycleSaveStart, registerFinalizeQueue } from '@/stores/pendingColorCycleSaves';
 import { perfMark, perfMeasure, timeAsync, timeSync } from '@/utils/perf/ccPerfProbe';
+import { getMaskManager } from '@/layers/MaskManager';
+import { BrushStampSource } from '@/tools/stamps/BrushStampSource';
+import { EraserTool } from '@/tools/EraserTool';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -343,6 +346,57 @@ export function useDrawingHandlers({
     lastByReason: Object.create(null) as Record<string, number>,
     suppressedByReason: Object.create(null) as Record<string, number>,
   });
+  const maskManager = useMemo(() => getMaskManager(), []);
+  const eraserToolRef = useRef<EraserTool | null>(null);
+  const eraserRoiRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+  const hasLoggedEraserBannerRef = useRef(false);
+  const createBrushStampSource = useCallback(
+    () =>
+      new BrushStampSource({
+        getState: useAppStore.getState,
+        brushEngine,
+        userBrushEngine,
+        resolveCustomBrush: resolveActiveCustomBrushData
+      }),
+    [brushEngine, userBrushEngine]
+  );
+  const getBrushHalfSize = () => {
+    const state = useAppStore.getState();
+    const brushSize = state.tools.brushSettings.size ?? state.globalBrushSize;
+    const eraserSettings = state.tools.eraserSettings;
+    const effectiveSize =
+      eraserSettings.linkSizeToBrush === false
+        ? eraserSettings.size ?? brushSize
+        : brushSize;
+    return Math.max(1, effectiveSize ?? 1) / 2;
+  };
+  const getColorCycleBrushEraserSettings = useCallback(() => {
+    const state = useAppStore.getState();
+    const settings = state.tools.brushSettings;
+    const flags = getColorCycleBrushFlags(settings);
+    let customStamp = resolveActiveCustomBrushData(state);
+    if (!customStamp && resamplerBrushDataRef.current) {
+      customStamp = resamplerBrushDataRef.current;
+    }
+    const brushShape =
+      settings.brushShape ??
+      state.tools.lastRegularBrushShape ??
+      BrushShape.ROUND;
+
+    const baseSettings = {
+      size: settings.size ?? state.globalBrushSize ?? 1,
+      pressureEnabled: flags.isAny ? true : !!settings.pressureEnabled,
+      minPressure: settings.minPressure ?? 50,
+      maxPressure: settings.maxPressure ?? 200,
+      brushShape
+    };
+
+    if (customStamp) {
+      return { ...baseSettings, customStamp };
+    }
+
+    return baseSettings;
+  }, []);
 
   const getCCStampTargetCtx = useCallback((): CanvasRenderingContext2D | null => {
     const st = useAppStore.getState();
@@ -863,6 +917,7 @@ export function useDrawingHandlers({
     const shape = state.tools.brushSettings.brushShape;
     const isCCBrush =
       shape === BrushShape.COLOR_CYCLE ||
+      shape === BrushShape.COLOR_CYCLE_TRIANGLE ||
       shape === BrushShape.COLOR_CYCLE_SHAPE ||
       (shape === BrushShape.CUSTOM && !!state.tools.brushSettings.customBrushColorCycle);
 
@@ -980,6 +1035,7 @@ export function useDrawingHandlers({
       const brushShape = st.tools.brushSettings.brushShape;
       isCCBrushActive =
         brushShape === BrushShape.COLOR_CYCLE ||
+        brushShape === BrushShape.COLOR_CYCLE_TRIANGLE ||
         brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
         (brushShape === BrushShape.CUSTOM && !!st.tools.brushSettings.customBrushColorCycle);
     } catch {}
@@ -1249,10 +1305,13 @@ export function useDrawingHandlers({
     p2: { x: number; y: number }
   ) => {
     const { tools } = useAppStore.getState();
-    const brushSize = tools.brushSettings.size || 20;  // Use brushSettings.size for consistency
+    const eraserSize =
+      tools.eraserSettings.size ??
+      tools.brushSettings.size ??
+      20;
     const opacity = tools.eraserSettings.opacity || 1;
 
-    ctx.lineWidth = brushSize * 2; // Diameter to match circle-based approach
+    ctx.lineWidth = eraserSize * 2; // Diameter to match circle-based approach
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     // The "color" of the eraser determines its strength. Black with opacity.
@@ -1518,19 +1577,72 @@ export function useDrawingHandlers({
     lastDrawPosRef.current = worldPos;
     
     if (currentTool === 'eraser') {
-      // OPTIMIZATION: Copy the active layer to the drawing canvas ONCE at the start.
-      const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
-      if (activeLayer?.imageData) {
-        drawCtx.putImageData(activeLayer.imageData, 0, 0);
-      }
-      
-      // OPTIMIZATION: Prepare the context for erasing. We will now "cut out"
-      // from the image we just placed on the drawing canvas.
-      drawCtx.globalCompositeOperation = 'destination-out';
-      
-      // Draw the initial eraser point.
-      drawEraserSegment(drawCtx, worldPos, worldPos);
+      if (FF.ERASER_V2 && drawCtx) {
+        const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+        if (!activeLayer) {
+          return;
+        }
+        const isColorCycleLayer = activeLayer.layerType === 'color-cycle';
+        if (!isColorCycleLayer && activeLayer.imageData) {
+          drawCtx.putImageData(activeLayer.imageData, 0, 0);
+          drawingCanvasHasContent.current = true;
+        } else if (!isColorCycleLayer) {
+          drawingCanvasHasContent.current = true;
+        } else {
+          drawingCanvasHasContent.current = false;
+        }
 
+        const eraserOpacity = currentState.tools.eraserSettings.opacity ?? 1;
+        const tool = new EraserTool(
+          activeLayer,
+          { opacity: eraserOpacity },
+          {
+            overlayCtx: drawCtx,
+            maskManager,
+            createStampSource: createBrushStampSource,
+            brushHalfSize: getBrushHalfSize,
+            getBrushSettings: getColorCycleBrushEraserSettings
+          }
+        );
+        eraserToolRef.current = tool;
+        eraserRoiRef.current = null;
+        tool.begin(worldPos, pressure);
+        eraserRoiRef.current = tool.getROI();
+        if (!hasLoggedEraserBannerRef.current) {
+          console.info('[EraserV2] enabled');
+          hasLoggedEraserBannerRef.current = true;
+        }
+      } else {
+        // OPTIMIZATION: Copy the active layer to the drawing canvas ONCE at the start.
+        const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+        if (activeLayer?.imageData) {
+          drawCtx.putImageData(activeLayer.imageData, 0, 0);
+        }
+
+        // Prepare to erase using the active brush tip by drawing with destination-out.
+        drawCtx.globalCompositeOperation = 'destination-out';
+        const eraserOpacity = currentState.tools.eraserSettings.opacity ?? 1;
+        const canMirrorBrush = !ccFlags.isAny;
+
+        if (canMirrorBrush) {
+          drawCtx.globalAlpha = eraserOpacity;
+
+          if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
+            userBrushEngine.setActiveBrush(currentBrushId);
+            userBrushEngine.startStroke(drawCtx, worldPos.x, worldPos.y, pressure);
+          } else if (brushEngine) {
+            const customBrushData: CustomBrushStrokeData | undefined =
+              resolveActiveCustomBrushData(currentState);
+            brushEngine.drawBrush(drawCtx, worldPos, worldPos, { pressure, customBrushData });
+          } else {
+            drawCtx.globalAlpha = 1;
+            drawEraserSegment(drawCtx, worldPos, worldPos);
+          }
+        } else {
+          drawCtx.globalAlpha = 1;
+          drawEraserSegment(drawCtx, worldPos, worldPos);
+        }
+      }
     } else { // Brush tool
       drawCtx.globalAlpha = 1.0;
       drawCtx.globalCompositeOperation = 'source-over';
@@ -1834,7 +1946,45 @@ export function useDrawingHandlers({
         const [clippedStart, clippedEnd] = clippedSegment;
         
         if (currentTool === 'eraser') {
-          drawEraserSegment(drawCtx, clippedStart, clippedEnd);
+          if (FF.ERASER_V2) {
+            const eraserTool = eraserToolRef.current;
+            if (eraserTool) {
+              eraserTool.move(clippedEnd, pressure, clippedStart);
+              const roi = eraserTool.getROI();
+              eraserRoiRef.current = roi;
+              if (roi) {
+                const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
+                if (activeLayer?.layerType === 'color-cycle') {
+                  scheduleRecompose(roi);
+                }
+              }
+            }
+          } else {
+            const eraserOpacity = currentState.tools.eraserSettings.opacity ?? 1;
+            const canMirrorBrush = !ccProcessFlags.isAny;
+            drawCtx.save();
+            try {
+              drawCtx.globalCompositeOperation = 'destination-out';
+              if (canMirrorBrush) {
+                drawCtx.globalAlpha = eraserOpacity;
+                if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
+                  userBrushEngine.continueStroke(drawCtx, clippedEnd.x, clippedEnd.y, pressure);
+                } else if (brushEngine) {
+                  const customBrushData: CustomBrushStrokeData | undefined =
+                    resolveActiveCustomBrushData(currentState);
+                  brushEngine.drawBrush(drawCtx, clippedStart, clippedEnd, { pressure, customBrushData });
+                } else {
+                  drawCtx.globalAlpha = 1;
+                  drawEraserSegment(drawCtx, clippedStart, clippedEnd);
+                }
+              } else {
+                drawCtx.globalAlpha = 1;
+                drawEraserSegment(drawCtx, clippedStart, clippedEnd);
+              }
+            } finally {
+              drawCtx.restore();
+            }
+          }
         } else {
           if (currentBrushId && userBrushEngine.isUserBrush(currentBrushId)) {
             userBrushEngine.continueStroke(drawCtx, clippedEnd.x, clippedEnd.y, pressure);
@@ -2209,8 +2359,19 @@ export function useDrawingHandlers({
     const isCCBrushSnapshot = getColorCycleBrushFlags(snapshot.tools.brushSettings).isAny;
     const overlayHasContent = drawingCanvasHasContent.current;
     const overlayOptional = isCCLayerSnapshot && isCCBrushSnapshot;
-    if (busy || !hasCanvas || (!overlayHasContent && !overlayOptional) || !project) {
+    const allowEmptyOverlay = FF.ERASER_V2 && snapshot.tools.currentTool === 'eraser';
+    if (busy || !hasCanvas || (!overlayHasContent && !overlayOptional && !allowEmptyOverlay) || !project) {
       return;
+    }
+
+    if (FF.ERASER_V2 && snapshot.tools.currentTool === 'eraser' && eraserToolRef.current) {
+      const activeTool = eraserToolRef.current;
+      try {
+        activeTool.end();
+      } finally {
+        eraserRoiRef.current = activeTool.getROI();
+        eraserToolRef.current = null;
+      }
     }
 
     try {
@@ -2303,24 +2464,71 @@ export function useDrawingHandlers({
           if (currentTool === 'eraser') {
             const historyAction = historyActionOverride ?? 'eraser';
             const historyDescription = historyDescriptionOverride ?? 'Eraser Stroke';
+            const roiForEraser = FF.ERASER_V2 ? eraserRoiRef.current : null;
+            const isColorCycleLayer = activeLayer.layerType === 'color-cycle';
+            const layerCanvas = activeLayer.colorCycleData?.canvas ?? null;
 
-            if (skipSave) {
-              if (drawingCanvas) {
-                await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
+            if (FF.ERASER_V2) {
+              if (isColorCycleLayer && layerCanvas) {
+                await withTiming('cc:capture', () =>
+                  captureCanvasToActiveLayer(layerCanvas, roiForEraser ?? undefined)
+                );
+                if (!skipSave) {
+                  await withTiming('cc:commit', () =>
+                    commitLayerHistory({
+                      layerId: activeLayerIdString,
+                      beforeImage: layerBeforeImage,
+                      beforeColorState: layerBeforeColorState,
+                      actionType: historyAction,
+                      description: historyDescription,
+                      tool: 'eraser',
+                      coalesce: coalescePayload,
+                      bitmapRoi: roiForEraser ?? undefined,
+                      skipBitmapDelta: true,
+                    })
+                  );
+                }
+              } else if (drawingCanvas) {
+                if (skipSave) {
+                  await withTiming('cc:capture', () =>
+                    captureCanvasToActiveLayer(drawingCanvas, roiForEraser ?? undefined)
+                  );
+                } else {
+                  await withTiming('cc:capture', () =>
+                    captureCanvasToActiveLayer(drawingCanvas, roiForEraser ?? undefined)
+                  );
+                  await withTiming('cc:commit', () =>
+                    commitLayerHistory({
+                      layerId: activeLayerIdString,
+                      beforeImage: layerBeforeImage,
+                      beforeColorState: layerBeforeColorState,
+                      actionType: historyAction,
+                      description: historyDescription,
+                      tool: 'eraser',
+                      coalesce: coalescePayload,
+                      bitmapRoi: roiForEraser ?? undefined,
+                    })
+                  );
+                }
               }
+              eraserRoiRef.current = null;
             } else if (drawingCanvas) {
-              await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
-              await withTiming('cc:commit', () =>
-                commitLayerHistory({
-                  layerId: activeLayerIdString,
-                  beforeImage: layerBeforeImage,
-                  beforeColorState: layerBeforeColorState,
-                  actionType: historyAction,
-                  description: historyDescription,
-                  tool: 'eraser',
-                  coalesce: coalescePayload,
-                })
-              );
+              if (skipSave) {
+                await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
+              } else {
+                await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
+                await withTiming('cc:commit', () =>
+                  commitLayerHistory({
+                    layerId: activeLayerIdString,
+                    beforeImage: layerBeforeImage,
+                    beforeColorState: layerBeforeColorState,
+                    actionType: historyAction,
+                    description: historyDescription,
+                    tool: 'eraser',
+                    coalesce: coalescePayload,
+                  })
+                );
+              }
             }
             
           } else { // Brush tool
@@ -2727,6 +2935,11 @@ export function useDrawingHandlers({
     }
     drawingCanvasHasContent.current = false;
     lastDrawPosRef.current = null;
+    if (FF.ERASER_V2 && eraserToolRef.current) {
+      eraserToolRef.current.cancel();
+      eraserToolRef.current = null;
+      eraserRoiRef.current = null;
+    }
   }, []);
   
   const startShapeDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
@@ -3817,6 +4030,10 @@ export function useDrawingHandlers({
 
         // Always copy the latest brush buffer into the layer canvas so paused strokes stay visible.
         colorCycleBrush.renderDirectToCanvas(layer.colorCycleData.canvas, layer.id);
+        const maskCtx = layer.colorCycleData.canvas.getContext('2d', { willReadFrequently: true });
+        if (maskCtx) {
+          maskManager.applyMaskToCanvas(layer.id, maskCtx);
+        }
         hasRendered = true;
 
         if (
@@ -4406,7 +4623,7 @@ function resolveActiveCustomBrushData(state: CustomBrushStoreState): CustomBrush
 
 function getColorCycleBrushFlags(settings: BrushSettings) {
   const shape = settings.brushShape;
-  const isStandard = shape === BrushShape.COLOR_CYCLE;
+  const isStandard = shape === BrushShape.COLOR_CYCLE || shape === BrushShape.COLOR_CYCLE_TRIANGLE;
   const isShapeVariant = shape === BrushShape.COLOR_CYCLE_SHAPE;
   const isCustom = shape === BrushShape.CUSTOM && settings.customBrushColorCycle === true;
   return {

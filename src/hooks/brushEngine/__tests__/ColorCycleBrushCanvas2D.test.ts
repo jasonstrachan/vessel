@@ -1,5 +1,6 @@
 const setIndexSpy = jest.fn();
 const paintSquareSpy = jest.fn();
+const paintTriangleSpy = jest.fn();
 
 jest.mock('../../../lib/ColorCycleAnimator', () => {
   return {
@@ -16,6 +17,9 @@ jest.mock('../../../lib/ColorCycleAnimator', () => {
       resize() {}
       paintSquare(_x: number, _y: number, _brushSize: number, colorIndex?: number) {
         paintSquareSpy(colorIndex);
+      }
+      paintTriangle(_x: number, _y: number, _brushSize: number, colorIndex?: number) {
+        paintTriangleSpy(colorIndex);
       }
       paint() {}
       paintLine() {}
@@ -91,6 +95,7 @@ describe('ColorCycleBrushCanvas2D paintCustomStamp', () => {
   beforeEach(() => {
     setIndexSpy.mockClear();
     paintSquareSpy.mockClear();
+    paintTriangleSpy.mockClear();
   });
 
   it('records setIndex calls for custom stamps', () => {
@@ -155,5 +160,26 @@ describe('ColorCycleBrushCanvas2D paintCustomStamp', () => {
 
     const indices = paintSquareSpy.mock.calls.map(call => call[0]);
     expect(indices).toEqual([1, 128, 255]);
+  });
+
+  it('routes stamping through triangle renderer when configured', () => {
+    const baseCanvas = document.createElement('canvas');
+    baseCanvas.width = 64;
+    baseCanvas.height = 64;
+
+    const brush = new ColorCycleBrushCanvas2D(baseCanvas, { brushSize: 12, fps: 30 });
+    brush.setGradient(
+      [
+        { position: 0, color: '#ff0000' },
+        { position: 1, color: '#00ff00' }
+      ],
+      'layer-triangle'
+    );
+    brush.setStampShape('triangle');
+
+    brush.paint(16, 16, 'layer-triangle');
+
+    expect(paintTriangleSpy).toHaveBeenCalledTimes(1);
+    expect(paintSquareSpy).not.toHaveBeenCalled();
   });
 });

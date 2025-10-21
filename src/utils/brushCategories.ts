@@ -15,6 +15,7 @@ export const STROKE_BRUSHES: BrushShape[] = [
   BrushShape.CUSTOM,
   BrushShape.RESAMPLER,
   BrushShape.COLOR_CYCLE,
+  BrushShape.COLOR_CYCLE_TRIANGLE,
   BrushShape.RISOGRAPH_SOFT,
   BrushShape.RISOGRAPH_ULTRA
 ];

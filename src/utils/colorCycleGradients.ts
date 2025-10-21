@@ -78,7 +78,9 @@ export function getSharedColorCycleSettings() {
  */
 export function isColorCycleBrush(brushShape: string | undefined): boolean {
   const shapeStr = brushShape?.toString();
-  return shapeStr === 'color_cycle' || shapeStr === 'color_cycle_shape';
+  return shapeStr === 'color_cycle' ||
+         shapeStr === 'color_cycle_triangle' ||
+         shapeStr === 'color_cycle_shape';
 }
 
 /**
@@ -88,6 +90,9 @@ export function getShapeModeForBrush(brushShape: string | undefined): boolean | 
   const shapeStr = brushShape?.toString();
   if (shapeStr === 'color_cycle') {
     return false; // Force shape mode OFF for stroke variant
+  }
+  if (shapeStr === 'color_cycle_triangle') {
+    return false; // Triangle variant behaves like stroke mode
   }
   if (shapeStr === 'color_cycle_shape') {
     return true; // Force shape mode ON for shape variant

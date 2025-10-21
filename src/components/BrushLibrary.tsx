@@ -126,12 +126,25 @@ const BrushLibrary = () => {
       return matchingId ?? null;
     }
 
-    if (brushShape === BrushShape.COLOR_CYCLE || brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
+    if (
+      brushShape === BrushShape.COLOR_CYCLE ||
+      brushShape === BrushShape.COLOR_CYCLE_TRIANGLE ||
+      brushShape === BrushShape.COLOR_CYCLE_SHAPE
+    ) {
       if (
         currentBrushPreset?.id &&
         allBrushes.some((brush) => brush.id === currentBrushPreset.id)
       ) {
         return currentBrushPreset.id;
+      }
+
+      if (brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) {
+        const triangleId = allBrushes.some((brush) => brush.id === 'color-cycle-triangle')
+          ? 'color-cycle-triangle'
+          : null;
+        if (triangleId) {
+          return triangleId;
+        }
       }
 
       const fallbackId = allBrushes.some((brush) => brush.id === 'color-cycle-stroke')
@@ -387,7 +400,11 @@ const BrushLibrary = () => {
                     renderFallbackIcon(isSpamBrush ? 'text' : preset.category === 'Pixel Art' ? 'square' : 'circle', isActive)
                   )}
                   <span style={nameStyle} className={nameClass}>
-                    {preset.id === 'color-cycle-stroke' ? 'Color Cycle' : preset.name}
+                    {preset.id === 'color-cycle-stroke'
+                      ? 'Color Cycle Stroke'
+                      : preset.id === 'color-cycle-triangle'
+                        ? 'Color Cycle Triangle'
+                        : preset.name}
                   </span>
                 </div>
                 {preset.isCustomBrush && (

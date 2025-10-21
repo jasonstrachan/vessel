@@ -101,6 +101,7 @@ export function useComprehensiveKeyboard({
     tools, 
     polygonGradientState,
     setGlobalBrushSize,
+    setEraserSettings,
     deleteSelectedPixels,
     selectAllActiveLayerPixels,
     selectionStart,
@@ -305,12 +306,19 @@ export function useComprehensiveKeyboard({
         onBrushSizeDecrease();
       } else {
         // Default implementation
-        const { brushSettings } = tools;
-        const currentSize = brushSettings.size;
+        const isEraserActive = tools.currentTool === 'eraser';
+        const { brushSettings, eraserSettings } = tools;
+        const currentSize = isEraserActive
+          ? (eraserSettings?.size ?? brushSettings.size ?? 1)
+          : (brushSettings.size ?? 1);
         const adjustment = 1;
         const minSize = 1;
         const newSize = Math.max(minSize, currentSize - adjustment);
-        setGlobalBrushSize(newSize);
+        if (isEraserActive) {
+          setEraserSettings({ size: newSize });
+        } else {
+          setGlobalBrushSize(newSize);
+        }
       }
       return;
     }
@@ -321,12 +329,19 @@ export function useComprehensiveKeyboard({
         onBrushSizeIncrease();
       } else {
         // Default implementation
-        const { brushSettings } = tools;
-        const currentSize = brushSettings.size;
+        const isEraserActive = tools.currentTool === 'eraser';
+        const { brushSettings, eraserSettings } = tools;
+        const currentSize = isEraserActive
+          ? (eraserSettings?.size ?? brushSettings.size ?? 1)
+          : (brushSettings.size ?? 1);
         const adjustment = 1;
         const maxSize = 500;
         const newSize = Math.min(maxSize, currentSize + adjustment);
-        setGlobalBrushSize(newSize);
+        if (isEraserActive) {
+          setEraserSettings({ size: newSize });
+        } else {
+          setGlobalBrushSize(newSize);
+        }
       }
       return;
     }
@@ -389,7 +404,7 @@ export function useComprehensiveKeyboard({
     }
   }, [enabled, allowedScopes, onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
       onPolygonCancel, onEnterPressed, onEscapePressed,
-      tools, polygonGradientState, setCurrentTool, setGlobalBrushSize,
+      tools, polygonGradientState, setCurrentTool, setGlobalBrushSize, setEraserSettings,
       deleteSelectedPixels, selectAllActiveLayerPixels, selectionStart, selectionEnd,
       floatingPaste, setFloatingPaste]);
 

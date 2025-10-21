@@ -32,6 +32,7 @@ const rebuildLayersFromSnapshot = (
       opacity: layer.opacity,
       blendMode: layer.blendMode,
       locked: layer.locked,
+      transparencyLocked: layer.transparencyLocked === true,
       order: layer.order,
       imageData: layer.imageData,
       framebuffer: layer.framebuffer,

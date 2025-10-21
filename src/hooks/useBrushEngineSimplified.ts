@@ -41,14 +41,13 @@ const warnShapeFillRemoved = (() => {
   };
 })();
 
-const isTransparencyLockEnabled = () =>
-  typeof window !== 'undefined' && window.transparencyLockEnabled === true;
-
 const hasForceRender = (
   brush: ColorCycleBrushImplementation | null
 ): brush is ColorCycleBrushImplementation & { forceRender: () => void } => {
   return Boolean(brush && typeof (brush as { forceRender?: unknown }).forceRender === 'function');
 };
+
+const ALPHALOCK_STRATEGY: 'layer' | 'visible-if-empty' = 'visible-if-empty';
 
 export const useBrushEngineSimplified = () => {
   const { tools, project, activeLayerId } = useAppStore();
@@ -57,6 +56,271 @@ export const useBrushEngineSimplified = () => {
     const layer = state.layers.find(l => l.id === state.activeLayerId);
     return layer?.colorCycleData?.brushSpeed;
   });
+  const activeLayerTransparencyLock = useAppStore((state) => {
+    const layer = state.layers.find(l => l.id === state.activeLayerId);
+    return layer?.transparencyLocked === true;
+  });
+
+  const getActiveLayerBitmapCanvas = useCallback((): HTMLCanvasElement | OffscreenCanvas | null => {
+    const state = useAppStore.getState();
+    const layer = state.layers.find(l => l.id === state.activeLayerId);
+    if (!layer) {
+      return null;
+    }
+
+    if (layer.layerType === 'color-cycle') {
+      const ccCanvas = layer.colorCycleData?.canvas;
+      if (ccCanvas && typeof ccCanvas.getContext === 'function') {
+        return ccCanvas as HTMLCanvasElement | OffscreenCanvas;
+      }
+
+      const brush = typeof state.getLayerColorCycleBrush === 'function'
+        ? state.getLayerColorCycleBrush(layer.id)
+        : null;
+
+      const internalCanvas = brush?.getCanvas?.();
+      if (internalCanvas && typeof (internalCanvas as HTMLCanvasElement | OffscreenCanvas).getContext === 'function') {
+        return internalCanvas as HTMLCanvasElement | OffscreenCanvas;
+      }
+
+      const paintBuffer = (brush as { getPaintBuffer?: () => HTMLCanvasElement | OffscreenCanvas | null } | null)
+        ?.getPaintBuffer?.();
+      if (paintBuffer && typeof (paintBuffer as HTMLCanvasElement | OffscreenCanvas).getContext === 'function') {
+        return paintBuffer as HTMLCanvasElement | OffscreenCanvas;
+      }
+
+      return null;
+    }
+
+    const framebuffer = layer.framebuffer;
+    if (framebuffer && typeof framebuffer.getContext === 'function') {
+      return framebuffer as HTMLCanvasElement | OffscreenCanvas;
+    }
+
+    return null;
+  }, []);
+
+  const withTransparencyLock = useCallback((
+    ctx: CanvasRenderingContext2D,
+    draw: () => void
+  ) => {
+    if (!activeLayerTransparencyLock) {
+      draw();
+      return;
+    }
+
+    const previousComposite = ctx.globalCompositeOperation;
+    try {
+      ctx.globalCompositeOperation = 'source-atop';
+      draw();
+    } finally {
+      ctx.globalCompositeOperation = previousComposite;
+    }
+  }, [activeLayerTransparencyLock]);
+
+  const setBlendIfUnlocked = useCallback((ctx: CanvasRenderingContext2D) => {
+    if (!activeLayerTransparencyLock) {
+      ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
+    }
+  }, [activeLayerTransparencyLock, tools.brushSettings.blendMode]);
+
+  const setMultiplyIfUnlocked = useCallback((ctx: CanvasRenderingContext2D) => {
+    if (!activeLayerTransparencyLock) {
+      ctx.globalCompositeOperation = 'multiply';
+    }
+  }, [activeLayerTransparencyLock]);
+
+  const layerHasAnyAlpha = useCallback(() => {
+    const mask = getActiveLayerBitmapCanvas();
+    if (!mask) {
+      return true;
+    }
+
+    const width = ((mask as HTMLCanvasElement | OffscreenCanvas).width ?? 0) | 0;
+    const height = ((mask as HTMLCanvasElement | OffscreenCanvas).height ?? 0) | 0;
+    if (!width || !height) {
+      return true;
+    }
+
+    const maskCtx = typeof (mask as HTMLCanvasElement | OffscreenCanvas).getContext === 'function'
+      ? (mask as HTMLCanvasElement | OffscreenCanvas).getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings)
+      : null;
+    if (!maskCtx) {
+      return true;
+    }
+
+    const samplesX = Math.min(8, width);
+    const samplesY = Math.min(8, height);
+    for (let iy = 0; iy < samplesY; iy++) {
+      for (let ix = 0; ix < samplesX; ix++) {
+        const x = Math.min(width - 1, Math.floor(((ix + 0.5) * width) / samplesX));
+        const y = Math.min(height - 1, Math.floor(((iy + 0.5) * height) / samplesY));
+        try {
+          if (maskCtx.getImageData(x, y, 1, 1).data[3] > 0) {
+            return true;
+          }
+        } catch {
+          // Continue to next sample when a read fails.
+        }
+      }
+    }
+
+    return false;
+  }, [getActiveLayerBitmapCanvas]);
+
+  const alphaLockEmptyMaskWarnedRef = useRef(false);
+
+  const withAlphaLock = useCallback((
+    dstCtx: CanvasRenderingContext2D,
+    paint: (targetCtx: CanvasRenderingContext2D) => void
+  ) => {
+    if (!activeLayerTransparencyLock) {
+      alphaLockEmptyMaskWarnedRef.current = false;
+      paint(dstCtx);
+      return;
+    }
+
+    const hasLayerAlpha = layerHasAnyAlpha();
+    const allowVisibleFallback = ALPHALOCK_STRATEGY === 'visible-if-empty';
+    const warnOnEmpty = !allowVisibleFallback;
+    if (!hasLayerAlpha && warnOnEmpty) {
+      if (!alphaLockEmptyMaskWarnedRef.current && typeof console !== 'undefined') {
+        console.warn('[AlphaLock] Active layer shows no visible alpha; lock prevents new pixels.');
+        alphaLockEmptyMaskWarnedRef.current = true;
+      }
+    } else {
+      alphaLockEmptyMaskWarnedRef.current = false;
+    }
+
+    const width = dstCtx.canvas.width | 0;
+    const height = dstCtx.canvas.height | 0;
+    if (!width || !height) {
+      return;
+    }
+
+    const scratchCanvas = canvasPool.acquire(width, height);
+
+    try {
+      const scratchCtx = scratchCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+      if (!scratchCtx) {
+        return;
+      }
+
+      scratchCtx.clearRect(0, 0, width, height);
+
+      const layerMask = getActiveLayerBitmapCanvas();
+      let restoreGetImageData: (() => void) | null = null;
+      if (activeLayerTransparencyLock) {
+        const maskCtx = layerMask && typeof (layerMask as HTMLCanvasElement | OffscreenCanvas).getContext === 'function'
+          ? (layerMask as HTMLCanvasElement | OffscreenCanvas).getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings)
+          : null;
+        const maskCanvas = maskCtx?.canvas as HTMLCanvasElement | OffscreenCanvas | undefined;
+        const sameSize = Boolean(
+          maskCanvas &&
+          'width' in maskCanvas &&
+          'height' in maskCanvas &&
+          (maskCanvas.width | 0) === width &&
+          (maskCanvas.height | 0) === height
+        );
+
+        if (maskCtx && sameSize) {
+          const originalGetImageData = scratchCtx.getImageData.bind(scratchCtx);
+          const maskGetImageData = maskCtx.getImageData.bind(maskCtx);
+          const targetGetImageData = dstCtx.getImageData.bind(dstCtx);
+
+          scratchCtx.getImageData = ((...args: Parameters<typeof originalGetImageData>) => {
+            try {
+              return maskGetImageData(...args);
+            } catch {
+              try {
+                return targetGetImageData(...args);
+              } catch {
+                return originalGetImageData(...args);
+              }
+            }
+          }) as typeof scratchCtx.getImageData;
+
+          restoreGetImageData = () => {
+            scratchCtx.getImageData = originalGetImageData;
+          };
+        }
+      }
+
+      try {
+        paint(scratchCtx);
+      } finally {
+        restoreGetImageData?.();
+      }
+
+      let maskSource: CanvasImageSource | null = (layerMask as unknown as CanvasImageSource) ?? null;
+
+      if (!hasLayerAlpha && allowVisibleFallback) {
+        maskSource = dstCtx.canvas;
+      }
+
+      if (!maskSource) {
+        maskSource = dstCtx.canvas;
+      }
+      scratchCtx.globalCompositeOperation = 'destination-in';
+      scratchCtx.drawImage(maskSource, 0, 0, width, height);
+      scratchCtx.globalCompositeOperation = 'source-over';
+
+      dstCtx.save();
+      dstCtx.globalCompositeOperation = (tools.brushSettings.blendMode || 'source-over') as GlobalCompositeOperation;
+      dstCtx.drawImage(scratchCanvas, 0, 0);
+      dstCtx.restore();
+    } finally {
+      canvasPool.release(scratchCanvas);
+    }
+  }, [activeLayerTransparencyLock, tools.brushSettings.blendMode, getActiveLayerBitmapCanvas, layerHasAnyAlpha]);
+
+  const renderCCWithBlendAndLock = useCallback((
+    targetCtx: CanvasRenderingContext2D,
+    sourceCanvas: HTMLCanvasElement | OffscreenCanvas,
+    blendMode: GlobalCompositeOperation
+  ) => {
+    const width = targetCtx.canvas.width;
+    const height = targetCtx.canvas.height;
+    if (!width || !height) {
+      return;
+    }
+
+    const tempCanvas = canvasPool.acquire(width, height);
+    try {
+      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+      if (!tempCtx) {
+        return;
+      }
+
+      tempCtx.clearRect(0, 0, width, height);
+      tempCtx.drawImage(sourceCanvas as unknown as CanvasImageSource, 0, 0, width, height);
+
+      if (activeLayerTransparencyLock) {
+        const layerMask = getActiveLayerBitmapCanvas();
+        const hasLayerAlpha = layerHasAnyAlpha();
+        let maskCanvas: CanvasImageSource | null = (layerMask as unknown as CanvasImageSource) ?? null;
+
+        const allowVisibleFallback = ALPHALOCK_STRATEGY === 'visible-if-empty';
+        if (!hasLayerAlpha && allowVisibleFallback) {
+          maskCanvas = targetCtx.canvas;
+        }
+
+        if (!maskCanvas) {
+          maskCanvas = targetCtx.canvas;
+        }
+        tempCtx.globalCompositeOperation = 'destination-in';
+        tempCtx.drawImage(maskCanvas, 0, 0, width, height);
+        tempCtx.globalCompositeOperation = 'source-over';
+      }
+
+      targetCtx.save();
+      targetCtx.globalCompositeOperation = blendMode;
+      targetCtx.drawImage(tempCanvas, 0, 0);
+      targetCtx.restore();
+    } finally {
+      canvasPool.release(tempCanvas);
+    }
+  }, [activeLayerTransparencyLock, getActiveLayerBitmapCanvas, layerHasAnyAlpha]);
   
   // Cache for brush stamps
   const brushStampCacheRef = useRef(new Map<string, HTMLCanvasElement>());
@@ -238,11 +502,17 @@ export const useBrushEngineSimplified = () => {
     return stamp;
   }, []);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.transparencyLockEnabled = activeLayerTransparencyLock;
+    }
+  }, [activeLayerTransparencyLock]);
+
   // Create brush engine facade - only recreate when structural dependencies change
   const brushEngine = useMemo(() => {
     const config: BrushEngineConfig = {
       brushSettings: tools.brushSettings,
-      transparencyLockEnabled: isTransparencyLockEnabled(),
+      transparencyLockEnabled: activeLayerTransparencyLock,
       getPatternTempContext,
       brushStampCache: brushStampCacheRef.current,
       createPixelCircleStamp,
@@ -252,13 +522,13 @@ export const useBrushEngineSimplified = () => {
     };
     
     return createBrushEngineFacade(config);
-  }, [tools.brushSettings, project?.customBrushes, getPatternTempContext, createPixelCircleStamp, createPixelSquareStamp, getRotationTempContext]);
+  }, [tools.brushSettings, project?.customBrushes, getPatternTempContext, createPixelCircleStamp, createPixelSquareStamp, getRotationTempContext, activeLayerTransparencyLock]);
 
   // Update engine config when settings change
   useEffect(() => {
     brushEngine.updateConfig({
       brushSettings: tools.brushSettings,
-      transparencyLockEnabled: isTransparencyLockEnabled(),
+      transparencyLockEnabled: activeLayerTransparencyLock,
       getPatternTempContext,
       brushStampCache: brushStampCacheRef.current,
       getRotationTempContext
@@ -270,7 +540,7 @@ export const useBrushEngineSimplified = () => {
       const customText = tools.brushSettings.spamCustomText;
       brushEngine.initializeSpamText(contentType, customText);
     }
-  }, [brushEngine, tools.brushSettings, getPatternTempContext, getRotationTempContext]);
+  }, [brushEngine, tools.brushSettings, getPatternTempContext, getRotationTempContext, activeLayerTransparencyLock]);
 
   /**
    * Main drawing function - simplified interface
@@ -307,8 +577,10 @@ export const useBrushEngineSimplified = () => {
     };
 
     // Render the stroke
-    brushEngine.renderBrushStroke(ctx, strokeParams);
-  }, [brushEngine]);
+    withAlphaLock(ctx, (targetCtx) => {
+      brushEngine.renderBrushStroke(targetCtx, strokeParams);
+    });
+  }, [brushEngine, withAlphaLock]);
 
   /**
    * Draw a single stamp at a position
@@ -327,15 +599,19 @@ export const useBrushEngineSimplified = () => {
       timestamp: Date.now()
     };
 
-    brushEngine.renderBrushStroke(ctx, strokeParams);
-  }, [brushEngine]);
+    withAlphaLock(ctx, (targetCtx) => {
+      brushEngine.renderBrushStroke(targetCtx, strokeParams);
+    });
+  }, [brushEngine, withAlphaLock]);
 
   /**
    * Finalize the current stroke (draw any waiting pixels)
    */
   const finalizeStroke = useCallback((ctx: CanvasRenderingContext2D) => {
-    brushEngine.finalizeStroke(ctx);
-  }, [brushEngine]);
+    withAlphaLock(ctx, (targetCtx) => {
+      brushEngine.finalizeStroke(targetCtx);
+    });
+  }, [brushEngine, withAlphaLock]);
 
   /**
    * Reset for new stroke
@@ -390,15 +666,16 @@ export const useBrushEngineSimplified = () => {
       { x: endX + perpX, y: endY + perpY }
     ];
 
-    // Save context state
-    ctx.save();
+    withTransparencyLock(ctx, () => {
+      // Save context state
+      ctx.save();
     
     // Use pixel-perfect rendering for pixel brushes, antialiasing for others
     ctx.imageSmoothingEnabled = !isPixelBrush;
     
     // Apply opacity and blend mode
     ctx.globalAlpha = tools.brushSettings.opacity;
-    ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
+    setBlendIfUnlocked(ctx);
 
     // Create gradient - use actual start/end positions to respect direction
     const gradient = ctx.createLinearGradient(startX, startY, endX, endY);
@@ -566,7 +843,7 @@ export const useBrushEngineSimplified = () => {
         ctx.clip();
         
         // Apply pattern with multiply blend mode
-        ctx.globalCompositeOperation = 'multiply';
+        setMultiplyIfUnlocked(ctx);
         ctx.fillStyle = pattern;
         ctx.globalAlpha = risographIntensity / 100 * 0.35;
         
@@ -583,8 +860,9 @@ export const useBrushEngineSimplified = () => {
     }
     
     // Restore context state
-    ctx.restore();
-  }, [tools.brushSettings.color, tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.opacity, tools.brushSettings.blendMode, isPixelBrush]);
+      ctx.restore();
+    });
+  }, [withTransparencyLock, setBlendIfUnlocked, setMultiplyIfUnlocked, tools.brushSettings.color, tools.brushSettings.risographIntensity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.opacity, isPixelBrush]);
 
   // Helper function to apply risograph effect
   const applyRisographEffect = useCallback((
@@ -614,7 +892,7 @@ export const useBrushEngineSimplified = () => {
       ctx.clip();
       
       // Apply texture with multiply blend mode
-      ctx.globalCompositeOperation = 'multiply';
+      setMultiplyIfUnlocked(ctx);
       ctx.fillStyle = pattern;
       ctx.globalAlpha = risographIntensity / 100 * 0.35; // Slightly stronger effect
       
@@ -628,7 +906,7 @@ export const useBrushEngineSimplified = () => {
       // Restore state
       ctx.restore();
     }
-  }, []);
+  }, [setMultiplyIfUnlocked]);
 
   /**
    * Draw polygon with gradient - DEBUG VERSION
@@ -781,191 +1059,193 @@ export const useBrushEngineSimplified = () => {
       }
     }
     
+    withTransparencyLock(ctx, () => {
     // Save context state
     ctx.save();
     
     // Apply opacity and blend mode
     ctx.globalAlpha = tools.brushSettings.opacity;
-    ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
-    
-    // Check if we'll be applying dithering
-    const willApplyDithering = tools.brushSettings.ditherEnabled && !isPreview;
-    
-    if (willApplyDithering && boundWidth > 0 && boundHeight > 0) {
-      // Create temp canvas for dithering - add padding for antialiasing
-      const padding = 2;
-      const paddedWidth = boundWidth + padding * 2;
-      const paddedHeight = boundHeight + padding * 2;
-      const tempCanvas = canvasPool.acquire(paddedWidth, paddedHeight);
-      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+    setBlendIfUnlocked(ctx);
       
-      if (tempCtx && tempCanvas.width > 0 && tempCanvas.height > 0) {
-        // Clear the temp canvas
-        tempCtx.clearRect(0, 0, paddedWidth, paddedHeight);
+      // Check if we'll be applying dithering
+      const willApplyDithering = tools.brushSettings.ditherEnabled && !isPreview;
+      
+      if (willApplyDithering && boundWidth > 0 && boundHeight > 0) {
+        // Create temp canvas for dithering - add padding for antialiasing
+        const padding = 2;
+        const paddedWidth = boundWidth + padding * 2;
+        const paddedHeight = boundHeight + padding * 2;
+        const tempCanvas = canvasPool.acquire(paddedWidth, paddedHeight);
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
         
-        // Create gradient in local space using the same two furthest points
-        const localGradient = tempCtx.createLinearGradient(
-          point1.x - minX + padding, point1.y - minY + padding,
-          point2.x - minX + padding, point2.y - minY + padding
-        );
-        
-        // Add color stops (same as main gradient) - use ordered unique colors
-        if (validColors.length === 0) {
-          const defaultColor = tools.brushSettings.color || '#000000';
-          localGradient.addColorStop(0, defaultColor);
-          localGradient.addColorStop(1, defaultColor);
-        } else if (validColors.length === validVertices.length) {
-          // Recreate the same logic for consistency
-          const gradientVector = { x: point2.x - point1.x, y: point2.y - point1.y };
-          const gradientLength = Math.sqrt(gradientVector.x * gradientVector.x + gradientVector.y * gradientVector.y);
-          const gradientDir = { x: gradientVector.x / gradientLength, y: gradientVector.y / gradientLength };
+        if (tempCtx && tempCanvas.width > 0 && tempCanvas.height > 0) {
+          // Clear the temp canvas
+          tempCtx.clearRect(0, 0, paddedWidth, paddedHeight);
           
-          const colorPositions = validVertices.map((vertex, index) => {
-            const toVertex = { x: vertex.x - point1.x, y: vertex.y - point1.y };
-            const projectionDistance = toVertex.x * gradientDir.x + toVertex.y * gradientDir.y;
-            const position = Math.max(0, Math.min(1, projectionDistance / gradientLength));
-            return { position, color: validColors[index], index };
-          });
+          // Create gradient in local space using the same two furthest points
+          const localGradient = tempCtx.createLinearGradient(
+            point1.x - minX + padding, point1.y - minY + padding,
+            point2.x - minX + padding, point2.y - minY + padding
+          );
           
-          colorPositions.sort((a, b) => a.position - b.position);
-          
-          const uniqueColorsMap = new Map();
-          const orderedUniqueColors = [];
-          
-          for (const item of colorPositions) {
-            if (!uniqueColorsMap.has(item.color)) {
-              uniqueColorsMap.set(item.color, item.position);
-              orderedUniqueColors.push({ color: item.color, position: item.position });
+          // Add color stops (same as main gradient) - use ordered unique colors
+          if (validColors.length === 0) {
+            const defaultColor = tools.brushSettings.color || '#000000';
+            localGradient.addColorStop(0, defaultColor);
+            localGradient.addColorStop(1, defaultColor);
+          } else if (validColors.length === validVertices.length) {
+            // Recreate the same logic for consistency
+            const gradientVector = { x: point2.x - point1.x, y: point2.y - point1.y };
+            const gradientLength = Math.sqrt(gradientVector.x * gradientVector.x + gradientVector.y * gradientVector.y);
+            const gradientDir = { x: gradientVector.x / gradientLength, y: gradientVector.y / gradientLength };
+            
+            const colorPositions = validVertices.map((vertex, index) => {
+              const toVertex = { x: vertex.x - point1.x, y: vertex.y - point1.y };
+              const projectionDistance = toVertex.x * gradientDir.x + toVertex.y * gradientDir.y;
+              const position = Math.max(0, Math.min(1, projectionDistance / gradientLength));
+              return { position, color: validColors[index], index };
+            });
+            
+            colorPositions.sort((a, b) => a.position - b.position);
+            
+            const uniqueColorsMap = new Map();
+            const orderedUniqueColors = [];
+            
+            for (const item of colorPositions) {
+              if (!uniqueColorsMap.has(item.color)) {
+                uniqueColorsMap.set(item.color, item.position);
+                orderedUniqueColors.push({ color: item.color, position: item.position });
+              }
+            }
+            
+            const numColors = tools.brushSettings.gradientBands || tools.brushSettings.colors || orderedUniqueColors.length;
+            
+            if (orderedUniqueColors.length <= numColors) {
+              orderedUniqueColors.forEach((item, index) => {
+                const position = index / Math.max(1, orderedUniqueColors.length - 1);
+                localGradient.addColorStop(position, item.color);
+              });
+            } else {
+              for (let i = 0; i < numColors; i++) {
+                const sourceIndex = Math.floor((i / Math.max(1, numColors - 1)) * (orderedUniqueColors.length - 1));
+                const position = i / Math.max(1, numColors - 1);
+                localGradient.addColorStop(position, orderedUniqueColors[sourceIndex].color);
+              }
+            }
+          } else {
+            // Fallback: use first and last colors
+            if (validColors.length === 1) {
+              localGradient.addColorStop(0, validColors[0]);
+              localGradient.addColorStop(1, validColors[0]);
+            } else {
+              localGradient.addColorStop(0, validColors[0]);
+              localGradient.addColorStop(1, validColors[validColors.length - 1]);
             }
           }
           
-          const numColors = tools.brushSettings.gradientBands || tools.brushSettings.colors || orderedUniqueColors.length;
+          // Fill the ENTIRE temp canvas with gradient (no clipping)
+          tempCtx.fillStyle = localGradient;
+          tempCtx.fillRect(0, 0, paddedWidth, paddedHeight);
           
-          if (orderedUniqueColors.length <= numColors) {
-            orderedUniqueColors.forEach((item, index) => {
-              const position = index / Math.max(1, orderedUniqueColors.length - 1);
-              localGradient.addColorStop(position, item.color);
-            });
-          } else {
-            for (let i = 0; i < numColors; i++) {
-              const sourceIndex = Math.floor((i / Math.max(1, numColors - 1)) * (orderedUniqueColors.length - 1));
-              const position = i / Math.max(1, numColors - 1);
-              localGradient.addColorStop(position, orderedUniqueColors[sourceIndex].color);
+          // Get the full gradient data
+          const gradientImageData = tempCtx.getImageData(0, 0, paddedWidth, paddedHeight);
+          
+          // Apply dithering
+          const numColors = tools.brushSettings.gradientBands || tools.brushSettings.colors || 2;
+          const fillResolution = tools.brushSettings.fillResolution || 1;
+          const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
+          const patternStyle = tools.brushSettings.patternStyle || 'dots';
+          
+          // Pass the gradient colors directly to the dithering function
+          const ditheredData = fillResolution > 1 
+            ? applyDitheringWithFillResolution(gradientImageData, numColors, fillResolution, algorithm, patternStyle, validColors)
+            : applyDitheringImport(gradientImageData, numColors, algorithm, patternStyle, validColors);
+          
+          // Put the dithered result back
+          tempCtx.putImageData(ditheredData, 0, 0);
+
+          // Mask gradient to polygon locally so edges stay pixel sharp when drawn later
+          const localVertices = validVertices.map(vertex => ({
+            x: Math.round(vertex.x - minX + padding),
+            y: Math.round(vertex.y - minY + padding),
+          }));
+
+          if (localVertices.length >= 3) {
+            tempCtx.save();
+            tempCtx.imageSmoothingEnabled = false;
+            tempCtx.globalCompositeOperation = 'destination-in';
+            tempCtx.lineJoin = 'miter';
+            tempCtx.lineCap = 'butt';
+            tempCtx.fillStyle = '#fff';
+            tempCtx.beginPath();
+            tempCtx.moveTo(localVertices[0].x, localVertices[0].y);
+            for (let i = 1; i < localVertices.length; i++) {
+              tempCtx.lineTo(localVertices[i].x, localVertices[i].y);
             }
+            tempCtx.closePath();
+            tempCtx.fill();
+            tempCtx.restore();
+
+            // Force binary alpha after masking so diagonal edges stay pixel-crisp
+            const maskData = tempCtx.getImageData(0, 0, paddedWidth, paddedHeight);
+            const pixels = maskData.data;
+            for (let i = 3; i < pixels.length; i += 4) {
+              pixels[i] = pixels[i] > 0 ? 255 : 0;
+            }
+            tempCtx.putImageData(maskData, 0, 0);
+          }
+
+          // Draw the already-masked dithered pattern without additional smoothing
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(tempCanvas, minX - padding, minY - padding);
+
+          // Release temp canvas
+          canvasPool.release(tempCanvas);
+
+          // Apply risograph effect if enabled
+          const risographIntensity = tools.brushSettings.risographIntensity || 0;
+          if (risographIntensity > 0 && !isPreview) {
+            applyRisographEffect(ctx, validVertices, risographIntensity);
           }
         } else {
-          // Fallback: use first and last colors
-          if (validColors.length === 1) {
-            localGradient.addColorStop(0, validColors[0]);
-            localGradient.addColorStop(1, validColors[0]);
-          } else {
-            localGradient.addColorStop(0, validColors[0]);
-            localGradient.addColorStop(1, validColors[validColors.length - 1]);
-          }
-        }
-        
-        // Fill the ENTIRE temp canvas with gradient (no clipping)
-        tempCtx.fillStyle = localGradient;
-        tempCtx.fillRect(0, 0, paddedWidth, paddedHeight);
-        
-        // Get the full gradient data
-        const gradientImageData = tempCtx.getImageData(0, 0, paddedWidth, paddedHeight);
-        
-        // Apply dithering
-        const numColors = tools.brushSettings.gradientBands || tools.brushSettings.colors || 2;
-        const fillResolution = tools.brushSettings.fillResolution || 1;
-        const algorithm = tools.brushSettings.ditherAlgorithm || 'sierra-lite';
-        const patternStyle = tools.brushSettings.patternStyle || 'dots';
-        
-        // Pass the gradient colors directly to the dithering function
-        const ditheredData = fillResolution > 1 
-          ? applyDitheringWithFillResolution(gradientImageData, numColors, fillResolution, algorithm, patternStyle, validColors)
-          : applyDitheringImport(gradientImageData, numColors, algorithm, patternStyle, validColors);
-        
-        // Put the dithered result back
-        tempCtx.putImageData(ditheredData, 0, 0);
-
-        // Mask gradient to polygon locally so edges stay pixel sharp when drawn later
-        const localVertices = validVertices.map(vertex => ({
-          x: Math.round(vertex.x - minX + padding),
-          y: Math.round(vertex.y - minY + padding),
-        }));
-
-        if (localVertices.length >= 3) {
-          tempCtx.save();
-          tempCtx.imageSmoothingEnabled = false;
-          tempCtx.globalCompositeOperation = 'destination-in';
-          tempCtx.lineJoin = 'miter';
-          tempCtx.lineCap = 'butt';
-          tempCtx.fillStyle = '#fff';
-          tempCtx.beginPath();
-          tempCtx.moveTo(localVertices[0].x, localVertices[0].y);
-          for (let i = 1; i < localVertices.length; i++) {
-            tempCtx.lineTo(localVertices[i].x, localVertices[i].y);
-          }
-          tempCtx.closePath();
-          tempCtx.fill();
-          tempCtx.restore();
-
-          // Force binary alpha after masking so diagonal edges stay pixel-crisp
-          const maskData = tempCtx.getImageData(0, 0, paddedWidth, paddedHeight);
-          const pixels = maskData.data;
-          for (let i = 3; i < pixels.length; i += 4) {
-            pixels[i] = pixels[i] > 0 ? 255 : 0;
-          }
-          tempCtx.putImageData(maskData, 0, 0);
-        }
-
-        // Draw the already-masked dithered pattern without additional smoothing
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(tempCanvas, minX - padding, minY - padding);
-
-        // Release temp canvas
-        canvasPool.release(tempCanvas);
-
-        // Apply risograph effect if enabled
-        const risographIntensity = tools.brushSettings.risographIntensity || 0;
-        if (risographIntensity > 0 && !isPreview) {
-          applyRisographEffect(ctx, validVertices, risographIntensity);
+          // Fallback if temp canvas creation fails
+          canvasPool.release(tempCanvas);
+          
+          // Draw directly without dithering
+          ctx.imageSmoothingEnabled = true;
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.moveTo(validVertices[0].x, validVertices[0].y);
+          validVertices.slice(1).forEach(vertex => ctx.lineTo(vertex.x, vertex.y));
+          ctx.closePath();
+          ctx.fill();
         }
       } else {
-        // Fallback if temp canvas creation fails
-        canvasPool.release(tempCanvas);
-        
-        // Draw directly without dithering
+        // No dithering - draw directly with antialiasing
         ctx.imageSmoothingEnabled = true;
         ctx.fillStyle = gradient;
+        
+        // quiet
+        
         ctx.beginPath();
         ctx.moveTo(validVertices[0].x, validVertices[0].y);
         validVertices.slice(1).forEach(vertex => ctx.lineTo(vertex.x, vertex.y));
         ctx.closePath();
         ctx.fill();
+        
+        // quiet
+        
+        // Apply risograph effect if enabled
+        const risographIntensity = tools.brushSettings.risographIntensity || 0;
+        if (risographIntensity > 0 && !isPreview) {
+          applyRisographEffect(ctx, validVertices, risographIntensity);
+        }
       }
-    } else {
-      // No dithering - draw directly with antialiasing
-      ctx.imageSmoothingEnabled = true;
-      ctx.fillStyle = gradient;
       
-      // quiet
-      
-      ctx.beginPath();
-      ctx.moveTo(validVertices[0].x, validVertices[0].y);
-      validVertices.slice(1).forEach(vertex => ctx.lineTo(vertex.x, vertex.y));
-      ctx.closePath();
-      ctx.fill();
-      
-      // quiet
-      
-      // Apply risograph effect if enabled
-      const risographIntensity = tools.brushSettings.risographIntensity || 0;
-      if (risographIntensity > 0 && !isPreview) {
-        applyRisographEffect(ctx, validVertices, risographIntensity);
-      }
-    }
-    
-    // Restore context state
-    ctx.restore();
-  }, [tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.blendMode, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect]);
+      // Restore context state
+      ctx.restore();
+    });
+  }, [withTransparencyLock, setBlendIfUnlocked, tools.brushSettings.risographIntensity, tools.brushSettings.opacity, tools.brushSettings.ditherEnabled, tools.brushSettings.colors, tools.brushSettings.gradientBands, tools.brushSettings.fillResolution, tools.brushSettings.ditherAlgorithm, tools.brushSettings.patternStyle, tools.brushSettings.color, applyRisographEffect]);
 
 
   /**
@@ -1092,7 +1372,10 @@ export const useBrushEngineSimplified = () => {
       // quiet
       try {
         // Force enable pressure for COLOR_CYCLE - the UI toggle isn't working correctly
-        const shouldEnablePressure = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ? true : (tools.brushSettings.pressureEnabled || false);
+        const isStrokeVariant =
+          tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
+          tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE;
+        const shouldEnablePressure = isStrokeVariant ? true : (tools.brushSettings.pressureEnabled || false);
         colorCycleBrush.setPressureEnabled(shouldEnablePressure);
         // quiet
         // Always set pressure values, using sensible defaults if not specified
@@ -1100,6 +1383,15 @@ export const useBrushEngineSimplified = () => {
         colorCycleBrush.setMaxPressure(tools.brushSettings.maxPressure || 200);
       } catch (error) {
         console.error('[CC Init] Failed to set pressure settings:', error);
+      }
+
+      try {
+        const stampShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
+          ? 'triangle'
+          : 'square';
+        colorCycleBrush.setStampShape(stampShape);
+      } catch (error) {
+        console.error('[CC Init] Failed to set stamp shape:', error);
       }
       
       // Apply gradient - prioritize layer's stored gradient over brush settings
@@ -1174,6 +1466,43 @@ export const useBrushEngineSimplified = () => {
   }, [getActiveLayerColorCycleBrush, initializeColorCycleBrush]);
   
   /**
+   * Render Color Cycle output onto the provided context.
+   * Applies opacity and optionally combines blend mode with transparency lock.
+   */
+  const renderColorCycle = useCallback((ctx: CanvasRenderingContext2D, applyOpacity: boolean = true) => {
+    const colorCycleBrush = getActiveLayerColorCycleBrush();
+    if (!colorCycleBrush) return;
+
+    const previousComposite = ctx.globalCompositeOperation;
+    const previousAlpha = ctx.globalAlpha;
+
+    try {
+      colorCycleBrush.render(!applyOpacity);
+      const internalCanvas = colorCycleBrush.getCanvas();
+      if (!internalCanvas) return;
+
+      const blendMode = (tools.brushSettings.blendMode || 'source-over') as GlobalCompositeOperation;
+      ctx.globalAlpha = applyOpacity ? tools.brushSettings.opacity : 1.0;
+
+      if (activeLayerTransparencyLock) {
+        renderCCWithBlendAndLock(ctx, internalCanvas, blendMode);
+      } else {
+        ctx.globalCompositeOperation = blendMode;
+        ctx.drawImage(internalCanvas, 0, 0, ctx.canvas.width, ctx.canvas.height);
+      }
+    } finally {
+      ctx.globalCompositeOperation = previousComposite;
+      ctx.globalAlpha = previousAlpha;
+    }
+  }, [
+    getActiveLayerColorCycleBrush,
+    tools.brushSettings.opacity,
+    tools.brushSettings.blendMode,
+    activeLayerTransparencyLock,
+    renderCCWithBlendAndLock
+  ]);
+  
+  /**
    * Draw with Color Cycle Brush - only paints to Canvas2D buffer, no immediate rendering
    */
   const drawColorCycle = useCallback((
@@ -1186,9 +1515,10 @@ export const useBrushEngineSimplified = () => {
   ) => {
     // Compute effective pressure settings (store may not reflect forced CC values)
     const storePressureEnabled = tools.brushSettings.pressureEnabled;
-    const effectivePressureEnabled = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE
-      ? true
-      : !!storePressureEnabled;
+    const isStrokeVariant =
+      tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE ||
+      tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE;
+    const effectivePressureEnabled = isStrokeVariant ? true : !!storePressureEnabled;
     const effectiveMin = tools.brushSettings.minPressure ?? 50;
     const effectiveMax = tools.brushSettings.maxPressure ?? 200;
     
@@ -1225,6 +1555,15 @@ export const useBrushEngineSimplified = () => {
       } catch (error) {
         console.error('[CC DrawCycle] Error setting pressure:', error);
       }
+
+      try {
+        const stampShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
+          ? 'triangle'
+          : 'square';
+        colorCycleBrush.setStampShape(stampShape);
+      } catch (error) {
+        console.error('[CC DrawCycle] Error setting stamp shape:', error);
+      }
       
       let brushSizeSetting = tools.brushSettings.size || 1;
       if (options?.customStamp) {
@@ -1247,6 +1586,35 @@ export const useBrushEngineSimplified = () => {
       const layerId = activeLayerId;
       if (!layerId) {
         return;
+      }
+
+      if (activeLayerTransparencyLock) {
+        const mask = getActiveLayerBitmapCanvas();
+        if (mask) {
+          const canvasWidth = ctx.canvas.width || 1;
+          const canvasHeight = ctx.canvas.height || 1;
+          const scaleToMaskX = mask.width / canvasWidth;
+          const scaleToMaskY = mask.height / canvasHeight;
+          const mx = Math.floor(x * scaleToMaskX);
+          const my = Math.floor(y * scaleToMaskY);
+          const brushSize = tools.brushSettings.size || 1;
+          let radius = Math.max(
+            1,
+            Math.round(brushSize * Math.max(scaleToMaskX, scaleToMaskY) * 0.5)
+          );
+
+          if (options?.customStamp) {
+            const { width = 0, height = 0 } = options.customStamp;
+            const maxDimension = Math.max(width, height);
+            if (maxDimension > 0) {
+              const stampRadius = Math.round(
+                maxDimension * Math.max(scaleToMaskX, scaleToMaskY) * 0.5
+              );
+              radius = Math.max(radius, stampRadius);
+            }
+          }
+
+        }
       }
 
       // Convert canvas coordinates to internal canvas coordinates
@@ -1287,7 +1655,7 @@ export const useBrushEngineSimplified = () => {
           typeof colorCycleBrush.isPlaying === 'function' ? colorCycleBrush.isPlaying() : false;
         const targetCanvas = ctx.canvas as HTMLCanvasElement | undefined;
         if (!isPlaying && targetCanvas) {
-          colorCycleBrush.renderDirectToCanvas?.(targetCanvas, layerId);
+          renderColorCycle(ctx, true);
         }
       } catch {}
     } catch (error) {
@@ -1303,51 +1671,11 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.maxPressure,
     tools.brushSettings.brushShape,
     activeLayerId,
-    getActiveLayerColorCycleBrush
+    getActiveLayerColorCycleBrush,
+    getActiveLayerBitmapCanvas,
+    renderColorCycle,
+    activeLayerTransparencyLock
   ]);
-  
-  /**
-   * Render Color Cycle - UNIFIED rendering approach
-   * Prioritizes direct rendering to layer canvas, falls back to context compositing
-   */
-  const renderColorCycle = useCallback((ctx: CanvasRenderingContext2D, applyOpacity: boolean = true, targetCanvas?: HTMLCanvasElement) => {
-    const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (!colorCycleBrush) return;
-    
-    // UNIFIED PATH: Always prefer direct rendering when possible
-    if (targetCanvas && activeLayerId) {
-      // Direct render to layer canvas - this is the preferred path
-      colorCycleBrush.renderDirectToCanvas(targetCanvas, activeLayerId);
-      return;
-    }
-    
-    // FALLBACK: Context compositing only when no target canvas
-    const prevComposite = ctx.globalCompositeOperation;
-    const prevAlpha = ctx.globalAlpha;
-    
-    try {
-      // Set blend mode
-      ctx.globalCompositeOperation = tools.brushSettings.blendMode || 'source-over';
-      
-      // Ensure we have the latest frame (single update call)
-      colorCycleBrush.render(!applyOpacity); // Full opacity when finalizing
-      
-      // Get the internal canvas
-      const internalCanvas = colorCycleBrush.getCanvas();
-      if (!internalCanvas) return;
-      
-      // Apply appropriate opacity
-      ctx.globalAlpha = applyOpacity ? tools.brushSettings.opacity : 1.0;
-      
-      // Composite the internal canvas
-      ctx.drawImage(internalCanvas, 0, 0, ctx.canvas.width, ctx.canvas.height);
-      
-    } finally {
-      // Always restore state
-      ctx.globalCompositeOperation = prevComposite;
-      ctx.globalAlpha = prevAlpha;
-    }
-  }, [tools.brushSettings.blendMode, tools.brushSettings.opacity, activeLayerId, getActiveLayerColorCycleBrush]);
   
   /**
    * Reset Color Cycle - starts a new stroke with the existing brush

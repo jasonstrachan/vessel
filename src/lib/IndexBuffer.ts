@@ -174,6 +174,47 @@ export class IndexBuffer {
     
     this.isDirty = true;
   }
+
+  /**
+   * Paint pixels with a triangle brush (isoceles, flat base)
+   */
+  paintTriangle(x: number, y: number, brushSize: number, color: string) {
+    const colorIndex = this.getColorIndex(color);
+    const halfSize = brushSize / 2;
+
+    const topX = x;
+    const topY = y - halfSize;
+    const leftX = x - halfSize;
+    const leftY = y + halfSize;
+    const rightX = x + halfSize;
+    const rightY = y + halfSize;
+
+    const minX = Math.max(0, Math.floor(Math.min(leftX, rightX, topX)));
+    const maxX = Math.min(this.width - 1, Math.floor(Math.max(leftX, rightX, topX)));
+    const minY = Math.max(0, Math.floor(Math.min(topY, leftY, rightY)));
+    const maxY = Math.min(this.height - 1, Math.floor(Math.max(topY, leftY, rightY)));
+
+    const sign = (px: number, py: number, ax: number, ay: number, bx: number, by: number) =>
+      (px - bx) * (ay - by) - (ax - bx) * (py - by);
+
+    for (let py = minY; py <= maxY; py++) {
+      for (let px = minX; px <= maxX; px++) {
+        const sampleX = px + 0.5;
+        const sampleY = py + 0.5;
+
+        const b1 = sign(sampleX, sampleY, topX, topY, leftX, leftY) <= 0;
+        const b2 = sign(sampleX, sampleY, leftX, leftY, rightX, rightY) <= 0;
+        const b3 = sign(sampleX, sampleY, rightX, rightY, topX, topY) <= 0;
+
+        if ((b1 === b2) && (b2 === b3)) {
+          const index = py * this.width + px;
+          this.data[index] = colorIndex;
+        }
+      }
+    }
+
+    this.isDirty = true;
+  }
   
   /**
    * Draw a line between two points

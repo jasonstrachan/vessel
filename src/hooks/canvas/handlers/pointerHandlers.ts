@@ -931,6 +931,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
     const brushShape = tools.brushSettings.brushShape;
     const isCCBrush = brushShape === BrushShape.COLOR_CYCLE ||
+      brushShape === BrushShape.COLOR_CYCLE_TRIANGLE ||
       brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
       (brushShape === BrushShape.CUSTOM && tools.brushSettings.customBrushColorCycle === true);
 
