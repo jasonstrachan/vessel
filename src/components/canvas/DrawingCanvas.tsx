@@ -284,66 +284,104 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
   }, [layers]);
   
   // Small cache to avoid redundant getImageData calls when pointer stays in same pixel
-  const lastSampleRef = useRef<{ x: number; y: number; color: string }>({ x: -1, y: -1, color: 'rgb(0, 0, 0)' });
-  // Helper function to sample color at position (cached per pixel)
-  const sampleColorAtPosition = useCallback((x: number, y: number): string => {
-    const comp = compositeCanvasRef.current;
-    if (!comp) return 'rgb(0, 0, 0)';
+  const lastSampleRef = useRef<{ x: number; y: number; color: string }>({ x: -1, y: -1, color: '#000000' });
 
-    const ctx = comp.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return 'rgb(0, 0, 0)';
+  type CompositeSampleOptions = {
+    radius?: number;
+    preferSolid?: boolean;
+  };
 
-    const clampedX = Math.max(0, Math.min(comp.width - 1, Math.floor(x)));
-    const clampedY = Math.max(0, Math.min(comp.height - 1, Math.floor(y)));
+  const sampleCompositeOpaque = useCallback(
+    (x: number, y: number, options: CompositeSampleOptions = {}): string => {
+      const { radius = 1, preferSolid = true } = options;
+      const comp = compositeCanvasRef.current;
+      if (!comp) return '#ffffff';
 
-    // Return cached color if sampling the same pixel as last time
-    const last = lastSampleRef.current;
-    if (last.x === clampedX && last.y === clampedY) {
-      return last.color;
-    }
+      const ctx = comp.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return '#ffffff';
 
-    const offsets = [
-      { dx: 0, dy: 0 },
-      { dx: 1, dy: 0 },
-      { dx: -1, dy: 0 },
-      { dx: 0, dy: 1 },
-      { dx: 0, dy: -1 },
-      { dx: 1, dy: 1 },
-    ];
+      const cw = comp.width;
+      const ch = comp.height;
+      const cx = Math.max(0, Math.min(cw - 1, Math.floor(x)));
+      const cy = Math.max(0, Math.min(ch - 1, Math.floor(y)));
 
-    let rSum = 0;
-    let gSum = 0;
-    let bSum = 0;
-    let weightSum = 0;
+      let solidAlpha = -1;
+      let solidR = 255;
+      let solidG = 255;
+      let solidB = 255;
 
-    offsets.forEach(offset => {
-      const sx = Math.max(0, Math.min(comp.width - 1, clampedX + offset.dx));
-      const sy = Math.max(0, Math.min(comp.height - 1, clampedY + offset.dy));
-      const data = ctx.getImageData(sx, sy, 1, 1).data;
-      const alpha = data[3] / 255;
-      if (alpha <= 0) {
-        return;
+      let accR = 0;
+      let accG = 0;
+      let accB = 0;
+      let samples = 0;
+
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        for (let dx = -radius; dx <= radius; dx += 1) {
+          const sx = cx + dx;
+          const sy = cy + dy;
+          if (sx < 0 || sy < 0 || sx >= cw || sy >= ch) {
+            continue;
+          }
+
+          const data = ctx.getImageData(sx, sy, 1, 1).data;
+          const alpha = data[3] / 255;
+          const r = data[0];
+          const g = data[1];
+          const b = data[2];
+
+          if (preferSolid && alpha > solidAlpha) {
+            solidAlpha = alpha;
+            solidR = r;
+            solidG = g;
+            solidB = b;
+          }
+
+          accR += r;
+          accG += g;
+          accB += b;
+          samples += 1;
+        }
       }
-      rSum += data[0] * alpha;
-      gSum += data[1] * alpha;
-      bSum += data[2] * alpha;
-      weightSum += alpha;
-    });
 
-    let color: string;
-    if (weightSum === 0) {
-      color = 'rgb(255, 255, 255)';
-    } else {
-      const r = Math.round(rSum / weightSum);
-      const g = Math.round(gSum / weightSum);
-      const b = Math.round(bSum / weightSum);
-      color = `rgb(${r}, ${g}, ${b})`;
-    }
+      const toHex = (value: number) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0');
 
-    // Update cache
-    lastSampleRef.current = { x: clampedX, y: clampedY, color };
-    return color;
-  }, []);
+      if (preferSolid && solidAlpha >= 0) {
+        return `#${toHex(solidR)}${toHex(solidG)}${toHex(solidB)}`;
+      }
+
+      if (samples > 0) {
+        const avgR = accR / samples;
+        const avgG = accG / samples;
+        const avgB = accB / samples;
+        return `#${toHex(avgR)}${toHex(avgG)}${toHex(avgB)}`;
+      }
+
+      return '#ffffff';
+    },
+    []
+  );
+
+  // Helper function to sample color at position (cached per pixel)
+  const sampleColorAtPosition = useCallback(
+    (x: number, y: number): string => {
+      const comp = compositeCanvasRef.current;
+      if (!comp) return '#000000';
+
+      const clampedX = Math.max(0, Math.min(comp.width - 1, Math.floor(x)));
+      const clampedY = Math.max(0, Math.min(comp.height - 1, Math.floor(y)));
+
+      // Return cached color if sampling the same pixel as last time
+      const last = lastSampleRef.current;
+      if (last.x === clampedX && last.y === clampedY) {
+        return last.color;
+      }
+
+      const color = sampleCompositeOpaque(clampedX, clampedY, { radius: 1, preferSolid: true });
+      lastSampleRef.current = { x: clampedX, y: clampedY, color };
+      return color;
+    },
+    [sampleCompositeOpaque]
+  );
   
   // Helper function to sample colors along line
   const sampleColorsAlongLine = useCallback((startX: number, startY: number, endX: number, endY: number, numSamples: number): string[] => {
