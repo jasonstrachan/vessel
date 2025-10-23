@@ -420,7 +420,48 @@ export const useBrushEngineSimplified = () => {
     const hasLayerAlpha = layerHasAnyAlpha();
     const maskWidth = (mask as { width?: number })?.width ?? 0;
     const maskHeight = (mask as { height?: number })?.height ?? 0;
-    if (!mask || !maskWidth || !maskHeight || !hasLayerAlpha) {
+    const stateSnapshot = useAppStore.getState();
+    const currentLayerId = stateSnapshot.activeLayerId ?? null;
+    const activeLayer = currentLayerId
+      ? stateSnapshot.layers.find((candidate) => candidate.id === currentLayerId)
+      : undefined;
+    const isColorCycleLayer =
+      Boolean(activeLayer?.layerType === 'color-cycle' || activeLayer?.colorCycleData);
+    const shouldBlock = !mask || !maskWidth || !maskHeight || !hasLayerAlpha;
+
+    if (typeof window !== 'undefined') {
+      const probeWindow = window as typeof window & {
+        __AL_probe?: { hits: number; blocks: number; bypasses: number };
+      };
+      probeWindow.__AL_probe ??= { hits: 0, blocks: 0, bypasses: 0 };
+      probeWindow.__AL_probe.hits += 1;
+      if (lockOn && shouldBlock) {
+        const payload = {
+          activeLayerId: currentLayerId,
+          isColorCycleLayer,
+          hasVisibleAlpha: hasLayerAlpha
+        };
+        if (isColorCycleLayer) {
+          probeWindow.__AL_probe.bypasses += 1;
+          if (typeof console !== 'undefined') {
+            console.warn('[AL:bypass-cc]', payload);
+          }
+        } else {
+          probeWindow.__AL_probe.blocks += 1;
+          if (typeof console !== 'undefined') {
+            console.warn('[AL:block]', payload);
+          }
+        }
+      }
+    }
+
+    if (shouldBlock && isColorCycleLayer) {
+      alphaLockEmptyMaskWarnedRef.current = false;
+      paint(dstCtx);
+      return;
+    }
+
+    if (shouldBlock && !isColorCycleLayer) {
       if (!alphaLockEmptyMaskWarnedRef.current && typeof console !== 'undefined') {
         console.warn('[AlphaLock] Active layer shows no visible alpha; lock prevents new pixels.');
         alphaLockEmptyMaskWarnedRef.current = true;

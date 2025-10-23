@@ -7,9 +7,10 @@ import type {
   CustomBrush,
   BrushSettings,
   LayerAlignmentSettings,
-  ExportContainerLayout
+  ExportContainerLayout,
+  PaletteState
 } from '../types';
-import { cloneExportLayout, cloneLayerAlignment } from './layoutDefaults';
+import { cloneExportLayout, cloneLayerAlignment, normalizePalette } from './layoutDefaults';
 
 // Vessel project file format version
 const PROJECT_VERSION = '1.0.0';
@@ -34,6 +35,7 @@ export interface VesselProject {
     brushSpecificSettings?: Record<string, unknown>;
     globalBrushSize?: number;
     exportLayout?: ExportContainerLayout;
+    palette?: PaletteState;
   };
 }
 
@@ -711,7 +713,8 @@ export async function serializeProject(project: Project, layers?: Layer[]): Prom
       thumbnail: thumbnail || undefined,
       brushSpecificSettings: project.brushSpecificSettings,
       globalBrushSize: project.globalBrushSize,
-      exportLayout: cloneExportLayout(project.exportLayout)
+      exportLayout: cloneExportLayout(project.exportLayout),
+      palette: normalizePalette(project.palette)
     }
   };
   
@@ -761,7 +764,8 @@ export async function deserializeProject(projectData: string): Promise<Project> 
     updatedAt: new Date(vesselProject.metadata.modified),
     brushSpecificSettings: serializedProject.brushSpecificSettings as Record<string, Partial<BrushSettings>> | undefined,
     globalBrushSize: serializedProject.globalBrushSize,
-    exportLayout: cloneExportLayout(serializedProject.exportLayout)
+    exportLayout: cloneExportLayout(serializedProject.exportLayout),
+    palette: normalizePalette(serializedProject.palette)
   };
 }
 

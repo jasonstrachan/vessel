@@ -7,6 +7,7 @@ import type {
   LayerAlignmentSettings,
   LayerHorizontalAlignment,
   LayerVerticalAlignment,
+  PaletteState,
   Project
 } from '@/types';
 import { normalizeAlignment } from '@/utils/alignment/alignFitResolver';
@@ -157,8 +158,37 @@ export const normalizeLayer = <T extends Layer>(layer: T): T => ({
 
 export const normalizeLayers = <T extends Layer>(layers: T[]): T[] => layers.map(normalizeLayer);
 
+export const createDefaultPalette = (): PaletteState => ({
+  foregroundColor: '#000000',
+  backgroundColor: '#FFFFFF',
+  activeSlot: 'foreground'
+});
+
+export const normalizePalette = (palette?: PaletteState | null): PaletteState => {
+  if (!palette) {
+    return createDefaultPalette();
+  }
+
+  const foregroundColor =
+    typeof palette.foregroundColor === 'string' && palette.foregroundColor.trim().length > 0
+      ? palette.foregroundColor
+      : '#000000';
+  const backgroundColor =
+    typeof palette.backgroundColor === 'string' && palette.backgroundColor.trim().length > 0
+      ? palette.backgroundColor
+      : '#FFFFFF';
+  const activeSlot = palette.activeSlot === 'background' ? 'background' : 'foreground';
+
+  return {
+    foregroundColor,
+    backgroundColor,
+    activeSlot
+  };
+};
+
 export const normalizeProject = (project: Project): Project => ({
   ...project,
   exportLayout: cloneExportLayout(project.exportLayout),
-  layers: normalizeLayers(project.layers)
+  layers: normalizeLayers(project.layers),
+  palette: normalizePalette(project.palette)
 });

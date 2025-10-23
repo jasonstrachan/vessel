@@ -107,7 +107,9 @@ export function useComprehensiveKeyboard({
     selectionStart,
     selectionEnd,
     floatingPaste,
-    setFloatingPaste
+    setFloatingPaste,
+    swapPaletteColors,
+    setPaletteColor
   } = useAppStore();
 
   // Use refs for stable callbacks to avoid re-registering event listeners
@@ -190,6 +192,19 @@ export function useComprehensiveKeyboard({
       event.preventDefault();
       if (onRedoRef.current) {
         onRedoRef.current();
+      }
+      return;
+    }
+
+    // Palette swap/copy shortcuts (X to swap, Shift+X to copy foreground to background)
+    if (!event.repeat && event.code === 'KeyX' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      if (event.shiftKey) {
+        const state = useAppStore.getState();
+        const foreground = state.palette.foregroundColor;
+        setPaletteColor('background', foreground);
+      } else {
+        swapPaletteColors();
       }
       return;
     }
@@ -406,7 +421,7 @@ export function useComprehensiveKeyboard({
       onPolygonCancel, onEnterPressed, onEscapePressed,
       tools, polygonGradientState, setCurrentTool, setGlobalBrushSize, setEraserSettings,
       deleteSelectedPixels, selectAllActiveLayerPixels, selectionStart, selectionEnd,
-      floatingPaste, setFloatingPaste]);
+      floatingPaste, setFloatingPaste, setPaletteColor, swapPaletteColors]);
 
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
     if (!enabled) return;

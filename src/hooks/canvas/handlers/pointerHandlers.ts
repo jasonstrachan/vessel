@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-console.info('[ContourLines bootstrap]');
 // ---- ContourLines DEBUG ----------------------------------
 const CL_DEBUG_STORAGE_KEY = 'vessel.debug.cl';
 

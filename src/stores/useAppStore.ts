@@ -333,6 +333,7 @@ import type { ColorCycleBrushImplementation } from './colorCycleBrushManager';
 import { ShapeFillOrchestrator, type ShapeFillFinalizePayload } from '@/shapeFill';
 import { getFillStrategy, listFillStrategies } from '@/shapeFill/strategies';
 import type { FillParams, ShapeFillId, ShapeFillSession, ShapeFillParamKey, Vec2 } from '@/shapeFill/types';
+import { FillStage } from '@/shapeFill/types';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { configureMaskManager } from '@/layers/MaskManager';
 
@@ -379,6 +380,7 @@ import type {
   Rectangle,
   ColorAdjustState,
   ColorAdjustParams,
+  PaletteState,
 } from '@/types';
 import { BrushShape } from '@/types';
 import { brushPresets, applyBrushPreset, defaultBrushSettings, pixelBrushPreset } from '../presets/brushPresets';
@@ -400,6 +402,7 @@ import {
   cloneLayerAlignment,
   createDefaultExportLayout,
   createDefaultLayerAlignment,
+  createDefaultPalette,
   normalizeLayers,
   normalizeProject
 } from '@/utils/layoutDefaults';
@@ -635,6 +638,13 @@ export interface AppState {
   customBrushesSize: number;   // Percentage-based size for all custom brushes
   setDefaultBrushesSize: (size: number) => void;
   setCustomBrushesSize: (size: number) => void;
+  
+  // Palette State
+  palette: PaletteState;
+  setPaletteColor: (slot: 'foreground' | 'background', color: string) => void;
+  swapPaletteColors: () => void;
+  setActivePaletteSlot: (slot: 'foreground' | 'background') => void;
+  syncPaletteFromTool: (color: string, slot?: 'foreground' | 'background') => void;
   
   // Brush-specific size storage for default brushes (pixel-based) - DEPRECATED
   defaultBrushSizes: Record<string, number>;
@@ -1538,6 +1548,8 @@ export const useAppStore = create<AppState>()(
       
       setActiveHistoryDocument('default-project');
 
+      const initialPalette = createDefaultPalette();
+
       return {
       // Project State
       project: {
@@ -1551,8 +1563,10 @@ export const useAppStore = create<AppState>()(
         updatedAt: new Date(),
         customBrushes: [],
         brushSpecificSettings: {},
-        exportLayout: createDefaultExportLayout()
+        exportLayout: createDefaultExportLayout(),
+        palette: initialPalette
       },
+      palette: initialPalette,
       webglExportSettings: {
         includeHiddenLayers: true,
         embedCanvasFallback: false,
@@ -1560,11 +1574,29 @@ export const useAppStore = create<AppState>()(
         bundleFormat: 'single-html',
         enableGobletDiagnostics: process.env.NODE_ENV !== 'production'
       },
-      setProject: (project) => set(() => {
+      setProject: (project) => set((state) => {
         const normalized = normalizeProject(project);
         setActiveHistoryDocument(normalized.id);
+        const nextPalette = normalized.palette ?? createDefaultPalette();
+        const projectWithPalette = {
+          ...normalized,
+          palette: nextPalette
+        };
+        const nextTools = {
+          ...state.tools,
+          brushSettings: {
+            ...state.tools.brushSettings,
+            color: nextPalette.foregroundColor
+          },
+          eraserSettings:
+            state.tools.currentTool === 'eraser'
+              ? { ...state.tools.eraserSettings, color: nextPalette.foregroundColor }
+              : state.tools.eraserSettings
+        };
         return {
-          project: normalized
+          project: projectWithPalette,
+          palette: nextPalette,
+          tools: nextTools
         };
       }),
       updateProject: (updates) => set((state) => {
@@ -1572,7 +1604,7 @@ export const useAppStore = create<AppState>()(
           return { project: null };
         }
 
-        const nextProject = {
+        const baseProject = {
           ...state.project,
           ...updates,
           exportLayout: 'exportLayout' in updates
@@ -1580,11 +1612,34 @@ export const useAppStore = create<AppState>()(
             : cloneExportLayout(state.project.exportLayout)
         };
 
-        if (nextProject.id) {
-          setActiveHistoryDocument(nextProject.id);
+        const normalized = normalizeProject(baseProject);
+
+        if (normalized.id) {
+          setActiveHistoryDocument(normalized.id);
         }
 
-        return { project: nextProject };
+        const nextPalette = normalized.palette ?? state.palette ?? createDefaultPalette();
+        const projectWithPalette = {
+          ...normalized,
+          palette: nextPalette
+        };
+        const nextTools = {
+          ...state.tools,
+          brushSettings: {
+            ...state.tools.brushSettings,
+            color: nextPalette.foregroundColor
+          },
+          eraserSettings:
+            state.tools.currentTool === 'eraser'
+              ? { ...state.tools.eraserSettings, color: nextPalette.foregroundColor }
+              : state.tools.eraserSettings
+        };
+
+        return {
+          project: projectWithPalette,
+          palette: nextPalette,
+          tools: nextTools
+        };
       }),
       setExportLayout: (layout) => set((state) => {
         if (!state.project) {
@@ -1687,9 +1742,10 @@ export const useAppStore = create<AppState>()(
       defaultBrushesSize: 5,   // 5px for all default brushes
       customBrushesSize: 100,  // 100% for all custom brushes
       setGlobalBrushSize: (size) => set((state) => {
-        const currentSettings = state.tools.brushSettings;
+        const tools = state.tools;
+        const currentSettings = tools.brushSettings;
         const isCustomBrush = currentSettings.brushShape === BrushShape.CUSTOM;
-        
+
         // Update the appropriate unified size based on brush type
         const newState: { globalBrushSize: number; customBrushesSize?: number; defaultBrushesSize?: number } = { globalBrushSize: size };
         
@@ -1701,37 +1757,21 @@ export const useAppStore = create<AppState>()(
           newState.defaultBrushesSize = size;
         }
         
-        // Also update current brush settings
-        if (state.tools) {
-          const updatedBrushSettings = {
-            ...state.tools.brushSettings,
-            size
-          };
-          
-          const shouldSyncEraser = state.tools.eraserSettings.linkSizeToBrush !== false;
-          const updatedEraserSettings = shouldSyncEraser
-            ? { ...state.tools.eraserSettings, size }
-            : state.tools.eraserSettings;
-
-          return {
-            ...newState,
-            tools: {
-              ...state.tools,
-              brushSettings: updatedBrushSettings,
-              eraserSettings: updatedEraserSettings
-            }
-          };
-        }
+        const updatedBrushSettings = {
+          ...tools.brushSettings,
+          size
+        };
         
-        const shouldSyncEraser = state.tools.eraserSettings.linkSizeToBrush !== false;
+        const shouldSyncEraser = tools.eraserSettings.linkSizeToBrush !== false;
         const updatedEraserSettings = shouldSyncEraser
-          ? { ...state.tools.eraserSettings, size }
-          : state.tools.eraserSettings;
+          ? { ...tools.eraserSettings, size }
+          : tools.eraserSettings;
 
         return {
           ...newState,
           tools: {
-            ...state.tools,
+            ...tools,
+            brushSettings: updatedBrushSettings,
             eraserSettings: updatedEraserSettings
           }
         };
@@ -1762,6 +1802,87 @@ export const useAppStore = create<AppState>()(
         customBrushesSize: size
         // Do not sync globalBrushSize here - it should only be synced during brush switching
       })),
+      
+      setPaletteColor: (slot, color) => set((state) => {
+        const nextPalette: PaletteState =
+          slot === 'background'
+            ? { ...state.palette, backgroundColor: color }
+            : { ...state.palette, foregroundColor: color };
+        if (
+          state.palette.foregroundColor === nextPalette.foregroundColor &&
+          state.palette.backgroundColor === nextPalette.backgroundColor
+        ) {
+          return state;
+        }
+        return {
+          palette: nextPalette,
+          project: state.project ? { ...state.project, palette: nextPalette } : null
+        };
+      }),
+      swapPaletteColors: () => set((state) => {
+        const tools = state.tools;
+        const nextPalette: PaletteState = {
+          ...state.palette,
+          foregroundColor: state.palette.backgroundColor,
+          backgroundColor: state.palette.foregroundColor
+        };
+        if (
+          state.palette.foregroundColor === nextPalette.foregroundColor &&
+          state.palette.backgroundColor === nextPalette.backgroundColor
+        ) {
+          return state;
+        }
+        const nextBrushColor = nextPalette.foregroundColor;
+        const updatedTools: ToolState = {
+          ...tools,
+          brushSettings: {
+            ...tools.brushSettings,
+            color: nextBrushColor
+          },
+          eraserSettings:
+            tools.currentTool === 'eraser'
+              ? { ...tools.eraserSettings, color: nextBrushColor }
+              : tools.eraserSettings
+        };
+        const projectWithPalette = state.project
+          ? { ...state.project, palette: nextPalette }
+          : null;
+
+        return {
+          palette: nextPalette,
+          project: projectWithPalette,
+          tools: updatedTools
+        };
+      }),
+      setActivePaletteSlot: (slot) => set((state) => {
+        if (state.palette.activeSlot === slot) {
+          return state;
+        }
+        const nextPalette: PaletteState = {
+          ...state.palette,
+          activeSlot: slot
+        };
+        return {
+          palette: nextPalette,
+          project: state.project ? { ...state.project, palette: nextPalette } : null
+        };
+      }),
+      syncPaletteFromTool: (color, slot = 'foreground') => set((state) => {
+        const nextPalette: PaletteState =
+          slot === 'background'
+            ? { ...state.palette, backgroundColor: color }
+            : { ...state.palette, foregroundColor: color };
+        if (
+          state.palette.foregroundColor === nextPalette.foregroundColor &&
+          state.palette.backgroundColor === nextPalette.backgroundColor
+        ) {
+          return state;
+        }
+        return {
+          palette: nextPalette,
+          project: state.project ? { ...state.project, palette: nextPalette } : null
+        };
+      }),
       
       // Brush-specific settings storage (in-memory, separate from project)
       brushSpecificSettings: {},
@@ -2849,6 +2970,19 @@ export const useAppStore = create<AppState>()(
           };
         }
         
+        if (newSettings.color !== currentSettings.color) {
+          const nextPalette: PaletteState = {
+            ...state.palette,
+            foregroundColor: newSettings.color ?? state.palette.foregroundColor
+          };
+          const projectValue = updatedState.project;
+          updatedState = {
+            ...updatedState,
+            palette: nextPalette,
+            project: projectValue ? { ...projectValue, palette: nextPalette } : projectValue
+          };
+        }
+        
         // If switching away from custom brush, discard temporary brush
         if (newSettings.brushShape !== undefined && 
             currentSettings.brushShape === BrushShape.CUSTOM && 
@@ -2874,11 +3008,33 @@ export const useAppStore = create<AppState>()(
             next.size = syncSize;
           }
         }
+        let paletteUpdate: PaletteState | null = null;
+        if (
+          settings.color !== undefined &&
+          state.palette.activeSlot === 'foreground' &&
+          state.tools.currentTool === 'eraser' &&
+          state.palette.foregroundColor !== settings.color
+        ) {
+          paletteUpdate = {
+            ...state.palette,
+            foregroundColor: settings.color
+          };
+        }
+
+        const nextTools: ToolState = {
+          ...state.tools,
+          eraserSettings: next,
+          brushSettings: paletteUpdate
+            ? { ...state.tools.brushSettings, color: paletteUpdate.foregroundColor }
+            : state.tools.brushSettings
+        };
+        if (!paletteUpdate) {
+          return { tools: nextTools };
+        }
         return {
-          tools: {
-            ...state.tools,
-            eraserSettings: next
-          }
+          tools: nextTools,
+          palette: paletteUpdate,
+          project: state.project ? { ...state.project, palette: paletteUpdate } : null
         };
       }),
       setFillSettings: (settings) => set((state) => ({
@@ -3049,7 +3205,10 @@ export const useAppStore = create<AppState>()(
         const previousSession = shapeFillOrchestratorInstance.getSession();
         shapeFillOrchestratorInstance.cancel();
 
-        if (previousSession) {
+        const shouldRecordDelta =
+          previousSession != null && previousSession.stage !== FillStage.Finalized;
+
+        if (shouldRecordDelta) {
           const delta = createShapeSessionDelta({ forward: null, backward: previousSession });
           if (delta) {
             const txn = historyManager.begin('shape-session');
@@ -5002,7 +5161,8 @@ export const useAppStore = create<AppState>()(
               zoom: freshState.canvas.zoom
             },
             brushSpecificSettings: freshState.brushSpecificSettings,
-            globalBrushSize: freshState.globalBrushSize
+            globalBrushSize: freshState.globalBrushSize,
+            palette: freshState.palette
           };
           
           await saveProjectToFile(projectWithViewState, filename, freshState.layers);
@@ -5042,12 +5202,29 @@ export const useAppStore = create<AppState>()(
           })));
           
           const normalizedProject = normalizeProject(loadedProject);
+          const normalizedPalette = normalizedProject.palette ?? createDefaultPalette();
+          const projectWithPalette = {
+            ...normalizedProject,
+            palette: normalizedPalette
+          };
+          const toolsWithPalette = {
+            ...state.tools,
+            brushSettings: {
+              ...state.tools.brushSettings,
+              color: normalizedPalette.foregroundColor
+            },
+            eraserSettings:
+              state.tools.currentTool === 'eraser'
+                ? { ...state.tools.eraserSettings, color: normalizedPalette.foregroundColor }
+                : state.tools.eraserSettings
+          };
           const normalizedLayers = normalizeLayers(finalLayers);
           const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, normalizedProject);
 
           // Update the store with the loaded project and restored layers
           set({
-            project: normalizedProject,
+            project: projectWithPalette,
+            palette: normalizedPalette,
             layers: syncedLayers,
             activeLayerId: loadedProject.layers[0]?.id || null,
             selectedLayerIds: loadedProject.layers[0]?.id ? [loadedProject.layers[0].id] : [],
@@ -5060,7 +5237,8 @@ export const useAppStore = create<AppState>()(
             // Restore brush-specific settings
             brushSpecificSettings: loadedProject.brushSpecificSettings || {},
             // Restore global brush size
-            globalBrushSize: loadedProject.globalBrushSize || 10
+            globalBrushSize: loadedProject.globalBrushSize || 10,
+            tools: toolsWithPalette
           });
           
           // Restore canvas dimensions to match the loaded project
@@ -5225,6 +5403,7 @@ export const useAppStore = create<AppState>()(
           layerType: 'normal' // REQUIRED field
         };
         
+        const newPalette = createDefaultPalette();
         const newProject: Project = {
           id: `project-${Date.now()}-${Math.random()}`,
           name,
@@ -5236,17 +5415,24 @@ export const useAppStore = create<AppState>()(
           updatedAt: new Date(),
           customBrushes: [],
           brushSpecificSettings: {},
-          exportLayout: createDefaultExportLayout()
+          exportLayout: createDefaultExportLayout(),
+          palette: newPalette
         };
 
         const normalizedProject = normalizeProject(newProject);
+        const normalizedPalette = normalizedProject.palette ?? createDefaultPalette();
+        const projectWithPalette = {
+          ...normalizedProject,
+          palette: normalizedPalette
+        };
         const normalizedLayers = normalizeLayers([defaultLayer]);
         const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, normalizedProject);
 
         setActiveHistoryDocument(normalizedProject.id);
 
         set({
-          project: normalizedProject,
+          project: projectWithPalette,
+          palette: normalizedPalette,
           layers: syncedLayers, // Only set top-level layers
           activeLayerId: defaultLayerId,
           selectedLayerIds: defaultLayerId ? [defaultLayerId] : [],

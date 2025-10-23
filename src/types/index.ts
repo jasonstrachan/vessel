@@ -76,6 +76,12 @@ export interface WebGLExportSettings {
   enableGobletDiagnostics: boolean;
 }
 
+export interface PaletteState {
+  foregroundColor: string;
+  backgroundColor: string;
+  activeSlot: 'foreground' | 'background';
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -95,6 +101,7 @@ export interface Project {
   // Global brush size (applies to all brushes)
   globalBrushSize?: number;
   exportLayout?: ExportContainerLayout;
+  palette?: PaletteState;
 }
 
 export interface Layer {

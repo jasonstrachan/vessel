@@ -476,6 +476,17 @@ export class ColorCycleBrushCanvas2D {
   }
 
   paint(x: number, y: number, layerId?: string, pressure: number = 1.0, _rotation: number = 0) {
+    if (typeof window !== 'undefined') {
+      const globalWindow = window as typeof window & {
+        __CC_probe?: { start: number; paint: number; end: number; last: Record<string, unknown> };
+      };
+      globalWindow.__CC_probe ??= { start: 0, paint: 0, end: 0, last: {} };
+      globalWindow.__CC_probe.paint += 1;
+      globalWindow.__CC_probe.last = { ...globalWindow.__CC_probe.last, layerId };
+      if (globalWindow.__CC_probe.paint % 20 === 1) {
+        console.log('[CC] paint tick', { layerId });
+      }
+    }
     void _rotation;
     
     // Debug logging removed for paint hot path
@@ -784,6 +795,15 @@ export class ColorCycleBrushCanvas2D {
    * Start new stroke (API compatible)
    */
   startStroke(layerId?: string, clearBuffer: boolean = false) {
+    if (typeof window !== 'undefined') {
+      const globalWindow = window as typeof window & {
+        __CC_probe?: { start: number; paint: number; end: number; last: Record<string, unknown> };
+      };
+      globalWindow.__CC_probe ??= { start: 0, paint: 0, end: 0, last: {} };
+      globalWindow.__CC_probe.start += 1;
+      globalWindow.__CC_probe.last = { ...globalWindow.__CC_probe.last, layerId };
+      console.log('[CC] startStroke', { layerId });
+    }
     const id = layerId || this.activeLayerId || 'default';
     
 
@@ -823,6 +843,9 @@ export class ColorCycleBrushCanvas2D {
     animator.startStroke();
     
     const strokeData = this.layerStrokes.get(id);
+    if (strokeData && !strokeData.hasContent) {
+      strokeData.hasContent = true;
+    }
     if (strokeData) {
       if (clearBuffer && !this._isHistoryRestore) {
         const preservedStampCounter = strokeData.stampCounter;
@@ -844,6 +867,15 @@ export class ColorCycleBrushCanvas2D {
    * End stroke (API compatible)
    */
   endStroke(layerId?: string) {
+    if (typeof window !== 'undefined') {
+      const globalWindow = window as typeof window & {
+        __CC_probe?: { start: number; paint: number; end: number; last: Record<string, unknown> };
+      };
+      globalWindow.__CC_probe ??= { start: 0, paint: 0, end: 0, last: {} };
+      globalWindow.__CC_probe.end += 1;
+      globalWindow.__CC_probe.last = { ...globalWindow.__CC_probe.last, layerId };
+      console.log('[CC] endStroke', { layerId });
+    }
     const id = layerId || this.activeLayerId || 'default';
     this.isDrawing = false;
 
@@ -2040,6 +2072,7 @@ export class ColorCycleBrushCanvas2D {
     });
 
     if (!anyContent) {
+      console.warn('[CC] render skipped: no hasContent on any layer');
       // No live stroke data to composite; leave the layer canvas untouched.
       this.compositeCtx.clearRect(0, 0, this.width, this.height);
       this.dirtyLayers.clear();
@@ -2780,20 +2813,6 @@ export class ColorCycleBrushCanvas2D {
     let clearedDuringRestore = false;
     let highestStrokeCounter = asHistory ? 0 : this.strokeCounter;
     try {
-      try {
-        const snapshotCount = layerSnapshots instanceof Map
-          ? layerSnapshots.size
-          : Array.isArray(layerSnapshots)
-            ? layerSnapshots.length
-            : 0;
-        console.log('[ColorCycleBrush] restoreFullState called', {
-          hasSnapshots: Boolean(layerSnapshots),
-          snapshotCount,
-          mode: opts.mode ?? 'normal',
-          caller: new Error().stack?.split('\n')[2]?.trim()
-        });
-      } catch {}
-      
       if (state.cycleSpeed !== undefined) this.cycleSpeed = state.cycleSpeed;
       if (state.fps !== undefined) this.fps = state.fps;
       if (state.brushSize !== undefined) this.brushSize = state.brushSize;
@@ -2864,9 +2883,6 @@ export class ColorCycleBrushCanvas2D {
         this.strokeCounter = highestStrokeCounter;
       }
       
-      try {
-        console.log('[ColorCycleBrush] Settings updated after restore', { history: asHistory });
-      } catch {}
     } finally {
       if (shouldAssertNoClear) {
         console.assert(!clearedDuringRestore, '[ColorCycleBrush] Cleared stroke data during history restore');

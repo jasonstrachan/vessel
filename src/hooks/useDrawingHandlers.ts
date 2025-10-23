@@ -119,6 +119,20 @@ const getDesiredColorCyclePlaying = () =>
 const getEffectiveColorCyclePlaying = () =>
   selectEffectiveColorCyclePlaying(useAppStore.getState());
 
+const getShapeFillHistoryDescription = (): string => {
+  const { shapeFill } = useAppStore.getState();
+  const lastFinalize = shapeFill.lastFinalize;
+  const label = lastFinalize?.strategy?.label?.trim();
+  if (label) {
+    return `Shape Fill: ${label}`;
+  }
+  const fillId = lastFinalize?.fillId;
+  if (fillId) {
+    return `Shape Fill: ${fillId}`;
+  }
+  return 'Shape Fill';
+};
+
 const lastSyntheticStopAtMap = new Map<string, number>();
 
 type BrushStrokeSession = {
@@ -349,7 +363,6 @@ export function useDrawingHandlers({
   const maskManager = useMemo(() => getMaskManager(), []);
   const eraserToolRef = useRef<EraserTool | null>(null);
   const eraserRoiRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
-  const hasLoggedEraserBannerRef = useRef(false);
   const createBrushStampSource = useCallback(
     () =>
       new BrushStampSource({
@@ -1608,10 +1621,6 @@ export function useDrawingHandlers({
         eraserRoiRef.current = null;
         tool.begin(worldPos, pressure);
         eraserRoiRef.current = tool.getROI();
-        if (!hasLoggedEraserBannerRef.current) {
-          console.info('[EraserV2] enabled');
-          hasLoggedEraserBannerRef.current = true;
-        }
       } else {
         // OPTIMIZATION: Copy the active layer to the drawing canvas ONCE at the start.
         const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
@@ -2318,6 +2327,15 @@ export function useDrawingHandlers({
     }
   }, [processBatchedStrokes, endStrokeSession]);
   
+  // Drawing/brush finalize matrix (non-shape-fill entry point):
+  //  - Raster brushes & eraser on raster layers: merge overlay `drawingCanvas` into a temp canvas,
+  //    persist with `captureCanvasToActiveLayer`, then commit history (default branch below).
+  //  - Color-cycle brushes on CC layers: short-circuit into CC brush managers, capture CC canvas,
+  //    and use deferred save scheduling (see `isColorCycleBrush` branch).
+  //  - Shape fills on raster layers: handled upstream by `ShapeToolHandler.finalizeShapeFillResult`,
+  //    which composites manually and calls `commitLayerHistory` before clearing the overlay.
+  //  - Shape fills or brushes on CC layers with no CC canvas fall back to this method’s
+  //    `skipSave`/`finalizeDrawing` guard to avoid corrupt history entries.
   const finalizeDrawing = useCallback(async (skipSaveOrOptions?: boolean | FinalizeDrawingOptions) => {
     let finalizeVisibleTimerStarted = false;
     const startFinalizeVisibleTimer = () => {
@@ -2634,6 +2652,8 @@ export function useDrawingHandlers({
             let strokeCaptureRoi: CaptureRegion | undefined;
 
             if (isColorCycleLayer && isAnyColorCycleBrush && activeLayer?.colorCycleData?.canvas) {
+              // Color-cycle brush on CC layer: render/commit directly into the layer canvas,
+              // then schedule deferred state serialization instead of raster capture.
               const layerCanvas = activeLayer.colorCycleData.canvas;
               startFinalizeVisibleTimer();
               if (FF.CC_CAPTURE_ROI) {
@@ -2711,6 +2731,8 @@ export function useDrawingHandlers({
               // history entry and break CC undo granularity. Skip saving in this edge case.
               // Reduce noise: suppressed finalize debug
             } else {
+              // Raster brush/eraser on normal layer: composite overlay buffer into temp canvas,
+              // then capture & commit bitmap history.
               // Regular layers: composite drawing onto layer
               const tempCanvas = document.createElement('canvas');
               tempCanvas.width = project.width;
@@ -2764,17 +2786,19 @@ export function useDrawingHandlers({
             const actionType = historyActionOverride ?? (isShapeMode ? 'fill' : 'brush');
             const defaultDescription = (() => {
               if (isShapeMode) {
-                return isColorCycleLayer && isColorCycleBrush ? 'Color Cycle Fill' : 'Shape Fill';
-                }
                 if (isColorCycleLayer && isColorCycleBrush) {
-                  return 'Color Cycle Stroke';
+                  return 'Color Cycle Fill';
                 }
-                return 'Brush Stroke';
-              })();
-              const historyDescription = historyDescriptionOverride ?? defaultDescription;
-
-              const shouldSkipBitmapDelta = shouldDisableCoalescing;
-              const coalesceForHistory = shouldSkipBitmapDelta ? undefined : coalescePayload;
+                return getShapeFillHistoryDescription();
+              }
+              if (isColorCycleLayer && isColorCycleBrush) {
+                return 'Color Cycle Stroke';
+              }
+              return 'Brush Stroke';
+            })();
+            const historyDescription = historyDescriptionOverride ?? defaultDescription;
+            const shouldSkipBitmapDelta = shouldDisableCoalescing;
+            const coalesceForHistory = shouldSkipBitmapDelta ? undefined : coalescePayload;
 
               if (brushForCleanup?.flush) {
                 brushForCleanup.flush(activeLayerIdString);
@@ -3915,6 +3939,7 @@ export function useDrawingHandlers({
         const currentLayer = useAppStore.getState().layers.find(l => l.id === useAppStore.getState().activeLayerId);
         const drawingCanvas = drawingCanvasRef.current;
         if (drawingCanvas && currentLayer && currentLayer.layerType !== 'color-cycle') {
+          const historyDescription = `Shape Fill: ${tools.brushSettings?.shapeFillMode ?? 'default'}`;
           await withTiming('cc:capture', () => captureCanvasToActiveLayer(drawingCanvas));
           await withTiming('cc:commit', () =>
             commitLayerHistory({
@@ -3922,7 +3947,7 @@ export function useDrawingHandlers({
               beforeImage: shapeBeforeImage,
               beforeColorState: shapeBeforeColorState,
               actionType: 'fill',
-              description: 'Shape Fill',
+              description: historyDescription,
               tool: tools.currentTool,
               bitmapRoi:
                 project

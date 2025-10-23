@@ -192,10 +192,6 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
     }
 
     try {
-      const paintBufferBytes =
-        layerSnapshots[0]?.strokeData?.paintBuffer?.byteLength ?? -1;
-      console.debug('[cc-apply] restoring paintBuffer bytes:', paintBufferBytes);
-
       // Do not clear before a history restore; the restore will rebuild the animator and commit the correct pixels.
       brush.restoreFullState({
         cycleSpeed: state.cycleSpeed,
@@ -269,13 +265,6 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       tctx.globalCompositeOperation = 'source-over';
       tctx.globalAlpha = 1;
 
-      // Diagnostic: sample before clearing
-      try {
-        const beforePx = tctx.getImageData(0, 0, 1, 1).data;
-        console.debug('[cc-apply] top-left BEFORE:', Array.from(beforePx));
-      } catch {
-        // Sampling is diagnostic only.
-      }
       tctx.restore();
       let synced = false;
       if (typeof brush.commitToLayer === 'function') {
@@ -318,16 +307,6 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
             try { ctx.restore(); } catch {}
           }
         }
-      }
-
-      try {
-        const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
-        const sample = ctx?.getImageData(0, 0, 1, 1).data;
-        if (sample) {
-          console.debug('[cc-apply] top-left AFTER:', Array.from(sample));
-        }
-      } catch {
-        // Sampling is diagnostic only.
       }
 
       try {
