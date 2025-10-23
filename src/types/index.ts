@@ -144,6 +144,7 @@ export interface Layer {
     canvasWidth?: number;
     canvasHeight?: number;
     eraseMask?: HTMLCanvasElement;
+    eraseMaskImageData?: ImageData;
     eraseMaskVersion?: number;
 
     // Recolor mode data (new functionality)
@@ -470,6 +471,7 @@ export interface BrushSettings {
   colors?: number; // 1-10 for gradient brushes
   // Rectangle gradient preset selection ('none' = sample from canvas)
   rectGradientPresetId?: string;
+  shapeFillMode?: 'default' | 'linear' | 'concentric' | (string & {}); // mode for shape fill tools
   // Fill resolution for dither block size (1-32 pixels per block)
   fillResolution?: number; // 1-32 for dithering block size
   // Contour polygon settings

@@ -535,7 +535,9 @@ export class ColorCycleBrushCanvas2D {
     // If we're supposed to be animating but no callback is wired for this layer yet
     // (e.g. after restoring a snapshot), force an immediate render so the stroke appears.
     const needsImmediateRender = this.isAnimating && !this.animatorCallbacks.has(id);
-    if (needsImmediateRender) {
+    const hasPresentationSurface =
+      !!this.webglCanvas && (!(this.webglCanvas instanceof HTMLCanvasElement) || this.webglCanvas.isConnected);
+    if (needsImmediateRender && hasPresentationSurface) {
       try {
         animator.forceRender();
       } catch {}
@@ -543,7 +545,7 @@ export class ColorCycleBrushCanvas2D {
     }
 
     // Schedule batched render if not animating
-    if (!this.isAnimating && !this.renderScheduled) {
+    if (!this.isAnimating && !this.renderScheduled && hasPresentationSurface) {
       this.renderScheduled = true;
       requestAnimationFrame(() => {
         this.renderScheduled = false;
@@ -2062,6 +2064,14 @@ export class ColorCycleBrushCanvas2D {
    */
   render(_forceFullOpacity: boolean = false) {
     void _forceFullOpacity;
+    if (!this.webglCanvas || (this.webglCanvas instanceof HTMLCanvasElement && !this.webglCanvas.isConnected)) {
+      this.renderScheduled = false;
+      this.dirtyLayers.clear();
+      if (this.onFrameRendered) {
+        this.onFrameRendered();
+      }
+      return;
+    }
     // Determine if any layer actually has stroke content to render.
     // If not, do NOT clear/draw onto the layer canvas — this preserves
     // already committed pixels on the color-cycle layer after mouseup.
@@ -2072,7 +2082,6 @@ export class ColorCycleBrushCanvas2D {
     });
 
     if (!anyContent) {
-      console.warn('[CC] render skipped: no hasContent on any layer');
       // No live stroke data to composite; leave the layer canvas untouched.
       this.compositeCtx.clearRect(0, 0, this.width, this.height);
       this.dirtyLayers.clear();
@@ -2676,6 +2685,59 @@ export class ColorCycleBrushCanvas2D {
    */
   getCanvas(): HTMLCanvasElement {
     return this.webglCanvas;
+  }
+
+  /**
+   * Replace the target canvas that receives composite draws. Useful when undo/redo
+   * reattaches a fresh DOM node for the color-cycle layer.
+   */
+  setTargetCanvas(canvas: HTMLCanvasElement | null): void {
+    if (!canvas || canvas === this.webglCanvas) {
+      return;
+    }
+
+    const nextWidth = canvas.width || this.width;
+    const nextHeight = canvas.height || this.height;
+    const dimensionsChanged = nextWidth !== this.width || nextHeight !== this.height;
+
+    this.webglCanvas = canvas;
+
+    if (dimensionsChanged) {
+      this.width = nextWidth;
+      this.height = nextHeight;
+
+      this.compositeCanvas.width = this.width;
+      this.compositeCanvas.height = this.height;
+      const ctx = this.compositeCanvas.getContext('2d', {
+        willReadFrequently: true,
+        alpha: true
+      }) as CanvasRenderingContext2D | null;
+      if (ctx) {
+        this.compositeCtx = ctx;
+        this.compositeCtx.imageSmoothingEnabled = false;
+      }
+
+      this.animators.forEach((animator) => {
+        try {
+          animator.resize(this.width, this.height);
+        } catch {
+          // Ignore resize failures; animator will lazy-resize on next use.
+        }
+      });
+
+      this.layerStrokes.forEach((strokeData) => {
+        const expected = this.width * this.height;
+        if (strokeData.paintBuffer.length !== expected) {
+          strokeData.paintBuffer = new Uint8Array(expected);
+        }
+      });
+    }
+
+    try {
+      this.render(false);
+    } catch {
+      // Best-effort refresh; failures should not break stroke flow.
+    }
   }
 
   setUseCanvas2D(useCanvas2D: boolean): void {

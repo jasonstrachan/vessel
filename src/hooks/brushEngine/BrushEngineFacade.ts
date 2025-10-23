@@ -627,12 +627,20 @@ export class BrushEngineFacade {
     // effectively disabling painting even though the layer had visible alpha.
     // TODO: if we reintroduce gating, use the selected mask canvas instead of
     // the live context and account for coordinate scaling.
-    if (typeof window !== 'undefined' && (window as typeof window & { __alphaLockDebug?: number }).__alphaLockDebug >= 3) {
-      try {
-        const pixel = ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1);
-        console.log('[AL] canDrawAt bypass sample', { x: Math.floor(x), y: Math.floor(y), alpha: pixel.data[3] });
-      } catch {
-        // ignore sampling errors in debug logging
+    if (typeof window !== 'undefined') {
+      const debugLevel =
+        (window as typeof window & { __alphaLockDebug?: number }).__alphaLockDebug ?? 0;
+      if (debugLevel >= 3) {
+        try {
+          const pixel = ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1);
+          console.log('[AL] canDrawAt bypass sample', {
+            x: Math.floor(x),
+            y: Math.floor(y),
+            alpha: pixel.data[3],
+          });
+        } catch {
+          // ignore sampling errors in debug logging
+        }
       }
     }
 

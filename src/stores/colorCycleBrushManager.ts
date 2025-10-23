@@ -19,6 +19,7 @@ type BrushWithOptionalControls = ColorCycleBrushImplementation & {
   setSpeed?: (speed: number) => void;
   setUseCanvas2D?: (useCanvas2D: boolean) => void;
   isUsingWebGL?: () => boolean;
+  setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
 };
 
 type StoreSlice = Pick<AppState, 'tools' | 'layers'>;
@@ -143,6 +144,7 @@ export function createColorCycleBrushManager(): ColorCycleBrushManager {
 
       const brushWithOptionalControls: BrushWithOptionalControls = brush;
       brushWithOptionalControls.setLayerId?.(layerId);
+      brushWithOptionalControls.setTargetCanvas?.(canvas);
 
       // Apply per-layer speed if available
       const layer = getLayers().find(candidate => candidate.id === layerId);

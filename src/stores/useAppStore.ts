@@ -554,6 +554,7 @@ interface ShapeFillState {
   lastFinalize: ShapeFillFinalizePayload | null;
   showOutline: boolean;
   sampleUnderShape: boolean;
+  useBackgroundColor: boolean;
 }
 
 export type CCReason =
@@ -599,6 +600,7 @@ const appendColorCycleReason = (
 };
 
 export interface AppState {
+  paletteDirty: boolean;
   // Project State
   project: Project | null;
   setProject: (project: Project) => void;
@@ -770,6 +772,7 @@ export interface AppState {
   ) => void;
   setShapeFillShowOutline: (show: boolean) => void;
   setShapeFillSampleUnderShape: (sample: boolean) => void;
+  setShapeFillUseBackground: (enabled: boolean) => void;
   beginShapeFillSession: (points: Vec2[]) => void;
   updateShapeFillCursor: (cursor: Vec2) => void;
   commitShapeFillParameter: () => void;
@@ -1283,6 +1286,7 @@ const defaultShapeFillState: ShapeFillState = {
   lastFinalize: null,
   showOutline: false,
   sampleUnderShape: false,
+  useBackgroundColor: false,
 };
 
 const SHAPE_FILL_STORAGE_KEY = 'vessel-shape-fill-settings';
@@ -1317,6 +1321,7 @@ type PersistedShapeFillSnapshot = {
   paramsByFill?: Record<string, Partial<FillParams>>;
   showOutline?: boolean;
   sampleUnderShape?: boolean;
+  useBackgroundColor?: boolean;
 };
 
 const VALID_FILL_PARAM_KEYS: (keyof FillParams)[] = [
@@ -1421,6 +1426,7 @@ const persistShapeFillState = (state: ShapeFillState): void => {
     paramsByFill: state.paramsByFill,
     showOutline: state.showOutline,
     sampleUnderShape: state.sampleUnderShape,
+    useBackgroundColor: state.useBackgroundColor,
   };
 
   try {
@@ -1467,6 +1473,10 @@ const createInitialShapeFillState = (): ShapeFillState => {
 
   if (typeof persisted.sampleUnderShape === 'boolean') {
     base.sampleUnderShape = persisted.sampleUnderShape;
+  }
+
+  if (typeof persisted.useBackgroundColor === 'boolean') {
+    base.useBackgroundColor = persisted.useBackgroundColor;
   }
 
   if (typeof window !== 'undefined') {
@@ -1551,29 +1561,30 @@ export const useAppStore = create<AppState>()(
       const initialPalette = createDefaultPalette();
 
       return {
-      // Project State
-      project: {
-        id: 'default-project',
-        name: 'Untitled',
-        width: DEFAULT_CANVAS_WIDTH,
-        height: DEFAULT_CANVAS_HEIGHT,
-        layers: [],
-        backgroundColor: 'transparent',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        customBrushes: [],
-        brushSpecificSettings: {},
-        exportLayout: createDefaultExportLayout(),
-        palette: initialPalette
-      },
-      palette: initialPalette,
-      webglExportSettings: {
-        includeHiddenLayers: true,
-        embedCanvasFallback: false,
-        minifyOutput: true,
-        bundleFormat: 'single-html',
-        enableGobletDiagnostics: process.env.NODE_ENV !== 'production'
-      },
+        paletteDirty: false,
+        // Project State
+        project: {
+          id: 'default-project',
+          name: 'Untitled',
+          width: DEFAULT_CANVAS_WIDTH,
+          height: DEFAULT_CANVAS_HEIGHT,
+          layers: [],
+          backgroundColor: 'transparent',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          customBrushes: [],
+          brushSpecificSettings: {},
+          exportLayout: createDefaultExportLayout(),
+          palette: initialPalette
+        },
+        palette: initialPalette,
+        webglExportSettings: {
+          includeHiddenLayers: true,
+          embedCanvasFallback: false,
+          minifyOutput: true,
+          bundleFormat: 'single-html',
+          enableGobletDiagnostics: process.env.NODE_ENV !== 'production'
+        },
       setProject: (project) => set((state) => {
         const normalized = normalizeProject(project);
         setActiveHistoryDocument(normalized.id);
@@ -1596,7 +1607,8 @@ export const useAppStore = create<AppState>()(
         return {
           project: projectWithPalette,
           palette: nextPalette,
-          tools: nextTools
+          tools: nextTools,
+          paletteDirty: false
         };
       }),
       updateProject: (updates) => set((state) => {
@@ -1638,7 +1650,8 @@ export const useAppStore = create<AppState>()(
         return {
           project: projectWithPalette,
           palette: nextPalette,
-          tools: nextTools
+          tools: nextTools,
+          paletteDirty: false
         };
       }),
       setExportLayout: (layout) => set((state) => {
@@ -1816,11 +1829,10 @@ export const useAppStore = create<AppState>()(
         }
         return {
           palette: nextPalette,
-          project: state.project ? { ...state.project, palette: nextPalette } : null
+          paletteDirty: true
         };
       }),
       swapPaletteColors: () => set((state) => {
-        const tools = state.tools;
         const nextPalette: PaletteState = {
           ...state.palette,
           foregroundColor: state.palette.backgroundColor,
@@ -1832,26 +1844,9 @@ export const useAppStore = create<AppState>()(
         ) {
           return state;
         }
-        const nextBrushColor = nextPalette.foregroundColor;
-        const updatedTools: ToolState = {
-          ...tools,
-          brushSettings: {
-            ...tools.brushSettings,
-            color: nextBrushColor
-          },
-          eraserSettings:
-            tools.currentTool === 'eraser'
-              ? { ...tools.eraserSettings, color: nextBrushColor }
-              : tools.eraserSettings
-        };
-        const projectWithPalette = state.project
-          ? { ...state.project, palette: nextPalette }
-          : null;
-
         return {
           palette: nextPalette,
-          project: projectWithPalette,
-          tools: updatedTools
+          paletteDirty: true
         };
       }),
       setActivePaletteSlot: (slot) => set((state) => {
@@ -1863,8 +1858,7 @@ export const useAppStore = create<AppState>()(
           activeSlot: slot
         };
         return {
-          palette: nextPalette,
-          project: state.project ? { ...state.project, palette: nextPalette } : null
+          palette: nextPalette
         };
       }),
       syncPaletteFromTool: (color, slot = 'foreground') => set((state) => {
@@ -1880,7 +1874,7 @@ export const useAppStore = create<AppState>()(
         }
         return {
           palette: nextPalette,
-          project: state.project ? { ...state.project, palette: nextPalette } : null
+          paletteDirty: true
         };
       }),
       
@@ -3161,6 +3155,15 @@ export const useAppStore = create<AppState>()(
         }));
         persistShapeFillState(get().shapeFill);
       },
+      setShapeFillUseBackground: (enabled) => {
+        set((state) => ({
+          shapeFill: {
+            ...state.shapeFill,
+            useBackgroundColor: enabled,
+          },
+        }));
+        persistShapeFillState(get().shapeFill);
+      },
       beginShapeFillSession: (points) => {
         const state = get();
         const fillId = state.shapeFill.activeFillId;
@@ -4346,9 +4349,17 @@ export const useAppStore = create<AppState>()(
             const updatedLayers = state.layers.map(l => {
               if (l.id !== layerId) return l;
               const existingCanvas = l.colorCycleData?.canvas;
-              const brushCanvas = existingBrush.getCanvas ? existingBrush.getCanvas() : undefined;
-              // Prefer brush canvas; fall back to existing if present
-              const canvas = brushCanvas || existingCanvas;
+              const brushWithControls = existingBrush as typeof existingBrush & {
+                setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
+              };
+              const layerCanvas =
+                typeof HTMLCanvasElement !== 'undefined' && existingCanvas instanceof HTMLCanvasElement
+                  ? existingCanvas
+                  : undefined;
+              if (layerCanvas && brushWithControls.setTargetCanvas) {
+                brushWithControls.setTargetCanvas(layerCanvas);
+              }
+              const canvas = existingBrush.getCanvas ? existingBrush.getCanvas() : layerCanvas ?? existingCanvas;
               return {
                 ...l,
                 layerType: 'color-cycle' as const,
@@ -4430,7 +4441,32 @@ export const useAppStore = create<AppState>()(
             console.error('[Store] Failed to create color cycle brush');
             return {};
           }
-        
+
+          let layerCanvas: HTMLCanvasElement | undefined;
+          if (typeof document !== 'undefined') {
+            const offscreen = document.createElement('canvas');
+            offscreen.width = safeWidth;
+            offscreen.height = safeHeight;
+            layerCanvas = offscreen;
+          } else if (colorCycleBrush.getCanvas) {
+            layerCanvas = colorCycleBrush.getCanvas();
+          }
+
+          const brushWithControls = colorCycleBrush as typeof colorCycleBrush & {
+            setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
+            renderDirectToCanvas?: (targetCanvas: HTMLCanvasElement, layerId: string) => void;
+          };
+          if (layerCanvas && brushWithControls.setTargetCanvas) {
+            brushWithControls.setTargetCanvas(layerCanvas);
+          }
+          if (layerCanvas && brushWithControls.renderDirectToCanvas) {
+            try {
+              brushWithControls.renderDirectToCanvas(layerCanvas, layerId);
+            } catch {
+              // best effort; canvas will be populated on next stroke
+            }
+          }
+
         const updatedLayers = state.layers.map(l => {
           if (l.id !== layerId) {
             return l;
@@ -4483,7 +4519,7 @@ export const useAppStore = create<AppState>()(
               isAnimating: true,
               // Initialize per-layer brush speed from current brush settings
               brushSpeed: state.tools.brushSettings.colorCycleSpeed || 0.1,
-              canvas: colorCycleBrush.getCanvas ? colorCycleBrush.getCanvas() : undefined,
+              canvas: layerCanvas ?? (colorCycleBrush.getCanvas ? colorCycleBrush.getCanvas() : undefined),
               eraseMask,
               eraseMaskVersion
             }
@@ -5166,6 +5202,7 @@ export const useAppStore = create<AppState>()(
           };
           
           await saveProjectToFile(projectWithViewState, filename, freshState.layers);
+          set({ paletteDirty: false });
           state.addNotification({
             type: 'success',
             title: 'Project Saved',
@@ -5225,6 +5262,7 @@ export const useAppStore = create<AppState>()(
           set({
             project: projectWithPalette,
             palette: normalizedPalette,
+            paletteDirty: false,
             layers: syncedLayers,
             activeLayerId: loadedProject.layers[0]?.id || null,
             selectedLayerIds: loadedProject.layers[0]?.id ? [loadedProject.layers[0].id] : [],
@@ -5382,12 +5420,12 @@ export const useAppStore = create<AppState>()(
       },
       
       newProject: (width: number, height: number, name = 'Untitled') => {
-        // Create a default layer with empty image data
-        const defaultLayerId = `layer-${Date.now()}-${Math.random()}`;
-        
-        // Create framebuffer as HTMLCanvasElement
-        const framebuffer = new OffscreenCanvas(width, height);
-        
+        const currentState = get();
+        const layerIdFactory = () => `layer-${Date.now()}-${Math.random()}`;
+
+        // Create the base regular layer (Layer 1)
+        const defaultLayerId = layerIdFactory();
+        const defaultFramebuffer = new OffscreenCanvas(width, height);
         const defaultLayer: Layer = {
           id: defaultLayerId,
           name: 'Layer 1',
@@ -5398,11 +5436,61 @@ export const useAppStore = create<AppState>()(
           locked: false,
           transparencyLocked: false,
           imageData: new ImageData(width, height),
-          framebuffer,
+          framebuffer: defaultFramebuffer,
           alignment: createDefaultLayerAlignment(),
           layerType: 'normal' // REQUIRED field
         };
-        
+
+        // Prepare a default color cycle layer that ships with every new project
+        const colorCycleLayerId = layerIdFactory();
+        const colorCycleFramebuffer = new OffscreenCanvas(width, height);
+        const colorCycleCanvas =
+          typeof document !== 'undefined'
+            ? (() => {
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                return canvas;
+              })()
+            : undefined;
+        const fallbackColorCycleGradient = [
+          { position: 0.0, color: '#ff0000' },
+          { position: 0.17, color: '#ff7f00' },
+          { position: 0.33, color: '#ffff00' },
+          { position: 0.5, color: '#00ff00' },
+          { position: 0.67, color: '#0000ff' },
+          { position: 0.83, color: '#4b0082' },
+          { position: 1.0, color: '#9400d3' }
+        ];
+        const gradientSource = currentState.tools?.brushSettings?.colorCycleGradient;
+        const initialColorCycleGradient = (gradientSource ?? fallbackColorCycleGradient).map(stop => ({
+          position: stop.position,
+          color: stop.color
+        }));
+        const initialColorCycleSpeed =
+          currentState.tools?.brushSettings?.colorCycleSpeed ?? 0.1;
+        const colorCycleLayer: Layer = {
+          id: colorCycleLayerId,
+          name: 'CC Layer 1',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          order: 1,
+          locked: false,
+          transparencyLocked: false,
+          imageData: null,
+          framebuffer: colorCycleFramebuffer,
+          alignment: createDefaultLayerAlignment(),
+          layerType: 'color-cycle',
+          colorCycleData: {
+            mode: 'brush',
+            gradient: initialColorCycleGradient,
+            isAnimating: true,
+            brushSpeed: initialColorCycleSpeed,
+            canvas: colorCycleCanvas
+          }
+        };
+
         const newPalette = createDefaultPalette();
         const newProject: Project = {
           id: `project-${Date.now()}-${Math.random()}`,
@@ -5425,7 +5513,7 @@ export const useAppStore = create<AppState>()(
           ...normalizedProject,
           palette: normalizedPalette
         };
-        const normalizedLayers = normalizeLayers([defaultLayer]);
+        const normalizedLayers = normalizeLayers([defaultLayer, colorCycleLayer]);
         const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, normalizedProject);
 
         setActiveHistoryDocument(normalizedProject.id);
@@ -5433,6 +5521,7 @@ export const useAppStore = create<AppState>()(
         set({
           project: projectWithPalette,
           palette: normalizedPalette,
+          paletteDirty: false,
           layers: syncedLayers, // Only set top-level layers
           activeLayerId: defaultLayerId,
           selectedLayerIds: defaultLayerId ? [defaultLayerId] : [],
@@ -5444,6 +5533,16 @@ export const useAppStore = create<AppState>()(
           layersNeedRecomposition: true
           // Preserve brush settings across projects - they are user preferences
         });
+
+        if (typeof window !== 'undefined') {
+          setTimeout(() => {
+            try {
+              get().initColorCycleForLayer(colorCycleLayerId, width, height);
+            } catch (error) {
+              logError('[Store] Failed to initialize default color cycle layer', error);
+            }
+          }, 0);
+        }
         
         // Clear history for new project
         get().clearHistory();

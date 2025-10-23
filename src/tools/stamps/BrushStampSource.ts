@@ -135,8 +135,7 @@ export class BrushStampSource {
       return;
     }
     const eraserSettings = state.tools.eraserSettings;
-    const shouldLink =
-      eraserSettings.linkSizeToBrush !== false && eraserSettings.linkSizeToBrush !== 0;
+    const shouldLink = eraserSettings.linkSizeToBrush !== false;
     if (shouldLink || !this.brushEngine.updateConfig) {
       this.sizeOverrideApplied = false;
       this.originalBrushSize = null;

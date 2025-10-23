@@ -39,7 +39,7 @@ describe('useAppStore palette integration', () => {
     expect(nextState.project?.palette?.foregroundColor).toBe('#FFAA00');
   });
 
-  it('swaps foreground/background colors and updates brush color', () => {
+  it('swaps foreground/background colors without changing current brush color', () => {
     const store = useAppStore.getState();
     store.setPaletteColor('foreground', '#112233');
     store.setBrushSettings({ color: '#112233' });
@@ -50,7 +50,7 @@ describe('useAppStore palette integration', () => {
     const nextState = useAppStore.getState();
     expect(nextState.palette.foregroundColor).toBe('#ABCDEF');
     expect(nextState.palette.backgroundColor).toBe('#112233');
-    expect(nextState.tools.brushSettings.color).toBe('#ABCDEF');
+    expect(nextState.tools.brushSettings.color).toBe('#112233');
   });
 
   it('updates palette when eraser color changes while foreground slot is active', () => {

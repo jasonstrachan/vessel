@@ -3,6 +3,32 @@
 
 import type { Project, Layer } from '../types';
 
+const captureCanvasImageData = (canvas?: HTMLCanvasElement | null): ImageData | undefined => {
+  if (typeof HTMLCanvasElement === 'undefined' || !canvas) {
+    return undefined;
+  }
+
+  const width = Math.floor((canvas as HTMLCanvasElement).width ?? 0);
+  const height = Math.floor((canvas as HTMLCanvasElement).height ?? 0);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return undefined;
+  }
+
+  const context = canvas.getContext('2d', {
+    willReadFrequently: true
+  } as CanvasRenderingContext2DSettings);
+  if (!context) {
+    return undefined;
+  }
+
+  try {
+    return context.getImageData(0, 0, width, height);
+  } catch (error) {
+    console.warn('[BackgroundStorage] Failed to capture canvas image data.', error);
+    return undefined;
+  }
+};
+
 const sanitizeColorCycleData = (
   colorCycleData: Layer['colorCycleData']
 ): Layer['colorCycleData'] | undefined => {
@@ -12,14 +38,25 @@ const sanitizeColorCycleData = (
 
   const {
     recolorSettings,
+    colorCycleBrush: _colorCycleBrush,
+    canvas,
+    eraseMask,
     ...rest
   } = colorCycleData;
 
   const sanitized: Layer['colorCycleData'] = {
     ...rest,
+    canvasImageData: captureCanvasImageData(canvas) ?? rest.canvasImageData,
+    canvasWidth: rest.canvasWidth ?? canvas?.width,
+    canvasHeight: rest.canvasHeight ?? canvas?.height,
+    eraseMaskImageData: captureCanvasImageData(eraseMask) ?? rest.eraseMaskImageData,
     colorCycleBrush: undefined,
     canvas: undefined
   };
+
+  if (typeof HTMLCanvasElement !== 'undefined' && eraseMask instanceof HTMLCanvasElement) {
+    sanitized.eraseMaskVersion = rest.eraseMaskVersion ?? colorCycleData.eraseMaskVersion;
+  }
 
   if (recolorSettings) {
     const { colorMap, ...recolorRest } = recolorSettings;
@@ -29,7 +66,24 @@ const sanitizeColorCycleData = (
     };
   }
 
+  delete (sanitized as Record<string, unknown>).eraseMask;
+
   return sanitized;
+};
+
+const createFramebuffer = (width: number, height: number): Layer['framebuffer'] => {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    return new OffscreenCanvas(width, height);
+  }
+
+  if (typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  }
+
+  throw new Error('No canvas implementation available to restore framebuffer');
 };
 
 type SerializableLayer = Omit<Layer, 'framebuffer'>;
@@ -160,11 +214,41 @@ class BackgroundStorageService {
         const result = request.result as AutosaveRecord | undefined;
         if (result) {
           // Add missing framebuffer property back to layers
-          const restoredLayers: Layer[] = result.layerData.map(layer => ({
-            ...layer,
-            framebuffer: new OffscreenCanvas(result.projectData.width, result.projectData.height)
-          }));
-          
+          const restoredLayers: Layer[] = result.layerData.map(layer => {
+            const framebufferWidth = layer.imageData?.width ?? result.projectData.width;
+            const framebufferHeight = layer.imageData?.height ?? result.projectData.height;
+            let restoredColorCycleData = layer.colorCycleData;
+
+            if (
+              layer.layerType === 'color-cycle' &&
+              layer.colorCycleData?.eraseMaskImageData &&
+              typeof document !== 'undefined'
+            ) {
+              try {
+                const maskCanvas = document.createElement('canvas');
+                maskCanvas.width = layer.colorCycleData.eraseMaskImageData.width;
+                maskCanvas.height = layer.colorCycleData.eraseMaskImageData.height;
+                const maskCtx = maskCanvas.getContext('2d', {
+                  willReadFrequently: true
+                } as CanvasRenderingContext2DSettings);
+                maskCtx?.putImageData(layer.colorCycleData.eraseMaskImageData, 0, 0);
+
+                restoredColorCycleData = {
+                  ...layer.colorCycleData,
+                  eraseMask: maskCanvas
+                };
+              } catch (error) {
+                console.warn('[BackgroundStorage] Failed to restore erase mask.', error);
+              }
+            }
+
+            return {
+              ...layer,
+              colorCycleData: restoredColorCycleData,
+              framebuffer: createFramebuffer(framebufferWidth, framebufferHeight)
+            };
+          });
+
           resolve({
             project: result.projectData,
             layers: restoredLayers

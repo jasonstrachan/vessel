@@ -1,7 +1,7 @@
 # Foreground/Background Palette Spec
 
 ## Goal
-Introduce globally available foreground and background colors so artists can quickly flip between two swatches from the color picker panel. The UI will expose overlapping foreground/background swatch controls to the left of the existing RGB sliders, and tools/brushes can read or mutate either color as needed.
+Introduce globally available foreground and background colors so artists can quickly flip between two swatches from the color picker panel. The UI now presents a compact stacked pair of swatches beside the RGB sliders, and tools/brushes can read or mutate either color as needed.
 
 ## Current State
 - `ColorPickerPanel` (`src/components/panels/ColorPickerPanel.tsx`) owns a single color value pulled from `tools.brushSettings` or `tools.eraserSettings`.
@@ -10,11 +10,11 @@ Introduce globally available foreground and background colors so artists can qui
 - Brushes that need multiple colors handle them ad-hoc (e.g., gradients) rather than via a consistent palette contract.
 
 ## Requirements
-- **Dual swatches**: Display overlapping foreground/background squares, positioned immediately left of the RGB sliders. Clicking a swatch selects it (foreground or background) and gives it a distinct outline.
+- **Dual swatches**: Display a stacked column of foreground (top) and background (bottom) squares positioned immediately left of the RGB sliders. Clicking a swatch selects it (foreground or background) and gives it a distinct outline.
 - **Toggle active color**: Clicking a swatch switches the active editing target; the ColorPicker and RGB sliders update whichever color is active.
 - **Storage**: Foreground/background colors must live in `useAppStore`, scoped outside per-tool settings so all tools can access them.
 - **Global access**: Brushes and tools can read both colors and optional metadata (e.g., which is active). Store actions expose setters and swapper helpers.
-- **Tool integration**: Default behavior mirrors current single-color tools (foreground = active brush color). Background color defaults to white but can be changed. Some tools (fills, gradients, eraser) can opt-in to use background color.
+- **Tool integration**: Palette edits no longer push changes directly into the active brush/eraser. Background defaults to white and can be changed at any time. Foreground color is applied to the active tool when a stroke begins, keeping slider drags responsive while still syncing paint output. Tools that need the background color (fills, gradients, etc.) can read it directly from the palette slice.
 - **Persistence**: Palette colors persist with the project and autosave history.
 - **Accessibility**: Swatch controls must be focusable, announce active state, and work with keyboard (Enter/Space to activate).
 
@@ -39,11 +39,11 @@ Initialization:
 - Background defaults to `#FFFFFF` (or the project background if non-transparent).
 - Persist `palette` inside project serialization (`utils/projectIO`, history snapshots) so foreground/background survive reloads.
 
-`BrushSettings.color` remains for now but should mirror the palette foreground. When the active slot is `foreground`, color edits update both `palette.foregroundColor` and the active tool settings. When `background` is selected, updates only touch `palette.backgroundColor` unless the active tool explicitly opts-in.
+`BrushSettings.color` remains for now but is only refreshed when a new stroke begins and the foreground slot is active. Slider drags and swatch toggles mutate the palette slice exclusively; tools pull the latest palette value on demand (e.g., when `useDrawingHandlers` starts a stroke).
 
 ## UI & Interaction
-- **Layout**: Insert a `PaletteSwatches` sub-component above the RGB slider block, aligned flush left. It renders two 32×32 squares with slight overlap (foreground on top-right). Provide tailwind classes so they coexist with existing panel padding.
-- **Active styling**: Selected swatch uses a 2px light outline and elevated box-shadow. Non-active swatch uses subdued outline. Optional diagonal divider to clarify stacking order.
+- **Layout**: Insert a `PaletteSwatches` sub-component on the left edge of the RGB slider block. It renders a stacked pair of compact (8×8) buttons that align with the top slider track inside the same flex row.
+- **Active styling**: Selected swatch draws a high-contrast outline (color chosen based on swatch brightness). Inactive swatches keep the neutral border.
 - **Click behavior**:
   - Click foreground → `setActivePaletteSlot('foreground')`.
   - Click background → `setActivePaletteSlot('background')`.
@@ -55,13 +55,14 @@ Initialization:
 - **ColorPicker wiring**:
   - `ColorPicker` and RGB sliders read/write the active slot.
   - When switching slots, controls rehydrate from the selected color.
-  - Update `ColorSwatches` buttons to apply to whichever slot is active.
+  - Palette edits do not update brush/eraser state immediately; adoption happens when the user starts painting with that tool.
+  - `ColorSwatches` buttons apply to whichever slot is active.
 
 ## Tool & Brush Integration
-- **Default brush/eraser**: Continue to read from `tools.brushSettings.color`, but keep it in sync with palette foreground whenever the active slot is foreground. When background is edited, no immediate brush color update occurs unless tool opts-in.
+- **Default brush/eraser**: Continue to read from `tools.brushSettings.color`, but adopt `palette.foregroundColor` at the start of a stroke when the foreground swatch is active. Background edits never mutate tool colors unless a tool explicitly opts-in.
 - **Fill tools (shape fill, project background fill)**: Update to respect `palette.backgroundColor` as the secondary color option. Spec separate follow-up to let fill tools optionally use background by default.
 - **Gradient/duotone brushes**: Provide helper `getPaletteColors()` returning `{ foreground, background, activeSlot }` so plugins can adopt background usage gracefully.
-- **History/undo**: Palette changes must be part of the undo stack. Integrate into existing history actions (`setBrushSettings`, `setEraserSettings`) by using `immer` patterns or manual patch objects that include palette diffs.
+- **History/undo**: Palette changes are intentionally excluded from the undo stack to keep the history signal focused on canvas edits.
 
 ## Migration & Compatibility
 - Backward compatibility: Projects saved prior to this change default missing palette fields to existing defaults. Ensure `normalizeProject` assigns fallback values.
@@ -77,11 +78,11 @@ Initialization:
    - Refactor `ColorPickerPanel` to bind `ColorPicker`, RGB sliders, and `ColorSwatches` to the active palette slot.
    - Add keyboard handlers (`X`, `Shift+X`) via `useComprehensiveKeyboard`.
 3. **Tool sync**
-   - Ensure brush/eraser settings remain in sync with palette.foreground when that slot is active.
-   - Audit tools that read `brushSettings.color` and confirm they still behave correctly.
+   - Update stroke start logic (`useDrawingHandlers`) so the active brush/eraser pulls from `palette.foregroundColor` on demand instead of every slider change.
+   - Audit tools that read `brushSettings.color` and confirm they still behave correctly with deferred updates.
 4. **Persistence & history**
-   - Update project import/export, autosave, and undo history snapshots to include palette.
-   - Add regression tests for store actions and serialization.
+   - Update project import/export and autosave flows to persist the palette slice.
+   - Exclude palette-only edits from undo/redo to keep history lean.
 5. **QA & docs**
    - Unit tests for palette reducer/helpers.
    - Manual pass to confirm UI behavior, keyboard shortcuts, and basePath-safe asset usage.
@@ -96,6 +97,6 @@ Initialization:
 ## Validation
 - Automated: `npm run type-check`, `npm run lint`, `npm test`.
 - Manual:
-  - Swap active swatch and confirm ColorPicker reflects the selected color.
+  - Swap active swatch and confirm the ColorPicker reflects the selected color while the non-active tool color remains untouched.
   - Use `X` shortcut to swap colors and verify both swatch visuals and store state.
-  - Change brush, switch tools, and ensure foreground color remains consistent.
+  - Start a stroke with the foreground swatch active and confirm the brush/eraser adopts the palette color at stroke onset.

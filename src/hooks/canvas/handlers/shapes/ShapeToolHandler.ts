@@ -5,7 +5,7 @@ import { BrushShape, type BrushSettings } from '@/types';
 import { snapPointToAngle } from '@/utils/angleSnap';
 import { computeDragScaledValue } from '@/utils/dragScale';
 import { withTemporaryBrushSettings } from '@/utils/withTemporaryBrushSettings';
-import { parseCssColor } from '@/utils/color/parseCssColor';
+import { computeShapeFillColors, toOpaqueColorString, type ShapeFillColors } from '@/shapeFill/colorUtils';
 import { OpController, CanvasManager } from '@/lib/canvas';
 import { MIN_LINE_SPACING } from '@/utils/contourLines';
 import { getPreviewRenderer } from '@/shapeFill/paramPreview';
@@ -26,11 +26,6 @@ type ShapeFillOptions = Record<string, unknown>;
 
 type ShapeFillScheduler = {
   dispatchJobUpdate: (update: unknown) => void;
-};
-
-const toOpaqueColorString = (color: string): string => {
-  const parsed = parseCssColor(color);
-  return `rgb(${parsed.r}, ${parsed.g}, ${parsed.b})`;
 };
 
 type ShapeAdjustHelperConfig = {
@@ -388,9 +383,10 @@ export const createShapeToolHandler = (
 
     const isAdjusting = session.stage === FillStage.AdjustingParam && !!session.currentParam;
     if (isAdjusting && session.currentParam) {
-      const previewFillColor = resolveShapeFillColor(session.shape.points);
-      overlayCtx.strokeStyle = previewFillColor;
-      overlayCtx.fillStyle = previewFillColor;
+      const previewColors = resolveShapeFillColors(session.shape.points);
+      const previewPrimary = getPrimaryColor(previewColors);
+      overlayCtx.strokeStyle = previewPrimary;
+      overlayCtx.fillStyle = previewPrimary;
 
       const store = useAppStore.getState();
       const fillId = store.shapeFill.activeFillId;
@@ -470,17 +466,25 @@ export const createShapeToolHandler = (
       ...session.params,
     } as FillParams;
 
-    const fillColor = resolveShapeFillColor(session.shape.points);
+    const colors = resolveShapeFillColors(session.shape.points);
+    const primaryColor = getPrimaryColor(colors);
+    const secondaryColor = getSecondaryColor(colors);
     const paramsWithColor: FillParams = {
       ...mergedParams,
-      fillColor,
+      fillColor: primaryColor,
     };
+    if (secondaryColor) {
+      paramsWithColor.backgroundColor = secondaryColor;
+    }
     const previewResult = strategy.apply(session.shape, paramsWithColor);
     drawCtx.save();
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    if (secondaryColor && session.shape.points.length >= 3) {
+      fillShapeArea(drawCtx, session.shape.points, secondaryColor);
+    }
     drawCtx.lineWidth = paramsWithColor.thickness ?? 1;
-    drawCtx.strokeStyle = fillColor;
-    drawCtx.fillStyle = fillColor;
+    drawCtx.strokeStyle = primaryColor;
+    drawCtx.fillStyle = primaryColor;
     renderFill(drawCtx, previewResult);
     if (store.shapeFill.showOutline && session.shape.points.length >= 3) {
       drawCtx.strokeStyle = 'rgba(0,0,0,0.35)';
@@ -519,19 +523,27 @@ export const createShapeToolHandler = (
       return false;
     }
 
-    const fillColor = resolveShapeFillColor(payload.shape.points);
+    const colors = resolveShapeFillColors(payload.shape.points);
+    const primaryColor = getPrimaryColor(colors);
+    const secondaryColor = getSecondaryColor(colors);
     const paramsWithColor: FillParams = {
       ...payload.params,
-      fillColor,
+      fillColor: primaryColor,
     };
+    if (secondaryColor) {
+      paramsWithColor.backgroundColor = secondaryColor;
+    }
     const finalResult = payload.strategy.apply(payload.shape, paramsWithColor);
     payload.params = paramsWithColor;
     payload.result = finalResult;
     drawCtx.save();
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    if (secondaryColor && payload.shape.points.length >= 3) {
+      fillShapeArea(drawCtx, payload.shape.points, secondaryColor);
+    }
     drawCtx.lineWidth = paramsWithColor.thickness ?? 1;
-    drawCtx.strokeStyle = fillColor;
-    drawCtx.fillStyle = fillColor;
+    drawCtx.strokeStyle = primaryColor;
+    drawCtx.fillStyle = primaryColor;
     renderFill(drawCtx, finalResult);
     if (store.shapeFill.showOutline && payload.shape.points.length >= 3) {
       drawCtx.strokeStyle = 'rgba(0,0,0,0.35)';
@@ -1319,6 +1331,41 @@ export const createShapeToolHandler = (
     }
   };
 
+  const fillShapeArea = (
+    ctx: CanvasRenderingContext2D,
+    points: Array<{ x: number; y: number }>,
+    color: string
+  ) => {
+    if (points.length < 3) {
+      return;
+    }
+    const previousFill = ctx.fillStyle;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i += 1) {
+      const pt = points[i];
+      ctx.lineTo(pt.x, pt.y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = previousFill;
+  };
+
+  const getPrimaryColor = (colors: ShapeFillColors): string => {
+    if (colors.primary === 'background' && colors.background) {
+      return colors.background;
+    }
+    return colors.foreground;
+  };
+
+  const getSecondaryColor = (colors: ShapeFillColors): string | undefined => {
+    if (colors.primary === 'background') {
+      return colors.foreground;
+    }
+    return colors.background;
+  };
+
   const resolvePolygonPointColor = (worldPos: { x: number; y: number }) => {
     const store = useAppStore.getState();
     const { brushSettings } = store.tools;
@@ -1341,7 +1388,9 @@ export const createShapeToolHandler = (
     );
   };
 
-  const resolveShapeFillColor = (points?: Array<{ x: number; y: number; color?: string }>) => {
+  const resolveShapeFillColors = (
+    points?: Array<{ x: number; y: number; color?: string }>
+  ) => {
     const store = useAppStore.getState();
     const { brushSettings } = store.tools;
     const brushShape = brushSettings.brushShape;
@@ -1354,42 +1403,61 @@ export const createShapeToolHandler = (
         for (const point of candidatePoints) {
           const candidate = point?.color;
           if (candidate) {
-            return candidate;
+            return {
+              foreground: toOpaqueColorString(candidate),
+              background: undefined,
+              sampledForeground: true,
+              sampledBackground: false,
+              primary: 'foreground' as const,
+            };
           }
         }
       }
 
       if (store.polygonGradientState.fillColor) {
-        return store.polygonGradientState.fillColor;
+        return {
+          foreground: toOpaqueColorString(store.polygonGradientState.fillColor),
+          background: undefined,
+          sampledForeground: false,
+          sampledBackground: false,
+          primary: 'foreground' as const,
+        };
       }
 
-      return brushSettings.color;
+      return {
+        foreground: toOpaqueColorString(brushSettings.color),
+        background: undefined,
+        sampledForeground: false,
+        sampledBackground: false,
+        primary: 'foreground' as const,
+      };
     }
 
     if (brushShape === BrushShape.SHAPE_FILL) {
-      if (store.shapeFill.sampleUnderShape) {
-        const candidatePoints =
-          points ??
-          store.shapeFill.session?.shape?.points ??
-          store.shapeFill.lastFinalize?.shape.points ??
-          [];
+      const candidatePoints =
+        points ??
+        store.shapeFill.session?.shape?.points ??
+        store.shapeFill.lastFinalize?.shape.points ??
+        [];
 
-        if (candidatePoints.length > 0) {
-          const coords = candidatePoints.map(point => ({
-            x: point.x,
-            y: point.y,
-          }));
-          const centroid = computePolygonCentroid(coords);
-          const sampled = sampleColorAtPosition(centroid.x, centroid.y);
-          if (sampled) {
-            return toOpaqueColorString(sampled);
-          }
-        }
-      }
-      return brushSettings.color;
+      return computeShapeFillColors({
+        points: candidatePoints,
+        palette: store.palette,
+        brushColor: brushSettings.color,
+        sampleUnderShape: store.shapeFill.sampleUnderShape,
+        useBackgroundColor: store.shapeFill.useBackgroundColor,
+        sampleColorAtPosition,
+        fallbackBackground: store.project?.backgroundColor,
+      });
     }
 
-    return brushSettings.color;
+    return {
+      foreground: toOpaqueColorString(brushSettings.color),
+      background: undefined,
+      sampledForeground: false,
+      sampledBackground: false,
+      primary: 'foreground' as const,
+    };
   };
 
   const clearOverlayCanvas = () => {
@@ -2272,7 +2340,7 @@ export const createShapeToolHandler = (
                   : [];
                 const previewColor = useSampledFill
                   ? sampleColorAtPosition(previewPoint.x, previewPoint.y)
-                  : resolveShapeFillColor(polygonStateForPreview.points);
+                  : getPrimaryColor(resolveShapeFillColors(polygonStateForPreview.points));
                 previewColors.push(previewColor);
 
                 if (previewColors.length >= 3) {
@@ -2414,7 +2482,8 @@ export const createShapeToolHandler = (
     }
 
     const vertices = points.map((p: { x: number; y: number }) => ({ x: p.x, y: p.y }));
-    const fillColor = resolveShapeFillColor(points);
+    const resolvedColors = resolveShapeFillColors(points);
+    const fillColor = getPrimaryColor(resolvedColors);
     drawingHandlers.initDrawingCanvas();
     const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
 

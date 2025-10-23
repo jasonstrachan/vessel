@@ -20,6 +20,7 @@ type ManagedColorCycleBrush = ColorCycleBrushCanvas2D & {
   clearPaintBuffer?: (layerId?: string) => void;
   updateColorCycleTexture?: () => void;
   getCanvas?: () => HTMLCanvasElement | null;
+  setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
   applyLayerSnapshot?: (
     layerId: string,
     snapshot: {
@@ -168,6 +169,18 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
     const targetCanvas = layer?.colorCycleData?.canvas;
     if (!brush || !layer || layer.layerType !== 'color-cycle' || !targetCanvas) {
       return;
+    }
+
+    if (
+      typeof HTMLCanvasElement !== 'undefined' &&
+      targetCanvas instanceof HTMLCanvasElement &&
+      typeof (brush as ManagedColorCycleBrush).setTargetCanvas === 'function'
+    ) {
+      try {
+        (brush as ManagedColorCycleBrush).setTargetCanvas(targetCanvas);
+      } catch {
+        // Best-effort reattachment; render flow will continue regardless.
+      }
     }
 
     const layerSnapshots = state.layers ?? [];

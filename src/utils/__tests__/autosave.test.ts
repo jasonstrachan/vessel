@@ -34,6 +34,11 @@ describe('AutosaveService', () => {
         id: 'test-project',
         name: 'Test Project'
       },
+      palette: {
+        foregroundColor: '#000000',
+        backgroundColor: '#FFFFFF',
+        activeSlot: 'foreground' as const
+      },
       layers: [{ id: 'layer-1' }],
       captureCanvasToActiveLayer: jest.fn().mockResolvedValue(undefined),
       clearDirtyState: jest.fn(),
@@ -83,10 +88,11 @@ describe('AutosaveService', () => {
 
     expect(store.captureCanvasToActiveLayer).toHaveBeenCalled();
     expect(backgroundStorageService.saveProjectInBackground).toHaveBeenCalledWith(
-      store.project,
+      expect.objectContaining({ palette: store.palette }),
       store.layers
     );
     expect(store.clearDirtyState).toHaveBeenCalled();
+    expect(setStateMock).toHaveBeenCalledWith({ paletteDirty: false });
   });
 
   it('should not perform autosave when disabled', async () => {

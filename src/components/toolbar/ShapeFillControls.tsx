@@ -16,10 +16,12 @@ const ShapeFillControls: React.FC = () => {
   const session = useAppStore(state => state.shapeFill.session);
   const showOutline = useAppStore(state => state.shapeFill.showOutline);
   const sampleUnderShape = useAppStore(state => state.shapeFill.sampleUnderShape);
+  const useBackgroundColor = useAppStore(state => state.shapeFill.useBackgroundColor);
   const setActiveFill = useAppStore(state => state.setShapeFillActiveFill);
   const setParamValue = useAppStore(state => state.setShapeFillParamValue);
   const setShowOutline = useAppStore(state => state.setShapeFillShowOutline);
   const setSampleUnderShape = useAppStore(state => state.setShapeFillSampleUnderShape);
+  const setUseBackgroundColor = useAppStore(state => state.setShapeFillUseBackground);
 
   const activeStrategy =
     SHAPE_FILL_STRATEGIES.find(strategy => strategy.id === activeFillId) ??
@@ -70,6 +72,14 @@ const ShapeFillControls: React.FC = () => {
             checked={sampleUnderShape}
             onChange={checked => setSampleUnderShape(checked)}
             aria-label="Sample"
+          />
+        </div>
+        <div className="flex items-center gap-3 text-xs text-[#CCCCCC]">
+          <span className="w-24">Background</span>
+          <CustomSwitch
+            checked={useBackgroundColor}
+            onChange={checked => setUseBackgroundColor(checked)}
+            aria-label="Background fill"
           />
         </div>
 

@@ -30,6 +30,7 @@ import { perfMark, perfMeasure, timeAsync, timeSync } from '@/utils/perf/ccPerfP
 import { getMaskManager } from '@/layers/MaskManager';
 import { BrushStampSource } from '@/tools/stamps/BrushStampSource';
 import { EraserTool } from '@/tools/EraserTool';
+import historyManager from '@/history/historyService';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -118,6 +119,86 @@ const getDesiredColorCyclePlaying = () =>
 
 const getEffectiveColorCyclePlaying = () =>
   selectEffectiveColorCyclePlaying(useAppStore.getState());
+
+const ensureCanvasPixelSize = (canvas: HTMLCanvasElement): void => {
+  if (
+    !canvas ||
+    typeof window === 'undefined' ||
+    typeof canvas.getBoundingClientRect !== 'function'
+  ) {
+    return;
+  }
+  const isConnected =
+    typeof (canvas as { isConnected?: unknown }).isConnected === 'boolean'
+      ? Boolean((canvas as { isConnected?: unknown }).isConnected)
+      : true;
+  if (!isConnected) {
+    return;
+  }
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width && !rect.height) {
+    return;
+  }
+  const dpr = window.devicePixelRatio || 1;
+  const targetWidth = Math.max(1, Math.round(rect.width * dpr));
+  const targetHeight = Math.max(1, Math.round(rect.height * dpr));
+  if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+  }
+};
+
+const bindBrushToCanvas = (
+  brush: ColorCycleBrushImplementation | null | undefined,
+  canvas: HTMLCanvasElement | null | undefined
+): void => {
+  if (!brush || !canvas) {
+    return;
+  }
+  const brushWithTarget = brush as ColorCycleBrushImplementation & {
+    setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
+  };
+  if (typeof brushWithTarget.setTargetCanvas === 'function') {
+    const isConnected =
+      typeof (canvas as { isConnected?: unknown }).isConnected === 'boolean'
+        ? Boolean((canvas as { isConnected?: unknown }).isConnected)
+        : false;
+    if (isConnected) {
+      ensureCanvasPixelSize(canvas);
+    }
+    brushWithTarget.setTargetCanvas(canvas);
+  }
+};
+
+const refreshLayerCCSurface = (
+  brush: ColorCycleBrushImplementation,
+  layerId: string
+): HTMLCanvasElement | null => {
+  const state = useAppStore.getState();
+  const layer = state.layers.find((candidate) => candidate.id === layerId);
+  if (!layer) {
+    return null;
+  }
+
+  const storedCanvas = layer.colorCycleData?.canvas as HTMLCanvasElement | undefined;
+  const liveCanvas = brush.getCanvas?.() as HTMLCanvasElement | undefined;
+
+  if (liveCanvas && (!storedCanvas || storedCanvas !== liveCanvas)) {
+    try {
+      state.updateLayer(layerId, {
+        colorCycleData: {
+          ...(layer.colorCycleData ?? {}),
+          canvas: liveCanvas
+        }
+      });
+      return liveCanvas;
+    } catch {
+      // Ignore update failures; fall back to best-known canvas.
+    }
+  }
+
+  return storedCanvas ?? liveCanvas ?? null;
+};
 
 const getShapeFillHistoryDescription = (): string => {
   const { shapeFill } = useAppStore.getState();
@@ -1337,6 +1418,7 @@ export function useDrawingHandlers({
   }, []);
   
   const startDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
+    console.log('[TOOL] try draw', { isReplaying: historyManager.isReplaying });
     const currentState = useAppStore.getState();
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
@@ -1588,7 +1670,16 @@ export function useDrawingHandlers({
     drawCtx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
     drawingCanvasHasContent.current = !(ccFlags.isAny && colorCyclePlayingAtStrokeStart);
     lastDrawPosRef.current = worldPos;
-    
+
+    if (currentState.palette.activeSlot === 'foreground') {
+      const paletteColor = currentState.palette.foregroundColor;
+      if (currentTool === 'brush') {
+        currentState.setBrushSettings({ color: paletteColor });
+      } else if (currentTool === 'eraser') {
+        currentState.setEraserSettings({ color: paletteColor });
+      }
+    }
+
     if (currentTool === 'eraser') {
       if (FF.ERASER_V2 && drawCtx) {
         const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
@@ -2599,6 +2690,7 @@ export function useDrawingHandlers({
               const colorCycleBrush = refreshedActiveLayer ? colorCycleBrushManager.getBrush(refreshedActiveLayer.id) : undefined;
 
               if (colorCycleBrush && refreshedActiveLayer?.colorCycleData?.canvas && drawingCanvas && drawingCtx) {
+                bindBrushToCanvas(colorCycleBrush, refreshedActiveLayer.colorCycleData.canvas);
                 // Final render directly to layer canvas at full opacity
                 colorCycleBrush.renderDirectToCanvas(refreshedActiveLayer.colorCycleData.canvas, refreshedActiveLayer.id);
                 
@@ -2673,8 +2765,9 @@ export function useDrawingHandlers({
               try {
                 const colorCycleBrushManager = getColorCycleBrushManager();
                 const brush = colorCycleBrushManager.getBrush(targetLayerId) as ManagedColorCycleBrush | undefined;
-                if (brush) {
-                  if (typeof brush.commitCurrentStroke === 'function') {
+                  if (brush) {
+                    bindBrushToCanvas(brush, layerCanvas);
+                    if (typeof brush.commitCurrentStroke === 'function') {
                     brush.commitCurrentStroke(targetLayerId);
                   } else {
                     brush.finalizeCurrentStroke?.(targetLayerId);
@@ -3224,6 +3317,7 @@ export function useDrawingHandlers({
                     | undefined;
 
                   if (colorCycleBrush && activeLayerCanvas) {
+                    bindBrushToCanvas(colorCycleBrush, activeLayerCanvas);
                     timeSync('cc:shape:render', () => {
                       colorCycleBrush.renderDirectToCanvas(activeLayerCanvas, activeLayerId);
                     });
@@ -3706,6 +3800,7 @@ export function useDrawingHandlers({
                           | undefined;
 
                         if (colorCycleBrush) {
+                          bindBrushToCanvas(colorCycleBrush, activeLayerCanvasLinear);
                           timeSync('cc:shape:render', () => {
                             colorCycleBrush.renderDirectToCanvas(activeLayerCanvasLinear, activeLayerId);
                           });
@@ -3829,6 +3924,7 @@ export function useDrawingHandlers({
                           | undefined;
 
                         if (colorCycleBrush) {
+                          bindBrushToCanvas(colorCycleBrush, activeLayerCanvasConcentric);
                           timeSync('cc:shape:render', () => {
                             colorCycleBrush.renderDirectToCanvas(activeLayerCanvasConcentric, activeLayerId);
                           });
@@ -4048,14 +4144,24 @@ export function useDrawingHandlers({
         const colorCycleBrush = colorCycleBrushManager.getBrush(layer.id);
         if (!colorCycleBrush) return;
 
-        // Advance strictly when the store marks this layer as animating
-        if (layer.colorCycleData.isAnimating) {
-          colorCycleBrush.updateAnimation();
+        const liveCanvas = refreshLayerCCSurface(colorCycleBrush, layer.id);
+        if (!liveCanvas) {
+          return;
         }
 
-        // Always copy the latest brush buffer into the layer canvas so paused strokes stay visible.
-        colorCycleBrush.renderDirectToCanvas(layer.colorCycleData.canvas, layer.id);
-        const maskCtx = layer.colorCycleData.canvas.getContext('2d', { willReadFrequently: true });
+        let animatorUpdated = false;
+        if (layer.colorCycleData.isAnimating) {
+          colorCycleBrush.updateAnimation();
+          animatorUpdated = true;
+        }
+
+        if (liveCanvas.isConnected) {
+          bindBrushToCanvas(colorCycleBrush, liveCanvas);
+        }
+        if (!animatorUpdated) {
+          colorCycleBrush.renderDirectToCanvas(liveCanvas, layer.id);
+        }
+        const maskCtx = liveCanvas.getContext('2d', { willReadFrequently: true });
         if (maskCtx) {
           maskManager.applyMaskToCanvas(layer.id, maskCtx);
         }
@@ -4067,7 +4173,7 @@ export function useDrawingHandlers({
         ) {
           targetCtx.globalAlpha = layer.opacity;
           targetCtx.globalCompositeOperation = layer.blendMode || 'source-over';
-          targetCtx.drawImage(layer.colorCycleData.canvas, 0, 0);
+          targetCtx.drawImage(liveCanvas, 0, 0);
           hasRendered = true;
         }
       }

@@ -74,6 +74,7 @@ export interface FillParams {
   noiseRandomness?: number;
   delaunayVariation?: number;
   fillColor?: string;
+  backgroundColor?: string;
 }
 
 export interface FillResult {

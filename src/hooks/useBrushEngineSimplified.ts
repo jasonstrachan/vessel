@@ -6,7 +6,7 @@
 import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { selectEffectiveColorCyclePlaying, useAppStore } from '../stores/useAppStore';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams, type CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
-import { BrushShape } from '../types';
+import { BrushShape, type Layer } from '../types';
 import { getRisographPattern } from '../utils/risographTexture';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { canvasPool } from '../utils/canvasPool';
@@ -43,12 +43,6 @@ const warnShapeFillRemoved = (() => {
     );
   };
 })();
-
-const hasForceRender = (
-  brush: ColorCycleBrushImplementation | null
-): brush is ColorCycleBrushImplementation & { forceRender: () => void } => {
-  return Boolean(brush && typeof (brush as { forceRender?: unknown }).forceRender === 'function');
-};
 
 const getAlphaLockDebugLevel = () => {
   if (typeof window === 'undefined') {
@@ -184,6 +178,111 @@ const sampleRGBA = (ctx: CanvasRenderingContext2D, x: number, y: number) => {
   }
 };
 
+const ensureCanvasPixelSize = (canvas: HTMLCanvasElement): void => {
+  if (
+    !canvas ||
+    typeof window === 'undefined' ||
+    typeof canvas.getBoundingClientRect !== 'function'
+  ) {
+    return;
+  }
+  const isConnected =
+    typeof (canvas as { isConnected?: unknown }).isConnected === 'boolean'
+      ? Boolean((canvas as { isConnected?: unknown }).isConnected)
+      : true;
+  if (!isConnected) {
+    return;
+  }
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width && !rect.height) {
+    return;
+  }
+  const dpr = window.devicePixelRatio || 1;
+  const targetWidth = Math.max(1, Math.round(rect.width * dpr));
+  const targetHeight = Math.max(1, Math.round(rect.height * dpr));
+  if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+  }
+};
+
+const bindBrushToCanvas = (
+  brush: ColorCycleBrushImplementation | null | undefined,
+  canvas: HTMLCanvasElement | null | undefined
+): void => {
+  if (!brush || !canvas) {
+    return;
+  }
+  const brushWithTarget = brush as ColorCycleBrushImplementation & {
+    setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
+  };
+  if (typeof brushWithTarget.setTargetCanvas === 'function') {
+    const isConnected =
+      typeof (canvas as { isConnected?: unknown }).isConnected === 'boolean'
+        ? Boolean((canvas as { isConnected?: unknown }).isConnected)
+        : false;
+    if (isConnected) {
+      ensureCanvasPixelSize(canvas);
+    }
+    brushWithTarget.setTargetCanvas(canvas);
+  }
+};
+
+export const refreshLayerCCSurface = (
+  brush: ColorCycleBrushImplementation,
+  layerId: string
+): HTMLCanvasElement | null => {
+  const state = useAppStore.getState();
+  const layer = state.layers.find((candidate) => candidate.id === layerId);
+  if (!layer) {
+    return null;
+  }
+
+  const storedCanvas = layer.colorCycleData?.canvas as HTMLCanvasElement | undefined;
+  const liveCanvas = brush.getCanvas?.() as HTMLCanvasElement | undefined;
+
+  if (liveCanvas && (!storedCanvas || storedCanvas !== liveCanvas)) {
+    try {
+      state.updateLayer(layerId, {
+        colorCycleData: {
+          ...(layer.colorCycleData ?? {}),
+          canvas: liveCanvas
+        }
+      } as Partial<Layer>);
+      return liveCanvas;
+    } catch {
+      // fall through; return best-known surface
+    }
+  }
+
+  return storedCanvas ?? liveCanvas ?? null;
+};
+
+const renderBrushToLayerCanvas = (
+  brush: ColorCycleBrushImplementation | null | undefined,
+  layerId: string | null | undefined
+): void => {
+  if (!brush || !layerId) {
+    return;
+  }
+  const state = useAppStore.getState();
+  const layerCanvas = refreshLayerCCSurface(brush, layerId);
+  if (!layerCanvas) {
+    return;
+  }
+  bindBrushToCanvas(brush, layerCanvas);
+  if (layerCanvas.isConnected) {
+    ensureCanvasPixelSize(layerCanvas);
+  }
+  if (typeof brush.renderDirectToCanvas === 'function') {
+    try {
+      brush.renderDirectToCanvas(layerCanvas, layerId);
+    } catch (error) {
+      console.warn('[ColorCycle] renderDirectToCanvas failed:', error);
+    }
+  }
+};
+
 export const useBrushEngineSimplified = () => {
   const { tools, project, activeLayerId } = useAppStore();
   // Track per-layer CC brush speed for the active layer
@@ -195,6 +294,8 @@ export const useBrushEngineSimplified = () => {
     const layer = state.layers.find(l => l.id === state.activeLayerId);
     return layer?.transparencyLocked === true;
   });
+  const mirrorScheduledRef = useRef(false);
+  const firstStampImmediateRef = useRef(true);
 
   const getActiveLayerBitmapCanvas = useCallback((): HTMLCanvasElement | OffscreenCanvas | null => {
     const state = useAppStore.getState();
@@ -567,19 +668,20 @@ export const useBrushEngineSimplified = () => {
     const sample = (typeof window !== 'undefined' && window.__AL_sample) || sampleDefault;
     AL('CC_ENTER', { lock: activeLayerTransparencyLock, dst: `${width}x${height}` });
 
-    if (activeLayerTransparencyLock) {
-      const mask = getActiveLayerBitmapCanvas();
-      const maskWidth = (mask as { width?: number })?.width ?? 0;
-      const maskHeight = (mask as { height?: number })?.height ?? 0;
-      const maskSrc = (typeof window !== 'undefined' && window.__AL_maskSrc) || 'unknown';
-      const maskA = sampleMaskA(mask, width, height, sample.x, sample.y);
-      AL('CC_SETUP', {
-        sampleTag: sample.tag,
-        maskSrc,
-        maskSize: `${maskWidth}x${maskHeight}`,
-        maskA
-      });
-    }
+    const mask = getActiveLayerBitmapCanvas();
+    const maskWidth = (mask as { width?: number })?.width ?? 0;
+    const maskHeight = (mask as { height?: number })?.height ?? 0;
+    const hasMaskAlpha = layerHasAnyAlpha();
+    const maskSrc = (typeof window !== 'undefined' && window.__AL_maskSrc) || 'unknown';
+    const maskA = sampleMaskA(mask, width, height, sample.x, sample.y);
+    AL('CC_SETUP', {
+      sampleTag: sample.tag,
+      maskSrc,
+      maskSize: `${maskWidth}x${maskHeight}`,
+      maskA,
+      hasMaskAlpha,
+      lock: activeLayerTransparencyLock
+    });
 
     const tempCanvas = canvasPool.acquire(width, height);
     try {
@@ -591,37 +693,32 @@ export const useBrushEngineSimplified = () => {
       tempCtx.clearRect(0, 0, width, height);
       tempCtx.drawImage(sourceCanvas as unknown as CanvasImageSource, 0, 0, width, height);
 
-      if (activeLayerTransparencyLock) {
-        const layerMask = getActiveLayerBitmapCanvas();
-        const maskCanvas: CanvasImageSource | null = (layerMask as unknown as CanvasImageSource) ?? null;
-        const maskWidth = (layerMask as { width?: number })?.width ?? 0;
-        const maskHeight = (layerMask as { height?: number })?.height ?? 0;
-        if (!maskCanvas || !maskWidth || !maskHeight) {
+      if (activeLayerTransparencyLock && hasMaskAlpha) {
+        if (mask && maskWidth && maskHeight) {
+          tempCtx.globalCompositeOperation = 'destination-in';
+          tempCtx.drawImage(
+            mask as unknown as CanvasImageSource,
+            0,
+            0,
+            maskWidth,
+            maskHeight,
+            0,
+            0,
+            width,
+            height
+          );
+          tempCtx.globalCompositeOperation = 'source-over';
+
+          try {
+            const sx = clamp(Math.floor(sample.x), 0, width - 1);
+            const sy = clamp(Math.floor(sample.y), 0, height - 1);
+            const px = tempCtx.getImageData(sx, sy, 1, 1).data;
+            AL('CC_MASK', { tempSampleRGBA_afterMask: px ? Array.from(px) : null });
+          } catch {
+            AL('CC_MASK', { tempSampleRGBA_afterMask: 'read-failed' });
+          }
+        } else {
           AL('CC_MASK_SKIP', { reason: 'missing-mask' });
-          return;
-        }
-
-        tempCtx.globalCompositeOperation = 'destination-in';
-        tempCtx.drawImage(
-          maskCanvas,
-          0,
-          0,
-          maskWidth,
-          maskHeight,
-          0,
-          0,
-          width,
-          height
-        );
-        tempCtx.globalCompositeOperation = 'source-over';
-
-        try {
-          const sx = clamp(Math.floor(sample.x), 0, width - 1);
-          const sy = clamp(Math.floor(sample.y), 0, height - 1);
-          const px = tempCtx.getImageData(sx, sy, 1, 1).data;
-          AL('CC_MASK', { tempSampleRGBA_afterMask: px ? Array.from(px) : null });
-        } catch {
-          AL('CC_MASK', { tempSampleRGBA_afterMask: 'read-failed' });
         }
       }
 
@@ -644,7 +741,7 @@ export const useBrushEngineSimplified = () => {
     } finally {
       canvasPool.release(tempCanvas);
     }
-  }, [activeLayerTransparencyLock, getActiveLayerBitmapCanvas]);
+  }, [activeLayerTransparencyLock, getActiveLayerBitmapCanvas, layerHasAnyAlpha]);
   
   // Cache for brush stamps
   const brushStampCacheRef = useRef(new Map<string, HTMLCanvasElement>());
@@ -1843,34 +1940,9 @@ export const useBrushEngineSimplified = () => {
     getActiveLayerColorCycleBrush
   ]);
 
-  const ensureColorCycleAnimation = useCallback((shouldPlay: boolean) => {
-    let brush = getActiveLayerColorCycleBrush();
-
-    if (!brush && shouldPlay) {
-      brush = initializeColorCycleBrush();
-    }
-
-    if (!brush) {
-      return;
-    }
-
-    const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
-
-    if (shouldPlay && !isPlaying) {
-      if (typeof brush.startAnimation === 'function') {
-        brush.startAnimation();
-      }
-      return;
-    }
-
-    if (!shouldPlay && isPlaying) {
-      if (typeof brush.pause === 'function') {
-        brush.pause();
-      } else if (typeof brush.stopAnimation === 'function') {
-        brush.stopAnimation();
-      }
-    }
-  }, [getActiveLayerColorCycleBrush, initializeColorCycleBrush]);
+  const ensureColorCycleAnimation = useCallback((_shouldPlay: boolean) => {
+    // Animation loop temporarily disabled; rendering is driven directly via renderDirectToCanvas.
+  }, []);
   
   /**
    * Render Color Cycle output onto the provided context.
@@ -1878,30 +1950,49 @@ export const useBrushEngineSimplified = () => {
    */
   const renderColorCycle = useCallback((ctx: CanvasRenderingContext2D, applyOpacity: boolean = true) => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
-    if (!colorCycleBrush) return;
+    if (!colorCycleBrush || !activeLayerId) {
+      return;
+    }
+
+    const layerCanvas = refreshLayerCCSurface(colorCycleBrush, activeLayerId);
+    if (!layerCanvas) {
+      return;
+    }
+
+    ensureCanvasPixelSize(layerCanvas);
+
+    try {
+      bindBrushToCanvas(colorCycleBrush, layerCanvas);
+      colorCycleBrush.renderDirectToCanvas(layerCanvas, activeLayerId);
+    } catch (error) {
+      console.warn('[ColorCycle] Failed to render to layer canvas:', error);
+      return;
+    }
+
+    if (ctx.canvas === layerCanvas) {
+      return;
+    }
 
     const previousComposite = ctx.globalCompositeOperation;
     const previousAlpha = ctx.globalAlpha;
 
     try {
-      colorCycleBrush.render(!applyOpacity);
-      const internalCanvas = colorCycleBrush.getCanvas();
-      if (!internalCanvas) return;
-
       const blendMode = (tools.brushSettings.blendMode || 'source-over') as GlobalCompositeOperation;
       ctx.globalAlpha = applyOpacity ? tools.brushSettings.opacity : 1.0;
 
       if (activeLayerTransparencyLock) {
-        renderCCWithBlendAndLock(ctx, internalCanvas, blendMode);
+        renderCCWithBlendAndLock(ctx, layerCanvas, blendMode);
       } else {
         ctx.globalCompositeOperation = blendMode;
-        ctx.drawImage(internalCanvas, 0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(layerCanvas, 0, 0, ctx.canvas.width, ctx.canvas.height);
       }
     } finally {
       ctx.globalCompositeOperation = previousComposite;
       ctx.globalAlpha = previousAlpha;
     }
   }, [
+    activeLayerId,
     getActiveLayerColorCycleBrush,
     tools.brushSettings.opacity,
     tools.brushSettings.blendMode,
@@ -2056,15 +2147,21 @@ export const useBrushEngineSimplified = () => {
         }
       }
 
-      // When playback is paused, immediately mirror the buffer so stamps stay visible.
-      try {
-        const isPlaying =
-          typeof colorCycleBrush.isPlaying === 'function' ? colorCycleBrush.isPlaying() : false;
-        const targetCanvas = ctx.canvas as HTMLCanvasElement | undefined;
-        if (!isPlaying && targetCanvas) {
+      if (firstStampImmediateRef.current) {
+        firstStampImmediateRef.current = false;
+        renderColorCycle(ctx, true);
+      } else if (!mirrorScheduledRef.current) {
+        mirrorScheduledRef.current = true;
+        const scheduleRender = () => {
+          mirrorScheduledRef.current = false;
           renderColorCycle(ctx, true);
+        };
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(scheduleRender);
+        } else {
+          scheduleRender();
         }
-      } catch {}
+      }
     } catch (error) {
       console.error('[ColorCycle] Error in drawColorCycle:', error);
     }
@@ -2099,6 +2196,8 @@ export const useBrushEngineSimplified = () => {
         if (!layerId) {
           return;
         }
+        brush.setLayerId?.(layerId);
+        brush.setActiveLayer?.(layerId);
         // If there is visible content on the internal canvas, proactively
         // separate it by committing to the layer and clearing buffers so
         // this new stroke is stored distinctly in history.
@@ -2119,12 +2218,13 @@ export const useBrushEngineSimplified = () => {
                 }
               }
             } catch {}
-            if (hasAlpha) {
-              // quiet
-              brush.commitCurrentStroke?.(layerId);
-              if (typeof brush.commitToLayer === 'function') {
-                brush.commitToLayer(layerCanvas, layerId);
-              } else {
+              if (hasAlpha) {
+                bindBrushToCanvas(brush, layerCanvas);
+                // quiet
+                brush.commitCurrentStroke?.(layerId);
+                if (typeof brush.commitToLayer === 'function') {
+                  brush.commitToLayer(layerCanvas, layerId);
+                } else {
                 brush.renderDirectToCanvas?.(layerCanvas, layerId);
               }
               brush.clearPaintBuffer?.(layerId);
@@ -2148,6 +2248,7 @@ export const useBrushEngineSimplified = () => {
         // quiet
         // Start a new stroke with the existing brush, passing layer ID and clearBuffer flag
         brush.startStroke(layerId, clearBuffer);
+        firstStampImmediateRef.current = true;
       }
     } catch {
       // quiet
@@ -2210,7 +2311,7 @@ export const useBrushEngineSimplified = () => {
 
       // quiet
       // Force a render to ensure the shape is visible
-      brush.render(true);
+      renderBrushToLayerCanvas(brush, layerId);
     }
   }, [initializeColorCycleBrush, activeLayerId, tools.brushSettings.colorCycleGradient, tools.brushSettings.gradientBands]);
   
@@ -2264,7 +2365,7 @@ export const useBrushEngineSimplified = () => {
 
       // quiet
       // Force a render to ensure the shape is visible
-      brush.render(true);
+      renderBrushToLayerCanvas(brush, layerId);
     }
   }, [initializeColorCycleBrush, activeLayerId, tools.brushSettings.colorCycleGradient, tools.brushSettings.spacing, tools.brushSettings.gradientBands]);
 
@@ -2310,7 +2411,7 @@ export const useBrushEngineSimplified = () => {
         // quiet
         
         // Force a render to show the change immediately
-        colorCycleBrush.render(true);
+        renderBrushToLayerCanvas(colorCycleBrush, activeLayerId);
         
         // Dispatch event for canvas update
         window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
@@ -2446,10 +2547,7 @@ export const useBrushEngineSimplified = () => {
     updateColorCycleTexture: () => {
       const colorCycleBrush = getActiveLayerColorCycleBrush();
       if (colorCycleBrush) {
-        // Force a render to update the texture
-        if (typeof colorCycleBrush.render === 'function') {
-          colorCycleBrush.render(true); // Force full render
-        }
+        renderBrushToLayerCanvas(colorCycleBrush, activeLayerId);
       }
     },
     
@@ -2464,26 +2562,19 @@ export const useBrushEngineSimplified = () => {
 
       // Force the brush to rebuild its palette caches immediately so the next render uses
       // the updated gradient without waiting for the animation loop.
-      try {
-        if (typeof colorCycleBrush.render === 'function') {
-          colorCycleBrush.render(true);
-        } else if (hasForceRender(colorCycleBrush)) {
-          colorCycleBrush.forceRender();
-        }
-      } catch (error) {
-        console.warn('[ColorCycle] Failed to force render after gradient update:', error);
-      }
-
       const { layers, setLayersNeedRecomposition } = useAppStore.getState();
       const activeLayer = layers.find(layer => layer.id === activeLayerId);
       const layerCanvas = activeLayer?.colorCycleData?.canvas;
 
       if (layerCanvas && typeof colorCycleBrush.renderDirectToCanvas === 'function') {
         try {
+          bindBrushToCanvas(colorCycleBrush, layerCanvas);
           colorCycleBrush.renderDirectToCanvas?.(layerCanvas, activeLayerId);
         } catch (error) {
           console.warn('[ColorCycle] Failed to redraw layer canvas after gradient update:', error);
         }
+      } else {
+        renderBrushToLayerCanvas(colorCycleBrush, activeLayerId);
       }
 
       try {

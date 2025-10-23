@@ -19,6 +19,7 @@ import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
 import { getPresetStops } from '@/utils/gradientPresets';
 import { getColorCycleBrushManager, type ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
+import { computeShapeFillColors } from '@/shapeFill/colorUtils';
 import { FillStage } from '@/shapeFill/types';
 
 type GradientStop = { position: number; color: string };
@@ -927,28 +928,50 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
           const canvas = drawingHandlers.drawingCanvasRef.current;
           const ctx = canvas?.getContext('2d');
           if (canvas && ctx) {
+            const storeSnapshot = useAppStore.getState();
+            const colors = computeShapeFillColors({
+              points: payload.shape.points,
+              palette: storeSnapshot.palette,
+              brushColor: storeSnapshot.tools.brushSettings.color,
+              sampleUnderShape: storeSnapshot.shapeFill.sampleUnderShape,
+              useBackgroundColor: storeSnapshot.shapeFill.useBackgroundColor,
+              sampleColorAtPosition,
+              fallbackBackground: storeSnapshot.project?.backgroundColor,
+            });
+
+            const primaryColor =
+              colors.primary === 'background' && colors.background
+                ? colors.background
+                : colors.foreground;
+            const secondaryColor =
+              colors.primary === 'background' ? colors.foreground : colors.background;
+
+            payload.params = {
+              ...payload.params,
+              fillColor: primaryColor,
+            };
+            if (secondaryColor) {
+              payload.params.backgroundColor = secondaryColor;
+            } else if ('backgroundColor' in payload.params) {
+              delete (payload.params as { backgroundColor?: string }).backgroundColor;
+            }
+
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.lineWidth = payload.params.thickness ?? 1;
-            const storeSnapshot = useAppStore.getState();
-            let fillColor = storeSnapshot.tools.brushSettings.color;
-            if (storeSnapshot.shapeFill.sampleUnderShape && payload.shape.points.length > 0) {
-              const centroid = payload.shape.points.reduce(
-                (acc, point) => ({
-                  x: acc.x + point.x,
-                  y: acc.y + point.y,
-                }),
-                { x: 0, y: 0 }
-              );
-              const normalized = {
-                x: centroid.x / payload.shape.points.length,
-                y: centroid.y / payload.shape.points.length,
-              };
-              const sampledColor = sampleColorAtPosition(normalized.x, normalized.y);
-              fillColor = sampledColor;
+            if (secondaryColor && payload.shape.points.length >= 3) {
+              ctx.fillStyle = secondaryColor;
+              ctx.beginPath();
+              ctx.moveTo(payload.shape.points[0].x, payload.shape.points[0].y);
+              for (let i = 1; i < payload.shape.points.length; i += 1) {
+                const pt = payload.shape.points[i];
+                ctx.lineTo(pt.x, pt.y);
+              }
+              ctx.closePath();
+              ctx.fill();
             }
-            ctx.strokeStyle = fillColor;
-            ctx.fillStyle = fillColor;
+            ctx.strokeStyle = primaryColor;
+            ctx.fillStyle = primaryColor;
             renderFill(ctx, payload.result);
             ctx.restore();
 

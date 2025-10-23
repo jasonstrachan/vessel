@@ -80,8 +80,12 @@ class AutosaveService {
       if (!freshState.project) return;
 
       // Save to background storage (IndexedDB) - silent, non-blocking
+      const projectForBackground = {
+        ...freshState.project,
+        palette: freshState.palette
+      };
       await backgroundStorageService.saveProjectInBackground(
-        freshState.project, 
+        projectForBackground,
         freshState.layers
       );
       
@@ -100,8 +104,13 @@ class AutosaveService {
               fileBackupService.setDirectoryHandle(freshState.autosave.fileBackup.directoryHandle!);
             }
 
+            const backupProject = {
+              ...freshState.project,
+              palette: freshState.palette
+            };
+
             const backupResult = await fileBackupService.saveProjectBackup(
-              freshState.project,
+              backupProject,
               freshState.layers,
               mode
             );
@@ -121,6 +130,7 @@ class AutosaveService {
       
       // Clear dirty state after successful background save
       freshState.clearDirtyState();
+      useAppStore.setState({ paletteDirty: false });
       
       // Project "${freshState.project.name}" saved to background storage
     } catch (error) {
