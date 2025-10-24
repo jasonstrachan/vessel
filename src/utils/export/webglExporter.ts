@@ -1,3 +1,5 @@
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { cloneExportLayout } from '@/utils/layoutDefaults';
 import { computeLayerContentMetrics } from '@/utils/layerMetrics';
 import type { LayerContentMetrics } from '@/utils/layerMetrics';
@@ -1151,28 +1153,19 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
   }
 };
 
-let cachedBrushManager:
-  | {
-      getBrush?: (layerId: string) => unknown;
-    }
-  | null = null;
+let cachedBrushManager: Pick<ColorCycleBrushManager, 'getBrush'> | null = null;
 
-const getBrushManagerInstance = () => {
+const getBrushManagerInstance = (): Pick<ColorCycleBrushManager, 'getBrush'> | null => {
   if (cachedBrushManager) {
     return cachedBrushManager;
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-unsafe-assignment
-    const managerModule = require('@/stores/colorCycleBrushManager') as {
-      getColorCycleBrushManager?: () => { getBrush?: (layerId: string) => unknown };
-    };
-    if (managerModule?.getColorCycleBrushManager) {
-      cachedBrushManager = managerModule.getColorCycleBrushManager();
-      return cachedBrushManager;
-    }
+    cachedBrushManager = getColorCycleBrushManager();
+    return cachedBrushManager;
   } catch (error) {
     console.debug('[webglExporter] Unable to load color cycle brush manager', error);
+    cachedBrushManager = null;
   }
 
   return null;
