@@ -38,11 +38,12 @@ const sanitizeColorCycleData = (
 
   const {
     recolorSettings,
-    colorCycleBrush: _colorCycleBrush,
+    colorCycleBrush,
     canvas,
     eraseMask,
     ...rest
   } = colorCycleData;
+  void colorCycleBrush;
 
   const sanitized: Layer['colorCycleData'] = {
     ...rest,

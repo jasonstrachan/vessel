@@ -484,7 +484,7 @@ export class ColorCycleBrushCanvas2D {
       globalWindow.__CC_probe.paint += 1;
       globalWindow.__CC_probe.last = { ...globalWindow.__CC_probe.last, layerId };
       if (globalWindow.__CC_probe.paint % 20 === 1) {
-        console.log('[CC] paint tick', { layerId });
+      // removed debug log
       }
     }
     void _rotation;
@@ -804,7 +804,7 @@ export class ColorCycleBrushCanvas2D {
       globalWindow.__CC_probe ??= { start: 0, paint: 0, end: 0, last: {} };
       globalWindow.__CC_probe.start += 1;
       globalWindow.__CC_probe.last = { ...globalWindow.__CC_probe.last, layerId };
-      console.log('[CC] startStroke', { layerId });
+      // removed debug log
     }
     const id = layerId || this.activeLayerId || 'default';
     
@@ -876,7 +876,7 @@ export class ColorCycleBrushCanvas2D {
       globalWindow.__CC_probe ??= { start: 0, paint: 0, end: 0, last: {} };
       globalWindow.__CC_probe.end += 1;
       globalWindow.__CC_probe.last = { ...globalWindow.__CC_probe.last, layerId };
-      console.log('[CC] endStroke', { layerId });
+      // removed debug log
     }
     const id = layerId || this.activeLayerId || 'default';
     this.isDrawing = false;

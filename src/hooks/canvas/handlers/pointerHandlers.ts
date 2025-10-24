@@ -237,6 +237,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     toolStateMachine,
     drawingHandlers,
     brushEngine,
+    sampleColorAtPosition,
     sampleColorsAlongLine,
     getMousePos,
     compositeCanvasDirtyRef,
@@ -910,6 +911,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const shouldHideCursor = stateMachine.isAwaitingPan ||
                              stateMachine.isPanning ||
                              tools.currentTool === 'custom' ||
+                             tools.currentTool === 'color-picker' ||
                              isDraggingFloatingPaste ||
                              (!!floatingPasteDragStart.current) ||
                              !pointerInside;
@@ -943,6 +945,25 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       ? "Can't use regular brushes on a Color Cycle layer. Switch layers or select a Color Cycle brush."
       : "Can't use Color Cycle brushes on a normal layer. Create/select a Color Cycle layer.";
     return { ok: false, message } as const;
+  };
+
+  const applyColorPickerSample = (worldPos: Point) => {
+    const sampledHex = cssColorToHex(sampleColorAtPosition(worldPos.x, worldPos.y));
+    const store = useAppStore.getState();
+    const activeSlot = store.palette.activeSlot ?? 'foreground';
+    const currentColor = activeSlot === 'background'
+      ? store.palette.backgroundColor
+      : store.palette.foregroundColor;
+
+    if (currentColor && currentColor.toLowerCase() === sampledHex.toLowerCase()) {
+      return;
+    }
+
+    store.setPaletteColor(activeSlot, sampledHex);
+
+    if (activeSlot === 'foreground') {
+      store.setBrushSettings({ color: sampledHex });
+    }
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -1051,7 +1072,13 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const worldPos = pan.screenToWorld(pointerPos.x, pointerPos.y, scale);
     // Intentionally quiet
 
-    
+    if (tools.currentTool === 'color-picker') {
+      applyColorPickerSample(worldPos);
+      setCursorStyle('crosshair');
+      setShowBrushCursor(false);
+      return;
+    }
+
     const contourLinesState = contourLinesStateRef.current;
 
 
@@ -1850,6 +1877,15 @@ function cssColorToHex(color: string): string {
     // Always update cursor position immediately for responsive feel
     setMousePosition({ x: event.clientX, y: event.clientY });
 
+    if (tools.currentTool === 'color-picker') {
+      setCursorStyle('crosshair');
+      setShowBrushCursor(false);
+      if (isMouseDownRef.current) {
+        applyColorPickerSample(worldPos);
+      }
+      return;
+    }
+
     const canPan = tools.currentTool !== 'crop' || isSpacePressedRef.current;
 
     if (!canPan && pan.panState.isPanning) {
@@ -2610,7 +2646,13 @@ function cssColorToHex(color: string): string {
       }
       return;
     }
-    
+
+    if (tools.currentTool === 'color-picker') {
+      setCursorStyle('crosshair');
+      setShowBrushCursor(false);
+      return;
+    }
+
     // Clear overlay canvas
     const contourStateOnUp = contourLinesStateRef.current;
     if (contourStateOnUp.stage === 'awaitingAnchorA') {
@@ -2947,11 +2989,19 @@ function cssColorToHex(color: string): string {
   const handlePointerEnter = () => {
     pointerInsideCanvas = true;
     updateBrushCursorVisibility(true);
+    const { tools } = getDynamicDeps();
+    if (tools.currentTool === 'color-picker') {
+      setCursorStyle('crosshair');
+    }
   };
 
   const handlePointerLeave = () => {
     pointerInsideCanvas = false;
     updateBrushCursorVisibility(false);
+    const { tools } = getDynamicDeps();
+    if (tools.currentTool === 'color-picker') {
+      setCursorStyle(deps.defaultCursorStyle || 'crosshair');
+    }
     if (pan.panState.isPanning) {
       pan.endPan();
       void resumeAnimationAfterPan?.();
@@ -2979,6 +3029,12 @@ function cssColorToHex(color: string): string {
       cancelAnimationFrame(scheduledMoveRAF);
       scheduledMoveRAF = null;
       lastMoveEvent = null;
+    }
+
+    const { tools } = getDynamicDeps();
+    if (tools.currentTool === 'color-picker') {
+      setCursorStyle('crosshair');
+      setShowBrushCursor(false);
     }
   };
 

@@ -95,6 +95,8 @@ export function useComprehensiveKeyboard({
   const previousToolRef = useRef<string | null>(null);
   const isTemporaryEraserRef = useRef(false);
   const eraserPressTimeRef = useRef<number>(0);
+  const colorPickerPreviousToolRef = useRef<Tool | null>(null);
+  const isColorPickerHeldRef = useRef(false);
 
   const { 
     setCurrentTool, 
@@ -314,6 +316,24 @@ export function useComprehensiveKeyboard({
       }
     }
 
+    // Tool switching - P for color picker (temporary hold)
+    if (event.key === 'p' || event.key === 'P') {
+      if (!event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+
+        if (!isColorPickerHeldRef.current) {
+          const currentTool = useAppStore.getState().tools.currentTool as Tool;
+          if (currentTool !== 'color-picker') {
+            colorPickerPreviousToolRef.current = currentTool;
+          }
+        }
+
+        isColorPickerHeldRef.current = true;
+        setCurrentTool('color-picker');
+        return;
+      }
+    }
+
     // Brush size adjustment
     if (event.key === '[') {
       event.preventDefault();
@@ -454,7 +474,22 @@ export function useComprehensiveKeyboard({
     
     // Remove from pressed keys for other keys
     pressedKeysRef.current.delete(event.code);
-    
+
+    // Handle P key release (temporary color picker)
+    if ((event.key === 'p' || event.key === 'P') && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+
+      if (isColorPickerHeldRef.current) {
+        const previousTool = colorPickerPreviousToolRef.current;
+        if (previousTool && previousTool !== 'color-picker') {
+          setCurrentTool(previousTool);
+        }
+        isColorPickerHeldRef.current = false;
+        colorPickerPreviousToolRef.current = null;
+      }
+      return;
+    }
+
     // Handle E key release (for temporary eraser mode)
     if (event.key === 'e' || event.key === 'E') {
       if (!event.ctrlKey && !event.metaKey) {
@@ -501,6 +536,15 @@ export function useComprehensiveKeyboard({
         isMetaPressed: false,
       };
       pressedKeysRef.current.clear();
+
+      if (isColorPickerHeldRef.current) {
+        const previousTool = colorPickerPreviousToolRef.current;
+        if (previousTool && previousTool !== 'color-picker') {
+          useAppStore.getState().setCurrentTool(previousTool);
+        }
+        isColorPickerHeldRef.current = false;
+        colorPickerPreviousToolRef.current = null;
+      }
     }
   }, []);
 

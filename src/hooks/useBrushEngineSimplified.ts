@@ -165,6 +165,50 @@ const sampleMaskA = (
   }
 };
 
+const maskHasAlphaNear = (
+  mask: HTMLCanvasElement | OffscreenCanvas | null,
+  mx: number,
+  my: number,
+  radius: number
+): boolean => {
+  if (!mask) {
+    return true;
+  }
+
+  const width = (mask as { width?: number }).width ?? 0;
+  const height = (mask as { height?: number }).height ?? 0;
+  if (!width || !height) {
+    return true;
+  }
+
+  const ctx = pick2D(mask);
+  if (!ctx) {
+    return true;
+  }
+
+  const centerX = clamp(Math.floor(mx), 0, Math.max(0, width - 1));
+  const centerY = clamp(Math.floor(my), 0, Math.max(0, height - 1));
+  const sampleRadius = Math.max(1, Math.round(radius));
+  const sampleSize = Math.max(1, Math.min(sampleRadius * 2, width, height));
+  const maxX = Math.max(0, width - sampleSize);
+  const maxY = Math.max(0, height - sampleSize);
+  const sampleX = clamp(centerX - sampleRadius, 0, maxX);
+  const sampleY = clamp(centerY - sampleRadius, 0, maxY);
+
+  try {
+    const data = ctx.getImageData(sampleX, sampleY, sampleSize, sampleSize).data;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] > 0) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    // If reading pixels fails (e.g., due to cross-origin data), allow painting to avoid false negatives.
+    return true;
+  }
+};
+
 const sampleRGBA = (ctx: CanvasRenderingContext2D, x: number, y: number) => {
   if (getAlphaLockDebugLevel() === 0) {
     return null;
@@ -265,7 +309,6 @@ const renderBrushToLayerCanvas = (
   if (!brush || !layerId) {
     return;
   }
-  const state = useAppStore.getState();
   const layerCanvas = refreshLayerCCSurface(brush, layerId);
   if (!layerCanvas) {
     return;
@@ -979,7 +1022,7 @@ export const useBrushEngineSimplified = () => {
   const brushEngine = useMemo(() => {
     const config: BrushEngineConfig = {
       brushSettings: tools.brushSettings,
-      transparencyLockEnabled: false,
+      transparencyLockEnabled: Boolean(activeLayerTransparencyLock),
       getPatternTempContext,
       brushStampCache: brushStampCacheRef.current,
       createPixelCircleStamp,
@@ -995,7 +1038,7 @@ export const useBrushEngineSimplified = () => {
   useEffect(() => {
     brushEngine.updateConfig({
       brushSettings: tools.brushSettings,
-      transparencyLockEnabled: false,
+      transparencyLockEnabled: Boolean(activeLayerTransparencyLock),
       getPatternTempContext,
       brushStampCache: brushStampCacheRef.current,
       getRotationTempContext
@@ -1940,7 +1983,8 @@ export const useBrushEngineSimplified = () => {
     getActiveLayerColorCycleBrush
   ]);
 
-  const ensureColorCycleAnimation = useCallback((_shouldPlay: boolean) => {
+  const ensureColorCycleAnimation = useCallback((shouldPlay: boolean) => {
+    void shouldPlay;
     // Animation loop temporarily disabled; rendering is driven directly via renderDirectToCanvas.
   }, []);
   
@@ -2112,6 +2156,9 @@ export const useBrushEngineSimplified = () => {
             }
           }
 
+          if (!maskHasAlphaNear(mask, mx, my, radius)) {
+            return;
+          }
         }
       }
 

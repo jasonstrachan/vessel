@@ -48,9 +48,13 @@ export class CCMaskEraseStrategy implements EraseStrategy {
     from: CanvasPoint,
     to: CanvasPoint,
     pressure: number,
-    _stampSource: BrushStampSource | null
+    stampSource: BrushStampSource | null
   ): void {
     if (!this.ctx) {
+      return;
+    }
+    if (stampSource) {
+      stampSource.draw(this.ctx, from, to, { pressure });
       return;
     }
     const snapshot = this.getBrushSnapshot();

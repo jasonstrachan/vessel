@@ -1637,6 +1637,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
 
     const previousTool = previousToolRef.current;
     if (previousTool && previousTool !== tools.currentTool) {
+      if (previousTool === 'color-picker' && tools.currentTool !== 'color-picker') {
+        setShowBrushCursor(isPointerInsideCanvas());
+        setCursorStyle(defaultCursorStyle);
+      }
       const cancelled = cancelActiveOperations({ includeFloatingPaste: false, dispatchInteractionEnd: false });
       interactionDispatch({ type: 'RESET' });
       forceCanvasIdle();
@@ -1657,6 +1661,10 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     forceCanvasIdle,
     interactionDispatch,
     setCanvasStateMachineTool,
+    defaultCursorStyle,
+    isPointerInsideCanvas,
+    setCursorStyle,
+    setShowBrushCursor,
     tools.currentTool
   ]);
   

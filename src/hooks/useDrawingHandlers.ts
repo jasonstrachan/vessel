@@ -30,7 +30,6 @@ import { perfMark, perfMeasure, timeAsync, timeSync } from '@/utils/perf/ccPerfP
 import { getMaskManager } from '@/layers/MaskManager';
 import { BrushStampSource } from '@/tools/stamps/BrushStampSource';
 import { EraserTool } from '@/tools/EraserTool';
-import historyManager from '@/history/historyService';
 
 interface UseDrawingHandlersProps {
   project: { width: number; height: number } | null;
@@ -1418,7 +1417,7 @@ export function useDrawingHandlers({
   }, []);
   
   const startDrawing = useCallback((worldPos: { x: number; y: number }, pressure: number = 0.5) => {
-    console.log('[TOOL] try draw', { isReplaying: historyManager.isReplaying });
+    // removed debug log
     const currentState = useAppStore.getState();
     const currentTool = currentState.tools.currentTool;
     const currentBrushId = currentState.currentBrushPreset?.id;
@@ -1999,7 +1998,10 @@ export function useDrawingHandlers({
     updateAutoSampledGradient,
     beginStrokeSession,
     getCCStampTargetCtx,
-    scheduleRecompose
+    scheduleRecompose,
+    createBrushStampSource,
+    getColorCycleBrushEraserSettings,
+    maskManager
   ]);
 
   // Process batched stroke points
@@ -3039,7 +3041,8 @@ export function useDrawingHandlers({
     endStrokeSession,
     clearStrokeSession,
     scheduleDeferredColorCycleSave,
-    stopContinuousColorCycleAnimation
+    stopContinuousColorCycleAnimation,
+    runIdleAsync
   ]);
 
   const finalizeStroke = useCallback(() => {
@@ -4180,7 +4183,7 @@ export function useDrawingHandlers({
     });
     
     return hasRendered;
-  }, []);
+  }, [maskManager]);
 
   // Start continuous color cycle animation (for when play button is pressed)
   const startContinuousColorCycleAnimationCore = useCallback((reason = 'unknown') => {

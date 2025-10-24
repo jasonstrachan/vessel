@@ -177,6 +177,7 @@ const PROPERTY_MINIFY_MAP = {
   animationOffset: 'ao',
   targetFPS: 'tf',
   flowDirection: 'fd',
+  alphaMode: 'am',
   recolorSettings: 'rs',
   gradient: 'gr',
   gradientRef: 'grf',
@@ -225,6 +226,7 @@ interface WebGLSerializedBrushState {
   animationOffset: number;
   targetFPS?: number;
   flowDirection?: 'forward' | 'reverse';
+  alphaMode?: 'source' | 'opaque-indices';
 }
 
 interface WebGLSerializedColorCycle {
@@ -1149,8 +1151,56 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
   }
 };
 
+let cachedBrushManager:
+  | {
+      getBrush?: (layerId: string) => unknown;
+    }
+  | null = null;
+
+const getBrushManagerInstance = () => {
+  if (cachedBrushManager) {
+    return cachedBrushManager;
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-unsafe-assignment
+    const managerModule = require('@/stores/colorCycleBrushManager') as {
+      getColorCycleBrushManager?: () => { getBrush?: (layerId: string) => unknown };
+    };
+    if (managerModule?.getColorCycleBrushManager) {
+      cachedBrushManager = managerModule.getColorCycleBrushManager();
+      return cachedBrushManager;
+    }
+  } catch (error) {
+    console.debug('[webglExporter] Unable to load color cycle brush manager', error);
+  }
+
+  return null;
+};
+
+const resolveColorCycleBrushInstance = (layer: Layer): { serialize?: () => unknown } | undefined => {
+  const directBrush = layer.colorCycleData?.colorCycleBrush as { serialize?: () => unknown } | undefined;
+  if (directBrush && typeof directBrush.serialize === 'function') {
+    return directBrush;
+  }
+
+  try {
+    const manager = getBrushManagerInstance();
+    if (manager?.getBrush) {
+      const managedBrush = manager.getBrush(layer.id) as { serialize?: () => unknown } | undefined;
+      if (managedBrush && typeof managedBrush.serialize === 'function') {
+        return managedBrush;
+      }
+    }
+  } catch (error) {
+    console.debug('[webglExporter] Failed to resolve color cycle brush via manager', error);
+  }
+
+  return directBrush;
+};
+
 const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefined => {
-  const brush = layer.colorCycleData?.colorCycleBrush as { serialize?: () => unknown } | undefined;
+  const brush = resolveColorCycleBrushInstance(layer);
 
   if (!brush?.serialize) {
     return undefined;
@@ -1404,6 +1454,8 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
               result.flowDirection = flowDirection;
             }
 
+            result.alphaMode = 'opaque-indices';
+
             if (gobletDiagnosticsActive) {
               gobletDebugLog('[webglExporter] Brush serialize() final state', {
                 layerId: layer.id,
@@ -1435,11 +1487,17 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
 
   const propertyState = extractBrushStateFromBrushProperties(brush, layer);
   if (propertyState) {
+    if (!propertyState.alphaMode) {
+      propertyState.alphaMode = 'opaque-indices';
+    }
     return propertyState;
   }
 
   const animatorState = extractBrushStateFromAnimator(brush, layer);
   if (animatorState) {
+    if (!animatorState.alphaMode) {
+      animatorState.alphaMode = 'opaque-indices';
+    }
     return animatorState;
   }
 

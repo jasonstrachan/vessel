@@ -24,6 +24,7 @@ const LeftToolbar = () => {
       { id: 'custom' as Tool, label: 'Custom Brush', abbr: 'Cb' },
       { id: 'eraser' as Tool, label: 'Eraser', abbr: 'Er' },
       { id: 'eyedropper' as Tool, label: 'Eyedropper', abbr: 'Ey' },
+      { id: 'color-picker' as Tool, label: 'Color Picker', abbr: 'Cp' },
       { id: 'fill' as Tool, label: 'Fill', abbr: 'Fl' },
       { id: 'color-adjust' as Tool, label: 'Hue/Sat', abbr: 'Hs' },
       { id: 'crop' as Tool, label: 'Crop', abbr: 'Cr' },

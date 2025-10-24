@@ -425,6 +425,25 @@ const LayersPanel: React.FC = () => {
                       >
                         <span>{layer.locked ? 'Unlock layer' : 'Lock layer'}</span>
                       </button>
+                      <button
+                        onClick={event => {
+                          event.stopPropagation();
+                          if (layers.length <= 1) {
+                            return;
+                          }
+                          handleDeleteLayer(layer.id);
+                          setLayerMenuState(null);
+                        }}
+                        className={`w-full flex items-center justify-center px-2 py-1 text-sm border transition-colors ${
+                          layers.length > 1
+                            ? 'border-[#803232] text-[#FF6B6B] hover:bg-[#3A1F1F]'
+                            : 'border-[#3A3A3A] text-[#555] cursor-not-allowed'
+                        }`}
+                        disabled={layers.length <= 1}
+                        title={layers.length > 1 ? 'Delete this layer' : 'At least one layer is required'}
+                      >
+                        <span>Delete layer</span>
+                      </button>
                     </div>
                   </div>
                 )}

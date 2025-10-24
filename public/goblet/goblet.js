@@ -1403,6 +1403,7 @@ const PROPERTY_UNMINIFY_MAP = {
   ao: 'animationOffset',
   tf: 'targetFPS',
   fd: 'flowDirection',
+  am: 'alphaMode',
   rs: 'recolorSettings',
   gr: 'gradient',
   grf: 'gradientRef',
@@ -2200,6 +2201,14 @@ class ColorCycleLayerPlayer {
     }
 
     this.indexBuffer = indexBuffer;
+    const alphaMode = typeof brushState.alphaMode === 'string' ? brushState.alphaMode : 'source';
+    if (alphaMode === 'opaque-indices') {
+      const size = this.width * this.height * 4;
+      this.alpha = new Uint8ClampedArray(size);
+      for (let i = 0, alphaIndex = 3; i < this.indexBuffer.length && alphaIndex < size; i += 1, alphaIndex += 4) {
+        this.alpha[alphaIndex] = this.indexBuffer[i] > 0 ? 255 : 0;
+      }
+    }
     this.phaseMap = null;
     this.indexPhaseMap = null;
     this.gradient = normalizeGradientStops(brushState.gradientStops?.length ? brushState.gradientStops : colorCycle.gradient);
